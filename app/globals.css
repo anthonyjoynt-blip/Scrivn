@@ -1,0 +1,1785 @@
+/*
+ * Scrivn design system (round 9 — dropped "Fieldscope," same navy/amber palette) — deep navy
+ * primary, warm amber reserved for the one primary action on screen, clean white surface, generous
+ * whitespace. See the round-5 design brief for the source of these exact values.
+ */
+:root {
+  --color-navy: #1b3a5c;
+  --color-navy-dark: #122841;
+  --color-navy-tint: #eef2f6;
+  --color-amber: #f0a93e;
+  --color-amber-dark: #c98a28;
+
+  --bg: #ffffff;
+  --surface: #ffffff;
+  --border: #e1e5ea;
+  --border-strong: #ccd2da;
+  --text: #1a1d23;
+  --text-muted: #5b6472;
+  --text-on-navy: #ffffff;
+  --text-on-amber: #1b3a5c;
+
+  --danger-bg: #fdecec;
+  --danger-border: #f3b9b9;
+  --danger-text: #9c2626;
+
+  --radius: 8px;
+  --radius-lg: 12px;
+  --max-width: 800px;
+}
+
+/*
+ * next/font (see app/layout.tsx) defines --font-ui / --font-document on <html> via a generated
+ * class with the real font stack. Every usage below references them as var(--x, fallback) rather
+ * than redefining the custom property itself here (which would just fight that class for who
+ * wins); form elements use font-family: inherit instead, since they don't inherit by default.
+ */
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  padding: 0;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-ui), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---- header ---- */
+
+.site-header {
+  border-bottom: 1px solid var(--border);
+}
+
+.site-header-inner {
+  max-width: var(--max-width);
+  margin: 0 auto;
+  padding: 22px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+/* Signed-in identity strip — renders only when there's a session (components/UserMenu.tsx). */
+.user-menu {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+.user-menu-email {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.user-menu-link {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--color-navy);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  white-space: nowrap;
+}
+
+.user-menu-link:hover {
+  color: var(--color-navy-dark);
+}
+
+/* A real submit button in a form (so sign-out works without JS), styled as a quiet text link. */
+.user-menu-signout {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--color-navy);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  white-space: nowrap;
+}
+
+.user-menu-signout:hover {
+  color: var(--color-navy-dark);
+}
+
+@media (max-width: 480px) {
+  /* The address is the first thing worth dropping on a narrow screen — signing out still works. */
+  .user-menu-email {
+    display: none;
+  }
+}
+
+/* Now an <a> back to /claim rather than a span, so it needs the link styling neutralised. */
+.wordmark {
+  font-size: 1.15rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--color-navy);
+  text-decoration: none;
+}
+
+/* ---- page layout ---- */
+
+main {
+  max-width: var(--max-width);
+  margin: 0 auto;
+  padding: 44px 20px 100px;
+}
+
+h1 {
+  font-size: 1.7rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin: 0 0 8px;
+  color: var(--text);
+}
+
+h2 {
+  font-size: 1.05rem;
+  font-weight: 600;
+  margin: 0 0 18px;
+  color: var(--text);
+}
+
+p.subtitle {
+  color: var(--text-muted);
+  margin: 0 0 36px;
+  font-size: 0.98rem;
+  max-width: 56ch;
+}
+
+/* ---- step progress ---- */
+
+.step-indicator {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 10px;
+}
+
+.step-progress-track {
+  height: 4px;
+  border-radius: 999px;
+  background: var(--color-navy-tint);
+  margin-bottom: 28px;
+  overflow: hidden;
+}
+
+.step-progress-fill {
+  height: 100%;
+  background: var(--color-navy);
+  border-radius: 999px;
+  transition: width 0.25s ease;
+}
+
+/* ---- card ---- */
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 32px;
+  margin-bottom: 20px;
+}
+
+@media (max-width: 640px) {
+  .card {
+    padding: 22px;
+    border-radius: var(--radius);
+  }
+}
+
+/* ---- form controls ---- */
+
+textarea {
+  width: 100%;
+  min-height: 320px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  resize: vertical;
+  background: var(--surface);
+  color: var(--text);
+}
+
+textarea:focus,
+input:focus,
+button:focus-visible {
+  outline: 2px solid var(--color-navy);
+  outline-offset: 1px;
+}
+
+input[type="text"],
+input[type="number"],
+input[type="date"],
+input[type="datetime-local"] {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-family: inherit; /* form elements don't inherit font-family by default — pull body's resolved stack explicitly */
+  font-size: 0.92rem;
+  background: var(--surface);
+  color: var(--text);
+}
+
+input[type="text"]::placeholder {
+  color: #a3aab5;
+}
+
+/* ---- buttons ---- */
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.btn-primary {
+  background: var(--color-amber);
+  color: var(--text-on-amber);
+  border: none;
+  border-radius: var(--radius);
+  padding: 12px 24px;
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: var(--color-amber-dark);
+}
+
+.btn-secondary {
+  background: var(--surface);
+  color: var(--color-navy);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  padding: 10px 18px;
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+.btn-secondary:hover:not(:disabled) {
+  border-color: var(--color-navy);
+  background: var(--color-navy-tint);
+}
+
+.actions-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 28px;
+}
+
+/* ---- loading / error ---- */
+
+.error-banner {
+  background: var(--danger-bg);
+  border: 1px solid var(--danger-border);
+  color: var(--danger-text);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  margin-bottom: 20px;
+  font-size: 0.9rem;
+  white-space: pre-wrap;
+}
+
+.loading-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  padding: 6px 0;
+  margin-right: auto;
+}
+
+.spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--border);
+  border-top-color: var(--color-navy);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ---- claim intake (step 1) ---- */
+
+.intake-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px 24px;
+}
+
+@media (max-width: 560px) {
+  .intake-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.field-hint {
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+.intake-subheading {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--color-navy);
+  margin: 32px 0 18px;
+  padding-top: 24px;
+  border-top: 1px solid var(--border);
+}
+
+.scope-only-toggle {
+  background: var(--color-navy-tint);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 18px;
+  margin-bottom: 8px;
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.93rem;
+  font-weight: 500;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.checkbox-label input[type="checkbox"] {
+  width: 17px;
+  height: 17px;
+  accent-color: var(--color-navy);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.field-note {
+  margin: 10px 0 0 27px;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+/* ---- question groups (step 3) ---- */
+
+.question-group {
+  margin-bottom: 36px;
+  padding-bottom: 32px;
+  border-bottom: 1px solid var(--border);
+}
+
+.question-group:last-child {
+  margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+.question-group h3 {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--color-navy);
+  margin: 0 0 18px;
+}
+
+.question {
+  margin-bottom: 22px;
+}
+
+.question:last-child {
+  margin-bottom: 0;
+}
+
+.question label.prompt {
+  display: block;
+  font-size: 0.93rem;
+  font-weight: 500;
+  color: var(--text);
+  margin-bottom: 10px;
+}
+
+.question input[type="text"],
+.question input[type="number"],
+.question input[type="date"],
+.question input[type="datetime-local"] {
+  max-width: 300px;
+}
+
+.option-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.option-btn {
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  padding: 9px 18px;
+  font-size: 0.87rem;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.option-btn:hover {
+  border-color: var(--color-navy);
+}
+
+.option-btn.selected {
+  background: var(--color-navy);
+  border-color: var(--color-navy);
+  color: var(--text-on-navy);
+}
+
+/* ---- results (step 4) ---- */
+
+.document-block {
+  margin-bottom: 28px;
+}
+
+/* ---- letterhead banner (previewed documents — see components/LetterheadBanner.tsx) ---- */
+
+.letterhead-banner {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--radius);
+  padding: 20px 32px 22px;
+  margin-bottom: 20px;
+}
+
+.letterhead-banner-name {
+  color: #ffffff;
+  font-weight: 700;
+  font-size: 1.25rem;
+  letter-spacing: -0.01em;
+}
+
+.letterhead-banner-tagline {
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 0.82rem;
+  margin-top: 2px;
+}
+
+.letterhead-banner-accent {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 4px;
+}
+
+/* ---- inspection report title + job information card ----
+ * A separate card, sitting above the existing `.document-block pre` "paper" block rather than
+ * merged into it — a plain `pre` tag selector would otherwise also match a `<pre>` nested inside
+ * this card (descendant selectors match at any depth), so keeping them as two adjacent boxes
+ * avoids fighting that selector instead of relying on override/specificity tricks. */
+
+.document-paper {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 28px 32px;
+  margin-bottom: 20px;
+  box-shadow: 0 1px 3px rgba(27, 58, 92, 0.08), 0 8px 24px rgba(27, 58, 92, 0.05);
+}
+
+.document-title {
+  font-family: var(--font-document), Georgia, "Times New Roman", serif;
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 24px;
+}
+
+.job-info {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.job-info-group h3 {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--color-navy);
+  margin: 0 0 14px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.job-info-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 18px 20px;
+}
+
+.job-info-label {
+  font-size: 0.66rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+
+.job-info-value {
+  font-size: 0.95rem;
+  color: var(--text);
+  font-family: var(--font-document), Georgia, "Times New Roman", serif;
+  word-break: break-word;
+}
+
+.job-info-value.job-info-empty {
+  color: #a3aab5;
+}
+
+@media (max-width: 640px) {
+  .document-paper {
+    padding: 20px 22px;
+  }
+
+  .job-info-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 420px) {
+  .job-info-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.document-block:last-child {
+  margin-bottom: 0;
+}
+
+.document-block-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.document-block-header h2 {
+  margin: 0;
+}
+
+.document-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.document-block pre {
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  font-family: var(--font-document), Georgia, "Times New Roman", serif;
+  font-size: 0.95rem;
+  line-height: 1.7;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 32px;
+  margin: 0;
+  box-shadow: 0 1px 3px rgba(27, 58, 92, 0.08), 0 8px 24px rgba(27, 58, 92, 0.05);
+}
+
+/* Edit mode for a generated document — same look as the read-only .document-block pre above, just editable and resizable. */
+.document-edit-textarea {
+  display: block;
+  width: 100%;
+  min-height: 420px;
+  font-family: var(--font-document), Georgia, "Times New Roman", serif;
+  font-size: 0.95rem;
+  line-height: 1.7;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--color-navy);
+  border-radius: var(--radius);
+  padding: 32px;
+  margin: 0;
+  resize: vertical;
+  box-shadow: 0 1px 3px rgba(27, 58, 92, 0.08), 0 8px 24px rgba(27, 58, 92, 0.05);
+}
+
+@media (max-width: 640px) {
+  .document-block pre,
+  .document-edit-textarea {
+    padding: 18px;
+    font-size: 0.88rem;
+  }
+}
+
+/* ---- bric-a-brac contents form (repeatable per-room blocks) ---- */
+
+.bric-a-brac-room {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 22px 24px 4px;
+  margin-bottom: 20px;
+  background: var(--color-navy-tint);
+}
+
+.bric-a-brac-room-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+/* Overrides .intake-subheading's top border/spacing — this is a small in-card title, not a full section break. */
+.bric-a-brac-room-title {
+  margin: 0 0 18px;
+  padding-top: 0;
+  border-top: none;
+}
+
+.bric-a-brac-add-row {
+  justify-content: flex-start;
+  margin-top: 0;
+  margin-bottom: 28px;
+}
+
+/* ---- quick-gate login page ---- */
+
+.login-main {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.login-card {
+  max-width: 360px;
+  width: 100%;
+  text-align: center;
+}
+
+.login-card .subtitle {
+  margin-bottom: 24px;
+}
+
+.login-card input[type="password"],
+.login-card input[type="email"],
+.login-card input[type="text"] {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-family: inherit;
+  font-size: 0.95rem;
+  background: var(--surface);
+  color: var(--text);
+}
+
+.login-actions-row {
+  justify-content: center;
+  margin-top: 18px;
+}
+
+/* ---- auth forms (sign in / sign up / password reset) ---- */
+
+/*
+ * The auth cards are the one place in the app where fields stack in a single column and are
+ * left-aligned inside an otherwise centered card — hence the explicit text-align rather than
+ * relying on .login-card's centering.
+ */
+.auth-field {
+  text-align: left;
+  margin-bottom: 16px;
+}
+
+.auth-field .prompt {
+  display: block;
+  margin-bottom: 6px;
+}
+
+.auth-field .field-note {
+  margin-top: 6px;
+  margin-bottom: 0;
+}
+
+.auth-links {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  margin-top: 22px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.auth-links a {
+  color: var(--color-navy);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.auth-links a:hover {
+  color: var(--color-navy-dark);
+}
+
+/* ---- billing: usage banner, pricing page, account page ---- */
+
+/*
+ * Full-bleed strip directly under the header. Deliberately not inside .card or main's max-width —
+ * a usage warning that scrolls away with the page content is the kind of thing people miss right up
+ * until generation stops working.
+ */
+.usage-banner {
+  background: #fff8e8;
+  border-bottom: 1px solid #f0d9a8;
+  color: #6b4e12;
+  font-size: 0.88rem;
+  padding: 12px 20px;
+  text-align: center;
+}
+
+.usage-banner a {
+  color: inherit;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* At the cap it's no longer advisory, so it reads as a stop rather than a caution. */
+.usage-banner-blocked {
+  background: var(--danger-bg);
+  border-bottom-color: var(--danger-border);
+  color: var(--danger-text);
+}
+
+.pricing-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+  margin-bottom: 28px;
+}
+
+@media (max-width: 720px) {
+  .pricing-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.pricing-card {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 0;
+}
+
+.pricing-name {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--color-navy);
+  margin: 0 0 12px;
+}
+
+.pricing-price {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.pricing-amount {
+  font-size: 1.9rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.pricing-cadence {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+
+.pricing-description {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  margin: 0 0 16px;
+}
+
+.pricing-features {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 20px;
+  font-size: 0.88rem;
+}
+
+.pricing-features li {
+  padding: 6px 0 6px 20px;
+  position: relative;
+}
+
+.pricing-features li::before {
+  content: "✓";
+  position: absolute;
+  left: 0;
+  color: var(--color-navy);
+  font-weight: 700;
+}
+
+/* margin-top:auto pins the CTA to the card bottom so buttons line up across cards of differing height. */
+.pricing-cta {
+  margin-top: auto;
+}
+
+.pricing-cta .btn-primary,
+.pricing-cta .btn-secondary {
+  width: 100%;
+}
+
+.pricing-footnote {
+  max-width: 62ch;
+}
+
+.account-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 16px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.account-label {
+  color: var(--text-muted);
+  font-size: 0.88rem;
+}
+
+.account-value {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Links styled as buttons need the inline-block/line-height an <a> doesn't get for free. */
+.actions-row a.btn-primary,
+.actions-row a.btn-secondary {
+  display: inline-block;
+  text-decoration: none;
+  line-height: 1.4;
+}
+
+/* ---- sketch tool ---- */
+
+.sketch-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+.sketch-header h2 {
+  margin: 0 0 4px;
+}
+
+.sketch-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.sketch-hint {
+  margin: 0 0 10px;
+}
+
+/* ---- full screen ----
+   In the page the sketch is a card in a column, and `.sketch-body` is a plain block: the stage and
+   the panels stack exactly as they always did. Expanded, the card becomes the viewport and the body
+   becomes two columns — drawing on the left, properties on the right — so a door's swing and the
+   door itself are on screen together. Both layouts render the same DOM in the same order. */
+
+.sketch-card-expanded {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  margin: 0;
+  border-radius: 0;
+  display: flex;
+  flex-direction: column;
+  /* `100dvh`, not `100vh`: on mobile Safari the viewport unit includes the address bar that isn't
+     there, so the bottom of the sidebar sat under the chrome and could not be scrolled to. */
+  height: 100dvh;
+  max-height: 100dvh;
+  overflow: hidden;
+  padding: 16px 18px;
+}
+.sketch-card-expanded .sketch-header {
+  margin-bottom: 10px;
+}
+
+.sketch-card-expanded .sketch-body {
+  display: flex;
+  align-items: stretch;
+  gap: 18px;
+  /* `min-height: 0` on a flex child that scrolls — without it the column takes its content's height
+     and pushes the whole thing past the bottom of the screen instead of scrolling inside. */
+  flex: 1;
+  min-height: 0;
+}
+.sketch-card-expanded .sketch-stage {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+.sketch-card-expanded .sketch-canvas-wrap {
+  flex: 1;
+  min-height: 0;
+}
+.sketch-card-expanded .sketch-side {
+  width: 360px;
+  flex-shrink: 0;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.sketch-card-expanded .sketch-panel {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+}
+
+/* Under ~900px there is no room for two columns, so the sidebar goes back under the canvas and the
+   whole body scrolls as one. The canvas keeps a fixed share of the height rather than flexing, so
+   scrolling to the properties can't squeeze the drawing to nothing. */
+@media (max-width: 900px) {
+  .sketch-card-expanded .sketch-body {
+    flex-direction: column;
+    overflow-y: auto;
+  }
+  .sketch-card-expanded .sketch-stage {
+    flex: none;
+  }
+  .sketch-card-expanded .sketch-canvas-wrap {
+    height: 62dvh;
+    flex: none;
+  }
+  .sketch-card-expanded .sketch-side {
+    width: auto;
+    overflow-y: visible;
+  }
+}
+
+/* On a phone the point of full screen is drawing room, and the wrapped toolbar was taking most of
+   it — six rows of buttons above a sliver of canvas is worse than the page it replaced. Expanded,
+   the toolbar becomes one row that scrolls sideways: every tool is still reachable, and the drawing
+   gets the screen. The header stays on one line for the same reason, overriding the stacking the
+   in-page card wants. */
+@media (max-width: 700px) {
+  .sketch-card-expanded {
+    padding: 12px;
+  }
+  .sketch-card-expanded .sketch-header {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+  /* The title goes: there is no room for it beside the mode pills and the way out, and a full-screen
+     drawing surface does not need a caption saying it is the drawing surface. */
+  .sketch-card-expanded .sketch-header > div:first-child {
+    display: none;
+  }
+  .sketch-card-expanded .sketch-header button {
+    white-space: nowrap;
+    padding: 8px 12px;
+    font-size: 0.85rem;
+  }
+  .sketch-card-expanded .sketch-toolbar {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    gap: 8px;
+    padding-bottom: 6px;
+    /* Buttons must not be squeezed to fit — a scrolling row only works if each item keeps its size. */
+    scrollbar-width: thin;
+  }
+  .sketch-card-expanded .sketch-toolbar > * {
+    flex-shrink: 0;
+  }
+  .sketch-card-expanded .sketch-zoom {
+    margin-left: 0;
+  }
+  /* The gesture instructions are onboarding, and they cost a quarter of a phone screen. They stay in
+     the in-page view, which is the one you meet first; nobody expands to full screen to read. */
+  .sketch-card-expanded .sketch-hint {
+    display: none;
+  }
+}
+
+/* The turn-it-round shortcut, floated over the drawing it applies to. Bottom-right, because the
+   symbol being turned is usually not there and a control that covers your work is worse than one
+   you have to look for. */
+.sketch-direction {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  z-index: 5;
+  display: flex;
+  gap: 6px;
+  padding: 6px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid var(--border);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
+}
+.sketch-direction button {
+  padding: 8px 12px;
+  font-size: 0.85rem;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.sketch-undo {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fbf6ec;
+  font-size: 0.85rem;
+}
+.sketch-undo button {
+  padding: 5px 12px;
+  font-size: 0.8rem;
+  line-height: 1;
+}
+
+/* `position: relative` is load-bearing: the length popup is positioned against the viewport but
+   this is also the element whose bounds the canvas is measured from. */
+.sketch-canvas-wrap {
+  position: relative;
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  background: #fff;
+  /* Konva handles its own gestures; without this the browser pans the page instead of letting a
+     drag reach the canvas, which makes corner-dragging impossible on a phone. */
+  touch-action: none;
+}
+
+.sketch-canvas-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 460px;
+  color: var(--color-muted);
+  font-size: 0.9rem;
+}
+
+/* Fixed, not absolute — the popup is placed from viewport coordinates so it can be kept on screen
+   regardless of how far the page is scrolled. */
+.sketch-length-popup {
+  position: fixed;
+  z-index: 50;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.18);
+  padding: 14px 16px;
+  width: 232px;
+}
+.sketch-length-popup label {
+  display: block;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--color-navy);
+  margin-bottom: 6px;
+}
+.sketch-length-popup input {
+  width: 100%;
+  /* 16px minimum, or iOS Safari zooms the whole page when the field takes focus. */
+  font-size: 16px;
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.sketch-length-error {
+  color: #9c2626;
+  font-size: 0.75rem;
+  margin: 8px 0 0;
+}
+.sketch-length-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+.sketch-length-actions button {
+  flex: 1;
+  padding: 8px 0;
+  font-size: 0.85rem;
+}
+
+.sketch-panel {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.sketch-summary {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+.sketch-summary h3 {
+  font-size: 0.95rem;
+  margin: 0 0 4px;
+}
+
+@media (max-width: 560px) {
+  .sketch-header {
+    flex-direction: column;
+    gap: 10px;
+  }
+  .sketch-toolbar {
+    gap: 8px;
+  }
+}
+
+/* The Create Sketch entry point. Sits above the step cards and outside the pipeline — see the
+   comment at its render site in app/(app)/claim/page.tsx. */
+.sketch-launch {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+.sketch-launch .field-note {
+  margin: 0;
+}
+
+.sketch-zoom {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+.sketch-zoom button {
+  padding: 6px 11px;
+  font-size: 0.85rem;
+  line-height: 1;
+}
+.sketch-zoom-level {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  min-width: 42px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.sketch-panel-title {
+  font-size: 0.9rem;
+  margin: 18px 0 10px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+.sketch-panel-body .question {
+  margin-bottom: 16px;
+}
+.sketch-panel-body .actions-row {
+  margin-top: 16px;
+  justify-content: flex-start;
+}
+
+@media (max-width: 560px) {
+  .sketch-zoom {
+    margin-left: 0;
+  }
+}
+
+/* ---- sketch quantities ---- */
+
+.sketch-quantities {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+.sketch-quantities h3 {
+  font-size: 0.95rem;
+  margin: 0 0 10px;
+}
+.sketch-deduction-toggles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+/* The table can outgrow a phone; it scrolls inside its own box so the page never does. */
+.sketch-qty-scroll {
+  overflow-x: auto;
+}
+.sketch-qty-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+.sketch-qty-table th,
+.sketch-qty-table td {
+  text-align: right;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+  /* Digits line up in columns, which is the whole point of a table of measurements. */
+  font-variant-numeric: tabular-nums;
+}
+.sketch-qty-table thead th {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  border-bottom-width: 2px;
+}
+.sketch-qty-table tbody th[scope="row"],
+.sketch-qty-table thead th:first-child {
+  text-align: left;
+  font-weight: 600;
+  white-space: normal;
+}
+.sketch-qty-parent {
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 400;
+  color: var(--text-muted);
+}
+.sketch-qty-value {
+  font-weight: 600;
+}
+.sketch-qty-unit {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  margin-left: 3px;
+}
+.sketch-qty-gross {
+  display: block;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+.sketch-qty-note {
+  color: var(--text-muted);
+  font-style: italic;
+  font-size: 0.8rem;
+}
+
+/* Fixture picker in the sketch toolbar — styled to sit beside the tool chips. */
+.sketch-fixture-select {
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--color-navy);
+  font-family: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding: 7px 12px;
+}
+.sketch-fixture-select.selected {
+  background: var(--color-navy);
+  color: #fff;
+  border-color: var(--color-navy);
+}
+.sketch-fixture-select:disabled {
+  opacity: 0.45;
+}
+
+/* ── Moisture mapping ──────────────────────────────────────────────────────────────────────────
+   Every selector here is a single class in its own `moisture-` namespace. Nothing reaches into a
+   descendant of a shared class, so none of it can collide with the panel styles it sits inside. */
+
+.moisture-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  align-items: center;
+  margin: 0 0 14px;
+  font-size: 12px;
+  color: #5b6b7c;
+}
+.moisture-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.moisture-legend-swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  border: 1px solid rgba(27, 58, 92, 0.18);
+}
+
+.moisture-readings {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.moisture-reading {
+  border: 1px solid #dbe3ec;
+  border-radius: 8px;
+  padding: 12px;
+  background: #fff;
+}
+/* The reading a wall tap just created, so it is obvious which row to fill in. */
+.moisture-reading.highlighted {
+  border-color: #c97a0e;
+  box-shadow: 0 0 0 2px rgba(201, 122, 14, 0.16);
+}
+
+.moisture-reading-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+.moisture-wall-length {
+  font-weight: 400;
+  color: #5b6b7c;
+}
+
+.moisture-band-chip {
+  margin-left: auto;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #fff;
+  white-space: nowrap;
+}
+
+.moisture-remove {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  font-size: 12px;
+  color: #8a5a2b;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.moisture-remove:hover {
+  color: #b3382c;
+}
+
+/* Two columns on anything wider than a phone, one on a phone — four fields, never a cramped row. */
+.moisture-reading-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+}
+.moisture-reading-fields label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #1b3a5c;
+}
+.moisture-reading-fields input,
+.moisture-reading-fields select {
+  font: inherit;
+  padding: 8px 10px;
+  border: 1px solid #cfd9e4;
+  border-radius: 6px;
+  background: #fff;
+}
+
+.moisture-guide {
+  margin-top: 8px;
+}
+
+.moisture-surface-area {
+  margin: 0 0 10px;
+  font-size: 15px;
+}
+
+/* ── Suggested equipment ─────────────────────────────────────────────────────────────────────── */
+
+.equipment-settings {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.equipment-settings label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #1b3a5c;
+}
+.equipment-settings select {
+  font: inherit;
+  padding: 8px 10px;
+  border: 1px solid #cfd9e4;
+  border-radius: 6px;
+  background: #fff;
+}
+
+.equipment-totals {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.equipment-total {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 14px;
+  border: 1px solid #dbe3ec;
+  border-radius: 8px;
+  background: #f7fafc;
+}
+.equipment-count {
+  font-size: 30px;
+  font-weight: 700;
+  line-height: 1;
+  color: #1b3a5c;
+  font-variant-numeric: tabular-nums;
+}
+.equipment-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1b3a5c;
+}
+.equipment-working {
+  font-size: 12px;
+  color: #5b6b7c;
+}
+
+/* The legend's two halves: wall colours, and the surface treatments. */
+.moisture-legend-group {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+}
+.moisture-legend-heading {
+  font-weight: 600;
+  color: #1b3a5c;
+}
+/* These two mirror what the canvas draws, so the key and the plan cannot drift apart by accident. */
+.moisture-legend-floor {
+  background: #8ecae6;
+}
+.moisture-legend-ceiling {
+  background: repeating-linear-gradient(-45deg, #2f6f8f 0 2px, transparent 2px 6px);
+}
+
+/* The equipment plan question: two one-tap answers, with a number field for anything else. */
+.equipment-plan {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.equipment-plan-other {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: #5b6b7c;
+}
+.equipment-plan-other input {
+  font: inherit;
+  width: 90px;
+  padding: 6px 8px;
+  border: 1px solid #cfd9e4;
+  border-radius: 6px;
+}
+
+/* The storeys, above the drawing tools — see SketchEditor's `.sketch-levels`. */
+.sketch-levels {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #eef2f6;
+}
+.sketch-underlay {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  font-size: 12px;
+  color: #5b6b7c;
+}
+.sketch-underlay select {
+  font: inherit;
+  padding: 5px 8px;
+  border: 1px solid #cfd9e4;
+  border-radius: 6px;
+  background: #fff;
+}
+
+/* A count against each of several fixed buckets — how many windows of each size. */
+.bucket-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.bucket-counts-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 1px solid #cfd9e4;
+  border-radius: 8px;
+  background: #fbfcfd;
+}
+.bucket-counts-label {
+  font-size: 12px;
+  color: #5b6b7c;
+  white-space: nowrap;
+}
+.bucket-counts-row input {
+  font: inherit;
+  width: 64px;
+  padding: 6px 8px;
+  border: 1px solid #cfd9e4;
+  border-radius: 6px;
+}
+
+/* Which plans ride with which document. */
+.attachment-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.attachment-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid #dbe3ec;
+  border-radius: 8px;
+  background: #fff;
+}
+.attachment-doc {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1b3a5c;
+}
+
+/* ── Marking a quantity on the sketch ────────────────────────────────────────────────────────── */
+
+.add-from-sketch {
+  align-self: flex-start;
+  margin-bottom: 8px;
+  padding: 5px 10px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: #8a5a2b;
+  background: #fdf6ec;
+  border: 1px solid #e8d4b0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.add-from-sketch:hover {
+  background: #f8ebd8;
+}
+
+.scope-picker-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(16, 30, 46, 0.55);
+}
+.scope-picker {
+  width: min(760px, 100%);
+  max-height: 92vh;
+  overflow-y: auto;
+  padding: 20px;
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 18px 48px rgba(16, 30, 46, 0.28);
+}
+.scope-picker-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+.scope-picker-head h3 {
+  margin: 0 0 4px;
+}
+.scope-picker-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 14px;
+}
+.scope-picker-total {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.scope-picker-value {
+  font-size: 28px;
+  font-weight: 700;
+  color: #1b3a5c;
+  font-variant-numeric: tabular-nums;
+}
+.scope-picker-unit {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1b3a5c;
+}
+
+/* Confirm-or-suggest, raised the moment a room's map is finished rather than a round later. */
+.equipment-confirm {
+  padding: 12px 14px;
+  margin-bottom: 12px;
+  border: 1px solid #e8d4b0;
+  border-radius: 8px;
+  background: #fdf6ec;
+}
+.equipment-confirm p {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: #1b3a5c;
+}
+
+/* Attachment choice, inline in a document's own header. */
+.attachment-inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.attachment-inline-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #5b6b7c;
+}
+
+/* Shown only when the loss type is Other — see ClaimIntakeForm. */
+.loss-type-other {
+  margin-top: 10px;
+  width: 100%;
+}
+
+/* ---- asbestos abatement ---- */
+
+/* The running total under the form. A definition list rather than a table: these are label/value
+   pairs, not rows of a grid, and a table would need a header row saying nothing. */
+.asbestos-summary {
+  margin-top: 24px;
+  padding: 18px 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--color-navy-tint);
+}
+.asbestos-summary h3 {
+  font-size: 0.95rem;
+  margin: 0 0 12px;
+}
+.asbestos-summary-grid {
+  display: grid;
+  grid-template-columns: minmax(140px, auto) 1fr;
+  gap: 6px 18px;
+  margin: 0;
+  font-size: 0.88rem;
+}
+.asbestos-summary-grid dt {
+  color: var(--text-muted);
+}
+.asbestos-summary-grid dd {
+  margin: 0;
+  font-weight: 600;
+  color: var(--color-navy);
+}
+.asbestos-summary .field-note {
+  margin: 12px 0 0;
+}
+
+@media (max-width: 560px) {
+  .asbestos-summary-grid {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+  .asbestos-summary-grid dd {
+    margin-bottom: 8px;
+  }
+}
+
+/* An inline "take this suggestion" action inside a field note — a real button (it changes state,
+   it is not navigation) styled as the link it reads as. */
+.link-button {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: var(--color-navy);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.link-button:hover {
+  color: var(--color-navy-dark);
+}

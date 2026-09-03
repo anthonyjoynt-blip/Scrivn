@@ -1,0 +1,43 @@
+{
+  "name": "scope-assistant-web",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Phase 1 prototype: paste a water-loss transcript, answer follow-up questions, get an inspection report + scope document.",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "test:sketch": "node test/sketch/run.mjs",
+    "test:asbestos": "node test/asbestos/run.mjs",
+    "test:gapcheck": "node test/gapcheck/run.mjs",
+    "test:extraction": "node test/extraction/run.mjs",
+    "test:scope": "node test/scope/run.mjs"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "latest",
+    "@react-email/components": "^1.0.12",
+    "@supabase/ssr": "^0.12.5",
+    "@supabase/supabase-js": "^2.112.4",
+    "canvg": "latest",
+    "jspdf": "latest",
+    "konva": "^10.3.2",
+    "next": "latest",
+    "react": "latest",
+    "react-dom": "latest",
+    "react-konva": "^19.2.5",
+    "resend": "^6.25.0",
+    "server-only": "latest",
+    "stripe": "^22.6.0"
+  },
+  "devDependencies": {
+    "@types/node": "latest",
+    "@types/react": "latest",
+    "@types/react-dom": "latest",
+    "esbuild": "^0.28.2",
+    "typescript": "latest"
+  },
+  "engines": {
+    "node": ">=20.9.0"
+  }
+}

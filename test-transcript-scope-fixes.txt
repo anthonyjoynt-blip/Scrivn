@@ -1,0 +1,3 @@
+This is a test walkthrough for a kitchen water loss. Category 2, class 2, source is a dishwasher supply line failure, date of loss is 2026-08-20, building was built in 2005.
+
+Kitchen is about 200 square feet. Flooring is vinyl plank, glue-down, plank subtype — remove and dispose. Baseboards are MDF, four inches tall, remove and replace. Walls are drywall, flood cut at 24 inches, insulation is fiberglass batt and it was affected. Cabinetry along the north wall needs to be detached and reset so we can get behind it. Two floor registers need to be detached and reset. Contents in the kitchen need to be moved out of the way while we work.
