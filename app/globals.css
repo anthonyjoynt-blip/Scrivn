@@ -1541,6 +1541,52 @@ button:disabled {
   border-radius: 6px;
 }
 
+/* What is holding Continue shut, named — see the claim page's `blockingQuestions`. */
+.blocking-questions {
+  margin-top: 24px;
+  padding: 14px 16px;
+  border: 1px solid #f0d8a8;
+  background: #fdf7ec;
+  border-radius: var(--radius);
+}
+.blocking-questions-title {
+  margin: 0 0 8px;
+  font-size: 0.86rem;
+  font-weight: 600;
+  color: #7a5a12;
+}
+.blocking-questions ul {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.blocking-question-link {
+  background: none;
+  border: none;
+  padding: 0;
+  text-align: left;
+  font: inherit;
+  font-size: 0.86rem;
+  color: var(--color-navy);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.blocking-question-link:hover {
+  color: var(--color-navy-dark);
+}
+
+/* Brief highlight when a blocking question is jumped to, so the eye lands on the right row. */
+.question-flash {
+  animation: question-flash 1.6s ease-out;
+  border-radius: var(--radius);
+}
+@keyframes question-flash {
+  0%, 40% { background: #fdf1d8; }
+  100% { background: transparent; }
+}
+
 /* The storeys, above the drawing tools — see SketchEditor's `.sketch-levels`. */
 .sketch-levels {
   display: flex;

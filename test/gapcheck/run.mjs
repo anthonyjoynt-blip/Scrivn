@@ -19,6 +19,7 @@ import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { EXTRACTABLE, DELIBERATELY_ASKED, fieldKeyFor } from "./extractable.mjs";
+import { checkResetClearsEveryState } from "./resetRule.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..", "..");
@@ -904,6 +905,24 @@ check(
 // ever gates on is fine, but one claimed BOTH extractable and deliberately-asked is a contradiction.
 const contradictions = [...DELIBERATELY_ASKED.keys()].filter((k) => EXTRACTABLE.has(k));
 check(contradictions.length === 0, `no field is listed as both extractable and deliberately asked (got ${contradictions.join(", ")})`);
+
+
+/* ── Starting a new claim leaves nothing of the old one ────────────────────────────────────────── */
+
+/*
+  Reported: a deleted sketch's room kept appearing in gap-check and then in the finished documents.
+  Nothing in this app persists — claim state is only ever in the page's hooks — so the single way
+  that happens is `reset()` forgetting one of them. See `resetRule.mjs`.
+*/
+const missedByReset = checkResetClearsEveryState(join(root, "app", "(app)", "claim", "page.tsx"));
+check(
+  missedByReset.length === 0,
+  [
+    "reset() clears every piece of claim state.",
+    "         These survive a reset and would carry into the next claim:",
+    ...missedByReset.map((m) => `           ${m}`),
+  ].join("\n"),
+);
 
 rmSync(outDir, { recursive: true, force: true });
 

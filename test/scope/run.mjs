@@ -37,6 +37,7 @@ const {
   ceilingPaintLine, ceilingQuantity, primingLine, buildWorkOrders, emptyClaimInfo, withDerivedFields,
   surfaceThumbnails, surfaceRenderId, isSurfaceRender, availableRenders, pruneAttachments,
   sketchRenderLabel, sketchRenderDescription, parseRender, defaultSketchAttachments, PIXELS_PER_FOOT,
+  pruneScopeMarks, scopeWallRunFeet,
   emptyMoistureMap, setRoomMoisture, resolveRound,
 } = await import(pathToFileURL(bundlePath).href);
 
@@ -398,6 +399,68 @@ check(
 check(parseRender("clean").level === null, "a plain id names no level");
 check(parseRender("moisture:-1").level === -1, `a negative level parses (got ${parseRender("moisture:-1").level})`);
 check(parseRender("moisture:-1").base === "moisture", "alongside what it draws");
+
+
+/* ── A marking must not outlive the geometry it points at ──────────────────────────────────────── */
+
+/*
+  Reported: a deleted sketch left room data behind that reached the finished documents. A scope
+  marking is a room id and a wall id — coordinates into a drawing — so deleting the room strands the
+  mark while it keeps holding its numbers, and those numbers keep feeding a scope quantity. Same
+  class of orphan `pruneMoisture` exists to prevent on the other store indexing the same drawing.
+*/
+const markSketch = { rooms: [sketchRoom("r1", "Bedroom")] };
+const wallId = "r1a";
+const liveMark = { "room:0:wall:0:cutRunFt": { walls: [{ roomId: "r1", wallId, startT: 0, endT: 1 }], floorCells: {} } };
+
+check(
+  Object.keys(pruneScopeMarks(liveMark, markSketch)).length === 1,
+  "a marking on a room that still exists is kept",
+);
+check(
+  pruneScopeMarks(liveMark, markSketch) === liveMark,
+  "and the same object is returned when nothing changed, so this is safe to run from an effect",
+);
+
+// The room is gone: the mark measured something that no longer exists, so it must go too.
+const orphaned = pruneScopeMarks(liveMark, { rooms: [] });
+check(Object.keys(orphaned).length === 0, `a marking whose room was deleted is dropped (got ${JSON.stringify(orphaned)})`);
+
+/*
+  Dropped ENTIRELY rather than emptied. An empty mark still reads as "this question was answered
+  from the sketch", so the question would stay answered with a measurement of nothing — which is a
+  quantity of zero in a scope, not a question the PM gets asked again.
+*/
+const emptied = pruneScopeMarks(
+  { q: { walls: [{ roomId: "gone", wallId: "x", startT: 0, endT: 1 }], floorCells: {} } },
+  markSketch,
+);
+check(emptied.q === undefined, "a marking left with nothing is removed, not kept as an empty shell");
+
+// A mark spanning two rooms keeps only the surviving half, and the figure shrinks to match.
+const spanning = {
+  q: {
+    walls: [
+      { roomId: "r1", wallId, startT: 0, endT: 1 },
+      { roomId: "deleted", wallId: "z", startT: 0, endT: 1 },
+    ],
+    floorCells: {},
+  },
+};
+const trimmed = pruneScopeMarks(spanning, markSketch);
+check(trimmed.q?.walls.length === 1, `a marking spanning a deleted room keeps only the live half (got ${trimmed.q?.walls.length})`);
+check(
+  scopeWallRunFeet(trimmed.q, markSketch) === 12,
+  `and re-measures to just that wall (got ${scopeWallRunFeet(trimmed.q, markSketch)})`,
+);
+
+// Painted floor cells are keyed by room id too, and orphan the same way.
+const floorOnly = { q: { walls: [], floorCells: { gone: ["1,1"], r1: ["2,2"] } } };
+const floorPruned = pruneScopeMarks(floorOnly, markSketch);
+check(
+  floorPruned.q !== undefined && floorPruned.q.floorCells.gone === undefined && floorPruned.q.floorCells.r1 !== undefined,
+  `floor cells for a deleted room are dropped, live ones kept (got ${JSON.stringify(floorPruned.q?.floorCells)})`,
+);
 
 rmSync(outDir, { recursive: true, force: true });
 

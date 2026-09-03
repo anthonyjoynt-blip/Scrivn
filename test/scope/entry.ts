@@ -7,3 +7,4 @@ export { availableRenders, pruneAttachments, sketchRenderLabel, sketchRenderDesc
 export { PIXELS_PER_FOOT } from "@/lib/sketch";
 export { emptyMoistureMap, roomMoisture, setRoomMoisture } from "@/lib/moisture";
 export { resolveRound } from "@/lib/questionRound";
+export { pruneScopeMarks, hasScopeMark, scopeWallRunFeet } from "@/lib/scopeMarks";

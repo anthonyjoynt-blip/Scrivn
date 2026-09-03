@@ -85,7 +85,7 @@ import { type SketchImage, dataUrlToBlob, downloadDataUrl, renderSketchImages, r
 import { surfaceThumbnails } from "@/lib/surfaceThumbnails";
 import { SketchAttachmentToggle } from "@/components/sketch/SketchAttachmentPicker";
 import { ScopeMarkPicker, type ScopeMeasure } from "@/components/sketch/ScopeMarkPicker";
-import { type ScopeMark, type ScopeMarks, paintableWallSquareFeet, scopeMarkFor, setScopeMark } from "@/lib/scopeMarks";
+import { type ScopeMark, type ScopeMarks, paintableWallSquareFeet, pruneScopeMarks, scopeMarkFor, setScopeMark } from "@/lib/scopeMarks";
 import type { SketchPage } from "@/lib/pdf";
 import {
   type EquipmentSuggestions,
@@ -384,6 +384,15 @@ export default function Home() {
    * covers — except at base height, where the patch hides behind the baseboard and
    * `paintableWallSquareFeet` returns null so the old per-linear-foot estimate stands.
    */
+  /*
+    Markings reference sketch geometry by id, so deleting a room strands every mark that pointed at
+    it — and a stranded mark keeps feeding a wall run into a scope quantity. Same orphan
+    `pruneMoisture` exists to prevent on the other store that indexes the same drawing.
+  */
+  useEffect(() => {
+    setScopeMarks((prev) => pruneScopeMarks(prev, sketch));
+  }, [sketch]);
+
   const paintableWallSF = useMemo(() => {
     const out: Record<string, number | null> = {};
     if (!extraction) return out;
@@ -528,7 +537,20 @@ export default function Home() {
   );
   // Every open question answered — equivalently, nothing left open. Uses the open list rather
   // than the rendered one, which still carries the questions already answered.
-  const allAnswered = openQuestions.every((q) => isQuestionAnswered(q, answers[q.id]));
+  /*
+    Exactly what is holding Continue shut, by name.
+
+    Twice in testing the flow reached a state it could not leave with nothing on screen explaining
+    why — once a real conditional-logic bug, once simply a question scrolled past — and both times
+    the only way to find the blocker was re-reading every question by hand. A disabled button that
+    will not say what it is waiting for is a dead end for whoever is using it AND for whoever is
+    debugging it, so the answer is named rather than implied.
+  */
+  const blockingQuestions = useMemo(
+    () => openQuestions.filter((q) => !isQuestionAnswered(q, answers[q.id])),
+    [openQuestions, answers],
+  );
+  const allAnswered = blockingQuestions.length === 0;
 
   function reset() {
     setStep("intake");
@@ -551,6 +573,23 @@ export default function Home() {
     setMoisture(emptyMoistureMap());
     setResolvedSuggestions([]);
     setShowSketch(false);
+    /*
+      Everything below was missing, and every one of them is claim data that outlived the claim.
+
+      There is no persistence anywhere in this app — state lives only in these hooks — so the ONLY
+      way a deleted claim's data can reappear is a teardown that forgets a piece of it. That makes
+      this function the single point of failure for "I deleted it and it came back", and the reason
+      `test/gapcheck/resetRule.mjs` now checks it against the state list mechanically rather than
+      trusting anyone to remember.
+
+      The asbestos form was the worst of them: a whole Remediation scope — containment, samples,
+      hygienist fees — carried silently into the next claim and into the documents built from it.
+    */
+    setAsbestos(emptyAsbestosScope());
+    setScopeMarks({});
+    setSketchAttachments(defaultSketchAttachments());
+    setSketchImages([]);
+    setMarkingQuestion(null);
   }
 
   function handleToggleTrade(trade: Trade) {
@@ -1209,6 +1248,44 @@ ${asbestosSection}`;
               markedQuestionIds={Object.keys(scopeMarks)}
             />
           ))}
+          {blockingQuestions.length > 0 && (
+            /*
+              Named, grouped by room, and clickable — the point is to end the hunt, so it scrolls to
+              the question rather than just describing it. Only rendered while something is actually
+              outstanding, so a completed round shows nothing rather than an empty reassurance.
+            */
+            <div className="blocking-questions" role="status" aria-live="polite">
+              <p className="blocking-questions-title">
+                {blockingQuestions.length === 1
+                  ? "One question still needs an answer before you can continue:"
+                  : `${blockingQuestions.length} questions still need answers before you can continue:`}
+              </p>
+              <ul>
+                {blockingQuestions.map((q) => (
+                  <li key={q.id}>
+                    <button
+                      type="button"
+                      className="blocking-question-link"
+                      onClick={() => {
+                        const el = document.getElementById(q.id) ?? document.querySelector(`[for="${CSS.escape(q.id)}"]`);
+                        el?.scrollIntoView({ behavior: "smooth", block: "center" });
+                        // Focusing a plain label does nothing, so highlight the whole question block
+                        // instead — the row is what the PM is looking for, not the input alone.
+                        const block = el?.closest(".question");
+                        if (block) {
+                          block.classList.add("question-flash");
+                          setTimeout(() => block.classList.remove("question-flash"), 1600);
+                        }
+                      }}
+                    >
+                      {q.roomName ? `${q.roomName} — ` : ""}
+                      {q.prompt}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
           <div className="actions-row">
             <button className="btn-secondary" onClick={reset}>
               Start Over

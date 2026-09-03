@@ -1,4 +1,4 @@
-import { type Sketch, type SketchRoom, openingSquareFeetOnWall, wallById } from "./sketch";
+import { type Sketch, type SketchRoom, openingSquareFeetOnWall, wallById, wallsOf } from "./sketch";
 import { type MoistureMap, emptyMoistureMap, paintedFloorSquareFeet, roomMoisture, setRoomMoisture } from "./moisture";
 
 /**
@@ -185,4 +185,46 @@ export function fromCanvasLayer(map: MoistureMap): ScopeMark {
   }
 
   return { walls, floorCells };
+}
+
+/**
+ * Drops markings that point at sketch geometry which no longer exists.
+ *
+ * A marking is a room id and a wall id — coordinates into a drawing. Delete the room and the
+ * marking still holds its numbers, so `scopeWallRunFeet` keeps returning a run for a wall nobody
+ * can see, and that figure keeps feeding a scope quantity. The same class of orphan `pruneMoisture`
+ * exists to prevent, on the other store that references the same geometry.
+ *
+ * A mark whose walls are ALL gone is removed outright rather than left as an empty shell, so
+ * `hasScopeMark` reads false and the question it answered goes back to being unanswered — which is
+ * the honest state once the thing it measured is gone.
+ */
+export function pruneScopeMarks(marks: ScopeMarks, sketch: Sketch): ScopeMarks {
+  const liveWalls = new Set<string>();
+  const liveRooms = new Set<string>();
+  for (const room of sketch.rooms) {
+    liveRooms.add(room.id);
+    for (const wall of wallsOf(room)) liveWalls.add(`${room.id}:${wall.id}`);
+  }
+
+  const out: ScopeMarks = {};
+  let changed = false;
+  for (const [questionId, mark] of Object.entries(marks)) {
+    const walls = mark.walls.filter((w) => liveWalls.has(`${w.roomId}:${w.wallId}`));
+    const floorCells: Record<string, string[]> = {};
+    for (const [roomId, cells] of Object.entries(mark.floorCells)) {
+      if (liveRooms.has(roomId)) floorCells[roomId] = cells;
+    }
+    const next = { walls, floorCells };
+    if (!hasScopeMark(next)) {
+      changed = true;
+      continue;
+    }
+    if (walls.length !== mark.walls.length || Object.keys(floorCells).length !== Object.keys(mark.floorCells).length) {
+      changed = true;
+    }
+    out[questionId] = next;
+  }
+  // Returning the same object when nothing changed keeps this safe to run from an effect.
+  return changed ? out : marks;
 }
