@@ -36,8 +36,12 @@ STRUCTURE — this is what makes the answer usable at all:
   the counts exactly even where every field in an entry is UNKNOWN.
 
 WHAT EACH FIELD MEANS:
-- flooring.hardwoodConstruction — only for hardwood: SOLID or ENGINEERED, where the transcript says.
-- flooring.hardwoodInstallation — only for hardwood: FLOATING or GLUED. "Glued down" is GLUED.
+- flooring.hardwoodConstruction — only for hardwood: SOLID, ENGINEERED, PREFINISHED, or OTHER.
+  "Prefinished" is its own construction, not a finish on solid or engineered. Use OTHER only when the
+  transcript names a construction that is genuinely none of the three — never as a catch-all for
+  something you are unsure about, which is what UNKNOWN is for.
+- flooring.hardwoodInstallation — only for hardwood: FLOATING, GLUED or NAILED. "Glued down" is
+  GLUED; "nailed down" or "nail down" is NAILED; "floating" is FLOATING.
 - flooring.vinylInstallation — only for vinyl PLANK: GLUED or SNAPLOCK_FLOATING. "Click-lock",
   "floating" and "snap together" are all SNAPLOCK_FLOATING. UNKNOWN for sheet vinyl, which is glued
   by definition and is never asked about.

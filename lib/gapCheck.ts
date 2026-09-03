@@ -549,7 +549,19 @@ function baseboardCompletenessQuestions(roomIndex: number, room: Room): GapCheck
     first question is conditional, and `applyAnswer` drops each one when its condition did not
     come true — see `applyBaseboardAnswer`.
   */
-  const record = `room:${roomIndex}:baseboard:0`;
+  /*
+    Only the action. Material and height used to ride along here, and BOTH were wrong to.
+
+    Height is a spec for the new baseboard going in, so it does not apply to one being detached and
+    reset — its prompt even hedged "If it is being replaced, what height is it", which is a question
+    admitting it might not apply while still refusing to let the PM past without an answer. Material
+    had the same shape, addressed to a record index that did not exist yet.
+
+    Answering the action CREATES the record (see `applyAnswer`), and `baseboardRecordQuestions` then
+    asks material — and height only for REMOVE_AND_REPLACE, which it has always gated correctly.
+    So the fix is to stop duplicating those two here and let the record path do its job; the round
+    still resolves in one screen because answering the action reveals them immediately.
+  */
   const dependents: GapCheckQuestion[] = [
     {
       id: `room:${roomIndex}:baseboard:action`,
@@ -561,18 +573,6 @@ function baseboardCompletenessQuestions(roomIndex: number, room: Room): GapCheck
       */
       prompt: "Are the baseboards being detached only, removed and replaced, or is it just shoe mold/quarter round?",
       kind: { type: "choice", options: BASEBOARD_ACTION_OPTIONS },
-    },
-    {
-      id: `${record}:material`,
-      roomName: room.roomName,
-      prompt: "And what material is the baseboard?",
-      kind: { type: "choice", options: ["Solid wood", "Flat MDF", "MDF with profile", "Vinyl/PVC composite"] },
-    },
-    {
-      id: `${record}:heightIn`,
-      roomName: room.roomName,
-      prompt: "If it is being replaced, what height is it, in inches?",
-      kind: { type: "decimal" },
     },
   ];
 
@@ -594,6 +594,10 @@ function baseboardCompletenessQuestions(roomIndex: number, room: Room): GapCheck
 
 // ---- Flooring ---------------------------------------------------------------------------------
 
+/** Kept beside the parsers below so the labels and what they map to cannot drift apart. */
+const HARDWOOD_CONSTRUCTION_OPTIONS = ["Solid", "Engineered", "Prefinished", "Other"];
+const HARDWOOD_INSTALLATION_OPTIONS = ["Floating", "Glued", "Nailed"];
+
 function flooringQuestions(roomIndex: number, roomName: string, i: number, f: FlooringRecord, derived?: MoistureDerived): GapCheckQuestion[] {
   const q: GapCheckQuestion[] = [];
   const base = `room:${roomIndex}:flooring:${i}`;
@@ -601,9 +605,25 @@ function flooringQuestions(roomIndex: number, roomName: string, i: number, f: Fl
   switch (f.type) {
     case "HARDWOOD":
       if (f.hardwoodConstruction === null)
-        q.push({ id: `${base}:hardwoodConstruction`, roomName, prompt: "Is the hardwood solid or engineered?", kind: { type: "choice", options: ["Solid", "Engineered"] } });
+        q.push({
+          id: `${base}:hardwoodConstruction`, roomName, prompt: "What construction is the hardwood?",
+          kind: { type: "choice", options: HARDWOOD_CONSTRUCTION_OPTIONS },
+        });
+      /*
+        Species and construction are broad enough that any fixed list misses real floors, so "Other"
+        opens a free-text field rather than forcing the PM to pick the nearest wrong option. Only
+        asked once "Other" is the answer — see the ceiling texture pair for why a dependent waits.
+      */
+      if (f.hardwoodConstruction === "OTHER" && (f.hardwoodConstructionOther ?? "").trim() === "")
+        q.push({
+          id: `${base}:hardwoodConstructionOther`, roomName, prompt: "What construction is it?",
+          kind: { type: "text" },
+        });
       if (f.hardwoodInstallation === null)
-        q.push({ id: `${base}:hardwoodInstallation`, roomName, prompt: "Is the hardwood floating or glued down?", kind: { type: "choice", options: ["Floating", "Glued"] } });
+        q.push({
+          id: `${base}:hardwoodInstallation`, roomName, prompt: "How is the hardwood installed?",
+          kind: { type: "choice", options: HARDWOOD_INSTALLATION_OPTIONS },
+        });
       break;
     case "VINYL":
       if (f.vinylSubtype === null)
@@ -1194,6 +1214,18 @@ export function isWaterExtractionQuestion(questionId: string): boolean {
  * `applyContentsAnswer`) — its absence just means nothing about contents has been said yet, not
  * that there's nothing to ask.
  */
+/**
+ * The four sizes, plus a way to say there is nothing to move.
+ *
+ * "None" exists because the question fires on any room with work in it, and a hallway with a floor
+ * coming up genuinely may have nothing in it — the transcript said nothing about contents because
+ * there were none. Without this the PM had to invent a size for furniture that does not exist, and
+ * "Small" is not the same answer as "none": one bills a contents line, the other does not.
+ *
+ * Same shape as the smoke-detector question's explicit "None", and for the same reason.
+ */
+const CONTENTS_SIZE_OPTIONS = ["None — nothing to move", "Small", "Medium", "Large", "Extra Large"];
+
 function contentsQuestions(roomIndex: number, room: Room): GapCheckQuestion[] {
   if (room.contents?.manipulationDeclined === true) return [];
   if (room.contents?.size != null) return [];
@@ -1211,7 +1243,7 @@ function contentsQuestions(roomIndex: number, room: Room): GapCheckQuestion[] {
         "How much furniture and contents need to be moved in this room? " +
         "Small (a few items), Medium (a partly furnished room), Large (a fully furnished room), " +
         "Extra Large (packed, or heavy items needing more than one person).",
-      kind: { type: "choice", options: ["Small", "Medium", "Large", "Extra Large"] },
+      kind: { type: "choice", options: CONTENTS_SIZE_OPTIONS },
     },
   ];
 }
@@ -1300,15 +1332,32 @@ function roomHasWork(room: Room): boolean {
 }
 
 function applyContentsAnswer(c: ContentsManipulation, field: string, answer: string): ContentsManipulation {
-  if (field === "size") return { ...c, size: parseContentsSize(answer) };
-  return c;
+  if (field !== "size") return c;
+  /*
+    "None" is recorded as manipulation DECLINED, not as a size.
+
+    A room with nothing in it and a room with a few items are different scope outcomes — one bills a
+    contents line, the other does not — so "none" cannot be folded into "Small". `manipulationDeclined`
+    is the field that already means exactly this, and it is what the generation prompt and the work
+    orders both read to decide whether the room gets a contents line at all.
+  */
+  if (isContentsNone(answer)) return { ...c, manipulationDeclined: true, size: null };
+  const size = parseContentsSize(answer);
+  return size === null ? c : { ...c, size, manipulationDeclined: false };
 }
 
-function parseContentsSize(answer: string): ContentsSize {
+/** The "nothing to move" answer, matched on its leading word so the label can be reworded freely. */
+function isContentsNone(answer: string): boolean {
+  return answer.trim().toLowerCase().startsWith("none");
+}
+
+/** Null for an answer that is not one of the four sizes — dropped rather than defaulted. */
+function parseContentsSize(answer: string): ContentsSize | null {
   if (equalsIgnoreCase(answer, "Small")) return "SMALL";
   if (equalsIgnoreCase(answer, "Medium")) return "MEDIUM";
   if (equalsIgnoreCase(answer, "Large")) return "LARGE";
-  return "EXTRA_LARGE";
+  if (equalsIgnoreCase(answer, "Extra Large")) return "EXTRA_LARGE";
+  return null;
 }
 
 // ---- Ceiling-triggered electrical fixtures (round 6) -----------------------------------------
@@ -1483,7 +1532,11 @@ export function applyAnswer(extraction: WaterLossExtraction, questionId: string,
         the extra round this batching removed.
       */
       if (room.baseboardConfirmedAbsent) return room;
-      return { ...room, baseboard: [...room.baseboard, blankBaseboardRecord(baseboardActionAnswer(answer))] };
+      // An unrecognised action creates no record at all, so the question comes back rather than a
+      // baseboard being invented with the wrong disposition — see `baseboardActionAnswer`.
+      const action = baseboardActionAnswer(answer);
+      if (action === null) return room;
+      return { ...room, baseboard: [...room.baseboard, blankBaseboardRecord(action)] };
     });
   }
 
@@ -1738,10 +1791,19 @@ function parseAreaQuantity(answer: string): { sf: number | null; fraction: AreaF
  * the record, and `applyBaseboardAnswer`, where it fills in one extraction already produced — so a
  * record cannot end up describing itself two different ways depending on which route it took.
  */
-function baseboardActionAnswer(answer: string): Pick<BaseboardRecord, "action" | "disposition"> {
+/**
+ * Null for an answer that is none of the three, rather than falling through to remove-and-replace.
+ *
+ * The fallback was silent and load-bearing in the wrong direction: remove-and-replace is the ONLY
+ * action that goes on to demand a height and a material, so an answer that failed to match — a
+ * relabelled option, a typo — did not merely record the wrong action, it also conjured two spec
+ * questions about a baseboard that was being put straight back down.
+ */
+function baseboardActionAnswer(answer: string): Pick<BaseboardRecord, "action" | "disposition"> | null {
   if (equalsIgnoreCase(answer, "Shoe mold only")) return { action: "SHOE_MOLD_ONLY", disposition: null };
   if (equalsIgnoreCase(answer, "Detached only")) return { action: "DETACH_AND_RESET", disposition: "SALVAGE_DRY" };
-  return { action: "REMOVE_AND_REPLACE", disposition: "REMOVE_AND_DISPOSE" };
+  if (equalsIgnoreCase(answer, "Removed and replaced")) return { action: "REMOVE_AND_REPLACE", disposition: "REMOVE_AND_DISPOSE" };
+  return null;
 }
 
 function blankBaseboardRecord(overrides: Partial<BaseboardRecord>): BaseboardRecord {
@@ -1753,10 +1815,40 @@ function blankContentsManipulation(): ContentsManipulation {
 
 function applyFlooringAnswer(f: FlooringRecord, field: string, answer: string): FlooringRecord {
   switch (field) {
-    case "hardwoodConstruction":
-      return { ...f, hardwoodConstruction: (equalsIgnoreCase(answer, "Solid") ? "SOLID" : "ENGINEERED") as HardwoodConstruction };
-    case "hardwoodInstallation":
-      return { ...f, hardwoodInstallation: (equalsIgnoreCase(answer, "Floating") ? "FLOATING" : "GLUED") as HardwoodInstallation };
+    /*
+      Matched explicitly, with an unrecognised answer DROPPED rather than defaulting.
+
+      Both of these were a two-way ternary — "Solid" or else engineered, "Floating" or else glued —
+      so the moment a third option existed every one of its answers silently became the fallback.
+      Adding Prefinished, Other and Nailed to the lists without this would have recorded a nailed
+      floor as glued, which is a wrong spec that reads as a real one.
+    */
+    case "hardwoodConstruction": {
+      const construction = equalsIgnoreCase(answer, "Solid")
+        ? "SOLID"
+        : equalsIgnoreCase(answer, "Engineered")
+          ? "ENGINEERED"
+          : equalsIgnoreCase(answer, "Prefinished")
+            ? "PREFINISHED"
+            : equalsIgnoreCase(answer, "Other")
+              ? "OTHER"
+              : null;
+      if (construction === null) return f;
+      // Changing away from Other invalidates whatever was typed against it.
+      return { ...f, hardwoodConstruction: construction, hardwoodConstructionOther: construction === "OTHER" ? f.hardwoodConstructionOther : null };
+    }
+    case "hardwoodConstructionOther":
+      return f.hardwoodConstruction === "OTHER" ? { ...f, hardwoodConstructionOther: answer.trim() || null } : f;
+    case "hardwoodInstallation": {
+      const install = equalsIgnoreCase(answer, "Floating")
+        ? "FLOATING"
+        : equalsIgnoreCase(answer, "Glued")
+          ? "GLUED"
+          : equalsIgnoreCase(answer, "Nailed")
+            ? "NAILED"
+            : null;
+      return install === null ? f : { ...f, hardwoodInstallation: install };
+    }
     case "vinylSubtype":
       return { ...f, vinylSubtype: (equalsIgnoreCase(answer, "Sheet") ? "SHEET" : "PLANK") as VinylSubtype };
     case "vinylInstallation":

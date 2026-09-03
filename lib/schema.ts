@@ -257,8 +257,10 @@ const flooringDetailSchema = obj({
   carpetStyle: nullableEnumOf("PILE", "BERBER", "RUBBER_BACKED_GLUE_DOWN"),
   // Reported: "Is the hardwood floating or glued down?" asked after the PM said "glued". These are
   // things somebody says while looking at a floor, so they belong in extraction, not in a question.
-  hardwoodConstruction: nullableEnumOf("SOLID", "ENGINEERED"),
-  hardwoodInstallation: nullableEnumOf("FLOATING", "GLUED"),
+  // PREFINISHED is a third construction, not a finish on the other two; NAILED is the traditional
+  // install method and was simply missing. OTHER pairs with the free-text field the question offers.
+  hardwoodConstruction: nullableEnumOf("SOLID", "ENGINEERED", "PREFINISHED", "OTHER"),
+  hardwoodInstallation: nullableEnumOf("FLOATING", "GLUED", "NAILED"),
   vinylInstallation: nullableEnumOf("GLUED", "SNAPLOCK_FLOATING"),
 });
 

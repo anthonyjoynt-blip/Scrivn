@@ -187,8 +187,17 @@ export type CarpetStyle = "PILE" | "BERBER" | "RUBBER_BACKED_GLUE_DOWN";
 export type VinylSubtype = "SHEET" | "PLANK";
 export type VinylInstallation = "GLUED" | "SNAPLOCK_FLOATING";
 export type VinylSubstrate = "CONCRETE" | "WOOD";
-export type HardwoodConstruction = "SOLID" | "ENGINEERED";
-export type HardwoodInstallation = "FLOATING" | "GLUED";
+/**
+ * PREFINISHED is a real third construction, not a finish applied to the other two — it changes what
+ * a replacement costs and how it goes in, so it belongs beside them rather than as a note.
+ *
+ * OTHER exists because species and construction are broad enough that any fixed list misses real
+ * floors, and forcing a PM to pick the nearest wrong option puts a wrong spec in a scope. It pairs
+ * with `hardwoodConstructionOther` below, which carries what they actually said.
+ */
+export type HardwoodConstruction = "SOLID" | "ENGINEERED" | "PREFINISHED" | "OTHER";
+/** NAILED is the traditional method and was simply missing — a nailed floor is neither of the others. */
+export type HardwoodInstallation = "FLOATING" | "GLUED" | "NAILED";
 export type FlooringDisposition = "DRY_IN_PLACE" | "LIFT_AND_REINSTALL" | "REMOVE_AND_DISPOSE" | "REMOVE_AND_ASSESS";
 export type WorkPhase = "EMERGENCY" | "REPAIR" | "BOTH";
 
@@ -235,6 +244,8 @@ export interface FlooringRecord {
   vinylInstallation: VinylInstallation | null;
   vinylSubstrate: VinylSubstrate | null;
   hardwoodConstruction: HardwoodConstruction | null;
+  /** Free text, only meaningful when `hardwoodConstruction` is OTHER. Gap-check only. */
+  hardwoodConstructionOther: string | null;
   hardwoodInstallation: HardwoodInstallation | null;
   disposition: FlooringDisposition | null;
   phase: WorkPhase | null;

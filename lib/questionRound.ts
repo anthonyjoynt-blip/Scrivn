@@ -115,16 +115,14 @@ export function resolveRound(
   const applied: GapCheckQuestion[] = [];
   const seen = new Set<string>();
   /*
-    Every question the engine produced while resolving, newest version of each, in first-seen order.
-    A later pass can hand back the same id with a different `defaultValue` (a measured figure that
-    only became derivable once something else was answered), so the value is overwritten while the
-    position is kept.
+    Every question the engine produced while resolving, in the engine's own order — see
+    `spliceInGenerationOrder` for why that is not simply the order they were first seen.
   */
-  const display = new Map<string, GapCheckQuestion>();
+  let display: GapCheckQuestion[] = [];
   let questions = nextQuestions(draftClaim, draft, suggestions);
 
   for (let pass = 0; pass < MAX_RESOLVE_PASSES; pass += 1) {
-    for (const q of questions) display.set(q.id, q);
+    display = spliceInGenerationOrder(display, questions);
     let progressed = false;
     for (const q of questions) {
       if (seen.has(q.id)) continue;
@@ -146,7 +144,48 @@ export function resolveRound(
     draft = withDerivedFields(draft);
     questions = nextQuestions(draftClaim, draft, suggestions);
   }
-  for (const q of questions) display.set(q.id, q);
+  display = spliceInGenerationOrder(display, questions);
 
-  return { claim: draftClaim, extraction: draft, questions, applied, display: [...display.values()] };
+  return { claim: draftClaim, extraction: draft, questions, applied, display };
+}
+
+/**
+ * Merges one pass's questions into the display list, keeping the ENGINE's ordering rather than the
+ * order things happened to be revealed in.
+ *
+ * The difference is the whole point. A question revealed by an answer — "popcorn or knockdown?",
+ * which only exists once the ceiling is known to be textured — is generated on a later pass than the
+ * question that revealed it. Appending it put it at the bottom of the form, several rooms away from
+ * the ceiling question it belongs to, so it read as a stray unrelated question rather than the
+ * immediate follow-up it is.
+ *
+ * A new question is placed immediately BEFORE the next question in its own pass that already has a
+ * position. That is what puts the texture style directly after the finish question: in the pass that
+ * generates it, its neighbour is the ceiling's insulation question, which is already placed — and the
+ * finish question sits just above that, exactly where it was answered.
+ *
+ * Existing entries are replaced with the newer object, since a later pass can hand back the same id
+ * carrying a `defaultValue` that only became derivable once something else was answered.
+ */
+function spliceInGenerationOrder(display: GapCheckQuestion[], pass: GapCheckQuestion[]): GapCheckQuestion[] {
+  const result = display.map((existing) => pass.find((q) => q.id === existing.id) ?? existing);
+  const positionOf = (id: string) => result.findIndex((q) => q.id === id);
+
+  for (let i = 0; i < pass.length; i += 1) {
+    const q = pass[i]!;
+    if (positionOf(q.id) !== -1) continue;
+
+    // Where the next already-placed neighbour sits; the end of the list when there is no such
+    // neighbour, which is the correct home for a question generated after everything else.
+    let at = result.length;
+    for (let j = i + 1; j < pass.length; j += 1) {
+      const neighbour = positionOf(pass[j]!.id);
+      if (neighbour !== -1) {
+        at = neighbour;
+        break;
+      }
+    }
+    result.splice(at, 0, q);
+  }
+  return result;
 }

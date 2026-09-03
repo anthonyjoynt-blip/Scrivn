@@ -830,6 +830,171 @@ const premature = findPrematureQuestions(claim, twoRooms);
 check(premature.length === 0, `no question is asked before its trigger is settled\n         ${premature.join("\n         ")}`);
 
 
+
+/* ── A revealed follow-up sits beside what revealed it ─────────────────────────────────────────── */
+
+/*
+  Reported, and distinct from the smooth-ceiling blocking bug: when a ceiling IS textured, "popcorn
+  or knockdown?" appeared "later, disconnected" rather than next to the texture question.
+
+  The cause was ordering, not timing. A question revealed by an answer is generated on a LATER pass
+  than the one that revealed it, and the display list appended in first-seen order — so the follow-up
+  landed at the bottom of the form, past every other room, reading as a stray question.
+*/
+const texturedRound = resolveRound(claim, oneRoom, { "room:0:ceiling:0:finish": "Texture" });
+const ids = texturedRound.display.map((q) => q.id);
+const finishAt = ids.indexOf("room:0:ceiling:0:finish");
+const styleAt = ids.indexOf("room:0:ceiling:0:textureStyle");
+
+check(finishAt !== -1 && styleAt !== -1, "a textured ceiling shows both the finish and the style question");
+check(styleAt === finishAt + 1, `and the style sits immediately after the finish (finish at ${finishAt}, style at ${styleAt} of ${ids.length})`);
+
+/*
+  Not merely "somewhere after". Appending put it last, which is also "after" — the check that matters
+  is that nothing unrelated separates them.
+*/
+check(styleAt !== ids.length - 1 || ids.length === finishAt + 2, "it is placed, not appended to the end of the form");
+
+// The rest of the ceiling's own questions still follow it, so the block reads as one group.
+const aboveAt = ids.indexOf("room:0:ceiling:0:aboveInsulationAffected");
+check(aboveAt === -1 || aboveAt > styleAt, `the ceiling's remaining questions still follow (above at ${aboveAt})`);
+
+
+/* ── Baseboard height belongs to the replacement, not to a detach-and-reset ────────────────────── */
+
+/*
+  Reported as unconfirmed, and it was real. In the baseboard-ABSENCE chain (a room where extraction
+  found no baseboard record at all), the height question rode along with the presence question
+  unconditionally — prompt and all: "If it is being replaced, what height is it", a question openly
+  admitting it might not apply while still refusing to let the PM past without an answer.
+
+  The probe above never caught it because that chain only fires when a room has NO baseboard record,
+  and the fixture rooms all have one. Fixture coverage, again.
+*/
+const noBaseboardRoom = extractionWith([
+  room("Hall", {
+    flooring: [everyRecordRoom("x").flooring[0]],
+    walls: [everyRecordRoom("x").walls[0]],
+    baseboard: [],
+  }),
+]);
+
+const askedFor = (answers) =>
+  resolveRound(claim, noBaseboardRoom, answers).display.map((q) => q.id);
+
+const presenceOnly = askedFor({});
+check(
+  presenceOnly.includes("room:0:baseboard:present"),
+  `a room with no baseboard record is asked whether there are any (asked: ${presenceOnly.join(", ")})`,
+);
+check(
+  !presenceOnly.some((id) => id.endsWith(":heightIn")),
+  `and is NOT asked a height before anyone has said there are baseboards (asked: ${presenceOnly.join(", ")})`,
+);
+
+// Detached and reset: the existing baseboard goes back down, so there is no new height to spec.
+const detachOnly = askedFor({ "room:0:baseboard:present": "Yes", "room:0:baseboard:action": "Detached only" });
+check(
+  !detachOnly.some((id) => id.endsWith(":heightIn")),
+  `a detach-and-reset baseboard is never asked its height (asked: ${detachOnly.filter((i) => i.includes("baseboard")).join(", ")})`,
+);
+
+// Removed and replaced: a new baseboard is going in, so the height is a real spec decision.
+const replaced = askedFor({ "room:0:baseboard:present": "Yes", "room:0:baseboard:action": "Removed and replaced" });
+check(
+  replaced.some((id) => id.endsWith(":heightIn")),
+  `a removed-and-replaced baseboard IS asked its height (asked: ${replaced.filter((i) => i.includes("baseboard")).join(", ")})`,
+);
+
+/* ── Contents: "none" is an answer, not a size ─────────────────────────────────────────────────── */
+
+/*
+  Reported: a hallway with only flooring work and nothing said about contents anywhere still demanded
+  a contents size. "Small" is not the same answer as "nothing to move" — one bills a contents line
+  and the other does not — so the option had to exist rather than the PM inventing a size.
+*/
+const contentsQ = resolveRound(claim, noBaseboardRoom, {}).display.find((q) => q.id === "room:0:contents:size");
+check(contentsQ !== undefined, "a room with work is still asked about contents");
+check(
+  (contentsQ?.kind.options ?? []).some((o) => o.toLowerCase().startsWith("none")),
+  `and can answer that there is nothing to move (options: ${JSON.stringify(contentsQ?.kind.options)})`,
+);
+
+const declined = resolveRound(claim, noBaseboardRoom, { "room:0:contents:size": "None — nothing to move" });
+check(
+  declined.extraction.rooms[0].contents?.manipulationDeclined === true,
+  `"none" records manipulation as declined (got ${JSON.stringify(declined.extraction.rooms[0].contents)})`,
+);
+check(
+  declined.extraction.rooms[0].contents?.size == null,
+  "and records no size, since there is nothing to size",
+);
+// A real size must still record as a size, and must not read as declined.
+const sized = resolveRound(claim, noBaseboardRoom, { "room:0:contents:size": "Medium" });
+check(
+  sized.extraction.rooms[0].contents?.size === "MEDIUM" && sized.extraction.rooms[0].contents?.manipulationDeclined === false,
+  `a real size still records normally (got ${JSON.stringify(sized.extraction.rooms[0].contents)})`,
+);
+
+/* ── Hardwood: the fixed lists were too narrow ─────────────────────────────────────────────────── */
+
+const hardwoodRoom = extractionWith([
+  room("Study", { flooring: [{ ...everyRecordRoom("x").flooring[0], type: "HARDWOOD" }] }),
+]);
+const hw = (answers) => resolveRound(claim, hardwoodRoom, answers);
+
+const construction = hw({}).display.find((q) => q.id === "room:0:flooring:0:hardwoodConstruction");
+check(
+  JSON.stringify(construction?.kind.options) === JSON.stringify(["Solid", "Engineered", "Prefinished", "Other"]),
+  `construction offers prefinished and other (got ${JSON.stringify(construction?.kind.options)})`,
+);
+const install = hw({}).display.find((q) => q.id === "room:0:flooring:0:hardwoodInstallation");
+check(
+  JSON.stringify(install?.kind.options) === JSON.stringify(["Floating", "Glued", "Nailed"]),
+  `installation offers nailed (got ${JSON.stringify(install?.kind.options)})`,
+);
+
+// Nailed must record as nailed. The old handler was a two-way ternary, so any third option became
+// the fallback — a nailed floor would have been recorded as glued.
+const nailed = hw({ "room:0:flooring:0:hardwoodInstallation": "Nailed" });
+check(
+  nailed.extraction.rooms[0].flooring[0].hardwoodInstallation === "NAILED",
+  `"Nailed" records as NAILED, not the old fallback (got ${nailed.extraction.rooms[0].flooring[0].hardwoodInstallation})`,
+);
+const prefinished = hw({ "room:0:flooring:0:hardwoodConstruction": "Prefinished" });
+check(
+  prefinished.extraction.rooms[0].flooring[0].hardwoodConstruction === "PREFINISHED",
+  `"Prefinished" records as PREFINISHED (got ${prefinished.extraction.rooms[0].flooring[0].hardwoodConstruction})`,
+);
+
+// "Other" opens a free-text field — and only then, for the same reason every dependent waits.
+check(
+  !hw({}).display.some((q) => q.id.endsWith("hardwoodConstructionOther")),
+  "the free-text field is not offered before Other is chosen",
+);
+const otherChosen = hw({ "room:0:flooring:0:hardwoodConstruction": "Other" });
+const otherQ = otherChosen.display.find((q) => q.id === "room:0:flooring:0:hardwoodConstructionOther");
+check(otherQ !== undefined, "choosing Other offers a free-text field");
+const typed = hw({ "room:0:flooring:0:hardwoodConstruction": "Other", "room:0:flooring:0:hardwoodConstructionOther": "Reclaimed heart pine" });
+check(
+  typed.extraction.rooms[0].flooring[0].hardwoodConstructionOther === "Reclaimed heart pine",
+  `and what was typed is recorded (got ${JSON.stringify(typed.extraction.rooms[0].flooring[0].hardwoodConstructionOther)})`,
+);
+/*
+  Text typed against Other must not survive a change to a real construction. Checked within ONE round,
+  because that is where it can happen: the PM picks Other, types, then changes their mind, and both
+  answers are sitting in the same map when the round resolves.
+*/
+const changedAway = hw({
+  "room:0:flooring:0:hardwoodConstruction": "Solid",
+  "room:0:flooring:0:hardwoodConstructionOther": "Reclaimed heart pine",
+});
+check(
+  changedAway.extraction.rooms[0].flooring[0].hardwoodConstruction === "SOLID" &&
+    changedAway.extraction.rooms[0].flooring[0].hardwoodConstructionOther === null,
+  `text typed against Other is discarded when the construction is changed (got ${JSON.stringify(changedAway.extraction.rooms[0].flooring[0].hardwoodConstructionOther)})`,
+);
+
 /* ── Nothing is asked that extraction could already know ───────────────────────────────────────── */
 
 /*

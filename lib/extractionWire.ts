@@ -153,6 +153,7 @@ function flooringToDomain(w: FlooringRecordWire): FlooringRecord {
     vinylInstallation: null,
     vinylSubstrate: null,
     hardwoodConstruction: null,
+    hardwoodConstructionOther: null,
     hardwoodInstallation: null,
     disposition: enumOrNull<FlooringDisposition>(w.disposition),
     phase: enumOrNull<WorkPhase>(w.phase),
