@@ -135,6 +135,14 @@ export const DELIBERATELY_ASKED = new Map([
   */
   ["ceilingLightFixtures:type", "the kind of fixture is rarely named, and it changes the line item"],
 
+  /*
+    The consolidated equipment question. Its FIELD — equipment quantity — is extractable and listed
+    above; this asks it once for every room at a time because the transcript stated a total for the
+    job and never split it. So it fires precisely when extraction came back with equipment and no
+    quantity, which is the honest gap, not a fact anybody skipped capturing.
+  */
+  ["equipment:allRooms", "one tally the PM stated for the job, distributed across rooms"],
+
   // Claim-level, collected at intake rather than dictated.
   ["claim:categoryEscalation", "a PM judgement prompted by elapsed time, never in the transcript"],
   ["contents:size", "an operational estimate, not a description of damage"],
@@ -153,5 +161,8 @@ export function fieldKeyFor(questionId) {
   if (parts[0] === "claim") return `claim:${parts[1]}`;
   if (parts[0] === "asbestos") return `loss:asbestos${parts[1] === "taken" ? "SamplesTaken" : "SampleCount"}`;
   if (parts[0] === "loss") return `loss:${parts[1]}`;
+  // The equipment type is free text (and contains spaces), so the decision is recorded against the
+  // question rather than against every type a transcript might name.
+  if (parts[0] === "equipment" && parts[1] === "allRooms") return "equipment:allRooms";
   return parts.join(":");
 }

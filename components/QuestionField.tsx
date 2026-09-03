@@ -14,6 +14,8 @@ export function QuestionField({
   onChange,
   onAddFromSketch,
   sketchMarked,
+  applyToAllCount,
+  onApplyToAll,
 }: {
   question: GapCheckQuestion;
   value: string | undefined;
@@ -25,6 +27,12 @@ export function QuestionField({
   onAddFromSketch?: (question: GapCheckQuestion) => void;
   /** True once this question has a marking, so the button says so rather than repeating itself. */
   sketchMarked?: boolean;
+  /**
+   * How many OTHER rooms are waiting on this same question, when it is one whose answer is usually
+   * the same throughout a property. Absent where it is not, or where there are no other rooms.
+   */
+  applyToAllCount?: number;
+  onApplyToAll?: (question: GapCheckQuestion) => void;
 }) {
   const { kind } = question;
   // A pre-filled value shows until the PM types over it — see `GapCheckQuestion.defaultValue`.
@@ -173,6 +181,19 @@ export function QuestionField({
 
       {kind.type === "bucketCounts" && (
         <BucketCountsField question={question} buckets={kind.buckets} unit={kind.unit} value={value} onChange={onChange} />
+      )}
+
+      {/*
+        Offered only once there is an answer to copy, and never as a default.
+
+        A property is usually trimmed at one baseboard height throughout, so this saves typing the
+        same number in every room — but "usually" is why it stays an offer. Declining costs nothing,
+        each copy lands as an ordinary answer, and any room that genuinely differs is changed after.
+      */}
+      {onApplyToAll && applyToAllCount !== undefined && applyToAllCount > 0 && isQuestionAnswered(question, rawValue) && (
+        <button type="button" className="apply-to-all" onClick={() => onApplyToAll(question)}>
+          Apply this to the other {applyToAllCount} {applyToAllCount === 1 ? "room" : "rooms"}
+        </button>
       )}
     </div>
   );

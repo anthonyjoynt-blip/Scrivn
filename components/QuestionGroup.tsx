@@ -10,6 +10,8 @@ export function QuestionGroup({
   onAddFromSketch,
   canAddFromSketch,
   markedQuestionIds,
+  applyToAllCount,
+  onApplyToAll,
 }: {
   title: string;
   questions: GapCheckQuestion[];
@@ -19,6 +21,9 @@ export function QuestionGroup({
   onAddFromSketch?: (question: GapCheckQuestion) => void;
   canAddFromSketch?: (question: GapCheckQuestion) => boolean;
   markedQuestionIds?: string[];
+  /** How many other rooms share this question — see `QuestionField`'s `applyToAllCount`. */
+  applyToAllCount?: (question: GapCheckQuestion) => number;
+  onApplyToAll?: (question: GapCheckQuestion) => void;
 }) {
   if (questions.length === 0) return null;
   return (
@@ -32,6 +37,8 @@ export function QuestionGroup({
           onChange={onChange}
           onAddFromSketch={onAddFromSketch && canAddFromSketch?.(q) ? onAddFromSketch : undefined}
           sketchMarked={markedQuestionIds?.includes(q.id)}
+          applyToAllCount={applyToAllCount?.(q)}
+          onApplyToAll={onApplyToAll}
         />
       ))}
     </div>

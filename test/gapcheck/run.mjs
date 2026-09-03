@@ -52,6 +52,10 @@ const {
   isWaterExtractionQuestion,
   resolveRound,
   totalWindowsToClean,
+  canApplyToAllRooms,
+  siblingQuestionIds,
+  equipmentNeedsConsolidating,
+  consolidatedEquipmentId,
 } = mod;
 
 let passed = 0;
@@ -993,6 +997,114 @@ check(
   changedAway.extraction.rooms[0].flooring[0].hardwoodConstruction === "SOLID" &&
     changedAway.extraction.rooms[0].flooring[0].hardwoodConstructionOther === null,
   `text typed against Other is discarded when the construction is changed (got ${JSON.stringify(changedAway.extraction.rooms[0].flooring[0].hardwoodConstructionOther)})`,
+);
+
+
+/* ── Answering one room for the whole property ─────────────────────────────────────────────────── */
+
+/*
+  A property is very often trimmed at one baseboard height throughout, so answering it room by room
+  is typing the same number five times. This is an OFFER: nothing copies unless the PM asks, and
+  every copy lands as an ordinary answer they can change afterwards.
+*/
+check(canApplyToAllRooms("room:0:baseboard:0:heightIn"), "baseboard height can be applied to every room");
+check(canApplyToAllRooms("room:2:wall:1:cutHeight"), "so can the flood cut height, which is a job-level decision");
+check(!canApplyToAllRooms("room:0:contents:size"), "contents size cannot — it genuinely differs room to room");
+check(!canApplyToAllRooms("room:0:flooring:0:hardwoodInstallation"), "and neither can flooring, which varies by room");
+
+const twoRoomRound = resolveRound(claim, twoRooms, {}).display;
+const heightIds = twoRoomRound.filter((q) => q.id.endsWith(":heightIn")).map((q) => q.id);
+if (heightIds.length > 1) {
+  const siblings = siblingQuestionIds(heightIds[0], twoRoomRound);
+  check(
+    siblings.length === heightIds.length - 1 && !siblings.includes(heightIds[0]),
+    `the same question in other rooms is found, excluding itself (got ${JSON.stringify(siblings)})`,
+  );
+  check(
+    siblings.every((id) => id.endsWith(":heightIn")),
+    "and only the same question, never a different one that happens to share a room",
+  );
+}
+check(siblingQuestionIds("room:0:contents:size", twoRoomRound).length === 0, "a question that is not uniform offers no siblings");
+
+/* ── Equipment stated for the job, not per room ────────────────────────────────────────────────── */
+
+/*
+  Reported: "was drying equipment used in this room? how many air movers? how many dehumidifiers?"
+  repeating for every room, for one fact the PM stated once for the whole job. Consolidated into a
+  single question per equipment type, with a count against each room.
+
+  Every check below is a condition that must turn it back OFF — the feature is only correct when it
+  fires exactly where the transcript genuinely never attributed the equipment.
+*/
+const unattributed = extractionWith([
+  room("Bedroom", { flooring: [everyRecordRoom("x").flooring[0]], equipment: [{ type: "air movers", quantity: null }] }),
+  room("Kitchen", { flooring: [everyRecordRoom("x").flooring[0]], equipment: [] }),
+]);
+check(equipmentNeedsConsolidating(withDerivedFields(unattributed)), "equipment mentioned with no quantity anywhere consolidates");
+
+// Already attributed: the transcript said how many go where, so this must not touch it.
+const attributed = extractionWith([
+  room("Bedroom", { flooring: [everyRecordRoom("x").flooring[0]], equipment: [{ type: "air movers", quantity: 3 }] }),
+  room("Kitchen", { flooring: [everyRecordRoom("x").flooring[0]], equipment: [] }),
+]);
+check(!equipmentNeedsConsolidating(withDerivedFields(attributed)), "a stated quantity anywhere means it was attributed — leave it alone");
+
+// Nothing said about equipment at all: the per-room "did you forget?" backstop is a DIFFERENT
+// question and must keep firing.
+const silent = extractionWith([
+  room("Bedroom", { flooring: [everyRecordRoom("x").flooring[0]] }),
+  room("Kitchen", { flooring: [everyRecordRoom("x").flooring[0]] }),
+]);
+check(!equipmentNeedsConsolidating(withDerivedFields(silent)), "a claim that never mentions equipment does not consolidate");
+
+// One room is not a repetition worth collapsing.
+const oneRoomOnly = extractionWith([
+  room("Bedroom", { flooring: [everyRecordRoom("x").flooring[0]], equipment: [{ type: "air movers", quantity: null }] }),
+]);
+check(!equipmentNeedsConsolidating(withDerivedFields(oneRoomOnly)), "a single-room claim keeps its per-room question");
+
+// A moisture map produces a measured per-room recommendation, which beats anything typed here.
+const mappedRooms = { bedroom: { equipment: { "air movers": 3 }, floorSquareFeet: null, wallRunFeet: null, ceilingSquareFeet: null, parentRoomKey: null } };
+check(!equipmentNeedsConsolidating(withDerivedFields(unattributed), mappedRooms), "a moisture map keeps the pre-filled per-room questions");
+
+/* ── The consolidated question replaces the per-room loop ──────────────────────────────────────── */
+
+const consolidated = resolveRound(claim, unattributed, {}).display;
+const consolidatedId = consolidatedEquipmentId("air movers");
+const asked = consolidated.find((q) => q.id === consolidatedId);
+check(asked !== undefined, `one consolidated question is asked (asked: ${consolidated.map((q) => q.id).join(", ")})`);
+check(asked?.roomName === null, "and it belongs to the claim, not to any one room — that is the point");
+check(
+  (asked?.kind.buckets ?? []).length === 2,
+  `with a count against each room that has work (got ${JSON.stringify(asked?.kind.buckets)})`,
+);
+check(
+  !consolidated.some((q) => /^room:\d+:equipment:/.test(q.id)),
+  `and the per-room equipment questions are gone (still asked: ${consolidated.filter((q) => q.id.includes("equipment")).map((q) => q.id).join(", ")})`,
+);
+
+// The one answer distributes across every room.
+const distributed = resolveRound(claim, unattributed, { [consolidatedId]: "0:4,1:2" });
+const distributedRooms = distributed.extraction.rooms;
+check(
+  distributedRooms[0].equipment.find((e) => e.type === "air movers")?.quantity === 4,
+  `the first room gets its share (got ${JSON.stringify(distributedRooms[0].equipment)})`,
+);
+check(
+  distributedRooms[1].equipment.find((e) => e.type === "air movers")?.quantity === 2,
+  `and so does a room that had no equipment record at all (got ${JSON.stringify(distributedRooms[1].equipment)})`,
+);
+
+// A room given none is recorded as asked, so the per-room backstop does not come straight back.
+const someNone = resolveRound(claim, unattributed, { [consolidatedId]: "0:6" });
+check(
+  someNone.extraction.rooms[1].equipmentAsked === true,
+  "a room given none is recorded as asked-and-none, not left to be asked again",
+);
+check(
+  !someNone.questions.some((q) => q.id === "room:1:equipment:used"),
+  `and its presence question does not reappear (open: ${someNone.questions.map((q) => q.id).join(", ")})`,
 );
 
 /* ── Nothing is asked that extraction could already know ───────────────────────────────────────── */

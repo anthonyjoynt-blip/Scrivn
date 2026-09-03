@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { GapCheckQuestion } from "@/lib/questions";
+import { type GapCheckQuestion, siblingQuestionIds } from "@/lib/questions";
 import { resolveRound, nextQuestions } from "@/lib/questionRound";
 import type { GeneratedDocuments, WaterLossExtraction } from "@/lib/types";
 import { evaluate, applyAnswer, isContentsSizeQuestion, isEmergencyOnlyQuestion, isEquipmentPresenceQuestion, isRepairOnlyQuestion, isWaterExtractionQuestion } from "@/lib/gapCheck";
@@ -1246,6 +1246,25 @@ ${asbestosSection}`;
                 if (measure) setMarkingQuestion({ question: q, measure });
               }}
               markedQuestionIds={Object.keys(scopeMarks)}
+              applyToAllCount={(q) => siblingQuestionIds(q.id, currentQuestions).length}
+              onApplyToAll={(q) => {
+                /*
+                  Copies this answer into the same question in every other room, as ordinary answers.
+
+                  Written into `answers` rather than straight into the tree so each copy stays an
+                  answer the PM can change — a property trimmed at one height throughout still has
+                  the odd room that is not, and that room is a normal edit rather than an undo.
+                */
+                const value = answers[q.id] ?? q.defaultValue;
+                if (value === undefined) return;
+                const siblings = siblingQuestionIds(q.id, currentQuestions);
+                if (siblings.length === 0) return;
+                setAnswers((prev) => {
+                  const next = { ...prev };
+                  for (const id of siblings) next[id] = value;
+                  return next;
+                });
+              }}
             />
           ))}
           {blockingQuestions.length > 0 && (

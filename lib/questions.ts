@@ -104,3 +104,50 @@ export interface GapCheckResult {
   /** Claim-level questions first, then per-room in mention order. */
   questions: GapCheckQuestion[];
 }
+
+/* ── Answering one room for the whole property ─────────────────────────────────────────────────── */
+
+/**
+ * Questions whose answer is usually the same in every room of a building.
+ *
+ * Baseboard height is the clearest case — a property is very often trimmed at one height throughout,
+ * so a PM answering it room by room is typing the same number five times. The same holds for what
+ * the trim is made of, and for how high a flood cut runs, which is a decision made for the job
+ * rather than per room.
+ *
+ * Deliberately NOT here: anything that genuinely varies by room. Flooring type, contents size and
+ * room dimensions differ room to room as a matter of course, and offering to copy them across would
+ * invite a wrong answer in four rooms to save typing in one.
+ *
+ * This only ever OFFERS. Nothing is copied unless the PM asks for it, every copy lands as an ordinary
+ * answer they can change, and declining costs nothing — see `siblingQuestionIds`.
+ */
+const UNIFORM_ACROSS_ROOMS = [
+  /^room:\d+:baseboard:\d+:heightIn$/,
+  /^room:\d+:baseboard:\d+:material$/,
+  // Both forms: the record-level action, and the one asked in the baseboard-absence chain before a
+  // record exists. Missing the record-level one meant the offer never appeared on a real claim.
+  /^room:\d+:baseboard:\d+:action$/,
+  /^room:\d+:baseboard:action$/,
+  /^room:\d+:wall:\d+:cutHeight$/,
+  /^room:\d+:ceiling:\d+:finish$/,
+];
+
+export function canApplyToAllRooms(questionId: string): boolean {
+  return UNIFORM_ACROSS_ROOMS.some((pattern) => pattern.test(questionId));
+}
+
+/**
+ * The same question in every OTHER room, by id.
+ *
+ * Ids are structured and positional (`room:1:baseboard:0:heightIn`), so "the same question elsewhere"
+ * is the same id with different numbers in it. Blanking every number is therefore the whole match —
+ * and it deliberately spans record indices too, since a property trimmed at one height is trimmed at
+ * that height on every run of baseboard, not just the first one in each room.
+ */
+export function siblingQuestionIds(questionId: string, round: GapCheckQuestion[]): string[] {
+  if (!canApplyToAllRooms(questionId)) return [];
+  const shape = (id: string) => id.replace(/\d+/g, "#");
+  const target = shape(questionId);
+  return round.filter((q) => q.id !== questionId && shape(q.id) === target).map((q) => q.id);
+}

@@ -267,6 +267,13 @@ export function evaluate(raw: WaterLossExtraction, suggestions?: EquipmentSugges
     });
   }
 
+  /*
+    Equipment stated for the job rather than per room is asked ONCE — see
+    `equipmentNeedsConsolidating` for every condition that turns this back off.
+  */
+  const consolidateEquipment = equipmentNeedsConsolidating(extraction, suggestions);
+  if (consolidateEquipment) questions.push(...consolidatedEquipmentQuestions(extraction));
+
   extraction.rooms.forEach((room, roomIndex) => {
     // What the moisture map measured for THIS room, if it was mapped at all. Undefined everywhere
     // else, and every use below is optional — an unmapped claim behaves exactly as it always did.
@@ -332,7 +339,8 @@ export function evaluate(raw: WaterLossExtraction, suggestions?: EquipmentSugges
     room.plumbingFixtures.forEach((p, i) => questions.push(...plumbingQuestions(roomIndex, room.roomName, i, p)));
     if (room.electricalPanel) questions.push(...panelQuestions(roomIndex, room.roomName, room.electricalPanel));
     if (room.stairs) questions.push(...stairsQuestions(roomIndex, room.roomName, room.stairs));
-    room.equipment.forEach((e, i) => {
+    // Replaced by the single consolidated question above when equipment was never room-attributed.
+    if (!consolidateEquipment) room.equipment.forEach((e, i) => {
       const suggested = derived?.equipment[e.type];
 
       if (e.quantity === null) {
@@ -394,7 +402,9 @@ export function evaluate(raw: WaterLossExtraction, suggestions?: EquipmentSugges
       asked separately of a sub-room is the same question twice with no new answer available.
     */
     if (!isSubRoom) {
-      questions.push(...equipmentPresenceQuestions(roomIndex, room));
+      // The presence backstop asks whether equipment was FORGOTTEN, which is a different question —
+      // but it is redundant once a consolidated question is already listing every room.
+      if (!consolidateEquipment) questions.push(...equipmentPresenceQuestions(roomIndex, room));
       // Cleaning and contents come last: they are about the room once the work in it is understood.
       questions.push(...windowCleaningQuestions(roomIndex, room));
       questions.push(...contentsQuestions(roomIndex, room));
@@ -1155,6 +1165,81 @@ function stairsQuestions(roomIndex: number, roomName: string, s: StairRecord): G
  * this room. See Room.equipmentAsked's doc comment for why a flag is needed here (contentsQuestions
  * right below doesn't need one — a size answer is itself proof of being asked).
  */
+/* ── Equipment stated for the job rather than per room ─────────────────────────────────────────── */
+
+/**
+ * The id of the one consolidated equipment question, per type.
+ *
+ * Claim-level rather than room-level, because the whole point is that it is not about one room.
+ */
+export function consolidatedEquipmentId(type: string): string {
+  return `equipment:allRooms:${type}`;
+}
+
+export function isConsolidatedEquipmentQuestion(questionId: string): boolean {
+  return questionId.startsWith("equipment:allRooms:");
+}
+
+/**
+ * Whether equipment was mentioned for the job without ever being attributed to a room.
+ *
+ * A PM says "six air movers and two dehus" for the whole property far more often than they walk it
+ * room by room assigning units. Extraction records what was said — equipment records with no
+ * quantity — and gap-check then asked "was drying equipment used in this room? how many air movers?
+ * how many dehumidifiers?" of EVERY room in turn, which is the same question three times per room
+ * for one fact the PM already stated once.
+ *
+ * Every condition here is a reason NOT to consolidate:
+ *
+ *   - Fewer than two rooms: there is no repetition to collapse, and a per-room question is clearer.
+ *   - Any stated quantity anywhere: the transcript DID attribute equipment, so the data is already
+ *     known and this must not touch it. This is the case most existing claims are in.
+ *   - No equipment mentioned at all: nothing to distribute. The per-room "was any used?" backstop is
+ *     a different question — it asks whether the PM forgot to mention equipment — and still fires.
+ *   - A moisture map exists: it produces a measured per-room recommendation, which is a better answer
+ *     than anything a PM would type into a consolidated box, and those questions arrive pre-filled
+ *     so the repetition being complained about does not bite.
+ */
+export function equipmentNeedsConsolidating(extraction: WaterLossExtraction, suggestions?: EquipmentSuggestions): boolean {
+  if (suggestions && Object.keys(suggestions).length > 0) return false;
+  const withWork = extraction.rooms.filter(roomHasWork);
+  if (withWork.length < 2) return false;
+  if (extraction.rooms.some((r) => r.equipment.some((e) => e.quantity !== null))) return false;
+  return extraction.rooms.some((r) => r.equipment.length > 0);
+}
+
+/** Equipment types mentioned anywhere on the claim, in the order first seen. */
+function equipmentTypesMentioned(extraction: WaterLossExtraction): string[] {
+  const seen: string[] = [];
+  for (const room of extraction.rooms) {
+    for (const e of room.equipment) if (!seen.includes(e.type)) seen.push(e.type);
+  }
+  return seen;
+}
+
+/**
+ * One question per equipment type, with a count against each room that has work in it.
+ *
+ * Split by type rather than one grid of every room-and-type pairing: a PM placing equipment thinks
+ * "where do the air movers go", then "where do the dehus go". A single control mixing both makes
+ * them hold two answers at once for no saving — it is still one screen either way.
+ */
+function consolidatedEquipmentQuestions(extraction: WaterLossExtraction): GapCheckQuestion[] {
+  const buckets = extraction.rooms
+    .map((room, index) => ({ room, index }))
+    .filter(({ room }) => roomHasWork(room))
+    .map(({ room, index }) => ({ key: String(index), label: room.roomName || `Room ${index + 1}` }));
+
+  return equipmentTypesMentioned(extraction)
+    .filter((type) => extraction.rooms.some((r) => r.equipment.some((e) => e.type === type && e.quantity === null)))
+    .map((type) => ({
+      id: consolidatedEquipmentId(type),
+      roomName: null,
+      prompt: `How many ${type} in each room? Leave a room blank if none go there.`,
+      kind: { type: "bucketCounts" as const, buckets, unit: type },
+    }));
+}
+
 function equipmentPresenceQuestions(roomIndex: number, room: Room): GapCheckQuestion[] {
   if (room.equipmentAsked || room.equipment.length > 0 || !roomHasWork(room)) return [];
   return [{ id: `room:${roomIndex}:equipment:used`, roomName: room.roomName, prompt: "Was drying equipment used in this room?", kind: { type: "yesNo" } }];
@@ -1433,6 +1518,36 @@ function ceilingFixtureQuestions(roomIndex: number, room: Room): GapCheckQuestio
  */
 export function applyAnswer(extraction: WaterLossExtraction, questionId: string, answer: string): WaterLossExtraction {
   const parts = questionId.split(":");
+
+  /*
+    The consolidated equipment answer distributes one tally across every room at once.
+
+    Written here rather than as N per-room answers because it IS one answer — the PM said "six air
+    movers" for the job, and splitting that into six writes the UI would have to keep in step is
+    exactly the bookkeeping this question exists to remove.
+
+    A room given zero is recorded as asked-and-none rather than left blank, so the per-room "was any
+    equipment used here?" backstop does not come straight back for it.
+  */
+  if (isConsolidatedEquipmentQuestion(questionId)) {
+    const type = questionId.slice("equipment:allRooms:".length);
+    const counts = parseBucketCounts(answer);
+    return {
+      ...extraction,
+      rooms: extraction.rooms.map((room, index) => {
+        if (!roomHasWork(room)) return room;
+        const count = counts[String(index)] ?? 0;
+        const existing = room.equipment.findIndex((e) => e.type === type);
+        const equipment =
+          existing === -1
+            ? count > 0
+              ? [...room.equipment, { type, quantity: count }]
+              : room.equipment
+            : room.equipment.map((e, i) => (i === existing ? { ...e, quantity: count } : e));
+        return { ...room, equipment, equipmentAsked: true };
+      }),
+    };
+  }
 
   if (questionId === "asbestos:taken") return { ...extraction, loss: { ...extraction.loss, asbestosSamplesTaken: isYes(answer) } };
   if (questionId === "asbestos:count") {
