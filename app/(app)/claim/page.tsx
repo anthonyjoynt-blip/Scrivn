@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { type GapCheckQuestion, siblingQuestionIds } from "@/lib/questions";
+import { type AskedQuestion, formatQuestionLog, hasQuestionLog, recordRound } from "@/lib/questionLog";
 import { resolveRound, nextQuestions } from "@/lib/questionRound";
 import type { GeneratedDocuments, WaterLossExtraction } from "@/lib/types";
 import { evaluate, applyAnswer, isContentsSizeQuestion, isEmergencyOnlyQuestion, isEquipmentPresenceQuestion, isRepairOnlyQuestion, isWaterExtractionQuestion } from "@/lib/gapCheck";
@@ -196,6 +197,14 @@ export default function Home() {
   const [transcript, setTranscript] = useState("");
   const [extraction, setExtraction] = useState<WaterLossExtraction | null>(null);
   const [answers, setAnswers] = useState<Record<string, string>>({});
+  /*
+    What was asked and answered, appended a round at a time — see `lib/questionLog.ts`.
+
+    Recorded rather than derived because nothing else keeps it: `answers` is emptied on every
+    Continue below and the displayed list is rebuilt per round, so a question's wording and its
+    position are gone the moment the round is committed.
+  */
+  const [questionLog, setQuestionLog] = useState<AskedQuestion[]>([]);
   const [documents, setDocuments] = useState<GeneratedDocuments | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [contentsTM, setContentsTM] = useState<ContentsTM>(emptyContentsTM());
@@ -517,6 +526,22 @@ export default function Home() {
     [sketch, moisture, claim.jobNumber, claim.customerName],
   );
 
+  /**
+   * The session as a text file: what was asked, in order, and what came back.
+   *
+   * Includes the round on screen right now as well as the committed ones — mid-flow is exactly when
+   * somebody exports this to describe a problem, and a log that stopped at the last submit would be
+   * missing the screen they are actually looking at.
+   */
+  const exportQuestionLog = useCallback(() => {
+    const inFlight = round
+      ? recordRound(questionLog.length === 0 ? 1 : questionLog[questionLog.length - 1]!.round + 1, round.display, round.applied, answers)
+      : [];
+    const text = formatQuestionLog(claim, questionLog, inFlight);
+    const url = `data:text/plain;charset=utf-8,${encodeURIComponent(text)}`;
+    downloadDataUrl(url, claimFileName(claim.jobNumber, claim.customerName, "Questions and answers", "txt"));
+  }, [claim, questionLog, round, answers]);
+
   const downloadSketchJpeg = useCallback(
     async (render: SketchRender) => {
       const image = await renderSketchJpeg(sketch, moisture, render);
@@ -590,6 +615,7 @@ export default function Home() {
     setSketchAttachments(defaultSketchAttachments());
     setSketchImages([]);
     setMarkingQuestion(null);
+    setQuestionLog([]);
   }
 
   function handleToggleTrade(trade: Trade) {
@@ -974,6 +1000,12 @@ export default function Home() {
       .filter((key): key is string => key !== null);
     if (retiring.length > 0) setResolvedSuggestions((prev) => [...new Set([...prev, ...retiring])]);
 
+    // Recorded before the answers are cleared, since clearing them is what loses this.
+    setQuestionLog((prev) => [
+      ...prev,
+      ...recordRound(prev.length === 0 ? 1 : prev[prev.length - 1]!.round + 1, round.display, round.applied, answers),
+    ]);
+
     setClaim(round.claim);
     setExtraction(round.extraction);
     setAnswers({});
@@ -1309,6 +1341,11 @@ ${asbestosSection}`;
             <button className="btn-secondary" onClick={reset}>
               Start Over
             </button>
+            {/* Offered mid-flow on purpose: this gets exported to describe a problem while it is on
+                screen, so it covers the current round as well as the submitted ones. */}
+            <button className="btn-secondary" onClick={exportQuestionLog}>
+              Export questions &amp; answers
+            </button>
             <button className="btn-primary" onClick={handleContinue} disabled={!allAnswered}>
               Continue
             </button>
@@ -1351,6 +1388,13 @@ ${asbestosSection}`;
             <button className="btn-secondary" onClick={reset} disabled={step === "generating"}>
               Start Over
             </button>
+            {/* Also here, where the whole session is complete — the natural point to keep a record
+                of what was asked alongside the documents it produced. */}
+            {hasQuestionLog(questionLog) && (
+              <button className="btn-secondary" onClick={exportQuestionLog} disabled={step === "generating"}>
+                Export questions &amp; answers
+              </button>
+            )}
             {step === "generating" && (
               <div className="loading-row">
                 <span className="spinner" /> Generating documents with Claude…

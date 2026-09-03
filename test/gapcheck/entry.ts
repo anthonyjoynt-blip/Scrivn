@@ -13,3 +13,4 @@ export { emptyClaimInfo, claimInfoQuestions, isClaimInfoQuestion, applyClaimAnsw
 export { nextQuestions, resolveRound } from "@/lib/questionRound";
 export { canApplyToAllRooms, siblingQuestionIds } from "@/lib/questions";
 export { equipmentNeedsConsolidating, consolidatedEquipmentId } from "@/lib/gapCheck";
+export { recordRound, formatQuestionLog, hasQuestionLog } from "@/lib/questionLog";

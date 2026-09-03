@@ -56,6 +56,9 @@ const {
   siblingQuestionIds,
   equipmentNeedsConsolidating,
   consolidatedEquipmentId,
+  recordRound,
+  formatQuestionLog,
+  hasQuestionLog,
 } = mod;
 
 let passed = 0;
@@ -1079,6 +1082,13 @@ check(
   (asked?.kind.buckets ?? []).length === 2,
   `with a count against each room that has work (got ${JSON.stringify(asked?.kind.buckets)})`,
 );
+// The export of this exact question is what showed `0:2,1:2` in a real session.
+const askedLog = recordRound(1, [asked], [asked], { [consolidatedId]: "0:2,1:2" })[0].answer;
+check(
+  askedLog.includes("Bedroom") && askedLog.includes("Kitchen") && !askedLog.includes("0:"),
+  `the live consolidated question exports by room name (got ${JSON.stringify(askedLog)})`,
+);
+
 check(
   !consolidated.some((q) => /^room:\d+:equipment:/.test(q.id)),
   `and the per-room equipment questions are gone (still asked: ${consolidated.filter((q) => q.id.includes("equipment")).map((q) => q.id).join(", ")})`,
@@ -1106,6 +1116,141 @@ check(
   !someNone.questions.some((q) => q.id === "room:1:equipment:used"),
   `and its presence question does not reappear (open: ${someNone.questions.map((q) => q.id).join(", ")})`,
 );
+
+
+/* ── The session log: what was asked, in order, and what came back ─────────────────────────────── */
+
+/*
+  Recorded rather than derived, and the reason matters: `answers` is emptied on every Continue and
+  the displayed list is rebuilt per round, so a question's wording and its position are gone the
+  moment that round is committed. The extraction tree keeps the resulting VALUES, which cannot say
+  what was asked, in what words, or in what order.
+*/
+const logRound = resolveRound(claim, oneRoom, {
+  "room:0:ceiling:0:finish": "Texture",
+  "room:0:waterExtraction:required": "Yes",
+});
+const recorded = recordRound(1, logRound.display, logRound.applied, {
+  "room:0:ceiling:0:finish": "Texture",
+  "room:0:waterExtraction:required": "Yes",
+});
+
+check(recorded.length === logRound.display.length, "every question that was shown is recorded, answered or not");
+check(
+  recorded.map((e) => e.prompt).join("|") === logRound.display.map((q) => q.prompt).join("|"),
+  "in the order they were on screen, not regrouped",
+);
+
+const finishEntry = recorded.find((e) => e.prompt.includes("Texture or smooth"));
+check(finishEntry?.answer === "Texture", `an answered question carries its answer (got ${JSON.stringify(finishEntry?.answer)})`);
+check(finishEntry?.applied === true, "and is marked as having reached the claim");
+check(
+  recorded.some((e) => e.answer === "" && e.applied === false),
+  "a question shown but never answered is recorded as unanswered rather than dropped",
+);
+
+// The room a question belonged to travels with it; claim-level questions say so.
+check(
+  recorded.some((e) => e.roomName === "Bedroom"),
+  `entries carry their room (rooms seen: ${JSON.stringify([...new Set(recorded.map((e) => e.roomName))])})`,
+);
+
+/* ── Answers read as English, not as storage ───────────────────────────────────────────────────── */
+
+/*
+  Several kinds submit a machine format the screen never shows. A yes/no button submits the literal
+  "yes" whatever its label says, and a tally submits `key:count` — which for the consolidated
+  equipment question is keyed by ROOM INDEX, so the raw answer is `0:2,1:2`. A log whose questions
+  are in English and whose answers are not defeats the purpose of exporting it.
+*/
+// Constructed rather than fished out of a fixture, so this cannot silently skip: the equipment
+// question's buckets are keyed by ROOM INDEX, which is the case that produced `0:2,1:2` on a real
+// export. The same shape with real bucket ids is asserted against the live question further down.
+const tally = {
+  id: "equipment:allRooms:air movers",
+  roomName: null,
+  prompt: "How many air movers in each room?",
+  kind: { type: "bucketCounts", buckets: [{ key: "0", label: "Kitchen" }, { key: "1", label: "Living Room" }], unit: "air movers" },
+};
+const tallied = recordRound(1, [tally], [tally], { [tally.id]: "0:2,1:3" })[0].answer;
+check(tallied === "Kitchen × 2, Living Room × 3", `a tally exports by room name, not by index (got ${JSON.stringify(tallied)})`);
+check(!/\d+:\d+/.test(tallied), "with no trace of the stored key:count format");
+check(
+  recordRound(1, [tally], [tally], { [tally.id]: "0:2" })[0].answer === "Kitchen × 2",
+  "a room left blank is omitted rather than shown as zero",
+);
+check(recordRound(1, [tally], [tally], { [tally.id]: "" })[0].answer === "", "an untouched tally is 'not answered', not a false 'none'");
+
+// A custom yes/no label is what the PM pressed, so it is what the log has to say.
+const labelled = {
+  id: "x",
+  roomName: null,
+  prompt: "Is the baseboard coming off?",
+  kind: { type: "yesNo", yesLabel: "Detaching", noLabel: "Staying in place" },
+};
+check(
+  recordRound(1, [labelled], [labelled], { x: "yes" })[0].answer === "Detaching",
+  "a yes/no exports the label that was on the button, not the stored \"yes\"",
+);
+check(
+  recordRound(1, [labelled], [labelled], { x: "no" })[0].answer === "Staying in place",
+  "and the same for no",
+);
+
+const plan = { id: "y", roomName: "Kitchen", prompt: "How many?", kind: { type: "equipmentPlan", suggested: 3, unit: "air movers" } };
+check(
+  recordRound(1, [plan], [plan], { y: "none" })[0].answer.toLowerCase().includes("no air movers"),
+  "declining equipment reads as a decision, not the bare word \"none\"",
+);
+check(recordRound(1, [plan], [plan], { y: "4" })[0].answer === "4 air movers", "and a count carries its unit");
+
+/* ── The exported text ─────────────────────────────────────────────────────────────────────────── */
+
+const text = formatQuestionLog(claim, recorded);
+check(text.includes(claim.jobNumber), `the export names the job (${claim.jobNumber})`);
+check(text.includes(claim.customerName), "and the customer, so the file identifies itself");
+check(text.includes("Bedroom"), "rooms appear as headings");
+check(text.includes("Q: ") && text.includes("A: "), "each entry pairs a question with an answer");
+check(text.includes("(not answered)"), "an unanswered question says so rather than showing a blank");
+
+/*
+  A room comes back around within one round whenever an answer reveals a follow-up. The export keeps
+  it where it happened and marks the heading, rather than merging the two runs into an order nobody
+  saw on screen — merging would misreport the very thing this export exists to show.
+*/
+const revisit = [
+  { round: 1, roomName: "Kitchen", prompt: "Flooring?", answer: "Laminate", applied: true },
+  { round: 1, roomName: "Living Room", prompt: "Flooring?", answer: "Carpet", applied: true },
+  { round: 1, roomName: "Kitchen", prompt: "How much laminate?", answer: "Full", applied: true },
+];
+const revisitText = formatQuestionLog(claim, revisit);
+check(revisitText.includes("Kitchen (continued)"), `a room revisited later in the round is marked (got:
+${revisitText})`);
+check(
+  revisitText.indexOf("Living Room") < revisitText.indexOf("Kitchen (continued)"),
+  "and the revisit stays where it happened rather than being merged upward",
+);
+check(
+  (revisitText.match(/^  Kitchen$/gm) ?? []).length === 1,
+  "only the first appearance is unmarked",
+);
+
+// A question shown, answered, then withdrawn is called out — "I answered that and it did not take"
+// is exactly what somebody reports, so the log has to be able to show it.
+const withdrawn = recordRound(1, logRound.display, [], { "room:0:ceiling:0:finish": "Texture" });
+check(
+  formatQuestionLog(claim, withdrawn).includes("[not applied"),
+  "an answer that never reached the claim is flagged, not shown as an ordinary answer",
+);
+
+// Rounds stay separated, and the in-flight one is labelled as not yet submitted.
+const twoRoundText = formatQuestionLog(claim, recorded, recordRound(2, logRound.display, [], {}));
+check(twoRoundText.includes("Round 1") && twoRoundText.includes("Round 2"), "rounds are kept apart");
+check(twoRoundText.includes("not yet submitted"), "and the round still on screen is marked as such");
+
+check(!hasQuestionLog([]), "an empty log reports as empty, so the export is not offered with nothing in it");
+check(hasQuestionLog(recorded), "and a real one does not");
+check(formatQuestionLog(claim, []).includes("No questions have been asked yet"), "an empty export still says what it is");
 
 /* ── Nothing is asked that extraction could already know ───────────────────────────────────────── */
 
