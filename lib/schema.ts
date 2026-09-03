@@ -255,6 +255,20 @@ export const extractionSchema: JsonSchema = obj({
 
 const flooringDetailSchema = obj({
   carpetStyle: nullableEnumOf("PILE", "BERBER", "RUBBER_BACKED_GLUE_DOWN"),
+  // Reported: "Is the hardwood floating or glued down?" asked after the PM said "glued". These are
+  // things somebody says while looking at a floor, so they belong in extraction, not in a question.
+  hardwoodConstruction: nullableEnumOf("SOLID", "ENGINEERED"),
+  hardwoodInstallation: nullableEnumOf("FLOATING", "GLUED"),
+  vinylInstallation: nullableEnumOf("GLUED", "SNAPLOCK_FLOATING"),
+});
+
+const doorDetailSchema = obj({
+  doorType: nullableEnumOf("COLONIAL", "SOLID_CORE", "HOLLOW_CORE", "OTHER"),
+  unitType: nullableEnumOf("PRE_HUNG", "SLAB_ONLY"),
+});
+
+const cabinetryDetailSchema = obj({
+  extent: nullableEnumOf("UPPERS", "LOWERS", "FULL_HEIGHT"),
 });
 
 const baseboardDetailSchema = obj({
@@ -278,6 +292,16 @@ const roomDetailSchema = obj({
   baseboard: arr(baseboardDetailSchema),
   walls: arr(wallDetailSchema),
   ceilings: arr(ceilingDetailSchema),
+  doors: arr(doorDetailSchema),
+  cabinetry: arr(cabinetryDetailSchema),
+  /*
+    Room-level, not per-record: light fixtures were cut from extraction as a whole category, so there
+    are no records to describe — but "are there light fixtures?" was still being asked of a PM who had
+    just described one, while that same fixture appeared in the generated scope document. These two
+    fields are the smallest thing that closes that gap without re-enabling the whole record type.
+  */
+  lightFixturesPresent: nullableBool(),
+  lightFixtureCount: nullableInt(),
 });
 
 /**

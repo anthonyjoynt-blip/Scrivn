@@ -18,6 +18,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { EXTRACTABLE, DELIBERATELY_ASKED, fieldKeyFor } from "./extractable.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..", "..");
@@ -826,6 +827,83 @@ check(
 
 const premature = findPrematureQuestions(claim, twoRooms);
 check(premature.length === 0, `no question is asked before its trigger is settled\n         ${premature.join("\n         ")}`);
+
+
+/* ── Nothing is asked that extraction could already know ───────────────────────────────────────── */
+
+/*
+  Reported three times before the pattern was visible: hardwood installation asked after the PM said
+  "glued", insulation-affected asked after they said it was, light fixtures asked while a fixture the
+  PM described sat in the generated scope document.
+
+  One cause. Gap-check sees ONLY the extraction tree; document generation is also handed the
+  transcript. A fact with no home in the tree is therefore invisible to the questions and visible to
+  the document — which is exactly how a PM ends up being asked about something the finished scope
+  already states.
+
+  So every question is checked against `extractable.mjs`: either extraction can fill the field, or
+  somebody wrote down why it cannot. An unlisted field fails, which turns the next instance of this
+  into a failing test rather than another round of testing.
+*/
+/*
+  Flooring branches on type, so a carpet-only fixture never reaches the hardwood or vinyl questions —
+  and those are where one of the three reported cases actually lived. The audit is only ever as good
+  as the shapes it walks, so every flooring type gets a record here.
+*/
+const allFlooringTypes = extractionWith([
+  room("Flooring Sampler", {
+    flooring: [
+      { ...everyRecordRoom("x").flooring[0], type: "HARDWOOD" },
+      { ...everyRecordRoom("x").flooring[0], type: "VINYL" },
+      { ...everyRecordRoom("x").flooring[0], type: "LAMINATE" },
+      { ...everyRecordRoom("x").flooring[0], type: "TILE" },
+      { ...everyRecordRoom("x").flooring[0], type: "CONCRETE" },
+    ],
+  }),
+]);
+
+const everyQuestionId = new Set();
+for (const roomSet of [oneRoom, twoRooms, allFlooringTypes]) {
+  const explore = (claimInfo, extraction, depth) => {
+    if (depth > 12) return;
+    const questions = nextQuestions(claimInfo, withDerivedFields(extraction));
+    if (questions.length === 0) return;
+    let c = claimInfo;
+    let e = withDerivedFields(extraction);
+    for (const q of questions) {
+      everyQuestionId.add(q.id);
+      const answer = answerFor(q, () => undefined);
+      if (isClaimInfoQuestion(q.id)) {
+        const r = applyClaimAnswer(c, e, q.id, answer);
+        c = r.claim;
+        e = r.extraction;
+      } else {
+        e = applyAnswer(e, q.id, answer);
+      }
+    }
+    explore(c, withDerivedFields(e), depth + 1);
+  };
+  explore(claim, roomSet, 0);
+}
+
+const unaccounted = [...everyQuestionId]
+  .map((id) => ({ id, key: fieldKeyFor(id) }))
+  .filter(({ key }) => !EXTRACTABLE.has(key) && !DELIBERATELY_ASKED.has(key));
+
+check(
+  unaccounted.length === 0,
+  [
+    "every question's field is either extractable or documented as deliberately asked.",
+    "         Unaccounted for — decide whether extraction should capture these,",
+    "         then list them in test/gapcheck/extractable.mjs:",
+    ...unaccounted.map(({ id, key }) => `           ${key}  (from ${id})`),
+  ].join("\n"),
+);
+
+// The tables must describe reality, not an aspiration: a field claimed extractable that no question
+// ever gates on is fine, but one claimed BOTH extractable and deliberately-asked is a contradiction.
+const contradictions = [...DELIBERATELY_ASKED.keys()].filter((k) => EXTRACTABLE.has(k));
+check(contradictions.length === 0, `no field is listed as both extractable and deliberately asked (got ${contradictions.join(", ")})`);
 
 rmSync(outDir, { recursive: true, force: true });
 

@@ -28,12 +28,30 @@ here is indistinguishable from something they actually said.
 STRUCTURE — this is what makes the answer usable at all:
 - Return exactly one entry in "rooms" per room listed below, in the SAME ORDER as that list.
 - Within each room, return exactly one entry per record, in the same order, for each of flooring,
-  baseboard, walls and ceilings. The counts are given per room below. A room with zero of something
-  gets an empty array for it.
+  baseboard, walls, ceilings, doors and cabinetry. The counts are given per room below. A room with
+  zero of something gets an empty array for it.
+- lightFixturesPresent and lightFixtureCount are room-level: one value each per room entry, not
+  arrays and not per record.
 - If a count does not match, the whole room's detail is discarded rather than misapplied, so match
   the counts exactly even where every field in an entry is UNKNOWN.
 
 WHAT EACH FIELD MEANS:
+- flooring.hardwoodConstruction — only for hardwood: SOLID or ENGINEERED, where the transcript says.
+- flooring.hardwoodInstallation — only for hardwood: FLOATING or GLUED. "Glued down" is GLUED.
+- flooring.vinylInstallation — only for vinyl PLANK: GLUED or SNAPLOCK_FLOATING. "Click-lock",
+  "floating" and "snap together" are all SNAPLOCK_FLOATING. UNKNOWN for sheet vinyl, which is glued
+  by definition and is never asked about.
+- doors.doorType — COLONIAL, SOLID_CORE, HOLLOW_CORE or OTHER, where the transcript names it.
+- doors.unitType — PRE_HUNG or SLAB_ONLY. "Just the slab" is SLAB_ONLY; "pre-hung unit" is PRE_HUNG.
+- cabinetry.extent — UPPERS, LOWERS or FULL_HEIGHT. "Upper cabinets" is UPPERS, "the base run" or
+  "lowers" is LOWERS, a floor-to-ceiling pantry or tall unit is FULL_HEIGHT.
+- lightFixturesPresent — YES when the transcript describes ANY ceiling light fixture in this room
+  being taken down, reset, replaced or affected — "there's a light fixture on the bedroom ceiling to
+  take down and put back" is YES. NO only when it says there are none. This is room-level, one value
+  for the whole room, not per record.
+- lightFixtureCount — how many of them, where a number is stated. Sentinel (-1) otherwise; do not
+  infer "one" from a singular noun, since a PM saying "the light fixture" may mean the only one they
+  happened to mention.
 - flooring.carpetStyle — only for carpet. "Berber" is BERBER, "plush"/"cut pile"/"pile" is PILE,
   a glue-down rubber-backed commercial carpet is RUBBER_BACKED_GLUE_DOWN. UNKNOWN for any
   non-carpet flooring, and for carpet whose style was never named.
@@ -67,6 +85,8 @@ export function extractionDetailUserMessage(transcript: string, extraction: Wate
         `${room.baseboard.length} baseboard`,
         `${room.walls.length} wall`,
         `${room.ceilings.length} ceiling`,
+        `${room.doors.length} door`,
+        `${room.cabinetry.length} cabinetry`,
       ].join(", ");
       return `${i + 1}. ${room.roomName} — ${counts}`;
     })

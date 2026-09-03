@@ -80,16 +80,22 @@ const BEDROOM = room("Bedroom", {
   ceilings: [ceiling()],
 });
 
-const FULL_DETAIL = {
-  rooms: [
-    {
-      flooring: [{ carpetStyle: "BERBER" }],
-      baseboard: [{ material: "VINYL_PVC_COMPOSITE", mdfProfile: "UNKNOWN" }],
-      walls: [{ cutHeight: "TWO_FOOT", insulationType: "UNKNOWN" }],
-      ceilings: [{ textureStyle: "UNKNOWN", aboveInsulationAffected: "YES", aboveInsulationType: "UNKNOWN" }],
-    },
-  ],
-};
+/** A detail entry for a room with one of each record — the shape call 2 is asked to return. */
+function detailRoom(overrides = {}) {
+  return {
+    flooring: [{ carpetStyle: "BERBER", hardwoodConstruction: "UNKNOWN", hardwoodInstallation: "UNKNOWN", vinylInstallation: "UNKNOWN" }],
+    baseboard: [{ material: "VINYL_PVC_COMPOSITE", mdfProfile: "UNKNOWN" }],
+    walls: [{ cutHeight: "TWO_FOOT", insulationType: "UNKNOWN" }],
+    ceilings: [{ textureStyle: "UNKNOWN", aboveInsulationAffected: "YES", aboveInsulationType: "UNKNOWN" }],
+    doors: [],
+    cabinetry: [],
+    lightFixturesPresent: "UNKNOWN",
+    lightFixtureCount: -1,
+    ...overrides,
+  };
+}
+
+const FULL_DETAIL = { rooms: [detailRoom()] };
 
 /* ── The detail actually lands ─────────────────────────────────────────────────────────────────── */
 
@@ -110,9 +116,13 @@ check(r.baseboard[0].mdfProfile === null, `and so does an UNKNOWN profile (got $
   these hands back a shape that does not match, and every one must leave the room untouched.
 */
 const misaligned = [
-  ["one wall too many", { flooring: [{ carpetStyle: "BERBER" }], baseboard: [{ material: "MDF", mdfProfile: "FLAT" }], walls: [{ cutHeight: "TWO_FOOT", insulationType: "UNKNOWN" }, { cutHeight: "FULL_WALL", insulationType: "UNKNOWN" }], ceilings: [{ textureStyle: "UNKNOWN", aboveInsulationAffected: "YES", aboveInsulationType: "UNKNOWN" }] }],
-  ["a missing flooring entry", { flooring: [], baseboard: [{ material: "MDF", mdfProfile: "FLAT" }], walls: [{ cutHeight: "TWO_FOOT", insulationType: "UNKNOWN" }], ceilings: [{ textureStyle: "UNKNOWN", aboveInsulationAffected: "YES", aboveInsulationType: "UNKNOWN" }] }],
-  ["no ceilings at all", { flooring: [{ carpetStyle: "BERBER" }], baseboard: [{ material: "MDF", mdfProfile: "FLAT" }], walls: [{ cutHeight: "TWO_FOOT", insulationType: "UNKNOWN" }], ceilings: [] }],
+  ["one wall too many", detailRoom({ walls: [{ cutHeight: "TWO_FOOT", insulationType: "UNKNOWN" }, { cutHeight: "FULL_WALL", insulationType: "UNKNOWN" }] })],
+  ["a missing flooring entry", detailRoom({ flooring: [] })],
+  ["no ceilings at all", detailRoom({ ceilings: [] })],
+  // Doors and cabinetry joined the detail pass later; a mismatch in either must discard the room
+  // exactly as one in the original four does.
+  ["an extra door", detailRoom({ doors: [{ doorType: "COLONIAL", unitType: "PRE_HUNG" }] })],
+  ["an extra cabinetry run", detailRoom({ cabinetry: [{ extent: "UPPERS" }] })],
 ];
 for (const [label, roomDetail] of misaligned) {
   const out = mergeDetail(tree([BEDROOM]), { rooms: [roomDetail] }).rooms[0];
@@ -139,7 +149,9 @@ for (const [label, detail] of [["an empty response", { rooms: [] }], ["a missing
 /* ── Call 1 always wins where the two overlap ──────────────────────────────────────────────────── */
 
 const alreadyKnown = tree([room("Bedroom", { flooring: [flooring("CARPET", { carpetStyle: "PILE" })], baseboard: [], walls: [], ceilings: [] })]);
-const overridden = mergeDetail(alreadyKnown, { rooms: [{ flooring: [{ carpetStyle: "BERBER" }], baseboard: [], walls: [], ceilings: [] }] });
+const overridden = mergeDetail(alreadyKnown, {
+  rooms: [detailRoom({ flooring: [{ carpetStyle: "BERBER", hardwoodConstruction: "UNKNOWN", hardwoodInstallation: "UNKNOWN", vinylInstallation: "UNKNOWN" }], baseboard: [], walls: [], ceilings: [] })],
+});
 check(
   overridden.rooms[0].flooring[0].carpetStyle === "PILE",
   `the detail pass never overwrites what call 1 already captured (got ${overridden.rooms[0].flooring[0].carpetStyle})`,
@@ -181,6 +193,45 @@ const message = extractionDetailUserMessage("some transcript", tree([BEDROOM, ro
 check(message.includes("1. Bedroom — 1 flooring, 1 baseboard, 1 wall, 1 ceiling"), `the message states the first room's counts:\n${message.slice(0, 300)}`);
 check(message.includes("2. Closet — 1 flooring, 0 baseboard, 0 wall, 0 ceiling"), "and the second room's, zeroes included");
 check(message.includes("some transcript"), "and carries the transcript");
+
+
+/* ── The fields added after three separate bug reports ─────────────────────────────────────────── */
+
+/*
+  Hardwood installation, door spec, cabinetry extent and light-fixture presence were all being ASKED
+  of PMs who had already stated them — the transcript said so, but the fact had nowhere to live in
+  the tree, so gap-check could not see it. Each of these is that gap closed.
+*/
+const SPEC_ROOM = room("Spec", {
+  flooring: [flooring("HARDWOOD")],
+  doors: [{ location: "Closet", action: "REMOVE_AND_REPLACE", slabOnly: null, doorType: null, unitType: null, saveHardware: null }],
+  cabinetry: [{ location: "Upper run", action: "REMOVE_AND_REPLACE", extent: null, grade: null }],
+});
+const specDetail = {
+  rooms: [{
+    flooring: [{ carpetStyle: "UNKNOWN", hardwoodConstruction: "ENGINEERED", hardwoodInstallation: "GLUED", vinylInstallation: "UNKNOWN" }],
+    baseboard: [], walls: [], ceilings: [],
+    doors: [{ doorType: "HOLLOW_CORE", unitType: "SLAB_ONLY" }],
+    cabinetry: [{ extent: "UPPERS" }],
+    lightFixturesPresent: "YES",
+    lightFixtureCount: 1,
+  }],
+};
+const spec = mergeDetail(tree([SPEC_ROOM]), specDetail).rooms[0];
+check(spec.flooring[0].hardwoodInstallation === "GLUED", `"glued down" reaches the tree (got ${spec.flooring[0].hardwoodInstallation})`);
+check(spec.flooring[0].hardwoodConstruction === "ENGINEERED", `and so does the construction (got ${spec.flooring[0].hardwoodConstruction})`);
+check(spec.doors[0].doorType === "HOLLOW_CORE" && spec.doors[0].unitType === "SLAB_ONLY", "door type and unit type merge");
+check(spec.cabinetry[0].extent === "UPPERS", `cabinetry extent merges (got ${spec.cabinetry[0].extent})`);
+check(spec.ceilingLightFixturesPresent === true, `light fixtures are known present without being asked (got ${spec.ceilingLightFixturesPresent})`);
+check(spec.ceilingLightFixtureCount === 1, `and counted (got ${spec.ceilingLightFixtureCount})`);
+
+// The sentinel for "no number stated" must not become a count of -1 in somebody's scope.
+const noCount = mergeDetail(tree([SPEC_ROOM]), { rooms: [{ ...specDetail.rooms[0], lightFixtureCount: -1 }] }).rooms[0];
+check(noCount.ceilingLightFixtureCount === null, `an unstated count stays null, never -1 (got ${noCount.ceilingLightFixtureCount})`);
+
+// These are the reason the pass fires at all now — a hardwood floor alone should trigger it.
+check(needsDetailPass(tree([room("H", { flooring: [flooring("HARDWOOD")] })])), "a hardwood floor alone warrants the detail pass");
+check(needsDetailPass(tree([room("D", { doors: [{ location: "x", action: "REMOVE_AND_REPLACE", slabOnly: null, doorType: null, unitType: null, saveHardware: null }] })])), "as does a door with no spec");
 
 rmSync(outDir, { recursive: true, force: true });
 

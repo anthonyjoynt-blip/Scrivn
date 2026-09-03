@@ -554,7 +554,12 @@ function baseboardCompletenessQuestions(roomIndex: number, room: Room): GapCheck
     {
       id: `room:${roomIndex}:baseboard:action`,
       roomName: room.roomName,
-      prompt: "If so, are they being detached only, removed and replaced, or is it just shoe mold/quarter round?",
+      /*
+        Stands on its own. It read "If so, are they being detached only..." — but the "if" referred to
+        a presence question the PM may never have seen, so the sentence pointed at nothing. A prompt
+        has to make sense to whoever is looking at it, not to whoever wrote the branch above it.
+      */
+      prompt: "Are the baseboards being detached only, removed and replaced, or is it just shoe mold/quarter round?",
       kind: { type: "choice", options: BASEBOARD_ACTION_OPTIONS },
     },
     {

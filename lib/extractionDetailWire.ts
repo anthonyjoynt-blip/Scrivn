@@ -1,4 +1,10 @@
 import type {
+  CabinetryExtent,
+  DoorType,
+  DoorUnitType,
+  HardwoodConstruction,
+  HardwoodInstallation,
+  VinylInstallation,
   BaseboardMdfProfile,
   BaseboardMaterial,
   CarpetStyle,
@@ -23,6 +29,16 @@ import type {
 
 export interface FlooringDetailWire {
   carpetStyle: string;
+  hardwoodConstruction: string;
+  hardwoodInstallation: string;
+  vinylInstallation: string;
+}
+export interface DoorDetailWire {
+  doorType: string;
+  unitType: string;
+}
+export interface CabinetryDetailWire {
+  extent: string;
 }
 export interface BaseboardDetailWire {
   material: string;
@@ -42,6 +58,10 @@ export interface RoomDetailWire {
   baseboard: BaseboardDetailWire[];
   walls: WallDetailWire[];
   ceilings: CeilingDetailWire[];
+  doors: DoorDetailWire[];
+  cabinetry: CabinetryDetailWire[];
+  lightFixturesPresent: string;
+  lightFixtureCount: number;
 }
 export interface ExtractionDetailWire {
   rooms: RoomDetailWire[];
@@ -55,6 +75,11 @@ function toTriState(s: string | undefined): boolean | null {
   if (s === "YES") return true;
   if (s === "NO") return false;
   return null;
+}
+
+/** -1 is the "not stated" sentinel; anything below zero is not a count either way. */
+function intOrNull(n: number | undefined): number | null {
+  return n === undefined || !Number.isInteger(n) || n < 0 ? null : n;
 }
 
 /**
@@ -74,7 +99,9 @@ export function mergeDetail(extraction: WaterLossExtraction, detail: ExtractionD
       d.flooring?.length === room.flooring.length &&
       d.baseboard?.length === room.baseboard.length &&
       d.walls?.length === room.walls.length &&
-      d.ceilings?.length === room.ceilings.length;
+      d.ceilings?.length === room.ceilings.length &&
+      d.doors?.length === room.doors.length &&
+      d.cabinetry?.length === room.cabinetry.length;
     if (!aligned) return room;
 
     return {
@@ -82,6 +109,9 @@ export function mergeDetail(extraction: WaterLossExtraction, detail: ExtractionD
       flooring: room.flooring.map((f, i) => ({
         ...f,
         carpetStyle: f.carpetStyle ?? enumOrNull<CarpetStyle>(d.flooring[i]?.carpetStyle),
+        hardwoodConstruction: f.hardwoodConstruction ?? enumOrNull<HardwoodConstruction>(d.flooring[i]?.hardwoodConstruction),
+        hardwoodInstallation: f.hardwoodInstallation ?? enumOrNull<HardwoodInstallation>(d.flooring[i]?.hardwoodInstallation),
+        vinylInstallation: f.vinylInstallation ?? enumOrNull<VinylInstallation>(d.flooring[i]?.vinylInstallation),
       })),
       baseboard: room.baseboard.map((b, i) => ({
         ...b,
@@ -93,6 +123,21 @@ export function mergeDetail(extraction: WaterLossExtraction, detail: ExtractionD
         cutHeight: w.cutHeight ?? enumOrNull<WallDrywallCutHeight>(d.walls[i]?.cutHeight),
         insulationType: w.insulationType ?? enumOrNull<InsulationType>(d.walls[i]?.insulationType),
       })),
+      doors: room.doors.map((dr, i) => ({
+        ...dr,
+        doorType: dr.doorType ?? enumOrNull<DoorType>(d.doors[i]?.doorType),
+        unitType: dr.unitType ?? enumOrNull<DoorUnitType>(d.doors[i]?.unitType),
+      })),
+      cabinetry: room.cabinetry.map((c, i) => ({
+        ...c,
+        extent: c.extent ?? enumOrNull<CabinetryExtent>(d.cabinetry[i]?.extent),
+      })),
+      /*
+        Room-level, so no alignment to check — but still `?? existing` for the same reason every
+        other merge here is: call 1 wins wherever the two could ever overlap.
+      */
+      ceilingLightFixturesPresent: room.ceilingLightFixturesPresent ?? toTriState(d.lightFixturesPresent),
+      ceilingLightFixtureCount: room.ceilingLightFixtureCount ?? intOrNull(d.lightFixtureCount),
       ceilings: room.ceilings.map((c, i) => ({
         ...c,
         textureStyle: c.textureStyle ?? enumOrNull<CeilingTextureStyle>(d.ceilings[i]?.textureStyle),
@@ -118,10 +163,21 @@ export function needsDetailPass(extraction: WaterLossExtraction): boolean {
     (room) =>
       // Carpet has a style; nothing else does.
       room.flooring.some((f) => f.type === "CARPET" && f.carpetStyle === null) ||
+      room.flooring.some((f) => f.type === "HARDWOOD" && (f.hardwoodConstruction === null || f.hardwoodInstallation === null)) ||
+      room.flooring.some((f) => f.type === "VINYL" && f.vinylSubtype === "PLANK" && f.vinylInstallation === null) ||
       // Every baseboard has a material, and call 1 never carries it.
       room.baseboard.some((b) => b.material === null) ||
       // A cut height and cavity insulation only exist where drywall is coming off.
       room.walls.some((w) => w.drywallBeingRemoved && (w.cutHeight === null || w.insulationType === null)) ||
+      // Doors and cabinetry carry spec the PM routinely states while describing them.
+      room.doors.some((d) => d.doorType === null || d.unitType === null) ||
+      room.cabinetry.some((c) => c.extent === null) ||
+      /*
+        Light fixtures have no records to check — the category is cut from extraction — so the
+        trigger is the same condition that makes gap-check ask: a drywall ceiling coming out.
+      */
+      (room.ceilingLightFixturesPresent === null &&
+        room.ceilings.some((c) => c.type === "DRYWALL_PLASTER" && c.action === "REMOVE_AND_REPLACE")) ||
       // Texture and the insulation above only apply to drywall ceilings being taken out.
       room.ceilings.some(
         (c) =>
