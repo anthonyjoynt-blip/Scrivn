@@ -164,6 +164,21 @@ export function resolveRound(
  * generates it, its neighbour is the ceiling's insulation question, which is already placed — and the
  * finish question sits just above that, exactly where it was answered.
  *
+ * That anchor alone is not stable, which was a reported bug: a pass only ever contains questions
+ * still OPEN, so answering the question directly below a follow-up removed the very neighbour the
+ * follow-up was anchored to, and it was re-placed further down — "how much extraction" jumping below
+ * whatever was answered next. Every keystroke rebuilds this list from scratch, so the anchor has to
+ * be something answering cannot take away.
+ *
+ * So a second anchor is taken from the question's own id, which is a structured address: everything
+ * before the final segment names the RECORD it belongs to, and questions about one record belong
+ * together. `room:0:waterExtraction:sf` therefore anchors to `room:0:waterExtraction:required`,
+ * which stays in the display list once answered and cannot vanish.
+ *
+ * The earlier of the two positions wins, so this can only ever pull a follow-up CLOSER to what it
+ * belongs with, never push it away — which is why adding it cannot disturb an ordering that was
+ * already right.
+ *
  * Existing entries are replaced with the newer object, since a later pass can hand back the same id
  * carrying a `defaultValue` that only became derivable once something else was answered.
  */
@@ -185,7 +200,32 @@ function spliceInGenerationOrder(display: GapCheckQuestion[], pass: GapCheckQues
         break;
       }
     }
+
+    // And where its own record says it goes: directly after the last question already placed for
+    // that same record.
+    const prefix = recordPrefix(q.id);
+    if (prefix !== null) {
+      let lastOfRecord = -1;
+      for (let k = 0; k < result.length; k += 1) {
+        if (recordPrefix(result[k]!.id) === prefix) lastOfRecord = k;
+      }
+      if (lastOfRecord !== -1) at = Math.min(at, lastOfRecord + 1);
+    }
+
     result.splice(at, 0, q);
   }
   return result;
+}
+
+/**
+ * The record an id belongs to — everything before the final segment.
+ *
+ * Null for anything shallower than `room:N:something:field`, which is the point: a room-level id like
+ * `room:0:floorRegistersDetached` would otherwise reduce to `room:0` and group every room-level
+ * question in the room together, anchoring a new one after whichever came first rather than where it
+ * belongs. Only ids specific enough to name a real record are worth grouping by.
+ */
+function recordPrefix(id: string): string | null {
+  const parts = id.split(":");
+  return parts.length >= 4 ? parts.slice(0, -1).join(":") : null;
 }

@@ -841,6 +841,59 @@ check(premature.length === 0, `no question is asked before its trigger is settle
 
 
 
+/* ── A question already on screen does not move as others are answered ────────────────────────── */
+
+/*
+  Reported: "how much extraction" jumping below whatever was answered next — "an annoyance in the
+  workflow", and worse than it sounds, because the PM is answering down the page and the thing they
+  are reading moves while they read it.
+
+  The cause was the anchor. Every keystroke rebuilds the display list from scratch, and a revealed
+  follow-up was placed relative to the next question in its PASS — but a pass only contains questions
+  still open, so answering the question directly below removed the very neighbour the follow-up was
+  anchored to, and it was re-placed further down.
+
+  The property this checks is not "sf sits at index 1"; it is that answering anything else does not
+  move it. That is the invariant the PM actually experiences.
+*/
+const orderingRoom = extractionWith([
+  room("Kitchen", {
+    flooring: [{ ...removalFlooring(), type: "LAMINATE", vinylSubtype: null, removalSF: 100 }],
+    baseboardConfirmedAbsent: true,
+    equipmentAsked: true,
+  }),
+]);
+
+const positionsWith = (answers) => {
+  const ids = resolveRound(claim, orderingRoom, answers).display.map((q) => q.id);
+  return new Map(ids.map((id, i) => [id, i]));
+};
+
+const justRevealed = positionsWith({ "room:0:waterExtraction:required": "yes" });
+check(justRevealed.has("room:0:waterExtraction:sf"), "answering the extraction yes/no reveals the amount question");
+check(
+  justRevealed.get("room:0:waterExtraction:sf") === justRevealed.get("room:0:waterExtraction:required") + 1,
+  `and it lands directly under the question that revealed it (got ${justRevealed.get("room:0:waterExtraction:sf")})`,
+);
+
+/*
+  Now answer every OTHER question that was on screen, one at a time, and check the amount question
+  has not moved for any of them. One at a time on purpose: answering them all at once would hide a
+  bug that only fires for a particular neighbour — and the neighbour that broke this was the one
+  immediately below.
+*/
+const settledAnswer = (q) => answerFor(q, () => undefined);
+for (const [id] of justRevealed) {
+  if (id === "room:0:waterExtraction:sf" || id === "room:0:waterExtraction:required") continue;
+  const q = resolveRound(claim, orderingRoom, { "room:0:waterExtraction:required": "yes" }).display.find((d) => d.id === id);
+  if (!q) continue;
+  const after = positionsWith({ "room:0:waterExtraction:required": "yes", [id]: settledAnswer(q) });
+  check(
+    after.get("room:0:waterExtraction:sf") === justRevealed.get("room:0:waterExtraction:sf"),
+    `answering ${id} does not move the extraction amount (was ${justRevealed.get("room:0:waterExtraction:sf")}, now ${after.get("room:0:waterExtraction:sf")})`,
+  );
+}
+
 /* ── A revealed follow-up sits beside what revealed it ─────────────────────────────────────────── */
 
 /*
