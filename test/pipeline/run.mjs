@@ -269,19 +269,27 @@ function usageSection(usage) {
   lines.push(
     `  ${"TOTAL".padEnd(20)}${String(total.inputTokens).padStart(9)}${String(total.outputTokens).padStart(9)}${String(total.cacheCreationTokens).padStart(10)}${String(total.cacheReadTokens).padStart(10)}`,
   );
+  /*
+    One number that folds the cache multipliers in: what this claim would have cost in ORDINARY input
+    tokens. A write is billed at 1.25x a plain input token and a read at 0.1x, so a claim reading a
+    31k-token cache is paying for about 3.1k. Without this line the raw columns look alarming and
+    are mostly a cache read costing a tenth of what it appears to.
+
+    The multipliers are Anthropic's published ratios and are stable; the base rate per million is the
+    part that moves, which is why it comes from you rather than from here.
+  */
+  const effectiveInput = Math.round(total.inputTokens + total.cacheCreationTokens * 1.25 + total.cacheReadTokens * 0.1);
+  lines.push("");
+  lines.push(`  Effective input: ${effectiveInput.toLocaleString()} tokens (cache write 1.25x, read 0.1x) + ${total.outputTokens.toLocaleString()} output`);
+
   if (HAS_PRICES) {
     /*
       Priced with the standard cache multipliers: a write costs 1.25x a plain input token and a read
       0.1x. Those multipliers are Anthropic's published ratios and are stable; the base rate is the
       part that moves, which is why it comes from you rather than from here.
     */
-    const cost =
-      (total.inputTokens / 1e6) * PRICE_IN +
-      (total.cacheCreationTokens / 1e6) * PRICE_IN * 1.25 +
-      (total.cacheReadTokens / 1e6) * PRICE_IN * 0.1 +
-      (total.outputTokens / 1e6) * PRICE_OUT;
-    lines.push("");
-    lines.push(`  Cost at $${PRICE_IN}/$${PRICE_OUT} per Mtok (cache write 1.25x, read 0.1x): $${cost.toFixed(4)}`);
+    const cost = (effectiveInput / 1e6) * PRICE_IN + (total.outputTokens / 1e6) * PRICE_OUT;
+    lines.push(`  Cost at $${PRICE_IN} in / $${PRICE_OUT} out per Mtok: $${cost.toFixed(4)}`);
   }
   if (!HAS_PRICES) {
     lines.push("");
