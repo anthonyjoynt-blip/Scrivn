@@ -98,10 +98,18 @@ const CEILING_TYPE_LABEL: Record<string, string> = {
   SUSPENDED_TILE: "Suspended tile",
 };
 
-/** Qualitative extent for a flooring record — the crew needs scale, not the estimator's exact spec. */
+/**
+ * Extent for a flooring record — the crew needs scale, not the estimator's exact spec.
+ *
+ * Removal and lift are different quantities on the same record shape, and only one of them is ever
+ * set: a floor being torn out has `removalSF`, a carpet being lifted to get at the pad has
+ * `carpetLiftSF`. Removal is checked first because it is the one that applies to every flooring
+ * type; before it existed, a vinyl or laminate tear-out reached the crew with no scale at all.
+ */
 function flooringExtent(f: FlooringRecord): string | null {
+  if (f.removalSF !== null) return `${f.removalSF} SF`;
   if (f.carpetLiftSF !== null) return `${f.carpetLiftSF} SF`;
-  const fraction = fractionLabel(f.carpetLiftFraction);
+  const fraction = fractionLabel(f.removalFraction ?? f.carpetLiftFraction);
   return fraction ? `${fraction} of the room` : null;
 }
 

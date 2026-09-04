@@ -59,6 +59,7 @@ const {
   recordRound,
   formatQuestionLog,
   hasQuestionLog,
+  canonicalRecordShapes,
 } = mod;
 
 let passed = 0;
@@ -243,7 +244,6 @@ function room(name, overrides = {}) {
     waterExtractionRequired: null,
     waterExtractionSF: null,
     waterExtractionFraction: null,
-    baseboardPresenceConfirmed: false,
     baseboardConfirmedAbsent: false,
     windowCleaningAsked: false,
     windowCleaningCounts: null,
@@ -301,8 +301,9 @@ function everyRecordRoom(name) {
     flooring: [
       {
         type: "CARPET", carpetStyle: null, padPresent: null, vinylSubtype: null, vinylInstallation: null,
-        vinylSubstrate: null, hardwoodConstruction: null, hardwoodInstallation: null,
+        vinylSubstrate: null, hardwoodConstruction: null, hardwoodConstructionOther: null, hardwoodInstallation: null,
         disposition: "REMOVE_AND_DISPOSE", phase: null, phaseUncertain: true, padRemoved: null,
+        removalSF: null, removalFraction: null,
         carpetLiftSF: null, carpetLiftFraction: null, padRemovedSF: null, padRemovedFraction: null,
       },
     ],
@@ -443,8 +444,9 @@ function extractedBaseboard(overrides = {}) {
 function removalFlooring() {
   return {
     type: "VINYL", carpetStyle: null, padPresent: null, vinylSubtype: "SHEET", vinylInstallation: null,
-    vinylSubstrate: null, hardwoodConstruction: null, hardwoodInstallation: null,
+    vinylSubstrate: null, hardwoodConstruction: null, hardwoodConstructionOther: null, hardwoodInstallation: null,
     disposition: "REMOVE_AND_DISPOSE", phase: null, phaseUncertain: false, padRemoved: null,
+    removalSF: null, removalFraction: null,
     carpetLiftSF: null, carpetLiftFraction: null, padRemovedSF: null, padRemovedFraction: null,
   };
 }
@@ -483,7 +485,7 @@ check(
 );
 
 // Detached-only ends somewhere else entirely, and must not ask for a height it will never use.
-const bbDetaching = resolveRound(claim, reportedRooms, { [BB_ACTION]: "Detached only" });
+const bbDetaching = resolveRound(claim, reportedRooms, { [BB_ACTION]: "Detached and reset on repairs" });
 const detached = bbDetaching.extraction.rooms[BATHROOM].baseboard[0];
 check(
   detached.action === "DETACH_AND_RESET" && detached.disposition === "SALVAGE_DRY",
@@ -890,27 +892,106 @@ const askedFor = (answers) =>
   resolveRound(claim, noBaseboardRoom, answers).display.map((q) => q.id);
 
 const presenceOnly = askedFor({});
+const completeness = resolveRound(claim, noBaseboardRoom, {}).display.find((q) => q.id === "room:0:baseboard:action");
+check(completeness !== undefined, `a room with no baseboard record is asked what happens to the trim (asked: ${presenceOnly.join(", ")})`);
 check(
-  presenceOnly.includes("room:0:baseboard:present"),
-  `a room with no baseboard record is asked whether there are any (asked: ${presenceOnly.join(", ")})`,
+  !presenceOnly.includes("room:0:baseboard:present"),
+  "and is asked it as ONE question — the separate yes/no is gone, its answer folded into the options",
 );
+
+/*
+  All three real outcomes plus the one that says the premise is wrong. A PM who can say the trim is
+  being detached and reset has already established it exists, so the old yes/no in front of this was
+  a question nobody needed — but "there is none here" still has to be sayable, or the room is asked
+  for ever about trim it does not have.
+*/
+for (const option of ["Detached and reset on repairs", "Removed and replaced", "Shoe mold removed and replaced", "No baseboard in this area"]) {
+  check(
+    (completeness?.kind.options ?? []).includes(option),
+    `the completeness question offers "${option}" (offers: ${JSON.stringify(completeness?.kind.options)})`,
+  );
+}
+
+/*
+  "Detached only" said half the job. The work has always been right — off in Emergency, back down in
+  Repair — but a PM reading the old label had to already know that, so the reset turning up in the
+  repair scope looked like the tool adding work nobody asked for.
+*/
+check(
+  !(completeness?.kind.options ?? []).some((o) => /only$/i.test(o) && /detach/i.test(o)),
+  "and never describes a detach as 'only', which reads as the reset being declined",
+);
+
+// Saying there is none closes the question rather than leaving the room stuck on it.
+const noneHere = resolveRound(claim, noBaseboardRoom, { "room:0:baseboard:action": "No baseboard in this area" });
+check(
+  !noneHere.questions.some((q) => q.id.includes("baseboard")),
+  `answering "no baseboard" closes it (still asked: ${noneHere.questions.filter((q) => q.id.includes("baseboard")).map((q) => q.id).join(", ")})`,
+);
+check(
+  noneHere.extraction.rooms[0].baseboard.length === 0,
+  "and invents no baseboard record for a room that just said it has none",
+);
+
 check(
   !presenceOnly.some((id) => id.endsWith(":heightIn")),
   `and is NOT asked a height before anyone has said there are baseboards (asked: ${presenceOnly.join(", ")})`,
 );
 
 // Detached and reset: the existing baseboard goes back down, so there is no new height to spec.
-const detachOnly = askedFor({ "room:0:baseboard:present": "Yes", "room:0:baseboard:action": "Detached only" });
+const detachOnly = askedFor({ "room:0:baseboard:action": "Detached and reset on repairs" });
 check(
   !detachOnly.some((id) => id.endsWith(":heightIn")),
   `a detach-and-reset baseboard is never asked its height (asked: ${detachOnly.filter((i) => i.includes("baseboard")).join(", ")})`,
 );
 
 // Removed and replaced: a new baseboard is going in, so the height is a real spec decision.
-const replaced = askedFor({ "room:0:baseboard:present": "Yes", "room:0:baseboard:action": "Removed and replaced" });
+const replaced = askedFor({ "room:0:baseboard:action": "Removed and replaced" });
 check(
   replaced.some((id) => id.endsWith(":heightIn")),
   `a removed-and-replaced baseboard IS asked its height (asked: ${replaced.filter((i) => i.includes("baseboard")).join(", ")})`,
+);
+
+
+/* ── Carpet does not disturb the baseboard ────────────────────────────────────────────────────── */
+
+/*
+  Vinyl, laminate, hardwood and tile all run to the wall and under the trim, so the baseboard has to
+  come off to pull the old floor or lay the new one. Carpet does not: it is stretched onto tack strip
+  that sits INSIDE the trim, so it comes up and goes back down without the baseboard being touched.
+  Asking about baseboard on a carpet tear-out is a question with no work behind it — and answering it
+  puts a detach-and-reset line on the scope for trim nobody is going near.
+*/
+const bbFor = (extraction) => resolveRound(claim, extraction, {}).display.map((q) => q.id).filter((id) => id.includes("baseboard"));
+const floorOnly = (type, extra = {}) =>
+  extractionWith([room("Hall", { flooring: [{ ...removalFlooring(), type, vinylSubtype: type === "VINYL" ? "SHEET" : null }], baseboard: [], ...extra })]);
+
+for (const type of ["VINYL", "LAMINATE", "HARDWOOD", "TILE", "CONCRETE"]) {
+  check(bbFor(floorOnly(type)).length > 0, `a ${type} tear-out asks about the baseboard`);
+}
+check(
+  bbFor(floorOnly("CARPET")).length === 0,
+  `a carpet tear-out does NOT (asked: ${bbFor(floorOnly("CARPET")).join(", ")})`,
+);
+
+/*
+  Drywall coming off is its own trigger and is untouched by the flooring rule. A carpeted room with a
+  flood cut still needs the question — the baseboard sits on the joint the cut runs along — so the
+  carpet exclusion must narrow the FLOORING trigger only, not the check as a whole.
+*/
+const carpetWithCut = extractionWith([
+  room("Hall", {
+    flooring: [{ ...removalFlooring(), type: "CARPET", vinylSubtype: null }],
+    walls: [{ ...everyRecordRoom("x").walls[0], drywallBeingRemoved: true }],
+    baseboard: [],
+  }),
+]);
+check(bbFor(carpetWithCut).length > 0, "but a carpeted room with a flood cut still does — drywall is its own trigger");
+
+// Floor registers are under the floor whatever it is made of, so that trigger keeps carpet.
+check(
+  resolveRound(claim, floorOnly("CARPET"), {}).display.some((q) => q.id.endsWith(":floorRegistersDetached")),
+  "and carpet still reaches the floor-register question, which the baseboard rule must not narrow",
 );
 
 /* ── Contents: "none" is an answer, not a size ─────────────────────────────────────────────────── */
@@ -1251,6 +1332,105 @@ check(twoRoundText.includes("not yet submitted"), "and the round still on screen
 check(!hasQuestionLog([]), "an empty log reports as empty, so the export is not offered with nothing in it");
 check(hasQuestionLog(recorded), "and a real one does not");
 check(formatQuestionLog(claim, []).includes("No questions have been asked yet"), "an empty export still says what it is");
+
+/* ── How much floor is coming out, for every flooring type ────────────────────────────────────── */
+
+/*
+  Reported: a transcript stated "6 by 8 feet" of vinyl plank — a real 48 SF — and the scope rendered
+  "small area at the dishwasher". Carpet-lift was the only quantity a flooring record carried, so an
+  exact figure the PM had said out loud had nowhere to land and generation used the qualitative
+  fallback it reaches for when nothing is known. A number that was given and then dropped is worse
+  than one never given: the vague phrase looks like the best anyone knew.
+*/
+for (const type of ["VINYL", "LAMINATE", "HARDWOOD", "TILE", "CONCRETE", "CARPET"]) {
+  const tearOut = extractionWith([
+    room("Utility", { flooring: [{ ...removalFlooring(), type, vinylSubtype: type === "VINYL" ? "SHEET" : null }] }),
+  ]);
+  const asked = nextQuestions(claim, withDerivedFields(tearOut)).find((q) => q.id.endsWith(":removalSF"));
+  check(asked !== undefined, `${type} being torn out is asked how much of it there is`);
+}
+
+// A floor being lifted and put back is not a removal — its quantity is the carpet-lift pair.
+const lifted = extractionWith([
+  room("Lounge", { flooring: [{ ...removalFlooring(), type: "CARPET", disposition: "LIFT_AND_REINSTALL" }] }),
+]);
+check(
+  !nextQuestions(claim, withDerivedFields(lifted)).some((q) => q.id.endsWith(":removalSF")),
+  "a lift-and-reinstall floor is not asked for a removal area",
+);
+
+// Extraction having captured it is the whole point — the question must not re-ask.
+const measured = extractionWith([room("Utility", { flooring: [{ ...removalFlooring(), removalSF: 48 }] })]);
+check(
+  !nextQuestions(claim, withDerivedFields(measured)).some((q) => q.id.endsWith(":removalSF")),
+  "a stated area is not asked for again",
+);
+
+const vagueButAnswered = extractionWith([room("Utility", { flooring: [{ ...removalFlooring(), removalFraction: "HALF" }] })]);
+check(
+  !nextQuestions(claim, withDerivedFields(vagueButAnswered)).some((q) => q.id.endsWith(":removalSF")),
+  "and neither is one already given as a share of the room",
+);
+
+/* ── The answer: a number, a share, or dimensions ─────────────────────────────────────────────── */
+
+const tearOutRoom = extractionWith([room("Utility", { flooring: [removalFlooring()] })]);
+const removalId = "room:0:flooring:0:removalSF";
+const answered = (answer) => applyAnswer(withDerivedFields(tearOutRoom), removalId, answer).rooms[0].flooring[0];
+
+check(answered("48").removalSF === 48, "an exact number is taken as SF");
+check(answered("half").removalFraction === "HALF", "a share of the room is taken as a fraction");
+
+/*
+  Dimensions are what a PM standing in the room actually has. Making them multiply is how a typo
+  becomes a scope quantity — and the old parser read "6 x 8" as a plain 6, silently scoping an
+  eighth of the floor with nothing to show that it had.
+*/
+for (const [written, expected] of [["6 x 8", 48], ["6 by 8", 48], ["6' x 8'", 48], ["10 X 12", 120], ["6.5 by 8", 52]]) {
+  const got = answered(written);
+  check(got.removalSF === expected, `"${written}" is read as ${expected} SF (got ${got.removalSF})`);
+}
+check(answered("6 x 8").removalFraction === null, "and dimensions are a measurement, not a share");
+
+/*
+  A wall run has one dimension, so "6 x 8" is not an answer to it. Refusing leaves the question open
+  and sends the PM back to it; taking the 6 is the one outcome that puts a wrong number on the scope
+  with nothing to show for it.
+*/
+const linearRoom = extractionWith([room("Utility", { walls: [{ ...everyRecordRoom("x").walls[0], drywallBeingRemoved: true }] })]);
+const wallAfter = applyAnswer(withDerivedFields(linearRoom), "room:0:wall:0:cutRunFt", "6 x 8").rooms[0].walls[0];
+check(wallAfter.cutRunFt === null, `a linear question refuses dimensions rather than taking the first number (got ${wallAfter.cutRunFt})`);
+check(
+  applyAnswer(withDerivedFields(linearRoom), "room:0:wall:0:cutRunFt", "31").rooms[0].walls[0].cutRunFt === 31,
+  "while a plain linear number still lands",
+);
+
+/* ── Fixtures carry every field the real records do ───────────────────────────────────────────── */
+
+/*
+  Every fixture below is a hand-written literal, so a field added to a domain type is simply absent
+  from them — and `undefined` is not `null`, so a question gated on `field === null` stops firing in
+  the tests while firing normally in the app. That is not a small gap: it silently disables the
+  extractable-fields audit for the new field, which is the one check meant to catch it.
+
+  It has already happened once. `flooring.removalSF` was added, asked in the app, and walked past the
+  audit untouched until the fixtures were updated by hand. The shapes come from the real wire mapping
+  (TypeScript rejects a missing field there), so this is what makes that self-correcting.
+*/
+const canonical = canonicalRecordShapes();
+const missingFrom = (actual, expected) => Object.keys(expected).filter((k) => !(k in actual));
+
+for (const [label, record, shape] of [
+  ["everyRecordRoom flooring", everyRecordRoom("x").flooring[0], canonical.flooring],
+  ["removalFlooring", removalFlooring(), canonical.flooring],
+  ["everyRecordRoom baseboard", everyRecordRoom("x").baseboard[0], canonical.baseboard],
+]) {
+  const missing = missingFrom(record, shape);
+  check(
+    missing.length === 0,
+    `${label} fixture carries every field the real record does (missing: ${missing.join(", ")})`,
+  );
+}
 
 /* ── Nothing is asked that extraction could already know ───────────────────────────────────────── */
 

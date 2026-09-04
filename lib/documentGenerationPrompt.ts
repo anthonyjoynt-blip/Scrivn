@@ -229,6 +229,16 @@ Auto-included items — apply these yourself, they are never spelled out per-ite
         needed. (This gap-checked path and the LIFT_AND_REINSTALL-carpet path above are mutually
         exclusive by construction — gap-check never asks (a)'s question when a room already has a
         LIFT_AND_REINSTALL carpet record, so a room is never eligible for both.)
+1b. Flooring removal extent, per flooring record, EVERY flooring type: when a record's disposition
+   is REMOVE_AND_DISPOSE or REMOVE_AND_ASSESS, its own bullet states the extent from removalSF (a
+   real number — "Remove vinyl plank – 48 SF") when that is non-null, else from removalFraction (a
+   qualitative share — "half the room") when only that is present. This is NOT carpet-only: vinyl,
+   laminate, hardwood, tile and concrete removals all carry it and all must show the number when
+   there is one. Only when BOTH are null does the extent fall back to the ordinary qualitative
+   phrasing, and in that case describe the area in the PM's own words from the transcript rather
+   than inventing a figure. Never turn a removalFraction into an exact number, and never restate a
+   qualitative phrase as though it were measured — "a small area at the dishwasher" is what the tool
+   says when nobody gave a size, so writing it over a real 48 SF is the specific bug this rule fixes.
 2. Carpet + pad, per flooring record, Emergency: when a flooring record has disposition
    LIFT_AND_REINSTALL AND padRemoved == true, include two bullets in that room: one for lifting
    the carpet, one for removing the pad underneath. Each states its quantity from
@@ -551,8 +561,8 @@ Notes on the scope document — tone and format matter as much as content here:
 - Bullets are short dashes, not full sentences: "{action} – {material detail} – {extent}".
 - Extent is always qualitative: "perimeter," "floor area," "half the room," "all," never a number
   pulled from the underlying measurements — except the specific fields below that carry a real
-  quantity (floor registers; carpet-lift/pad-removal/underpad SF; wall drywall cut-run LF/priming
-  SF; ceiling drywall replacement SF). Several of these accept EITHER an exact number OR a
+  quantity (floor registers; FLOORING REMOVAL SF; carpet-lift/pad-removal/underpad SF; wall drywall
+  cut-run LF/priming SF; ceiling drywall replacement SF). Several of these accept EITHER an exact number OR a
   qualitative fraction (quarter/half/three-quarters/full) — when only the fraction was captured,
   render it as a qualitative phrase ("half the room," "a quarter of the wall run"), not a number;
   never invent an exact figure from a fraction.

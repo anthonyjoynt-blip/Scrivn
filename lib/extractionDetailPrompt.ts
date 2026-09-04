@@ -45,6 +45,18 @@ WHAT EACH FIELD MEANS:
 - flooring.vinylInstallation — only for vinyl PLANK: GLUED or SNAPLOCK_FLOATING. "Click-lock",
   "floating" and "snap together" are all SNAPLOCK_FLOATING. UNKNOWN for sheet vinyl, which is glued
   by definition and is never asked about.
+- flooring.removalSF — how much of that floor is being taken out, in square feet, for EVERY
+  flooring type. Two forms count as stated, and both must be captured:
+    · an area given directly — "about 120 square feet of laminate", "200 SF of tile" — use the number.
+    · dimensions given for the affected area — "six by eight feet", "a 10' x 12' section",
+      "roughly 6 by 8" — MULTIPLY them and return the product (6 by 8 → 48). Return the area, never
+      one of the dimensions, and never the pair.
+  Applies only to a floor being removed, not one being lifted and reinstalled. Use the sentinel
+  (-1) when the transcript describes the area only in words — "a small area at the dishwasher",
+  "the wet part by the door", "most of the room" — with no number and no dimensions behind it.
+  A qualitative phrase is NOT an area: do not estimate one from it, and do not infer the whole
+  room's floor from a removal described as partial. Somebody asks the PM for the figure later,
+  which is a far better outcome than a number nobody said appearing in an insurer's scope.
 - doors.doorType — COLONIAL, SOLID_CORE, HOLLOW_CORE or OTHER, where the transcript names it.
 - doors.unitType — PRE_HUNG or SLAB_ONLY. "Just the slab" is SLAB_ONLY; "pre-hung unit" is PRE_HUNG.
 - cabinetry.extent — UPPERS, LOWERS or FULL_HEIGHT. "Upper cabinets" is UPPERS, "the base run" or

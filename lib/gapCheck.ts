@@ -133,7 +133,7 @@ export type EquipmentSuggestions = Record<string, MoistureDerived>;
 export function sketchMeasureFor(questionId: string): "wallRun" | "floorArea" | null {
   if (/:wall:\d+:cutRunFt$/.test(questionId)) return "wallRun";
   if (/:baseboard:\d+:(lengthFt|runFt)$/.test(questionId)) return "wallRun";
-  if (/:flooring:\d+:(carpetLiftSF|padRemovedSF|sf)$/.test(questionId)) return "floorArea";
+  if (/:flooring:\d+:(removalSF|carpetLiftSF|padRemovedSF|sf)$/.test(questionId)) return "floorArea";
   if (/:waterExtraction:sf$/.test(questionId)) return "floorArea";
   if (/:ceilings?:\d+:replaceSF$/.test(questionId)) return "floorArea";
   return null;
@@ -463,10 +463,42 @@ function roomNameQuestion(roomIndex: number, room: Room): GapCheckQuestion[] {
  * produced. `baseboardActionAnswer` parses exactly these, so the wording and the parsing cannot
  * drift apart.
  */
-const BASEBOARD_ACTION_OPTIONS = ["Detached only", "Removed and replaced", "Shoe mold only"];
+/*
+  "Detached and reset on repairs", not "Detached only".
+
+  The work this produces has always been right — the baseboard comes off in Emergency and goes back
+  down in Repair, two bullets, driven by the action rather than the phase field. What was wrong was
+  that a PM choosing it had to already know that. "Detached only" describes half the job and reads
+  like the other half is being declined, so the reset arriving in the repair scope looks like the
+  tool adding work nobody asked for. Naming the whole thing in the option is the entire fix; nothing
+  downstream changes.
+*/
+const BASEBOARD_ACTION_OPTIONS = ["Detached and reset on repairs", "Removed and replaced", "Shoe mold removed and replaced"];
+
+/** The same three, plus the answer that says the premise is wrong — see `baseboardCompletenessQuestions`. */
+const NO_BASEBOARD_OPTION = "No baseboard in this area";
+const BASEBOARD_COMPLETENESS_OPTIONS = [...BASEBOARD_ACTION_OPTIONS, NO_BASEBOARD_OPTION];
 
 function hasRemovalFlooring(room: Room): boolean {
   return room.flooring.some((f) => f.disposition === "REMOVE_AND_DISPOSE" || f.disposition === "REMOVE_AND_ASSESS");
+}
+
+/**
+ * Flooring whose removal actually disturbs the baseboard — everything except carpet.
+ *
+ * Vinyl, laminate, hardwood and tile all run to the wall and under the trim, so the baseboard has to
+ * come off to pull the old floor or to lay the new one to the wall. Carpet does not: it is stretched
+ * onto tack strip that sits INSIDE the trim, so it comes up and goes back down without the baseboard
+ * being touched at all. Asking about baseboard on a carpet tear-out is a question with no work
+ * behind it, which is how a scope acquires a detach-and-reset line for trim nobody is going near.
+ *
+ * Separate from `hasRemovalFlooring` on purpose: floor registers still need detaching under carpet,
+ * so that trigger keeps every flooring type.
+ */
+function hasBaseboardDisturbingFlooring(room: Room): boolean {
+  return room.flooring.some(
+    (f) => f.type !== "CARPET" && (f.disposition === "REMOVE_AND_DISPOSE" || f.disposition === "REMOVE_AND_ASSESS"),
+  );
 }
 
 /**
@@ -542,37 +574,26 @@ function hasDrywallRemoval(room: Room): boolean {
 }
 
 function baseboardCompletenessQuestions(roomIndex: number, room: Room): GapCheckQuestion[] {
-  const triggers = hasRemovalFlooring(room) || hasDrywallRemoval(room);
+  const triggers = hasBaseboardDisturbingFlooring(room) || hasDrywallRemoval(room);
   if (!triggers || room.baseboard.length > 0 || room.baseboardConfirmedAbsent) return [];
 
   /*
-    Presence, disposition, material and height in one round.
+    One question, covering every outcome including "there is no baseboard here".
 
-    Every one of these follows from the last with nothing in between: a PM who says there are
-    baseboards already knows whether they are coming off and what they are made of. Asked in
-    sequence this was four separate passes to describe one strip of trim.
+    It used to be two, shown side by side: "Are baseboards present?" and then the action. That put a
+    yes/no in front of a question the PM could already answer — anyone who can say the trim is being
+    detached and reset has plainly established it exists — and it made the second question depend on
+    the first in a way nothing on screen explained. Folding absence in as an option collapses them
+    without losing anything: the three real outcomes and the answer that says the premise is wrong.
 
-    The record does not exist yet — the action answer is what creates it — so the material and
-    height questions are addressed to index 0, the slot it will occupy. That holds because this
-    whole function only runs when `room.baseboard.length === 0`, and answers apply in the order
-    the questions are listed, so the record is there by the time they land. Everything after the
-    first question is conditional, and `applyAnswer` drops each one when its condition did not
-    come true — see `applyBaseboardAnswer`.
+    The record does not exist yet; answering the action is what creates it (see `applyAnswer`), and
+    `baseboardRecordQuestions` then asks material — and height only for REMOVE_AND_REPLACE. Material
+    and height used to ride along here and were both wrong to: height is a spec for NEW baseboard, so
+    it does not apply to one being reset, and its prompt hedged "if it is being replaced" while still
+    refusing to let the PM past. The round still resolves in one screen, because answering the action
+    reveals them immediately.
   */
-  /*
-    Only the action. Material and height used to ride along here, and BOTH were wrong to.
-
-    Height is a spec for the new baseboard going in, so it does not apply to one being detached and
-    reset — its prompt even hedged "If it is being replaced, what height is it", which is a question
-    admitting it might not apply while still refusing to let the PM past without an answer. Material
-    had the same shape, addressed to a record index that did not exist yet.
-
-    Answering the action CREATES the record (see `applyAnswer`), and `baseboardRecordQuestions` then
-    asks material — and height only for REMOVE_AND_REPLACE, which it has always gated correctly.
-    So the fix is to stop duplicating those two here and let the record path do its job; the round
-    still resolves in one screen because answering the action reveals them immediately.
-  */
-  const dependents: GapCheckQuestion[] = [
+  return [
     {
       id: `room:${roomIndex}:baseboard:action`,
       roomName: room.roomName,
@@ -581,25 +602,10 @@ function baseboardCompletenessQuestions(roomIndex: number, room: Room): GapCheck
         a presence question the PM may never have seen, so the sentence pointed at nothing. A prompt
         has to make sense to whoever is looking at it, not to whoever wrote the branch above it.
       */
-      prompt: "Are the baseboards being detached only, removed and replaced, or is it just shoe mold/quarter round?",
-      kind: { type: "choice", options: BASEBOARD_ACTION_OPTIONS },
+      prompt: "What is happening with the baseboards in this room?",
+      kind: { type: "choice", options: BASEBOARD_COMPLETENESS_OPTIONS },
     },
   ];
-
-  if (!room.baseboardPresenceConfirmed) {
-    return [
-      {
-        id: `room:${roomIndex}:baseboard:present`,
-        roomName: room.roomName,
-        prompt: "Are baseboards present in this room?",
-        kind: { type: "yesNo" },
-      },
-      ...dependents,
-    ];
-  }
-
-  // Presence already confirmed on an earlier pass: the rest still belongs together.
-  return dependents;
 }
 
 // ---- Flooring ---------------------------------------------------------------------------------
@@ -683,6 +689,31 @@ function flooringQuestions(roomIndex: number, roomName: string, i: number, f: Fl
   }
 
   const involvesRemoval = f.disposition === "REMOVE_AND_DISPOSE" || f.disposition === "REMOVE_AND_ASSESS";
+
+  /*
+    How much floor is coming out — asked for every type, not just carpet.
+
+    Without this the only thing generation had for a vinyl or laminate tear-out was the qualitative
+    extent it falls back on when nothing is known, so a scope read "small area at the dishwasher"
+    for a floor the PM had measured. Asking directly is the same pattern water extraction already
+    uses: an exact number or a share of the room, whichever the PM has to hand.
+
+    Only when extraction did not already capture it. A stated "six by eight feet" now lands in
+    `removalSF` during the detail pass, and re-asking for something the PM has already said is the
+    exact complaint that drove the extractable-fields audit — see test/gapcheck/extractable.mjs.
+  */
+  if (involvesRemoval && f.removalSF === null && f.removalFraction === null) {
+    q.push({
+      id: `${base}:removalSF`,
+      roomName,
+      prompt:
+        AREA_QUANTITY_PROMPT(`How much ${f.type.toLowerCase()} is being removed?`, "room") +
+        derivedNote(derived?.floorSquareFeet, "SF"),
+      kind: { type: "text" },
+      ...defaultFrom(derived?.floorSquareFeet, "SF"),
+    });
+  }
+
   if (involvesRemoval && f.phase === null && f.phaseUncertain) {
     q.push({
       id: `${base}:phase`,
@@ -713,7 +744,7 @@ function baseboardRecordQuestions(roomIndex: number, roomName: string, i: number
     baseboard came off and never went back on, next to a bedroom (whose action extraction did
     capture) that got both lines.
 
-    Asked ALONE, not folded in with the material: "Shoe mold only" ends the questions for this
+    Asked ALONE, not folded in with the material: shoe-mold-only ends the questions for this
     record, and a question that vanishes when another in its own round is answered is exactly what
     test/gapcheck/run.mjs rejects.
   */
@@ -722,7 +753,9 @@ function baseboardRecordQuestions(roomIndex: number, roomName: string, i: number
       {
         id: `${base}:action`,
         roomName,
-        prompt: "For the baseboard, is it being detached only, removed and replaced, or is it just shoe mold/quarter round?",
+        // No "no baseboard" option here, unlike the completeness question: this record exists
+        // because extraction found a baseboard, so its absence is not one of the outcomes.
+        prompt: "What is happening with this baseboard?",
         kind: { type: "choice", options: BASEBOARD_ACTION_OPTIONS },
       },
     ];
@@ -1632,21 +1665,16 @@ export function applyAnswer(extraction: WaterLossExtraction, questionId: string,
     });
   }
 
-  if (parts.length >= 4 && parts[0] === "room" && parts[2] === "baseboard" && parts[3] === "present") {
-    return updateRoom(extraction, roomIndex(parts), (room) =>
-      isYes(answer) ? { ...room, baseboardPresenceConfirmed: true } : { ...room, baseboardConfirmedAbsent: true },
-    );
-  }
-
   if (parts.length >= 4 && parts[0] === "room" && parts[2] === "baseboard" && parts[3] === "action") {
     return updateRoom(extraction, roomIndex(parts), (room) => {
-      /*
-        The action is asked in the same round as "are there baseboards at all", so it can arrive
-        alongside a "no". Presence applies first, so by here the room already records the absence —
-        and creating a baseboard record for a room that just said it has none would be worse than
-        the extra round this batching removed.
-      */
       if (room.baseboardConfirmedAbsent) return room;
+      /*
+        "No baseboard in this area" is an answer, not a non-answer. It closes the question by
+        recording the absence, exactly as the separate presence question used to — without it the
+        room would be asked for ever, since nothing else can satisfy a completeness check whose whole
+        premise the PM has just rejected.
+      */
+      if (equalsIgnoreCase(answer, NO_BASEBOARD_OPTION)) return { ...room, baseboardConfirmedAbsent: true };
       // An unrecognised action creates no record at all, so the question comes back rather than a
       // baseboard being invented with the wrong disposition — see `baseboardActionAnswer`.
       const action = baseboardActionAnswer(answer);
@@ -1882,15 +1910,44 @@ function defaultFrom(value: number | null | undefined, unit: string): { defaultV
 }
 
 function AREA_QUANTITY_PROMPT(question: string, ofWhat: string, unit: "SF" | "linear feet" = "SF"): string {
-  return `${question} Enter an exact ${unit} number, or say "quarter", "half", "three quarters," or "full" of the ${ofWhat}.`;
+  const dimensions = unit === "SF" ? ` Dimensions work too — "6 x 8" is read as 48 SF.` : "";
+  return `${question} Enter an exact ${unit} number, or say "quarter", "half", "three quarters," or "full" of the ${ofWhat}.${dimensions}`;
 }
 
-function parseAreaQuantity(answer: string): { sf: number | null; fraction: AreaFraction | null } {
+/**
+ * "6 x 8", "6 by 8", "6' x 8'" — the two numbers multiplied, or null if that is not what this is.
+ *
+ * A PM standing in a room has the two sides, not the product; making them do the arithmetic is how
+ * a typo becomes a scope quantity. Only ever tried for areas — a linear-feet question asking for one
+ * number would read "6 x 8" as something the PM did not mean, so the caller decides.
+ */
+function parseDimensions(answer: string): number | null {
+  const m = /^\s*(\d+(?:\.\d+)?)\s*(?:'|ft|feet)?\s*(?:x|by|\*|×)\s*(\d+(?:\.\d+)?)\s*(?:'|ft|feet)?\s*(?:sf|sq\.?\s*ft\.?)?\s*$/i.exec(answer);
+  if (!m) return null;
+  const a = Number.parseFloat(m[1]!);
+  const b = Number.parseFloat(m[2]!);
+  if (!Number.isFinite(a) || !Number.isFinite(b) || a <= 0 || b <= 0) return null;
+  // Two decimals: 6.5 × 8.3 is 53.95, and a floating-point tail on an insurer's scope reads as noise.
+  return Math.round(a * b * 100) / 100;
+}
+
+function parseAreaQuantity(answer: string, unit: "SF" | "linear feet" = "SF"): { sf: number | null; fraction: AreaFraction | null } {
   const t = answer.trim().toLowerCase();
   if (t === "quarter" || t === "a quarter" || t === "1/4" || t === "25%") return { sf: null, fraction: "QUARTER" };
   if (t === "half" || t === "a half" || t === "1/2" || t === "50%") return { sf: null, fraction: "HALF" };
   if (t === "three quarters" || t === "3/4" || t === "75%") return { sf: null, fraction: "THREE_QUARTERS" };
   if (t === "full" || t === "all" || t === "whole" || t === "100%") return { sf: null, fraction: "FULL" };
+  /*
+    Dimensions are tried before the single-number parse, because `toDoubleOrNull` reads "6 x 8" as a
+    plain 6 and would silently scope an eighth of the floor.
+
+    For a LINEAR question they are refused outright rather than multiplied — a wall run has one
+    dimension, so "6 x 8" is not an answer to it, and leaving the question open sends the PM back to
+    it. Taking the 6 is the one outcome that puts a wrong number on the scope with nothing to show
+    for it.
+  */
+  const dimensions = parseDimensions(answer);
+  if (dimensions !== null) return unit === "SF" ? { sf: dimensions, fraction: null } : { sf: null, fraction: null };
   const n = toDoubleOrNull(answer);
   return n === null ? { sf: null, fraction: null } : { sf: n, fraction: null };
 }
@@ -1915,8 +1972,8 @@ function parseAreaQuantity(answer: string): { sf: number | null; fraction: AreaF
  * questions about a baseboard that was being put straight back down.
  */
 function baseboardActionAnswer(answer: string): Pick<BaseboardRecord, "action" | "disposition"> | null {
-  if (equalsIgnoreCase(answer, "Shoe mold only")) return { action: "SHOE_MOLD_ONLY", disposition: null };
-  if (equalsIgnoreCase(answer, "Detached only")) return { action: "DETACH_AND_RESET", disposition: "SALVAGE_DRY" };
+  if (equalsIgnoreCase(answer, "Shoe mold removed and replaced")) return { action: "SHOE_MOLD_ONLY", disposition: null };
+  if (equalsIgnoreCase(answer, "Detached and reset on repairs")) return { action: "DETACH_AND_RESET", disposition: "SALVAGE_DRY" };
   if (equalsIgnoreCase(answer, "Removed and replaced")) return { action: "REMOVE_AND_REPLACE", disposition: "REMOVE_AND_DISPOSE" };
   return null;
 }
@@ -1972,6 +2029,10 @@ function applyFlooringAnswer(f: FlooringRecord, field: string, answer: string): 
       return { ...f, padPresent: isYes(answer) };
     case "padRemoved":
       return { ...f, padRemoved: isYes(answer) };
+    case "removalSF": {
+      const { sf, fraction } = parseAreaQuantity(answer);
+      return sf === null && fraction === null ? f : { ...f, removalSF: sf, removalFraction: fraction };
+    }
     case "carpetLiftSF": {
       const { sf, fraction } = parseAreaQuantity(answer);
       return sf === null && fraction === null ? f : { ...f, carpetLiftSF: sf, carpetLiftFraction: fraction };
@@ -2057,7 +2118,8 @@ function applyWallAnswer(w: WallRecord, field: string, answer: string): WallReco
       return { ...w, cutHeight };
     }
     case "cutRunFt": {
-      const { sf, fraction } = parseAreaQuantity(answer);
+      // Linear, not an area — see `parseAreaQuantity` on why "6 x 8" is refused here.
+      const { sf, fraction } = parseAreaQuantity(answer, "linear feet");
       return sf === null && fraction === null ? w : { ...w, cutRunFt: sf, cutRunFraction: fraction };
     }
     default:

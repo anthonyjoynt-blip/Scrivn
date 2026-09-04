@@ -44,6 +44,9 @@ export const EXTRACTABLE = new Set([
   // ── Call 2: spec detail ──────────────────────────────────────────────────────────────────────
   "flooring:carpetStyle",
   "flooring:hardwoodConstruction", "flooring:hardwoodInstallation", "flooring:vinylInstallation",
+  // How much floor is coming out, any type. Stated dimensions ("six by eight feet") are multiplied
+  // out during the detail pass; the question below only fires when nothing was stated at all.
+  "flooring:removalSF",
   "door:doorType", "door:unitType",
   "cabinetry:extent",
   "ceilingLightFixtures:present", "ceilingLightFixtures:count",
@@ -66,6 +69,7 @@ export const DELIBERATELY_ASKED = new Map([
   // do, `parseAreaQuantity` takes it in the answer. The moisture map also pre-fills these.
   ["wall:cutRunFt", "a measured quantity, pre-filled from the moisture map where one exists"],
   ["wall:cutRunFraction", "the qualitative half of cutRunFt"],
+  ["flooring:removalFraction", "the qualitative half of removalSF, which IS extracted"],
   ["flooring:carpetLiftSF", "a measured quantity, pre-filled from the moisture map"],
   ["flooring:carpetLiftFraction", "the qualitative half of carpetLiftSF"],
   ["flooring:padRemovedSF", "a measured quantity, pre-filled from the moisture map"],
@@ -93,7 +97,6 @@ export const DELIBERATELY_ASKED = new Map([
   ["windowCleaning:counts", "post-construction cleanup, never narrated as damage"],
 
   // Gap-check bookkeeping — flags that exist to make the question fire exactly once.
-  ["room:baseboardPresenceConfirmed", "bookkeeping, not a fact about the building"],
   ["room:baseboardConfirmedAbsent", "bookkeeping, not a fact about the building"],
   ["room:equipmentAsked", "bookkeeping, not a fact about the building"],
   ["waterExtraction:required", "a general water-claim backstop; rarely narrated either way"],
@@ -124,7 +127,6 @@ export const DELIBERATELY_ASKED = new Map([
 
   // Bookkeeping flags that exist so a question fires exactly once, whichever way it is answered.
   // They are not facts about the building, so there is nothing for extraction to capture.
-  ["baseboard:present", "bookkeeping — makes the baseboard-absence question fire once"],
   ["equipment:used", "bookkeeping — makes the drying-equipment backstop fire once"],
 
   /*

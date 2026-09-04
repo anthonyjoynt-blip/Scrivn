@@ -115,7 +115,6 @@ function roomToDomain(w: RoomWire): Room {
     floorRegistersDetached: intOrNull(w.floorRegistersDetached),
     equipment: w.equipment.map(equipmentToDomain),
     contents: w.contents.present ? contentsToDomain(w.contents) : null,
-    baseboardPresenceConfirmed: false,
     ceilingLightFixtureCount: null,
     ceilingFixturesInRemovalArea: null,
     windowCleaningAsked: false,
@@ -159,6 +158,9 @@ function flooringToDomain(w: FlooringRecordWire): FlooringRecord {
     phase: enumOrNull<WorkPhase>(w.phase),
     phaseUncertain: w.phaseUncertain,
     padRemoved: toTriState(w.padRemoved),
+    // Filled by the detail pass, not here — call 1's schema has no room left (see schema.ts).
+    removalSF: null,
+    removalFraction: null,
     // carpetLiftSF/padRemovedSF and their new fraction counterparts stay gap-check-only — the SF
     // vs. fraction distinction is a UI/answer-format concern (see gapCheck.ts), not something
     // worth extraction schema complexity for.
@@ -360,4 +362,31 @@ function toTriState(s: string): boolean | null {
 /** The schema's `enum` list already constrains the model to real values or "UNKNOWN" for this field. */
 function enumOrNull<T extends string>(value: string): T | null {
   return value === "UNKNOWN" ? null : (value as T);
+}
+
+/**
+ * One fully-populated record of each type, as the real mapping builds it.
+ *
+ * Exists for the test fixtures, and only for them — nothing in the app reads it. Fixtures are
+ * hand-written object literals, so a field added to a domain type is simply missing from them; and
+ * `undefined` is not `null`, so every question gated on `field === null` quietly stops firing in the
+ * tests while firing normally in the app. `flooring.removalSF` was added, asked in the app, and
+ * walked straight past the audit that exists to catch exactly that.
+ *
+ * These come from the real `*ToDomain` functions, so TypeScript rejects a missing field here the
+ * moment a domain type grows one, and `test/gapcheck/run.mjs` compares fixture keys against them.
+ */
+export function canonicalRecordShapes(): { flooring: FlooringRecord; baseboard: BaseboardRecord } {
+  return {
+    flooring: flooringToDomain({
+      type: "",
+      vinylSubtype: "",
+      disposition: "",
+      phase: "",
+      phaseUncertain: false,
+      padPresent: "",
+      padRemoved: "",
+    }),
+    baseboard: baseboardToDomain({ heightIn: -1, action: "", phase: "", phaseUncertain: false }),
+  };
 }

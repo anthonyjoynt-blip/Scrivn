@@ -262,6 +262,16 @@ const flooringDetailSchema = obj({
   hardwoodConstruction: nullableEnumOf("SOLID", "ENGINEERED", "PREFINISHED", "OTHER"),
   hardwoodInstallation: nullableEnumOf("FLOATING", "GLUED", "NAILED"),
   vinylInstallation: nullableEnumOf("GLUED", "SNAPLOCK_FLOATING"),
+  /*
+    How much floor is coming out, in SF, for any type — not just carpet.
+
+    Reported: a transcript said "six by eight feet" of vinyl plank and the scope rendered "small
+    area at the dishwasher". Flooring carried no removal quantity at all, so an exact figure the PM
+    had stated had nowhere to go, and generation fell back to the qualitative extent it uses when
+    nothing is known. Dimensions are multiplied out during extraction rather than stored as a pair,
+    because every consumer of this wants area and none of them wants two numbers.
+  */
+  removalSF: nullableNumber(),
 });
 
 const doorDetailSchema = obj({

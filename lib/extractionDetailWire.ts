@@ -32,6 +32,7 @@ export interface FlooringDetailWire {
   hardwoodConstruction: string;
   hardwoodInstallation: string;
   vinylInstallation: string;
+  removalSF: number;
 }
 export interface DoorDetailWire {
   doorType: string;
@@ -83,6 +84,18 @@ function intOrNull(n: number | undefined): number | null {
 }
 
 /**
+ * An area, which unlike a count may be fractional (a 6'6" run is 6.5 feet).
+ *
+ * Zero is rejected along with the negative sentinel: a floor that is being removed has an area, so
+ * "0 SF" is the model failing to state one rather than a measurement. Letting it through would put
+ * "Remove vinyl – 0 SF" on a scope, which reads as a decision rather than a gap and so would never
+ * get asked about.
+ */
+function areaOrNull(n: number | undefined): number | null {
+  return n === undefined || !Number.isFinite(n) || n <= 0 ? null : n;
+}
+
+/**
  * `existing ?? fromDetail` throughout, never the other way round.
  *
  * Call 1 is the authority wherever the two overlap. They are not supposed to overlap at all — the
@@ -112,6 +125,15 @@ export function mergeDetail(extraction: WaterLossExtraction, detail: ExtractionD
         hardwoodConstruction: f.hardwoodConstruction ?? enumOrNull<HardwoodConstruction>(d.flooring[i]?.hardwoodConstruction),
         hardwoodInstallation: f.hardwoodInstallation ?? enumOrNull<HardwoodInstallation>(d.flooring[i]?.hardwoodInstallation),
         vinylInstallation: f.vinylInstallation ?? enumOrNull<VinylInstallation>(d.flooring[i]?.vinylInstallation),
+        /*
+          Only onto a record that is actually being removed. The model is told the same thing, but a
+          removal area landing on a LIFT_AND_REINSTALL carpet would put a tear-out figure on a floor
+          that is being saved — the kind of wrong number that reads as deliberate.
+        */
+        removalSF:
+          f.disposition === "REMOVE_AND_DISPOSE" || f.disposition === "REMOVE_AND_ASSESS"
+            ? f.removalSF ?? areaOrNull(d.flooring[i]?.removalSF)
+            : f.removalSF,
       })),
       baseboard: room.baseboard.map((b, i) => ({
         ...b,
@@ -165,6 +187,10 @@ export function needsDetailPass(extraction: WaterLossExtraction): boolean {
       room.flooring.some((f) => f.type === "CARPET" && f.carpetStyle === null) ||
       room.flooring.some((f) => f.type === "HARDWOOD" && (f.hardwoodConstruction === null || f.hardwoodInstallation === null)) ||
       room.flooring.some((f) => f.type === "VINYL" && f.vinylSubtype === "PLANK" && f.vinylInstallation === null) ||
+      // Any floor coming out has an area worth stating, whatever it is made of.
+      room.flooring.some(
+        (f) => (f.disposition === "REMOVE_AND_DISPOSE" || f.disposition === "REMOVE_AND_ASSESS") && f.removalSF === null,
+      ) ||
       // Every baseboard has a material, and call 1 never carries it.
       room.baseboard.some((b) => b.material === null) ||
       // A cut height and cavity insulation only exist where drywall is coming off.

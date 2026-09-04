@@ -101,12 +101,14 @@ export interface Room {
   /** Qualitative alternative to waterExtractionSF — see {@link AreaFraction}. */
   waterExtractionFraction: AreaFraction | null;
   /**
-   * Gap-check bookkeeping only — never populated by extraction, never read by document
-   * generation. Exists so the gap-check engine can walk the baseboard "triggered by absence"
-   * decision tree one question at a time across repeated `evaluate()` calls without re-asking a
-   * question that's already been answered.
+   * Gap-check bookkeeping only — never populated by extraction, never read by document generation.
+   * Set when the PM answers the baseboard completeness question with "no baseboard in this area",
+   * which is what stops a room being asked for ever about trim it does not have.
+   *
+   * Its former companion `baseboardPresenceConfirmed` is gone: presence used to be its own yes/no
+   * shown beside the action, and folding absence into the action question's options left nothing
+   * for a "yes, they exist" flag to do.
    */
-  baseboardPresenceConfirmed: boolean;
   baseboardConfirmedAbsent: boolean;
   /**
    * Windows needing cleaning after drywall work — gap-check only, never extracted.
@@ -127,7 +129,7 @@ export interface Room {
    */
   windowCleaningCounts: Partial<Record<WindowCleaningSize, number>> | null;
   /**
-   * Gap-check bookkeeping only, same idea as baseboardPresenceConfirmed — round 12, per direct
+   * Gap-check bookkeeping only, same idea as baseboardConfirmedAbsent — round 12, per direct
    * feedback ("on water claims lets also just ask if drying equipment was used... but if the pm
    * just forgot to mention drying equipment lets just check that on water claims in general").
    * `equipment` above only ever gets quantity-gap-checked for records extraction already created;
@@ -261,6 +263,20 @@ export interface FlooringRecord {
    * pad itself is being pulled out while the carpet is lifted to get at it.
    */
   padRemoved: boolean | null;
+  /**
+   * How much of this floor is coming out. Only meaningful for a removal disposition
+   * (REMOVE_AND_DISPOSE / REMOVE_AND_ASSESS) — a floor being lifted and reinstalled uses
+   * `carpetLiftSF` instead, and a floor staying put has no removal at all.
+   *
+   * Applies to EVERY flooring type, not just carpet. Carpet-lift was the only quantity flooring
+   * carried, so a stated "six by eight feet" of vinyl had nowhere to land and the scope rendered
+   * the qualitative fallback — "small area at the dishwasher" — for a floor whose exact size the PM
+   * had said out loud. A number that was given and then dropped is worse than one never given: the
+   * vague phrase looks like the best anyone knew.
+   */
+  removalSF: number | null;
+  /** Qualitative alternative to removalSF — see {@link AreaFraction}. */
+  removalFraction: AreaFraction | null;
   /** SF of carpet being lifted to access the pad. Only gap-checked when padRemoved === true. */
   carpetLiftSF: number | null;
   /** Qualitative alternative to carpetLiftSF — see {@link AreaFraction}. */

@@ -51,7 +51,8 @@ function flooring(type, overrides = {}) {
   return {
     type, carpetStyle: null, padPresent: null, vinylSubtype: null, vinylInstallation: null, vinylSubstrate: null,
     hardwoodConstruction: null, hardwoodInstallation: null, disposition: "REMOVE_AND_DISPOSE", phase: null,
-    phaseUncertain: false, padRemoved: null, carpetLiftSF: null, carpetLiftFraction: null, padRemovedSF: null,
+    phaseUncertain: false, padRemoved: null, removalSF: null, removalFraction: null,
+    carpetLiftSF: null, carpetLiftFraction: null, padRemovedSF: null,
     padRemovedFraction: null, ...overrides,
   };
 }
@@ -83,7 +84,7 @@ const BEDROOM = room("Bedroom", {
 /** A detail entry for a room with one of each record — the shape call 2 is asked to return. */
 function detailRoom(overrides = {}) {
   return {
-    flooring: [{ carpetStyle: "BERBER", hardwoodConstruction: "UNKNOWN", hardwoodInstallation: "UNKNOWN", vinylInstallation: "UNKNOWN" }],
+    flooring: [{ carpetStyle: "BERBER", hardwoodConstruction: "UNKNOWN", hardwoodInstallation: "UNKNOWN", vinylInstallation: "UNKNOWN", removalSF: -1 }],
     baseboard: [{ material: "VINYL_PVC_COMPOSITE", mdfProfile: "UNKNOWN" }],
     walls: [{ cutHeight: "TWO_FOOT", insulationType: "UNKNOWN" }],
     ceilings: [{ textureStyle: "UNKNOWN", aboveInsulationAffected: "YES", aboveInsulationType: "UNKNOWN" }],
@@ -96,6 +97,47 @@ function detailRoom(overrides = {}) {
 }
 
 const FULL_DETAIL = { rooms: [detailRoom()] };
+
+
+/* ── How much floor is coming out ──────────────────────────────────────────────────────────────── */
+
+/*
+  Reported: "6 by 8 feet" of vinyl plank — a real 48 SF — rendered in the scope as "small area at the
+  dishwasher". Flooring carried no removal quantity at all, so an exact figure the PM stated had
+  nowhere to land and generation used the qualitative fallback it reaches for when nothing is known.
+*/
+const removalRoom = tree([room("Kitchen", { flooring: [flooring("VINYL")] })]);
+const withArea = mergeDetail(removalRoom, { rooms: [detailRoom({ flooring: [{ ...detailRoom().flooring[0], removalSF: 48 }], baseboard: [], walls: [], ceilings: [] })] });
+check(withArea.rooms[0].flooring[0].removalSF === 48, `a stated area lands on the record (got ${withArea.rooms[0].flooring[0].removalSF})`);
+
+const sentinel = mergeDetail(removalRoom, { rooms: [detailRoom({ flooring: [{ ...detailRoom().flooring[0], removalSF: -1 }], baseboard: [], walls: [], ceilings: [] })] });
+check(sentinel.rooms[0].flooring[0].removalSF === null, "the not-stated sentinel stays null, so gap-check asks rather than scoping -1 SF");
+
+/*
+  Zero is rejected with the sentinel. A floor being removed has an area, so "0 SF" is the model
+  failing to state one — and "Remove vinyl – 0 SF" on a scope reads as a decision rather than a gap,
+  which means nobody ever asks about it.
+*/
+const zero = mergeDetail(removalRoom, { rooms: [detailRoom({ flooring: [{ ...detailRoom().flooring[0], removalSF: 0 }], baseboard: [], walls: [], ceilings: [] })] });
+check(zero.rooms[0].flooring[0].removalSF === null, "zero is treated as not-stated, not as a measured nothing");
+
+/*
+  A removal area landing on a floor being lifted and reinstalled would put a tear-out figure on a
+  floor that is being saved — the kind of wrong number that reads as deliberate.
+*/
+const liftRoom = tree([room("Lounge", { flooring: [flooring("CARPET", { disposition: "LIFT_AND_REINSTALL" })] })]);
+const onLift = mergeDetail(liftRoom, { rooms: [detailRoom({ flooring: [{ ...detailRoom().flooring[0], removalSF: 48 }], baseboard: [], walls: [], ceilings: [] })] });
+check(onLift.rooms[0].flooring[0].removalSF === null, "a removal area is refused on a lift-and-reinstall record");
+
+// And the detail pass has to be worth making for a claim whose only gap is this.
+check(
+  needsDetailPass(tree([room("Kitchen", { flooring: [flooring("VINYL", { vinylSubtype: "SHEET" })] })])),
+  "a plain vinyl tear-out with no area now triggers the detail pass",
+);
+check(
+  !needsDetailPass(tree([room("Kitchen", { flooring: [flooring("VINYL", { vinylSubtype: "SHEET", removalSF: 48 })] })])),
+  "and one whose area is already known does not",
+);
 
 /* ── The detail actually lands ─────────────────────────────────────────────────────────────────── */
 
@@ -161,16 +203,22 @@ check(
 
 check(needsDetailPass(tree([BEDROOM])), "a room with carpet, baseboard, walls and a ceiling needs the pass");
 check(!needsDetailPass(tree([])), "a claim with no rooms does not");
+/*
+  `removalSF` is set on both fixtures below on purpose. Every floor coming out now has an area worth
+  asking for, whatever it is made of, so a bare tear-out is no longer a claim with nothing to ask —
+  these two still test what they always tested (the call is skipped when there is genuinely nothing
+  left), they just have to say so with the area already known.
+*/
 check(
-  !needsDetailPass(tree([room("Utility", { flooring: [flooring("CONCRETE")] })])),
-  "and neither does a bare concrete floor with nothing else",
+  !needsDetailPass(tree([room("Utility", { flooring: [flooring("CONCRETE", { removalSF: 120 })] })])),
+  "and neither does a bare concrete floor whose area is already known",
 );
 check(
   needsDetailPass(tree([room("Hall", { flooring: [flooring("CARPET")] })])),
   "carpet alone is enough, since only carpet has a style",
 );
 check(
-  !needsDetailPass(tree([room("Hall", { flooring: [flooring("CARPET", { carpetStyle: "BERBER" })] })])),
+  !needsDetailPass(tree([room("Hall", { flooring: [flooring("CARPET", { carpetStyle: "BERBER", removalSF: 200 })] })])),
   "but not once that style is already known",
 );
 check(
