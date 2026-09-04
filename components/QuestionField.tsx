@@ -190,10 +190,25 @@ export function QuestionField({
         same number in every room — but "usually" is why it stays an offer. Declining costs nothing,
         each copy lands as an ordinary answer, and any room that genuinely differs is changed after.
       */}
-      {onApplyToAll && applyToAllCount !== undefined && applyToAllCount > 0 && isQuestionAnswered(question, rawValue) && (
-        <button type="button" className="apply-to-all" onClick={() => onApplyToAll(question)}>
-          Apply this to the other {applyToAllCount} {applyToAllCount === 1 ? "room" : "rooms"}
-        </button>
+      {/*
+        The row is reserved as soon as the offer is POSSIBLE, and only its contents appear once the
+        question is answered.
+
+        Rendering the button conditionally moved the page: answering one question grew its card, and
+        everything below shifted down — measured at 126px, more than a full row — right as the PM was
+        reaching for the next field. Reported as the input "moving out from under the cursor", and it
+        is worst exactly where this offer applies, because those are the questions answered in a run
+        down the page. Reserving the space costs one empty row on the handful of questions that can
+        ever make the offer, and nothing anywhere else.
+      */}
+      {onApplyToAll && applyToAllCount !== undefined && applyToAllCount > 0 && (
+        <div className="apply-to-all-row">
+          {isQuestionAnswered(question, rawValue) && (
+            <button type="button" className="apply-to-all" onClick={() => onApplyToAll(question)}>
+              Apply this to the other {applyToAllCount} {applyToAllCount === 1 ? "room" : "rooms"}
+            </button>
+          )}
+        </div>
       )}
     </div>
   );

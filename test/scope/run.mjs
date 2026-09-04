@@ -13,6 +13,8 @@
  */
 
 import { build } from "esbuild";
+import { readFileSync } from "node:fs";
+import { RENDERED, NOT_RENDERED, NOT_MODELLED } from "./rendered.mjs";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
@@ -48,6 +50,35 @@ function check(ok, message) {
   else failures.push(message);
 }
 
+/* ── Every fact the tree holds reaches the scope, or is documented as not needing to ─────────────── */
+
+/*
+  The mirror image of test/gapcheck/extractable.mjs. Generation is handed BOTH the tree and the
+  transcript: the inspection report is narrative and written from the transcript, the scope's line
+  items are built only from rules that see the tree. A fact with a home in the tree but no rule
+  naming it therefore reads as correct in the report and vanishes from the scope — which is exactly
+  what makes it hard to spot, and has now been reported three times (equipment, antimicrobial,
+  floor cleaning).
+*/
+{
+  const promptSource = readFileSync(join(root, "lib", "documentGenerationPrompt.ts"), "utf8");
+  const unruled = [...RENDERED.keys()].filter((key) => !promptSource.includes(key.split(".")[1]));
+  check(
+    unruled.length === 0,
+    ["a rule in documentGenerationPrompt.ts names every fact the scope must render.",
+     "         Named in test/scope/rendered.mjs but absent from the prompt:",
+     ...unruled.map((k) => `           ${k}  — claimed rule: ${RENDERED.get(k)}`)].join("\n"),
+  );
+
+  // The tables must describe reality: a fact cannot be both rendered and deliberately not rendered.
+  const both = [...RENDERED.keys()].filter((k) => NOT_RENDERED.has(k));
+  check(both.length === 0, `no fact is listed as both rendered and not rendered (got ${both.join(", ")})`);
+
+  // A hole that has since been modelled must move out of NOT_MODELLED rather than sit there stale.
+  const closed = [...NOT_MODELLED.keys()].filter((k) => RENDERED.has(k));
+  check(closed.length === 0, `NOT_MODELLED holds only genuinely unmodelled work (stale: ${closed.join(", ")})`);
+}
+
 /* ── Fixtures ──────────────────────────────────────────────────────────────────────────────────── */
 
 function ceiling(overrides = {}) {
@@ -61,8 +92,17 @@ function ceiling(overrides = {}) {
 function wall(overrides = {}) {
   return { wallMaterial: "DRYWALL", drywallBeingRemoved: true, insulationAffected: null, insulationType: null, insulationRValue: null, floodCutHeightIn: null, cutHeight: "TWO_FOOT", cutRunFt: 30, cutRunFraction: null, ...overrides };
 }
+function flooring(overrides = {}) {
+  return {
+    type: "CONCRETE", carpetStyle: null, padPresent: null, vinylSubtype: null, vinylInstallation: null,
+    vinylSubstrate: null, hardwoodConstruction: null, hardwoodConstructionOther: null, hardwoodInstallation: null,
+    disposition: "DRY_IN_PLACE", phase: null, phaseUncertain: false, padRemoved: null,
+    removalSF: null, removalFraction: null, cleaningRequired: null,
+    carpetLiftSF: null, carpetLiftFraction: null, padRemovedSF: null, padRemovedFraction: null, ...overrides,
+  };
+}
 function room(name, overrides = {}) {
-  return { roomName: name, flooring: [], baseboard: [], walls: [], ceilings: [], doors: [], cabinetry: [], toeKicks: [], countertops: [], wallTile: [], outlets: [], lightFixtures: [], electricalPanel: null, plumbingFixtures: [], stairs: null, floorRegistersDetached: null, contents: null, equipment: [], waterExtractionRequired: null, waterExtractionSF: null, waterExtractionFraction: null, baseboardConfirmedAbsent: false, windowCleaningAsked: false, windowCleaningCounts: null, equipmentAsked: false, ceilingLightFixturesPresent: null, ceilingFixturesInRemovalArea: null, ceilingLightFixtureType: null, ceilingLightFixtureCount: null, otherCeilingFixtures: null, ...overrides };
+  return { roomName: name, flooring: [], baseboard: [], walls: [], ceilings: [], doors: [], cabinetry: [], toeKicks: [], countertops: [], wallTile: [], outlets: [], lightFixtures: [], electricalPanel: null, plumbingFixtures: [], stairs: null, floorRegistersDetached: null, contents: null, equipment: [], antimicrobialApplied: null, containmentRequired: null, containmentSF: null, hepaVacuumingRequired: null, appliances: [], waterExtractionRequired: null, waterExtractionSF: null, waterExtractionFraction: null, baseboardConfirmedAbsent: false, windowCleaningAsked: false, windowCleaningCounts: null, equipmentAsked: false, ceilingLightFixturesPresent: null, ceilingFixturesInRemovalArea: null, ceilingLightFixtureType: null, ceilingLightFixtureCount: null, otherCeilingFixtures: null, ...overrides };
 }
 
 /* ── A replaced ceiling gets primed and painted ────────────────────────────────────────────────── */
@@ -145,6 +185,118 @@ check(
 );
 check(painting.includes("Prime & paint walls – 90 SF"), "alongside the wall priming it always carried");
 
+
+
+/* ── A floor that stays, and antimicrobial ─────────────────────────────────────────────────────── */
+
+/*
+  Reported: a category 3 basement loss whose transcript said the concrete "just needs to be cleaned
+  and treated" and that antimicrobial applied "throughout both spaces". The inspection report had
+  both right; the scope had neither. Both facts had no home in the tree at all — antimicrobial lived
+  only on DGIG's Emergency form — and the report is written with the transcript in hand while these
+  bullets are built only from the tree. Third instance of that asymmetry; drying equipment was first.
+*/
+const cat3 = { ...emptyClaimInfo(), customerName: "Test", jobNumber: "J-2", waterCategory: 3, scopePhases: ["EMERGENCY", "REPAIR"] };
+const emergencyFor = (claimInfo, rooms) =>
+  buildWorkOrders({
+    trades: ["MITIGATION_DEMO"],
+    claim: claimInfo,
+    extraction: withDerivedFields({
+      loss: { category: 3, lossClass: 2, source: null, dateOfLoss: null, yearOfBuilding: 2000, asbestosTestingRequired: false, asbestosSamplesTaken: null, asbestosSampleCount: null, isBasementLoss: true, hvacInspectionRequired: null },
+      rooms,
+    }),
+    contentsApproach: "TM",
+    contentsTM: { entries: [] },
+    bricABrac: { rooms: [] },
+    dgigData: null,
+  }).find((o) => o.trade === "MITIGATION_DEMO")?.text ?? "";
+
+const cleaned = emergencyFor(cat3, [room("Storage Area", { flooring: [flooring({ cleaningRequired: true })] })]);
+check(/Clean & treat concrete floor/.test(cleaned), `a floor being cleaned reaches the crew (got:
+${cleaned})`);
+check(
+  !/[Dd]ry in place/.test(cleaned),
+  "and is never described as dried in place — that means saving material you would otherwise tear out, and nobody tears out a slab",
+);
+
+// Category 1 has nothing to treat.
+const cat1 = { ...emptyClaimInfo(), customerName: "Test", jobNumber: "J-3", waterCategory: 1, scopePhases: ["EMERGENCY"] };
+const cat1Text = emergencyFor(cat1, [room("Storage Area", { flooring: [flooring({ cleaningRequired: true })] })]);
+check(/Clean concrete floor/.test(cat1Text) && !/treat/.test(cat1Text), `a category 1 floor is cleaned, not treated (got:
+${cat1Text})`);
+
+// Not stated is not "no" — but it is not a line either.
+const unstated = emergencyFor(cat3, [room("Storage Area", { flooring: [flooring()] })]);
+check(!/Clean/.test(unstated), "a floor nobody said to clean gets no cleaning line");
+
+const anti = emergencyFor(cat3, [room("Rec Room", { antimicrobialApplied: true }), room("Storage Area", { antimicrobialApplied: true })]);
+check(
+  (anti.match(/Antimicrobial application/g) ?? []).length === 2,
+  `antimicrobial reaches every room it applies to (got ${(anti.match(/Antimicrobial application/g) ?? []).length}):
+${anti}`,
+);
+check(
+  !/Antimicrobial/.test(emergencyFor(cat3, [room("Rec Room")])),
+  "and a room that never mentioned it gets no line, category 3 or not",
+);
+
+
+/* ── Containment, HEPA, appliances ─────────────────────────────────────────────────────────────── */
+
+/*
+  Four categories a PM states routinely that had no field anywhere, so they reached neither document
+  as a line. Found by the audit above after two of them were reported; each was confirmed dropped by
+  a live extraction call before being built.
+*/
+const contained = emergencyFor(cat3, [room("Rec Room", { containmentRequired: true, containmentSF: 80 })]);
+check(/Containment – poly barrier – 80 SF/.test(contained), `containment carries its barrier area (got:
+${contained})`);
+
+/*
+  A barrier hangs across an opening; its area has nothing to do with the floor it stands on. So a
+  missing figure stays missing rather than borrowing the room's — a confidently wrong number on a
+  priced line is worse than a blank somebody fills in.
+*/
+const unmeasured = emergencyFor(cat3, [room("Rec Room", { containmentRequired: true, containmentSF: null, flooring: [flooring({ removalSF: 400 })] })]);
+check(/Containment – poly barrier/.test(unmeasured), "containment with no size still gets its line");
+check(
+  !unmeasured.split("\n").some((line) => line.includes("Containment") && line.includes("400")),
+  "and never borrows the room's floor area for it",
+);
+check(!/Containment/.test(emergencyFor(cat3, [room("Rec Room")])), "a room with no containment gets no line");
+
+const hepa = emergencyFor(cat3, [room("Rec Room", { hepaVacuumingRequired: true })]);
+check(/HEPA vacuuming – floor area/.test(hepa), `HEPA vacuuming reaches the crew (got:
+${hepa})`);
+check(!/HEPA/.test(emergencyFor(cat3, [room("Rec Room")])), "and only where it was actually stated");
+
+/*
+  Appliances are a PAIR, like baseboard. A room whose emergency sheet says the washer came out and
+  whose repair sheet says nothing reads as an appliance nobody put back.
+*/
+const withAppliances = [room("Laundry", { appliances: [{ type: "WASHER" }, { type: "DRYER" }, { type: "BUILT_IN_MICROWAVE" }] })];
+const demo = emergencyFor(cat3, withAppliances);
+check(/Detach washer/.test(demo) && /Detach dryer/.test(demo), `each appliance is detached (got:
+${demo})`);
+check(/Detach built-in microwave/.test(demo), "and the label reads as words, not as an enum");
+const carpentry = buildWorkOrders({
+  trades: ["FINISH_CARPENTRY"],
+  claim: cat3,
+  extraction: withDerivedFields({
+    loss: { category: 3, lossClass: 2, source: null, dateOfLoss: null, yearOfBuilding: 2000, asbestosTestingRequired: false, asbestosSamplesTaken: null, asbestosSampleCount: null, isBasementLoss: true, hvacInspectionRequired: null },
+    rooms: withAppliances,
+  }),
+  contentsApproach: "TM",
+  contentsTM: { entries: [] },
+  bricABrac: { rooms: [] },
+  dgigData: null,
+}).find((o) => o.trade === "FINISH_CARPENTRY")?.text ?? "";
+check(/Reset washer/.test(carpentry) && /Reset dryer/.test(carpentry), `and every one goes back on repairs (got:
+${carpentry})`);
+check(
+  !/Remove washer|Replace washer/.test(demo + carpentry),
+  "never removed or replaced — a restoration contractor does not buy the homeowner a new washer",
+);
 
 /* ── A baseboard that comes off goes back on ───────────────────────────────────────────────────── */
 

@@ -88,6 +88,15 @@ export interface Room {
    */
   equipment: EquipmentRecord[];
   /**
+   * Appliances that come out and go back — see {@link ApplianceRecord}.
+   *
+   * Populated by the DETAIL pass, not call 1, and unlike everything else it returns this list is not
+   * positional: there are no call-1 appliance records to line up against, so the detail pass produces
+   * the list outright rather than annotating one. That is safe precisely because nothing else refers
+   * to these by index.
+   */
+  appliances: ApplianceRecord[];
+  /**
    * Gap-check-only, round 12 — never populated by extraction. General water-claim gap-check ("one
    * more gap check for all water claims, if water extraction was not mentioned - ask if water
    * extraction was required"), distinct from the narrow LIFT_AND_REINSTALL-carpet auto-include in
@@ -96,6 +105,37 @@ export interface Room {
    * as every other nullable gap-checked field in this file — no separate "asked" flag needed.
    */
   waterExtractionRequired: boolean | null;
+  /**
+   * Antimicrobial applied in this room.
+   *
+   * Per-room, not claim-level, because that is the shape the data already has: DGIG's Emergency form
+   * has carried `antimicrobial` per room since it was built (`lib/dgig.ts`), and a PM saying
+   * "antimicrobial throughout both spaces" is naming rooms. Claim-level would have had to invent a
+   * shape the rest of the app does not use.
+   *
+   * It existed ONLY on that DGIG form, which is why a Wawanesa claim stating antimicrobial produced
+   * an inspection report that mentioned it and a scope that did not: the report is written with the
+   * transcript in hand, the scope's line rules can only see this tree. A fact with no home here is
+   * visible to one and invisible to the other — the same shape as the gap-check bug that
+   * `test/gapcheck/extractable.mjs` exists to prevent.
+   */
+  antimicrobialApplied: boolean | null;
+  /**
+   * Poly barriers sealing this area off. Priced per square foot of barrier, per the user.
+   *
+   * Two fields for the same reason water extraction has two: a PM routinely says containment is
+   * going up without saying how big it is, and "mentioned but unmeasured" has to be distinguishable
+   * from "never came up" or gap-check cannot know to ask.
+   */
+  containmentRequired: boolean | null;
+  /** SF of barrier. Only meaningful, and only gap-checked, when containmentRequired is true. */
+  containmentSF: number | null;
+  /**
+   * HEPA vacuuming in this room. A boolean and no quantity of its own: it is priced per SF of floor,
+   * which the room already has — from the sketch where one exists, and qualitatively otherwise — so
+   * asking for the number again would be asking the PM to repeat the floor area.
+   */
+  hepaVacuumingRequired: boolean | null;
   /** Only meaningful (and only gap-checked) when waterExtractionRequired is true. Real SF count. */
   waterExtractionSF: number | null;
   /** Qualitative alternative to waterExtractionSF — see {@link AreaFraction}. */
@@ -182,6 +222,28 @@ export type RoomLightFixtureType = "REGULAR" | "RECESSED" | "RECESSED_TRIM_ONLY"
 export interface EquipmentRecord {
   type: string;
   quantity: number | null;
+}
+
+/**
+ * An appliance that comes out to work behind or under it, and goes back afterwards.
+ *
+ * No action field, unlike every other category: a restoration contractor detaches and resets
+ * appliances, and does not replace them — that is the homeowner's or the retailer's, so modelling
+ * remove-and-replace here would offer a choice nobody makes. Confirmed with the user.
+ */
+export type ApplianceType =
+  | "WASHER"
+  | "DRYER"
+  | "FRIDGE"
+  | "RANGE"
+  | "DISHWASHER"
+  | "BUILT_IN_OVEN"
+  | "COOKTOP"
+  | "RANGE_HOOD"
+  | "BUILT_IN_MICROWAVE";
+
+export interface ApplianceRecord {
+  type: ApplianceType;
 }
 
 export type FlooringType = "CARPET" | "VINYL" | "HARDWOOD" | "LAMINATE" | "TILE" | "CONCRETE";
@@ -277,6 +339,19 @@ export interface FlooringRecord {
   removalSF: number | null;
   /** Qualitative alternative to removalSF — see {@link AreaFraction}. */
   removalFraction: AreaFraction | null;
+  /**
+   * The floor stays and gets cleaned — and, on a category 2/3 loss, treated.
+   *
+   * The case this exists for is the one nobody had a field for: an unfinished basement's concrete
+   * slab. Nothing is removed, so every rule keyed off a removal disposition passes it by, and the
+   * only thing the scope had left to say was "dry in place" — which in this trade means saving
+   * material you would otherwise tear out, and nobody tears out a slab. So a floor that was going to
+   * be scrubbed and treated reached the estimator described as having been left alone.
+   *
+   * Not limited to concrete. Tile, sealed hardwood and sheet vinyl all routinely stay down and get
+   * cleaned, and all of them read the same way without this.
+   */
+  cleaningRequired: boolean | null;
   /** SF of carpet being lifted to access the pad. Only gap-checked when padRemoved === true. */
   carpetLiftSF: number | null;
   /** Qualitative alternative to carpetLiftSF — see {@link AreaFraction}. */

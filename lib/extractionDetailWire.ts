@@ -12,6 +12,7 @@ import type {
   InsulationType,
   WaterLossExtraction,
   WallDrywallCutHeight,
+  ApplianceType,
 } from "./types";
 
 /**
@@ -33,6 +34,7 @@ export interface FlooringDetailWire {
   hardwoodInstallation: string;
   vinylInstallation: string;
   removalSF: number;
+  cleaningRequired: string;
 }
 export interface DoorDetailWire {
   doorType: string;
@@ -63,10 +65,20 @@ export interface RoomDetailWire {
   cabinetry: CabinetryDetailWire[];
   lightFixturesPresent: string;
   lightFixtureCount: number;
+  antimicrobialApplied: string;
+  containmentRequired: string;
+  containmentSF: number;
+  hepaVacuumingRequired: string;
+  appliances: { type: string }[];
 }
 export interface ExtractionDetailWire {
   rooms: RoomDetailWire[];
 }
+
+/** The enum the detail schema offers, so an unrecognised string is dropped rather than trusted. */
+const APPLIANCE_TYPES = new Set<string>([
+  "WASHER", "DRYER", "FRIDGE", "RANGE", "DISHWASHER", "BUILT_IN_OVEN", "COOKTOP", "RANGE_HOOD", "BUILT_IN_MICROWAVE",
+]);
 
 function enumOrNull<T extends string>(value: string | undefined): T | null {
   return value === undefined || value === "UNKNOWN" || value === "" ? null : (value as T);
@@ -134,6 +146,7 @@ export function mergeDetail(extraction: WaterLossExtraction, detail: ExtractionD
           f.disposition === "REMOVE_AND_DISPOSE" || f.disposition === "REMOVE_AND_ASSESS"
             ? f.removalSF ?? areaOrNull(d.flooring[i]?.removalSF)
             : f.removalSF,
+        cleaningRequired: f.cleaningRequired ?? toTriState(d.flooring[i]?.cleaningRequired),
       })),
       baseboard: room.baseboard.map((b, i) => ({
         ...b,
@@ -158,6 +171,20 @@ export function mergeDetail(extraction: WaterLossExtraction, detail: ExtractionD
         Room-level, so no alignment to check — but still `?? existing` for the same reason every
         other merge here is: call 1 wins wherever the two could ever overlap.
       */
+      antimicrobialApplied: room.antimicrobialApplied ?? toTriState(d.antimicrobialApplied),
+      containmentRequired: room.containmentRequired ?? toTriState(d.containmentRequired),
+      containmentSF: room.containmentSF ?? areaOrNull(d.containmentSF),
+      hepaVacuumingRequired: room.hepaVacuumingRequired ?? toTriState(d.hepaVacuumingRequired),
+      /*
+        Appended, not aligned. This is the one list the detail pass produces outright — there are no
+        call-1 appliance records to line up against — so the positional alignment check above says
+        nothing about it, and the guard that matters instead is that unrecognised types are dropped
+        rather than carried through as an invalid enum.
+      */
+      appliances:
+        room.appliances.length > 0
+          ? room.appliances
+          : (d.appliances ?? []).filter((a) => APPLIANCE_TYPES.has(a?.type)).map((a) => ({ type: a.type as ApplianceType })),
       ceilingLightFixturesPresent: room.ceilingLightFixturesPresent ?? toTriState(d.lightFixturesPresent),
       ceilingLightFixtureCount: room.ceilingLightFixtureCount ?? intOrNull(d.lightFixtureCount),
       ceilings: room.ceilings.map((c, i) => ({
@@ -191,6 +218,17 @@ export function needsDetailPass(extraction: WaterLossExtraction): boolean {
       room.flooring.some(
         (f) => (f.disposition === "REMOVE_AND_DISPOSE" || f.disposition === "REMOVE_AND_ASSESS") && f.removalSF === null,
       ) ||
+      /*
+        A floor that stays is the case nothing else asks about: every other flooring trigger keys off
+        a removal, so an unfinished basement's slab was never worth a second call and reached the
+        scope described only as "dry in place".
+      */
+      room.flooring.some((f) => f.disposition !== "REMOVE_AND_DISPOSE" && f.cleaningRequired === null) ||
+      // These have no record of their own to key off — the room being in the claim is the trigger.
+      room.antimicrobialApplied === null ||
+      room.hepaVacuumingRequired === null ||
+      room.containmentRequired === null ||
+      (room.containmentRequired === true && room.containmentSF === null) ||
       // Every baseboard has a material, and call 1 never carries it.
       room.baseboard.some((b) => b.material === null) ||
       // A cut height and cavity insulation only exist where drywall is coming off.

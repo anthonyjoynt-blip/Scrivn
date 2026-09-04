@@ -272,6 +272,12 @@ const flooringDetailSchema = obj({
     because every consumer of this wants area and none of them wants two numbers.
   */
   removalSF: nullableNumber(),
+  /*
+    The floor stays and gets cleaned. Nothing keyed off a removal disposition sees this case, so an
+    unfinished basement's slab reached the scope described only as "dry in place" — which in this
+    trade means saving material you would otherwise tear out, and nobody tears out a slab.
+  */
+  cleaningRequired: nullableBool(),
 });
 
 const doorDetailSchema = obj({
@@ -314,6 +320,28 @@ const roomDetailSchema = obj({
   */
   lightFixturesPresent: nullableBool(),
   lightFixtureCount: nullableInt(),
+  /*
+    Antimicrobial, per room. It lived only on DGIG's Emergency form, so a claim with any other
+    insurer stating it produced an inspection report that said so and a scope that did not — the
+    report is written with the transcript in hand, the scope's line rules see only the tree.
+  */
+  antimicrobialApplied: nullableBool(),
+  // Poly barriers, priced per SF of barrier. Two fields for the same reason water extraction has
+  // two: "mentioned but unmeasured" must be distinguishable from "never came up", or gap-check
+  // cannot know to ask for the size.
+  containmentRequired: nullableBool(),
+  containmentSF: nullableNumber(),
+  // Priced per SF of floor, which the room already has — so a boolean, not another quantity.
+  hepaVacuumingRequired: nullableBool(),
+  /*
+    The one list this pass produces outright rather than annotating. Every other array here is
+    positional against a call-1 record; appliances have no call-1 counterpart, so there is nothing to
+    align to and `mergeDetail` appends the list as given. Safe only because nothing refers to these
+    by index.
+  */
+  appliances: arr(obj({
+    type: enumOf("WASHER", "DRYER", "FRIDGE", "RANGE", "DISHWASHER", "BUILT_IN_OVEN", "COOKTOP", "RANGE_HOOD", "BUILT_IN_MICROWAVE"),
+  })),
 });
 
 /**

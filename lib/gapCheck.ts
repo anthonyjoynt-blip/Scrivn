@@ -1315,6 +1315,22 @@ function waterExtractionQuestions(roomIndex: number, room: Room, derived?: Moist
       ...defaultFrom(derived?.floorSquareFeet, "SF"),
     });
   }
+  /*
+    Containment's size, and only once containment is known to be happening.
+
+    Deliberately NOT pre-filled from the moisture map, unlike every other area question here. A
+    barrier hangs across an opening; its area has nothing to do with the floor it stands on, so
+    offering the room's measured floor SF would be offering a confidently wrong number — worse than
+    an empty field, because a pre-filled one is designed to be accepted.
+  */
+  if (room.containmentRequired === true && room.containmentSF === null) {
+    q.push({
+      id: `room:${roomIndex}:containment:sf`,
+      roomName: room.roomName,
+      prompt: 'How much containment is going up? Enter the square feet of barrier — dimensions work too, "8 x 10" is read as 80 SF.',
+      kind: { type: "text" },
+    });
+  }
   return q;
 }
 
@@ -1609,6 +1625,16 @@ export function applyAnswer(extraction: WaterLossExtraction, questionId: string,
   if (parts.length >= 4 && parts[0] === "room" && parts[2] === "waterExtraction" && parts[3] === "required") {
     return updateRoom(extraction, roomIndex(parts), (room) => ({ ...room, waterExtractionRequired: isYes(answer) }));
   }
+  if (parts.length >= 4 && parts[0] === "room" && parts[2] === "containment" && parts[3] === "sf") {
+    const { sf } = parseAreaQuantity(answer);
+    if (sf === null) return extraction;
+    // Asked in the same round as nothing else, but the same defensive shape as water extraction: a
+    // room that turned out not to need containment must not acquire a barrier size.
+    return updateRoom(extraction, roomIndex(parts), (room) =>
+      room.containmentRequired === false ? room : { ...room, containmentSF: sf },
+    );
+  }
+
   if (parts.length >= 4 && parts[0] === "room" && parts[2] === "waterExtraction" && parts[3] === "sf") {
     const { sf, fraction } = parseAreaQuantity(answer);
     if (sf === null && fraction === null) return extraction;

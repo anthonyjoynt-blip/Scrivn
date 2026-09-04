@@ -30,7 +30,8 @@ STRUCTURE — this is what makes the answer usable at all:
 - Within each room, return exactly one entry per record, in the same order, for each of flooring,
   baseboard, walls, ceilings, doors and cabinetry. The counts are given per room below. A room with
   zero of something gets an empty array for it.
-- lightFixturesPresent and lightFixtureCount are room-level: one value each per room entry, not
+- lightFixturesPresent, lightFixtureCount, antimicrobialApplied, containmentRequired, containmentSF,
+  hepaVacuumingRequired and appliances are room-level: one value each per room entry, not
   arrays and not per record.
 - If a count does not match, the whole room's detail is discarded rather than misapplied, so match
   the counts exactly even where every field in an entry is UNKNOWN.
@@ -57,6 +58,43 @@ WHAT EACH FIELD MEANS:
   A qualitative phrase is NOT an area: do not estimate one from it, and do not infer the whole
   room's floor from a removal described as partial. Somebody asks the PM for the figure later,
   which is a far better outcome than a number nobody said appearing in an insurer's scope.
+- flooring.cleaningRequired — YES when the transcript says that floor is being CLEANED, treated,
+  scrubbed, washed down or sanitised rather than removed. "The concrete just needs to be cleaned and
+  treated" is YES; "wipe down the tile" is YES. NO only when it says the floor needs no cleaning.
+  UNKNOWN when the transcript does not address it. This is about the floor SURFACE itself, not the
+  final clean at the end of a job and not carpet cleaning after a lift-and-reinstall, both of which
+  are added automatically elsewhere — do not set YES just because a job will obviously be tidied up.
+- antimicrobialApplied — room-level, one value per room, not per record. YES when the transcript says
+  antimicrobial, anti-microbial, biocide or a sanitising agent is being applied in this room.
+  "Antimicrobial throughout both spaces" is YES for BOTH rooms — a phrase covering the whole job
+  applies to every affected room, not only the one named nearest to it. NO only when it says
+  antimicrobial is not being used. UNKNOWN when the transcript never raises it: a category 3 loss
+  usually gets antimicrobial, but "usually" is not "stated", and a line nobody asked for on an
+  insurer's scope is worse than one somebody has to add.
+  On a WATER loss, "deodorising", "deodorization" and "odour treatment" mean this — applying an
+  antimicrobial — so record them as YES here. (They mean something genuinely different on a fire or
+  trauma job, which this schema does not cover; if the transcript plainly describes a fire, leave
+  this UNKNOWN rather than recording a treatment that is not what was meant.)
+- containmentRequired — room-level. YES when the transcript describes containment, a poly barrier, a
+  zip wall, sealing a room or area off, or hanging plastic to separate the work area. NO when it says
+  none is needed. UNKNOWN when it never comes up.
+- containmentSF — the square feet of BARRIER, where a size is stated. Dimensions are multiplied out
+  the same way as flooring: "an 8 by 10 poly wall" is 80. Sentinel (-1) when containment is described
+  with no size, which is the ordinary case — somebody asks for the figure later. Never estimate
+  barrier area from a room's dimensions: a barrier is hung across an opening, and its size has
+  nothing to do with how big the room is.
+- hepaVacuumingRequired — room-level. YES when the transcript says HEPA vacuuming, HEPA vac, or
+  vacuuming with a HEPA unit is being done in this room. NO when it says it is not. UNKNOWN
+  otherwise. Do not infer it from a category 3 loss or from cleaning generally, and do not confuse it
+  with an air scrubber, which is equipment and is captured separately.
+- appliances — room-level, and the ONE list you produce outright rather than one entry per existing
+  record: return an entry for each appliance the transcript says is being moved, pulled out, detached,
+  or taken out to work behind or under, and an empty array when it names none. Allowed types:
+  WASHER, DRYER, FRIDGE, RANGE, DISHWASHER, BUILT_IN_OVEN, COOKTOP, RANGE_HOOD, BUILT_IN_MICROWAVE.
+  "Stove" is RANGE; "refrigerator" is FRIDGE; a wall oven is BUILT_IN_OVEN; an over-the-range
+  microwave is BUILT_IN_MICROWAVE. Only appliances actually being handled — an appliance merely
+  mentioned as being in the room ("the washer is in the corner") is not one being detached. There is
+  no action to record: a restoration contractor detaches and resets these, never replaces them.
 - doors.doorType — COLONIAL, SOLID_CORE, HOLLOW_CORE or OTHER, where the transcript names it.
 - doors.unitType — PRE_HUNG or SLAB_ONLY. "Just the slab" is SLAB_ONLY; "pre-hung unit" is PRE_HUNG.
 - cabinetry.extent — UPPERS, LOWERS or FULL_HEIGHT. "Upper cabinets" is UPPERS, "the base run" or

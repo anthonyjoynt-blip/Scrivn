@@ -14,6 +14,7 @@
  */
 
 import { build } from "esbuild";
+import { readFileSync } from "node:fs";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
@@ -241,7 +242,7 @@ function room(name, overrides = {}) {
     floorRegistersDetached: null,
     contents: null,
     equipment: [],
-    waterExtractionRequired: null,
+    waterExtractionRequired: null, antimicrobialApplied: null, containmentRequired: null, containmentSF: null, hepaVacuumingRequired: null, appliances: [],
     waterExtractionSF: null,
     waterExtractionFraction: null,
     baseboardConfirmedAbsent: false,
@@ -303,7 +304,7 @@ function everyRecordRoom(name) {
         type: "CARPET", carpetStyle: null, padPresent: null, vinylSubtype: null, vinylInstallation: null,
         vinylSubstrate: null, hardwoodConstruction: null, hardwoodConstructionOther: null, hardwoodInstallation: null,
         disposition: "REMOVE_AND_DISPOSE", phase: null, phaseUncertain: true, padRemoved: null,
-        removalSF: null, removalFraction: null,
+        removalSF: null, removalFraction: null, cleaningRequired: null, cleaningRequired: null,
         carpetLiftSF: null, carpetLiftFraction: null, padRemovedSF: null, padRemovedFraction: null,
       },
     ],
@@ -446,7 +447,7 @@ function removalFlooring() {
     type: "VINYL", carpetStyle: null, padPresent: null, vinylSubtype: "SHEET", vinylInstallation: null,
     vinylSubstrate: null, hardwoodConstruction: null, hardwoodConstructionOther: null, hardwoodInstallation: null,
     disposition: "REMOVE_AND_DISPOSE", phase: null, phaseUncertain: false, padRemoved: null,
-    removalSF: null, removalFraction: null,
+    removalSF: null, removalFraction: null, cleaningRequired: null,
     carpetLiftSF: null, carpetLiftFraction: null, padRemovedSF: null, padRemovedFraction: null,
   };
 }
@@ -1404,6 +1405,36 @@ check(
   applyAnswer(withDerivedFields(linearRoom), "room:0:wall:0:cutRunFt", "31").rooms[0].walls[0].cutRunFt === 31,
   "while a plain linear number still lands",
 );
+
+/* ── The offer must not move the page when it appears ─────────────────────────────────────────── */
+
+/*
+  Reported: the input "kept moving position while the PM was actively trying to click into or type in
+  it". The cause was the apply-to-all offer, which rendered only once its question was answered — so
+  answering grew that card and pushed everything below it down, measured at 25.8px on a 1280px
+  viewport, right as the PM moved to the next field. It is worst exactly where this offer applies,
+  because those are the questions answered in a run down the page.
+
+  The fix reserves the row whether or not the offer is showing. This guards the shape of that fix:
+  the button must sit inside a container that is rendered unconditionally alongside it, so the only
+  thing the answer changes is what is IN the row, never whether the row is there.
+*/
+{
+  const field = readFileSync(join(root, "components", "QuestionField.tsx"), "utf8");
+  const rowIndex = field.indexOf("apply-to-all-row");
+  const buttonIndex = field.indexOf('className="apply-to-all"');
+  check(rowIndex !== -1, "the apply-to-all offer has a reserving row");
+  check(
+    rowIndex !== -1 && buttonIndex > rowIndex,
+    "and the button is rendered inside it, not in place of it",
+  );
+  // The answered-check must gate the BUTTON, never the row — gating the row is the original bug.
+  const answeredGate = field.indexOf("isQuestionAnswered(question, rawValue)", rowIndex - 400);
+  check(
+    answeredGate > rowIndex,
+    "the answered check gates the button, not the row that holds its space",
+  );
+}
 
 /* ── Fixtures carry every field the real records do ───────────────────────────────────────────── */
 

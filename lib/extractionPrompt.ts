@@ -40,14 +40,21 @@ Rules:
   about phase for that specific item — words like "assess," "not sure if we're replacing," "hold
   off on the repair," "need to see how it dries." A plain "remove and replace" or "remove" alone
   is not uncertainty — leave phaseUncertain false in that case.
-- For equipment: this app only tracks two equipment types — "air movers" and "dehumidifiers" — the
-  type field must always be exactly one of those two literal strings, never a generic term. If the
-  PM names a type explicitly ("3 air movers," "a dehumidifier"), record that type with whatever
-  quantity was stated (or -1, the sentinel, if a type was named but no count was). If the PM uses a
-  generic phrase instead — "drying equipment," "equipment," "dry it out" — without naming air
-  movers or dehumidifiers specifically, emit BOTH types as separate equipment entries, each at
-  quantity -1 (the sentinel) — don't invent "drying equipment" as its own type and don't guess a
-  split between the two from a single generic mention.
+- For equipment: this app tracks three equipment types — "air movers", "dehumidifiers" and
+  "air scrubbers" — the type field must always be exactly one of those three literal strings, never
+  a generic term. If the PM names a type explicitly ("3 air movers," "a dehumidifier," "two air
+  scrubbers"), record that type with whatever quantity was stated (or -1, the sentinel, if a type was
+  named but no count was). A "negative air machine" or "negative air" is recorded as "air scrubbers":
+  it is the same unit, ducted to exhaust rather than recirculating, and splitting the two would
+  fragment one line item across two spellings. "HEPA air filtration device", "AFD" and "scrubber" are
+  all "air scrubbers" too.
+  If the PM uses a generic phrase instead — "drying equipment," "equipment," "dry it out" — without
+  naming a type specifically, emit air movers AND dehumidifiers as separate entries, each at quantity
+  -1 (the sentinel) — those two are what "drying equipment" means. Do NOT add air scrubbers to that
+  generic case: a scrubber is for airborne particulate, not drying, and is placed deliberately, so
+  inferring one from "dry it out" would put equipment on a scope nobody asked for. Don't invent
+  "drying equipment" as its own type and don't guess a split between types from a single generic
+  mention.
 - Do not compute or infer whether asbestos testing is required — that is derived automatically
   from the year of the building elsewhere in the pipeline, not something you decide.
 - If the PM mentioned asbestos samples being taken and how many, record that. If not mentioned,

@@ -51,7 +51,7 @@ function flooring(type, overrides = {}) {
   return {
     type, carpetStyle: null, padPresent: null, vinylSubtype: null, vinylInstallation: null, vinylSubstrate: null,
     hardwoodConstruction: null, hardwoodInstallation: null, disposition: "REMOVE_AND_DISPOSE", phase: null,
-    phaseUncertain: false, padRemoved: null, removalSF: null, removalFraction: null,
+    phaseUncertain: false, padRemoved: null, removalSF: null, removalFraction: null, cleaningRequired: null,
     carpetLiftSF: null, carpetLiftFraction: null, padRemovedSF: null,
     padRemovedFraction: null, ...overrides,
   };
@@ -70,9 +70,23 @@ function ceiling(overrides = {}) {
   };
 }
 function room(name, overrides = {}) {
-  return { roomName: name, flooring: [], baseboard: [], walls: [], ceilings: [], doors: [], cabinetry: [], toeKicks: [], countertops: [], wallTile: [], outlets: [], lightFixtures: [], electricalPanel: null, plumbingFixtures: [], stairs: null, floorRegistersDetached: null, contents: null, equipment: [], ...overrides };
+  return { roomName: name, antimicrobialApplied: null, containmentRequired: null, containmentSF: null, hepaVacuumingRequired: null, appliances: [], flooring: [], baseboard: [], walls: [], ceilings: [], doors: [], cabinetry: [], toeKicks: [], countertops: [], wallTile: [], outlets: [], lightFixtures: [], electricalPanel: null, plumbingFixtures: [], stairs: null, floorRegistersDetached: null, contents: null, equipment: [], ...overrides };
 }
 const tree = (rooms) => ({ loss: {}, rooms });
+
+/*
+  Antimicrobial is room-level with no record to key off, so "is it worth a second call" is true for
+  every room until it has been asked once — which is correct, and does mean the pass now runs for
+  essentially every claim that has rooms at all. The assertions below each test ONE trigger, so they
+  settle the always-on ones first; otherwise they would all pass for the wrong reason.
+*/
+const settled = (r) => ({
+  ...r,
+  antimicrobialApplied: false,
+  hepaVacuumingRequired: false,
+  containmentRequired: false,
+  flooring: (r.flooring ?? []).map((f) => ({ ...f, cleaningRequired: f.cleaningRequired ?? false })),
+});
 
 const BEDROOM = room("Bedroom", {
   flooring: [flooring("CARPET")],
@@ -84,7 +98,7 @@ const BEDROOM = room("Bedroom", {
 /** A detail entry for a room with one of each record — the shape call 2 is asked to return. */
 function detailRoom(overrides = {}) {
   return {
-    flooring: [{ carpetStyle: "BERBER", hardwoodConstruction: "UNKNOWN", hardwoodInstallation: "UNKNOWN", vinylInstallation: "UNKNOWN", removalSF: -1 }],
+    flooring: [{ carpetStyle: "BERBER", hardwoodConstruction: "UNKNOWN", hardwoodInstallation: "UNKNOWN", vinylInstallation: "UNKNOWN", removalSF: -1, cleaningRequired: "UNKNOWN" }],
     baseboard: [{ material: "VINYL_PVC_COMPOSITE", mdfProfile: "UNKNOWN" }],
     walls: [{ cutHeight: "TWO_FOOT", insulationType: "UNKNOWN" }],
     ceilings: [{ textureStyle: "UNKNOWN", aboveInsulationAffected: "YES", aboveInsulationType: "UNKNOWN" }],
@@ -92,6 +106,11 @@ function detailRoom(overrides = {}) {
     cabinetry: [],
     lightFixturesPresent: "UNKNOWN",
     lightFixtureCount: -1,
+    antimicrobialApplied: "UNKNOWN",
+    containmentRequired: "UNKNOWN",
+    containmentSF: -1,
+    hepaVacuumingRequired: "UNKNOWN",
+    appliances: [],
     ...overrides,
   };
 }
@@ -135,7 +154,7 @@ check(
   "a plain vinyl tear-out with no area now triggers the detail pass",
 );
 check(
-  !needsDetailPass(tree([room("Kitchen", { flooring: [flooring("VINYL", { vinylSubtype: "SHEET", removalSF: 48 })] })])),
+  !needsDetailPass(tree([settled(room("Kitchen", { flooring: [flooring("VINYL", { vinylSubtype: "SHEET", removalSF: 48 })] }))])),
   "and one whose area is already known does not",
 );
 
@@ -199,6 +218,33 @@ check(
   `the detail pass never overwrites what call 1 already captured (got ${overridden.rooms[0].flooring[0].carpetStyle})`,
 );
 
+
+/* ── Antimicrobial and floor cleaning ──────────────────────────────────────────────────────────── */
+
+/*
+  Reported: a transcript saying "antimicrobial throughout both spaces" produced an inspection report
+  that said so and a scope with no antimicrobial line in either room. Same for a concrete floor the
+  PM said to clean and treat. Both facts had no home in the tree at all — antimicrobial existed only
+  on DGIG's Emergency form — and the report is written with the transcript in hand while the scope's
+  line rules see only this tree. That asymmetry is the whole bug, and it is the third instance of it
+  (drying equipment was the first).
+*/
+const bareRoom = room("Storage", { flooring: [flooring("CONCRETE", { disposition: "DRY_IN_PLACE", removalSF: 120 })] });
+check(needsDetailPass(tree([bareRoom])), "a room that has never been asked about antimicrobial needs the pass");
+check(
+  needsDetailPass(tree([{ ...bareRoom, antimicrobialApplied: false }])),
+  "and a floor that stays still needs asking whether it is being cleaned",
+);
+
+const detailWith = (over) => ({ rooms: [detailRoom({ flooring: [{ ...detailRoom().flooring[0], ...over.flooring }], baseboard: [], walls: [], ceilings: [], ...over.room })] });
+const withAntimicrobial = mergeDetail(tree([room("Storage", { flooring: [flooring("CONCRETE")] })]), detailWith({ room: { antimicrobialApplied: "YES" } }));
+check(withAntimicrobial.rooms[0].antimicrobialApplied === true, "antimicrobial merges onto the room");
+const withoutAntimicrobial = mergeDetail(tree([room("Storage", { flooring: [flooring("CONCRETE")] })]), detailWith({ room: { antimicrobialApplied: "UNKNOWN" } }));
+check(withoutAntimicrobial.rooms[0].antimicrobialApplied === null, "and an unstated one stays null rather than becoming a false");
+
+const cleaned = mergeDetail(tree([room("Storage", { flooring: [flooring("CONCRETE")] })]), detailWith({ flooring: { cleaningRequired: "YES" } }));
+check(cleaned.rooms[0].flooring[0].cleaningRequired === true, "a floor being cleaned merges onto the record");
+
 /* ── When the second call is worth making ──────────────────────────────────────────────────────── */
 
 check(needsDetailPass(tree([BEDROOM])), "a room with carpet, baseboard, walls and a ceiling needs the pass");
@@ -210,7 +256,7 @@ check(!needsDetailPass(tree([])), "a claim with no rooms does not");
   left), they just have to say so with the area already known.
 */
 check(
-  !needsDetailPass(tree([room("Utility", { flooring: [flooring("CONCRETE", { removalSF: 120 })] })])),
+  !needsDetailPass(tree([settled(room("Utility", { flooring: [flooring("CONCRETE", { removalSF: 120 })] }))])),
   "and neither does a bare concrete floor whose area is already known",
 );
 check(
@@ -218,11 +264,11 @@ check(
   "carpet alone is enough, since only carpet has a style",
 );
 check(
-  !needsDetailPass(tree([room("Hall", { flooring: [flooring("CARPET", { carpetStyle: "BERBER", removalSF: 200 })] })])),
+  !needsDetailPass(tree([settled(room("Hall", { flooring: [flooring("CARPET", { carpetStyle: "BERBER", removalSF: 200 })] }))])),
   "but not once that style is already known",
 );
 check(
-  !needsDetailPass(tree([room("Store", { walls: [wall({ drywallBeingRemoved: false })] })])),
+  !needsDetailPass(tree([settled(room("Store", { walls: [wall({ drywallBeingRemoved: false })] }))])),
   "a wall with no drywall coming off has no cut height to ask about",
 );
 check(

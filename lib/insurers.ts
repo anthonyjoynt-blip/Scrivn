@@ -10,7 +10,7 @@
  * separate enum field — the PM can either pick a name from the dropdown (which just fills the same
  * text field) or type one by hand, and both paths need to trigger the same downstream rules.
  */
-export const KNOWN_INSURERS = ["Aviva", "TD", "DGIG (Desjardins)", "CAA", "AMA", "Allstate", "Co-operators", "Commonwell", "Wawanesa", "Intact"];
+export const KNOWN_INSURERS = ["Aviva", "TD", "DGIG (Desjardins)", "CAA", "AMA", "Allstate", "Co-operators", "Commonwell", "Wawanesa", "Intact", "SGI Canada"];
 
 /**
  * DGIG and Desjardins are the same company (DGIG = Desjardins General Insurance Group) — the user

@@ -122,6 +122,12 @@ function roomToDomain(w: RoomWire): Room {
     baseboardConfirmedAbsent: false,
     equipmentAsked: false,
     waterExtractionRequired: null,
+    antimicrobialApplied: null,
+    containmentRequired: null,
+    containmentSF: null,
+    hepaVacuumingRequired: null,
+    // Filled by the detail pass — call 1 has no room for another category (see schema.ts).
+    appliances: [],
     waterExtractionSF: null,
     waterExtractionFraction: null,
     // Gap-check-only (round 6) — never extracted, see Room.ceilingLightFixturesPresent's doc comment.
@@ -161,6 +167,7 @@ function flooringToDomain(w: FlooringRecordWire): FlooringRecord {
     // Filled by the detail pass, not here — call 1's schema has no room left (see schema.ts).
     removalSF: null,
     removalFraction: null,
+    cleaningRequired: null,
     // carpetLiftSF/padRemovedSF and their new fraction counterparts stay gap-check-only — the SF
     // vs. fraction distinction is a UI/answer-format concern (see gapCheck.ts), not something
     // worth extraction schema complexity for.

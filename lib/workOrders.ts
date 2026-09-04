@@ -9,7 +9,7 @@ import { DRYING_CLASS_OPTIONS } from "./dgig";
 import { isDGIG } from "./insurers";
 import { lossTypeLabel } from "./claimInfo";
 import { baseboardFinishLine, ceilingPaintLine, ceilingQuantity, fractionLabel, primingLine } from "./paintDerivation";
-import type { CeilingRecord, FlooringRecord, Room, WaterLossExtraction } from "./types";
+import type { ApplianceType, CeilingRecord, FlooringRecord, Room, WaterLossExtraction } from "./types";
 import { WINDOW_CLEANING_SIZE_LABEL, WINDOW_CLEANING_SIZES } from "./types";
 
 /**
@@ -91,6 +91,19 @@ const BASEBOARD_MATERIAL_LABEL: Record<string, string> = {
   MDF: "MDF",
   SOLID_WOOD: "Solid wood",
   VINYL_PVC_COMPOSITE: "Vinyl/PVC composite",
+};
+
+/** Ordinary words for the trade sheet — title-casing would give "Built in oven" and "Range hood". */
+const APPLIANCE_LABEL: Record<ApplianceType, string> = {
+  WASHER: "washer",
+  DRYER: "dryer",
+  FRIDGE: "fridge",
+  RANGE: "range",
+  DISHWASHER: "dishwasher",
+  BUILT_IN_OVEN: "built-in oven",
+  COOKTOP: "cooktop",
+  RANGE_HOOD: "range hood",
+  BUILT_IN_MICROWAVE: "built-in microwave",
 };
 
 const CEILING_TYPE_LABEL: Record<string, string> = {
@@ -279,7 +292,36 @@ function buildMitigationDemo(claim: ClaimInfo, extraction: WaterLossExtraction, 
         items.push(bullet("Lift carpet", null, flooringExtent(f) ?? "floor area"));
         if (f.padRemoved) items.push(bullet("Remove underpad", null, flooringExtent(f) ?? "floor area"));
       }
+      /*
+        A floor that stays and gets cleaned. Every branch above keys off a removal, so this is the
+        only work an unfinished basement's slab has — and without it that room reached the crew with
+        nothing but the equipment line, or nothing at all.
+
+        Deliberately not gated on disposition: a floor can be cleaned whether it is being dried in
+        place or has no disposition recorded, and "the PM said clean it" is the condition that
+        matters. Category 1 has nothing to treat, so it is cleaned rather than cleaned and treated.
+      */
+      if (f.cleaningRequired) {
+        const treat = claim.waterCategory !== null && claim.waterCategory > 1 ? "Clean & treat" : "Clean";
+        items.push(bullet(`${treat} ${titleCase(f.type).toLowerCase()} floor`, null, flooringExtent(f) ?? "floor area"));
+      }
     }
+    /*
+      Antimicrobial, per room. Same shape as equipment: a room-level fact with no action or phase
+      field, so nothing derives it and it has to be rendered explicitly or it is simply lost.
+    */
+    if (room.antimicrobialApplied) items.push(bullet("Antimicrobial application", null, null));
+    /*
+      Per SF of BARRIER, never the room's floor area — a barrier hangs across an opening, and its
+      size has nothing to do with how big the room is. So a missing figure stays missing here.
+    */
+    if (room.containmentRequired) {
+      items.push(bullet("Containment", "poly barrier", room.containmentSF !== null ? `${room.containmentSF} SF` : null));
+    }
+    // Priced per SF of floor, which the room already has — hence no quantity of its own to carry.
+    if (room.hepaVacuumingRequired) items.push(bullet("HEPA vacuuming", null, "floor area"));
+    // Detach now, reset on repairs. No remove-and-replace form: that is not restoration's work.
+    for (const a of room.appliances) items.push(bullet(`Detach ${APPLIANCE_LABEL[a.type]}`, null, null));
 
     for (const b of room.baseboard) {
       if (b.phase === "REPAIR") continue;
@@ -414,6 +456,13 @@ function buildFinishCarpentry(claim: ClaimInfo, extraction: WaterLossExtraction)
     for (const c of room.cabinetry) items.push(bullet(c.action === "DETACH_AND_RESET" ? "Reset cabinetry" : "Install new cabinetry", c.location, null));
     for (const c of room.countertops) items.push(bullet(c.action === "DETACH_AND_RESET" ? "Reset countertop" : "Install new countertop", c.material ? titleCase(c.material) : null, null));
     for (const t of room.toeKicks) items.push(bullet(t.action === "DETACH_AND_RESET" ? "Reset toe kick" : "Install new toe kick", null, null));
+    /*
+      The other half of the pair Mitigation & Demo detaches. A room whose emergency sheet says the
+      washer came out and whose repair sheet says nothing about it reads as an appliance nobody put
+      back — the same failure the baseboard pair exists to prevent, and the reason both halves are
+      written from one list rather than two.
+    */
+    for (const a of room.appliances) items.push(bullet(`Reset ${APPLIANCE_LABEL[a.type]}`, null, null));
     return items;
   });
 

@@ -1542,9 +1542,26 @@ button:disabled {
 }
 
 /* The offered shortcut for a question whose answer is usually the same throughout a property. */
+/*
+  Holds the offer's space whether or not the offer is showing.
+
+  The button used to render only once the question was answered, so answering grew the card and
+  pushed everything below it down — 126px, measured — exactly as the PM moved to the next field. The
+  row is sized to the button it may contain, so nothing reflows when it appears. See QuestionField.
+*/
+.apply-to-all-row {
+  /* Block, not flex: as a flex item the button shrinks and wraps its label over several lines,
+     which made the reserved row TALLER than the button it was reserving space for. */
+  display: block;
+  /* The button's own metrics, so the empty row is exactly as tall as the button that may fill it —
+     a reserved row that is merely close still moves the page by the difference. */
+  font-size: 0.8rem;
+  min-height: 1.55em;
+  margin-top: 6px;
+}
+
 .apply-to-all {
   align-self: flex-start;
-  margin-top: 6px;
   background: none;
   border: none;
   padding: 0;

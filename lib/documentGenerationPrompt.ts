@@ -239,6 +239,22 @@ Auto-included items — apply these yourself, they are never spelled out per-ite
    than inventing a figure. Never turn a removalFraction into an exact number, and never restate a
    qualitative phrase as though it were measured — "a small area at the dishwasher" is what the tool
    says when nobody gave a size, so writing it over a real 48 SF is the specific bug this rule fixes.
+1c. Flooring that STAYS and gets cleaned, per flooring record, Emergency: when a record's
+   cleaningRequired is true, include "Clean & treat {type} floor – {extent}" ("Clean & treat concrete
+   floor – floor area"). Say "Clean" alone rather than "Clean & treat" for a category 1 loss, where
+   there is nothing to treat. This is separate from the universal Final clean and from carpet
+   cleaning — a floor being scrubbed and treated is work in its own right, and it is the only work a
+   room may have, so omitting it can empty a room's scope entirely. Omit when cleaningRequired is
+   false or null.
+1d. NEVER write "dry in place" for a CONCRETE floor. In this trade "dry in place" means saving a
+   material you would otherwise tear out, and nobody tears out a slab — so the phrase tells an
+   estimator nothing and reads as though the floor was left alone. A concrete floor with disposition
+   DRY_IN_PLACE produces NO disposition bullet of its own; what is actually happening to it is the
+   cleaning line above and the drying equipment placed in that room, both of which have their own
+   bullets already. If a concrete floor has neither cleaningRequired nor any equipment in its room,
+   write nothing for it rather than inventing a line. For every OTHER flooring type, DRY_IN_PLACE
+   keeps its ordinary bullet — a hardwood floor being dried rather than pulled is a real decision
+   worth stating.
 2. Carpet + pad, per flooring record, Emergency: when a flooring record has disposition
    LIFT_AND_REINSTALL AND padRemoved == true, include two bullets in that room: one for lifting
    the carpet, one for removing the pad underneath. Each states its quantity from
@@ -374,7 +390,37 @@ Auto-included items — apply these yourself, they are never spelled out per-ite
     data.
     A quantity of ZERO is not missing data: it means the PM was asked and said none was needed in
     that room. Write no "Place" bullet for it — see the zero-quantity rule further below for what to
-    say instead.`;
+    say instead.
+14. Antimicrobial, per room, Emergency — for every room whose antimicrobialApplied is true, one
+    bullet: "Antimicrobial application". Emergency-phase and single-phase; never write a Repair
+    counterpart. Like equipment above, this is a room-level fact with no action or phase field of its
+    own, which is exactly why it needs spelling out — and exactly how it was being lost: a claim
+    stating "antimicrobial throughout both spaces" produced an inspection report that said so and a
+    scope with no antimicrobial line in either room, because the report is written with the
+    transcript in hand and these bullets are built only from the data above. Write nothing when
+    antimicrobialApplied is false or null — do NOT add the line because the loss is a category 3 and
+    it seems likely. (A DGIG claim renders antimicrobial from dgigData instead, with its own quantity
+    — see DGIG_SCOPE_RULES. Never write both.)
+15. Containment, per room, Emergency — for every room whose containmentRequired is true, one bullet:
+    "Containment – poly barrier – {containmentSF} SF" when containmentSF is a real number, or just
+    "Containment – poly barrier" when it is null. Priced per square foot of BARRIER, so never
+    substitute the room's floor area for a missing containmentSF — a barrier hangs across an opening
+    and its size has nothing to do with the size of the room. Emergency-phase and single-phase: the
+    barrier coming down is covered by the General equipment/teardown line, so write no Repair
+    counterpart. Omit entirely when containmentRequired is false or null.
+16. HEPA vacuuming, per room — for every room whose hepaVacuumingRequired is true, one bullet:
+    "HEPA vacuuming – {extent}", where {extent} is that room's floor area the same way any other
+    floor-area extent is derived (a real SF figure where one is known, otherwise the qualitative
+    "floor area"). It is priced per SF of floor, which is why it carries no quantity of its own.
+    Omit entirely when hepaVacuumingRequired is false or null.
+17. Appliances, per room — for every entry in that room's "appliances" array, a PAIR of bullets:
+    Emergency "Detach {appliance}" and Repair "Reset {appliance}", where {appliance} is the type in
+    ordinary words — WASHER "washer", DRYER "dryer", FRIDGE "fridge", RANGE "range", DISHWASHER
+    "dishwasher", BUILT_IN_OVEN "built-in oven", COOKTOP "cooktop", RANGE_HOOD "range hood",
+    BUILT_IN_MICROWAVE "built-in microwave". Never write one half without the other, exactly as with
+    baseboard's detach/reset pair. There is no action field and no remove-and-replace form: a
+    restoration contractor detaches and resets appliances and does not replace them, so never write
+    "Remove" or "Replace" for one.`;
 
 /**
  * How to bucket the "shared action field" categories into Emergency vs. Repair bullets/items, and
@@ -549,7 +595,8 @@ Emergency
   General
     - Disposal charge
     - Equipment pickup and monitoring
-    - Asbestos sample collection – {N} samples   (only if asbestos samples were taken)
+    - Asbestos sample collection – {N} samples   (only when loss.asbestosSamplesTaken is true; {N} is
+      loss.asbestosSampleCount, omitted along with the word "samples" when that count is null)
     ... (plus any non-room Emergency auto-included items — see the rules below)
 
 Repair
