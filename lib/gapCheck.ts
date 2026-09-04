@@ -497,7 +497,9 @@ function hasRemovalFlooring(room: Room): boolean {
  */
 function hasBaseboardDisturbingFlooring(room: Room): boolean {
   return room.flooring.some(
-    (f) => f.type !== "CARPET" && (f.disposition === "REMOVE_AND_DISPOSE" || f.disposition === "REMOVE_AND_ASSESS"),
+    // A null type is not "not carpet" — it is not yet known. Asking about baseboard before the
+    // material is named would put a detach-and-reset line under a carpet that never needed one.
+    (f) => f.type !== null && f.type !== "CARPET" && (f.disposition === "REMOVE_AND_DISPOSE" || f.disposition === "REMOVE_AND_ASSESS"),
   );
 }
 
@@ -611,12 +613,38 @@ function baseboardCompletenessQuestions(roomIndex: number, room: Room): GapCheck
 // ---- Flooring ---------------------------------------------------------------------------------
 
 /** Kept beside the parsers below so the labels and what they map to cannot drift apart. */
+/** What to call a floor in a prompt before anyone has said what it is made of. */
+function flooringLabel(f: FlooringRecord): string {
+  return f.type === null ? "flooring" : f.type.toLowerCase();
+}
+
+/** The materials extraction knows, offered when it could not tell which one this is. */
+const FLOORING_TYPE_OPTIONS = ["Carpet", "Vinyl", "Hardwood", "Laminate", "Tile", "Concrete"];
+
 const HARDWOOD_CONSTRUCTION_OPTIONS = ["Solid", "Engineered", "Prefinished", "Other"];
 const HARDWOOD_INSTALLATION_OPTIONS = ["Floating", "Glued", "Nailed"];
 
 function flooringQuestions(roomIndex: number, roomName: string, i: number, f: FlooringRecord, derived?: MoistureDerived): GapCheckQuestion[] {
   const q: GapCheckQuestion[] = [];
   const base = `room:${roomIndex}:flooring:${i}`;
+
+  /*
+    What the floor is made of, when the transcript never said.
+
+    Everything else about a floor branches on this — which spec questions apply, whether the
+    baseboard has to come off, how the removal renders — so it is asked first and the switch below
+    simply produces nothing until it is answered. Before the record could exist without a type, a
+    PM saying "flooring's coming up in all three" produced no flooring records at all and the
+    largest line item on the claim vanished from the scope with nothing looking wrong.
+  */
+  if (f.type === null) {
+    q.push({
+      id: `${base}:type`,
+      roomName,
+      prompt: "What type of flooring is it?",
+      kind: { type: "choice", options: FLOORING_TYPE_OPTIONS },
+    });
+  }
 
   switch (f.type) {
     case "HARDWOOD":
@@ -707,7 +735,7 @@ function flooringQuestions(roomIndex: number, roomName: string, i: number, f: Fl
       id: `${base}:removalSF`,
       roomName,
       prompt:
-        AREA_QUANTITY_PROMPT(`How much ${f.type.toLowerCase()} is being removed?`, "room") +
+        AREA_QUANTITY_PROMPT(`How much ${flooringLabel(f)} is being removed?`, "room") +
         derivedNote(derived?.floorSquareFeet, "SF"),
       kind: { type: "text" },
       ...defaultFrom(derived?.floorSquareFeet, "SF"),
@@ -718,7 +746,7 @@ function flooringQuestions(roomIndex: number, roomName: string, i: number, f: Fl
     q.push({
       id: `${base}:phase`,
       roomName,
-      prompt: `For the ${f.type.toLowerCase()}, is this emergency work, repair, or both?`,
+      prompt: `For the ${flooringLabel(f)}, is this emergency work, repair, or both?`,
       kind: { type: "choice", options: ["Emergency", "Repair", "Both"] },
     });
   }
@@ -2055,6 +2083,10 @@ function applyFlooringAnswer(f: FlooringRecord, field: string, answer: string): 
       return { ...f, padPresent: isYes(answer) };
     case "padRemoved":
       return { ...f, padRemoved: isYes(answer) };
+    case "type": {
+      const named = FLOORING_TYPE_OPTIONS.find((t) => equalsIgnoreCase(answer, t));
+      return named === undefined ? f : { ...f, type: named.toUpperCase() as FlooringType };
+    }
     case "removalSF": {
       const { sf, fraction } = parseAreaQuantity(answer);
       return sf === null && fraction === null ? f : { ...f, removalSF: sf, removalFraction: fraction };

@@ -255,6 +255,10 @@ Auto-included items — apply these yourself, they are never spelled out per-ite
    write nothing for it rather than inventing a line. For every OTHER flooring type, DRY_IN_PLACE
    keeps its ordinary bullet — a hardwood floor being dried rather than pulled is a real decision
    worth stating.
+1e. A flooring record whose type is null is a floor whose material nobody stated — it still gets its
+   ordinary bullet, worded without a material ("Remove flooring – 140 SF" rather than naming one).
+   Never guess the material from the room or from another record; a floor called tile on an insurer's
+   scope because the room was a bathroom is a wrong line nobody will re-check.
 2. Carpet + pad, per flooring record, Emergency: when a flooring record has disposition
    LIFT_AND_REINSTALL AND padRemoved == true, include two bullets in that room: one for lifting
    the carpet, one for removing the pad underneath. Each states its quantity from

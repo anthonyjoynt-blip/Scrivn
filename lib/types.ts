@@ -301,7 +301,15 @@ export function totalWindowsToClean(counts: Partial<Record<WindowCleaningSize, n
 }
 
 export interface FlooringRecord {
-  type: FlooringType;
+  /**
+   * Null when the transcript described flooring work without naming the material.
+   *
+   * It used to be non-nullable, which meant a record could not exist without a type — so "flooring's
+   * coming up in all three" produced no flooring record at all, and the biggest line item on the
+   * claim disappeared with nothing in the document looking wrong. Null lets the record exist so
+   * gap-check can ask what it is.
+   */
+  type: FlooringType | null;
   carpetStyle: CarpetStyle | null;
   padPresent: boolean | null;
   vinylSubtype: VinylSubtype | null;

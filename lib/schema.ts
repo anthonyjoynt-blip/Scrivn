@@ -98,7 +98,14 @@ const lossSchema = obj({
 });
 
 const flooringRecordSchema = obj({
-  type: enumOf("CARPET", "VINYL", "HARDWOOD", "LAMINATE", "TILE", "CONCRETE"),
+  /*
+    Nullable, which it was not. A flooring record could not exist without a named material, so a
+    transcript saying "flooring's coming up in all three" produced NO flooring record in any of the
+    three rooms — the largest line item on the claim, gone, with nothing in the document looking
+    wrong. Gap-check could not rescue it either: there was no record to ask about. UNKNOWN lets the
+    record exist so the question can be asked.
+  */
+  type: nullableEnumOf("CARPET", "VINYL", "HARDWOOD", "LAMINATE", "TILE", "CONCRETE"),
   vinylSubtype: nullableEnumOf("SHEET", "PLANK"),
   disposition: nullableEnumOf("DRY_IN_PLACE", "LIFT_AND_REINSTALL", "REMOVE_AND_DISPOSE", "REMOVE_AND_ASSESS"),
   phase: nullableEnumOf("EMERGENCY", "REPAIR", "BOTH"),

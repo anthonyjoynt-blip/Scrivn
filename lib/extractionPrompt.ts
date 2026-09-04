@@ -30,6 +30,12 @@ Rules:
 - Do not invent rooms, materials, or measurements that were not mentioned.
 - Preserve the order rooms were mentioned in the transcript — this determines question and
   document ordering downstream, so do not alphabetize or reorder rooms.
+- Flooring type: use UNKNOWN when the transcript describes flooring being removed, lifted or damaged
+  WITHOUT naming what it is made of — "flooring's coming up in all three", "the floor is shot", "pull
+  the flooring". Still create the flooring record, with its disposition and everything else you can
+  tell; somebody is asked what the material is straight afterwards. Do NOT guess a material from the
+  room ("probably tile, it's a bathroom") and do NOT drop the record because the type is missing —
+  dropping it loses the largest line item on most claims, and it disappears silently.
 - A room can have more than one flooring, baseboard, or wall record if the PM described mixed
   materials in that room (e.g. tile in part of a kitchen and hardwood in the rest).
 - "Emergency phase" work is anything being removed/mitigated now; "repair phase" is the

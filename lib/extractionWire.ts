@@ -151,7 +151,7 @@ export interface FlooringRecordWire {
 
 function flooringToDomain(w: FlooringRecordWire): FlooringRecord {
   return {
-    type: w.type as FlooringType,
+    type: enumOrNull<FlooringType>(w.type),
     carpetStyle: null,
     padPresent: toTriState(w.padPresent),
     vinylSubtype: enumOrNull<VinylSubtype>(w.vinylSubtype),

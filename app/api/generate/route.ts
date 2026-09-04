@@ -51,7 +51,7 @@ export async function POST(request: Request) {
     // it — a claim in this mode never collected the fields (causeOfLoss, preExistingConditions,
     // the rest of Job Information) an inspection report would need, so asking for one anyway would
     // just invite the model to invent them.
-    const documents = claim.scopeOnly
+    const generated = claim.scopeOnly
       ? await createStructuredMessage<GeneratedDocuments>({
           system: SCOPE_ONLY_SYSTEM_PROMPT,
           userMessage: documentGenerationUserMessage(claim, extraction, transcript, null, dgigData ?? null),
@@ -74,7 +74,8 @@ export async function POST(request: Request) {
       console.error("[/api/generate] usage increment failed (documents still returned):", err);
     }
 
-    return NextResponse.json({ documents });
+    // See the extract route: counts travel with the result so a caller can see what a claim cost.
+    return NextResponse.json({ documents: generated.output, usage: [{ call: "generate", ...generated.usage }] });
   } catch (err) {
     return errorResponse(err);
   }

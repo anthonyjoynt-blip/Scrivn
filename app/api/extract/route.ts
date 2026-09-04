@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createStructuredMessage, ScopingApiError } from "@/lib/anthropic";
+import { createStructuredMessage, ScopingApiError, type CallUsage } from "@/lib/anthropic";
 import { extractionDetailSchema, extractionSchema } from "@/lib/schema";
 import { EXTRACTION_SYSTEM_PROMPT, extractionUserMessage } from "@/lib/extractionPrompt";
 import { wireToDomain, type ExtractionResponseWire } from "@/lib/extractionWire";
@@ -35,13 +35,25 @@ export async function POST(request: Request) {
   }
 
   try {
-    const wire = await createStructuredMessage<ExtractionResponseWire>({
+    const structure = await createStructuredMessage<ExtractionResponseWire>({
       system: EXTRACTION_SYSTEM_PROMPT,
       userMessage: extractionUserMessage(transcript),
       schema: extractionSchema,
     });
-    const extraction = withDerivedFields(wireToDomain(wire));
-    return NextResponse.json({ extraction: await withDetail(transcript, extraction) });
+    const extraction = withDerivedFields(wireToDomain(structure.output));
+    const detailed = await withDetail(transcript, extraction);
+    /*
+      Token usage travels back with the result so a caller can see what a claim cost. The UI ignores
+      it; `test/pipeline` reports it. Counts only — a dollar figure needs a rate that changes without
+      this code changing, so pricing stays with whoever is asking.
+    */
+    return NextResponse.json({
+      extraction: detailed.extraction,
+      usage: [
+        { call: "extract:structure", ...structure.usage },
+        ...(detailed.usage ? [{ call: "extract:detail", ...detailed.usage }] : []),
+      ],
+    });
   } catch (err) {
     return errorResponse(err);
   }
@@ -56,18 +68,21 @@ export async function POST(request: Request) {
  * trade a handful of saved questions for losing the claim, which is a bad trade in every direction.
  * A failure here lands the PM exactly where they are today — asked, rather than told.
  */
-async function withDetail(transcript: string, extraction: WaterLossExtraction): Promise<WaterLossExtraction> {
-  if (!needsDetailPass(extraction)) return extraction;
+async function withDetail(
+  transcript: string,
+  extraction: WaterLossExtraction,
+): Promise<{ extraction: WaterLossExtraction; usage: CallUsage | null }> {
+  if (!needsDetailPass(extraction)) return { extraction, usage: null };
   try {
     const detail = await createStructuredMessage<ExtractionDetailWire>({
       system: EXTRACTION_DETAIL_SYSTEM_PROMPT,
       userMessage: extractionDetailUserMessage(transcript, extraction),
       schema: extractionDetailSchema,
     });
-    return withDerivedFields(mergeDetail(extraction, detail));
+    return { extraction: withDerivedFields(mergeDetail(extraction, detail.output)), usage: detail.usage };
   } catch (err) {
     console.error("[/api/extract] detail pass failed, continuing without it", err);
-    return extraction;
+    return { extraction, usage: null };
   }
 }
 

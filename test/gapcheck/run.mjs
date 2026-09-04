@@ -1387,6 +1387,58 @@ check(!hasQuestionLog([]), "an empty log reports as empty, so the export is not 
 check(hasQuestionLog(recorded), "and a real one does not");
 check(formatQuestionLog(claim, []).includes("No questions have been asked yet"), "an empty export still says what it is");
 
+/* ── A floor whose material nobody named ───────────────────────────────────────────────────────── */
+
+/*
+  Found by test/pipeline: a transcript saying "flooring's coming up in all three" produced NO
+  flooring record in any of the three rooms, and the finished scope had no flooring lines at all —
+  the largest line item on most claims, gone, with nothing in the document looking wrong. A record
+  could not exist without a named material, so extraction dropped it rather than guess.
+
+  The record can now exist with a null type, which is what lets this be a question instead of a
+  silence.
+*/
+const unnamedFloor = extractionWith([
+  room("Hallway", { flooring: [{ ...removalFlooring(), type: null, vinylSubtype: null }], baseboard: [] }),
+]);
+const unnamedIds = () => nextQuestions(claim, withDerivedFields(unnamedFloor)).map((q) => q.id);
+check(unnamedIds().includes("room:0:flooring:0:type"), `a floor with no material is asked what it is (asked: ${unnamedIds().join(", ")})`);
+
+/*
+  And nothing that depends on the material is asked before it is known. Baseboard is the one that
+  matters: carpet does not disturb it and everything else does, so asking before the material is
+  named would put a detach-and-reset line under a carpet that never needed one.
+*/
+check(
+  !unnamedIds().some((id) => id.includes("baseboard")),
+  `and the baseboard question waits for it (asked: ${unnamedIds().filter((i) => i.includes("baseboard")).join(", ")})`,
+);
+
+// Answering it names the material and unlocks the questions that branch on it.
+const namedRound = resolveRound(claim, unnamedFloor, { "room:0:flooring:0:type": "Vinyl" });
+check(namedRound.extraction.rooms[0].flooring[0].type === "VINYL", `the answer sets the type (got ${namedRound.extraction.rooms[0].flooring[0].type})`);
+check(
+  namedRound.display.some((q) => q.id === "room:0:flooring:0:vinylSubtype"),
+  "and the vinyl-specific question appears once it is known to be vinyl",
+);
+check(
+  namedRound.display.some((q) => q.id.includes("baseboard")),
+  "as does the baseboard question, now that the floor is known not to be carpet",
+);
+
+// Carpet is the case the wait exists for.
+const carpetNamed = resolveRound(claim, unnamedFloor, { "room:0:flooring:0:type": "Carpet" });
+check(
+  !carpetNamed.questions.some((q) => q.id.includes("baseboard")),
+  `naming it carpet leaves the baseboard alone (still asked: ${carpetNamed.questions.filter((q) => q.id.includes("baseboard")).map((q) => q.id).join(", ")})`,
+);
+
+// An unrecognised answer records nothing rather than inventing a material.
+check(
+  applyAnswer(withDerivedFields(unnamedFloor), "room:0:flooring:0:type", "Linoleum-ish").rooms[0].flooring[0].type === null,
+  "an answer that names no known material leaves the type unset, so the question comes back",
+);
+
 /* ── How much floor is coming out, for every flooring type ────────────────────────────────────── */
 
 /*

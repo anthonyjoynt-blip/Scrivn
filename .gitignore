@@ -38,3 +38,4 @@ yarn-error.log*
 
 # TypeScript incremental build cache
 tsconfig.tsbuildinfo
+test/pipeline/reports/

@@ -287,7 +287,7 @@ function buildMitigationDemo(claim: ClaimInfo, extraction: WaterLossExtraction, 
       // Phase EMERGENCY or BOTH or unstated all have an emergency portion; only explicit REPAIR doesn't.
       if (f.phase === "REPAIR") continue;
       if (f.disposition === "REMOVE_AND_DISPOSE" || f.disposition === "REMOVE_AND_ASSESS") {
-        items.push(bullet("Remove flooring", titleCase(f.type), flooringExtent(f) ?? "floor area"));
+        items.push(bullet("Remove flooring", f.type ? titleCase(f.type) : null, flooringExtent(f) ?? "floor area"));
       } else if (f.disposition === "LIFT_AND_REINSTALL") {
         items.push(bullet("Lift carpet", null, flooringExtent(f) ?? "floor area"));
         if (f.padRemoved) items.push(bullet("Remove underpad", null, flooringExtent(f) ?? "floor area"));
@@ -303,7 +303,7 @@ function buildMitigationDemo(claim: ClaimInfo, extraction: WaterLossExtraction, 
       */
       if (f.cleaningRequired) {
         const treat = claim.waterCategory !== null && claim.waterCategory > 1 ? "Clean & treat" : "Clean";
-        items.push(bullet(`${treat} ${titleCase(f.type).toLowerCase()} floor`, null, flooringExtent(f) ?? "floor area"));
+        items.push(bullet(`${treat} ${f.type ? `${titleCase(f.type).toLowerCase()} ` : ""}floor`, null, flooringExtent(f) ?? "floor area"));
       }
     }
     /*

@@ -12,7 +12,8 @@
     "test:asbestos": "node test/asbestos/run.mjs",
     "test:gapcheck": "node test/gapcheck/run.mjs",
     "test:extraction": "node test/extraction/run.mjs",
-    "test:scope": "node test/scope/run.mjs"
+    "test:scope": "node test/scope/run.mjs",
+    "test:pipeline": "node test/pipeline/run.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "latest",
