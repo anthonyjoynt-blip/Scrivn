@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Inter, Source_Serif_4 } from "next/font/google";
 import "./globals.css";
+import { ServiceWorker } from "@/components/ServiceWorker";
 
 /**
  * The root layout is deliberately bare — <html>, <body>, fonts, nothing else.
@@ -83,7 +84,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         React hoists it into <head>.
       */}
       <meta name="apple-mobile-web-app-capable" content="yes" />
-      <body>{children}</body>
+      <body>
+        {children}
+        {/* Registers /sw.js after load — see components/ServiceWorker.tsx for why Chrome needs it. */}
+        <ServiceWorker />
+      </body>
     </html>
   );
 }

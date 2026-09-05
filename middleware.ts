@@ -72,7 +72,20 @@ const PUBLIC_ROUTES = new Set(["/auth/confirm", "/api/logout", "/api/webhooks/st
  * to an anonymous request gives away nothing that the marketing site does not already say out loud.
  */
 function isInstallAsset(pathname: string): boolean {
-  return pathname === "/manifest.webmanifest" || pathname.startsWith("/icons/");
+  return (
+    pathname === "/manifest.webmanifest" ||
+    pathname.startsWith("/icons/") ||
+    /*
+      The service worker and the page it shows when the network is gone.
+
+      `/sw.js` must return JavaScript to an anonymous request or it never registers, and Chrome then
+      offers "create shortcut" rather than an install. `/offline` is fetched by the worker while
+      installing — before anyone has necessarily signed in — and is a static page about connectivity
+      with nothing in it that belongs to a claim.
+    */
+    pathname === "/sw.js" ||
+    pathname === "/offline"
+  );
 }
 
 export async function middleware(request: NextRequest) {
