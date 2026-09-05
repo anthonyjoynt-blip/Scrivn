@@ -7,9 +7,13 @@ import { DocumentsDeliveryEmail } from "@/emails/DocumentsDelivery";
  * Emails a claim's finished documents as PDF attachments.
  *
  * The PDFs arrive already built: the browser renders them with the same `lib/pdf.ts` code the
- * Download PDF buttons use, then posts them here as multipart form data. Nothing is stored — the
- * attachments live in memory for the duration of this request and are gone when it returns, which
- * is the same lifetime a downloaded PDF has today. No database write, no bucket, no claim record.
+ * Download PDF buttons use, then posts them here as multipart form data. The ATTACHMENTS are not
+ * stored — they live in memory for the duration of this request and are gone when it returns, which
+ * is the same lifetime a downloaded PDF has. No bucket, no copy kept, no write from this route.
+ *
+ * The CLAIM behind them is saved, since claims persist now (0004_organizations_and_claims.sql).
+ * Worth keeping the two apart: the panel's wording used to say "nothing is stored", which was true
+ * of the whole app when it was written and is true only of this route today.
  *
  * Unlike the lifecycle emails, a failure here IS the user's problem: sending is what they asked
  * for, so the result is reported honestly rather than swallowed.
@@ -92,8 +96,16 @@ export async function POST(request: Request) {
     ...(senderEmail ? { replyTo: senderEmail } : {}),
   });
 
-  if (!sent) {
-    return NextResponse.json({ error: "The email couldn’t be sent. Check the address and try again." }, { status: 502 });
+  if (!sent.ok) {
+    /*
+      The provider's own words, not a guess at the cause.
+
+      The previous message told the PM to "check the address and try again" for every failure — and
+      the failure it actually shipped with was a byte-order mark in the API key, where the address
+      was the one thing that was fine. A wrong diagnosis is worse than no diagnosis: it sends
+      somebody to fix something that is not broken.
+    */
+    return NextResponse.json({ error: `The email couldn’t be sent: ${sent.reason}` }, { status: 502 });
   }
 
   return NextResponse.json({ ok: true, recipients: recipients.length });

@@ -1,6 +1,7 @@
 import "server-only";
 import { createClient } from "@supabase/supabase-js";
 import { supabaseUrl } from "./env";
+import { cleanEnv } from "../env";
 
 /**
  * The service-role Supabase client — bypasses Row Level Security entirely.
@@ -19,7 +20,7 @@ import { supabaseUrl } from "./env";
  * is a policy, not this client.
  */
 export function createAdminClient() {
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const serviceRoleKey = cleanEnv("SUPABASE_SERVICE_ROLE_KEY");
   if (!serviceRoleKey) {
     throw new Error(
       "SUPABASE_SERVICE_ROLE_KEY is not set. The Stripe webhook needs it to update subscription state (Supabase dashboard → Project Settings → API → service_role / secret key).",

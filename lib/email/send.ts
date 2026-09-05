@@ -1,6 +1,7 @@
 import "server-only";
 import { Resend } from "resend";
 import type { ReactElement } from "react";
+import { cleanEnv } from "../env";
 
 /**
  * The app's own outgoing email, via Resend.
@@ -38,15 +39,15 @@ const FROM = `Scrivn <no-reply@${SENDING_DOMAIN}>`;
 let cached: Resend | undefined;
 
 function getResend(): Resend {
-  if (!process.env.RESEND_API_KEY) {
+  if (!cleanEnv("RESEND_API_KEY")) {
     throw new Error("RESEND_API_KEY is not set. Add it to .env.local (see .env.local.example).");
   }
-  cached ??= new Resend(process.env.RESEND_API_KEY);
+  cached ??= new Resend(cleanEnv("RESEND_API_KEY"));
   return cached;
 }
 
 export function isEmailConfigured(): boolean {
-  return Boolean(process.env.RESEND_API_KEY);
+  return Boolean(cleanEnv("RESEND_API_KEY"));
 }
 
 export interface Attachment {
@@ -66,10 +67,29 @@ export interface Attachment {
  * The one caller that *does* care whether it worked is `/api/send-documents`, where sending IS the
  * user's request — that route surfaces the false to the UI rather than reporting success.
  */
-export async function sendEmail(params: { to: string | string[]; subject: string; react: ReactElement; attachments?: Attachment[]; replyTo?: string }): Promise<boolean> {
+/**
+ * Why this reports the reason and not just false.
+ *
+ * It used to return a boolean, and the real cause went only to the server console. A live failure
+ * read "The email couldn't be sent. Check the address and try again." while the log said:
+ *
+ *   TypeError: Cannot convert argument to a ByteString because the character at index 7
+ *   has a value of 65279
+ *
+ * — a byte-order mark in the API key. The address was fine; the message sent the user to check the
+ * one thing that was not wrong, and nothing visible to them would ever have said otherwise.
+ *
+ * The lifecycle emails still ignore this: a welcome message that fails is not the user's problem.
+ * The send-documents route is the opposite — sending is what they asked for — and its own doc
+ * comment already promised the result would be "reported honestly rather than swallowed", which a
+ * boolean cannot do.
+ */
+export type SendResult = { ok: true } | { ok: false; reason: string };
+
+export async function sendEmail(params: { to: string | string[]; subject: string; react: ReactElement; attachments?: Attachment[]; replyTo?: string }): Promise<SendResult> {
   if (!isEmailConfigured()) {
     console.warn("[email] RESEND_API_KEY not set — skipping send:", params.subject);
-    return false;
+    return { ok: false, reason: "Email is not configured on this deployment." };
   }
 
   try {
@@ -84,11 +104,11 @@ export async function sendEmail(params: { to: string | string[]; subject: string
 
     if (error) {
       console.error("[email] Resend rejected the send:", error);
-      return false;
+      return { ok: false, reason: error.message || "The email provider rejected the message." };
     }
-    return true;
+    return { ok: true };
   } catch (err) {
     console.error("[email] send failed:", err);
-    return false;
+    return { ok: false, reason: err instanceof Error ? err.message : "Unexpected error while sending." };
   }
 }

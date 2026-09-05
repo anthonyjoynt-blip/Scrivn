@@ -31,3 +31,4 @@ export { canonicalRecordShapes } from "@/lib/extractionWire";
 export { claimStatus, resumeStep, contentsOutstanding, emptySavedClaimState, CLAIM_STATUS_ORDER, claimStatusLabel } from "@/lib/claimState";
 export { isClaimIdentityComplete, WATER_NOT_APPLICABLE, waterScaleLabel, isWaterNotApplicable, buildScopeDocumentHeaderLines } from "@/lib/claimInfo";
 export { contentsScopingNeeded, CONTENTS_TIMING_OPTIONS } from "@/lib/claimInfo";
+export { sketchMeasureFor } from "@/lib/gapCheck";

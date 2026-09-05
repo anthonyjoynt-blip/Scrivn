@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { sendEmail, isEmailConfigured } from "@/lib/email/send";
 import { ContactMessage } from "@/emails/ContactMessage";
 import { CONTACT_REASONS, type ContactReason } from "@/lib/contact";
+import { cleanEnv } from "@/lib/env";
 
 /**
  * The public contact form's endpoint.
@@ -89,7 +90,7 @@ export async function POST(request: Request) {
   const reason: ContactReason | undefined = CONTACT_REASONS.find((r) => r.value === reasonValue);
   const reasonLabel = reason?.label ?? CONTACT_REASONS[0].label;
 
-  const to = process.env.CONTACT_EMAIL;
+  const to = cleanEnv("CONTACT_EMAIL");
   if (!to || !isEmailConfigured()) {
     // Log the whole submission so a misconfiguration loses a notification, not the enquiry itself.
     console.error("[/api/contact] Not configured (CONTACT_EMAIL / RESEND_API_KEY). Submission:", { name, email, company, reason: reasonLabel, message });
@@ -104,8 +105,13 @@ export async function POST(request: Request) {
     replyTo: email,
   });
 
-  if (!sent) {
-    console.error("[/api/contact] Send failed. Submission:", { name, email, company, reason: reasonLabel, message });
+  /*
+    `!sent.ok`, not `!sent` — `sendEmail` returns an object now, and `!object` is always false, so
+    the plain truthiness check would have reported every failed send as a success. TypeScript cannot
+    see that: negating an object is valid JavaScript.
+  */
+  if (!sent.ok) {
+    console.error("[/api/contact] Send failed:", sent.reason, { name, email, company, reason: reasonLabel, message });
     return NextResponse.json({ error: "That didn't send. Try again in a moment." }, { status: 502 });
   }
 

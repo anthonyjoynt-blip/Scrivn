@@ -873,9 +873,19 @@ function wallQuestions(roomIndex: number, roomName: string, i: number, w: WallRe
       kind: { type: "choice", options: ["Base height (up to 4\")", "2 feet", "4 feet", "Full wall (floor to ceiling)"] },
     }];
   }
-  // Only 2'/4' cuts need a linear-footage basis for the priming math — base height and full wall
-  // render qualitatively (see documentGenerationPrompt.ts), so no quantity is asked for those.
-  if ((w.cutHeight === "TWO_FOOT" || w.cutHeight === "FOUR_FOOT") && w.cutRunFt === null && w.cutRunFraction === null) {
+  /*
+    How long the cut runs, whatever height it is.
+
+    This used to be asked only for 2' and 4' cuts, on the reasoning that those are the heights with a
+    priming multiplier. That confused "needed for the priming math" with "needed at all". A base-height
+    cut still removes and replaces a real length of drywall and is still billed by the foot; reported
+    from a real claim, where a stated base-height cut reached the scope as "perimeter" while the
+    sketch could have measured it. Full wall is the same, only more so.
+
+    Priming is unchanged and still height-dependent — base height gets none, since the baseboard
+    covers the seam — see documentGenerationPrompt.ts. This is about the drywall line itself.
+  */
+  if (w.cutRunFt === null && w.cutRunFraction === null) {
     return [
       {
         id: `${base}:cutRunFt`,

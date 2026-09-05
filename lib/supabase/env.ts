@@ -1,3 +1,4 @@
+import { clean } from "../env";
 /**
  * The two public Supabase settings, read in one place so a missing/misspelled variable fails with a
  * sentence that says what to do instead of `createBrowserClient` throwing something cryptic about
@@ -23,11 +24,11 @@ function required(name: string, value: string | undefined): string {
 }
 
 export function supabaseUrl(): string {
-  return required("NEXT_PUBLIC_SUPABASE_URL", process.env.NEXT_PUBLIC_SUPABASE_URL);
+  return required("NEXT_PUBLIC_SUPABASE_URL", clean(process.env.NEXT_PUBLIC_SUPABASE_URL));
 }
 
 export function supabaseAnonKey(): string {
-  return required("NEXT_PUBLIC_SUPABASE_ANON_KEY", process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
+  return required("NEXT_PUBLIC_SUPABASE_ANON_KEY", clean(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY));
 }
 
 /**
@@ -41,5 +42,5 @@ export function supabaseAnonKey(): string {
  * config is guaranteed present.
  */
 export function isSupabaseConfigured(): boolean {
-  return Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
+  return Boolean(clean(process.env.NEXT_PUBLIC_SUPABASE_URL) && clean(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY));
 }

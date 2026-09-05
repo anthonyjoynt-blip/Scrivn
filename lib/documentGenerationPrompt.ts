@@ -315,9 +315,12 @@ Auto-included items — apply these yourself, they are never spelled out per-ite
 9. Drywall replacement, per room, Repair — whenever any wall record in that room has
    drywallBeingRemoved == true, add Repair bullet(s) based on that record's cutHeight (fires once
    per room; don't repeat per wall record if more than one shares the same cutHeight in that room):
-     - cutHeight BASE: exactly one bullet, "Replace drywall at base height (up to 4")" — no
-       quantity needed. Do NOT add a priming/painting bullet for this case at all — standard
-       practice is to replace and let the baseboard cover the seam, left unfinished.
+     - cutHeight BASE: exactly one bullet, "Replace drywall at base height (up to 4")", WITH the same
+       quantity every other height carries — cutRunFt ("– {cutRunFt} LF") if present, else
+       cutRunFraction ("– {fraction} of the wall run"), else "– perimeter" as the last resort. A
+       base-height cut still removes and replaces a real length of drywall and is still billed by the
+       foot; it is only the PRIMING that differs. Do NOT add a priming/painting bullet for this case
+       at all — standard practice is to replace and let the baseboard cover the seam, left unfinished.
      - cutHeight TWO_FOOT or FOUR_FOOT: two bullets. First, "Replace drywall at 2'" or "Replace
        drywall at 4'" (match the actual height) with a quantity — cutRunFt (a real linear-feet
        number) if present ("– {cutRunFt} LF"), else cutRunFraction if present ("– {fraction} of the
@@ -329,8 +332,9 @@ Auto-included items — apply these yourself, they are never spelled out per-ite
        instead ("Prime & paint – {fraction} of the wall run") — never invent a number from a
        fraction.
      - cutHeight FULL_WALL: two bullets, "Replace drywall – full wall" and "Prime & paint – full
-       wall" (same qualitative extent for both, no multiplier — priming covers exactly what the
-       drywall bullet covers).
+       wall" (same extent for both, no multiplier — priming covers exactly what the drywall bullet
+       covers). State cutRunFt alongside where it is present — "Replace drywall – full wall – 31 LF"
+       — since a measured run is worth more to an estimator than the words alone.
      - cutHeight not yet known (null): treat the same as BASE for now — one "Replace drywall"
        bullet, no priming — rather than guessing a height or skipping the room's drywall entirely.
    This item only adds Repair-side bullets — Emergency for these walls is unaffected, already

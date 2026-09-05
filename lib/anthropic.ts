@@ -1,5 +1,6 @@
 import "server-only";
 import Anthropic from "@anthropic-ai/sdk";
+import { cleanEnv } from "./env";
 
 /**
  * Server-only Claude client + the shared "structured outputs call" helper both API routes use.
@@ -60,17 +61,17 @@ function cacheableSystem(system: string): Anthropic.TextBlockParam[] | string {
 let client: Anthropic | undefined;
 
 function getClient(): Anthropic {
-  if (!process.env.ANTHROPIC_API_KEY) {
+  if (!cleanEnv("ANTHROPIC_API_KEY")) {
     throw new ScopingApiError(
       "ANTHROPIC_API_KEY is not set. Copy .env.local.example to .env.local and fill in your API key, then restart `npm run dev`.",
     );
   }
-  client ??= new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  client ??= new Anthropic({ apiKey: cleanEnv("ANTHROPIC_API_KEY") });
   return client;
 }
 
 function model(): string {
-  return process.env.ANTHROPIC_MODEL?.trim() || DEFAULT_MODEL;
+  return cleanEnv("ANTHROPIC_MODEL") || DEFAULT_MODEL;
 }
 
 /**

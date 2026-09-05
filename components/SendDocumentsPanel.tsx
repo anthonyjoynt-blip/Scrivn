@@ -113,7 +113,17 @@ export function SendDocumentsPanel({ documents, senderName }: { documents: Senda
     <div className="card">
       <h2>Send documents</h2>
       <p className="subtitle" style={{ marginBottom: 20 }}>
-        Email these as attachments. They’re generated and sent in one step — nothing is stored.
+        {/*
+          Reworded once claims began saving to the database.
+
+          "Nothing is stored" was true of the whole app when it was written, and is now true only of
+          the ATTACHMENTS: the PDFs are built in the browser, posted, held in memory for one request
+          and gone — no bucket, no copy kept. The claim behind them is saved, and a sentence that
+          told a PM otherwise while their customer's address sat in a table would be the kind of
+          wrong that matters. So it says which of the two it means.
+        */}
+        Email these as attachments. The files are built and sent in one step and no copy of them is
+        kept — the claim itself stays saved to your account.
       </p>
 
       {error && <div className="error-banner">{error}</div>}

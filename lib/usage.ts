@@ -299,8 +299,9 @@ async function sendTrialNotifications(params: {
  * time-based trigger without duplicating the subject line or prop wiring.
  */
 export async function sendTrialEndingEmail(params: { email: string; generationsUsed: number; daysRemaining: number | null }): Promise<boolean> {
+  // A lifecycle email: the caller only cares whether it went, not why it did not.
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://scrivn.ca";
-  return sendEmail({
+  return (await sendEmail({
     to: params.email,
     subject: "Your Scrivn trial is nearly over",
     react: TrialEndingEmail({
@@ -309,5 +310,5 @@ export async function sendTrialEndingEmail(params: { email: string; generationsU
       daysRemaining: params.daysRemaining,
       pricingUrl: `${baseUrl}/pricing`,
     }),
-  });
+  })).ok;
 }

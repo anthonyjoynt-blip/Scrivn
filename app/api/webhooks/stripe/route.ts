@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type Stripe from "stripe";
 import { getStripe } from "@/lib/stripe/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { cleanEnv } from "@/lib/env";
 
 /**
  * The Stripe webhook — what makes a subscription real to this app rather than only to Stripe.
@@ -23,7 +24,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 const HANDLED = new Set(["checkout.session.completed", "customer.subscription.updated", "customer.subscription.deleted"]);
 
 export async function POST(request: Request) {
-  const secret = process.env.STRIPE_WEBHOOK_SECRET;
+  const secret = cleanEnv("STRIPE_WEBHOOK_SECRET");
   if (!secret) {
     console.error("[stripe webhook] STRIPE_WEBHOOK_SECRET is not set — refusing to process unverifiable events.");
     return NextResponse.json({ error: "Webhook not configured." }, { status: 503 });
@@ -78,8 +79,8 @@ export async function POST(request: Request) {
 /** Maps a Stripe Price ID back to one of our tiers. Env lookup, so a re-pointed price needs no code change. */
 function tierForPriceId(priceId: string | null | undefined): string | null {
   if (!priceId) return null;
-  if (priceId === process.env.STRIPE_PRICE_STARTER) return "starter";
-  if (priceId === process.env.STRIPE_PRICE_GROWTH) return "growth";
+  if (priceId === cleanEnv("STRIPE_PRICE_STARTER")) return "starter";
+  if (priceId === cleanEnv("STRIPE_PRICE_GROWTH")) return "growth";
   if (priceId === process.env.STRIPE_PRICE_UNLIMITED) return "unlimited";
   return null;
 }

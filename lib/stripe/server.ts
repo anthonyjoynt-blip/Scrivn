@@ -1,5 +1,6 @@
 import "server-only";
 import Stripe from "stripe";
+import { cleanEnv } from "../env";
 
 /**
  * The server-side Stripe client. `server-only` makes importing this from a Client Component a build
@@ -16,14 +17,14 @@ import Stripe from "stripe";
 let cached: Stripe | undefined;
 
 export function getStripe(): Stripe {
-  if (!process.env.STRIPE_SECRET_KEY) {
+  if (!cleanEnv("STRIPE_SECRET_KEY")) {
     throw new Error("STRIPE_SECRET_KEY is not set. Add it to .env.local (see .env.local.example).");
   }
-  cached ??= new Stripe(process.env.STRIPE_SECRET_KEY);
+  cached ??= new Stripe(cleanEnv("STRIPE_SECRET_KEY")!);
   return cached;
 }
 
 /** Whether Stripe is configured at all — lets billing-aware UI degrade instead of throwing when it isn't. */
 export function isStripeConfigured(): boolean {
-  return Boolean(process.env.STRIPE_SECRET_KEY);
+  return Boolean(cleanEnv("STRIPE_SECRET_KEY"));
 }

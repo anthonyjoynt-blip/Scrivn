@@ -72,6 +72,7 @@ const {
   waterScaleLabel,
   buildScopeDocumentHeaderLines,
   contentsScopingNeeded,
+  sketchMeasureFor,
 } = mod;
 
 let passed = 0;
@@ -1586,6 +1587,44 @@ check(
   !contentsOutstanding({ ...emptySavedClaimState(), claim: inScope, extraction: withDerivedFields(contentsAffected) }),
   "while in-scope contents owe nothing — the list must not argue with an answer it already has",
 );
+
+/* ── A cut has a length whatever height it runs to ────────────────────────────────────────────── */
+
+/*
+  Reported from a real claim: a transcript saying "cut drywall at base height" reached the scope as
+  "perimeter", with no quantity question and no chance to take the measurement from a completed
+  sketch — where a 2' cut on the same claim would have been asked.
+
+  The gate had been written as "only 2' and 4' need a linear-footage basis", which is true of the
+  PRIMING multiplier and not of the drywall itself. A base-height cut still removes and replaces a
+  real length of wall and is still billed by the foot.
+*/
+const wallAt = (cutHeight) =>
+  extractionWith([
+    room("Hall", {
+      walls: [{ ...everyRecordRoom("x").walls[0], drywallBeingRemoved: true, cutHeight, insulationAffected: false }],
+      baseboardConfirmedAbsent: true,
+      equipmentAsked: true,
+    }),
+  ]);
+
+for (const height of ["BASE", "TWO_FOOT", "FOUR_FOOT", "FULL_WALL"]) {
+  const ids = nextQuestions(claim, withDerivedFields(wallAt(height))).map((q) => q.id);
+  check(
+    ids.includes("room:0:wall:0:cutRunFt"),
+    `a ${height} cut is asked how far it runs (asked: ${ids.filter((i) => i.includes("wall")).join(", ") || "nothing about the wall"})`,
+  );
+}
+
+/*
+  And it is a sketch-measurable question for every height, which is the other half of the report —
+  the PM wanted to take the figure from the plan they had already drawn.
+*/
+check(sketchMeasureFor("room:0:wall:0:cutRunFt") === "wallRun", "the cut-run question can be answered from the sketch");
+
+// Answering still records a real number, whatever the height.
+const baseAnswered = applyAnswer(withDerivedFields(wallAt("BASE")), "room:0:wall:0:cutRunFt", "31").rooms[0].walls[0];
+check(baseAnswered.cutRunFt === 31, `a base-height run records its length (got ${baseAnswered.cutRunFt})`);
 
 /* ── A pack-out is a different job from moving things around ─────────────────────────────────── */
 
