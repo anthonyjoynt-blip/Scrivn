@@ -1282,12 +1282,34 @@ ${asbestosSection}`;
         line; a failure that nobody noticed costs the claim. The error state deliberately does not
         offer a retry button — the next edit retries on its own, and a button implying otherwise
         would suggest the work is lost until it is pressed.
+
+        Three outcomes, not two, and the difference between the last two is the whole point of the
+        offline queue. "Saved" means the server has it, so another device can open it. "Held on this
+        device" means it is safe but only HERE — closing the tab is fine, switching phones is not.
+        Saying "Saved" for both would be the more comforting message and the wrong one: it would send
+        somebody to another device for work that never left this one.
       */}
       {persistence.status !== "idle" && (
-        <p className={`save-status${persistence.status === "error" ? " save-status-error" : ""}`}>
+        <p
+          className={`save-status${persistence.status === "error" ? " save-status-error" : ""}${
+            persistence.status === "pending" ? " save-status-pending" : ""
+          }`}
+        >
           {persistence.status === "saving" && "Saving…"}
           {persistence.status === "saved" && "Saved — you can pick this up on another device from Claims."}
+          {persistence.status === "pending" &&
+            "No connection — saved on this device. It will finish saving on its own when you have signal; keep working."}
           {persistence.status === "error" && "Could not save. Your work is still on screen; the next change will try again."}
+          {/*
+            THIS claim is safe but another one is not, which is the quietly dangerous case: the line
+            above says "Saved", and somebody reading it closes the laptop believing everything is.
+            Only shown alongside "Saved" — when this claim is itself held, the message above already
+            says the device is holding work and a second sentence about it would only muddle it.
+          */}
+          {persistence.status === "saved" && persistence.pendingCount > 0 && (
+            <> {persistence.pendingCount} other claim{persistence.pendingCount === 1 ? " is" : "s are"} still waiting to
+            save from this device — see Claims.</>
+          )}
         </p>
       )}
 

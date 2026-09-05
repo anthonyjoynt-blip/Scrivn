@@ -1984,6 +1984,45 @@ button:disabled {
   color: var(--danger-text);
 }
 
+/*
+ * Held on the device: not an error, but not "Saved" either, so it earns weight the other states do
+ * not. Deliberately not the danger colours — nothing has gone wrong and nothing needs doing.
+ */
+.save-status-pending {
+  color: var(--text);
+  font-weight: 600;
+}
+
+/*
+ * The claims-list notice for work this device is still holding — see PendingSaves.tsx.
+ *
+ * Navy tint rather than amber: amber is reserved for the one primary action on screen, and this is
+ * information, not something to press. It sits above the list it is explaining the absence from.
+ */
+.pending-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  background: var(--color-navy-tint);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+}
+
+.pending-banner p {
+  flex: 1 1 240px;
+  margin: 0;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  color: var(--text);
+}
+
+.pending-banner button {
+  flex: 0 0 auto;
+}
+
 /* The signed-in footer — see app/(app)/layout.tsx for why the product side carries this at all. */
 .app-footer {
   max-width: var(--max-width);

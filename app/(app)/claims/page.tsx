@@ -3,6 +3,7 @@ import { listClaims, type ClaimScope, type ClaimSort } from "@/lib/claimsRepo";
 import { claimStatusLabel } from "@/lib/claimState";
 import { DeleteClaimButton } from "./DeleteClaimButton";
 import { ClaimsControls } from "./ClaimsControls";
+import { PendingSaves } from "./PendingSaves";
 
 /**
  * The claims list — the reason for saving incrementally in the first place.
@@ -82,6 +83,13 @@ export default async function ClaimsPage({
             New claim
           </Link>
         </div>
+
+        {/*
+          Above the controls, because it is about claims that are missing from the list rather than
+          about how the list is filtered — and below it a PM searching for the very claim being held
+          would read "no claims match" first and stop there.
+        */}
+        <PendingSaves />
 
         <ClaimsControls search={search} sort={sort} scope={scope} canSeeAll={canSeeAll} />
 

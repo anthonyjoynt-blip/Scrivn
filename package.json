@@ -15,7 +15,10 @@
     "test:scope": "node test/scope/run.mjs",
     "test:pipeline": "node test/pipeline/run.mjs",
     "test:rls": "node test/rls/run.mjs",
-    "build:icons": "node scripts/build-icons.mjs"
+    "build:icons": "node scripts/build-icons.mjs",
+    "test:pending": "node test/pending/run.mjs",
+    "test:pending:browser": "node test/pending/browser/run.mjs",
+    "test:placement": "node test/sketch/placement.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "latest",
