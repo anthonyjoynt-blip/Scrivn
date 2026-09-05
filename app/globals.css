@@ -2018,3 +2018,99 @@ button:disabled {
   text-decoration: underline;
   text-underline-offset: 2px;
 }
+
+/* ── Claims list: search, sort, scope ────────────────────────────────────────────────────────── */
+
+.claims-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 18px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--border);
+}
+
+.claims-search {
+  flex: 1 1 260px;
+  min-width: 0;
+}
+
+.claims-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+
+.claims-control select {
+  font-family: inherit;
+  font-size: 0.88rem;
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+}
+
+.claims-scope {
+  display: flex;
+  gap: 8px;
+}
+
+.claims-count {
+  margin: 0 0 12px;
+}
+
+/*
+  The status pill. Colour carries the same information as the words rather than replacing them —
+  a list read at a glance still has to work for anyone who cannot separate these hues.
+*/
+.claims-status {
+  flex: 0 0 auto;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 999px;
+  white-space: nowrap;
+  background: var(--color-navy-tint);
+  color: var(--color-navy);
+  border: 1px solid transparent;
+}
+
+/* Waiting on somebody — the one status that is a prompt rather than a description. */
+.claims-status-contents_pending {
+  background: #fdf1d8;
+  color: #7a5310;
+  border-color: #e8d09a;
+}
+
+.claims-status-documents,
+.claims-status-work_orders {
+  background: #e8f4ec;
+  color: #1f5c37;
+  border-color: #bcdcc7;
+}
+
+.claims-row-address {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 28ch;
+}
+
+.claims-row-owner {
+  font-style: italic;
+}
+
+@media (max-width: 640px) {
+  .claims-controls {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .claims-status {
+    order: -1;
+    align-self: flex-start;
+  }
+}

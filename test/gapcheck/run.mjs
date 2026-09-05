@@ -62,6 +62,11 @@ const {
   formatQuestionLog,
   hasQuestionLog,
   canonicalRecordShapes,
+  claimStatus,
+  resumeStep,
+  contentsOutstanding,
+  emptySavedClaimState,
+  CLAIM_STATUS_ORDER,
 } = mod;
 
 let passed = 0;
@@ -1511,6 +1516,162 @@ check(
   applyAnswer(withDerivedFields(linearRoom), "room:0:wall:0:cutRunFt", "31").rooms[0].walls[0].cutRunFt === 31,
   "while a plain linear number still lands",
 );
+
+/* ── The search index and the search query describe the same thing ────────────────────────────── */
+
+/*
+  These are two copies of one expression, in two languages, and they only work together if they match
+  character for character. When they drift the search still WORKS — it just stops using the trigram
+  index and quietly becomes a sequential scan over every claim in the organization. Nothing fails,
+  nothing logs, and nobody notices until there are enough claims for it to be slow.
+*/
+{
+  const repo = readFileSync(join(root, "lib", "claimsRepo.ts"), "utf8");
+  const sql = readFileSync(join(root, "supabase", "migrations", "0005_claim_list_columns.sql"), "utf8");
+
+  const fromRepo = /const SEARCH_EXPRESSION =\s*"([^"]+)"/.exec(repo)?.[1];
+  const fromSql = /using gin \(\((.+?)\) gin_trgm_ops\)/.exec(sql)?.[1];
+  check(fromRepo !== undefined, "the repo still declares SEARCH_EXPRESSION in the shape this reads");
+  check(fromSql !== undefined, "and 0005 still declares the trigram index in the shape this reads");
+
+  const normalise = (x) => (x ?? "").replace(/\s+/g, " ").trim();
+  check(
+    normalise(fromRepo) === normalise(fromSql),
+    ["the search query and its index are the same expression.",
+     `           query: ${normalise(fromRepo)}`,
+     `           index: ${normalise(fromSql)}`].join("\n"),
+  );
+}
+
+/* ── Where a claim actually is, as opposed to which screen was last open ──────────────────────── */
+
+/*
+  `step` is not a status. It records the screen the PM last had open, so a claim they opened,
+  glanced at and left sits at "intake" however complete it is, and one they scrolled back through
+  reads as less finished than it is. A list sorted on that is sorted by browsing history.
+*/
+const savedWith = (over) => ({ ...emptySavedClaimState(), ...over });
+
+check(claimStatus(savedWith({})) === "intake", "an empty claim is intake");
+check(claimStatus(savedWith({ transcript: "water everywhere" })) === "transcript", "a transcript with no extraction is transcript");
+
+// A claim mid-gap-check, and the same claim once its questions are answered. The engine decides,
+// not the step — so the list can never disagree with what the screen would show.
+const midCheck = savedWith({ extraction: withDerivedFields(oneRoom), claim: { ...claim, scopePhases: ["EMERGENCY"] } });
+check(claimStatus(midCheck) === "gap_check", `an extraction with open questions is gap_check (got ${claimStatus(midCheck)})`);
+
+const statusRound = resolveRound(claim, oneRoom, {});
+check(
+  claimStatus(savedWith({ extraction: statusRound.extraction, claim })) !== "ready" || statusRound.questions.length === 0,
+  "and only becomes ready when the engine says nothing is open",
+);
+
+check(
+  claimStatus(savedWith({ extraction: withDerivedFields(oneRoom), documents: { scopeDocument: "x" } })) === "documents",
+  "generated documents outrank anything earlier",
+);
+check(
+  claimStatus(savedWith({ extraction: withDerivedFields(oneRoom), documents: { scopeDocument: "x" }, workOrders: [{ trade: "MITIGATION_DEMO", text: "y" }] })) === "work_orders",
+  "and work orders outrank documents",
+);
+
+// The status must be reachable in the order the list sorts by, or sorting groups things wrongly.
+check(
+  CLAIM_STATUS_ORDER.indexOf("gap_check") < CLAIM_STATUS_ORDER.indexOf("documents"),
+  "the sort order runs from least to most complete",
+);
+check(
+  CLAIM_STATUS_ORDER.indexOf("contents_pending") < CLAIM_STATUS_ORDER.indexOf("ready"),
+  "and contents-pending sorts BEFORE ready — it is outstanding work, not a finished claim",
+);
+
+/*
+  claimStatus itself must return it, not merely have a rule that could.
+
+  Checked because the first version of these tests exercised `contentsOutstanding` on its own and
+  the ordering constant on its own, and deleting the branch that joins them broke nothing — a gap
+  that would have shipped a status no claim could ever have.
+
+  Built by answering the whole gap-check first, because contents is deliberately reported only once
+  the questions are done: a PM mid-questions is doing the more immediate work.
+*/
+{
+  const contentsScoped = { ...claim, scopePhases: ["EMERGENCY", "CONTENTS"] };
+  let round = resolveRound(contentsScoped, oneRoom, {});
+  const allAnswers = {};
+  for (let pass = 0; pass < 12 && round.questions.length > 0; pass += 1) {
+    for (const q of round.questions) allAnswers[q.id] = answerFor(q, () => undefined);
+    round = resolveRound(contentsScoped, oneRoom, allAnswers);
+  }
+  check(round.questions.length === 0, `the fixture's gap-check can be finished (still open: ${round.questions.length})`);
+
+  const done = savedWith({ claim: round.claim, extraction: round.extraction });
+  check(claimStatus(done) === "contents_pending", `a finished gap-check with contents outstanding reports contents_pending (got ${claimStatus(done)})`);
+
+  // And a claim still mid-questions reports the questions, not the contents.
+  const midway = savedWith({ claim: contentsScoped, extraction: withDerivedFields(oneRoom) });
+  check(claimStatus(midway) === "gap_check", `while one mid-questions reports gap_check (got ${claimStatus(midway)})`);
+}
+
+/* ── Contents still outstanding ───────────────────────────────────────────────────────────────── */
+
+/*
+  A claim can have every gap-check question answered and still be waiting on the one thing nobody
+  has done. "Ready to generate" would hide exactly that, which is why this outranks it.
+*/
+const contentsClaim = { ...claim, scopePhases: ["EMERGENCY", "CONTENTS"] };
+check(
+  contentsOutstanding(savedWith({ claim: contentsClaim })),
+  "a claim scoping Contents with nothing entered is outstanding",
+);
+check(
+  !contentsOutstanding(savedWith({ claim })),
+  "a claim that never scoped Contents is not",
+);
+check(
+  !contentsOutstanding(savedWith({ claim: contentsClaim, contentsTM: { ...emptySavedClaimState().contentsTM, packOutHours: "6" } })),
+  "and neither is one where hours have been entered",
+);
+/*
+  A blank bric-a-brac room is not evidence of anything: the form seeds one so there is a row to type
+  into, so `rooms.length` is 1 on a claim nobody has opened. Both halves are checked because the
+  first version of this rule tested the count and reported every fresh claim as done.
+*/
+const blankBric = emptySavedClaimState().bricABrac;
+check(
+  contentsOutstanding(savedWith({ claim: contentsClaim, bricABrac: blankBric })),
+  "an untouched bric-a-brac form is still outstanding, despite having a row in it",
+);
+check(
+  !contentsOutstanding(
+    savedWith({
+      claim: contentsClaim,
+      bricABrac: { ...blankBric, rooms: blankBric.rooms.map((r) => ({ ...r, roomName: "Rec Room" })) },
+    }),
+  ),
+  "and it is done once a room has actually been filled in",
+);
+
+/* ── Reopening a claim lands where the work is ────────────────────────────────────────────────── */
+
+/*
+  Two steps describe a request that was in flight, and that request died with the tab. Reopening
+  into either shows a spinner nothing will ever resolve, so each falls back to the screen its
+  request was launched from.
+*/
+check(resumeStep(savedWith({ step: "extracting" })) === "transcript", "a claim saved mid-extraction reopens on the transcript");
+check(resumeStep(savedWith({ step: "generating" })) === "ready", "and one saved mid-generation reopens ready to generate");
+check(
+  resumeStep(savedWith({ step: "results", documents: null })) === "ready",
+  "a results step with no documents reopens ready, rather than on an empty results screen",
+);
+check(
+  resumeStep(savedWith({ step: "results", documents: { scopeDocument: "x" } })) === "results",
+  "but a real finished claim reopens on its documents",
+);
+for (const step of ["intake", "transcript", "questions", "ready", "contents", "remediation", "dgig"]) {
+  check(resumeStep(savedWith({ step })) === step, `an ordinary step reopens where it was (${step})`);
+}
 
 /* ── Every piece of claim state is saved, or documented as not saved ──────────────────────────── */
 

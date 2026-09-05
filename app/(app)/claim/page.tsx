@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { type GapCheckQuestion, siblingQuestionIds } from "@/lib/questions";
 import { type AskedQuestion, formatQuestionLog, hasQuestionLog, recordRound } from "@/lib/questionLog";
-import { type SavedClaimState, claimStatusLabel } from "@/lib/claimState";
+import { type SavedClaimState, resumeStep } from "@/lib/claimState";
 import { useClaimPersistence } from "@/lib/useClaimPersistence";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
 import { resolveRound, nextQuestions } from "@/lib/questionRound";
@@ -341,7 +341,12 @@ export default function Home() {
     is visible as an obviously shorter function rather than as a field that silently loads blank.
   */
   const applyLoadedClaim = useCallback((loaded: SavedClaimState) => {
-    setStep(loaded.step as Step);
+    /*
+      `resumeStep`, not `loaded.step`. A claim saved mid-request carries a step describing a request
+      that died with the tab — reopening into "extracting" or "generating" is a spinner that never
+      resolves. See lib/claimState.ts for the full set of exceptions.
+    */
+    setStep(resumeStep(loaded) as Step);
     setClaim(loaded.claim);
     setTranscript(loaded.transcript);
     setExtraction(loaded.extraction);

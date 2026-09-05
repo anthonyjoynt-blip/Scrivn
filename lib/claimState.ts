@@ -18,6 +18,8 @@ import type { SketchAttachments } from "./sketchAttachments";
 import { defaultSketchAttachments } from "./sketchAttachments";
 import type { AskedQuestion } from "./questionLog";
 import type { ContentsApproach, Trade, WorkOrder } from "./workOrders";
+import { nextQuestions } from "./questionRound";
+import { withDerivedFields } from "./types";
 
 /**
  * Everything a saved claim is, and the only place that decides what persists.
@@ -165,11 +167,23 @@ export function parseSavedClaimState(payload: unknown): SavedClaimState {
  * Duplicated on purpose — see 0004_organizations_and_claims.sql. The list must be able to render a
  * hundred claims without loading a hundred sketches.
  */
-export function claimSummary(state: SavedClaimState): { customer_name: string; job_number: string; step: string } {
+export function claimSummary(state: SavedClaimState): {
+  customer_name: string;
+  job_number: string;
+  address: string;
+  insurer: string;
+  step: string;
+  status: ClaimStatus;
+} {
   return {
     customer_name: state.claim.customerName.trim(),
     job_number: state.claim.jobNumber.trim(),
+    address: state.claim.address.trim(),
+    insurer: state.claim.insurer.trim(),
+    // The screen last open, kept because resuming needs it.
     step: state.step,
+    // Where the claim actually is, which is a different question — see `claimStatus`.
+    status: claimStatus(state),
   };
 }
 
@@ -189,28 +203,143 @@ export function hasAnyContent(state: SavedClaimState): boolean {
   );
 }
 
-/** How far along a claim is, for the list. Derived from `step` rather than stored separately. */
-export function claimStatusLabel(step: string): string {
-  switch (step) {
-    case "intake":
-      return "Claim info";
-    case "transcript":
+/**
+ * Where a claim actually is, as opposed to which screen was last open.
+ *
+ * `step` alone is not a status. It is the screen the PM happened to be on, so a claim they opened,
+ * glanced at and left sits at "intake" whether it is empty or nearly finished, and one they scrolled
+ * back to reads as less complete than it is. A list sorted by that would be sorted by browsing.
+ *
+ * So this is derived from what the claim CONTAINS, walking backwards from the most complete state —
+ * the first thing that is true wins, and each rung genuinely requires the one below it.
+ *
+ * Written to the `status` column on every save, so the list can sort and group without reading a
+ * single payload. See 0005_claim_list_columns.sql.
+ */
+export type ClaimStatus =
+  | "intake"
+  | "transcript"
+  | "gap_check"
+  | "contents_pending"
+  | "ready"
+  | "documents"
+  | "work_orders";
+
+export const CLAIM_STATUS_ORDER: ClaimStatus[] = [
+  "intake",
+  "transcript",
+  "gap_check",
+  "contents_pending",
+  "ready",
+  "documents",
+  "work_orders",
+];
+
+export const CLAIM_STATUS_LABEL: Record<ClaimStatus, string> = {
+  intake: "Intake only",
+  transcript: "Transcript entered",
+  gap_check: "Gap-check in progress",
+  contents_pending: "Contents pending",
+  ready: "Ready to generate",
+  documents: "Documents generated",
+  work_orders: "Work orders generated",
+};
+
+/**
+ * Whether a claim that involves contents still has none recorded.
+ *
+ * NOT the "contents check-in" feature — no such feature exists in this codebase; every "pending" in
+ * it belongs to the sketch editor or the gap-check question list. This is built from what is really
+ * there: the claim selected the Contents phase, or a room's extraction says contents are affected,
+ * and yet nothing has been entered on either contents form. That is a real outstanding piece of work
+ * and it is worth surfacing — but if a different check-in feature was meant, this is the wrong rule
+ * and should be replaced rather than extended.
+ */
+export function contentsOutstanding(state: SavedClaimState): boolean {
+  const contentsExpected =
+    state.claim.scopePhases.includes("CONTENTS") ||
+    (state.extraction?.rooms ?? []).some((r) => r.contents?.affected === true);
+  if (!contentsExpected) return false;
+
+  const tmEntered =
+    state.contentsTM.onSiteManipulationHours.trim() !== "" ||
+    state.contentsTM.packOutHours.trim() !== "" ||
+    state.contentsTM.packBackHours.trim() !== "" ||
+    Object.values(state.contentsTM.consumables).some((v) => v.trim() !== "");
+  /*
+    Room COUNT proves nothing here. `emptyBricABracData` seeds one blank room so the form has a row
+    to type into, so a claim nobody has touched already has `rooms.length === 1`. Checked against the
+    fields instead — which is the difference between "the form exists" and "somebody filled it in",
+    and the whole point of this status.
+  */
+  const bricEntered = state.bricABrac.rooms.some(
+    (r) =>
+      r.roomName.trim() !== "" ||
+      r.contentSize !== null ||
+      r.unboxableItems.trim() !== "" ||
+      r.movingBlankets.trim() !== "" ||
+      r.otherConsumables.trim() !== "" ||
+      Object.values(r.boxes).some((v) => v.trim() !== ""),
+  );
+  return !tmEntered && !bricEntered;
+}
+
+export function claimStatus(state: SavedClaimState): ClaimStatus {
+  // Most complete first: a claim with work orders also has documents, and so on down.
+  if (state.workOrders.length > 0) return "work_orders";
+  if (state.documents !== null) return "documents";
+
+  if (state.extraction !== null) {
+    /*
+      Whether the gap-check is finished is the engine's own answer, not a guess from `step`. Asking
+      it here costs one evaluation per save and means the list cannot disagree with the screen.
+    */
+    const open = nextQuestions(state.claim, withDerivedFields(state.extraction));
+    if (open.length > 0) return "gap_check";
+
+    /*
+      Between "questions done" and "ready to generate", never before.
+
+      Outstanding contents outranks READY — a claim with every question answered is still waiting on
+      the one thing nobody has done, and "Ready to generate" would hide exactly that. It does NOT
+      outrank the gap-check: a PM part-way through the questions is doing the more immediate work,
+      and labelling that claim "Contents pending" would point them at the wrong thing.
+    */
+    if (contentsOutstanding(state)) return "contents_pending";
+    return "ready";
+  }
+
+  if (state.transcript.trim() !== "") return "transcript";
+  return "intake";
+}
+
+/** For the list. Falls back to the raw value so an unrecognised status is visible, not blank. */
+export function claimStatusLabel(status: string): string {
+  return CLAIM_STATUS_LABEL[status as ClaimStatus] ?? status;
+}
+
+/**
+ * The step to reopen a claim at.
+ *
+ * Mostly the step it was saved on — that is the whole point of saving it. Two kinds of exception:
+ *
+ *   * The TRANSIENT steps. "extracting" and "generating" describe a request that was in flight, and
+ *     that request died with the tab. Reopening into either shows a spinner that will never resolve,
+ *     so each falls back to the screen its request was launched from.
+ *
+ *   * Steps whose data did not survive. A claim saved on "results" whose documents are somehow
+ *     absent would render an empty results screen with no way forward; sending it to "ready" gives
+ *     the PM a button that regenerates them.
+ */
+export function resumeStep(state: SavedClaimState): string {
+  switch (state.step) {
     case "extracting":
-      return "Transcript";
-    case "questions":
-      return "Follow-up questions";
-    case "ready":
+      return "transcript";
     case "generating":
-      return "Ready to generate";
-    case "contents":
-      return "Contents";
-    case "remediation":
-      return "Remediation";
+      return "ready";
     case "results":
-      return "Documents generated";
-    case "dgig":
-      return "Emergency form";
+      return state.documents === null ? "ready" : "results";
     default:
-      return step;
+      return state.step;
   }
 }
