@@ -14,7 +14,8 @@
     "test:extraction": "node test/extraction/run.mjs",
     "test:scope": "node test/scope/run.mjs",
     "test:pipeline": "node test/pipeline/run.mjs",
-    "test:rls": "node test/rls/run.mjs"
+    "test:rls": "node test/rls/run.mjs",
+    "build:icons": "node scripts/build-icons.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "latest",
