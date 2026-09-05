@@ -2036,7 +2036,7 @@ function blankBaseboardRecord(overrides: Partial<BaseboardRecord>): BaseboardRec
   return { material: null, heightIn: null, wallRunFt: null, action: null, disposition: null, phase: null, phaseUncertain: false, mdfProfile: null, ...overrides };
 }
 function blankContentsManipulation(): ContentsManipulation {
-  return { size: null, manipulationDeclined: false, affected: false };
+  return { size: null, manipulationDeclined: false, affected: false, packOutRequired: null };
 }
 
 function applyFlooringAnswer(f: FlooringRecord, field: string, answer: string): FlooringRecord {

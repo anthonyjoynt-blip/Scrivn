@@ -1088,8 +1088,16 @@ export default function Home() {
 
   /** From the "ready" step: separate Contents needs its form filled in first (it appends to whatever this generates), everyone else generates directly. A DGIG claim's Emergency form already happened, first thing after intake — nothing left to collect at this point. */
   function handleContinueFromReady() {
-    // Contents first when both are selected, then Remediation, then generate.
-    if (hasSeparateContents(claim)) setStep("contents");
+    /*
+      Contents first when both are selected, then Remediation, then generate.
+
+      `contentsScopeTiming === "NOW"` routes here too, without Contents having been selected at
+      intake. That is the whole point of asking: a PM who discovers mid-walkthrough that a pack-out
+      is involved should be able to finish the whole claim in one sitting rather than having to go
+      back and re-scope it. Answering "later" skips this and leaves the claim owing a contents
+      scope, which the claims list shows.
+    */
+    if (hasSeparateContents(claim) || claim.contentsScopeTiming === "NOW") setStep("contents");
     else if (hasRemediation(claim)) setStep("remediation");
     else handleGenerateDocuments();
   }

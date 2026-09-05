@@ -341,6 +341,13 @@ const roomDetailSchema = obj({
   // Priced per SF of floor, which the room already has — so a boolean, not another quantity.
   hepaVacuumingRequired: nullableBool(),
   /*
+    Contents leaving the building, as opposed to being moved around inside it. A different job from
+    on-site manipulation — an inventory, boxes, a truck, storage and a pack-back — and none of that
+    is derivable from a size band, so it decides whether the contents scoping tool is NEEDED rather
+    than merely available.
+  */
+  contentsPackOut: nullableBool(),
+  /*
     The one list this pass produces outright rather than annotating. Every other array here is
     positional against a call-1 record; appliances have no call-1 counterpart, so there is nothing to
     align to and `mergeDetail` appends the list as given. Safe only because nothing refers to these

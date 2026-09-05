@@ -31,7 +31,7 @@ STRUCTURE — this is what makes the answer usable at all:
   baseboard, walls, ceilings, doors and cabinetry. The counts are given per room below. A room with
   zero of something gets an empty array for it.
 - lightFixturesPresent, lightFixtureCount, antimicrobialApplied, containmentRequired, containmentSF,
-  hepaVacuumingRequired and appliances are room-level: one value each per room entry, not
+  hepaVacuumingRequired, contentsPackOut and appliances are room-level: one value each per room entry, not
   arrays and not per record.
 - If a count does not match, the whole room's detail is discarded rather than misapplied, so match
   the counts exactly even where every field in an entry is UNKNOWN.
@@ -95,6 +95,14 @@ WHAT EACH FIELD MEANS:
   microwave is BUILT_IN_MICROWAVE. Only appliances actually being handled — an appliance merely
   mentioned as being in the room ("the washer is in the corner") is not one being detached. There is
   no action to record: a restoration contractor detaches and resets these, never replaces them.
+- contentsPackOut — room-level. YES when the transcript says contents are being PACKED OUT, crated,
+  inventoried, put in storage, or otherwise taken off site — "full pack-out", "boxing it all up and
+  storing it", "contents going to the warehouse". NO when it says contents are only being moved
+  around within the property — "shift the furniture to the other side", "move it out of the way",
+  "manipulate on site". UNKNOWN when contents are mentioned with no indication either way, which is
+  the ordinary case.
+  The distinction is not about how MUCH there is. A packed basement moved three feet is still
+  on-site manipulation; two boxes taken to a warehouse is still a pack-out.
 - doors.doorType — COLONIAL, SOLID_CORE, HOLLOW_CORE or OTHER, where the transcript names it.
 - doors.unitType — PRE_HUNG or SLAB_ONLY. "Just the slab" is SLAB_ONLY; "pre-hung unit" is PRE_HUNG.
 - cabinetry.extent — UPPERS, LOWERS or FULL_HEIGHT. "Upper cabinets" is UPPERS, "the base run" or

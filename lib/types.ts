@@ -700,6 +700,18 @@ export interface ContentsManipulation {
   manipulationDeclined: boolean;
   /** A flag only — noting contents were affected doesn't gate any other question or field. */
   affected: boolean;
+  /**
+   * Contents leaving the building — packed out, crated, put in storage — as opposed to being moved
+   * around within it.
+   *
+   * A different job, not a bigger one. On-site manipulation is a line item sized by a band; a
+   * pack-out is an inventory, boxes, a truck, storage and a pack-back, and none of that can be
+   * derived from "Large". So this is the signal that the contents scoping tool is needed rather than
+   * merely available — see `contentsScopingNeeded`.
+   *
+   * Null when the transcript never says either way.
+   */
+  packOutRequired: boolean | null;
 }
 
 /** Applies the one derived field the extraction step is not allowed to set itself. */

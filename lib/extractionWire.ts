@@ -338,7 +338,8 @@ export interface ContentsManipulationRecordWire {
 }
 
 function contentsToDomain(w: ContentsManipulationRecordWire): ContentsManipulation {
-  return { size: null, manipulationDeclined: w.manipulationDeclined, affected: w.affected };
+  // packOutRequired is filled by the detail pass — call 1 has no room (see schema.ts).
+  return { size: null, manipulationDeclined: w.manipulationDeclined, affected: w.affected, packOutRequired: null };
 }
 
 export interface EquipmentRecordWire {

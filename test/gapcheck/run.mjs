@@ -71,6 +71,7 @@ const {
   WATER_NOT_APPLICABLE,
   waterScaleLabel,
   buildScopeDocumentHeaderLines,
+  contentsScopingNeeded,
 } = mod;
 
 let passed = 0;
@@ -1532,7 +1533,7 @@ check(
 const contentsAffected = extractionWith([
   room("Rec Room", {
     flooring: [removalFlooring()],
-    contents: { size: null, manipulationDeclined: false, affected: true },
+    contents: { size: null, manipulationDeclined: false, affected: true, packOutRequired: null },
   }),
 ]);
 const noContentsPhase = { ...claim, scopePhases: ["EMERGENCY", "REPAIR"] };
@@ -1584,6 +1585,102 @@ check(contentsOutstanding(owing), "a separate assignment leaves a contents scope
 check(
   !contentsOutstanding({ ...emptySavedClaimState(), claim: inScope, extraction: withDerivedFields(contentsAffected) }),
   "while in-scope contents owe nothing — the list must not argue with an answer it already has",
+);
+
+/* ── A pack-out is a different job from moving things around ─────────────────────────────────── */
+
+/*
+  "Manipulate contents – Large" is a line item a size band can carry. A pack-out is an inventory,
+  boxes, a truck, storage and a pack-back, and none of that is derivable from a band — so a pack-out
+  means the contents scoping tool is NEEDED, not merely available.
+
+  The case that matters most is the awkward one: the PM says the work sits within Emergency and
+  Repair, AND it is a pack-out. That says where the bill goes, not that anybody has worked out what
+  the job is, so the scope is still owed.
+*/
+const packedOut = extractionWith([
+  room("Rec Room", {
+    flooring: [removalFlooring()],
+    contents: { size: null, manipulationDeclined: false, affected: true, packOutRequired: true },
+  }),
+]);
+const onSiteOnly = extractionWith([
+  room("Rec Room", {
+    flooring: [removalFlooring()],
+    contents: { size: null, manipulationDeclined: false, affected: true, packOutRequired: false },
+  }),
+]);
+
+check(contentsScopingNeeded(noContentsPhase, withDerivedFields(packedOut)), "a pack-out needs the contents scoping tool");
+check(
+  !contentsScopingNeeded(noContentsPhase, withDerivedFields(onSiteOnly)),
+  "moving things around on site does not — that is what the size question already captures",
+);
+check(
+  contentsScopingNeeded({ ...noContentsPhase, contentsAssignment: "SEPARATE" }, withDerivedFields(onSiteOnly)),
+  "and a separate assignment needs it regardless of how the contents move",
+);
+
+// The prompt says pack-out when it is one, so the PM is not asked to remember what they dictated.
+const packPrompt = claimInfoQuestions(noContentsPhase, withDerivedFields(packedOut)).find((q) => q.id === "claim:contentsAssignment")?.prompt ?? "";
+check(/packed out/i.test(packPrompt), `the assignment question names the pack-out (got: ${packPrompt})`);
+
+/*
+  A pack-out that extraction did not also mark as "affected".
+
+  Not hypothetical: a live extraction of "we're doing a full pack-out, boxing it all up and putting
+  it in storage" returned packOutRequired true and affected FALSE. The two fields come from different
+  passes and nothing makes one imply the other, so a question gated on `affected` alone never fired
+  for the very claims that most obviously need a contents assignment.
+*/
+const packOutNotFlaggedAffected = extractionWith([
+  room("Basement", {
+    flooring: [removalFlooring()],
+    contents: { size: null, manipulationDeclined: false, affected: false, packOutRequired: true },
+  }),
+]);
+check(
+  claimInfoQuestions(noContentsPhase, withDerivedFields(packOutNotFlaggedAffected)).some((q) => q.id === "claim:contentsAssignment"),
+  "a pack-out is asked about even when extraction did not separately flag contents as affected",
+);
+
+/* ── In scope, and still owed ─────────────────────────────────────────────────────────────────── */
+
+const inScopePackOut = { ...noContentsPhase, contentsAssignment: "IN_SCOPE" };
+check(
+  contentsOutstanding({ ...emptySavedClaimState(), claim: inScopePackOut, extraction: withDerivedFields(packedOut) }),
+  "a pack-out billed to Emergency/Repair is STILL owed a contents scope — where the bill goes is not what the job is",
+);
+check(
+  !contentsOutstanding({ ...emptySavedClaimState(), claim: inScopePackOut, extraction: withDerivedFields(onSiteOnly) }),
+  "while on-site manipulation billed the same way owes nothing",
+);
+
+/* ── Now, or later ────────────────────────────────────────────────────────────────────────────── */
+
+/*
+  Asked only once the tool is known to be needed, and deliberately not alongside the assignment
+  question — the answer to this depends on that one, and offering both at once offers a scoping
+  choice to somebody about to say the contents belong to another assignment entirely.
+*/
+const timingAsked = (c, e) => claimInfoQuestions(c, withDerivedFields(e)).map((q) => q.id).includes("claim:contentsScopeTiming");
+check(timingAsked(noContentsPhase, packedOut), "a pack-out is asked whether to scope it now or later");
+check(!timingAsked(noContentsPhase, onSiteOnly), "an on-site-only claim is not asked at all");
+check(
+  !timingAsked({ ...noContentsPhase, scopePhases: ["EMERGENCY", "CONTENTS"] }, packedOut),
+  "and neither is a claim already routed through the contents step",
+);
+
+const now = applyClaimAnswer(noContentsPhase, withDerivedFields(packedOut), "claim:contentsScopeTiming", "Scope the contents now").claim;
+check(now.contentsScopeTiming === "NOW", `"now" is recorded (got ${now.contentsScopeTiming})`);
+const later = applyClaimAnswer(noContentsPhase, withDerivedFields(packedOut), "claim:contentsScopeTiming", "Leave it for later").claim;
+check(later.contentsScopeTiming === "LATER", `"later" is recorded too (got ${later.contentsScopeTiming})`);
+check(!timingAsked(now, packedOut) && !timingAsked(later, packedOut), "and either answer closes the question");
+
+// "Later" still owes the scope — that is the entire point of recording it.
+check(
+  contentsOutstanding({ ...emptySavedClaimState(), claim: later, extraction: withDerivedFields(packedOut) }),
+  "answering later leaves the claim owing a contents scope",
 );
 
 /* ── "Not applicable" is an answer; "not answered" is a gap ───────────────────────────────────── */
@@ -1960,7 +2057,7 @@ const allFlooringTypes = extractionWith([
 const affectedContents = extractionWith([
   room("Rec Room", {
     flooring: [removalFlooring()],
-    contents: { size: null, manipulationDeclined: false, affected: true },
+    contents: { size: null, manipulationDeclined: false, affected: true, packOutRequired: null },
   }),
 ]);
 

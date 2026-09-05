@@ -1,4 +1,4 @@
-import type { WaterLossExtraction } from "./types";
+import type { Room, WaterLossExtraction } from "./types";
 import { withDerivedFields } from "./types";
 import type { GapCheckQuestion } from "./questions";
 
@@ -98,6 +98,15 @@ export interface ClaimInfo {
    *               Nothing is owed and nothing is pending.
    */
   contentsAssignment: ContentsAssignment | null;
+  /**
+   * Whether the contents scope is being done in this sitting or left for later.
+   *
+   * Only asked once the contents scoping tool is known to be NEEDED — see `contentsScopingNeeded`.
+   * "NOW" routes the PM into the contents step after the emergency and repair gap-checks are
+   * finished, so the whole claim is done in one pass; "LATER" leaves the claim owing a contents
+   * scope, which is what the claims list shows as "Contents pending".
+   */
+  contentsScopeTiming: ContentsScopeTiming | null;
   /** IICRC class, or {@link WATER_NOT_APPLICABLE}. Same distinction as `waterCategory`. */
   waterClass: number | null;
   /** ISO-8601 date string (yyyy-MM-dd). */
@@ -246,6 +255,11 @@ export function usesReducedIntake(claim: ClaimInfo): boolean {
 /** See `ClaimInfo.contentsAssignment`. */
 export type ContentsAssignment = "SEPARATE" | "IN_SCOPE";
 
+/** See `ClaimInfo.contentsScopeTiming`. */
+export type ContentsScopeTiming = "NOW" | "LATER";
+
+export const CONTENTS_TIMING_OPTIONS = ["Scope the contents now", "Leave it for later"];
+
 export const CONTENTS_ASSIGNMENT_OPTIONS = [
   "Separate contents assignment",
   "Within the Emergency/Repair scope",
@@ -282,6 +296,7 @@ export function emptyClaimInfo(): ClaimInfo {
     waterCategory: null,
     waterCategoryNote: null,
     contentsAssignment: null,
+    contentsScopeTiming: null,
     waterClass: null,
     dateOfLoss: null,
     yearOfBuilding: null,
@@ -420,6 +435,29 @@ export function daysBetweenLossAndInspection(claim: ClaimInfo): number | null {
  * the question meaningless.
  */
 /**
+ * Whether the contents scoping tool is NEEDED, as opposed to merely available.
+ *
+ * Two ways it becomes needed:
+ *
+ *   * The PM said this is a separate contents assignment. Obvious.
+ *
+ *   * Contents are being PACKED OUT. This holds even when the work was said to sit within the
+ *     Emergency/Repair scope, and that is the point: "Manipulate contents – Large" is a line item a
+ *     size band can carry, but a pack-out is an inventory, boxes, a truck, storage and a pack-back,
+ *     and none of that can be derived from a band. So the work belonging to emergency and repair
+ *     does NOT mean it has been scoped — it means the bill goes on those phases, and the detail
+ *     still has to come from somewhere.
+ *
+ * Contents merely being "affected" is not enough. On-site manipulation is exactly what the existing
+ * size question captures, and sending every claim with a full living room into a contents scoping
+ * tool would be making work.
+ */
+export function contentsScopingNeeded(claim: ClaimInfo, extraction: WaterLossExtraction): boolean {
+  if (claim.contentsAssignment === "SEPARATE") return true;
+  return extraction.rooms.some((r) => r.contents?.packOutRequired === true);
+}
+
+/**
  * Contents were described, but Contents was not one of the phases selected at intake.
  *
  * That is not a mistake to correct silently either way. A PM who described a homeowner's packed
@@ -435,25 +473,67 @@ function contentsAssignmentQuestions(claim: ClaimInfo, extraction: WaterLossExtr
   if (claim.contentsAssignment !== null) return [];
   // Already scoped as its own assignment at intake — there is nothing to decide.
   if (claim.scopePhases.includes("CONTENTS")) return [];
-  // Nothing to ask about unless a room actually says contents are affected.
-  if (!extraction.rooms.some((r) => r.contents?.affected === true)) return [];
+  /*
+    Affected OR being packed out, not affected alone.
 
-  const rooms = extraction.rooms.filter((r) => r.contents?.affected === true).map((r) => r.roomName);
+    A live extraction of "we're doing a full pack-out, boxing it all up and putting it in storage"
+    came back with packOutRequired true and affected FALSE — the two fields are populated by
+    different passes and nothing makes one imply the other. Depending on `affected` meant a claim
+    that plainly needs a contents assignment was never asked about one, which is exactly the silence
+    this question exists to break.
+  */
+  const involved = (r: Room) => r.contents?.affected === true || r.contents?.packOutRequired === true;
+  if (!extraction.rooms.some(involved)) return [];
+
+  const rooms = extraction.rooms.filter(involved).map((r) => r.roomName);
   const named = rooms.length === 1 ? rooms[0] : `${rooms.length} rooms`;
+  /*
+    A pack-out changes the answer, so the question says so rather than leaving the PM to remember
+    what they dictated. Moving contents around a room and taking them off site are different jobs,
+    and only one of them usually belongs to somebody else's assignment.
+  */
+  const packOut = extraction.rooms.some((r) => r.contents?.packOutRequired === true);
+  const lead = packOut
+    ? `Contents in ${named} are being packed out, but Contents was not selected as part of this scope.`
+    : `Contents are affected in ${named}, but Contents was not selected as part of this scope.`;
   return [
     {
       id: "claim:contentsAssignment",
       roomName: null,
-      prompt:
-        `Contents are affected in ${named}, but Contents was not selected as part of this scope. ` +
-        `Is that a separate contents assignment, or does the work sit within the Emergency/Repair scope?`,
+      prompt: `${lead} Is that a separate contents assignment, or does the work sit within the Emergency/Repair scope?`,
       kind: { type: "choice", options: CONTENTS_ASSIGNMENT_OPTIONS },
     },
   ];
 }
 
+/**
+ * Now, or later.
+ *
+ * Asked only once the tool is known to be needed, and only when the claim is not already routed
+ * through it — a claim that selected Contents at intake goes to that step anyway, so there is
+ * nothing to decide.
+ *
+ * Deliberately not asked at the same time as the assignment question. The answer to this one depends
+ * on the answer to that one, and offering both at once means offering a choice about scoping
+ * contents to somebody who is about to say the contents belong to another assignment entirely.
+ */
+function contentsTimingQuestions(claim: ClaimInfo, extraction: WaterLossExtraction): GapCheckQuestion[] {
+  if (claim.contentsScopeTiming !== null) return [];
+  if (claim.scopePhases.includes("CONTENTS")) return [];
+  if (!contentsScopingNeeded(claim, extraction)) return [];
+  return [
+    {
+      id: "claim:contentsScopeTiming",
+      roomName: null,
+      prompt:
+        "This claim needs a contents scope. Do you want to complete it now, after the emergency and repair questions, or leave it for later?",
+      kind: { type: "choice", options: CONTENTS_TIMING_OPTIONS },
+    },
+  ];
+}
+
 export function claimInfoQuestions(claim: ClaimInfo, extraction: WaterLossExtraction): GapCheckQuestion[] {
-  const contents = contentsAssignmentQuestions(claim, extraction);
+  const contents = [...contentsAssignmentQuestions(claim, extraction), ...contentsTimingQuestions(claim, extraction)];
   // Asked for every loss type: contents are as affected by a fire as by a burst pipe, and the
   // water-only early return below would otherwise swallow this.
   if (claim.lossType !== "WATER") return contents;
@@ -522,6 +602,11 @@ export function applyClaimAnswer(
     */
     const separate = answer.trim().toLowerCase().startsWith("separate");
     return { claim: { ...claim, contentsAssignment: separate ? "SEPARATE" : "IN_SCOPE" }, extraction };
+  }
+
+  if (questionId === "claim:contentsScopeTiming") {
+    const now = answer.trim().toLowerCase().startsWith("scope");
+    return { claim: { ...claim, contentsScopeTiming: now ? "NOW" : "LATER" }, extraction };
   }
 
   return { claim, extraction };

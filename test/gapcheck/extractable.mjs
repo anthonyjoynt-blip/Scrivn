@@ -153,6 +153,9 @@ export const DELIBERATELY_ASKED = new Map([
     company intends to bill them, which is a commercial decision made after the walkthrough.
   */
   ["claim:contentsAssignment", "how the contents work is scoped, decided after the walkthrough rather than during it"],
+  // Whether to scope the contents in this sitting or come back to it. A scheduling choice about the
+  // PM's own afternoon; there is nothing in a transcript that could answer it.
+  ["claim:contentsScopeTiming", "when the PM intends to do the work, not a fact about the loss"],
   ["contents:size", "an operational estimate, not a description of damage"],
 ]);
 

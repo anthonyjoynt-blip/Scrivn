@@ -1,5 +1,5 @@
 import type { ClaimInfo } from "./claimInfo";
-import { emptyClaimInfo } from "./claimInfo";
+import { contentsScopingNeeded, emptyClaimInfo } from "./claimInfo";
 import type { GeneratedDocuments, WaterLossExtraction } from "./types";
 import type { ContentsTM } from "./contentsTM";
 import { emptyContentsTM } from "./contentsTM";
@@ -257,15 +257,19 @@ export const CLAIM_STATUS_LABEL: Record<ClaimStatus, string> = {
  */
 export function contentsOutstanding(state: SavedClaimState): boolean {
   /*
-    A decision the PM actually made, where there is one.
+    Whether a contents scope is OWED, from the decisions the PM actually made.
 
-    `IN_SCOPE` means they were asked and said the contents work belongs inside the Emergency/Repair
-    line items. Nothing is owed, and continuing to report "Contents pending" would be the list
-    arguing with an answer it already has.
+    `IN_SCOPE` alone is not enough to clear it. Saying the work belongs to Emergency and Repair says
+    where the bill goes, not that anybody has worked out what the job is — and a pack-out needs an
+    inventory, boxes, a truck and storage that no size band carries. So `contentsScopingNeeded`
+    overrides it, which is the one case where "in scope" and "still owed" are both true.
   */
-  if (state.claim.contentsAssignment === "IN_SCOPE") return false;
+  const needsScoping =
+    state.extraction !== null && contentsScopingNeeded(state.claim, state.extraction);
+  if (state.claim.contentsAssignment === "IN_SCOPE" && !needsScoping) return false;
 
   const contentsExpected =
+    needsScoping ||
     state.claim.contentsAssignment === "SEPARATE" ||
     state.claim.scopePhases.includes("CONTENTS") ||
     /*
@@ -274,7 +278,7 @@ export function contentsOutstanding(state: SavedClaimState): boolean {
       instead. Kept anyway so this function is honest on its own rather than only in the one context
       that currently calls it.
     */
-    (state.extraction?.rooms ?? []).some((r) => r.contents?.affected === true);
+    (state.extraction?.rooms ?? []).some((r) => r.contents?.affected === true || r.contents?.packOutRequired === true);
   if (!contentsExpected) return false;
 
   const tmEntered =

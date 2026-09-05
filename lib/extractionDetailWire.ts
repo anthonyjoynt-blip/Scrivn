@@ -69,6 +69,7 @@ export interface RoomDetailWire {
   containmentRequired: string;
   containmentSF: number;
   hepaVacuumingRequired: string;
+  contentsPackOut: string;
   appliances: { type: string }[];
 }
 export interface ExtractionDetailWire {
@@ -176,6 +177,14 @@ export function mergeDetail(extraction: WaterLossExtraction, detail: ExtractionD
       containmentSF: room.containmentSF ?? areaOrNull(d.containmentSF),
       hepaVacuumingRequired: room.hepaVacuumingRequired ?? toTriState(d.hepaVacuumingRequired),
       /*
+        Only onto a room that HAS a contents record. A pack-out flag on a room where nothing was said
+        about contents would assert work from a field that was never populated — and `contents` being
+        null is itself the statement that contents never came up for this room.
+      */
+      contents: room.contents === null
+        ? null
+        : { ...room.contents, packOutRequired: room.contents.packOutRequired ?? toTriState(d.contentsPackOut) },
+      /*
         Appended, not aligned. This is the one list the detail pass produces outright — there are no
         call-1 appliance records to line up against — so the positional alignment check above says
         nothing about it, and the guard that matters instead is that unrecognised types are dropped
@@ -228,6 +237,7 @@ export function needsDetailPass(extraction: WaterLossExtraction): boolean {
       room.antimicrobialApplied === null ||
       room.hepaVacuumingRequired === null ||
       room.containmentRequired === null ||
+      (room.contents !== null && room.contents.packOutRequired === null) ||
       (room.containmentRequired === true && room.containmentSF === null) ||
       // Every baseboard has a material, and call 1 never carries it.
       room.baseboard.some((b) => b.material === null) ||
