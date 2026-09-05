@@ -66,6 +66,14 @@ export interface ClaimInfo {
    * (stay null) for any other lossType. See `isClaimIdentityComplete` for the exact gating and
    * `documentGenerationPrompt.ts`'s scope-document header notes for how a null pair renders.
    */
+  /**
+   * IICRC category, or {@link WATER_NOT_APPLICABLE} when the PM has said it does not apply.
+   *
+   * null means NOT YET ANSWERED, and the two are genuinely different. They used to share `null`,
+   * which meant the "N/A" button appeared pre-selected on a blank form and pressing it left Continue
+   * disabled — the claim could not be started at all. A category that does not apply is an answer;
+   * one nobody has given is a gap.
+   */
   waterCategory: number | null;
   /**
    * Why the category is what it is, when it was not simply stated — currently set only by the
@@ -76,6 +84,21 @@ export interface ClaimInfo {
    * without somewhere to put it, the escalation would arrive on the document unexplained.
    */
   waterCategoryNote: string | null;
+  /**
+   * How contents work is being handled, once a PM has been asked.
+   *
+   * Only ever set by answering the gap-check question below. `null` means the question has not
+   * arisen — either no contents were described, or Contents was already selected at intake and there
+   * is nothing to decide.
+   *
+   *   SEPARATE  — a contents assignment of its own, still to be scoped. The claim carries on through
+   *               Emergency and Repair meanwhile, and shows as "Contents pending" in the claims list
+   *               until that scope is actually filled in.
+   *   IN_SCOPE  — the contents work sits inside the Emergency/Repair scope as ordinary line items.
+   *               Nothing is owed and nothing is pending.
+   */
+  contentsAssignment: ContentsAssignment | null;
+  /** IICRC class, or {@link WATER_NOT_APPLICABLE}. Same distinction as `waterCategory`. */
   waterClass: number | null;
   /** ISO-8601 date string (yyyy-MM-dd). */
   dateOfLoss: string | null;
@@ -212,6 +235,40 @@ export function usesReducedIntake(claim: ClaimInfo): boolean {
   return claim.scopeOnly || skipsTranscriptPipeline(claim);
 }
 
+/**
+ * "Does not apply", as distinct from "not answered yet".
+ *
+ * Zero because it is a number — so nothing about `ClaimInfo`'s shape or the wire format changes —
+ * and because the IICRC scales start at 1, so it can never collide with a real category or class.
+ * Every read of these two fields has to decide between three states now, not two, which is why they
+ * go through the helpers below rather than being compared to numbers inline.
+ */
+/** See `ClaimInfo.contentsAssignment`. */
+export type ContentsAssignment = "SEPARATE" | "IN_SCOPE";
+
+export const CONTENTS_ASSIGNMENT_OPTIONS = [
+  "Separate contents assignment",
+  "Within the Emergency/Repair scope",
+];
+
+export const WATER_NOT_APPLICABLE = 0;
+
+/** True when the PM explicitly said the scale does not apply. */
+export function isWaterNotApplicable(value: number | null): boolean {
+  return value === WATER_NOT_APPLICABLE;
+}
+
+/**
+ * How a category or class reads on a document: the number, "N/A", or blank when nobody has said.
+ *
+ * A blank is deliberately not "N/A". An unanswered field printed as N/A is a claim asserting
+ * something nobody decided, on a document an adjuster reads.
+ */
+export function waterScaleLabel(value: number | null): string {
+  if (value === null) return "";
+  return isWaterNotApplicable(value) ? "N/A" : String(value);
+}
+
 export function emptyClaimInfo(): ClaimInfo {
   return {
     customerName: "",
@@ -224,6 +281,7 @@ export function emptyClaimInfo(): ClaimInfo {
     lossTypeOther: "",
     waterCategory: null,
     waterCategoryNote: null,
+    contentsAssignment: null,
     waterClass: null,
     dateOfLoss: null,
     yearOfBuilding: null,
@@ -241,7 +299,10 @@ export function emptyClaimInfo(): ClaimInfo {
  * entirely (not just optional) whenever `usesReducedIntake` is true, since none of it feeds a
  * scope document (and a Contents-only claim has no inspection report to feed at all). waterCategory/
  * waterClass are only required when lossType is WATER — every other lossType skips IICRC
- * category/class entirely (see ClaimInfo.lossType's doc comment). At least one scope phase must be
+ * category/class entirely (see ClaimInfo.lossType's doc comment). "Required" here means ANSWERED,
+ * and {@link WATER_NOT_APPLICABLE} is an answer: a PM who says the scale does not apply to this
+ * claim has told us something, and blocking them is refusing to accept a fact about their own job.
+ * Only `null` — nobody has said — holds Continue shut. At least one scope phase must be
  * selected — nothing renders at all otherwise.
  */
 export function isClaimIdentityComplete(claim: ClaimInfo): boolean {
@@ -292,7 +353,7 @@ export function lossTypeLabel(claim: ClaimInfo): string | null {
 export function buildScopeDocumentHeaderLines(claim: ClaimInfo): string[] {
   const lines = [`${claim.jobNumber} – ${claim.customerName}`];
   if (claim.lossType === "WATER") {
-    lines.push(`Category of loss: ${claim.waterCategory ?? ""}`, `Class of loss: ${claim.waterClass ?? ""}`);
+    lines.push(`Category of loss: ${waterScaleLabel(claim.waterCategory)}`, `Class of loss: ${waterScaleLabel(claim.waterClass)}`);
   }
   lines.push(`Insurer: ${claim.insurer}`);
   return lines;
@@ -358,16 +419,55 @@ export function daysBetweenLossAndInspection(claim: ClaimInfo): number | null {
  * Silent when the claim already says Category 3, when the loss is not water, or when the dates make
  * the question meaningless.
  */
-export function claimInfoQuestions(claim: ClaimInfo, _extraction: WaterLossExtraction): GapCheckQuestion[] {
-  if (claim.lossType !== "WATER") return [];
-  if (claim.waterCategory === 3) return [];
-  if (claim.waterCategoryNote !== null) return [];
+/**
+ * Contents were described, but Contents was not one of the phases selected at intake.
+ *
+ * That is not a mistake to correct silently either way. A PM who described a homeowner's packed
+ * basement may be scoping a separate contents assignment, or may intend that work to sit inside the
+ * emergency and repair line items — and those produce genuinely different documents. Assuming the
+ * first invents an assignment nobody ordered; assuming the second quietly drops the work.
+ *
+ * So it is asked, once, and the answer is recorded. Answering "separate" does NOT stop the claim:
+ * Emergency and Repair carry on exactly as before, and the claim simply carries an outstanding
+ * contents scope, which is what the claims list surfaces as "Contents pending".
+ */
+function contentsAssignmentQuestions(claim: ClaimInfo, extraction: WaterLossExtraction): GapCheckQuestion[] {
+  if (claim.contentsAssignment !== null) return [];
+  // Already scoped as its own assignment at intake — there is nothing to decide.
+  if (claim.scopePhases.includes("CONTENTS")) return [];
+  // Nothing to ask about unless a room actually says contents are affected.
+  if (!extraction.rooms.some((r) => r.contents?.affected === true)) return [];
+
+  const rooms = extraction.rooms.filter((r) => r.contents?.affected === true).map((r) => r.roomName);
+  const named = rooms.length === 1 ? rooms[0] : `${rooms.length} rooms`;
+  return [
+    {
+      id: "claim:contentsAssignment",
+      roomName: null,
+      prompt:
+        `Contents are affected in ${named}, but Contents was not selected as part of this scope. ` +
+        `Is that a separate contents assignment, or does the work sit within the Emergency/Repair scope?`,
+      kind: { type: "choice", options: CONTENTS_ASSIGNMENT_OPTIONS },
+    },
+  ];
+}
+
+export function claimInfoQuestions(claim: ClaimInfo, extraction: WaterLossExtraction): GapCheckQuestion[] {
+  const contents = contentsAssignmentQuestions(claim, extraction);
+  // Asked for every loss type: contents are as affected by a fire as by a burst pipe, and the
+  // water-only early return below would otherwise swallow this.
+  if (claim.lossType !== "WATER") return contents;
+  if (claim.waterCategory === 3) return contents;
+  // Nothing to escalate FROM: the PM has said the scale does not apply to this claim.
+  if (isWaterNotApplicable(claim.waterCategory)) return contents;
+  if (claim.waterCategoryNote !== null) return contents;
 
   const days = daysBetweenLossAndInspection(claim);
-  if (days === null || days < CATEGORY_ESCALATION_DAYS) return [];
+  if (days === null || days < CATEGORY_ESCALATION_DAYS) return contents;
 
   const stated = claim.waterCategory === null ? "no category recorded" : `Category ${claim.waterCategory}`;
   return [
+    ...contents,
     {
       id: `claim:categoryEscalation:${days}`,
       roomName: null,
@@ -412,6 +512,16 @@ export function applyClaimAnswer(
       },
       extraction,
     };
+  }
+
+  if (questionId === "claim:contentsAssignment") {
+    /*
+      Both answers are recorded, and both close the question. "Within the Emergency/Repair scope" is
+      a decision, not a refusal — leaving it unrecorded would re-ask on the next pass and the PM
+      would be handed the same question every round.
+    */
+    const separate = answer.trim().toLowerCase().startsWith("separate");
+    return { claim: { ...claim, contentsAssignment: separate ? "SEPARATE" : "IN_SCOPE" }, extraction };
   }
 
   return { claim, extraction };

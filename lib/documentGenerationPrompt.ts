@@ -677,7 +677,9 @@ Notes on the scope document — tone and format matter as much as content here:
 - Category of loss and Class of loss come from CLAIM CONTEXT's waterCategory/waterClass fields,
   not the completed data's loss.category/loss.class — the claim context values are the
   authoritative, PM-confirmed ones. For a WATER lossType claim these two fields are never blank in
-  the output. For any other lossType (FIRE/WIND/HAIL/REMEDIATION/OTHER), waterCategory/waterClass are
+  the output. A value of 0 means the PM stated the IICRC scale does not apply to this claim — print
+  "N/A" for it, never "0" and never a guessed number. For any other lossType
+  (FIRE/WIND/HAIL/REMEDIATION/OTHER), waterCategory/waterClass are
   not collected at intake at all and will be null — omit the "Category of loss" and "Class of loss"
   lines from the header entirely in that case, rather than printing them blank or as "N/A".
 - Wherever the type of loss is named, use CLAIM CONTEXT's lossTypeDescribed, never the raw lossType

@@ -147,6 +147,12 @@ export const DELIBERATELY_ASKED = new Map([
 
   // Claim-level, collected at intake rather than dictated.
   ["claim:categoryEscalation", "a PM judgement prompted by elapsed time, never in the transcript"],
+  /*
+    How contents work is being scoped — a separate assignment, or line items inside Emergency and
+    Repair. Extraction can see that contents ARE affected (it records that per room) but not how the
+    company intends to bill them, which is a commercial decision made after the walkthrough.
+  */
+  ["claim:contentsAssignment", "how the contents work is scoped, decided after the walkthrough rather than during it"],
   ["contents:size", "an operational estimate, not a description of damage"],
 ]);
 

@@ -67,6 +67,10 @@ const {
   contentsOutstanding,
   emptySavedClaimState,
   CLAIM_STATUS_ORDER,
+  isClaimIdentityComplete,
+  WATER_NOT_APPLICABLE,
+  waterScaleLabel,
+  buildScopeDocumentHeaderLines,
 } = mod;
 
 let passed = 0;
@@ -1517,6 +1521,132 @@ check(
   "while a plain linear number still lands",
 );
 
+/* ── Contents described, but Contents was not one of the phases scoped ────────────────────────── */
+
+/*
+  A PM who describes a homeowner's packed basement may be scoping a separate contents assignment, or
+  may intend that work to sit inside the emergency and repair line items. Those produce genuinely
+  different documents, so neither can be assumed: assuming the first invents an assignment nobody
+  ordered, assuming the second quietly drops the work. It is asked once, and the answer recorded.
+*/
+const contentsAffected = extractionWith([
+  room("Rec Room", {
+    flooring: [removalFlooring()],
+    contents: { size: null, manipulationDeclined: false, affected: true },
+  }),
+]);
+const noContentsPhase = { ...claim, scopePhases: ["EMERGENCY", "REPAIR"] };
+
+const askedAbout = (c, e) => claimInfoQuestions(c, withDerivedFields(e)).map((q) => q.id);
+check(
+  askedAbout(noContentsPhase, contentsAffected).includes("claim:contentsAssignment"),
+  `contents affected with no Contents phase asks how it is being scoped (asked: ${askedAbout(noContentsPhase, contentsAffected).join(", ")})`,
+);
+check(
+  !askedAbout({ ...claim, scopePhases: ["EMERGENCY", "CONTENTS"] }, contentsAffected).includes("claim:contentsAssignment"),
+  "and does not ask when Contents was already selected at intake — there is nothing to decide",
+);
+check(
+  !askedAbout(noContentsPhase, oneRoom).includes("claim:contentsAssignment"),
+  "nor when no room says contents are affected",
+);
+
+// Contents are as affected by a fire as by a burst pipe, so this must survive the water-only filter.
+check(
+  askedAbout({ ...noContentsPhase, lossType: "FIRE" }, contentsAffected).includes("claim:contentsAssignment"),
+  "it is asked on a non-water claim too",
+);
+
+/* ── Both answers are decisions, and both close the question ──────────────────────────────────── */
+
+const answerAssignment = (c, text) => applyClaimAnswer(c, withDerivedFields(contentsAffected), "claim:contentsAssignment", text).claim;
+
+const separate = answerAssignment(noContentsPhase, "Separate contents assignment");
+check(separate.contentsAssignment === "SEPARATE", `"separate" is recorded (got ${separate.contentsAssignment})`);
+check(
+  !askedAbout(separate, contentsAffected).includes("claim:contentsAssignment"),
+  "and closes the question rather than being asked again every round",
+);
+
+const inScope = answerAssignment(noContentsPhase, "Within the Emergency/Repair scope");
+check(inScope.contentsAssignment === "IN_SCOPE", `"within the scope" is recorded too (got ${inScope.contentsAssignment})`);
+check(
+  !askedAbout(inScope, contentsAffected).includes("claim:contentsAssignment"),
+  "and closes it as well — a decision, not a refusal to answer",
+);
+
+/*
+  The point of the whole thing: answering "separate" does NOT stop the claim. Emergency and Repair
+  carry on, and what the claim owes is a contents scope — which is what the list shows.
+*/
+const owing = { ...emptySavedClaimState(), claim: separate, extraction: withDerivedFields(contentsAffected) };
+check(contentsOutstanding(owing), "a separate assignment leaves a contents scope outstanding");
+check(
+  !contentsOutstanding({ ...emptySavedClaimState(), claim: inScope, extraction: withDerivedFields(contentsAffected) }),
+  "while in-scope contents owe nothing — the list must not argue with an answer it already has",
+);
+
+/* ── "Not applicable" is an answer; "not answered" is a gap ───────────────────────────────────── */
+
+/*
+  Reported: setting category and class to N/A left Continue disabled, so the claim could not be
+  started at all.
+
+  Both meanings shared `null`. That made the N/A button appear pre-selected on a blank form — since
+  a fresh claim also has null — and pressing it changed nothing, because the completeness gate reads
+  null as "nobody has answered". A PM saying the IICRC scale does not apply to their job has told us
+  something; refusing to accept it is refusing a fact about their own claim.
+*/
+const intake = (over) => ({
+  ...emptyClaimInfo(),
+  customerName: "Vasquez",
+  jobNumber: "J-9",
+  insurer: "SGI Canada",
+  lossType: "WATER",
+  scopeOnly: true,
+  scopePhases: ["EMERGENCY"],
+  ...over,
+});
+
+check(
+  !isClaimIdentityComplete(intake({ waterCategory: null, waterClass: null })),
+  "a water claim with nothing said about category or class cannot continue",
+);
+check(
+  isClaimIdentityComplete(intake({ waterCategory: WATER_NOT_APPLICABLE, waterClass: WATER_NOT_APPLICABLE })),
+  "but one where both are explicitly N/A can — that is an answer, not a blank",
+);
+check(
+  isClaimIdentityComplete(intake({ waterCategory: 3, waterClass: WATER_NOT_APPLICABLE })),
+  "and so can a mix of a real category and an N/A class",
+);
+check(
+  !isClaimIdentityComplete(intake({ waterCategory: WATER_NOT_APPLICABLE, waterClass: null })),
+  "while an N/A category with an unanswered class still cannot — one answer is not two",
+);
+
+/*
+  N/A must never print as the number backing it. A "0" on an insurer's document is not a category
+  anybody chose, and it is the kind of wrong that reads as a real value.
+*/
+check(waterScaleLabel(WATER_NOT_APPLICABLE) === "N/A", "N/A renders as N/A, never as the sentinel number");
+check(waterScaleLabel(3) === "3", "a real category renders as itself");
+check(waterScaleLabel(null) === "", "and an unanswered one renders blank — NOT as N/A, which would assert something nobody said");
+
+const naHeader = buildScopeDocumentHeaderLines(intake({ waterCategory: WATER_NOT_APPLICABLE, waterClass: WATER_NOT_APPLICABLE }));
+check(
+  naHeader.some((l) => l === "Category of loss: N/A"),
+  `the scope document header says N/A (got ${JSON.stringify(naHeader)})`,
+);
+check(!naHeader.some((l) => /: 0$/.test(l)), "and never prints a bare 0");
+
+// The elapsed-time escalation asks a PM to reconsider a category. There is nothing to reconsider
+// when they have said the scale does not apply.
+check(
+  claimInfoQuestions(intake({ waterCategory: WATER_NOT_APPLICABLE, dateOfLoss: "2026-01-01", dateTimeInspected: "2026-03-01T09:00" }), withDerivedFields(oneRoom)).length === 0,
+  "the category-escalation question does not fire on a claim whose category is N/A",
+);
+
 /* ── The search index and the search query describe the same thing ────────────────────────────── */
 
 /*
@@ -1820,8 +1950,22 @@ const allFlooringTypes = extractionWith([
   }),
 ]);
 
+/*
+  A room whose contents are affected, which none of the other fixtures has.
+
+  Without it the contents-assignment question never fires during this walk and the audit below cannot
+  see it — the same coverage gap that let `flooring.removalSF` be added, asked in the app, and walk
+  straight past this check untouched.
+*/
+const affectedContents = extractionWith([
+  room("Rec Room", {
+    flooring: [removalFlooring()],
+    contents: { size: null, manipulationDeclined: false, affected: true },
+  }),
+]);
+
 const everyQuestionId = new Set();
-for (const roomSet of [oneRoom, twoRooms, allFlooringTypes]) {
+for (const roomSet of [oneRoom, twoRooms, allFlooringTypes, affectedContents]) {
   const explore = (claimInfo, extraction, depth) => {
     if (depth > 12) return;
     const questions = nextQuestions(claimInfo, withDerivedFields(extraction));

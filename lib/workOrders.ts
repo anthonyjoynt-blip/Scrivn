@@ -1,4 +1,5 @@
 import type { ClaimInfo } from "./claimInfo";
+import { isWaterNotApplicable, waterScaleLabel } from "./claimInfo";
 import type { BricABracData } from "./bricABrac";
 import { BOX_ITEMS, CONTENT_SIZE_OPTIONS } from "./bricABrac";
 import type { ContentsTM } from "./contentsTM";
@@ -150,7 +151,9 @@ function bullet(...parts: (string | null | undefined)[]): string {
 function header(claim: ClaimInfo, trade: Trade): string {
   const lossType = lossTypeLabel(claim) ?? "—";
   const catClass =
-    claim.lossType === "WATER" ? `Category ${claim.waterCategory ?? "—"} / Class ${claim.waterClass ?? "—"}` : "Category N/A / Class N/A";
+    claim.lossType === "WATER"
+      ? `Category ${waterScaleLabel(claim.waterCategory) || "—"} / Class ${waterScaleLabel(claim.waterClass) || "—"}`
+      : "Category N/A / Class N/A";
 
   return [
     `WORK ORDER — ${TRADE_LABEL[trade].toUpperCase()}`,
@@ -302,7 +305,12 @@ function buildMitigationDemo(claim: ClaimInfo, extraction: WaterLossExtraction, 
         matters. Category 1 has nothing to treat, so it is cleaned rather than cleaned and treated.
       */
       if (f.cleaningRequired) {
-        const treat = claim.waterCategory !== null && claim.waterCategory > 1 ? "Clean & treat" : "Clean";
+        /*
+          An N/A category is not a category 1. It carries no statement about contamination either
+          way, so the cautious reading applies — treating a floor nobody needed treated is a line an
+          estimator can strike, where omitting one that was needed is a health question.
+        */
+        const treat = claim.waterCategory === null || isWaterNotApplicable(claim.waterCategory) || claim.waterCategory > 1 ? "Clean & treat" : "Clean";
         items.push(bullet(`${treat} ${f.type ? `${titleCase(f.type).toLowerCase()} ` : ""}floor`, null, flooringExtent(f) ?? "floor area"));
       }
     }

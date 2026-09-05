@@ -1,6 +1,7 @@
 import type { ClaimInfo, LossType, ScopePhase } from "@/lib/claimInfo";
 import { LOSS_TYPE_OPTIONS, availableScopePhases, usesReducedIntake } from "@/lib/claimInfo";
 import { KNOWN_INSURERS } from "@/lib/insurers";
+import { WATER_NOT_APPLICABLE } from "@/lib/claimInfo";
 
 type TextField = "customerName" | "jobNumber" | "claimNumber" | "address" | "insurer" | "pmName" | "causeOfLoss" | "preExistingConditions" | "lossTypeOther";
 
@@ -130,7 +131,9 @@ export function ClaimIntakeForm({
                 {n}
               </button>
             ))}
-            <button type="button" className={`option-btn${claim.waterCategory === null ? " selected" : ""}`} aria-pressed={claim.waterCategory === null} onClick={() => onCategoryChange(null)}>
+            {/* Its own value, not null — null is "not answered yet", and sharing the two made this
+                button look pre-selected on a blank form while leaving Continue disabled. */}
+            <button type="button" className={`option-btn${claim.waterCategory === WATER_NOT_APPLICABLE ? " selected" : ""}`} aria-pressed={claim.waterCategory === WATER_NOT_APPLICABLE} onClick={() => onCategoryChange(WATER_NOT_APPLICABLE)}>
               N/A
             </button>
           </div>
@@ -143,7 +146,7 @@ export function ClaimIntakeForm({
                 {n}
               </button>
             ))}
-            <button type="button" className={`option-btn${claim.waterClass === null ? " selected" : ""}`} aria-pressed={claim.waterClass === null} onClick={() => onClassChange(null)}>
+            <button type="button" className={`option-btn${claim.waterClass === WATER_NOT_APPLICABLE ? " selected" : ""}`} aria-pressed={claim.waterClass === WATER_NOT_APPLICABLE} onClick={() => onClassChange(WATER_NOT_APPLICABLE)}>
               N/A
             </button>
           </div>

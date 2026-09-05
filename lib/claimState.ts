@@ -256,8 +256,24 @@ export const CLAIM_STATUS_LABEL: Record<ClaimStatus, string> = {
  * and should be replaced rather than extended.
  */
 export function contentsOutstanding(state: SavedClaimState): boolean {
+  /*
+    A decision the PM actually made, where there is one.
+
+    `IN_SCOPE` means they were asked and said the contents work belongs inside the Emergency/Repair
+    line items. Nothing is owed, and continuing to report "Contents pending" would be the list
+    arguing with an answer it already has.
+  */
+  if (state.claim.contentsAssignment === "IN_SCOPE") return false;
+
   const contentsExpected =
+    state.claim.contentsAssignment === "SEPARATE" ||
     state.claim.scopePhases.includes("CONTENTS") ||
+    /*
+      Contents described but never asked about. Only reachable before the assignment question has
+      been answered — which means the claim is still in gap-check, and `claimStatus` reports that
+      instead. Kept anyway so this function is honest on its own rather than only in the one context
+      that currently calls it.
+    */
     (state.extraction?.rooms ?? []).some((r) => r.contents?.affected === true);
   if (!contentsExpected) return false;
 
