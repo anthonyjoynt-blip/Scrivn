@@ -59,6 +59,22 @@ const PUBLIC_PAGES = new Set(["/", "/how-it-works", "/pricing", "/faq", "/contac
  */
 const PUBLIC_ROUTES = new Set(["/auth/confirm", "/api/logout", "/api/webhooks/stripe", "/api/contact"]);
 
+/**
+ * The web app manifest and its icons, which must answer to a request carrying no session.
+ *
+ * Found live rather than locally: with everything else in place, /manifest.webmanifest redirected to
+ * the login page and the browser received an HTML document where it expected JSON. Installability
+ * fails silently at that point — no error, no prompt, and every meta tag on the page still looks
+ * correct, which is exactly why it survived a local check where nothing is signed out.
+ *
+ * A browser fetches the manifest and its icons before anyone has signed in, and for the icons often
+ * without credentials at all. None of it is claim data: a name, a colour and a picture. Serving them
+ * to an anonymous request gives away nothing that the marketing site does not already say out loud.
+ */
+function isInstallAsset(pathname: string): boolean {
+  return pathname === "/manifest.webmanifest" || pathname.startsWith("/icons/");
+}
+
 export async function middleware(request: NextRequest) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -114,7 +130,7 @@ export async function middleware(request: NextRequest) {
     return response;
   }
 
-  if (PUBLIC_ROUTES.has(pathname) || PUBLIC_PAGES.has(pathname)) {
+  if (PUBLIC_ROUTES.has(pathname) || PUBLIC_PAGES.has(pathname) || isInstallAsset(pathname)) {
     return supabaseResponse;
   }
 
