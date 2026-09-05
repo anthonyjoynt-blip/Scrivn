@@ -367,6 +367,24 @@ export default function Home() {
     setResolvedSuggestions(loaded.resolvedSuggestions);
   }, []);
 
+  /*
+    Points worth guaranteeing a save at, rather than waiting for the debounce.
+
+    The autosave already writes after every change, which is what makes a claim resumable at all.
+    What it does not give is a GUARANTEE at any particular moment: it is time-based, so a gap-check
+    round committed a second before a browser crash, a lost connection or a phone running out of
+    battery is a round that was never written. The pagehide flush covers a tab being closed; it does
+    not cover the machine simply stopping.
+
+    So each meaningful transition bumps this, and the effect below writes immediately. The counter
+    exists rather than calling `saveNow()` from the handlers directly because `saveNow` reads the
+    state through a ref, and a ref updated during render still holds the OLD state when an event
+    handler runs — calling it inline would reliably save the round BEFORE the one just committed.
+    Bumping a counter defers the write to after the re-render, when the state is actually current.
+  */
+  const [saveCheckpoint, setSaveCheckpoint] = useState(0);
+  const checkpoint = useCallback(() => setSaveCheckpoint((n) => n + 1), []);
+
   const persistence = useClaimPersistence({
     state: persistedState,
     apply: applyLoadedClaim,
@@ -378,6 +396,15 @@ export default function Home() {
     */
     enabled: isSupabaseConfigured(),
   });
+
+  useEffect(() => {
+    // Zero is the initial value, not a checkpoint — writing on mount would save a blank claim.
+    if (saveCheckpoint === 0) return;
+    void persistence.saveNow();
+    // Deliberately only the counter: `persistence` is a fresh object every render, and depending on
+    // it would flush on every render instead of at the points that asked for it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [saveCheckpoint]);
 
   /*
     The pending list, recomputed from the answers on screen rather than snapshotted at Continue.
@@ -690,6 +717,12 @@ export default function Home() {
       claim stays exactly as it was; the next save starts a new one.
     */
     persistence.forget();
+    /*
+      Reset the checkpoint counter too, so the next claim's first real checkpoint is a change rather
+      than a continuation of the last one's count. Caught by test/gapcheck/resetRule.mjs, which is
+      the whole reason that guard exists.
+    */
+    setSaveCheckpoint(0);
   }
 
   function handleToggleTrade(trade: Trade) {
@@ -716,6 +749,9 @@ export default function Home() {
       }),
     );
     setEditingWorkOrders({});
+    // Work orders are built from data already in memory, so nothing else would prompt a write —
+    // without this they would sit unsaved until the PM happened to touch something else.
+    checkpoint();
   }
 
   function handleWorkOrderTextChange(trade: Trade, text: string) {
@@ -996,6 +1032,8 @@ export default function Home() {
       return;
     }
     setStep(isDGIG(claim.insurer) ? "dgig" : "transcript");
+    // Intake complete — the point a claim first becomes worth resuming.
+    checkpoint();
   }
 
   /**
@@ -1084,6 +1122,11 @@ export default function Home() {
     setExtraction(round.extraction);
     setAnswers({});
     if (round.questions.length === 0) setStep("ready");
+    /*
+      Every round, not only the last. A claim abandoned mid-gap-check has to be exactly as resumable
+      as a finished one, and that means each committed round is written before the next begins.
+    */
+    checkpoint();
   }
 
   /** From the "ready" step: separate Contents needs its form filled in first (it appends to whatever this generates), everyone else generates directly. A DGIG claim's Emergency form already happened, first thing after intake — nothing left to collect at this point. */
@@ -1150,6 +1193,7 @@ ${asbestosSection}`;
       }
       setDocuments(documents);
       setStep("results");
+      checkpoint();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Document generation failed unexpectedly.");
       // Return to whichever step actually triggered this call: "contents" when Contents is selected
@@ -1172,6 +1216,7 @@ ${asbestosSection}`;
     if (isContentsOnly(claim)) {
       setDocuments({ scopeDocument: buildContentsOnlyDocument(contentsApproach, claim, contentsTM, bricABrac) });
       setStep("results");
+      checkpoint();
       return;
     }
     const parts = [buildScopeDocumentHeaderLines(claim).join("\n")];
@@ -1183,6 +1228,7 @@ ${asbestosSection}`;
     if (asbestos) parts.push(asbestos);
     setDocuments({ scopeDocument: parts.join("\n\n") });
     setStep("results");
+    checkpoint();
   }
 
   function handleContentsContinue() {
@@ -1197,6 +1243,9 @@ ${asbestosSection}`;
 
   /** The last stop when Remediation is selected: generate from here, whatever else was chosen. */
   function handleRemediationContinue() {
+    // The asbestos intake is complete at this point — classification, containment and the
+    // quantities derived from them — so it is written before the generation call rather than after.
+    checkpoint();
     if (hasStructuralScope(claim)) handleGenerateDocuments();
     else handleNonStructuralGenerate();
   }
@@ -1240,7 +1289,18 @@ ${asbestosSection}`;
           onResolveEquipment={handleResolveEquipment}
           onMoistureChange={setMoisture}
           onChange={setSketch}
-          onClose={() => setShowSketch(false)}
+          onClose={() => {
+            setShowSketch(false);
+            /*
+              Closing the sketch is a checkpoint of its own.
+
+              Geometry and moisture readings already save as they are drawn — the debounce sees every
+              change — but a drawing session ends here, and a PM who has just spent ten minutes on a
+              floor plan should not be relying on a timer for it. This is also the moment the whole
+              sketch is definitely complete rather than mid-drag.
+            */
+            checkpoint();
+          }}
         />
       ) : (
         <div className="sketch-launch">

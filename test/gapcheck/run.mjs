@@ -1900,6 +1900,60 @@ for (const step of ["intake", "transcript", "questions", "ready", "contents", "r
   check(resumeStep(savedWith({ step })) === step, `an ordinary step reopens where it was (${step})`);
 }
 
+/* ── Each feature is written at its own checkpoints, not only on a timer ──────────────────────── */
+
+/*
+  The autosave writes after every change, which is what makes a claim resumable at all. What it does
+  not give is a guarantee at any particular MOMENT: it is time-based, so a gap-check round committed
+  a second before a lost connection or a flat battery is a round that was never written. The pagehide
+  flush covers a tab being closed; it does not cover the machine stopping.
+
+  So every flow has an explicit checkpoint at the point its own work is complete. Checked by reading
+  the page rather than by trusting a list, because the failure is invisible: nothing errors, the work
+  is simply gone when the PM comes back.
+*/
+{
+  const pageSource = readFileSync(join(root, "app", "(app)", "claim", "page.tsx"), "utf8");
+
+  // The mechanism itself: a counter, and an effect that writes when it moves.
+  check(/const \[saveCheckpoint, setSaveCheckpoint\]/.test(pageSource), "the page has a save checkpoint counter");
+  check(
+    /useEffect\(\(\) => \{[\s\S]{0,400}?persistence\.saveNow\(\)/.test(pageSource),
+    "and an effect that writes immediately when it moves",
+  );
+
+  /*
+    Deferred through a counter rather than calling saveNow() from the handlers, and that is
+    load-bearing: saveNow reads the state through a ref updated during render, so an inline call from
+    an event handler saves the state from BEFORE the change that prompted it — reliably persisting
+    the round before the one just committed.
+  */
+  const handlerCalls = [...pageSource.matchAll(/persistence\.saveNow\(\)/g)].length;
+  check(handlerCalls === 1, `saveNow is called from exactly one place, the effect (found ${handlerCalls})`);
+
+  // One checkpoint per flow the rollout actually covers.
+  const checkpoints = [...pageSource.matchAll(/checkpoint\(\);/g)].length;
+  check(checkpoints >= 6, `every flow has a checkpoint of its own (found ${checkpoints})`);
+
+  const after = (marker, within = 700) => {
+    const i = pageSource.indexOf(marker);
+    return i !== -1 && pageSource.slice(i, i + within).includes("checkpoint();");
+  };
+  check(after('setStep(isDGIG(claim.insurer) ? "dgig" : "transcript");'), "intake is written when it is finished");
+  check(after('if (round.questions.length === 0) setStep("ready");'), "and every committed gap-check round, not only the last");
+  /*
+    Anchored on the generator, not on `setEditingWorkOrders({})` — that line also appears inside
+    reset(), which comes first in the file, so the looser marker checked the wrong function and
+    reported a missing checkpoint that was actually there. A guard that can match the wrong site is
+    worse than none: it fails for the wrong reason and gets edited until it passes.
+  */
+  check(after("function handleGenerateWorkOrders() {", 1200), "work orders are written when they are generated");
+  // The sketch's own close handler, not the one inside reset() — matched by the onClose that
+  // precedes it, since `setShowSketch(false)` alone appears in both.
+  check(after("onClose={() => {"), "the sketch is written when the drawing session ends");
+  check(after("function handleRemediationContinue() {"), "and the asbestos intake when it is complete");
+}
+
 /* ── Every piece of claim state is saved, or documented as not saved ──────────────────────────── */
 
 /*
