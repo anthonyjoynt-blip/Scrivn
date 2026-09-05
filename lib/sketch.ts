@@ -1689,10 +1689,33 @@ export const DEFAULT_WINDOW_HEIGHT_FEET = 4;
 export const DEFAULT_WINDOW_SILL_FEET = 3;
 
 /** How wide the symbol is drawn, in world pixels. Resolves which size field is authoritative. */
+/**
+ * How wide a wall symbol is drawn, in world pixels — never wider than the wall it is on.
+ *
+ * The cap is the point. Nothing else stopped a symbol from being wider than its own wall, and the
+ * result was a cabinet hanging past the end of the wall and out of the room entirely: on an L-shaped
+ * room it sat in the notch, which is not floor, drawn over nothing. It happens without anyone doing
+ * something silly — drag the width handle past the corner, or, far more often, place a cabinet and
+ * then shorten that wall afterwards. The cabinet kept the length it had.
+ *
+ * Capped on READ as well as on write because sketches already exist with the bad number in them.
+ * Fixing it only on write would mean a drawing stayed wrong until somebody happened to touch that
+ * cabinet again — and the point of the drawing is that nobody has to.
+ *
+ * `symbolWidthFeet` caps identically, so the label and the quantities agree with what is drawn.
+ * Without that, a 9' cabinet on a 6' wall would deduct more wall area than the wall has.
+ */
 export function symbolWidthPx(symbol: SketchSymbol, room: SketchRoom): number {
-  if (symbol.widthFeet != null) return Math.max(6, symbol.widthFeet * PIXELS_PER_FOOT);
   const wall = wallById(room, symbol.wallId);
-  return Math.max(6, symbol.widthFraction * (wall?.lengthPx ?? 0));
+  const raw = symbol.widthFeet != null ? symbol.widthFeet * PIXELS_PER_FOOT : symbol.widthFraction * (wall?.lengthPx ?? 0);
+  return capToWall(raw, wall);
+}
+
+/** Applies the "no wider than its wall" rule, in whatever unit the caller is working in. */
+function capToWall(raw: number, wall: WallGeometry | null, perFoot = 1): number {
+  const floor = 6 / perFoot;
+  const limit = wall && wall.lengthPx > 0 ? wall.lengthPx / perFoot : Infinity;
+  return Math.min(Math.max(floor, raw), limit);
 }
 
 /** How deep a cabinet is drawn, in world pixels. */
@@ -1702,9 +1725,10 @@ export function cabinetDepthPx(block: BlockSymbol): number {
 
 /** The symbol's real width, or null when the room has no scale to measure it against. */
 export function symbolWidthFeet(symbol: SketchSymbol, room: SketchRoom): number | null {
-  if (symbol.widthFeet != null) return symbol.widthFeet;
   const wall = wallById(room, symbol.wallId);
-  return wall?.lengthFeet == null ? null : symbol.widthFraction * wall.lengthFeet;
+  if (symbol.widthFeet != null) return capToWall(symbol.widthFeet, wall, PIXELS_PER_FOOT);
+  if (wall?.lengthFeet == null) return null;
+  return capToWall(symbol.widthFraction * wall.lengthFeet, wall, PIXELS_PER_FOOT);
 }
 
 /**
@@ -1745,7 +1769,10 @@ export function openingSquareFeet(room: SketchRoom): number {
  * to the field that isn't being read.
  */
 export function withSymbolWidthPx(symbol: SketchSymbol, room: SketchRoom, widthPx: number): SketchSymbol {
-  return { ...symbol, widthFeet: Math.max(0.25, widthPx / PIXELS_PER_FOOT) };
+  // Capped here too, so the stored number matches the drawing rather than drifting past it and
+  // being quietly capped on every later read.
+  const capped = capToWall(widthPx, wallById(room, symbol.wallId));
+  return { ...symbol, widthFeet: Math.max(0.25, capped / PIXELS_PER_FOOT) };
 }
 
 /** Default island footprint: a 6' x 3' block, the usual kitchen island. */
@@ -1759,11 +1786,162 @@ export function freeCabinetSizePx(cabinet: FreeCabinet, room: SketchRoom): { wid
   return { width: Math.max(8, cabinet.widthPx), depth: Math.max(8, cabinet.depthPx) };
 }
 
-/** Writes a new drawn footprint back to whichever fields are authoritative. */
+/**
+ * Writes a new drawn footprint back to whichever fields are authoritative, growing only as far as
+ * the room allows.
+ *
+ * Without the limit, dragging a handle outward pushed the block through a wall: the size was written
+ * whatever it was, and the reposition that follows can only refuse the move, not undo the growth. So
+ * the block ended up the size that was asked for and standing outside the room.
+ *
+ * The largest size that still fits is found by bisection between the size it already had — which is
+ * known to fit — and the size asked for. Under the finger the handle simply stops at the wall.
+ */
 export function withFreeCabinetSizePx(cabinet: FreeCabinet, room: SketchRoom, widthPx: number, depthPx: number): FreeCabinet {
-  const width = Math.max(8, widthPx);
-  const depth = Math.max(8, depthPx);
+  const wanted = { width: Math.max(8, widthPx), depth: Math.max(8, depthPx) };
+  const bounds = roomBounds(room);
+  const left = bounds.minX + cabinet.x;
+  const top = bounds.minY + cabinet.y;
+  const fits = (w: number, d: number) => rectInsideRoom(room, left, top, w, d);
+
+  let { width, depth } = wanted;
+  if (!fits(width, depth)) {
+    const now = freeCabinetSizePx(cabinet, room);
+    let lo = 0;
+    let hi = 1;
+    // Fourteen halvings resolves a room-sized span to well under a pixel, which is finer than
+    // anything a finger can ask for.
+    for (let i = 0; i < 14; i++) {
+      const mid = (lo + hi) / 2;
+      if (fits(now.width + (wanted.width - now.width) * mid, now.depth + (wanted.depth - now.depth) * mid)) lo = mid;
+      else hi = mid;
+    }
+    width = Math.max(8, now.width + (wanted.width - now.width) * lo);
+    depth = Math.max(8, now.depth + (wanted.depth - now.depth) * lo);
+  }
+
   return { ...cabinet, widthPx: width, depthPx: depth, widthFeet: width / PIXELS_PER_FOOT, depthFeet: depth / PIXELS_PER_FOOT };
+}
+
+/**
+ * Half a pixel — half an inch at this scale.
+ *
+ * Containment is tested against a rectangle shrunk by this much, which is what lets a block sitting
+ * exactly on a wall count as inside. Without it, flush — the placement the snapping exists to
+ * produce — would be rejected as out of the room, and an island could never touch anything.
+ */
+const INSIDE_EPSILON_PX = 0.5;
+
+/** Do two line segments properly cross? Touching at an endpoint does not count. */
+function segmentsCross(
+  ax: number, ay: number, bx: number, by: number,
+  cx: number, cy: number, dx: number, dy: number,
+): boolean {
+  const side = (px: number, py: number, qx: number, qy: number, rx: number, ry: number) =>
+    (qx - px) * (ry - py) - (qy - py) * (rx - px);
+  const d1 = side(cx, cy, dx, dy, ax, ay);
+  const d2 = side(cx, cy, dx, dy, bx, by);
+  const d3 = side(ax, ay, bx, by, cx, cy);
+  const d4 = side(ax, ay, bx, by, dx, dy);
+  return ((d1 > 0) !== (d2 > 0)) && ((d3 > 0) !== (d4 > 0)) && d1 !== 0 && d2 !== 0 && d3 !== 0 && d4 !== 0;
+}
+
+/**
+ * Is every part of an axis-aligned rectangle inside the room's outline?
+ *
+ * The four corners are not enough on their own. An L-shaped room is concave, and a rectangle can
+ * have all four corners on floor while swallowing the inside corner between them — so the walls
+ * themselves are checked for crossing it as well. That pair of tests is complete: if no corner is
+ * outside and no wall passes through, nothing of the room's boundary is inside the rectangle.
+ */
+export function rectInsideRoom(room: SketchRoom, x: number, y: number, width: number, depth: number): boolean {
+  const e = INSIDE_EPSILON_PX;
+  const left = x + e;
+  const top = y + e;
+  const right = x + width - e;
+  const bottom = y + depth - e;
+  // Smaller than the epsilon in either direction: nothing meaningful to contain, so test the middle.
+  if (right <= left || bottom <= top) return isInsideRoom(room, x + width / 2, y + depth / 2);
+
+  if (
+    !isInsideRoom(room, left, top) ||
+    !isInsideRoom(room, right, top) ||
+    !isInsideRoom(room, right, bottom) ||
+    !isInsideRoom(room, left, bottom)
+  ) {
+    return false;
+  }
+
+  for (const wall of wallsOf(room)) {
+    const crosses =
+      segmentsCross(wall.x1, wall.y1, wall.x2, wall.y2, left, top, right, top) ||
+      segmentsCross(wall.x1, wall.y1, wall.x2, wall.y2, right, top, right, bottom) ||
+      segmentsCross(wall.x1, wall.y1, wall.x2, wall.y2, right, bottom, left, bottom) ||
+      segmentsCross(wall.x1, wall.y1, wall.x2, wall.y2, left, bottom, left, top);
+    if (crosses) return false;
+  }
+  return true;
+}
+
+/**
+ * Pulls a block's edges flush to any wall they are nearly touching.
+ *
+ * Only walls that actually run alongside the block are considered — a wall is a candidate for the
+ * left or right edge only if it is vertical AND spans some of the block's height, so a block never
+ * jumps sideways to line up with a wall it is nowhere near.
+ *
+ * Diagonal walls are skipped. A block is an axis-aligned rectangle and cannot sit flush against an
+ * angled wall, so there is nothing honest to snap it to.
+ */
+function snapBlockToWalls(
+  room: SketchRoom,
+  left: number,
+  top: number,
+  width: number,
+  depth: number,
+): { left: number; top: number } {
+  const right = left + width;
+  const bottom = top + depth;
+  let bestX: { at: number; gap: number } | null = null;
+  let bestY: { at: number; gap: number } | null = null;
+
+  /**
+   * `wallAt` is where the wall is; `edge` is the block edge being brought to it; `at` is where the
+   * block's top-left ends up if it happens. Measuring the gap from the EDGE is the whole point — an
+   * earlier version measured it from `at`, which for a far edge is a whole block-width away from the
+   * wall, so the near wall never won and blocks snapped to the wrong side of the room.
+   */
+  const consider = (
+    best: { at: number; gap: number } | null,
+    wallAt: number,
+    edge: number,
+    at: number,
+  ): { at: number; gap: number } | null => {
+    const gap = Math.abs(wallAt - edge);
+    if (gap > BLOCK_END_SNAP_PX) return best;
+    return best === null || gap < best.gap ? { at, gap } : best;
+  };
+
+  for (const wall of wallsOf(room)) {
+    const vertical = Math.abs(wall.x2 - wall.x1) < 1e-6;
+    const horizontal = Math.abs(wall.y2 - wall.y1) < 1e-6;
+
+    if (vertical) {
+      const lo = Math.min(wall.y1, wall.y2);
+      const hi = Math.max(wall.y1, wall.y2);
+      if (bottom <= lo || top >= hi) continue; // Alongside a different part of the room.
+      bestX = consider(bestX, wall.x1, left, wall.x1);
+      bestX = consider(bestX, wall.x1, right, wall.x1 - width);
+    } else if (horizontal) {
+      const lo = Math.min(wall.x1, wall.x2);
+      const hi = Math.max(wall.x1, wall.x2);
+      if (right <= lo || left >= hi) continue;
+      bestY = consider(bestY, wall.y1, top, wall.y1);
+      bestY = consider(bestY, wall.y1, bottom, wall.y1 - depth);
+    }
+  }
+
+  return { left: bestX?.at ?? left, top: bestY?.at ?? top };
 }
 
 /**
@@ -1771,22 +1949,25 @@ export function withFreeCabinetSizePx(cabinet: FreeCabinet, room: SketchRoom, wi
  *
  * An island is free of any wall but not free of the room: a block sitting half outside the walls
  * isn't a sketch of anything real, and it would report a position the room can't contain.
+ *
+ * Edges snap flush to nearby walls first, then the whole rectangle has to fit. It used to test only
+ * the block's CENTRE against the outline, on the reasoning that requiring all four corners would
+ * make a block hugging an inside corner unplaceable — but that is what the epsilon above solves, and
+ * the centre test let a long block hang well out of the room as long as its middle stayed on floor.
+ *
+ * A move that cannot be made legally is refused rather than approximated. The block stays where it
+ * was and under the finger it reads as hitting the wall, which is what it has done.
  */
 export function moveFreeCabinet(cabinet: FreeCabinet, room: SketchRoom, x: number, y: number): FreeCabinet {
   const { width, depth } = freeCabinetSizePx(cabinet, room);
   const bounds = roomBounds(room);
-  const clamped = {
-    ...cabinet,
-    x: Math.min(Math.max(0, x), Math.max(0, bounds.width - width)),
-    y: Math.min(Math.max(0, y), Math.max(0, bounds.height - depth)),
-  };
 
-  // The bounding box of an L includes the notch, which isn't floor. Keeping the block's centre
-  // inside the actual polygon stops an island being parked in the missing corner. Only the centre
-  // is tested: requiring all four corners would make an island hugging an inside corner unplaceable.
-  const centreX = bounds.minX + clamped.x + width / 2;
-  const centreY = bounds.minY + clamped.y + depth / 2;
-  return isInsideRoom(room, centreX, centreY) ? clamped : cabinet;
+  const snapped = snapBlockToWalls(room, bounds.minX + x, bounds.minY + y, width, depth);
+  const left = Math.min(Math.max(bounds.minX, snapped.left), Math.max(bounds.minX, bounds.maxX - width));
+  const top = Math.min(Math.max(bounds.minY, snapped.top), Math.max(bounds.minY, bounds.maxY - depth));
+
+  if (!rectInsideRoom(room, left, top, width, depth)) return cabinet;
+  return { ...cabinet, x: left - bounds.minX, y: top - bounds.minY };
 }
 
 export function newFreeCabinet(room: SketchRoom, x: number, y: number): FreeCabinet {
@@ -1806,12 +1987,33 @@ export function newFreeCabinet(room: SketchRoom, x: number, y: number): FreeCabi
   return moveFreeCabinet(cabinet, room, x - size.width / 2, y - size.depth / 2);
 }
 
-/** Slides a symbol along its own wall. Deliberately cannot move it to a different wall. */
+/**
+ * How close an end has to get to a corner before it goes flush to it.
+ *
+ * Half a foot: near enough that a cabinet a PM meant to run into the corner does, far enough that
+ * one deliberately held off the corner stays where it was put.
+ */
+export const BLOCK_END_SNAP_PX = 6;
+
+/**
+ * Slides a symbol along its own wall. Deliberately cannot move it to a different wall.
+ *
+ * Cabinets and fixtures snap flush when an end comes near a corner; doors and windows do not. A run
+ * of cabinets almost always butts into the corner, and getting there by eye on a phone is fiddly —
+ * whereas a door is nearly never flush (there is a jamb, and usually a stud), so the same snap would
+ * fight the PM rather than help.
+ */
 export function moveSymbolAlongWall(symbol: SketchSymbol, room: SketchRoom, centrePx: number): SketchSymbol {
   const wall = wallById(room, symbol.wallId);
   if (!wall || wall.lengthPx <= 0) return { ...symbol, t: 0.5 };
   const half = symbolWidthPx(symbol, room) / 2;
-  const clamped = Math.min(wall.lengthPx - half, Math.max(half, centrePx));
+  let clamped = Math.min(wall.lengthPx - half, Math.max(half, centrePx));
+
+  if (isBlockSymbol(symbol)) {
+    if (clamped - half <= BLOCK_END_SNAP_PX) clamped = half;
+    else if (wall.lengthPx - (clamped + half) <= BLOCK_END_SNAP_PX) clamped = wall.lengthPx - half;
+  }
+
   return { ...symbol, t: clamped / wall.lengthPx };
 }
 

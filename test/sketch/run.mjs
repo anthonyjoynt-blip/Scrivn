@@ -17,6 +17,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 import { checkDirectory } from "./stateRules.mjs";
+import { runPlacementChecks } from "./placement.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..", "..");
@@ -40,6 +41,18 @@ if (violations.length > 0) {
   process.exit(1);
 }
 console.log("  Source rules: ok (no setState inside a state updater)");
+
+/*
+  Placement is pure geometry, so it runs here in Node too rather than in the browser. A cabinet
+  hanging out of the room is a bug about numbers, not about gestures — see placement.mjs.
+*/
+const placement = await runPlacementChecks();
+if (placement.failures.length > 0) {
+  console.error(`\n  Placement: ${placement.passed.length} passed, ${placement.failures.length} FAILED\n`);
+  for (const failure of placement.failures) console.error(`    ✗ ${failure}\n`);
+  process.exit(1);
+}
+console.log(`  Placement: ok (${placement.passed.length} checks — cabinets stay inside their room)`);
 
 await build({
   entryPoints: [join(here, "entry.tsx")],
