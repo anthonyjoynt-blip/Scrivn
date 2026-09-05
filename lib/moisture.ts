@@ -198,14 +198,56 @@ export function hasRoomMoisture(map: MoistureMap, roomId: string): boolean {
   return !!r && (r.wallReadings.length > 0 || r.floorCells.length > 0 || r.ceilingCells.length > 0 || r.insetsOver18Inches > 0);
 }
 
-/** Rooms that no longer exist should not keep contributing readings. */
+/**
+ * Readings that no longer describe anything, dropped.
+ *
+ * Two ways that happens, and this used to handle only the first.
+ *
+ * A DELETED ROOM strands its whole entry. Straightforward.
+ *
+ * A RESHAPED ROOM is subtler and was the reported bug. Cells are addressed as `col,row` into a grid
+ * anchored at the room's own bounding box (see `cellsUnderBrush`), so dragging a wall outward moves
+ * that anchor and every stored cell silently maps to a different place — paint that was inside the
+ * room ends up hanging outside it. It cannot be erased, either: a stroke only starts over a room,
+ * and `cellsUnderBrush` only ever returns cells whose centre is inside the outline, so nothing the
+ * eraser can name covers it. And it is not merely ugly — `paintedFloorSquareFeet` counts those cells
+ * into the affected floor area that gap-check pre-fills from, so the stray paint becomes a wrong
+ * number on a document.
+ *
+ * Dropping it is the honest resolution. The paint described a floor that no longer exists, and the
+ * alternative is an area nobody can see the edge of, cannot remove, and is billed for.
+ */
 export function pruneMoisture(map: MoistureMap, sketch: Sketch): MoistureMap {
-  const live = new Set(sketch.rooms.map((r) => r.id));
+  const live = new Map(sketch.rooms.map((r) => [r.id, r]));
   const rooms: Record<string, RoomMoisture> = {};
   for (const [roomId, data] of Object.entries(map.rooms)) {
-    if (live.has(roomId)) rooms[roomId] = data;
+    const room = live.get(roomId);
+    if (!room) continue;
+
+    const floorCells = data.floorCells.filter((key) => cellIsInsideRoom(room, key));
+    const ceilingCells = data.ceilingCells.filter((key) => cellIsInsideRoom(room, key));
+    // Rebuilt only when something actually went, so an untouched sketch keeps its object identity
+    // and the effect that calls this does not loop.
+    rooms[roomId] =
+      floorCells.length === data.floorCells.length && ceilingCells.length === data.ceilingCells.length
+        ? data
+        : { ...data, floorCells, ceilingCells };
   }
   return { rooms };
+}
+
+/** Whether a stored cell key still lands inside the room it belongs to. */
+function cellIsInsideRoom(room: SketchRoom, key: string): boolean {
+  const [colText, rowText] = key.split(",");
+  const col = Number(colText);
+  const row = Number(rowText);
+  // An unparseable key describes nothing and cannot be drawn or erased — drop it.
+  if (!Number.isFinite(col) || !Number.isFinite(row)) return false;
+  const size = cellSizePx();
+  const bounds = roomBounds(room);
+  // The same centre-of-cell test `cellsUnderBrush` paints by, so the two cannot disagree about
+  // which cells belong to a room.
+  return isInsideRoom(room, bounds.minX + (col + 0.5) * size, bounds.minY + (row + 0.5) * size);
 }
 
 /**

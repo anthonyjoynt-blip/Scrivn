@@ -40,7 +40,7 @@ const {
   surfaceThumbnails, surfaceRenderId, isSurfaceRender, availableRenders, pruneAttachments,
   sketchRenderLabel, sketchRenderDescription, parseRender, defaultSketchAttachments, PIXELS_PER_FOOT,
   pruneScopeMarks, scopeWallRunFeet,
-  emptyMoistureMap, setRoomMoisture, resolveRound,
+  emptyMoistureMap, setRoomMoisture, resolveRound, pruneMoisture, paintedFloorSquareFeet,
 } = await import(pathToFileURL(bundlePath).href);
 
 let passed = 0;
@@ -186,6 +186,79 @@ check(
 check(painting.includes("Prime & paint walls – 90 SF"), "alongside the wall priming it always carried");
 
 
+
+/* ── Moisture paint cannot outlive the floor it describes ─────────────────────────────────────── */
+
+/*
+  Reported with a screenshot: after editing a sketch whose moisture map was already done, the painted
+  area hung outside the room outline and could not be erased.
+
+  Cells are addressed as `col,row` into a grid anchored at the room's own bounding box, so dragging a
+  wall outward moves that anchor and every stored cell silently maps somewhere else. The paint ends up
+  outside the room, and nothing can remove it: a stroke only starts over a room, and the brush only
+  ever names cells whose centre is inside the outline. It is also not merely ugly — those cells count
+  into the affected floor area that gap-check pre-fills from, so stray paint becomes a wrong number.
+*/
+{
+  const small = sketchRoom("r1", "Bedroom", 10);
+  /*
+    Every cell of the room, painted. Cells are 3 inches (FLOOR_CELL_FEET), so a 10' room is 40 across
+    — the first version of this looped 10x10 and painted only the top-left corner, which stayed
+    inside the narrowed room and let the bug pass.
+  */
+  const across = Math.round(10 / 0.25);
+  const cells = [];
+  for (let col = 0; col < across; col++) for (let row = 0; row < across; row++) cells.push(`${col},${row}`);
+  const painted = setRoomMoisture(emptyMoistureMap(), "r1", {
+    wallReadings: [], floorCells: cells, ceilingCells: [], insetsOver18Inches: 0,
+  });
+
+  // Nothing changed: pruning must be a no-op, and must not churn the object either.
+  const unchanged = pruneMoisture(painted, { rooms: [small] });
+  check(unchanged.rooms.r1.floorCells.length === cells.length, "an untouched sketch keeps all of its paint");
+  check(unchanged.rooms.r1 === painted.rooms.r1, "and keeps the same object, so the effect that prunes cannot loop");
+
+  /*
+    The reported case: a wall dragged INWARD.
+
+    Growing the room outward proves nothing — the anchor and the paint move together and everything
+    stays inside, which is what the first version of this test did and why it passed against the bug.
+    Narrowing is what breaks it: the left edge moving right raises bounds.minX, so every stored key
+    now describes a position further right, and the ones past the far wall land outside the room —
+    the paint hanging over the edge in the screenshot.
+  */
+  const p = PIXELS_PER_FOOT;
+  const narrowed = {
+    ...small,
+    vertices: [
+      { id: "r1a", x: 5 * p, y: 0 },
+      { id: "r1b", x: 10 * p, y: 0 },
+      { id: "r1c", x: 10 * p, y: 10 * p },
+      { id: "r1d", x: 5 * p, y: 10 * p },
+    ],
+  };
+  const after = pruneMoisture(painted, { rooms: [narrowed] });
+  check(
+    after.rooms.r1.floorCells.length < cells.length,
+    `paint that now falls outside the room is dropped (kept ${after.rooms.r1.floorCells.length} of ${cells.length})`,
+  );
+  check(after.rooms.r1.floorCells.length > 0, "and paint still inside it is kept — this drops orphans, not the map");
+
+  // The reason it matters: the area billed follows the floor that exists.
+  check(
+    paintedFloorSquareFeet(after.rooms.r1.floorCells) < paintedFloorSquareFeet(cells),
+    "so the affected floor area no longer counts squares outside the room",
+  );
+
+  // A deleted room still goes entirely — the behaviour this function already had.
+  check(Object.keys(pruneMoisture(painted, { rooms: [] }).rooms).length === 0, "a deleted room takes its readings with it");
+
+  // A key that cannot be parsed describes nothing and can never be drawn or erased.
+  const corrupt = setRoomMoisture(emptyMoistureMap(), "r1", {
+    wallReadings: [], floorCells: ["3,4", "not-a-cell", ""], ceilingCells: [], insetsOver18Inches: 0,
+  });
+  check(pruneMoisture(corrupt, { rooms: [small] }).rooms.r1.floorCells.length === 1, "an unparseable cell key is dropped rather than kept forever");
+}
 
 /* ── A floor that stays, and antimicrobial ─────────────────────────────────────────────────────── */
 

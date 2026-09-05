@@ -99,6 +99,7 @@ import {
   withoutResolvedSuggestions,
 } from "@/lib/gapCheck";
 import { type SendableDocument, SendDocumentsPanel } from "@/components/SendDocumentsPanel";
+import Link from "next/link";
 
 type Step = "intake" | "transcript" | "extracting" | "questions" | "ready" | "dgig" | "contents" | "remediation" | "generating" | "results";
 
@@ -297,6 +298,8 @@ export default function Home() {
    */
   const [asbestos, setAsbestos] = useState<AsbestosScope>(emptyAsbestosScope);
   const [showSketch, setShowSketch] = useState(false);
+  /** Which door the sketch was opened by — see `openSketch`. */
+  const [sketchOpensReadOnly, setSketchOpensReadOnly] = useState(false);
   /** Which rendering of the sketch goes on which document — see `lib/sketchAttachments.ts`. */
   const [sketchAttachments, setSketchAttachments] = useState<SketchAttachments>(defaultSketchAttachments);
   /**
@@ -690,6 +693,7 @@ export default function Home() {
     setMoisture(emptyMoistureMap());
     setResolvedSuggestions([]);
     setShowSketch(false);
+    setSketchOpensReadOnly(false);
     /*
       Everything below was missing, and every one of them is claim data that outlived the claim.
 
@@ -723,6 +727,18 @@ export default function Home() {
       the whole reason that guard exists.
     */
     setSaveCheckpoint(0);
+  }
+
+  /*
+    Which door was used, remembered for the editor to open in.
+
+    A separate piece of state rather than a prop computed at render, because the editor keeps its own
+    lock state after mounting — the PM can unlock and carry on without coming back out here, which is
+    the point of the lock being a toggle rather than a mode.
+  */
+  function openSketch(readOnly: boolean) {
+    setSketchOpensReadOnly(readOnly);
+    setShowSketch(true);
   }
 
   function handleToggleTrade(trade: Trade) {
@@ -1289,6 +1305,7 @@ ${asbestosSection}`;
           onResolveEquipment={handleResolveEquipment}
           onMoistureChange={setMoisture}
           onChange={setSketch}
+          startReadOnly={sketchOpensReadOnly}
           onClose={() => {
             setShowSketch(false);
             /*
@@ -1304,9 +1321,31 @@ ${asbestosSection}`;
         />
       ) : (
         <div className="sketch-launch">
-          <button className="btn-secondary" onClick={() => setShowSketch(true)}>
-            {hasSketchContent(sketch) ? `Edit sketch (${sketch.rooms.length} room${sketch.rooms.length === 1 ? "" : "s"})` : "Create Sketch"}
-          </button>
+          {hasSketchContent(sketch) ? (
+            /*
+              View and Edit as separate doors, with View first.
+
+              A finished sketch is looked at far more often than it is changed, and every look used
+              to open an edit session — where a stray drag on a phone moves a room and nothing says
+              it happened. The geometry decides quantities the scope is built from, so a silent nudge
+              is a silent change to a number on a document. Editing is still one tap; it is just no
+              longer the only tap.
+            */
+            <>
+              <button className="btn-secondary" onClick={() => openSketch(true)}>
+                View sketch ({sketch.rooms.length} room{sketch.rooms.length === 1 ? "" : "s"})
+              </button>
+              <button className="btn-secondary" onClick={() => openSketch(false)}>
+                Edit sketch
+              </button>
+            </>
+          ) : (
+            // Primary, because on an empty claim this IS the action — it was a quiet secondary
+            // button that read as one option among several, and was reported as easy to miss.
+            <button className="btn-primary" onClick={() => openSketch(false)}>
+              Create sketch
+            </button>
+          )}
           <span className="field-note">Optional — draw the affected rooms and their measurements.</span>
         </div>
       )}
@@ -1781,10 +1820,24 @@ ${asbestosSection}`;
               <pre>{documents.scopeDocument}</pre>
             )}
           </div>
+          {/*
+            No Start Over here.
+
+            Reported as easy to hit by accident, sitting alone under a finished set of documents —
+            and there is nothing it does that anybody wants at that moment. Clearing the screen was
+            the only way to begin another claim back when nothing was saved; now a claim persists, so
+            beginning another one is a navigation, and the finished one stays exactly where it is.
+
+            Both of these are non-destructive by construction rather than by being careful. A mis-tap
+            costs a page load.
+          */}
           <div className="actions-row">
-            <button className="btn-secondary" onClick={reset}>
-              Start Over
-            </button>
+            <Link className="btn-secondary" href="/claims">
+              All claims
+            </Link>
+            <Link className="btn-secondary" href="/claim">
+              Start another claim
+            </Link>
           </div>
         </div>
       )}

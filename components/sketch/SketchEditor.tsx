@@ -149,6 +149,7 @@ export function SketchEditor({
   onChange,
   onMoistureChange,
   onClose,
+  startReadOnly = false,
 }: {
   sketch: Sketch;
   /** Room names already used elsewhere in this claim — offered as autocomplete so a sketch room can be matched back to the scope later. */
@@ -173,8 +174,27 @@ export function SketchEditor({
    */
   onMoistureChange: Dispatch<SetStateAction<MoistureMap>>;
   onClose: () => void;
+  /**
+   * Open looking rather than drawing.
+   *
+   * A finished sketch is looked at far more often than it is changed — checking a wall length while
+   * answering a question, showing somebody the layout — and every one of those visits used to be an
+   * edit session, where a stray drag on a phone moves a room and nothing says it happened. The
+   * geometry is the basis of quantities the scope is built from, so a silent nudge is a silent
+   * change to a number on a document.
+   */
+  startReadOnly?: boolean;
 }) {
   const [tool, setTool] = useState<ToolMode>("select");
+  /*
+    Read-only is enforced by blocking pointer events on the CANVAS, not by disabling each tool.
+
+    Disabling tools one at a time means every tool added later has to remember to check a flag, and
+    the one that forgets fails silently — a drag that edits a plan nobody meant to edit. Blocking at
+    the surface cannot be forgotten: nothing reaches the canvas at all. Zoom, pan and level switching
+    are buttons outside it, so looking around still works.
+  */
+  const [readOnly, setReadOnly] = useState(startReadOnly);
   /**
    * Sketching or mapping. A mode rather than another tool in the row: it changes what a tap means
    * everywhere, what the panel below shows, and whether the geometry can be edited at all.
@@ -837,6 +857,20 @@ export function SketchEditor({
             </button>
           ))}
         </div>
+        {/*
+          Viewing or editing, stated rather than implied. The label says what is happening NOW, and
+          the button says what pressing it will do — a control that reads "Editing" while you are
+          only looking is the one people press by accident.
+        */}
+        <button
+          type="button"
+          className={`option-btn${readOnly ? " selected" : ""}`}
+          aria-pressed={readOnly}
+          onClick={() => setReadOnly((v) => !v)}
+          title={readOnly ? "Unlock to make changes" : "Lock, so nothing can be changed by accident"}
+        >
+          {readOnly ? "🔒 View only" : "Editing"}
+        </button>
         <button
           type="button"
           className="btn-secondary"
@@ -845,16 +879,24 @@ export function SketchEditor({
         >
           {expanded ? "Exit full screen" : "Full screen"}
         </button>
-        {/* Done closes the tool, so it has no business being reachable while the tool is filling the
-            screen — Exit full screen is the way back, and it is right beside it. */}
+        {/*
+          The way out, and it looks like it.
+
+          It was a secondary button in a row of secondary buttons, which on a phone stacks into a
+          column where nothing says which one ends the task — reported as getting lost. It is the
+          primary action of this screen once the drawing is done, so it is styled as one.
+
+          Still hidden in full screen: Exit full screen is the way back from there, and it sits right
+          beside this.
+        */}
         {!expanded && (
-          <button className="btn-secondary" onClick={onClose}>
-            Done
+          <button className="btn-primary sketch-done" onClick={onClose}>
+            Done — back to claim
           </button>
         )}
       </div>
 
-      {mode === "moisture" ? (
+      {readOnly ? null : mode === "moisture" ? (
         <div className="sketch-toolbar" role="toolbar" aria-label="Moisture tools">
           <div className="option-group" role="group" aria-label="Moisture tool">
             {([
@@ -1087,7 +1129,7 @@ export function SketchEditor({
                     : `Tap the wall where the ${SYMBOL_LABEL[tool as SymbolType].toLowerCase()} goes.`}
       </p>
 
-      <div className="sketch-canvas-wrap" ref={containerRef}>
+      <div className={`sketch-canvas-wrap${readOnly ? " sketch-canvas-readonly" : ""}`} ref={containerRef}>
         <SketchCanvas
           rooms={activeRooms}
           underlayRooms={underlayRooms}

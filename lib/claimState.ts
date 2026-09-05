@@ -105,6 +105,7 @@ export const NOT_PERSISTED: Record<string, string> = {
   markingQuestion: "a dialog that is open right now",
   sketchImages: "derived — re-rendered from sketch, moisture and sketchAttachments on load",
   saveCheckpoint: "a counter that asks for an immediate write; nothing about the claim itself",
+  sketchOpensReadOnly: "which door the sketch was opened by, on this screen",
 };
 
 /**

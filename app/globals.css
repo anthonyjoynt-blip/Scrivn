@@ -2114,3 +2114,49 @@ button:disabled {
     align-self: flex-start;
   }
 }
+
+/* ── Sketch: view-only, and a Done that can be found ─────────────────────────────────────────── */
+
+/*
+  Read-only is enforced here rather than tool by tool — see SketchEditor's `readOnly`. Nothing
+  reaches the canvas, so no tool can be forgotten. Zoom, pan and level switching are buttons outside
+  this element and keep working, which is what makes it a viewing mode rather than a frozen picture.
+*/
+.sketch-canvas-readonly > * {
+  pointer-events: none;
+}
+
+/* Says the plan is being looked at, not worked on, without hiding any of it. */
+.sketch-canvas-readonly {
+  position: relative;
+}
+
+.sketch-canvas-readonly::after {
+  content: "View only";
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  z-index: 2;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--color-navy);
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid var(--border-strong);
+  pointer-events: none;
+}
+
+@media (max-width: 560px) {
+  /*
+    The way out of the sketch, first in the stack and full width.
+
+    The header becomes a column on a phone, and Done was a secondary button among several — nothing
+    marked it as the thing that ends the task. Order -1 lifts it above the mode and lock controls,
+    which are adjustments rather than exits.
+  */
+  .sketch-done {
+    order: -1;
+    width: 100%;
+  }
+}
