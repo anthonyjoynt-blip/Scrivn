@@ -15,6 +15,7 @@
 
 import { build } from "esbuild";
 import { readFileSync } from "node:fs";
+import { declaredState, savedKeys, notPersisted, appliedSetters } from "./persistRule.mjs";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
@@ -1510,6 +1511,63 @@ check(
   applyAnswer(withDerivedFields(linearRoom), "room:0:wall:0:cutRunFt", "31").rooms[0].walls[0].cutRunFt === 31,
   "while a plain linear number still lands",
 );
+
+/* ── Every piece of claim state is saved, or documented as not saved ──────────────────────────── */
+
+/*
+  Losing a PM's work is silent. A field the page holds but never saves reads as blank when they come
+  back to it, with nothing to say it was ever filled in — and the same is true of a field that is
+  saved but never applied on load. Neither shows up in review, so it is checked here, the same way
+  reset() is.
+*/
+{
+  const pageSource = readFileSync(join(root, "app", "(app)", "claim", "page.tsx"), "utf8");
+  const claimStateSource = readFileSync(join(root, "lib", "claimState.ts"), "utf8");
+
+  const saved = savedKeys(claimStateSource);
+  const skipped = notPersisted(claimStateSource);
+  const applied = appliedSetters(pageSource);
+  check(saved !== null, "lib/claimState.ts still declares SAVED_CLAIM_KEYS in the shape this reads");
+  check(skipped !== null, "and NOT_PERSISTED");
+  check(applied !== null, "and the page still has an applyLoadedClaim this can read");
+
+  if (saved && skipped && applied) {
+    const declared = declaredState(pageSource).map((s) => s.name);
+    const accountedFor = new Set([...saved, ...skipped]);
+    const unaccounted = declared.filter((n) => !accountedFor.has(n));
+    check(
+      unaccounted.length === 0,
+      ["every piece of claim state is either saved or documented as deliberately not saved.",
+       "         Neither, in lib/claimState.ts:",
+       ...unaccounted.map((n) => `           ${n}`)].join("\n"),
+    );
+
+    // Saved but never applied: written to the database, then thrown away when the claim is opened.
+    const setterFor = (key) => `set${key.charAt(0).toUpperCase()}${key.slice(1)}`;
+    const neverApplied = saved.filter((k) => !applied.includes(setterFor(k)));
+    check(
+      neverApplied.length === 0,
+      ["every saved field is applied when a claim is loaded.",
+       "         Saved but never restored:",
+       ...neverApplied.map((k) => `           ${k} (expected ${setterFor(k)})`)].join("\n"),
+    );
+
+    // And the reverse: a setter called on load for something that is never saved would restore a
+    // field to whatever the last claim left in it.
+    const appliedButUnsaved = applied.filter((setter) => !saved.some((k) => setterFor(k) === setter));
+    check(
+      appliedButUnsaved.length === 0,
+      `applyLoadedClaim only restores fields that are actually saved (stray: ${appliedButUnsaved.join(", ")})`,
+    );
+
+    // A claim opened from another device must not be able to overwrite a different one: Start Over
+    // has to release the row as well as clear the screen.
+    check(
+      /persistence\.forget\(\)/.test(pageSource),
+      "reset() releases the saved claim, so Start Over cannot overwrite the claim that was open",
+    );
+  }
+}
 
 /* ── The offer must not move the page when it appears ─────────────────────────────────────────── */
 

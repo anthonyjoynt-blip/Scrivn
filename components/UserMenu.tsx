@@ -29,6 +29,10 @@ export async function UserMenu() {
   return (
     <div className="user-menu">
       {email && <span className="user-menu-email">{email}</span>}
+      {/* First, because resuming a claim is the commonest reason to be up here at all. */}
+      <Link href="/claims" className="user-menu-link">
+        Claims
+      </Link>
       <Link href="/account" className="user-menu-link">
         Account
       </Link>

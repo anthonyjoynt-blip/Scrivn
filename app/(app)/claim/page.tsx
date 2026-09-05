@@ -3,6 +3,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { type GapCheckQuestion, siblingQuestionIds } from "@/lib/questions";
 import { type AskedQuestion, formatQuestionLog, hasQuestionLog, recordRound } from "@/lib/questionLog";
+import { type SavedClaimState, claimStatusLabel } from "@/lib/claimState";
+import { useClaimPersistence } from "@/lib/useClaimPersistence";
+import { isSupabaseConfigured } from "@/lib/supabase/env";
 import { resolveRound, nextQuestions } from "@/lib/questionRound";
 import type { GeneratedDocuments, WaterLossExtraction } from "@/lib/types";
 import { evaluate, applyAnswer, isContentsSizeQuestion, isEmergencyOnlyQuestion, isEquipmentPresenceQuestion, isRepairOnlyQuestion, isWaterExtractionQuestion } from "@/lib/gapCheck";
@@ -314,6 +317,63 @@ export default function Home() {
   /** The question whose marking is open, if any. */
   const [markingQuestion, setMarkingQuestion] = useState<{ question: GapCheckQuestion; measure: ScopeMeasure } | null>(null);
 
+  /* ── Saving, and picking a claim back up ─────────────────────────────────────────────────────
+     Assembled from the same nineteen states listed in `SavedClaimState`, and only those — see
+     lib/claimState.ts for what is left out and why, and test/gapcheck/persistRule.mjs for the check
+     that stops this list and that one drifting apart. */
+  const persistedState: SavedClaimState = useMemo(
+    () => ({
+      step, claim, transcript, extraction, answers, questionLog, documents,
+      contentsApproach, contentsTM, bricABrac, dgigData, asbestos,
+      selectedTrades, workOrders, sketch, sketchAttachments, moisture, scopeMarks, resolvedSuggestions,
+    }),
+    [
+      step, claim, transcript, extraction, answers, questionLog, documents,
+      contentsApproach, contentsTM, bricABrac, dgigData, asbestos,
+      selectedTrades, workOrders, sketch, sketchAttachments, moisture, scopeMarks, resolvedSuggestions,
+    ],
+  );
+
+  /*
+    Pushing a loaded claim back in.
+
+    Every setter, in the same order the interface lists them, so a field added there and missed here
+    is visible as an obviously shorter function rather than as a field that silently loads blank.
+  */
+  const applyLoadedClaim = useCallback((loaded: SavedClaimState) => {
+    setStep(loaded.step as Step);
+    setClaim(loaded.claim);
+    setTranscript(loaded.transcript);
+    setExtraction(loaded.extraction);
+    setAnswers(loaded.answers);
+    setQuestionLog(loaded.questionLog);
+    setDocuments(loaded.documents);
+    setContentsApproach(loaded.contentsApproach);
+    setContentsTM(loaded.contentsTM);
+    setBricABrac(loaded.bricABrac);
+    setDgigData(loaded.dgigData);
+    setAsbestos(loaded.asbestos);
+    setSelectedTrades(loaded.selectedTrades);
+    setWorkOrders(loaded.workOrders);
+    setSketch(loaded.sketch);
+    setSketchAttachments(loaded.sketchAttachments);
+    setMoisture(loaded.moisture);
+    setScopeMarks(loaded.scopeMarks);
+    setResolvedSuggestions(loaded.resolvedSuggestions);
+  }, []);
+
+  const persistence = useClaimPersistence({
+    state: persistedState,
+    apply: applyLoadedClaim,
+    /*
+      Off in the dev fail-open, where there is nobody to save for. `isSupabaseConfigured` is the
+      client-side half of the same test `lib/usage.ts` makes on the server — with the two public
+      variables blank, middleware waves requests through and there is no session for a claim to
+      belong to, so saving would only collect 401s.
+    */
+    enabled: isSupabaseConfigured(),
+  });
+
   /*
     The pending list, recomputed from the answers on screen rather than snapshotted at Continue.
 
@@ -616,6 +676,15 @@ export default function Home() {
     setSketchImages([]);
     setMarkingQuestion(null);
     setQuestionLog([]);
+    /*
+      Let go of the saved row as well as the state on screen.
+
+      Without this, Start Over would keep writing to the claim that was open and overwrite a real,
+      finished claim with a blank one — the same class of mistake as a reset that forgets a field,
+      except the damage is to work already saved rather than to what is on screen. The previous
+      claim stays exactly as it was; the next save starts a new one.
+    */
+    persistence.forget();
   }
 
   function handleToggleTrade(trade: Trade) {
@@ -1125,6 +1194,24 @@ ${asbestosSection}`;
       <p className="subtitle">Fill in the claim, paste a walkthrough transcript, answer a few follow-up questions, and get an inspection report and scope document.</p>
 
       {error && <div className="error-banner">{error}</div>}
+      {persistence.loadError && <div className="error-banner">{persistence.loadError}</div>}
+
+      {/*
+        Whether the work is safe, said plainly.
+
+        A claim that saves itself silently asks the PM to trust that it did, and the moment that
+        trust is wrong is the moment they have already closed the tab. "Saving…" and "Saved" cost a
+        line; a failure that nobody noticed costs the claim. The error state deliberately does not
+        offer a retry button — the next edit retries on its own, and a button implying otherwise
+        would suggest the work is lost until it is pressed.
+      */}
+      {persistence.status !== "idle" && (
+        <p className={`save-status${persistence.status === "error" ? " save-status-error" : ""}`}>
+          {persistence.status === "saving" && "Saving…"}
+          {persistence.status === "saved" && "Saved — you can pick this up on another device from Claims."}
+          {persistence.status === "error" && "Could not save. Your work is still on screen; the next change will try again."}
+        </p>
+      )}
 
       {/*
         The sketch. Rendered outside the step conditionals on purpose — it's an independent optional
