@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
+import { PRIVACY_POLICY_URL, TERMS_URL } from "@/lib/legal";
 
 /** Supabase's own default floor is 6; 8 is a small, free improvement and the server stays authoritative. */
 const MIN_PASSWORD_LENGTH = 8;
@@ -173,6 +174,30 @@ export default function SignUpPage() {
             <input id="signup-password" type="password" autoComplete="new-password" required minLength={MIN_PASSWORD_LENGTH} value={password} onChange={(e) => setPassword(e.target.value)} />
             <p className="field-note">At least {MIN_PASSWORD_LENGTH} characters.</p>
           </div>
+          {/*
+            Stated at the point of signing up, not buried in a footer.
+
+            A tick-box would be worse here, not better: it is one more thing to click past, and it
+            implies the policy is a hurdle rather than something to read. A plain sentence next to the
+            button says what happens and links to it, which is what somebody actually needs — and this
+            product goes on to store the personal information of THEIR customers, who never see this
+            screen at all.
+          */}
+          <p className="field-note signup-legal">
+            By creating an account you agree to our{" "}
+            {TERMS_URL && (
+              <>
+                <a href={TERMS_URL} target="_blank" rel="noopener noreferrer">
+                  Terms and Conditions
+                </a>
+                {" and "}
+              </>
+            )}
+            <a href={PRIVACY_POLICY_URL} target="_blank" rel="noopener noreferrer">
+              Privacy Policy
+            </a>
+            .
+          </p>
           <div className="actions-row login-actions-row">
             <button type="submit" className="btn-primary" disabled={loading || fullName.trim() === "" || email.trim() === "" || password === ""}>
               {loading ? "Creating account…" : "Create account"}

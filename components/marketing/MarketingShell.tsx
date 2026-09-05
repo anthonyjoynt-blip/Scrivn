@@ -1,5 +1,6 @@
 import Link from "next/link";
 import "@/app/marketing.css";
+import { PRIVACY_POLICY_URL, TERMS_URL } from "@/lib/legal";
 
 /**
  * Nav, footer and page scope for the public marketing site.
@@ -67,10 +68,19 @@ export function MarketingShell({ page, children }: { page: MarketingPage; childr
           <div>© {new Date().getFullYear()} Scrivn</div>
           <div className="mk-footer-links">
             {/*
-              Privacy and Terms were in the approved footer but no such pages exist yet, so they are
-              not linked — a footer link to a 404 is worse than no link. Add the pages, then add the
-              links back here.
+              Privacy is hosted by TermsFeed rather than served from here, so it is an ordinary
+              external anchor rather than a Link. Terms is still absent and still unlinked, for the
+              reason this comment has carried since the footer was built: a footer link to a 404 is
+              worse than no link. See lib/legal.ts.
             */}
+            <a href={PRIVACY_POLICY_URL} target="_blank" rel="noopener noreferrer">
+              Privacy
+            </a>
+            {TERMS_URL && (
+              <a href={TERMS_URL} target="_blank" rel="noopener noreferrer">
+                Terms
+              </a>
+            )}
             <Link href="/contact">Contact</Link>
           </div>
         </div>

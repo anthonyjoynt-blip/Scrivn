@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { UserMenu } from "@/components/UserMenu";
 import { UsageBanner } from "@/components/UsageBanner";
+import { PRIVACY_POLICY_URL, TERMS_URL } from "@/lib/legal";
 
 /**
  * Chrome for the signed-in application: the wordmark header and the usage banner.
@@ -31,6 +32,26 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       {/* Renders only at 80%+ of the plan limit — see components/UsageBanner.tsx. */}
       <UsageBanner />
       {children}
+      {/*
+        A footer the signed-in product did not have.
+
+        Privacy belongs here more than it does on the marketing site: this is the side where a PM
+        types a real customer's name, address and loss details — people who never signed up for
+        anything and cannot go looking for a policy on a storefront they have never seen. Quiet, and
+        on every page of the tool.
+      */}
+      <footer className="app-footer">
+        <span>© {new Date().getFullYear()} Scrivn</span>
+        <a href={PRIVACY_POLICY_URL} target="_blank" rel="noopener noreferrer">
+          Privacy
+        </a>
+        {TERMS_URL && (
+          <a href={TERMS_URL} target="_blank" rel="noopener noreferrer">
+            Terms
+          </a>
+        )}
+        <Link href="/contact">Contact</Link>
+      </footer>
     </>
   );
 }

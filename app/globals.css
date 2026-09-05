@@ -1983,3 +1983,38 @@ button:disabled {
 .save-status-error {
   color: var(--danger-text);
 }
+
+/* The signed-in footer — see app/(app)/layout.tsx for why the product side carries this at all. */
+.app-footer {
+  max-width: var(--max-width);
+  margin: 0 auto;
+  padding: 28px 20px 40px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  align-items: center;
+  border-top: 1px solid var(--border);
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.app-footer a {
+  color: var(--text-muted);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.app-footer a:hover {
+  color: var(--color-navy);
+}
+
+/* Sits above the Create account button — see app/(app)/signup/page.tsx. */
+.signup-legal {
+  margin: 18px 0 0;
+}
+
+.signup-legal a {
+  color: var(--color-navy);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
