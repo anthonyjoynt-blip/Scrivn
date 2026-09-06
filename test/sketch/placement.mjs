@@ -53,7 +53,7 @@ function room(vertices, extra = {}) {
     name: "Kitchen",
     vertices: vertices.map(([x, y], i) => ({ id: `v${i}`, x, y })),
     ceilingHeightFeet: 8,
-    ceilingType: "FLAT",
+    ceilingType: "flat",
     ceilingPeakFeet: null,
     stairs: null,
     parentRoomId: null,
@@ -210,6 +210,78 @@ export async function runPlacementChecks() {
     const wall = s.wallsOf(r)[0];
     const grown = s.withSymbolWidthPx(cabinet(wall.id, { widthFeet: 3 }), r, 20 * FT);
     near(grown.widthFeet, 6, "stored width in feet");
+  });
+
+  /* A wall symbol also cannot hang off the END of its wall. */
+
+  test("a cabinet whose fraction puts it past the corner is drawn inside the wall", () => {
+    /*
+      The second report, and a hole left by the width cap alone. `t` is a FRACTION, so it pins the
+      symbol's MIDDLE. A 10'9" cabinet is a legal width on a 12' wall — the cap never fires — and at
+      t = 0.9 its centre sits at 10'10", putting more than five feet of it past the far corner and
+      out of the room. That is the drawing in the report: a cabinet hanging below the room.
+    */
+    const r = box(12, 12);
+    const wall = s.wallsOf(r)[0];
+    const c = cabinet(wall.id, { widthFeet: 10.75, t: 0.9 });
+    const half = s.symbolWidthPx(c, r) / 2;
+    const centre = s.symbolCentrePx(c, r);
+    assert(centre + half <= wall.lengthPx + 0.05, `the far end is past the corner by ${centre + half - wall.lengthPx}px`);
+    assert(centre - half >= -0.05, `the near end is before the corner by ${-(centre - half)}px`);
+  });
+
+  test("and is pushed only as far as it has to be", () => {
+    // Flush to the far corner, not recentred — a cabinet run ends where the wall does.
+    const r = box(12, 12);
+    const wall = s.wallsOf(r)[0];
+    const c = cabinet(wall.id, { widthFeet: 10.75, t: 0.9 });
+    near(s.symbolCentrePx(c, r), wall.lengthPx - (10.75 * FT) / 2, "centre");
+  });
+
+  test("the same at the near corner", () => {
+    const r = box(12, 12);
+    const wall = s.wallsOf(r)[0];
+    const c = cabinet(wall.id, { widthFeet: 10.75, t: 0.05 });
+    near(s.symbolCentrePx(c, r), (10.75 * FT) / 2, "centre");
+  });
+
+  test("a cabinet that already fits where it sits is not moved", () => {
+    const r = box(12, 12);
+    const wall = s.wallsOf(r)[0];
+    const c = cabinet(wall.id, { widthFeet: 4, t: 0.5 });
+    near(s.symbolCentrePx(c, r), wall.lengthPx / 2, "centre");
+  });
+
+  test("shortening a wall pulls the cabinet on it back inside", () => {
+    // Nothing re-clamps a stored position when the room changes shape, so this has to hold on read
+    // or a sketch stays wrong until somebody happens to drag that cabinet again.
+    const wide = box(20, 12);
+    const wall = s.wallsOf(wide)[0];
+    // t = 0.7 puts an 8' cabinet's far end at 18' on a 20' wall, comfortably inside it.
+    const c = cabinet(wall.id, { widthFeet: 8, t: 0.7 });
+    near(s.symbolCentrePx(c, wide), 0.7 * 20 * FT, "before, where it fits");
+
+    const narrow = box(12, 12);
+    const sameWall = s.wallsOf(narrow)[0];
+    const moved = { ...c, wallId: sameWall.id };
+    assert(
+      s.symbolCentrePx(moved, narrow) + s.symbolWidthPx(moved, narrow) / 2 <= 12 * FT + 0.05,
+      "expected the cabinet to be brought back within the shortened wall",
+    );
+  });
+
+  test("the wall's free space accounts for where a cabinet really is", () => {
+    /*
+      `wallGripSpan` decides where the handle for dragging a wall goes: the middle of the longest
+      stretch no symbol stands on. Measuring that from the raw fraction would reserve space out past
+      the corner and leave the grip sitting on top of the cabinet.
+    */
+    const r = box(12, 12);
+    const wall = s.wallsOf(r)[0];
+    const withCabinet = { ...r, symbols: [cabinet(wall.id, { widthFeet: 10.75, t: 0.9 })] };
+    const grip = s.wallGripSpan(withCabinet, s.wallsOf(withCabinet)[0]);
+    // The cabinet is flush to the far end, so the only clear stretch is the 1'3" at the near end.
+    assert(grip === null || grip.t * wall.lengthPx < (12 - 10.75) * FT + 1, `grip landed at t=${grip?.t}`);
   });
 
   /* Ends snap flush to the corners — cabinets and fixtures only. */

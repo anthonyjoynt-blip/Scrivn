@@ -951,7 +951,8 @@ export function wallGripSpan(room: SketchRoom, wall: WallGeometry): { t: number;
     .filter((s) => s.wallId === wall.id)
     .map((s) => {
       const half = symbolWidthPx(s, room) / 2;
-      return { from: s.t * wall.lengthPx - half, to: s.t * wall.lengthPx + half };
+      const centre = symbolCentrePx(s, room);
+      return { from: centre - half, to: centre + half };
     })
     .sort((a, b) => a.from - b.from);
 
@@ -1718,6 +1719,29 @@ function capToWall(raw: number, wall: WallGeometry | null, perFoot = 1): number 
   return Math.min(Math.max(floor, raw), limit);
 }
 
+/**
+ * Where a wall symbol's centre sits along its wall, in pixels from the wall's start corner — kept
+ * within the wall, whatever `t` says.
+ *
+ * `t` is a FRACTION of the wall, so it survives a resize by scaling with it. What it does not
+ * survive is the symbol's width being a real measurement: a cabinet at t = 0.9 on a wall it nearly
+ * fills has most of its length past the far corner, because the fraction fixes its middle rather
+ * than its ends. Capping the width alone does not help — an 11' cabinet on a 12' wall is a legal
+ * width and still hangs 5' out of the room if its centre is pinned near the end.
+ *
+ * Clamped on READ, like the width, and for the same reason: sketches already carry positions that
+ * were legal when they were set and stopped being legal when a wall moved. `moveSymbolAlongWall`
+ * clamps on write, but only a symbol somebody drags goes through it, and the whole point of the
+ * drawing is that nobody has to touch it again.
+ */
+export function symbolCentrePx(symbol: SketchSymbol, room: SketchRoom): number {
+  const wall = wallById(room, symbol.wallId);
+  if (!wall || wall.lengthPx <= 0) return 0;
+  const half = symbolWidthPx(symbol, room) / 2;
+  // The width cap guarantees `half <= lengthPx / 2`, so the low bound never exceeds the high one.
+  return Math.min(wall.lengthPx - half, Math.max(half, symbol.t * wall.lengthPx));
+}
+
 /** How deep a cabinet is drawn, in world pixels. */
 export function cabinetDepthPx(block: BlockSymbol): number {
   return Math.max(6, block.depthFeet * PIXELS_PER_FOOT);
@@ -2355,7 +2379,7 @@ export function sketchOutput(sketch: Sketch): SketchRoomOutput[] {
       const common = {
         type: symbol.type,
         wall: wallNumber.get(symbol.wallId) ?? 0,
-        offsetFeet: wall?.lengthFeet == null ? null : round2(wall.lengthFeet * symbol.t),
+        offsetFeet: wall?.lengthFeet == null ? null : round2(symbolCentrePx(symbol, room) / PIXELS_PER_FOOT),
         widthFeet: width == null ? null : round2(width),
       };
 

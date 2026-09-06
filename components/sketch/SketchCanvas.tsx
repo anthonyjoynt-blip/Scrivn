@@ -40,6 +40,7 @@ import {
   stairFlight,
   stairCeiling,
   symbolWidthPx,
+  symbolCentrePx,
   symbolsInDrawOrder,
   tapFractionOnWall,
   cappedInset,
@@ -1309,7 +1310,9 @@ function SymbolShape({
 
   const len = wall.lengthPx;
   const w = symbolWidthPx(symbol, room);
-  const centre = symbol.t * len;
+  // Not `symbol.t * len` — see symbolCentrePx. A fraction pins the middle, so a wide symbol near a
+  // corner hangs past it, which is how a cabinet ends up drawn outside the room.
+  const centre = symbolCentrePx(symbol, room);
   const x0 = centre - w / 2;
   const x1 = centre + w / 2;
 
