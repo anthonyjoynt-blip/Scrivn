@@ -69,7 +69,8 @@ import {
   type MoistureMap,
   type PaintSurface,
   type RoomMoisture,
-  defaultDryStandard,
+  startingDryStandard,
+  setReferenceReading,
   emptyRoomMoisture,
   pruneMoisture,
   roomIdForReading,
@@ -429,7 +430,8 @@ export function SketchEditor({
               // Unmeasured, which shows as significantly elevated — see `readingBand`. Nobody marks
               // a dry wall, so that is the default worth saving a step on.
               reading: null,
-              dryStandard: defaultDryStandard("drywall"),
+              // The job's reference reading if one has been taken, and only then the published range.
+              dryStandard: startingDryStandard(moisture, "drywall"),
             },
           ],
         });
@@ -1276,6 +1278,13 @@ export function SketchEditor({
           data={roomMoisture(moisture, selectedRoom.id)}
           highlightReadingId={newReadingId}
           onChange={(next) => updateRoomMoisture(selectedRoom.id, () => next)}
+          /*
+            The whole map, because the dry standard is a property of the BUILDING rather than of this
+            room — one reference reading per material for the job. Setting it also rewrites the walls
+            still sitting on a guessed number, which reaches outside this room.
+          */
+          reference={moisture.reference}
+          onSetReference={(material, value) => onMoistureChange(setReferenceReading(moisture, material, value))}
         />
       )}
 

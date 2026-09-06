@@ -45,18 +45,24 @@ export const MATERIAL_ORDER: MoistureMaterial[] = ["drywall", "woodFraming", "pa
 export const WALL_MATERIALS: MoistureMaterial[] = ["drywall", "woodFraming", "paneling", "concrete"];
 
 /**
- * Dry-standard starting points — ranges, because that is what these actually are.
+ * The FALLBACK dry standards. Not the method, and not authority.
  *
- * NOT authority, and not checked against current S500 text. A dry standard properly comes from an
- * unaffected area of the same material in the same building; published figures are ranges because
- * they move with meter type, species and regional climate. They are offered so the common case is a
- * number the PM confirms rather than four they type, and every one is editable per reading.
+ * These were once the whole mechanism, carrying a note to confirm them against S500 before go-live.
+ * That check was the wrong goal: S500 does not publish a table of dry standards by material, because
+ * there is no such thing to publish. The moisture content a material sits at when it is dry moves
+ * with species, season, regional climate and the meter in your hand, so the method is to meter
+ * something in the same building that did not get wet and compare against that. See
+ * `MoistureMap.reference`, which is where a job's real standard now lives.
  *
- * Concrete has no `prefill` on purpose. Pin meters give a relative number on concrete rather than a
- * true moisture content, so there is no single value worth putting in the box — inventing one would
- * be worse than an empty field, because a wrong number that looks official gets accepted. The PM is
- * asked for their own reference reading instead, and until they give one the concern colour is
- * withheld rather than guessed.
+ * So these stay, demoted. They are a starting point for triage on a job where nobody has metered an
+ * unaffected area yet, every reading that rests on one is labelled as such in the panel, and
+ * `RoomMoistureSummary.readingsOnGuidedStandard` counts them so the gap is visible downstream rather
+ * than hidden inside a colour.
+ *
+ * Concrete has no `prefill` on purpose, and always got this right. Pin meters give a relative number
+ * on concrete rather than a true moisture content, so there is no single value worth putting in the
+ * box — inventing one would be worse than an empty field, because a wrong number that looks official
+ * gets accepted. Until a reference exists the concern colour is withheld rather than guessed.
  */
 export interface DryStandardGuide {
   /** Midpoint of the range, pre-filled into a new reading. Null means "ask, do not guess". */
@@ -71,7 +77,9 @@ export interface DryStandardGuide {
    * pinned to the top band and the gradation carried no information. Grading against the distance
    * from dry to soaked spreads the bands over the range the meter actually produces.
    *
-   * Same standing as the dry standards above: starting values, NOT verified against S500.
+   * A judgement, like the ranges around it, and stated as one. There is no published figure for
+   * "soaked" either — this only has to be roughly where the meter tops out on that material for the
+   * colour ramp to spread usefully across the range in between.
    */
   saturatedAt: number | null;
   /** Shown next to the field, so the number never reads as settled fact. */
@@ -97,6 +105,17 @@ export const DRY_STANDARD_GUIDE: Record<MoistureMaterial, DryStandardGuide> = {
 /** What a new reading of this material starts with. Null for concrete: an empty field, deliberately. */
 export function defaultDryStandard(material: MoistureMaterial): number | null {
   return DRY_STANDARD_GUIDE[material].prefill;
+}
+
+/**
+ * What a NEW reading of this material should start with on this job.
+ *
+ * The reference reading if one has been taken, and only then the published range. Every place a
+ * reading is created goes through here rather than `defaultDryStandard`, so a PM who metered an
+ * unaffected wall at the start of the job does not have to re-enter it on every mark afterwards.
+ */
+export function startingDryStandard(map: MoistureMap, material: MoistureMaterial): number | null {
+  return map.reference?.[material] ?? defaultDryStandard(material);
 }
 
 export interface WallReading {
@@ -154,10 +173,82 @@ export interface RoomMoisture {
 /** Keyed by room id. A room absent from here simply has no moisture data. */
 export interface MoistureMap {
   rooms: Record<string, RoomMoisture>;
+  /**
+   * The dry standard for this job, taken from UNAFFECTED material of each type in this building.
+   *
+   * This is what a dry standard actually is. It is not a published figure to be looked up: the
+   * moisture content a material sits at when it is dry moves with species, season, regional climate
+   * and the meter in your hand, which is why the method is to meter something in the same structure
+   * that did not get wet and compare against that. `DRY_STANDARD_GUIDE` was always a stand-in for
+   * this measurement, and only concrete was honest enough to admit it and ask.
+   *
+   * One per material for the whole claim, not per wall — a reference is a property of the building
+   * and the meter, not of the wall being assessed. Missing for a material nobody has metered yet, in
+   * which case readings of it fall back to the guide and say so.
+   *
+   * OPTIONAL, and that is not laziness. A claim saved before this existed comes back without the key
+   * at all: `parseSavedClaimState` merges stored values onto a blank claim one top-level key at a
+   * time, so `moisture` arrives wholesale and a nested addition is not filled in. Marking it
+   * optional makes the type say what is actually true of the data and forces every reader to handle
+   * its absence, rather than leaving a `undefined[...]` throw waiting in a claim from last month.
+   */
+  reference?: Partial<Record<MoistureMaterial, number>>;
 }
 
 export function emptyMoistureMap(): MoistureMap {
-  return { rooms: {} };
+  return { rooms: {}, reference: {} };
+}
+
+/**
+ * Where a wall's dry standard came from — a label, never a value.
+ *
+ * Deliberately does not resolve a number. `WallReading.dryStandard` is the single thing every
+ * calculation reads, and a helper that returned its own answer would eventually return a different
+ * one: the panel would explain a figure the summary had not used. So this classifies what is
+ * already stored and nothing more.
+ *
+ *   reference — measured on unaffected material in this building. What a dry standard IS.
+ *   guide     — still on the published starting range, which knows nothing about this building.
+ *   wall      — typed for this wall specifically, overriding both.
+ *   unset     — no number at all, so no concern colour is shown.
+ */
+export type DryStandardSource = "wall" | "reference" | "guide" | "unset";
+
+export function dryStandardSource(
+  reference: Partial<Record<MoistureMaterial, number>> | undefined,
+  material: MoistureMaterial,
+  wallValue: number | null,
+): DryStandardSource {
+  if (wallValue == null) return "unset";
+  if (reference?.[material] === wallValue) return "reference";
+  if (defaultDryStandard(material) === wallValue) return "guide";
+  return "wall";
+}
+
+/**
+ * Records a reference reading, and carries it onto the walls that were still on a guessed number.
+ *
+ * A wall the PM has deliberately typed a value on is left alone — they know something about that
+ * wall. A wall still sitting on the guide default is not a decision, it is an absence of one, and
+ * leaving it behind a newly measured reference would mean one job quietly using two standards for
+ * the same material.
+ */
+export function setReferenceReading(map: MoistureMap, material: MoistureMaterial, value: number | null): MoistureMap {
+  const reference = { ...map.reference };
+  if (value == null) delete reference[material];
+  else reference[material] = value;
+
+  const previous = map.reference?.[material] ?? defaultDryStandard(material);
+  const rooms: Record<string, RoomMoisture> = {};
+  for (const [roomId, data] of Object.entries(map.rooms)) {
+    rooms[roomId] = {
+      ...data,
+      wallReadings: data.wallReadings.map((r) =>
+        r.material === material && r.dryStandard === previous ? { ...r, dryStandard: value } : r,
+      ),
+    };
+  }
+  return { ...map, rooms, reference };
 }
 
 export function emptyRoomMoisture(): RoomMoisture {
@@ -233,7 +324,7 @@ export function pruneMoisture(map: MoistureMap, sketch: Sketch): MoistureMap {
         ? data
         : { ...data, floorCells, ceilingCells };
   }
-  return { rooms };
+  return { ...map, rooms };
 }
 
 /** Whether a stored cell key still lands inside the room it belongs to. */
@@ -264,9 +355,9 @@ export function setRoomMoisture(map: MoistureMap, roomId: string, next: RoomMois
     if (!(roomId in map.rooms)) return map;
     const rooms = { ...map.rooms };
     delete rooms[roomId];
-    return { rooms };
+    return { ...map, rooms };
   }
-  return { rooms: { ...map.rooms, [roomId]: next } };
+  return { ...map, rooms: { ...map.rooms, [roomId]: next } };
 }
 
 /* ── How wet is it ─────────────────────────────────────────────────────────────────────────────── */
@@ -539,6 +630,14 @@ export interface ReadingSummary {
   /** Null when nothing has been measured yet — see `readingBand`. */
   reading: number | null;
   dryStandard: number | null;
+  /**
+   * Where that dry standard came from — see `dryStandardSource`.
+   *
+   * Carried out of here because a reading is only as good as what it was compared against, and the
+   * number alone cannot say whether that comparison was measured in this building or copied from a
+   * table. Anything reporting an elevation should be able to say which.
+   */
+  dryStandardFrom: DryStandardSource;
   /** Null when no dry standard has been set — the reading stands, its meaning does not. */
   elevationRatio: number | null;
   band: ConcernBand | null;
@@ -563,6 +662,14 @@ export interface RoomMoistureSummary {
   readingsWithoutDryStandard: number;
   /** Marks still carrying the assumed band because no number has been entered. */
   readingsNotMeasured: number;
+  /**
+   * Readings judged against a published range rather than anything metered in this building.
+   *
+   * Surfaced rather than buried: it is the difference between "this wall is elevated" and "this wall
+   * is elevated relative to a figure for drywall in general", and only one of those is a measurement
+   * of this house.
+   */
+  readingsOnGuidedStandard: number;
 }
 
 const BAND_RANK: Record<ConcernBand, number> = { dry: 0, slight: 1, elevated: 2, high: 3 };
@@ -593,6 +700,7 @@ export function roomMoistureSummary(room: SketchRoom, map: MoistureMap): RoomMoi
       material: r.material,
       reading: r.reading,
       dryStandard: r.dryStandard,
+      dryStandardFrom: dryStandardSource(map.reference, r.material, r.dryStandard),
       elevationRatio: r.reading == null ? null : elevationRatio(r.reading, r.dryStandard),
       band: readingBand(r),
       bandAssumed: r.reading == null,
@@ -615,6 +723,7 @@ export function roomMoistureSummary(room: SketchRoom, map: MoistureMap): RoomMoi
     worstBand,
     readingsWithoutDryStandard: readings.filter((r) => r.band === null).length,
     readingsNotMeasured: readings.filter((r) => r.bandAssumed).length,
+    readingsOnGuidedStandard: readings.filter((r) => r.dryStandardFrom === "guide").length,
   };
 }
 

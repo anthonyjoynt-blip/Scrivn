@@ -18,7 +18,8 @@
     "build:icons": "node scripts/build-icons.mjs",
     "test:pending": "node test/pending/run.mjs",
     "test:pending:browser": "node test/pending/browser/run.mjs",
-    "test:placement": "node test/sketch/placement.mjs"
+    "test:placement": "node test/sketch/placement.mjs",
+    "test:moisture": "node test/moisture/run.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "latest",

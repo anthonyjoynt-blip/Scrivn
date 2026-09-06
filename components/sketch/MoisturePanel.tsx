@@ -18,6 +18,7 @@ import {
   bandLabel,
   readingBand,
   defaultDryStandard,
+  dryStandardSource,
   paintedFloorSquareFeet,
 } from "@/lib/moisture";
 
@@ -34,12 +35,17 @@ export function MoisturePanel({
   data,
   onChange,
   highlightReadingId,
+  reference,
+  onSetReference,
 }: {
   room: SketchRoom;
   data: RoomMoisture;
   onChange: (next: RoomMoisture) => void;
   /** The reading just created by tapping a wall, so the PM can see which row to fill in. */
   highlightReadingId: string | null;
+  /** The job's dry standards, measured on unaffected material. Claim-level, not this room's. */
+  reference: Partial<Record<MoistureMaterial, number>> | undefined;
+  onSetReference: (material: MoistureMaterial, value: number | null) => void;
 }) {
   const walls = wallsOf(room);
   const wallNumber = new Map(walls.map((w, i) => [w.id, i + 1]));
@@ -65,6 +71,8 @@ export function MoisturePanel({
         </p>
       </div>
 
+      <DryStandardSection reference={reference} onSet={onSetReference} />
+
       {data.wallReadings.length === 0 ? (
         <p className="field-note">No wall readings yet.</p>
       ) : (
@@ -72,6 +80,7 @@ export function MoisturePanel({
           {data.wallReadings.map((reading) => (
             <ReadingCard
               key={reading.id}
+              reference={reference}
               reading={reading}
               wallLabel={`Wall ${wallNumber.get(reading.wallId) ?? "?"}`}
               wallLengthFeet={walls.find((w) => w.id === reading.wallId)?.lengthFeet ?? null}
@@ -165,8 +174,92 @@ function PaintedSurfaceReadout({
   );
 }
 
+/**
+ * The job's dry standards, taken from unaffected material in this building.
+ *
+ * At the top, above the readings, because this is the measurement every reading below is judged
+ * against and it belongs at the start of a job rather than buried in the fourth field of a wall
+ * card. The published ranges underneath each box are a fallback, and now say so plainly: they are
+ * numbers about materials in general, and a dry standard is a fact about THIS building — its
+ * species, its season, its meter.
+ *
+ * Collapsed by default once anything is set, because it is a beginning-of-job step and not something
+ * to scroll past on every wall.
+ */
+function DryStandardSection({
+  reference,
+  onSet,
+}: {
+  reference: Partial<Record<MoistureMaterial, number>> | undefined;
+  onSet: (material: MoistureMaterial, value: number | null) => void;
+}) {
+  const measured = WALL_MATERIALS.filter((m) => reference?.[m] != null);
+  const [open, setOpen] = useState(measured.length === 0);
+
+  return (
+    <div className="dry-standard-section">
+      <button type="button" className="dry-standard-toggle" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
+        <span>Dry standard for this job</span>
+        <span className="dry-standard-status">
+          {measured.length === 0
+            ? "not measured"
+            : measured.map((m) => `${MATERIAL_LABEL[m]} ${reference?.[m]}`).join(" · ")}
+        </span>
+      </button>
+
+      {open && (
+        <div className="dry-standard-body">
+          <p className="field-note">
+            Meter an <strong>unaffected</strong> area of each material in this building and enter it here — somewhere
+            the water did not reach. That reading is the dry standard, and every wall below is compared against it.
+          </p>
+          {WALL_MATERIALS.map((material) => {
+            const guide = DRY_STANDARD_GUIDE[material];
+            return (
+              <label key={material} className="dry-standard-row">
+                <span>{MATERIAL_LABEL[material]}</span>
+                <input
+                  type="number"
+                  step="0.1"
+                  min={0}
+                  inputMode="decimal"
+                  // The note beside it already says what happens when this is empty, and "Not
+                  // measured" does not fit the box at this width — it clipped to "Not mea".
+                  placeholder="—"
+                  value={reference?.[material] ?? ""}
+                  onChange={(e) => {
+                    const raw = e.target.value.trim();
+                    if (raw === "") {
+                      onSet(material, null);
+                      return;
+                    }
+                    const n = Number(raw);
+                    if (Number.isFinite(n)) onSet(material, n);
+                  }}
+                />
+                <span className="field-note">
+                  {reference?.[material] != null
+                    ? "measured here"
+                    : guide.prefill === null
+                      ? "no fallback — must be measured"
+                      : `falls back to ${guide.prefill}`}
+                </span>
+              </label>
+            );
+          })}
+          <p className="field-note">
+            Without one, readings fall back to a published range for the material. Those are a starting point for
+            triage, not a measurement of this building.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** One wall's reading. Every field is editable, including the dry standard — see `DRY_STANDARD_GUIDE`. */
 function ReadingCard({
+  reference,
   reading,
   wallLabel,
   wallLengthFeet,
@@ -174,6 +267,7 @@ function ReadingCard({
   onChange,
   onRemove,
 }: {
+  reference: Partial<Record<MoistureMaterial, number>> | undefined;
   reading: WallReading;
   wallLabel: string;
   wallLengthFeet: number | null;
@@ -184,6 +278,7 @@ function ReadingCard({
   const [heightDraft, setHeightDraft] = useState<string | null>(null);
   const band = readingBand(reading);
   const guide = DRY_STANDARD_GUIDE[reading.material];
+  const source = dryStandardSource(reference, reading.material, reading.dryStandard);
 
   /*
     The affected area follows the marked RUN, not the whole wall.
@@ -235,8 +330,14 @@ function ReadingCard({
             onChange={(e) => {
               const material = e.target.value as MoistureMaterial;
               // The standard follows the material, unless the PM has already set their own.
-              const untouched = reading.dryStandard === defaultDryStandard(reading.material);
-              onChange({ material, ...(untouched ? { dryStandard: defaultDryStandard(material) } : {}) });
+              /*
+                A wall still on a number nobody chose follows the material; one the PM typed does
+                not. "Nobody chose" now includes the job's reference reading as well as the published
+                range — both are the app's answer rather than a decision about this wall.
+              */
+              const chosen = dryStandardSource(reference, reading.material, reading.dryStandard) === "wall";
+              const next = reference?.[material] ?? defaultDryStandard(material);
+              onChange({ material, ...(chosen ? {} : { dryStandard: next }) });
             }}
           >
             {WALL_MATERIALS.map((m) => (
@@ -292,8 +393,21 @@ function ReadingCard({
 
       {reading.reading == null && <p className="field-note">Shown as significantly elevated until you enter a reading.</p>}
 
+      {/*
+        Where this wall's dry standard came from, in the PM's words rather than the code's.
+
+        The number alone cannot say whether it was measured in this building or copied off a table,
+        and that difference is the whole reason the section above exists. A figure the PM measured
+        needs no caveat; one from the published range gets the caveat every time it is shown.
+      */}
       <p className="field-note moisture-guide">
-        {guide.prefill === null ? guide.note : `Default, confirm if unsure — ${guide.note}`}
+        {source === "reference"
+          ? "From your reference reading for this job."
+          : source === "wall"
+            ? "Set for this wall."
+            : source === "unset"
+              ? guide.note
+              : `Not measured — falls back to a published range. ${guide.note}`}
       </p>
 
       {affectedArea != null && affectedLengthFeet != null && (

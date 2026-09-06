@@ -2199,3 +2199,71 @@ button:disabled {
     width: 100%;
   }
 }
+
+/*
+ * The job's dry standard, at the top of the moisture panel.
+ *
+ * Given a box of its own rather than sitting among the readings, because it is the measurement all
+ * of them are judged against — a per-wall field would say it is a per-wall property, which is the
+ * misunderstanding this whole section exists to correct.
+ */
+.dry-standard-section {
+  margin: 0 0 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.dry-standard-toggle {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  width: 100%;
+  padding: 10px 12px;
+  background: var(--color-navy-tint);
+  border: 0;
+  font: inherit;
+  font-weight: 600;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+/* The measured values, so a collapsed section still says whether the job has a standard. */
+.dry-standard-status {
+  font-weight: 400;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.dry-standard-body {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+}
+
+.dry-standard-row {
+  display: grid;
+  grid-template-columns: minmax(6rem, 1fr) 5.5rem minmax(0, 1.4fr);
+  align-items: center;
+  gap: 10px;
+}
+
+.dry-standard-row input {
+  width: 100%;
+}
+
+.dry-standard-row .field-note {
+  margin: 0;
+}
+
+/* On a phone the three columns stop fitting; the note drops under the pair it belongs to. */
+@media (max-width: 460px) {
+  .dry-standard-row {
+    grid-template-columns: 1fr 5.5rem;
+  }
+  .dry-standard-row .field-note {
+    grid-column: 1 / -1;
+  }
+}
