@@ -108,8 +108,17 @@ export function grossFloorArea(room: SketchRoom): number {
 }
 
 /** How wide a block symbol is along its wall, how far it comes out, and how far up it covers. */
-function blockFootprint(symbol: BlockSymbol, room: SketchRoom): { widthFeet: number; depthFeet: number; heightFeet: number } | null {
-  const widthFeet = symbolWidthFeet(symbol, room);
+function blockFootprint(
+  symbol: BlockSymbol,
+  room: SketchRoom,
+  rooms: SketchRoom[],
+): { widthFeet: number; depthFeet: number; heightFeet: number } | null {
+  /*
+    `rooms` matters here as much as it does on the canvas. A cabinet whose width is capped because a
+    sub-room stands on part of its wall must be PRICED at the capped width — otherwise the drawing
+    and the estimate disagree, and the estimate is the one somebody bills from.
+  */
+  const widthFeet = symbolWidthFeet(symbol, room, rooms);
   if (widthFeet == null) return null;
   return { widthFeet, depthFeet: symbol.depthFeet, heightFeet: symbol.heightFeet };
 }
@@ -195,7 +204,7 @@ export function roomQuantities(room: SketchRoom, sketch: Sketch, options: Quanti
   let wallDeduction = 0;
 
   for (const block of blocks) {
-    const f = blockFootprint(block, room);
+    const f = blockFootprint(block, room, sketch.rooms);
     if (!f) continue;
     const onFloor = block.type === "cabinet" ? standsOnFloor(block.tier) : true;
 

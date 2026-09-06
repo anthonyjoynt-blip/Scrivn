@@ -1174,9 +1174,18 @@ export function SketchEditor({
           onDragWallEnd={(roomId, wallId) => updateRoom(roomId, (room) => snapWallToNeighbours(room, wallId))}
           onMoveVertex={(roomId, vertexId, x, y) => updateRoom(roomId, (room) => moveVertex(room, vertexId, x, y))}
           onRemoveVertex={(roomId, vertexId) => updateRoom(roomId, (room) => removeVertex(room, vertexId))}
-          onMoveSymbol={(roomId, symbolId, centrePx) => updateSymbol(roomId, symbolId, (symbol, room) => moveSymbolAlongWall(symbol, room, centrePx))}
+          onMoveSymbol={(roomId, symbolId, centrePx) =>
+            /*
+              `sketch.rooms` is passed so a cabinet knows which sub-rooms stand on its wall — a
+              closet inside a bedroom takes its share of that wall, and a run of cabinets stops
+              where it begins rather than carrying on underneath it. See `blockRunPx`.
+            */
+            updateSymbol(roomId, symbolId, (symbol, room) => moveSymbolAlongWall(symbol, room, centrePx, sketch.rooms))
+          }
           onResizeSymbol={(roomId, symbolId, centrePx, widthPx) =>
-            updateSymbol(roomId, symbolId, (symbol, room) => moveSymbolAlongWall(withSymbolWidthPx(symbol, room, widthPx), room, centrePx))
+            updateSymbol(roomId, symbolId, (symbol, room) =>
+              moveSymbolAlongWall(withSymbolWidthPx(symbol, room, widthPx, sketch.rooms), room, centrePx, sketch.rooms),
+            )
           }
           onPlaceIsland={handlePlaceIsland}
           onMoveIsland={(roomId, islandId, x, y) => updateIsland(roomId, islandId, (cabinet, room) => moveFreeCabinet(cabinet, room, x, y))}

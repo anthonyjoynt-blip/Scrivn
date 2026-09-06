@@ -1,14 +1,14 @@
 /**
- * A visual check of the reported cabinet, side by side with the drawing rule that produced it.
+ * A picture of the two reported cabinets, each drawn the old way beside the new one.
  *
  *   node test/sketch/repro.mjs        (serves on :4620)
  *
- * The placement checks prove the numbers. This proves the CANVAS uses them — a clamp that the
- * component does not read is worth nothing, and a picture is the only thing that can be compared
- * against the screenshot the report came with.
+ * The placement checks prove the numbers. This proves the numbers are the ones being DRAWN, and it
+ * is the only thing that can be held up against the screenshots the reports came with. Three rounds
+ * on this bug is enough to stop trusting a green suite on its own.
  *
- * Left is what the canvas draws today. Right is the same room and cabinet drawn the old way, from
- * the raw fraction, kept deliberately so the two can be looked at together.
+ * Left of each pair is the drawing today. Right is the same room and cabinet placed the way the old
+ * code placed it, which is what the reports show.
  */
 
 import { createRoot } from "react-dom/client";
@@ -23,95 +23,161 @@ import {
 } from "@/lib/sketch";
 
 const FT = PIXELS_PER_FOOT;
+const SCALE = 1.6;
+const PAD = 26;
 
-/** A 12' x 12' room, and a 10'9" cabinet on its left wall pinned near the bottom corner. */
-const room: SketchRoom = {
-  id: "r",
-  name: "Untitled room",
-  vertices: [
-    { id: "v0", x: 0, y: 0 },
-    { id: "v1", x: 12 * FT, y: 0 },
-    { id: "v2", x: 12 * FT, y: 12 * FT },
-    { id: "v3", x: 0, y: 12 * FT },
-  ],
-  ceilingHeightFeet: 8,
-  ceilingType: "flat",
-  ceilingPeakFeet: null,
-  stairs: null,
-  parentRoomId: null,
-  nestingOptOut: false,
-  symbols: [],
-  freeCabinets: [],
-};
+function makeRoom(id: string, name: string, pts: [number, number][], parentRoomId: string | null = null): SketchRoom {
+  return {
+    id,
+    name,
+    vertices: pts.map(([x, y], i) => ({ id: `${id}-v${i}`, x, y })),
+    ceilingHeightFeet: 8,
+    ceilingType: "flat",
+    ceilingPeakFeet: null,
+    stairs: null,
+    parentRoomId,
+    nestingOptOut: false,
+    symbols: [],
+    freeCabinets: [],
+  };
+}
 
-// The left wall runs v3 -> v0, i.e. bottom to top on a clockwise polygon.
-const leftWall = wallsOf(room)[3]!;
+function makeCabinet(wallId: string, widthFeet: number, t: number): SketchSymbol {
+  return {
+    id: "c",
+    wallId,
+    t,
+    widthFraction: 0.5,
+    widthFeet,
+    type: "cabinet",
+    label: "Cabinet",
+    tier: "base",
+    depthFeet: 2,
+    heightFeet: 3,
+  } as unknown as SketchSymbol;
+}
 
-const cabinet = {
-  id: "c",
-  wallId: leftWall.id,
-  t: 0.9,
-  widthFraction: 0.5,
-  widthFeet: 10.75,
-  type: "cabinet",
-  label: "Cabinet",
-  tier: "base",
-  depthFeet: 2,
-  heightFeet: 3,
-} as unknown as SketchSymbol;
+/* ── case 1: a wide cabinet pinned near a corner ──────────────────────────────────────────────── */
 
-const SCALE = 2;
-const PAD = 30;
+const plainRoom = makeRoom("plain", "Untitled room", [
+  [0, 0],
+  [12 * FT, 0],
+  [12 * FT, 12 * FT],
+  [0, 12 * FT],
+]);
+const plainWall = wallsOf(plainRoom)[3]!; // the left wall, running bottom to top
+const wideCabinet = makeCabinet(plainWall.id, 10.75, 0.9);
 
-function Plan({ title, centrePx }: { title: string; centrePx: number }) {
-  const width = symbolWidthPx(cabinet, room);
-  const wall = leftWall;
-  // The wall runs upward, so distance along it from its start corner goes from the bottom up.
-  const along = (d: number) => ({ x: wall.x1, y: wall.y1 + ((wall.y2 - wall.y1) * d) / wall.lengthPx });
-  const near = along(centrePx - width / 2);
-  const far = along(centrePx + width / 2);
-  const top = Math.min(near.y, far.y);
-  const height = Math.abs(far.y - near.y);
+/* ── case 2: a cabinet on a wall a sub-room is standing on ────────────────────────────────────── */
+
+const parent = makeRoom("parent", "Untitled room", [
+  [0, 0],
+  [20 * FT, 0],
+  [20 * FT, 20 * FT],
+  [0, 20 * FT],
+]);
+const closet = makeRoom("closet", "Untitled room", [[0, 0], [8 * FT, 0], [8 * FT, 5 * FT], [0, 5 * FT]], "parent");
+const parentWall = wallsOf(parent)[3]!;
+// 10' of cabinet aimed at the top of the wall, where the closet is.
+const closetCabinet = makeCabinet(parentWall.id, 10, 0.85);
+
+/* ── drawing ──────────────────────────────────────────────────────────────────────────────────── */
+
+function Plan({
+  title,
+  room,
+  sub,
+  symbol,
+  centrePx,
+  widthPx,
+  size,
+}: {
+  title: string;
+  room: SketchRoom;
+  sub: SketchRoom | null;
+  symbol: SketchSymbol;
+  centrePx: number;
+  widthPx: number;
+  size: number;
+}) {
+  const wall = wallsOf(room).find((w) => w.id === symbol.wallId)!;
+  // The wall runs upward, so distance from its start goes from the bottom of the drawing up.
+  const at = (d: number) => wall.y1 + ((wall.y2 - wall.y1) * d) / wall.lengthPx;
+  const a = at(centrePx - widthPx / 2);
+  const b = at(centrePx + widthPx / 2);
 
   return (
     <div>
-      <p style={{ font: "13px ui-monospace, monospace", margin: "0 0 6px" }}>{title}</p>
-      <Stage width={12 * FT * SCALE + PAD * 2} height={26 * FT * SCALE + PAD * 2}>
+      <p style={{ font: "12px ui-monospace, monospace", margin: "0 0 6px", color: "#1b3a5c" }}>{title}</p>
+      <Stage width={size * SCALE + PAD * 2} height={size * SCALE + PAD * 2}>
         <Layer x={PAD} y={PAD} scaleX={SCALE} scaleY={SCALE}>
-          {/* The room. */}
-          <Line
-            points={room.vertices.flatMap((v) => [v.x, v.y])}
-            closed
-            fill="#e8eef6"
-            stroke="#1b3a5c"
-            strokeWidth={3}
-          />
-          {/* The cabinet, drawn against the left wall and projecting into the room. */}
-          <Rect x={wall.x1} y={top} width={2 * FT} height={height} fill="#dbe6f2" stroke="#1b3a5c" strokeWidth={1.5} />
-          <Text x={wall.x1 + 4} y={top + 6} text="Cabinet" fontSize={9} fill="#1b3a5c" />
-          <Text x={wall.x1 + 4} y={top + 18} text={`10'9" x 2'`} fontSize={8} fill="#5b6472" />
+          <Line points={room.vertices.flatMap((v) => [v.x, v.y])} closed fill="#eef2f6" stroke="#1b3a5c" strokeWidth={3} />
+          {/* The cabinet, against the wall and projecting into the room. */}
+          <Rect x={wall.x1} y={Math.min(a, b)} width={2 * FT} height={Math.abs(b - a)} fill="#dbe6f2" stroke="#1b3a5c" strokeWidth={1.5} />
+          <Text x={wall.x1 + 4} y={Math.min(a, b) + 5} text="Cabinet" fontSize={8} fill="#1b3a5c" />
+          {/*
+            The sub-room LAST, exactly as the canvas draws it — after its parent, so it covers
+            whatever is underneath. That painting order is why the old bug was invisible rather than
+            merely wrong: the part of the cabinet inside the closet simply was not there to see.
+          */}
+          {sub && (
+            <>
+              <Line points={sub.vertices.flatMap((v) => [v.x, v.y])} closed fill="#e3e9f1" stroke="#1b3a5c" strokeWidth={3} />
+              <Text x={sub.vertices[0]!.x + 8} y={sub.vertices[0]!.y + 20} text="Closet" fontSize={9} fill="#1b3a5c" />
+            </>
+          )}
         </Layer>
       </Stage>
     </div>
   );
 }
 
-const results = {
-  clamped: symbolCentrePx(cabinet, room),
-  raw: cabinet.t * leftWall.lengthPx,
-  wallLengthPx: leftWall.lengthPx,
-  widthPx: symbolWidthPx(cabinet, room),
+const measured = {
+  wideCabinet: {
+    now: symbolCentrePx(wideCabinet, plainRoom),
+    before: wideCabinet.t * plainWall.lengthPx,
+    widthNow: symbolWidthPx(wideCabinet, plainRoom),
+  },
+  closetCabinet: {
+    now: symbolCentrePx(closetCabinet, parent, [parent, closet]),
+    widthNow: symbolWidthPx(closetCabinet, parent, [parent, closet]),
+    before: closetCabinet.t * parentWall.lengthPx,
+    widthBefore: closetCabinet.widthFeet! * FT,
+  },
 };
+
 (window as unknown as { __repro: unknown }).__repro = {
-  ...results,
-  // Positive means it hangs past the corner and out of the room.
-  overhangFeetNow: (results.clamped + results.widthPx / 2 - results.wallLengthPx) / FT,
-  overhangFeetBefore: (results.raw + results.widthPx / 2 - results.wallLengthPx) / FT,
+  // Feet of cabinet outside the room, past the far corner.
+  case1OverhangFeetBefore:
+    (measured.wideCabinet.before + measured.wideCabinet.widthNow / 2 - plainWall.lengthPx) / FT,
+  case1OverhangFeetNow: (measured.wideCabinet.now + measured.wideCabinet.widthNow / 2 - plainWall.lengthPx) / FT,
+  // Feet of cabinet hidden behind the closet, which covers the last 5' of a 20' wall.
+  case2HiddenFeetBefore: Math.max(
+    0,
+    measured.closetCabinet.before + measured.closetCabinet.widthBefore / 2 - (20 - 5) * FT,
+  ) / FT,
+  case2HiddenFeetNow: Math.max(0, measured.closetCabinet.now + measured.closetCabinet.widthNow / 2 - (20 - 5) * FT) / FT,
 };
 
 createRoot(document.getElementById("root")!).render(
-  <div style={{ display: "flex", gap: 40, alignItems: "flex-start" }}>
-    <Plan title="now — clamped to the wall" centrePx={results.clamped} />
-    <Plan title="before — raw fraction" centrePx={results.raw} />
+  <div style={{ display: "grid", gap: 28, font: "13px ui-monospace, monospace" }}>
+    <div>
+      <h2 style={{ font: "600 13px ui-monospace, monospace", margin: "0 0 10px" }}>
+        1. a 10&#39;9&quot; cabinet pinned near the corner of a 12&#39; wall
+      </h2>
+      <div style={{ display: "flex", gap: 30 }}>
+        <Plan title="now" room={plainRoom} sub={null} symbol={wideCabinet} centrePx={measured.wideCabinet.now} widthPx={measured.wideCabinet.widthNow} size={12 * FT} />
+        <Plan title="before" room={plainRoom} sub={null} symbol={wideCabinet} centrePx={measured.wideCabinet.before} widthPx={measured.wideCabinet.widthNow} size={12 * FT} />
+      </div>
+    </div>
+    <div>
+      <h2 style={{ font: "600 13px ui-monospace, monospace", margin: "0 0 10px" }}>
+        2. a 10&#39; cabinet on a wall a closet is standing on
+      </h2>
+      <div style={{ display: "flex", gap: 30 }}>
+        <Plan title="now" room={parent} sub={closet} symbol={closetCabinet} centrePx={measured.closetCabinet.now} widthPx={measured.closetCabinet.widthNow} size={20 * FT} />
+        <Plan title="before" room={parent} sub={closet} symbol={closetCabinet} centrePx={measured.closetCabinet.before} widthPx={measured.closetCabinet.widthBefore} size={20 * FT} />
+      </div>
+    </div>
   </div>,
 );

@@ -36,11 +36,11 @@ import {
   pointOnWall,
   isInsideRoom,
   roomBounds,
-  symbolWidthFeet,
   stairFlight,
   stairCeiling,
   symbolWidthPx,
   symbolCentrePx,
+  PIXELS_PER_FOOT,
   symbolsInDrawOrder,
   tapFractionOnWall,
   cappedInset,
@@ -444,6 +444,7 @@ export default function SketchCanvas(props: SketchCanvasProps) {
           <RoomShape
             key={room.id}
             room={room}
+            rooms={rooms}
             tool={tool}
             showSizes={showSizes}
             moisture={moisture}
@@ -574,6 +575,7 @@ function UnderlayRoom({ room, zoom }: { room: SketchRoom; zoom: number }) {
 
 function RoomShape({
   room,
+  rooms,
   highlight,
   tool,
   showSizes,
@@ -606,6 +608,8 @@ function RoomShape({
   onResizeIsland,
 }: {
   room: SketchRoom;
+  /** Every room on the plan — a cabinet has to know which sub-rooms stand on its wall. */
+  rooms: SketchRoom[];
   tool: ToolMode;
   showSizes: boolean;
   zoom: number;
@@ -1026,6 +1030,7 @@ function RoomShape({
         <SymbolShape
           key={symbol.id}
           room={room}
+          rooms={rooms}
           symbol={symbol}
           zoom={zoom}
           selected={symbol.id === selectedSymbolId}
@@ -1288,6 +1293,7 @@ function VertexHandles({
 
 function SymbolShape({
   room,
+  rooms,
   symbol,
   zoom,
   showSizes,
@@ -1297,6 +1303,7 @@ function SymbolShape({
   onResize,
 }: {
   room: SketchRoom;
+  rooms: SketchRoom[];
   symbol: SketchSymbol;
   zoom: number;
   showSizes: boolean;
@@ -1309,10 +1316,11 @@ function SymbolShape({
   if (!wall) return null;
 
   const len = wall.lengthPx;
-  const w = symbolWidthPx(symbol, room);
+  const w = symbolWidthPx(symbol, room, rooms);
   // Not `symbol.t * len` — see symbolCentrePx. A fraction pins the middle, so a wide symbol near a
-  // corner hangs past it, which is how a cabinet ends up drawn outside the room.
-  const centre = symbolCentrePx(symbol, room);
+  // corner hangs past it, which is how a cabinet ends up drawn outside the room. `rooms` is what
+  // keeps a cabinet off the stretch of wall a sub-room is standing on.
+  const centre = symbolCentrePx(symbol, room, rooms);
   const x0 = centre - w / 2;
   const x1 = centre + w / 2;
 
@@ -1376,7 +1384,7 @@ function SymbolShape({
         }}
       />
 
-      {showSizes && <SymbolSizeLabel symbol={symbol} room={room} x0={x0} width={w} zoom={zoom} />}
+      {showSizes && <SymbolSizeLabel symbol={symbol} x0={x0} width={w} zoom={zoom} />}
 
       {selected && <SymbolEndHandles x0={x0} x1={x1} zoom={zoom} onResize={onResize} />}
     </Group>
@@ -1445,9 +1453,16 @@ function SymbolEndHandles({ x0, x1, zoom, onResize }: { x0: number; x1: number; 
  * print its width on top of that wall's overall measurement, and the two numbers mean different
  * things. Outside is also where dimensions live on a real plan.
  */
-function SymbolSizeLabel({ symbol, room, x0, width, zoom }: { symbol: SketchSymbol; room: SketchRoom; x0: number; width: number; zoom: number }) {
-  const feet = symbolWidthFeet(symbol, room);
-  if (feet == null) return null;
+function SymbolSizeLabel({ symbol, x0, width, zoom }: { symbol: SketchSymbol; x0: number; width: number; zoom: number }) {
+  /*
+    Measured from the width being DRAWN rather than looked up again.
+
+    The two used to be computed separately, and a label that disagrees with the box beside it is
+    worse than no label: the drawing said one thing and the number said another, and the number is
+    what somebody prices from. Deriving it here makes them the same by construction — the scale is
+    a constant, so this is the drawn width in another unit.
+  */
+  const feet = width / PIXELS_PER_FOOT;
 
   const text = symbol.type === "cabinet" ? `${formatFeetInches(feet)} x ${formatFeetInches(symbol.depthFeet)}` : formatFeetInches(feet);
   // Wide enough for the text at any symbol size, centred on the symbol rather than clipped to it.

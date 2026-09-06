@@ -3,17 +3,25 @@
  *
  *   node test/sketch/placement.mjs        (also runs first as part of npm run test:sketch)
  *
- * Reported from the field: a cabinet drawn 8'11" long on a wall shorter than that, hanging out of
- * the room into the notch of an L. Three separate holes let a block leave the room, and none of them
- * announces itself — the drawing simply shows something that does not exist, and the quantities read
- * off it are wrong in the same direction:
+ * Reported from the field three times over, each a different way for a cabinet to end up somewhere
+ * it cannot be. None of them announces itself — the drawing simply shows something that does not
+ * exist, and the quantities read off it are wrong in the same direction, which is the half that gets
+ * billed. Every hole found so far:
  *
  *   * a wall symbol had no upper bound on its width, so it could be longer than its own wall — most
  *     often because the wall was SHORTENED after the cabinet was placed on it
+ *   * its POSITION is a fraction, which pins its middle while its width is a real measurement, so a
+ *     legal width near a corner still hung past it. Capping the width does not fix this
+ *   * a sub-room standing on part of a wall took no part of it away, so a cabinet ran under the
+ *     closet, which is drawn afterwards and hid it
  *   * an island's containment tested only its centre point, so a long block could hang most of its
  *     length outside the floor
  *   * resizing an island wrote the new size before checking it, so a handle dragged outward pushed
  *     the block through a wall
+ *
+ * The first three are all read-path bugs: sketches already carry values that were legal when they
+ * were set and stopped being legal when a wall moved. Clamping only on write leaves those drawings
+ * wrong until somebody happens to drag that cabinet again, which is the opposite of the point.
  *
  * Pure geometry, so this runs in Node rather than in the browser suite next door.
  */
@@ -96,6 +104,52 @@ const lRoom = () => room([[0, 0], [144, 0], [144, 120], [72, 120], [72, 72], [0,
  */
 const slotRoom = () =>
   room([[0, 0], [60, 0], [60, 90], [84, 90], [84, 0], [144, 0], [144, 120], [0, 120]]);
+
+/**
+ * A 20' x 16' room with an 8' x 4' closet nested in its top-left corner — the shape in the report.
+ *
+ * The closet's left wall sits exactly on the parent's left wall, so the top 8' of that 20' wall is
+ * the closet's, not the room's. `parentRoomId` is what marks it as a sub-room rather than a
+ * neighbour: two rooms drawn side by side share a wall along its whole length and neither takes it
+ * away from the other.
+ *
+ *   (0,0) ────────── (240,0)
+ *     │ closet │        │
+ *   (0,96) ─(48,96)     │
+ *     │                 │
+ *   (0,192) ─────── (240,192)
+ *
+ * The parent's left wall runs BOTTOM to top on a clockwise polygon, so measured from its start the
+ * closet covers the far half — fractions 0.5 to 1 — and the free stretch is the first 8'.
+ */
+function withSubRoom() {
+  const parent = room([[0, 0], [240, 0], [240, 192], [0, 192]], { id: "parent" });
+  const closet = room([[0, 0], [48, 0], [48, 96], [0, 96]], { id: "closet", name: "Closet", parentRoomId: "parent" });
+  return { parent, closet, rooms: [parent, closet] };
+}
+
+/**
+ * A 20' x 20' room with a 4' x 5' closet part-way along its left wall, leaving free stretches on
+ * BOTH sides of it.
+ *
+ * `withSubRoom` puts the closet at the end of the wall, which leaves one free run starting at zero —
+ * enough to prove a cabinet stops at the closet, and not enough to prove anything else. Two runs of
+ * different lengths are what show that a run's near edge is honoured as well as its far one, and
+ * that a cabinet stranded behind the closet comes out to the run NEXT to it rather than to the
+ * biggest one going.
+ *
+ * The left wall runs bottom to top, so measured from its start the closet covers 0.25 to 0.5: free
+ * stretches of 5' below it and 10' above.
+ */
+function withMidWallCloset() {
+  const parent = room([[0, 0], [240, 0], [240, 240], [0, 240]], { id: "parent" });
+  const closet = room([[0, 120], [48, 120], [48, 180], [0, 180]], {
+    id: "closet",
+    name: "Closet",
+    parentRoomId: "parent",
+  });
+  return { parent, closet, rooms: [parent, closet] };
+}
 
 function cabinet(wallId, { widthFeet, t = 0.5, depthFeet = 2 }) {
   return {
@@ -282,6 +336,105 @@ export async function runPlacementChecks() {
     const grip = s.wallGripSpan(withCabinet, s.wallsOf(withCabinet)[0]);
     // The cabinet is flush to the far end, so the only clear stretch is the 1'3" at the near end.
     assert(grip === null || grip.t * wall.lengthPx < (12 - 10.75) * FT + 1, `grip landed at t=${grip?.t}`);
+  });
+
+  /* A sub-room standing on a wall takes that stretch away from the cabinets on it. */
+
+  const FREE_PX = 96; // The first 8' of the parent's 16' left wall — see withSubRoom.
+  const leftWallOf = (r) => s.wallsOf(r)[3];
+
+  test("a cabinet stops where a sub-room stands on its wall", () => {
+    /*
+      THE THIRD REPORT. A closet drawn inside a bedroom occupies its share of the bedroom's wall —
+      there is a closet there — so a run of cabinets on that wall has to stop at its face. Before
+      this the cabinet carried on underneath: sub-rooms are drawn after their parent, so it ran under
+      the closet and the covered part simply vanished from the drawing.
+    */
+    const { parent, rooms } = withSubRoom();
+    const wall = leftWallOf(parent);
+    const c = cabinet(wall.id, { widthFeet: 6, t: 0.5 });
+    const half = s.symbolWidthPx(c, parent, rooms) / 2;
+    const centre = s.symbolCentrePx(c, parent, rooms);
+    assert(centre + half <= FREE_PX + 0.05, `it reaches ${(centre + half - FREE_PX) / FT}' under the sub-room`);
+  });
+
+  test("and goes flush to its face, not to the room's corner", () => {
+    const { parent, rooms } = withSubRoom();
+    const wall = leftWallOf(parent);
+    const c = cabinet(wall.id, { widthFeet: 6, t: 0.5 });
+    near(s.symbolCentrePx(c, parent, rooms), FREE_PX - (6 * FT) / 2, "centre");
+  });
+
+  test("a cabinet longer than the free stretch is cut to it", () => {
+    // 16' of wall with 8' behind a closet leaves 8', whatever the cabinet claims to be.
+    const { parent, rooms } = withSubRoom();
+    const wall = leftWallOf(parent);
+    near(s.symbolWidthFeet(cabinet(wall.id, { widthFeet: 14 }), parent, rooms), 8, "width in feet");
+  });
+
+  test("dragging a cabinet towards the sub-room stops it at the face", () => {
+    const { parent, rooms } = withSubRoom();
+    const wall = leftWallOf(parent);
+    const c = cabinet(wall.id, { widthFeet: 6, t: 0.3 });
+    const moved = s.moveSymbolAlongWall(c, parent, 190, rooms);
+    near(moved.t * wall.lengthPx, FREE_PX - (6 * FT) / 2, "centre after being dragged past the sub-room");
+  });
+
+  test("a cabinet whose middle is already behind the sub-room is brought out", () => {
+    // It has to go somewhere legal, and the stretch next to where it was is the one its owner will
+    // recognise — never the longest free run, which can be at the far end of the room.
+    const { parent, rooms } = withSubRoom();
+    const wall = leftWallOf(parent);
+    const c = cabinet(wall.id, { widthFeet: 6, t: 0.8 });
+    near(s.symbolCentrePx(c, parent, rooms), FREE_PX - (6 * FT) / 2, "centre");
+  });
+
+  test("a cabinet is held off the near edge of its stretch too, not just the far one", () => {
+    // The free run above the closet starts 10' along the wall, so a cabinet in it cannot begin
+    // before that however small its fraction.
+    const { parent, rooms } = withMidWallCloset();
+    const wall = leftWallOf(parent);
+    const c = cabinet(wall.id, { widthFeet: 4, t: 0.52 });
+    near(s.symbolCentrePx(c, parent, rooms), 120 + (4 * FT) / 2, "centre");
+  });
+
+  test("a stranded cabinet comes out to the stretch beside it, not the biggest one", () => {
+    /*
+      t = 0.3 is behind the closet. The stretch below it is 5' and the one above is 10', so "nearest"
+      and "longest" disagree — and jumping a cabinet to the far end of a room because that happens to
+      be where the most wall is would be its own bug report.
+    */
+    const { parent, rooms } = withMidWallCloset();
+    const wall = leftWallOf(parent);
+    const c = cabinet(wall.id, { widthFeet: 4, t: 0.3 });
+    near(s.symbolCentrePx(c, parent, rooms), 60 - (4 * FT) / 2, "centre");
+  });
+
+  test("a DOOR on the stretch a sub-room covers is left alone", () => {
+    // That is a closet door, an entirely ordinary thing to draw. Only blocks are confined.
+    const { parent, rooms } = withSubRoom();
+    const wall = leftWallOf(parent);
+    const d = door(wall.id, { widthFeet: 3, t: 0.7 });
+    near(s.symbolCentrePx(d, parent, rooms), 0.7 * wall.lengthPx, "centre");
+  });
+
+  test("the same wall with no sub-room on it is unrestricted", () => {
+    // The checks above must be doing something specific, not just refusing half of every wall.
+    const { parent } = withSubRoom();
+    const wall = leftWallOf(parent);
+    const c = cabinet(wall.id, { widthFeet: 6, t: 0.5 });
+    near(s.symbolCentrePx(c, parent, [parent]), 0.5 * wall.lengthPx, "centre with the sub-room absent");
+    near(s.symbolWidthFeet(cabinet(wall.id, { widthFeet: 14 }), parent, [parent]), 14, "width with it absent");
+  });
+
+  test("a room drawn beside another does not take its wall away", () => {
+    // Only genuine sub-rooms occlude. Two rooms side by side share a wall along its whole length and
+    // that length still belongs to both — there is nothing to subtract.
+    const { parent, closet } = withSubRoom();
+    const neighbour = { ...closet, parentRoomId: null };
+    const wall = leftWallOf(parent);
+    const c = cabinet(wall.id, { widthFeet: 6, t: 0.5 });
+    near(s.symbolCentrePx(c, parent, [parent, neighbour]), 0.5 * wall.lengthPx, "centre");
   });
 
   /* Ends snap flush to the corners — cabinets and fixtures only. */

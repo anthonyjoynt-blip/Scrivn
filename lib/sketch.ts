@@ -1706,16 +1706,58 @@ export const DEFAULT_WINDOW_SILL_FEET = 3;
  * `symbolWidthFeet` caps identically, so the label and the quantities agree with what is drawn.
  * Without that, a 9' cabinet on a 6' wall would deduct more wall area than the wall has.
  */
-export function symbolWidthPx(symbol: SketchSymbol, room: SketchRoom): number {
+export function symbolWidthPx(symbol: SketchSymbol, room: SketchRoom, rooms: SketchRoom[] = []): number {
   const wall = wallById(room, symbol.wallId);
   const raw = symbol.widthFeet != null ? symbol.widthFeet * PIXELS_PER_FOOT : symbol.widthFraction * (wall?.lengthPx ?? 0);
-  return capToWall(raw, wall);
+  if (!wall || wall.lengthPx <= 0) return Math.max(6, raw);
+  const run = blockRunPx(symbol, room, rooms);
+  return capToRun(raw, run.to - run.from);
 }
 
-/** Applies the "no wider than its wall" rule, in whatever unit the caller is working in. */
-function capToWall(raw: number, wall: WallGeometry | null, perFoot = 1): number {
+/**
+ * The stretch of wall a cabinet or fixture is allowed to occupy, in pixels from the wall's start.
+ *
+ * Not the whole wall, when a sub-room is standing against part of it. A closet drawn inside a
+ * bedroom occupies its share of the bedroom's wall — physically, there is a closet there — so a run
+ * of cabinets on that wall stops where the closet begins. Reported from the field: a cabinet ran
+ * straight under a sub-room, which drew on top of it, leaving part of the cabinet invisible and the
+ * whole thing describing a fitting that could not exist.
+ *
+ * Only blocks are confined. A DOOR on the covered stretch is a door into the closet, which is an
+ * ordinary thing to draw; a cabinet there is inside the closet, which is not.
+ *
+ * `rooms` is empty in the many places that only need a symbol's own geometry, and then this is the
+ * whole wall — the same answer as before sub-rooms were considered at all.
+ */
+function blockRunPx(symbol: SketchSymbol, room: SketchRoom, rooms: SketchRoom[]): { from: number; to: number } {
+  const wall = wallById(room, symbol.wallId);
+  if (!wall || wall.lengthPx <= 0) return { from: 0, to: 0 };
+  if (rooms.length === 0 || !isBlockSymbol(symbol)) return { from: 0, to: wall.lengthPx };
+
+  const runs = exposedWallRuns(room, symbol.wallId, rooms);
+  /*
+    The run the symbol is already in, or failing that the NEAREST one — never simply the longest.
+    A cabinet whose middle has ended up behind a closet has to go somewhere legal, and the stretch
+    next to where it was is the one its owner will recognise; the longest free run can be at the
+    far end of the room.
+  */
+  const hit = runs.find(([lo, hi]) => symbol.t >= lo && symbol.t <= hi);
+  const pick =
+    hit ??
+    runs.reduce<[number, number] | null>((best, run) => {
+      if (!best) return run;
+      const distance = ([lo, hi]: [number, number]) => Math.max(lo - symbol.t, 0) + Math.max(symbol.t - hi, 0);
+      return distance(run) < distance(best) ? run : best;
+    }, null);
+
+  if (!pick) return { from: 0, to: wall.lengthPx };
+  return { from: pick[0] * wall.lengthPx, to: pick[1] * wall.lengthPx };
+}
+
+/** Applies the "no wider than the stretch of wall it can stand on" rule, in the caller's unit. */
+function capToRun(raw: number, runPx: number, perFoot = 1): number {
   const floor = 6 / perFoot;
-  const limit = wall && wall.lengthPx > 0 ? wall.lengthPx / perFoot : Infinity;
+  const limit = runPx > 0 ? runPx / perFoot : Infinity;
   return Math.min(Math.max(floor, raw), limit);
 }
 
@@ -1734,12 +1776,13 @@ function capToWall(raw: number, wall: WallGeometry | null, perFoot = 1): number 
  * clamps on write, but only a symbol somebody drags goes through it, and the whole point of the
  * drawing is that nobody has to touch it again.
  */
-export function symbolCentrePx(symbol: SketchSymbol, room: SketchRoom): number {
+export function symbolCentrePx(symbol: SketchSymbol, room: SketchRoom, rooms: SketchRoom[] = []): number {
   const wall = wallById(room, symbol.wallId);
   if (!wall || wall.lengthPx <= 0) return 0;
-  const half = symbolWidthPx(symbol, room) / 2;
-  // The width cap guarantees `half <= lengthPx / 2`, so the low bound never exceeds the high one.
-  return Math.min(wall.lengthPx - half, Math.max(half, symbol.t * wall.lengthPx));
+  const half = symbolWidthPx(symbol, room, rooms) / 2;
+  const run = blockRunPx(symbol, room, rooms);
+  // The width cap guarantees `half` is at most half the run, so the low bound never exceeds the high.
+  return Math.min(run.to - half, Math.max(run.from + half, symbol.t * wall.lengthPx));
 }
 
 /** How deep a cabinet is drawn, in world pixels. */
@@ -1748,11 +1791,10 @@ export function cabinetDepthPx(block: BlockSymbol): number {
 }
 
 /** The symbol's real width, or null when the room has no scale to measure it against. */
-export function symbolWidthFeet(symbol: SketchSymbol, room: SketchRoom): number | null {
+export function symbolWidthFeet(symbol: SketchSymbol, room: SketchRoom, rooms: SketchRoom[] = []): number | null {
   const wall = wallById(room, symbol.wallId);
-  if (symbol.widthFeet != null) return capToWall(symbol.widthFeet, wall, PIXELS_PER_FOOT);
-  if (wall?.lengthFeet == null) return null;
-  return capToWall(symbol.widthFraction * wall.lengthFeet, wall, PIXELS_PER_FOOT);
+  if (wall == null && symbol.widthFeet == null) return null;
+  return symbolWidthPx(symbol, room, rooms) / PIXELS_PER_FOOT;
 }
 
 /**
@@ -1792,10 +1834,11 @@ export function openingSquareFeet(room: SketchRoom): number {
  * scaled, fraction before that. Keeping this in one place is what stops a dragged handle writing
  * to the field that isn't being read.
  */
-export function withSymbolWidthPx(symbol: SketchSymbol, room: SketchRoom, widthPx: number): SketchSymbol {
+export function withSymbolWidthPx(symbol: SketchSymbol, room: SketchRoom, widthPx: number, rooms: SketchRoom[] = []): SketchSymbol {
   // Capped here too, so the stored number matches the drawing rather than drifting past it and
   // being quietly capped on every later read.
-  const capped = capToWall(widthPx, wallById(room, symbol.wallId));
+  const run = blockRunPx(symbol, room, rooms);
+  const capped = capToRun(widthPx, run.to - run.from);
   return { ...symbol, widthFeet: Math.max(0.25, capped / PIXELS_PER_FOOT) };
 }
 
@@ -2027,15 +2070,27 @@ export const BLOCK_END_SNAP_PX = 6;
  * whereas a door is nearly never flush (there is a jamb, and usually a stud), so the same snap would
  * fight the PM rather than help.
  */
-export function moveSymbolAlongWall(symbol: SketchSymbol, room: SketchRoom, centrePx: number): SketchSymbol {
+export function moveSymbolAlongWall(
+  symbol: SketchSymbol,
+  room: SketchRoom,
+  centrePx: number,
+  rooms: SketchRoom[] = [],
+): SketchSymbol {
   const wall = wallById(room, symbol.wallId);
   if (!wall || wall.lengthPx <= 0) return { ...symbol, t: 0.5 };
-  const half = symbolWidthPx(symbol, room) / 2;
-  let clamped = Math.min(wall.lengthPx - half, Math.max(half, centrePx));
+  const half = symbolWidthPx(symbol, room, rooms) / 2;
+  /*
+    The run is picked from where the symbol IS, so ask for it before moving — otherwise a drag
+    towards a neighbouring stretch would re-pick the run halfway and the block would jump.
+  */
+  const run = blockRunPx(symbol, room, rooms);
+  let clamped = Math.min(run.to - half, Math.max(run.from + half, centrePx));
 
   if (isBlockSymbol(symbol)) {
-    if (clamped - half <= BLOCK_END_SNAP_PX) clamped = half;
-    else if (wall.lengthPx - (clamped + half) <= BLOCK_END_SNAP_PX) clamped = wall.lengthPx - half;
+    // Flush to whichever end of its own stretch it is near — a room corner, or the face of a
+    // sub-room standing on this wall. Both are walls to a cabinet.
+    if (clamped - half - run.from <= BLOCK_END_SNAP_PX) clamped = run.from + half;
+    else if (run.to - (clamped + half) <= BLOCK_END_SNAP_PX) clamped = run.to - half;
   }
 
   return { ...symbol, t: clamped / wall.lengthPx };
@@ -2375,11 +2430,11 @@ export function sketchOutput(sketch: Sketch): SketchRoomOutput[] {
     })),
     symbols: room.symbols.map((symbol) => {
       const wall = wallById(room, symbol.wallId);
-      const width = symbolWidthFeet(symbol, room);
+      const width = symbolWidthFeet(symbol, room, sketch.rooms);
       const common = {
         type: symbol.type,
         wall: wallNumber.get(symbol.wallId) ?? 0,
-        offsetFeet: wall?.lengthFeet == null ? null : round2(symbolCentrePx(symbol, room) / PIXELS_PER_FOOT),
+        offsetFeet: wall?.lengthFeet == null ? null : round2(symbolCentrePx(symbol, room, sketch.rooms) / PIXELS_PER_FOOT),
         widthFeet: width == null ? null : round2(width),
       };
 
