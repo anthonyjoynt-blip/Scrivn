@@ -30,6 +30,7 @@ import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { answerFor } from "./answers.mjs";
+import { auditScope, auditSection } from "./audit.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..", "..");
@@ -138,6 +139,25 @@ async function runOne(entry) {
 
   const generateResponse = await post("/api/generate", { claim, extraction, transcript: entry.transcript });
   usage.push(...(generateResponse.usage ?? []));
+  const documents = generateResponse.documents ?? generateResponse;
+
+  /*
+    Read the finished document back against the dictation — see audit.mjs.
+
+    FAIL-SOFT on purpose, like the detail pass it sits downstream of: a trace with no audit is still
+    the thing this harness exists to produce, and losing six of them because one extra call timed out
+    would be a poor trade. `SCRIVN_NO_AUDIT=1` skips it when the run is about something else.
+  */
+  let audit = null;
+  if (process.env.SCRIVN_NO_AUDIT !== "1" && typeof documents.scopeDocument === "string") {
+    try {
+      const result = await auditScope({ transcript: entry.transcript, scopeDocument: documents.scopeDocument });
+      audit = result;
+      usage.push(result.usage);
+    } catch (err) {
+      audit = { error: err instanceof Error ? err.message : String(err) };
+    }
+  }
 
   return {
     usage,
@@ -149,7 +169,8 @@ async function runOne(entry) {
     // left, which is not a round anybody sat through.
     rounds: log.length === 0 ? 0 : Math.max(...log.map((e) => e.round)),
     stalled,
-    documents: generateResponse.documents ?? generateResponse,
+    documents,
+    audit,
     seconds: Math.round((Date.now() - started) / 100) / 10,
   };
 }
@@ -316,7 +337,7 @@ function usageSection(usage) {
 }
 
 function report(result) {
-  const { entry, log, documents, rawExtraction, extraction, stalled } = result;
+  const { entry, log, documents, rawExtraction, extraction, stalled, audit } = result;
   const parts = [];
   parts.push(`SCRIVN PIPELINE TRACE — ${entry.name}`);
   parts.push(`${entry.claim.customerName} · ${entry.claim.jobNumber} · ${entry.claim.insurer} · ${entry.claim.lossType}`);
@@ -345,6 +366,13 @@ function report(result) {
     parts.push(rule("6. INSPECTION REPORT"));
     parts.push(documents.inspectionReport);
   }
+
+  /*
+    Before the raw tree, because it is the part worth reading. The sections above say what the
+    pipeline did; this one says what it missed.
+  */
+  parts.push(rule("6. WHAT THE DICTATION SAYS THAT THE SCOPE DOES NOT (audit — see audit.mjs)"));
+  parts.push(auditSection(audit));
 
   parts.push(rule("7. FINAL EXTRACTION TREE (raw, for when a line above looks wrong)"));
   parts.push(JSON.stringify(extraction, null, 1));
