@@ -126,6 +126,7 @@ function roomToDomain(w: RoomWire): Room {
     containmentRequired: null,
     containmentSF: null,
     hepaVacuumingRequired: null,
+    temporaryPowerRequired: null,
     // Filled by the detail pass — call 1 has no room for another category (see schema.ts).
     appliances: [],
     // Detail-pass only, like appliances above — call 1 has no grammar left to carry them.

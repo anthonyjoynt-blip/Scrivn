@@ -149,6 +149,18 @@ export interface Room {
    * asking for the number again would be asking the PM to repeat the floor area.
    */
   hepaVacuumingRequired: boolean | null;
+  /**
+   * A spider box or other temporary power distribution fed off the main panel.
+   *
+   * Deliberately has NO gap-check question, unlike almost everything else here: it is a site-setup
+   * decision a PM either mentions or does not, and a standing "is temporary power needed?" would
+   * fire on every claim and be answered no on nearly all of them. Captured when stated, silent
+   * otherwise — see the General rendering, which hoists it out of the room it was mentioned in.
+   *
+   * Room-level because that is where the detail pass can put it without call 1's grammar, not
+   * because it is a fact about a room. It is one box for a job; the renderer treats it that way.
+   */
+  temporaryPowerRequired: boolean | null;
   /** Only meaningful (and only gap-checked) when waterExtractionRequired is true. Real SF count. */
   waterExtractionSF: number | null;
   /** Qualitative alternative to waterExtractionSF — see {@link AreaFraction}. */

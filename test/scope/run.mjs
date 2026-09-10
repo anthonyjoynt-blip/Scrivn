@@ -102,7 +102,7 @@ function flooring(overrides = {}) {
   };
 }
 function room(name, overrides = {}) {
-  return { roomName: name, flooring: [], baseboard: [], walls: [], ceilings: [], doors: [], cabinetry: [], toeKicks: [], countertops: [], wallTile: [], outlets: [], lightFixtures: [], electricalPanel: null, plumbingFixtures: [], stairs: null, floorRegistersDetached: null, contents: null, equipment: [], antimicrobialApplied: null, containmentRequired: null, containmentSF: null, hepaVacuumingRequired: null, appliances: [], trim: [], windowCoverings: [], cabinetHardware: [], waterExtractionRequired: null, waterExtractionSF: null, waterExtractionFraction: null, baseboardConfirmedAbsent: false, windowCleaningAsked: false, windowCleaningCounts: null, equipmentAsked: false, ceilingLightFixturesPresent: null, ceilingFixturesInRemovalArea: null, ceilingLightFixtureType: null, ceilingLightFixtureCount: null, otherCeilingFixtures: null, ...overrides };
+  return { roomName: name, flooring: [], baseboard: [], walls: [], ceilings: [], doors: [], cabinetry: [], toeKicks: [], countertops: [], wallTile: [], outlets: [], lightFixtures: [], electricalPanel: null, plumbingFixtures: [], stairs: null, floorRegistersDetached: null, contents: null, equipment: [], antimicrobialApplied: null, containmentRequired: null, containmentSF: null, hepaVacuumingRequired: null, temporaryPowerRequired: null, appliances: [], trim: [], windowCoverings: [], cabinetHardware: [], waterExtractionRequired: null, waterExtractionSF: null, waterExtractionFraction: null, baseboardConfirmedAbsent: false, windowCleaningAsked: false, windowCleaningCounts: null, equipmentAsked: false, ceilingLightFixturesPresent: null, ceilingFixturesInRemovalArea: null, ceilingLightFixtureType: null, ceilingLightFixtureCount: null, otherCeilingFixtures: null, ...overrides };
 }
 
 /* ── A replaced ceiling gets primed and painted ────────────────────────────────────────────────── */
@@ -467,6 +467,37 @@ for (const [label, record] of [
     `and the same baseboard ${label} goes back on in Repair (got:\n${repair})`,
   );
 }
+
+/* ── Drying mats and temporary power ───────────────────────────────────────────────────────────── */
+
+/*
+  Both were prose-only: a drying mat system and a spider box reached the scope once, written from the
+  transcript by the generator, and reached the tree never. Mats are ordinary equipment and needed
+  nothing but a wider vocabulary. Temporary power is deliberately never gap-checked — a standing "is
+  temporary power needed?" would fire on every claim and be answered no on nearly all of them.
+*/
+const matsOrder = (overrides) =>
+  bbText(
+    buildWorkOrders({
+      trades: ["MITIGATION_DEMO"],
+      claim,
+      extraction: bbExtraction([room("Basement", overrides)]),
+      contentsApproach: "TM",
+      contentsTM: { entries: [] },
+      bricABrac: { rooms: [] },
+      dgigData: null,
+    }),
+    "MITIGATION_DEMO",
+  );
+
+const mats = matsOrder({ equipment: [{ type: "drying mats", quantity: 4, holeCount: null }] });
+check(mats.includes("Place equipment – drying mats – 4"), `mats are placed and counted like any other equipment (got:\n${mats})`);
+check(!mats.includes("injection holes"), "and drill nothing — that is the other one");
+
+const power = matsOrder({ temporaryPowerRequired: true });
+check(power.includes("Set up temporary power distribution"), `a spider box reaches the crew sheet (got:\n${power})`);
+check(!matsOrder({ temporaryPowerRequired: null }).includes("temporary power"), "and a claim that never mentioned one gets no line");
+check(!matsOrder({ temporaryPowerRequired: false }).includes("temporary power"), "nor does one that said none is needed");
 
 /* ── Injecti-dry drills holes now and fills them later ─────────────────────────────────────────── */
 

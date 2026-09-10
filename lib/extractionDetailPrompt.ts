@@ -31,7 +31,8 @@ STRUCTURE — this is what makes the answer usable at all:
   baseboard, walls, ceilings, doors and cabinetry. The counts are given per room below. A room with
   zero of something gets an empty array for it.
 - lightFixturesPresent, lightFixtureCount, antimicrobialApplied, containmentRequired, containmentSF,
-  hepaVacuumingRequired, contentsPackOut, appliances, trim, windowCoverings and cabinetHardware are
+  hepaVacuumingRequired, temporaryPowerRequired, contentsPackOut, appliances, trim, windowCoverings
+  and cabinetHardware are
   room-level: one value each per room entry, not
   arrays and not per record.
 - If a count does not match, the whole room's detail is discarded rather than misapplied, so match
@@ -120,6 +121,10 @@ WHAT EACH FIELD MEANS:
   Trim that is merely in the room, unmentioned and untouched, is not recorded. Do not infer casing
   from a door being replaced: whether the casing comes with it is a scoping decision somebody makes,
   not a fact the transcript stated.
+- temporaryPowerRequired — room-level. YES when the transcript says a spider box, temporary power, a
+  temp panel or a generator is being brought in to feed the equipment. NO when it says none is
+  needed. UNKNOWN when it never comes up, which is the ordinary case. Nobody is asked about this
+  later, so a YES the transcript states is the only way it reaches a document.
 - windowCoverings — room-level, produced outright like trim and appliances. One entry for each blind,
   shade, drapery or shutter the transcript says is coming down, going back up, or being replaced.
   Empty array when it names none, which is the common case.

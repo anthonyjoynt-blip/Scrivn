@@ -254,7 +254,7 @@ function room(name, overrides = {}) {
     floorRegistersDetached: null,
     contents: null,
     equipment: [],
-    waterExtractionRequired: null, antimicrobialApplied: null, containmentRequired: null, containmentSF: null, hepaVacuumingRequired: null, appliances: [], trim: [], windowCoverings: [], cabinetHardware: [],
+    waterExtractionRequired: null, antimicrobialApplied: null, containmentRequired: null, containmentSF: null, hepaVacuumingRequired: null, temporaryPowerRequired: null, appliances: [], trim: [], windowCoverings: [], cabinetHardware: [],
     waterExtractionSF: null,
     waterExtractionFraction: null,
     baseboardConfirmedAbsent: false,

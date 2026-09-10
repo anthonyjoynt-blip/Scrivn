@@ -467,9 +467,19 @@ Auto-included items — apply these yourself, they are never spelled out per-ite
     on a line that still belongs in the document, exactly as with a baseboard height. Never write one
     of the pair without the other — a wall drilled in Emergency and patched nowhere reads as a wall
     left with holes in it.
+    DRYING MATS are ordinary equipment with no extra lines: "Place 4 drying mats". They do not imply
+    anything about the floor — a floor being saved by mats is disposition DRY_IN_PLACE on its own
+    record, and the mats are what does the saving.
     Injecti-dry does NOT mean the drywall is coming off. It is chosen precisely so the wall stays up,
     so never write a flood cut, a drywall removal or a drywall replacement from it; those come from
     the wall records and nowhere else.
+13b. Temporary power, claim-level, Emergency GENERAL — when ANY room has temporaryPowerRequired
+    true, one bullet under General: "Temporary power distribution". Once for the whole claim, never
+    once per room and never inside a room's own list: a spider box is fed off the main panel and
+    serves the site, so it belongs beside the disposal charge and the equipment pickup rather than in
+    whichever room the PM happened to mention it in.
+    Nothing asks the PM about this afterwards, so a transcript that never raises it produces no line
+    — which is correct. Do not add one because a claim has a lot of equipment.
 14. Antimicrobial, per room, Emergency — for every room whose antimicrobialApplied is true, one
     bullet: "Antimicrobial application". Emergency-phase and single-phase; never write a Repair
     counterpart. Like equipment above, this is a room-level fact with no action or phase field of its
@@ -687,6 +697,8 @@ Emergency
     - Equipment pickup and monitoring
     - Asbestos sample collection – {N} samples   (only when loss.asbestosSamplesTaken is true; {N} is
       loss.asbestosSampleCount, omitted along with the word "samples" when that count is null)
+    - Temporary power distribution   (only when ANY room's temporaryPowerRequired is true — see the
+      rule below; it is one box for a job, so write it ONCE here and never per room)
     ... (plus any non-room Emergency auto-included items — see the rules below)
 
 Repair

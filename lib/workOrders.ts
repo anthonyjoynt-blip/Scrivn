@@ -404,6 +404,13 @@ function buildMitigationDemo(claim: ClaimInfo, extraction: WaterLossExtraction, 
       const qty = room.waterExtractionSF !== null ? `${room.waterExtractionSF} SF` : fractionLabel(room.waterExtractionFraction) ?? null;
       items.push(bullet("Extract water", room.flooring.some((f) => f.type === "CARPET") ? "from carpet" : "from hard surface", qty));
     }
+    /*
+      One box for the job, written once on the sheet of whichever room carries the flag. It is not a
+      room fact — see Room.temporaryPowerRequired — but a crew sheet is organised by room, so the
+      room that mentioned it is where a crew will look for it.
+    */
+    if (room.temporaryPowerRequired === true) items.push(bullet("Set up temporary power distribution", null, null));
+
     for (const e of room.equipment) {
       items.push(bullet("Place equipment", e.type, e.quantity !== null ? `${e.quantity}` : null));
       /*

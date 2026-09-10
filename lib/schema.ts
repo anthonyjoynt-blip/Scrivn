@@ -364,6 +364,8 @@ const roomDetailSchema = obj({
   containmentSF: nullableNumber(),
   // Priced per SF of floor, which the room already has — so a boolean, not another quantity.
   hepaVacuumingRequired: nullableBool(),
+  // A spider box off the main panel. Captured when stated; never gap-checked — see Room.
+  temporaryPowerRequired: nullableBool(),
   /*
     Contents leaving the building, as opposed to being moved around inside it. A different job from
     on-site manipulation — an inventory, boxes, a truck, storage and a pack-back — and none of that

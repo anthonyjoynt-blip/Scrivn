@@ -82,6 +82,7 @@ export interface RoomDetailWire {
   containmentRequired: string;
   containmentSF: number;
   hepaVacuumingRequired: string;
+  temporaryPowerRequired: string;
   contentsPackOut: string;
   appliances: { type: string; action: string }[];
   trim: TrimDetailWire[];
@@ -206,6 +207,7 @@ export function mergeDetail(extraction: WaterLossExtraction, detail: ExtractionD
       containmentRequired: room.containmentRequired ?? toTriState(d.containmentRequired),
       containmentSF: room.containmentSF ?? areaOrNull(d.containmentSF),
       hepaVacuumingRequired: room.hepaVacuumingRequired ?? toTriState(d.hepaVacuumingRequired),
+      temporaryPowerRequired: room.temporaryPowerRequired ?? toTriState(d.temporaryPowerRequired),
       /*
         Only onto a room that HAS a contents record. A pack-out flag on a room where nothing was said
         about contents would assert work from a field that was never populated — and `contents` being

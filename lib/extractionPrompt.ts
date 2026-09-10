@@ -46,11 +46,15 @@ Rules:
   about phase for that specific item — words like "assess," "not sure if we're replacing," "hold
   off on the repair," "need to see how it dries." A plain "remove and replace" or "remove" alone
   is not uncertainty — leave phaseUncertain false in that case.
-- For equipment: this app tracks four equipment types — "air movers", "dehumidifiers",
-  "air scrubbers" and "injecti-dry units" — the type field must always be exactly one of those four
-  literal strings, never a generic term.
-  "Injecti-dry", "injectidry", "wall cavity injection", "injection drying", a "drying panel system"
-  fed into a cavity, or any description of injecting or forcing warm dry air BEHIND a wall or into a
+- For equipment: this app tracks five equipment types — "air movers", "dehumidifiers",
+  "air scrubbers", "injecti-dry units" and "drying mats" — the type field must always be exactly one
+  of those five literal strings, never a generic term.
+  "Drying mats", "floor mats", "mat system" or panels laid ON a floor to draw water up through it —
+  the usual way a hardwood floor is saved instead of pulled — are "drying mats". The quantity is the
+  number of MATS. Do not record them as a change to the flooring: a floor being dried in place is
+  disposition DRY_IN_PLACE on the flooring record, and the mats are the equipment doing it.
+  "Injecti-dry", "injectidry", "wall cavity injection", "injection drying", a panel system fed into
+  a cavity, or any description of injecting or forcing warm dry air BEHIND a wall or into a
   cavity without opening it up, is "injecti-dry units". It is drying equipment like the rest — the
   drilling and patching that come with it are added downstream, not something to record here. Do not
   record it as a flood cut or as any change to the drywall: the whole point of it is that the wall
@@ -70,6 +74,12 @@ Rules:
   Do NOT add injecti-dry to the generic case either, for the same reason as air scrubbers: it is a
   deliberate choice a PM names, and inferring it from "dry it out" would put a drilled wall on a
   scope nobody asked for.
+- temporaryPowerRequired — YES when the transcript says a spider box, temporary power, a temp panel
+  or a generator is being brought in to feed the equipment: "running a spider box off the main panel",
+  "power in there isn't reliable enough so we're bringing in temporary power". NO when it says none
+  is needed. UNKNOWN when it never comes up, which is the ordinary case.
+  Record it on the room the PM was describing when they said it. It is one box for a job rather than
+  a fact about a room, and the documents treat it that way — you do not need to repeat it per room.
 - Do not compute or infer whether asbestos testing is required — that is derived automatically
   from the year of the building elsewhere in the pipeline, not something you decide.
 - If the PM mentioned asbestos samples being taken and how many, record that. If not mentioned,
