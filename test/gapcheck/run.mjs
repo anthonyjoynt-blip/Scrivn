@@ -326,7 +326,7 @@ function everyRecordRoom(name) {
     walls: [
       { wallMaterial: "DRYWALL", drywallBeingRemoved: true, insulationAffected: null, insulationType: null, insulationRValue: null, floodCutHeightIn: null, cutHeight: null, cutRunFt: null, cutRunFraction: null },
     ],
-    doors: [{ location: "Entry", action: "REMOVE_AND_REPLACE", slabOnly: null, doorType: null, unitType: null, saveHardware: null }],
+    doors: [{ location: "Entry", action: "REMOVE_AND_REPLACE", slabOnly: null, doorType: null, doorStyle: null, unitType: null, saveHardware: null }],
     cabinetry: [{ location: "Base run", action: "REMOVE_AND_REPLACE", extent: null, grade: null }],
     toeKicks: [{ action: "REMOVE_AND_REPLACE", method: null }],
     countertops: [{ action: "REMOVE_AND_REPLACE", material: null }],
@@ -2162,6 +2162,55 @@ check(
 check(
   bbActionQ({ ...openBb, action: "SHOE_MOLD_ONLY" }).every((q) => !q.id.endsWith(":shoeMold")),
   "a shoe-mold-only job is never asked whether the shoe comes too — the shoe IS the job",
+);
+
+/* ── A door's style is asked separately from what it is made of ─────────────────────────────────
+
+  One enum held both, so whichever answer got picked erased the other — and it was the pocket that
+  lost: "pocket door, water got into the wall cavity where it slides" came back as an ordinary
+  hollow-core pre-hung door, with everything that makes it a bigger job flattened away.
+*/
+const doorRec = (overrides = {}) => ({
+  location: "closet", action: "REMOVE_AND_REPLACE", slabOnly: null,
+  doorType: null, doorStyle: null, unitType: null, saveHardware: null, ...overrides,
+});
+const doorTree = (record) => extractionWith([everyRecordRoomWith({ doors: [record] })]);
+const doorQs = (record) =>
+  nextQuestions(claim, withDerivedFields(doorTree(record))).filter((q) => q.id.includes(":door:"));
+
+const bothAsked = doorQs(doorRec()).map((q) => q.id.split(":").pop());
+check(bothAsked.includes("doorType") && bothAsked.includes("doorStyle"), `core and style are both asked (got ${JSON.stringify(bothAsked)})`);
+check(
+  doorQs(doorRec({ doorType: "HOLLOW_CORE" })).some((q) => q.id.endsWith(":doorStyle")),
+  "and knowing the core does not settle the style — a pocket door is hollow core too",
+);
+check(
+  !doorQs(doorRec({ doorStyle: "POCKET" })).some((q) => q.id.endsWith(":doorStyle")),
+  "nor is it asked once it is known",
+);
+
+const asPocket = applyAnswer(doorTree(doorRec()), "room:0:door:0:doorStyle", "Pocket");
+check(asPocket.rooms[0]?.doors[0]?.doorStyle === "POCKET", "answering records the style");
+check(
+  asPocket.rooms[0]?.doors[0]?.doorType === null,
+  "and leaves the core alone — the two facts no longer compete for one field",
+);
+
+/*
+  An answer that matches nothing leaves the field NULL rather than settling on SWING. A door quietly
+  recorded as an ordinary swing is the exact failure this field exists to stop, and it is invisible;
+  a null is asked again in seconds.
+*/
+const junkStyle = applyAnswer(doorTree(doorRec()), "room:0:door:0:doorStyle", "Sliding barn thing");
+check(junkStyle.rooms[0]?.doors[0]?.doorStyle === null, "an unrecognised answer never becomes a swing door");
+check(
+  doorQs(junkStyle.rooms[0].doors[0]).some((q) => q.id.endsWith(":doorStyle")),
+  "so it gets asked again rather than passing silently",
+);
+
+check(
+  doorQs(doorRec({ doorStyle: "POCKET" })).find((q) => q.id.endsWith(":unitType"))?.prompt.includes("pocket"),
+  "and a pocket door's unit question names the pocket — it is what decides whether the wall opens",
 );
 
 /* ── Repair-visit verbs ─────────────────────────────────────────────────────────────────────────

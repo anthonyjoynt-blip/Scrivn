@@ -295,7 +295,19 @@ const flooringDetailSchema = obj({
 
 const doorDetailSchema = obj({
   doorType: nullableEnumOf("COLONIAL", "SOLID_CORE", "HOLLOW_CORE", "OTHER"),
+  /*
+    How it opens, which is a different axis from what it is made of — see `DoorStyle`. Without it a
+    pocket door was recorded as HOLLOW_CORE and nothing else, so everything that makes it a bigger
+    job than the door next to it was gone.
+  */
+  doorStyle: nullableEnumOf("SWING", "BIFOLD", "POCKET", "BYPASS", "FRENCH"),
   unitType: nullableEnumOf("PRE_HUNG", "SLAB_ONLY"),
+  /*
+    Whether the existing hardware is being saved. Was gap-check-only, so a transcript saying "save
+    them if possible, reset after" was asked about anyway — and the stand-in PM answered the opposite
+    on one of the two doors, which is what a real PM would have found irritating rather than wrong.
+  */
+  saveHardware: nullableBool(),
 });
 
 const cabinetryDetailSchema = obj({

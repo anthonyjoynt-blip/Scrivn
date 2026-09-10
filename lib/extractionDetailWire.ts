@@ -1,5 +1,6 @@
 import type {
   CabinetryExtent,
+  DoorStyle,
   DoorType,
   DoorUnitType,
   HardwoodConstruction,
@@ -41,7 +42,9 @@ export interface FlooringDetailWire {
 }
 export interface DoorDetailWire {
   doorType: string;
+  doorStyle: string;
   unitType: string;
+  saveHardware: string;
 }
 export interface CabinetryDetailWire {
   extent: string;
@@ -181,7 +184,9 @@ export function mergeDetail(extraction: WaterLossExtraction, detail: ExtractionD
       doors: room.doors.map((dr, i) => ({
         ...dr,
         doorType: dr.doorType ?? enumOrNull<DoorType>(d.doors[i]?.doorType),
+        doorStyle: dr.doorStyle ?? enumOrNull<DoorStyle>(d.doors[i]?.doorStyle),
         unitType: dr.unitType ?? enumOrNull<DoorUnitType>(d.doors[i]?.unitType),
+        saveHardware: dr.saveHardware ?? toTriState(d.doors[i]?.saveHardware),
       })),
       cabinetry: room.cabinetry.map((c, i) => ({
         ...c,
@@ -285,7 +290,7 @@ export function needsDetailPass(extraction: WaterLossExtraction): boolean {
       // A cut height and cavity insulation only exist where drywall is coming off.
       room.walls.some((w) => w.drywallBeingRemoved && (w.cutHeight === null || w.insulationType === null)) ||
       // Doors and cabinetry carry spec the PM routinely states while describing them.
-      room.doors.some((d) => d.doorType === null || d.unitType === null) ||
+      room.doors.some((d) => d.doorType === null || d.doorStyle === null || d.unitType === null || d.saveHardware === null) ||
       room.cabinetry.some((c) => c.extent === null) ||
       /*
         Light fixtures have no records to check — the category is cut from extraction — so the

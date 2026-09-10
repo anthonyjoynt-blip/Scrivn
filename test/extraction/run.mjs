@@ -299,7 +299,7 @@ check(message.includes("some transcript"), "and carries the transcript");
 */
 const SPEC_ROOM = room("Spec", {
   flooring: [flooring("HARDWOOD")],
-  doors: [{ location: "Closet", action: "REMOVE_AND_REPLACE", slabOnly: null, doorType: null, unitType: null, saveHardware: null }],
+  doors: [{ location: "Closet", action: "REMOVE_AND_REPLACE", slabOnly: null, doorType: null, doorStyle: null, unitType: null, saveHardware: null }],
   cabinetry: [{ location: "Upper run", action: "REMOVE_AND_REPLACE", extent: null, grade: null }],
 });
 const specDetail = {
@@ -326,7 +326,7 @@ check(noCount.ceilingLightFixtureCount === null, `an unstated count stays null, 
 
 // These are the reason the pass fires at all now — a hardwood floor alone should trigger it.
 check(needsDetailPass(tree([room("H", { flooring: [flooring("HARDWOOD")] })])), "a hardwood floor alone warrants the detail pass");
-check(needsDetailPass(tree([room("D", { doors: [{ location: "x", action: "REMOVE_AND_REPLACE", slabOnly: null, doorType: null, unitType: null, saveHardware: null }] })])), "as does a door with no spec");
+check(needsDetailPass(tree([room("D", { doors: [{ location: "x", action: "REMOVE_AND_REPLACE", slabOnly: null, doorType: null, doorStyle: null, unitType: null, saveHardware: null }] })])), "as does a door with no spec");
 
 /* ── Shoe mold ───────────────────────────────────────────────────────────────────────────────────
 

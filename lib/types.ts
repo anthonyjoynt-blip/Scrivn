@@ -594,11 +594,36 @@ export interface TrimRecord {
 export type DoorType = "COLONIAL" | "SOLID_CORE" | "HOLLOW_CORE" | "OTHER";
 export type DoorUnitType = "PRE_HUNG" | "SLAB_ONLY";
 
+/**
+ * How the door OPENS, as opposed to what it is made of.
+ *
+ * A separate axis from `doorType`, and separate for the reason the shoe mold needed its own field: a
+ * pocket door is hollow-core AND pocket, so one enum holding both could only ever say one of them.
+ * A batch of test transcripts proved it — "pocket door into the bathroom, water got into the wall
+ * cavity where it slides, more involved than a normal door given it's in the wall" came back as
+ * HOLLOW_CORE / PRE_HUNG, indistinguishable from any other door in the house. Everything that makes
+ * it cost more had been flattened away, and the bifold beside it landed on OTHER.
+ *
+ * SWING is the ordinary hinged door and what a null reads as. The rest are genuinely different jobs:
+ * a pocket runs inside the wall, a bifold and a bypass hang on tracks, a french is two leaves.
+ */
+export type DoorStyle = "SWING" | "BIFOLD" | "POCKET" | "BYPASS" | "FRENCH";
+
+export const DOOR_STYLE_LABEL: Record<DoorStyle, string> = {
+  SWING: "swing",
+  BIFOLD: "bifold",
+  POCKET: "pocket",
+  BYPASS: "bypass",
+  FRENCH: "french",
+};
+
 export interface DoorRecord {
   location: string;
   action: DetachOrReplaceAction;
   slabOnly: boolean | null;
   doorType: DoorType | null;
+  /** How it opens — see {@link DoorStyle}. Null reads as an ordinary swing door. */
+  doorStyle: DoorStyle | null;
   unitType: DoorUnitType | null;
   saveHardware: boolean | null;
 }

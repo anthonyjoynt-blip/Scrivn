@@ -18,6 +18,7 @@ import type {
   CountertopRecord,
   DetachOrReplaceAction,
   DoorRecord,
+  DoorStyle,
   TrimAction,
   TrimRecord,
   DoorType,
@@ -977,6 +978,15 @@ function wallQuestions(roomIndex: number, roomName: string, i: number, w: WallRe
 
 // ---- Doors --------------------------------------------------------------------------------------
 
+/** The offered answers, paired with what each one means — one list, so the two cannot drift. */
+const DOOR_STYLE_ANSWERS: { label: string; value: DoorStyle }[] = [
+  { label: "Swing", value: "SWING" },
+  { label: "Bifold", value: "BIFOLD" },
+  { label: "Pocket", value: "POCKET" },
+  { label: "Bypass", value: "BYPASS" },
+  { label: "French", value: "FRENCH" },
+];
+
 function doorQuestions(roomIndex: number, roomName: string, i: number, d: DoorRecord): GapCheckQuestion[] {
   const q: GapCheckQuestion[] = [];
   const base = `room:${roomIndex}:door:${i}`;
@@ -985,8 +995,25 @@ function doorQuestions(roomIndex: number, roomName: string, i: number, d: DoorRe
       q.push({ id: `${base}:slabOnly`, roomName, prompt: "Is this a slab-only detach & reset (not the full frame/unit)?", kind: { type: "yesNo" } });
   } else {
     if (d.doorType === null)
-      q.push({ id: `${base}:doorType`, roomName, prompt: "What type of door?", kind: { type: "choice", options: ["Colonial", "Solid core", "Hollow core", "Other"] } });
-    if (d.unitType === null) q.push({ id: `${base}:unitType`, roomName, prompt: "Pre-hung unit, or slab only?", kind: { type: "choice", options: ["Pre-hung", "Slab only"] } });
+      q.push({ id: `${base}:doorType`, roomName, prompt: "What is the door made of?", kind: { type: "choice", options: ["Colonial", "Solid core", "Hollow core", "Other"] } });
+    /*
+      A separate question because it is a separate fact — a pocket door has a core too. Folded into
+      the one above, whichever answer got picked erased the other, and it was the pocket that lost:
+      "pocket door, water got into the wall cavity where it slides" came back as an ordinary
+      hollow-core pre-hung door.
+    */
+    if (d.doorStyle === null)
+      q.push({
+        id: `${base}:doorStyle`, roomName, prompt: "How does the door open?",
+        kind: { type: "choice", options: DOOR_STYLE_ANSWERS.map((a) => a.label) },
+      });
+    if (d.unitType === null)
+      q.push({
+        id: `${base}:unitType`, roomName,
+        // Named for a pocket door, where it is the question that decides whether the wall opens.
+        prompt: d.doorStyle === "POCKET" ? "The whole unit including the pocket, or just the slab?" : "Pre-hung unit, or slab only?",
+        kind: { type: "choice", options: ["Pre-hung", "Slab only"] },
+      });
     if (d.saveHardware === null) q.push({ id: `${base}:saveHardware`, roomName, prompt: "Save the existing hardware?", kind: { type: "yesNo" } });
   }
   return q;
@@ -2356,6 +2383,15 @@ function applyDoorAnswer(d: DoorRecord, field: string, answer: string): DoorReco
       else if (equalsIgnoreCase(answer, "Hollow core")) doorType = "HOLLOW_CORE";
       else doorType = "OTHER";
       return { ...d, doorType };
+    }
+    case "doorStyle": {
+      /*
+        Unrecognised leaves it null rather than falling through to SWING. A door quietly recorded as
+        an ordinary swing is exactly the failure this field exists to stop, and it is invisible —
+        whereas a null gets asked again in seconds.
+      */
+      const style = DOOR_STYLE_ANSWERS.find((entry) => equalsIgnoreCase(answer, entry.label));
+      return style ? { ...d, doorStyle: style.value } : d;
     }
     case "unitType":
       return { ...d, unitType: (equalsIgnoreCase(answer, "Pre-hung") ? "PRE_HUNG" : "SLAB_ONLY") as DoorUnitType };

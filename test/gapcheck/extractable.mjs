@@ -47,7 +47,10 @@ export const EXTRACTABLE = new Set([
   // How much floor is coming out, any type. Stated dimensions ("six by eight feet") are multiplied
   // out during the detail pass; the question below only fires when nothing was stated at all.
   "flooring:removalSF",
-  "door:doorType", "door:unitType",
+  // doorStyle is a SEPARATE axis from doorType — a pocket door has a core too. saveHardware moved
+  // here from the deliberately-asked list below: a PM saying "save them if possible" is an
+  // observation, and asking anyway got it wrong on one of two doors in a real transcript.
+  "door:doorType", "door:doorStyle", "door:unitType", "door:saveHardware",
   "cabinetry:extent",
   "ceilingLightFixtures:present", "ceilingLightFixtures:count",
   "baseboard:material", "baseboard:mdfProfile",
@@ -84,7 +87,6 @@ export const DELIBERATELY_ASKED = new Map([
 
   // Decisions the PM makes later, not observations they make on site.
   ["cabinetry:grade", "a replacement-spec decision made when pricing, not observed on site"],
-  ["door:saveHardware", "a decision about the rebuild, not an observation"],
   ["ceilingFixtures:inRemovalArea", "a judgement about the removal boundary, not stated"],
   ["room:otherCeilingFixtures", "free text, deliberately open-ended"],
   ["plumbing:sinkAlsoNeeded", "a rebuild decision"],

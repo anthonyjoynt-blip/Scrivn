@@ -235,6 +235,8 @@ function doorToDomain(w: DoorRecordWire): DoorRecord {
     action: w.action as DetachOrReplaceAction,
     slabOnly: null,
     doorType: null,
+    // All detail-pass fields — call 1 records only that a door is being worked on, and its action.
+    doorStyle: null,
     unitType: null,
     saveHardware: null,
   };

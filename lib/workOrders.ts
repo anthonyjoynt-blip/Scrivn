@@ -10,8 +10,8 @@ import { DRYING_CLASS_OPTIONS } from "./dgig";
 import { isDGIG } from "./insurers";
 import { lossTypeLabel } from "./claimInfo";
 import { baseboardFinishLine, ceilingPaintLine, ceilingQuantity, fractionLabel, primingLine } from "./paintDerivation";
-import type { ApplianceType, CeilingRecord, FlooringRecord, Room, WaterLossExtraction } from "./types";
-import { APPLIANCE_LABEL, TRIM_KIND_LABEL, WINDOW_CLEANING_SIZE_LABEL, WINDOW_CLEANING_SIZES } from "./types";
+import type { ApplianceType, CeilingRecord, DoorRecord, FlooringRecord, Room, WaterLossExtraction } from "./types";
+import { APPLIANCE_LABEL, DOOR_STYLE_LABEL, TRIM_KIND_LABEL, WINDOW_CLEANING_SIZE_LABEL, WINDOW_CLEANING_SIZES } from "./types";
 
 /**
  * Trade work orders — the crew-facing counterpart to the estimator-facing scope document.
@@ -180,6 +180,17 @@ const STANDING_NOTES = [
  * doors only should not carry notes about baseboard. `rooms` is what decides that — rooms rather
  * than the whole extraction because the contents trades have no extraction to hand at all.
  */
+/**
+ * What to call a door on a crew sheet.
+ *
+ * Plain "door" for an ordinary swing one and for any nobody has described — a style nobody stated is
+ * silence, not evidence of a swing door, and inventing the word would be as wrong as omitting it
+ * from a pocket.
+ */
+function doorNoun(d: DoorRecord): string {
+  return d.doorStyle && d.doorStyle !== "SWING" ? `${DOOR_STYLE_LABEL[d.doorStyle]} door` : "door";
+}
+
 function tradeNotes(trade: Trade, rooms: Room[]): string[] {
   const installsBaseboard = rooms.some((room) =>
     room.baseboard.some((b) => b.action === "REMOVE_AND_REPLACE" || b.action === "SHOE_MOLD_ONLY"),
@@ -355,7 +366,12 @@ function buildMitigationDemo(claim: ClaimInfo, extraction: WaterLossExtraction, 
     for (const c of room.ceilings) {
       items.push(bullet(c.action === "DETACH_AND_RESET" ? "Detach ceiling" : "Remove ceiling", CEILING_TYPE_LABEL[c.type] ?? titleCase(c.type), ceilingExtent(c)));
     }
-    for (const d of room.doors) items.push(bullet(d.action === "DETACH_AND_RESET" ? "Detach door" : "Remove door", d.location, null));
+    /*
+      The style is named on the line, because it is what tells a crew how much door they are dealing
+      with. A pocket runs inside the wall, a bifold and a bypass hang on tracks — and a scope that
+      calls all three "door" prices the easiest of them.
+    */
+    for (const d of room.doors) items.push(bullet(d.action === "DETACH_AND_RESET" ? `Detach ${doorNoun(d)}` : `Remove ${doorNoun(d)}`, d.location, null));
     /*
       Trim is its own line, never folded into the door or window it surrounds.
 
@@ -485,7 +501,7 @@ function buildFinishCarpentry(claim: ClaimInfo, extraction: WaterLossExtraction)
         items.push(bullet(b.action === "DETACH_AND_RESET" ? "Reset shoe mold / quarter round" : "Install shoe mold / quarter round", null, "perimeter"));
       }
     }
-    for (const d of room.doors) items.push(bullet(d.action === "DETACH_AND_RESET" ? "Reset door" : "Install new door", d.location, null));
+    for (const d of room.doors) items.push(bullet(d.action === "DETACH_AND_RESET" ? `Reset ${doorNoun(d)}` : `Install new ${doorNoun(d)}`, d.location, null));
     // The other half of the pair above. A casing detached on the emergency sheet and never mentioned
     // again reads as trim nobody put back — the same failure the baseboard pair exists to prevent.
     for (const t of room.trim) {

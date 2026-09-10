@@ -468,6 +468,42 @@ for (const [label, record] of [
   );
 }
 
+/* ── A door's style is on the line, because it is what the job costs ───────────────────────────── */
+
+/*
+  "Pocket door into the bathroom, water got into the wall cavity where it slides, more involved than
+  a normal door given it's in the wall" produced a line indistinguishable from any other door in the
+  house — because doorType held the CORE and had no room for how the thing opens. The bifold beside
+  it landed on OTHER. A scope that calls all three "door" prices the easiest of them.
+*/
+const doorRecord = (overrides = {}) => ({
+  location: "closet", action: "REMOVE_AND_REPLACE", slabOnly: null,
+  doorType: "HOLLOW_CORE", doorStyle: null, unitType: "PRE_HUNG", saveHardware: null, ...overrides,
+});
+const doorSheets = (record) => {
+  const built = bbOrders(bbExtraction([room("Hall", { doors: [record] })]));
+  return { emergency: bbText(built, "MITIGATION_DEMO"), repair: bbText(built, "FINISH_CARPENTRY") };
+};
+
+const pocket = doorSheets(doorRecord({ doorStyle: "POCKET" }));
+check(pocket.emergency.includes("Remove pocket door"), `a pocket door is named as one (got:\n${pocket.emergency})`);
+check(pocket.repair.includes("Install new pocket door"), "in both phases");
+
+const bifold = doorSheets(doorRecord({ doorStyle: "BIFOLD" }));
+check(bifold.emergency.includes("Remove bifold door"), `and so is a bifold (got:\n${bifold.emergency})`);
+
+const swing = doorSheets(doorRecord({ doorStyle: "SWING" }));
+check(
+  swing.emergency.includes("Remove door") && !swing.emergency.includes("swing door"),
+  `an ordinary swing door is just a door — the word would be noise on most lines (got:\n${swing.emergency})`,
+);
+
+const unsaidStyle = doorSheets(doorRecord({ doorStyle: null }));
+check(
+  unsaidStyle.emergency.includes("Remove door") && !unsaidStyle.emergency.includes("swing"),
+  "and a style nobody stated is silence, not a claim that it swings",
+);
+
 /* ── Repair-visit verbs: the taking-off already happened ───────────────────────────────────────── */
 
 /*

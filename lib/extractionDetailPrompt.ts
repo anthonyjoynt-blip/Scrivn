@@ -136,8 +136,24 @@ WHAT EACH FIELD MEANS:
   as action SHOE_MOLD_ONLY, and shoeMold should be UNKNOWN there.
   Do not infer it from the room having baseboard. Most baseboard has no shoe mold in the scope, and
   a line nobody asked for is worse than one somebody has to add.
-- doors.doorType — COLONIAL, SOLID_CORE, HOLLOW_CORE or OTHER, where the transcript names it.
-- doors.unitType — PRE_HUNG or SLAB_ONLY. "Just the slab" is SLAB_ONLY; "pre-hung unit" is PRE_HUNG.
+- doors.doorType — what the door is MADE OF: COLONIAL, SOLID_CORE, HOLLOW_CORE or OTHER, where the
+  transcript names it. This is the core, not the way it opens — see doorStyle, which is a separate
+  field and a separate fact. Never put a bifold or a pocket here.
+- doors.doorStyle — how it OPENS: SWING, BIFOLD, POCKET, BYPASS or FRENCH. "Bifold" and "bi-fold"
+  are BIFOLD; a "pocket door", or one described as sliding into or inside the wall, is POCKET;
+  sliding closet doors on a track that pass each other are BYPASS; a pair of glazed doors is FRENCH.
+  SWING for an ordinary hinged door where the transcript says so. UNKNOWN when it never comes up,
+  which is most doors — a door nobody describes is not evidence of a swing door, it is silence.
+  A door can be both: a hollow-core pocket door is doorType HOLLOW_CORE and doorStyle POCKET. Record
+  both when both are stated, and do not let one crowd out the other.
+- doors.unitType — PRE_HUNG or SLAB_ONLY. "Just the slab" or "just the door itself" is SLAB_ONLY;
+  "pre-hung unit", "the whole unit", "frame and all" is PRE_HUNG. This matters most on a POCKET door,
+  where replacing the whole unit means opening the wall to get at the pocket and replacing the slab
+  alone does not.
+- doors.saveHardware — YES when the transcript says the existing handles, hinges or knobs are being
+  kept and put back: "save the hardware", "save them if possible, reset after", "reuse the handles".
+  NO when it says new hardware is going on. UNKNOWN when it does not come up. A statement covering
+  several doors at once — "hardware on both doors, save them" — is YES for every door it names.
 - cabinetry.extent — UPPERS, LOWERS or FULL_HEIGHT. "Upper cabinets" is UPPERS, "the base run" or
   "lowers" is LOWERS, a floor-to-ceiling pantry or tall unit is FULL_HEIGHT.
 - lightFixturesPresent — YES when the transcript describes ANY ceiling light fixture in this room

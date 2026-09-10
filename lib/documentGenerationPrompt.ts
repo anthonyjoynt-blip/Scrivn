@@ -179,6 +179,19 @@ this room appear in the document at all":
       means nobody was asked, not that nothing is happening — and an Emergency removal with no Repair
       line is the worst of the three readings. (Gap-check asks for this field now, so it should be
       non-null on every claim; this is here for anything that slips through.)
+- DOOR STYLE is a separate fact from what the door is made of, and both belong on the line.
+  doorType is the core (colonial, solid core, hollow core); doorStyle is how it opens (SWING,
+  BIFOLD, POCKET, BYPASS, FRENCH). A door can be both at once — a hollow-core pocket door is
+  "hollow core, pocket". Name the style in the material detail whenever doorStyle is set and is not
+  SWING; say nothing about style for SWING or for null, since a style nobody stated is silence.
+  A POCKET door runs inside the wall, which is why it is worth naming: replacing the whole unit
+  means opening the wall to get at the pocket, and replacing the slab alone does not — so say
+  "pocket" and let unitType say which. Do NOT invent drywall, framing or wall-repair bullets from a
+  pocket door on your own; whether the wall is opened and what that costs is the PM's call and will
+  be in the wall records if it applies.
+  This is a reported gap: "pocket door into the bathroom, water got into the wall cavity where it
+  slides, more involved than a normal door given it's in the wall" produced a line indistinguishable
+  from any other door in the house, and the bifold beside it fared no better.
 - REPAIR-VISIT VERBS. Three fields say "the taking-off already happened, on an earlier visit, and
   this scope covers only what is left". They exist because every other value in their enums starts
   from a removal, so a follow-up visit had to be written up as though it were doing the mitigation
