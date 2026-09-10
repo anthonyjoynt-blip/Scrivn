@@ -118,7 +118,13 @@ const flooringRecordSchema = obj({
 
 const baseboardRecordSchema = obj({
   heightIn: nullableNumber(),
-  action: nullableEnumOf("DETACH_AND_RESET", "REMOVE_AND_REPLACE", "SHOE_MOLD_ONLY"),
+  /*
+    FINISH_ONLY is a repair-visit verb — the baseboard is already back on the wall and only its final
+    coat is left. An added VALUE rather than an added field, which is the only kind of growth this
+    schema has room for; verified against a real call, since a grammar too large to compile is
+    invisible to tsc and breaks every claim at once.
+  */
+  action: nullableEnumOf("DETACH_AND_RESET", "REMOVE_AND_REPLACE", "SHOE_MOLD_ONLY", "FINISH_ONLY"),
   phase: nullableEnumOf("EMERGENCY", "REPAIR", "BOTH"),
   phaseUncertain: bool(),
 });
@@ -361,6 +367,8 @@ const roomDetailSchema = obj({
   */
   appliances: arr(obj({
     type: enumOf("WASHER", "DRYER", "FRIDGE", "RANGE", "DISHWASHER", "BUILT_IN_OVEN", "COOKTOP", "RANGE_HOOD", "BUILT_IN_MICROWAVE"),
+    // RESET_ONLY for a repair visit where the appliance came out weeks ago and only goes back.
+    action: enumOf("DETACH_AND_RESET", "RESET_ONLY", "UNKNOWN"),
   })),
   /*
     The second such list, on the same terms as appliances: produced outright, aligned to nothing.
@@ -373,7 +381,7 @@ const roomDetailSchema = obj({
   trim: arr(obj({
     kind: enumOf("DOOR_CASING", "DOOR_JAMB", "WINDOW_CASING", "WINDOW_SILL", "WINDOW_RETURN"),
     location: str(),
-    action: enumOf("DETACH_AND_RESET", "REMOVE_AND_REPLACE", "UNKNOWN"),
+    action: enumOf("DETACH_AND_RESET", "REMOVE_AND_REPLACE", "RESET_ONLY", "UNKNOWN"),
   })),
 });
 

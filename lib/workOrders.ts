@@ -11,7 +11,7 @@ import { isDGIG } from "./insurers";
 import { lossTypeLabel } from "./claimInfo";
 import { baseboardFinishLine, ceilingPaintLine, ceilingQuantity, fractionLabel, primingLine } from "./paintDerivation";
 import type { ApplianceType, CeilingRecord, FlooringRecord, Room, WaterLossExtraction } from "./types";
-import { TRIM_KIND_LABEL, WINDOW_CLEANING_SIZE_LABEL, WINDOW_CLEANING_SIZES } from "./types";
+import { APPLIANCE_LABEL, TRIM_KIND_LABEL, WINDOW_CLEANING_SIZE_LABEL, WINDOW_CLEANING_SIZES } from "./types";
 
 /**
  * Trade work orders — the crew-facing counterpart to the estimator-facing scope document.
@@ -95,17 +95,6 @@ const BASEBOARD_MATERIAL_LABEL: Record<string, string> = {
 };
 
 /** Ordinary words for the trade sheet — title-casing would give "Built in oven" and "Range hood". */
-const APPLIANCE_LABEL: Record<ApplianceType, string> = {
-  WASHER: "washer",
-  DRYER: "dryer",
-  FRIDGE: "fridge",
-  RANGE: "range",
-  DISHWASHER: "dishwasher",
-  BUILT_IN_OVEN: "built-in oven",
-  COOKTOP: "cooktop",
-  RANGE_HOOD: "range hood",
-  BUILT_IN_MICROWAVE: "built-in microwave",
-};
 
 const CEILING_TYPE_LABEL: Record<string, string> = {
   DRYWALL_PLASTER: "Drywall/plaster",
@@ -329,7 +318,14 @@ function buildMitigationDemo(claim: ClaimInfo, extraction: WaterLossExtraction, 
     // Priced per SF of floor, which the room already has — hence no quantity of its own to carry.
     if (room.hepaVacuumingRequired) items.push(bullet("HEPA vacuuming", null, "floor area"));
     // Detach now, reset on repairs. No remove-and-replace form: that is not restoration's work.
-    for (const a of room.appliances) items.push(bullet(`Detach ${APPLIANCE_LABEL[a.type]}`, null, null));
+    /*
+      An appliance already sitting in the hall is not detached again. `action` null reads as
+      DETACH_AND_RESET, which is the ordinary mitigation job and what every existing claim means.
+    */
+    for (const a of room.appliances) {
+      if (a.action === "RESET_ONLY") continue;
+      items.push(bullet(`Detach ${APPLIANCE_LABEL[a.type]}`, null, null));
+    }
 
     for (const b of room.baseboard) {
       if (b.phase === "REPAIR") continue;
@@ -369,6 +365,8 @@ function buildMitigationDemo(claim: ClaimInfo, extraction: WaterLossExtraction, 
       putting a new one back.
     */
     for (const t of room.trim) {
+      // Trim already off — a casing taken down on the mitigation visit — has no removal half left.
+      if (t.action === "RESET_ONLY") continue;
       items.push(bullet(t.action === "DETACH_AND_RESET" ? `Detach ${TRIM_KIND_LABEL[t.kind].toLowerCase()}` : `Remove ${TRIM_KIND_LABEL[t.kind].toLowerCase()}`, t.location || null, null));
     }
     for (const c of room.cabinetry) items.push(bullet(c.action === "DETACH_AND_RESET" ? "Detach cabinetry" : "Remove cabinetry", c.location, null));
@@ -491,7 +489,7 @@ function buildFinishCarpentry(claim: ClaimInfo, extraction: WaterLossExtraction)
     // The other half of the pair above. A casing detached on the emergency sheet and never mentioned
     // again reads as trim nobody put back — the same failure the baseboard pair exists to prevent.
     for (const t of room.trim) {
-      items.push(bullet(t.action === "DETACH_AND_RESET" ? `Reset ${TRIM_KIND_LABEL[t.kind].toLowerCase()}` : `Install new ${TRIM_KIND_LABEL[t.kind].toLowerCase()}`, t.location || null, null));
+      items.push(bullet(t.action === "REMOVE_AND_REPLACE" ? `Install new ${TRIM_KIND_LABEL[t.kind].toLowerCase()}` : `Reset ${TRIM_KIND_LABEL[t.kind].toLowerCase()}`, t.location || null, null));
     }
     for (const c of room.cabinetry) items.push(bullet(c.action === "DETACH_AND_RESET" ? "Reset cabinetry" : "Install new cabinetry", c.location, null));
     for (const c of room.countertops) items.push(bullet(c.action === "DETACH_AND_RESET" ? "Reset countertop" : "Install new countertop", c.material ? titleCase(c.material) : null, null));

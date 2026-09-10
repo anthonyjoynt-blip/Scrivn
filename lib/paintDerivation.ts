@@ -39,6 +39,12 @@ export const BASEBOARD_FINISH_PHRASE = {
   MDF_DETACH_AND_RESET: "Paint baseboards x1 coat",
   SOLID_WOOD_REMOVE_AND_REPLACE: "Stain & finish baseboards",
   SOLID_WOOD_DETACH_AND_RESET: "Finish baseboards x1 coat urethane",
+  /*
+    A repair visit where the baseboard is already back on the wall. One coat, same as a reset — the
+    difference from the reset case is not the painting, it is that nothing was taken off to bill for.
+  */
+  MDF_FINISH_ONLY: "Paint baseboards x1 coat",
+  SOLID_WOOD_FINISH_ONLY: "Finish baseboards x1 coat urethane",
 } as const;
 
 /** Rendered qualitative share, e.g. "half". Mirrors how AreaFraction reads in every other document. */
@@ -107,7 +113,7 @@ export function primingLine(wall: WallRecord, markedWallSquareFeet?: number | nu
  */
 export function baseboardFinishLine(baseboard: BaseboardRecord): string | null {
   const { material, action } = baseboard;
-  if (action !== "REMOVE_AND_REPLACE" && action !== "DETACH_AND_RESET") return null;
+  if (action !== "REMOVE_AND_REPLACE" && action !== "DETACH_AND_RESET" && action !== "FINISH_ONLY") return null;
   if (material !== "MDF" && material !== "SOLID_WOOD") return null;
   return BASEBOARD_FINISH_PHRASE[`${material}_${action}` as keyof typeof BASEBOARD_FINISH_PHRASE] ?? null;
 }

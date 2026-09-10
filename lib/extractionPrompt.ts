@@ -102,6 +102,11 @@ Rules:
   panels, outlets/switches, toe kicks, wall tile, light fixtures, and stairs aren't part of this
   schema at all right now — a deliberate cut, see schema.ts — so don't try to extract anything for
   any of them even if the transcript mentions them.)
+- baseboard action FINISH_ONLY is for a REPAIR visit where the baseboard is already back on the
+  wall and only its finish is left: "baseboard and shoe both need their final coat now that
+  everything's back up", "trim's all installed, just needs painting". Nothing is being taken off, so
+  do not reach for a removal action to describe it. Only use it where the transcript actually says
+  the work is finishing already-installed baseboard — a normal claim's baseboard is not this.
 - TRIM IS NOT A DOOR OR A WINDOW. Casings, jambs, sills and returns are the wood AROUND an opening,
   and they are captured by the second pass, not here. So when the transcript talks about trim and
   only trim — "the jamb warped, needs replacing", "the casing has to come off and go back on", "the

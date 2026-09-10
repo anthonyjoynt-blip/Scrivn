@@ -13,7 +13,8 @@ import type {
   WaterLossExtraction,
   WallDrywallCutHeight,
   ApplianceType,
-  DetachOrReplaceAction,
+  ApplianceAction,
+  TrimAction,
   TrimKind,
 } from "./types";
 
@@ -78,7 +79,7 @@ export interface RoomDetailWire {
   containmentSF: number;
   hepaVacuumingRequired: string;
   contentsPackOut: string;
-  appliances: { type: string }[];
+  appliances: { type: string; action: string }[];
   trim: TrimDetailWire[];
 }
 export interface ExtractionDetailWire {
@@ -211,7 +212,7 @@ export function mergeDetail(extraction: WaterLossExtraction, detail: ExtractionD
       appliances:
         room.appliances.length > 0
           ? room.appliances
-          : (d.appliances ?? []).filter((a) => APPLIANCE_TYPES.has(a?.type)).map((a) => ({ type: a.type as ApplianceType })),
+          : (d.appliances ?? []).filter((a) => APPLIANCE_TYPES.has(a?.type)).map((a) => ({ type: a.type as ApplianceType, action: enumOrNull<ApplianceAction>(a.action) })),
       /*
         Same shape as appliances above, and the same reason: call 1 produces none of these, so there
         is nothing to align to and the list is taken as given.
@@ -230,7 +231,7 @@ export function mergeDetail(extraction: WaterLossExtraction, detail: ExtractionD
               .map((t) => ({
                 kind: t.kind as TrimKind,
                 location: typeof t.location === "string" ? t.location.trim() : "",
-                action: enumOrNull<DetachOrReplaceAction>(t.action),
+                action: enumOrNull<TrimAction>(t.action),
               })),
       ceilingLightFixturesPresent: room.ceilingLightFixturesPresent ?? toTriState(d.lightFixturesPresent),
       ceilingLightFixtureCount: room.ceilingLightFixtureCount ?? intOrNull(d.lightFixtureCount),

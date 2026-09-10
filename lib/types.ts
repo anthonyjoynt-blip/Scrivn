@@ -251,8 +251,35 @@ export type ApplianceType =
   | "RANGE_HOOD"
   | "BUILT_IN_MICROWAVE";
 
+/**
+ * Whether the appliance is still in place, or already out.
+ *
+ * DETACH_AND_RESET is the ordinary mitigation job and the default when nobody has said. RESET_ONLY
+ * is the repair-visit case: the fridge came out weeks ago and has been sitting in the hall since,
+ * so this visit only puts it back. Billing a detach that already happened is not a rounding error —
+ * it is an hour of labour on the estimate that nobody will do.
+ *
+ * Still no remove-and-replace: a restoration contractor does not buy the homeowner a new washer.
+ */
+/** Ordinary words for an appliance, shared by the crew sheets and the gap-check prompt. */
+export const APPLIANCE_LABEL: Record<ApplianceType, string> = {
+  WASHER: "washer",
+  DRYER: "dryer",
+  FRIDGE: "fridge",
+  RANGE: "range",
+  DISHWASHER: "dishwasher",
+  BUILT_IN_OVEN: "built-in oven",
+  COOKTOP: "cooktop",
+  RANGE_HOOD: "range hood",
+  BUILT_IN_MICROWAVE: "built-in microwave",
+};
+
+export type ApplianceAction = "DETACH_AND_RESET" | "RESET_ONLY";
+
 export interface ApplianceRecord {
   type: ApplianceType;
+  /** Null means nobody has said, and reads as DETACH_AND_RESET — the ordinary case. */
+  action: ApplianceAction | null;
 }
 
 export type FlooringType = "CARPET" | "VINYL" | "HARDWOOD" | "LAMINATE" | "TILE" | "CONCRETE";
@@ -380,7 +407,16 @@ export interface FlooringRecord {
 }
 
 export type BaseboardMaterial = "SOLID_WOOD" | "MDF" | "VINYL_PVC_COMPOSITE";
-export type BaseboardAction = "DETACH_AND_RESET" | "REMOVE_AND_REPLACE" | "SHOE_MOLD_ONLY";
+/**
+ * FINISH_ONLY is the repair-visit verb: the baseboard is already back on the wall and all that is
+ * left is its final coat.
+ *
+ * Added because every other value starts from something being taken off, and a follow-up visit that
+ * is purely finishing had no answerable option at all — "baseboard and shoe both need their final
+ * coat now that everything's back up" had to be squeezed into a removal verb, and the scope then
+ * described work that had already been done and billed.
+ */
+export type BaseboardAction = "DETACH_AND_RESET" | "REMOVE_AND_REPLACE" | "SHOE_MOLD_ONLY" | "FINISH_ONLY";
 export type BaseboardDisposition = "SALVAGE_DRY" | "REMOVE_AND_DISPOSE";
 /** Not in the Android source — added after Phase 1 web review found MDF replacement needs this distinction. */
 export type BaseboardMdfProfile = "FLAT" | "PROFILE";
@@ -534,6 +570,13 @@ export const TRIM_KIND_LABEL: Record<TrimKind, string> = {
   WINDOW_RETURN: "Window return",
 };
 
+/**
+ * RESET_ONLY exists for the same reason as the appliance action: on a repair-only visit the casing
+ * is already off, taken down weeks ago, and only needs putting back. Without it the scope bills a
+ * detach that has already happened.
+ */
+export type TrimAction = DetachOrReplaceAction | "RESET_ONLY";
+
 export interface TrimRecord {
   kind: TrimKind;
   /**
@@ -545,7 +588,7 @@ export interface TrimRecord {
    */
   location: string;
   /** Null until stated or asked. Casing usually comes off and goes back; a rotted sill does not. */
-  action: DetachOrReplaceAction | null;
+  action: TrimAction | null;
 }
 
 export type DoorType = "COLONIAL" | "SOLID_CORE" | "HOLLOW_CORE" | "OTHER";

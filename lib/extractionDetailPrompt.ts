@@ -94,16 +94,22 @@ WHAT EACH FIELD MEANS:
   "Stove" is RANGE; "refrigerator" is FRIDGE; a wall oven is BUILT_IN_OVEN; an over-the-range
   microwave is BUILT_IN_MICROWAVE. Only appliances actually being handled — an appliance merely
   mentioned as being in the room ("the washer is in the corner") is not one being detached. There is
-  no action to record: a restoration contractor detaches and resets these, never replaces them.
+  action: DETACH_AND_RESET when the appliance is still in place and is being pulled out for the work.
+  RESET_ONLY when the transcript says it is ALREADY out and this visit only puts it back — "they were
+  sitting out this whole time", "needs to go back in now the floor's done", "ready to be reinstalled".
+  UNKNOWN when it does not say, which reads as the ordinary detach-and-reset job.
+  There is still no remove-and-replace: a restoration contractor detaches and resets these, never
+  replaces them.
 - trim — room-level, the other list you produce outright rather than one entry per existing
   record. One entry for each piece of trim AROUND an opening that the transcript says is being taken
   off, replaced, or put back. Empty array when it names none, which is the common case.
   kind: DOOR_CASING, DOOR_JAMB, WINDOW_CASING, WINDOW_SILL or WINDOW_RETURN.
   location: the opening in the PM's own words — "the closet door", "the front window".
-  action: DETACH_AND_RESET when the same piece comes off and goes back on ("take the casing off and
-  reinstall it", "needs to go back on"); REMOVE_AND_REPLACE when it is being renewed ("the sill's
-  rotted, that's getting replaced", "jamb warped, needs replacing"); UNKNOWN when the transcript
-  says the trim is involved without saying which.
+  action: DETACH_AND_RESET when the same piece comes off on THIS visit and goes back on ("take the
+  casing off and reinstall it"); REMOVE_AND_REPLACE when it is being renewed ("the sill's rotted,
+  that's getting replaced", "jamb warped, needs replacing"); RESET_ONLY when it is ALREADY off and
+  this scope only puts it back — a repair visit saying "the casing needs to go back on now that the
+  wall's patched"; UNKNOWN when the transcript says the trim is involved without saying which.
   THE POINT OF THIS CATEGORY: trim is not the opening. A jamb that warped is a jamb, NOT a door —
   recording it as a door turns a strip of wood into a whole pre-hung unit on the estimate. Never
   promote a trim item into the door or window it belongs to, and never record a door or window here.

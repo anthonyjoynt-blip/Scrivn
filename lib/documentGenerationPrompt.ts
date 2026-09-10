@@ -179,6 +179,20 @@ this room appear in the document at all":
       means nobody was asked, not that nothing is happening — and an Emergency removal with no Repair
       line is the worst of the three readings. (Gap-check asks for this field now, so it should be
       non-null on every claim; this is here for anything that slips through.)
+- REPAIR-VISIT VERBS. Three fields say "the taking-off already happened, on an earlier visit, and
+  this scope covers only what is left". They exist because every other value in their enums starts
+  from a removal, so a follow-up visit had to be written up as though it were doing the mitigation
+  over again — which puts labour on the estimate that nobody is going to do.
+    - baseboard action FINISH_ONLY — the baseboard is already back on the wall. NO "Remove
+      baseboard", NO "Replace baseboard", NO shoe mold bullets, in either phase. The ONLY thing it
+      produces is its paint/finish line (item 10 below), which for this action is one coat.
+    - appliance action RESET_ONLY — the fridge came out weeks ago and has been in the hall since.
+      Write the Repair "Reset {appliance}" bullet and NOT the Emergency "Detach {appliance}" one.
+      This is the one case where the appliance pair is deliberately half a pair.
+    - trim action RESET_ONLY — the casing is already off. Repair "Reset {trim}" only, no Emergency
+      bullet.
+  A null action is NOT one of these. Null means nobody was asked, and reads as the ordinary
+  detach-and-reset job with both halves — never as work already done.
 - SHOE MOLD is a separate line from the baseboard, with its own linear footage, and it is a PAIR
   like everything else. Two fields decide it, and they mean different things:
     - action SHOE_MOLD_ONLY — the baseboard is STAYING and only the quarter round is being done.
@@ -360,7 +374,9 @@ Auto-included items — apply these yourself, they are never spelled out per-ite
       - material MDF, DETACH_AND_RESET: "${BASEBOARD_FINISH_PHRASE.MDF_DETACH_AND_RESET}"
       - material SOLID_WOOD, REMOVE_AND_REPLACE: "${BASEBOARD_FINISH_PHRASE.SOLID_WOOD_REMOVE_AND_REPLACE}"
       - material SOLID_WOOD, DETACH_AND_RESET: "${BASEBOARD_FINISH_PHRASE.SOLID_WOOD_DETACH_AND_RESET}"
-      - material VINYL_PVC_COMPOSITE: no paint/finish bullet at all, either action.
+      - material MDF, FINISH_ONLY: "${BASEBOARD_FINISH_PHRASE.MDF_FINISH_ONLY}"
+      - material SOLID_WOOD, FINISH_ONLY: "${BASEBOARD_FINISH_PHRASE.SOLID_WOOD_FINISH_ONLY}"
+      - material VINYL_PVC_COMPOSITE: no paint/finish bullet at all, any action.
       - material not yet known (null): no bullet — don't guess.
     SHOE_MOLD_ONLY baseboards never get this: the baseboard is staying put, so there is no baseboard
     being finished. (They DO have a Repair portion — the shoe goes back on — see the baseboard rule

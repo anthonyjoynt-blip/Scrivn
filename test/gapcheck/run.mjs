@@ -2108,7 +2108,21 @@ check(
   bbOptions.includes("Removed and replaced, with the shoe mold"),
   `the combination is one of the offered outcomes (got ${JSON.stringify(bbOptions)})`,
 );
-check(bbOptions.length === 4, `all four outcomes are offered, not three (got ${bbOptions.length})`);
+/*
+  The exact set, not a count. A count told me the number had changed and nothing about whether the
+  right outcome had been added — and each of these is one a PM would otherwise have to squeeze into
+  the nearest wrong verb.
+*/
+check(
+  JSON.stringify(bbOptions) === JSON.stringify([
+    "Detached and reset on repairs",
+    "Removed and replaced",
+    "Removed and replaced, with the shoe mold",
+    "Shoe mold removed and replaced",
+    "Already installed — final coat only",
+  ]),
+  `every baseboard outcome is offered, in order (got ${JSON.stringify(bbOptions)})`,
+);
 
 const bbExtractionOpen = extractionWith([everyRecordRoomWith({ baseboard: [openBb] })]);
 const withShoeAnswer = applyAnswer(bbExtractionOpen, "room:0:baseboard:0:action", "Removed and replaced, with the shoe mold");
@@ -2149,6 +2163,72 @@ check(
   bbActionQ({ ...openBb, action: "SHOE_MOLD_ONLY" }).every((q) => !q.id.endsWith(":shoeMold")),
   "a shoe-mold-only job is never asked whether the shoe comes too — the shoe IS the job",
 );
+
+/* ── Repair-visit verbs ─────────────────────────────────────────────────────────────────────────
+
+  A follow-up visit whose whole job is putting things back had to be described with removal verbs,
+  so the scope billed work that had already been done: a detach for appliances that had been sitting
+  out for weeks, and no answerable option at all for "baseboard and shoe both need their final coat".
+*/
+const repairClaim = { ...claim, scopePhases: ["REPAIR"] };
+const applianceRoom = (record) => extractionWith([everyRecordRoomWith({ appliances: [record] })]);
+const applianceQs = (record, forClaim = repairClaim) =>
+  nextQuestions(forClaim, withDerivedFields(applianceRoom(record))).filter((q) => q.id.includes(":appliance:"));
+
+check(applianceQs({ type: "FRIDGE", action: null }).length === 1, "a repair visit asks whether the fridge is already out");
+check(
+  applianceQs({ type: "FRIDGE", action: null }, claim).length === 0,
+  "and a claim that still has mitigation ahead of it does NOT — there the answer is obvious on every appliance of every claim",
+);
+check(applianceQs({ type: "FRIDGE", action: "RESET_ONLY" }).length === 0, "nor is it asked once the transcript already said");
+
+const applianceAnswered = applyAnswer(applianceRoom({ type: "FRIDGE", action: null }), "room:0:appliance:0:action", "Already out — reset only");
+check(applianceAnswered.rooms[0]?.appliances[0]?.action === "RESET_ONLY", "answering records that it only needs putting back");
+check(
+  applianceQs(applianceAnswered.rooms[0].appliances[0]).length === 0,
+  "which is what stops it being asked again",
+);
+const applianceStill = applyAnswer(applianceRoom({ type: "FRIDGE", action: null }), "room:0:appliance:0:action", "Still in place — detach and reset");
+check(applianceStill.rooms[0]?.appliances[0]?.action === "DETACH_AND_RESET", "and the other answer records the ordinary job");
+
+const finishOnlyApplied = applyAnswer(bbExtractionOpen, "room:0:baseboard:0:action", "Already installed — final coat only");
+check(finishOnlyApplied.rooms[0]?.baseboard[0]?.action === "FINISH_ONLY", "a baseboard that only needs its final coat can say so");
+check(
+  finishOnlyApplied.rooms[0]?.baseboard[0]?.disposition === null,
+  "with no disposition — nothing is being taken away, so there is nothing to dispose of",
+);
+/*
+  The case that matters is a FINISH_ONLY record straight from EXTRACTION, where shoeMold is still
+  null. Falling through to the ordinary block would ask whether the shoe mold is coming off with
+  this baseboard — of a baseboard that is not coming off at all.
+
+  (Checking that no HEIGHT is asked proved nothing: height is gated on REMOVE_AND_REPLACE, so it was
+  never going to fire here either way.)
+*/
+const finishFromExtraction = { ...openBb, action: "FINISH_ONLY", material: "MDF", mdfProfile: "FLAT" };
+check(
+  bbActionQ(finishFromExtraction).every((q) => !q.id.endsWith(":shoeMold")),
+  `a baseboard that is not coming off is never asked whether its shoe comes too (got ${JSON.stringify(bbActionQ(finishFromExtraction).map((q) => q.id))})`,
+);
+check(
+  bbActionQ(finishFromExtraction).every((q) => !q.id.endsWith(":heightIn")),
+  "and no height either — that describes a replacement, and there is not one",
+);
+
+const trimResetQ = nextQuestions(
+  repairClaim,
+  withDerivedFields(extractionWith([everyRecordRoomWith({ trim: [{ kind: "WINDOW_CASING", location: "front window", action: null }] })])),
+).filter((q) => q.id.includes(":trim:"));
+check(
+  (trimResetQ[0]?.kind.options ?? []).includes("Already off — reset only"),
+  `trim can say the same (got ${JSON.stringify(trimResetQ[0]?.kind.options)})`,
+);
+const trimReset = applyAnswer(
+  extractionWith([everyRecordRoomWith({ trim: [{ kind: "WINDOW_CASING", location: "front window", action: null }] })]),
+  "room:0:trim:0:action",
+  "Already off — reset only",
+);
+check(trimReset.rooms[0]?.trim[0]?.action === "RESET_ONLY", "and answering records it");
 
 /* ── Trim: one question, and only when it is open ───────────────────────────────────────────────
 

@@ -18,6 +18,7 @@ import type {
   CountertopRecord,
   DetachOrReplaceAction,
   DoorRecord,
+  TrimAction,
   TrimRecord,
   DoorType,
   DoorUnitType,
@@ -56,6 +57,7 @@ import type {
   WorkPhase,
 } from "./types";
 import {
+  APPLIANCE_LABEL,
   BATT_R_VALUES,
   BLOWN_IN_R_VALUES,
   TRIM_KIND_LABEL,
@@ -326,6 +328,23 @@ export function evaluate(raw: WaterLossExtraction, suggestions?: EquipmentSugges
     room.wallTile.forEach((wt, i) => questions.push(...wallTileQuestions(roomIndex, room.roomName, i, wt)));
     room.doors.forEach((d, i) => questions.push(...doorQuestions(roomIndex, room.roomName, i, d)));
     room.trim.forEach((t, i) => questions.push(...trimQuestions(roomIndex, room.roomName, i, t)));
+    /*
+      Whether an appliance is still in place, or already out.
+
+      Filtered away on any claim that includes an Emergency phase — see
+      `isRepairVisitOnlyQuestion` — because there the answer is obviously "still in place" and
+      asking would be noise on every appliance of every claim. On a repair-only visit it is a real
+      question, and getting it wrong bills an hour of labour for a detach that happened weeks ago.
+    */
+    room.appliances.forEach((a, i) => {
+      if (a.action !== null) return;
+      questions.push({
+        id: `room:${roomIndex}:appliance:${i}:action`,
+        roomName: room.roomName,
+        prompt: `Is the ${APPLIANCE_LABEL[a.type]} still in place, or already out?`,
+        kind: { type: "choice", options: ["Still in place — detach and reset", "Already out — reset only"] },
+      });
+    });
     room.outlets.forEach((o, i) => questions.push(...outletQuestions(roomIndex, room.roomName, i, o)));
 
     // ---- Ceiling, all of it together. A sub-room is under its parent's ceiling. ----
@@ -493,6 +512,13 @@ const BASEBOARD_ACTION_OPTIONS = [
   "Removed and replaced",
   "Removed and replaced, with the shoe mold",
   "Shoe mold removed and replaced",
+  /*
+    The repair-visit outcome. Every option above starts from something being taken off, so a
+    follow-up visit whose whole job is the final coat had NO answerable option — "baseboard and shoe
+    both need their final coat now that everything's back up" had to be squeezed into a removal verb,
+    and the scope then described work already done and billed.
+  */
+  "Already installed — final coat only",
 ];
 
 /** The same three, plus the answer that says the premise is wrong — see `baseboardCompletenessQuestions`. */
@@ -816,6 +842,19 @@ function baseboardRecordQuestions(roomIndex: number, roomName: string, i: number
   // REMOVE_AND_REPLACE-only below — a detach-and-reset baseboard is the existing one going back
   // down, not a new spec decision.
   if (b.action === "SHOE_MOLD_ONLY") return [];
+  /*
+    FINISH_ONLY asks for the material and stops. The paint phrase is chosen by material (see
+    `baseboardFinishLine`), so it is the one thing still worth knowing; height, phase and disposition
+    all describe a removal that is not happening.
+  */
+  if (b.action === "FINISH_ONLY") {
+    return b.material === null
+      ? [{
+          id: `${base}:material`, roomName, prompt: "What material is the baseboard?",
+          kind: { type: "choice", options: ["Solid wood", "Flat MDF", "MDF with profile", "Vinyl/PVC composite"] },
+        }]
+      : [];
+  }
 
   const q: GapCheckQuestion[] = [];
   /*
@@ -974,9 +1013,17 @@ function trimQuestions(roomIndex: number, roomName: string, i: number, t: TrimRe
       id: `room:${roomIndex}:trim:${i}:action`,
       roomName,
       prompt: `What is happening with the ${TRIM_KIND_LABEL[t.kind].toLowerCase()}${where ? ` at ${where}` : ""}?`,
-      kind: { type: "choice", options: ["Detached and reset", "Removed and replaced"] },
+      kind: { type: "choice", options: ["Detached and reset", "Removed and replaced", "Already off — reset only"] },
     },
   ];
+}
+
+/** The three trim outcomes. Unrecognised answers keep the record open rather than guessing a verb. */
+function trimActionAnswer(answer: string): TrimAction | null {
+  if (equalsIgnoreCase(answer, "Detached and reset")) return "DETACH_AND_RESET";
+  if (equalsIgnoreCase(answer, "Removed and replaced")) return "REMOVE_AND_REPLACE";
+  if (equalsIgnoreCase(answer, "Already off — reset only")) return "RESET_ONLY";
+  return null;
 }
 
 // ---- Cabinetry ----------------------------------------------------------------------------------
@@ -1523,6 +1570,18 @@ export function isRepairOnlyQuestion(questionId: string): boolean {
 }
 
 /**
+ * Questions worth asking ONLY on a visit with no Emergency phase at all.
+ *
+ * The mirror image of the two predicates around it, and needed for the same reason they were: a
+ * question that is obvious on one kind of claim is noise on every one of them. Whether an appliance
+ * is already out has one plausible answer while mitigation is still to come, and two once it is
+ * done — see the appliance question in `evaluate`.
+ */
+export function isRepairVisitOnlyQuestion(questionId: string): boolean {
+  return /:appliance:\d+:action$/.test(questionId);
+}
+
+/**
  * Questions whose answer ONLY ever affects Emergency-phase rendering — never referenced anywhere in
  * a Repair bullet's own wording. Same reasoning and caller pattern as `isRepairOnlyQuestion` above.
  * - Asbestos taken/count: "Asbestos sample collection" is a General item under Emergency only.
@@ -1879,6 +1938,16 @@ export function applyAnswer(extraction: WaterLossExtraction, questionId: string,
   if (parts.length >= 5 && parts[0] === "room" && parts[2] === "door") {
     return updateList(extraction, roomIndex(parts), Number(parts[3]), (r) => r.doors, (r, l) => ({ ...r, doors: l }), (d) => applyDoorAnswer(d, parts[4]!, answer));
   }
+  if (parts.length >= 5 && parts[0] === "room" && parts[2] === "appliance" && parts[4] === "action") {
+    return updateList(
+      extraction,
+      roomIndex(parts),
+      Number(parts[3]),
+      (r) => r.appliances,
+      (r, l) => ({ ...r, appliances: l }),
+      (a) => ({ ...a, action: equalsIgnoreCase(answer, "Already out — reset only") ? "RESET_ONLY" as const : "DETACH_AND_RESET" as const }),
+    );
+  }
   if (parts.length >= 5 && parts[0] === "room" && parts[2] === "trim") {
     return updateList(
       extraction,
@@ -1886,7 +1955,7 @@ export function applyAnswer(extraction: WaterLossExtraction, questionId: string,
       Number(parts[3]),
       (r) => r.trim,
       (r, l) => ({ ...r, trim: l }),
-      (t) => (parts[4] === "action" ? { ...t, action: equalsIgnoreCase(answer, "Detached and reset") ? "DETACH_AND_RESET" as const : "REMOVE_AND_REPLACE" as const } : t),
+      (t) => (parts[4] === "action" ? { ...t, action: trimActionAnswer(answer) } : t),
     );
   }
   /*
@@ -2108,6 +2177,8 @@ function parseAreaQuantity(answer: string, unit: "SF" | "linear feet" = "SF"): {
  */
 function baseboardActionAnswer(answer: string): Pick<BaseboardRecord, "action" | "disposition" | "shoeMold"> | null {
   if (equalsIgnoreCase(answer, "Shoe mold removed and replaced")) return { action: "SHOE_MOLD_ONLY", disposition: null, shoeMold: null };
+  // Nothing is coming off, so there is no disposition and no shoe to bring along.
+  if (equalsIgnoreCase(answer, "Already installed — final coat only")) return { action: "FINISH_ONLY", disposition: null, shoeMold: false };
   if (equalsIgnoreCase(answer, "Detached and reset on repairs")) return { action: "DETACH_AND_RESET", disposition: "SALVAGE_DRY", shoeMold: false };
   /*
     Both remove-and-replace answers settle `shoeMold` outright — one true, one false. Leaving the

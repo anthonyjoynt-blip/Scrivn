@@ -9,6 +9,7 @@ import {
   isEmergencyOnlyQuestion,
   isEquipmentPresenceQuestion,
   isRepairOnlyQuestion,
+  isRepairVisitOnlyQuestion,
   isWaterExtractionQuestion,
 } from "./gapCheck";
 import type { GapCheckQuestion } from "./questions";
@@ -55,6 +56,12 @@ export function nextQuestions(
   // phase's own rendering — see isRepairOnlyQuestion/isEmergencyOnlyQuestion for exactly which.
   if (!claim.scopePhases.includes("REPAIR")) questions = questions.filter((q) => !isRepairOnlyQuestion(q.id));
   if (!claim.scopePhases.includes("EMERGENCY")) questions = questions.filter((q) => !isEmergencyOnlyQuestion(q.id));
+  /*
+    And the mirror: questions only worth asking when there is NO Emergency phase. On a claim that
+    still has mitigation ahead of it, asking whether the fridge is already out has one plausible
+    answer, on every appliance of every claim.
+  */
+  if (claim.scopePhases.includes("EMERGENCY")) questions = questions.filter((q) => !isRepairVisitOnlyQuestion(q.id));
   // The "was drying equipment used" / "was water extraction required" prompts only make sense for a water claim.
   if (claim.lossType !== "WATER") questions = questions.filter((q) => !isEquipmentPresenceQuestion(q.id) && !isWaterExtractionQuestion(q.id));
   return questions;

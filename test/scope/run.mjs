@@ -347,7 +347,7 @@ check(!/HEPA/.test(emergencyFor(cat3, [room("Rec Room")])), "and only where it w
   Appliances are a PAIR, like baseboard. A room whose emergency sheet says the washer came out and
   whose repair sheet says nothing reads as an appliance nobody put back.
 */
-const withAppliances = [room("Laundry", { appliances: [{ type: "WASHER" }, { type: "DRYER" }, { type: "BUILT_IN_MICROWAVE" }] })];
+const withAppliances = [room("Laundry", { appliances: [{ type: "WASHER", action: null }, { type: "DRYER", action: null }, { type: "BUILT_IN_MICROWAVE", action: null }] })];
 const demo = emergencyFor(cat3, withAppliances);
 check(/Detach washer/.test(demo) && /Detach dryer/.test(demo), `each appliance is detached (got:
 ${demo})`);
@@ -467,6 +467,81 @@ for (const [label, record] of [
     `and the same baseboard ${label} goes back on in Repair (got:\n${repair})`,
   );
 }
+
+/* ── Repair-visit verbs: the taking-off already happened ───────────────────────────────────────── */
+
+/*
+  Two repair-only transcripts in batch 3 were billed for work that had already been done. The fridge
+  and dishwasher "were sitting out this whole time" and the scope said *Detach & reset* both. The
+  casing "needs to go back on now that the wall's patched" and the scope said detach that too. And
+  "baseboard and shoe both need their final coat" had no answerable option at all — every value in
+  the enum starts from a removal.
+
+  The failure is not a missing line, it is an extra one: an hour of labour on an estimate for a
+  detach nobody is going to do, on a visit whose whole purpose is putting things back.
+*/
+const resetOnlyRoom = (overrides) => {
+  const built = bbOrders(bbExtraction([room("Kitchen", overrides)]));
+  return { emergency: bbText(built, "MITIGATION_DEMO"), repair: bbText(built, "FINISH_CARPENTRY") };
+};
+
+const applianceOut = resetOnlyRoom({ appliances: [{ type: "FRIDGE", action: "RESET_ONLY" }] });
+check(!applianceOut.emergency.includes("Detach fridge"), `an appliance already out is not detached again (got:\n${applianceOut.emergency})`);
+const applianceOutRepair = bbText(bbOrders(bbExtraction([room("Kitchen", { appliances: [{ type: "FRIDGE", action: "RESET_ONLY" }] })])), "FINISH_CARPENTRY");
+check(applianceOutRepair.includes("Reset fridge"), `but it still goes back (got:\n${applianceOutRepair})`);
+
+const applianceIn = resetOnlyRoom({ appliances: [{ type: "FRIDGE", action: "DETACH_AND_RESET" }] });
+check(applianceIn.emergency.includes("Detach fridge"), "an appliance still in place is detached as before");
+
+const applianceUnsaid = resetOnlyRoom({ appliances: [{ type: "FRIDGE", action: null }] });
+check(
+  applianceUnsaid.emergency.includes("Detach fridge"),
+  "and one nobody has been asked about reads as the ordinary job — null is not a claim that the work is done",
+);
+
+const trimBack = resetOnlyRoom({ trim: [{ kind: "WINDOW_CASING", location: "front window", action: "RESET_ONLY" }] });
+/*
+  No Emergency line of ANY wording. Checking only for "Detach" passed vacuously: with the guard
+  removed the renderer falls through to the replace branch and writes "Remove window casing", which
+  is further from the truth than the line the assertion was looking for.
+*/
+check(
+  !trimBack.emergency.includes("window casing"),
+  `casing already off gets no Emergency line at all (got:\n${trimBack.emergency})`,
+);
+check(trimBack.repair.includes("Reset window casing"), `but it is put back (got:\n${trimBack.repair})`);
+check(!trimBack.repair.includes("Install new window casing"), "and it is the same piece going back, not a new one");
+
+/*
+  A baseboard that is already installed produces its finish line and NOTHING else. The Painting
+  trade is the only sheet it belongs on: nothing is taken off, and nothing is installed.
+*/
+const finishOnly = bbOrders(bbExtraction([room("Hall", { baseboard: [bbRecord({ action: "FINISH_ONLY" })] })]));
+const finishPainting = bbText(
+  buildWorkOrders({
+    trades: ["PAINTING"],
+    claim,
+    extraction: bbExtraction([room("Hall", { baseboard: [bbRecord({ action: "FINISH_ONLY" })] })]),
+    contentsApproach: "TM",
+    contentsTM: { entries: [] },
+    bricABrac: { rooms: [] },
+    dgigData: null,
+  }),
+  "PAINTING",
+);
+check(
+  finishPainting.includes("baseboard"),
+  `a finish-only baseboard reaches the Painting sheet, which is the whole of its job (got:
+${finishPainting})`,
+);
+check(
+  !bbText(finishOnly, "MITIGATION_DEMO").includes("baseboard"),
+  `a finish-only baseboard is never removed (got:\n${bbText(finishOnly, "MITIGATION_DEMO")})`,
+);
+check(
+  !bbText(finishOnly, "FINISH_CARPENTRY").includes("baseboard"),
+  `nor installed — it is already on the wall (got:\n${bbText(finishOnly, "FINISH_CARPENTRY")})`,
+);
 
 /* ── The shoe mold, which used to have nowhere to go ───────────────────────────────────────────── */
 
