@@ -618,7 +618,24 @@ export const TRIM_KIND_LABEL: Record<TrimKind, string> = {
  * is already off, taken down weeks ago, and only needs putting back. Without it the scope bills a
  * detach that has already happened.
  */
-export type TrimAction = DetachOrReplaceAction | "RESET_ONLY";
+/**
+ * What can happen to a small fitting that comes off and goes back: a blind, a run of knobs.
+ *
+ * RESET_ONLY is the repair-visit case — it is already off and only needs putting back.
+ */
+export type FittingAction = DetachOrReplaceAction | "RESET_ONLY";
+
+/**
+ * Trim's actions: a fitting's three, plus one of its own.
+ *
+ * FINISH_ONLY is trim already in place that only needs its final coat, the same repair-visit verb
+ * baseboard has. It is NOT on `FittingAction` because a blind does not get painted — an option list
+ * offering it for one would be offering nonsense, which is how an option list stops being read.
+ *
+ * The distinction is not academic: "just needs the return trim finished" was written up as a RESET,
+ * which is re-hanging a piece that never came down — a larger job than a coat of paint.
+ */
+export type TrimAction = FittingAction | "FINISH_ONLY";
 
 /**
  * A blind, shade, drapery or shutter that comes down for the work and goes back afterwards.
@@ -646,8 +663,8 @@ export interface WindowCoveringRecord {
   type: WindowCoveringType;
   /** Which window, in the PM's own words. Free text for the same reason a trim record's is. */
   location: string;
-  /** Shares trim's three outcomes, including RESET_ONLY for a repair visit. */
-  action: TrimAction | null;
+  /** A fitting's three outcomes — never FINISH_ONLY, which is a trim thing. */
+  action: FittingAction | null;
 }
 
 /**
@@ -665,7 +682,7 @@ export interface WindowCoveringRecord {
 export interface CabinetHardwareRecord {
   /** Which run of cabinets, in the PM's own words. Empty when they did not say. */
   location: string;
-  action: TrimAction | null;
+  action: FittingAction | null;
 }
 
 export interface TrimRecord {

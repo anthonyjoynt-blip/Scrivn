@@ -395,7 +395,8 @@ const roomDetailSchema = obj({
   trim: arr(obj({
     kind: enumOf("DOOR_CASING", "DOOR_JAMB", "WINDOW_CASING", "WINDOW_SILL", "WINDOW_RETURN"),
     location: str(),
-    action: enumOf("DETACH_AND_RESET", "REMOVE_AND_REPLACE", "RESET_ONLY", "UNKNOWN"),
+    // FINISH_ONLY is trim's alone — a blind does not get a final coat.
+    action: enumOf("DETACH_AND_RESET", "REMOVE_AND_REPLACE", "RESET_ONLY", "FINISH_ONLY", "UNKNOWN"),
   })),
   /*
     Two more lists produced outright. Both were lost entirely by a batch of test transcripts, and a

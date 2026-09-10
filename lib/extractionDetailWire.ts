@@ -15,6 +15,7 @@ import type {
   WallDrywallCutHeight,
   ApplianceType,
   ApplianceAction,
+  FittingAction,
   TrimAction,
   TrimKind,
   WindowCoveringType,
@@ -259,14 +260,14 @@ export function mergeDetail(extraction: WaterLossExtraction, detail: ExtractionD
               .map((w) => ({
                 type: w.type as WindowCoveringType,
                 location: typeof w.location === "string" ? w.location.trim() : "",
-                action: enumOrNull<TrimAction>(w.action),
+                action: enumOrNull<FittingAction>(w.action),
               })),
       cabinetHardware:
         room.cabinetHardware.length > 0
           ? room.cabinetHardware
           : (d.cabinetHardware ?? []).map((h) => ({
               location: typeof h?.location === "string" ? h.location.trim() : "",
-              action: enumOrNull<TrimAction>(h?.action),
+              action: enumOrNull<FittingAction>(h?.action),
             })),
       ceilingLightFixturesPresent: room.ceilingLightFixturesPresent ?? toTriState(d.lightFixturesPresent),
       ceilingLightFixtureCount: room.ceilingLightFixtureCount ?? intOrNull(d.lightFixtureCount),

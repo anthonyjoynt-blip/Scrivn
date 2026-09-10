@@ -217,6 +217,13 @@ this room appear in the document at all":
       This is the one case where the appliance pair is deliberately half a pair.
     - trim action RESET_ONLY — the casing is already off. Repair "Reset {trim}" only, no Emergency
       bullet.
+    - trim action FINISH_ONLY — the piece never came down and only needs its final coat. Repair
+      "Finish {trim}" only, no Emergency bullet, and NEVER a reset or an install: re-hanging a piece
+      that is already on the wall is a bigger job than painting it, and writing one for the other is
+      how a coat of paint gets priced as carpentry.
+    - a baseboard with action FINISH_ONLY and shoeMold true needs BOTH final-coat lines, the
+      baseboard's and the shoe's. "Baseboard and shoe both need their final coat" is two lengths of
+      trim and two coats; one line prices one of them.
   A null action is NOT one of these. Null means nobody was asked, and reads as the ordinary
   detach-and-reset job with both halves — never as work already done.
 - SHOE MOLD is a separate line from the baseboard, with its own linear footage, and it is a PAIR

@@ -2322,7 +2322,20 @@ check(
 const applianceStill = applyAnswer(applianceRoom({ type: "FRIDGE", action: null }), "room:0:appliance:0:action", "Still in place — detach and reset");
 check(applianceStill.rooms[0]?.appliances[0]?.action === "DETACH_AND_RESET", "and the other answer records the ordinary job");
 
+check(
+  bbOptions.includes("In place — final coat only") === false && bbOptions.length === 5,
+  "the baseboard list is its own — trim's finish wording does not leak into it",
+);
+
 const finishOnlyApplied = applyAnswer(bbExtractionOpen, "room:0:baseboard:0:action", "Already installed — final coat only");
+/*
+  The ANSWERED path, not just the extracted one. Settling the shoe here was what made "baseboard and
+  shoe both need their final coat" unsayable, so answering must leave it open for the follow-up.
+*/
+check(
+  bbActionQ(finishOnlyApplied.rooms[0].baseboard[0]).some((q) => q.id.endsWith(":shoeMold")),
+  "answering final-coat-only still leaves the shoe open to be asked about",
+);
 check(finishOnlyApplied.rooms[0]?.baseboard[0]?.action === "FINISH_ONLY", "a baseboard that only needs its final coat can say so");
 check(
   finishOnlyApplied.rooms[0]?.baseboard[0]?.disposition === null,
@@ -2337,9 +2350,21 @@ check(
   never going to fire here either way.)
 */
 const finishFromExtraction = { ...openBb, action: "FINISH_ONLY", material: "MDF", mdfProfile: "FLAT" };
+/*
+  It IS asked about the shoe, but in the finishing sense — "does the shoe mold need its final coat
+  too?" rather than "is it coming off with it?". This assertion used to say the opposite, and the
+  auditor caught what that cost: "baseboard and shoe both need their final coat" produced one line,
+  because settling the shoe as false was the only way a finish-only record could exist.
+*/
+const finishShoeQ = bbActionQ(finishFromExtraction).filter((q) => q.id.endsWith(":shoeMold"));
+check(finishShoeQ.length === 1, `a finish-only baseboard is asked about its shoe (got ${finishShoeQ.length})`);
 check(
-  bbActionQ(finishFromExtraction).every((q) => !q.id.endsWith(":shoeMold")),
-  `a baseboard that is not coming off is never asked whether its shoe comes too (got ${JSON.stringify(bbActionQ(finishFromExtraction).map((q) => q.id))})`,
+  (finishShoeQ[0]?.prompt ?? "").includes("final coat"),
+  `and asked in the finishing sense, not the removal one (got "${finishShoeQ[0]?.prompt}")`,
+);
+check(
+  !(finishShoeQ[0]?.prompt ?? "").includes("coming off"),
+  "which matters: nothing is coming off a baseboard that is already on the wall",
 );
 check(
   bbActionQ(finishFromExtraction).every((q) => !q.id.endsWith(":heightIn")),
@@ -2353,6 +2378,27 @@ const trimResetQ = nextQuestions(
 check(
   (trimResetQ[0]?.kind.options ?? []).includes("Already off — reset only"),
   `trim can say the same (got ${JSON.stringify(trimResetQ[0]?.kind.options)})`,
+);
+check(
+  (trimResetQ[0]?.kind.options ?? []).includes("In place — final coat only"),
+  `and trim alone can say it only needs its coat (got ${JSON.stringify(trimResetQ[0]?.kind.options)})`,
+);
+const trimFinished = applyAnswer(
+  extractionWith([everyRecordRoomWith({ trim: [{ kind: "WINDOW_RETURN", location: "x", action: null }] })]),
+  "room:0:trim:0:action",
+  "In place — final coat only",
+);
+check(trimFinished.rooms[0]?.trim[0]?.action === "FINISH_ONLY", "and answering records it");
+
+/*
+  A blind does not get a final coat, so it is not offered one. An option list carrying a nonsense
+  answer is how an option list stops being read.
+*/
+const blindOptions = fittingQs({ windowCoverings: [{ type: "BLIND", location: "x", action: null }] })
+  .filter((q) => q.id.includes(":windowCovering:"))[0]?.kind.options ?? [];
+check(
+  !blindOptions.includes("In place — final coat only") && blindOptions.length === 3,
+  `a blind is offered three outcomes, none of them a coat of paint (got ${JSON.stringify(blindOptions)})`,
 );
 const trimReset = applyAnswer(
   extractionWith([everyRecordRoomWith({ trim: [{ kind: "WINDOW_CASING", location: "front window", action: null }] })]),

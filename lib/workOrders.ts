@@ -382,7 +382,8 @@ function buildMitigationDemo(claim: ClaimInfo, extraction: WaterLossExtraction, 
     */
     for (const t of room.trim) {
       // Trim already off — a casing taken down on the mitigation visit — has no removal half left.
-      if (t.action === "RESET_ONLY") continue;
+      // Nothing comes off for either of these: one is already down, the other never left the wall.
+      if (t.action === "RESET_ONLY" || t.action === "FINISH_ONLY") continue;
       items.push(bullet(t.action === "DETACH_AND_RESET" ? `Detach ${TRIM_KIND_LABEL[t.kind].toLowerCase()}` : `Remove ${TRIM_KIND_LABEL[t.kind].toLowerCase()}`, t.location || null, null));
     }
 
@@ -502,11 +503,36 @@ function buildPainting(claim: ClaimInfo, extraction: WaterLossExtraction, painta
       items.push(`    - ${line}`);
     });
     for (const b of room.baseboard) {
+      /*
+        The shoe is a separate length of trim and takes its own coat. Its own line for the same
+        reason it has its own removal line: "baseboard and shoe both need their final coat" is two
+        pieces of work, and a single baseboard line prices one of them.
+      */
+      if (b.shoeMold === true) {
+        const shoeLine = "Finish shoe mold / quarter round";
+        if (!seen.has(shoeLine)) {
+          seen.add(shoeLine);
+          items.push(`    - ${shoeLine}`);
+        }
+      }
       const line = baseboardFinishLine(b);
       if (!line || seen.has(line)) continue;
       seen.add(line);
       items.push(`    - ${line}`);
     }
+    /*
+      Trim that is staying put and only needs its coat. On the PAINTING sheet because that is the
+      trade doing it — it was landing on Finish Carpentry as a reset, which is re-hanging a piece
+      that never came down.
+    */
+    for (const t of room.trim) {
+      if (t.action !== "FINISH_ONLY") continue;
+      const line = `Finish ${TRIM_KIND_LABEL[t.kind].toLowerCase()}${t.location ? ` – ${t.location}` : ""}`;
+      if (seen.has(line)) continue;
+      seen.add(line);
+      items.push(`    - ${line}`);
+    }
+
     // Ceilings were missing from this order entirely — see `ceilingPaintLine`.
     for (const c of room.ceilings) {
       const line = ceilingPaintLine(c);
@@ -543,6 +569,8 @@ function buildFinishCarpentry(claim: ClaimInfo, extraction: WaterLossExtraction)
     // The other half of the pair above. A casing detached on the emergency sheet and never mentioned
     // again reads as trim nobody put back — the same failure the baseboard pair exists to prevent.
     for (const t of room.trim) {
+      // A finish-only piece is painted, not carpentered — its line is on the Painting sheet below.
+      if (t.action === "FINISH_ONLY") continue;
       items.push(bullet(t.action === "REMOVE_AND_REPLACE" ? `Install new ${TRIM_KIND_LABEL[t.kind].toLowerCase()}` : `Reset ${TRIM_KIND_LABEL[t.kind].toLowerCase()}`, t.location || null, null));
     }
 

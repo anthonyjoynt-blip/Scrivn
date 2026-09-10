@@ -19,6 +19,7 @@ import type {
   DetachOrReplaceAction,
   DoorRecord,
   DoorStyle,
+  FittingAction,
   TrimAction,
   TrimRecord,
   DoorType,
@@ -342,7 +343,7 @@ export function evaluate(raw: WaterLossExtraction, suggestions?: EquipmentSugges
         id: `room:${roomIndex}:windowCovering:${i}:action`,
         roomName: room.roomName,
         prompt: `What is happening with the ${WINDOW_COVERING_LABEL[w.type]}${w.location.trim() ? ` at ${w.location.trim()}` : ""}?`,
-        kind: { type: "choice", options: TRIM_ACTION_OPTIONS },
+        kind: { type: "choice", options: FITTING_ACTION_OPTIONS },
       });
     });
     room.cabinetHardware.forEach((h, i) => {
@@ -351,7 +352,7 @@ export function evaluate(raw: WaterLossExtraction, suggestions?: EquipmentSugges
         id: `room:${roomIndex}:cabinetHardware:${i}:action`,
         roomName: room.roomName,
         prompt: `What is happening with the cabinet hardware${h.location.trim() ? ` at ${h.location.trim()}` : ""}?`,
-        kind: { type: "choice", options: TRIM_ACTION_OPTIONS },
+        kind: { type: "choice", options: FITTING_ACTION_OPTIONS },
       });
     });
     /*
@@ -892,12 +893,24 @@ function baseboardRecordQuestions(roomIndex: number, roomName: string, i: number
     all describe a removal that is not happening.
   */
   if (b.action === "FINISH_ONLY") {
-    return b.material === null
-      ? [{
-          id: `${base}:material`, roomName, prompt: "What material is the baseboard?",
-          kind: { type: "choice", options: ["Solid wood", "Flat MDF", "MDF with profile", "Vinyl/PVC composite"] },
-        }]
-      : [];
+    const finishing: GapCheckQuestion[] = [];
+    if (b.material === null)
+      finishing.push({
+        id: `${base}:material`, roomName, prompt: "What material is the baseboard?",
+        kind: { type: "choice", options: ["Solid wood", "Flat MDF", "MDF with profile", "Vinyl/PVC composite"] },
+      });
+    /*
+      The shoe gets its own coat or it does not, and both are ordinary. Asked in the finishing sense
+      rather than the removal sense — nothing is coming off here, so "coming off with it" would be
+      the wrong question about the right field.
+    */
+    if (b.shoeMold === null)
+      finishing.push({
+        id: `${base}:shoeMold`, roomName,
+        prompt: "Does the shoe mold need its final coat too?",
+        kind: { type: "yesNo" },
+      });
+    return finishing;
   }
 
   const q: GapCheckQuestion[] = [];
@@ -1088,15 +1101,23 @@ function trimQuestions(roomIndex: number, roomName: string, i: number, t: TrimRe
   ];
 }
 
-/** Shared by trim, window coverings and cabinet hardware — three things that come off and go back. */
-const TRIM_ACTION_OPTIONS = ["Detached and reset", "Removed and replaced", "Already off — reset only"];
+/** Blinds and knobs: three ways a thing that comes off can go back. */
+const FITTING_ACTION_OPTIONS = ["Detached and reset", "Removed and replaced", "Already off — reset only"];
 
-/** The three trim outcomes. Unrecognised answers keep the record open rather than guessing a verb. */
-function trimActionAnswer(answer: string): TrimAction | null {
+/** Trim's four. The extra one is a repair visit where the casing never came down and only needs painting. */
+const TRIM_ACTION_OPTIONS = [...FITTING_ACTION_OPTIONS, "In place — final coat only"];
+
+/** Unrecognised answers keep the record open rather than guessing a verb. */
+function fittingActionAnswer(answer: string): FittingAction | null {
   if (equalsIgnoreCase(answer, "Detached and reset")) return "DETACH_AND_RESET";
   if (equalsIgnoreCase(answer, "Removed and replaced")) return "REMOVE_AND_REPLACE";
   if (equalsIgnoreCase(answer, "Already off — reset only")) return "RESET_ONLY";
   return null;
+}
+
+function trimActionAnswer(answer: string): TrimAction | null {
+  if (equalsIgnoreCase(answer, "In place — final coat only")) return "FINISH_ONLY";
+  return fittingActionAnswer(answer);
 }
 
 // ---- Cabinetry ----------------------------------------------------------------------------------
@@ -2022,10 +2043,10 @@ export function applyAnswer(extraction: WaterLossExtraction, questionId: string,
     );
   }
   if (parts.length >= 5 && parts[0] === "room" && parts[2] === "windowCovering" && parts[4] === "action") {
-    return updateList(extraction, roomIndex(parts), Number(parts[3]), (r) => r.windowCoverings, (r, l) => ({ ...r, windowCoverings: l }), (w) => ({ ...w, action: trimActionAnswer(answer) }));
+    return updateList(extraction, roomIndex(parts), Number(parts[3]), (r) => r.windowCoverings, (r, l) => ({ ...r, windowCoverings: l }), (w) => ({ ...w, action: fittingActionAnswer(answer) }));
   }
   if (parts.length >= 5 && parts[0] === "room" && parts[2] === "cabinetHardware" && parts[4] === "action") {
-    return updateList(extraction, roomIndex(parts), Number(parts[3]), (r) => r.cabinetHardware, (r, l) => ({ ...r, cabinetHardware: l }), (h) => ({ ...h, action: trimActionAnswer(answer) }));
+    return updateList(extraction, roomIndex(parts), Number(parts[3]), (r) => r.cabinetHardware, (r, l) => ({ ...r, cabinetHardware: l }), (h) => ({ ...h, action: fittingActionAnswer(answer) }));
   }
   if (parts.length >= 5 && parts[0] === "room" && parts[2] === "trim") {
     return updateList(
@@ -2263,7 +2284,11 @@ function parseAreaQuantity(answer: string, unit: "SF" | "linear feet" = "SF"): {
 function baseboardActionAnswer(answer: string): Pick<BaseboardRecord, "action" | "disposition" | "shoeMold"> | null {
   if (equalsIgnoreCase(answer, "Shoe mold removed and replaced")) return { action: "SHOE_MOLD_ONLY", disposition: null, shoeMold: null };
   // Nothing is coming off, so there is no disposition and no shoe to bring along.
-  if (equalsIgnoreCase(answer, "Already installed — final coat only")) return { action: "FINISH_ONLY", disposition: null, shoeMold: false };
+  /*
+    `shoeMold` stays NULL rather than false. "Baseboard and shoe both need their final coat" is a
+    sentence a PM says, and settling the shoe here made it unsayable — the follow-up below asks.
+  */
+  if (equalsIgnoreCase(answer, "Already installed — final coat only")) return { action: "FINISH_ONLY", disposition: null, shoeMold: null };
   if (equalsIgnoreCase(answer, "Detached and reset on repairs")) return { action: "DETACH_AND_RESET", disposition: "SALVAGE_DRY", shoeMold: false };
   /*
     Both remove-and-replace answers settle `shoeMold` outright — one true, one false. Leaving the

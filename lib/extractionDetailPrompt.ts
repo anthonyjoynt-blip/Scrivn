@@ -111,13 +111,19 @@ WHAT EACH FIELD MEANS:
   casing off and reinstall it"); REMOVE_AND_REPLACE when it is being renewed ("the sill's rotted,
   that's getting replaced", "jamb warped, needs replacing"); RESET_ONLY when it is ALREADY off and
   this scope only puts it back — a repair visit saying "the casing needs to go back on now that the
-  wall's patched"; UNKNOWN when the transcript says the trim is involved without saying which.
+  wall's patched"; FINISH_ONLY when the piece never came down and only needs its final coat ("just
+  needs the return trim finished", "the casing is up, it wants painting"); UNKNOWN when the
+  transcript says the trim is involved without saying which.
+  FINISH_ONLY and RESET_ONLY are different jobs and the difference is money: one is a coat of paint
+  on a piece that is already on the wall, the other is re-hanging a piece that came off.
   THE POINT OF THIS CATEGORY: trim is not the opening. A jamb that warped is a jamb, NOT a door —
   recording it as a door turns a strip of wood into a whole pre-hung unit on the estimate. Never
   promote a trim item into the door or window it belongs to, and never record a door or window here.
-  A RETURN is where a window is finished with drywall wrapping instead of casing. If the transcript
-  says returns, use WINDOW_RETURN and do not also record a casing — they are alternatives, and the
-  presence of one means the absence of the other.
+  A RETURN is where a window is finished with drywall wrapping instead of casing. They are
+  alternatives on any ONE opening, so never invent a casing for a window the PM describes as having
+  returns. But record every piece the transcript actually names work on: a walkthrough saying the
+  casing goes back on AND the returns need finishing is describing two pieces of work, and dropping
+  one because the other exists loses a line nobody will notice is gone.
   Trim that is merely in the room, unmentioned and untouched, is not recorded. Do not infer casing
   from a door being replaced: whether the casing comes with it is a scoping decision somebody makes,
   not a fact the transcript stated.

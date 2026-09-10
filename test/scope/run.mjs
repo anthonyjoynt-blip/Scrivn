@@ -671,6 +671,65 @@ check(!trimBack.repair.includes("Install new window casing"), "and it is the sam
   trade is the only sheet it belongs on: nothing is taken off, and nothing is installed.
 */
 const finishOnly = bbOrders(bbExtraction([room("Hall", { baseboard: [bbRecord({ action: "FINISH_ONLY" })] })]));
+/*
+  Three gaps the auditor found after the fact, all of them the same shape: a repair visit that only
+  needs a coat of paint written up as though something came off the wall.
+*/
+const paintingFor = (overrides) =>
+  bbText(
+    buildWorkOrders({
+      trades: ["MITIGATION_DEMO", "FINISH_CARPENTRY", "PAINTING"],
+      claim,
+      extraction: bbExtraction([room("Hall", overrides)]),
+      contentsApproach: "TM",
+      contentsTM: { entries: [] },
+      bricABrac: { rooms: [] },
+      dgigData: null,
+    }),
+    "PAINTING",
+  );
+const carpentryFor = (overrides) =>
+  bbText(
+    buildWorkOrders({
+      trades: ["MITIGATION_DEMO", "FINISH_CARPENTRY", "PAINTING"],
+      claim,
+      extraction: bbExtraction([room("Hall", overrides)]),
+      contentsApproach: "TM",
+      contentsTM: { entries: [] },
+      bricABrac: { rooms: [] },
+      dgigData: null,
+    }),
+    "FINISH_CARPENTRY",
+  );
+
+const finishTrim = { trim: [{ kind: "WINDOW_RETURN", location: "front window", action: "FINISH_ONLY" }] };
+check(
+  paintingFor(finishTrim).includes("Finish window return – front window"),
+  `trim staying on the wall is painted (got:\n${paintingFor(finishTrim)})`,
+);
+check(
+  !carpentryFor(finishTrim).includes("window return"),
+  "and never reset — re-hanging a piece that never came down is a bigger job than painting it",
+);
+check(
+  !matsOrder(finishTrim).includes("window return"),
+  "nor detached: there is no Emergency half to a coat of paint",
+);
+
+const shoeCoat = { baseboard: [bbRecord({ action: "FINISH_ONLY", shoeMold: true })] };
+check(
+  paintingFor(shoeCoat).includes("Finish shoe mold"),
+  `"baseboard and shoe both need their final coat" is two coats (got:\n${paintingFor(shoeCoat)})`,
+);
+check(
+  paintingFor(shoeCoat).split("\n").filter((l) => l.includes("aseboard")).length > 0,
+  "alongside the baseboard's own, not instead of it",
+);
+check(
+  !paintingFor({ baseboard: [bbRecord({ action: "FINISH_ONLY", shoeMold: false })] }).includes("shoe mold"),
+  "and a baseboard with no shoe gets no shoe line",
+);
+
 const finishPainting = bbText(
   buildWorkOrders({
     trades: ["PAINTING"],
