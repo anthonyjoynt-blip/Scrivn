@@ -16,6 +16,8 @@ import type {
   ApplianceType,
   ApplianceAction,
   FittingAction,
+  SubfloorDisposition,
+  SubfloorType,
   TrimAction,
   TrimKind,
   WindowCoveringType,
@@ -50,6 +52,7 @@ export interface DoorDetailWire {
 }
 export interface CabinetryDetailWire {
   extent: string;
+  shoringRequired: string;
 }
 export interface BaseboardDetailWire {
   material: string;
@@ -89,6 +92,7 @@ export interface RoomDetailWire {
   trim: TrimDetailWire[];
   windowCoverings: { type: string; location: string; action: string }[];
   cabinetHardware: { location: string; action: string }[];
+  subfloor: { type: string; disposition: string; removalSF: number }[];
 }
 export interface ExtractionDetailWire {
   rooms: RoomDetailWire[];
@@ -199,6 +203,7 @@ export function mergeDetail(extraction: WaterLossExtraction, detail: ExtractionD
       cabinetry: room.cabinetry.map((c, i) => ({
         ...c,
         extent: c.extent ?? enumOrNull<CabinetryExtent>(d.cabinetry[i]?.extent),
+        shoringRequired: c.shoringRequired ?? toTriState(d.cabinetry[i]?.shoringRequired),
       })),
       /*
         Room-level, so no alignment to check — but still `?? existing` for the same reason every
@@ -269,6 +274,19 @@ export function mergeDetail(extraction: WaterLossExtraction, detail: ExtractionD
               location: typeof h?.location === "string" ? h.location.trim() : "",
               action: enumOrNull<FittingAction>(h?.action),
             })),
+      /*
+        The layer under the floor. A record with no type at all is still kept: what matters most is
+        that a subfloor is coming out, and gap-check can ask what it is in seconds. Dropping it for a
+        missing detail would lose the tear-out, which is the expensive half.
+      */
+      subfloor:
+        room.subfloor.length > 0
+          ? room.subfloor
+          : (d.subfloor ?? []).map((f) => ({
+              type: enumOrNull<SubfloorType>(f?.type),
+              disposition: enumOrNull<SubfloorDisposition>(f?.disposition),
+              removalSF: areaOrNull(f?.removalSF),
+            })),
       ceilingLightFixturesPresent: room.ceilingLightFixturesPresent ?? toTriState(d.lightFixturesPresent),
       ceilingLightFixtureCount: room.ceilingLightFixtureCount ?? intOrNull(d.lightFixtureCount),
       ceilings: room.ceilings.map((c, i) => ({
@@ -322,7 +340,7 @@ export function needsDetailPass(extraction: WaterLossExtraction): boolean {
       room.walls.some((w) => w.drywallBeingRemoved && (w.cutHeight === null || w.insulationType === null)) ||
       // Doors and cabinetry carry spec the PM routinely states while describing them.
       room.doors.some((d) => d.doorType === null || d.doorStyle === null || d.unitType === null || d.saveHardware === null) ||
-      room.cabinetry.some((c) => c.extent === null) ||
+      room.cabinetry.some((c) => c.extent === null || c.shoringRequired === null) ||
       /*
         Light fixtures have no records to check — the category is cut from extraction — so the
         trigger is the same condition that makes gap-check ask: a drywall ceiling coming out.

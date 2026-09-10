@@ -109,6 +109,8 @@ export interface Room {
   windowCoverings: WindowCoveringRecord[];
   /** Knobs and pulls handled on their own — see {@link CabinetHardwareRecord}. Detail pass only. */
   cabinetHardware: CabinetHardwareRecord[];
+  /** What is under the finish floor — see {@link SubfloorRecord}. Detail pass only. */
+  subfloor: SubfloorRecord[];
   /**
    * Gap-check-only, round 12 — never populated by extraction. General water-claim gap-check ("one
    * more gap check for all water claims, if water extraction was not mentioned - ask if water
@@ -393,6 +395,13 @@ export interface FlooringRecord {
   padPresent: boolean | null;
   vinylSubtype: VinylSubtype | null;
   vinylInstallation: VinylInstallation | null;
+  /**
+   * DEAD as of this writing: declared, never asked, never rendered, never extracted.
+   *
+   * Left rather than deleted because it is harmless and something may want it, but do not mistake it
+   * for the subfloor model — see {@link SubfloorRecord}. It is vinyl-only and carries two values,
+   * which cannot express "the sleepers under it are wet and coming out".
+   */
   vinylSubstrate: VinylSubstrate | null;
   hardwoodConstruction: HardwoodConstruction | null;
   /** Free text, only meaningful when `hardwoodConstruction` is OTHER. Gap-check only. */
@@ -685,6 +694,44 @@ export interface CabinetHardwareRecord {
   action: FittingAction | null;
 }
 
+/**
+ * What is under the finish floor.
+ *
+ * The schema captured the floor you can see and nothing beneath it, so "floor's on a sleeper
+ * subfloor system over the slab, wood sleepers are wet, those need to come out along with the vinyl
+ * on top" put one of the two removals on the scope and lost the other. A wet sleeper system is its
+ * own tear-out and its own rebuild, often more work than the covering above it.
+ *
+ * Its own record rather than a value on `FlooringType`, because it is a LAYER rather than a finish:
+ * a room can have vinyl and sleepers at once, and every flooring rule in the app — carpet style,
+ * hardwood construction, whether baseboard comes off — is written about the surface somebody walks
+ * on. Folding the two together would make each of those rules ask a question about the wrong layer.
+ */
+export type SubfloorType = "SLEEPER_SYSTEM" | "PLYWOOD_OSB" | "CONCRETE_SLAB" | "OTHER";
+
+export const SUBFLOOR_LABEL: Record<SubfloorType, string> = {
+  SLEEPER_SYSTEM: "sleeper subfloor",
+  PLYWOOD_OSB: "plywood/OSB subfloor",
+  CONCRETE_SLAB: "concrete slab",
+  OTHER: "subfloor",
+};
+
+export type SubfloorDisposition = "REMOVE_AND_REPLACE" | "DRY_IN_PLACE";
+
+export interface SubfloorRecord {
+  type: SubfloorType | null;
+  /**
+   * Null until stated or asked.
+   *
+   * REMOVE_AND_REPLACE rather than REMOVE_AND_DISPOSE, unlike flooring: nothing is left standing on
+   * a floor with its subfloor taken out, so the rebuild is not a separate decision the way replacing
+   * a carpet is.
+   */
+  disposition: SubfloorDisposition | null;
+  /** SF coming out. Null when nobody has stated or been asked — the line still renders. */
+  removalSF: number | null;
+}
+
 export interface TrimRecord {
   kind: TrimKind;
   /**
@@ -744,6 +791,17 @@ export interface CabinetryRecord {
   action: DetachOrReplaceAction;
   extent: CabinetryExtent | null;
   grade: CabinetryGrade | null;
+  /**
+   * Temporary support for something staying up while this cabinet comes out from under it.
+   *
+   * The case is a sink run: the cabinet is removed and the countertop and sink stay in place, so the
+   * counter needs holding up in the meantime. That is real labour and real material, and it had
+   * nowhere to go — the transcript describing it produced an ordinary cabinet removal.
+   *
+   * One line covering install and strike, which is how it is priced. Null means nobody has said, and
+   * reads as no shoring: most cabinet removals take the counter with them.
+   */
+  shoringRequired: boolean | null;
 }
 
 export type ToeKickMethod = "RESKIN" | "PREFINISHED_REPLACEMENT";

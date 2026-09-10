@@ -179,6 +179,20 @@ this room appear in the document at all":
       means nobody was asked, not that nothing is happening — and an Emergency removal with no Repair
       line is the worst of the three readings. (Gap-check asks for this field now, so it should be
       non-null on every claim; this is here for anything that slips through.)
+- SUBFLOOR, per room — the layer UNDER the finish floor, and a separate record from the flooring.
+  For every entry whose disposition is REMOVE_AND_REPLACE, a PAIR: Emergency "Remove {subfloor}" and
+  Repair "Install new {subfloor}", where {subfloor} is "sleeper subfloor", "plywood/OSB subfloor",
+  "concrete slab" or plain "subfloor" by its type. Carry " – {removalSF} SF" when set, otherwise
+  " – floor area". DRY_IN_PLACE gets no removal bullets at all.
+  Never fold this into the flooring line and never let one stand for the other. "The vinyl and the
+  sleepers under it both come out" is TWO tear-outs and two rebuilds — the reported failure put one
+  on the scope and lost the other, and the sleepers are often the bigger half.
+- CABINET SHORING — for a cabinetry record with shoringRequired true, one extra Emergency bullet
+  beside its removal: "Shore countertop while cabinetry is out – {location}". One line covering
+  putting the shoring in and taking it out, which is how it is priced. It is real labour and real
+  material, so never leave it implied by the cabinet line: a sink run where the counter and sink stay
+  put has to be held up, and a cabinet removal on its own does not say that.
+  Only when the field is true. Most cabinet removals take the countertop with them.
 - WINDOW COVERINGS and CABINET HARDWARE, per room — for every entry in that room's
   "windowCoverings" and "cabinetHardware" arrays, a PAIR of bullets, on the same terms as trim:
     · DETACH_AND_RESET — Emergency "Detach {thing}", Repair "Reset {thing}".

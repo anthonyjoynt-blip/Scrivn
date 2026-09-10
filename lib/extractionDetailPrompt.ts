@@ -31,9 +31,8 @@ STRUCTURE — this is what makes the answer usable at all:
   baseboard, walls, ceilings, doors and cabinetry. The counts are given per room below. A room with
   zero of something gets an empty array for it.
 - lightFixturesPresent, lightFixtureCount, antimicrobialApplied, containmentRequired, containmentSF,
-  hepaVacuumingRequired, temporaryPowerRequired, contentsPackOut, appliances, trim, windowCoverings
-  and cabinetHardware are
-  room-level: one value each per room entry, not
+  hepaVacuumingRequired, temporaryPowerRequired, contentsPackOut, appliances, trim, windowCoverings,
+  cabinetHardware and subfloor are room-level: one value each per room entry, not
   arrays and not per record.
 - If a count does not match, the whole room's detail is discarded rather than misapplied, so match
   the counts exactly even where every field in an entry is UNKNOWN.
@@ -186,6 +185,23 @@ WHAT EACH FIELD MEANS:
   kept and put back: "save the hardware", "save them if possible, reset after", "reuse the handles".
   NO when it says new hardware is going on. UNKNOWN when it does not come up. A statement covering
   several doors at once — "hardware on both doors, save them" — is YES for every door it names.
+- cabinetry.shoringRequired — YES when something staying in place needs holding up while this
+  cabinet comes out from under it: "the countertop and sink are staying put, so that section needs
+  shoring", "we'll need to crib the counter while the base is out". NO when it says none is needed.
+  UNKNOWN when it does not come up, which is the ordinary case — most cabinet removals take the
+  countertop with them and need no support at all.
+- subfloor — room-level, produced outright like trim. One entry when the transcript describes the
+  layer UNDER the finish floor being wet, removed or dried. Empty array otherwise, which is most
+  claims: a floor with nothing said about what is beneath it gets no entry.
+  type: SLEEPER_SYSTEM (wood sleepers or strapping over a slab), PLYWOOD_OSB (sheet subfloor on
+  joists), CONCRETE_SLAB, OTHER, or UNKNOWN where it is described without being named.
+  disposition: REMOVE_AND_REPLACE when it is coming out, DRY_IN_PLACE when it is being dried and
+  kept, UNKNOWN otherwise.
+  removalSF: the square feet coming out where a number or dimensions are stated; the sentinel (-1)
+  when not. Do not borrow the finish floor's area — they are often different.
+  THIS IS A SEPARATE LAYER FROM THE FLOORING RECORD. "The vinyl and the sleepers under it both come
+  out" is a flooring record AND a subfloor record, two tear-outs. Never fold one into the other and
+  never record the finish floor here.
 - cabinetry.extent — UPPERS, LOWERS or FULL_HEIGHT. "Upper cabinets" is UPPERS, "the base run" or
   "lowers" is LOWERS, a floor-to-ceiling pantry or tall unit is FULL_HEIGHT.
 - lightFixturesPresent — YES when the transcript describes ANY ceiling light fixture in this room

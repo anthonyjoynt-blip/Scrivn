@@ -51,7 +51,10 @@ export const EXTRACTABLE = new Set([
   // here from the deliberately-asked list below: a PM saying "save them if possible" is an
   // observation, and asking anyway got it wrong on one of two doors in a real transcript.
   "door:doorType", "door:doorStyle", "door:unitType", "door:saveHardware",
-  "cabinetry:extent",
+  // Shoring is spec about a cabinet removal, and a PM states it in the same breath as the removal.
+  "cabinetry:extent", "cabinetry:shoringRequired",
+  // The layer under the floor — its own record, not a flooring field. See SubfloorRecord.
+  "subfloor:type", "subfloor:disposition", "subfloor:removalSF",
   "ceilingLightFixtures:present", "ceilingLightFixtures:count",
   "baseboard:material", "baseboard:mdfProfile",
   "wall:cutHeight", "wall:insulationType",

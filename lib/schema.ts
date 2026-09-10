@@ -312,6 +312,8 @@ const doorDetailSchema = obj({
 
 const cabinetryDetailSchema = obj({
   extent: nullableEnumOf("UPPERS", "LOWERS", "FULL_HEIGHT"),
+  // Temporary support for a countertop staying up while the cabinet under it comes out.
+  shoringRequired: nullableBool(),
 });
 
 const baseboardDetailSchema = obj({
@@ -410,6 +412,15 @@ const roomDetailSchema = obj({
   cabinetHardware: arr(obj({
     location: str(),
     action: enumOf("DETACH_AND_RESET", "REMOVE_AND_REPLACE", "RESET_ONLY", "UNKNOWN"),
+  })),
+  /*
+    What is UNDER the finish floor. Produced outright, like trim: call 1 records the floor somebody
+    walks on and has never had a concept of the layer beneath it.
+  */
+  subfloor: arr(obj({
+    type: enumOf("SLEEPER_SYSTEM", "PLYWOOD_OSB", "CONCRETE_SLAB", "OTHER", "UNKNOWN"),
+    disposition: enumOf("REMOVE_AND_REPLACE", "DRY_IN_PLACE", "UNKNOWN"),
+    removalSF: nullableNumber(),
   })),
 });
 

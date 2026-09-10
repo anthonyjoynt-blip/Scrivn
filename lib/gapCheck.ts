@@ -20,6 +20,7 @@ import type {
   DoorRecord,
   DoorStyle,
   FittingAction,
+  SubfloorType,
   TrimAction,
   TrimRecord,
   DoorType,
@@ -332,6 +333,31 @@ export function evaluate(raw: WaterLossExtraction, suggestions?: EquipmentSugges
     room.wallTile.forEach((wt, i) => questions.push(...wallTileQuestions(roomIndex, room.roomName, i, wt)));
     room.doors.forEach((d, i) => questions.push(...doorQuestions(roomIndex, room.roomName, i, d)));
     room.trim.forEach((t, i) => questions.push(...trimQuestions(roomIndex, room.roomName, i, t)));
+    /*
+      The layer under the floor. Only ever asked about a record that exists, which means the PM
+      mentioned it — there is no standing "is there a subfloor?", because every floor has one and
+      almost none of them are in scope.
+    */
+    room.subfloor.forEach((f, i) => {
+      const base = `room:${roomIndex}:subfloor:${i}`;
+      if (f.type === null)
+        questions.push({
+          id: `${base}:type`, roomName: room.roomName, prompt: "What kind of subfloor is it?",
+          kind: { type: "choice", options: ["Sleeper system over slab", "Plywood or OSB", "Concrete slab", "Something else"] },
+        });
+      if (f.disposition === null)
+        questions.push({
+          id: `${base}:disposition`, roomName: room.roomName, prompt: "Is the subfloor coming out, or being dried in place?",
+          kind: { type: "choice", options: ["Coming out and being replaced", "Dried in place"] },
+        });
+      // Only once it is known to be coming out — an area for a floor that stays is a number about nothing.
+      if (f.disposition === "REMOVE_AND_REPLACE" && f.removalSF === null)
+        questions.push({
+          id: `${base}:removalSF`, roomName: room.roomName,
+          prompt: "How much subfloor is coming out? Enter an exact SF number. Dimensions work too — \"6 x 8\" is read as 48 SF.",
+          kind: { type: "decimal" },
+        });
+    });
     /*
       Window coverings and cabinet hardware, on the same terms as trim: the record exists because the
       PM mentioned it, so the only thing open is which way it goes. No standing "are there blinds?" —
@@ -1101,6 +1127,15 @@ function trimQuestions(roomIndex: number, roomName: string, i: number, t: TrimRe
   ];
 }
 
+/** Unrecognised leaves the type null rather than guessing OTHER, which reads as a stated answer. */
+function subfloorTypeAnswer(answer: string): SubfloorType | null {
+  if (equalsIgnoreCase(answer, "Sleeper system over slab")) return "SLEEPER_SYSTEM";
+  if (equalsIgnoreCase(answer, "Plywood or OSB")) return "PLYWOOD_OSB";
+  if (equalsIgnoreCase(answer, "Concrete slab")) return "CONCRETE_SLAB";
+  if (equalsIgnoreCase(answer, "Something else")) return "OTHER";
+  return null;
+}
+
 /** Blinds and knobs: three ways a thing that comes off can go back. */
 const FITTING_ACTION_OPTIONS = ["Detached and reset", "Removed and replaced", "Already off — reset only"];
 
@@ -1221,6 +1256,18 @@ function cabinetryQuestions(roomIndex: number, roomName: string, i: number, c: C
     q.push({
       id: `${base}:grade`, roomName, prompt: "What grade of replacement cabinetry?",
       kind: { type: "choice", options: ["Standard", "High", "Premium", "Deluxe"] },
+    });
+  /*
+    Whether anything above it needs holding up while it is out.
+
+    Held back on the same terms as the grade: a vanity answer moves this record elsewhere, and a
+    question about a record that may stop existing is one the PM answers for nothing.
+  */
+  if (c.shoringRequired === null && !offeringVanity)
+    q.push({
+      id: `${base}:shoringRequired`, roomName,
+      prompt: "Is anything staying in place above this cabinet that needs shoring while it is out?",
+      kind: { type: "yesNo" },
     });
   return q;
 }
@@ -2048,6 +2095,14 @@ export function applyAnswer(extraction: WaterLossExtraction, questionId: string,
   if (parts.length >= 5 && parts[0] === "room" && parts[2] === "cabinetHardware" && parts[4] === "action") {
     return updateList(extraction, roomIndex(parts), Number(parts[3]), (r) => r.cabinetHardware, (r, l) => ({ ...r, cabinetHardware: l }), (h) => ({ ...h, action: fittingActionAnswer(answer) }));
   }
+  if (parts.length >= 5 && parts[0] === "room" && parts[2] === "subfloor") {
+    return updateList(extraction, roomIndex(parts), Number(parts[3]), (r) => r.subfloor, (r, l) => ({ ...r, subfloor: l }), (f) => {
+      if (parts[4] === "type") return { ...f, type: subfloorTypeAnswer(answer) };
+      if (parts[4] === "disposition") return { ...f, disposition: equalsIgnoreCase(answer, "Dried in place") ? "DRY_IN_PLACE" as const : "REMOVE_AND_REPLACE" as const };
+      if (parts[4] === "removalSF") return { ...f, removalSF: parseAreaQuantity(answer).sf ?? f.removalSF };
+      return f;
+    });
+  }
   if (parts.length >= 5 && parts[0] === "room" && parts[2] === "trim") {
     return updateList(
       extraction,
@@ -2494,6 +2549,8 @@ function applyCabinetryAnswer(c: CabinetryRecord, field: string, answer: string)
       else extent = "FULL_HEIGHT";
       return { ...c, extent };
     }
+    case "shoringRequired":
+      return { ...c, shoringRequired: isYes(answer) };
     case "grade": {
       let grade: CabinetryGrade;
       if (equalsIgnoreCase(answer, "Standard")) grade = "STANDARD";

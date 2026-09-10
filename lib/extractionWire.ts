@@ -133,6 +133,7 @@ function roomToDomain(w: RoomWire): Room {
     trim: [],
     windowCoverings: [],
     cabinetHardware: [],
+    subfloor: [],
     waterExtractionSF: null,
     waterExtractionFraction: null,
     // Gap-check-only (round 6) — never extracted, see Room.ceilingLightFixturesPresent's doc comment.
@@ -256,6 +257,8 @@ function cabinetryToDomain(w: CabinetryRecordWire): CabinetryRecord {
     action: w.action as DetachOrReplaceAction,
     extent: null,
     grade: null,
+    // Detail-pass only, like extent above.
+    shoringRequired: null,
   };
 }
 

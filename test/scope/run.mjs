@@ -102,7 +102,7 @@ function flooring(overrides = {}) {
   };
 }
 function room(name, overrides = {}) {
-  return { roomName: name, flooring: [], baseboard: [], walls: [], ceilings: [], doors: [], cabinetry: [], toeKicks: [], countertops: [], wallTile: [], outlets: [], lightFixtures: [], electricalPanel: null, plumbingFixtures: [], stairs: null, floorRegistersDetached: null, contents: null, equipment: [], antimicrobialApplied: null, containmentRequired: null, containmentSF: null, hepaVacuumingRequired: null, temporaryPowerRequired: null, appliances: [], trim: [], windowCoverings: [], cabinetHardware: [], waterExtractionRequired: null, waterExtractionSF: null, waterExtractionFraction: null, baseboardConfirmedAbsent: false, windowCleaningAsked: false, windowCleaningCounts: null, equipmentAsked: false, ceilingLightFixturesPresent: null, ceilingFixturesInRemovalArea: null, ceilingLightFixtureType: null, ceilingLightFixtureCount: null, otherCeilingFixtures: null, ...overrides };
+  return { roomName: name, flooring: [], baseboard: [], walls: [], ceilings: [], doors: [], cabinetry: [], toeKicks: [], countertops: [], wallTile: [], outlets: [], lightFixtures: [], electricalPanel: null, plumbingFixtures: [], stairs: null, floorRegistersDetached: null, contents: null, equipment: [], antimicrobialApplied: null, containmentRequired: null, containmentSF: null, hepaVacuumingRequired: null, temporaryPowerRequired: null, appliances: [], trim: [], windowCoverings: [], cabinetHardware: [], subfloor: [], waterExtractionRequired: null, waterExtractionSF: null, waterExtractionFraction: null, baseboardConfirmedAbsent: false, windowCleaningAsked: false, windowCleaningCounts: null, equipmentAsked: false, ceilingLightFixturesPresent: null, ceilingFixturesInRemovalArea: null, ceilingLightFixtureType: null, ceilingLightFixtureCount: null, otherCeilingFixtures: null, ...overrides };
 }
 
 /* ── A replaced ceiling gets primed and painted ────────────────────────────────────────────────── */
@@ -845,6 +845,89 @@ check(
 check(
   bbAnswered.extraction.rooms[0].baseboard[0].heightIn === 3.25,
   `with the height recorded (got ${bbAnswered.extraction.rooms[0].baseboard[0].heightIn})`,
+);
+
+/* ── The subfloor comes out and goes back, as a pair ───────────────────────────────────────────── */
+
+/*
+  "Floor's on a sleeper subfloor system over the slab, wood sleepers are wet, those need to come out
+  along with the vinyl on top." The vinyl reached the scope. The sleepers — the wood framing the
+  floor stands on, and by some distance the bigger half of that job — reached nothing, because the
+  only fields under a floor were the floor's own. What was produced read as vinyl peeled off a slab.
+
+  A pair like flooring's, and for a firmer reason: nothing stands on a floor with its subfloor gone,
+  so the rebuild is not a separate decision the way replacing a carpet is. One half without the
+  other is a crew sheet nobody can work from.
+*/
+const subSheets = (subfloor) => {
+  const built = bbOrders(bbExtraction([room("Rec room", { subfloor })]));
+  return { emergency: bbText(built, "MITIGATION_DEMO"), repair: bbText(built, "FINISH_CARPENTRY") };
+};
+
+const sleeper = subSheets([{ type: "SLEEPER_SYSTEM", disposition: "REMOVE_AND_REPLACE", removalSF: 180 }]);
+check(sleeper.emergency.includes("Remove sleeper subfloor – 180 SF"), `the sleepers come out, named and sized (got:\n${sleeper.emergency})`);
+check(sleeper.repair.includes("Install new sleeper subfloor – 180 SF"), `and go back — the other half of the pair (got:\n${sleeper.repair})`);
+
+const plywood = subSheets([{ type: "PLYWOOD_OSB", disposition: "REMOVE_AND_REPLACE", removalSF: 180 }]);
+check(
+  plywood.emergency.includes("Remove plywood/OSB subfloor") && plywood.repair.includes("Install new plywood/OSB subfloor"),
+  `the kind is on the line, because sheet goods over joists and sleepers over a slab are not the same job (got:\n${plywood.emergency})`,
+);
+
+const unnamedKind = subSheets([{ type: null, disposition: "REMOVE_AND_REPLACE", removalSF: 180 }]);
+check(
+  unnamedKind.emergency.includes("Remove subfloor") && !unnamedKind.emergency.includes("sleeper"),
+  `a kind nobody stated is just "subfloor" — silence, not a guess at sleepers (got:\n${unnamedKind.emergency})`,
+);
+
+const noArea = subSheets([{ type: "SLEEPER_SYSTEM", disposition: "REMOVE_AND_REPLACE", removalSF: null }]);
+check(
+  noArea.emergency.includes("Remove sleeper subfloor – floor area") && noArea.repair.includes("Install new sleeper subfloor – floor area"),
+  `both halves survive an area nobody stated — a missing quantity is not evidence the work is not happening (got:\n${noArea.emergency})`,
+);
+
+const dried = subSheets([{ type: "SLEEPER_SYSTEM", disposition: "DRY_IN_PLACE", removalSF: null }]);
+check(
+  !dried.emergency.includes("subfloor") && !dried.repair.includes("subfloor"),
+  `a subfloor being dried in place is demolished on neither sheet (got:\n${dried.emergency})`,
+);
+check(
+  !subSheets([{ type: "SLEEPER_SYSTEM", disposition: null, removalSF: null }]).emergency.includes("subfloor"),
+  "and neither is one whose disposition nobody has answered yet — an unanswered question is not a demolition",
+);
+check(!subSheets([]).emergency.includes("subfloor"), "a room with no subfloor record gets no subfloor line at all");
+
+/* ── Shoring: the labour that holds up whatever stays ───────────────────────────────────────────── */
+
+/*
+  "The cabinet's coming out but the countertop and sink are staying put, so that section needs
+  shoring." Temporary posts in, posts out, and an hour of a carpenter's time — and it reached no
+  field, so the scope showed a plain cabinet removal.
+
+  That is the shape of miss nobody re-checks. The removal IS there; the line reads complete. It is
+  only wrong in what it leaves out, and a reader has no way to see the omission from the page.
+*/
+const shoringSheets = (cabinetry) => {
+  const built = bbOrders(bbExtraction([room("Kitchen", { cabinetry })]));
+  return { emergency: bbText(built, "MITIGATION_DEMO"), repair: bbText(built, "FINISH_CARPENTRY") };
+};
+const cabinetOut = (overrides = {}) => ({ location: "Sink run", action: "REMOVE_AND_REPLACE", extent: "Lowers", grade: "Standard", shoringRequired: null, ...overrides });
+
+const shored = shoringSheets([cabinetOut({ shoringRequired: true })]);
+check(
+  shored.emergency.includes("Shore countertop while cabinetry is out – Sink run"),
+  `shoring is its own line, at the cabinet it holds up (got:\n${shored.emergency})`,
+);
+check(shored.emergency.includes("Remove cabinetry – Sink run"), "alongside the removal, not instead of it");
+check(
+  !shored.repair.includes("Shore"),
+  "and only once — one line covers the posts going in and coming out, which is how it prices",
+);
+
+check(!shoringSheets([cabinetOut({ shoringRequired: false })]).emergency.includes("Shore"), "a cabinet with nothing above it gets no shoring line");
+check(
+  !shoringSheets([cabinetOut()]).emergency.includes("Shore"),
+  "and neither does one nobody has been asked about — an open question is not a yes",
 );
 
 /* ── Per-surface thumbnails ────────────────────────────────────────────────────────────────────── */

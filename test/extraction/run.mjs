@@ -70,7 +70,7 @@ function ceiling(overrides = {}) {
   };
 }
 function room(name, overrides = {}) {
-  return { roomName: name, antimicrobialApplied: null, containmentRequired: null, containmentSF: null, hepaVacuumingRequired: null, temporaryPowerRequired: null, appliances: [], trim: [], windowCoverings: [], cabinetHardware: [], flooring: [], baseboard: [], walls: [], ceilings: [], doors: [], cabinetry: [], toeKicks: [], countertops: [], wallTile: [], outlets: [], lightFixtures: [], electricalPanel: null, plumbingFixtures: [], stairs: null, floorRegistersDetached: null, contents: null, equipment: [], ...overrides };
+  return { roomName: name, antimicrobialApplied: null, containmentRequired: null, containmentSF: null, hepaVacuumingRequired: null, temporaryPowerRequired: null, appliances: [], trim: [], windowCoverings: [], cabinetHardware: [], subfloor: [], flooring: [], baseboard: [], walls: [], ceilings: [], doors: [], cabinetry: [], toeKicks: [], countertops: [], wallTile: [], outlets: [], lightFixtures: [], electricalPanel: null, plumbingFixtures: [], stairs: null, floorRegistersDetached: null, contents: null, equipment: [], ...overrides };
 }
 const tree = (rooms) => ({ loss: {}, rooms });
 
@@ -115,6 +115,7 @@ function detailRoom(overrides = {}) {
     trim: [],
     windowCoverings: [],
     cabinetHardware: [],
+    subfloor: [],
     ...overrides,
   };
 }

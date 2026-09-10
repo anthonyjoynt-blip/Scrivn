@@ -254,7 +254,7 @@ function room(name, overrides = {}) {
     floorRegistersDetached: null,
     contents: null,
     equipment: [],
-    waterExtractionRequired: null, antimicrobialApplied: null, containmentRequired: null, containmentSF: null, hepaVacuumingRequired: null, temporaryPowerRequired: null, appliances: [], trim: [], windowCoverings: [], cabinetHardware: [],
+    waterExtractionRequired: null, antimicrobialApplied: null, containmentRequired: null, containmentSF: null, hepaVacuumingRequired: null, temporaryPowerRequired: null, appliances: [], trim: [], windowCoverings: [], cabinetHardware: [], subfloor: [],
     waterExtractionSF: null,
     waterExtractionFraction: null,
     baseboardConfirmedAbsent: false,
@@ -327,7 +327,7 @@ function everyRecordRoom(name) {
       { wallMaterial: "DRYWALL", drywallBeingRemoved: true, insulationAffected: null, insulationType: null, insulationRValue: null, floodCutHeightIn: null, cutHeight: null, cutRunFt: null, cutRunFraction: null },
     ],
     doors: [{ location: "Entry", action: "REMOVE_AND_REPLACE", slabOnly: null, doorType: null, doorStyle: null, unitType: null, saveHardware: null }],
-    cabinetry: [{ location: "Base run", action: "REMOVE_AND_REPLACE", extent: null, grade: null }],
+    cabinetry: [{ location: "Base run", action: "REMOVE_AND_REPLACE", extent: null, grade: null, shoringRequired: null }],
     toeKicks: [{ action: "REMOVE_AND_REPLACE", method: null }],
     countertops: [{ action: "REMOVE_AND_REPLACE", material: null }],
     wallTile: [{ surface: null, trimPresent: null, trimLinearFt: null }],
@@ -356,6 +356,13 @@ function everyRecordRoom(name) {
       past the check meant to catch it.
     */
     equipment: [{ type: "air movers", quantity: null, holeCount: null }, { type: "injecti-dry units", quantity: 1, holeCount: null }],
+    /*
+      A subfloor record for the same reason the injecti-dry one is here: its questions are
+      conditional on a record existing, and a conditional question on a record nothing fixtures is
+      invisible to the extractable audit — which is precisely the check meant to catch a new field.
+      That happened once already, with the injection hole count.
+    */
+    subfloor: [{ type: null, disposition: null, removalSF: null }],
     contents: null,
   });
 }
@@ -2468,6 +2475,107 @@ for (const [label, record, shape] of [
     `${label} fixture carries every field the real record does (missing: ${missing.join(", ")})`,
   );
 }
+
+/* ── The subfloor: the layer under the floor, asked about only when there is one ─────────────────
+
+  "Floor's on a sleeper subfloor system over the slab, wood sleepers are wet, those need to come out
+  along with the vinyl on top" reached the tree as vinyl flooring and nothing else. The sleepers —
+  the framing the floor stands on, and much the bigger half of that job — had nowhere to land, so
+  the scope described peeling vinyl off a slab that is actually two inches further down.
+
+  Deliberately no standing "is there a subfloor?": every floor has one and almost none are in scope.
+  The record exists because the PM said so, and what is left open is which kind and which way it goes.
+*/
+const subQs = (subfloor) =>
+  nextQuestions(claim, withDerivedFields(extractionWith([everyRecordRoomWith({ subfloor })])))
+    .filter((q) => q.id.includes(":subfloor:"));
+
+const openSub = subQs([{ type: null, disposition: null, removalSF: null }]);
+check(openSub.some((q) => q.id.endsWith(":type")), `an unnamed subfloor is asked what it is (got ${openSub.map((q) => q.id).join(", ") || "nothing"})`);
+check(openSub.some((q) => q.id.endsWith(":disposition")), "and which way it goes");
+check(
+  !openSub.some((q) => q.id.endsWith(":removalSF")),
+  "but not yet how much comes out — an area for a floor nobody has said is leaving is a number about nothing",
+);
+
+const outSub = subQs([{ type: "SLEEPER_SYSTEM", disposition: "REMOVE_AND_REPLACE", removalSF: null }]);
+check(
+  outSub.length === 1 && outSub[0].id.endsWith(":removalSF"),
+  `once it is coming out the area is the one thing still open (got ${outSub.map((q) => q.id).join(", ") || "nothing"})`,
+);
+check(
+  subQs([{ type: "SLEEPER_SYSTEM", disposition: "DRY_IN_PLACE", removalSF: null }]).length === 0,
+  "a subfloor being dried in place is asked nothing further — there is no removal to size",
+);
+check(subQs([]).length === 0, "and a room whose PM never mentioned one is asked nothing at all");
+
+const subApplied = (id, answer) =>
+  applyAnswer(extractionWith([everyRecordRoomWith({ subfloor: [{ type: null, disposition: null, removalSF: null }] })]), id, answer)
+    .rooms[0].subfloor[0];
+
+check(subApplied("room:0:subfloor:0:type", "Sleeper system over slab").type === "SLEEPER_SYSTEM", "answering records the kind");
+check(
+  subApplied("room:0:subfloor:0:type", "Plywood or OSB").type === "PLYWOOD_OSB",
+  "and each kind lands on its own value — sleepers and sheet goods are not the same demolition",
+);
+check(
+  subApplied("room:0:subfloor:0:type", "Sleepers, I think").type === null,
+  "an answer matching no option leaves the kind open, rather than guessing OTHER — which would read as something the PM said",
+);
+check(subApplied("room:0:subfloor:0:disposition", "Dried in place").disposition === "DRY_IN_PLACE", "drying in place is recorded as such");
+check(
+  subApplied("room:0:subfloor:0:disposition", "Coming out and being replaced").disposition === "REMOVE_AND_REPLACE",
+  "and so is coming out",
+);
+check(
+  subApplied("room:0:subfloor:0:removalSF", "6 x 8").removalSF === 48,
+  `dimensions are read as an area here like everywhere else (got ${subApplied("room:0:subfloor:0:removalSF", "6 x 8").removalSF})`,
+);
+check(
+  subQs([{ type: "SLEEPER_SYSTEM", disposition: "REMOVE_AND_REPLACE", removalSF: 48 }]).length === 0,
+  "and a fully answered subfloor is asked nothing again",
+);
+
+/* ── Shoring: the labour of holding up whatever stays ────────────────────────────────────────────
+
+  "The cabinet's coming out but the countertop and sink are staying put, so that section needs
+  shoring" is a real line of labour — temporary posts in, posts out — and it reached no field. The
+  scope read as a plain cabinet removal, which is the shape of miss nobody re-checks: the removal is
+  there, so the line looks complete.
+*/
+const cabQs = (room) => nextQuestions(claim, withDerivedFields(extractionWith([room]))).filter((q) => q.id.includes(":cabinetry:"));
+const cabinet = (overrides = {}) => ({ location: "Base run", action: "REMOVE_AND_REPLACE", extent: "Lowers", grade: "Standard", shoringRequired: null, ...overrides });
+
+const shoringAsked = cabQs(everyRecordRoomWith({ cabinetry: [cabinet()] }));
+check(
+  shoringAsked.length === 1 && shoringAsked[0].id.endsWith(":shoringRequired"),
+  `a cabinet with everything else settled is asked about shoring (got ${shoringAsked.map((q) => q.id).join(", ") || "nothing"})`,
+);
+check(shoringAsked[0]?.kind?.type === "yesNo", `and it is a yes/no (got ${shoringAsked[0]?.kind?.type})`);
+check(
+  cabQs(everyRecordRoomWith({ cabinetry: [cabinet({ shoringRequired: false })] })).length === 0,
+  "answered no, it is not asked again — a false is an answer, not an absence",
+);
+
+const shoringId = shoringAsked[0]?.id ?? "room:0:cabinetry:0:shoringRequired";
+const openShoring = extractionWith([everyRecordRoomWith({ cabinetry: [cabinet()] })]);
+check(applyAnswer(openShoring, shoringId, "Yes").rooms[0].cabinetry[0].shoringRequired === true, "answering yes records it");
+check(applyAnswer(openShoring, shoringId, "No").rooms[0].cabinetry[0].shoringRequired === false, "and no records the no, rather than leaving it open");
+
+/*
+  Held back while the vanity option is still on the table, on the same terms as the grade: answering
+  "it's a vanity" moves the record out of cabinetry altogether, so anything asked alongside is a
+  question about a record that may be about to stop existing.
+*/
+const vanityRoom = { ...everyRecordRoom("Bathroom"), cabinetry: [cabinet({ extent: null, grade: null })] };
+check(
+  !cabQs(vanityRoom).some((q) => q.id.endsWith(":shoringRequired")),
+  `no shoring question while the vanity offer is open (got ${cabQs(vanityRoom).map((q) => q.id).join(", ") || "nothing"})`,
+);
+check(
+  cabQs({ ...vanityRoom, cabinetry: [cabinet({ extent: "Lowers", grade: null })] }).some((q) => q.id.endsWith(":shoringRequired")),
+  "and it comes back the round after the extent is settled — a bathroom cabinet needs shoring as much as any other",
+);
 
 /* ── Nothing is asked that extraction could already know ───────────────────────────────────────── */
 

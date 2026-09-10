@@ -231,15 +231,28 @@ function extractionSummary(extraction) {
     for (const w of room.walls ?? []) if (w.drywallBeingRemoved) lines.push(`    wall        drywall out / ${w.cutHeight ?? "height not stated"}${w.insulationAffected ? " / insulation affected" : ""}`);
     for (const c of room.ceilings ?? []) lines.push(`    ceiling     ${[c.type, c.action, c.finish, c.textureStyle].filter(Boolean).join(" / ")}`);
     for (const d of room.doors ?? []) lines.push(`    door        ${[d.location, d.action].filter(Boolean).join(" / ")}`);
-    for (const c of room.cabinetry ?? []) lines.push(`    cabinetry   ${[c.location, c.action, c.extent].filter(Boolean).join(" / ")}`);
+    for (const c of room.cabinetry ?? []) lines.push(`    cabinetry   ${[c.location, c.action, c.extent, c.grade, c.shoringRequired ? "SHORING" : null].filter(Boolean).join(" / ")}`);
+    /*
+      The layer under the floor, and the trim-sized records beside it.
+
+      Every one of these was added because batch 3 caught it going missing, and every one of them
+      went missing in a way a reader could not see. So they print here even though the section is
+      already long: this summary is what a person actually reads, and a record that reaches the tree
+      but not this page is back to being invisible — which is the whole failure being fixed.
+    */
+    for (const f of room.subfloor ?? []) lines.push(`    subfloor    ${[f.type ?? "kind not stated", f.disposition ?? "disposition not stated", f.removalSF !== null ? `${f.removalSF} SF` : null].filter(Boolean).join(" / ")}`);
+    for (const t of room.trim ?? []) lines.push(`    trim        ${[t.kind, t.location, t.action ?? "action not stated"].filter(Boolean).join(" / ")}`);
+    for (const w of room.windowCoverings ?? []) lines.push(`    covering    ${[w.type, w.location, w.action ?? "action not stated"].filter(Boolean).join(" / ")}`);
+    for (const h of room.cabinetHardware ?? []) lines.push(`    hardware    ${[h.location, h.action ?? "action not stated"].filter(Boolean).join(" / ")}`);
     for (const p of room.plumbingFixtures ?? []) lines.push(`    plumbing    ${[p.fixtureType, p.action].filter(Boolean).join(" / ")}`);
-    for (const e of room.equipment ?? []) lines.push(`    equipment   ${e.type} × ${e.quantity ?? "not stated"}`);
-    for (const a of room.appliances ?? []) lines.push(`    appliance   ${a.type}`);
+    for (const e of room.equipment ?? []) lines.push(`    equipment   ${e.type} × ${e.quantity ?? "not stated"}${e.holeCount !== null && e.holeCount !== undefined ? ` / ${e.holeCount} holes` : ""}`);
+    for (const a of room.appliances ?? []) lines.push(`    appliance   ${[a.type, a.action ?? "action not stated"].join(" / ")}`);
     const flags = [
       room.antimicrobialApplied ? "antimicrobial" : null,
       room.hepaVacuumingRequired ? "HEPA vacuuming" : null,
       room.containmentRequired ? `containment${room.containmentSF ? ` ${room.containmentSF} SF` : ""}` : null,
       room.waterExtractionRequired ? "water extraction" : null,
+      room.temporaryPowerRequired ? "temporary power" : null,
       room.contents ? `contents ${room.contents.size ?? "size not stated"}` : null,
     ].filter(Boolean);
     if (flags.length) lines.push(`    room        ${flags.join(", ")}`);

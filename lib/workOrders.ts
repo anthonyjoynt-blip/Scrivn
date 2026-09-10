@@ -11,7 +11,7 @@ import { isDGIG } from "./insurers";
 import { lossTypeLabel } from "./claimInfo";
 import { baseboardFinishLine, ceilingPaintLine, ceilingQuantity, fractionLabel, primingLine } from "./paintDerivation";
 import type { ApplianceType, CeilingRecord, DoorRecord, FlooringRecord, Room, WaterLossExtraction } from "./types";
-import { APPLIANCE_LABEL, DOOR_STYLE_LABEL, isInjectionEquipment, TRIM_KIND_LABEL, WINDOW_COVERING_LABEL, WINDOW_CLEANING_SIZE_LABEL, WINDOW_CLEANING_SIZES } from "./types";
+import { APPLIANCE_LABEL, DOOR_STYLE_LABEL, isInjectionEquipment, SUBFLOOR_LABEL, TRIM_KIND_LABEL, WINDOW_COVERING_LABEL, WINDOW_CLEANING_SIZE_LABEL, WINDOW_CLEANING_SIZES } from "./types";
 
 /**
  * Trade work orders — the crew-facing counterpart to the estimator-facing scope document.
@@ -338,6 +338,16 @@ function buildMitigationDemo(claim: ClaimInfo, extraction: WaterLossExtraction, 
       items.push(bullet(`Detach ${APPLIANCE_LABEL[a.type]}`, null, null));
     }
 
+    /*
+      The subfloor comes out before the baseboard discussion, because it is under everything.
+      A pair like flooring's: nothing stands on a floor with its subfloor gone, so the rebuild is
+      not a separate decision the way replacing a carpet is.
+    */
+    for (const f of room.subfloor) {
+      if (f.disposition !== "REMOVE_AND_REPLACE") continue;
+      items.push(bullet(`Remove ${SUBFLOOR_LABEL[f.type ?? "OTHER"]}`, null, f.removalSF !== null ? `${f.removalSF} SF` : "floor area"));
+    }
+
     for (const b of room.baseboard) {
       if (b.phase === "REPAIR") continue;
       if (b.action === "DETACH_AND_RESET") items.push(bullet("Detach baseboard", null, "perimeter"));
@@ -396,7 +406,14 @@ function buildMitigationDemo(claim: ClaimInfo, extraction: WaterLossExtraction, 
       if (h.action === "RESET_ONLY") continue;
       items.push(bullet(h.action === "REMOVE_AND_REPLACE" ? "Remove cabinet hardware" : "Detach cabinet hardware", h.location || null, null));
     }
-    for (const c of room.cabinetry) items.push(bullet(c.action === "DETACH_AND_RESET" ? "Detach cabinetry" : "Remove cabinetry", c.location, null));
+    for (const c of room.cabinetry) {
+      items.push(bullet(c.action === "DETACH_AND_RESET" ? "Detach cabinetry" : "Remove cabinetry", c.location, null));
+      /*
+        Its own line, and its own labour: a sink run where the counter and sink stay put has to be
+        held up while the base is out. One line covering install and strike, which is how it prices.
+      */
+      if (c.shoringRequired === true) items.push(bullet("Shore countertop while cabinetry is out", c.location, null));
+    }
     for (const c of room.countertops) items.push(bullet(c.action === "DETACH_AND_RESET" ? "Detach countertop" : "Remove countertop", null, null));
 
     if (room.floorRegistersDetached && room.floorRegistersDetached > 0) items.push(bullet("Detach floor registers", `${room.floorRegistersDetached}`, null));
@@ -580,6 +597,11 @@ function buildFinishCarpentry(claim: ClaimInfo, extraction: WaterLossExtraction)
     }
     for (const h of room.cabinetHardware) {
       items.push(bullet(h.action === "REMOVE_AND_REPLACE" ? "Install new cabinet hardware" : "Reset cabinet hardware", h.location || null, null));
+    }
+    // The subfloor goes back before anything stands on it. The other half of the pair above.
+    for (const f of room.subfloor) {
+      if (f.disposition !== "REMOVE_AND_REPLACE") continue;
+      items.push(bullet(`Install new ${SUBFLOOR_LABEL[f.type ?? "OTHER"]}`, null, f.removalSF !== null ? `${f.removalSF} SF` : "floor area"));
     }
     for (const c of room.cabinetry) items.push(bullet(c.action === "DETACH_AND_RESET" ? "Reset cabinetry" : "Install new cabinetry", c.location, null));
     for (const c of room.countertops) items.push(bullet(c.action === "DETACH_AND_RESET" ? "Reset countertop" : "Install new countertop", c.material ? titleCase(c.material) : null, null));
