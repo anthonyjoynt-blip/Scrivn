@@ -395,6 +395,19 @@ const roomDetailSchema = obj({
     location: str(),
     action: enumOf("DETACH_AND_RESET", "REMOVE_AND_REPLACE", "RESET_ONLY", "UNKNOWN"),
   })),
+  /*
+    Two more lists produced outright. Both were lost entirely by a batch of test transcripts, and a
+    blind coming down before sill work is as clear an instruction as anything else in the dictation.
+  */
+  windowCoverings: arr(obj({
+    type: enumOf("BLIND", "SHADE", "DRAPERY", "SHUTTER"),
+    location: str(),
+    action: enumOf("DETACH_AND_RESET", "REMOVE_AND_REPLACE", "RESET_ONLY", "UNKNOWN"),
+  })),
+  cabinetHardware: arr(obj({
+    location: str(),
+    action: enumOf("DETACH_AND_RESET", "REMOVE_AND_REPLACE", "RESET_ONLY", "UNKNOWN"),
+  })),
 });
 
 /**

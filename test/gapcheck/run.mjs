@@ -254,7 +254,7 @@ function room(name, overrides = {}) {
     floorRegistersDetached: null,
     contents: null,
     equipment: [],
-    waterExtractionRequired: null, antimicrobialApplied: null, containmentRequired: null, containmentSF: null, hepaVacuumingRequired: null, appliances: [], trim: [],
+    waterExtractionRequired: null, antimicrobialApplied: null, containmentRequired: null, containmentSF: null, hepaVacuumingRequired: null, appliances: [], trim: [], windowCoverings: [], cabinetHardware: [],
     waterExtractionSF: null,
     waterExtractionFraction: null,
     baseboardConfirmedAbsent: false,
@@ -2163,6 +2163,48 @@ check(
   bbActionQ({ ...openBb, action: "SHOE_MOLD_ONLY" }).every((q) => !q.id.endsWith(":shoeMold")),
   "a shoe-mold-only job is never asked whether the shoe comes too — the shoe IS the job",
 );
+
+/* ── Blinds and cabinet hardware ────────────────────────────────────────────────────────────────
+
+  Both reached no field at all until now. One question each, and only when the direction is open —
+  no standing "are there blinds?", for the same reason there is no standing casing question: most
+  windows have something on them and almost none of it is in scope.
+*/
+const fittingQs = (overrides) =>
+  nextQuestions(claim, withDerivedFields(extractionWith([everyRecordRoomWith(overrides)])));
+
+const blindQ = fittingQs({ windowCoverings: [{ type: "BLIND", location: "front window", action: null }] })
+  .filter((q) => q.id.includes(":windowCovering:"));
+check(blindQ.length === 1, `one question for a covering with no direction (got ${blindQ.length})`);
+check(
+  (blindQ[0]?.prompt ?? "").includes("blind") && (blindQ[0]?.prompt ?? "").includes("front window"),
+  `naming the covering and its window (got "${blindQ[0]?.prompt}")`,
+);
+check(
+  fittingQs({ windowCoverings: [{ type: "BLIND", location: "x", action: "RESET_ONLY" }] })
+    .filter((q) => q.id.includes(":windowCovering:")).length === 0,
+  "and nothing once it is settled",
+);
+check(
+  fittingQs({}).filter((q) => q.id.includes(":windowCovering:") || q.id.includes(":cabinetHardware:")).length === 0,
+  "a room with neither is asked about neither — there is no standing question for either",
+);
+
+const blindAnswered = applyAnswer(
+  extractionWith([everyRecordRoomWith({ windowCoverings: [{ type: "BLIND", location: "front window", action: null }] })]),
+  "room:0:windowCovering:0:action",
+  "Already off — reset only",
+);
+check(blindAnswered.rooms[0]?.windowCoverings[0]?.action === "RESET_ONLY", "answering records the direction");
+
+const hwQ = fittingQs({ cabinetHardware: [{ location: "base run", action: null }] }).filter((q) => q.id.includes(":cabinetHardware:"));
+check(hwQ.length === 1, `and hardware gets its own (got ${hwQ.length})`);
+const hwAnswered = applyAnswer(
+  extractionWith([everyRecordRoomWith({ cabinetHardware: [{ location: "base run", action: null }] })]),
+  "room:0:cabinetHardware:0:action",
+  "Detached and reset",
+);
+check(hwAnswered.rooms[0]?.cabinetHardware[0]?.action === "DETACH_AND_RESET", "which is recorded the same way");
 
 /* ── A door's style is asked separately from what it is made of ─────────────────────────────────
 

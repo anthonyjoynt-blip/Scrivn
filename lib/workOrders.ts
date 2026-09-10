@@ -11,7 +11,7 @@ import { isDGIG } from "./insurers";
 import { lossTypeLabel } from "./claimInfo";
 import { baseboardFinishLine, ceilingPaintLine, ceilingQuantity, fractionLabel, primingLine } from "./paintDerivation";
 import type { ApplianceType, CeilingRecord, DoorRecord, FlooringRecord, Room, WaterLossExtraction } from "./types";
-import { APPLIANCE_LABEL, DOOR_STYLE_LABEL, TRIM_KIND_LABEL, WINDOW_CLEANING_SIZE_LABEL, WINDOW_CLEANING_SIZES } from "./types";
+import { APPLIANCE_LABEL, DOOR_STYLE_LABEL, TRIM_KIND_LABEL, WINDOW_COVERING_LABEL, WINDOW_CLEANING_SIZE_LABEL, WINDOW_CLEANING_SIZES } from "./types";
 
 /**
  * Trade work orders — the crew-facing counterpart to the estimator-facing scope document.
@@ -385,6 +385,16 @@ function buildMitigationDemo(claim: ClaimInfo, extraction: WaterLossExtraction, 
       if (t.action === "RESET_ONLY") continue;
       items.push(bullet(t.action === "DETACH_AND_RESET" ? `Detach ${TRIM_KIND_LABEL[t.kind].toLowerCase()}` : `Remove ${TRIM_KIND_LABEL[t.kind].toLowerCase()}`, t.location || null, null));
     }
+
+    // Blinds and knobs: small, separately priced, and lost entirely until they had records.
+    for (const w of room.windowCoverings) {
+      if (w.action === "RESET_ONLY") continue;
+      items.push(bullet(w.action === "REMOVE_AND_REPLACE" ? `Remove ${WINDOW_COVERING_LABEL[w.type]}` : `Detach ${WINDOW_COVERING_LABEL[w.type]}`, w.location || null, null));
+    }
+    for (const h of room.cabinetHardware) {
+      if (h.action === "RESET_ONLY") continue;
+      items.push(bullet(h.action === "REMOVE_AND_REPLACE" ? "Remove cabinet hardware" : "Detach cabinet hardware", h.location || null, null));
+    }
     for (const c of room.cabinetry) items.push(bullet(c.action === "DETACH_AND_RESET" ? "Detach cabinetry" : "Remove cabinetry", c.location, null));
     for (const c of room.countertops) items.push(bullet(c.action === "DETACH_AND_RESET" ? "Detach countertop" : "Remove countertop", null, null));
 
@@ -506,6 +516,14 @@ function buildFinishCarpentry(claim: ClaimInfo, extraction: WaterLossExtraction)
     // again reads as trim nobody put back — the same failure the baseboard pair exists to prevent.
     for (const t of room.trim) {
       items.push(bullet(t.action === "REMOVE_AND_REPLACE" ? `Install new ${TRIM_KIND_LABEL[t.kind].toLowerCase()}` : `Reset ${TRIM_KIND_LABEL[t.kind].toLowerCase()}`, t.location || null, null));
+    }
+
+    // The other half of both pairs above.
+    for (const w of room.windowCoverings) {
+      items.push(bullet(w.action === "REMOVE_AND_REPLACE" ? `Install new ${WINDOW_COVERING_LABEL[w.type]}` : `Reset ${WINDOW_COVERING_LABEL[w.type]}`, w.location || null, null));
+    }
+    for (const h of room.cabinetHardware) {
+      items.push(bullet(h.action === "REMOVE_AND_REPLACE" ? "Install new cabinet hardware" : "Reset cabinet hardware", h.location || null, null));
     }
     for (const c of room.cabinetry) items.push(bullet(c.action === "DETACH_AND_RESET" ? "Reset cabinetry" : "Install new cabinetry", c.location, null));
     for (const c of room.countertops) items.push(bullet(c.action === "DETACH_AND_RESET" ? "Reset countertop" : "Install new countertop", c.material ? titleCase(c.material) : null, null));

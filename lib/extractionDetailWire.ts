@@ -17,6 +17,7 @@ import type {
   ApplianceAction,
   TrimAction,
   TrimKind,
+  WindowCoveringType,
 } from "./types";
 
 /**
@@ -84,10 +85,15 @@ export interface RoomDetailWire {
   contentsPackOut: string;
   appliances: { type: string; action: string }[];
   trim: TrimDetailWire[];
+  windowCoverings: { type: string; location: string; action: string }[];
+  cabinetHardware: { location: string; action: string }[];
 }
 export interface ExtractionDetailWire {
   rooms: RoomDetailWire[];
 }
+
+/** The enum the detail schema offers, so an unrecognised string is dropped rather than trusted. */
+const WINDOW_COVERING_TYPES = new Set<string>(["BLIND", "SHADE", "DRAPERY", "SHUTTER"]);
 
 /** The enum the detail schema offers, so an unrecognised string is dropped rather than trusted. */
 const TRIM_KINDS = new Set<string>(["DOOR_CASING", "DOOR_JAMB", "WINDOW_CASING", "WINDOW_SILL", "WINDOW_RETURN"]);
@@ -238,6 +244,28 @@ export function mergeDetail(extraction: WaterLossExtraction, detail: ExtractionD
                 location: typeof t.location === "string" ? t.location.trim() : "",
                 action: enumOrNull<TrimAction>(t.action),
               })),
+      /*
+        Same treatment as trim above: taken as given, unrecognised types dropped rather than guessed.
+        A blind whose type did not survive the round trip is one nobody could render correctly, and
+        an action left null is asked in seconds rather than billed wrongly.
+      */
+      windowCoverings:
+        room.windowCoverings.length > 0
+          ? room.windowCoverings
+          : (d.windowCoverings ?? [])
+              .filter((w) => WINDOW_COVERING_TYPES.has(w?.type))
+              .map((w) => ({
+                type: w.type as WindowCoveringType,
+                location: typeof w.location === "string" ? w.location.trim() : "",
+                action: enumOrNull<TrimAction>(w.action),
+              })),
+      cabinetHardware:
+        room.cabinetHardware.length > 0
+          ? room.cabinetHardware
+          : (d.cabinetHardware ?? []).map((h) => ({
+              location: typeof h?.location === "string" ? h.location.trim() : "",
+              action: enumOrNull<TrimAction>(h?.action),
+            })),
       ceilingLightFixturesPresent: room.ceilingLightFixturesPresent ?? toTriState(d.lightFixturesPresent),
       ceilingLightFixtureCount: room.ceilingLightFixtureCount ?? intOrNull(d.lightFixtureCount),
       ceilings: room.ceilings.map((c, i) => ({

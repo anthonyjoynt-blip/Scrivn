@@ -105,6 +105,10 @@ export interface Room {
    * `schema.ts`). Nothing refers to these by index, which is what makes that safe.
    */
   trim: TrimRecord[];
+  /** Blinds, shades, drapery and shutters — see {@link WindowCoveringRecord}. Detail pass only. */
+  windowCoverings: WindowCoveringRecord[];
+  /** Knobs and pulls handled on their own — see {@link CabinetHardwareRecord}. Detail pass only. */
+  cabinetHardware: CabinetHardwareRecord[];
   /**
    * Gap-check-only, round 12 — never populated by extraction. General water-claim gap-check ("one
    * more gap check for all water claims, if water extraction was not mentioned - ask if water
@@ -576,6 +580,54 @@ export const TRIM_KIND_LABEL: Record<TrimKind, string> = {
  * detach that has already happened.
  */
 export type TrimAction = DetachOrReplaceAction | "RESET_ONLY";
+
+/**
+ * A blind, shade, drapery or shutter that comes down for the work and goes back afterwards.
+ *
+ * Its own list rather than a field on a window, because there is no window record to hang it on —
+ * windows reach this tree only as free text on a trim record. Added because a batch of transcripts
+ * lost every one: "there's also a blind on that window, detach it before the sill work, reset it
+ * after" was as clear an instruction as anything else in the dictation, and it reached no field at
+ * all. It survived into one scope only because generation is handed the raw transcript as well as
+ * the tree — which is not a mechanism to rely on, since the same run silently dropped the sill.
+ *
+ * The four types are separated because the labour is not the same: a roller shade lifts off in
+ * seconds and plantation shutters are screwed to the frame.
+ */
+export type WindowCoveringType = "BLIND" | "SHADE" | "DRAPERY" | "SHUTTER";
+
+export const WINDOW_COVERING_LABEL: Record<WindowCoveringType, string> = {
+  BLIND: "blind",
+  SHADE: "shade",
+  DRAPERY: "drapery",
+  SHUTTER: "shutter",
+};
+
+export interface WindowCoveringRecord {
+  type: WindowCoveringType;
+  /** Which window, in the PM's own words. Free text for the same reason a trim record's is. */
+  location: string;
+  /** Shares trim's three outcomes, including RESET_ONLY for a repair visit. */
+  action: TrimAction | null;
+}
+
+/**
+ * Knobs and pulls handled on their own, as opposed to cabinetry coming out.
+ *
+ * Separate from `CabinetryRecord` because in the transcript that prompted this there IS no cabinetry
+ * record — "cabinet hardware that we pulled is ready to go back on too" is a repair visit where the
+ * cabinets themselves are staying and only the hardware is in scope. A field on a record that does
+ * not exist captures nothing.
+ *
+ * Door hardware is deliberately NOT here: it already has a home on `DoorRecord.saveHardware`, which
+ * answers the question in the situation it comes up in — a door being worked on. Two homes for one
+ * fact is how the two of them end up disagreeing.
+ */
+export interface CabinetHardwareRecord {
+  /** Which run of cabinets, in the PM's own words. Empty when they did not say. */
+  location: string;
+  action: TrimAction | null;
+}
 
 export interface TrimRecord {
   kind: TrimKind;

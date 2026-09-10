@@ -102,7 +102,7 @@ function flooring(overrides = {}) {
   };
 }
 function room(name, overrides = {}) {
-  return { roomName: name, flooring: [], baseboard: [], walls: [], ceilings: [], doors: [], cabinetry: [], toeKicks: [], countertops: [], wallTile: [], outlets: [], lightFixtures: [], electricalPanel: null, plumbingFixtures: [], stairs: null, floorRegistersDetached: null, contents: null, equipment: [], antimicrobialApplied: null, containmentRequired: null, containmentSF: null, hepaVacuumingRequired: null, appliances: [], trim: [], waterExtractionRequired: null, waterExtractionSF: null, waterExtractionFraction: null, baseboardConfirmedAbsent: false, windowCleaningAsked: false, windowCleaningCounts: null, equipmentAsked: false, ceilingLightFixturesPresent: null, ceilingFixturesInRemovalArea: null, ceilingLightFixtureType: null, ceilingLightFixtureCount: null, otherCeilingFixtures: null, ...overrides };
+  return { roomName: name, flooring: [], baseboard: [], walls: [], ceilings: [], doors: [], cabinetry: [], toeKicks: [], countertops: [], wallTile: [], outlets: [], lightFixtures: [], electricalPanel: null, plumbingFixtures: [], stairs: null, floorRegistersDetached: null, contents: null, equipment: [], antimicrobialApplied: null, containmentRequired: null, containmentSF: null, hepaVacuumingRequired: null, appliances: [], trim: [], windowCoverings: [], cabinetHardware: [], waterExtractionRequired: null, waterExtractionSF: null, waterExtractionFraction: null, baseboardConfirmedAbsent: false, windowCleaningAsked: false, windowCleaningCounts: null, equipmentAsked: false, ceilingLightFixturesPresent: null, ceilingFixturesInRemovalArea: null, ceilingLightFixtureType: null, ceilingLightFixtureCount: null, otherCeilingFixtures: null, ...overrides };
 }
 
 /* ── A replaced ceiling gets primed and painted ────────────────────────────────────────────────── */
@@ -467,6 +467,47 @@ for (const [label, record] of [
     `and the same baseboard ${label} goes back on in Repair (got:\n${repair})`,
   );
 }
+
+/* ── Blinds and cabinet hardware, which used to reach no field at all ──────────────────────────── */
+
+/*
+  "There's also a blind on that window, detach it before the sill work, reset it after" was as clear
+  an instruction as anything else in the dictation and landed nowhere. It survived into one scope
+  only because generation is handed the raw transcript as well as the tree — and the same run
+  silently dropped a rotted sill, which is why that is not a mechanism to rely on.
+*/
+const fittingSheets = (overrides) => {
+  const built = bbOrders(bbExtraction([room("Entry", overrides)]));
+  return { emergency: bbText(built, "MITIGATION_DEMO"), repair: bbText(built, "FINISH_CARPENTRY") };
+};
+
+const blind = fittingSheets({ windowCoverings: [{ type: "BLIND", location: "front window", action: "DETACH_AND_RESET" }] });
+check(blind.emergency.includes("Detach blind – front window"), `a blind comes down by name (got:\n${blind.emergency})`);
+check(blind.repair.includes("Reset blind – front window"), `and goes back up (got:\n${blind.repair})`);
+
+const shutter = fittingSheets({ windowCoverings: [{ type: "SHUTTER", location: "", action: "REMOVE_AND_REPLACE" }] });
+check(
+  shutter.emergency.includes("Remove shutter") && shutter.repair.includes("Install new shutter"),
+  "and the type is named, since a roller shade and plantation shutters are not the same labour",
+);
+
+const blindBack = fittingSheets({ windowCoverings: [{ type: "BLIND", location: "front window", action: "RESET_ONLY" }] });
+check(!blindBack.emergency.includes("blind"), `a blind already down gets no Emergency line (got:\n${blindBack.emergency})`);
+check(blindBack.repair.includes("Reset blind"), "but is still re-hung");
+
+const hardwareOff = fittingSheets({ cabinetHardware: [{ location: "base run", action: "DETACH_AND_RESET" }] });
+check(hardwareOff.emergency.includes("Detach cabinet hardware – base run"), `hardware coming off is its own line (got:\n${hardwareOff.emergency})`);
+check(hardwareOff.repair.includes("Reset cabinet hardware – base run"), "and goes back on");
+
+const hardware = fittingSheets({ cabinetHardware: [{ location: "base run", action: "RESET_ONLY" }] });
+check(!hardware.emergency.includes("cabinet hardware"), "hardware already pulled is not pulled again");
+check(hardware.repair.includes("Reset cabinet hardware – base run"), `but goes back on (got:\n${hardware.repair})`);
+
+const noFittings = fittingSheets({});
+check(
+  !noFittings.emergency.includes("blind") && !noFittings.emergency.includes("cabinet hardware"),
+  "and a room with neither gets neither — most windows have something on them and almost none is in scope",
+);
 
 /* ── A door's style is on the line, because it is what the job costs ───────────────────────────── */
 

@@ -179,6 +179,19 @@ this room appear in the document at all":
       means nobody was asked, not that nothing is happening — and an Emergency removal with no Repair
       line is the worst of the three readings. (Gap-check asks for this field now, so it should be
       non-null on every claim; this is here for anything that slips through.)
+- WINDOW COVERINGS and CABINET HARDWARE, per room — for every entry in that room's
+  "windowCoverings" and "cabinetHardware" arrays, a PAIR of bullets, on the same terms as trim:
+    · DETACH_AND_RESET — Emergency "Detach {thing}", Repair "Reset {thing}".
+    · REMOVE_AND_REPLACE — Emergency "Remove {thing}", Repair "Install new {thing}".
+    · RESET_ONLY — Repair "Reset {thing}" ONLY, no Emergency bullet; it is already down.
+  {thing} is the covering's type in ordinary words — BLIND "blind", SHADE "shade", DRAPERY
+  "drapery", SHUTTER "shutter" — or "cabinet hardware". Append " – {location}" when non-empty.
+  Never add a bullet for a covering or a hardware run with no entry in these arrays. Most windows
+  have something on them and almost none of it is in scope; inventing a blind because a room has a
+  window puts a line on an estimate nobody asked for.
+  These were lost outright by a batch of test transcripts — "detach it before the sill work, reset
+  it after" reached no field at all — which is why they now have records rather than being left to
+  whatever the transcript happens to prompt.
 - DOOR STYLE is a separate fact from what the door is made of, and both belong on the line.
   doorType is the core (colonial, solid core, hollow core); doorStyle is how it opens (SWING,
   BIFOLD, POCKET, BYPASS, FRENCH). A door can be both at once — a hollow-core pocket door is

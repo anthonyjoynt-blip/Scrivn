@@ -130,6 +130,8 @@ function roomToDomain(w: RoomWire): Room {
     appliances: [],
     // Detail-pass only, like appliances above — call 1 has no grammar left to carry them.
     trim: [],
+    windowCoverings: [],
+    cabinetHardware: [],
     waterExtractionSF: null,
     waterExtractionFraction: null,
     // Gap-check-only (round 6) — never extracted, see Room.ceilingLightFixturesPresent's doc comment.

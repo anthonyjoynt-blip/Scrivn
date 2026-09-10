@@ -60,6 +60,7 @@ import type {
 import {
   APPLIANCE_LABEL,
   BATT_R_VALUES,
+  WINDOW_COVERING_LABEL,
   BLOWN_IN_R_VALUES,
   TRIM_KIND_LABEL,
   WINDOW_CLEANING_SIZE_LABEL,
@@ -329,6 +330,29 @@ export function evaluate(raw: WaterLossExtraction, suggestions?: EquipmentSugges
     room.wallTile.forEach((wt, i) => questions.push(...wallTileQuestions(roomIndex, room.roomName, i, wt)));
     room.doors.forEach((d, i) => questions.push(...doorQuestions(roomIndex, room.roomName, i, d)));
     room.trim.forEach((t, i) => questions.push(...trimQuestions(roomIndex, room.roomName, i, t)));
+    /*
+      Window coverings and cabinet hardware, on the same terms as trim: the record exists because the
+      PM mentioned it, so the only thing open is which way it goes. No standing "are there blinds?" —
+      most windows have something on them and almost none of it is in scope.
+    */
+    room.windowCoverings.forEach((w, i) => {
+      if (w.action !== null) return;
+      questions.push({
+        id: `room:${roomIndex}:windowCovering:${i}:action`,
+        roomName: room.roomName,
+        prompt: `What is happening with the ${WINDOW_COVERING_LABEL[w.type]}${w.location.trim() ? ` at ${w.location.trim()}` : ""}?`,
+        kind: { type: "choice", options: TRIM_ACTION_OPTIONS },
+      });
+    });
+    room.cabinetHardware.forEach((h, i) => {
+      if (h.action !== null) return;
+      questions.push({
+        id: `room:${roomIndex}:cabinetHardware:${i}:action`,
+        roomName: room.roomName,
+        prompt: `What is happening with the cabinet hardware${h.location.trim() ? ` at ${h.location.trim()}` : ""}?`,
+        kind: { type: "choice", options: TRIM_ACTION_OPTIONS },
+      });
+    });
     /*
       Whether an appliance is still in place, or already out.
 
@@ -1040,10 +1064,13 @@ function trimQuestions(roomIndex: number, roomName: string, i: number, t: TrimRe
       id: `room:${roomIndex}:trim:${i}:action`,
       roomName,
       prompt: `What is happening with the ${TRIM_KIND_LABEL[t.kind].toLowerCase()}${where ? ` at ${where}` : ""}?`,
-      kind: { type: "choice", options: ["Detached and reset", "Removed and replaced", "Already off — reset only"] },
+      kind: { type: "choice", options: TRIM_ACTION_OPTIONS },
     },
   ];
 }
+
+/** Shared by trim, window coverings and cabinet hardware — three things that come off and go back. */
+const TRIM_ACTION_OPTIONS = ["Detached and reset", "Removed and replaced", "Already off — reset only"];
 
 /** The three trim outcomes. Unrecognised answers keep the record open rather than guessing a verb. */
 function trimActionAnswer(answer: string): TrimAction | null {
@@ -1974,6 +2001,12 @@ export function applyAnswer(extraction: WaterLossExtraction, questionId: string,
       (r, l) => ({ ...r, appliances: l }),
       (a) => ({ ...a, action: equalsIgnoreCase(answer, "Already out — reset only") ? "RESET_ONLY" as const : "DETACH_AND_RESET" as const }),
     );
+  }
+  if (parts.length >= 5 && parts[0] === "room" && parts[2] === "windowCovering" && parts[4] === "action") {
+    return updateList(extraction, roomIndex(parts), Number(parts[3]), (r) => r.windowCoverings, (r, l) => ({ ...r, windowCoverings: l }), (w) => ({ ...w, action: trimActionAnswer(answer) }));
+  }
+  if (parts.length >= 5 && parts[0] === "room" && parts[2] === "cabinetHardware" && parts[4] === "action") {
+    return updateList(extraction, roomIndex(parts), Number(parts[3]), (r) => r.cabinetHardware, (r, l) => ({ ...r, cabinetHardware: l }), (h) => ({ ...h, action: trimActionAnswer(answer) }));
   }
   if (parts.length >= 5 && parts[0] === "room" && parts[2] === "trim") {
     return updateList(

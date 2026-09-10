@@ -31,7 +31,8 @@ STRUCTURE — this is what makes the answer usable at all:
   baseboard, walls, ceilings, doors and cabinetry. The counts are given per room below. A room with
   zero of something gets an empty array for it.
 - lightFixturesPresent, lightFixtureCount, antimicrobialApplied, containmentRequired, containmentSF,
-  hepaVacuumingRequired, contentsPackOut, appliances and trim are room-level: one value each per room entry, not
+  hepaVacuumingRequired, contentsPackOut, appliances, trim, windowCoverings and cabinetHardware are
+  room-level: one value each per room entry, not
   arrays and not per record.
 - If a count does not match, the whole room's detail is discarded rather than misapplied, so match
   the counts exactly even where every field in an entry is UNKNOWN.
@@ -119,6 +120,26 @@ WHAT EACH FIELD MEANS:
   Trim that is merely in the room, unmentioned and untouched, is not recorded. Do not infer casing
   from a door being replaced: whether the casing comes with it is a scoping decision somebody makes,
   not a fact the transcript stated.
+- windowCoverings — room-level, produced outright like trim and appliances. One entry for each blind,
+  shade, drapery or shutter the transcript says is coming down, going back up, or being replaced.
+  Empty array when it names none, which is the common case.
+  type: BLIND (venetian, horizontal or vertical slats), SHADE (roller, cellular, roman), DRAPERY
+  (curtains and their rod), SHUTTER (plantation or interior shutters).
+  location: which window, in the PM's own words.
+  action: DETACH_AND_RESET when it comes down for the work and goes back ("detach it before the sill
+  work, reset it after"); REMOVE_AND_REPLACE when it is being renewed; RESET_ONLY on a repair visit
+  where it is already down and only needs re-hanging ("the window blind needs to go back up now that
+  the sill work's done"); UNKNOWN when it is mentioned without saying which.
+  A covering merely present in the room ("there's blinds on all the windows") is not one being
+  handled — record only what the transcript says is being done to it.
+- cabinetHardware — room-level, produced outright. One entry for a run of knobs and pulls being
+  taken off and put back on their own, without the cabinets themselves being detached or replaced:
+  "cabinet hardware that we pulled is ready to go back on", "pull the knobs before painting".
+  location: which run of cabinets, in the PM's own words, or "" when they did not say.
+  action: the same three as above, RESET_ONLY being the repair-visit case.
+  Do NOT create one because a cabinetry record exists. Hardware coming off with the cabinets is part
+  of that job, not a separate line, and a second entry would bill it twice. This is only for hardware
+  the transcript treats as its own piece of work.
 - contentsPackOut — room-level. YES when the transcript says contents are being PACKED OUT, crated,
   inventoried, put in storage, or otherwise taken off site — "full pack-out", "boxing it all up and
   storing it", "contents going to the warehouse". NO when it says contents are only being moved
