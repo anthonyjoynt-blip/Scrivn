@@ -476,7 +476,24 @@ function roomNameQuestion(roomIndex: number, room: Room): GapCheckQuestion[] {
   tool adding work nobody asked for. Naming the whole thing in the option is the entire fix; nothing
   downstream changes.
 */
-const BASEBOARD_ACTION_OPTIONS = ["Detached and reset on repairs", "Removed and replaced", "Shoe mold removed and replaced"];
+/*
+  Four outcomes, not three.
+
+  "Removed and replaced, with the shoe mold" is the case the enum could not hold at all: `action`
+  had base-only, shoe-only and detach, so a PM saying "both the baseboard and the shoe mold" got a
+  record identical to one with no shoe mold in the room, and the shoe vanished from the scope. It is
+  a separate line with its own linear footage.
+
+  Folded into THIS question rather than added as a follow-up: the shoe question only has an answer
+  worth asking for once you know what is happening to the baseboard, so making it a second round
+  would ask two questions where the PM has one thing in mind.
+*/
+const BASEBOARD_ACTION_OPTIONS = [
+  "Detached and reset on repairs",
+  "Removed and replaced",
+  "Removed and replaced, with the shoe mold",
+  "Shoe mold removed and replaced",
+];
 
 /** The same three, plus the answer that says the premise is wrong — see `baseboardCompletenessQuestions`. */
 const NO_BASEBOARD_OPTION = "No baseboard in this area";
@@ -801,6 +818,21 @@ function baseboardRecordQuestions(roomIndex: number, roomName: string, i: number
   if (b.action === "SHOE_MOLD_ONLY") return [];
 
   const q: GapCheckQuestion[] = [];
+  /*
+    Shoe mold, when the action came from the TRANSCRIPT rather than from the question above.
+
+    Answering that question settles this outright — both of its remove-and-replace options say which
+    — so this only fires where extraction was confident about the action and the PM never mentioned
+    quarter round either way. That is the case the whole field exists for: the shoe used to be
+    dropped in silence, and it is a separate line with its own linear footage.
+  */
+  if (b.shoeMold === null)
+    q.push({
+      id: `${base}:shoeMold`,
+      roomName,
+      prompt: "Is there shoe mold or quarter round coming off with this baseboard?",
+      kind: { type: "yesNo" },
+    });
   // Material and MDF's flat-vs-profile are one combined choice (round 6) — used to be two
   // sequential questions; folding the profile options directly into the material choice removes a
   // follow-up round without losing any information (see applyBaseboardAnswer's "material" case for
@@ -2074,15 +2106,21 @@ function parseAreaQuantity(answer: string, unit: "SF" | "linear feet" = "SF"): {
  * relabelled option, a typo — did not merely record the wrong action, it also conjured two spec
  * questions about a baseboard that was being put straight back down.
  */
-function baseboardActionAnswer(answer: string): Pick<BaseboardRecord, "action" | "disposition"> | null {
-  if (equalsIgnoreCase(answer, "Shoe mold removed and replaced")) return { action: "SHOE_MOLD_ONLY", disposition: null };
-  if (equalsIgnoreCase(answer, "Detached and reset on repairs")) return { action: "DETACH_AND_RESET", disposition: "SALVAGE_DRY" };
-  if (equalsIgnoreCase(answer, "Removed and replaced")) return { action: "REMOVE_AND_REPLACE", disposition: "REMOVE_AND_DISPOSE" };
+function baseboardActionAnswer(answer: string): Pick<BaseboardRecord, "action" | "disposition" | "shoeMold"> | null {
+  if (equalsIgnoreCase(answer, "Shoe mold removed and replaced")) return { action: "SHOE_MOLD_ONLY", disposition: null, shoeMold: null };
+  if (equalsIgnoreCase(answer, "Detached and reset on repairs")) return { action: "DETACH_AND_RESET", disposition: "SALVAGE_DRY", shoeMold: false };
+  /*
+    Both remove-and-replace answers settle `shoeMold` outright — one true, one false. Leaving the
+    plain answer null would mean the follow-up below fires immediately after somebody has just
+    chosen between exactly these two, which reads as not having been listened to.
+  */
+  if (equalsIgnoreCase(answer, "Removed and replaced, with the shoe mold")) return { action: "REMOVE_AND_REPLACE", disposition: "REMOVE_AND_DISPOSE", shoeMold: true };
+  if (equalsIgnoreCase(answer, "Removed and replaced")) return { action: "REMOVE_AND_REPLACE", disposition: "REMOVE_AND_DISPOSE", shoeMold: false };
   return null;
 }
 
 function blankBaseboardRecord(overrides: Partial<BaseboardRecord>): BaseboardRecord {
-  return { material: null, heightIn: null, wallRunFt: null, action: null, disposition: null, phase: null, phaseUncertain: false, mdfProfile: null, ...overrides };
+  return { material: null, heightIn: null, wallRunFt: null, action: null, disposition: null, shoeMold: null, phase: null, phaseUncertain: false, mdfProfile: null, ...overrides };
 }
 function blankContentsManipulation(): ContentsManipulation {
   return { size: null, manipulationDeclined: false, affected: false, packOutRequired: null };
@@ -2173,6 +2211,8 @@ function applyBaseboardAnswer(b: BaseboardRecord, field: string, answer: string)
     */
     case "action":
       return { ...b, ...baseboardActionAnswer(answer) };
+    case "shoeMold":
+      return { ...b, shoeMold: isYes(answer) };
     case "material": {
       // One combined choice sets both material and mdfProfile (round 6) — see the question side
       // in baseboardRecordQuestions for why. mdfProfile stays null for the two non-MDF options.

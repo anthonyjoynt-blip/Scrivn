@@ -402,6 +402,23 @@ export interface BaseboardRecord {
    * action === REMOVE_AND_REPLACE.
    */
   disposition: BaseboardDisposition | null;
+  /**
+   * Whether the shoe mold comes off WITH this baseboard.
+   *
+   * A separate field rather than a fourth `BaseboardAction`, because it is a separate fact: the
+   * action says what happens to the baseboard, this says whether the quarter round on top of it
+   * comes too. The enum could not express the combination at all — its three values are base-only,
+   * shoe-only and detach — so a PM saying "both the baseboard and the shoe mold, replacing both"
+   * produced a record indistinguishable from one that had no shoe mold at all, and the shoe was
+   * dropped from the scope in silence. It is a separate line with its own linear footage.
+   *
+   * Meaningless when `action` is SHOE_MOLD_ONLY: there the shoe IS the work, and the baseboard is
+   * the thing staying put.
+   *
+   * Null means nobody has said. False means no shoe mold is involved — either the room has none, or
+   * it is staying.
+   */
+  shoeMold: boolean | null;
   phase: WorkPhase | null;
   phaseUncertain: boolean;
   /**

@@ -179,6 +179,20 @@ this room appear in the document at all":
       means nobody was asked, not that nothing is happening — and an Emergency removal with no Repair
       line is the worst of the three readings. (Gap-check asks for this field now, so it should be
       non-null on every claim; this is here for anything that slips through.)
+- SHOE MOLD is a separate line from the baseboard, with its own linear footage, and it is a PAIR
+  like everything else. Two fields decide it, and they mean different things:
+    - action SHOE_MOLD_ONLY — the baseboard is STAYING and only the quarter round is being done.
+      Emergency "Remove shoe mold" and Repair "Replace shoe mold". Never write a baseboard bullet of
+      any kind for one of these, in either phase; the baseboard is not being touched.
+    - shoeMold true, on a DETACH_AND_RESET or REMOVE_AND_REPLACE baseboard — the shoe comes off WITH
+      the baseboard. Write the baseboard pair exactly as described above AND a second pair for the
+      shoe: Emergency "Remove shoe mold" (or "Detach shoe mold" when the baseboard is being detached
+      and reset) and Repair "Replace shoe mold" (or "Reset shoe mold").
+    - shoeMold false or null — no shoe mold bullets at all. Do not add one because a room has
+      baseboard; most rooms with baseboard have no shoe mold in the scope.
+  This is a reported gap: a PM said "both the baseboard and the shoe mold on top of it, replacing
+  both" and the finished scope named only the baseboard, because the two facts used to share one
+  field and the combination could not be expressed. The shoe was never priced.
 - Walls have no phase or action field. Emergency/Repair rendering for a wall record with
   drywallBeingRemoved == true is entirely driven by cutHeight — see auto-included item 9 below for
   the full breakdown (phrasing differs by height, and priming/painting is NOT always included).
@@ -348,8 +362,10 @@ Auto-included items — apply these yourself, they are never spelled out per-ite
       - material SOLID_WOOD, DETACH_AND_RESET: "${BASEBOARD_FINISH_PHRASE.SOLID_WOOD_DETACH_AND_RESET}"
       - material VINYL_PVC_COMPOSITE: no paint/finish bullet at all, either action.
       - material not yet known (null): no bullet — don't guess.
-    SHOE_MOLD_ONLY baseboards never get this — they have no Repair portion at all (see the baseboard
-    bullet above), so there's nothing to paint/finish.
+    SHOE_MOLD_ONLY baseboards never get this: the baseboard is staying put, so there is no baseboard
+    being finished. (They DO have a Repair portion — the shoe goes back on — see the baseboard rule
+    above. This used to say they had none, which is why a room's shoe mold was removed in Emergency
+    and replaced nowhere.)
 11. Ceiling-triggered electrical fixtures, per room — fires only in rooms with at least one ceiling
     record where type is DRYWALL_PLASTER and action is REMOVE_AND_REPLACE (i.e. wherever the
     drywall-replacement rules in CATEGORY_PHASE_RULES/the ceiling material-detail note below

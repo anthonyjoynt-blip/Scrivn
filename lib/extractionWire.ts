@@ -194,6 +194,8 @@ function baseboardToDomain(w: BaseboardRecordWire): BaseboardRecord {
     wallRunFt: null,
     action: enumOrNull<BaseboardAction>(w.action),
     disposition: null,
+    // Detail-pass only — call 1's grammar is full, and whether the shoe comes too is spec.
+    shoeMold: null,
     phase: enumOrNull<WorkPhase>(w.phase),
     phaseUncertain: w.phaseUncertain,
     mdfProfile: null,

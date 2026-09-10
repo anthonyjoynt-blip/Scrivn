@@ -48,6 +48,7 @@ export interface CabinetryDetailWire {
 export interface BaseboardDetailWire {
   material: string;
   mdfProfile: string;
+  shoeMold: string;
 }
 export interface WallDetailWire {
   cutHeight: string;
@@ -164,6 +165,12 @@ export function mergeDetail(extraction: WaterLossExtraction, detail: ExtractionD
         ...b,
         material: b.material ?? enumOrNull<BaseboardMaterial>(d.baseboard[i]?.material),
         mdfProfile: b.mdfProfile ?? enumOrNull<BaseboardMdfProfile>(d.baseboard[i]?.mdfProfile),
+        /*
+          Whether the quarter round comes off with it. Its own field rather than a fourth action,
+          because "removed and replaced" and "the shoe came too" are two facts — folded into one
+          enum, the combination was simply unsayable and the shoe went missing without a trace.
+        */
+        shoeMold: b.shoeMold ?? toTriState(d.baseboard[i]?.shoeMold),
       })),
       walls: room.walls.map((w, i) => ({
         ...w,
@@ -272,6 +279,8 @@ export function needsDetailPass(extraction: WaterLossExtraction): boolean {
       (room.containmentRequired === true && room.containmentSF === null) ||
       // Every baseboard has a material, and call 1 never carries it.
       room.baseboard.some((b) => b.material === null) ||
+      // And whether the shoe comes with it, which call 1's action enum cannot express.
+      room.baseboard.some((b) => b.action !== "SHOE_MOLD_ONLY" && b.shoeMold === null) ||
       // A cut height and cavity insulation only exist where drywall is coming off.
       room.walls.some((w) => w.drywallBeingRemoved && (w.cutHeight === null || w.insulationType === null)) ||
       // Doors and cabinetry carry spec the PM routinely states while describing them.

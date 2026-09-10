@@ -434,7 +434,7 @@ const bbLoss = { category: 1, lossClass: 2, source: null, dateOfLoss: null, year
 const bbExtraction = (rooms) => withDerivedFields({ loss: bbLoss, rooms });
 
 function bbRecord(overrides = {}) {
-  return { material: "MDF", heightIn: 3.25, wallRunFt: null, action: "REMOVE_AND_REPLACE", disposition: "REMOVE_AND_DISPOSE", phase: null, phaseUncertain: false, mdfProfile: "PROFILE", ...overrides };
+  return { material: "MDF", heightIn: 3.25, wallRunFt: null, action: "REMOVE_AND_REPLACE", disposition: "REMOVE_AND_DISPOSE", shoeMold: null, phase: null, phaseUncertain: false, mdfProfile: "PROFILE", ...overrides };
 }
 
 /** Both phases' crew sheets for one tree: Mitigation & Demo is the Emergency half, Finish Carpentry the Repair half. */
@@ -468,6 +468,62 @@ for (const [label, record] of [
   );
 }
 
+/* ── The shoe mold, which used to have nowhere to go ───────────────────────────────────────────── */
+
+/*
+  Batch 3 built one claim with all three cases in three rooms, to see whether they render as three
+  different jobs. They did not.
+
+  · "both the baseboard and the shoe mold, replacing both" — the shoe was DROPPED. `action` held
+    base-only, shoe-only and detach, so the combination was unsayable and the record came out
+    identical to a room with no shoe mold at all.
+  · "just the shoe mold got damaged, baseboard's fine" — removed in Emergency, replaced nowhere.
+    Half a pair, in the opposite direction from the crew sheets, which installed shoe mold in a room
+    nothing had been taken off.
+  · plain baseboard, no shoe — correct, and the reason the other two went unnoticed.
+*/
+const shoePair = (record) => {
+  const built = bbOrders(bbExtraction([room("Living Room", { baseboard: [record] })]));
+  return { emergency: bbText(built, "MITIGATION_DEMO"), repair: bbText(built, "FINISH_CARPENTRY") };
+};
+
+const withShoe = shoePair(bbRecord({ shoeMold: true }));
+check(withShoe.emergency.includes("Remove shoe mold"), `base and shoe together: the shoe comes off too (got:
+${withShoe.emergency})`);
+check(withShoe.repair.includes("Install shoe mold"), `and goes back on (got:
+${withShoe.repair})`);
+check(
+  withShoe.emergency.includes("Remove baseboard") && withShoe.repair.includes("Install new baseboard"),
+  "alongside the baseboard's own pair, not instead of it — they are two lines with two footages",
+);
+
+const detachedWithShoe = shoePair(bbRecord({ action: "DETACH_AND_RESET", shoeMold: true }));
+check(
+  detachedWithShoe.emergency.includes("Detach shoe mold") && detachedWithShoe.repair.includes("Reset shoe mold"),
+  "a baseboard being detached and reset takes its shoe off and puts it back, rather than replacing it",
+);
+
+const shoeOnly = shoePair(bbRecord({ action: "SHOE_MOLD_ONLY" }));
+check(shoeOnly.emergency.includes("Remove shoe mold"), `shoe only: it comes off in Emergency (got:
+${shoeOnly.emergency})`);
+check(shoeOnly.repair.includes("Install shoe mold"), "and goes back on in Repair — the half that was missing");
+check(
+  !shoeOnly.emergency.includes("Remove baseboard") && !shoeOnly.repair.includes("Install new baseboard"),
+  "and the baseboard itself is never touched — it is the thing staying put",
+);
+
+const noShoe = shoePair(bbRecord({ shoeMold: false }));
+check(
+  !noShoe.emergency.includes("shoe mold") && !noShoe.repair.includes("shoe mold"),
+  "plain baseboard with no shoe gets no shoe line at all — most baseboard has none in the scope",
+);
+
+const unknownShoe = shoePair(bbRecord({ shoeMold: null }));
+check(
+  !unknownShoe.emergency.includes("shoe mold") && !unknownShoe.repair.includes("shoe mold"),
+  "and neither does one nobody has been asked about yet — gap-check asks rather than the renderer guessing",
+);
+
 /*
   End to end, from the shape extraction actually hands over.
 
@@ -476,7 +532,7 @@ for (const [label, record] of [
   neither half, which is what made the missing Repair line so quiet: nothing errors, a room simply
   says less than it should.
 */
-const bbExtracted = { material: null, heightIn: null, wallRunFt: null, action: null, disposition: null, phase: null, phaseUncertain: false, mdfProfile: null };
+const bbExtracted = { material: null, heightIn: null, wallRunFt: null, action: null, disposition: null, shoeMold: null, phase: null, phaseUncertain: false, mdfProfile: null };
 const bbRaw = bbOrders(bbExtraction([room("Basement Bathroom", { baseboard: [bbExtracted] })]));
 check(
   !bbText(bbRaw, "MITIGATION_DEMO").includes("baseboard") && !bbText(bbRaw, "FINISH_CARPENTRY").includes("baseboard"),

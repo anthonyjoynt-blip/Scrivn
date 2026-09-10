@@ -299,6 +299,12 @@ const cabinetryDetailSchema = obj({
 const baseboardDetailSchema = obj({
   material: nullableEnumOf("SOLID_WOOD", "MDF", "VINYL_PVC_COMPOSITE"),
   mdfProfile: nullableEnumOf("FLAT", "PROFILE"),
+  /*
+    Whether the shoe mold comes off with this baseboard. Here rather than as a fourth value on call
+    1's `action` enum, because it is a second fact rather than a fourth outcome — and because call 1
+    has no grammar to spare either way.
+  */
+  shoeMold: nullableBool(),
 });
 
 const wallDetailSchema = obj({

@@ -335,6 +335,18 @@ function buildMitigationDemo(claim: ClaimInfo, extraction: WaterLossExtraction, 
       if (b.phase === "REPAIR") continue;
       if (b.action === "DETACH_AND_RESET") items.push(bullet("Detach baseboard", null, "perimeter"));
       else if (b.action === "REMOVE_AND_REPLACE") items.push(bullet("Remove baseboard", null, "perimeter"));
+      /*
+        The shoe gets its own line, both here and in Finish Carpentry.
+
+        SHOE_MOLD_ONLY had a Repair install and no Emergency removal at all — a crew sheet that says
+        install quarter round in a room nothing was ever taken off. And `shoeMold` on a baseboard
+        coming off is the case the action enum could not express: the shoe was removed on site and
+        appeared on no sheet in either phase, so nobody was asked to price it.
+      */
+      if (b.action === "SHOE_MOLD_ONLY") items.push(bullet("Remove shoe mold / quarter round", null, "perimeter"));
+      else if (b.shoeMold === true) {
+        items.push(bullet(b.action === "DETACH_AND_RESET" ? "Detach shoe mold / quarter round" : "Remove shoe mold / quarter round", null, "perimeter"));
+      }
     }
 
     for (const w of room.walls) {
@@ -469,6 +481,10 @@ function buildFinishCarpentry(claim: ClaimInfo, extraction: WaterLossExtraction)
       } else if (b.action === "REMOVE_AND_REPLACE") {
         // Material only — height and profile are estimator spec, not something a crew installs by.
         items.push(bullet("Install new baseboard", b.material ? BASEBOARD_MATERIAL_LABEL[b.material] ?? titleCase(b.material) : null, "perimeter"));
+      }
+      // The other half of what Mitigation & Demo took off, on the same terms as the baseboard pair.
+      if (b.action !== "SHOE_MOLD_ONLY" && b.shoeMold === true) {
+        items.push(bullet(b.action === "DETACH_AND_RESET" ? "Reset shoe mold / quarter round" : "Install shoe mold / quarter round", null, "perimeter"));
       }
     }
     for (const d of room.doors) items.push(bullet(d.action === "DETACH_AND_RESET" ? "Reset door" : "Install new door", d.location, null));

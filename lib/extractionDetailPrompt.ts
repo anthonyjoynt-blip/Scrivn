@@ -121,6 +121,15 @@ WHAT EACH FIELD MEANS:
   the ordinary case.
   The distinction is not about how MUCH there is. A packed basement moved three feet is still
   on-site manipulation; two boxes taken to a warehouse is still a pack-out.
+- baseboard.shoeMold — YES when the transcript says the shoe mold or quarter round is coming off
+  WITH this baseboard: "both the baseboard and the shoe mold", "base and shoe are both coming out",
+  "pull the quarter round with it". NO when it says there is none, or that it is staying: "no shoe
+  mold on this one at all", "just the baseboard". UNKNOWN when it never comes up, which is common.
+  This is about the shoe accompanying a baseboard that is itself being detached or replaced. A job
+  where ONLY the shoe is being done and the baseboard stays is not this field — call 1 records that
+  as action SHOE_MOLD_ONLY, and shoeMold should be UNKNOWN there.
+  Do not infer it from the room having baseboard. Most baseboard has no shoe mold in the scope, and
+  a line nobody asked for is worse than one somebody has to add.
 - doors.doorType — COLONIAL, SOLID_CORE, HOLLOW_CORE or OTHER, where the transcript names it.
 - doors.unitType — PRE_HUNG or SLAB_ONLY. "Just the slab" is SLAB_ONLY; "pre-hung unit" is PRE_HUNG.
 - cabinetry.extent — UPPERS, LOWERS or FULL_HEIGHT. "Upper cabinets" is UPPERS, "the base run" or

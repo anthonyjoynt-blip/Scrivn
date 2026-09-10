@@ -321,7 +321,7 @@ function everyRecordRoom(name) {
       },
     ],
     baseboard: [
-      { material: null, heightIn: null, wallRunFt: null, action: null, disposition: "REMOVE_AND_DISPOSE", phase: null, phaseUncertain: true, mdfProfile: null },
+      { material: null, heightIn: null, wallRunFt: null, action: null, disposition: "REMOVE_AND_DISPOSE", shoeMold: null, phase: null, phaseUncertain: true, mdfProfile: null },
     ],
     walls: [
       { wallMaterial: "DRYWALL", drywallBeingRemoved: true, insulationAffected: null, insulationType: null, insulationRValue: null, floodCutHeightIn: null, cutHeight: null, cutRunFt: null, cutRunFraction: null },
@@ -452,7 +452,7 @@ check(zeros.ok, `answering 0 to every count completes (stuck on: ${(zeros.stuck 
  * disposition and mdfProfile are always null out of extraction, and action only when the PM said so.
  */
 function extractedBaseboard(overrides = {}) {
-  return { material: null, heightIn: null, wallRunFt: null, action: null, disposition: null, phase: null, phaseUncertain: false, mdfProfile: null, ...overrides };
+  return { material: null, heightIn: null, wallRunFt: null, action: null, disposition: null, shoeMold: null, phase: null, phaseUncertain: false, mdfProfile: null, ...overrides };
 }
 function removalFlooring() {
   return {
@@ -2092,6 +2092,64 @@ for (const step of ["intake", "transcript", "questions", "ready", "contents", "r
   audit untouched until the fixtures were updated by hand. The shapes come from the real wire mapping
   (TypeScript rejects a missing field there), so this is what makes that self-correcting.
 */
+/* ── Shoe mold: the combination the action enum could not hold ──────────────────────────────────
+
+  `action` had base-only, shoe-only and detach. "Both the baseboard and the shoe mold, replacing
+  both" therefore produced a record identical to a room with no shoe mold at all, and the shoe was
+  dropped from the scope in silence — a separate line with its own linear footage, never priced.
+*/
+const bbActionQ = (record) =>
+  nextQuestions(claim, withDerivedFields(extractionWith([everyRecordRoomWith({ baseboard: [record] })])))
+    .filter((q) => q.id.includes(":baseboard:"));
+
+const openBb = { material: null, heightIn: null, wallRunFt: null, action: null, disposition: null, shoeMold: null, phase: null, phaseUncertain: false, mdfProfile: null };
+const bbOptions = bbActionQ(openBb).find((q) => q.id.endsWith(":action"))?.kind.options ?? [];
+check(
+  bbOptions.includes("Removed and replaced, with the shoe mold"),
+  `the combination is one of the offered outcomes (got ${JSON.stringify(bbOptions)})`,
+);
+check(bbOptions.length === 4, `all four outcomes are offered, not three (got ${bbOptions.length})`);
+
+const bbExtractionOpen = extractionWith([everyRecordRoomWith({ baseboard: [openBb] })]);
+const withShoeAnswer = applyAnswer(bbExtractionOpen, "room:0:baseboard:0:action", "Removed and replaced, with the shoe mold");
+check(withShoeAnswer.rooms[0]?.baseboard[0]?.action === "REMOVE_AND_REPLACE", "answering it still sets the baseboard's own action");
+check(withShoeAnswer.rooms[0]?.baseboard[0]?.shoeMold === true, "and records that the shoe comes with it");
+
+const withoutShoeAnswer = applyAnswer(bbExtractionOpen, "room:0:baseboard:0:action", "Removed and replaced");
+check(
+  withoutShoeAnswer.rooms[0]?.baseboard[0]?.shoeMold === false,
+  "while the plain answer settles it the other way — so the follow-up does not then ask what was just chosen",
+);
+check(
+  bbActionQ(withoutShoeAnswer.rooms[0].baseboard[0]).every((q) => !q.id.endsWith(":shoeMold")),
+  "which is what stops a PM being asked about shoe mold immediately after saying there is none",
+);
+
+/*
+  The follow-up exists for the case that produced the report: extraction was confident about the
+  action from the transcript, so the question above never fired, and nobody ever asked about the
+  shoe.
+*/
+const fromExtraction = { ...openBb, action: "REMOVE_AND_REPLACE", disposition: "REMOVE_AND_DISPOSE", material: "MDF", mdfProfile: "FLAT", heightIn: 4 };
+const shoeFollowUp = bbActionQ(fromExtraction).filter((q) => q.id.endsWith(":shoeMold"));
+check(shoeFollowUp.length === 1, `an action set by extraction still gets asked about the shoe (got ${shoeFollowUp.length})`);
+
+const shoeAnswered = applyAnswer(
+  extractionWith([everyRecordRoomWith({ baseboard: [fromExtraction] })]),
+  "room:0:baseboard:0:shoeMold",
+  "Yes",
+);
+check(shoeAnswered.rooms[0]?.baseboard[0]?.shoeMold === true, "answering the follow-up records it");
+check(
+  bbActionQ(shoeAnswered.rooms[0].baseboard[0]).every((q) => !q.id.endsWith(":shoeMold")),
+  "and it is not asked again — the termination rule every question here obeys",
+);
+
+check(
+  bbActionQ({ ...openBb, action: "SHOE_MOLD_ONLY" }).every((q) => !q.id.endsWith(":shoeMold")),
+  "a shoe-mold-only job is never asked whether the shoe comes too — the shoe IS the job",
+);
+
 /* ── Trim: one question, and only when it is open ───────────────────────────────────────────────
 
   Trim reaches the tree because the PM mentioned it, so the only thing left open is which way it

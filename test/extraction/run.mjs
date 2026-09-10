@@ -57,7 +57,7 @@ function flooring(type, overrides = {}) {
   };
 }
 function baseboard(overrides = {}) {
-  return { material: null, heightIn: null, wallRunFt: null, action: null, disposition: null, phase: null, phaseUncertain: false, mdfProfile: null, ...overrides };
+  return { material: null, heightIn: null, wallRunFt: null, action: null, disposition: null, shoeMold: null, phase: null, phaseUncertain: false, mdfProfile: null, ...overrides };
 }
 function wall(overrides = {}) {
   return { wallMaterial: "DRYWALL", drywallBeingRemoved: true, insulationAffected: null, insulationType: null, insulationRValue: null, floodCutHeightIn: null, cutHeight: null, cutRunFt: null, cutRunFraction: null, ...overrides };
@@ -99,7 +99,7 @@ const BEDROOM = room("Bedroom", {
 function detailRoom(overrides = {}) {
   return {
     flooring: [{ carpetStyle: "BERBER", hardwoodConstruction: "UNKNOWN", hardwoodInstallation: "UNKNOWN", vinylInstallation: "UNKNOWN", removalSF: -1, cleaningRequired: "UNKNOWN" }],
-    baseboard: [{ material: "VINYL_PVC_COMPOSITE", mdfProfile: "UNKNOWN" }],
+    baseboard: [{ material: "VINYL_PVC_COMPOSITE", mdfProfile: "UNKNOWN", shoeMold: "UNKNOWN" }],
     walls: [{ cutHeight: "TWO_FOOT", insulationType: "UNKNOWN" }],
     ceilings: [{ textureStyle: "UNKNOWN", aboveInsulationAffected: "YES", aboveInsulationType: "UNKNOWN" }],
     doors: [],
@@ -327,6 +327,32 @@ check(noCount.ceilingLightFixtureCount === null, `an unstated count stays null, 
 // These are the reason the pass fires at all now — a hardwood floor alone should trigger it.
 check(needsDetailPass(tree([room("H", { flooring: [flooring("HARDWOOD")] })])), "a hardwood floor alone warrants the detail pass");
 check(needsDetailPass(tree([room("D", { doors: [{ location: "x", action: "REMOVE_AND_REPLACE", slabOnly: null, doorType: null, unitType: null, saveHardware: null }] })])), "as does a door with no spec");
+
+/* ── Shoe mold ───────────────────────────────────────────────────────────────────────────────────
+
+  Whether the quarter round comes off with the baseboard. In call 2 because call 1's `action` enum
+  could not hold the combination and call 1 has no grammar to spare for a second field — so "both
+  the baseboard and the shoe mold" produced a record identical to a room with no shoe mold at all.
+*/
+const SHOE_ROOM = room("Living Room", { baseboard: [baseboard({ action: "REMOVE_AND_REPLACE" })] });
+const shoeDetail = (shoeMold) => ({
+  rooms: [{ ...detailRoom(), flooring: [], walls: [], ceilings: [], baseboard: [{ material: "SOLID_WOOD", mdfProfile: "UNKNOWN", shoeMold }] }],
+});
+
+check(mergeDetail(tree([SHOE_ROOM]), shoeDetail("YES")).rooms[0].baseboard[0].shoeMold === true, "a stated shoe mold lands on the record");
+check(mergeDetail(tree([SHOE_ROOM]), shoeDetail("NO")).rooms[0].baseboard[0].shoeMold === false, "and so does a stated absence — it is not the same as nobody asking");
+check(
+  mergeDetail(tree([SHOE_ROOM]), shoeDetail("UNKNOWN")).rooms[0].baseboard[0].shoeMold === null,
+  "an unstated one stays null so gap-check asks, rather than a shoe appearing that nobody mentioned",
+);
+check(
+  needsDetailPass(tree([settled(room("B", { baseboard: [baseboard({ action: "REMOVE_AND_REPLACE", material: "MDF" })] }))])),
+  "a baseboard coming off with no shoe answer warrants the pass, even once everything else is settled",
+);
+check(
+  !needsDetailPass(tree([settled(room("B", { baseboard: [baseboard({ action: "SHOE_MOLD_ONLY", material: "MDF" })] }))])),
+  "but a shoe-mold-only job does not — the shoe IS the job, so there is nothing to ask",
+);
 
 /* ── Trim ────────────────────────────────────────────────────────────────────────────────────────
 
