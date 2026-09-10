@@ -356,7 +356,8 @@ export interface EquipmentRecordWire {
 }
 
 function equipmentToDomain(w: EquipmentRecordWire): EquipmentRecord {
-  return { type: w.type, quantity: intOrNull(w.quantity) };
+  // holeCount is gap-check-only — call 1 carries a type and a quantity and nothing else.
+  return { type: w.type, quantity: intOrNull(w.quantity), holeCount: null };
 }
 
 // ---- sentinel helpers --------------------------------------------------------------------------

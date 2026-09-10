@@ -468,6 +468,52 @@ for (const [label, record] of [
   );
 }
 
+/* ── Injecti-dry drills holes now and fills them later ─────────────────────────────────────────── */
+
+/*
+  It is ordinary drying equipment that happens to arrive with a small demolition and a small repair
+  attached: holes into the wall to get warm dry air behind the drywall, and those holes filled
+  afterwards. Both halves are real line items and neither was on any document — the whole thing
+  reached one scope as prose the generator echoed from the transcript, and reached the tree never.
+
+  The point it is NOT: a flood cut. Injecti-dry is chosen precisely so the wall stays up.
+*/
+const injection = (overrides = {}) => ({ type: "injecti-dry units", quantity: 1, holeCount: 12, ...overrides });
+const injectionOrders = (record) =>
+  buildWorkOrders({
+    trades: ["MITIGATION_DEMO", "DRYWALL"],
+    claim,
+    extraction: bbExtraction([room("Basement", { equipment: [record] })]),
+    contentsApproach: "TM",
+    contentsTM: { entries: [] },
+    bricABrac: { rooms: [] },
+    dgigData: null,
+  });
+
+const inj = injectionOrders(injection());
+const injDemo = bbText(inj, "MITIGATION_DEMO");
+const injDrywall = bbText(inj, "DRYWALL");
+check(injDemo.includes("Place equipment – injecti-dry units – 1"), `the unit is placed like any other equipment (got:\n${injDemo})`);
+check(injDemo.includes("Drill injection holes – 12"), "and the holes it needs are their own line, with the count");
+check(injDrywall.includes("Fill & finish injection holes – 12"), `filled on the drywall order, which is the trade that patches (got:\n${injDrywall})`);
+
+const noCount = injectionOrders(injection({ holeCount: null }));
+check(
+  bbText(noCount, "MITIGATION_DEMO").includes("Drill injection holes") &&
+    bbText(noCount, "DRYWALL").includes("Fill & finish injection holes"),
+  "both lines survive a count nobody stated — a missing quantity is not evidence the work is not happening",
+);
+
+const airMovers = injectionOrders({ type: "air movers", quantity: 3, holeCount: null });
+check(
+  !bbText(airMovers, "MITIGATION_DEMO").includes("injection holes") && !bbText(airMovers, "DRYWALL").includes("injection holes"),
+  "and ordinary equipment drills nothing",
+);
+check(
+  !injDemo.includes("Remove drywall") && !injDrywall.includes("Replace drywall"),
+  "injecti-dry never implies drywall coming off — the wall staying up is the whole reason it is chosen",
+);
+
 /* ── Blinds and cabinet hardware, which used to reach no field at all ──────────────────────────── */
 
 /*

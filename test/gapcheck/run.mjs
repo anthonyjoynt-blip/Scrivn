@@ -349,7 +349,13 @@ function everyRecordRoom(name) {
     ],
     stairs: { flooringType: "CARPET", riserStyle: null, skirtingCarpeted: null, risersFlooredAsWell: null, nosingMaterial: null, nosingPresent: null },
     electricalPanel: { requiresInspection: null, includedInScope: true, amperage: null, includeMeterWork: null },
-    equipment: [{ type: "air movers", quantity: null }],
+    /*
+      Injecti-dry alongside the air movers, so the hole-count question FIRES in the fixture the
+      extractable audit walks. It is conditional on the equipment type, and a conditional question on
+      a type nothing fixtures is one the audit cannot see — which is exactly how a new field slips
+      past the check meant to catch it.
+    */
+    equipment: [{ type: "air movers", quantity: null, holeCount: null }, { type: "injecti-dry units", quantity: 1, holeCount: null }],
     contents: null,
   });
 }
@@ -1188,14 +1194,14 @@ check(siblingQuestionIds("room:0:contents:size", twoRoomRound).length === 0, "a 
   fires exactly where the transcript genuinely never attributed the equipment.
 */
 const unattributed = extractionWith([
-  room("Bedroom", { flooring: [everyRecordRoom("x").flooring[0]], equipment: [{ type: "air movers", quantity: null }] }),
+  room("Bedroom", { flooring: [everyRecordRoom("x").flooring[0]], equipment: [{ type: "air movers", quantity: null, holeCount: null }] }),
   room("Kitchen", { flooring: [everyRecordRoom("x").flooring[0]], equipment: [] }),
 ]);
 check(equipmentNeedsConsolidating(withDerivedFields(unattributed)), "equipment mentioned with no quantity anywhere consolidates");
 
 // Already attributed: the transcript said how many go where, so this must not touch it.
 const attributed = extractionWith([
-  room("Bedroom", { flooring: [everyRecordRoom("x").flooring[0]], equipment: [{ type: "air movers", quantity: 3 }] }),
+  room("Bedroom", { flooring: [everyRecordRoom("x").flooring[0]], equipment: [{ type: "air movers", quantity: 3, holeCount: null }] }),
   room("Kitchen", { flooring: [everyRecordRoom("x").flooring[0]], equipment: [] }),
 ]);
 check(!equipmentNeedsConsolidating(withDerivedFields(attributed)), "a stated quantity anywhere means it was attributed — leave it alone");
@@ -1210,7 +1216,7 @@ check(!equipmentNeedsConsolidating(withDerivedFields(silent)), "a claim that nev
 
 // One room is not a repetition worth collapsing.
 const oneRoomOnly = extractionWith([
-  room("Bedroom", { flooring: [everyRecordRoom("x").flooring[0]], equipment: [{ type: "air movers", quantity: null }] }),
+  room("Bedroom", { flooring: [everyRecordRoom("x").flooring[0]], equipment: [{ type: "air movers", quantity: null, holeCount: null }] }),
 ]);
 check(!equipmentNeedsConsolidating(withDerivedFields(oneRoomOnly)), "a single-room claim keeps its per-room question");
 
@@ -2162,6 +2168,40 @@ check(
 check(
   bbActionQ({ ...openBb, action: "SHOE_MOLD_ONLY" }).every((q) => !q.id.endsWith(":shoeMold")),
   "a shoe-mold-only job is never asked whether the shoe comes too — the shoe IS the job",
+);
+
+/* ── Injecti-dry: the holes are the follow-up ───────────────────────────────────────────────────
+
+  It is ordinary drying equipment that arrives with a small demolition attached. The equipment gets
+  named in the transcript; the hole count almost never does, so it is asked — and only for the one
+  type it means anything for.
+*/
+const equipQs = (equipment) =>
+  nextQuestions(claim, withDerivedFields(extractionWith([everyRecordRoomWith({ equipment, equipmentAsked: true })])))
+    .filter((q) => q.id.includes(":equipment:"));
+
+const injQ = equipQs([{ type: "injecti-dry units", quantity: 1, holeCount: null }]).filter((q) => q.id.endsWith(":holeCount"));
+check(injQ.length === 1, `injecti-dry is asked how many holes (got ${injQ.length})`);
+check((injQ[0]?.prompt ?? "").toLowerCase().includes("holes"), `and the prompt says so (got "${injQ[0]?.prompt}")`);
+
+check(
+  equipQs([{ type: "air movers", quantity: 3, holeCount: null }]).filter((q) => q.id.endsWith(":holeCount")).length === 0,
+  "an air mover is not — it drills nothing, and a question with one possible answer is one nobody reads",
+);
+check(
+  equipQs([{ type: "injecti-dry units", quantity: 1, holeCount: 12 }]).filter((q) => q.id.endsWith(":holeCount")).length === 0,
+  "nor is it asked once the count is known",
+);
+
+const holesAnswered = applyAnswer(
+  extractionWith([everyRecordRoomWith({ equipment: [{ type: "injecti-dry units", quantity: 1, holeCount: null }], equipmentAsked: true })]),
+  "room:0:equipment:0:holeCount",
+  "12",
+);
+check(holesAnswered.rooms[0]?.equipment[0]?.holeCount === 12, "answering records the count");
+check(
+  equipQs(holesAnswered.rooms[0].equipment).filter((q) => q.id.endsWith(":holeCount")).length === 0,
+  "which is what stops it being asked again",
 );
 
 /* ── Blinds and cabinet hardware ────────────────────────────────────────────────────────────────

@@ -46,9 +46,15 @@ Rules:
   about phase for that specific item — words like "assess," "not sure if we're replacing," "hold
   off on the repair," "need to see how it dries." A plain "remove and replace" or "remove" alone
   is not uncertainty — leave phaseUncertain false in that case.
-- For equipment: this app tracks three equipment types — "air movers", "dehumidifiers" and
-  "air scrubbers" — the type field must always be exactly one of those three literal strings, never
-  a generic term. If the PM names a type explicitly ("3 air movers," "a dehumidifier," "two air
+- For equipment: this app tracks four equipment types — "air movers", "dehumidifiers",
+  "air scrubbers" and "injecti-dry units" — the type field must always be exactly one of those four
+  literal strings, never a generic term.
+  "Injecti-dry", "injectidry", "wall cavity injection", "injection drying", a "drying panel system"
+  fed into a cavity, or any description of injecting or forcing warm dry air BEHIND a wall or into a
+  cavity without opening it up, is "injecti-dry units". It is drying equipment like the rest — the
+  drilling and patching that come with it are added downstream, not something to record here. Do not
+  record it as a flood cut or as any change to the drywall: the whole point of it is that the wall
+  stays up. If the PM names a type explicitly ("3 air movers," "a dehumidifier," "two air
   scrubbers"), record that type with whatever quantity was stated (or -1, the sentinel, if a type was
   named but no count was). A "negative air machine" or "negative air" is recorded as "air scrubbers":
   it is the same unit, ducted to exhaust rather than recirculating, and splitting the two would
@@ -61,6 +67,9 @@ Rules:
   inferring one from "dry it out" would put equipment on a scope nobody asked for. Don't invent
   "drying equipment" as its own type and don't guess a split between types from a single generic
   mention.
+  Do NOT add injecti-dry to the generic case either, for the same reason as air scrubbers: it is a
+  deliberate choice a PM names, and inferring it from "dry it out" would put a drilled wall on a
+  scope nobody asked for.
 - Do not compute or infer whether asbestos testing is required — that is derived automatically
   from the year of the building elsewhere in the pipeline, not something you decide.
 - If the PM mentioned asbestos samples being taken and how many, record that. If not mentioned,

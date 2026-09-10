@@ -235,6 +235,33 @@ export type RoomLightFixtureType = "REGULAR" | "RECESSED" | "RECESSED_TRIM_ONLY"
 export interface EquipmentRecord {
   type: string;
   quantity: number | null;
+  /**
+   * Holes drilled for a cavity-injection system, and filled again on the repair.
+   *
+   * Gap-check-only — never extracted. Call 1 carries a type and a quantity for an equipment record
+   * and has no grammar to spare for a third field (see `schema.ts`), and this is a number a PM gives
+   * on request rather than one they usually narrate.
+   *
+   * Only meaningful for {@link INJECTION_EQUIPMENT}. Injecti-dry is ordinary drying equipment that
+   * happens to arrive with a small demolition and a small repair attached: holes go into the wall to
+   * get warm dry air behind the drywall, and those holes get filled afterwards. Both halves are real
+   * line items, and neither was on any document — the whole thing reached the scope once, as prose
+   * the generator echoed from the transcript, and reached the tree never.
+   */
+  holeCount: number | null;
+}
+
+/**
+ * The equipment type whose placement drags a drill-and-fill pair along with it.
+ *
+ * A string rather than an enum because `EquipmentRecord.type` is free text — equipment naming is
+ * dictated, and the extraction prompt is what holds the list down to what this app tracks.
+ */
+export const INJECTION_EQUIPMENT = "injecti-dry units";
+
+/** True when this record is the cavity-injection kind, however the PM's words reached the type. */
+export function isInjectionEquipment(type: string): boolean {
+  return type.trim().toLowerCase() === INJECTION_EQUIPMENT;
 }
 
 /**

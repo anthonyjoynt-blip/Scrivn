@@ -130,6 +130,13 @@ export const DELIBERATELY_ASKED = new Map([
   // Bookkeeping flags that exist so a question fires exactly once, whichever way it is answered.
   // They are not facts about the building, so there is nothing for extraction to capture.
   ["equipment:used", "bookkeeping — makes the drying-equipment backstop fire once"],
+  /*
+    How many holes an injecti-dry install puts in the wall. Call 1 carries a type and a quantity for
+    an equipment record and has no grammar left for a third field (see schema.ts), and a PM names the
+    equipment far more often than they count the holes while dictating. So it is asked — and both
+    lines it feeds, the drilling and the filling, render with or without it.
+  */
+  ["equipment:holeCount", "a count nobody narrates; the equipment is stated, the holes are asked"],
 
   /*
     Light fixture TYPE is the one part of the trio still asked. Presence and count are extracted

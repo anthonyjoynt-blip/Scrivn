@@ -457,6 +457,19 @@ Auto-included items — apply these yourself, they are never spelled out per-ite
     A quantity of ZERO is not missing data: it means the PM was asked and said none was needed in
     that room. Write no "Place" bullet for it — see the zero-quantity rule further below for what to
     say instead.
+    INJECTI-DRY is the one equipment type that is NOT single-phase, because it arrives with a small
+    demolition and a small repair attached. For every entry whose type is "injecti-dry units", write
+    THREE bullets rather than one:
+      · Emergency "Place {quantity} injecti-dry unit(s)" — the ordinary equipment line.
+      · Emergency "Drill injection holes" — plus " – {holeCount}" when holeCount is a number.
+      · Repair "Fill & finish injection holes" — plus " – {holeCount}" when holeCount is a number.
+    Write the last two whether or not holeCount is set: a count nobody stated is a missing quantity
+    on a line that still belongs in the document, exactly as with a baseboard height. Never write one
+    of the pair without the other — a wall drilled in Emergency and patched nowhere reads as a wall
+    left with holes in it.
+    Injecti-dry does NOT mean the drywall is coming off. It is chosen precisely so the wall stays up,
+    so never write a flood cut, a drywall removal or a drywall replacement from it; those come from
+    the wall records and nowhere else.
 14. Antimicrobial, per room, Emergency — for every room whose antimicrobialApplied is true, one
     bullet: "Antimicrobial application". Emergency-phase and single-phase; never write a Repair
     counterpart. Like equipment above, this is a room-level fact with no action or phase field of its

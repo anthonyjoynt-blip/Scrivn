@@ -11,7 +11,7 @@ import { isDGIG } from "./insurers";
 import { lossTypeLabel } from "./claimInfo";
 import { baseboardFinishLine, ceilingPaintLine, ceilingQuantity, fractionLabel, primingLine } from "./paintDerivation";
 import type { ApplianceType, CeilingRecord, DoorRecord, FlooringRecord, Room, WaterLossExtraction } from "./types";
-import { APPLIANCE_LABEL, DOOR_STYLE_LABEL, TRIM_KIND_LABEL, WINDOW_COVERING_LABEL, WINDOW_CLEANING_SIZE_LABEL, WINDOW_CLEANING_SIZES } from "./types";
+import { APPLIANCE_LABEL, DOOR_STYLE_LABEL, isInjectionEquipment, TRIM_KIND_LABEL, WINDOW_COVERING_LABEL, WINDOW_CLEANING_SIZE_LABEL, WINDOW_CLEANING_SIZES } from "./types";
 
 /**
  * Trade work orders — the crew-facing counterpart to the estimator-facing scope document.
@@ -404,7 +404,19 @@ function buildMitigationDemo(claim: ClaimInfo, extraction: WaterLossExtraction, 
       const qty = room.waterExtractionSF !== null ? `${room.waterExtractionSF} SF` : fractionLabel(room.waterExtractionFraction) ?? null;
       items.push(bullet("Extract water", room.flooring.some((f) => f.type === "CARPET") ? "from carpet" : "from hard surface", qty));
     }
-    for (const e of room.equipment) items.push(bullet("Place equipment", e.type, e.quantity !== null ? `${e.quantity}` : null));
+    for (const e of room.equipment) {
+      items.push(bullet("Place equipment", e.type, e.quantity !== null ? `${e.quantity}` : null));
+      /*
+        Injecti-dry arrives with a small demolition attached: holes into the wall to get warm dry air
+        behind the drywall. Its own bullet because it is its own labour, and paired with the fill on
+        the repair sheet — a wall drilled on one sheet and patched on neither is the same silence the
+        baseboard pair exists to prevent. The count rides along when known and is simply absent when
+        not, exactly as a baseboard height does.
+      */
+      if (isInjectionEquipment(e.type)) {
+        items.push(bullet("Drill injection holes", null, e.holeCount !== null ? `${e.holeCount}` : null));
+      }
+    }
 
     return items;
   });
@@ -427,6 +439,15 @@ function buildDrywall(claim: ClaimInfo, extraction: WaterLossExtraction): string
       seen.add(key);
       const label = w.cutHeight === "FULL_WALL" ? "full wall" : w.cutHeight === "TWO_FOOT" ? "at 2'" : w.cutHeight === "FOUR_FOOT" ? "at 4'" : 'at base height (up to 4")';
       items.push(bullet("Replace drywall", label, w.cutRunFt !== null ? `${w.cutRunFt} LF` : fractionLabel(w.cutRunFraction) ?? "perimeter"));
+    }
+    /*
+      The other half of the injection pair. On the drywall order rather than with the equipment,
+      because filling and finishing a drilled hole is drywall work — the same trade that patches a
+      flood cut, and not the crew that carries the drying gear back to the van.
+    */
+    for (const e of room.equipment) {
+      if (!isInjectionEquipment(e.type)) continue;
+      items.push(bullet("Fill & finish injection holes", null, e.holeCount !== null ? `${e.holeCount}` : null));
     }
     /*
       Named on the drywall order because that is the trade whose dust is being cleaned off.

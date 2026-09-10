@@ -60,6 +60,7 @@ import type {
 import {
   APPLIANCE_LABEL,
   BATT_R_VALUES,
+  isInjectionEquipment,
   WINDOW_COVERING_LABEL,
   BLOWN_IN_R_VALUES,
   TRIM_KIND_LABEL,
@@ -414,6 +415,24 @@ export function evaluate(raw: WaterLossExtraction, suggestions?: EquipmentSugges
           kind: { type: "wholeNumber" },
         });
         return;
+      }
+
+      /*
+        How many holes, once it is known that injecti-dry is going in.
+
+        Asked after the unit count rather than alongside it, because it only makes sense once the
+        equipment is settled — and asked at all because both halves of what it drags along are real
+        line items: holes drilled now, holes filled on the repair. A count nobody states leaves both
+        lines in the document without a quantity, exactly as a baseboard with no height still gets
+        replaced.
+      */
+      if (isInjectionEquipment(e.type) && e.holeCount === null) {
+        questions.push({
+          id: `room:${roomIndex}:equipment:${i}:holeCount`,
+          roomName: room.roomName,
+          prompt: "How many injection holes are being drilled in this room?",
+          kind: { type: "wholeNumber" },
+        });
       }
 
       /*
@@ -1802,7 +1821,7 @@ export function applyAnswer(extraction: WaterLossExtraction, questionId: string,
         const equipment =
           existing === -1
             ? count > 0
-              ? [...room.equipment, { type, quantity: count }]
+              ? [...room.equipment, { type, quantity: count, holeCount: null }]
               : room.equipment
             : room.equipment.map((e, i) => (i === existing ? { ...e, quantity: count } : e));
         return { ...room, equipment, equipmentAsked: true };
@@ -1829,7 +1848,7 @@ export function applyAnswer(extraction: WaterLossExtraction, questionId: string,
   if (parts.length >= 4 && parts[0] === "room" && parts[2] === "equipment" && parts[3] === "used") {
     return updateRoom(extraction, roomIndex(parts), (room) =>
       isYes(answer)
-        ? { ...room, equipmentAsked: true, equipment: [...room.equipment, { type: "air movers", quantity: null }, { type: "dehumidifiers", quantity: null }] }
+        ? { ...room, equipmentAsked: true, equipment: [...room.equipment, { type: "air movers", quantity: null, holeCount: null }, { type: "dehumidifiers", quantity: null, holeCount: null }] }
         : { ...room, equipmentAsked: true },
     );
   }
@@ -2113,6 +2132,12 @@ export function applyAnswer(extraction: WaterLossExtraction, questionId: string,
     if (suggested === null) return extraction;
     // Written as if the PM had stated this number themselves — document generation needs no special case.
     return updateList(extraction, roomIndex(parts), Number(parts[3]), (r) => r.equipment, (r, l) => ({ ...r, equipment: l }), (e) => ({ ...e, quantity: suggested }));
+  }
+
+  if (parts.length >= 5 && parts[0] === "room" && parts[2] === "equipment" && parts[4] === "holeCount") {
+    const holes = toIntOrNull(answer);
+    if (holes === null) return extraction;
+    return updateList(extraction, roomIndex(parts), Number(parts[3]), (r) => r.equipment, (r, l) => ({ ...r, equipment: l }), (e) => ({ ...e, holeCount: holes }));
   }
 
   if (parts.length >= 5 && parts[0] === "room" && parts[2] === "equipment" && parts[4] === "quantity") {
