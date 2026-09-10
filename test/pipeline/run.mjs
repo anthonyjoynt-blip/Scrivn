@@ -29,13 +29,21 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { TRANSCRIPTS } from "./transcripts.mjs";
 import { answerFor } from "./answers.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..", "..");
-const reportDir = join(here, "reports");
 const BASE = process.env.SCRIVN_BASE_URL ?? "http://localhost:3000";
+
+/*
+  Which batch to run. `SCRIVN_BATCH=batch3` loads transcripts-batch3.mjs and writes to
+  reports-batch3/, so batches do not overwrite each other's traces — the whole value of a trace is
+  being able to read it after the next batch has been run.
+*/
+const BATCH = process.env.SCRIVN_BATCH ?? "";
+const transcriptsFile = BATCH ? `./transcripts-${BATCH}.mjs` : "./transcripts.mjs";
+const reportDir = join(here, BATCH ? `reports-${BATCH}` : "reports");
+const { TRANSCRIPTS } = await import(transcriptsFile);
 
 const buildDir = mkdtempSync(join(tmpdir(), "pipeline-"));
 const bundlePath = join(buildDir, "bundle.mjs");
@@ -354,7 +362,15 @@ if (batch.length === 0) {
   process.exit(1);
 }
 
-rmSync(reportDir, { recursive: true, force: true });
+/*
+  A FILTERED run replaces only what it re-ran.
+
+  Clearing the whole directory meant `run.mjs 24` deleted the other five traces — including the
+  batch's own findings write-up, which lives here alongside them. Re-running one transcript to check
+  a fix is the commonest reason to filter, and losing the comparison you were about to make is the
+  opposite of what that is for.
+*/
+if (filters.length === 0) rmSync(reportDir, { recursive: true, force: true });
 mkdirSync(reportDir, { recursive: true });
 
 console.log(`\n  Running ${batch.length} transcript${batch.length === 1 ? "" : "s"} against ${BASE}\n`);
@@ -391,5 +407,5 @@ const index = [
 writeFileSync(join(reportDir, "000-index.txt"), index, "utf8");
 
 rmSync(buildDir, { recursive: true, force: true });
-console.log(`\n  Reports written to test/pipeline/reports/\n`);
+console.log(`\n  Reports written to ${reportDir}\n`);
 if (summary.some((s) => s.error)) process.exit(1);

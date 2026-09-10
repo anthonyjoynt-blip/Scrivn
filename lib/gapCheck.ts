@@ -18,6 +18,7 @@ import type {
   CountertopRecord,
   DetachOrReplaceAction,
   DoorRecord,
+  TrimRecord,
   DoorType,
   DoorUnitType,
   ElectricalOutletRecord,
@@ -57,6 +58,7 @@ import type {
 import {
   BATT_R_VALUES,
   BLOWN_IN_R_VALUES,
+  TRIM_KIND_LABEL,
   WINDOW_CLEANING_SIZE_LABEL,
   WINDOW_CLEANING_SIZES,
   blownInLabel,
@@ -323,6 +325,7 @@ export function evaluate(raw: WaterLossExtraction, suggestions?: EquipmentSugges
     room.walls.forEach((w, i) => questions.push(...wallQuestions(roomIndex, room.roomName, i, w, derived)));
     room.wallTile.forEach((wt, i) => questions.push(...wallTileQuestions(roomIndex, room.roomName, i, wt)));
     room.doors.forEach((d, i) => questions.push(...doorQuestions(roomIndex, room.roomName, i, d)));
+    room.trim.forEach((t, i) => questions.push(...trimQuestions(roomIndex, room.roomName, i, t)));
     room.outlets.forEach((o, i) => questions.push(...outletQuestions(roomIndex, room.roomName, i, o)));
 
     // ---- Ceiling, all of it together. A sub-room is under its parent's ceiling. ----
@@ -916,6 +919,32 @@ function doorQuestions(roomIndex: number, roomName: string, i: number, d: DoorRe
     if (d.saveHardware === null) q.push({ id: `${base}:saveHardware`, roomName, prompt: "Save the existing hardware?", kind: { type: "yesNo" } });
   }
   return q;
+}
+
+// ---- Trim ----------------------------------------------------------------------------------------
+
+/**
+ * One question, and only when the transcript left it open.
+ *
+ * Deliberately does NOT ask whether trim exists. Every opening in every room has casing, so a
+ * standing "is there casing here?" would fire on every claim and be answered "yes, and it is not
+ * part of this job" almost every time — which is how a question stops being read. Trim reaches the
+ * tree because the PM mentioned it; the only thing left open is which way it goes.
+ *
+ * Whether a door coming out takes its casing with it is a scoping convention rather than a fact
+ * about the loss, so nothing here infers one from the other.
+ */
+function trimQuestions(roomIndex: number, roomName: string, i: number, t: TrimRecord): GapCheckQuestion[] {
+  if (t.action !== null) return [];
+  const where = t.location.trim();
+  return [
+    {
+      id: `room:${roomIndex}:trim:${i}:action`,
+      roomName,
+      prompt: `What is happening with the ${TRIM_KIND_LABEL[t.kind].toLowerCase()}${where ? ` at ${where}` : ""}?`,
+      kind: { type: "choice", options: ["Detached and reset", "Removed and replaced"] },
+    },
+  ];
 }
 
 // ---- Cabinetry ----------------------------------------------------------------------------------
@@ -1817,6 +1846,16 @@ export function applyAnswer(extraction: WaterLossExtraction, questionId: string,
   }
   if (parts.length >= 5 && parts[0] === "room" && parts[2] === "door") {
     return updateList(extraction, roomIndex(parts), Number(parts[3]), (r) => r.doors, (r, l) => ({ ...r, doors: l }), (d) => applyDoorAnswer(d, parts[4]!, answer));
+  }
+  if (parts.length >= 5 && parts[0] === "room" && parts[2] === "trim") {
+    return updateList(
+      extraction,
+      roomIndex(parts),
+      Number(parts[3]),
+      (r) => r.trim,
+      (r, l) => ({ ...r, trim: l }),
+      (t) => (parts[4] === "action" ? { ...t, action: equalsIgnoreCase(answer, "Detached and reset") ? "DETACH_AND_RESET" as const : "REMOVE_AND_REPLACE" as const } : t),
+    );
   }
   /*
     Answering the extent question "Vanity" moves the record between lists rather than editing it.

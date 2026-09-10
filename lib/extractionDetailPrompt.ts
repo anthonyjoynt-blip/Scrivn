@@ -31,7 +31,7 @@ STRUCTURE — this is what makes the answer usable at all:
   baseboard, walls, ceilings, doors and cabinetry. The counts are given per room below. A room with
   zero of something gets an empty array for it.
 - lightFixturesPresent, lightFixtureCount, antimicrobialApplied, containmentRequired, containmentSF,
-  hepaVacuumingRequired, contentsPackOut and appliances are room-level: one value each per room entry, not
+  hepaVacuumingRequired, contentsPackOut, appliances and trim are room-level: one value each per room entry, not
   arrays and not per record.
 - If a count does not match, the whole room's detail is discarded rather than misapplied, so match
   the counts exactly even where every field in an entry is UNKNOWN.
@@ -87,7 +87,7 @@ WHAT EACH FIELD MEANS:
   vacuuming with a HEPA unit is being done in this room. NO when it says it is not. UNKNOWN
   otherwise. Do not infer it from a category 3 loss or from cleaning generally, and do not confuse it
   with an air scrubber, which is equipment and is captured separately.
-- appliances — room-level, and the ONE list you produce outright rather than one entry per existing
+- appliances — room-level, and one of the two lists you produce outright rather than one entry per existing
   record: return an entry for each appliance the transcript says is being moved, pulled out, detached,
   or taken out to work behind or under, and an empty array when it names none. Allowed types:
   WASHER, DRYER, FRIDGE, RANGE, DISHWASHER, BUILT_IN_OVEN, COOKTOP, RANGE_HOOD, BUILT_IN_MICROWAVE.
@@ -95,6 +95,24 @@ WHAT EACH FIELD MEANS:
   microwave is BUILT_IN_MICROWAVE. Only appliances actually being handled — an appliance merely
   mentioned as being in the room ("the washer is in the corner") is not one being detached. There is
   no action to record: a restoration contractor detaches and resets these, never replaces them.
+- trim — room-level, the other list you produce outright rather than one entry per existing
+  record. One entry for each piece of trim AROUND an opening that the transcript says is being taken
+  off, replaced, or put back. Empty array when it names none, which is the common case.
+  kind: DOOR_CASING, DOOR_JAMB, WINDOW_CASING, WINDOW_SILL or WINDOW_RETURN.
+  location: the opening in the PM's own words — "the closet door", "the front window".
+  action: DETACH_AND_RESET when the same piece comes off and goes back on ("take the casing off and
+  reinstall it", "needs to go back on"); REMOVE_AND_REPLACE when it is being renewed ("the sill's
+  rotted, that's getting replaced", "jamb warped, needs replacing"); UNKNOWN when the transcript
+  says the trim is involved without saying which.
+  THE POINT OF THIS CATEGORY: trim is not the opening. A jamb that warped is a jamb, NOT a door —
+  recording it as a door turns a strip of wood into a whole pre-hung unit on the estimate. Never
+  promote a trim item into the door or window it belongs to, and never record a door or window here.
+  A RETURN is where a window is finished with drywall wrapping instead of casing. If the transcript
+  says returns, use WINDOW_RETURN and do not also record a casing — they are alternatives, and the
+  presence of one means the absence of the other.
+  Trim that is merely in the room, unmentioned and untouched, is not recorded. Do not infer casing
+  from a door being replaced: whether the casing comes with it is a scoping decision somebody makes,
+  not a fact the transcript stated.
 - contentsPackOut — room-level. YES when the transcript says contents are being PACKED OUT, crated,
   inventoried, put in storage, or otherwise taken off site — "full pack-out", "boxing it all up and
   storing it", "contents going to the warehouse". NO when it says contents are only being moved

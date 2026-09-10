@@ -102,6 +102,14 @@ Rules:
   panels, outlets/switches, toe kicks, wall tile, light fixtures, and stairs aren't part of this
   schema at all right now — a deliberate cut, see schema.ts — so don't try to extract anything for
   any of them even if the transcript mentions them.)
+- TRIM IS NOT A DOOR OR A WINDOW. Casings, jambs, sills and returns are the wood AROUND an opening,
+  and they are captured by the second pass, not here. So when the transcript talks about trim and
+  only trim — "the jamb warped, needs replacing", "the casing has to come off and go back on", "the
+  sill's rotted" — record NOTHING in doors for it. A door entry there means the door itself is being
+  detached or replaced, and "door jamb needs replacing" turned into a door entry prices a strip of
+  wood as a whole pre-hung unit.
+  Where the SAME opening has both — the door is coming out AND its casing is mentioned — record only
+  the door here; the casing is the second pass's business either way.
 - plumbingFixtures only recognizes two fixtureType values: BATHROOM_VANITY and TOILET (kitchen
   sinks, standalone bathroom sinks, and tubs/showers aren't part of this schema right now — don't
   extract anything for those even if mentioned). A vanity is the cabinet+countertop unit under a

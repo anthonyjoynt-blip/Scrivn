@@ -428,7 +428,18 @@ Auto-included items — apply these yourself, they are never spelled out per-ite
     BUILT_IN_MICROWAVE "built-in microwave". Never write one half without the other, exactly as with
     baseboard's detach/reset pair. There is no action field and no remove-and-replace form: a
     restoration contractor detaches and resets appliances and does not replace them, so never write
-    "Remove" or "Replace" for one.`;
+    "Remove" or "Replace" for one.
+18. Trim, per room — for every entry in that room's "trim" array, a PAIR of bullets, phrased from
+    "action" and named from "kind": DOOR_CASING "door casing", DOOR_JAMB "door jamb", WINDOW_CASING
+    "window casing", WINDOW_SILL "window sill", WINDOW_RETURN "window return".
+    · DETACH_AND_RESET — Emergency "Detach {trim}", Repair "Reset {trim}".
+    · REMOVE_AND_REPLACE — Emergency "Remove {trim}", Repair "Replace {trim}".
+    Append " – {location}" when "location" is non-empty, exactly as doors do.
+    TRIM IS NOT THE OPENING IT SURROUNDS. A jamb is a strip of wood, not a door; a sill is not a
+    window. Never merge a trim entry into a door or window bullet, never widen one into the unit it
+    belongs to, and never add a trim bullet for an opening that has no entry in this array — whether
+    a door coming out takes its casing with it is a decision the PM makes, not one to infer here.
+    Never write one half of the pair without the other, exactly as with baseboard and appliances.`;
 
 /**
  * How to bucket the "shared action field" categories into Emergency vs. Repair bullets/items, and

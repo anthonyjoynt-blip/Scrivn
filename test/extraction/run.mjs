@@ -36,7 +36,7 @@ await build({
   logLevel: "error",
 });
 
-const { mergeDetail, needsDetailPass, extractionDetailUserMessage } = await import(pathToFileURL(bundlePath).href);
+const { mergeDetail, needsDetailPass, extractionDetailUserMessage, normalizeStoredExtraction } = await import(pathToFileURL(bundlePath).href);
 
 let passed = 0;
 const failures = [];
@@ -70,7 +70,7 @@ function ceiling(overrides = {}) {
   };
 }
 function room(name, overrides = {}) {
-  return { roomName: name, antimicrobialApplied: null, containmentRequired: null, containmentSF: null, hepaVacuumingRequired: null, appliances: [], flooring: [], baseboard: [], walls: [], ceilings: [], doors: [], cabinetry: [], toeKicks: [], countertops: [], wallTile: [], outlets: [], lightFixtures: [], electricalPanel: null, plumbingFixtures: [], stairs: null, floorRegistersDetached: null, contents: null, equipment: [], ...overrides };
+  return { roomName: name, antimicrobialApplied: null, containmentRequired: null, containmentSF: null, hepaVacuumingRequired: null, appliances: [], trim: [], flooring: [], baseboard: [], walls: [], ceilings: [], doors: [], cabinetry: [], toeKicks: [], countertops: [], wallTile: [], outlets: [], lightFixtures: [], electricalPanel: null, plumbingFixtures: [], stairs: null, floorRegistersDetached: null, contents: null, equipment: [], ...overrides };
 }
 const tree = (rooms) => ({ loss: {}, rooms });
 
@@ -111,6 +111,7 @@ function detailRoom(overrides = {}) {
     containmentSF: -1,
     hepaVacuumingRequired: "UNKNOWN",
     appliances: [],
+    trim: [],
     ...overrides,
   };
 }
@@ -326,6 +327,54 @@ check(noCount.ceilingLightFixtureCount === null, `an unstated count stays null, 
 // These are the reason the pass fires at all now — a hardwood floor alone should trigger it.
 check(needsDetailPass(tree([room("H", { flooring: [flooring("HARDWOOD")] })])), "a hardwood floor alone warrants the detail pass");
 check(needsDetailPass(tree([room("D", { doors: [{ location: "x", action: "REMOVE_AND_REPLACE", slabOnly: null, doorType: null, unitType: null, saveHardware: null }] })])), "as does a door with no spec");
+
+/* ── Trim ────────────────────────────────────────────────────────────────────────────────────────
+
+  Trim is the second list call 2 produces outright, and it exists because a batch of test
+  transcripts lost every casing, jamb, sill and return — one of them by turning a warped jamb into a
+  whole pre-hung door. So the assertions below are less about the merge mechanics than about the two
+  things that make the category worth having: it arrives at all, and it never becomes something else.
+*/
+const TRIM_ROOM = room("Hall");
+const trimDetail = (trim) => ({ rooms: [{ ...detailRoom(), flooring: [], baseboard: [], walls: [], ceilings: [], trim }] });
+
+const withTrim = mergeDetail(tree([TRIM_ROOM]), trimDetail([
+  { kind: "WINDOW_SILL", location: "front window", action: "REMOVE_AND_REPLACE" },
+  { kind: "DOOR_CASING", location: "closet door", action: "DETACH_AND_RESET" },
+])).rooms[0];
+check(withTrim.trim.length === 2, `both trim entries survive the merge (got ${withTrim.trim.length})`);
+check(withTrim.trim[0]?.kind === "WINDOW_SILL" && withTrim.trim[0]?.action === "REMOVE_AND_REPLACE", "a rotted sill comes through as a replacement");
+check(withTrim.trim[1]?.location === "closet door", "the location survives, since it is what tells two casings apart");
+check(withTrim.doors.length === 0, "and nothing about trim creates a door — the whole point of the category");
+
+const unknownAction = mergeDetail(tree([TRIM_ROOM]), trimDetail([{ kind: "WINDOW_CASING", location: "", action: "UNKNOWN" }])).rooms[0];
+check(unknownAction.trim[0]?.action === null, "an unstated action stays null so gap-check asks, rather than guessing a direction");
+
+const badKind = mergeDetail(tree([TRIM_ROOM]), trimDetail([{ kind: "SKIRTING", location: "x", action: "DETACH_AND_RESET" }])).rooms[0];
+check(badKind.trim.length === 0, "a kind that is not in the enum is dropped, never kept with a guessed one");
+
+/*
+  The pass MUST run for any claim with rooms, and this is the assertion that protects it.
+
+  Trim and appliances have no call-1 counterpart, so nothing in call 1's output can signal that they
+  might be there — they ride along on triggers that belong to other fields. `antimicrobialApplied`,
+  `hepaVacuumingRequired` and `containmentRequired` live only in call 2's schema, so they are always
+  null after call 1 and the pass always fires. Move any of them into call 1 and both categories stop
+  being extracted, silently, on every claim.
+*/
+check(needsDetailPass(tree([room("Bare")])), "a room with nothing in it still warrants the pass — trim and appliances depend on it");
+
+/* ── A claim saved before a Room field existed ───────────────────────────────────────────────────
+
+  `trim` is the first field added to Room since claims became saveable (appliances landed a commit
+  earlier). Every read of it is `room.trim.forEach(...)`, so a stored claim without the key throws
+  on open rather than degrading — and the same is true of whatever gets added next.
+*/
+const stored = { loss: {}, rooms: [{ roomName: "Old", flooring: [], baseboard: [] }] };
+const brought = normalizeStoredExtraction(stored);
+check(Array.isArray(brought.rooms[0]?.trim), "a room saved before trim existed comes back with it");
+check(Array.isArray(brought.rooms[0]?.appliances), "and with every other list the older version had no concept of");
+check(brought.rooms[0]?.roomName === "Old", "while keeping what was actually saved");
 
 rmSync(outDir, { recursive: true, force: true });
 

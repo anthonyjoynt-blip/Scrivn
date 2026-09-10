@@ -254,7 +254,7 @@ function room(name, overrides = {}) {
     floorRegistersDetached: null,
     contents: null,
     equipment: [],
-    waterExtractionRequired: null, antimicrobialApplied: null, containmentRequired: null, containmentSF: null, hepaVacuumingRequired: null, appliances: [],
+    waterExtractionRequired: null, antimicrobialApplied: null, containmentRequired: null, containmentSF: null, hepaVacuumingRequired: null, appliances: [], trim: [],
     waterExtractionSF: null,
     waterExtractionFraction: null,
     baseboardConfirmedAbsent: false,
@@ -2092,6 +2092,53 @@ for (const step of ["intake", "transcript", "questions", "ready", "contents", "r
   audit untouched until the fixtures were updated by hand. The shapes come from the real wire mapping
   (TypeScript rejects a missing field there), so this is what makes that self-correcting.
 */
+/* ── Trim: one question, and only when it is open ───────────────────────────────────────────────
+
+  Trim reaches the tree because the PM mentioned it, so the only thing left open is which way it
+  goes. Deliberately no "is there casing here?" question: every opening in every room has casing, so
+  a standing one would fire on every claim and be answered "yes, and not part of this job" nearly
+  every time — which is how a question stops being read.
+*/
+const trimRoom = (trim) => everyRecordRoomWith({ trim });
+function everyRecordRoomWith(overrides) {
+  return { ...everyRecordRoom("Hall"), ...overrides };
+}
+
+const openTrim = extractionWith([trimRoom([{ kind: "WINDOW_SILL", location: "front window", action: null }])]);
+const trimAsked = nextQuestions(claim, withDerivedFields(openTrim)).filter((q) => q.id.includes(":trim:"));
+check(trimAsked.length === 1, `one question for a trim record with no action (got ${trimAsked.length})`);
+check(
+  (trimAsked[0]?.prompt ?? "").includes("window sill") && (trimAsked[0]?.prompt ?? "").includes("front window"),
+  `the prompt names the piece and where it is (got "${trimAsked[0]?.prompt}")`,
+);
+
+const settledTrim = extractionWith([trimRoom([{ kind: "WINDOW_SILL", location: "front window", action: "REMOVE_AND_REPLACE" }])]);
+check(
+  nextQuestions(claim, withDerivedFields(settledTrim)).filter((q) => q.id.includes(":trim:")).length === 0,
+  "and nothing is asked once the transcript already said which way it goes",
+);
+
+// Falls back to the id the question WOULD have, so a regression that stops it being asked reports
+// a failed count rather than crashing the suite and hiding everything after it.
+const trimId = trimAsked[0]?.id ?? "room:0:trim:0:action";
+const answeredTrim = applyAnswer(openTrim, trimId, "Detached and reset");
+check(
+  answeredTrim.rooms[0]?.trim[0]?.action === "DETACH_AND_RESET",
+  `answering sets the action on the record (got ${answeredTrim.rooms[0]?.trim[0]?.action})`,
+);
+check(
+  nextQuestions(claim, withDerivedFields(answeredTrim)).filter((q) => q.id.includes(":trim:")).length === 0,
+  "which is what stops it being asked again — the termination rule every question here obeys",
+);
+
+const trimReplaced = applyAnswer(openTrim, trimId, "Removed and replaced");
+check(trimReplaced.rooms[0]?.trim[0]?.action === "REMOVE_AND_REPLACE", "and the other answer sets the other action");
+
+check(
+  nextQuestions(claim, withDerivedFields(extractionWith([trimRoom([])]))).filter((q) => q.id.includes(":trim:")).length === 0,
+  "a room with no trim is never asked about trim — there is no standing question",
+);
+
 const canonical = canonicalRecordShapes();
 const missingFrom = (actual, expected) => Object.keys(expected).filter((k) => !(k in actual));
 

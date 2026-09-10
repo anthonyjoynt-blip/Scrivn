@@ -13,6 +13,8 @@ import type {
   WaterLossExtraction,
   WallDrywallCutHeight,
   ApplianceType,
+  DetachOrReplaceAction,
+  TrimKind,
 } from "./types";
 
 /**
@@ -56,6 +58,11 @@ export interface CeilingDetailWire {
   aboveInsulationAffected: string;
   aboveInsulationType: string;
 }
+export interface TrimDetailWire {
+  kind: string;
+  location: string;
+  action: string;
+}
 export interface RoomDetailWire {
   flooring: FlooringDetailWire[];
   baseboard: BaseboardDetailWire[];
@@ -71,10 +78,14 @@ export interface RoomDetailWire {
   hepaVacuumingRequired: string;
   contentsPackOut: string;
   appliances: { type: string }[];
+  trim: TrimDetailWire[];
 }
 export interface ExtractionDetailWire {
   rooms: RoomDetailWire[];
 }
+
+/** The enum the detail schema offers, so an unrecognised string is dropped rather than trusted. */
+const TRIM_KINDS = new Set<string>(["DOOR_CASING", "DOOR_JAMB", "WINDOW_CASING", "WINDOW_SILL", "WINDOW_RETURN"]);
 
 /** The enum the detail schema offers, so an unrecognised string is dropped rather than trusted. */
 const APPLIANCE_TYPES = new Set<string>([
@@ -194,6 +205,26 @@ export function mergeDetail(extraction: WaterLossExtraction, detail: ExtractionD
         room.appliances.length > 0
           ? room.appliances
           : (d.appliances ?? []).filter((a) => APPLIANCE_TYPES.has(a?.type)).map((a) => ({ type: a.type as ApplianceType })),
+      /*
+        Same shape as appliances above, and the same reason: call 1 produces none of these, so there
+        is nothing to align to and the list is taken as given.
+
+        A record with an unrecognised `kind` is dropped rather than kept with a guessed one — the
+        whole point of this category is that a jamb must not become a door, and a trim item whose
+        kind did not survive the round trip is one nobody could render correctly anyway. `action`
+        is allowed to be null: which way a casing goes is exactly the sort of thing gap-check asks
+        in seconds, and a wrong guess there is a line on an insurer's scope.
+      */
+      trim:
+        room.trim.length > 0
+          ? room.trim
+          : (d.trim ?? [])
+              .filter((t) => TRIM_KINDS.has(t?.kind))
+              .map((t) => ({
+                kind: t.kind as TrimKind,
+                location: typeof t.location === "string" ? t.location.trim() : "",
+                action: enumOrNull<DetachOrReplaceAction>(t.action),
+              })),
       ceilingLightFixturesPresent: room.ceilingLightFixturesPresent ?? toTriState(d.lightFixturesPresent),
       ceilingLightFixtureCount: room.ceilingLightFixtureCount ?? intOrNull(d.lightFixtureCount),
       ceilings: room.ceilings.map((c, i) => ({

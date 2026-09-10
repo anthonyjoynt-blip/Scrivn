@@ -97,6 +97,15 @@ export interface Room {
    */
   appliances: ApplianceRecord[];
   /**
+   * Casings, jambs, sills and returns — the trim AROUND an opening, as opposed to the door or
+   * window itself. See {@link TrimRecord}.
+   *
+   * Populated by the DETAIL pass on the same terms as `appliances`: produced outright rather than
+   * annotating a call-1 record, because call 1's grammar is full and has been for a while (see
+   * `schema.ts`). Nothing refers to these by index, which is what makes that safe.
+   */
+  trim: TrimRecord[];
+  /**
    * Gap-check-only, round 12 — never populated by extraction. General water-claim gap-check ("one
    * more gap check for all water claims, if water extraction was not mentioned - ask if water
    * extraction was required"), distinct from the narrow LIFT_AND_REINSTALL-carpet auto-include in
@@ -484,6 +493,43 @@ export interface WallRecord {
 
 /** Shared by every record type below whose only two possible actions are "detach & reset" vs. "remove & replace". */
 export type DetachOrReplaceAction = "DETACH_AND_RESET" | "REMOVE_AND_REPLACE";
+
+/**
+ * The trim around an opening, as distinct from the opening itself.
+ *
+ * Added because a batch of test transcripts lost every one of these outright, and one of them lost
+ * them in the worst possible direction: "door jamb on the closet door needs replacing, it warped"
+ * came out of the pipeline as *Remove & replace door – Colonial, pre-hung*. A warped jamb became a
+ * whole pre-hung door, which is not a dropped line but an inflated one — the scope prices work
+ * nobody described, and nothing about the sentence looks wrong.
+ *
+ * A RETURN is deliberately its own kind rather than a flag on casing. Where a window is finished
+ * with drywall returns there is no casing at all, so "casing, but the return variety" would describe
+ * a thing that is not there; they are alternatives, not a detail of one another.
+ */
+export type TrimKind = "DOOR_CASING" | "DOOR_JAMB" | "WINDOW_CASING" | "WINDOW_SILL" | "WINDOW_RETURN";
+
+export const TRIM_KIND_LABEL: Record<TrimKind, string> = {
+  DOOR_CASING: "Door casing",
+  DOOR_JAMB: "Door jamb",
+  WINDOW_CASING: "Window casing",
+  WINDOW_SILL: "Window sill",
+  WINDOW_RETURN: "Window return",
+};
+
+export interface TrimRecord {
+  kind: TrimKind;
+  /**
+   * Which opening, in the PM's own words — "the closet door", "the front window".
+   *
+   * Free text for the same reason `DoorRecord.location` and `CabinetryRecord.location` are: a room
+   * can have several of these, and what distinguishes them is a phrase somebody says out loud, not
+   * an enum anybody would maintain.
+   */
+  location: string;
+  /** Null until stated or asked. Casing usually comes off and goes back; a rotted sill does not. */
+  action: DetachOrReplaceAction | null;
+}
 
 export type DoorType = "COLONIAL" | "SOLID_CORE" | "HOLLOW_CORE" | "OTHER";
 export type DoorUnitType = "PRE_HUNG" | "SLAB_ONLY";

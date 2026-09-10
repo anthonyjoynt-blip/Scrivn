@@ -356,6 +356,19 @@ const roomDetailSchema = obj({
   appliances: arr(obj({
     type: enumOf("WASHER", "DRYER", "FRIDGE", "RANGE", "DISHWASHER", "BUILT_IN_OVEN", "COOKTOP", "RANGE_HOOD", "BUILT_IN_MICROWAVE"),
   })),
+  /*
+    The second such list, on the same terms as appliances: produced outright, aligned to nothing.
+
+    Trim is here rather than in call 1 for the usual reason — call 1's grammar has no room — but it
+    is worth saying that this is the RIGHT place for it anyway. A casing is spec: the opening it
+    belongs to is what call 1 records, and what happens to the trim around it is detail about that
+    opening, in the same way a door's type is.
+  */
+  trim: arr(obj({
+    kind: enumOf("DOOR_CASING", "DOOR_JAMB", "WINDOW_CASING", "WINDOW_SILL", "WINDOW_RETURN"),
+    location: str(),
+    action: enumOf("DETACH_AND_RESET", "REMOVE_AND_REPLACE", "UNKNOWN"),
+  })),
 });
 
 /**

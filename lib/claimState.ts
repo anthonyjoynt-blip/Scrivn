@@ -11,6 +11,7 @@ import type { AsbestosScope } from "./asbestos";
 import { emptyAsbestosScope } from "./asbestos";
 import type { Sketch } from "./sketch";
 import { emptySketch } from "./sketch";
+import { normalizeStoredExtraction } from "./extractionWire";
 import type { MoistureMap } from "./moisture";
 import { emptyMoistureMap } from "./moisture";
 import type { ScopeMarks } from "./scopeMarks";
@@ -160,6 +161,16 @@ export function parseSavedClaimState(payload: unknown): SavedClaimState {
     // documents, so it is kept.
     if (value !== undefined) merged[key] = value;
   }
+  /*
+    The merge above is one TOP-LEVEL key at a time, so `extraction` arrives exactly as it was
+    written and a field added to `Room` since is simply absent. Everything downstream reads those
+    as arrays — `room.trim.forEach(...)` — so an old claim would throw on open rather than degrade.
+
+    Bringing the rooms up to today's shape here rather than defending at each read: there are dozens
+    of reads and one load.
+  */
+  const extraction = merged.extraction as SavedClaimState["extraction"];
+  if (extraction) merged.extraction = normalizeStoredExtraction(extraction);
   return merged as unknown as SavedClaimState;
 }
 

@@ -11,7 +11,7 @@ import { isDGIG } from "./insurers";
 import { lossTypeLabel } from "./claimInfo";
 import { baseboardFinishLine, ceilingPaintLine, ceilingQuantity, fractionLabel, primingLine } from "./paintDerivation";
 import type { ApplianceType, CeilingRecord, FlooringRecord, Room, WaterLossExtraction } from "./types";
-import { WINDOW_CLEANING_SIZE_LABEL, WINDOW_CLEANING_SIZES } from "./types";
+import { TRIM_KIND_LABEL, WINDOW_CLEANING_SIZE_LABEL, WINDOW_CLEANING_SIZES } from "./types";
 
 /**
  * Trade work orders — the crew-facing counterpart to the estimator-facing scope document.
@@ -348,6 +348,17 @@ function buildMitigationDemo(claim: ClaimInfo, extraction: WaterLossExtraction, 
       items.push(bullet(c.action === "DETACH_AND_RESET" ? "Detach ceiling" : "Remove ceiling", CEILING_TYPE_LABEL[c.type] ?? titleCase(c.type), ceilingExtent(c)));
     }
     for (const d of room.doors) items.push(bullet(d.action === "DETACH_AND_RESET" ? "Detach door" : "Remove door", d.location, null));
+    /*
+      Trim is its own line, never folded into the door or window it surrounds.
+
+      That separation is the entire reason this category exists: a warped jamb used to come out of
+      the pipeline as a whole pre-hung door, which is not a missing line but an inflated one. A crew
+      pulling casing off is doing minutes of work; a crew pulling a door unit is doing an hour and
+      putting a new one back.
+    */
+    for (const t of room.trim) {
+      items.push(bullet(t.action === "DETACH_AND_RESET" ? `Detach ${TRIM_KIND_LABEL[t.kind].toLowerCase()}` : `Remove ${TRIM_KIND_LABEL[t.kind].toLowerCase()}`, t.location || null, null));
+    }
     for (const c of room.cabinetry) items.push(bullet(c.action === "DETACH_AND_RESET" ? "Detach cabinetry" : "Remove cabinetry", c.location, null));
     for (const c of room.countertops) items.push(bullet(c.action === "DETACH_AND_RESET" ? "Detach countertop" : "Remove countertop", null, null));
 
@@ -461,6 +472,11 @@ function buildFinishCarpentry(claim: ClaimInfo, extraction: WaterLossExtraction)
       }
     }
     for (const d of room.doors) items.push(bullet(d.action === "DETACH_AND_RESET" ? "Reset door" : "Install new door", d.location, null));
+    // The other half of the pair above. A casing detached on the emergency sheet and never mentioned
+    // again reads as trim nobody put back — the same failure the baseboard pair exists to prevent.
+    for (const t of room.trim) {
+      items.push(bullet(t.action === "DETACH_AND_RESET" ? `Reset ${TRIM_KIND_LABEL[t.kind].toLowerCase()}` : `Install new ${TRIM_KIND_LABEL[t.kind].toLowerCase()}`, t.location || null, null));
+    }
     for (const c of room.cabinetry) items.push(bullet(c.action === "DETACH_AND_RESET" ? "Reset cabinetry" : "Install new cabinetry", c.location, null));
     for (const c of room.countertops) items.push(bullet(c.action === "DETACH_AND_RESET" ? "Reset countertop" : "Install new countertop", c.material ? titleCase(c.material) : null, null));
     for (const t of room.toeKicks) items.push(bullet(t.action === "DETACH_AND_RESET" ? "Reset toe kick" : "Install new toe kick", null, null));

@@ -128,6 +128,8 @@ function roomToDomain(w: RoomWire): Room {
     hepaVacuumingRequired: null,
     // Filled by the detail pass — call 1 has no room for another category (see schema.ts).
     appliances: [],
+    // Detail-pass only, like appliances above — call 1 has no grammar left to carry them.
+    trim: [],
     waterExtractionSF: null,
     waterExtractionFraction: null,
     // Gap-check-only (round 6) — never extracted, see Room.ceilingLightFixturesPresent's doc comment.
@@ -384,6 +386,53 @@ function enumOrNull<T extends string>(value: string): T | null {
  * These come from the real `*ToDomain` functions, so TypeScript rejects a missing field here the
  * moment a domain type grows one, and `test/gapcheck/run.mjs` compares fixture keys against them.
  */
+/**
+ * A room with every field this version knows about, all empty.
+ *
+ * Exists so a stored claim can be brought up to today's shape — see `normalizeStoredExtraction`.
+ */
+export function blankRoom(name = ""): Room {
+  return roomToDomain({
+    roomName: name,
+    flooring: [],
+    baseboard: [],
+    walls: [],
+    doors: [],
+    cabinetry: [],
+    countertops: [],
+    ceilings: [],
+    plumbingFixtures: [],
+    floorRegistersDetached: -1,
+    equipment: [],
+    contents: { present: false, manipulationDeclined: false, affected: false },
+  });
+}
+
+/**
+ * Brings a claim saved by an earlier version up to today's Room shape.
+ *
+ * A stored claim is merged back one TOP-LEVEL key at a time (see `parseSavedClaimState`), so
+ * `extraction` arrives exactly as it was written and a field added to `Room` since is simply not
+ * there. Everything downstream reads those fields as arrays — `room.trim.forEach(...)` — so the
+ * claim page throws on open rather than degrading.
+ *
+ * This never bit before because every Room field predates persistence: `appliances` landed in the
+ * same round as the seven dropped categories, and claims only became saveable afterwards. `trim` is
+ * the first one added since, which makes this the moment the gap becomes real rather than
+ * theoretical — and the reason to fix it generally rather than reach for `room.trim ?? []` at each
+ * of the places that would have thrown.
+ *
+ * Spreading a blank room UNDER the stored one keeps every value the PM actually entered and fills in
+ * only what the older version had no concept of.
+ */
+export function normalizeStoredExtraction(extraction: WaterLossExtraction): WaterLossExtraction {
+  if (!extraction || !Array.isArray(extraction.rooms)) return extraction;
+  return {
+    ...extraction,
+    rooms: extraction.rooms.map((room) => ({ ...blankRoom(), ...room })),
+  };
+}
+
 export function canonicalRecordShapes(): { flooring: FlooringRecord; baseboard: BaseboardRecord } {
   return {
     flooring: flooringToDomain({

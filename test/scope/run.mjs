@@ -102,7 +102,7 @@ function flooring(overrides = {}) {
   };
 }
 function room(name, overrides = {}) {
-  return { roomName: name, flooring: [], baseboard: [], walls: [], ceilings: [], doors: [], cabinetry: [], toeKicks: [], countertops: [], wallTile: [], outlets: [], lightFixtures: [], electricalPanel: null, plumbingFixtures: [], stairs: null, floorRegistersDetached: null, contents: null, equipment: [], antimicrobialApplied: null, containmentRequired: null, containmentSF: null, hepaVacuumingRequired: null, appliances: [], waterExtractionRequired: null, waterExtractionSF: null, waterExtractionFraction: null, baseboardConfirmedAbsent: false, windowCleaningAsked: false, windowCleaningCounts: null, equipmentAsked: false, ceilingLightFixturesPresent: null, ceilingFixturesInRemovalArea: null, ceilingLightFixtureType: null, ceilingLightFixtureCount: null, otherCeilingFixtures: null, ...overrides };
+  return { roomName: name, flooring: [], baseboard: [], walls: [], ceilings: [], doors: [], cabinetry: [], toeKicks: [], countertops: [], wallTile: [], outlets: [], lightFixtures: [], electricalPanel: null, plumbingFixtures: [], stairs: null, floorRegistersDetached: null, contents: null, equipment: [], antimicrobialApplied: null, containmentRequired: null, containmentSF: null, hepaVacuumingRequired: null, appliances: [], trim: [], waterExtractionRequired: null, waterExtractionSF: null, waterExtractionFraction: null, baseboardConfirmedAbsent: false, windowCleaningAsked: false, windowCleaningCounts: null, equipmentAsked: false, ceilingLightFixturesPresent: null, ceilingFixturesInRemovalArea: null, ceilingLightFixtureType: null, ceilingLightFixtureCount: null, otherCeilingFixtures: null, ...overrides };
 }
 
 /* ── A replaced ceiling gets primed and painted ────────────────────────────────────────────────── */
@@ -370,6 +370,48 @@ check(
   !/Remove washer|Replace washer/.test(demo + carpentry),
   "never removed or replaced — a restoration contractor does not buy the homeowner a new washer",
 );
+
+/* ── Trim comes off and goes back, and never becomes the door ──────────────────────────────────── */
+
+/*
+  A batch of test transcripts lost every casing, jamb, sill and return. One lost it in the worst
+  direction: "door jamb on the closet door needs replacing, it warped" came out as
+  *Remove & replace door – Colonial, pre-hung*. That is not a dropped line but an inflated one — a
+  strip of wood priced as a whole pre-hung unit, and nothing about the sentence looks wrong.
+
+  So these check both halves: that trim appears at all, and that it stays trim.
+*/
+const withTrim = [room("Hall", {
+  trim: [
+    { kind: "DOOR_JAMB", location: "closet door", action: "REMOVE_AND_REPLACE" },
+    { kind: "WINDOW_CASING", location: "front window", action: "DETACH_AND_RESET" },
+  ],
+})];
+const trimDemo = emergencyFor(cat3, withTrim);
+check(/Remove door jamb/.test(trimDemo), `a jamb being replaced is removed by name (got:
+${trimDemo})`);
+check(/Detach window casing/.test(trimDemo), "and casing coming off for later reuse is detached, not removed");
+check(
+  !/Remove door – |Install new door|Replace door/.test(trimDemo),
+  "and NO door line appears from a jamb — the failure this whole category exists to stop",
+);
+
+const trimCarpentry = buildWorkOrders({
+  trades: ["FINISH_CARPENTRY"],
+  claim: cat3,
+  extraction: withDerivedFields({
+    loss: { category: 3, lossClass: 2, source: null, dateOfLoss: null, yearOfBuilding: 2000, asbestosTestingRequired: false, asbestosSamplesTaken: null, asbestosSampleCount: null, isBasementLoss: true, hvacInspectionRequired: null },
+    rooms: withTrim,
+  }),
+  contentsApproach: "TM",
+  contentsTM: { entries: [] },
+  bricABrac: { rooms: [] },
+  dgigData: null,
+}).find((o) => o.trade === "FINISH_CARPENTRY")?.text ?? "";
+check(/Install new door jamb/.test(trimCarpentry), `a replaced jamb is installed on repairs (got:
+${trimCarpentry})`);
+check(/Reset window casing/.test(trimCarpentry), "and detached casing goes back on — never one half of the pair without the other");
+check(/closet door/.test(trimDemo) && /front window/.test(trimCarpentry), "the location travels with it, since it is what tells two casings apart");
 
 /* ── A baseboard that comes off goes back on ───────────────────────────────────────────────────── */
 
