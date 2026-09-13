@@ -6,7 +6,8 @@ import { wireToDomain, type ExtractionResponseWire } from "@/lib/extractionWire"
 import { EXTRACTION_DETAIL_SYSTEM_PROMPT, extractionDetailUserMessage } from "@/lib/extractionDetailPrompt";
 import { mergeDetail, needsDetailPass, type ExtractionDetailWire } from "@/lib/extractionDetailWire";
 import { EXTRACTION_UNSCOPED_SYSTEM_PROMPT, extractionUnscopedUserMessage, mergeUnscoped, needsUnscopedPass, type ExtractionUnscopedWire } from "@/lib/extractionUnscoped";
-import { extractionUnscopedSchema } from "@/lib/schema";
+import { EXTRACTION_SUPPLEMENT_SYSTEM_PROMPT, extractionSupplementUserMessage, mergeSupplement, needsSupplementPass, type ExtractionSupplementWire } from "@/lib/extractionSupplement";
+import { extractionSupplementSchema, extractionUnscopedSchema } from "@/lib/schema";
 import { withDerivedFields, type WaterLossExtraction } from "@/lib/types";
 import { checkUsageAllowed } from "@/lib/usage";
 
@@ -44,7 +45,14 @@ export async function POST(request: Request) {
     });
     const extraction = withDerivedFields(wireToDomain(structure.output));
     const detailed = await withDetail(transcript, extraction);
-    const swept = await withUnscoped(transcript, detailed.extraction);
+    /*
+      Calls 3 and 4 both read the tree as it stands after call 2 and touch different fields, so they
+      run side by side: the second detail pass costs money but not time. The sweep's summary is
+      built from the tree BEFORE the supplement lands, which is fine — the supplement adds extents,
+      not records, and the sweep is looking for records.
+    */
+    const [swept, supplemented] = await Promise.all([withUnscoped(transcript, detailed.extraction), withSupplement(transcript, detailed.extraction)]);
+    const merged = mergeUnscoped(supplemented.extraction, swept.wire);
     /*
       Token usage travels back with the result so a caller can see what a claim cost. The UI ignores
       it; `test/pipeline` reports it. Counts only — a dollar figure needs a rate that changes without
@@ -56,13 +64,14 @@ export async function POST(request: Request) {
       pipeline harness prints them at the top of the trace.
     */
     return NextResponse.json({
-      extraction: swept.extraction,
+      extraction: withDerivedFields(merged),
       usage: [
         { call: "extract:structure", ...structure.usage },
         ...(detailed.usage ? [{ call: "extract:detail", ...detailed.usage }] : []),
+        ...(supplemented.usage ? [{ call: "extract:supplement", ...supplemented.usage }] : []),
         ...(swept.usage ? [{ call: "extract:unscoped", ...swept.usage }] : []),
       ],
-      warnings: [...(detailed.warning ? [detailed.warning] : []), ...(swept.warning ? [swept.warning] : [])],
+      warnings: [detailed.warning, supplemented.warning, swept.warning].filter((w): w is string => w !== null),
     });
   } catch (err) {
     return errorResponse(err);
@@ -107,18 +116,40 @@ async function withDetail(
 async function withUnscoped(
   transcript: string,
   extraction: WaterLossExtraction,
-): Promise<{ extraction: WaterLossExtraction; usage: CallUsage | null; warning: string | null }> {
-  if (!needsUnscopedPass(extraction)) return { extraction, usage: null, warning: null };
+): Promise<{ wire: ExtractionUnscopedWire | null; usage: CallUsage | null; warning: string | null }> {
+  if (!needsUnscopedPass(extraction)) return { wire: null, usage: null, warning: null };
   try {
     const sweep = await createStructuredMessage<ExtractionUnscopedWire>({
       system: EXTRACTION_UNSCOPED_SYSTEM_PROMPT,
       userMessage: extractionUnscopedUserMessage(transcript, extraction),
       schema: extractionUnscopedSchema,
     });
-    return { extraction: mergeUnscoped(extraction, sweep.output), usage: sweep.usage, warning: null };
+    return { wire: sweep.output, usage: sweep.usage, warning: null };
   } catch (err) {
     console.error("[/api/extract] unscoped pass failed, continuing without it", err);
-    return { extraction, usage: null, warning: `The check for work with no field did not run (${reason(err)}). Anything the transcript mentions that the questions do not cover will need adding by hand.` };
+    return { wire: null, usage: null, warning: `The check for work with no field did not run (${reason(err)}). Anything the transcript mentions that the questions do not cover will need adding by hand.` };
+  }
+}
+
+/**
+ * The fourth call, the second detail pass — see `extractionSupplement.ts`. Fail-soft on the detail
+ * pass's reasoning: it can only add what the gap-check would otherwise ask for.
+ */
+async function withSupplement(
+  transcript: string,
+  extraction: WaterLossExtraction,
+): Promise<{ extraction: WaterLossExtraction; usage: CallUsage | null; warning: string | null }> {
+  if (!needsSupplementPass(extraction)) return { extraction, usage: null, warning: null };
+  try {
+    const supplement = await createStructuredMessage<ExtractionSupplementWire>({
+      system: EXTRACTION_SUPPLEMENT_SYSTEM_PROMPT,
+      userMessage: extractionSupplementUserMessage(transcript, extraction),
+      schema: extractionSupplementSchema,
+    });
+    return { extraction: mergeSupplement(extraction, supplement.output), usage: supplement.usage, warning: null };
+  } catch (err) {
+    console.error("[/api/extract] supplement pass failed, continuing without it", err);
+    return { extraction, usage: null, warning: `The second detail pass did not run (${reason(err)}). Extents the transcript states in words — "the whole room" — will be asked for.` };
   }
 }
 

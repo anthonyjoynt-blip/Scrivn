@@ -437,9 +437,27 @@ export const extractionUnscopedSchema: JsonSchema = obj({
 });
 
 /**
- * Schema for the detail pass. FULL, as of the unscoped list — see `extractionUnscopedSchema` below
- * for what happened when one more string array was added. The next spec field needs a fourth call
- * or a cut, not a slot here.
+ * Schema for the fourth call, the second detail pass — see `extractionSupplement.ts`. Same shape as
+ * the first: one entry per room in order, one per flooring record in order, counts stated in the
+ * user message and checked in the merge. This is where the next spec field goes.
+ */
+export const extractionSupplementSchema: JsonSchema = obj({
+  rooms: arr(obj({
+    flooring: arr(obj({
+      // The qualitative half of the detail pass's removalSF — "the whole room" — never both.
+      removalFraction: nullableEnumOf("QUARTER", "HALF", "THREE_QUARTERS", "FULL"),
+    })),
+    // Whether water was extracted in this room and over how much floor: a number OR a fraction.
+    waterExtractionRequired: nullableBool(),
+    waterExtractionSF: nullableNumber(),
+    waterExtractionFraction: nullableEnumOf("QUARTER", "HALF", "THREE_QUARTERS", "FULL"),
+  })),
+});
+
+/**
+ * Schema for the detail pass. FULL — proved twice on 2026-09-13: a string array (now call 3) and
+ * then three enums and a bool (now call 4, `extractionSupplementSchema`) each returned "the compiled
+ * grammar is too large". The next spec field goes in the supplement schema below, not here.
  *
  * One entry per room, in the SAME order call 1 returned them, and
  * within each room one entry per record in the same order — see `extractionDetailPrompt.ts`, which

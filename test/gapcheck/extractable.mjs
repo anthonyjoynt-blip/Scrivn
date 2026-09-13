@@ -47,6 +47,12 @@ export const EXTRACTABLE = new Set([
   // How much floor is coming out, any type. Stated dimensions ("six by eight feet") are multiplied
   // out during the detail pass; the question below only fires when nothing was stated at all.
   "flooring:removalSF",
+  // The qualitative half, since 2026-09-13 — "the whole room" is stated far more often than a figure,
+  // and asking for it after the PM said it was the auditor's first ASKED_ANYWAY finding.
+  "flooring:removalFraction",
+  // Water extraction, same date, same finding: "we extracted standing water off the whole floor" was
+  // followed by two questions. The `required` flag still stands as a backstop question when unstated.
+  "waterExtraction:required", "waterExtraction:sf", "waterExtraction:fraction",
   // doorStyle is a SEPARATE axis from doorType — a pocket door has a core too. saveHardware moved
   // here from the deliberately-asked list below: a PM saying "save them if possible" is an
   // observation, and asking anyway got it wrong on one of two doors in a real transcript.
@@ -79,14 +85,11 @@ export const DELIBERATELY_ASKED = new Map([
   ["unscoped:disposition", "always asked — the PM places or drops work extraction had no field for"],
   ["wall:cutRunFt", "a measured quantity, pre-filled from the moisture map where one exists"],
   ["wall:cutRunFraction", "the qualitative half of cutRunFt"],
-  ["flooring:removalFraction", "the qualitative half of removalSF, which IS extracted"],
   ["flooring:carpetLiftSF", "a measured quantity, pre-filled from the moisture map"],
   ["flooring:carpetLiftFraction", "the qualitative half of carpetLiftSF"],
   ["flooring:padRemovedSF", "a measured quantity, pre-filled from the moisture map"],
   ["flooring:padRemovedFraction", "the qualitative half of padRemovedSF"],
   ["ceiling:replaceFraction", "the qualitative half of replaceSF, which IS extracted"],
-  ["waterExtraction:sf", "a measured quantity, pre-filled from the moisture map"],
-  ["waterExtraction:fraction", "the qualitative half of waterExtractionSF"],
 
   // R-values. Read off a label or a depth gauge on site, not something dictated on a walkthrough.
   ["wall:insulationRValue", "read off the batt label or a depth gauge, not dictated"],
@@ -108,7 +111,6 @@ export const DELIBERATELY_ASKED = new Map([
   // Gap-check bookkeeping — flags that exist to make the question fire exactly once.
   ["room:baseboardConfirmedAbsent", "bookkeeping, not a fact about the building"],
   ["room:equipmentAsked", "bookkeeping, not a fact about the building"],
-  ["waterExtraction:required", "a general water-claim backstop; rarely narrated either way"],
 
   // Categories cut wholesale to get under the compiled-grammar ceiling. Each is a question today
   // because its whole record type is absent from extraction, not because the field is unknowable.

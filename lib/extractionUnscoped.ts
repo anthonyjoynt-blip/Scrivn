@@ -139,7 +139,7 @@ function tidy(items: unknown): string[] {
  * is discarded whole rather than attaching one room's missed work to another. A room that already
  * carries items keeps them — a re-run never resets a decision the PM has made.
  */
-export function mergeUnscoped(extraction: WaterLossExtraction, wire: ExtractionUnscopedWire): WaterLossExtraction {
+export function mergeUnscoped(extraction: WaterLossExtraction, wire: ExtractionUnscopedWire | null): WaterLossExtraction {
   if (!wire || !Array.isArray(wire.rooms) || wire.rooms.length !== extraction.rooms.length) return extraction;
   return {
     ...extraction,

@@ -36,7 +36,7 @@ await build({
   logLevel: "error",
 });
 
-const { mergeDetail, needsDetailPass, extractionDetailUserMessage, normalizeStoredExtraction, mergeUnscoped, needsUnscopedPass, capturedSummary, extractionUnscopedUserMessage } = await import(pathToFileURL(bundlePath).href);
+const { mergeDetail, needsDetailPass, extractionDetailUserMessage, normalizeStoredExtraction, mergeUnscoped, needsUnscopedPass, capturedSummary, extractionUnscopedUserMessage, mergeSupplement, needsSupplementPass, extractionSupplementUserMessage } = await import(pathToFileURL(bundlePath).href);
 
 let passed = 0;
 const failures = [];
@@ -70,7 +70,7 @@ function ceiling(overrides = {}) {
   };
 }
 function room(name, overrides = {}) {
-  return { roomName: name, antimicrobialApplied: null, containmentRequired: null, containmentSF: null, hepaVacuumingRequired: null, temporaryPowerRequired: null, appliances: [], trim: [], windowCoverings: [], cabinetHardware: [], subfloor: [], unscoped: [], flooring: [], baseboard: [], walls: [], ceilings: [], doors: [], cabinetry: [], toeKicks: [], countertops: [], wallTile: [], outlets: [], lightFixtures: [], electricalPanel: null, plumbingFixtures: [], stairs: null, floorRegistersDetached: null, contents: null, equipment: [], ...overrides };
+  return { roomName: name, antimicrobialApplied: null, containmentRequired: null, containmentSF: null, hepaVacuumingRequired: null, temporaryPowerRequired: null, appliances: [], trim: [], windowCoverings: [], cabinetHardware: [], subfloor: [], unscoped: [], waterExtractionRequired: null, waterExtractionSF: null, waterExtractionFraction: null, flooring: [], baseboard: [], walls: [], ceilings: [], doors: [], cabinetry: [], toeKicks: [], countertops: [], wallTile: [], outlets: [], lightFixtures: [], electricalPanel: null, plumbingFixtures: [], stairs: null, floorRegistersDetached: null, contents: null, equipment: [], ...overrides };
 }
 const tree = (rooms) => ({ loss: {}, rooms });
 
@@ -477,6 +477,59 @@ check(sweepMessage.indexOf("1. Kitchen") < sweepMessage.indexOf("2. Hall"), "roo
 check(sweepMessage.includes("- equipment — air movers — × 3"), `each room lists what it holds (got:\n${sweepMessage.split("Transcript:")[0]})`);
 check(sweepMessage.includes("(nothing captured for this room)"), "and says so for a room holding nothing, rather than leaving a gap the model might read as an error");
 check(sweepMessage.trim().endsWith("the transcript"), "with the transcript last, after the list it is to be read against");
+
+/* ── The supplement: the fourth call ────────────────────────────────────────────────────────────────
+
+  The second detail pass, born of call 2 being proved full twice in a day. Two ASKED_ANYWAY findings
+  from the control transcript: "how much vinyl?" after "the whole room", and "was water extracted?"
+  after "we extracted standing water off the whole floor". A number goes in the SF field, words in
+  the fraction, never both — which is what AreaFraction has always meant.
+*/
+const VINYL_OUT = room("Basement bathroom", { flooring: [flooring("VINYL", { disposition: "REMOVE_AND_DISPOSE" })] });
+const supp = (rooms) => ({ rooms });
+const roomSupp = (over = {}) => ({ flooring: [{ removalFraction: "UNKNOWN" }], waterExtractionRequired: "UNKNOWN", waterExtractionSF: -1, waterExtractionFraction: "UNKNOWN", ...over });
+
+const wholeRoom = mergeSupplement(tree([VINYL_OUT]), supp([roomSupp({ flooring: [{ removalFraction: "FULL" }] })])).rooms[0];
+check(wholeRoom.flooring[0]?.removalFraction === "FULL", `"the whole room" lands as FULL on the floor being removed (got ${wholeRoom.flooring[0]?.removalFraction})`);
+check(wholeRoom.flooring[0]?.removalSF === null, "and leaves the SF empty — exactly one of the pair is ever set");
+
+const numbered = mergeSupplement(tree([room("Basement bathroom", { flooring: [flooring("VINYL", { disposition: "REMOVE_AND_DISPOSE", removalSF: 120 })] })]), supp([roomSupp({ flooring: [{ removalFraction: "FULL" }] })])).rooms[0];
+check(numbered.flooring[0]?.removalFraction === null && numbered.flooring[0]?.removalSF === 120, "a floor that already has a number keeps the number and takes no fraction — the number is the one an estimator can use");
+
+const kept = mergeSupplement(tree([room("Basement bathroom", { flooring: [flooring("VINYL", { disposition: "REMOVE_AND_DISPOSE", removalFraction: "HALF" })] })]), supp([roomSupp({ flooring: [{ removalFraction: "FULL" }] })])).rooms[0];
+check(kept.flooring[0]?.removalFraction === "HALF", "a fraction already on the record is never overwritten");
+
+const staying = mergeSupplement(tree([room("Basement bathroom", { flooring: [flooring("CARPET", { disposition: "LIFT_AND_REINSTALL" })] })]), supp([roomSupp({ flooring: [{ removalFraction: "FULL" }] })])).rooms[0];
+check(staying.flooring[0]?.removalFraction === null, "no removal extent lands on a floor that is being saved, whatever the model said");
+
+check(mergeSupplement(tree([VINYL_OUT]), supp([roomSupp({ flooring: [{ removalFraction: "MOST" }] })])).rooms[0].flooring[0]?.removalFraction === null, "a value outside the enum is dropped, never trusted");
+
+const extracted = mergeSupplement(tree([VINYL_OUT]), supp([roomSupp({ waterExtractionRequired: "YES", waterExtractionFraction: "FULL" })])).rooms[0];
+check(extracted.waterExtractionRequired === true && extracted.waterExtractionFraction === "FULL" && extracted.waterExtractionSF === null, `"extracted standing water off the whole floor" lands as required + FULL (got ${extracted.waterExtractionRequired} / ${extracted.waterExtractionFraction})`);
+
+const measured = mergeSupplement(tree([VINYL_OUT]), supp([roomSupp({ waterExtractionRequired: "YES", waterExtractionSF: 200, waterExtractionFraction: "FULL" })])).rooms[0];
+check(measured.waterExtractionSF === 200 && measured.waterExtractionFraction === null, "a stated area wins over a stated fraction for extraction too");
+
+const noneNeeded = mergeSupplement(tree([VINYL_OUT]), supp([roomSupp({ waterExtractionRequired: "NO", waterExtractionFraction: "FULL" })])).rooms[0];
+check(noneNeeded.waterExtractionRequired === false && noneNeeded.waterExtractionFraction === null, "\"nothing to extract\" is recorded as a no, and no extent lands on extraction that did not happen");
+
+const unmentioned = mergeSupplement(tree([VINYL_OUT]), supp([roomSupp({ waterExtractionFraction: "FULL" })])).rooms[0];
+check(unmentioned.waterExtractionRequired === null && unmentioned.waterExtractionFraction === null, "extraction never mentioned stays open for the gap-check to ask, and an extent without a yes is ignored");
+
+const answered = mergeSupplement(tree([room("Basement bathroom", { waterExtractionRequired: false })]), supp([roomSupp({ flooring: [], waterExtractionRequired: "YES", waterExtractionFraction: "FULL" })])).rooms[0];
+check(answered.waterExtractionRequired === false, "a value the PM has already given is never overwritten");
+
+const wrongRooms = mergeSupplement(tree([VINYL_OUT, room("Hall")]), supp([roomSupp({ flooring: [{ removalFraction: "FULL" }] })]));
+check(wrongRooms.rooms[0].flooring[0]?.removalFraction === null, "a reply with the wrong number of rooms is discarded whole");
+const wrongFloors = mergeSupplement(tree([VINYL_OUT]), supp([roomSupp({ flooring: [{ removalFraction: "FULL" }, { removalFraction: "HALF" }], waterExtractionRequired: "YES" })])).rooms[0];
+check(wrongFloors.flooring[0]?.removalFraction === null && wrongFloors.waterExtractionRequired === null, "and a room whose flooring count came back wrong is left exactly as it was, water extraction included — nothing positional is trusted once the position is doubtful");
+check(mergeSupplement(tree([VINYL_OUT]), null).rooms[0].flooring[0]?.removalFraction === null, "no reply at all is not a crash");
+
+check(needsSupplementPass(tree([room("Anything")])) === true && needsSupplementPass(tree([])) === false, "the pass runs for any claim with rooms and not for one without");
+
+const suppMessage = extractionSupplementUserMessage("the transcript", tree([room("Kitchen", { flooring: [flooring("VINYL"), flooring("CARPET")] }), room("Hall")]));
+check(suppMessage.includes("1. Kitchen — 2 flooring") && suppMessage.includes("2. Hall — 0 flooring"), `the message states each room's flooring count, since the reply is positional at two levels (got:\n${suppMessage.split("Transcript:")[0]})`);
+check(suppMessage.trim().endsWith("the transcript"), "with the transcript last");
 
 /*
   The pass MUST run for any claim with rooms, and this is the assertion that protects it.

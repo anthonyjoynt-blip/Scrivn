@@ -221,7 +221,7 @@ function extractionSummary(extraction) {
       const bits = [
         f.type ?? "material not stated",
         f.disposition ?? "disposition not stated",
-        f.removalSF !== null ? `${f.removalSF} SF` : null,
+        f.removalSF !== null ? `${f.removalSF} SF` : f.removalFraction ? `${f.removalFraction.toLowerCase().replace("_", " ")} of the room` : null,
         f.cleaningRequired ? "cleaned" : null,
       ];
       lines.push(`    flooring    ${bits.filter(Boolean).join(" / ")}`);
@@ -257,7 +257,7 @@ function extractionSummary(extraction) {
       room.antimicrobialApplied ? "antimicrobial" : null,
       room.hepaVacuumingRequired ? "HEPA vacuuming" : null,
       room.containmentRequired ? `containment${room.containmentSF ? ` ${room.containmentSF} SF` : ""}` : null,
-      room.waterExtractionRequired ? "water extraction" : null,
+      room.waterExtractionRequired ? `water extraction${room.waterExtractionSF !== null ? ` ${room.waterExtractionSF} SF` : room.waterExtractionFraction ? ` ${room.waterExtractionFraction.toLowerCase().replace("_", " ")} of the room` : ""}` : null,
       room.temporaryPowerRequired ? "temporary power" : null,
       room.contents ? `contents ${room.contents.size ?? "size not stated"}` : null,
     ].filter(Boolean);

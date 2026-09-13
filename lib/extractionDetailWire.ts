@@ -1,27 +1,4 @@
-import type {
-  CabinetryExtent,
-  DoorStyle,
-  DoorType,
-  DoorUnitType,
-  HardwoodConstruction,
-  HardwoodInstallation,
-  VinylInstallation,
-  BaseboardMdfProfile,
-  BaseboardMaterial,
-  CarpetStyle,
-  CeilingTextureStyle,
-  InsulationType,
-  WaterLossExtraction,
-  WallDrywallCutHeight,
-  ApplianceType,
-  ApplianceAction,
-  FittingAction,
-  SubfloorDisposition,
-  SubfloorType,
-  TrimAction,
-  TrimKind,
-  WindowCoveringType,
-} from "./types";
+import type { CabinetryExtent, DoorStyle, DoorType, DoorUnitType, HardwoodConstruction, HardwoodInstallation, VinylInstallation, BaseboardMdfProfile, BaseboardMaterial, CarpetStyle, CeilingTextureStyle, InsulationType, WaterLossExtraction, WallDrywallCutHeight, ApplianceType, ApplianceAction, FittingAction, SubfloorDisposition, SubfloorType, TrimAction, TrimKind, WindowCoveringType, Room } from "./types";
 
 /**
  * Merges the detail pass back onto the tree call 1 produced.
