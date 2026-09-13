@@ -16,7 +16,8 @@
  *
  * ── Setup ───────────────────────────────────────────────────────────────────────────────────────
  *
- * Apply supabase/migrations/0004_organizations_and_claims.sql first, create two throwaway accounts,
+ * Apply supabase/migrations/0004_organizations_and_claims.sql and 0005_letterhead.sql first, create two
+ * throwaway accounts,
  * then:
  *
  *   NEXT_PUBLIC_SUPABASE_URL=...       (already in .env.local)
@@ -242,6 +243,69 @@ try {
     // organization must come back false rather than answering for whoever is named.
     const { data, error } = await bob.client.rpc("is_org_member", { org_id: aliceOrg });
     check(error !== null || data === false, `is_org_member answers for the caller, not the argument (got ${JSON.stringify(data)})`);
+  }
+
+  /* ── The letterhead (0005_letterhead.sql) ────────────────────────────────────────────────────── */
+
+  /*
+    Requires 0005 to have been applied. Two things it adds: owners may update their own
+    organization row, and a private `logos` bucket keyed on the organization id in each object's
+    path. Both are probed from B's side, and the storage half from no session at all.
+  */
+  {
+    const { data } = await bob.client.from("organizations").update({ name: "hijacked by B", tagline: "probe" }).eq("id", aliceOrg).select("id");
+    check((data ?? []).length === 0, "B cannot rewrite A's letterhead");
+  }
+  {
+    const { data, error } = await bob.client.rpc("is_org_owner", { org_id: aliceOrg });
+    check(error !== null || data === false, `is_org_owner answers for the caller, not the argument (got ${JSON.stringify(data)})`);
+  }
+
+  // A 1 × 1 transparent PNG — the smallest thing the bucket's type limit admits.
+  const PROBE_PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==", "base64");
+  // Its own name inside A's folder, so the probe never touches a real logo at `<org>/logo.png`.
+  const probePath = `${aliceOrg}/rls-probe.png`;
+  {
+    const { error } = await alice.client.storage.from("logos").upload(probePath, PROBE_PNG, { contentType: "image/png", upsert: true });
+    check(error === null, `A can upload into their own organization's folder (got ${error?.message ?? "ok"})`);
+  }
+  try {
+    {
+      const { error } = await bob.client.storage.from("logos").upload(`${aliceOrg}/logo.png`, PROBE_PNG, { contentType: "image/png", upsert: true });
+      check(error !== null, `B cannot upload a logo into A's folder (got ${error ? "refused" : "ACCEPTED"})`);
+    }
+    {
+      const { data, error } = await bob.client.storage.from("logos").download(probePath);
+      check(error !== null || !data, `B cannot download A's logo (got ${error ? "refused" : "FILE RETURNED"})`);
+    }
+    {
+      const { data } = await bob.client.storage.from("logos").list(aliceOrg);
+      check((data ?? []).length === 0, "B cannot list A's folder");
+    }
+    {
+      const { data, error } = await bob.client.storage.from("logos").remove([probePath]);
+      // Storage reports a refused delete as an empty result rather than an error, so check the data.
+      check(error !== null || (data ?? []).length === 0, `B cannot delete A's logo (got ${error ? "refused" : JSON.stringify(data)})`);
+      const { data: still } = await alice.client.storage.from("logos").download(probePath);
+      check(Boolean(still), "and A's file is still there afterwards");
+    }
+    {
+      const anon = createClient(URL, ANON, { auth: { persistSession: false, autoRefreshToken: false } });
+      const { data, error } = await anon.storage.from("logos").download(probePath);
+      check(error !== null || !data, "the bare anon key, with nobody signed in, downloads no logo");
+    }
+    {
+      // A can still change their own letterhead — and the probe restores what was there, since
+      // this may be a real account with a real tagline.
+      const { data: before } = await alice.client.from("organizations").select("tagline").eq("id", aliceOrg).single();
+      const { data } = await alice.client.from("organizations").update({ tagline: "rls probe tagline" }).eq("id", aliceOrg).select("tagline");
+      check(data?.[0]?.tagline === "rls probe tagline", "A can update their own letterhead (owner-only is not owner-none)");
+      const { data: restored } = await alice.client.from("organizations").update({ tagline: before?.tagline ?? null }).eq("id", aliceOrg).select("tagline");
+      check((restored?.[0]?.tagline ?? null) === (before?.tagline ?? null), "and the probe put the tagline back");
+    }
+  } finally {
+    const { data: removed } = await alice.client.storage.from("logos").remove([probePath]);
+    check((removed ?? []).length === 1, "A can delete their own probe file");
   }
 
   /* ── With no session at all ──────────────────────────────────────────────────────────────────── */

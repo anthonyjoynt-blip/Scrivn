@@ -483,17 +483,32 @@ button:disabled {
   border-radius: var(--radius);
   padding: 20px 32px 22px;
   margin-bottom: 20px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  /* Background and text colour are set inline from the organization's letterhead — the text is
+     white or near-black depending on the band, see lib/letterhead.ts. */
+}
+
+/* Sized inline to the same box the PDF fits the logo into (LOGO_BOX, in px for pt). */
+.letterhead-banner-logo {
+  flex: none;
+  display: block;
+  object-fit: contain;
+}
+
+.letterhead-banner-text {
+  min-width: 0;
 }
 
 .letterhead-banner-name {
-  color: #ffffff;
   font-weight: 700;
   font-size: 1.25rem;
   letter-spacing: -0.01em;
 }
 
 .letterhead-banner-tagline {
-  color: rgba(255, 255, 255, 0.85);
+  opacity: 0.85;
   font-size: 0.82rem;
   margin-top: 2px;
 }
@@ -904,6 +919,67 @@ button:disabled {
   display: inline-block;
   text-decoration: none;
   line-height: 1.4;
+}
+
+/* ---- company letterhead (account page — see components/LetterheadForm.tsx) ---- */
+
+.letterhead-form .auth-field {
+  margin-bottom: 14px;
+}
+
+.letterhead-form .letterhead-banner {
+  margin-bottom: 18px;
+}
+
+.letterhead-colours {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+@media (max-width: 520px) {
+  .letterhead-colours {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* A native colour swatch beside its hex, so the value is both pickable and readable. */
+.letterhead-colour {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.letterhead-colour input[type="color"] {
+  width: 44px;
+  height: 36px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  cursor: pointer;
+}
+
+.letterhead-colour code {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.letterhead-logo-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.letterhead-status {
+  color: var(--text-muted);
+  font-size: 0.88rem;
+  margin: 0;
+}
+
+.letterhead-status.is-saved {
+  color: var(--success, #2e7d4f);
 }
 
 /* ---- sketch tool ---- */

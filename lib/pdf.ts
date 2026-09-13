@@ -1,6 +1,6 @@
 import { jsPDF } from "jspdf";
 import type { Letterhead } from "./letterhead";
-import { DEFAULT_LETTERHEAD } from "./letterhead";
+import { DEFAULT_LETTERHEAD, fitLogo, letterheadInkColor, letterheadTextColor } from "./letterhead";
 import type { JobInfoGroup } from "./jobInformation";
 
 /**
@@ -31,7 +31,7 @@ function drawJobInformation(doc: jsPDF, groups: JobInfoGroup[], x: number, start
 
     doc.setFont("helvetica", "bold");
     doc.setFontSize(8.5);
-    doc.setTextColor(letterhead.primaryColor[0], letterhead.primaryColor[1], letterhead.primaryColor[2]);
+    doc.setTextColor(...letterheadInkColor(letterhead.primaryColor));
     doc.text(group.title.toUpperCase(), x, y);
     y += 5;
     doc.setDrawColor(225, 229, 234); // matches globals.css --border (#e1e5ea)
@@ -92,20 +92,46 @@ export function claimFileName(jobNumber: string, customerName: string, docLabel:
   return `${job} - ${customer} - ${sanitizeForFilename(docLabel)}.${extension}`;
 }
 
+/** Between the logo and the company name, in points. */
+const LOGO_GAP = 16;
+
+/**
+ * The banner: a band of the primary colour, the logo at the left if there is one, the company name
+ * and tagline beside it, and the accent stripe underneath. `LetterheadBanner.tsx` draws the same
+ * thing in HTML; keep the two in step.
+ *
+ * The text colour is not fixed at white. It is whichever of white and near-black reads better on
+ * the primary the owner chose, so a pale banner — the natural choice for a logo drawn on a white
+ * ground — stays legible through the same code path as the navy default.
+ */
 function drawLetterhead(doc: jsPDF, letterhead: Letterhead, pageWidth: number) {
   doc.setFillColor(...letterhead.primaryColor);
   doc.rect(0, 0, pageWidth, LETTERHEAD_HEIGHT, "F");
   doc.setFillColor(...letterhead.accentColor);
   doc.rect(0, LETTERHEAD_HEIGHT, pageWidth, 4, "F");
 
-  doc.setTextColor(255, 255, 255);
+  let textX = PAGE_MARGIN;
+  if (letterhead.logo) {
+    const fitted = fitLogo(letterhead.logo.width, letterhead.logo.height);
+    if (fitted.width > 0) {
+      // Vertically centred in the band, whatever shape the logo turned out to be.
+      doc.addImage(letterhead.logo.dataUrl, "PNG", PAGE_MARGIN, (LETTERHEAD_HEIGHT - fitted.height) / 2, fitted.width, fitted.height);
+      textX += fitted.width + LOGO_GAP;
+    }
+  }
+
+  doc.setTextColor(...letterheadTextColor(letterhead.primaryColor));
   doc.setFont("helvetica", "bold");
   doc.setFontSize(20);
-  doc.text(letterhead.companyName, PAGE_MARGIN, 38);
+  // A name with no tagline under it sits a little lower, so it is centred in the band rather than
+  // riding high above an empty line.
+  doc.text(letterhead.companyName, textX, letterhead.tagline ? 38 : 41);
 
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(10);
-  doc.text(letterhead.tagline, PAGE_MARGIN, 54);
+  if (letterhead.tagline) {
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10);
+    doc.text(letterhead.tagline, textX, 54);
+  }
 }
 
 /**
@@ -183,7 +209,7 @@ function renderDocumentPdf(params: DocumentPdfParams): jsPDF {
 
   let y = LETTERHEAD_HEIGHT + 4 + 36;
 
-  doc.setTextColor(letterhead.primaryColor[0], letterhead.primaryColor[1], letterhead.primaryColor[2]);
+  doc.setTextColor(...letterheadInkColor(letterhead.primaryColor));
   doc.setFont("times", "bold");
   doc.setFontSize(15);
   doc.text(params.docLabel, PAGE_MARGIN, y);
@@ -250,4 +276,12 @@ export function downloadDocumentPdf(params: DocumentPdfParams) {
  */
 export function documentPdfBlob(params: DocumentPdfParams): Blob {
   return renderDocumentPdf(params).output("blob");
+}
+
+/**
+ * The same document as raw bytes. Not used by the app — it exists so a test can read what was
+ * actually drawn (an embedded image, a page count) rather than trusting that a call was made.
+ */
+export function documentPdfBytes(params: DocumentPdfParams): Uint8Array {
+  return new Uint8Array(renderDocumentPdf(params).output("arraybuffer"));
 }

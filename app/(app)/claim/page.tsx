@@ -5,6 +5,7 @@ import { type GapCheckQuestion, siblingQuestionIds } from "@/lib/questions";
 import { type AskedQuestion, formatQuestionLog, hasQuestionLog, recordRound } from "@/lib/questionLog";
 import { type SavedClaimState, resumeStep } from "@/lib/claimState";
 import { useClaimPersistence } from "@/lib/useClaimPersistence";
+import { useLetterhead } from "@/lib/useLetterhead";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
 import { resolveRound, nextQuestions } from "@/lib/questionRound";
 import type { GeneratedDocuments, WaterLossExtraction } from "@/lib/types";
@@ -388,6 +389,8 @@ export default function Home() {
   const [saveCheckpoint, setSaveCheckpoint] = useState(0);
   const checkpoint = useCallback(() => setSaveCheckpoint((n) => n + 1), []);
 
+  // The organization's branding for every document below. Not claim state — see the hook.
+  const letterhead = useLetterhead();
   const persistence = useClaimPersistence({
     state: persistedState,
     apply: applyLoadedClaim,
@@ -1768,6 +1771,7 @@ ${asbestosSection}`;
                         bodyText: documents.inspectionReport ?? "",
                         jobNumber: claim.jobNumber,
                         customerName: claim.customerName,
+                        letterhead,
                         documentTitle: "Initial Site Report",
                         jobInformation: buildJobInformationGroups(claim),
                         sketchImages: sketchPagesFor({ kind: "inspectionReport" }),
@@ -1778,7 +1782,7 @@ ${asbestosSection}`;
                   </button>
                 </div>
               </div>
-              <LetterheadBanner />
+              <LetterheadBanner letterhead={letterhead} />
               <div className="document-paper">
                 <div className="document-title">Initial Site Report</div>
                 <JobInformationSection claim={claim} />
@@ -1816,6 +1820,7 @@ ${asbestosSection}`;
                       bodyText: documents.scopeDocument,
                       jobNumber: claim.jobNumber,
                       customerName: claim.customerName,
+                      letterhead,
                       sketchImages: sketchPagesFor({ kind: "scopeDocument" }),
                     })
                   }
@@ -1835,7 +1840,7 @@ ${asbestosSection}`;
                 )}
               </div>
             </div>
-            <LetterheadBanner />
+            <LetterheadBanner letterhead={letterhead} />
             {isEditingScopeDocument ? (
               <textarea className="document-edit-textarea" value={documents.scopeDocument} onChange={(e) => handleScopeDocumentTextChange(e.target.value)} />
             ) : (
@@ -1890,6 +1895,7 @@ ${asbestosSection}`;
                         bodyText: documents.inspectionReport,
                         jobNumber: claim.jobNumber,
                         customerName: claim.customerName,
+                        letterhead,
                         documentTitle: "Initial Site Report",
                         jobInformation: buildJobInformationGroups(claim),
                         sketchImages: sketchPagesFor({ kind: "inspectionReport" }),
@@ -1904,6 +1910,7 @@ ${asbestosSection}`;
                   bodyText: documents.scopeDocument,
                   jobNumber: claim.jobNumber,
                   customerName: claim.customerName,
+                  letterhead,
                   sketchImages: sketchPagesFor({ kind: "scopeDocument" }),
                 },
               } satisfies SendableDocument,
@@ -1916,6 +1923,7 @@ ${asbestosSection}`;
                       bodyText: wo.text,
                       jobNumber: claim.jobNumber,
                       customerName: claim.customerName,
+                      letterhead,
                       sketchImages: sketchPagesFor({ kind: "workOrder", trade: wo.trade }),
                     },
                   }) satisfies SendableDocument,
@@ -1952,6 +1960,7 @@ ${asbestosSection}`;
                           bodyText: wo.text,
                           jobNumber: claim.jobNumber,
                           customerName: claim.customerName,
+                          letterhead,
                           sketchImages: sketchPagesFor({ kind: "workOrder", trade: wo.trade }),
                         })
                       }
@@ -1960,7 +1969,7 @@ ${asbestosSection}`;
                     </button>
                   </div>
                 </div>
-                <LetterheadBanner />
+                <LetterheadBanner letterhead={letterhead} />
                 {editingWorkOrders[wo.trade] ? (
                   <textarea className="document-edit-textarea" value={wo.text} onChange={(e) => handleWorkOrderTextChange(wo.trade, e.target.value)} />
                 ) : (
