@@ -172,6 +172,9 @@ export function parseSavedClaimState(payload: unknown): SavedClaimState {
   */
   const extraction = merged.extraction as SavedClaimState["extraction"];
   if (extraction) merged.extraction = normalizeStoredExtraction(extraction);
+  // The same shape problem one level up: a ClaimInfo field added since a claim was saved is absent
+  // from it, and the intake form binds every field to a string. `pmPhone` was the first such field.
+  if (merged.claim && typeof merged.claim === "object") merged.claim = { ...emptyClaimInfo(), ...(merged.claim as object) };
   return merged as unknown as SavedClaimState;
 }
 

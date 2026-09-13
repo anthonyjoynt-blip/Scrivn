@@ -40,7 +40,7 @@ export const RENDERED = new Map([
   ["FlooringRecord.disposition", "the per-record action bullet; see rule 1d for the concrete exception"],
   ["FlooringRecord.carpetLiftSF", "rule 2 — carpet lift and pad removal"],
   ["FlooringRecord.padRemovedSF", "rule 2"],
-  ["Room.floorRegistersDetached", "rule 3 — Detach & reset floor registers, both phases"],
+  ["Room.floorRegistersDetached", "rule 3 — the Detach / Reset floor registers pair"],
   ["Room.waterExtractionRequired", "rule 1a/1b — Extract water"],
   ["Room.waterExtractionSF", "rule 1b — its quantity"],
   ["Room.windowCleaningCounts", "one Repair bullet per size band"],

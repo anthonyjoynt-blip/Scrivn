@@ -4,3 +4,5 @@ export { withDerivedFields } from "@/lib/types";
 export { normalizeStoredExtraction } from "@/lib/extractionWire";
 export { mergeUnscoped, needsUnscopedPass, capturedSummary, extractionUnscopedUserMessage } from "@/lib/extractionUnscoped";
 export { mergeSupplement, needsSupplementPass, extractionSupplementUserMessage } from "@/lib/extractionSupplement";
+export { parseSavedClaimState } from "@/lib/claimState";
+export { buildJobInformationGroups } from "@/lib/jobInformation";

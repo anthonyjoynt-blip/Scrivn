@@ -1,11 +1,26 @@
 import Link from "next/link";
 import { unstable_rethrow } from "next/navigation";
 import { LetterheadForm } from "@/components/LetterheadForm";
+import { ProfileForm } from "@/components/ProfileForm";
+import { loadProfile, type Profile } from "@/lib/profileRepo";
 import { NotSignedInError } from "@/lib/claimsRepo";
 import { loadOrganizationLetterhead, type OrganizationLetterheadState } from "@/lib/organizationRepo";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
 import { getUsageState } from "@/lib/usage";
 import { TRIAL_CLAIM_LIMIT, TRIAL_DAYS, planForTier } from "@/lib/plans";
+
+/** The person's details, or null for no card — nobody signed in, which here only happens in the dev fail-open. */
+async function profileCard(): Promise<Profile | null> {
+  if (!isSupabaseConfigured()) return null;
+  try {
+    return await loadProfile();
+  } catch (err) {
+    unstable_rethrow(err);
+    if (err instanceof NotSignedInError) return null;
+    console.error("[account] profile unavailable:", err);
+    return null;
+  }
+}
 
 /**
  * The letterhead card's data, or why there is none.
@@ -39,14 +54,22 @@ async function letterheadCard(): Promise<{ state: OrganizationLetterheadState } 
  * gain over a page Stripe already maintains and keeps PCI-compliant.
  */
 export default async function AccountPage({ searchParams }: { searchParams: Promise<{ portal?: string }> }) {
-  const [usage, letterhead] = await Promise.all([getUsageState(), letterheadCard()]);
+  const [usage, letterhead, profile] = await Promise.all([getUsageState(), letterheadCard(), profileCard()]);
   const params = await searchParams;
   const plan = planForTier(usage?.tier);
 
   return (
     <main>
       <h1>Account</h1>
-      <p className="subtitle">Your subscription, usage and letterhead.</p>
+      <p className="subtitle">Your subscription, usage, details and letterhead.</p>
+
+      {profile && (
+        <div className="card">
+          <h2>Your details</h2>
+          <p className="subtitle">Copied onto each claim as it starts — the project manager and the number on every document.</p>
+          <ProfileForm initial={profile} />
+        </div>
+      )}
 
       {params.portal === "error" && <div className="error-banner">Couldn’t open the billing portal just now. Please try again in a moment.</div>}
 

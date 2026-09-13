@@ -39,6 +39,18 @@ const KEEP = new Set([PAGES, ASSETS]);
 
 const OFFLINE_URL = "/offline";
 
+/*
+  How long a navigation waits on the network before a cached copy is used instead.
+
+  A dead connection throws at once and the cache answers; a DYING one — one bar in a basement —
+  does neither. `fetch` sits there, and so did the PM, on a blank tab, with a perfectly good copy
+  of the page in the cache. Eight seconds is longer than any healthy load and shorter than anyone
+  waits before pulling the phone out of their pocket to see what is wrong. The network request is
+  left running: when it does land it refreshes the cache for next time.
+*/
+const NAVIGATION_TIMEOUT_MS = 8000;
+const TIMED_OUT = Symbol("timed out");
+
 /**
  * How many hashed asset files to keep.
  *
@@ -157,7 +169,7 @@ self.addEventListener("fetch", (event) => {
   if (request.mode === "navigate") {
     event.respondWith(
       (async () => {
-        try {
+        const fromNetwork = (async () => {
           const response = await fetch(request);
           /*
             Store it, unless it is a redirect. `fetch` follows redirects, so a navigation to /claim
@@ -169,6 +181,20 @@ self.addEventListener("fetch", (event) => {
             await cache.put(pageKey(request.url), response.clone());
           }
           return response;
+        })();
+        try {
+          const timer = new Promise((resolve) => setTimeout(() => resolve(TIMED_OUT), NAVIGATION_TIMEOUT_MS));
+          const first = await Promise.race([fromNetwork, timer]);
+          if (first !== TIMED_OUT) return first;
+          /*
+            The network is still out there somewhere. With a copy in hand, use it; without one, the
+            offline page would be a worse answer than a slow one, so keep waiting. Either way the
+            request is left to finish, so a late success still refreshes the cache. (A late failure
+            cannot surface as an unhandled rejection: the race above already attached to it.)
+          */
+          const cached = await (await caches.open(PAGES)).match(pageKey(request.url));
+          if (cached) return cached;
+          return await fromNetwork;
         } catch {
           const cache = await caches.open(PAGES);
           return (await cache.match(pageKey(request.url))) ?? (await cache.match(OFFLINE_URL)) ?? Response.error();

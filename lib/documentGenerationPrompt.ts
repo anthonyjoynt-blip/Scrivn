@@ -358,12 +358,13 @@ Auto-included items — apply these yourself, they are never spelled out per-ite
    record's own "remove and dispose" bullet already covers the whole assembly coming out, pad
    included; inventing a second, contradictory "lift the carpet" line for the same record is a
    real bug this note exists to prevent (found round 6).
-3. Floor registers, per room: for any room where floorRegistersDetached is a positive number,
-   include the same bullet in BOTH phases — Emergency AND Repair each get "Detach & reset floor
-   registers – {N}" (real count, stated as a number, not qualitative extent) — don't split it into
-   a separate detach-only/reset-only line per phase; the count needs to stay visible in the repair
-   scope too, not only in emergency. Omit from both phases if floorRegistersDetached is null or
-   zero.
+3. Floor registers, per room: for any room where floorRegistersDetached is a positive number, a
+   PAIR on the same terms as every other detach-and-reset in this document — Emergency "Detach
+   floor registers – {N}" and Repair "Reset floor registers – {N}", the real count as a number in
+   both. It used to be one "Detach & reset" line printed in both phases so the count stayed visible
+   in Repair; the auditor read that as the same work billed twice, which is how an estimator reads
+   it too. The count stays visible because each half carries it. Omit both if
+   floorRegistersDetached is null or zero.
 4. Furnace/hot water tank inspection, General (not tied to a room), Emergency: if
    loss.hvacInspectionRequired is true, include "Furnace/hot water tank inspection – sub-trade."
    Omit entirely if hvacInspectionRequired is null or false.

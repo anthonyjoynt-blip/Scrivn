@@ -7,7 +7,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
+    "typecheck": "tsc --noEmit",
     "test:sketch": "node test/sketch/run.mjs",
     "test:asbestos": "node test/asbestos/run.mjs",
     "test:gapcheck": "node test/gapcheck/run.mjs",

@@ -87,7 +87,7 @@ export default async function PricingPage() {
             <h2>Multiple offices?</h2>
             <p>
               One consolidated account for your whole company — a shared claims pool across every office instead of separate subscriptions, with a discounted per-claim rate at
-              real volume and white-label branding on every document.
+              real volume.
             </p>
           </div>
           {/* Pre-selects the matching reason on the contact form so the enquiry arrives labelled. */}

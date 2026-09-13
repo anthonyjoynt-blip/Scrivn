@@ -156,10 +156,9 @@ function bullet(...parts: (string | null | undefined)[]): string {
 }
 
 /**
- * The header every work order carries. PM phone has no data source yet — it's slated to come from
- * the user profile (profiles.phone) once that's wired through to the claim, and renders as a blank
- * line for now rather than being silently dropped, so a crew can see it's missing rather than
- * assume there was never a number.
+ * The header every work order carries. PM phone comes from the claim, which defaults it from the
+ * profile; it still renders as a blank line when there is none, so a crew can see it is missing
+ * rather than assume there was never a number.
  */
 function header(claim: ClaimInfo, trade: Trade): string {
   const lossType = lossTypeLabel(claim) ?? "—";
@@ -176,7 +175,7 @@ function header(claim: ClaimInfo, trade: Trade): string {
     `Loss type: ${lossType}`,
     `${catClass}`,
     `Project manager: ${claim.pmName || "—"}`,
-    `PM phone: —`,
+    `PM phone: ${claim.pmPhone || "—"}`,
     "",
   ].join("\n");
 }
@@ -653,6 +652,8 @@ function buildFinishCarpentry(claim: ClaimInfo, extraction: WaterLossExtraction)
     for (const h of room.cabinetHardware) {
       items.push(bullet(h.action === "REMOVE_AND_REPLACE" ? "Install new cabinet hardware" : "Reset cabinet hardware", h.location || null, null));
     }
+    // The other half of "Detach floor registers" on the Mitigation & Demo sheet.
+    if (room.floorRegistersDetached && room.floorRegistersDetached > 0) items.push(bullet("Reset floor registers", `${room.floorRegistersDetached}`, null));
     // The subfloor goes back before anything stands on it. The other half of the pair above.
     for (const f of room.subfloor) {
       if (f.disposition !== "REMOVE_AND_REPLACE") continue;

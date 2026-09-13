@@ -54,7 +54,7 @@ export function buildJobInformationGroups(claim: ClaimInfo): JobInfoGroup[] {
       title: "Contact & Timing",
       fields: [
         { label: "Project Manager", value: claim.pmName },
-        { label: "PM Phone", value: null },
+        { label: "PM Phone", value: claim.pmPhone },
         { label: "Date/Time Contacted", value: null },
         { label: "Date/Time Inspected", value: claim.dateTimeInspected },
       ],

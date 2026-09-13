@@ -3,7 +3,7 @@ import { LOSS_TYPE_OPTIONS, availableScopePhases, usesReducedIntake } from "@/li
 import { KNOWN_INSURERS } from "@/lib/insurers";
 import { WATER_NOT_APPLICABLE } from "@/lib/claimInfo";
 
-type TextField = "customerName" | "jobNumber" | "claimNumber" | "address" | "insurer" | "pmName" | "causeOfLoss" | "preExistingConditions" | "lossTypeOther";
+type TextField = "customerName" | "jobNumber" | "claimNumber" | "address" | "insurer" | "pmName" | "pmPhone" | "causeOfLoss" | "preExistingConditions" | "lossTypeOther";
 
 /**
  * `scopeOnlyRelevant` fields are the only ones shown at all when `usesReducedIntake(claim)` is true
@@ -12,13 +12,16 @@ type TextField = "customerName" | "jobNumber" | "claimNumber" | "address" | "ins
  * the grid — see the dedicated insurer block in the component body — since it needs the quick-fill
  * dropdown + free-text pair rather than the plain `<TextField>` every other entry here gets.
  */
-const IDENTITY_FIELDS: { field: TextField; label: string; scopeOnlyRelevant?: boolean }[] = [
+const IDENTITY_FIELDS: { field: TextField; label: string; scopeOnlyRelevant?: boolean; kind?: "tel" }[] = [
   { field: "customerName", label: "Customer name", scopeOnlyRelevant: true },
   { field: "jobNumber", label: "Job number", scopeOnlyRelevant: true },
   { field: "claimNumber", label: "Claim number" },
   { field: "address", label: "Property address" },
   { field: "insurer", label: "Insurer", scopeOnlyRelevant: true },
   { field: "pmName", label: "Project manager" },
+  // Prefilled from the profile when a claim starts, like the name above; editable because the
+  // person dictating is not always the contact the insurer should ring.
+  { field: "pmPhone", label: "PM phone", kind: "tel" },
 ];
 
 type Props = {
@@ -71,8 +74,8 @@ export function ClaimIntakeForm({
       </div>
 
       <div className="intake-grid">
-        {identityFields.map(({ field, label }) => (
-          <TextField key={field} field={field} label={label} value={claim[field] ?? ""} onChange={onTextChange} />
+        {identityFields.map(({ field, label, kind }) => (
+          <TextField key={field} field={field} label={label} kind={kind} value={claim[field] ?? ""} onChange={onTextChange} />
         ))}
       </div>
 
@@ -213,12 +216,15 @@ function TextField({
   field,
   label,
   placeholder,
+  kind,
   value,
   onChange,
 }: {
   field: TextField;
   label: string;
   placeholder?: string;
+  /** A phone number gets the telephone keypad on a phone; everything else is plain text. */
+  kind?: "tel";
   value: string;
   onChange: (field: TextField, value: string) => void;
 }) {
@@ -227,7 +233,7 @@ function TextField({
       <label className="prompt" htmlFor={`intake-${field}`}>
         {label}
       </label>
-      <input id={`intake-${field}`} type="text" placeholder={placeholder} value={value} onChange={(e) => onChange(field, e.target.value)} />
+      <input id={`intake-${field}`} type={kind ?? "text"} inputMode={kind === "tel" ? "tel" : undefined} autoComplete={kind === "tel" ? "tel" : undefined} placeholder={placeholder} value={value} onChange={(e) => onChange(field, e.target.value)} />
     </div>
   );
 }

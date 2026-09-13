@@ -6,6 +6,7 @@ import { type AskedQuestion, formatQuestionLog, hasQuestionLog, recordRound } fr
 import { type SavedClaimState, resumeStep } from "@/lib/claimState";
 import { useClaimPersistence } from "@/lib/useClaimPersistence";
 import { useLetterhead } from "@/lib/useLetterhead";
+import { useProfile } from "@/lib/useProfile";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
 import { resolveRound, nextQuestions } from "@/lib/questionRound";
 import type { GeneratedDocuments, WaterLossExtraction } from "@/lib/types";
@@ -393,6 +394,18 @@ export default function Home() {
 
   // The organization's branding for every document below. Not claim state — see the hook.
   const letterhead = useLetterhead();
+  // The person's name and phone, copied onto a claim when it starts. Not claim state either.
+  const profile = useProfile();
+
+  /*
+    Prefill the PM fields once the profile arrives, and only into a claim that has neither — a
+    resumed claim carries its own, and a PM who has already typed a name keeps it. `reset()` does
+    the same for the next claim, so a shift's worth of claims each start with the number on them.
+  */
+  useEffect(() => {
+    if (!profile) return;
+    setClaim((prev) => (prev.pmName === "" && prev.pmPhone === "" ? { ...prev, pmName: profile.fullName, pmPhone: profile.phone } : prev));
+  }, [profile]);
   const persistence = useClaimPersistence({
     state: persistedState,
     apply: applyLoadedClaim,
@@ -679,7 +692,7 @@ export default function Home() {
 
   function reset() {
     setStep("intake");
-    setClaim(emptyClaimInfo());
+    setClaim(profile ? { ...emptyClaimInfo(), pmName: profile.fullName, pmPhone: profile.phone } : emptyClaimInfo());
     setTranscript("");
     setExtraction(null);
     setAnswers({});

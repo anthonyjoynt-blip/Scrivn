@@ -27,10 +27,10 @@ import type { GapCheckQuestion } from "./questions";
  * app today ("effectively always false"), and Phase 1 web has no sketch feature, so the inspection
  * report's SKETCH section is simply never generated (see `documentGenerationPrompt.ts`).
  *
- * `pmPhone`/`pmEmail` are deliberately NOT here — the plan (per the round-6 discussion) is to pull
- * those from a user profile once accounts/login exist, or let a stand-in filler override them;
- * neither exists yet in this Phase 1 prototype, so the inspection report still leaves PM Phone
- * blank rather than half-building a profile system for it now.
+ * `pmPhone` arrived 2026-09-13, once there was a profile to pull it from: it defaults from
+ * `profiles.phone` when a claim is started (as `pmName` does from `full_name`) and is editable at
+ * intake like any other identity field, since the person dictating is not always the contact the
+ * insurer should ring. `pmEmail` is still not modelled — nothing renders it.
  *
  * `scopeOnly` and `scopePhases` (added later) are the two intake questions that control *which*
  * document(s) get generated and how the scope document's phases are structured — see their own
@@ -52,6 +52,8 @@ export interface ClaimInfo {
   address: string;
   insurer: string;
   pmName: string;
+  /** The number on the inspection report and every crew sheet. Defaults from the profile; see the file comment. */
+  pmPhone: string;
   lossType: LossType | null;
   /**
    * What "Other" actually is, in the PM's own words. Empty for every other loss type.
@@ -291,6 +293,7 @@ export function emptyClaimInfo(): ClaimInfo {
     address: "",
     insurer: "",
     pmName: "",
+    pmPhone: "",
     lossType: null,
     lossTypeOther: "",
     waterCategory: null,

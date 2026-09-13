@@ -36,7 +36,7 @@ await build({
   logLevel: "error",
 });
 
-const { mergeDetail, needsDetailPass, extractionDetailUserMessage, normalizeStoredExtraction, mergeUnscoped, needsUnscopedPass, capturedSummary, extractionUnscopedUserMessage, mergeSupplement, needsSupplementPass, extractionSupplementUserMessage } = await import(pathToFileURL(bundlePath).href);
+const { mergeDetail, needsDetailPass, extractionDetailUserMessage, normalizeStoredExtraction, mergeUnscoped, needsUnscopedPass, capturedSummary, extractionUnscopedUserMessage, mergeSupplement, needsSupplementPass, extractionSupplementUserMessage, parseSavedClaimState, buildJobInformationGroups } = await import(pathToFileURL(bundlePath).href);
 
 let passed = 0;
 const failures = [];
@@ -530,6 +530,21 @@ check(needsSupplementPass(tree([room("Anything")])) === true && needsSupplementP
 const suppMessage = extractionSupplementUserMessage("the transcript", tree([room("Kitchen", { flooring: [flooring("VINYL"), flooring("CARPET")] }), room("Hall")]));
 check(suppMessage.includes("1. Kitchen — 2 flooring") && suppMessage.includes("2. Hall — 0 flooring"), `the message states each room's flooring count, since the reply is positional at two levels (got:\n${suppMessage.split("Transcript:")[0]})`);
 check(suppMessage.trim().endsWith("the transcript"), "with the transcript last");
+
+/* ── A saved claim from before the PM phone existed ─────────────────────────────────────────────────
+
+  The extraction normaliser above has a sibling one level up: `parseSavedClaimState` merges the
+  stored `claim` object whole, so a ClaimInfo field added since the claim was saved is absent from
+  it, and the intake form binds every field to a string. `pmPhone` was the first such field.
+*/
+const oldClaim = parseSavedClaimState({ claim: { customerName: "Tony", jobNumber: "1", pmName: "Melissa" } });
+check(oldClaim.claim.pmPhone === "", `a claim saved without pmPhone opens with an empty one, not undefined (got ${JSON.stringify(oldClaim.claim.pmPhone)})`);
+check(oldClaim.claim.customerName === "Tony" && oldClaim.claim.pmName === "Melissa", "and keeps everything it did have");
+check(parseSavedClaimState({}).claim.pmPhone === "", "a payload with no claim at all gets a blank one, as before");
+
+const contact = buildJobInformationGroups({ ...oldClaim.claim, pmPhone: "403 555 0100" }).find((g) => g.title === "Contact & Timing");
+check(contact?.fields.find((f) => f.label === "PM Phone")?.value === "403 555 0100", `the inspection report's PM Phone field reads the claim (got ${JSON.stringify(contact?.fields.find((f) => f.label === "PM Phone"))})`);
+check(buildJobInformationGroups(oldClaim.claim).find((g) => g.title === "Contact & Timing")?.fields.find((f) => f.label === "PM Phone")?.value === "", "and is blank, not null, when there is none — the same em dash as any other empty field");
 
 /*
   The pass MUST run for any claim with rooms, and this is the assertion that protects it.

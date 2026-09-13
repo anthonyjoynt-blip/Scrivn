@@ -115,6 +115,92 @@ await test("with no network, the page you were last served comes back", async (w
   equal(response.body, "body of https://scrivn.ca/claim", "what the browser got offline");
 });
 
+/*
+  A DYING network, as opposed to a dead one. `fetch` neither answers nor throws, and before the
+  timeout the PM sat on a blank tab with a good copy of the page in the cache. The timer is the
+  fake worker's, fired by hand — see fakeServiceWorker.mjs — so these do not wait eight seconds.
+*/
+const flush = async () => {
+  for (let i = 0; i < 8; i += 1) await new Promise((resolve) => setImmediate(resolve));
+};
+const hanging = () => {
+  let release;
+  const handler = () => new Promise((resolve) => {
+    release = resolve;
+  });
+  return { handler, release: (response) => release(response) };
+};
+
+await test("a network that hangs gives way to the cached page once the timeout passes", async (w) => {
+  await boot(w);
+  await w.fetchEvent(navigation(w, "/claim"));
+  // The warm-up navigation armed a timer of its own that the network beat; drain it so the count below is exact.
+  w.timers.fire();
+  w.network.handler = hanging().handler;
+  const pending = w.fetchEvent(navigation(w, "/claim"));
+  await flush();
+  equal(w.timers.pending(), 1, "a timeout armed once the request went out");
+  w.timers.fire();
+  const response = await pending;
+  equal(response.body, "body of https://scrivn.ca/claim", "the cached copy, rather than a blank tab");
+});
+
+await test("but a page never visited keeps waiting rather than showing the offline page", async (w) => {
+  await boot(w);
+  const net = hanging();
+  w.network.handler = net.handler;
+  let settled = false;
+  const pending = w.fetchEvent(navigation(w, "/claims")).then((r) => {
+    settled = true;
+    return r;
+  });
+  await flush();
+  w.timers.fire();
+  await flush();
+  assert(!settled, "expected the worker to still be waiting on the network — the offline page is a worse answer than a slow one");
+  net.release(new w.FakeResponse("late, but the real page"));
+  equal((await pending).body, "late, but the real page", "what the browser eventually got");
+});
+
+await test("a network that answers in time is never pre-empted by the timer", async (w) => {
+  await boot(w);
+  w.network.handler = () => new w.FakeResponse("fresh from the server");
+  const response = await w.fetchEvent(navigation(w, "/claim"));
+  equal(response.body, "fresh from the server", "what the browser got");
+  // The timer may still be armed; firing it now must change nothing already answered.
+  w.timers.fire();
+  await flush();
+  equal(response.body, "fresh from the server", "still the network's answer");
+});
+
+await test("a late arrival after the cached copy was served still refreshes the cache", async (w) => {
+  await boot(w);
+  await w.fetchEvent(navigation(w, "/claim"));
+  const net = hanging();
+  w.network.handler = net.handler;
+  const pending = w.fetchEvent(navigation(w, "/claim"));
+  await flush();
+  w.timers.fire();
+  equal((await pending).body, "body of https://scrivn.ca/claim", "served from the cache");
+  net.release(new w.FakeResponse("the new deploy"));
+  await flush();
+  const cached = await (await w.cacheStorage.open("scrivn-pages-v2")).match("https://scrivn.ca/claim");
+  equal(cached.body, "the new deploy", "the cache holds the late answer for next time");
+});
+
+await test("a 404 for a page that was cached earlier still reaches the app, not the stale copy", async (w) => {
+  /*
+    The timeout path reads the cache when the network is silent. It must never read it when the
+    network has ANSWERED with something the cache would not store — a 404 or a redirect — or a page
+    that once existed would be served from the cache for ever after it was removed.
+  */
+  await boot(w);
+  await w.fetchEvent(navigation(w, "/claim"));
+  w.network.handler = () => new w.FakeResponse("gone", { status: 404 });
+  const response = await w.fetchEvent(navigation(w, "/claim"));
+  equal(response.status, 404, "status the app sees, with a stale copy sitting in the cache");
+});
+
 await test("a claim's id does not need its own cache entry", async (w) => {
   /*
     /claim?id=abc and /claim are the same HTML — the page is a client component and its data arrives

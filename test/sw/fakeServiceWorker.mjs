@@ -129,6 +129,26 @@ export async function loadWorker(source) {
     clients: { claim: async () => {} },
   };
 
+  /*
+    Timers the test fires by hand. The worker's navigation timeout is a real setTimeout; letting it
+    run would make the hanging-network tests wait eight seconds each, and stubbing it lets a test say
+    "the network has now been silent for long enough" as a single call.
+  */
+  const pendingTimers = [];
+  const timers = {
+    fire: () => {
+      const due = pendingTimers.splice(0);
+      for (const t of due) t.fn();
+      return due.length;
+    },
+    pending: () => pendingTimers.length,
+  };
+  globalThis.setTimeout = (fn, ms) => {
+    pendingTimers.push({ fn, ms });
+    return pendingTimers.length;
+  };
+  globalThis.clearTimeout = () => {};
+
   globalThis.self = scope;
   globalThis.caches = cacheStorage;
   globalThis.Request = FakeRequest;
@@ -164,7 +184,7 @@ export async function loadWorker(source) {
     await Promise.all(waits);
   }
 
-  return { listeners, cacheStorage, network, fetchEvent, lifecycle, FakeRequest, FakeResponse };
+  return { listeners, cacheStorage, network, fetchEvent, lifecycle, timers, FakeRequest, FakeResponse };
 }
 
 export { FakeRequest, FakeResponse };

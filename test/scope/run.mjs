@@ -1034,6 +1034,35 @@ for (const [label, disposition] of [["dropped", "DROPPED"], ["undecided", null]]
 }
 check(!unscopedSheets([]).repair[0].includes("trade not yet assigned"), "and a claim with nothing unscoped carries no note about it");
 
+/* ── Floor registers are a pair, and the PM phone is on the sheet ───────────────────────────────── */
+
+/*
+  Registers used to print as one "Detach & reset" line in both phases so the count stayed visible in
+  Repair. The auditor read that as the same work billed twice, which is how an estimator reads it
+  too. Now a pair on the same terms as everything else that comes off and goes back.
+*/
+const registerSheets = (count) => {
+  const built = bbOrders(bbExtraction([room("Hall", { floorRegistersDetached: count })]));
+  return { emergency: bbText(built, "MITIGATION_DEMO"), repair: bbText(built, "FINISH_CARPENTRY") };
+};
+const twoRegisters = registerSheets(2);
+check(twoRegisters.emergency.includes("Detach floor registers – 2"), `the detach half, with the count (got:\n${twoRegisters.emergency})`);
+check(twoRegisters.repair.includes("Reset floor registers – 2"), `and the reset half on the finish carpentry sheet, with the same count (got:\n${twoRegisters.repair})`);
+check(!twoRegisters.emergency.includes("Reset floor") && !twoRegisters.repair.includes("Detach floor"), "each half on its own sheet only");
+for (const [label, count] of [["none", 0], ["unknown", null]]) {
+  const sheets = registerSheets(count);
+  check(!sheets.emergency.includes("floor registers") && !sheets.repair.includes("floor registers"), `${label} registers put no line on either sheet`);
+}
+
+const phoned = buildWorkOrders({
+  trades: ["MITIGATION_DEMO"],
+  claim: { ...claim, pmPhone: "403 555 0100" },
+  extraction: bbExtraction([room("Hall", { floorRegistersDetached: 1 })]),
+  contentsApproach: "TM", contentsTM: { entries: [] }, bricABrac: { rooms: [] }, dgigData: null,
+});
+check(bbText(phoned, "MITIGATION_DEMO").includes("PM phone: 403 555 0100"), `the PM phone reaches every sheet's header (got:\n${bbText(phoned, "MITIGATION_DEMO").split("\n").slice(0, 8).join("\n")})`);
+check(bbText(bbOrders(bbExtraction([room("Hall", { floorRegistersDetached: 1 })])), "MITIGATION_DEMO").includes("PM phone: —"), "and a claim with none shows the blank, so a crew can see it is missing rather than assume there was never a number");
+
 /* ── Per-surface thumbnails ────────────────────────────────────────────────────────────────────── */
 
 /*
