@@ -87,6 +87,19 @@ function titleCase(value: string): string {
   return value.charAt(0) + value.slice(1).toLowerCase().replace(/_/g, " ");
 }
 
+/**
+ * "Fiberglass batt R20" — the type in natural case, the R-value after it when one was given.
+ *
+ * The R-value only ever appears on the INSTALL line. The gap-check asks for it, and until the
+ * Repair half existed it was stored and rendered nowhere: the removal line has no use for it, and
+ * the replacement line it is a spec of did not exist.
+ */
+function insulationSpec(type: string | null, rValue: string | null): string | null {
+  const material = type ? titleCase(type) : null;
+  if (material && rValue) return `${material} ${rValue}`;
+  return material ?? rValue;
+}
+
 /** Explicit labels where title-casing would mangle an acronym or read awkwardly. */
 const BASEBOARD_MATERIAL_LABEL: Record<string, string> = {
   MDF: "MDF",
@@ -375,6 +388,9 @@ function buildMitigationDemo(claim: ClaimInfo, extraction: WaterLossExtraction, 
 
     for (const c of room.ceilings) {
       items.push(bullet(c.action === "DETACH_AND_RESET" ? "Detach ceiling" : "Remove ceiling", CEILING_TYPE_LABEL[c.type] ?? titleCase(c.type), ceilingExtent(c)));
+      // The scope had this line (rule 12) and the crew sheet did not — water through a ceiling soaks
+      // what is above it, and that comes out with the drywall.
+      if (c.aboveInsulationAffected === true) items.push(bullet("Remove wet insulation above ceiling", c.aboveInsulationType ? titleCase(c.aboveInsulationType) : null, null));
     }
     /*
       The style is named on the line, because it is what tells a crew how much door they are dealing
@@ -454,6 +470,18 @@ function buildMitigationDemo(claim: ClaimInfo, extraction: WaterLossExtraction, 
 function buildDrywall(claim: ClaimInfo, extraction: WaterLossExtraction): string {
   const body = roomSections(extraction, (room) => {
     const items: string[] = [];
+    /*
+      The other half of "Remove affected insulation", and the half that was missing.
+
+      The auditor's first controlled run found it: Emergency took the wet cellulose out and Repair
+      boarded the wall over an empty cavity. Insulation goes in before the board, so it is a line on
+      this sheet ahead of the drywall, one per wall record whose insulation came out, with the same
+      run the drywall carries. This is also where the R-value finally lands.
+    */
+    for (const w of room.walls) {
+      if (!w.drywallBeingRemoved || w.insulationAffected !== true) continue;
+      items.push(bullet("Install new insulation", insulationSpec(w.insulationType, w.insulationRValue), w.cutRunFt !== null ? `${w.cutRunFt} LF` : fractionLabel(w.cutRunFraction) ?? "perimeter"));
+    }
     // Fires once per distinct cut height in a room — matching the scope document, which explicitly
     // avoids repeating the line per wall record when several share a height.
     const seen = new Set<string>();
@@ -488,6 +516,8 @@ function buildDrywall(claim: ClaimInfo, extraction: WaterLossExtraction): string
     }
     for (const c of room.ceilings) {
       if (c.type !== "DRYWALL_PLASTER" || c.action !== "REMOVE_AND_REPLACE") continue;
+      // The wall pair in a different plane: what came out above the ceiling goes back before it is closed.
+      if (c.aboveInsulationAffected === true) items.push(bullet("Install new insulation above ceiling", insulationSpec(c.aboveInsulationType, c.aboveInsulationRValue), ceilingExtent(c) ?? "partial"));
       if (c.finish === "TEXTURE") {
         items.push(bullet("Replace ceiling drywall ready for texture", null, ceilingExtent(c) ?? "partial"));
         items.push(

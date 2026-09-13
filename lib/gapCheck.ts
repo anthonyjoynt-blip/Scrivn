@@ -1092,13 +1092,34 @@ function doorQuestions(roomIndex: number, roomName: string, i: number, d: DoorRe
     if (d.unitType === null)
       q.push({
         id: `${base}:unitType`, roomName,
-        // Named for a pocket door, where it is the question that decides whether the wall opens.
-        prompt: d.doorStyle === "POCKET" ? "The whole unit including the pocket, or just the slab?" : "Pre-hung unit, or slab only?",
-        kind: { type: "choice", options: ["Pre-hung", "Slab only"] },
+        /*
+          Worded for the door. A pocket door's whole unit is the frame inside the wall, and this is
+          the question that decides whether the wall opens; a bifold's or bypass's is the panels
+          plus their track. "Pre-hung" is a swing-door frame neither of those has, so offering it
+          as the answer for a bifold produced a scope line that priced as one.
+        */
+        prompt: unitTypePrompt(d.doorStyle),
+        kind: { type: "choice", options: unitTypeOptions(d.doorStyle) },
       });
     if (d.saveHardware === null) q.push({ id: `${base}:saveHardware`, roomName, prompt: "Save the existing hardware?", kind: { type: "yesNo" } });
   }
   return q;
+}
+
+/** Styles whose whole unit is panels on a track rather than a slab in a frame. */
+const TRACKED_DOOR_STYLES: ReadonlySet<DoorStyle> = new Set(["BIFOLD", "BYPASS"]);
+
+function unitTypePrompt(style: DoorStyle | null): string {
+  if (style === "POCKET") return "The whole unit including the pocket, or just the slab?";
+  if (style && TRACKED_DOOR_STYLES.has(style)) return "The whole unit including the track, or just the panels?";
+  return "Pre-hung unit, or slab only?";
+}
+
+/** The whole-unit label is "Pre-hung" only where a pre-hung frame exists; see `applyDoorAnswer` for the mapping. */
+function unitTypeOptions(style: DoorStyle | null): string[] {
+  if (style === "POCKET") return ["Whole unit", "Slab only"];
+  if (style && TRACKED_DOOR_STYLES.has(style)) return ["Whole unit", "Panels only"];
+  return ["Pre-hung", "Slab only"];
 }
 
 // ---- Trim ----------------------------------------------------------------------------------------
@@ -2532,7 +2553,8 @@ function applyDoorAnswer(d: DoorRecord, field: string, answer: string): DoorReco
       return style ? { ...d, doorStyle: style.value } : d;
     }
     case "unitType":
-      return { ...d, unitType: (equalsIgnoreCase(answer, "Pre-hung") ? "PRE_HUNG" : "SLAB_ONLY") as DoorUnitType };
+      // Two labels for the whole unit — "Pre-hung" on a swing door, "Whole unit" on the rest — one value.
+      return { ...d, unitType: (equalsIgnoreCase(answer, "Pre-hung") || equalsIgnoreCase(answer, "Whole unit") ? "PRE_HUNG" : "SLAB_ONLY") as DoorUnitType };
     case "saveHardware":
       return { ...d, saveHardware: isYes(answer) };
     default:

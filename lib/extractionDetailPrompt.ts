@@ -178,9 +178,12 @@ WHAT EACH FIELD MEANS:
   A door can be both: a hollow-core pocket door is doorType HOLLOW_CORE and doorStyle POCKET. Record
   both when both are stated, and do not let one crowd out the other.
 - doors.unitType — PRE_HUNG or SLAB_ONLY. "Just the slab" or "just the door itself" is SLAB_ONLY;
-  "pre-hung unit", "the whole unit", "frame and all" is PRE_HUNG. This matters most on a POCKET door,
-  where replacing the whole unit means opening the wall to get at the pocket and replacing the slab
-  alone does not.
+  "pre-hung unit", "the whole unit", "frame and all" is PRE_HUNG. PRE_HUNG means the WHOLE UNIT
+  whatever the style: a bifold or bypass set with its track, a pocket door with its in-wall frame, a
+  swing door with its jamb — record it for "that whole unit's coming out" on a bifold just as on a
+  swing door. SLAB_ONLY is the leaf alone: the slab, or a bifold's panels. You only record the
+  extent; the document words it by style. This matters most on a POCKET door, where replacing the
+  whole unit means opening the wall to get at the pocket and replacing the slab alone does not.
 - doors.saveHardware — YES when the transcript says the existing handles, hinges or knobs are being
   kept and put back: "save the hardware", "save them if possible, reset after", "reuse the handles".
   NO when it says new hardware is going on. UNKNOWN when it does not come up. A statement covering

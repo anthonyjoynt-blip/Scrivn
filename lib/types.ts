@@ -747,6 +747,14 @@ export interface TrimRecord {
 }
 
 export type DoorType = "COLONIAL" | "SOLID_CORE" | "HOLLOW_CORE" | "OTHER";
+/**
+ * How much of the door is being replaced: the whole unit, or the leaf alone.
+ *
+ * The names are swing-door words and the meaning is broader. PRE_HUNG is the whole unit for any
+ * style — a swing door with its jamb, a bifold or bypass set with its track, a pocket door with the
+ * frame inside the wall. SLAB_ONLY is the leaf: the slab, or a bifold's panels. Documents word it
+ * by style (a bifold is "whole unit incl. track", never "pre-hung"); this only records the extent.
+ */
 export type DoorUnitType = "PRE_HUNG" | "SLAB_ONLY";
 
 /**

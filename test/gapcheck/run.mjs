@@ -2302,6 +2302,33 @@ check(
   "and a pocket door's unit question names the pocket — it is what decides whether the wall opens",
 );
 
+/* ── A bifold has no pre-hung frame ─────────────────────────────────────────────────────────────
+
+  "There's a bifold closet door right there ... that whole unit's coming out" reached the scope as
+  "bifold, pre-hung unit". The data was right — PRE_HUNG means the whole unit — and the words were
+  wrong: a pre-hung frame is a swing-door thing, a bifold's whole unit is its panels and their
+  track, and a pre-hung unit prices as the heavier item. So the question is worded for the door,
+  and "Pre-hung" is only offered where a pre-hung frame exists.
+*/
+const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+const unitQ = (style) => doorQs(doorRec({ doorStyle: style, doorType: "HOLLOW_CORE" })).find((q) => q.id.endsWith(":unitType"));
+
+check(same(unitQ("BIFOLD")?.kind.options, ["Whole unit", "Panels only"]), `a bifold is offered its whole unit or its panels, never "Pre-hung" (got ${JSON.stringify(unitQ("BIFOLD")?.kind.options)})`);
+check(/track/.test(unitQ("BIFOLD")?.prompt ?? "") && /panels/.test(unitQ("BIFOLD")?.prompt ?? ""), `and the prompt names the track and the panels (got "${unitQ("BIFOLD")?.prompt}")`);
+check(same(unitQ("BYPASS")?.kind.options, ["Whole unit", "Panels only"]), "a bypass door is on a track too");
+check(same(unitQ("POCKET")?.kind.options, ["Whole unit", "Slab only"]), `a pocket door has a slab and a frame in the wall, but no pre-hung frame (got ${JSON.stringify(unitQ("POCKET")?.kind.options)})`);
+check(same(unitQ("SWING")?.kind.options, ["Pre-hung", "Slab only"]), "a swing door is where the word belongs");
+check(same(unitQ(null)?.kind.options, ["Pre-hung", "Slab only"]), "and a door whose style nobody stated is asked as a swing door — the commonest kind");
+
+const bifoldTree = doorTree(doorRec({ doorStyle: "BIFOLD", doorType: "HOLLOW_CORE" }));
+check(applyAnswer(bifoldTree, "room:0:door:0:unitType", "Whole unit").rooms[0]?.doors[0]?.unitType === "PRE_HUNG", `"Whole unit" records the same value a swing door's "Pre-hung" does — one fact, two labels (got ${applyAnswer(bifoldTree, "room:0:door:0:unitType", "Whole unit").rooms[0]?.doors[0]?.unitType})`);
+check(applyAnswer(bifoldTree, "room:0:door:0:unitType", "Panels only").rooms[0]?.doors[0]?.unitType === "SLAB_ONLY", `and "Panels only" is the leaf alone (got ${applyAnswer(bifoldTree, "room:0:door:0:unitType", "Panels only").rooms[0]?.doors[0]?.unitType})`);
+check(applyAnswer(doorTree(doorRec({ doorStyle: "SWING", doorType: "HOLLOW_CORE" })), "room:0:door:0:unitType", "Pre-hung").rooms[0]?.doors[0]?.unitType === "PRE_HUNG", "a swing door answered Pre-hung still lands on PRE_HUNG");
+check(
+  doorQs(applyAnswer(bifoldTree, "room:0:door:0:unitType", "Whole unit").rooms[0].doors[0]).every((q) => !q.id.endsWith(":unitType")),
+  "and once answered it is not asked again",
+);
+
 /* ── Repair-visit verbs ─────────────────────────────────────────────────────────────────────────
 
   A follow-up visit whose whole job is putting things back had to be described with removal verbs,

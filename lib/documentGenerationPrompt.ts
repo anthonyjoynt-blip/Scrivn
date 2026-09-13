@@ -213,7 +213,14 @@ this room appear in the document at all":
   SWING; say nothing about style for SWING or for null, since a style nobody stated is silence.
   A POCKET door runs inside the wall, which is why it is worth naming: replacing the whole unit
   means opening the wall to get at the pocket, and replacing the slab alone does not — so say
-  "pocket" and let unitType say which. Do NOT invent drywall, framing or wall-repair bullets from a
+  "pocket" and let unitType say which.
+  UNIT TYPE is worded by style, because the value is about extent and the words are about the
+  door. For SWING, FRENCH or no style: PRE_HUNG is "pre-hung unit", SLAB_ONLY is "slab only". For
+  BIFOLD and BYPASS: PRE_HUNG is "whole unit incl. track" and SLAB_ONLY is "panels only" — NEVER
+  "pre-hung" on a bifold or bypass; that is a swing-door frame neither has, and a pre-hung unit
+  prices as a heavier item than a bifold set. For POCKET: PRE_HUNG is "whole unit incl. pocket
+  frame", SLAB_ONLY is "slab only". A batch transcript said "that whole unit's coming out" of a
+  bifold and the scope wrote "bifold, pre-hung unit": the data was right and the words were wrong. Do NOT invent drywall, framing or wall-repair bullets from a
   pocket door on your own; whether the wall is opened and what that costs is the PM's call and will
   be in the wall records if it applies.
   This is a reported gap: "pocket door into the bathroom, water got into the wall cavity where it
@@ -257,7 +264,10 @@ this room appear in the document at all":
 - Walls have no phase or action field. Emergency/Repair rendering for a wall record with
   drywallBeingRemoved == true is entirely driven by cutHeight — see auto-included item 9 below for
   the full breakdown (phrasing differs by height, and priming/painting is NOT always included).
-  Walls never get a Repair bullet copied from the Emergency record itself, only what item 9
+  When insulationAffected == true the Emergency portion also carries "Remove wet insulation –
+  {insulationType in natural case}" directly after the drywall removal bullet, and item 9 puts the
+  matching "Install new insulation" on the Repair side — the two are a pair, never one without the
+  other. Walls never get a Repair bullet copied from the Emergency record itself, only what item 9
   produces.
 - Doors, cabinetry, toe kicks, countertops, ceilings, outlets/switches, light fixtures, and
   plumbing fixtures all use the shared action field (DETACH_AND_RESET or REMOVE_AND_REPLACE).
@@ -412,6 +422,17 @@ Auto-included items — apply these yourself, they are never spelled out per-ite
        — since a measured run is worth more to an estimator than the words alone.
      - cutHeight not yet known (null): treat the same as BASE for now — one "Replace drywall"
        bullet, no priming — rather than guessing a height or skipping the room's drywall entirely.
+   Insulation, same walls, Repair — whenever such a wall record ALSO has insulationAffected == true,
+   add "Install new insulation – {spec} – {run}" immediately BEFORE that room's "Replace drywall"
+   bullet(s). {spec} is insulationType in natural case ("Fiberglass batt", "Blown in", "Cellulose",
+   "Foam") followed by insulationRValue when it is set — "Fiberglass batt R20", "Blown in R30";
+   "Cellulose" alone when the R-value is null; plain "Install new insulation" when the type is null
+   too. {run} is the same quantity the drywall bullet carries (cutRunFt in LF, else the fraction,
+   else "perimeter"). One bullet per wall record with insulationAffected, pairing with its Emergency
+   "Remove wet insulation" line. This was the missing half of that pair: the Emergency side took the
+   wet insulation out and the Repair side closed the wall over an empty cavity. Never write the
+   Emergency half without it. The R-value belongs here and only here — the removal has no use for
+   it, and this line is what it is a spec of.
    This item only adds Repair-side bullets — Emergency for these walls is unaffected, already
    covered by the drywallBeingRemoved Emergency portion described in the walls bullet above.
 10. Baseboard paint/finish, per baseboard record, Repair — fires whenever the baseboard has a
@@ -466,6 +487,11 @@ Auto-included items — apply these yourself, they are never spelled out per-ite
     insulationAffected/insulationType already render — water coming through a ceiling soaks what is
     above it, and that insulation comes out with the drywall. Write nothing when
     aboveInsulationAffected is false or null.
+    Repair, same ceiling — add "Install new insulation above ceiling – {spec} – {extent}" BEFORE
+    the ceiling drywall bullet, {spec} being aboveInsulationType in natural case followed by
+    aboveInsulationRValue when set ("Fiberglass batt R24"), and {extent} the same quantity the
+    ceiling drywall bullet carries. Exactly the wall pair from item 9 in a different plane: a ceiling
+    closed over a bare joist bay is the same fault. Never the Emergency half without this one.
 13. Drying equipment, per room, Emergency — for every entry in that room's "equipment" array with a
     quantity greater than zero, one bullet: "Place {quantity} {type}" ("Place 3 air movers", "Place
     1 dehumidifier"). Singularise the type when the quantity is 1. These are Emergency-phase and

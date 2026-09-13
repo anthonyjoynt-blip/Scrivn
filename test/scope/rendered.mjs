@@ -46,9 +46,11 @@ export const RENDERED = new Map([
   ["Room.contents", "Manipulate / Reset contents"],
   ["BaseboardRecord.action", "the detach/reset and remove/replace pairs"],
   ["WallRecord.drywallBeingRemoved", "the drywall removal bullet and its cut height"],
-  ["WallRecord.insulationAffected", "Remove affected insulation"],
+  ["WallRecord.insulationAffected", "Remove wet insulation, and the Install new insulation half in rule 9"],
+  ["WallRecord.insulationRValue", "rule 9 — the R-value on the Install new insulation line, the only line it is a spec of"],
   ["CeilingRecord.action", "the ceiling bullet plus priming and painting"],
-  ["CeilingRecord.aboveInsulationAffected", "rule 12 — Remove wet insulation above ceiling"],
+  ["CeilingRecord.aboveInsulationAffected", "rule 12 — Remove wet insulation above ceiling, and its Install half"],
+  ["CeilingRecord.aboveInsulationRValue", "rule 12 — the R-value on the Install half"],
   ["Room.ceilingLightFixturesPresent", "the light-fixture detach/reset pair"],
   ["Room.otherCeilingFixtures", "rule 11 — the PM's own words, verbatim"],
   ["Loss.hvacInspectionRequired", "rule 4 — Furnace/hot water tank inspection"],
@@ -67,7 +69,6 @@ export const RENDERED = new Map([
 export const NOT_RENDERED = new Map([
   ["spec-detail", "carpetStyle, vinylSubtype, hardwoodConstruction, doorType, mdfProfile and the rest reach the bullet through the generic {material detail} slot, not a rule of their own"],
   ["bookkeeping", "baseboardConfirmedAbsent, windowCleaningAsked, equipmentAsked and phaseUncertain describe the questioning, not the building"],
-  ["r-values", "insulationRValue and aboveInsulationRValue are a spec on an insulation line that already renders"],
 ]);
 
 /**

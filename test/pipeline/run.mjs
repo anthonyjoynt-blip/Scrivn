@@ -151,7 +151,8 @@ async function runOne(entry) {
   let audit = null;
   if (process.env.SCRIVN_NO_AUDIT !== "1" && typeof documents.scopeDocument === "string") {
     try {
-      const result = await auditScope({ transcript: entry.transcript, scopeDocument: documents.scopeDocument });
+      // The log goes too, so the stand-in's answers are not reported as the app's inventions.
+      const result = await auditScope({ transcript: entry.transcript, scopeDocument: documents.scopeDocument, questionLog: log });
       audit = result;
       usage.push(result.usage);
     } catch (err) {
@@ -384,7 +385,7 @@ function report(result) {
     Before the raw tree, because it is the part worth reading. The sections above say what the
     pipeline did; this one says what it missed.
   */
-  parts.push(rule("6. WHAT THE DICTATION SAYS THAT THE SCOPE DOES NOT (audit — see audit.mjs)"));
+  parts.push(rule("6. THE SCOPE AGAINST THE DICTATION AND THE ANSWERS (audit — see audit.mjs)"));
   parts.push(auditSection(audit));
 
   parts.push(rule("7. FINAL EXTRACTION TREE (raw, for when a line above looks wrong)"));

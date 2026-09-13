@@ -12,14 +12,29 @@
  * rather than through an app route, adds no production surface, and its output is a report for a
  * person rather than a pass/fail. Nothing here decides anything.
  *
- * ── The three shapes it looks for ────────────────────────────────────────────────────────────────
+ * ── The three sources a line can come from ──────────────────────────────────────────────────────
+ *
+ * A scope line is supported by the DICTATION, by an ANSWER, or by nothing. The auditor is handed
+ * the question log alongside the transcript for exactly that reason. The harness's stand-in PM
+ * answers deterministically and without reading the dictation (see answers.mjs — that is its job,
+ * so the engine's branches get exercised), which means a batch's documents are full of work no
+ * transcript mentioned: a full run of solid wood baseboard, a floor register, a premium cabinet
+ * grade. Its first run flagged all three of those on one claim, and every one traced to an answer.
+ * Findings like that are about the harness, and an auditor that cannot tell them apart is an
+ * auditor nobody reads.
+ *
+ * ── The four shapes it looks for ─────────────────────────────────────────────────────────────────
  *
  *   MISSING      — the PM said it, the scope does not have it. The silent drop.
  *   MISDESCRIBED — the scope has it as something materially different. WORSE than missing: a jamb
  *                  written up as a pre-hung door reads as complete and prices a strip of wood as a
  *                  whole unit, so nobody goes looking.
- *   UNSUPPORTED  — the scope has a line the dictation does not support. The other direction of the
- *                  same fault, and the one that inflates an estimate.
+ *   UNSUPPORTED  — the scope has a line that neither the dictation nor an answer supports. The
+ *                  other direction of the same fault, and the one that inflates an estimate.
+ *   ASKED_ANYWAY — the app asked for something the PM had plainly already said. Not a document
+ *                  error (a real PM answers and the document comes out right) but a drop on the
+ *                  way in, which is the class of fault test/gapcheck/extractable.mjs exists to
+ *                  prevent — and this is the one place it can be seen happening on real prose.
  *
  * ── What it is not ───────────────────────────────────────────────────────────────────────────────
  *
@@ -74,35 +89,56 @@ const AUTO_INCLUDED = `
 - Priming, painting and finishing lines — derived from what is being replaced, not dictated.
 - "Furnace/hot water tank inspection", "Asbestos sample collection" — derived from the loss.
 - A room heading of "Not stated" or "None" when the PM never named the room.
+- "Detach sink – vanity" / "Reset sink – vanity" — on every bathroom vanity, whatever happens to
+  the vanity itself. It is the plumbing disconnect and reconnect, which a new unit needs as much as
+  a reset one; it says nothing about whether the old sink is reused, and the estimator settles
+  that from the photos.
 `.trim();
 
-const SYSTEM = `You audit a water-damage restoration SCOPE DOCUMENT against the project manager's dictated
-walkthrough that produced it. You are checking one thing: does the document account for the work the
-PM described, and nothing else?
+const SYSTEM = `You audit a water-damage restoration SCOPE DOCUMENT against what produced it. You are given
+three things:
 
-Report three kinds of finding, and nothing else:
+1. WHAT THE PM DICTATED — the walkthrough transcript. The only source of what the job actually is.
+2. THE FOLLOW-UP QUESTIONS AND ANSWERS — after reading the dictation, the app asked about anything it
+   could not settle, and the answers were folded into the document. IMPORTANT: in this test run the
+   answers were given by an automated stand-in that answers plausibly but WITHOUT reading the
+   dictation. So an answer can add work the PM never mentioned, and can even contradict the PM.
+3. THE SCOPE DOCUMENT that came out.
 
-MISSING — the PM described work and the scope has no line for it. Quote the PM.
-MISDESCRIBED — the scope has a line for it, but as something materially different: a different item,
-  a different action, or a bigger job than was described. Say what was said and what the scope made
-  of it. This kind matters most. A document that is wrong in a way that reads as complete is one
-  nobody re-checks, and it is how an estimate gets inflated.
-UNSUPPORTED — the scope has a line the dictation does not support at all.
+A line in the document is supported by the dictation, by an answer, or by neither. Your one job is to
+tell those apart. Report four kinds of finding, and nothing else:
+
+MISSING — the PM described work and the scope has no line for it. Quote the PM. If the PM said it and
+  a stand-in answer then contradicted it (the PM said the floor was extracted, the app asked "was water
+  extraction required?", the stand-in said no), that is STILL a finding: the app should not have needed
+  to ask. Report it as MISSING and say in "why" that the dictation was overridden by an answer.
+MISDESCRIBED — the scope has a line for the PM's item, but as something materially different: a
+  different item, a different action, or a bigger job than was described — AND the difference does not
+  come from an answer. A cabinet the PM described with no grade, written up as premium because an
+  answer said premium, is NOT misdescribed. A jamb the PM described, written up as a whole pre-hung
+  door with no answer saying so, IS. This kind matters most: a document that is wrong in a way that
+  reads as complete is one nobody re-checks.
+UNSUPPORTED — the scope has a line that neither the dictation nor any answer supports. Before reporting
+  one, look for the answer that produced it; work that traces to an answer is the stand-in's doing,
+  not the app's, and is not a finding.
+ASKED_ANYWAY — the app asked a question whose answer the PM had already plainly given in the
+  dictation. Quote the PM and the question. Only when the dictation genuinely stated it — a PM who
+  said "the carpet's coming out" did not state its square footage, and asking that is fine.
 
 RULES:
 - Report WORK only. Not pleasantries, not the loss category, not the address, not the PM's name.
 - These lines are added by the app itself and must NEVER be reported as UNSUPPORTED:
 ${AUTO_INCLUDED}
-- A quantity the PM did not state is not a finding. The app asks for those separately, and a line
-  carrying no number is expected.
+- A quantity the PM did not state is not a finding, and neither is the number an answer supplied for
+  it.
 - Wording does not have to match. "Pull the carpet" and "Remove carpet – 200 SF" are the same thing.
 - An Emergency line whose Repair counterpart is absent (or the reverse) IS a finding — report it as
   MISSING and say which half is gone.
-- If the document accounts for everything, return an empty list. That is a real and common answer;
-  do not manufacture a finding to seem useful.
+- If the document accounts for everything the PM said and adds nothing that is not from an answer,
+  return an empty list. That is a real and common answer; do not manufacture a finding to seem useful.
 
 Order findings by how much they would cost somebody: a misdescription that inflates a price first,
-then a missing line, then a small omission.`;
+then a missing line, then an unsupported one, then anything asked anyway.`;
 
 const SCHEMA = {
   type: "object",
@@ -112,7 +148,7 @@ const SCHEMA = {
       items: {
         type: "object",
         properties: {
-          kind: { type: "string", enum: ["MISSING", "MISDESCRIBED", "UNSUPPORTED"] },
+          kind: { type: "string", enum: ["MISSING", "MISDESCRIBED", "UNSUPPORTED", "ASKED_ANYWAY"] },
           said: { type: "string" },
           scope: { type: "string" },
           why: { type: "string" },
@@ -127,10 +163,36 @@ const SCHEMA = {
 };
 
 /**
+ * The question log as the auditor reads it: one line per question, grouped by room, answers shown
+ * exactly as the stand-in gave them. A question that was shown and then withdrawn in the same round
+ * never reached the document and is left out — it can support nothing.
+ */
+export function answersForAudit(log) {
+  const applied = (log ?? []).filter((e) => e.applied);
+  if (applied.length === 0) return "(nothing was asked — the dictation settled everything)";
+  const lines = [];
+  let lastRoom;
+  for (const e of applied) {
+    const room = e.roomName ?? "Claim-level";
+    if (room !== lastRoom) {
+      lines.push(`${room}:`);
+      lastRoom = room;
+    }
+    lines.push(`  Q: ${e.prompt}`);
+    lines.push(`  A: ${e.answer === "" ? "(not answered)" : e.answer}`);
+  }
+  return lines.join("\n");
+}
+
+/**
  * Audits one claim. Returns `{ findings, usage }`, or throws — the caller decides whether an audit
  * failure should fail the run (it should not: the trace is still worth having).
+ *
+ * `questionLog` is the round-by-round record `recordRound` produces (lib/questionLog.ts). Without
+ * it the auditor cannot tell an answer's work from an invention, and reports the stand-in's answers
+ * as the app's mistakes.
  */
-export async function auditScope({ transcript, scopeDocument }) {
+export async function auditScope({ transcript, scopeDocument, questionLog = [] }) {
   const apiKey = envFromLocal("ANTHROPIC_API_KEY");
   if (!apiKey) throw new Error("no ANTHROPIC_API_KEY in the environment or .env.local");
   const anthropic = new Anthropic({ apiKey });
@@ -142,7 +204,11 @@ export async function auditScope({ transcript, scopeDocument }) {
     messages: [
       {
         role: "user",
-        content: `WHAT THE PM DICTATED:\n${transcript}\n\nTHE SCOPE DOCUMENT THAT WAS PRODUCED:\n${scopeDocument}`,
+        content: [
+          `WHAT THE PM DICTATED:\n${transcript}`,
+          `THE FOLLOW-UP QUESTIONS AND THE STAND-IN'S ANSWERS:\n${answersForAudit(questionLog)}`,
+          `THE SCOPE DOCUMENT THAT WAS PRODUCED:\n${scopeDocument}`,
+        ].join("\n\n"),
       },
     ],
     output_config: { format: { type: "json_schema", schema: SCHEMA } },
@@ -166,7 +232,7 @@ export async function auditScope({ transcript, scopeDocument }) {
 export function auditSection(audit) {
   if (audit?.error) return `  (the audit could not run: ${audit.error})\n`;
   const findings = audit?.findings ?? [];
-  if (findings.length === 0) return "  Nothing flagged — the document accounts for what was dictated.\n";
+  if (findings.length === 0) return "  Nothing flagged — every line traces to the dictation or to an answer, and nothing dictated is missing.\n";
 
   const lines = [];
   for (const f of findings) {

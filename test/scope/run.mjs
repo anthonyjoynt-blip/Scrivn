@@ -930,6 +930,65 @@ check(
   "and neither does one nobody has been asked about — an open question is not a yes",
 );
 
+/* ── Insulation goes back before the board ─────────────────────────────────────────────────────── */
+
+/*
+  The auditor's first controlled run found it: Emergency took the wet cellulose out, and Repair
+  boarded the wall over an empty cavity. The pair had one half. And the R-value the gap-check asks
+  for — stored on the record, rendered by nothing, excused by the guard as "a spec on a line that
+  already renders" — turns out to belong on exactly the half that was missing: the removal has no
+  use for it, the replacement is what it specifies.
+*/
+const insulationSheets = (walls, ceilings = []) => {
+  const built = buildWorkOrders({
+    trades: ["MITIGATION_DEMO", "DRYWALL"],
+    claim,
+    extraction: bbExtraction([room("Basement", { walls, ceilings })]),
+    contentsApproach: "TM",
+    contentsTM: { entries: [] },
+    bricABrac: { rooms: [] },
+    dgigData: null,
+  });
+  return { emergency: bbText(built, "MITIGATION_DEMO"), drywall: bbText(built, "DRYWALL") };
+};
+
+const batt = insulationSheets([wall({ insulationAffected: true, insulationType: "FIBERGLASS_BATT", insulationRValue: "R20" })]);
+check(batt.emergency.includes("Remove affected insulation – Fiberglass batt"), `the removal is where it always was (got:\n${batt.emergency})`);
+check(batt.drywall.includes("Install new insulation – Fiberglass batt R20 – 30 LF"), `and the install is on the drywall sheet, with the type, the R-value and the same run as the board (got:\n${batt.drywall})`);
+check(
+  batt.drywall.indexOf("Install new insulation") < batt.drywall.indexOf("Replace drywall"),
+  "listed before the drywall, because that is the order the wall is built",
+);
+
+const cellulose = insulationSheets([wall({ insulationAffected: true, insulationType: "CELLULOSE", insulationRValue: null, cutRunFt: null, cutRunFraction: "HALF" })]);
+check(cellulose.drywall.includes("Install new insulation – Cellulose – half"), `no R-value is silence, not a placeholder, and a fraction carries the way the drywall line carries it (got:\n${cellulose.drywall})`);
+
+const unknownType = insulationSheets([wall({ insulationAffected: true, insulationType: null, insulationRValue: null })]);
+check(unknownType.drywall.includes("Install new insulation – 30 LF"), `a type nobody stated still gets the line — the cavity is empty either way (got:\n${unknownType.drywall})`);
+
+for (const [label, affected] of [["not affected", false], ["never asked", null]]) {
+  const none = insulationSheets([wall({ insulationAffected: affected, insulationType: "CELLULOSE" })]);
+  check(!none.drywall.includes("insulation") && !none.emergency.includes("insulation"), `insulation ${label} puts no insulation line on either sheet`);
+}
+
+const twoWalls = insulationSheets([
+  wall({ insulationAffected: true, insulationType: "FIBERGLASS_BATT", insulationRValue: "R20" }),
+  wall({ insulationAffected: true, insulationType: "FIBERGLASS_BATT", insulationRValue: "R20", cutRunFt: 12 }),
+]);
+check(
+  (twoWalls.drywall.match(/Install new insulation/g) ?? []).length === 2 && twoWalls.drywall.includes("– 12 LF") && twoWalls.drywall.includes("– 30 LF"),
+  `one install per wall whose insulation came out, each with its own run — the removal is per wall too (got:\n${twoWalls.drywall})`,
+);
+
+// The same pair in a different plane.
+const above = insulationSheets([], [ceiling({ aboveInsulationAffected: true, aboveInsulationType: "FIBERGLASS_BATT", aboveInsulationRValue: "R24" })]);
+check(above.emergency.includes("Remove wet insulation above ceiling – Fiberglass batt"), `wet insulation above a ceiling comes out on the crew sheet — the scope had this line and the sheet did not (got:\n${above.emergency})`);
+check(above.drywall.includes("Install new insulation above ceiling – Fiberglass batt R24 – 120 SF of ceiling"), `and goes back before the ceiling is closed, with the R-value and the ceiling's own extent (got:\n${above.drywall})`);
+check(above.drywall.indexOf("Install new insulation above ceiling") < above.drywall.indexOf("Replace ceiling drywall"), "ahead of the ceiling drywall");
+
+const aboveDry = insulationSheets([], [ceiling({ aboveInsulationAffected: false, aboveInsulationType: "FIBERGLASS_BATT" })]);
+check(!aboveDry.emergency.includes("insulation") && !aboveDry.drywall.includes("insulation"), "dry insulation above a ceiling is left alone on both sheets");
+
 /* ── Per-surface thumbnails ────────────────────────────────────────────────────────────────────── */
 
 /*
