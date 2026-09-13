@@ -1,6 +1,7 @@
 import "server-only";
 import { unstable_rethrow } from "next/navigation";
 import { createClient } from "./supabase/server";
+import { withClockSkewRetry } from "./supabase/clockSkew";
 import { NoOrganizationError, NotSignedInError, currentOrganizationId, currentRole } from "./claimsRepo";
 import {
   DEFAULT_LETTERHEAD,
@@ -61,7 +62,7 @@ function logoPath(organizationId: string): string {
 
 async function readRow(organizationId: string): Promise<StoredRow> {
   const supabase = await createClient();
-  const { data, error } = await supabase.from("organizations").select(ROW_COLUMNS).eq("id", organizationId).maybeSingle();
+  const { data, error } = await withClockSkewRetry(() => supabase.from("organizations").select(ROW_COLUMNS).eq("id", organizationId).maybeSingle());
   // The likeliest error here is the migration not having been applied yet, which should read as
   // "not available" on the account page rather than as a crash.
   if (error) throw new LetterheadUnavailableError(error.message);

@@ -1,6 +1,7 @@
 import "server-only";
 import { createClient } from "./supabase/server";
 import { createAdminClient } from "./supabase/admin";
+import { withClockSkewRetry } from "./supabase/clockSkew";
 import { isSupabaseConfigured } from "./supabase/env";
 import { TRIAL_CLAIM_LIMIT, TRIAL_DAYS, TRIAL_WARNING_AT_CLAIMS, USAGE_WARNING_THRESHOLD, claimLimitForTier, planForTier } from "./plans";
 import { sendEmail } from "./email/send";
@@ -65,11 +66,13 @@ export async function getUsageState(): Promise<UsageState | null> {
   const userId = claimsData?.claims?.sub;
   if (typeof userId !== "string") return null;
 
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("subscription_tier, claims_used_this_period, period_reset_at, trial_started_at, trial_claims_used")
-    .eq("id", userId)
-    .maybeSingle();
+  const { data: profile } = await withClockSkewRetry(() =>
+    supabase
+      .from("profiles")
+      .select("subscription_tier, claims_used_this_period, period_reset_at, trial_started_at, trial_claims_used")
+      .eq("id", userId)
+      .maybeSingle(),
+  );
 
   const tier = (profile?.subscription_tier as string | null) ?? null;
   const used = (profile?.claims_used_this_period as number | null) ?? 0;

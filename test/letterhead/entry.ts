@@ -4,3 +4,4 @@ export {
   fitLogo, normaliseLetterheadSettings, pngDimensions, settingsFromRow, letterheadFromRow, letterheadFromSettings,
 } from "@/lib/letterhead";
 export { documentPdfBytes } from "@/lib/pdf";
+export { withClockSkewRetry, isClockSkewError } from "@/lib/supabase/clockSkew";

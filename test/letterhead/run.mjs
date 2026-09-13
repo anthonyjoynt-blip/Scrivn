@@ -35,7 +35,7 @@ const {
   DEFAULT_LETTERHEAD, DEFAULT_LETTERHEAD_SETTINGS, LETTERHEAD_LIMITS, LOGO_BOX,
   hexToRgb, rgbToHex, relativeLuminance, contrastRatio, letterheadTextColor, letterheadInkColor,
   fitLogo, normaliseLetterheadSettings, pngDimensions, settingsFromRow, letterheadFromRow, letterheadFromSettings,
-  documentPdfBytes,
+  documentPdfBytes, withClockSkewRetry, isClockSkewError,
 } = await import(pathToFileURL(bundlePath).href);
 
 let passed = 0;
@@ -258,6 +258,42 @@ check(same(colourOf(plain, "Scope Document"), [0.106, 0.227, 0.361]), `while on 
 check(doc(custom({ accentColor: [51, 102, 153] })).includes("0.2 0.4 0.6 rg"), "the accent stripe is filled in the accent colour");
 check(doc(custom({ accentColor: [51, 102, 153] })).includes("0.2 0.4 0.6 RG"), "and the rule under the title is stroked in it");
 check(!plain.includes("0.2 0.4 0.6 rg"), "(neither of which appears for a different accent)");
+
+/* ── The clock-skew retry ────────────────────────────────────────────────────────────────────────── */
+
+/*
+  Seen on scrivn.ca: the account page's concurrent reads met a just-refreshed session token, one of
+  them was refused as "JWT issued at future", and the letterhead card fell back to its unavailable
+  message. On a claim page the same second would have put the Scrivn letterhead on a company's PDF,
+  silently. One wait and one more try — for that error and no other.
+*/
+{
+  const waits = [];
+  const wait = async (ms) => { waits.push(ms); };
+  const skew = { error: { message: 'JWT issued at future' } };
+  const ok = { data: [{ organization_id: "org-1" }], error: null };
+
+  let calls = 0;
+  const recovered = await withClockSkewRetry(() => { calls += 1; return Promise.resolve(calls === 1 ? skew : ok); }, wait);
+  check(recovered === ok && calls === 2, `a skew refusal is retried once and the second answer returned (got ${calls} calls)`);
+  check(waits.length === 1 && waits[0] >= 1000, `after a wait of about a second, long enough for the database clock to catch up (got ${JSON.stringify(waits)})`);
+
+  calls = 0; waits.length = 0;
+  const first = await withClockSkewRetry(() => { calls += 1; return Promise.resolve(ok); }, wait);
+  check(first === ok && calls === 1 && waits.length === 0, "a query that succeeds is neither repeated nor delayed");
+
+  calls = 0; waits.length = 0;
+  const other = { data: null, error: { message: "permission denied for table organizations" } };
+  const notRetried = await withClockSkewRetry(() => { calls += 1; return Promise.resolve(other); }, wait);
+  check(notRetried === other && calls === 1 && waits.length === 0, "any other error propagates untouched, first time — a retry is not a way to hide a real failure");
+
+  calls = 0; waits.length = 0;
+  const stillSkewed = await withClockSkewRetry(() => { calls += 1; return Promise.resolve(skew); }, wait);
+  check(stillSkewed === skew && calls === 2, "and a refusal that persists is returned after the one retry, not retried for ever");
+
+  check(isClockSkewError({ message: "JWT issued at future" }) && isClockSkewError({ message: "PGRST301: jwt issued at future" }), "the refusal is recognised however PostgREST phrases the prefix");
+  check(!isClockSkewError(null) && !isClockSkewError({ message: "JWT expired" }) && !isClockSkewError({}), "and nothing else is — an expired token is a different problem with a different fix");
+}
 
 rmSync(outDir, { recursive: true, force: true });
 

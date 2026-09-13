@@ -1,5 +1,6 @@
 import "server-only";
 import { createClient } from "./supabase/server";
+import { withClockSkewRetry } from "./supabase/clockSkew";
 import { NotSignedInError } from "./claimsRepo";
 
 /**
@@ -27,7 +28,8 @@ async function userId(): Promise<string> {
 
 export async function loadProfile(): Promise<Profile> {
   const supabase = await createClient();
-  const { data, error } = await supabase.from("profiles").select("full_name, phone").eq("id", await userId()).maybeSingle();
+  const id = await userId();
+  const { data, error } = await withClockSkewRetry(() => supabase.from("profiles").select("full_name, phone").eq("id", id).maybeSingle());
   if (error) throw new Error(`Could not read the profile: ${error.message}`);
   return { fullName: (data?.full_name as string | null) ?? "", phone: (data?.phone as string | null) ?? "" };
 }

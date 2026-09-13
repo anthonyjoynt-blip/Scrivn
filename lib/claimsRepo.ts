@@ -1,5 +1,6 @@
 import "server-only";
 import { createClient } from "./supabase/server";
+import { withClockSkewRetry } from "./supabase/clockSkew";
 import { CLAIM_STATUS_ORDER, claimSummary, parseSavedClaimState, type ClaimStatus, type SavedClaimState } from "./claimState";
 
 /**
@@ -104,11 +105,8 @@ async function currentUserId(): Promise<string> {
 export async function currentOrganizationId(): Promise<string> {
   const supabase = await createClient();
   const userId = await currentUserId();
-  const { data, error } = await supabase
-    .from("organization_members")
-    .select("organization_id")
-    .eq("user_id", userId)
-    .limit(1);
+  // The first query of most requests, so the one that meets a just-refreshed token — see clockSkew.ts.
+  const { data, error } = await withClockSkewRetry(() => supabase.from("organization_members").select("organization_id").eq("user_id", userId).limit(1));
   if (error) throw new Error(`Could not read organization membership: ${error.message}`);
   const first = data?.[0];
   if (!first) throw new NoOrganizationError();
@@ -119,7 +117,7 @@ export async function currentOrganizationId(): Promise<string> {
 export async function currentRole(): Promise<"owner" | "member"> {
   const supabase = await createClient();
   const userId = await currentUserId();
-  const { data, error } = await supabase.from("organization_members").select("role").eq("user_id", userId).limit(1);
+  const { data, error } = await withClockSkewRetry(() => supabase.from("organization_members").select("role").eq("user_id", userId).limit(1));
   if (error) throw new Error(`Could not read organization role: ${error.message}`);
   return (data?.[0]?.role as "owner" | "member") ?? "member";
 }
