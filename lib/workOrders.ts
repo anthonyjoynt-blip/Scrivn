@@ -10,7 +10,7 @@ import { DRYING_CLASS_OPTIONS } from "./dgig";
 import { isDGIG } from "./insurers";
 import { lossTypeLabel } from "./claimInfo";
 import { baseboardFinishLine, ceilingPaintLine, ceilingQuantity, fractionLabel, primingLine } from "./paintDerivation";
-import type { ApplianceType, CeilingRecord, DoorRecord, FlooringRecord, Room, WaterLossExtraction } from "./types";
+import type { ApplianceType, CeilingRecord, DoorRecord, FlooringRecord, Room, WaterLossExtraction, UnscopedItem } from "./types";
 import { APPLIANCE_LABEL, DOOR_STYLE_LABEL, isInjectionEquipment, SUBFLOOR_LABEL, TRIM_KIND_LABEL, WINDOW_COVERING_LABEL, WINDOW_CLEANING_SIZE_LABEL, WINDOW_CLEANING_SIZES } from "./types";
 
 /**
@@ -139,6 +139,17 @@ function ceilingExtent(c: CeilingRecord): string | null {
   return ceilingQuantity(c);
 }
 
+/** The PM's words with a capital letter, and nothing else done to them. */
+function sentenceCase(text: string): string {
+  const t = text.trim();
+  return t.charAt(0).toUpperCase() + t.slice(1);
+}
+
+/** Unscoped items placed in a phase — DROPPED and undecided ones reach no sheet. */
+function unscopedFor(room: Room, phase: "EMERGENCY" | "REPAIR"): UnscopedItem[] {
+  return room.unscoped.filter((u) => u.disposition === "BOTH" || u.disposition === phase);
+}
+
 /** "Action – detail – extent", skipping whichever parts are unknown. */
 function bullet(...parts: (string | null | undefined)[]): string {
   return `    - ${parts.filter((p) => p && p !== "").join(" – ")}`;
@@ -209,11 +220,20 @@ function tradeNotes(trade: Trade, rooms: Room[]): string[] {
     room.baseboard.some((b) => b.action === "REMOVE_AND_REPLACE" || b.action === "SHOE_MOLD_ONLY"),
   );
 
+  /*
+    Repair work the PM placed but nobody has assigned to a trade — the app cannot know whether
+    "replace two outlets" is the drywaller's problem. Emergency has one crew and carries its items
+    as room lines; Repair has three sheets, so the list rides on each of them as a note, where the
+    PM sees it whichever sheet they hand out, until it is assigned.
+  */
+  const unassigned = rooms.flatMap((room) => unscopedFor(room, "REPAIR").map((u) => `Also on this claim, trade not yet assigned: ${sentenceCase(u.description)} (${room.roomName}).`));
+
   switch (trade) {
     case "DRYWALL":
       return [
         "Mask and protect flooring, contents and adjacent finishes from drywall dust before starting.",
         "Clean up thoroughly at the end of each day.",
+        ...unassigned,
       ];
 
     case "PAINTING":
@@ -221,6 +241,7 @@ function tradeNotes(trade: Trade, rooms: Room[]): string[] {
         "Mask and protect flooring, contents and adjacent finishes before starting.",
         "Confirm colours with the PM before starting, and check whether samples are needed. Pick up materials if required.",
         "Clean up thoroughly at the end of each day.",
+        ...unassigned,
       ];
 
     case "FINISH_CARPENTRY":
@@ -232,6 +253,7 @@ function tradeNotes(trade: Trade, rooms: Room[]): string[] {
             ]
           : []),
         "Clean up thoroughly at the end of each day.",
+        ...unassigned,
       ];
 
     default:
@@ -458,6 +480,9 @@ function buildMitigationDemo(claim: ClaimInfo, extraction: WaterLossExtraction, 
         items.push(bullet("Drill injection holes", null, e.holeCount !== null ? `${e.holeCount}` : null));
       }
     }
+
+    // Work no field could hold, placed in Emergency by the PM. Their words, verbatim — see UnscopedItem.
+    for (const u of unscopedFor(room, "EMERGENCY")) items.push(bullet(sentenceCase(u.description), null, null));
 
     return items;
   });

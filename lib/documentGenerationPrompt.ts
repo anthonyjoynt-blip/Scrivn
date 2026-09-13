@@ -567,7 +567,15 @@ Auto-included items — apply these yourself, they are never spelled out per-ite
     window. Never merge a trim entry into a door or window bullet, never widen one into the unit it
     belongs to, and never add a trim bullet for an opening that has no entry in this array — whether
     a door coming out takes its casing with it is a decision the PM makes, not one to infer here.
-    Never write one half of the pair without the other, exactly as with baseboard and appliances.`;
+    Never write one half of the pair without the other, exactly as with baseboard and appliances.
+19. Other work, per room — for every entry in that room's "unscoped" array whose disposition is
+    EMERGENCY, REPAIR or BOTH, one bullet in that phase (one in EACH phase for BOTH), reading
+    exactly "{description}" with the first letter capitalised and NOTHING else changed: no
+    rewording, no quantity or extent invented, no material detail appended, no splitting into a
+    pair. These are things the PM said that no field could hold; the words are the PM's and stay
+    the PM's, because rewording them is how "tile and backer board" becomes a line that prices as
+    something else. Nothing at all for DROPPED (the PM took it out of the job) or null (not yet
+    decided). Never derive one of these from the transcript yourself — only from the array.`;
 
 /**
  * How to bucket the "shared action field" categories into Emergency vs. Repair bullets/items, and

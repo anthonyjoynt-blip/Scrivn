@@ -102,7 +102,7 @@ function flooring(overrides = {}) {
   };
 }
 function room(name, overrides = {}) {
-  return { roomName: name, flooring: [], baseboard: [], walls: [], ceilings: [], doors: [], cabinetry: [], toeKicks: [], countertops: [], wallTile: [], outlets: [], lightFixtures: [], electricalPanel: null, plumbingFixtures: [], stairs: null, floorRegistersDetached: null, contents: null, equipment: [], antimicrobialApplied: null, containmentRequired: null, containmentSF: null, hepaVacuumingRequired: null, temporaryPowerRequired: null, appliances: [], trim: [], windowCoverings: [], cabinetHardware: [], subfloor: [], waterExtractionRequired: null, waterExtractionSF: null, waterExtractionFraction: null, baseboardConfirmedAbsent: false, windowCleaningAsked: false, windowCleaningCounts: null, equipmentAsked: false, ceilingLightFixturesPresent: null, ceilingFixturesInRemovalArea: null, ceilingLightFixtureType: null, ceilingLightFixtureCount: null, otherCeilingFixtures: null, ...overrides };
+  return { roomName: name, flooring: [], baseboard: [], walls: [], ceilings: [], doors: [], cabinetry: [], toeKicks: [], countertops: [], wallTile: [], outlets: [], lightFixtures: [], electricalPanel: null, plumbingFixtures: [], stairs: null, floorRegistersDetached: null, contents: null, equipment: [], antimicrobialApplied: null, containmentRequired: null, containmentSF: null, hepaVacuumingRequired: null, temporaryPowerRequired: null, appliances: [], trim: [], windowCoverings: [], cabinetHardware: [], subfloor: [], unscoped: [], waterExtractionRequired: null, waterExtractionSF: null, waterExtractionFraction: null, baseboardConfirmedAbsent: false, windowCleaningAsked: false, windowCleaningCounts: null, equipmentAsked: false, ceilingLightFixturesPresent: null, ceilingFixturesInRemovalArea: null, ceilingLightFixtureType: null, ceilingLightFixtureCount: null, otherCeilingFixtures: null, ...overrides };
 }
 
 /* ── A replaced ceiling gets primed and painted ────────────────────────────────────────────────── */
@@ -988,6 +988,51 @@ check(above.drywall.indexOf("Install new insulation above ceiling") < above.dryw
 
 const aboveDry = insulationSheets([], [ceiling({ aboveInsulationAffected: false, aboveInsulationType: "FIBERGLASS_BATT" })]);
 check(!aboveDry.emergency.includes("insulation") && !aboveDry.drywall.includes("insulation"), "dry insulation above a ceiling is left alone on both sheets");
+
+/* ── Unscoped work reaches the crew sheets in the PM's words ─────────────────────────────────────── */
+
+/*
+  Emergency has one crew, so a placed item is a room line on its sheet. Repair has three, and the app
+  cannot know which of them "replace two outlets" belongs to — so those ride on every repair sheet as
+  a note, where the PM sees them whichever sheet is handed out, until a trade is assigned. What never
+  appears anywhere: a DROPPED item, or one nobody has placed.
+*/
+const unscopedSheets = (unscoped) => {
+  const built = buildWorkOrders({
+    trades: ["MITIGATION_DEMO", "DRYWALL", "PAINTING", "FINISH_CARPENTRY"],
+    claim,
+    extraction: bbExtraction([room("Basement bathroom", { unscoped })]),
+    contentsApproach: "TM",
+    contentsTM: { entries: [] },
+    bricABrac: { rooms: [] },
+    dgigData: null,
+  });
+  return {
+    emergency: bbText(built, "MITIGATION_DEMO"),
+    repair: ["DRYWALL", "PAINTING", "FINISH_CARPENTRY"].map((t) => bbText(built, t)),
+  };
+};
+const tile = (disposition) => ({ description: "remove tub-surround tile and the soaked backer board", disposition });
+
+const emergencyItem = unscopedSheets([tile("EMERGENCY")]);
+check(emergencyItem.emergency.includes("    - Remove tub-surround tile and the soaked backer board"), `an Emergency item is a room line on the Mitigation & Demo sheet, capitalised and otherwise untouched (got:\n${emergencyItem.emergency})`);
+check(emergencyItem.repair.every((t) => !t.includes("tub-surround")), "and on no repair sheet");
+
+const repairItem = unscopedSheets([tile("REPAIR")]);
+check(!repairItem.emergency.includes("tub-surround"), "a Repair item is not on the emergency sheet");
+check(
+  repairItem.repair.every((t) => t.includes("Also on this claim, trade not yet assigned: Remove tub-surround tile and the soaked backer board (Basement bathroom).")),
+  `but rides on every repair sheet as a note naming the room, until somebody assigns it (got:\n${repairItem.repair[0]})`,
+);
+
+const bothItem = unscopedSheets([tile("BOTH")]);
+check(bothItem.emergency.includes("Remove tub-surround tile") && bothItem.repair.every((t) => t.includes("trade not yet assigned: Remove tub-surround tile")), "both phases is both places");
+
+for (const [label, disposition] of [["dropped", "DROPPED"], ["undecided", null]]) {
+  const none = unscopedSheets([tile(disposition)]);
+  check(!none.emergency.includes("tub-surround") && none.repair.every((t) => !t.includes("tub-surround")), `a ${label} item reaches no sheet at all`);
+}
+check(!unscopedSheets([]).repair[0].includes("trade not yet assigned"), "and a claim with nothing unscoped carries no note about it");
 
 /* ── Per-surface thumbnails ────────────────────────────────────────────────────────────────────── */
 

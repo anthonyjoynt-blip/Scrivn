@@ -425,7 +425,23 @@ const roomDetailSchema = obj({
 });
 
 /**
- * Schema for the detail pass. One entry per room, in the SAME order call 1 returned them, and
+ * Schema for the third call, which asks what the first two missed — see `extractionUnscoped.ts`.
+ *
+ * One string array per room, and deliberately nothing else. The detail schema above is now at the
+ * compiled-grammar ceiling too: adding this array to it produced a 400 from the API and, because
+ * that pass is fail-soft, a claim with no detail at all and no error to say so. This is as small
+ * as a schema gets, and it stays that way.
+ */
+export const extractionUnscopedSchema: JsonSchema = obj({
+  rooms: arr(obj({ unscoped: arr(str()) })),
+});
+
+/**
+ * Schema for the detail pass. FULL, as of the unscoped list — see `extractionUnscopedSchema` below
+ * for what happened when one more string array was added. The next spec field needs a fourth call
+ * or a cut, not a slot here.
+ *
+ * One entry per room, in the SAME order call 1 returned them, and
  * within each room one entry per record in the same order — see `extractionDetailPrompt.ts`, which
  * states the exact counts, and `mergeDetail`, which discards a room whose counts come back wrong
  * rather than attaching a cut height to the wrong wall.

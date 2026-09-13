@@ -254,7 +254,7 @@ function room(name, overrides = {}) {
     floorRegistersDetached: null,
     contents: null,
     equipment: [],
-    waterExtractionRequired: null, antimicrobialApplied: null, containmentRequired: null, containmentSF: null, hepaVacuumingRequired: null, temporaryPowerRequired: null, appliances: [], trim: [], windowCoverings: [], cabinetHardware: [], subfloor: [],
+    waterExtractionRequired: null, antimicrobialApplied: null, containmentRequired: null, containmentSF: null, hepaVacuumingRequired: null, temporaryPowerRequired: null, appliances: [], trim: [], windowCoverings: [], cabinetHardware: [], subfloor: [], unscoped: [],
     waterExtractionSF: null,
     waterExtractionFraction: null,
     baseboardConfirmedAbsent: false,
@@ -363,6 +363,8 @@ function everyRecordRoom(name) {
       That happened once already, with the injection hole count.
     */
     subfloor: [{ type: null, disposition: null, removalSF: null }],
+    // And an unscoped item, for the same reason again: its question is conditional on a record.
+    unscoped: [{ description: "replace two outlets on the wet wall", disposition: null }],
     contents: null,
   });
 }
@@ -2603,6 +2605,36 @@ check(
   cabQs({ ...vanityRoom, cabinetry: [cabinet({ extent: "Lowers", grade: null })] }).some((q) => q.id.endsWith(":shoringRequired")),
   "and it comes back the round after the extent is settled — a bathroom cabinet needs shoring as much as any other",
 );
+
+/* ── Unscoped work: always asked, and the answer is where it goes ─────────────────────────────────
+
+  An item extraction had no field for is one a person must see before it reaches a document. So the
+  question is not "is this right?" but "where does it go?" — and "Not part of this job" is a
+  decision that stays in the tree as DROPPED, not a deletion, so the question log can answer "why is
+  that not on the scope?".
+*/
+const unscopedQs = (unscoped) =>
+  nextQuestions(claim, withDerivedFields(extractionWith([everyRecordRoomWith({ unscoped })]))).filter((q) => q.id.includes(":unscoped:"));
+const outlets = { description: "replace two outlets on the wet wall", disposition: null };
+
+const askedUnscoped = unscopedQs([outlets]);
+check(askedUnscoped.length === 1 && askedUnscoped[0].id === "room:0:unscoped:0:disposition", `an undecided item is asked exactly once (got ${askedUnscoped.map((q) => q.id).join(", ") || "nothing"})`);
+check(askedUnscoped[0]?.prompt.includes("replace two outlets on the wet wall"), `and the prompt quotes the PM's words, since they are all the PM has to go on (got "${askedUnscoped[0]?.prompt}")`);
+check(same(askedUnscoped[0]?.kind.options, ["Emergency", "Repair", "Both phases", "Not part of this job"]), `four ways to place it, the last being a decision to leave it out (got ${JSON.stringify(askedUnscoped[0]?.kind.options)})`);
+for (const disposition of ["EMERGENCY", "REPAIR", "BOTH", "DROPPED"]) {
+  check(unscopedQs([{ ...outlets, disposition }]).length === 0, `once placed as ${disposition} it is not asked again — a dropped item included`);
+}
+check(unscopedQs([outlets, { description: "sand the stair treads", disposition: null }]).length === 2, "each item gets its own question");
+check(unscopedQs([]).length === 0, "and a room where everything had a field is asked nothing");
+
+const unscopedTree = extractionWith([everyRecordRoomWith({ unscoped: [outlets] })]);
+const placed = (answer) => applyAnswer(unscopedTree, "room:0:unscoped:0:disposition", answer).rooms[0]?.unscoped[0];
+check(placed("Emergency")?.disposition === "EMERGENCY", "Emergency places it there");
+check(placed("Repair")?.disposition === "REPAIR", "Repair places it there");
+check(placed("Both phases")?.disposition === "BOTH", "both phases is its own value, since the documents render it twice");
+check(placed("Not part of this job")?.disposition === "DROPPED", "and leaving it out records DROPPED rather than deleting the item");
+check(placed("Not part of this job")?.description === outlets.description, "with the words still there to be read later");
+check(placed("somewhere else")?.disposition === null, "an unrecognised answer leaves it open, so it is asked again rather than landing in a phase nobody chose");
 
 /* ── Nothing is asked that extraction could already know ───────────────────────────────────────── */
 

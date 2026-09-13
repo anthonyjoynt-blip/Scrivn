@@ -212,6 +212,8 @@ export default function Home() {
   const [questionLog, setQuestionLog] = useState<AskedQuestion[]>([]);
   const [documents, setDocuments] = useState<GeneratedDocuments | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // What the extraction route could not do this time — see /api/extract. Cleared with `error` on every new run.
+  const [extractionWarnings, setExtractionWarnings] = useState<string[]>([]);
   const [contentsTM, setContentsTM] = useState<ContentsTM>(emptyContentsTM());
   const [contentsApproach, setContentsApproach] = useState<ContentsApproach>("TM");
   const [bricABrac, setBricABrac] = useState<BricABracData>(emptyBricABracData());
@@ -683,6 +685,7 @@ export default function Home() {
     setAnswers({});
     setDocuments(null);
     setError(null);
+    setExtractionWarnings([]);
     setContentsTM(emptyContentsTM());
     setContentsApproach("TM");
     setBricABrac(emptyBricABracData());
@@ -1065,7 +1068,10 @@ export default function Home() {
     setError(null);
     setStep("extracting");
     try {
-      const result = await postJson<{ extraction: WaterLossExtraction }>("/api/extract", { transcript: sourceText });
+      const result = await postJson<{ extraction: WaterLossExtraction; warnings?: string[] }>("/api/extract", { transcript: sourceText });
+      // A pass that did not run is a claim missing what that pass carries — say so, rather than
+      // letting the questions step look complete. See the route for what each pass carries.
+      setExtractionWarnings(result.warnings ?? []);
       // yearOfBuilding is the one intake field that also has to reach extraction.loss (drives
       // asbestosTestingRequired) — see claimInfo.ts's applyClaimYearOfBuilding doc comment.
       const extractionWithYear = applyClaimYearOfBuilding(claim, result.extraction);
@@ -1275,6 +1281,11 @@ ${asbestosSection}`;
       <p className="subtitle">Fill in the claim, paste a walkthrough transcript, answer a few follow-up questions, and get an inspection report and scope document.</p>
 
       {error && <div className="error-banner">{error}</div>}
+      {extractionWarnings.map((w) => (
+        <div className="error-banner" key={w}>
+          {w}
+        </div>
+      ))}
       {persistence.loadError && <div className="error-banner">{persistence.loadError}</div>}
 
       {/*

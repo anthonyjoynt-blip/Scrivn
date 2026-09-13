@@ -99,6 +99,7 @@ export const SAVED_CLAIM_KEYS = [
 /** State the page holds that is deliberately not saved, with the reason. Read by the same guard. */
 export const NOT_PERSISTED: Record<string, string> = {
   error: "a message about the last action, not a fact about the claim",
+  extractionWarnings: "which extraction passes did not run last time, not a fact about the claim",
   isEditingInspectionReport: "which panel is open on this screen",
   isEditingScopeDocument: "which panel is open on this screen",
   editingWorkOrders: "which panels are open on this screen",

@@ -134,6 +134,7 @@ function roomToDomain(w: RoomWire): Room {
     windowCoverings: [],
     cabinetHardware: [],
     subfloor: [],
+    unscoped: [],
     waterExtractionSF: null,
     waterExtractionFraction: null,
     // Gap-check-only (round 6) — never extracted, see Room.ceilingLightFixturesPresent's doc comment.

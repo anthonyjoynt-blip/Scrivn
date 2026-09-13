@@ -1,24 +1,32 @@
 /**
- * The auditor's positive control — one transcript with drops that are KNOWN to happen.
+ * The auditor's positive control — one transcript that says things the schema cannot hold.
  *
  *   SCRIVN_BATCH=control npm run test:pipeline
  *
  * An auditor that reports nothing is either right or blind, and a clean batch cannot tell you which.
- * So this transcript says things the pipeline provably cannot carry, and the audit section of its
- * trace must name them. Run it whenever audit.mjs changes, and read section 6 for:
+ * So this transcript dictates work that provably fits no record — the tub-surround tile and the two
+ * outlets, both cut from lib/schema.ts when it hit the Structured Outputs size limit — plus water
+ * extraction stated outright, which is a gap-check field.
  *
- *   MISSING       — the wall tile and the outlets. Neither has a slot in lib/schema.ts (both were
- *                   cut when the schema hit the Structured Outputs size limit — see the notes there),
- *                   so extraction cannot hold them and the scope cannot show them. If the audit does
- *                   not report these, it has gone blind.
- *   ASKED_ANYWAY  — water extraction. The PM states it outright, but `waterExtractionRequired` is a
- *                   gap-check field, so the app asks. Depending on how the stand-in answers, the
- *                   trace shows either ASKED_ANYWAY (it said yes) or MISSING with "overridden by an
- *                   answer" (it said no). Either is the audit working.
+ * What to read in the trace, and why each part matters:
  *
- * And the negative half, which matters just as much: the baseboard height, the vinyl area and the
- * cabinet grade the stand-in supplies must NOT be reported. Those are answers, not inventions, and
- * the whole reason the auditor is handed the question log is to know the difference.
+ *   Section 3 — both the tile and the outlets must appear as `unscoped`, in the PM's words. That is
+ *                the third extraction call (lib/extractionUnscoped.ts) doing its one job. If either
+ *                is absent here, the sweep has gone blind — or, worse, a pass has failed soft: check
+ *                the top of the trace for the "!!! EXTRACTION PASS FAILED" banner and section 2 for
+ *                a missing extract:detail or extract:unscoped row. Before the sweep existed, both
+ *                items vanished at this point with nothing anywhere to say so.
+ *   Section 4 — each is asked once, "Not in the scope yet — ... Which phase does it belong in?"
+ *   Section 5 — whichever the stand-in placed is on the scope verbatim, in that phase.
+ *   Section 6 — whichever the stand-in DROPPED is reported MISSING with "overridden by an answer":
+ *                the auditor still sees, and can say why the line is not there. Water extraction
+ *                shows as ASKED_ANYWAY (or MISSING-overridden, depending on the stand-in's answer).
+ *                Expect NOTHING for the baseboard height, vinyl area, cabinet grade or insulation
+ *                type — those come from answers, and the auditor is handed the answers.
+ *
+ * The stand-in's choices are hashed from the question id and this claim's name, so they are stable
+ * run to run: as of writing it places the tile in Emergency and drops the outlets. Rename the claim
+ * and they may change; the reading above still holds, it just swaps which item is which.
  *
  * `scopeOnly: true`, like batch 3 — the inspection report would cost tokens to answer nothing here.
  */
@@ -50,7 +58,7 @@ function claim(over) {
 export const TRANSCRIPTS = [
   {
     name: "control-known-drops",
-    note: "Positive control for the auditor. Expect MISSING for the tub-surround tile and the two outlets (no schema slot for either), and ASKED_ANYWAY or an overridden MISSING for the water extraction the PM states outright. Expect NOTHING for the baseboard height, vinyl area or cabinet grade — those come from answers.",
+    note: "Positive control for the sweep and the auditor. The tub-surround tile and the two outlets have no schema slot: both must appear as unscoped in section 3, be asked in section 4, and either reach the scope verbatim or be reported MISSING as overridden by the stand-in's answer. Water extraction, stated outright, shows as ASKED_ANYWAY. Nothing for the baseboard height, vinyl area, cabinet grade or insulation type — those are answers.",
     claim: claim({
       customerName: "Control",
       jobNumber: "00001",

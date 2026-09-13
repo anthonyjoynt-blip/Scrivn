@@ -36,7 +36,7 @@ await build({
   logLevel: "error",
 });
 
-const { mergeDetail, needsDetailPass, extractionDetailUserMessage, normalizeStoredExtraction } = await import(pathToFileURL(bundlePath).href);
+const { mergeDetail, needsDetailPass, extractionDetailUserMessage, normalizeStoredExtraction, mergeUnscoped, needsUnscopedPass, capturedSummary, extractionUnscopedUserMessage } = await import(pathToFileURL(bundlePath).href);
 
 let passed = 0;
 const failures = [];
@@ -70,7 +70,7 @@ function ceiling(overrides = {}) {
   };
 }
 function room(name, overrides = {}) {
-  return { roomName: name, antimicrobialApplied: null, containmentRequired: null, containmentSF: null, hepaVacuumingRequired: null, temporaryPowerRequired: null, appliances: [], trim: [], windowCoverings: [], cabinetHardware: [], subfloor: [], flooring: [], baseboard: [], walls: [], ceilings: [], doors: [], cabinetry: [], toeKicks: [], countertops: [], wallTile: [], outlets: [], lightFixtures: [], electricalPanel: null, plumbingFixtures: [], stairs: null, floorRegistersDetached: null, contents: null, equipment: [], ...overrides };
+  return { roomName: name, antimicrobialApplied: null, containmentRequired: null, containmentSF: null, hepaVacuumingRequired: null, temporaryPowerRequired: null, appliances: [], trim: [], windowCoverings: [], cabinetHardware: [], subfloor: [], unscoped: [], flooring: [], baseboard: [], walls: [], ceilings: [], doors: [], cabinetry: [], toeKicks: [], countertops: [], wallTile: [], outlets: [], lightFixtures: [], electricalPanel: null, plumbingFixtures: [], stairs: null, floorRegistersDetached: null, contents: null, equipment: [], ...overrides };
 }
 const tree = (rooms) => ({ loss: {}, rooms });
 
@@ -116,6 +116,7 @@ function detailRoom(overrides = {}) {
     windowCoverings: [],
     cabinetHardware: [],
     subfloor: [],
+    unscoped: [],
     ...overrides,
   };
 }
@@ -382,6 +383,100 @@ check(unknownAction.trim[0]?.action === null, "an unstated action stays null so 
 
 const badKind = mergeDetail(tree([TRIM_ROOM]), trimDetail([{ kind: "SKIRTING", location: "x", action: "DETACH_AND_RESET" }])).rooms[0];
 check(badKind.trim.length === 0, "a kind that is not in the enum is dropped, never kept with a guessed one");
+
+/* ── Unscoped work: the third call ─────────────────────────────────────────────────────────────────
+
+  The catch-all. The auditor's control transcript dictates tile and outlets, neither of which has a
+  schema slot, and both vanished with nothing in the trace to say they were ever heard. This is the
+  trace: the PM's words, kept as written, arriving with no disposition so a person decides.
+
+  A call of its own, not a list on the detail pass — one string array there was enough to put call
+  2 over the compiled-grammar ceiling, and the pass failed soft into a claim with no detail at all.
+*/
+const UNSCOPED_ROOM = room("Basement bathroom");
+const sweep = (unscoped) => ({ rooms: [{ unscoped }] });
+
+const heard = mergeUnscoped(tree([UNSCOPED_ROOM]), sweep([
+  "Remove tub-surround tile and the soaked backer board behind it",
+  "replace two outlets on the wet wall",
+])).rooms[0];
+check(heard.unscoped.length === 2, `both items arrive (got ${heard.unscoped.length})`);
+check(heard.unscoped[0]?.description === "Remove tub-surround tile and the soaked backer board behind it", "in the PM's words, untouched");
+check(heard.unscoped[1]?.description === "replace two outlets on the wet wall", "including their case — the app does not rewrite these");
+check(heard.unscoped.every((u) => u.disposition === null), "and every one arrives undecided, so the gap-check asks the PM about each");
+
+const untidy = mergeUnscoped(tree([UNSCOPED_ROOM]), sweep(["  Remove   tile ", "", "   ", "Remove tile", "Replace outlets", 42])).rooms[0];
+check(untidy.unscoped.length === 2, `blanks, non-strings and duplicates are dropped — the same job twice is the same job on the document twice (got ${untidy.unscoped.map((u) => u.description).join(" | ")})`);
+check(untidy.unscoped[0]?.description === "Remove tile", "with whitespace tidied, which is the one edit allowed");
+
+check(mergeUnscoped(tree([UNSCOPED_ROOM]), sweep([])).rooms[0].unscoped.length === 0, "an empty list is the common case and stays empty");
+check(mergeUnscoped(tree([UNSCOPED_ROOM]), { rooms: [{}] }).rooms[0].unscoped.length === 0, "and a reply that omitted the field is not a crash");
+check(mergeUnscoped(tree([UNSCOPED_ROOM]), null).rooms[0].unscoped.length === 0, "nor is no reply at all");
+
+const already = mergeUnscoped(tree([room("Basement bathroom", { unscoped: [{ description: "kept from a saved claim", disposition: "REPAIR" }] })]), sweep(["something new"])).rooms[0];
+check(already.unscoped.length === 1 && already.unscoped[0]?.disposition === "REPAIR", "a room that already carries placed items keeps them — a re-run never resets a decision");
+
+const twoRoomSweep = tree([room("Kitchen"), room("Hall")]);
+const sweepMisaligned = mergeUnscoped(twoRoomSweep, sweep(["Replace outlets"]));
+check(sweepMisaligned.rooms.every((r) => r.unscoped.length === 0), "a reply with the wrong number of rooms is discarded whole, never attached to the wrong room");
+const aligned = mergeUnscoped(twoRoomSweep, { rooms: [{ unscoped: [] }, { unscoped: ["Sand the stair treads"] }] });
+check(aligned.rooms[0].unscoped.length === 0 && aligned.rooms[1].unscoped[0]?.description === "Sand the stair treads", "and a matching reply lands each list on its own room");
+
+check(needsUnscopedPass(tree([room("Anything")])) === true && needsUnscopedPass(tree([])) === false, "the pass runs for any claim with rooms and not for one without");
+
+/*
+  What the call is shown: everything the first two passes captured, by name, so "do not duplicate"
+  is a matter of reading a list rather than of judgement. Every kind of record a room can hold must
+  appear here — a kind left out of the summary is a kind the sweep will faithfully report as missing.
+*/
+const full = room("Kitchen", {
+  flooring: [{ type: "VINYL", disposition: "REMOVE_AND_DISPOSE", cleaningRequired: null }],
+  subfloor: [{ type: "SLEEPER_SYSTEM", disposition: "REMOVE_AND_REPLACE", removalSF: null }],
+  baseboard: [{ material: "MDF", action: "REMOVE_AND_REPLACE", shoeMold: true }],
+  walls: [{ drywallBeingRemoved: true, insulationAffected: true }],
+  ceilings: [{ type: "DRYWALL_PLASTER", action: "REMOVE_AND_REPLACE", aboveInsulationAffected: false }],
+  doors: [{ location: "closet", doorStyle: "BIFOLD", action: "REMOVE_AND_REPLACE", saveHardware: true }],
+  trim: [{ kind: "WINDOW_SILL", location: "front window", action: "REMOVE_AND_REPLACE" }],
+  cabinetry: [{ location: "sink run", action: "REMOVE_AND_REPLACE", shoringRequired: true }],
+  cabinetHardware: [{ location: "sink run", action: "DETACH_AND_RESET" }],
+  countertops: [{ material: "LAMINATE", action: "DETACH_AND_RESET" }],
+  toeKicks: [{ action: "REMOVE_AND_REPLACE" }],
+  plumbingFixtures: [{ fixtureType: "BATHROOM_VANITY", action: "DETACH_AND_RESET", topDetached: true, sinkFaucetSaved: true, includesSurround: false }],
+  windowCoverings: [{ type: "BLIND", location: "front window", action: "DETACH_AND_RESET" }],
+  appliances: [{ type: "FRIDGE", action: "DETACH_AND_RESET" }],
+  equipment: [{ type: "air movers", quantity: 3, holeCount: null }, { type: "injecti-dry units", quantity: 1, holeCount: 12 }],
+  floorRegistersDetached: 2,
+  windowCleaningCounts: { SMALL: 2 },
+  ceilingLightFixturesPresent: true,
+  contents: { size: null, manipulationDeclined: false, affected: true },
+  waterExtractionRequired: true,
+  antimicrobialApplied: true,
+  containmentRequired: true,
+  hepaVacuumingRequired: true,
+  temporaryPowerRequired: true,
+});
+const summary = capturedSummary(full).join("\n");
+for (const [kind, hint] of [
+  ["flooring", "vinyl"], ["subfloor", "sleeper"], ["baseboard", "mdf"], ["wall", "drywall coming out"], ["ceiling", "drywall plaster"],
+  ["door", "bifold"], ["trim", "window sill"], ["cabinetry", "shoring"], ["cabinet hardware", "sink run"], ["countertop", "laminate"],
+  ["toe kick", "remove and replace"], ["plumbing fixture", "bathroom vanity"], ["window covering", "blind"], ["appliance", "fridge"], ["equipment", "air movers"],
+  ["floor registers", "× 2"], ["ceiling light fixtures", ""], ["contents", "moved"], ["water extraction", ""], ["antimicrobial", ""],
+  ["containment", ""], ["HEPA vacuuming", ""], ["temporary power", ""],
+  // The work-like details on a record, each of which the sweep reported as missing until it was named here.
+  ["hardware saved and reset", ""], ["12 injection holes drilled and filled", ""], ["countertop detached and reset", ""], ["sink and faucet saved", ""],
+  ["windows cleaned after drywall work", ""],
+]) {
+  check(summary.includes(kind) && summary.includes(hint), `the captured summary names ${kind}${hint ? ` (${hint})` : ""} — a kind left out is one the sweep would report as missing (got:\n${summary})`);
+}
+check(summary.includes("insulation affected") && summary.includes("with shoe mold"), "and the details that are their own line items — insulation, shoe mold — are named too");
+check(capturedSummary(room("Bare")).length === 0, "a room with nothing captured has an empty summary");
+
+const sweepMessage = extractionUnscopedUserMessage("the transcript", tree([room("Kitchen", { equipment: [{ type: "air movers", quantity: 3, holeCount: null }] }), room("Hall")]));
+check(sweepMessage.includes("Return exactly 2 entries"), "the message states the room count, since the reply is positional");
+check(sweepMessage.indexOf("1. Kitchen") < sweepMessage.indexOf("2. Hall"), "rooms in order");
+check(sweepMessage.includes("- equipment — air movers — × 3"), `each room lists what it holds (got:\n${sweepMessage.split("Transcript:")[0]})`);
+check(sweepMessage.includes("(nothing captured for this room)"), "and says so for a room holding nothing, rather than leaving a gap the model might read as an error");
+check(sweepMessage.trim().endsWith("the transcript"), "with the transcript last, after the list it is to be read against");
 
 /*
   The pass MUST run for any claim with rooms, and this is the assertion that protects it.

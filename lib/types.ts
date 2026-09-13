@@ -111,6 +111,8 @@ export interface Room {
   cabinetHardware: CabinetHardwareRecord[];
   /** What is under the finish floor — see {@link SubfloorRecord}. Detail pass only. */
   subfloor: SubfloorRecord[];
+  /** Work the PM described that no field could hold — see {@link UnscopedItem}. Detail pass only. */
+  unscoped: UnscopedItem[];
   /**
    * Gap-check-only, round 12 — never populated by extraction. General water-claim gap-check ("one
    * more gap check for all water claims, if water extraction was not mentioned - ask if water
@@ -707,6 +709,33 @@ export interface CabinetHardwareRecord {
  * hardwood construction, whether baseboard comes off — is written about the surface somebody walks
  * on. Folding the two together would make each of those rules ask a question about the wrong layer.
  */
+/*
+  ── Unscoped work ─────────────────────────────────────────────────────────────────────────────────
+
+  Nothing the PM said may disappear without a trace.
+
+  Extraction maps speech onto a fixed set of records, and the schema cannot hold everything a PM
+  says — tub-surround tile, outlets, stairs and more were cut when it hit the compiled-grammar
+  ceiling, and anything they mention with no field simply vanished: no line, no question, nothing
+  in the trace to say it was ever heard. The auditor's control transcript demonstrates it on
+  purpose. This list is the trace. The detail pass records, in the PM's own words, every piece of
+  work it had nowhere else to put; the gap-check shows each one to the PM to place in a phase or
+  drop; placed ones reach the documents verbatim.
+
+  It is a record of decisions as much as of work: a DROPPED item stays in the tree and in the
+  question log, so "why is that not on the scope?" has an answer.
+*/
+
+/** Which phase(s) an unscoped item belongs in, once the PM has said. DROPPED keeps the record so the decision stays visible. */
+export type UnscopedDisposition = "EMERGENCY" | "REPAIR" | "BOTH" | "DROPPED";
+
+export interface UnscopedItem {
+  /** The work, in the PM's own words as extraction heard them. Never rewritten by the app. */
+  description: string;
+  /** Null until the PM has placed it. Always asked — the point of the item is that a person sees it. */
+  disposition: UnscopedDisposition | null;
+}
+
 export type SubfloorType = "SLEEPER_SYSTEM" | "PLYWOOD_OSB" | "CONCRETE_SLAB" | "OTHER";
 
 export const SUBFLOOR_LABEL: Record<SubfloorType, string> = {

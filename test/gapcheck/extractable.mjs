@@ -73,6 +73,10 @@ export const EXTRACTABLE = new Set([
 export const DELIBERATELY_ASKED = new Map([
   // Quantities. A PM says "flood cut two feet up", rarely "thirty-one linear feet" — and where they
   // do, `parseAreaQuantity` takes it in the answer. The moisture map also pre-fills these.
+  // The one question asked on principle rather than for want of data: extraction could guess a
+  // phase from the words, but an item it had no field for is exactly the item a person must see
+  // before it reaches a document. The answer is the confirmation. See UnscopedItem.
+  ["unscoped:disposition", "always asked — the PM places or drops work extraction had no field for"],
   ["wall:cutRunFt", "a measured quantity, pre-filled from the moisture map where one exists"],
   ["wall:cutRunFraction", "the qualitative half of cutRunFt"],
   ["flooring:removalFraction", "the qualitative half of removalSF, which IS extracted"],

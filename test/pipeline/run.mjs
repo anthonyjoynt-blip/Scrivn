@@ -100,6 +100,8 @@ async function runOne(entry) {
   const extractResponse = await post("/api/extract", { transcript: entry.transcript });
   const extracted = extractResponse.extraction;
   usage.push(...(extractResponse.usage ?? []));
+  // A pass that did not run — the trace must shout, because the tree looks merely sparse otherwise.
+  const warnings = extractResponse.warnings ?? [];
 
   let claim = entry.claim;
   let extraction = extracted;
@@ -162,6 +164,7 @@ async function runOne(entry) {
 
   return {
     usage,
+    warnings,
     entry,
     extraction,
     rawExtraction: extracted,
@@ -243,6 +246,8 @@ function extractionSummary(extraction) {
     */
     for (const f of room.subfloor ?? []) lines.push(`    subfloor    ${[f.type ?? "kind not stated", f.disposition ?? "disposition not stated", f.removalSF !== null ? `${f.removalSF} SF` : null].filter(Boolean).join(" / ")}`);
     for (const t of room.trim ?? []) lines.push(`    trim        ${[t.kind, t.location, t.action ?? "action not stated"].filter(Boolean).join(" / ")}`);
+    // What had no field. The whole point is that these are visible, so they print in full.
+    for (const u of room.unscoped ?? []) lines.push(`    unscoped    "${u.description}" / ${u.disposition ?? "not yet placed"}`);
     for (const w of room.windowCoverings ?? []) lines.push(`    covering    ${[w.type, w.location, w.action ?? "action not stated"].filter(Boolean).join(" / ")}`);
     for (const h of room.cabinetHardware ?? []) lines.push(`    hardware    ${[h.location, h.action ?? "action not stated"].filter(Boolean).join(" / ")}`);
     for (const p of room.plumbingFixtures ?? []) lines.push(`    plumbing    ${[p.fixtureType, p.action].filter(Boolean).join(" / ")}`);
@@ -358,6 +363,11 @@ function report(result) {
   parts.push(`Questions asked: ${log.length}   ·   Rounds: ${result.rounds}   ·   ${result.seconds}s`);
   parts.push(`\nWhy this claim is in the batch:\n  ${entry.note}`);
 
+  if (result.warnings.length > 0) {
+    parts.push("", "!!! EXTRACTION PASS FAILED — everything below is missing what that pass carries !!!");
+    for (const w of result.warnings) parts.push(`!!! ${w}`);
+    parts.push("");
+  }
   parts.push(rule("1. TRANSCRIPT — everything below has to be traceable to this"));
   parts.push(entry.transcript.replace(/(.{1,94})(\s|$)/g, "$1\n"));
 

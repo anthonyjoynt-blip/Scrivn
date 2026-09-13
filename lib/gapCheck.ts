@@ -21,6 +21,7 @@ import type {
   DoorStyle,
   FittingAction,
   SubfloorType,
+  UnscopedDisposition,
   TrimAction,
   TrimRecord,
   DoorType,
@@ -357,6 +358,20 @@ export function evaluate(raw: WaterLossExtraction, suggestions?: EquipmentSugges
           prompt: "How much subfloor is coming out? Enter an exact SF number. Dimensions work too — \"6 x 8\" is read as 48 SF.",
           kind: { type: "decimal" },
         });
+    });
+    /*
+      Work that had no field. Always asked — an item extraction could not place is one a person has to
+      see before it reaches a document, and the answer is also where it goes. "Not part of this job"
+      keeps the record as DROPPED rather than deleting it, so the decision stays in the question log.
+    */
+    room.unscoped.forEach((u, i) => {
+      if (u.disposition !== null) return;
+      questions.push({
+        id: `room:${roomIndex}:unscoped:${i}:disposition`,
+        roomName: room.roomName,
+        prompt: `Not in the scope yet — "${u.description}". Which phase does it belong in?`,
+        kind: { type: "choice", options: UNSCOPED_OPTIONS },
+      });
     });
     /*
       Window coverings and cabinet hardware, on the same terms as trim: the record exists because the
@@ -1154,6 +1169,18 @@ function subfloorTypeAnswer(answer: string): SubfloorType | null {
   if (equalsIgnoreCase(answer, "Plywood or OSB")) return "PLYWOOD_OSB";
   if (equalsIgnoreCase(answer, "Concrete slab")) return "CONCRETE_SLAB";
   if (equalsIgnoreCase(answer, "Something else")) return "OTHER";
+  return null;
+}
+
+/** Where an unscoped item goes. The last option is a decision, not a deletion — see UnscopedItem. */
+const UNSCOPED_OPTIONS = ["Emergency", "Repair", "Both phases", "Not part of this job"];
+
+/** Unrecognised leaves it open, so the item is asked again rather than landing in a phase nobody chose. */
+function unscopedDispositionAnswer(answer: string): UnscopedDisposition | null {
+  if (equalsIgnoreCase(answer, "Emergency")) return "EMERGENCY";
+  if (equalsIgnoreCase(answer, "Repair")) return "REPAIR";
+  if (equalsIgnoreCase(answer, "Both phases")) return "BOTH";
+  if (equalsIgnoreCase(answer, "Not part of this job")) return "DROPPED";
   return null;
 }
 
@@ -2115,6 +2142,9 @@ export function applyAnswer(extraction: WaterLossExtraction, questionId: string,
   }
   if (parts.length >= 5 && parts[0] === "room" && parts[2] === "cabinetHardware" && parts[4] === "action") {
     return updateList(extraction, roomIndex(parts), Number(parts[3]), (r) => r.cabinetHardware, (r, l) => ({ ...r, cabinetHardware: l }), (h) => ({ ...h, action: fittingActionAnswer(answer) }));
+  }
+  if (parts.length >= 5 && parts[0] === "room" && parts[2] === "unscoped" && parts[4] === "disposition") {
+    return updateList(extraction, roomIndex(parts), Number(parts[3]), (r) => r.unscoped, (r, l) => ({ ...r, unscoped: l }), (u) => ({ ...u, disposition: unscopedDispositionAnswer(answer) }));
   }
   if (parts.length >= 5 && parts[0] === "room" && parts[2] === "subfloor") {
     return updateList(extraction, roomIndex(parts), Number(parts[3]), (r) => r.subfloor, (r, l) => ({ ...r, subfloor: l }), (f) => {

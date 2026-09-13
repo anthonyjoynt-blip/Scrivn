@@ -33,6 +33,7 @@ export const RENDERED = new Map([
   ["Room.containmentSF", "rule 15 — its SF of BARRIER, never the room's floor area"],
   ["Room.hepaVacuumingRequired", "rule 16 — HEPA vacuuming, priced per SF of floor"],
   ["Room.appliances", "rule 17 — the Detach/Reset pair, per appliance"],
+  ["Room.unscoped", "rule 19 — the PM's own words, verbatim, in the phase they chose"],
   ["FlooringRecord.cleaningRequired", "rule 1c — Clean & treat {type} floor"],
   ["FlooringRecord.removalSF", "rule 1b — the removal extent, every flooring type"],
   ["FlooringRecord.removalFraction", "rule 1b — the qualitative half of removalSF"],
