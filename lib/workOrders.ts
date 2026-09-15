@@ -11,6 +11,7 @@ import { isDGIG } from "./insurers";
 import { lossTypeLabel } from "./claimInfo";
 import { baseboardFinishLine, ceilingPaintLine, ceilingQuantity, fractionLabel, primingLine } from "./paintDerivation";
 import type { ApplianceType, CeilingRecord, DoorRecord, FlooringRecord, Room, WaterLossExtraction, UnscopedItem } from "./types";
+import { disposalLine, recommendDisposal, type RoomAreasByName } from "./debris";
 import { APPLIANCE_LABEL, DOOR_STYLE_LABEL, isInjectionEquipment, SUBFLOOR_LABEL, TRIM_KIND_LABEL, WINDOW_COVERING_LABEL, WINDOW_CLEANING_SIZE_LABEL, WINDOW_CLEANING_SIZES } from "./types";
 
 /**
@@ -286,7 +287,7 @@ function roomSections(extraction: WaterLossExtraction, perRoom: (room: Room) => 
  * Emergency section — that insurer's emergency work is captured as labour hours on its own form,
  * and the extracted records describe the repair side only.
  */
-function buildMitigationDemo(claim: ClaimInfo, extraction: WaterLossExtraction, dgigData: DGIGData | null): string {
+function buildMitigationDemo(claim: ClaimInfo, extraction: WaterLossExtraction, dgigData: DGIGData | null, roomAreas: RoomAreasByName = {}): string {
   if (isDGIG(claim.insurer) && dgigData) {
     const body: string[] = [];
     const general = lines(
@@ -485,6 +486,15 @@ function buildMitigationDemo(claim: ClaimInfo, extraction: WaterLossExtraction, 
 
     return items;
   });
+
+  /*
+    The bin, sized from what the rooms above are putting in it. A General block like the scope's,
+    and the one place on a crew sheet the estimate matters: this is the crew that orders it.
+  */
+  if (extraction.rooms.length > 0) {
+    if (body.length > 0) body.push("");
+    body.push("  General", `    - ${disposalLine(recommendDisposal(extraction, roomAreas, "EMERGENCY"))}`);
+  }
 
   return assemble(claim, "MITIGATION_DEMO", body);
 }
@@ -786,8 +796,10 @@ export function buildWorkOrders(params: {
   dgigData: DGIGData | null;
   /** Wall areas marked out on the sketch — see `PaintableWallAreas`. */
   paintableWallSF?: PaintableWallAreas;
+  /** Each room's floor area and wall run from the sketch, for the disposal estimate — see lib/debris.ts. */
+  roomAreas?: RoomAreasByName;
 }): WorkOrder[] {
-  const { trades, claim, extraction, contentsApproach, contentsTM, bricABrac, dgigData, paintableWallSF } = params;
+  const { trades, claim, extraction, contentsApproach, contentsTM, bricABrac, dgigData, paintableWallSF, roomAreas } = params;
   // A contents-only claim has no extraction at all — the contents builders don't need one.
   const empty: WaterLossExtraction = extraction ?? { loss: { category: null, lossClass: null, source: null, dateOfLoss: null, yearOfBuilding: null, asbestosTestingRequired: false, asbestosSamplesTaken: null, asbestosSampleCount: null, isBasementLoss: false, hvacInspectionRequired: null }, rooms: [] };
 
@@ -795,7 +807,7 @@ export function buildWorkOrders(params: {
     let text: string;
     switch (trade) {
       case "MITIGATION_DEMO":
-        text = buildMitigationDemo(claim, empty, dgigData);
+        text = buildMitigationDemo(claim, empty, dgigData, roomAreas ?? {});
         break;
       case "DRYWALL":
         text = buildDrywall(claim, empty);

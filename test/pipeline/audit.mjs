@@ -82,7 +82,10 @@ const MODEL = envFromLocal("ANTHROPIC_MODEL") || "claude-opus-5";
  * inherit the prompt's own blind spots — which is exactly what it is meant to find.
  */
 const AUTO_INCLUDED = `
-- "Disposal charge", "Equipment pickup and monitoring" — General items on every claim with work.
+- "Disposal – {size} (est. … t; not weighed: …)" — computed by the app from the weight of every
+  removal, on every claim with work, in each phase. The size, tonnage and "not weighed" note are all
+  the app's; never report any of them.
+- "Equipment pickup and monitoring" — a General item on every claim with work.
 - "Final clean" — on every room with repair work.
 - "Manipulate contents" / "Reset contents" — added from a room's contents size, not from words.
 - "Extract water" — added when a room needs extraction, sometimes from a moisture map.
@@ -123,7 +126,10 @@ UNSUPPORTED — the scope has a line that neither the dictation nor any answer s
   not the app's, and is not a finding.
 ASKED_ANYWAY — the app asked a question whose answer the PM had already plainly given in the
   dictation. Quote the PM and the question. Only when the dictation genuinely stated it — a PM who
-  said "the carpet's coming out" did not state its square footage, and asking that is fine.
+  said "the carpet's coming out" did not state its square footage, and asking that is fine. NEVER
+  for a question beginning "Not in the scope yet": those are deliberate — the app found work it had
+  no field for and is asking the PM to confirm it and place it in a phase, which is the confirmation
+  step, not a failure to listen.
 
 RULES:
 - Report WORK only. Not pleasantries, not the loss category, not the address, not the PM's name.

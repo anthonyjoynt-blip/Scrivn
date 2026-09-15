@@ -46,12 +46,15 @@ export async function POST(request: Request) {
     const extraction = withDerivedFields(wireToDomain(structure.output));
     const detailed = await withDetail(transcript, extraction);
     /*
-      Calls 3 and 4 both read the tree as it stands after call 2 and touch different fields, so they
-      run side by side: the second detail pass costs money but not time. The sweep's summary is
-      built from the tree BEFORE the supplement lands, which is fine — the supplement adds extents,
-      not records, and the sweep is looking for records.
+      Call 4 first, then call 3 — in that order, deliberately. They ran side by side for a day, on
+      the theory that the supplement adds extents and the sweep looks for records. It does not hold:
+      the supplement also sets waterExtractionRequired, and a sweep that read the tree before it
+      landed reported "extract standing water off the whole floor" as work with no field — a second
+      line for the same job on the document. The sweep must see everything captured, so it waits.
+      About five seconds, once per claim.
     */
-    const [swept, supplemented] = await Promise.all([withUnscoped(transcript, detailed.extraction), withSupplement(transcript, detailed.extraction)]);
+    const supplemented = await withSupplement(transcript, detailed.extraction);
+    const swept = await withUnscoped(transcript, supplemented.extraction);
     const merged = mergeUnscoped(supplemented.extraction, swept.wire);
     /*
       Token usage travels back with the result so a caller can see what a claim cost. The UI ignores

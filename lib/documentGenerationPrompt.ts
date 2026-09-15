@@ -1,4 +1,5 @@
 import type { WaterLossExtraction } from "./types";
+import { disposalLines, type DisposalLines } from "./debris";
 import type { ClaimInfo, ScopePhase } from "./claimInfo";
 import { lossTypeLabel } from "./claimInfo";
 import type { DGIGData } from "./dgig";
@@ -648,7 +649,8 @@ controls which section(s) of the scope document render, on top of every rule abo
   REMOVE_AND_REPLACE pair. Contents follows the same combining rule: "Manipulate & reset contents"
   instead of the two separate bullets (unless CONTENTS is also separately selected — see below, in
   which case neither bullet renders at all, combined or not). Items that are inherently single-phase
-  already — Disposal charge, Equipment pickup and monitoring, asbestos sample collection,
+  already — the disposal line (use "combined" here, see the disposal note below), Equipment
+  pickup and monitoring, asbestos sample collection,
   furnace/hot water tank inspection, the electrical panel inspection note, the ceiling texture
   sequence, the drywall replacement sequence, baseboard paint/finish, carpet cleaning, underpad +
   carpet — are unaffected by this combining rule; render them exactly as their own rule above
@@ -749,7 +751,7 @@ Emergency
     - {action} – {material detail} – {qualitative extent}
     ... (one bullet per record with an Emergency portion, per EMERGENCY_DERIVATION_RULES below)
   General
-    - Disposal charge
+    - {disposal.emergency — the computed disposal line, written exactly as given}
     - Equipment pickup and monitoring
     - Asbestos sample collection – {N} samples   (only when loss.asbestosSamplesTaken is true; {N} is
       loss.asbestosSampleCount, omitted along with the word "samples" when that count is null)
@@ -761,6 +763,8 @@ Repair
   {room name}
     - {action} – {material detail} – {qualitative extent}
     ... (one bullet per record with a Repair portion)
+  General
+    - {disposal.repair — the computed disposal line, written exactly as given}
 
 Notes on the scope document — tone and format matter as much as content here:
 - Bullets are short dashes, not full sentences: "{action} – {material detail} – {extent}".
@@ -819,9 +823,17 @@ Notes on the scope document — tone and format matter as much as content here:
   room runs directly into the next with no visual break, which reads as cluttered. No blank line
   is needed between a phase's last room and its "General" heading, or between phases.
 - Only include the "Asbestos sample collection" line under General if samples were taken.
-- Disposal charge stays generic — just "Disposal charge," no dumpster/trailer/container type or
-  amount — that's an estimator's call, not something to imply from the data. Only get specific if
-  the PM actually stated a type or size in the transcript; otherwise leave it exactly as shown.
+- DISPOSAL IS COMPUTED, NOT WRITTEN BY YOU. CLAIM CONTEXT carries a "disposal" object with three
+  ready-made lines: "emergency", "repair" and "combined". Each is the container size read off the
+  company's own ladder from the weight of every removal in that phase, with the estimated tonnage
+  beside it and, where something could not be weighed, a "not weighed" note naming it. Write the
+  line EXACTLY as given — never recompute, round, shorten, drop the tonnage or the "not weighed"
+  note, or substitute a size of your own. Which line goes where: both EMERGENCY and REPAIR selected
+  → "emergency" under Emergency's General, "repair" under Repair's General. Only ONE of the two
+  selected → that document has one General block, and it gets "combined" (the tear-out is happening
+  on that single visit, so its debris is counted). If the PM stated a container in the transcript
+  ("we'll need a 30-yard bin"), keep the computed line and append " — PM called for {what they
+  said}" to it, so both the estimate and the PM's call are on the page.
 - waterCategoryNote, when present, explains why the category is what it is — normally that enough
   days passed between the loss and the inspection for the water to have degraded, and that the PM
   confirmed it. Carry it into the document verbatim as its own sentence in the loss description, so
@@ -926,6 +938,8 @@ export function documentGenerationUserMessage(
   contentsAssignmentNote: string | null = null,
   /** Only ever non-null for a DGIG claim whose DGIG form has content — see dgig.ts's hasDGIGContent and DGIG_SCOPE_RULES above for what this does to the scope document. */
   dgigData: DGIGData | null = null,
+  /** The three computed disposal lines — see lib/debris.ts. The route always supplies them; the default is only for older callers. */
+  disposal: DisposalLines = disposalLines(completedExtraction, {}),
 ): string {
   // claimNumber/address/pmName/dateOfLoss/yearOfBuilding/dateTimeInspected are deliberately NOT
   // sent here — they only ever fed the JOB INFORMATION section, which this call no longer
@@ -947,6 +961,8 @@ export function documentGenerationUserMessage(
         scopePhases: modelScopePhases(claim),
         // null unless this is a DGIG claim whose DGIG form has content — see DGIG_SCOPE_RULES.
         dgigData,
+        // Computed from the tree and the sketch — see lib/debris.ts and the disposal note above.
+        disposal,
       }
     : {
         customerName: claim.customerName,
@@ -969,6 +985,8 @@ export function documentGenerationUserMessage(
         contentsAssignmentNote,
         // null unless this is a DGIG claim whose DGIG form has content — see DGIG_SCOPE_RULES.
         dgigData,
+        // Computed from the tree and the sketch — see lib/debris.ts and the disposal note above.
+        disposal,
       };
 
   if (claim.scopeOnly) {

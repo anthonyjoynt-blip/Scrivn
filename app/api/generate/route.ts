@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { disposalLines, type RoomAreasByName } from "@/lib/debris";
 import { createStructuredMessage, GENERATION_MAX_TOKENS, ScopingApiError } from "@/lib/anthropic";
 import { documentGenerationSchema, scopeOnlyGenerationSchema } from "@/lib/schema";
 import { DOCUMENT_GENERATION_SYSTEM_PROMPT, SCOPE_ONLY_SYSTEM_PROMPT, documentGenerationUserMessage } from "@/lib/documentGenerationPrompt";
@@ -20,7 +21,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Request body must be JSON." }, { status: 400 });
   }
 
-  const { claim, extraction, transcript, contentsAssignmentNote, dgigData } = (body ?? {}) as {
+  const { claim, extraction, transcript, contentsAssignmentNote, dgigData, roomAreas } = (body ?? {}) as {
+    /** What the sketch knows about each room, keyed by normalised name — see lib/debris.ts. Optional: the pipeline harness sends none. */
+    roomAreas?: RoomAreasByName;
     claim?: ClaimInfo;
     extraction?: WaterLossExtraction;
     transcript?: string;
@@ -54,13 +57,13 @@ export async function POST(request: Request) {
     const generated = claim.scopeOnly
       ? await createStructuredMessage<GeneratedDocuments>({
           system: SCOPE_ONLY_SYSTEM_PROMPT,
-          userMessage: documentGenerationUserMessage(claim, extraction, transcript, null, dgigData ?? null),
+          userMessage: documentGenerationUserMessage(claim, extraction, transcript, null, dgigData ?? null, disposalLines(extraction, roomAreas ?? {})),
           schema: scopeOnlyGenerationSchema,
           maxTokens: GENERATION_MAX_TOKENS,
         })
       : await createStructuredMessage<GeneratedDocuments>({
           system: DOCUMENT_GENERATION_SYSTEM_PROMPT,
-          userMessage: documentGenerationUserMessage(claim, extraction, transcript, contentsAssignmentNote ?? null, dgigData ?? null),
+          userMessage: documentGenerationUserMessage(claim, extraction, transcript, contentsAssignmentNote ?? null, dgigData ?? null, disposalLines(extraction, roomAreas ?? {})),
           schema: documentGenerationSchema,
           maxTokens: GENERATION_MAX_TOKENS,
         });

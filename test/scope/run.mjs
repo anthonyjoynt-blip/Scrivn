@@ -41,6 +41,7 @@ const {
   sketchRenderLabel, sketchRenderDescription, parseRender, defaultSketchAttachments, PIXELS_PER_FOOT,
   pruneScopeMarks, scopeWallRunFeet,
   emptyMoistureMap, setRoomMoisture, resolveRound, pruneMoisture, paintedFloorSquareFeet,
+  disposalForTons, estimateDebris, recommendDisposal, disposalLine, disposalLines, unweighedNote, DEBRIS_WEIGHTS,
 } = await import(pathToFileURL(bundlePath).href);
 
 let passed = 0;
@@ -1062,6 +1063,147 @@ const phoned = buildWorkOrders({
 });
 check(bbText(phoned, "MITIGATION_DEMO").includes("PM phone: 403 555 0100"), `the PM phone reaches every sheet's header (got:\n${bbText(phoned, "MITIGATION_DEMO").split("\n").slice(0, 8).join("\n")})`);
 check(bbText(bbOrders(bbExtraction([room("Hall", { floorRegistersDetached: 1 })])), "MITIGATION_DEMO").includes("PM phone: —"), "and a claim with none shows the blank, so a crew can see it is missing rather than assume there was never a number");
+
+/* ── Disposal: the bin, sized from what is going in it ───────────────────────────────────────────── */
+
+/*
+  The first derived quantity in the app. Every removal has a weight, the weights sum per phase, and
+  the total reads off the ladder the company gave. Weights reviewed against real loads 2026-09-14.
+  What cannot be weighed — a fraction with no sketch, an unscoped item — is named on the line rather
+  than rounded away.
+*/
+const near = (a, b, eps = 0.01) => Math.abs(a - b) < eps;
+const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+
+// The ladder, exactly as given, boundaries inclusive.
+for (const [tons, size] of [
+  [0, "pickup – 1/4 load"], [0.125, "pickup – 1/4 load"], [0.126, "pickup – 1/2 load"], [0.25, "pickup – 1/2 load"],
+  [0.3, "pickup – 3/4 load"], [0.5, "pickup – full load"], [0.51, "dump trailer"], [1.67, "dump trailer"],
+  [1.68, "12 yd dumpster"], [3, "12 yd dumpster"], [3.01, "20 yd dumpster"], [4, "20 yd dumpster"],
+  [4.01, "30 yd dumpster"], [7, "30 yd dumpster"], [7.01, "40 yd dumpster"], [8, "40 yd dumpster"],
+]) {
+  check(disposalForTons(tons) === size, `${tons} t → ${size} (got ${disposalForTons(tons)})`);
+}
+check(disposalForTons(9) === "40 yd dumpster + dump trailer", `past eight tons, a 40 yd and whatever the remainder needs (got ${disposalForTons(9)})`);
+check(disposalForTons(20) === "40 yd dumpster + 40 yd dumpster + 20 yd dumpster", `however many times over (got ${disposalForTons(20)})`);
+
+const debris = (rooms, areas = {}, phase = "EMERGENCY") => estimateDebris(bbExtraction(rooms), areas, phase);
+const poundsOf = (rooms, areas = {}, phase = "EMERGENCY") => debris(rooms, areas, phase).pounds;
+
+// Drywall by cut height and run, insulation riding on the same area.
+check(near(poundsOf([room("Hall", { walls: [wall({ cutHeight: "TWO_FOOT", cutRunFt: 30 })] })]), 120), `a 2' flood cut over 30 LF is 60 SF at 2 lb (got ${poundsOf([room("Hall", { walls: [wall({ cutHeight: "TWO_FOOT", cutRunFt: 30 })] })])})`);
+check(near(poundsOf([room("Hall", { walls: [wall({ cutHeight: "FULL_WALL", cutRunFt: 10 })] })]), 160), "a full wall assumes eight feet");
+check(near(poundsOf([room("Hall", { walls: [wall({ cutHeight: "BASE", cutRunFt: 30 })] })]), 20), "a base cut is four inches");
+check(near(poundsOf([room("Hall", { walls: [wall({ cutHeight: null, cutRunFt: 30 })] })]), 20), "and an unstated height is read as base, as the scope rule reads it");
+check(near(poundsOf([room("Hall", { walls: [wall({ cutHeight: "TWO_FOOT", cutRunFt: 30, insulationAffected: true, insulationType: "FIBERGLASS_BATT" })] })]), 138), "wet batt adds 0.3 lb over the same area");
+check(near(poundsOf([room("Hall", { walls: [wall({ cutHeight: "TWO_FOOT", cutRunFt: 30, insulationAffected: true, insulationType: "CELLULOSE" })] })]), 180), "and wet cellulose a full pound");
+check(near(poundsOf([room("Hall", { walls: [wall({ drywallBeingRemoved: false, cutRunFt: 30 })] })]), 0), "a wall staying up weighs nothing");
+
+// Flooring by type, sheet vinyl and plank told apart, pad on its own terms.
+const fl = (over) => room("Kitchen", { flooring: [flooring({ disposition: "REMOVE_AND_DISPOSE", ...over })] });
+check(near(poundsOf([fl({ type: "VINYL", vinylSubtype: "PLANK", removalSF: 120 })]), 216), "plank at 1.8");
+check(near(poundsOf([fl({ type: "VINYL", vinylSubtype: "SHEET", removalSF: 120 })]), 72), "sheet at 0.6 — the same word, a third of the weight");
+check(near(poundsOf([fl({ type: "TILE", removalSF: 50 })]), 225), "tile and thinset at 4.5");
+check(near(poundsOf([fl({ type: "CARPET", removalSF: 100, padRemoved: true, padRemovedSF: 100 })]), 150), "carpet at 1.0 plus its pad at 0.5");
+check(near(poundsOf([fl({ type: "CARPET", disposition: "LIFT_AND_REINSTALL", padRemoved: true, padRemovedSF: 100 })]), 50), "a carpet lifted and kept still sends its pad to the bin");
+{
+  const lifted = debris([fl({ type: "CARPET", disposition: "LIFT_AND_REINSTALL", removalSF: 100, padRemoved: false })]);
+  check(lifted.pounds === 0 && lifted.unweighed.length === 0, `a carpet lifted and put back is neither weighed nor listed as unweighed — it is not leaving (got ${lifted.pounds} lb, ${JSON.stringify(lifted.unweighed)})`);
+}
+check(near(poundsOf([fl({ type: "CARPET", removalSF: 100, padRemoved: true })]), 150), "pad with no area of its own takes the carpet's");
+check(near(poundsOf([fl({ type: "CARPET", disposition: "DRY_IN_PLACE" })]), 0), "a floor dried in place weighs nothing");
+check(near(poundsOf([fl({ type: "CONCRETE", removalSF: 100 })]), 0), "and nobody bins a slab");
+
+// Fractions need the sketch; without it the removal is named, not guessed.
+const halfRoom = fl({ type: "VINYL", vinylSubtype: "PLANK", removalSF: null, removalFraction: "HALF" });
+check(near(poundsOf([halfRoom], { kitchen: { floorSquareFeet: 200, wallRunFeet: null, ceilingSquareFeet: null } }), 180), `"half the room" against a 200 SF sketch is 100 SF of plank (got ${poundsOf([halfRoom], { kitchen: { floorSquareFeet: 200, wallRunFeet: null, ceilingSquareFeet: null } })})`);
+{
+  const unsketched = debris([halfRoom]);
+  check(unsketched.pounds === 0 && same(unsketched.unweighed, [{ item: "vinyl removal", room: "Kitchen" }]), `with no sketch it is listed as unweighed, by name and room (got ${JSON.stringify(unsketched.unweighed)}, ${unsketched.pounds} lb)`);
+}
+
+// Baseboard by the LF, its own or the sketch's.
+check(near(poundsOf([room("Hall", { baseboard: [{ material: "MDF", action: "REMOVE_AND_REPLACE", wallRunFt: 40, phase: null, shoeMold: null, disposition: null, heightIn: null, phaseUncertain: false, mdfProfile: null }] })]), 24), "MDF baseboard at 0.6 per LF");
+check(near(poundsOf([room("Hall", { baseboard: [{ material: "SOLID_WOOD", action: "REMOVE_AND_REPLACE", wallRunFt: null, phase: null, shoeMold: null, disposition: null, heightIn: null, phaseUncertain: false, mdfProfile: null }] })], { hall: { floorSquareFeet: null, wallRunFeet: 50, ceilingSquareFeet: null } }), 25), "with no stated run, the sketch's perimeter");
+check(same(debris([room("Hall", { baseboard: [{ material: "MDF", action: "REMOVE_AND_REPLACE", wallRunFt: null, phase: null, shoeMold: null, disposition: null, heightIn: null, phaseUncertain: false, mdfProfile: null }] })]).unweighed, [{ item: "baseboard removal", room: "Hall" }]), "and with neither, unweighed");
+check(near(poundsOf([room("Hall", { baseboard: [{ material: "MDF", action: "DETACH_AND_RESET", wallRunFt: 40, phase: null, shoeMold: null, disposition: null, heightIn: null, phaseUncertain: false, mdfProfile: null }] })]), 0), "baseboard going back on is not debris");
+
+// Ceilings, subfloor, and the per-unit allowances.
+check(near(poundsOf([room("Hall", { ceilings: [ceiling({ replaceSF: 120, aboveInsulationAffected: true, aboveInsulationType: "FIBERGLASS_BATT" })] })]), 276), "120 SF of ceiling at 2 lb plus wet batt above it");
+check(near(poundsOf([room("Hall", { subfloor: [{ type: "SLEEPER_SYSTEM", disposition: "REMOVE_AND_REPLACE", removalSF: 180 }] })]), 180), "sleepers at 1 lb");
+check(near(poundsOf([room("Hall", { subfloor: [{ type: "PLYWOOD_OSB", disposition: "REMOVE_AND_REPLACE", removalSF: 100 }] })]), 220), "sheet subfloor at 2.2");
+check(near(poundsOf([room("Hall", { subfloor: [{ type: "SLEEPER_SYSTEM", disposition: "DRY_IN_PLACE", removalSF: null }] })]), 0), "a subfloor dried in place stays");
+const cab = (extent, action = "REMOVE_AND_REPLACE") => room("Kitchen", { cabinetry: [{ location: "x", action, extent, grade: null, shoringRequired: null }] });
+check(poundsOf([cab("LOWERS")]) === 300 && poundsOf([cab("UPPERS")]) === 200 && poundsOf([cab("FULL_HEIGHT")]) === 400 && poundsOf([cab(null)]) === 300, "cabinetry by extent, lowers when unstated");
+check(poundsOf([cab("LOWERS", "DETACH_AND_RESET")]) === 0, "cabinetry going back is not debris");
+check(poundsOf([room("Bath", { plumbingFixtures: [{ fixtureType: "BATHROOM_VANITY", action: "REMOVE_AND_REPLACE", basinCount: null, mount: null, sinkAlsoNeeded: null, topDetached: null, topKept: null, topMaterial: null, sinkFaucetSaved: null, grade: null, includesSurround: null, surroundMaterial: null }] })]) === 80, "a replaced vanity is 80 lb");
+check(poundsOf([room("Bath", { plumbingFixtures: [{ fixtureType: "TOILET", action: "DETACH_AND_RESET", basinCount: null, mount: null, sinkAlsoNeeded: null, topDetached: null, topKept: null, topMaterial: null, sinkFaucetSaved: null, grade: null, includesSurround: null, surroundMaterial: null }] })]) === 0, "a reset toilet is not");
+check(poundsOf([room("Hall", { doors: [doorRecord({ doorType: "SOLID_CORE" })] })]) === 90 && poundsOf([room("Hall", { doors: [doorRecord({ doorType: "HOLLOW_CORE" })] })]) === 60, "doors by core");
+check(poundsOf([room("Kitchen", { countertops: [{ material: "LAMINATE", action: "REMOVE_AND_REPLACE" }] })]) === 50, "a replaced countertop is 50 lb");
+
+// Phase: what comes out on the repair visit is repair debris; everything else is emergency.
+const repairFloor = fl({ type: "VINYL", vinylSubtype: "PLANK", removalSF: 100, phase: "REPAIR" });
+check(poundsOf([repairFloor], {}, "EMERGENCY") === 0 && near(poundsOf([repairFloor], {}, "REPAIR"), 180), "a floor coming out on the repair visit weighs on the repair side only");
+check(poundsOf([room("Hall", { walls: [wall({ cutHeight: "TWO_FOOT", cutRunFt: 30 })] })], {}, "REPAIR") === 0, "drywall is always emergency debris");
+
+// Unscoped work has words but no weight; it is named where it was placed.
+const unscopedRoom = room("Bath", { unscoped: [{ description: "remove tub-surround tile", disposition: "EMERGENCY" }, { description: "replace two outlets", disposition: "REPAIR" }, { description: "dropped thing", disposition: "DROPPED" }, { description: "undecided thing", disposition: null }] });
+check(same(debris([unscopedRoom]).unweighed, [{ item: "remove tub-surround tile", room: "Bath" }]), `emergency unscoped work is listed as unweighed on the emergency side (got ${JSON.stringify(debris([unscopedRoom]).unweighed)})`);
+check(same(debris([unscopedRoom], {}, "REPAIR").unweighed, [{ item: "replace two outlets", room: "Bath" }]), "and repair work on the repair side — dropped and undecided items on neither");
+
+// The recommendation and the line.
+const bigJob = [room("Basement", { walls: [wall({ cutHeight: "FOUR_FOOT", cutRunFt: 120 })], flooring: [flooring({ type: "CARPET", disposition: "REMOVE_AND_DISPOSE", removalSF: 600, padRemoved: true, padRemovedSF: 600 })] })];
+{
+  const rec = recommendDisposal(bbExtraction(bigJob), {}, "EMERGENCY");
+  check(rec.size === "dump trailer" && rec.tons === 0.9 && rec.basis === "estimated", `960 lb of drywall and 900 of carpet and pad is 0.9 t → a dump trailer (got ${rec.size}, ${rec.tons} t)`);
+  check(disposalLine(rec) === "Disposal – dump trailer (est. 0.9 t)", `the line carries the size and the tonnage (got "${disposalLine(rec)}")`);
+}
+{
+  const rec = recommendDisposal(bbExtraction([...bigJob, unscopedRoom]), {}, "EMERGENCY");
+  check(disposalLine(rec) === "Disposal – dump trailer (est. 0.9 t; not weighed: remove tub-surround tile (Bath))", `and names what it could not weigh (got "${disposalLine(rec)}")`);
+}
+{
+  const rec = recommendDisposal(bbExtraction(bigJob), {}, "REPAIR");
+  check(rec.size === "pickup" && rec.tons === null && rec.basis === "default" && disposalLine(rec) === "Disposal – pickup", `repair defaults to a pickup with no estimate to show (got "${disposalLine(rec)}")`);
+}
+{
+  const heavyRepair = recommendDisposal(bbExtraction([fl({ type: "TILE", removalSF: 400, phase: "REPAIR" })]), {}, "REPAIR");
+  check(heavyRepair.size === "dump trailer" && heavyRepair.basis === "estimated", `but a repair-visit tear-out heavier than a pickup climbs the ladder (got ${heavyRepair.size})`);
+}
+{
+  const nothing = recommendDisposal(bbExtraction([room("Hall")]), {}, "EMERGENCY");
+  check(disposalLine(nothing) === "Disposal – pickup – 1/4 load" && nothing.basis === "default", `a claim with no removals still gets the smallest bin, with no tonnage claimed (got "${disposalLine(nothing)}")`);
+}
+{
+  const tiny = recommendDisposal(bbExtraction([room("Hall", { doors: [doorRecord({ doorType: "HOLLOW_CORE" })] })]), {}, "EMERGENCY");
+  check(disposalLine(tiny) === "Disposal – pickup – 1/4 load (est. under 0.1 t)", `sixty pounds is "under 0.1 t", not "0 t" (got "${disposalLine(tiny)}")`);
+}
+{
+  const lines = disposalLines(bbExtraction([...bigJob, repairFloor]), {});
+  check(lines.emergency.includes("est. 0.9 t") && lines.repair.includes("pickup") && lines.combined.includes("est. 1 t"), `a single-heading document gets both phases weighed together (got combined "${lines.combined}")`);
+}
+
+// The "not weighed" note reads as a sentence, grouped by room, with the room left off on a one-room claim.
+check(
+  unweighedNote([{ item: "vinyl removal", room: "Bath" }, { item: "baseboard removal", room: "Bath" }, { item: "drywall removal", room: "Bath" }], 1) === "vinyl, baseboard and drywall removal",
+  `three removals in the only room read as one phrase with no room tag (got "${unweighedNote([{ item: "vinyl removal", room: "Bath" }, { item: "baseboard removal", room: "Bath" }, { item: "drywall removal", room: "Bath" }], 1)}")`,
+);
+check(
+  unweighedNote([{ item: "vinyl removal", room: "Bath" }, { item: "remove tub-surround tile", room: "Bath" }, { item: "drywall removal", room: "Kitchen" }], 2) === "vinyl removal, remove tub-surround tile (Bath); drywall removal (Kitchen)",
+  `across rooms each room is named, and an unscoped item keeps its own words (got "${unweighedNote([{ item: "vinyl removal", room: "Bath" }, { item: "remove tub-surround tile", room: "Bath" }, { item: "drywall removal", room: "Kitchen" }], 2)}")`,
+);
+check(unweighedNote([{ item: "drywall removal", room: "Bath" }, { item: "drywall removal", room: "Bath" }], 1) === "drywall removal", "two walls unweighed in one room is one mention, not two");
+
+// The crew sheet: the bin on the Mitigation & Demo sheet, under General, and nothing when there are no rooms.
+{
+  const built = bbOrders(bbExtraction(bigJob));
+  const sheet = bbText(built, "MITIGATION_DEMO");
+  check(
+    sheet.includes("  General") && sheet.includes("    - Disposal – dump trailer (est. 0.9 t)") && sheet.indexOf("  General") < sheet.indexOf("Disposal –"),
+    `the Mitigation & Demo sheet carries the emergency line under General (got:\n${sheet.split("\n").slice(-8).join("\n")})`,
+  );
+  check(!bbText(built, "FINISH_CARPENTRY").includes("Disposal"), "and no repair sheet does");
+}
 
 /* ── Per-surface thumbnails ────────────────────────────────────────────────────────────────────── */
 

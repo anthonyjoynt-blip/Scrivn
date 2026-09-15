@@ -6,6 +6,8 @@ import { type AskedQuestion, formatQuestionLog, hasQuestionLog, recordRound } fr
 import { type SavedClaimState, resumeStep } from "@/lib/claimState";
 import { useClaimPersistence } from "@/lib/useClaimPersistence";
 import { useLetterhead } from "@/lib/useLetterhead";
+import type { RoomAreasByName } from "@/lib/debris";
+import { grossFloorArea } from "@/lib/sketchQuantities";
 import { useProfile } from "@/lib/useProfile";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
 import { resolveRound, nextQuestions } from "@/lib/questionRound";
@@ -74,7 +76,7 @@ import {
 import { type Trade, type WorkOrder, availableTrades, buildWorkOrders, unavailableTradeNote } from "@/lib/workOrders";
 import { WorkOrderSelector } from "@/components/WorkOrderSelector";
 import { SketchEditor } from "@/components/sketch/SketchEditor";
-import { type Sketch, emptySketch, hasSketchContent, knownRoomNames, levelsOf } from "@/lib/sketch";
+import { type Sketch, emptySketch, hasSketchContent, knownRoomNames, levelsOf, wallsOf } from "@/lib/sketch";
 import { type MoistureMap, emptyMoistureMap, hasMoistureContent, roomMoistureSummary } from "@/lib/moisture";
 import { DEFAULT_EQUIPMENT_SETTINGS, claimEquipment } from "@/lib/equipment";
 import {
@@ -515,6 +517,21 @@ export default function Home() {
     setScopeMarks((prev) => pruneScopeMarks(prev, sketch));
   }, [sketch]);
 
+  /*
+    What the sketch knows about each room's size, for the disposal estimate: the gross footprint and
+    the full wall run, not the moisture-marked portions — "half the room" of vinyl is half the room,
+    not half of what was painted wet. Keyed the way gap-check and the estimate look rooms up.
+  */
+  const roomAreas = useMemo<RoomAreasByName>(() => {
+    const out: RoomAreasByName = {};
+    for (const room of sketch.rooms) {
+      const floor = grossFloorArea(room);
+      const run = wallsOf(room).reduce((sum, wall) => sum + wall.lengthFeet, 0);
+      out[normaliseRoomName(room.name ?? "")] = { floorSquareFeet: floor > 0 ? floor : null, wallRunFeet: run > 0 ? run : null, ceilingSquareFeet: floor > 0 ? floor : null };
+    }
+    return out;
+  }, [sketch]);
+
   const paintableWallSF = useMemo(() => {
     const out: Record<string, number | null> = {};
     if (!extraction) return out;
@@ -781,6 +798,7 @@ export default function Home() {
         // document's Emergency section always read from the same source.
         dgigData: isDGIG(claim.insurer) && hasDGIGContent(dgigData) ? dgigData : null,
         paintableWallSF,
+        roomAreas,
       }),
     );
     setEditingWorkOrders({});
@@ -1209,7 +1227,7 @@ export default function Home() {
       // comment for why an empty form falls back to the standard derivation instead of an empty
       // Emergency/Repair section.
       const dgigPayload = isDGIG(claim.insurer) && hasDGIGContent(dgigData) ? dgigData : null;
-      const result = await postJson<{ documents: GeneratedDocuments }>("/api/generate", { claim, extraction, transcript, contentsAssignmentNote, dgigData: dgigPayload });
+      const result = await postJson<{ documents: GeneratedDocuments }>("/api/generate", { claim, extraction, transcript, contentsAssignmentNote, dgigData: dgigPayload, roomAreas });
       const documents = result.documents;
       // Contents alongside structural scope: Claude generates the structural Emergency/Repair scope
       // only (see documentGenerationPrompt.ts's SCOPE_PHASE_RULES) — the Contents section is
