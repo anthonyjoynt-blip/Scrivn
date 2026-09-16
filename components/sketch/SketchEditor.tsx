@@ -49,11 +49,12 @@ import {
   sketchSummaryText,
   translateRoom,
   wallById,
+  wallRunFeet,
   wallsOf,
   withFixtureType,
   withFreeCabinetSizePx,
   withSymbolWidthPx,
-  withWallLength,
+  withWallRunLength,
   MAIN_LEVEL,
   defaultUnderlayLevel,
   levelLabel,
@@ -139,6 +140,12 @@ interface PendingLength {
   wallId: string;
   /** Viewport coordinates of the tap, so the input can appear next to the wall rather than in a modal. */
   screen: { x: number; y: number };
+  /**
+   * The stretch of the wall being measured, as fractions — `[0, 1]` for the whole wall, less where a
+   * sub-room stands against part of it. The prompt shows and sets THIS length, which is the one on
+   * the label the PM tapped and the one their tape can find — see `withWallRunLength`.
+   */
+  run: [number, number];
 }
 
 export function SketchEditor({
@@ -748,13 +755,15 @@ export function SketchEditor({
     setDeletedRoom(null);
   }
 
-  function handleTapWall(roomId: string, wallId: string, screen: { x: number; y: number }) {
+  function handleTapWall(roomId: string, wallId: string, screen: { x: number; y: number }, run: [number, number]) {
     const room = sketch.rooms.find((r) => r.id === roomId);
-    const existing = room ? (wallById(room, wallId)?.lengthFeet ?? null) : null;
-    // Pre-fill with the current length so correcting a typo doesn't mean retyping from scratch.
+    const wall = room ? wallById(room, wallId) : null;
+    // Pre-fill with the current length — of the stretch tapped, matching its label — so correcting a
+    // typo doesn't mean retyping from scratch.
+    const existing = wall ? wallRunFeet(wall, run) : null;
     setLengthDraft(existing == null ? "" : formatFeetInches(existing));
     setLengthError(null);
-    setPendingLength({ roomId, wallId, screen });
+    setPendingLength({ roomId, wallId, screen, run });
   }
 
   /**
@@ -768,6 +777,9 @@ export function SketchEditor({
    *
    * Nesting is re-derived because a resize changes what contains what: a closet grown past its
    * bedroom is no longer inside it, and a room stretched over a neighbour now is.
+   *
+   * The figure typed is for the stretch that was tapped — beside a closet, the wall short of the
+   * closet — so the whole wall is expected to come out longer by the closet's share.
    */
   function handleSubmitLength() {
     if (!pendingLength) return;
@@ -778,11 +790,13 @@ export function SketchEditor({
     }
 
     const room = sketch.rooms.find((r) => r.id === pendingLength.roomId);
-    if (!room) return;
-    const resized = withWallLength(room, pendingLength.wallId, feet);
+    const wall = room ? wallById(room, pendingLength.wallId) : null;
+    if (!room || !wall) return;
+    const expected = feet + wall.lengthFeet - wallRunFeet(wall, pendingLength.run);
+    const resized = withWallRunLength(room, pendingLength.wallId, pendingLength.run, feet);
     const got = wallById(resized, pendingLength.wallId)?.lengthFeet;
     // Half an inch of tolerance: the reshape is exact, but the round trip through pixels is not.
-    if (got == null || Math.abs(got - feet) > 1 / 24) {
+    if (got == null || Math.abs(got - expected) > 1 / 24) {
       setLengthError(`That would leave the room too small to draw. Shortest wall is ${formatFeetInches(MIN_WALL_PX / PIXELS_PER_FOOT)}.`);
       return;
     }

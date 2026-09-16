@@ -26,11 +26,13 @@ import {
   type SketchSymbol,
   type SketchView,
   type Vertex,
+  type WallDimension,
   type WallGeometry,
   cabinetDepthPx,
   roomLabelAnchor,
   clampZoom,
   doorOrientation,
+  exposedRunAt,
   formatFeetInches,
   freeCabinetSizePx,
   pointOnWall,
@@ -45,6 +47,7 @@ import {
   tapFractionOnWall,
   cappedInset,
   wallById,
+  wallDimensions,
   wallGripSpan,
   wallHandleRadii,
   wallStrokePx,
@@ -231,8 +234,12 @@ export interface SketchCanvasProps {
   onSelectSymbol: (symbolId: string | null) => void;
   /** The room was dragged; values are the translation applied, not an absolute position. */
   onMoveRoom: (roomId: string, dx: number, dy: number) => void;
-  /** A wall was tapped in select mode — the editor opens its length input. */
-  onTapWall: (roomId: string, wallId: string, screen: { x: number; y: number }) => void;
+  /**
+   * A wall was tapped in select mode — the editor opens its length input. `run` is the stretch of
+   * the wall being measured, `[0, 1]` unless a sub-room stands against part of it — see
+   * `WallDimension`.
+   */
+  onTapWall: (roomId: string, wallId: string, screen: { x: number; y: number }, run: [number, number]) => void;
   /** A wall was tapped while a symbol tool is active. */
   onPlaceSymbol: (roomId: string, wallId: string, t: number) => void;
   /** A wall was double-tapped — splits it, which is how an L-shape starts. */
@@ -741,15 +748,24 @@ function RoomShape({
    * Behind a double-tap so that a single tap is free for the thing the user is usually reaching for:
    * selecting a room, or grabbing a door that happens to sit on that wall.
    */
-  function handleWallLength(wall: WallGeometry, e: KonvaEventObject<MouseEvent | TouchEvent>) {
+  function handleWallLength(wall: WallGeometry, e: KonvaEventObject<MouseEvent | TouchEvent>, run?: [number, number]) {
     // Lengths are geometry, and geometry is read-only while mapping.
     if (moistureTool !== null) return;
     e.cancelBubble = true;
     const stage = e.target.getStage();
     const pointer = stage?.getPointerPosition();
     const box = stage?.container().getBoundingClientRect();
+    /*
+      Which stretch of the wall is being measured. A label knows its own; a tap on the wall itself or
+      on its grip is resolved from where it landed, so on a wall with a closet against it the prompt
+      is for the stretch under the finger — the figure on the label beside it — never for the whole
+      wall, which is a length the PM cannot see to check. Relative, not absolute: a world coordinate,
+      or the fraction is wrong once the view is panned.
+    */
+    const at = stage?.getRelativePointerPosition();
+    const stretch = run ?? exposedRunAt(room, wall.id, rooms, at ? tapFractionOnWall(wall, at.x, at.y) : 0.5);
     onSelectRoom(room.id);
-    onTapWall(room.id, wall.id, { x: (box?.left ?? 0) + (pointer?.x ?? 0), y: (box?.top ?? 0) + (pointer?.y ?? 0) });
+    onTapWall(room.id, wall.id, { x: (box?.left ?? 0) + (pointer?.x ?? 0), y: (box?.top ?? 0) + (pointer?.y ?? 0) }, stretch);
   }
 
   /** Double-tapping the name opens a rename box over it. */
@@ -944,9 +960,24 @@ function RoomShape({
         />
       )}
 
-      {walls.map((wall) => (
-        <WallLabel key={`label-${wall.id}`} wall={wall} zoom={zoom} outside={labelsOutside} onLengthRequest={(e) => handleWallLength(wall, e)} />
-      ))}
+      {/*
+        One label per exposed stretch of each wall, not one per wall: a closet in the corner takes
+        its share of the wall with it, and the figure left behind is the wall the PM can see — see
+        `WallDimension`. A wall a sub-room covers end to end has no label of its own here; the
+        sub-room's, drawn on the same line, is the one that counts.
+      */}
+      {walls.flatMap((wall) =>
+        wallDimensions(room, wall, rooms).map((dimension) => (
+          <WallLabel
+            key={`label-${wall.id}-${dimension.run[0]}`}
+            wall={wall}
+            dimension={dimension}
+            zoom={zoom}
+            outside={labelsOutside}
+            onLengthRequest={(e) => handleWallLength(wall, e, dimension.run)}
+          />
+        )),
+      )}
 
       {/*
         The room's name, with its own tap target on top.
@@ -1066,7 +1097,9 @@ function RoomShape({
 }
 
 /**
- * A wall's length, drawn just inside the wall it measures.
+ * A wall's length — or the length of one exposed stretch of it — drawn just inside the wall it
+ * measures and centred on the stretch, so a figure beside a closet sits beside the closet and not
+ * under it.
  *
  * Side walls are rotated to read bottom-to-top, the usual convention for a vertical dimension, and
  * placed INSIDE the room rather than outside it. Outside looks tidier on a wide canvas but puts the
@@ -1078,18 +1111,21 @@ function RoomShape({
  */
 function WallLabel({
   wall,
+  dimension,
   zoom,
   outside,
   onLengthRequest,
 }: {
   wall: WallGeometry;
+  /** The stretch this label measures — the whole wall, or the part a sub-room leaves exposed. */
+  dimension: WallDimension;
   zoom: number;
   /** Put the dimension beyond the wall rather than inside it — see `labelsOutside`. */
   outside: boolean;
   onLengthRequest: (e: KonvaEventObject<MouseEvent | TouchEvent>) => void;
 }) {
-  const mid = pointOnWall(wall, 0.5);
-  const label = formatFeetInches(wall.lengthFeet);
+  const mid = pointOnWall(wall, dimension.t);
+  const label = formatFeetInches(dimension.lengthFeet);
   const inset = (outside ? -13 : 11) / zoom;
 
   // The inward normal is the wall direction turned +90° in screen space, which points into the room
@@ -1102,7 +1138,8 @@ function WallLabel({
   // Keep the text the right way up: past vertical, reading it would mean tilting your head.
   const flip = wall.rotation > 90 || wall.rotation < -90;
   const rotation = flip ? wall.rotation + 180 : wall.rotation;
-  const boxWidth = Math.max(40, wall.lengthPx);
+  // As wide as the stretch, not the wall: a box the width of the wall would overhang the closet.
+  const boxWidth = Math.max(40, wall.lengthPx * (dimension.run[1] - dimension.run[0]));
 
   return (
     <Group x={mid.x + inward.x * inset} y={mid.y + inward.y * inset} rotation={rotation}>

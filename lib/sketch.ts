@@ -846,6 +846,35 @@ export function exposedRunAt(room: SketchRoom, wallId: string, rooms: SketchRoom
 }
 
 /**
+ * One dimension label on a wall: the stretch it measures and where it sits.
+ *
+ * A wall with a closet standing against part of it carried one figure — the whole wall, closet and
+ * all — which is the one length nobody can find with a tape. From inside the room the wall stops at
+ * the closet, and from inside the closet the closet's own wall is labelled already. So a wall gets a
+ * label per exposed stretch (see `exposedWallRuns`), each measuring that stretch alone and centred
+ * on it; a closet part-way along leaves a figure on either side of it. This also brings the label
+ * out from under a closet in the corner, which drew over the old midpoint figure and hid it.
+ *
+ * Where nothing is nested there is one label for the whole wall, exactly as before.
+ */
+export interface WallDimension {
+  /** The stretch measured, as fractions of the wall. `[0, 1]` is the whole wall. */
+  run: [number, number];
+  /** Where the label sits: the middle of the stretch. */
+  t: number;
+  lengthFeet: number;
+}
+
+export function wallDimensions(room: SketchRoom, wall: WallGeometry, rooms: SketchRoom[]): WallDimension[] {
+  return exposedWallRuns(room, wall.id, rooms).map((run) => ({ run, t: (run[0] + run[1]) / 2, lengthFeet: wallRunFeet(wall, run) }));
+}
+
+/** The length of a stretch of wall, in feet. */
+export function wallRunFeet(wall: WallGeometry, [lo, hi]: [number, number]): number {
+  return wall.lengthFeet * (hi - lo);
+}
+
+/**
  * Resolves a door's two world-space mirrors into what the glyph needs: which jamb carries the
  * hinge, and which side of the wall the leaf sweeps.
  *
@@ -1517,9 +1546,29 @@ export function snapRoomTranslation(rooms: SketchRoom[], roomId: string, dx: num
   return { dx: dx + adjustX, dy: dy + adjustY };
 }
 
-/** Is every corner of `child` inside `parent`? */
+/**
+ * Is every corner of `child` inside `parent`?
+ *
+ * Tested half a pixel in from each corner, towards the child's own middle. A closet snapped flush
+ * against its room's wall has corners exactly ON that wall, and a point-in-polygon test has to put a
+ * boundary point on one side or the other: `isInsideRoom` counts the top and left edges in and the
+ * bottom and right edges out, so a closet flush in the top-left corner nested and one flush in the
+ * bottom-right corner did not — plain fill, nothing taken off its room's walls, a room drawn on top.
+ * Flush is the placement snapping exists to produce, and it has to count — the same reasoning as
+ * `INSIDE_EPSILON_PX` for blocks.
+ *
+ * A room is never inside one no bigger than itself. With every edge now counting, two rooms of one
+ * size dropped on top of each other would otherwise each be inside the other.
+ */
 export function isRoomInside(child: SketchRoom, parent: SketchRoom): boolean {
-  return child.vertices.every((v) => isInsideRoom(parent, v.x, v.y));
+  if (Math.abs(signedArea(child.vertices)) >= Math.abs(signedArea(parent.vertices))) return false;
+  const b = roomBounds(child);
+  const cx = (b.minX + b.maxX) / 2;
+  const cy = (b.minY + b.maxY) / 2;
+  return child.vertices.every((v) => {
+    const d = Math.hypot(cx - v.x, cy - v.y) || 1;
+    return isInsideRoom(parent, v.x + ((cx - v.x) / d) * INSIDE_EPSILON_PX, v.y + ((cy - v.y) / d) * INSIDE_EPSILON_PX);
+  });
 }
 
 /**
@@ -2131,8 +2180,11 @@ export function moveSymbolAlongWall(
  * Returns the room unchanged when the request can't be honoured: a length below `MIN_WALL_PX`, or a
  * reshape that would collapse the polygon. Callers should compare the resulting wall length against
  * what was asked rather than assume it took — see `handleSubmitLength`.
+ *
+ * `hold` names the corner to keep still when the caller knows better than the top-left rule — see
+ * `withWallRunLength`, which holds the corner a closet stands in.
  */
-export function withWallLength(room: SketchRoom, wallId: string, feet: number): SketchRoom {
+export function withWallLength(room: SketchRoom, wallId: string, feet: number, hold: "start" | "end" | null = null): SketchRoom {
   const walls = wallsOf(room);
   const index = walls.findIndex((w) => w.id === wallId);
   const wall = walls[index];
@@ -2155,7 +2207,7 @@ export function withWallLength(room: SketchRoom, wallId: string, feet: number): 
   */
   const bounds = roomBounds(room);
   const corner = (x: number, y: number) => x - bounds.minX + (y - bounds.minY);
-  const holdStart = corner(wall.x1, wall.y1) <= corner(wall.x2, wall.y2);
+  const holdStart = hold !== null ? hold === "start" : corner(wall.x1, wall.y1) <= corner(wall.x2, wall.y2);
 
   const moving = holdStart ? walls[(index + 1) % walls.length] : walls[(index - 1 + walls.length) % walls.length];
   if (!moving || moving.lengthPx <= 0) return room;
@@ -2177,6 +2229,28 @@ export function withWallLength(room: SketchRoom, wallId: string, feet: number): 
 
   // dragWall re-flows the symbols and islands for us — see `reflowContents`.
   return dragWall(room, moving.id, m.x * travel, m.y * travel);
+}
+
+/**
+ * `withWallLength` for one stretch of a wall: the figure on its label, and the one a tape finds.
+ *
+ * The PM measures the wall they can see — from the corner to the closet — and types that. The
+ * closet's share is added back so the whole wall comes out right, and the label on the stretch
+ * shows what was typed.
+ *
+ * The corner held is the one the closet stands in, not the top-left one. Rooms are not joined (see
+ * the file header): a closet flush with a corner stays put when its parent is resized, so moving
+ * THAT corner would leave it standing clear of the wall, or buried in it. With the whole wall — or a
+ * closet at each end, where there is nothing to prefer — the top-left rule applies as usual.
+ */
+export function withWallRunLength(room: SketchRoom, wallId: string, run: [number, number], feet: number): SketchRoom {
+  const wall = wallById(room, wallId);
+  // Checked here as well as on the whole wall: a stretch of nothing added to the closet's share can
+  // still make a perfectly legal wall, and it would be drawn.
+  if (!wall || feet <= 0) return room;
+  const [lo, hi] = run;
+  const hold = lo > 0 && hi >= 1 ? "start" : hi < 1 && lo <= 0 ? "end" : null;
+  return withWallLength(room, wallId, feet + wall.lengthFeet - wallRunFeet(wall, run), hold);
 }
 
 export function newSymbol(type: SymbolType, wallId: string, t: number, room: SketchRoom): SketchSymbol {

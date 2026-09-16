@@ -18,6 +18,7 @@ import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 import { checkDirectory } from "./stateRules.mjs";
 import { runPlacementChecks } from "./placement.mjs";
+import { runDimensionChecks } from "./dimensions.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..", "..");
@@ -53,6 +54,15 @@ if (placement.failures.length > 0) {
   process.exit(1);
 }
 console.log(`  Placement: ok (${placement.passed.length} checks — cabinets stay inside their room)`);
+
+// Likewise the dimension labels: what a wall reads when a closet stands against part of it.
+const dimensions = await runDimensionChecks();
+if (dimensions.failures.length > 0) {
+  console.error(`\n  Dimensions: ${dimensions.passed.length} passed, ${dimensions.failures.length} FAILED\n`);
+  for (const failure of dimensions.failures) console.error(`    ✗ ${failure}\n`);
+  process.exit(1);
+}
+console.log(`  Dimensions: ok (${dimensions.passed.length} checks — a wall reads to the closet, not past it)`);
 
 await build({
   entryPoints: [join(here, "entry.tsx")],
