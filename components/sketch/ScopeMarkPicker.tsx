@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import { type Sketch, type SketchView, clampZoom, defaultView, exposedRunAt, roomBounds } from "@/lib/sketch";
+import { type Sketch, type SketchView, clampZoom, defaultView, exposedRunAt, freeWallsOf, roomBounds } from "@/lib/sketch";
 import { type MoistureMap, roomMoisture, setRoomMoisture } from "@/lib/moisture";
 import {
   type ScopeMark,
@@ -255,6 +255,8 @@ export function ScopeMarkPicker({
             <div className="sketch-canvas-wrap" ref={containerRef}>
               <SketchCanvas
                 rooms={sketch.rooms}
+                /* Drawn so the plan looks like the plan; nothing is marked on a free wall. */
+                freeWalls={freeWallsOf(sketch)}
                 width={width}
                 height={CANVAS_HEIGHT}
                 view={view}

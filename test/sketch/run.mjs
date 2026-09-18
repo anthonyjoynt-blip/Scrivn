@@ -19,6 +19,7 @@ import { build } from "esbuild";
 import { checkDirectory } from "./stateRules.mjs";
 import { runPlacementChecks } from "./placement.mjs";
 import { runDimensionChecks } from "./dimensions.mjs";
+import { runWallChecks } from "./walls.mjs";
 import { runScanImportChecks } from "./scanImport.mjs";
 import { runClosetChecks } from "./closet.mjs";
 
@@ -65,6 +66,15 @@ if (dimensions.failures.length > 0) {
   process.exit(1);
 }
 console.log(`  Dimensions: ok (${dimensions.passed.length} checks — a wall reads to the closet, not past it)`);
+
+// And the wall tool: what a tapped corner snaps to, and what a run of walls becomes.
+const walls = await runWallChecks();
+if (walls.failures.length > 0) {
+  console.error(`\n  Walls: ${walls.passed.length} passed, ${walls.failures.length} FAILED\n`);
+  for (const failure of walls.failures) console.error(`    ✗ ${failure}\n`);
+  process.exit(1);
+}
+console.log(`  Walls: ok (${walls.passed.length} checks — a run of walls becomes what it encloses)`);
 
 // And the scan import: a room the phone measured lands as a room, with its door and nothing made up.
 const scanImport = await runScanImportChecks();

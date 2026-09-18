@@ -15,6 +15,7 @@ import {
   symbolWidthFeet,
   wallsOf,
 } from "./sketch";
+import { freeWallRunsIn } from "./sketchWalls";
 
 /**
  * The measured quantities a sketch produces: the five numbers an estimator reads off a plan.
@@ -223,16 +224,30 @@ export function roomQuantities(room: SketchRoom, sketch: Sketch, options: Quanti
   const openings = options.deductOpeningsFromWallArea ? openingSquareFeet(room) : 0;
 
   const profile = ceilingProfile(room);
-  const grossWallArea = profile.meanHeightFeet == null ? 0 : perimeter * profile.meanHeightFeet;
+
+  /*
+    Free walls standing in this room — see `FreeWall`. A partition has two faces and base along both
+    sides, so each foot of it is two feet of floor perimeter and two faces of wall; only a full-
+    height one meets the ceiling, so a pony wall adds nothing at the ceiling line. Credited here,
+    to the room the wall stands in, because that is whose finish it is.
+  */
+  const partitions = freeWallRunsIn(room, sketch);
+  const partitionFloorFeet = partitions.reduce((sum, run) => sum + 2 * run.lengthFeet, 0);
+  const partitionCeilingFeet = partitions.reduce((sum, run) => sum + (run.heightFeet == null ? 2 * run.lengthFeet : 0), 0);
+  const partitionWallArea =
+    profile.meanHeightFeet == null ? 0 : partitions.reduce((sum, run) => sum + 2 * run.lengthFeet * Math.min(run.heightFeet ?? Infinity, profile.meanHeightFeet as number), 0);
+
+  const grossWallArea = (profile.meanHeightFeet == null ? 0 : perimeter * profile.meanHeightFeet) + partitionWallArea;
   const ceilingSurface = outlineArea * profile.surfaceFactor;
+  const grossPerimeterFloor = perimeter + partitionFloorFeet;
 
   return {
-    perimeterCeiling: perimeter,
-    perimeterFloor: Math.max(0, perimeter - perimeterDeduction),
+    perimeterCeiling: perimeter + partitionCeilingFeet,
+    perimeterFloor: Math.max(0, grossPerimeterFloor - perimeterDeduction),
     floorArea: Math.max(0, outlineArea - floorDeduction),
     wallArea: Math.max(0, grossWallArea - wallDeduction - openings),
     ceilingArea: Math.max(0, ceilingSurface),
-    gross: { perimeterFloor: perimeter, floorArea: outlineArea, wallArea: grossWallArea },
+    gross: { perimeterFloor: grossPerimeterFloor, floorArea: outlineArea, wallArea: grossWallArea },
     deductions: {
       perimeterFeet: perimeterDeduction,
       floorSquareFeet: floorDeduction,

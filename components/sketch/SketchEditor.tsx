@@ -5,6 +5,7 @@ import dynamic from "next/dynamic";
 import { importScanRoom } from "@/lib/scanImport";
 import {
   type FreeCabinet,
+  type FreeWall,
   type Sketch,
   type SketchRoom,
   type SketchSymbol,
@@ -60,11 +61,15 @@ import {
   withWallRunLength,
   MAIN_LEVEL,
   defaultUnderlayLevel,
+  freeWallSegments,
+  freeWallsOf,
+  freeWallsOnLevel,
   levelLabel,
   levelsOf,
   roomsOnLevel,
   withLevel,
 } from "@/lib/sketch";
+import { type DraftPoint, WALL_SNAP_SCREEN_PX, addDraftPoint, finishDraftAsWall, moveFreeWallVertex, translateFreeWall, withFreeWallSegmentLength } from "@/lib/sketchWalls";
 import { FreeCabinetPanel, SymbolPanel } from "./SymbolPanel";
 import { QuantitiesPanel } from "./QuantitiesPanel";
 import { type QuantityOptions, DEFAULT_QUANTITY_OPTIONS } from "@/lib/sketchQuantities";
@@ -138,18 +143,22 @@ function nextRoomPosition(rooms: SketchRoom[], canvasWidth: number): { x: number
   return { x: 40 + rooms.length * 24, y: 40 + rooms.length * 24 };
 }
 
-interface PendingLength {
-  roomId: string;
-  wallId: string;
-  /** Viewport coordinates of the tap, so the input can appear next to the wall rather than in a modal. */
-  screen: { x: number; y: number };
-  /**
-   * The stretch of the wall being measured, as fractions — `[0, 1]` for the whole wall, less where a
-   * sub-room stands against part of it. The prompt shows and sets THIS length, which is the one on
-   * the label the PM tapped and the one their tape can find — see `withWallRunLength`.
-   */
-  run: [number, number];
-}
+type PendingLength =
+  | {
+      kind: "room";
+      roomId: string;
+      wallId: string;
+      /** Viewport coordinates of the tap, so the input can appear next to the wall rather than in a modal. */
+      screen: { x: number; y: number };
+      /**
+       * The stretch of the wall being measured, as fractions — `[0, 1]` for the whole wall, less where a
+       * sub-room stands against part of it. The prompt shows and sets THIS length, which is the one on
+       * the label the PM tapped and the one their tape can find — see `withWallRunLength`.
+       */
+      run: [number, number];
+    }
+  /** One piece of a free wall, named by the corner it starts at — see `withFreeWallSegmentLength`. */
+  | { kind: "freeWall"; wallId: string; vertexId: string; screen: { x: number; y: number } };
 
 export function SketchEditor({
   sketch,
@@ -229,6 +238,11 @@ export function SketchEditor({
   const [nameDraft, setNameDraft] = useState("");
   const [lengthDraft, setLengthDraft] = useState("");
   const [lengthError, setLengthError] = useState<string | null>(null);
+  /** The corners tapped so far with the wall tool — see `lib/sketchWalls.ts`. Empty when not drawing. */
+  const [wallDraft, setWallDraft] = useState<DraftPoint[]>([]);
+  const [selectedWallId, setSelectedWallId] = useState<string | null>(null);
+  /** The last free wall deleted, for the same one-step undo a room gets — see `deletedRoom`. */
+  const [deletedWall, setDeletedWall] = useState<{ wall: FreeWall; index: number } | null>(null);
   /**
    * The camera. Held here rather than in the sketch data because it's a viewport, not a
    * measurement — see `SketchView` in lib/sketch.ts for why it's shaped this way.
@@ -274,6 +288,8 @@ export function SketchEditor({
 
   const levels = useMemo(() => levelsOf(sketch), [sketch]);
   const activeRooms = useMemo(() => roomsOnLevel(sketch, activeLevel), [sketch, activeLevel]);
+  const activeFreeWalls = useMemo(() => freeWallsOnLevel(sketch, activeLevel), [sketch, activeLevel]);
+  const selectedWall = freeWallsOf(sketch).find((w) => w.id === selectedWallId) ?? null;
   /*
     Defaults to the level below where one exists, and stops choosing for the PM the moment they
     choose for themselves — a toggle that keeps reasserting itself is worse than one that starts
@@ -576,17 +592,35 @@ export function SketchEditor({
       const target = event.target as HTMLElement | null;
       if (target && (target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName))) return;
 
+      // A run of walls in the making: Escape drops it, Enter keeps it as drawn.
+      if (tool === "wall" && wallDraft.length > 0) {
+        if (event.key === "Escape") {
+          cancelWallDraft();
+          event.preventDefault();
+          return;
+        }
+        if (event.key === "Enter") {
+          finishWallDraft();
+          event.preventDefault();
+          return;
+        }
+      }
+
       if (event.key === "Escape" && expanded) {
         setExpanded(false);
         event.preventDefault();
         return;
       }
 
-      // Ctrl/Cmd+Z brings back the last deleted room. Deliberately NOT general undo: this is the one
-      // action with no other way back, and pretending to more history than exists would be worse.
+      // Ctrl/Cmd+Z brings back the last deleted room, or free wall. Deliberately NOT general undo:
+      // these are the actions with no other way back, and pretending to more history than exists
+      // would be worse.
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
         if (deletedRoom) {
           restoreRoom();
+          event.preventDefault();
+        } else if (deletedWall) {
+          restoreWall();
           event.preventDefault();
         }
         return;
@@ -610,7 +644,13 @@ export function SketchEditor({
 
       // Everything below edits the geometry, which mapping deliberately freezes. Escape and undo,
       // above, are about the tool rather than the drawing, so they work in either mode.
-      if (!selectedRoom) return;
+      if (!selectedRoom) {
+        if ((event.key === "Delete" || event.key === "Backspace") && selectedWall) {
+          handleDeleteWall(selectedWall.id);
+          event.preventDefault();
+        }
+        return;
+      }
 
       if (event.key === "Delete" || event.key === "Backspace") {
         if (selectedSymbol) {
@@ -871,6 +911,97 @@ export function SketchEditor({
     setDeletedRoom(null);
   }
 
+  /*
+    ── The wall tool ─────────────────────────────────────────────────────────────────────────────
+    The canvas snaps each tap and hands it here; `addDraftPoint` says whether it extended the run or
+    closed it into a room. A room lands like any other new room — selected, on this storey, ready to
+    be named — and any free walls it was closed through are used up by it. Done keeps an open run as
+    a free wall. Either way the tool puts itself away afterwards, as the symbol tools do: a tool that
+    stays out turns the next tap meant for selecting into another corner.
+  */
+  function handleWallTap(point: DraftPoint) {
+    const step = addDraftPoint(wallDraft, point, sketch, activeLevel, WALL_SNAP_SCREEN_PX / view.scale);
+    if (step.kind === "ignore") {
+      // The last corner tapped again — or double-tapped, which is the same two taps — keeps the run.
+      if (step.reason === "last" && wallDraft.length >= 2) finishWallDraft();
+      return;
+    }
+    if (step.kind === "extend") {
+      setWallDraft(step.draft);
+      return;
+    }
+    const used = step.usedFreeWallIds;
+    onChange((prev) => ({
+      ...prev,
+      rooms: withDerivedParents([...prev.rooms, step.room]),
+      freeWalls: freeWallsOf(prev).filter((w) => !used.includes(w.id)),
+    }));
+    setWallDraft([]);
+    setSelectedWallId(null);
+    setSelectedRoomId(step.room.id);
+    setSelectedSymbolId(null);
+    setTool("select");
+  }
+
+  function finishWallDraft() {
+    const wall = finishDraftAsWall(wallDraft, activeLevel);
+    setWallDraft([]);
+    setTool("select");
+    if (!wall) return;
+    onChange((prev) => ({ ...prev, freeWalls: [...freeWallsOf(prev), wall] }));
+    setSelectedRoomId(null);
+    setSelectedSymbolId(null);
+    setSelectedWallId(wall.id);
+  }
+
+  function cancelWallDraft() {
+    setWallDraft([]);
+    setTool("select");
+  }
+
+  function updateFreeWall(wallId: string, update: (wall: FreeWall) => FreeWall) {
+    onChange((prev) => ({ ...prev, freeWalls: freeWallsOf(prev).map((w) => (w.id === wallId ? update(w) : w)) }));
+  }
+
+  /** Deletes a free wall, keeping it aside so the delete can be taken back — as `handleDeleteRoom`. */
+  function handleDeleteWall(wallId: string) {
+    const walls = freeWallsOf(sketch);
+    const index = walls.findIndex((w) => w.id === wallId);
+    const wall = walls[index];
+    if (!wall) return;
+    setDeletedWall({ wall, index });
+    onChange((prev) => ({ ...prev, freeWalls: freeWallsOf(prev).filter((w) => w.id !== wallId) }));
+    if (selectedWallId === wallId) setSelectedWallId(null);
+  }
+
+  function restoreWall() {
+    if (!deletedWall) return;
+    onChange((prev) => {
+      const walls = [...freeWallsOf(prev)];
+      walls.splice(Math.min(deletedWall.index, walls.length), 0, deletedWall.wall);
+      return { ...prev, freeWalls: walls };
+    });
+    setSelectedWallId(deletedWall.wall.id);
+    setDeletedWall(null);
+  }
+
+  function handleTapFreeWallSegment(wallId: string, vertexId: string, screen: { x: number; y: number }) {
+    const wall = freeWallsOf(sketch).find((w) => w.id === wallId);
+    const segment = wall ? freeWallSegments(wall).find((piece) => piece.id === vertexId) : null;
+    setLengthDraft(segment ? formatFeetInches(segment.lengthFeet) : "");
+    setLengthError(null);
+    setPendingLength({ kind: "freeWall", wallId, vertexId, screen });
+  }
+
+  /*
+    A wall drawn on one storey stays there. Switching storey or mode mid-run would leave corners on
+    a floor that is no longer showing, so the run is dropped rather than carried; likewise when the
+    tool is put away for another.
+  */
+  useEffect(() => {
+    setWallDraft([]);
+  }, [tool, mode, activeLevel]);
+
   function handleTapWall(roomId: string, wallId: string, screen: { x: number; y: number }, run: [number, number]) {
     const room = sketch.rooms.find((r) => r.id === roomId);
     const wall = room ? wallById(room, wallId) : null;
@@ -879,7 +1010,7 @@ export function SketchEditor({
     const existing = wall ? wallRunFeet(wall, run) : null;
     setLengthDraft(existing == null ? "" : formatFeetInches(existing));
     setLengthError(null);
-    setPendingLength({ roomId, wallId, screen, run });
+    setPendingLength({ kind: "room", roomId, wallId, screen, run });
   }
 
   /**
@@ -902,6 +1033,22 @@ export function SketchEditor({
     const feet = parseFeetInches(lengthDraft);
     if (feet == null || feet <= 0) {
       setLengthError('Enter a length like 12\'6" or 12.5');
+      return;
+    }
+
+    // A piece of free wall: its far corner slides along it. Nothing else has to give, so nothing
+    // is checked but the minimum — see `withFreeWallSegmentLength`.
+    if (pendingLength.kind === "freeWall") {
+      const { wallId, vertexId } = pendingLength;
+      const wall = freeWallsOf(sketch).find((w) => w.id === wallId);
+      const resized = wall ? withFreeWallSegmentLength(wall, vertexId, feet) : null;
+      if (!wall || !resized || resized === wall) {
+        setLengthError("Too short to draw. A piece of wall is at least 6\".");
+        return;
+      }
+      updateFreeWall(wallId, () => resized);
+      setPendingLength(null);
+      setLengthDraft("");
       return;
     }
 
@@ -1174,6 +1321,9 @@ export function SketchEditor({
         />
         <div className="option-group" role="group" aria-label="Placement tool">
           {([
+            /* Walls a corner at a time: a partition into a room, or a room of any shape from
+               scratch. The one tool that works on an empty sketch, since it is a way to start one. */
+            { tool: "wall", label: "Wall" },
             { tool: "break", label: "Break" },
             { tool: "door", label: "Door" },
             /* A missing wall or a cased opening: the same hole in a wall, described by width and
@@ -1188,7 +1338,7 @@ export function SketchEditor({
               type="button"
               className={`option-btn${tool === option.tool ? " selected" : ""}`}
               aria-pressed={tool === option.tool}
-              disabled={sketch.rooms.length === 0}
+              disabled={sketch.rooms.length === 0 && option.tool !== "wall"}
               onClick={() => setTool(tool === option.tool ? "select" : option.tool)}
             >
               {option.label}
@@ -1255,6 +1405,14 @@ export function SketchEditor({
           </button>
         </div>
       )}
+      {deletedWall && !deletedRoom && (
+        <div className="sketch-undo" role="status">
+          <span>Wall deleted.</span>
+          <button type="button" className="btn-secondary" onClick={restoreWall}>
+            Undo
+          </button>
+        </div>
+      )}
       {importNotice && (
         <div className="sketch-undo" role={importNotice.kind === "error" ? "alert" : "status"}>
           <span>{importNotice.text}</span>
@@ -1277,8 +1435,12 @@ export function SketchEditor({
           ? moistureTool === "read"
             ? "Tap a wall to record a reading there. Drag either end of a mark to cover only the wet run."
             : `${moistureTool === "erase" ? "Drag to erase" : "Drag to highlight"} the affected ${paintSurface}. Pinch to zoom.`
+          : tool === "wall"
+            ? wallDraft.length === 0
+              ? "Tap where the wall starts. Taps snap to corners and to other walls."
+              : "Tap the next corner. Tap the first corner again to close a room; tap the last corner again, or Done, to keep the walls as drawn."
           : sketch.rooms.length === 0
-          ? "Add a room to start."
+          ? "Add a room, or tap Wall and draw one corner by corner."
           : tool === "select"
             ? "Tap to select, drag to move. Double-tap a wall or its measurement to type its length. For an L: tap Break, tap a wall, then drag one half out. Drag empty space to pan; pinch to zoom."
             : tool === "island"
@@ -1317,7 +1479,11 @@ export function SketchEditor({
           selectedRoomId={selectedRoomId}
           selectedSymbolId={selectedSymbolId}
           onViewChange={setView}
-          onSelectRoom={setSelectedRoomId}
+          onSelectRoom={(roomId) => {
+            setSelectedRoomId(roomId);
+            // One selection at a time: a room and a free wall cannot both hold the panel.
+            if (roomId !== null) setSelectedWallId(null);
+          }}
           onSelectSymbol={setSelectedSymbolId}
           onMoveRoom={handleMoveRoom}
           onTapWall={handleTapWall}
@@ -1350,6 +1516,20 @@ export function SketchEditor({
               moveSymbolAlongWall(withSymbolWidthPx(symbol, room, widthPx, sketch.rooms), room, centrePx, sketch.rooms),
             )
           }
+          freeWalls={activeFreeWalls}
+          selectedWallId={selectedWallId}
+          wallDraft={tool === "wall" ? wallDraft : undefined}
+          onWallTap={handleWallTap}
+          onSelectWall={(wallId) => {
+            setSelectedWallId(wallId);
+            if (wallId !== null) {
+              setSelectedRoomId(null);
+              setSelectedSymbolId(null);
+            }
+          }}
+          onMoveFreeWall={(wallId, dx, dy) => updateFreeWall(wallId, (wall) => translateFreeWall(wall, dx, dy))}
+          onMoveFreeWallVertex={(wallId, vertexId, x, y) => updateFreeWall(wallId, (wall) => moveFreeWallVertex(wall, vertexId, x, y))}
+          onTapFreeWallSegment={handleTapFreeWallSegment}
           onPlaceIsland={handlePlaceIsland}
           onMoveIsland={(roomId, islandId, x, y) => updateIsland(roomId, islandId, (cabinet, room) => moveFreeCabinet(cabinet, room, x, y))}
           onResizeIsland={(roomId, islandId, widthPx, depthPx) =>
@@ -1405,6 +1585,21 @@ export function SketchEditor({
           controls float over the corner of the canvas, so the change and its result are in one
           glance. The panel keeps its copies — this is a shortcut, not a relocation.
         */}
+        {tool === "wall" && wallDraft.length > 0 && (
+          <div className="sketch-direction" role="group" aria-label="Wall being drawn">
+            <button type="button" className="btn-secondary" onClick={() => setWallDraft((d) => d.slice(0, -1))} title="Take back the last corner">
+              Undo corner
+            </button>
+            <button type="button" className="btn-secondary" onClick={cancelWallDraft}>
+              Cancel
+            </button>
+            {/* The one primary action on the canvas while drawing — see the amber rule in globals.css. */}
+            <button type="button" className="btn-primary" onClick={finishWallDraft} disabled={wallDraft.length < 2} title="Keep the walls as drawn (Enter)">
+              Done
+            </button>
+          </div>
+        )}
+
         <DirectionControls
           /* Sketch mode only. Mapping puts the geometry into read-only — corners, wall grips and
              symbol handles all stand down — and turning a flight there would move the very walls the
@@ -1671,6 +1866,64 @@ export function SketchEditor({
               </button>
             </div>
           )}
+        </div>
+      )}
+
+      {mode === "sketch" && !selectedRoom && selectedWall && (
+        <div className="sketch-panel">
+          <h3 className="sketch-panel-title">Wall</h3>
+          <p className="field-note">
+            {freeWallSegments(selectedWall)
+              .map((piece) => formatFeetInches(piece.lengthFeet))
+              .join(" + ")}
+            {freeWallSegments(selectedWall).length > 1 ? ` — ${freeWallSegments(selectedWall).length} pieces` : ""}. Double-tap a piece to type its length; drag a corner to move it.
+          </p>
+
+          {/*
+            Full height unless told otherwise. A pony wall is the reason to say otherwise: its faces
+            stop at its own height and it has no ceiling line, which is what the quantities do with
+            the number — see `roomQuantities`.
+          */}
+          <div className="question">
+            <label className="prompt" htmlFor="sketch-wall-height">
+              Wall height
+            </label>
+            <input
+              id="sketch-wall-height"
+              type="text"
+              inputMode="text"
+              autoComplete="off"
+              placeholder="full height"
+              key={`${selectedWall.id}-height`}
+              defaultValue={selectedWall.heightFeet == null ? "" : formatFeetInches(selectedWall.heightFeet)}
+              onBlur={(e) => {
+                const raw = e.target.value.trim();
+                if (raw === "") {
+                  updateFreeWall(selectedWall.id, (wall) => ({ ...wall, heightFeet: null }));
+                  return;
+                }
+                const feet = parseFeetInches(raw);
+                if (feet == null || feet <= 0) {
+                  e.target.value = selectedWall.heightFeet == null ? "" : formatFeetInches(selectedWall.heightFeet);
+                  return;
+                }
+                updateFreeWall(selectedWall.id, (wall) => ({ ...wall, heightFeet: feet }));
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  e.currentTarget.blur();
+                }
+              }}
+            />
+            <p className="field-note">Leave blank for a wall to the ceiling. Set it for a pony or knee wall — its two faces count to that height, and it adds nothing at the ceiling line.</p>
+          </div>
+
+          <div className="actions-row">
+            <button className="btn-secondary" onClick={() => handleDeleteWall(selectedWall.id)} title="Delete key">
+              Delete wall
+            </button>
+          </div>
         </div>
       )}
 

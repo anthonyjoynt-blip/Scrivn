@@ -108,7 +108,8 @@ export function QuantitiesPanel({
         floor and ceiling are taken out of its parent&rsquo;s, so nothing is counted twice; perimeters are not, since a closet&rsquo;s walls exist in addition to the
         room&rsquo;s. Doors, openings and windows come out of the wall area by default, since there is no wall there to finish; switch that off
         above to compare against a gross figure. A window with no height recorded is not deducted, because a height nobody entered is not a
-        measurement.
+        measurement. A wall drawn on its own inside a room counts for that room: two faces of wall and base along both sides, and a ceiling line
+        on both sides only when it goes to the ceiling.
       </p>
     </div>
   );

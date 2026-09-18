@@ -446,6 +446,37 @@ export interface SketchRoom {
 }
 
 /**
+ * A wall drawn on its own, not as the side of a room.
+ *
+ * A partition that runs into a room and stops — the wing wall beside a doorway, the pony wall
+ * between a kitchen and the living room, the wall alongside a stair — is a wall the PM has to
+ * measure and the estimator has to finish on both faces, and a room polygon has no way to hold one:
+ * every side of a polygon is a side, and a wall with a free end is not. So these are their own
+ * thing on the sketch, drawn with the wall tool one corner at a time.
+ *
+ * An OPEN run, always. A run whose last corner lands back on its first is not a free wall with a
+ * loop in it; it is a room, and the wall tool makes one (see `lib/sketchWalls.ts`). The same goes
+ * for a run that starts and ends on a room's own walls — the region it cuts off becomes a sub-room
+ * — and for one that meets the ends of walls already drawn to close a loop with them.
+ *
+ * Nothing attaches to a free wall: no doors, no cabinets, no moisture readings. The quantities it
+ * carries are its two faces and two runs of base, credited to the room it stands in — see
+ * `freeWallQuantities`.
+ */
+export interface FreeWall {
+  id: string;
+  /** The corners in order, two or more. Never closed — see above. */
+  vertices: Vertex[];
+  /** Which storey, as on a room. Optional for the same reason; read through `freeWallLevel`. */
+  level?: number;
+  /**
+   * Height in feet, or null for full height — the ceiling of the room it stands in. A pony wall
+   * is why this exists: 3'6" of wall has 3'6" of face, and no ceiling line at all.
+   */
+  heightFeet: number | null;
+}
+
+/**
  * The viewport: how world coordinates map to the screen.
  *
  * Kept separate from the sketch data because it's a camera, not a measurement — two people looking
@@ -486,6 +517,8 @@ export interface Sketch {
    * Optional so a sketch drawn before levels existed still loads.
    */
   levels?: number[];
+  /** Walls drawn on their own — see `FreeWall`. Optional so a sketch saved before they existed still loads. */
+  freeWalls?: FreeWall[];
 }
 
 export function emptySketch(): Sketch {
@@ -493,7 +526,12 @@ export function emptySketch(): Sketch {
 }
 
 export function hasSketchContent(sketch: Sketch): boolean {
-  return sketch.rooms.length > 0;
+  return sketch.rooms.length > 0 || freeWallsOf(sketch).length > 0;
+}
+
+/** The free walls, for a sketch saved before they existed as much as for one drawn today. */
+export function freeWallsOf(sketch: Sketch): FreeWall[] {
+  return sketch.freeWalls ?? [];
 }
 
 /* ── Levels ─────────────────────────────────────────────────────────────────────────────────────
@@ -523,7 +561,64 @@ export function roomLevel(room: SketchRoom): number {
 export function levelsOf(sketch: Sketch): number[] {
   const levels = new Set<number>([MAIN_LEVEL, ...(sketch.levels ?? [])]);
   for (const room of sketch.rooms) levels.add(roomLevel(room));
+  for (const wall of freeWallsOf(sketch)) levels.add(freeWallLevel(wall));
   return [...levels].sort((a, b) => a - b);
+}
+
+/** A free wall's level — the same reading as `roomLevel`. */
+export function freeWallLevel(wall: FreeWall): number {
+  return wall.level ?? MAIN_LEVEL;
+}
+
+export function freeWallsOnLevel(sketch: Sketch, level: number): FreeWall[] {
+  return freeWallsOf(sketch).filter((wall) => freeWallLevel(wall) === level);
+}
+
+/** The wall's straight pieces, corner to corner, each carrying the id of the corner it starts at. */
+export function freeWallSegments(wall: FreeWall): WallGeometry[] {
+  const segments: WallGeometry[] = [];
+  for (let index = 0; index + 1 < wall.vertices.length; index++) {
+    const from = wall.vertices[index] as Vertex;
+    const to = wall.vertices[index + 1] as Vertex;
+    const dx = to.x - from.x;
+    const dy = to.y - from.y;
+    segments.push({
+      id: from.id,
+      index,
+      x1: from.x,
+      y1: from.y,
+      x2: to.x,
+      y2: to.y,
+      lengthPx: Math.hypot(dx, dy),
+      lengthFeet: Math.hypot(dx, dy) / PIXELS_PER_FOOT,
+      rotation: (Math.atan2(dy, dx) * 180) / Math.PI,
+      horizontal: Math.abs(dx) >= Math.abs(dy),
+    });
+  }
+  return segments;
+}
+
+/**
+ * The room a piece of free wall stands in: the innermost room containing its middle, on its own
+ * storey. Null for a wall standing clear of every room, which is drawn and measured and credited to
+ * nobody.
+ */
+export function freeWallSegmentRoom(segment: WallGeometry, wall: FreeWall, sketch: Sketch): SketchRoom | null {
+  const mx = (segment.x1 + segment.x2) / 2;
+  const my = (segment.y1 + segment.y2) / 2;
+  let best: SketchRoom | null = null;
+  let bestArea = Infinity;
+  for (const room of sketch.rooms) {
+    if (roomLevel(room) !== freeWallLevel(wall)) continue;
+    if (!isInsideRoom(room, mx, my)) continue;
+    const b = roomBounds(room);
+    const area = b.width * b.height;
+    if (area < bestArea) {
+      best = room;
+      bestArea = area;
+    }
+  }
+  return best;
 }
 
 /** Records a new storey. Returns the sketch unchanged when it already has one. */
@@ -2920,9 +3015,10 @@ function round2(n: number): number {
  */
 export function sketchSummaryText(sketch: Sketch): string {
   const rooms = sketchOutput(sketch);
-  if (rooms.length === 0) return "";
+  const walls = freeWallSummaryLines(sketch);
+  if (rooms.length === 0 && walls.length === 0) return "";
 
-  return rooms
+  const roomText = rooms
     .map((room) => {
       const shape = room.wallCount === 4 ? "" : ` (${room.wallCount}-sided)`;
       const within = room.withinRoom ? ` — inside ${room.withinRoom}` : "";
@@ -2983,6 +3079,29 @@ export function sketchSummaryText(sketch: Sketch): string {
       return lines.join("\n");
     })
     .join("\n\n");
+
+  return [roomText, walls.join("\n")].filter((part) => part !== "").join("\n\n");
+}
+
+/**
+ * The free walls, one line each: the run of pieces, the height when it is not full, and the room
+ * the wall stands in. Kept beside `sketchSummaryText` for the same reason it keeps beside
+ * `sketchOutput` — a wall that is drawn but never reported is a wall nobody prices.
+ */
+function freeWallSummaryLines(sketch: Sketch): string[] {
+  const walls = freeWallsOf(sketch);
+  if (walls.length === 0) return [];
+  return [
+    "Free walls",
+    ...walls.map((wall, i) => {
+      const pieces = freeWallSegments(wall);
+      const run = pieces.map((p) => formatFeetInches(p.lengthFeet)).join(" + ");
+      const host = pieces[0] ? freeWallSegmentRoom(pieces[0], wall, sketch) : null;
+      const where = host ? ` in ${host.name.trim() || "Unnamed room"}` : "";
+      const height = wall.heightFeet == null ? "full height" : `${formatFeetInches(wall.heightFeet)} high`;
+      return `  Wall ${i + 1} — ${run}${pieces.length > 1 ? ` (${pieces.length} pieces)` : ""}, ${height}${where}`;
+    }),
+  ];
 }
 
 

@@ -4,7 +4,7 @@ import { createElement } from "react";
 import { createRoot } from "react-dom/client";
 import Konva from "konva";
 import SketchCanvas from "./SketchCanvas";
-import { PIXELS_PER_FOOT, type Sketch, roomBounds, roomsOnLevel } from "@/lib/sketch";
+import { PIXELS_PER_FOOT, type Sketch, freeWallsOf, freeWallsOnLevel, roomBounds, roomsOnLevel } from "@/lib/sketch";
 import { type MoistureMap, emptyMoistureMap } from "@/lib/moisture";
 import { type SketchRender, parseRender } from "@/lib/sketchAttachments";
 import { type SurfaceThumbnail, thumbnailFor } from "@/lib/surfaceThumbnails";
@@ -45,8 +45,6 @@ export interface SketchImage {
  * instead, at whatever scale makes it fit.
  */
 function framing(sketch: Sketch): { width: number; height: number; view: { x: number; y: number; scale: number } } | null {
-  if (sketch.rooms.length === 0) return null;
-
   let minX = Infinity;
   let minY = Infinity;
   let maxX = -Infinity;
@@ -57,6 +55,15 @@ function framing(sketch: Sketch): { width: number; height: number; view: { x: nu
     minY = Math.min(minY, b.minY);
     maxX = Math.max(maxX, b.maxX);
     maxY = Math.max(maxY, b.maxY);
+  }
+  // Free walls are part of the picture too — a partition drawn past a room's edge would be cut off.
+  for (const wall of freeWallsOf(sketch)) {
+    for (const v of wall.vertices) {
+      minX = Math.min(minX, v.x);
+      minY = Math.min(minY, v.y);
+      maxX = Math.max(maxX, v.x);
+      maxY = Math.max(maxY, v.y);
+    }
   }
   if (!Number.isFinite(minX) || !Number.isFinite(maxX)) return null;
 
@@ -94,7 +101,7 @@ async function withStage<T>(
     not drawing, and a single upper room comes out marooned in the corner of a whole-building frame.
   */
   const { base, level } = parseRender(render);
-  const scoped: Sketch = level === null ? sketch : { ...sketch, rooms: roomsOnLevel(sketch, level) };
+  const scoped: Sketch = level === null ? sketch : { ...sketch, rooms: roomsOnLevel(sketch, level), freeWalls: freeWallsOnLevel(sketch, level) };
   const frame = framing(scoped);
   if (!frame) return null;
 
@@ -109,6 +116,7 @@ async function withStage<T>(
     root.render(
       createElement(SketchCanvas, {
         rooms: scoped.rooms,
+        freeWalls: freeWallsOf(scoped),
         width: frame.width,
         height: frame.height,
         view: frame.view,

@@ -22,6 +22,7 @@ import {
   type DoorSymbol,
   type FixtureSymbol,
   type FreeCabinet,
+  type FreeWall,
   type SketchRoom,
   type SketchSymbol,
   type SketchView,
@@ -36,6 +37,7 @@ import {
   exposedRunAt,
   formatFeetInches,
   freeCabinetSizePx,
+  freeWallSegments,
   pointOnWall,
   isInsideRoom,
   roomBounds,
@@ -55,6 +57,7 @@ import {
   wallStrokePx,
   wallsOf,
 } from "@/lib/sketch";
+import { type DraftPoint, WALL_SNAP_SCREEN_PX, snapDraftPoint } from "@/lib/sketchWalls";
 
 /**
  * The drawing surface. Rendering and pointer handling only — every state change is reported upward
@@ -147,7 +150,8 @@ const claimGesture = (e: KonvaEventObject<MouseEvent | TouchEvent>) => {
  * a door is, minus the leaf. Giving it its own symbol type would have duplicated the placement,
  * the drag, the resize and the wall-relative geometry to gain nothing; it is a tool, not a kind.
  */
-export type ToolMode = "select" | "door" | "opening" | "window" | "cabinet" | "fixture" | "island" | "break";
+/** "wall" draws walls a corner at a time — see `lib/sketchWalls.ts` for what a run of them becomes. */
+export type ToolMode = "select" | "door" | "opening" | "window" | "cabinet" | "fixture" | "island" | "break" | "wall";
 
 /**
  * What a gesture means while moisture mapping.
@@ -262,6 +266,29 @@ export interface SketchCanvasProps {
   onPlaceIsland: (roomId: string, x: number, y: number) => void;
   onMoveIsland: (roomId: string, islandId: string, x: number, y: number) => void;
   onResizeIsland: (roomId: string, islandId: string, widthPx: number, depthPx: number) => void;
+
+  /*
+    Free walls and the wall tool — see `FreeWall` and `lib/sketchWalls.ts`. All optional: an export,
+    a thumbnail and the scope picker draw a sketch and never draw on one.
+  */
+  /** The free walls on the storey being drawn. */
+  freeWalls?: FreeWall[];
+  selectedWallId?: string | null;
+  /** The run of corners tapped so far with the wall tool, drawn as walls in the making. */
+  wallDraft?: DraftPoint[];
+  /**
+   * A corner was tapped with the wall tool, already snapped — the editor decides what it makes.
+   * There is deliberately no double-tap here: Konva's double-tap is two taps within 400ms
+   * ANYWHERE, so a PM tapping corners briskly would keep finishing runs they meant to continue.
+   * Tapping the last corner again is the gesture that finishes, and a double-tap on it does that.
+   */
+  onWallTap?: (point: DraftPoint) => void;
+  onSelectWall?: (wallId: string | null) => void;
+  /** A free wall was dragged; a translation, as for a room. */
+  onMoveFreeWall?: (wallId: string, dx: number, dy: number) => void;
+  onMoveFreeWallVertex?: (wallId: string, vertexId: string, x: number, y: number) => void;
+  /** A piece of free wall, or its measurement, was double-tapped — the editor opens its length input. */
+  onTapFreeWallSegment?: (wallId: string, startVertexId: string, screen: { x: number; y: number }) => void;
 }
 
 export default function SketchCanvas(props: SketchCanvasProps) {
@@ -363,7 +390,62 @@ export default function SketchCanvas(props: SketchCanvasProps) {
     if (e.target === e.target.getStage()) {
       props.onSelectRoom(null);
       props.onSelectSymbol(null);
+      props.onSelectWall?.(null);
     }
+  }
+
+  /*
+    ── The wall tool ─────────────────────────────────────────────────────────────────────────────
+    A tap is a corner. While the tool is active the drawing layer stops listening, so every tap
+    reaches the stage whatever it lands on — a room, a wall, open canvas — and is snapped by the same
+    rule (`snapDraftPoint`). Corners are added on CLICK rather than on pointer-down: Konva only fires
+    a click when the pointer did not drag, so a pan across the canvas leaves no corner behind.
+    (A double-click is two clicks, and the second lands on the corner the first made — which is the
+    "tap the last corner again" that finishes a run. See `onWallTap`.)
+
+    The line from the last corner to the pointer is kept out of React state and moved by hand on
+    every mouse move — it changes sixty times a second and nothing else on the canvas changes with
+    it. There is no such line on a phone, where there is no pointer between taps; the tap itself is
+    snapped the same way, so nothing is lost but the preview.
+  */
+  const draft = props.wallDraft ?? [];
+  const drawingWalls = tool === "wall";
+  const rubberBand = useRef<Konva.Line>(null);
+  const rubberLabel = useRef<Konva.Text>(null);
+
+  function snapAtPointer(): DraftPoint | null {
+    const world = stageRef.current?.getRelativePointerPosition();
+    if (!world) return null;
+    return snapDraftPoint(world, { rooms, freeWalls: props.freeWalls ?? [], draft, radiusPx: WALL_SNAP_SCREEN_PX / view.scale });
+  }
+
+  function handleWallClick() {
+    if (!drawingWalls) return;
+    const point = snapAtPointer();
+    if (point) props.onWallTap?.(point);
+  }
+
+  function moveRubberBand() {
+    const last = draft[draft.length - 1];
+    const line = rubberBand.current;
+    const label = rubberLabel.current;
+    if (!drawingWalls || !last || !line || !label) return;
+    const point = snapAtPointer();
+    if (!point) return;
+    line.points([last.x, last.y, point.x, point.y]);
+    const lengthFeet = Math.hypot(point.x - last.x, point.y - last.y) / PIXELS_PER_FOOT;
+    label.text(lengthFeet >= 0.5 / 12 ? formatFeetInches(lengthFeet) : "");
+    label.position({ x: (last.x + point.x) / 2 - 35 / view.scale, y: (last.y + point.y) / 2 - 18 / view.scale });
+    line.getLayer()?.batchDraw();
+  }
+
+  function hideRubberBand() {
+    const last = draft[draft.length - 1];
+    const line = rubberBand.current;
+    if (!line) return;
+    line.points(last ? [last.x, last.y, last.x, last.y] : []);
+    rubberLabel.current?.text("");
+    line.getLayer()?.batchDraw();
   }
 
   /** Wheel zoom, anchored on the pointer so the point under the cursor stays put. */
@@ -425,9 +507,14 @@ export default function SketchCanvas(props: SketchCanvasProps) {
       onTouchStart={(e) => {
         if (!beginStroke(e)) handleBackgroundPointer(e);
       }}
-      onMouseMove={continueStroke}
+      onMouseMove={(e) => {
+        if (!continueStroke(e)) moveRubberBand();
+      }}
       onMouseUp={endStroke}
-      onMouseLeave={endStroke}
+      onMouseLeave={() => {
+        endStroke();
+        hideRubberBand();
+      }}
       onTouchMove={(e) => {
         if (!continueStroke(e)) handleTouchMove(e);
       }}
@@ -435,6 +522,8 @@ export default function SketchCanvas(props: SketchCanvasProps) {
         endStroke();
         lastPinchDist.current = null;
       }}
+      onClick={handleWallClick}
+      onTap={handleWallClick}
       onWheel={handleWheel}
       onDragEnd={(e) => {
         // Only the stage's own drag is a pan; a room's drag also bubbles up here.
@@ -448,7 +537,8 @@ export default function SketchCanvas(props: SketchCanvasProps) {
           <BackgroundGrid view={view} width={width} height={height} />
         </Layer>
       )}
-      <Layer>
+      {/* Deaf while the wall tool is out, so that every tap is a corner — see the wall tool note above. */}
+      <Layer listening={!drawingWalls}>
         {rooms.map((room) => (
           <RoomShape
             key={room.id}
@@ -507,7 +597,29 @@ export default function SketchCanvas(props: SketchCanvasProps) {
             onResize={props.onResizeReading}
           />
         )}
+
+        {/* After the rooms, so a partition drawn into a room lies on its floor rather than under it. */}
+        {(props.freeWalls ?? []).map((wall) => (
+          <FreeWallShape
+            key={wall.id}
+            wall={wall}
+            zoom={view.scale}
+            selected={wall.id === props.selectedWallId}
+            interactive={tool === "select" && moistureTool === null}
+            onSelect={() => props.onSelectWall?.(wall.id)}
+            onMove={(dx, dy) => props.onMoveFreeWall?.(wall.id, dx, dy)}
+            onMoveVertex={(vertexId, x, y) => props.onMoveFreeWallVertex?.(wall.id, vertexId, x, y)}
+            onTapSegment={(startVertexId, screen) => props.onTapFreeWallSegment?.(wall.id, startVertexId, screen)}
+          />
+        ))}
       </Layer>
+      {drawingWalls && (
+        <Layer listening={false}>
+          <WallDraft draft={draft} zoom={view.scale} />
+          <Line ref={rubberBand} points={[]} stroke={COLORS.handle} strokeWidth={wallStrokePx(view.scale)} dash={[8 / view.scale, 6 / view.scale]} lineCap="round" />
+          <Text ref={rubberLabel} text="" width={70 / view.scale} align="center" fontSize={11 / view.scale} fill={COLORS.handle} />
+        </Layer>
+      )}
       {props.underlayRooms && props.underlayRooms.length > 0 && (
         /*
           The other storey, drawn OVER the one being worked on rather than under it.
@@ -1095,6 +1207,182 @@ function RoomShape({
       ))}
       </Group>
     </Group>
+  );
+}
+
+/**
+ * A wall drawn on its own — see `FreeWall`.
+ *
+ * Drawn with the same stroke as a room's walls, because it is the same kind of thing, and measured
+ * the same way, a figure beside each piece. Selected, it shows a corner handle at every corner and
+ * slides as a whole when dragged, exactly as a room does; the handles claim their own gesture so a
+ * pull on a corner moves the corner and not the wall.
+ *
+ * Nothing sits on it — no doors, no cabinets — so there is no wall strip to place things by, only
+ * a tap target to select it and a double-tap to type a piece's length.
+ */
+function FreeWallShape({
+  wall,
+  zoom,
+  selected,
+  interactive,
+  onSelect,
+  onMove,
+  onMoveVertex,
+  onTapSegment,
+}: {
+  wall: FreeWall;
+  zoom: number;
+  selected: boolean;
+  /** False while another tool is out or the sketch is being mapped: drawn, not touched. */
+  interactive: boolean;
+  onSelect: () => void;
+  onMove: (dx: number, dy: number) => void;
+  onMoveVertex: (vertexId: string, x: number, y: number) => void;
+  onTapSegment: (startVertexId: string, screen: { x: number; y: number }) => void;
+}) {
+  const segments = freeWallSegments(wall);
+  const points = wall.vertices.flatMap((v) => [v.x, v.y]);
+  const stroke = wallStrokePx(zoom);
+
+  // Selects, and lets the press bubble on to the group: the group's own drag starts from that same
+  // press, so stopping it here would make the wall selectable and immovable.
+  const select = () => {
+    if (interactive) onSelect();
+  };
+  const lengthRequest = (segment: WallGeometry, e: KonvaEventObject<MouseEvent | TouchEvent>) => {
+    if (!interactive) return;
+    e.cancelBubble = true;
+    const stage = e.target.getStage();
+    const pointer = stage?.getPointerPosition();
+    const box = stage?.container().getBoundingClientRect();
+    onSelect();
+    onTapSegment(segment.id, { x: (box?.left ?? 0) + (pointer?.x ?? 0), y: (box?.top ?? 0) + (pointer?.y ?? 0) });
+  };
+
+  return (
+    <Group
+      draggable={interactive}
+      onDragEnd={(e) => {
+        // The wall's own drag only — a corner handle's dragend bubbles through here too.
+        if (e.target !== e.currentTarget) return;
+        const dx = e.target.x();
+        const dy = e.target.y();
+        e.target.position({ x: 0, y: 0 });
+        if (dx !== 0 || dy !== 0) onMove(dx, dy);
+      }}
+    >
+      {selected && <Line points={points} stroke={COLORS.selected} strokeWidth={stroke + 6 / zoom} opacity={0.35} lineCap="round" lineJoin="round" listening={false} />}
+      <Line points={points} stroke={COLORS.wall} strokeWidth={stroke} lineCap="round" lineJoin="round" listening={false} />
+      {/* The tap target: the wall, finger-wide. */}
+      <Line
+        points={points}
+        stroke="#000"
+        strokeWidth={HIT.wall / zoom}
+        opacity={0}
+        lineCap="round"
+        lineJoin="round"
+        onMouseDown={select}
+        onTouchStart={select}
+        onDblClick={(e) => {
+          const at = e.target.getStage()?.getRelativePointerPosition();
+          lengthRequest(at ? nearestSegment(segments, at) : (segments[0] as WallGeometry), e);
+        }}
+        onDblTap={(e) => {
+          const at = e.target.getStage()?.getRelativePointerPosition();
+          lengthRequest(at ? nearestSegment(segments, at) : (segments[0] as WallGeometry), e);
+        }}
+      />
+      {segments.map((segment) => (
+        <WallLabel
+          key={`label-${segment.id}`}
+          wall={segment}
+          dimension={{ run: [0, 1], t: 0.5, lengthFeet: segment.lengthFeet }}
+          zoom={zoom}
+          outside={false}
+          onLengthRequest={(e) => lengthRequest(segment, e)}
+        />
+      ))}
+      {selected &&
+        interactive &&
+        wall.vertices.map((vertex) => (
+          <Group key={vertex.id}>
+            <Circle x={vertex.x} y={vertex.y} radius={5 / zoom} fill={COLORS.handle} listening={false} />
+            <Circle
+              x={vertex.x}
+              y={vertex.y}
+              radius={HIT.handle / zoom}
+              fill="#000"
+              opacity={0}
+              draggable
+              onMouseDown={claimGesture}
+              onTouchStart={claimGesture}
+              onDragMove={(e) => onMoveVertex(vertex.id, e.target.x(), e.target.y())}
+              onDragEnd={(e) => {
+                onMoveVertex(vertex.id, e.target.x(), e.target.y());
+                // The wall's corners are the truth; a refused move leaves the handle where the corner is.
+                e.target.position({ x: vertex.x, y: vertex.y });
+              }}
+            />
+          </Group>
+        ))}
+    </Group>
+  );
+}
+
+/** The piece of a free wall a point is nearest to. */
+function nearestSegment(segments: WallGeometry[], at: { x: number; y: number }): WallGeometry {
+  let best = segments[0] as WallGeometry;
+  let bestDistance = Infinity;
+  for (const segment of segments) {
+    const t = Math.max(0, Math.min(1, tapFractionOnWall(segment, at.x, at.y)));
+    const p = pointOnWall(segment, t);
+    const d = Math.hypot(p.x - at.x, p.y - at.y);
+    if (d < bestDistance) {
+      bestDistance = d;
+      best = segment;
+    }
+  }
+  return best;
+}
+
+/**
+ * The run of corners tapped so far with the wall tool, drawn as the walls they will be, with a
+ * ring on the first corner once the run is long enough to close on it — the invitation to.
+ */
+function WallDraft({ draft, zoom }: { draft: DraftPoint[]; zoom: number }) {
+  const first = draft[0];
+  if (!first) return null;
+  const segments = draft.slice(1).map((point, i) => {
+    const from = draft[i] as DraftPoint;
+    const dx = point.x - from.x;
+    const dy = point.y - from.y;
+    const lengthPx = Math.hypot(dx, dy);
+    return {
+      id: `draft-${i}`,
+      index: i,
+      x1: from.x,
+      y1: from.y,
+      x2: point.x,
+      y2: point.y,
+      lengthPx,
+      lengthFeet: lengthPx / PIXELS_PER_FOOT,
+      rotation: (Math.atan2(dy, dx) * 180) / Math.PI,
+      horizontal: Math.abs(dx) >= Math.abs(dy),
+    } satisfies WallGeometry;
+  });
+
+  return (
+    <>
+      <Line points={draft.flatMap((p) => [p.x, p.y])} stroke={COLORS.wall} strokeWidth={wallStrokePx(zoom)} lineCap="round" lineJoin="round" />
+      {segments.map((segment) => (
+        <WallLabel key={segment.id} wall={segment} dimension={{ run: [0, 1], t: 0.5, lengthFeet: segment.lengthFeet }} zoom={zoom} outside={false} onLengthRequest={() => {}} />
+      ))}
+      {draft.map((point, i) => (
+        <Circle key={`corner-${i}`} x={point.x} y={point.y} radius={4 / zoom} fill={COLORS.handle} />
+      ))}
+      {draft.length >= 2 && <Circle x={first.x} y={first.y} radius={10 / zoom} stroke={COLORS.handle} strokeWidth={2 / zoom} />}
+    </>
   );
 }
 

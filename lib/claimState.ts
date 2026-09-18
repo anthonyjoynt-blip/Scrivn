@@ -10,7 +10,7 @@ import { emptyDGIGData } from "./dgig";
 import type { AsbestosScope } from "./asbestos";
 import { emptyAsbestosScope } from "./asbestos";
 import type { Sketch } from "./sketch";
-import { emptySketch } from "./sketch";
+import { emptySketch, hasSketchContent } from "./sketch";
 import { normalizeStoredExtraction } from "./extractionWire";
 import type { MoistureMap } from "./moisture";
 import { emptyMoistureMap } from "./moisture";
@@ -216,7 +216,7 @@ export function hasAnyContent(state: SavedClaimState): boolean {
     state.claim.jobNumber.trim() !== "" ||
     state.transcript.trim() !== "" ||
     state.extraction !== null ||
-    state.sketch.rooms.length > 0
+    hasSketchContent(state.sketch)
   );
 }
 
