@@ -752,7 +752,13 @@ export function SketchEditor({
       const host = sketch.rooms.find((r) => r.id === id);
       if (host) for (const wallId of freeWallsAttachedToRoom(host, walls)) carriedWalls.add(wallId);
     }
-    const snapped = snapRoomTranslation(sketch.rooms.filter((r) => r.id === roomId || !carried.has(r.id)), roomId, dx, dy);
+    const snapped = snapRoomTranslation(
+      sketch.rooms.filter((r) => r.id === roomId || !carried.has(r.id)),
+      roomId,
+      dx,
+      dy,
+      walls.filter((w) => !carriedWalls.has(w.id)),
+    );
     onChange({
       ...sketch,
       rooms: withDerivedParents(sketch.rooms.map((r) => (carried.has(r.id) ? translate(r, snapped.dx, snapped.dy) : r))),

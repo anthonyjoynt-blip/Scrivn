@@ -1587,50 +1587,52 @@ export function removeVertex(room: SketchRoom, vertexId: string): SketchRoom {
  * nor readable. Each axis is considered separately and independently, so a room can butt up against
  * one neighbour horizontally while staying aligned with a different one vertically.
  *
- * Four candidate alignments per axis: the dragged room's leading edge to the other's leading or
- * trailing edge, and the same for its trailing edge. Edge-to-edge gives rooms that share a wall
- * line; edge-to-same-edge gives rooms that line up in a row. The nearest candidate within SNAP_PX
- * wins, and if nothing is close the drag is left exactly as the finger put it.
+ * Every corner of the dragged room is a candidate against every corner of every other room and
+ * every end of every free wall, per axis: corner to corner gives rooms that share a wall line or
+ * line up in a row, and it is the corners, not the bounding box, that carry the lines a plan
+ * actually has. The first version compared bounding boxes only, so a room could be dragged into
+ * the notch of an L and find nothing there to snap to — the notch's walls are not edges of the
+ * L's box — and it was left a finger's width off, doubling the wall. The nearest candidate within
+ * `ROOM_SNAP_PX` wins, and if nothing is close the drag is left exactly as the finger put it.
  *
  * Snapping deliberately still applies to a room being dragged INSIDE another — a closet is usually
  * built into a corner, so latching onto the parent's walls is what you want there too.
  */
-export function snapRoomTranslation(rooms: SketchRoom[], roomId: string, dx: number, dy: number): { dx: number; dy: number } {
+export function snapRoomTranslation(rooms: SketchRoom[], roomId: string, dx: number, dy: number, freeWalls: FreeWall[] = []): { dx: number; dy: number } {
   const room = rooms.find((r) => r.id === roomId);
   if (!room) return { dx, dy };
 
-  const bounds = roomBounds(room);
-  const moved = { minX: bounds.minX + dx, maxX: bounds.maxX + dx, minY: bounds.minY + dy, maxY: bounds.maxY + dy };
+  const targetsX: number[] = [];
+  const targetsY: number[] = [];
+  for (const other of rooms) {
+    if (other.id === roomId || roomLevel(other) !== roomLevel(room)) continue;
+    for (const v of other.vertices) {
+      targetsX.push(v.x);
+      targetsY.push(v.y);
+    }
+  }
+  for (const wall of freeWalls) {
+    if (freeWallLevel(wall) !== roomLevel(room)) continue;
+    for (const v of wall.vertices) {
+      targetsX.push(v.x);
+      targetsY.push(v.y);
+    }
+  }
 
   let bestX = ROOM_SNAP_PX;
   let bestY = ROOM_SNAP_PX;
   let adjustX = 0;
   let adjustY = 0;
-
-  for (const other of rooms) {
-    if (other.id === roomId) continue;
-    const o = roomBounds(other);
-
-    for (const [mine, theirs] of [
-      [moved.minX, o.minX],
-      [moved.minX, o.maxX],
-      [moved.maxX, o.minX],
-      [moved.maxX, o.maxX],
-    ]) {
-      const delta = (theirs as number) - (mine as number);
+  for (const mine of room.vertices) {
+    for (const theirs of targetsX) {
+      const delta = theirs - (mine.x + dx);
       if (Math.abs(delta) < bestX) {
         bestX = Math.abs(delta);
         adjustX = delta;
       }
     }
-
-    for (const [mine, theirs] of [
-      [moved.minY, o.minY],
-      [moved.minY, o.maxY],
-      [moved.maxY, o.minY],
-      [moved.maxY, o.maxY],
-    ]) {
-      const delta = (theirs as number) - (mine as number);
+    for (const theirs of targetsY) {
+      const delta = theirs - (mine.y + dy);
       if (Math.abs(delta) < bestY) {
         bestY = Math.abs(delta);
         adjustY = delta;
@@ -2366,10 +2368,16 @@ export function withWallLength(room: SketchRoom, wallId: string, feet: number, h
  * closet's share is added back so the whole wall comes out right, and the label on the stretch
  * shows what was typed.
  *
- * The corner held is the one the closet stands in, not the top-left one. Rooms are not joined (see
- * the file header): a closet flush with a corner stays put when its parent is resized, so moving
- * THAT corner would leave it standing clear of the wall, or buried in it. With the whole wall — or a
- * closet at each end, where there is nothing to prefer — the top-left rule applies as usual.
+ * The run may also reach PAST a corner, below 0 or above 1, when a free wall carries straight on
+ * from it and the label measures the whole run — see `wallDimensionsWithExtensions`. The same
+ * arithmetic serves: the free wall's share comes off what was typed, and the room's wall is what
+ * is left.
+ *
+ * The corner held is the one something stands at — the closet, or the free wall — not the top-left
+ * one. Rooms are not joined (see the file header): a closet flush with a corner stays put when its
+ * parent is resized, and a free wall stays where it was drawn, so moving THAT corner would leave
+ * either standing clear of the wall, or buried in it. With the whole wall — or something at each
+ * end, where there is nothing to prefer — the top-left rule applies as usual.
  */
 export function withWallRunLength(room: SketchRoom, wallId: string, run: [number, number], feet: number): SketchRoom {
   const wall = wallById(room, wallId);
@@ -2377,7 +2385,7 @@ export function withWallRunLength(room: SketchRoom, wallId: string, run: [number
   // still make a perfectly legal wall, and it would be drawn.
   if (!wall || feet <= 0) return room;
   const [lo, hi] = run;
-  const hold = lo > 0 && hi >= 1 ? "start" : hi < 1 && lo <= 0 ? "end" : null;
+  const hold = lo !== 0 && hi === 1 ? "start" : lo === 0 && hi !== 1 ? "end" : null;
   return withWallLength(room, wallId, feet + wall.lengthFeet - wallRunFeet(wall, run), hold);
 }
 

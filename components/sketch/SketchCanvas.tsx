@@ -51,13 +51,12 @@ import {
   tapFractionOnWall,
   cappedInset,
   wallById,
-  wallDimensions,
   wallGripSpan,
   wallHandleRadii,
   wallStrokePx,
   wallsOf,
 } from "@/lib/sketch";
-import { type DraftPoint, WALL_SNAP_SCREEN_PX, snapDraftPoint } from "@/lib/sketchWalls";
+import { type DraftPoint, WALL_SNAP_SCREEN_PX, absorbedFreeWallIds, snapDraftPoint, wallDimensionsWithExtensions } from "@/lib/sketchWalls";
 
 /**
  * The drawing surface. Rendering and pointer handling only — every state change is reported upward
@@ -419,6 +418,8 @@ export default function SketchCanvas(props: SketchCanvasProps) {
   */
   const draft = props.wallDraft ?? [];
   const drawingWalls = tool === "wall";
+  // Free walls whose length is already on a room wall's label — see `wallDimensionsWithExtensions`.
+  const absorbed = absorbedFreeWallIds(rooms, props.freeWalls ?? []);
   const rubberBand = useRef<Konva.Line>(null);
   const rubberLabel = useRef<Konva.Text>(null);
 
@@ -553,6 +554,7 @@ export default function SketchCanvas(props: SketchCanvasProps) {
             key={room.id}
             room={room}
             rooms={rooms}
+            freeWalls={props.freeWalls ?? []}
             tool={tool}
             showSizes={showSizes}
             moisture={moisture}
@@ -612,6 +614,7 @@ export default function SketchCanvas(props: SketchCanvasProps) {
           <FreeWallShape
             key={wall.id}
             wall={wall}
+            labelled={!absorbed.has(wall.id)}
             zoom={view.scale}
             selected={wall.id === props.selectedWallId}
             interactive={tool === "select" && moistureTool === null}
@@ -706,6 +709,7 @@ function UnderlayRoom({ room, zoom }: { room: SketchRoom; zoom: number }) {
 function RoomShape({
   room,
   rooms,
+  freeWalls,
   highlight,
   tool,
   showSizes,
@@ -740,6 +744,8 @@ function RoomShape({
   room: SketchRoom;
   /** Every room on the plan — a cabinet has to know which sub-rooms stand on its wall. */
   rooms: SketchRoom[];
+  /** The free walls on the storey — a wall label has to know what carries on from its corners. */
+  freeWalls: FreeWall[];
   tool: ToolMode;
   showSizes: boolean;
   zoom: number;
@@ -1091,7 +1097,7 @@ function RoomShape({
         sub-room's, drawn on the same line, is the one that counts.
       */}
       {walls.flatMap((wall) =>
-        wallDimensions(room, wall, rooms).map((dimension) => (
+        wallDimensionsWithExtensions(room, wall, rooms, freeWalls).dimensions.map((dimension) => (
           <WallLabel
             key={`label-${wall.id}-${dimension.run[0]}`}
             wall={wall}
@@ -1233,6 +1239,7 @@ function RoomShape({
  */
 function FreeWallShape({
   wall,
+  labelled,
   zoom,
   selected,
   interactive,
@@ -1242,6 +1249,8 @@ function FreeWallShape({
   onTapSegment,
 }: {
   wall: FreeWall;
+  /** False when the wall carries straight on from a room's corner and that wall's label counts it. */
+  labelled: boolean;
   zoom: number;
   selected: boolean;
   /** False while another tool is out or the sketch is being mapped: drawn, not touched. */
@@ -1306,16 +1315,17 @@ function FreeWallShape({
           lengthRequest(at ? nearestSegment(segments, at) : (segments[0] as WallGeometry), e);
         }}
       />
-      {segments.map((segment) => (
-        <WallLabel
-          key={`label-${segment.id}`}
-          wall={segment}
-          dimension={{ run: [0, 1], t: 0.5, lengthFeet: segment.lengthFeet }}
-          zoom={zoom}
-          outside={false}
-          onLengthRequest={(e) => lengthRequest(segment, e)}
-        />
-      ))}
+      {labelled &&
+        segments.map((segment) => (
+          <WallLabel
+            key={`label-${segment.id}`}
+            wall={segment}
+            dimension={{ run: [0, 1], t: 0.5, lengthFeet: segment.lengthFeet }}
+            zoom={zoom}
+            outside={false}
+            onLengthRequest={(e) => lengthRequest(segment, e)}
+          />
+        ))}
       {selected &&
         interactive &&
         wall.vertices.map((vertex) => (

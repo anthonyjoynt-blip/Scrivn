@@ -36,6 +36,7 @@ import {
   type Sketch,
   type SketchRoom,
   type Vertex,
+  type WallDimension,
   type WallGeometry,
   DEFAULT_CEILING_HEIGHT_FEET,
   MIN_VERTICES,
@@ -48,6 +49,7 @@ import {
   newSketchId,
   pruneCollinearVertices,
   roomLevel,
+  wallDimensions,
   wallStrokePx,
   wallsOf,
 } from "./sketch";
@@ -615,6 +617,73 @@ export function snapFreeWallTranslation(
     }
   }
   return best ? { dx: best.dx, dy: best.dy } : { dx, dy };
+}
+
+/**
+ * A room wall's dimension labels once the free walls carrying straight on from its corners are
+ * counted in.
+ *
+ * A wall that runs on past the room's corner — the front wall continuing along the hall, the wing
+ * wall off the end of a partition line — is one wall to the PM with the tape, and it read as two
+ * figures: the room's share, and the free wall's own. Now the run is measured corner to corner of
+ * the WALL: the label sits over the middle of the whole run and gives its whole length, and the
+ * free wall carries no label of its own (`absorbed`). Typing over that label sets the whole run,
+ * and `withWallRunLength` takes the free wall's share back off to size the room's wall.
+ *
+ * Only free walls extend a room wall this way — never another room's wall. Two rooms side by side
+ * have two walls that each belong to their room and are each typed for their room, and one figure
+ * across both would leave nobody knowing which they were setting.
+ *
+ * The run is in the wall's own fractions, so an extension is a run reaching below 0 or past 1.
+ */
+export function wallDimensionsWithExtensions(room: SketchRoom, wall: WallGeometry, rooms: SketchRoom[], freeWalls: FreeWall[]): { dimensions: WallDimension[]; absorbed: string[] } {
+  const absorbed: string[] = [];
+  if (wall.lengthPx <= 0) return { dimensions: wallDimensions(room, wall, rooms), absorbed };
+  const along = (p: { x: number; y: number }) => ((p.x - wall.x1) * (wall.x2 - wall.x1) + (p.y - wall.y1) * (wall.y2 - wall.y1)) / (wall.lengthPx * wall.lengthPx);
+  const start = { x: wall.x1, y: wall.y1 };
+  const end = { x: wall.x2, y: wall.y2 };
+
+  /** How far the free walls carry on from a corner, as a fraction of this wall — 0 when none does. */
+  const reach = (corner: { x: number; y: number }, outward: -1 | 1): number => {
+    let at = corner;
+    let t = along(corner);
+    const used: string[] = [];
+    for (let guard = 0; guard < freeWalls.length; guard++) {
+      const next = freeWalls.find((w) => {
+        if (freeWallLevel(w) !== roomLevel(room) || used.includes(w.id)) return false;
+        const [p, q] = ends(w);
+        const far = samePoint(p, at) ? q : samePoint(q, at) ? p : null;
+        return far !== null && collinear(p, q, start, end) && Math.sign(along(far) - t) === outward;
+      });
+      if (!next) break;
+      const [p, q] = ends(next);
+      at = samePoint(p, at) ? q : p;
+      t = along(at);
+      used.push(next.id);
+    }
+    absorbed.push(...used);
+    return t;
+  };
+
+  const dimensions = wallDimensions(room, wall, rooms).map((dimension) => {
+    let [lo, hi] = dimension.run;
+    if (lo === 0) lo = Math.min(lo, reach(start, -1));
+    if (hi === 1) hi = Math.max(hi, reach(end, 1));
+    if (lo === dimension.run[0] && hi === dimension.run[1]) return dimension;
+    return { run: [lo, hi] as [number, number], t: (lo + hi) / 2, lengthFeet: wall.lengthFeet * (hi - lo) };
+  });
+  return { dimensions, absorbed };
+}
+
+/** Every free wall whose length is already on a room wall's label — see `wallDimensionsWithExtensions`. */
+export function absorbedFreeWallIds(rooms: SketchRoom[], freeWalls: FreeWall[]): Set<string> {
+  const absorbed = new Set<string>();
+  for (const room of rooms) {
+    for (const wall of wallsOf(room)) {
+      for (const id of wallDimensionsWithExtensions(room, wall, rooms, freeWalls).absorbed) absorbed.add(id);
+    }
+  }
+  return absorbed;
 }
 
 /* ── What a free wall is worth ──────────────────────────────────────────────────────────────── */

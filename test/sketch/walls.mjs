@@ -401,6 +401,126 @@ export async function runWallChecks() {
     assert(step.kind === "extend" && step.draft[1].x === 120, `expected the corner kept, got ${JSON.stringify(step.draft)}`);
   });
 
+  /* One wall, one measurement — across a room's corner too. */
+
+  test("a free wall carrying straight on from a room's corner is measured with that wall, corner to corner", () => {
+    // The report: the room's bottom wall read 5'8", the wall carrying on past its corner 3'6",
+    // and the PM's tape said 9'2".
+    const r = box();
+    const on = freeWall("on", [[240, 192], [282, 192]]); // 3'6" carrying on from the bottom-right corner
+    const bottom = s.wallsOf(r)[2];
+    const { dimensions, absorbed } = s.wallDimensionsWithExtensions(r, bottom, [r], [on]);
+    assert(dimensions.length === 1, `one label, got ${dimensions.length}`);
+    near(dimensions[0].lengthFeet, 20 + 3.5, "the whole run");
+    assert(absorbed.includes("on"), "and the free wall's own label is not drawn");
+    // Centred over the whole run: the bottom wall runs right to left, so the extension is below 0.
+    near(dimensions[0].run[0], -42 / 240, "the run reaches past the wall's start");
+    near(dimensions[0].t, (1 - 42 / 240) / 2, "label at the middle of the whole run");
+  });
+
+  test("and from the other corner, and through two free walls in line", () => {
+    const r = box();
+    const a = freeWall("a", [[0, 192], [-24, 192]]);
+    const b = freeWall("b", [[-24, 192], [-60, 192]]);
+    const bottom = s.wallsOf(r)[2];
+    const { dimensions, absorbed } = s.wallDimensionsWithExtensions(r, bottom, [r], [a, b]);
+    near(dimensions[0].lengthFeet, 25, "20' plus 5'");
+    assert(absorbed.includes("a") && absorbed.includes("b"), `both absorbed, got ${absorbed}`);
+  });
+
+  test("a free wall off the corner at an angle, or on another storey, is its own wall", () => {
+    const r = box();
+    // Off the corner and outward, but 38" off the line by the time it ends: not this wall.
+    const angled = freeWall("angled", [[240, 192], [282, 230]]);
+    const upstairs = freeWall("up", [[240, 192], [282, 192]], { level: 1 });
+    const bottom = s.wallsOf(r)[2];
+    const { dimensions, absorbed } = s.wallDimensionsWithExtensions(r, bottom, [r], [angled, upstairs]);
+    near(dimensions[0].lengthFeet, 20, "the wall alone");
+    assert(absorbed.length === 0, "nothing absorbed");
+  });
+
+  test("a free wall lying back along the room's wall from its corner is not an extension", () => {
+    // Nothing draws one now (see the overlap checks), but a sketch may still carry one.
+    const r = box();
+    const back = freeWall("back", [[240, 192], [200, 192]]);
+    const bottom = s.wallsOf(r)[2];
+    const { dimensions, absorbed } = s.wallDimensionsWithExtensions(r, bottom, [r], [back]);
+    near(dimensions[0].lengthFeet, 20, "the wall alone");
+    assert(absorbed.length === 0, "and the wall keeps its own label");
+  });
+
+  test("another room's wall in line is never counted in — each room's wall is typed for its room", () => {
+    const a = box({ id: "a" });
+    const b = room([[240, 0], [480, 0], [480, 192], [240, 192]], { id: "b" });
+    const top = s.wallsOf(a)[0];
+    near(s.wallDimensionsWithExtensions(a, top, [a, b], []).dimensions[0].lengthFeet, 20, "the room's own wall");
+  });
+
+  test("absorbedFreeWallIds gathers them across every room", () => {
+    const r = box();
+    const on = freeWall("on", [[240, 192], [282, 192]]);
+    const loose = freeWall("loose", [[400, 400], [460, 400]]);
+    const ids = s.absorbedFreeWallIds([r], [on, loose]);
+    assert(ids.has("on") && !ids.has("loose"), `got ${[...ids]}`);
+  });
+
+  test("typing over the whole-run label sizes the room's wall, holding the corner the free wall is on", () => {
+    // 20' of room wall plus a 3'6" free wall = 23'6". Typed 24': the room wall becomes 20'6", and
+    // the corner the free wall stands on stays put.
+    const r = box();
+    const bottom = s.wallsOf(r)[2];
+    const run = [-42 / 240, 1];
+    const resized = s.withWallRunLength(r, bottom.id, run, 24);
+    near(s.wallById(resized, bottom.id).lengthFeet, 20.5, "the room's wall");
+    const b = s.roomBounds(resized);
+    near(b.maxX, 240, "the right side, where the free wall stands, stays");
+    near(b.minX, -6, "the left side moves");
+  });
+
+  /* Rooms landing flush with each other. */
+
+  test("a dragged room snaps its corners to the walls of an L, not just to its box", () => {
+    // An L with a notch top-left, and a 5' x 4' room dragged into the notch a little short of flush.
+    //   (60,0) ─── (240,0)          the notch's inside walls are x=60 and y=48
+    //     │           │
+    // (0,48)──(60,48)  │
+    //     │           │
+    //   (0,192) ─── (240,192)
+    const l = room([[60, 0], [240, 0], [240, 192], [0, 192], [0, 48], [60, 48]], { id: "l" });
+    // 5'6" x 3'4" — NOT the notch's own size, so lining its far edges up with the L's box would put
+    // its near edges somewhere else, which is what the old box-only snapping did.
+    const small = room([[-100, -100], [-34, -100], [-34, -60], [-100, -60]], { id: "small" });
+    // Dragged into the notch so its right edge lands 4px shy of x=60 and its bottom 3px past y=48.
+    const snapped = s.snapRoomTranslation([l, small], "small", 90, 111, []);
+    near(-34 + snapped.dx, 60, "right edge onto the notch's wall");
+    near(-60 + snapped.dy, 48, "bottom edge onto the notch's wall");
+  });
+
+  test("an L being dragged snaps by its inside corner too, which its box does not have", () => {
+    const l = room([[60, 0], [240, 0], [240, 192], [0, 192], [0, 48], [60, 48]], { id: "l" });
+    const small = room([[300, 300], [340, 300], [340, 330], [300, 330]], { id: "small" });
+    // Dragged so the L's inside corner (60,48) lands 3px from the small room's corner (300,300).
+    const snapped = s.snapRoomTranslation([l, small], "l", 243, 249, []);
+    near(60 + snapped.dx, 300, "inside corner x onto the small room's corner");
+    near(48 + snapped.dy, 300, "inside corner y onto it");
+  });
+
+  test("and to the end of a free wall", () => {
+    const r = box({ id: "r" });
+    const f = freeWall("f", [[300, 300], [360, 300]]);
+    const small = room([[0, 400], [60, 400], [60, 448], [0, 448]], { id: "small" });
+    const snapped = s.snapRoomTranslation([r, small], "small", 303, -104, [f]);
+    near(0 + snapped.dx, 300, "left edge onto the wall's end");
+    near(400 + snapped.dy, 300, "top edge onto the wall's line");
+  });
+
+  test("a room on another storey is not something to line up with", () => {
+    const r = box({ id: "r", level: 1 });
+    const small = room([[0, 400], [60, 400], [60, 448], [0, 448]], { id: "small" });
+    const snapped = s.snapRoomTranslation([r, small], "small", 243, -200, []);
+    assert(snapped.dx === 243 && snapped.dy === -200, `expected untouched, got ${JSON.stringify(snapped)}`);
+  });
+
   /* The snap radius. */
 
   test("the snap radius is a fingertip on screen, and never thinner than the wall", () => {
