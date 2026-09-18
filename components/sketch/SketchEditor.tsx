@@ -69,7 +69,19 @@ import {
   roomsOnLevel,
   withLevel,
 } from "@/lib/sketch";
-import { type DraftPoint, WALL_SNAP_SCREEN_PX, addDraftPoint, finishDraftAsWall, moveFreeWallVertex, translateFreeWall, withFreeWallSegmentLength } from "@/lib/sketchWalls";
+import {
+  type DraftPoint,
+  addDraftPoint,
+  connectedFreeWallIds,
+  finishDraft,
+  freeWallsAttachedToRoom,
+  moveSharedFreeWallVertex,
+  snapDraftPoint,
+  snapFreeWallTranslation,
+  translateFreeWall,
+  wallSnapRadiusPx,
+  withFreeWallSegmentLength,
+} from "@/lib/sketchWalls";
 import { FreeCabinetPanel, SymbolPanel } from "./SymbolPanel";
 import { QuantitiesPanel } from "./QuantitiesPanel";
 import { type QuantityOptions, DEFAULT_QUANTITY_OPTIONS } from "@/lib/sketchQuantities";
@@ -240,6 +252,8 @@ export function SketchEditor({
   const [lengthError, setLengthError] = useState<string | null>(null);
   /** The corners tapped so far with the wall tool — see `lib/sketchWalls.ts`. Empty when not drawing. */
   const [wallDraft, setWallDraft] = useState<DraftPoint[]>([]);
+  /** Why the last tap with the wall tool drew nothing, shown in place of the hint until the next tap. */
+  const [wallNotice, setWallNotice] = useState<string | null>(null);
   const [selectedWallId, setSelectedWallId] = useState<string | null>(null);
   /** The last free wall deleted, for the same one-step undo a room gets — see `deletedRoom`. */
   const [deletedWall, setDeletedWall] = useState<{ wall: FreeWall; index: number } | null>(null);
@@ -708,12 +722,74 @@ export function SketchEditor({
    * Parents are recomputed for EVERY room rather than just the one that moved, because moving a
    * large room can swallow or release a small one that never moved itself.
    */
+  /**
+   * Moves a room — and everything that is part of it: the rooms inside it, and any free wall
+   * standing against it with whatever is joined to that wall. A bedroom carried off without its
+   * closet, or out from under the partition drawn off its wall, is a drawing in two pieces that
+   * then has to be lined up again by hand.
+   *
+   * Snapping is applied on every frame of the drag rather than only at the end, so the room
+   * visibly latches onto its neighbours while it is being moved instead of jumping on release.
+   * What moves with the room is left out of what it can snap to — a closet moving with its
+   * bedroom is not a neighbour to line up with.
+   */
   function handleMoveRoom(roomId: string, dx: number, dy: number) {
-    // Snapping is applied on every frame of the drag rather than only at the end, so the room
-    // visibly latches onto its neighbours while it is being moved instead of jumping on release.
-    const snapped = snapRoomTranslation(sketch.rooms, roomId, dx, dy);
-    const moved = sketch.rooms.map((room) => (room.id === roomId ? translate(room, snapped.dx, snapped.dy) : room));
-    onChange({ ...sketch, rooms: withDerivedParents(moved) });
+    const room = sketch.rooms.find((r) => r.id === roomId);
+    if (!room) return;
+    const carried = new Set<string>([roomId]);
+    for (let grew = true; grew; ) {
+      grew = false;
+      for (const r of sketch.rooms) {
+        if (!carried.has(r.id) && r.parentRoomId && carried.has(r.parentRoomId)) {
+          carried.add(r.id);
+          grew = true;
+        }
+      }
+    }
+    const walls = freeWallsOf(sketch);
+    const carriedWalls = new Set<string>();
+    for (const id of carried) {
+      const host = sketch.rooms.find((r) => r.id === id);
+      if (host) for (const wallId of freeWallsAttachedToRoom(host, walls)) carriedWalls.add(wallId);
+    }
+    const snapped = snapRoomTranslation(sketch.rooms.filter((r) => r.id === roomId || !carried.has(r.id)), roomId, dx, dy);
+    onChange({
+      ...sketch,
+      rooms: withDerivedParents(sketch.rooms.map((r) => (carried.has(r.id) ? translate(r, snapped.dx, snapped.dy) : r))),
+      freeWalls: walls.map((w) => (carriedWalls.has(w.id) ? translateFreeWall(w, snapped.dx, snapped.dy) : w)),
+    });
+  }
+
+  /**
+   * Moves a free wall and every wall joined to it end to end, then lands the lot flush with
+   * whatever is nearest: a room corner or wall, or the end of another wall. See
+   * `snapFreeWallTranslation`.
+   */
+  function handleMoveFreeWall(wallId: string, dx: number, dy: number) {
+    const walls = freeWallsOf(sketch);
+    const ids = connectedFreeWallIds(wallId, walls);
+    const snapped = snapFreeWallTranslation(ids, walls, activeRooms, dx, dy, wallSnapRadiusPx(view.scale));
+    onChange((prev) => ({ ...prev, freeWalls: freeWallsOf(prev).map((w) => (ids.includes(w.id) ? translateFreeWall(w, snapped.dx, snapped.dy) : w)) }));
+  }
+
+  /**
+   * Moves a corner of a free wall, with every other wall end that shares it. On the last frame of
+   * the drag the corner snaps — onto a room corner or wall, or the end of another wall — the same
+   * way a tapped corner does.
+   */
+  function handleMoveFreeWallVertex(wallId: string, vertexId: string, x: number, y: number, done: boolean) {
+    const walls = freeWallsOf(sketch);
+    const wall = walls.find((w) => w.id === wallId);
+    const vertex = wall?.vertices.find((v) => v.id === vertexId);
+    if (!wall || !vertex) return;
+    let target = { x, y };
+    if (done) {
+      // Nothing that shares the corner is a target for it, or it would snap to where it already is.
+      const others = walls.filter((w) => !w.vertices.some((v) => Math.hypot(v.x - vertex.x, v.y - vertex.y) <= 0.5));
+      const snapped = snapDraftPoint({ x, y }, { rooms: activeRooms, freeWalls: others, draft: [], radiusPx: wallSnapRadiusPx(view.scale) });
+      target = { x: snapped.x, y: snapped.y };
+    }
+    onChange((prev) => ({ ...prev, freeWalls: moveSharedFreeWallVertex(freeWallsOf(prev), wallId, vertexId, target.x, target.y) }));
   }
 
   function handleAddRoom() {
@@ -920,12 +996,14 @@ export function SketchEditor({
     stays out turns the next tap meant for selecting into another corner.
   */
   function handleWallTap(point: DraftPoint) {
-    const step = addDraftPoint(wallDraft, point, sketch, activeLevel, WALL_SNAP_SCREEN_PX / view.scale);
+    const step = addDraftPoint(wallDraft, point, sketch, activeLevel, wallSnapRadiusPx(view.scale));
     if (step.kind === "ignore") {
       // The last corner tapped again — or double-tapped, which is the same two taps — keeps the run.
       if (step.reason === "last" && wallDraft.length >= 2) finishWallDraft();
+      if (step.reason === "covered") setWallNotice("That is already a wall. Tap past its end to carry on from it.");
       return;
     }
+    setWallNotice(null);
     if (step.kind === "extend") {
       setWallDraft(step.draft);
       return;
@@ -944,14 +1022,15 @@ export function SketchEditor({
   }
 
   function finishWallDraft() {
-    const wall = finishDraftAsWall(wallDraft, activeLevel);
+    const finished = finishDraft(wallDraft, activeLevel, freeWallsOf(sketch));
     setWallDraft([]);
     setTool("select");
-    if (!wall) return;
-    onChange((prev) => ({ ...prev, freeWalls: [...freeWallsOf(prev), wall] }));
+    if (!finished) return;
+    onChange((prev) => ({ ...prev, freeWalls: finished.freeWalls }));
     setSelectedRoomId(null);
     setSelectedSymbolId(null);
-    setSelectedWallId(wall.id);
+    // One wall at a time holds the panel; the last piece drawn is the one the PM is looking at.
+    setSelectedWallId(finished.selectIds[finished.selectIds.length - 1] ?? null);
   }
 
   function cancelWallDraft() {
@@ -1000,6 +1079,7 @@ export function SketchEditor({
   */
   useEffect(() => {
     setWallDraft([]);
+    setWallNotice(null);
   }, [tool, mode, activeLevel]);
 
   function handleTapWall(roomId: string, wallId: string, screen: { x: number; y: number }, run: [number, number]) {
@@ -1436,7 +1516,9 @@ export function SketchEditor({
             ? "Tap a wall to record a reading there. Drag either end of a mark to cover only the wet run."
             : `${moistureTool === "erase" ? "Drag to erase" : "Drag to highlight"} the affected ${paintSurface}. Pinch to zoom.`
           : tool === "wall"
-            ? wallDraft.length === 0
+            ? wallNotice
+              ? wallNotice
+              : wallDraft.length === 0
               ? "Tap where the wall starts. Taps snap to corners and to other walls."
               : "Tap the next corner. Tap the first corner again to close a room; tap the last corner again, or Done, to keep the walls as drawn."
           : sketch.rooms.length === 0
@@ -1527,8 +1609,8 @@ export function SketchEditor({
               setSelectedSymbolId(null);
             }
           }}
-          onMoveFreeWall={(wallId, dx, dy) => updateFreeWall(wallId, (wall) => translateFreeWall(wall, dx, dy))}
-          onMoveFreeWallVertex={(wallId, vertexId, x, y) => updateFreeWall(wallId, (wall) => moveFreeWallVertex(wall, vertexId, x, y))}
+          onMoveFreeWall={handleMoveFreeWall}
+          onMoveFreeWallVertex={handleMoveFreeWallVertex}
           onTapFreeWallSegment={handleTapFreeWallSegment}
           onPlaceIsland={handlePlaceIsland}
           onMoveIsland={(roomId, islandId, x, y) => updateIsland(roomId, islandId, (cabinet, room) => moveFreeCabinet(cabinet, room, x, y))}

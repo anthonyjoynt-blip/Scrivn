@@ -286,7 +286,8 @@ export interface SketchCanvasProps {
   onSelectWall?: (wallId: string | null) => void;
   /** A free wall was dragged; a translation, as for a room. */
   onMoveFreeWall?: (wallId: string, dx: number, dy: number) => void;
-  onMoveFreeWallVertex?: (wallId: string, vertexId: string, x: number, y: number) => void;
+  /** `done` on the drag's last frame — the one that snaps. */
+  onMoveFreeWallVertex?: (wallId: string, vertexId: string, x: number, y: number, done: boolean) => void;
   /** A piece of free wall, or its measurement, was double-tapped — the editor opens its length input. */
   onTapFreeWallSegment?: (wallId: string, startVertexId: string, screen: { x: number; y: number }) => void;
 }
@@ -371,9 +372,11 @@ export default function SketchCanvas(props: SketchCanvasProps) {
    * background. Konva walks up from the hit node to the nearest draggable ancestor, and the Stage is
    * an ancestor of everything — so without this, a drag begun anywhere would end up panning.
    *
-   * Each room group is draggable too and sits below the Stage, so a drag starting inside a room now
-   * stops there and moves the room. This still matters for the background: it is what keeps a drag
-   * that starts on a room from ALSO panning the view.
+   * A SELECTED room or free wall is draggable and sits below the Stage, so a drag starting on it
+   * stops there and moves it. An unselected one is not draggable, and a drag begun on it is a pan:
+   * the PM reaching across the plan to look at the other end kept picking the big room up and
+   * carrying it off, leaving the closet, the stairs and every partition behind. Tap first, then
+   * drag, is the rule — the same one every drawing tool has.
    *
    * Set imperatively rather than through React state because Konva reads `draggable` when the drag
    * begins, which is the same tick as the pointerdown that decides it — a state update wouldn't
@@ -382,7 +385,13 @@ export default function SketchCanvas(props: SketchCanvasProps) {
   function updatePanEligibility(e: KonvaEventObject<MouseEvent | TouchEvent>) {
     const stage = stageRef.current;
     if (!stage) return;
-    stage.draggable(e.target === stage);
+    let node: Konva.Node | null = e.target;
+    let grabbed = false;
+    while (node && node !== stage) {
+      if (node.draggable()) grabbed = true;
+      node = node.getParent();
+    }
+    stage.draggable(!grabbed);
   }
 
   function handleBackgroundPointer(e: KonvaEventObject<MouseEvent | TouchEvent>) {
@@ -608,7 +617,7 @@ export default function SketchCanvas(props: SketchCanvasProps) {
             interactive={tool === "select" && moistureTool === null}
             onSelect={() => props.onSelectWall?.(wall.id)}
             onMove={(dx, dy) => props.onMoveFreeWall?.(wall.id, dx, dy)}
-            onMoveVertex={(vertexId, x, y) => props.onMoveFreeWallVertex?.(wall.id, vertexId, x, y)}
+            onMoveVertex={(vertexId, x, y, done) => props.onMoveFreeWallVertex?.(wall.id, vertexId, x, y, done)}
             onTapSegment={(startVertexId, screen) => props.onTapFreeWallSegment?.(wall.id, startVertexId, screen)}
           />
         ))}
@@ -934,8 +943,9 @@ function RoomShape({
       own offset would put the two out of step.
     */
     <Group
-      /* Read-only while moisture mapping: the room was drawn once, this mode annotates it. */
-      draggable={tool !== "island" && moistureTool === null}
+      /* Only once selected — see `updatePanEligibility` — and never while moisture mapping, which
+         puts the geometry into read-only: the room was drawn once, this mode annotates it. */
+      draggable={selected && tool !== "island" && moistureTool === null}
       onDragEnd={(e) => {
         /*
           Only the room's OWN drag, never a child's.
@@ -1238,7 +1248,7 @@ function FreeWallShape({
   interactive: boolean;
   onSelect: () => void;
   onMove: (dx: number, dy: number) => void;
-  onMoveVertex: (vertexId: string, x: number, y: number) => void;
+  onMoveVertex: (vertexId: string, x: number, y: number, done: boolean) => void;
   onTapSegment: (startVertexId: string, screen: { x: number; y: number }) => void;
 }) {
   const segments = freeWallSegments(wall);
@@ -1262,7 +1272,8 @@ function FreeWallShape({
 
   return (
     <Group
-      draggable={interactive}
+      /* Only once selected, like a room — see `updatePanEligibility`. */
+      draggable={interactive && selected}
       onDragEnd={(e) => {
         // The wall's own drag only — a corner handle's dragend bubbles through here too.
         if (e.target !== e.currentTarget) return;
@@ -1272,8 +1283,10 @@ function FreeWallShape({
         if (dx !== 0 || dy !== 0) onMove(dx, dy);
       }}
     >
-      {selected && <Line points={points} stroke={COLORS.selected} strokeWidth={stroke + 6 / zoom} opacity={0.35} lineCap="round" lineJoin="round" listening={false} />}
-      <Line points={points} stroke={COLORS.wall} strokeWidth={stroke} lineCap="round" lineJoin="round" listening={false} />
+      {selected && <Line points={points} stroke={COLORS.selected} strokeWidth={stroke + 6 / zoom} opacity={0.35} lineCap="square" lineJoin="miter" listening={false} />}
+      {/* Square ends: a wall meeting another fills the joint to that wall's far face, and two pieces
+          meeting at a corner make a corner, rather than a pair of rounded blobs. */}
+      <Line points={points} stroke={COLORS.wall} strokeWidth={stroke} lineCap="square" lineJoin="miter" listening={false} />
       {/* The tap target: the wall, finger-wide. */}
       <Line
         points={points}
@@ -1317,10 +1330,10 @@ function FreeWallShape({
               draggable
               onMouseDown={claimGesture}
               onTouchStart={claimGesture}
-              onDragMove={(e) => onMoveVertex(vertex.id, e.target.x(), e.target.y())}
+              onDragMove={(e) => onMoveVertex(vertex.id, e.target.x(), e.target.y(), false)}
               onDragEnd={(e) => {
-                onMoveVertex(vertex.id, e.target.x(), e.target.y());
-                // The wall's corners are the truth; a refused move leaves the handle where the corner is.
+                onMoveVertex(vertex.id, e.target.x(), e.target.y(), true);
+                // The wall's corners are the truth; a refused or snapped move leaves the handle where the corner is.
                 e.target.position({ x: vertex.x, y: vertex.y });
               }}
             />

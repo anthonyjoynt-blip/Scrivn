@@ -12,12 +12,20 @@
  *     SUB-ROOM of it — a closet drawn into a corner, a room split by a partition
  *   * a run that meets the free ends of walls already drawn and closes a loop with them is a room
  *     made of all of them, and those walls are used up by it
- *   * anything else is a FREE WALL, kept as drawn — see `FreeWall`
+ *   * anything else is FREE WALL, kept as drawn — one straight `FreeWall` per piece
  *
  * Every tap is snapped before it is kept (`snapDraftPoint`): onto a corner, onto a wall, or square
  * with the corner before it. The snapping is what makes closing a loop a matter of tapping near the
  * corner rather than on it, and what keeps a room drawn by eye from coming out with a wall a degree
- * off square.
+ * off square. The radius is a fingertip on screen and never less than the wall's own thickness — the
+ * first version was twelve screen pixels, which zoomed in was narrower than the drawn wall, so a tap
+ * that landed visibly ON a wall could still miss it and leave a second wall lying a hair off the
+ * first.
+ *
+ * Two walls never lie along each other. A piece drawn along wall that is already there is clipped
+ * to the part that is not (`clipToExistingWalls`), and a piece that carries on in line from the end
+ * of a free wall is merged into it (`finishDraft`), so a wall that is one wall reads as one
+ * measurement however many taps it took.
  *
  * Pure geometry, in world pixels, with nothing of the canvas in it — the canvas snaps and draws,
  * the editor decides, and both call in here.
@@ -39,6 +47,8 @@ import {
   freeWallsOf,
   newSketchId,
   pruneCollinearVertices,
+  roomLevel,
+  wallStrokePx,
   wallsOf,
 } from "./sketch";
 
@@ -54,11 +64,25 @@ export interface DraftPoint {
   on: { roomId: string; wallId: string; t: number } | null;
 }
 
-/** How close a tap has to land to a corner or a wall to snap onto it, in SCREEN pixels. */
-export const WALL_SNAP_SCREEN_PX = 12;
+/** How close a tap has to land to a corner or a wall to snap onto it, in SCREEN pixels: a fingertip. */
+export const WALL_SNAP_SCREEN_PX = 16;
+
+/**
+ * The snap radius in WORLD pixels at a given zoom: the fingertip on screen, but never less than the
+ * drawn wall is thick — zoomed right in, a tap on the wall's own stroke has to count as on the wall.
+ */
+export function wallSnapRadiusPx(zoom: number): number {
+  return Math.max(WALL_SNAP_SCREEN_PX / zoom, wallStrokePx(zoom) * 0.75 + 2);
+}
 
 /** Shortest free wall worth keeping, in world pixels: half a foot. */
 export const MIN_FREE_WALL_PX = 6;
+
+/** How far off a wall's line a point may be and still count as on that line, in world pixels. */
+const ON_LINE_PX = 1.5;
+
+/** Two ends closer than this are the same corner. */
+const SAME_CORNER_PX = 0.5;
 
 /** Smallest region a run may close off and be called a room: a square foot. */
 const MIN_ROOM_AREA_PX = PIXELS_PER_FOOT * PIXELS_PER_FOOT;
@@ -140,9 +164,10 @@ export type DraftStep =
   /**
    * Nothing to add. "last": the tap landed on the run's last corner again — which, with a run of
    * two or more corners, is the sign to keep the run as it is; a double-tap does exactly this.
-   * "degenerate": the run closed on itself but encloses nothing worth calling a room.
+   * "degenerate": the run closed on itself but encloses nothing worth calling a room. "covered":
+   * the piece lies entirely along wall that is already there.
    */
-  | { kind: "ignore"; reason: "last" | "degenerate" };
+  | { kind: "ignore"; reason: "last" | "degenerate" | "covered" };
 
 /**
  * Adds a snapped corner to the run and says what that made.
@@ -176,19 +201,174 @@ export function addDraftPoint(draft: DraftPoint[], point: DraftPoint, sketch: Sk
       const room = cut ? roomFromPoints(cut, level) : null;
       if (room) return { kind: "room", room, usedFreeWallIds: [] };
     }
+
+    /*
+      Whatever of the new piece is already wall is not drawn again. The start may only move when it
+      is the run's first corner — otherwise the piece before it ends there, and would be left
+      hanging. A piece that is all overlap adds nothing.
+    */
+    const clipped = clipToExistingWalls(last ?? first, point, existingWalls(sketch, level), draft.length === 1);
+    if (!clipped) return { kind: "ignore", reason: "covered" };
+    return { kind: "extend", draft: [...draft.slice(0, -1), clipped.from, clipped.to] };
   }
 
   return { kind: "extend", draft: [...draft, point] };
 }
 
-/** The run as it stands, kept as a free wall — or nothing, when it is too short to be one. */
-export function finishDraftAsWall(draft: DraftPoint[], level: number): FreeWall | null {
+/**
+ * The run as it stands, kept as free walls — one per piece — merged into any free wall it carries
+ * on from in a straight line, so a wall that is one wall reads as one measurement.
+ *
+ * Returns the sketch's whole free-wall list as it should now be, plus the ids to select: the pieces
+ * added, or the walls they were merged into. Nothing is returned when the run is too short to be a
+ * wall at all.
+ */
+export function finishDraft(draft: DraftPoint[], level: number, existing: FreeWall[]): { freeWalls: FreeWall[]; selectIds: string[] } | null {
+  // Three taps along one line are two pieces here and one wall after the merge below.
   const points = dedupe(draft);
   if (points.length < 2) return null;
-  const vertices = points.map((p) => ({ id: newSketchId("v"), x: p.x, y: p.y }));
-  const wall: FreeWall = { id: newSketchId("wall"), vertices, heightFeet: null };
-  if (level !== 0) wall.level = level;
-  return wall;
+
+  let walls = [...existing];
+  const selectIds: string[] = [];
+  for (let i = 0; i + 1 < points.length; i++) {
+    const a = points[i] as DraftPoint;
+    const b = points[i + 1] as DraftPoint;
+    if (Math.hypot(b.x - a.x, b.y - a.y) < MIN_FREE_WALL_PX) continue;
+    const merged = mergeIntoCollinear(a, b, walls, level);
+    if (merged) {
+      walls = walls.map((w) => (w.id === merged.id ? merged : w)).filter((w) => !merged.absorbed.includes(w.id));
+      if (!selectIds.includes(merged.id)) selectIds.push(merged.id);
+      continue;
+    }
+    const wall: FreeWall = { id: newSketchId("wall"), vertices: [{ id: newSketchId("v"), x: a.x, y: a.y }, { id: newSketchId("v"), x: b.x, y: b.y }], heightFeet: null };
+    if (level !== 0) wall.level = level;
+    walls.push(wall);
+    selectIds.push(wall.id);
+  }
+  return selectIds.length > 0 ? { freeWalls: walls, selectIds } : null;
+}
+
+/**
+ * A piece that carries straight on from the end of a free wall becomes part of that wall: the wall
+ * is extended to the piece's far end, keeping its id and its height. The extended wall may then
+ * reach the end of ANOTHER wall in the same line, which is absorbed the same way — three pieces
+ * tapped along one line are one wall.
+ */
+function mergeIntoCollinear(a: DraftPoint, b: DraftPoint, walls: FreeWall[], level: number): (FreeWall & { absorbed: string[] }) | null {
+  let from = { x: a.x, y: a.y };
+  let to = { x: b.x, y: b.y };
+  let host: FreeWall | null = null;
+  const absorbed: string[] = [];
+
+  for (let guard = 0; guard < walls.length + 1; guard++) {
+    const next = walls.find((w) => {
+      if (freeWallLevel(w) !== level || absorbed.includes(w.id) || w.id === host?.id) return false;
+      const [p, q] = ends(w);
+      const touches = samePoint(p, from) || samePoint(p, to) || samePoint(q, from) || samePoint(q, to);
+      return touches && collinear(p, q, from, to);
+    });
+    if (!next) break;
+    const [p, q] = ends(next);
+    // The union of the two runs along the shared line: the two points furthest apart.
+    const extremes = [p, q, from, to];
+    let best: [{ x: number; y: number }, { x: number; y: number }] = [from, to];
+    let bestLength = Math.hypot(to.x - from.x, to.y - from.y);
+    for (const s of extremes) for (const t of extremes) {
+      const length = Math.hypot(t.x - s.x, t.y - s.y);
+      if (length > bestLength) {
+        bestLength = length;
+        best = [s, t];
+      }
+    }
+    from = best[0];
+    to = best[1];
+    if (host) absorbed.push(next.id);
+    else host = next;
+  }
+  if (!host) return null;
+  return {
+    ...host,
+    vertices: [
+      { ...(host.vertices[0] as Vertex), x: from.x, y: from.y },
+      { ...(host.vertices[host.vertices.length - 1] as Vertex), x: to.x, y: to.y },
+    ],
+    absorbed,
+  };
+}
+
+/**
+ * The part of a new piece that is not already wall.
+ *
+ * A piece drawn along a wall that exists — a run started in the middle of a room's wall and carried
+ * past its corner, say — keeps only the part beyond it, starting exactly at the corner. A piece
+ * lying wholly along existing wall is nothing (null). The start moves only when `startMayMove`; the
+ * end always may, since nothing hangs off it yet.
+ */
+export function clipToExistingWalls(
+  from: DraftPoint,
+  to: DraftPoint,
+  walls: { segment: WallGeometry; onStart: DraftPoint["on"]; onEnd: DraftPoint["on"] }[],
+  startMayMove: boolean,
+): { from: DraftPoint; to: DraftPoint } | null {
+  let start = from;
+  let end = to;
+  for (let guard = 0; guard < walls.length + 1; guard++) {
+    const length = Math.hypot(end.x - start.x, end.y - start.y);
+    if (length < MIN_FREE_WALL_PX) return null;
+    const ux = (end.x - start.x) / length;
+    const uy = (end.y - start.y) / length;
+    const along = (p: { x: number; y: number }) => (p.x - start.x) * ux + (p.y - start.y) * uy;
+
+    let clipped = false;
+    for (const { segment, onStart, onEnd } of walls) {
+      const p = { x: segment.x1, y: segment.y1 };
+      const q = { x: segment.x2, y: segment.y2 };
+      if (!collinear(p, q, start, end)) continue;
+      const lo = Math.min(along(p), along(q));
+      const hi = Math.max(along(p), along(q));
+      const overlapLo = Math.max(lo, 0);
+      const overlapHi = Math.min(hi, length);
+      if (overlapHi - overlapLo <= SAME_CORNER_PX) continue;
+
+      if (lo <= SAME_CORNER_PX && hi >= length - SAME_CORNER_PX) return null;
+      if (lo <= SAME_CORNER_PX) {
+        // Overlap at the start: the piece begins where the existing wall ends.
+        if (!startMayMove) continue;
+        const at = along(p) > along(q) ? { point: p, on: onStart } : { point: q, on: onEnd };
+        start = { x: at.point.x, y: at.point.y, on: at.on };
+      } else if (hi >= length - SAME_CORNER_PX) {
+        // Overlap at the end: the piece stops where the existing wall begins.
+        const at = along(p) < along(q) ? { point: p, on: onStart } : { point: q, on: onEnd };
+        end = { x: at.point.x, y: at.point.y, on: at.on };
+      } else {
+        // The existing wall sits inside the piece: keep the part the finger ended on.
+        const at = along(p) > along(q) ? { point: p, on: onStart } : { point: q, on: onEnd };
+        start = { x: at.point.x, y: at.point.y, on: at.on };
+      }
+      clipped = true;
+      break;
+    }
+    if (!clipped) break;
+  }
+  return Math.hypot(end.x - start.x, end.y - start.y) < MIN_FREE_WALL_PX ? null : { from: start, to: end };
+}
+
+/** Every wall on the storey a new piece could lie along, with what its two ends are on. */
+function existingWalls(sketch: Sketch, level: number): { segment: WallGeometry; onStart: DraftPoint["on"]; onEnd: DraftPoint["on"] }[] {
+  const out: { segment: WallGeometry; onStart: DraftPoint["on"]; onEnd: DraftPoint["on"] }[] = [];
+  for (const room of sketch.rooms) {
+    if (roomLevel(room) !== level) continue;
+    const walls = wallsOf(room);
+    walls.forEach((segment, i) => {
+      const next = walls[(i + 1) % walls.length] as WallGeometry;
+      out.push({ segment, onStart: { roomId: room.id, wallId: segment.id, t: 0 }, onEnd: { roomId: room.id, wallId: next.id, t: 0 } });
+    });
+  }
+  for (const wall of freeWallsOf(sketch)) {
+    if (freeWallLevel(wall) !== level) continue;
+    for (const segment of freeWallSegments(wall)) out.push({ segment, onStart: null, onEnd: null });
+  }
+  return out;
 }
 
 /**
@@ -347,6 +527,96 @@ export function withFreeWallSegmentLength(wall: FreeWall, startVertexId: string,
   return moveFreeWallVertex(wall, to.id, from.x + ux * targetPx, from.y + uy * targetPx);
 }
 
+/**
+ * The free walls joined to this one, end to end, and to those, and so on — the walls that move
+ * together when one of them is dragged. A corner where two pieces meet is one corner; dragging
+ * one piece away from the other would tear it.
+ */
+export function connectedFreeWallIds(wallId: string, walls: FreeWall[]): string[] {
+  const found = new Set<string>([wallId]);
+  const queue = [wallId];
+  while (queue.length > 0) {
+    const id = queue.shift();
+    const current = walls.find((w) => w.id === id);
+    if (!current) continue;
+    const [p, q] = ends(current);
+    for (const other of walls) {
+      if (found.has(other.id) || freeWallLevel(other) !== freeWallLevel(current)) continue;
+      const [s, t] = ends(other);
+      if ([s, t].some((e) => samePoint(e, p) || samePoint(e, q))) {
+        found.add(other.id);
+        queue.push(other.id);
+      }
+    }
+  }
+  return [...found];
+}
+
+/**
+ * The free walls standing against a room — an end on its outline — and everything joined to them.
+ * These go with the room when it is moved: a partition drawn off a wall is that wall's partition,
+ * and a room moved out from under it would leave it standing in the open.
+ */
+export function freeWallsAttachedToRoom(room: SketchRoom, walls: FreeWall[]): string[] {
+  const attached = new Set<string>();
+  for (const wall of walls) {
+    if (freeWallLevel(wall) !== roomLevel(room)) continue;
+    if (ends(wall).some((e) => distanceToOutline(room, e) <= ON_LINE_PX)) {
+      for (const id of connectedFreeWallIds(wall.id, walls)) attached.add(id);
+    }
+  }
+  return [...attached];
+}
+
+/**
+ * Moves one corner of a free wall and every other free-wall end that shares it, so a corner two
+ * pieces meet at stays one corner. Refused, walls unchanged, when any piece would be left shorter
+ * than the minimum.
+ */
+export function moveSharedFreeWallVertex(walls: FreeWall[], wallId: string, vertexId: string, x: number, y: number): FreeWall[] {
+  const wall = walls.find((w) => w.id === wallId);
+  const vertex = wall?.vertices.find((v) => v.id === vertexId);
+  if (!wall || !vertex) return walls;
+  const moved = walls.map((w) => {
+    if (freeWallLevel(w) !== freeWallLevel(wall)) return w;
+    let next = w;
+    for (const v of w.vertices) {
+      if (v.id === vertexId || samePoint(v, vertex)) next = moveFreeWallVertex(next, v.id, x, y);
+    }
+    return next;
+  });
+  // Any refusal is everyone's refusal; a corner half-moved is a corner torn.
+  const refused = moved.some((w, i) => w === walls[i] && (walls[i] as FreeWall).vertices.some((v) => v.id === vertexId || samePoint(v, vertex)));
+  return refused ? walls : moved;
+}
+
+/**
+ * The translation that lands a moved set of free walls flush with something: the nearest of their
+ * ends to a room corner, a room wall or the end of another free wall, within the radius, decides.
+ * Otherwise the drag is left as the finger put it. Nothing in the set snaps to itself.
+ */
+export function snapFreeWallTranslation(
+  ids: string[],
+  walls: FreeWall[],
+  rooms: SketchRoom[],
+  dx: number,
+  dy: number,
+  radiusPx: number,
+): { dx: number; dy: number } {
+  const moving = walls.filter((w) => ids.includes(w.id));
+  const others = walls.filter((w) => !ids.includes(w.id));
+  let best: { dx: number; dy: number; distance: number } | null = null;
+  for (const wall of moving) {
+    for (const end of ends(wall)) {
+      const at = { x: end.x + dx, y: end.y + dy };
+      const target = snapDraftPoint(at, { rooms, freeWalls: others, draft: [], radiusPx });
+      const distance = Math.hypot(target.x - at.x, target.y - at.y);
+      if (distance > 0 && (!best || distance < best.distance)) best = { dx: dx + (target.x - at.x), dy: dy + (target.y - at.y), distance };
+    }
+  }
+  return best ? { dx: best.dx, dy: best.dy } : { dx, dy };
+}
+
 /* ── What a free wall is worth ──────────────────────────────────────────────────────────────── */
 
 /** Every piece of free wall standing in `room`, with its length and its height (null: full). */
@@ -363,7 +633,35 @@ export function freeWallRunsIn(room: SketchRoom, sketch: Sketch): { lengthFeet: 
 /* ── Helpers ────────────────────────────────────────────────────────────────────────────────── */
 
 function samePoint(a: { x: number; y: number }, b: { x: number; y: number }): boolean {
-  return Math.abs(a.x - b.x) < 0.01 && Math.abs(a.y - b.y) < 0.01;
+  return Math.hypot(a.x - b.x, a.y - b.y) <= SAME_CORNER_PX;
+}
+
+/** A free wall's two ends. */
+function ends(wall: FreeWall): [Vertex, Vertex] {
+  return [wall.vertices[0] as Vertex, wall.vertices[wall.vertices.length - 1] as Vertex];
+}
+
+/** Do the segments p–q and a–b lie along one line? Both ends of each within `ON_LINE_PX` of the other's line. */
+function collinear(p: { x: number; y: number }, q: { x: number; y: number }, a: { x: number; y: number }, b: { x: number; y: number }): boolean {
+  return distanceToLine(a, p, q) <= ON_LINE_PX && distanceToLine(b, p, q) <= ON_LINE_PX && distanceToLine(p, a, b) <= ON_LINE_PX && distanceToLine(q, a, b) <= ON_LINE_PX;
+}
+
+/** Perpendicular distance from a point to the infinite line through p and q. */
+function distanceToLine(point: { x: number; y: number }, p: { x: number; y: number }, q: { x: number; y: number }): number {
+  const length = Math.hypot(q.x - p.x, q.y - p.y);
+  if (length === 0) return Math.hypot(point.x - p.x, point.y - p.y);
+  return Math.abs((q.x - p.x) * (p.y - point.y) - (p.x - point.x) * (q.y - p.y)) / length;
+}
+
+/** Distance from a point to the nearest wall of a room. */
+function distanceToOutline(room: SketchRoom, point: { x: number; y: number }): number {
+  let best = Infinity;
+  for (const wall of wallsOf(room)) {
+    if (wall.lengthPx <= 0) continue;
+    const t = Math.max(0, Math.min(1, ((point.x - wall.x1) * (wall.x2 - wall.x1) + (point.y - wall.y1) * (wall.y2 - wall.y1)) / (wall.lengthPx * wall.lengthPx)));
+    best = Math.min(best, Math.hypot(wall.x1 + (wall.x2 - wall.x1) * t - point.x, wall.y1 + (wall.y2 - wall.y1) * t - point.y));
+  }
+  return best;
 }
 
 /** Drops consecutive repeats, and a last point that repeats the first. */

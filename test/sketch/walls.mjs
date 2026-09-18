@@ -229,11 +229,14 @@ export async function runWallChecks() {
     assert(b.minY === 0 && b.maxY === 60 && b.minX === 0 && b.maxX === 240, `bounds ${JSON.stringify(b)}`);
   });
 
-  test("a run along one wall encloses nothing and stays a run", () => {
+  test("a run along one wall encloses nothing — and, lying along a wall, is nothing", () => {
+    // Both points on the top wall. Neither piece of the room is cut off, and the piece itself is
+    // all overlap — see the checks on overlap below.
     const r = box();
     const draft = [pt(100, 0, { roomId: r.id, wallId: wall(r, 0), t: 100 / 240 })];
     const step = s.addDraftPoint(draft, pt(150, 0, { roomId: r.id, wallId: wall(r, 0), t: 150 / 240 }), sketchWith([r]), 0, 12);
-    assert(step.kind === "extend", `expected extend, got ${step.kind}`);
+    assert(step.kind !== "room", `expected no room, got ${step.kind}`);
+    assert(step.kind === "ignore" && step.reason === "covered", `expected ignore/covered, got ${JSON.stringify(step)}`);
   });
 
   test("a run out from a wall and back to it is a room outside — a bay, standing beside the room", () => {
@@ -280,17 +283,178 @@ export async function runWallChecks() {
     assert(step.kind === "extend", `expected extend, got ${step.kind}`);
   });
 
-  test("Done keeps the run as a free wall, corners and all", () => {
-    const w = s.finishDraftAsWall([pt(300, 300), pt(420, 300), pt(420, 396)], 0);
-    assert(w && w.vertices.length === 3 && w.heightFeet === null, `got ${JSON.stringify(w)}`);
-    assert(w.level === undefined, "the main level is not written");
-    const up = s.finishDraftAsWall([pt(300, 300), pt(420, 300)], 1);
-    assert(up.level === 1, "an upper storey is");
+  test("Done keeps the run as free walls, one straight piece each", () => {
+    const done = s.finishDraft([pt(300, 300), pt(420, 300), pt(420, 396)], 0, []);
+    assert(done && done.freeWalls.length === 2, `expected two walls, got ${done && done.freeWalls.length}`);
+    assert(done.freeWalls.every((w) => w.vertices.length === 2 && w.heightFeet === null), "each a straight piece at full height");
+    assert(done.freeWalls.every((w) => w.level === undefined), "the main level is not written");
+    assert(done.selectIds.length === 2 && done.selectIds[1] === done.freeWalls[1].id, "and both are the ones to select");
+    const up = s.finishDraft([pt(300, 300), pt(420, 300)], 1, []);
+    assert(up.freeWalls[0].level === 1, "an upper storey is");
   });
 
   test("Done with one corner keeps nothing", () => {
-    assert(s.finishDraftAsWall([pt(300, 300)], 0) === null, "expected null");
-    assert(s.finishDraftAsWall([pt(300, 300), pt(300, 300)], 0) === null, "and the same corner twice is one corner");
+    assert(s.finishDraft([pt(300, 300)], 0, []) === null, "expected null");
+    assert(s.finishDraft([pt(300, 300), pt(300, 300)], 0, []) === null, "and the same corner twice is one corner");
+  });
+
+  test("three taps along one line make one wall, not two", () => {
+    const done = s.finishDraft([pt(300, 300), pt(360, 300), pt(420, 300)], 0, []);
+    assert(done.freeWalls.length === 1, `expected one wall, got ${done.freeWalls.length}`);
+    near(s.freeWallSegments(done.freeWalls[0])[0].lengthFeet, 10, "of the full length");
+  });
+
+  test("a piece that carries straight on from a free wall's end becomes part of that wall", () => {
+    // The report: a wall drawn from the end of another along the same line read as two measurements.
+    const f = freeWall("f", [[300, 300], [366, 300]]);
+    const done = s.finishDraft([pt(366, 300), pt(407, 300)], 0, [f]);
+    assert(done.freeWalls.length === 1, `expected one wall, got ${done.freeWalls.length}`);
+    const [w] = done.freeWalls;
+    assert(w.id === "f", "the existing wall, extended");
+    near(s.freeWallSegments(w)[0].lengthFeet, 107 / 12, "8'11\" — one measurement");
+    assert(done.selectIds[0] === "f", "and it is the one selected");
+  });
+
+  test("and a piece drawn back onto the wall's START extends it that way too", () => {
+    const f = freeWall("f", [[300, 300], [366, 300]]);
+    const done = s.finishDraft([pt(300, 300), pt(240, 300)], 0, [f]);
+    assert(done.freeWalls.length === 1, `expected one wall, got ${done.freeWalls.length}`);
+    const [a, b] = done.freeWalls[0].vertices;
+    assert(Math.min(a.x, b.x) === 240 && Math.max(a.x, b.x) === 366, `expected 240..366, got ${a.x}..${b.x}`);
+  });
+
+  test("a piece bridging two walls in one line makes one wall of all three", () => {
+    const f1 = freeWall("f1", [[300, 300], [340, 300]]);
+    const f2 = freeWall("f2", [[380, 300], [420, 300]]);
+    const done = s.finishDraft([pt(340, 300), pt(380, 300)], 0, [f1, f2]);
+    assert(done.freeWalls.length === 1, `expected one wall, got ${done.freeWalls.length}`);
+    near(s.freeWallSegments(done.freeWalls[0])[0].lengthFeet, 10, "300 to 420");
+  });
+
+  test("two walls in one line with a gap between them stay two walls — the gap is a doorway", () => {
+    const f = freeWall("f", [[300, 300], [340, 300]]);
+    const done = s.finishDraft([pt(380, 300), pt(420, 300)], 0, [f]);
+    assert(done.freeWalls.length === 2, `expected two walls, got ${done.freeWalls.length}`);
+  });
+
+  test("a piece meeting a wall at a corner, or part-way along it, stays its own wall", () => {
+    const f = freeWall("f", [[300, 300], [420, 300]]);
+    const corner = s.finishDraft([pt(420, 300), pt(420, 396)], 0, [f]);
+    assert(corner.freeWalls.length === 2, "a corner is two walls");
+    const tee = s.finishDraft([pt(360, 300), pt(360, 396)], 0, [f]);
+    assert(tee.freeWalls.length === 2, "a tee is two walls");
+    assert(tee.freeWalls[0].vertices.every((v) => v.y === 300), "and the wall it meets is untouched");
+  });
+
+  test("a merged wall keeps its height", () => {
+    const f = freeWall("f", [[300, 300], [366, 300]], { heightFeet: 3.5 });
+    const done = s.finishDraft([pt(366, 300), pt(407, 300)], 0, [f]);
+    assert(done.freeWalls[0].heightFeet === 3.5, "the pony wall is still a pony wall");
+  });
+
+  /* Not along a wall that is already there. */
+
+  test("a piece started on a room's wall and carried past its corner keeps only the part beyond", () => {
+    // Start in the middle of the top wall, tap out past the top-left corner: the wall begins at the corner.
+    const r = box();
+    const draft = [pt(120, 0, { roomId: r.id, wallId: wall(r, 0), t: 0.5 })];
+    const step = s.addDraftPoint(draft, pt(-60, 0), sketchWith([r]), 0, 12);
+    assert(step.kind === "extend", `expected extend, got ${step.kind}`);
+    assert(step.draft.length === 2, `two corners, got ${step.draft.length}`);
+    assert(step.draft[0].x === 0 && step.draft[0].y === 0, `expected to start at the corner, got ${step.draft[0].x},${step.draft[0].y}`);
+    assert(step.draft[0].on && step.draft[0].on.roomId === r.id, "and to know it is on the room");
+    assert(step.draft[1].x === -60, "ending where the finger did");
+  });
+
+  test("a piece ending along a wall stops where that wall begins", () => {
+    const r = box();
+    const step = s.addDraftPoint([pt(-60, 0)], pt(120, 0, { roomId: r.id, wallId: wall(r, 0), t: 0.5 }), sketchWith([r]), 0, 12);
+    assert(step.kind === "extend", `expected extend, got ${step.kind}`);
+    assert(step.draft[1].x === 0 && step.draft[1].y === 0, `expected to stop at the corner, got ${step.draft[1].x},${step.draft[1].y}`);
+  });
+
+  test("a piece lying wholly along a wall draws nothing, and says why", () => {
+    const r = box();
+    const step = s.addDraftPoint([pt(60, 0, { roomId: r.id, wallId: wall(r, 0), t: 0.25 })], pt(180, 0, { roomId: r.id, wallId: wall(r, 0), t: 0.75 }), sketchWith([r]), 0, 12);
+    assert(step.kind === "ignore" && step.reason === "covered", `expected ignore/covered, got ${JSON.stringify(step)}`);
+  });
+
+  test("the same along a free wall", () => {
+    const f = freeWall("f", [[300, 300], [420, 300]]);
+    const step = s.addDraftPoint([pt(330, 300)], pt(390, 300), sketchWith([], [f]), 0, 12);
+    assert(step.kind === "ignore" && step.reason === "covered", `expected ignore/covered, got ${JSON.stringify(step)}`);
+    const past = s.addDraftPoint([pt(330, 300)], pt(480, 300), sketchWith([], [f]), 0, 12);
+    assert(past.kind === "extend" && past.draft[0].x === 420, `expected to begin at the wall's end, got ${JSON.stringify(past)}`);
+  });
+
+  test("a piece across a wall, not along it, is left alone", () => {
+    const r = box();
+    const step = s.addDraftPoint([pt(120, -60)], pt(120, 60), sketchWith([r]), 0, 12);
+    assert(step.kind === "extend" && step.draft[1].y === 60, `expected untouched, got ${JSON.stringify(step)}`);
+  });
+
+  test("the start of a piece is not moved when a piece before it ends there", () => {
+    // Second piece of a run starts on the wall: the corner stays, the overlap is tolerated.
+    const r = box();
+    const draft = [pt(120, -60), pt(120, 0, { roomId: r.id, wallId: wall(r, 0), t: 0.5 })];
+    const step = s.addDraftPoint(draft, pt(-60, 0), sketchWith([r]), 0, 12);
+    assert(step.kind === "extend" && step.draft[1].x === 120, `expected the corner kept, got ${JSON.stringify(step.draft)}`);
+  });
+
+  /* The snap radius. */
+
+  test("the snap radius is a fingertip on screen, and never thinner than the wall", () => {
+    near(s.wallSnapRadiusPx(1), 16, "at 100%");
+    near(s.wallSnapRadiusPx(2), 8, "half the world pixels at 200%");
+    // Zoomed right in, a fingertip is a sliver of the world: the radius has to stay a bit wider than
+    // the drawn wall, or a tap on the wall's own stroke misses it.
+    assert(s.wallSnapRadiusPx(8) >= s.wallStrokePx(8) * 0.75 + 2, `at 800% still covers the wall's own stroke: ${s.wallSnapRadiusPx(8)} vs ${s.wallStrokePx(8)}`);
+  });
+
+  /* What moves together. */
+
+  test("walls joined end to end move as one, however many are in the chain", () => {
+    const f1 = freeWall("f1", [[300, 300], [420, 300]]);
+    const f2 = freeWall("f2", [[420, 300], [420, 396]]);
+    const f3 = freeWall("f3", [[420, 396], [300, 396]]);
+    const loose = freeWall("loose", [[500, 500], [560, 500]]);
+    const ids = s.connectedFreeWallIds("f1", [f1, f2, f3, loose]);
+    assert(ids.includes("f1") && ids.includes("f2") && ids.includes("f3") && !ids.includes("loose"), `got ${ids}`);
+  });
+
+  test("a wall standing against a room goes with the room, and brings what is joined to it", () => {
+    const r = box();
+    const off = freeWall("off", [[120, 0], [120, 96]]); // from the top wall into the room
+    const joined = freeWall("joined", [[120, 96], [180, 96]]);
+    const loose = freeWall("loose", [[400, 400], [460, 400]]);
+    const ids = s.freeWallsAttachedToRoom(r, [off, joined, loose]);
+    assert(ids.includes("off") && ids.includes("joined") && !ids.includes("loose"), `got ${ids}`);
+  });
+
+  test("dragging a shared corner moves every wall end that shares it", () => {
+    const f1 = freeWall("f1", [[300, 300], [420, 300]]);
+    const f2 = freeWall("f2", [[420, 300], [420, 396]]);
+    const moved = s.moveSharedFreeWallVertex([f1, f2], "f1", "f1-v1", 430, 310);
+    assert(moved[0].vertices[1].x === 430 && moved[1].vertices[0].x === 430 && moved[1].vertices[0].y === 310, "both ends moved");
+    assert(moved[1].vertices[1].y === 396, "the far end of the other wall stayed");
+  });
+
+  test("and refuses for all of them when any would be left too short", () => {
+    const f1 = freeWall("f1", [[300, 300], [420, 300]]);
+    const f2 = freeWall("f2", [[420, 300], [420, 306]]);
+    const moved = s.moveSharedFreeWallVertex([f1, f2], "f1", "f1-v1", 420, 305);
+    assert(moved === [f1, f2] || (moved[0] === f1 && moved[1] === f2), "expected untouched");
+  });
+
+  test("a moved wall lands flush with the nearest corner or wall", () => {
+    const r = box();
+    const f = freeWall("f", [[300, 300], [360, 300]]);
+    // Dragged to within reach of the room's top-right corner (240, 0): the near end lands on it.
+    const snapped = s.snapFreeWallTranslation(["f"], [f], [r], -55, -296, 12);
+    near(300 + snapped.dx, 240, "x onto the corner");
+    near(300 + snapped.dy, 0, "y onto the corner");
+    const far = s.snapFreeWallTranslation(["f"], [f], [r], 100, 100, 12);
+    assert(far.dx === 100 && far.dy === 100, "and is left alone when nothing is near");
   });
 
   /* Editing a free wall. */
