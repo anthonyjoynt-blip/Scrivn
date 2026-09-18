@@ -25,6 +25,7 @@ import {
   type SketchRoom,
   type SketchSymbol,
   type SketchView,
+  type SymbolOffsets,
   type Vertex,
   type WallDimension,
   type WallGeometry,
@@ -42,6 +43,7 @@ import {
   stairCeiling,
   symbolWidthPx,
   symbolCentrePx,
+  symbolOffsetsPx,
   PIXELS_PER_FOOT,
   symbolsInDrawOrder,
   tapFractionOnWall,
@@ -1380,6 +1382,21 @@ function SymbolShape({
       ? { y: -6 / zoom, height: Math.max(minPad, cabinetDepthPx(symbol) + 6 / zoom) }
       : { y: -minPad / 2, height: minPad };
 
+  /*
+    One dimension row just outside the wall — the symbol's own width and, while an opening is
+    selected, its distance to each end of the wall — so the figures read as a single string the way
+    they do on a plan: 8'6" | 3'0" | 8'6". Set off from the wall's THICKNESS rather than its
+    centreline, because the thickness is a real measurement that grows on screen as the view zooms
+    in while the row's offset is a constant on screen; measured from the centreline the row sank
+    into the wall past about 250%.
+
+    Text is turned to read the right way up on a wall running right-to-left — the same rule as the
+    wall's own label. The width labels used to come out upside down along every bottom wall.
+  */
+  const rowY = -(wallStrokePx(zoom) / 2 + 6 / zoom);
+  const flip = wall.rotation > 90 || wall.rotation < -90;
+  const offsets = selected && (symbol.type === "door" || symbol.type === "window") ? symbolOffsetsPx(symbol, room, rooms) : null;
+
   return (
     <Group x={wall.x1} y={wall.y1} rotation={wall.rotation}>
       {/* Erases the wall beneath the opening. Doors and windows are gaps in the wall, not things
@@ -1421,7 +1438,8 @@ function SymbolShape({
         }}
       />
 
-      {showSizes && <SymbolSizeLabel symbol={symbol} x0={x0} width={w} zoom={zoom} />}
+      {showSizes && <SymbolSizeLabel symbol={symbol} x0={x0} width={w} rowY={rowY} flip={flip} zoom={zoom} />}
+      {offsets && <SymbolOffsetLabels offsets={offsets} rowY={rowY} flip={flip} zoom={zoom} />}
 
       {selected && <SymbolEndHandles x0={x0} x1={x1} zoom={zoom} onResize={onResize} />}
     </Group>
@@ -1490,7 +1508,7 @@ function SymbolEndHandles({ x0, x1, zoom, onResize }: { x0: number; x1: number; 
  * print its width on top of that wall's overall measurement, and the two numbers mean different
  * things. Outside is also where dimensions live on a real plan.
  */
-function SymbolSizeLabel({ symbol, x0, width, zoom }: { symbol: SketchSymbol; x0: number; width: number; zoom: number }) {
+function SymbolSizeLabel({ symbol, x0, width, rowY, flip, zoom }: { symbol: SketchSymbol; x0: number; width: number; rowY: number; flip: boolean; zoom: number }) {
   /*
     Measured from the width being DRAWN rather than looked up again.
 
@@ -1505,17 +1523,62 @@ function SymbolSizeLabel({ symbol, x0, width, zoom }: { symbol: SketchSymbol; x0
   // Wide enough for the text at any symbol size, centred on the symbol rather than clipped to it.
   const box = Math.max(width, 70 / zoom);
 
+  return <DimensionText cx={x0 + width / 2} rowY={rowY} box={box} flip={flip} text={text} zoom={zoom} />;
+}
+
+/**
+ * Where a selected opening sits: the clear distance from each jamb to the end of its wall, drawn
+ * as a dimension — a line with a tick at each end and the figure above it — on the same row as the
+ * opening's width. Live while the opening is slid, so the PM can stop at "3' from the corner"
+ * rather than judge it against the grid. See `symbolOffsetsPx` for which ends are measured to.
+ *
+ * A stretch too short to hold its figure still gets it, centred and overhanging: a door six inches
+ * from a corner is a real placement and its six inches are the number that matters there.
+ */
+function SymbolOffsetLabels({ offsets, rowY, flip, zoom }: { offsets: SymbolOffsets; rowY: number; flip: boolean; zoom: number }) {
+  const stretches = [
+    { from: offsets.from, to: offsets.x0 },
+    { from: offsets.x1, to: offsets.to },
+  ].filter((stretch) => stretch.to - stretch.from > 0.5);
+  const tick = 3 / zoom;
+
   return (
-    <Text
-      x={x0 + width / 2 - box / 2}
-      y={-16 / zoom}
-      width={box}
-      align="center"
-      text={text}
-      fontSize={10 / zoom}
-      fill={COLORS.muted}
-      listening={false}
-    />
+    <>
+      {stretches.map((stretch) => {
+        const width = stretch.to - stretch.from;
+        return (
+          <Group key={stretch.from} listening={false}>
+            <Line points={[stretch.from, rowY, stretch.to, rowY]} stroke={COLORS.muted} strokeWidth={1 / zoom} />
+            <Line points={[stretch.from, rowY - tick, stretch.from, rowY + tick]} stroke={COLORS.muted} strokeWidth={1 / zoom} />
+            <Line points={[stretch.to, rowY - tick, stretch.to, rowY + tick]} stroke={COLORS.muted} strokeWidth={1 / zoom} />
+            <DimensionText
+              cx={stretch.from + width / 2}
+              rowY={rowY}
+              box={Math.max(width, 44 / zoom)}
+              flip={flip}
+              text={formatFeetInches(width / PIXELS_PER_FOOT)}
+              zoom={zoom}
+            />
+          </Group>
+        );
+      })}
+    </>
+  );
+}
+
+/**
+ * A figure on the dimension row, centred on `cx` and sitting just above the row line.
+ *
+ * Turned through 180° about its own centre when the wall runs right-to-left, so it reads the right
+ * way up wherever the wall points — the turn is about the centre precisely so the figure stays
+ * where it was and only the glyphs change direction.
+ */
+function DimensionText({ cx, rowY, box, flip, text, zoom }: { cx: number; rowY: number; box: number; flip: boolean; text: string; zoom: number }) {
+  const fontSize = 10 / zoom;
+  return (
+    <Group x={cx} y={rowY - 2 / zoom - fontSize / 2} rotation={flip ? 180 : 0} listening={false}>
+      <Text x={-box / 2} y={-fontSize / 2} width={box} align="center" text={text} fontSize={fontSize} fill={COLORS.muted} listening={false} />
+    </Group>
   );
 }
 

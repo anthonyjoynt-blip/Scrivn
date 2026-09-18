@@ -1834,6 +1834,39 @@ export function symbolCentrePx(symbol: SketchSymbol, room: SketchRoom, rooms: Sk
   return Math.min(run.to - half, Math.max(run.from + half, symbol.t * wall.lengthPx));
 }
 
+/**
+ * Where along its wall an opening sits, for the dimensions shown while it is selected or slid.
+ *
+ * The width says how big a door is; nothing said where it was. A PM placing a door from a tape
+ * measure — "3' from the corner" — had to judge it by eye against the grid. So while a door, opening
+ * or window is selected the canvas draws the clear distance from each jamb to the end of the wall,
+ * and this is where those ends and jambs are, in pixels along the wall from its start.
+ *
+ * The ends are those of the exposed stretch the opening sits on when a sub-room takes part of the
+ * wall — the corner a tape hooks onto is the closet's outside wall, not the room's own corner behind
+ * it — which is the same stretch the wall's dimension label measures. An opening standing on the
+ * covered stretch itself (a closet door drawn on the parent's wall) is measured against the whole
+ * wall, the only ends it has.
+ */
+export interface SymbolOffsets {
+  /** The stretch measured against. */
+  from: number;
+  to: number;
+  /** The opening's two jambs. */
+  x0: number;
+  x1: number;
+}
+
+export function symbolOffsetsPx(symbol: SketchSymbol, room: SketchRoom, rooms: SketchRoom[] = []): SymbolOffsets | null {
+  const wall = wallById(room, symbol.wallId);
+  if (!wall || wall.lengthPx <= 0) return null;
+  const half = symbolWidthPx(symbol, room, rooms) / 2;
+  const centre = symbolCentrePx(symbol, room, rooms);
+  const t = centre / wall.lengthPx;
+  const run = exposedWallRuns(room, symbol.wallId, rooms).find(([lo, hi]) => t >= lo && t <= hi) ?? [0, 1];
+  return { from: run[0] * wall.lengthPx, to: run[1] * wall.lengthPx, x0: centre - half, x1: centre + half };
+}
+
 /** How deep a cabinet is drawn, in world pixels. */
 export function cabinetDepthPx(block: BlockSymbol): number {
   return Math.max(6, block.depthFeet * PIXELS_PER_FOOT);

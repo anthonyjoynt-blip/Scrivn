@@ -335,6 +335,64 @@ export async function runDimensionChecks() {
     assert(derived.every((r) => r.parentRoomId === null), "and no parents derived");
   });
 
+  /*
+    Where along the wall an opening sits — the dimensions shown from each jamb to the end of the
+    wall while a door, opening or window is selected or slid.
+  */
+
+  const door = (wallId, t, widthFeet = 3) => ({
+    id: "door-1",
+    wallId,
+    t,
+    widthFraction: 0.25,
+    widthFeet,
+    type: "door",
+    doorType: "swing",
+    leaves: "single",
+    heightFeet: 6.67,
+    flipX: false,
+    flipY: false,
+  });
+
+  test("a door in the middle of a 12' wall is 4'6\" from either corner", () => {
+    const r = box(12, 10);
+    const o = s.symbolOffsetsPx(door(wall(r, 0).id, 0.5), r, [r]);
+    near(o.from, 0, "measured from the wall's start");
+    near(o.to, 144, "to its end");
+    near(o.x0 - o.from, 54, "near jamb to the corner");
+    near(o.to - o.x1, 54, "far jamb to the corner");
+  });
+
+  test("a door slid towards a corner reads the smaller distance on that side", () => {
+    const r = box(12, 10);
+    // Centre at 2' along: jambs at 6\" and 3'6\".
+    const o = s.symbolOffsetsPx(door(wall(r, 0).id, 2 / 12), r, [r]);
+    near(o.x0 - o.from, 6, "6\" to the near corner");
+    near(o.to - o.x1, 144 - 42, "10'6\" to the far one");
+  });
+
+  test("beside a closet the distance is to the closet's wall, the corner a tape would hook on", () => {
+    // 20' top wall, 4' of it the closet's. A door centred on the wall is 4'6\" from the closet.
+    const { parent, rooms } = withCloset("top-left");
+    const o = s.symbolOffsetsPx(door(wall(parent, 0).id, 0.5), parent, rooms);
+    near(o.from, 48, "measured from the closet's wall");
+    near(o.to, 240, "to the room's far corner");
+    near(o.x0 - o.from, 120 - 18 - 48, "door to closet");
+  });
+
+  test("a closet door on the covered stretch is measured against the whole wall", () => {
+    // Its centre is behind the closet; the closet's ends are not this door's ends.
+    const { parent, rooms } = withCloset("top-left");
+    const o = s.symbolOffsetsPx(door(wall(parent, 0).id, 0.1, 2), parent, rooms);
+    near(o.from, 0, "from the wall's start");
+    near(o.to, 240, "to its end");
+  });
+
+  test("a wall the symbol is not on gives nothing to measure", () => {
+    const r = box(12, 10);
+    assert(s.symbolOffsetsPx(door("no-such-wall", 0.5), r, [r]) === null, "expected null");
+  });
+
   return { passed, failures };
 }
 
