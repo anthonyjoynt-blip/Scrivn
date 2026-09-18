@@ -38,18 +38,27 @@ import {
  * Dimension fields are disabled until the room has a scale. Before that there is no relationship
  * between drawn pixels and feet, so "3 feet wide" has nothing to be three feet of; the field says
  * so rather than silently accepting a number that would be reinterpreted later.
+ *
+ * `onAddCloset` is a button, not a behaviour: a door in a wall is not evidence of a closet behind
+ * it, and the PM asked that closets never appear on their own. The editor passes it only for doors;
+ * the panel hides it for anything else, so a window never offers a closet. See `closetBehindDoor`
+ * in lib/sketch.ts for what gets drawn — a 2'0" rectangle, or on a chamfer the cut-off corner —
+ * and `closetShapeBehindDoor` for which of the two a given door would get.
  */
 export function SymbolPanel({
   room,
   symbol,
   onChange,
   onDelete,
+  onAddCloset,
 }: {
   room: SketchRoom;
   symbol: SketchSymbol;
   onChange: (next: SketchSymbol) => void;
   onDelete: () => void;
+  onAddCloset?: () => void;
 }) {
+  const offersCloset = symbol.type === "door" && onAddCloset != null;
   return (
     <div className="sketch-panel-body">
       {symbol.type === "door" && <DoorFields door={symbol} onChange={onChange} />}
@@ -65,10 +74,18 @@ export function SymbolPanel({
       />
 
       <div className="actions-row">
+        {offersCloset && (
+          <button className="btn-secondary" onClick={onAddCloset}>
+            Add closet behind this door
+          </button>
+        )}
         <button className="btn-secondary" onClick={onDelete}>
           Delete
         </button>
       </div>
+      {offersCloset && (
+        <p className="field-note">{"Draws a closet on the other side of the wall: 2'0\" deep, centred on the door — or, on a chamfer, the cut-off corner behind it. Drag or type its walls to fit."}</p>
+      )}
       <p className="field-note">Drag the symbol to slide it along its wall, or drag either end handle to resize it. To move it to a different wall, delete it and place a new one.</p>
     </div>
   );

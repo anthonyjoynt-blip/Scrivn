@@ -19,6 +19,8 @@ import { build } from "esbuild";
 import { checkDirectory } from "./stateRules.mjs";
 import { runPlacementChecks } from "./placement.mjs";
 import { runDimensionChecks } from "./dimensions.mjs";
+import { runScanImportChecks } from "./scanImport.mjs";
+import { runClosetChecks } from "./closet.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..", "..");
@@ -63,6 +65,27 @@ if (dimensions.failures.length > 0) {
   process.exit(1);
 }
 console.log(`  Dimensions: ok (${dimensions.passed.length} checks — a wall reads to the closet, not past it)`);
+
+// And the scan import: a room the phone measured lands as a room, with its door and nothing made up.
+const scanImport = await runScanImportChecks();
+if (scanImport.failures.length > 0) {
+  console.error(`
+  Scan import: ${scanImport.passed.length} passed, ${scanImport.failures.length} FAILED
+`);
+  for (const failure of scanImport.failures) console.error(`    ✗ ${failure}
+`);
+  process.exit(1);
+}
+console.log(`  Scan import: ok (${scanImport.passed.length} checks — a scanned room imports with its door)`);
+
+// And the closet behind a door: outside the room, flush to the wall, sized from the door.
+const closet = await runClosetChecks();
+if (closet.failures.length > 0) {
+  console.error(`\n  Closets: ${closet.passed.length} passed, ${closet.failures.length} FAILED\n`);
+  for (const failure of closet.failures) console.error(`    ✗ ${failure}\n`);
+  process.exit(1);
+}
+console.log(`  Closets: ok (${closet.passed.length} checks — a closet lands behind its door, never in the room)`);
 
 await build({
   entryPoints: [join(here, "entry.tsx")],

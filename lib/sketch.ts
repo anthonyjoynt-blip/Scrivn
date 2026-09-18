@@ -2416,6 +2416,342 @@ export function rotateStairs(room: SketchRoom, turns = 1): SketchRoom {
   return { ...room, stairs: { ...room.stairs, orientation: next } };
 }
 
+// ---------------------------------------------------------------------------------------------
+// Closets
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * How deep a closet is drawn when nothing better is known. 2'0" is a reach-in — a hanging rail with
+ * the door in front of it — which is most of the closets in the houses this trade works in. A
+ * walk-in is whatever the PM drags or types it to.
+ */
+export const CLOSET_DEFAULT_DEPTH_FEET = 2;
+
+/**
+ * Added to the door's width to get the closet's: 6" of wall each side of the opening, which is a
+ * jamb and a stud, and the least a closet can be framed around its door. A closet exactly as wide
+ * as its door has no wall to hang the door on.
+ */
+export const CLOSET_WIDTH_MARGIN_FEET = 1;
+
+/**
+ * Narrower than this and it is a cupboard, not a closet. A 2'6" door plus the margin is 3'6", so
+ * the floor only bites on a narrow door — a 1'6" linen-closet door still gets a closet with room
+ * for a shelf.
+ */
+export const CLOSET_MIN_WIDTH_FEET = 2.5;
+
+/**
+ * How far off a wall the inside-or-outside probe is taken, in world pixels — so, inches. Clear of
+ * the wall's own line, where ray casting is undecided, and well inside any room a wall can enclose
+ * (`MIN_WALL_PX` is 16).
+ */
+const SIDE_PROBE_PX = 3;
+
+/**
+ * The least the walls either side of a door's wall must turn against each other, in degrees, for
+ * the corner between them to be a chamfer's — condition (a) of the corner rule in
+ * `closetBehindDoor`.
+ *
+ * Measured between the LINES, not the directions of travel, so the short connecting wall of an L
+ * (its neighbours run the same way) and the back of a bay (they run opposite ways) both read as a
+ * turn of zero: parallel lines meet nowhere, and near-parallel ones meet so far off that the
+ * "corner" is in another room. 30 degrees is a third of a real chamfer's 90 — a corner cut at
+ * 45 degrees leaves its neighbours square to each other — and sixty times the half a degree
+ * `collinear` allows a straight run of wall, so neither a chamfer nor a jog is ever near the line.
+ */
+export const CHAMFER_MIN_TURN_DEG = 30;
+
+/**
+ * The longest either side of the cut-off corner may be, in feet, for the corner to be a closet —
+ * condition (c) of the corner rule in `closetBehindDoor`.
+ *
+ * A chamfer is a SHORT diagonal: three feet of leg each way in the office this was built against,
+ * two and a half in the bedroom that showed the rectangle was wrong. A long diagonal wall is a wall
+ * in its own right — the house is on an angle there — and the point where this room's neighbours
+ * would have met is somewhere in the room next door, not in a closet. 8' is past any corner a
+ * framer cuts off for a closet and short of any room.
+ */
+export const CHAMFER_FILL_MAX_FEET = 8;
+
+/**
+ * How close, in world pixels (so inches), a room's corners must be to where a closet's would land
+ * for `closetExistsBehind` to say the closet is already there. One inch: a closet dragged into a
+ * better place has moved further than that, and is then a different closet from the one that would
+ * be drawn, which is the honest answer.
+ */
+export const CLOSET_SAME_PLACE_PX = 1;
+
+/**
+ * Where a closet would stand behind a door, before it is a room: the two corners on the door's
+ * wall and the corners off it, in one ring. `closetBehindDoor` makes the room, `closetShapeBehindDoor`
+ * reports the shape and `closetExistsBehind` looks for the wall-side pair among the other rooms, all
+ * from this one outline so that they can never disagree about which shape a door gets.
+ */
+interface ClosetFootprint {
+  shape: "corner" | "rectangle";
+  /** The two corners on the wall's line, in the wall's own order. */
+  onWall: [{ x: number; y: number }, { x: number; y: number }];
+  /** The rest of the ring, continuing from `onWall[1]` round to `onWall[0]`. */
+  beyond: { x: number; y: number }[];
+}
+
+/**
+ * The corner a chamfer cut off, if the door's wall is a chamfer — conditions (a) to (d) of the
+ * corner rule, see `closetBehindDoor`. `ox, oy` is the unit outward normal of `wall`, already
+ * settled by the probe. Returns the apex, or null when the wall is not a chamfer.
+ */
+function chamferCorner(walls: WallGeometry[], wall: WallGeometry, ox: number, oy: number): { x: number; y: number } | null {
+  const count = walls.length;
+  const before = walls[(wall.index + count - 1) % count] as WallGeometry;
+  const after = walls[(wall.index + 1) % count] as WallGeometry;
+  if (before === wall || after === wall || before.lengthPx <= 0 || after.lengthPx <= 0) return null;
+
+  const px = (before.x2 - before.x1) / before.lengthPx;
+  const py = (before.y2 - before.y1) / before.lengthPx;
+  const nx = (after.x2 - after.x1) / after.lengthPx;
+  const ny = (after.y2 - after.y1) / after.lengthPx;
+
+  // (a) The cross product of two unit vectors is the sine of the angle between their lines — the
+  // same for a turn of θ and of 180° - θ, which is what makes a jog and a bay's back both zero.
+  const cross = px * ny - py * nx;
+  if (Math.abs(cross) < Math.sin((CHAMFER_MIN_TURN_DEG * Math.PI) / 180)) return null;
+
+  // X: along line(before) from its start by s, where it meets line(after).
+  const s = ((after.x1 - before.x1) * ny - (after.y1 - before.y1) * nx) / cross;
+  const x = before.x1 + px * s;
+  const y = before.y1 + py * s;
+
+  // (b) How far X stands off the wall on the outward side — negative is the room's own floor. The
+  // triangle's doubled area is that height times the wall, so this is also `isDegenerate`'s test,
+  // written for a triangle whose base is the wall: a corner too shallow to be a room is not drawn
+  // as one, because the editor would then refuse to touch it.
+  const height = (x - wall.x1) * ox + (y - wall.y1) * oy;
+  if (height * wall.lengthPx < MIN_WALL_PX * MIN_WALL_PX) return null;
+
+  // (c) Both legs of the corner, from the chamfer's ends to the apex — and (d) neither longer than
+  // the chamfer itself, with an inch (one world pixel) of slack for a corner drawn at exactly
+  // 60 degrees, where the legs and the chamfer come out equal.
+  const legA = Math.hypot(x - wall.x1, y - wall.y1);
+  const legB = Math.hypot(x - wall.x2, y - wall.y2);
+  const maxLegPx = Math.min(CHAMFER_FILL_MAX_FEET * PIXELS_PER_FOOT, wall.lengthPx + 1);
+  if (legA > maxLegPx || legB > maxLegPx) return null;
+
+  return { x, y };
+}
+
+/** The outline `closetBehindDoor` would draw — see there for every decision in it. */
+function closetFootprint(
+  room: SketchRoom,
+  doorId: string,
+  options: { depthFeet?: number; widthFeet?: number } = {},
+): ClosetFootprint | null {
+  const door = room.symbols.find((s) => s.id === doorId);
+  if (!door || door.type !== "door") return null;
+  const walls = wallsOf(room);
+  const wall = walls.find((w) => w.id === door.wallId);
+  if (!wall || wall.lengthPx <= 0) return null;
+
+  // Along the wall.
+  const ux = (wall.x2 - wall.x1) / wall.lengthPx;
+  const uy = (wall.y2 - wall.y1) / wall.lengthPx;
+
+  // Across the wall. (-uy, ux) is the wall's direction turned +90° in screen space: the inward
+  // normal for a clockwise ring, and the outward one for a ring wound the other way.
+  const midX = (wall.x1 + wall.x2) / 2;
+  const midY = (wall.y1 + wall.y2) / 2;
+  const insideByConvention = isInsideRoom(room, midX - uy * SIDE_PROBE_PX, midY + ux * SIDE_PROBE_PX);
+  const insideAgainstIt = isInsideRoom(room, midX + uy * SIDE_PROBE_PX, midY - ux * SIDE_PROBE_PX);
+  const reversed = insideAgainstIt && !insideByConvention;
+  const ox = reversed ? -uy : uy;
+  const oy = reversed ? ux : -ux;
+
+  // The corner rule first: on a chamfer the closet is the corner, whatever `options` asks.
+  const apex = chamferCorner(walls, wall, ox, oy);
+  if (apex) {
+    return { shape: "corner", onWall: [{ x: wall.x1, y: wall.y1 }, { x: wall.x2, y: wall.y2 }], beyond: [apex] };
+  }
+
+  // The rectangle. The door's width is its drawn width, already capped to the wall.
+  const doorWidthFeet = symbolWidthFeet(door, room) ?? DEFAULT_WIDTH_FEET.door;
+  const askedWidthFeet = options.widthFeet ?? doorWidthFeet + CLOSET_WIDTH_MARGIN_FEET;
+  const widthPx = Math.min(wall.lengthPx, Math.max(CLOSET_MIN_WIDTH_FEET, askedWidthFeet) * PIXELS_PER_FOOT);
+  // A depth under the shortest legal wall would draw a room `isDegenerate` refuses to edit.
+  const depthPx = Math.max(MIN_WALL_PX, (options.depthFeet ?? CLOSET_DEFAULT_DEPTH_FEET) * PIXELS_PER_FOOT);
+  const centrePx = symbolCentrePx(door, room);
+  const fromPx = Math.min(wall.lengthPx - widthPx, Math.max(0, centrePx - widthPx / 2));
+
+  const ax = wall.x1 + ux * fromPx;
+  const ay = wall.y1 + uy * fromPx;
+  const bx = ax + ux * widthPx;
+  const by = ay + uy * widthPx;
+  return {
+    shape: "rectangle",
+    onWall: [{ x: ax, y: ay }, { x: bx, y: by }],
+    beyond: [{ x: bx + ox * depthPx, y: by + oy * depthPx }, { x: ax + ox * depthPx, y: ay + oy * depthPx }],
+  };
+}
+
+/**
+ * The closet behind a door: a new room on the far side of the door's wall, sized from the door.
+ *
+ * Closets are too small to scan and too awkward to tap — the phone cannot get far enough back from
+ * the walls to see them, and a PM standing in a bedroom is not going to walk into every closet to
+ * measure it. What the scan DOES see, and what a PM draws first by hand, is the closet door in the
+ * bedroom's wall. So the closet is drawn from that: a rectangle standing against the outside of the
+ * wall, one edge on the wall's line, centred on the door, and the PM drags or types its walls to
+ * fit. The office sketch this was built against has exactly such a closet — a 4'6" x 2'1"
+ * "Untitled room" drawn by hand beside its door. On a chamfer the closet is the corner the chamfer
+ * cut off instead — see below.
+ *
+ * It is a plain room. Nothing marks it as a closet but its name, so it gets everything a room gets
+ * — its own walls to mark moisture on, its own quantities, its own line in the summary — and it
+ * becomes a sub-room the moment it is dragged inside the room it opens off (`withDerivedParents`).
+ *
+ * ── Size ─────────────────────────────────────────────────────────────────────────────────────
+ * Width is the door's plus `CLOSET_WIDTH_MARGIN_FEET`, never under `CLOSET_MIN_WIDTH_FEET` and
+ * never longer than the wall it stands against — a closet wider than the room is not behind that
+ * room's door. Depth is `CLOSET_DEFAULT_DEPTH_FEET`. `options` overrides either, and is clamped the
+ * same way. The closet is centred on the door as DRAWN (`symbolCentrePx`, which keeps a door on
+ * its wall whatever `t` says) and slid along the wall when centring would put an end past a
+ * corner: a closet whose door is in the corner lines up with the corner, which is where such
+ * closets are.
+ *
+ * ── Which side is behind ─────────────────────────────────────────────────────────────────────
+ * Outside is the side of the wall the room's floor is NOT on. That is settled by asking
+ * `isInsideRoom` about a point a few pixels off the wall on each side, not by taking the clockwise
+ * convention on trust. Every room is SUPPOSED to be wound clockwise, but `ensureClockwise` exists
+ * precisely because polygons arrive either way — from a file, from a scan, from a drag that turned
+ * a room inside out — and a closet drawn INTO the room on a reversed one would be wrong in the one
+ * way nobody checks. Only when the probe cannot decide (a self-crossing outline can read as inside
+ * on both sides) does the convention stand in. Orientation follows the wall: on an angled wall the
+ * closet is a rotated rectangle, flush to that wall.
+ *
+ * ── The corner behind a chamfer ──────────────────────────────────────────────────────────────
+ * "The closet that would be in the last room in the chamfer would effectively fill the rectangle
+ * out behind it. It's not just a 2' push behind it." — the user, on the first version, which drew
+ * the rectangle on every wall. A chamfer is a short diagonal wall cutting off a room's corner, and
+ * the closet behind a door in it IS that corner: the triangle between the diagonal and the point
+ * where the two walls either side of it would have met. The bedroom that showed it was a 16'7" x
+ * 11'9" rectangle with a 3'6" chamfer (2'6" legs) holding a 2'6" door; a 2' rectangle pushed out
+ * at 45 degrees overhangs both of the room's real walls and is not the shape of anything a framer
+ * built.
+ *
+ * So, before the rectangle: with w the door's wall, p the wall before it in the ring (ending at
+ * w's start) and n the wall after (starting at w's end), X is where line(p) meets line(n), and the
+ * closet is the triangle [w.start, w.end, X] when all of these hold —
+ *
+ *   (a) p and n turn against each other by at least `CHAMFER_MIN_TURN_DEG`. Parallel lines meet
+ *       nowhere and near-parallel ones meet in the next street: the short connecting wall of an L
+ *       and the back of a bay are not chamfers, and a door in either gets the rectangle.
+ *   (b) X is on the outward side of w — the side the rectangle would be drawn on, settled by the
+ *       same probe — and far enough off it for the triangle to be a room `isDegenerate` would let
+ *       the PM edit. A diagonal across an INSIDE corner has its X on the room's own floor; what is
+ *       behind that wall is the room itself.
+ *   (c) both legs, |w.start - X| and |w.end - X|, are at most `CHAMFER_FILL_MAX_FEET`. A corner
+ *       closet is a corner. A long diagonal wall whose neighbours would meet fourteen feet away is
+ *       a wall — the house is on an angle there, and what is behind it is somebody's room.
+ *   (d) neither leg is longer than w itself. A cut ACROSS a corner leaves the chamfer as the
+ *       triangle's longest side — always, at any square or obtuse corner, since the right or wide
+ *       angle is at X. What this rules out is the straight wall BESIDE a chamfer: its neighbours
+ *       (the chamfer and the far wall) also meet outward, close by and at a fair angle, but that
+ *       triangle has its right angle at the room's own corner, so the leg across from it is longer
+ *       than the wall. Without (d), a door on the 5' wall beside a 3' chamfer in a small bathroom
+ *       got a 12 sq ft triangle drawn behind a straight wall.
+ *
+ * The corner has its own size: `options.depthFeet` and `widthFeet` are ignored on a chamfer, since
+ * a triangle that does not reach the corner is not the corner and one that does has no other size
+ * to be. Everything else — name, level, ceiling, no symbols — is as for the rectangle. Three
+ * vertices is the least a room may have (`MIN_VERTICES`) and this one is a room like any other; if
+ * the framer squared the back off, the PM drags the apex.
+ *
+ * ── What stays where ─────────────────────────────────────────────────────────────────────────
+ * The door stays on the parent's wall and the closet has no symbols. Rooms are not joined in this
+ * model (see the file header), so a door between two rooms belongs to exactly one of them, and as
+ * the `DoorSymbol` doc puts it, "out of one room is into the next": the bedroom's closet door is a
+ * door in the bedroom's wall, which is where it was drawn and where the wall-area deduction reads.
+ *
+ * ── What it does not do ──────────────────────────────────────────────────────────────────────
+ * No overlap check. The space behind a wall may already hold another room — the hall, the closet
+ * of the room next door — and the new closet is drawn over it regardless; the PM drags it into
+ * place, and refusing to draw would leave nothing to drag. And it is never called on its own: a
+ * door in a wall is not evidence of a closet behind it, so the PM asks, per door. (The scan
+ * importer's "Add closets" offer asks once for all of them, and uses `closetExistsBehind` to skip a
+ * door whose closet the PM has already drawn by hand — or that an earlier door in the same batch
+ * has just drawn, as two doors on one chamfer would.)
+ *
+ * Returns null when `doorId` is not a door of `room`.
+ */
+export function closetBehindDoor(
+  room: SketchRoom,
+  doorId: string,
+  options: { depthFeet?: number; widthFeet?: number } = {},
+): SketchRoom | null {
+  const footprint = closetFootprint(room, doorId, options);
+  if (!footprint) return null;
+  const corners: Vertex[] = [...footprint.onWall, ...footprint.beyond].map(({ x, y }) => ({ id: newSketchId("v"), x, y }));
+
+  const closet: SketchRoom = {
+    id: newSketchId("room"),
+    name: "Closet",
+    vertices: ensureClockwise(corners),
+    ceilingHeightFeet: room.ceilingHeightFeet ?? DEFAULT_CEILING_HEIGHT_FEET,
+    ceilingType: "flat",
+    ceilingPeakFeet: null,
+    stairs: null,
+    parentRoomId: null,
+    nestingOptOut: false,
+    symbols: [],
+    freeCabinets: [],
+  };
+  // The storey is copied only when the room carries one: `level` is optional so a sketch drawn
+  // before levels existed still loads, `roomLevel` reads a missing one as the main level, and
+  // nothing writes undefined.
+  return room.level === undefined ? closet : { ...closet, level: room.level };
+}
+
+/**
+ * Which shape `closetBehindDoor` would draw behind this door — "corner" on a chamfer, "rectangle"
+ * anywhere else — so the UI can say so before the PM presses the button. Null when `doorId` is not
+ * a door of `room`, exactly as `closetBehindDoor` would be. Decided from the same outline, so the
+ * two cannot disagree.
+ */
+export function closetShapeBehindDoor(room: SketchRoom, doorId: string): "corner" | "rectangle" | null {
+  return closetFootprint(room, doorId)?.shape ?? null;
+}
+
+/**
+ * Is there already a closet behind this door?
+ *
+ * "Already" is geometric, not by name: some OTHER room on the same storey has a corner within
+ * `CLOSET_SAME_PLACE_PX` of BOTH of the corners the closet would put on the door's wall. Those two
+ * are the corners that never move between the shapes — the rectangle's near edge, the triangle's
+ * base. For the rectangle the pair sits INSIDE the wall, a door's width apart, and no room next
+ * door shares two such points: it shares the wall's line, and at most its ends. For the corner
+ * (and for a rectangle clamped to the whole of a short wall) the pair IS the wall's ends, and a
+ * room that already spans them — the room next door drawn with an edge on the chamfer — has
+ * already taken the space the closet would fill, so "already there" is the same answer by another
+ * route. Only the wall-side pair is compared, so a closet the PM has deepened or squared off still
+ * counts as there.
+ *
+ * Same storey only, because rooms on different levels overlap in plan as a matter of course: the
+ * closet upstairs is not the closet down here. The room the door is in is never its own closet.
+ *
+ * Used by the scan importer's "Add closets" offer to leave alone a door the PM has already drawn a
+ * closet behind by hand. The button on the door itself does not ask — the PM may want two, and a
+ * button that sometimes does nothing is worse than a closet to delete.
+ */
+export function closetExistsBehind(rooms: SketchRoom[], room: SketchRoom, doorId: string): boolean {
+  const footprint = closetFootprint(room, doorId);
+  if (!footprint) return false;
+  const level = roomLevel(room);
+  const hasCornerAt = (other: SketchRoom, at: { x: number; y: number }) =>
+    other.vertices.some((v) => Math.hypot(v.x - at.x, v.y - at.y) <= CLOSET_SAME_PLACE_PX);
+  return rooms.some(
+    (other) => other.id !== room.id && roomLevel(other) === level && footprint.onWall.every((at) => hasCornerAt(other, at)),
+  );
+}
+
 /** Re-sizes a fixture to its kind's standard footprint, used when the kind is chosen or changed. */
 export function withFixtureType(fixture: FixtureSymbol, room: SketchRoom, fixtureType: FixtureType): FixtureSymbol {
   const size = FIXTURE_DEFAULT_FEET[fixtureType];

@@ -1,0 +1,12 @@
+{
+  "format": "arcapture-room/1",
+  "name": "Office (chamfer)",
+  "ceiling_m": 2.591,
+  "outline": [[0.0, 0.0], [2.134, 0.0], [3.048, 0.914], [3.048, 4.572], [0.0, 4.572]],
+  "walls": [
+    {"axis": "along", "offset_m": 0.0, "span_from_m": 0.0, "span_to_m": 4.572, "openings": []},
+    {"axis": "along", "offset_m": 3.048, "span_from_m": 0.0, "span_to_m": 4.572, "openings": [{"kind": "door", "from_m": 0.0, "width_m": 1.295}]},
+    {"axis": "across", "offset_m": 0.0, "span_from_m": 0.0, "span_to_m": 2.134, "openings": []},
+    {"axis": "across", "offset_m": 4.572, "span_from_m": 0.0, "span_to_m": 3.048, "openings": [{"kind": "window", "from_m": 0.61, "width_m": 1.829}]}
+  ]
+}

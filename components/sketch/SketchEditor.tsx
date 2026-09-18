@@ -2,6 +2,7 @@
 
 import { type Dispatch, type SetStateAction, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
+import { importScanRoom } from "@/lib/scanImport";
 import {
   type FreeCabinet,
   type Sketch,
@@ -20,6 +21,8 @@ import {
   MIN_WALL_PX,
   PIXELS_PER_FOOT,
   DEFAULT_ROOM_FEET,
+  closetBehindDoor,
+  closetExistsBehind,
   dragWall,
   ensureClockwise,
   exposedRunAt,
@@ -287,6 +290,23 @@ export function SketchEditor({
    * there is no stack, because a stack implies a history the rest of the editor does not keep.
    */
   const [deletedRoom, setDeletedRoom] = useState<{ room: SketchRoom; index: number; moisture: RoomMoisture } | null>(null);
+  /**
+   * What the last scan import had to say — a refusal, or the caveats of a room that did come in
+   * (no ceiling seen, a gap left as wall). Shown in the same bar as the delete undo, and cleared
+   * the same way: by the PM dismissing it.
+   *
+   * `action` is an offer the notice can make alongside OK — today, to draw a closet behind each
+   * door the phone tapped as a closet door. It is an offer and not a default because the PM asked
+   * that closets never appear on their own: the import draws the room and the doors, and nothing
+   * more until the button is pressed. Taking OK instead declines it, and the doors keep the same
+   * button in their own panel for later.
+   */
+  const [importNotice, setImportNotice] = useState<{
+    kind: "error" | "note";
+    text: string;
+    action?: { label: string; run: () => void };
+  } | null>(null);
+  const scanFileRef = useRef<HTMLInputElement>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const [canvasWidth, setCanvasWidth] = useState(600);
@@ -722,6 +742,102 @@ export function SketchEditor({
   }
 
   /**
+   * Draws the closet behind one door — see `closetBehindDoor` for the geometry and the defaults.
+   *
+   * Unlike the other adds it does not go through `nextRoomPosition`: the closet's place is fixed by
+   * the door, against the far side of that wall, and it is selected on arrival so the PM can drag
+   * or type its walls to fit while the door is still in view. Nothing is drawn unless this is
+   * called, and it is only ever called from a button.
+   */
+  function handleAddCloset(roomId: string, doorId: string) {
+    const room = sketch.rooms.find((r) => r.id === roomId);
+    if (!room) return;
+    const closet = closetBehindDoor(room, doorId);
+    if (!closet) return;
+    // `withDerivedParents` so a closet that lands inside another room is a sub-room at once.
+    onChange((prev) => ({ ...prev, rooms: withDerivedParents([...prev.rooms, closet]) }));
+    setSelectedRoomId(closet.id);
+    setSelectedSymbolId(null);
+    setTool("select");
+  }
+
+  /**
+   * Brings in a room the phone measured — see `lib/scanImport.ts` for the file and the mapping.
+   *
+   * It lands like any other new room: on the storey being drawn, clear of the rooms already there,
+   * selected and ready to be named. The scan knows the room's size and where its door is; it does
+   * not know what the room is called or where it sits in the house, and both stay the PM's job.
+   *
+   * Doors tapped as closet doors are reported, not acted on: the notice offers to draw a closet
+   * behind each, and the PM takes the offer or dismisses it. The closets are built from the room
+   * as it stands when the button is pressed — from the sketch state, not the import result — so a
+   * room dragged into place first gets its closets where it now is, not where it landed. A door
+   * the PM has meanwhile drawn a closet behind by hand (`closetExistsBehind`) is left alone: the
+   * offer is "add the closets", not "add them again".
+   */
+  async function handleImportScan(file: File) {
+    const text = await file.text();
+    const { x, y } = nextRoomPosition(activeRooms, canvasWidth);
+    const result = importScanRoom(text, { x, y }, activeLevel);
+    if (!result.ok) {
+      setImportNotice({ kind: "error", text: result.error });
+      return;
+    }
+    onChange((prev) => ({ ...prev, rooms: withDerivedParents([...prev.rooms, result.room]) }));
+    setSelectedRoomId(result.room.id);
+    setSelectedSymbolId(null);
+    setTool("select");
+
+    const roomId = result.room.id;
+    const closetDoorIds = result.closetDoorIds;
+    const closetCount = closetDoorIds.length;
+    const parts = ["Room imported.", ...result.notes];
+    if (closetCount > 0) {
+      parts.push(closetCount === 1 ? "1 closet door tapped — add a closet behind it?" : `${closetCount} closet doors tapped — add a closet behind each?`);
+    }
+    if (parts.length === 1) {
+      setImportNotice(null);
+      return;
+    }
+    setImportNotice({
+      kind: "note",
+      text: parts.join(" "),
+      action:
+        closetCount > 0
+          ? {
+              label: "Add closets",
+              run: () => {
+                onChange((prev) => {
+                  // The room may have been deleted, or a door removed, since the notice went up;
+                  // whatever is still there gets its closet and the rest is quietly nothing. A door
+                  // that already has its closet — drawn by hand while the notice was up, or added
+                  // a moment ago by an earlier door in this same batch — is skipped rather than
+                  // doubled. The batch case is real: two closet doors tapped on one chamfer both
+                  // want the same corner, since the corner has one shape whatever the door's
+                  // position, so each door is checked against the closets added before it.
+                  const room = prev.rooms.find((r) => r.id === roomId);
+                  if (!room) return prev;
+                  const closets: SketchRoom[] = [];
+                  for (const doorId of closetDoorIds) {
+                    if (closetExistsBehind([...prev.rooms, ...closets], room, doorId)) continue;
+                    const closet = closetBehindDoor(room, doorId);
+                    if (closet) closets.push(closet);
+                  }
+                  return closets.length === 0 ? prev : { ...prev, rooms: withDerivedParents([...prev.rooms, ...closets]) };
+                });
+                // The imported room, not a closet: with several closets there is no one to pick,
+                // and the room is where the PM was looking.
+                setSelectedRoomId(roomId);
+                setSelectedSymbolId(null);
+                setTool("select");
+                setImportNotice(null);
+              },
+            }
+          : undefined,
+    });
+  }
+
+  /**
    * Deletes a room, keeping it and its readings aside so the delete can be taken back.
    *
    * The moisture has to be captured HERE, before the room goes: `pruneMoisture` runs as an effect on
@@ -1039,6 +1155,23 @@ export function SketchEditor({
         <button type="button" className="btn-secondary" onClick={handleAddStairs}>
           + Add stairs
         </button>
+        {/* A room measured by the phone scanner, from the JSON it saves next to its point cloud. */}
+        <button type="button" className="btn-secondary" onClick={() => scanFileRef.current?.click()}>
+          Import scan
+        </button>
+        <input
+          ref={scanFileRef}
+          type="file"
+          accept=".json,application/json"
+          hidden
+          aria-label="Room scan file"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            // Reset so choosing the same file again still fires a change.
+            e.target.value = "";
+            if (file) void handleImportScan(file);
+          }}
+        />
         <div className="option-group" role="group" aria-label="Placement tool">
           {([
             { tool: "break", label: "Break" },
@@ -1119,6 +1252,20 @@ export function SketchEditor({
           <span>Room deleted.</span>
           <button type="button" className="btn-secondary" onClick={restoreRoom}>
             Undo
+          </button>
+        </div>
+      )}
+      {importNotice && (
+        <div className="sketch-undo" role={importNotice.kind === "error" ? "alert" : "status"}>
+          <span>{importNotice.text}</span>
+          {/* The offer comes before OK, as Undo does: the thing to do, then the way out. */}
+          {importNotice.action && (
+            <button type="button" className="btn-secondary" onClick={importNotice.action.run}>
+              {importNotice.action.label}
+            </button>
+          )}
+          <button type="button" className="btn-secondary" onClick={() => setImportNotice(null)}>
+            OK
           </button>
         </div>
       )}
@@ -1501,6 +1648,7 @@ export function SketchEditor({
                   updateRoom(selectedRoom.id, (room) => ({ ...room, symbols: room.symbols.filter((s) => s.id !== selectedSymbol.id) }));
                   setSelectedSymbolId(null);
                 }}
+                onAddCloset={selectedSymbol.type === "door" ? () => handleAddCloset(selectedRoom.id, selectedSymbol.id) : undefined}
               />
             </>
           ) : selectedIsland ? (

@@ -1,0 +1,23 @@
+{
+  "format": "arcapture-room/1",
+  "source": "room_20260917_133442_raw.ply",
+  "width_m": 3.000,
+  "depth_m": 3.950,
+  "headline_width_m": 3.000,
+  "headline_depth_m": 3.950,
+  "ceiling_m": null,
+  "settled": false,
+  "tracking_losses": 3,
+  "axes": {"ux": 0.208, "uz": 0.978, "vx": -0.978, "vz": 0.208},
+  "rect_xz": [[3.680, -2.215], [4.303, 0.720], [0.440, 1.541], [-0.184, -1.393]],
+  "outline": [[-1.401, -4.060], [-0.001, -4.060], [-0.001, -4.710], [1.599, -4.710], [1.599, -0.110], [-1.401, -0.110]],
+  "outline_notes": ["notch on low-V edge: near wall at -4.06 covers 1.40 m, far wall at -4.71 covers 1.40 m, step at -0.00"],
+  "floor_y": -0.710,
+  "ceiling_y": null,
+  "walls": [
+    {"axis": "along", "offset_m": -1.401, "span_from_m": -4.137, "span_to_m": -0.017, "length_m": 4.121, "covered_m": 4.121, "openings": []},
+    {"axis": "along", "offset_m": 1.599, "span_from_m": -4.562, "span_to_m": -0.050, "length_m": 4.512, "covered_m": 4.512, "openings": []},
+    {"axis": "across", "offset_m": -4.060, "span_from_m": -1.521, "span_to_m": 1.853, "length_m": 3.373, "covered_m": 3.073, "openings": []},
+    {"axis": "across", "offset_m": -0.110, "span_from_m": -1.479, "span_to_m": 2.345, "length_m": 3.824, "covered_m": 3.124, "openings": [{"kind": "gap", "from_m": 3.250, "width_m": 0.500}]}
+  ]
+}

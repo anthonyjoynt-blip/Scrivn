@@ -1,0 +1,15 @@
+{
+  "format": "arcapture-room/1",
+  "source": "taps",
+  "name": "Office (tapped)",
+  "width_m": 3.048,
+  "depth_m": 4.572,
+  "ceiling_m": 2.591,
+  "outline": [[0.0, 0.635], [1.27, 0.635], [1.27, 0.0], [2.134, 0.0], [3.048, 0.914], [3.048, 4.572], [0.0, 4.572]],
+  "outline_openings": [
+    {"edge": 3, "from_m": 0.0, "width_m": 1.295, "kind": "door", "sill_m": null, "head_m": null},
+    {"edge": 5, "from_m": 1.0, "width_m": 1.829, "kind": "window", "sill_m": 0.914, "head_m": 2.134}
+  ],
+  "walls": [],
+  "taps": []
+}

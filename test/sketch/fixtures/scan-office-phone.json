@@ -1,0 +1,15 @@
+{
+  "format": "arcapture-room/1",
+  "source": "room_20260917_064021_raw.ply",
+  "width_m": 3.000,
+  "depth_m": 4.000,
+  "ceiling_m": null,
+  "settled": false,
+  "tracking_losses": 5,
+  "walls": [
+    {"axis": "along", "offset_m": -0.200, "span_from_m": -1.425, "span_to_m": 3.025, "length_m": 4.450, "covered_m": 4.450, "openings": []},
+    {"axis": "along", "offset_m": 2.800, "span_from_m": -1.575, "span_to_m": 3.025, "length_m": 4.600, "covered_m": 4.600, "openings": []},
+    {"axis": "across", "offset_m": -1.250, "span_from_m": -0.475, "span_to_m": 3.125, "length_m": 3.600, "covered_m": 2.800, "openings": [{"kind": "door", "from_m": 2.100, "width_m": 0.650}]},
+    {"axis": "across", "offset_m": 2.750, "span_from_m": -0.375, "span_to_m": 3.025, "length_m": 3.400, "covered_m": 3.400, "openings": []}
+  ]
+}

@@ -1,0 +1,106 @@
+{
+  "format": "arcapture-room/1",
+  "source": "room_20260917_064021_raw.ply",
+  "width_m": 3.05,
+  "depth_m": 4.05,
+  "width_ft": "10'0\"",
+  "depth_ft": "13'3\"",
+  "ceiling_m": 2.62,
+  "ceiling_ft": "8'7\"",
+  "area_sqft": 132.96121193192303,
+  "walls": [
+    {
+      "axis": "across",
+      "index": 0,
+      "offset_m": -0.27,
+      "span_from_m": -2.68,
+      "span_to_m": 1.37,
+      "length_m": 4.05,
+      "coverage_mid": 0.73,
+      "openings": [
+        {
+          "kind": "hidden (furniture)",
+          "from_m": 0.3,
+          "width_m": 0.5,
+          "width_ft": "1'8\"",
+          "from_ft": "1'0\""
+        },
+        {
+          "kind": "hidden (furniture)",
+          "from_m": 1.8,
+          "width_m": 0.6,
+          "width_ft": "2'0\"",
+          "from_ft": "5'11\""
+        }
+      ],
+      "length_ft": "13'3\""
+    },
+    {
+      "axis": "across",
+      "index": 1,
+      "offset_m": 2.78,
+      "span_from_m": -2.68,
+      "span_to_m": 1.37,
+      "length_m": 4.05,
+      "coverage_mid": 1.0,
+      "openings": [],
+      "length_ft": "13'3\""
+    },
+    {
+      "axis": "along",
+      "index": 0,
+      "offset_m": -2.68,
+      "span_from_m": -0.27,
+      "span_to_m": 2.78,
+      "length_m": 3.05,
+      "coverage_mid": 1.0,
+      "openings": [],
+      "length_ft": "10'0\""
+    },
+    {
+      "axis": "along",
+      "index": 1,
+      "offset_m": 1.37,
+      "span_from_m": -0.27,
+      "span_to_m": 2.78,
+      "length_m": 3.05,
+      "coverage_mid": 0.61,
+      "openings": [
+        {
+          "kind": "door",
+          "from_m": 1.4,
+          "width_m": 1.2,
+          "width_ft": "3'11\"",
+          "from_ft": "4'7\""
+        }
+      ],
+      "length_ft": "10'0\""
+    }
+  ],
+  "axes": {
+    "ux": 0.0,
+    "uz": -1.0,
+    "vx": 1.0,
+    "vz": 0.0
+  },
+  "rect_xz": [
+    [
+      -0.2739,
+      2.6818
+    ],
+    [
+      -0.2739,
+      -1.3682
+    ],
+    [
+      2.7761,
+      -1.3682
+    ],
+    [
+      2.7761,
+      2.6818
+    ]
+  ],
+  "floor_y": 0.1866,
+  "ceiling_y": 2.8066
+}

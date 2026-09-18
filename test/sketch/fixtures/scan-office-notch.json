@@ -1,0 +1,12 @@
+{
+  "format": "arcapture-room/1",
+  "name": "Office (closet notch)",
+  "ceiling_m": 2.591,
+  "outline": [[0.0, 0.635], [1.27, 0.635], [1.27, 0.0], [3.048, 0.0], [3.048, 4.597], [0.0, 4.597]],
+  "walls": [
+    {"axis": "along", "offset_m": 0.0, "span_from_m": 0.635, "span_to_m": 4.597, "openings": []},
+    {"axis": "along", "offset_m": 3.048, "span_from_m": 0.0, "span_to_m": 4.597, "openings": []},
+    {"axis": "across", "offset_m": 0.635, "span_from_m": 0.0, "span_to_m": 1.27, "openings": []},
+    {"axis": "across", "offset_m": 4.597, "span_from_m": 0.0, "span_to_m": 3.048, "openings": [{"kind": "window", "from_m": 1.0, "width_m": 1.829}]}
+  ]
+}
