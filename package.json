@@ -21,6 +21,7 @@
     "test:placement": "node test/sketch/placement.mjs",
     "test:dimensions": "node test/sketch/dimensions.mjs",
     "test:walls": "node test/sketch/walls.mjs",
+    "test:rooms": "node test/sketch/rooms.mjs",
     "test:scan-import": "node test/sketch/scanImport.mjs",
     "test:closet": "node test/sketch/closet.mjs",
     "test:moisture": "node test/moisture/run.mjs",

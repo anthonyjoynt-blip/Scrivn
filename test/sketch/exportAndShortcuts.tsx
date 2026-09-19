@@ -707,10 +707,17 @@ export async function run(): Promise<{ passed: number; failed: number; results: 
         stair tread and reported them as walls. Every horizontal wall contributes one run of its
         thickness to every column it spans, so across the whole image the walls outvote everything
         else by a wide margin, with no coordinates to get wrong.
+
+        Hairlines are left out of the vote. Treads, the door's arc and the letters of a label are one
+        or two pixels thick, and a flight standing on end — as the one in this fixture does after the
+        arrow keys above have turned it — lays a dozen horizontal treads across every column it spans,
+        enough to outvote the walls. A run that thin could never be a wall, so it says nothing about
+        wall thickness either way.
       */
       const histogram = new Map<number, number>();
       for (let x = 0; x < canvas.width; x += 1) {
         for (const run of darkRuns(ctx.getImageData(x, 0, 1, canvas.height).data, canvas.height)) {
+          if (run < 4) continue;
           histogram.set(run, (histogram.get(run) ?? 0) + 1);
         }
       }

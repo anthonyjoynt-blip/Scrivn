@@ -583,6 +583,53 @@ export async function runPlacementChecks() {
     near(grown.depthPx, 3 * FT, "depth");
   });
 
+  /* A wall that carries on past the corner as a free wall carries the cabinets with it. */
+
+  const freeWall = (id, points) => ({ id, vertices: points.map(([x, y], i) => ({ id: `${id}-v${i}`, x, y })), heightFeet: null });
+
+  test("a cabinet may run past the room's corner onto a free wall carrying straight on from it", () => {
+    // Bottom wall runs (144,120) -> (0,120); a 5' free wall carries on from its end, past x=0.
+    const r = box(12, 10);
+    const bottom = s.wallsOf(r)[2];
+    const f = freeWall("f", [[0, 120], [-60, 120]]);
+    const c = cabinet(bottom.id, { widthFeet: 4, t: 1.2 }); // 172.8px from the wall's start: past the corner
+    near(s.symbolCentrePx(c, r, [r], [f]), 1.2 * 144, "left where the PM put it, on the extension");
+    near(s.symbolCentrePx(c, r, [r]), 144 - 24, "without the free wall it stops at the corner, as before");
+  });
+
+  test("and goes flush to the far end of the extension, not the corner", () => {
+    const r = box(12, 10);
+    const bottom = s.wallsOf(r)[2];
+    const f = freeWall("f", [[0, 120], [-60, 120]]);
+    const c = cabinet(bottom.id, { widthFeet: 4, t: 0.5 });
+    const moved = s.moveSymbolAlongWall(c, r, 200, [r], [f]);
+    near(moved.t * 144, 204 - 24, "flush to the end of the 5' extension");
+  });
+
+  test("a cabinet may be as long as the wall AND its extension, no longer", () => {
+    const r = box(12, 10);
+    const bottom = s.wallsOf(r)[2];
+    const f = freeWall("f", [[0, 120], [-60, 120]]);
+    near(s.symbolWidthPx(cabinet(bottom.id, { widthFeet: 20 }), r, [r], [f]), 204, "17 feet");
+    near(s.symbolWidthPx(cabinet(bottom.id, { widthFeet: 20 }), r, [r]), 144, "12 without it");
+  });
+
+  test("a door stays within the room's own wall — there is no room beyond the corner to open into", () => {
+    const r = box(12, 10);
+    const bottom = s.wallsOf(r)[2];
+    const f = freeWall("f", [[0, 120], [-60, 120]]);
+    const d = door(bottom.id, { widthFeet: 3, t: 1.2 });
+    near(s.symbolCentrePx(d, r, [r], [f]), 144 - 18, "held at the corner");
+  });
+
+  test("a free wall that meets the corner at an angle extends nothing", () => {
+    // Off the corner and outward, but well off the wall's line by the time it ends.
+    const r = box(12, 10);
+    const bottom = s.wallsOf(r)[2];
+    const f = freeWall("f", [[0, 120], [-42, 160]]);
+    near(s.symbolCentrePx(cabinet(bottom.id, { widthFeet: 4, t: 1.2 }), r, [r], [f]), 144 - 24, "stops at the corner");
+  });
+
   return { passed, failures };
 }
 

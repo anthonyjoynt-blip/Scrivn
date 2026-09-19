@@ -57,6 +57,7 @@ import {
   wallsOf,
 } from "@/lib/sketch";
 import { type DraftPoint, WALL_SNAP_SCREEN_PX, absorbedFreeWallIds, snapDraftPoint, wallDimensionsWithExtensions } from "@/lib/sketchWalls";
+import { PULLED_ROOM_DEFAULT_DEPTH_PX, PULLED_ROOM_MIN_DEPTH_PX, outwardNormal, pullDepthPx } from "@/lib/roomPlacement";
 
 /**
  * The drawing surface. Rendering and pointer handling only — every state change is reported upward
@@ -149,8 +150,11 @@ const claimGesture = (e: KonvaEventObject<MouseEvent | TouchEvent>) => {
  * a door is, minus the leaf. Giving it its own symbol type would have duplicated the placement,
  * the drag, the resize and the wall-relative geometry to gain nothing; it is a tool, not a kind.
  */
-/** "wall" draws walls a corner at a time — see `lib/sketchWalls.ts` for what a run of them becomes. */
-export type ToolMode = "select" | "door" | "opening" | "window" | "cabinet" | "fixture" | "island" | "break" | "wall";
+/**
+ * "wall" draws walls a corner at a time — see `lib/sketchWalls.ts` for what a run of them becomes.
+ * "pull" drags the next room off an existing wall — see `pullRoomFromWall`.
+ */
+export type ToolMode = "select" | "door" | "opening" | "window" | "cabinet" | "fixture" | "island" | "break" | "wall" | "pull";
 
 /**
  * What a gesture means while moisture mapping.
@@ -289,6 +293,11 @@ export interface SketchCanvasProps {
   onMoveFreeWallVertex?: (wallId: string, vertexId: string, x: number, y: number, done: boolean) => void;
   /** A piece of free wall, or its measurement, was double-tapped — the editor opens its length input. */
   onTapFreeWallSegment?: (wallId: string, startVertexId: string, screen: { x: number; y: number }) => void;
+  /**
+   * A room was pulled off a wall with the pull tool: `depthPx` is how far out the finger went, or
+   * the default when it only tapped. The editor makes the room — see `pullRoomFromWall`.
+   */
+  onPullRoom?: (roomId: string, wallId: string, depthPx: number) => void;
 }
 
 export default function SketchCanvas(props: SketchCanvasProps) {
@@ -449,6 +458,63 @@ export default function SketchCanvas(props: SketchCanvasProps) {
     line.getLayer()?.batchDraw();
   }
 
+  /*
+    ── The pull tool ─────────────────────────────────────────────────────────────────────────────
+    A press on a wall with the pull tool starts a pull; the finger's distance out from the wall is
+    the new room's depth, shown as a dashed outline that follows it; release makes the room. A press
+    that never moves is a tap, and pulls a room of the default depth. Like the wall tool's rubber
+    band, the outline is moved by hand rather than through React state — it changes every frame.
+  */
+  const pull = useRef<{ roomId: string; wall: WallGeometry; depthPx: number; moved: boolean } | null>(null);
+  const pullOutline = useRef<Konva.Line>(null);
+  const pullLabel = useRef<Konva.Text>(null);
+
+  function startPull(roomId: string, wall: WallGeometry) {
+    pull.current = { roomId, wall, depthPx: PULLED_ROOM_DEFAULT_DEPTH_PX, moved: false };
+    drawPull();
+  }
+
+  function drawPull() {
+    const active = pull.current;
+    const outline = pullOutline.current;
+    const label = pullLabel.current;
+    if (!active || !outline || !label) return;
+    const { wall, depthPx } = active;
+    const n = outwardNormal(wall);
+    outline.points([wall.x1, wall.y1, wall.x1 + n.x * depthPx, wall.y1 + n.y * depthPx, wall.x2 + n.x * depthPx, wall.y2 + n.y * depthPx, wall.x2, wall.y2]);
+    const far = { x: (wall.x1 + wall.x2) / 2 + n.x * (depthPx + 14 / view.scale), y: (wall.y1 + wall.y2) / 2 + n.y * (depthPx + 14 / view.scale) };
+    label.text(depthPx >= PULLED_ROOM_MIN_DEPTH_PX ? formatFeetInches(depthPx / PIXELS_PER_FOOT) : "");
+    label.position({ x: far.x - 35 / view.scale, y: far.y - 6 / view.scale });
+    outline.getLayer()?.batchDraw();
+  }
+
+  /**
+   * The finger moved while pulling: the depth follows it. Inward — back into the room the wall
+   * belongs to — is nothing: the outline collapses onto the wall, and letting go there pulls no
+   * room. A pull is outward by definition, and a finger that went the other way did not mean one.
+   */
+  function movePull(): boolean {
+    const active = pull.current;
+    if (!active) return false;
+    const world = stageRef.current?.getRelativePointerPosition();
+    if (!world) return true;
+    active.moved = true;
+    active.depthPx = Math.max(0, pullDepthPx(active.wall, world));
+    drawPull();
+    return true;
+  }
+
+  function endPull() {
+    const active = pull.current;
+    if (!active) return;
+    pull.current = null;
+    pullOutline.current?.points([]);
+    pullLabel.current?.text("");
+    pullOutline.current?.getLayer()?.batchDraw();
+    if (active.moved && active.depthPx < PULLED_ROOM_MIN_DEPTH_PX) return;
+    props.onPullRoom?.(active.roomId, active.wall.id, active.moved ? active.depthPx : PULLED_ROOM_DEFAULT_DEPTH_PX);
+  }
+
   function hideRubberBand() {
     const last = draft[draft.length - 1];
     const line = rubberBand.current;
@@ -518,18 +584,28 @@ export default function SketchCanvas(props: SketchCanvasProps) {
         if (!beginStroke(e)) handleBackgroundPointer(e);
       }}
       onMouseMove={(e) => {
+        if (movePull()) return;
         if (!continueStroke(e)) moveRubberBand();
       }}
-      onMouseUp={endStroke}
+      onMouseUp={() => {
+        endStroke();
+        endPull();
+      }}
       onMouseLeave={() => {
         endStroke();
+        endPull();
         hideRubberBand();
       }}
       onTouchMove={(e) => {
+        if (movePull()) {
+          e.evt.preventDefault();
+          return;
+        }
         if (!continueStroke(e)) handleTouchMove(e);
       }}
       onTouchEnd={() => {
         endStroke();
+        endPull();
         lastPinchDist.current = null;
       }}
       onClick={handleWallClick}
@@ -585,6 +661,7 @@ export default function SketchCanvas(props: SketchCanvasProps) {
             onPlaceIsland={props.onPlaceIsland}
             onMoveIsland={props.onMoveIsland}
             onResizeIsland={props.onResizeIsland}
+            onPullStart={startPull}
           />
         ))}
 
@@ -625,6 +702,12 @@ export default function SketchCanvas(props: SketchCanvasProps) {
           />
         ))}
       </Layer>
+      {tool === "pull" && (
+        <Layer listening={false}>
+          <Line ref={pullOutline} points={[]} closed stroke={COLORS.handle} strokeWidth={wallStrokePx(view.scale)} dash={[8 / view.scale, 6 / view.scale]} fill="rgba(201, 122, 14, 0.08)" />
+          <Text ref={pullLabel} text="" width={70 / view.scale} align="center" fontSize={11 / view.scale} fill={COLORS.handle} />
+        </Layer>
+      )}
       {drawingWalls && (
         <Layer listening={false}>
           <WallDraft draft={draft} zoom={view.scale} />
@@ -740,10 +823,13 @@ function RoomShape({
   onPlaceIsland,
   onMoveIsland,
   onResizeIsland,
+  onPullStart,
 }: {
   room: SketchRoom;
   /** Every room on the plan — a cabinet has to know which sub-rooms stand on its wall. */
   rooms: SketchRoom[];
+  /** A wall was pressed with the pull tool — the canvas takes the gesture from here. */
+  onPullStart: (roomId: string, wall: WallGeometry) => void;
   /** The free walls on the storey — a wall label has to know what carries on from its corners. */
   freeWalls: FreeWall[];
   tool: ToolMode;
@@ -865,6 +951,12 @@ function RoomShape({
     if (tool === "break") {
       onSelectRoom(room.id);
       onSplitWall(room.id, wall.id, tapFractionOnWall(wall, world.x, world.y));
+      return;
+    }
+
+    if (tool === "pull") {
+      onSelectRoom(room.id);
+      onPullStart(room.id, wall);
       return;
     }
 
@@ -1105,6 +1197,7 @@ function RoomShape({
             zoom={zoom}
             outside={labelsOutside}
             onLengthRequest={(e) => handleWallLength(wall, e, dimension.run)}
+            onPress={(e) => handleWallPointer(wall, e)}
           />
         )),
       )}
@@ -1192,8 +1285,11 @@ function RoomShape({
           key={symbol.id}
           room={room}
           rooms={rooms}
+          freeWalls={freeWalls}
           symbol={symbol}
           zoom={zoom}
+          /* Deaf while the pull tool is out: a press on a door is a press on the wall it is in. */
+          interactive={tool !== "pull"}
           selected={symbol.id === selectedSymbolId}
           onSelect={() => {
             onSelectRoom(room.id);
@@ -1428,6 +1524,7 @@ function WallLabel({
   zoom,
   outside,
   onLengthRequest,
+  onPress,
 }: {
   wall: WallGeometry;
   /** The stretch this label measures — the whole wall, or the part a sub-room leaves exposed. */
@@ -1436,6 +1533,13 @@ function WallLabel({
   /** Put the dimension beyond the wall rather than inside it — see `labelsOutside`. */
   outside: boolean;
   onLengthRequest: (e: KonvaEventObject<MouseEvent | TouchEvent>) => void;
+  /**
+   * A single press on the figure, handed on as a press on the wall it measures. The figure sits on
+   * the wall, so a tap on it with a door or cabinet tool means "here, on this wall" — without this
+   * the figure's own tap target swallowed the tap and the tool did nothing, right where the PM was
+   * most likely to aim.
+   */
+  onPress?: (e: KonvaEventObject<MouseEvent | TouchEvent>) => void;
 }) {
   const mid = pointOnWall(wall, dimension.t);
   const label = formatFeetInches(dimension.lengthFeet);
@@ -1475,6 +1579,8 @@ function WallLabel({
         height={20 / zoom}
         fill="#000"
         opacity={0}
+        onMouseDown={onPress}
+        onTouchStart={onPress}
         onDblClick={onLengthRequest}
         onDblTap={onLengthRequest}
       />
@@ -1644,9 +1750,11 @@ function VertexHandles({
 function SymbolShape({
   room,
   rooms,
+  freeWalls,
   symbol,
   zoom,
   showSizes,
+  interactive,
   selected,
   onSelect,
   onMove,
@@ -1654,9 +1762,13 @@ function SymbolShape({
 }: {
   room: SketchRoom;
   rooms: SketchRoom[];
+  /** The free walls on the storey — a cabinet may run on past the corner onto one; see `blockRunPx`. */
+  freeWalls: FreeWall[];
   symbol: SketchSymbol;
   zoom: number;
   showSizes: boolean;
+  /** False while a tool that works on the wall itself is out, so a press falls through to the wall. */
+  interactive: boolean;
   selected: boolean;
   onSelect: () => void;
   onMove: (centrePx: number) => void;
@@ -1666,11 +1778,11 @@ function SymbolShape({
   if (!wall) return null;
 
   const len = wall.lengthPx;
-  const w = symbolWidthPx(symbol, room, rooms);
+  const w = symbolWidthPx(symbol, room, rooms, freeWalls);
   // Not `symbol.t * len` — see symbolCentrePx. A fraction pins the middle, so a wide symbol near a
   // corner hangs past it, which is how a cabinet ends up drawn outside the room. `rooms` is what
   // keeps a cabinet off the stretch of wall a sub-room is standing on.
-  const centre = symbolCentrePx(symbol, room, rooms);
+  const centre = symbolCentrePx(symbol, room, rooms, freeWalls);
   const x0 = centre - w / 2;
   const x1 = centre + w / 2;
 
@@ -1709,14 +1821,14 @@ function SymbolShape({
   const offsets = selected && (symbol.type === "door" || symbol.type === "window") ? symbolOffsetsPx(symbol, room, rooms) : null;
 
   return (
-    <Group x={wall.x1} y={wall.y1} rotation={wall.rotation}>
+    <Group x={wall.x1} y={wall.y1} rotation={wall.rotation} listening={interactive}>
       {/* Erases the wall beneath the opening. Doors and windows are gaps in the wall, not things
           drawn on top of an unbroken line. Cabinets sit against an intact wall. */}
       {symbol.type !== "cabinet" && symbol.type !== "fixture" && <Rect x={x0} y={-2} width={w} height={4} fill={COLORS.fill} />}
 
       {symbol.type === "door" && <DoorGlyph door={symbol} room={room} x0={x0} x1={x1} w={w} />}
       {symbol.type === "window" && <WindowGlyph x0={x0} x1={x1} />}
-      {symbol.type === "cabinet" && <CabinetGlyph cabinet={symbol} x0={x0} w={w} depth={cabinetDepthPx(symbol)} />}
+      {symbol.type === "cabinet" && <CabinetGlyph cabinet={symbol} x0={x0} w={w} depth={cabinetDepthPx(symbol)} flip={flip} />}
       {symbol.type === "fixture" && <FixtureGlyph fixture={symbol} x0={x0} w={w} depth={cabinetDepthPx(symbol)} />}
 
       {/* Selection indicator: a bar along the run the symbol occupies, so it's obvious which one
@@ -1736,7 +1848,7 @@ function SymbolShape({
         height={pad.height}
         fill="#000"
         opacity={0}
-        draggable
+        draggable={interactive}
         onMouseDown={select}
         onTouchStart={select}
         onDragMove={(e) => {
@@ -2335,7 +2447,7 @@ function FixtureGlyph({ fixture, x0, w, depth }: { fixture: FixtureSymbol; x0: n
   }
 }
 
-function CabinetGlyph({ cabinet, x0, w, depth }: { cabinet: CabinetSymbol; x0: number; w: number; depth: number }) {
+function CabinetGlyph({ cabinet, x0, w, depth, flip }: { cabinet: CabinetSymbol; x0: number; w: number; depth: number; flip: boolean }) {
   const upper = cabinet.tier === "wall";
 
   return (
@@ -2351,20 +2463,25 @@ function CabinetGlyph({ cabinet, x0, w, depth }: { cabinet: CabinetSymbol; x0: n
         dash={upper ? [5, 3] : undefined}
         listening={false}
       />
-      <Text
-        x={x0}
-        y={depth / 2 - 5}
-        width={w}
-        align="center"
-        text={cabinet.label || (upper ? "Upper" : "Cabinet")}
-        fontSize={9}
-        fill={COLORS.symbol}
-        listening={false}
-        // The block is as wide as the run it represents; a long label in a narrow block should
-        // clip rather than spill across the room.
-        ellipsis
-        wrap="none"
-      />
+      {/* Turned to read the right way up on a wall that points left, like every other figure on the
+          plan — the label came out upside down along every bottom wall. Turned about its own centre,
+          so it stays in the middle of the block. */}
+      <Group x={x0 + w / 2} y={depth / 2} rotation={flip ? 180 : 0}>
+        <Text
+          x={-w / 2}
+          y={-5}
+          width={w}
+          align="center"
+          text={cabinet.label || (upper ? "Upper" : "Cabinet")}
+          fontSize={9}
+          fill={COLORS.symbol}
+          listening={false}
+          // The block is as wide as the run it represents; a long label in a narrow block should
+          // clip rather than spill across the room.
+          ellipsis
+          wrap="none"
+        />
+      </Group>
     </>
   );
 }

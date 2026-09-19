@@ -4,6 +4,7 @@ import { type Dispatch, type SetStateAction, useCallback, useEffect, useLayoutEf
 import dynamic from "next/dynamic";
 import { importScanRoom } from "@/lib/scanImport";
 import {
+  type DoorType,
   type FreeCabinet,
   type FreeWall,
   type Sketch,
@@ -42,6 +43,9 @@ import {
   rectangleVertices,
   removeVertex,
   rotateStairs,
+  roomLevel,
+  DOOR_TYPE_LABEL,
+  STAIRS_DEFAULT,
   stairCeiling,
   stairFlight,
   roomBounds,
@@ -83,6 +87,7 @@ import {
   withFreeWallSegmentLength,
 } from "@/lib/sketchWalls";
 import { FreeCabinetPanel, SymbolPanel } from "./SymbolPanel";
+import { placeNewRoom, pullRoomFromWall, viewCentredOn } from "@/lib/roomPlacement";
 import { QuantitiesPanel } from "./QuantitiesPanel";
 import { type QuantityOptions, DEFAULT_QUANTITY_OPTIONS } from "@/lib/sketchQuantities";
 import type { MoistureTool, ToolMode } from "./SketchCanvas";
@@ -128,32 +133,6 @@ const NEW_ROOM = {
   height: DEFAULT_ROOM_FEET * PIXELS_PER_FOOT,
   gap: 30,
 };
-
-/**
- * Where a new room lands: clear of every room already placed.
- *
- * The previous version offset each new room by a fixed 26px, so every room after the first landed
- * on top of the one before it — overlapping outlines, overlapping labels, and no way to tell which
- * wall belonged to which room. Rooms are independent of each other, so they should start apart.
- *
- * Laid out left to right, wrapping to a new row when the canvas runs out of width, and skipping any
- * slot already occupied — position has to be checked rather than derived from a count, because
- * rooms get moved and reshaped after they're placed. Falls back to a diagonal offset if the area is
- * full; by then the user is panning anyway, and a room they can drag apart beats no room at all.
- */
-function nextRoomPosition(rooms: SketchRoom[], canvasWidth: number): { x: number; y: number } {
-  const { width, height, gap } = NEW_ROOM;
-  const taken = rooms.map(roomBounds);
-  const overlaps = (x: number, y: number) =>
-    taken.some((b) => x < b.maxX + gap && x + width + gap > b.minX && y < b.maxY + gap && y + height + gap > b.minY);
-
-  for (let y = 40; y + height <= CANVAS_HEIGHT * 2; y += height + gap) {
-    for (let x = 40; x + width <= Math.max(canvasWidth, width + 80); x += width + gap) {
-      if (!overlaps(x, y)) return { x, y };
-    }
-  }
-  return { x: 40 + rooms.length * 24, y: 40 + rooms.length * 24 };
-}
 
 type PendingLength =
   | {
@@ -692,7 +671,7 @@ export function SketchEditor({
       if (selectedRoom.stairs && !selectedSymbol && !selectedIsland) {
         event.preventDefault();
         if (horizontal) {
-          updateRoom(selectedRoom.id, (room) => rotateStairs(room, event.key === "ArrowRight" ? 1 : -1));
+          handleRotateStairs(selectedRoom.id, event.key === "ArrowRight" ? 1 : -1);
         } else {
           const direction = event.key === "ArrowUp" ? "up" : "down";
           updateRoom(selectedRoom.id, (room) => (room.stairs ? { ...room, stairs: { ...room.stairs, direction } } : room));
@@ -798,8 +777,49 @@ export function SketchEditor({
     onChange((prev) => ({ ...prev, freeWalls: moveSharedFreeWallVertex(freeWallsOf(prev), wallId, vertexId, target.x, target.y) }));
   }
 
+  /**
+   * Where a room of this size lands, and a pan to it if that is off screen — see lib/roomPlacement.ts.
+   *
+   * The selected room is the anchor when it is on this storey: a new room lands beside the one the
+   * PM is working on. A room that has to land off screen is brought on screen, because a room that
+   * appears where you cannot see it may as well not have appeared — the report was "I added a room
+   * and it got lost".
+   */
+  function placeRoom(width: number, height: number): { x: number; y: number } {
+    const anchor = selectedRoom && roomLevel(selectedRoom) === activeLevel ? selectedRoom : null;
+    const viewport = { view, width: canvasWidth, height: canvasHeight };
+    const spot = placeNewRoom({ rooms: activeRooms, anchor, width, height, gap: NEW_ROOM.gap, viewport });
+    if (!spot.visible) setView(viewCentredOn({ x: spot.x, y: spot.y, width, height }, viewport));
+    return { x: spot.x, y: spot.y };
+  }
+
+  /**
+   * Turns a flight of stairs a quarter turn — the whole flight, see `rotateStairs`. Nesting is
+   * re-derived because the footprint moves: a flight turned across a doorway may leave the room it
+   * was in.
+   */
+  function handleRotateStairs(roomId: string, turns = 1) {
+    onChange((prev) => ({ ...prev, rooms: withDerivedParents(prev.rooms.map((room) => (room.id === roomId ? rotateStairs(room, turns) : room))) }));
+  }
+
+  /**
+   * The next room over, pulled off a wall of this one — see `pullRoomFromWall`. It lands selected
+   * and unnamed, like any new room, with the tool put away: the next press is for naming it or
+   * dragging its far wall, not for pulling another.
+   */
+  function handlePullRoom(roomId: string, wallId: string, depthPx: number) {
+    const source = sketch.rooms.find((r) => r.id === roomId);
+    const room = source ? pullRoomFromWall(source, wallId, depthPx) : null;
+    setTool("select");
+    if (!room) return;
+    onChange((prev) => ({ ...prev, rooms: withDerivedParents([...prev.rooms, room]) }));
+    setSelectedRoomId(room.id);
+    setSelectedSymbolId(null);
+    setSelectedWallId(null);
+  }
+
   function handleAddRoom() {
-    const { x, y } = nextRoomPosition(activeRooms, canvasWidth);
+    const { x, y } = placeRoom(NEW_ROOM.width, NEW_ROOM.height);
     // A rectangle is just the four-vertex case; every new room starts as one.
     const room: SketchRoom = {
       id: newSketchId("room"),
@@ -854,7 +874,7 @@ export function SketchEditor({
   }
 
   function handleAddStairs() {
-    const { x, y } = nextRoomPosition(activeRooms, canvasWidth);
+    const { x, y } = placeRoom(STAIRS_DEFAULT.runFeet * PIXELS_PER_FOOT, STAIRS_DEFAULT.widthFeet * PIXELS_PER_FOOT);
     // Stairs are a room (see `StairsData`), so they join the storey being drawn like any other.
     const room = { ...newStairRoom(x, y), level: activeLevel };
     onChange({ ...sketch, rooms: withDerivedParents([...sketch.rooms, room]) });
@@ -866,7 +886,7 @@ export function SketchEditor({
   /**
    * Draws the closet behind one door — see `closetBehindDoor` for the geometry and the defaults.
    *
-   * Unlike the other adds it does not go through `nextRoomPosition`: the closet's place is fixed by
+   * Unlike the other adds it does not go through `placeRoom`: the closet's place is fixed by
    * the door, against the far side of that wall, and it is selected on arrival so the PM can drag
    * or type its walls to fit while the door is still in view. Nothing is drawn unless this is
    * called, and it is only ever called from a button.
@@ -899,7 +919,8 @@ export function SketchEditor({
    */
   async function handleImportScan(file: File) {
     const text = await file.text();
-    const { x, y } = nextRoomPosition(activeRooms, canvasWidth);
+    // A scanned room is about a room's size; where exactly it lands is the PM's to fix, in view.
+    const { x, y } = placeRoom(NEW_ROOM.width, NEW_ROOM.height);
     const result = importScanRoom(text, { x, y }, activeLevel);
     if (!result.ok) {
       setImportNotice({ kind: "error", text: result.error });
@@ -1410,6 +1431,8 @@ export function SketchEditor({
             /* Walls a corner at a time: a partition into a room, or a room of any shape from
                scratch. The one tool that works on an empty sketch, since it is a way to start one. */
             { tool: "wall", label: "Wall" },
+            /* The next room over, off a wall of this one — same wall, same doors. */
+            { tool: "pull", label: "Pull room" },
             { tool: "break", label: "Break" },
             { tool: "door", label: "Door" },
             /* A missing wall or a cased opening: the same hole in a wall, described by width and
@@ -1531,6 +1554,8 @@ export function SketchEditor({
           ? "Add a room, or tap Wall and draw one corner by corner."
           : tool === "select"
             ? "Tap to select, drag to move. Double-tap a wall or its measurement to type its length. For an L: tap Break, tap a wall, then drag one half out. Drag empty space to pan; pinch to zoom."
+            : tool === "pull"
+              ? "Drag out from a wall to pull the next room off it — same wall, same doors and openings. A tap pulls a 12' room."
             : tool === "island"
               ? "Tap open floor inside the room to drop a free-standing cabinet."
               : tool === "break"
@@ -1597,11 +1622,11 @@ export function SketchEditor({
               closet inside a bedroom takes its share of that wall, and a run of cabinets stops
               where it begins rather than carrying on underneath it. See `blockRunPx`.
             */
-            updateSymbol(roomId, symbolId, (symbol, room) => moveSymbolAlongWall(symbol, room, centrePx, sketch.rooms))
+            updateSymbol(roomId, symbolId, (symbol, room) => moveSymbolAlongWall(symbol, room, centrePx, sketch.rooms, freeWallsOf(sketch)))
           }
           onResizeSymbol={(roomId, symbolId, centrePx, widthPx) =>
             updateSymbol(roomId, symbolId, (symbol, room) =>
-              moveSymbolAlongWall(withSymbolWidthPx(symbol, room, widthPx, sketch.rooms), room, centrePx, sketch.rooms),
+              moveSymbolAlongWall(withSymbolWidthPx(symbol, room, widthPx, sketch.rooms, freeWallsOf(sketch)), room, centrePx, sketch.rooms, freeWallsOf(sketch)),
             )
           }
           freeWalls={activeFreeWalls}
@@ -1618,6 +1643,7 @@ export function SketchEditor({
           onMoveFreeWall={handleMoveFreeWall}
           onMoveFreeWallVertex={handleMoveFreeWallVertex}
           onTapFreeWallSegment={handleTapFreeWallSegment}
+          onPullRoom={handlePullRoom}
           onPlaceIsland={handlePlaceIsland}
           onMoveIsland={(roomId, islandId, x, y) => updateIsland(roomId, islandId, (cabinet, room) => moveFreeCabinet(cabinet, room, x, y))}
           onResizeIsland={(roomId, islandId, widthPx, depthPx) =>
@@ -1701,7 +1727,12 @@ export function SketchEditor({
               symbol.type !== "door" ? symbol : axis === "x" ? { ...symbol, flipX: !symbol.flipX } : { ...symbol, flipY: !symbol.flipY },
             )
           }
-          onRotateStairs={() => selectedRoom && updateRoom(selectedRoom.id, (room) => rotateStairs(room))}
+          onRotateStairs={() => selectedRoom && handleRotateStairs(selectedRoom.id)}
+          onDoorType={(doorType) =>
+            selectedRoom &&
+            selectedSymbol &&
+            updateSymbol(selectedRoom.id, selectedSymbol.id, (symbol) => (symbol.type === "door" ? { ...symbol, doorType } : symbol))
+          }
           onFlipStairs={() =>
             selectedRoom &&
             updateRoom(selectedRoom.id, (room) =>
@@ -1814,7 +1845,7 @@ export function SketchEditor({
             <StairsRoomFields
               room={selectedRoom}
               onChange={(next) => updateRoom(selectedRoom.id, () => next)}
-              onRotate={() => updateRoom(selectedRoom.id, (room) => rotateStairs(room))}
+              onRotate={() => handleRotateStairs(selectedRoom.id)}
             />
           ) : (
             <>
@@ -2047,30 +2078,53 @@ function DirectionControls({
   room,
   symbol,
   onFlipDoor,
+  onDoorType,
   onRotateStairs,
   onFlipStairs,
 }: {
   room: SketchRoom | null;
   symbol: SketchSymbol | null;
   onFlipDoor: (axis: "x" | "y") => void;
+  onDoorType: (type: DoorType) => void;
   onRotateStairs: () => void;
   onFlipStairs: () => void;
 }) {
-  // An opening has no leaf, so there is nothing to hand or swing — same exclusion the panel makes.
-  const door = symbol?.type === "door" && symbol.doorType !== "opening" ? symbol : null;
+  const door = symbol?.type === "door" ? symbol : null;
   const stairs = !symbol && room?.stairs ? room.stairs : null;
   if (!door && !stairs) return null;
 
   return (
-    <div className="sketch-direction" role="group" aria-label={door ? "Door orientation" : "Stair direction"}>
+    <div className="sketch-direction" role="group" aria-label={door ? "Door" : "Stair direction"}>
       {door && (
         <>
-          <button type="button" className="btn-secondary" onClick={() => onFlipDoor("x")} title="Mirror left to right (← →)">
-            ⇆ Flip
-          </button>
-          <button type="button" className="btn-secondary" onClick={() => onFlipDoor("y")} title="Mirror top to bottom (↑ ↓)">
-            ⇅ Flip
-          </button>
+          {/*
+            The type, here as well as in the panel. On a phone in full screen the panel is a long
+            scroll away — leave full screen, find the door, scroll down — for what is one tap on the
+            drawing. A select rather than five buttons, because the bar has to stay a bar.
+          */}
+          <select
+            className="sketch-fixture-select selected"
+            aria-label="Door type"
+            value={door.doorType}
+            onChange={(e) => onDoorType(e.target.value as DoorType)}
+          >
+            {(Object.keys(DOOR_TYPE_LABEL) as DoorType[]).map((type) => (
+              <option key={type} value={type}>
+                {DOOR_TYPE_LABEL[type]}
+              </option>
+            ))}
+          </select>
+          {/* An opening has no leaf, so there is nothing to hand or swing — same exclusion the panel makes. */}
+          {door.doorType !== "opening" && (
+            <>
+              <button type="button" className="btn-secondary" onClick={() => onFlipDoor("x")} title="Mirror left to right (← →)">
+                ⇆ Flip
+              </button>
+              <button type="button" className="btn-secondary" onClick={() => onFlipDoor("y")} title="Mirror top to bottom (↑ ↓)">
+                ⇅ Flip
+              </button>
+            </>
+          )}
         </>
       )}
       {stairs && (

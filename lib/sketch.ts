@@ -621,6 +621,53 @@ export function freeWallSegmentRoom(segment: WallGeometry, wall: FreeWall, sketc
   return best;
 }
 
+/**
+ * How far the free walls carrying straight on from a wall's corners reach, as fractions of the
+ * wall: `lo` at or below 0 past the start corner, `hi` at or above 1 past the end, and the ids of
+ * the free walls counted. A wall with nothing carrying on from it reads `{ lo: 0, hi: 1 }`.
+ *
+ * A free wall extends a corner when one of its ends is that corner, it lies along the wall's line,
+ * and its other end is beyond the corner — not back along the wall, which would be overlap. It may
+ * be followed by another in the same line from ITS far end.
+ *
+ * This is what makes a wall that runs on past the room's corner one wall: its label measures the
+ * whole run (`wallDimensionsWithExtensions`), and a cabinet on it may stand on the extension
+ * (`blockRunPx`) — the reported case was a kitchen run that stopped dead at a corner the wall did
+ * not stop at.
+ */
+export function wallExtensionReach(room: SketchRoom, wall: WallGeometry, freeWalls: FreeWall[]): { lo: number; hi: number; absorbed: string[] } {
+  if (wall.lengthPx <= 0) return { lo: 0, hi: 1, absorbed: [] };
+  const along = (p: { x: number; y: number }) => ((p.x - wall.x1) * (wall.x2 - wall.x1) + (p.y - wall.y1) * (wall.y2 - wall.y1)) / (wall.lengthPx * wall.lengthPx);
+  const offLine = (p: { x: number; y: number }) => Math.abs((wall.x2 - wall.x1) * (wall.y1 - p.y) - (wall.x1 - p.x) * (wall.y2 - wall.y1)) / wall.lengthPx;
+  const same = (a: { x: number; y: number }, b: { x: number; y: number }) => Math.hypot(a.x - b.x, a.y - b.y) <= 0.5;
+  const absorbed: string[] = [];
+
+  const reach = (corner: { x: number; y: number }, outward: -1 | 1): number => {
+    let at = corner;
+    let t = along(corner);
+    for (let guard = 0; guard < freeWalls.length; guard++) {
+      const next = freeWalls.find((w) => {
+        if (freeWallLevel(w) !== roomLevel(room) || absorbed.includes(w.id) || w.vertices.length < 2) return false;
+        const p = w.vertices[0] as Vertex;
+        const q = w.vertices[w.vertices.length - 1] as Vertex;
+        const far = same(p, at) ? q : same(q, at) ? p : null;
+        return far !== null && offLine(p) <= 1.5 && offLine(q) <= 1.5 && Math.sign(along(far) - t) === outward;
+      });
+      if (!next) break;
+      const p = next.vertices[0] as Vertex;
+      const q = next.vertices[next.vertices.length - 1] as Vertex;
+      at = same(p, at) ? q : p;
+      t = along(at);
+      absorbed.push(next.id);
+    }
+    return t;
+  };
+
+  const lo = Math.min(0, reach({ x: wall.x1, y: wall.y1 }, -1));
+  const hi = Math.max(1, reach({ x: wall.x2, y: wall.y2 }, 1));
+  return { lo, hi, absorbed };
+}
+
 /** Records a new storey. Returns the sketch unchanged when it already has one. */
 export function withLevel(sketch: Sketch, level: number): Sketch {
   if (levelsOf(sketch).includes(level)) return sketch;
@@ -1852,11 +1899,11 @@ export const DEFAULT_WINDOW_SILL_FEET = 3;
  * `symbolWidthFeet` caps identically, so the label and the quantities agree with what is drawn.
  * Without that, a 9' cabinet on a 6' wall would deduct more wall area than the wall has.
  */
-export function symbolWidthPx(symbol: SketchSymbol, room: SketchRoom, rooms: SketchRoom[] = []): number {
+export function symbolWidthPx(symbol: SketchSymbol, room: SketchRoom, rooms: SketchRoom[] = [], freeWalls: FreeWall[] = []): number {
   const wall = wallById(room, symbol.wallId);
   const raw = symbol.widthFeet != null ? symbol.widthFeet * PIXELS_PER_FOOT : symbol.widthFraction * (wall?.lengthPx ?? 0);
   if (!wall || wall.lengthPx <= 0) return Math.max(6, raw);
-  const run = blockRunPx(symbol, room, rooms);
+  const run = blockRunPx(symbol, room, rooms, freeWalls);
   return capToRun(raw, run.to - run.from);
 }
 
@@ -1872,13 +1919,20 @@ export function symbolWidthPx(symbol: SketchSymbol, room: SketchRoom, rooms: Ske
  * Only blocks are confined. A DOOR on the covered stretch is a door into the closet, which is an
  * ordinary thing to draw; a cabinet there is inside the closet, which is not.
  *
+ * And MORE than the whole wall, when a free wall carries straight on from one of its corners: the
+ * wall does not stop at the room's corner, so neither does the run of cabinets along it — see
+ * `wallExtensionReach`. Reported from the field: a kitchen run that could not be pulled onto the
+ * stretch of wall the PM had drawn on past the corner.
+ *
  * `rooms` is empty in the many places that only need a symbol's own geometry, and then this is the
  * whole wall — the same answer as before sub-rooms were considered at all.
  */
-function blockRunPx(symbol: SketchSymbol, room: SketchRoom, rooms: SketchRoom[]): { from: number; to: number } {
+function blockRunPx(symbol: SketchSymbol, room: SketchRoom, rooms: SketchRoom[], freeWalls: FreeWall[] = []): { from: number; to: number } {
   const wall = wallById(room, symbol.wallId);
   if (!wall || wall.lengthPx <= 0) return { from: 0, to: 0 };
-  if (rooms.length === 0 || !isBlockSymbol(symbol)) return { from: 0, to: wall.lengthPx };
+  if (!isBlockSymbol(symbol)) return { from: 0, to: wall.lengthPx };
+  const reach = freeWalls.length > 0 ? wallExtensionReach(room, wall, freeWalls) : { lo: 0, hi: 1 };
+  if (rooms.length === 0) return { from: reach.lo * wall.lengthPx, to: reach.hi * wall.lengthPx };
 
   const runs = exposedWallRuns(room, symbol.wallId, rooms);
   /*
@@ -1897,7 +1951,10 @@ function blockRunPx(symbol: SketchSymbol, room: SketchRoom, rooms: SketchRoom[])
     }, null);
 
   if (!pick) return { from: 0, to: wall.lengthPx };
-  return { from: pick[0] * wall.lengthPx, to: pick[1] * wall.lengthPx };
+  // A stretch that reaches a corner reaches on past it, as far as the free walls there go.
+  const lo = pick[0] === 0 ? reach.lo : pick[0];
+  const hi = pick[1] === 1 ? reach.hi : pick[1];
+  return { from: lo * wall.lengthPx, to: hi * wall.lengthPx };
 }
 
 /** Applies the "no wider than the stretch of wall it can stand on" rule, in the caller's unit. */
@@ -1922,11 +1979,11 @@ function capToRun(raw: number, runPx: number, perFoot = 1): number {
  * clamps on write, but only a symbol somebody drags goes through it, and the whole point of the
  * drawing is that nobody has to touch it again.
  */
-export function symbolCentrePx(symbol: SketchSymbol, room: SketchRoom, rooms: SketchRoom[] = []): number {
+export function symbolCentrePx(symbol: SketchSymbol, room: SketchRoom, rooms: SketchRoom[] = [], freeWalls: FreeWall[] = []): number {
   const wall = wallById(room, symbol.wallId);
   if (!wall || wall.lengthPx <= 0) return 0;
-  const half = symbolWidthPx(symbol, room, rooms) / 2;
-  const run = blockRunPx(symbol, room, rooms);
+  const half = symbolWidthPx(symbol, room, rooms, freeWalls) / 2;
+  const run = blockRunPx(symbol, room, rooms, freeWalls);
   // The width cap guarantees `half` is at most half the run, so the low bound never exceeds the high.
   return Math.min(run.to - half, Math.max(run.from + half, symbol.t * wall.lengthPx));
 }
@@ -1970,10 +2027,10 @@ export function cabinetDepthPx(block: BlockSymbol): number {
 }
 
 /** The symbol's real width, or null when the room has no scale to measure it against. */
-export function symbolWidthFeet(symbol: SketchSymbol, room: SketchRoom, rooms: SketchRoom[] = []): number | null {
+export function symbolWidthFeet(symbol: SketchSymbol, room: SketchRoom, rooms: SketchRoom[] = [], freeWalls: FreeWall[] = []): number | null {
   const wall = wallById(room, symbol.wallId);
   if (wall == null && symbol.widthFeet == null) return null;
-  return symbolWidthPx(symbol, room, rooms) / PIXELS_PER_FOOT;
+  return symbolWidthPx(symbol, room, rooms, freeWalls) / PIXELS_PER_FOOT;
 }
 
 /**
@@ -2013,10 +2070,10 @@ export function openingSquareFeet(room: SketchRoom): number {
  * scaled, fraction before that. Keeping this in one place is what stops a dragged handle writing
  * to the field that isn't being read.
  */
-export function withSymbolWidthPx(symbol: SketchSymbol, room: SketchRoom, widthPx: number, rooms: SketchRoom[] = []): SketchSymbol {
+export function withSymbolWidthPx(symbol: SketchSymbol, room: SketchRoom, widthPx: number, rooms: SketchRoom[] = [], freeWalls: FreeWall[] = []): SketchSymbol {
   // Capped here too, so the stored number matches the drawing rather than drifting past it and
   // being quietly capped on every later read.
-  const run = blockRunPx(symbol, room, rooms);
+  const run = blockRunPx(symbol, room, rooms, freeWalls);
   const capped = capToRun(widthPx, run.to - run.from);
   return { ...symbol, widthFeet: Math.max(0.25, capped / PIXELS_PER_FOOT) };
 }
@@ -2254,15 +2311,16 @@ export function moveSymbolAlongWall(
   room: SketchRoom,
   centrePx: number,
   rooms: SketchRoom[] = [],
+  freeWalls: FreeWall[] = [],
 ): SketchSymbol {
   const wall = wallById(room, symbol.wallId);
   if (!wall || wall.lengthPx <= 0) return { ...symbol, t: 0.5 };
-  const half = symbolWidthPx(symbol, room, rooms) / 2;
+  const half = symbolWidthPx(symbol, room, rooms, freeWalls) / 2;
   /*
     The run is picked from where the symbol IS, so ask for it before moving — otherwise a drag
     towards a neighbouring stretch would re-pick the run halfway and the block would jump.
   */
-  const run = blockRunPx(symbol, room, rooms);
+  const run = blockRunPx(symbol, room, rooms, freeWalls);
   let clamped = Math.min(run.to - half, Math.max(run.from + half, centrePx));
 
   if (isBlockSymbol(symbol)) {
@@ -2507,7 +2565,17 @@ export function newStairRoom(x: number, y: number): SketchRoom {
 }
 
 /**
- * Turns the flight a quarter turn, keeping its footprint.
+ * Turns the flight a quarter turn — the whole flight, footprint and all, about its centre.
+ *
+ * The first version turned only the direction of travel and left the rectangle where it was, so a
+ * turn of an 11' x 3' flight made it a flight three feet long and eleven wide, with the treads run
+ * across it. A flight turned a quarter turn is the same flight pointing the other way: the outline
+ * turns with the treads, so it stays 11' long and 3' wide and comes to rest across where it stood.
+ *
+ * A quarter turn in screen space is an exact swap of coordinates — no trigonometry, so nothing
+ * drifts however many times it is turned. Corners keep their ids and their order, so the doors and
+ * cabinets on the walls stay on their walls, and the winding stays clockwise. Islands turn with the
+ * room, swapping their width and depth as a block turned a quarter turn does.
  *
  * `turns` is in quarter turns, signed — the button passes nothing and gets a clockwise turn, the
  * left arrow key passes -1. Adding 360 before the modulo keeps a negative turn in range, which the
@@ -2515,8 +2583,49 @@ export function newStairRoom(x: number, y: number): SketchRoom {
  */
 export function rotateStairs(room: SketchRoom, turns = 1): SketchRoom {
   if (!room.stairs) return room;
+  const quarter = (((turns % 4) + 4) % 4) as 0 | 1 | 2 | 3;
   const next = ((((room.stairs.orientation + turns * 90) % 360) + 360) % 360) as 0 | 90 | 180 | 270;
-  return { ...room, stairs: { ...room.stairs, orientation: next } };
+
+  const before = roomBounds(room);
+  const cx = before.minX + before.width / 2;
+  const cy = before.minY + before.height / 2;
+  const turn = (x: number, y: number): { x: number; y: number } => {
+    const dx = x - cx;
+    const dy = y - cy;
+    // Clockwise on screen (y down): one quarter turn takes (dx, dy) to (-dy, dx).
+    switch (quarter) {
+      case 1:
+        return { x: cx - dy, y: cy + dx };
+      case 2:
+        return { x: cx - dx, y: cy - dy };
+      case 3:
+        return { x: cx + dy, y: cy - dx };
+      default:
+        return { x, y };
+    }
+  };
+
+  const vertices = room.vertices.map((v) => ({ ...v, ...turn(v.x, v.y) }));
+  const after = roomBounds({ ...room, vertices });
+  const freeCabinets = room.freeCabinets.map((island) => {
+    const swap = quarter % 2 === 1;
+    const widthPx = swap ? island.depthPx : island.widthPx;
+    const depthPx = swap ? island.widthPx : island.depthPx;
+    // Turn the block's centre, then place the turned block's corner from it — relative to the new
+    // bounds, since that is how an island is stored.
+    const centre = turn(before.minX + island.x + island.widthPx / 2, before.minY + island.y + island.depthPx / 2);
+    return {
+      ...island,
+      x: centre.x - widthPx / 2 - after.minX,
+      y: centre.y - depthPx / 2 - after.minY,
+      widthPx,
+      depthPx,
+      widthFeet: swap ? island.depthFeet : island.widthFeet,
+      depthFeet: swap ? island.widthFeet : island.depthFeet,
+    };
+  });
+
+  return { ...room, vertices, freeCabinets, stairs: { ...room.stairs, orientation: next } };
 }
 
 // ---------------------------------------------------------------------------------------------

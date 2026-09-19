@@ -20,6 +20,7 @@ import { checkDirectory } from "./stateRules.mjs";
 import { runPlacementChecks } from "./placement.mjs";
 import { runDimensionChecks } from "./dimensions.mjs";
 import { runWallChecks } from "./walls.mjs";
+import { runRoomChecks } from "./rooms.mjs";
 import { runScanImportChecks } from "./scanImport.mjs";
 import { runClosetChecks } from "./closet.mjs";
 
@@ -75,6 +76,15 @@ if (walls.failures.length > 0) {
   process.exit(1);
 }
 console.log(`  Walls: ok (${walls.passed.length} checks — a run of walls becomes what it encloses)`);
+
+// Where a new room lands, and how a flight of stairs turns.
+const roomChecks = await runRoomChecks();
+if (roomChecks.failures.length > 0) {
+  console.error(`\n  Rooms: ${roomChecks.passed.length} passed, ${roomChecks.failures.length} FAILED\n`);
+  for (const failure of roomChecks.failures) console.error(`    ✗ ${failure}\n`);
+  process.exit(1);
+}
+console.log(`  Rooms: ok (${roomChecks.passed.length} checks — a new room lands in view, a flight turns whole)`);
 
 // And the scan import: a room the phone measured lands as a room, with its door and nothing made up.
 const scanImport = await runScanImportChecks();
