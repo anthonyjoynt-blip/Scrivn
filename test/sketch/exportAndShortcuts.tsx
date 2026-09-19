@@ -181,11 +181,13 @@ export async function run(): Promise<{ passed: number; failed: number; results: 
     await settle();
     check(document.querySelector(".sketch-card-expanded") !== null, "pressing it expands the card");
     // Esc is the way out precisely because Done is hidden while expanded.
-    check(findButton("Done") === null, "Done is out of reach while expanded, so it can't close the tool by accident");
+    // The button reads "Done — back to claim" (bdb4bb6); a bare "Done" is the wall tool's, which
+    // is not showing here, so matching that would pass both ways and prove nothing.
+    check(findButton("Done — back to claim") === null, "Done is out of reach while expanded, so it can't close the tool by accident");
     press("Escape");
     await settle();
     check(document.querySelector(".sketch-card-expanded") === null, "Escape leaves full screen");
-    check(findButton("Done") !== null, "and Done comes back");
+    check(findButton("Done — back to claim") !== null, "and Done comes back");
 
     // ── stairs, by keyboard ──────────────────────────────────────────────────────────────────
     const stage = Konva.stages[Konva.stages.length - 1];

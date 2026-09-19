@@ -57,7 +57,7 @@ import {
   wallsOf,
 } from "@/lib/sketch";
 import { type DraftPoint, WALL_SNAP_SCREEN_PX, absorbedFreeWallIds, snapDraftPoint, wallDimensionsWithExtensions } from "@/lib/sketchWalls";
-import { PULLED_ROOM_DEFAULT_DEPTH_PX, PULLED_ROOM_MIN_DEPTH_PX, outwardNormal, pullDepthPx } from "@/lib/roomPlacement";
+import { type Obstacle, PULLED_ROOM_DEFAULT_DEPTH_PX, PULLED_ROOM_MIN_DEPTH_PX, extrudeWall, outwardNormal, pullDepthPx } from "@/lib/roomPlacement";
 
 /**
  * The drawing surface. Rendering and pointer handling only — every state change is reported upward
@@ -465,12 +465,22 @@ export default function SketchCanvas(props: SketchCanvasProps) {
     that never moves is a tap, and pulls a room of the default depth. Like the wall tool's rubber
     band, the outline is moved by hand rather than through React state — it changes every frame.
   */
-  const pull = useRef<{ roomId: string; wall: WallGeometry; depthPx: number; moved: boolean } | null>(null);
+  const pull = useRef<{ roomId: string; wall: WallGeometry; depthPx: number; moved: boolean; obstacles: Obstacle[] } | null>(null);
   const pullOutline = useRef<Konva.Line>(null);
   const pullLabel = useRef<Konva.Text>(null);
 
   function startPull(roomId: string, wall: WallGeometry) {
-    pull.current = { roomId, wall, depthPx: PULLED_ROOM_DEFAULT_DEPTH_PX, moved: false };
+    // Everything on the storey but the wall being pulled from stands in the way — the outline
+    // shown is the shape the room will actually take, walls and all. See `extrudeWall`.
+    const obstacles: Obstacle[] = [];
+    for (const room of rooms) {
+      for (const w of wallsOf(room)) {
+        if (room.id === roomId && w.id === wall.id) continue;
+        obstacles.push({ x1: w.x1, y1: w.y1, x2: w.x2, y2: w.y2 });
+      }
+    }
+    for (const free of props.freeWalls ?? []) for (const s of freeWallSegments(free)) obstacles.push({ x1: s.x1, y1: s.y1, x2: s.x2, y2: s.y2 });
+    pull.current = { roomId, wall, depthPx: PULLED_ROOM_DEFAULT_DEPTH_PX, moved: false, obstacles };
     drawPull();
   }
 
@@ -481,7 +491,8 @@ export default function SketchCanvas(props: SketchCanvasProps) {
     if (!active || !outline || !label) return;
     const { wall, depthPx } = active;
     const n = outwardNormal(wall);
-    outline.points([wall.x1, wall.y1, wall.x1 + n.x * depthPx, wall.y1 + n.y * depthPx, wall.x2 + n.x * depthPx, wall.y2 + n.y * depthPx, wall.x2, wall.y2]);
+    const band = depthPx >= PULLED_ROOM_MIN_DEPTH_PX ? extrudeWall(wall, depthPx, active.obstacles) : null;
+    outline.points(band ? band.far.flatMap((p) => [p.x, p.y]) : []);
     const far = { x: (wall.x1 + wall.x2) / 2 + n.x * (depthPx + 14 / view.scale), y: (wall.y1 + wall.y2) / 2 + n.y * (depthPx + 14 / view.scale) };
     label.text(depthPx >= PULLED_ROOM_MIN_DEPTH_PX ? formatFeetInches(depthPx / PIXELS_PER_FOOT) : "");
     label.position({ x: far.x - 35 / view.scale, y: far.y - 6 / view.scale });

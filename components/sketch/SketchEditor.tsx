@@ -25,7 +25,6 @@ import {
   DEFAULT_ROOM_FEET,
   closetBehindDoor,
   closetExistsBehind,
-  dragWall,
   ensureClockwise,
   exposedRunAt,
   formatFeetInches,
@@ -87,7 +86,7 @@ import {
   withFreeWallSegmentLength,
 } from "@/lib/sketchWalls";
 import { FreeCabinetPanel, SymbolPanel } from "./SymbolPanel";
-import { placeNewRoom, pullRoomFromWall, viewCentredOn } from "@/lib/roomPlacement";
+import { conformedDragWall, obstaclesFor, placeNewRoom, pullRoomFromWall, viewCentredOn } from "@/lib/roomPlacement";
 import { QuantitiesPanel } from "./QuantitiesPanel";
 import { type QuantityOptions, DEFAULT_QUANTITY_OPTIONS } from "@/lib/sketchQuantities";
 import type { MoistureTool, ToolMode } from "./SketchCanvas";
@@ -803,15 +802,46 @@ export function SketchEditor({
   }
 
   /**
+   * A wall being pulled sideways, from where it stood when the drag began.
+   *
+   * The canvas reports each frame's increment; the room is rebuilt each frame from the wall as it
+   * was and the whole travel so far, so a wall that runs into another room's wall can be reshaped
+   * to follow it (`conformedDragWall`) — a shape that depends on how far out the wall has gone,
+   * which frame-by-frame steps from an already reshaped room would compound.
+   */
+  const wallDrag = useRef<{ roomId: string; wallId: string; room: SketchRoom; dx: number; dy: number } | null>(null);
+  function handleDragWall(roomId: string, wallId: string, dx: number, dy: number) {
+    const current = wallDrag.current;
+    if (!current || current.roomId !== roomId || current.wallId !== wallId) {
+      const room = sketch.rooms.find((r) => r.id === roomId);
+      if (!room) return;
+      wallDrag.current = { roomId, wallId, room, dx: 0, dy: 0 };
+    }
+    const drag = wallDrag.current as { roomId: string; wallId: string; room: SketchRoom; dx: number; dy: number };
+    drag.dx += dx;
+    drag.dy += dy;
+    const obstacles = obstaclesFor(sketch, activeLevel, { roomId });
+    const reshaped = conformedDragWall(drag.room, wallId, drag.dx, drag.dy, obstacles, sketch.rooms);
+    updateRoom(roomId, () => reshaped);
+  }
+
+  /**
    * The next room over, pulled off a wall of this one — see `pullRoomFromWall`. It lands selected
    * and unnamed, like any new room, with the tool put away: the next press is for naming it or
    * dragging its far wall, not for pulling another.
    */
   function handlePullRoom(roomId: string, wallId: string, depthPx: number) {
     const source = sketch.rooms.find((r) => r.id === roomId);
-    const room = source ? pullRoomFromWall(source, wallId, depthPx) : null;
+    // Everything else on the storey is in the way, including the rest of the source room — only
+    // the wall being pulled from is not, being where the new room begins.
+    const around = { obstacles: obstaclesFor(sketch, activeLevel, { wall: { roomId, wallId } }), rooms: sketch.rooms };
+    const room = source ? pullRoomFromWall(source, wallId, depthPx, around) : null;
+    if (!room) {
+      setWallNotice("Nothing fits in front of that wall — there is a room there already.");
+      return;
+    }
+    setWallNotice(null);
     setTool("select");
-    if (!room) return;
     onChange((prev) => ({ ...prev, rooms: withDerivedParents([...prev.rooms, room]) }));
     setSelectedRoomId(room.id);
     setSelectedSymbolId(null);
@@ -1555,7 +1585,7 @@ export function SketchEditor({
           : tool === "select"
             ? "Tap to select, drag to move. Double-tap a wall or its measurement to type its length. For an L: tap Break, tap a wall, then drag one half out. Drag empty space to pan; pinch to zoom."
             : tool === "pull"
-              ? "Drag out from a wall to pull the next room off it — same wall, same doors and openings. A tap pulls a 12' room."
+              ? wallNotice ?? "Drag out from a wall to pull the next room off it — same wall, same doors and openings. A tap pulls a 12' room."
             : tool === "island"
               ? "Tap open floor inside the room to drop a free-standing cabinet."
               : tool === "break"
@@ -1612,8 +1642,11 @@ export function SketchEditor({
             setTool("select");
             updateRoom(roomId, (room) => insertVertexOnWall(room, wallId, t));
           }}
-          onDragWall={(roomId, wallId, dx, dy) => updateRoom(roomId, (room) => dragWall(room, wallId, dx, dy))}
-          onDragWallEnd={(roomId, wallId) => updateRoom(roomId, (room) => snapWallToNeighbours(room, wallId))}
+          onDragWall={handleDragWall}
+          onDragWallEnd={(roomId, wallId) => {
+            wallDrag.current = null;
+            updateRoom(roomId, (room) => snapWallToNeighbours(room, wallId));
+          }}
           onMoveVertex={(roomId, vertexId, x, y) => updateRoom(roomId, (room) => moveVertex(room, vertexId, x, y))}
           onRemoveVertex={(roomId, vertexId) => updateRoom(roomId, (room) => removeVertex(room, vertexId))}
           onMoveSymbol={(roomId, symbolId, centrePx) =>

@@ -21,7 +21,7 @@ async function load() {
   const outDir = mkdtempSync(join(tmpdir(), "room-tests-"));
   const entry = join(outDir, "entry.ts");
   const lib = (name) => join(root, "lib", name).replace(/\\/g, "/");
-  writeFileSync(entry, `export * from "${lib("sketch.ts")}";\nexport * from "${lib("roomPlacement.ts")}";\n`);
+  writeFileSync(entry, `export * from "${lib("sketch.ts")}";\nexport * from "${lib("roomPlacement.ts")}";\nexport * from "${lib("sketchQuantities.ts")}";\n`);
   const outfile = join(outDir, "sketch.mjs");
   await build({ entryPoints: [entry], bundle: true, format: "esm", platform: "neutral", outfile, logLevel: "silent" });
   const mod = await import(pathToFileURL(outfile).href);
@@ -280,6 +280,239 @@ export async function runRoomChecks() {
     const bottom = s.wallsOf(source)[2];
     near(s.pullDepthPx(bottom, { x: 100, y: 250 }), 58, "58px below the bottom wall");
     assert(s.pullDepthPx(bottom, { x: 100, y: 100 }) < 0, "negative inside the room");
+  });
+
+  /*
+    Rooms do not overlap: a wall pushed out follows the walls in its way. The pictures that reported
+    this: a room pulled off a wall ran straight across the angled wall and door hanging off that
+    wall's corner; widening it ran its side over them; and a pulled room's side that landed along a
+    stub with a door hid the door.
+  */
+
+  const seg = (x1, y1, x2, y2) => ({ x1, y1, x2, y2 });
+  const pts = (list) => list.map((p) => [Math.round(p.x), Math.round(p.y)].join(",")).join(" ");
+
+  test("with nothing in the way a wall pushes out into a plain rectangle", () => {
+    const r = box(0, 0, 240, 192, { id: "src" });
+    const bottom = s.wallsOf(r)[2]; // (240,192) -> (0,192), out is +y
+    const band = s.extrudeWall(bottom, 120, []);
+    assert(pts(band.far) === "240,192 240,312 0,312 0,192", `got ${pts(band.far)}`);
+    assert(!band.limited, "nothing limited it");
+  });
+
+  test("a wall across the way stops the band short there, and the band steps down past its end", () => {
+    // A wall 60 out, covering the right half of the span: the band is 60 deep there, 120 deep past it.
+    const r = box(0, 0, 240, 192, { id: "src" });
+    const bottom = s.wallsOf(r)[2];
+    const band = s.extrudeWall(bottom, 120, [seg(120, 252, 240, 252)]);
+    assert(pts(band.far) === "240,192 240,252 120,252 120,312 0,312 0,192", `got ${pts(band.far)}`);
+    assert(band.limited, "and says so");
+  });
+
+  test("the report: an angled wall off the corner is followed, angle and all", () => {
+    // The wall runs (0,192)->(240,192) as the TOP wall of a room below; out is -y. An angled wall
+    // hangs off its right corner going up and right — outside the span — and one off its left
+    // corner going up and LEFT is outside too. Neither is in the way: the band is plain.
+    const below = room([[0, 192], [240, 192], [240, 300], [0, 300]], { id: "below" });
+    const top = s.wallsOf(below)[0];
+    const plain = s.extrudeWall(top, 100, [seg(240, 192, 300, 132)]);
+    assert(pts(plain.far) === "0,192 0,92 240,92 240,192", `an angled wall outside the span shapes nothing: ${pts(plain.far)}`);
+    // But an angled wall coming INTO the span from the right corner — up and to the left — bounds
+    // the band along its length: the far side follows it from the corner.
+    const shaped = s.extrudeWall(top, 100, [seg(240, 192, 180, 132)]);
+    assert(pts(shaped.far) === "0,192 0,92 180,92 180,132 240,192", `expected the far side to follow the angled wall, got ${pts(shaped.far)}`);
+  });
+
+  test("walls behind the wall, or beyond its reach, are no obstacle", () => {
+    const r = box(0, 0, 240, 192, { id: "src" });
+    const bottom = s.wallsOf(r)[2];
+    const behind = s.extrudeWall(bottom, 120, [seg(0, 100, 240, 100)]); // inside the room, above the wall
+    assert(pts(behind.far) === "240,192 240,312 0,312 0,192" && !behind.limited, `behind: ${pts(behind.far)}`);
+    const beyond = s.extrudeWall(bottom, 120, [seg(0, 400, 240, 400)]);
+    assert(pts(beyond.far) === "240,192 240,312 0,312 0,192" && !beyond.limited, `beyond: ${pts(beyond.far)}`);
+  });
+
+  test("a wall square to the band, or lying along it, shapes nothing of the far side", () => {
+    const r = box(0, 0, 240, 192, { id: "src" });
+    const bottom = s.wallsOf(r)[2];
+    const square = s.extrudeWall(bottom, 120, [seg(120, 192, 120, 300)]);
+    assert(pts(square.far) === "240,192 240,312 0,312 0,192", `a partition standing across the band is left standing: ${pts(square.far)}`);
+  });
+
+  test("a wall coming in a hair past the corner shapes the band from the corner — no sliver spiking out in front of it", () => {
+    // The angled wall's far end is a fiftieth of a pixel off, so in the band it starts 0.013px
+    // past the corner instead of at it. Taken literally that left a full-depth sliver there and the
+    // far side going out and straight back: "300,60 330,60 300,60 330,90 ...".
+    const r = room([[0, 0], [240, 0], [300, 60], [300, 192], [0, 192]], { id: "r" });
+    const side = s.wallsOf(r)[2]; // (300,60) -> (300,192)
+    const band = s.extrudeWall(side, 30, [seg(240, 0, 330, 90.02)]);
+    assert(pts(band.far) === "300,60 330,90 330,192 300,192", `got ${pts(band.far)}`);
+  });
+
+  test("a wall met in two pieces gives one straight far side — the outline the canvas previews has no corner mid-wall", () => {
+    const r = box(0, 0, 240, 192, { id: "src" });
+    const bottom = s.wallsOf(r)[2];
+    const band = s.extrudeWall(bottom, 120, [seg(120, 252, 180, 252), seg(180, 252, 240, 252)]);
+    assert(pts(band.far) === "240,192 240,252 120,252 120,312 0,312 0,192", `got ${pts(band.far)}`);
+  });
+
+  test("a room already standing against the wall leaves nothing to pull", () => {
+    const r = box(0, 0, 240, 192, { id: "src" });
+    const bottom = s.wallsOf(r)[2];
+    // Its near wall lies along ours, at v = 0, the whole way.
+    assert(s.extrudeWall(bottom, 120, [seg(0, 192, 240, 192), seg(0, 312, 240, 312)]) === null, "nothing in front of the wall");
+    assert(s.pullRoomFromWall(r, bottom.id, 120, { obstacles: [seg(0, 192, 240, 192)], rooms: [r] }) === null, "and no room is pulled");
+  });
+
+  test("a pulled room takes the shape the walls around it allow", () => {
+    const r = box(0, 0, 240, 192, { id: "src" });
+    const bottom = s.wallsOf(r)[2];
+    const pulled = s.pullRoomFromWall(r, bottom.id, 120, { obstacles: [seg(120, 252, 240, 252)], rooms: [r] });
+    assert(pulled && pulled.vertices.length === 6, `six corners, got ${pulled && pulled.vertices.length}`);
+    near(s.grossFloorArea(pulled), (120 * 60 + 120 * 120) / 144, "the area of the stepped band");
+  });
+
+  test("a door in any wall the new room lands along comes with it — not only the wall it was pulled from", () => {
+    // The stub in the picture: the room the new one is pulled beside has a door in the wall the new
+    // room's side comes to lie along.
+    const src = box(0, 0, 240, 192, { id: "src" });
+    const bottom = s.wallsOf(src)[2];
+    // A neighbour to the right whose left wall (240,192)->(240,312) will be the pulled room's right side.
+    const neighbour = room([[240, 192], [360, 192], [360, 312], [240, 312]], { id: "nb" });
+    const left = s.wallsOf(neighbour)[3]; // (240,312) -> (240,192)
+    neighbour.symbols = [door(left.id, 0.5)];
+    const pulled = s.pullRoomFromWall(src, bottom.id, 120, { obstacles: [], rooms: [src, neighbour] });
+    const inherited = pulled.symbols.filter((x) => x.type === "door");
+    assert(inherited.length === 1 && inherited[0].doorType === "opening", `expected the neighbour's door as an opening, got ${JSON.stringify(pulled.symbols)}`);
+    const w = s.wallById(pulled, inherited[0].wallId);
+    const at = s.pointOnWall(w, inherited[0].t);
+    near(at.x, 240, "on the shared side");
+    near(at.y, 252, "at the same place along it");
+  });
+
+  test("inheriting is idempotent: a door already there is not copied again", () => {
+    const src = box(0, 0, 240, 192, { id: "src" });
+    const bottom = s.wallsOf(src)[2];
+    src.symbols = [door(bottom.id, 0.25)];
+    const once = s.pullRoomFromWall(src, bottom.id, 120, { obstacles: [], rooms: [src] });
+    const twice = s.inheritOpenings(once, [src, once]);
+    assert(once.symbols.length === 1 && twice.symbols.length === 1, `expected one opening either way, got ${once.symbols.length}/${twice.symbols.length}`);
+  });
+
+  test("dragging a wall that crosses nothing is the plain drag, angles kept", () => {
+    const r = box(0, 0, 240, 192, { id: "r" });
+    const right = s.wallsOf(r)[1]; // (240,0) -> (240,192), out is +x
+    const moved = s.conformedDragWall(r, right.id, 60, 0, []);
+    assert(moved.vertices.length === 4 && b(moved).maxX === 300, `a 4-cornered room 60 wider, got ${JSON.stringify(b(moved))}`);
+  });
+
+  test("the report: widening a room into an angled wall makes the room follow the wall instead", () => {
+    // The right wall (240,0)->(240,192) dragged 60 right; an angled wall hangs off its top corner
+    // going down and right, (240,0)->(330,90), with the rest of that space open below it.
+    const r = box(0, 0, 240, 192, { id: "r" });
+    const right = s.wallsOf(r)[1];
+    const angled = seg(240, 0, 330, 90);
+    const plain = s.dragWall(r, right.id, 60, 0);
+    assert(s.crossesAny(plain, [angled]), "the plain drag would cross the angled wall");
+    const moved = s.conformedDragWall(r, right.id, 60, 0, [angled]);
+    assert(!s.crossesAny(moved, [angled]), "the reshaped room crosses nothing");
+    const corners = moved.vertices.map((v) => [Math.round(v.x), Math.round(v.y)].join(","));
+    assert(corners.includes("300,60"), `the side follows the angled wall out to 60 and then turns down: ${corners}`);
+    assert(corners.includes("300,192") && corners.includes("240,0"), `and runs to the bottom-right corner: ${corners}`);
+    near(b(moved).maxX, 300, "60 wider at the bottom");
+    assert(moved.vertices.length === 5, `five corners and no more — the old bottom-right corner now lies flat along the bottom: ${corners}`);
+  });
+
+  test("and the door in the wall the room came to lie along comes in as an opening", () => {
+    const r = box(0, 0, 240, 192, { id: "r" });
+    const right = s.wallsOf(r)[1];
+    // The angled wall belongs to a neighbour, with a door in it.
+    const nb = room([[240, 0], [330, 90], [400, 90], [400, 0]], { id: "nb" });
+    const angled = s.wallsOf(nb)[0]; // (240,0) -> (330,90)
+    nb.symbols = [door(angled.id, 0.5)];
+    const moved = s.conformedDragWall(r, right.id, 60, 0, s.wallsOf(nb).map((w) => seg(w.x1, w.y1, w.x2, w.y2)), [r, nb]);
+    const inherited = moved.symbols.filter((x) => x.type === "door");
+    assert(inherited.length === 1 && inherited[0].doorType === "opening", `expected the door as an opening, got ${JSON.stringify(moved.symbols)}`);
+  });
+
+  test("the dragged wall keeps its id when its start corner comes to lie flat — the drag must not stop dead", () => {
+    // The room from the picture after one widening: its right side already follows the angled wall
+    // (240,0)->(300,60) and then drops straight down. Now the straight piece (300,60)->(300,192) is
+    // dragged 30 further right; the angled wall goes on to (330,90), so the side follows it there
+    // and the corner at (300,60) lies flat on the diagonal. In the canvas the grip being dragged is
+    // that wall's, keyed by its start corner's id: were that id to go, the grip would unmount and
+    // the drag end a frame in (seen in the harness).
+    const r = room([[0, 0], [240, 0], [300, 60], [300, 192], [0, 192]], { id: "r" });
+    const side = s.wallsOf(r)[2]; // (300,60) -> (300,192), out is +x
+    const nb = room([[240, 0], [330, 90], [400, 90], [400, 0]], { id: "nb" });
+    const angled = s.wallsOf(nb)[0];
+    nb.symbols = [door(angled.id, 0.5)]; // centred at (285,45): only wholly on the side once it runs the whole diagonal
+    r.symbols = [door(side.id, 0.5, { id: "mine" }), door(side.id, 0.1, { id: "high" })]; // (300,126) and (300,73) on the dragged wall
+    const moved = s.conformedDragWall(r, side.id, 30, 0, s.wallsOf(nb).map((w) => seg(w.x1, w.y1, w.x2, w.y2)), [r, nb]);
+    const corners = moved.vertices.map((v) => [Math.round(v.x), Math.round(v.y)].join(","));
+    assert(corners.join(" ") === "0,0 240,0 330,90 330,192 0,192", `the side runs the whole diagonal then straight down, five corners: ${corners}`);
+    const kept = moved.vertices.find((v) => v.id === side.id);
+    assert(kept && Math.round(kept.x) === 330 && Math.round(kept.y) === 90, `the wall's own corner moved up to the turn, same id: ${JSON.stringify(kept)}`);
+    const mine = moved.symbols.find((x) => x.id === "mine");
+    const at = s.pointOnWall(s.wallById(moved, mine.wallId), mine.t);
+    near(at.x, 330, "the door in the dragged wall is on the new straight piece");
+    near(at.y, 126, "at the height it was");
+    const high = moved.symbols.find((x) => x.id === "high");
+    const highAt = s.pointOnWall(s.wallById(moved, high.wallId), high.t);
+    near(highAt.y, 73.2, "the door near the top keeps its height too");
+    near(highAt.x, 313.2, "on the diagonal, which is what the side is there now — the wall before the moved corner");
+    const inherited = moved.symbols.filter((x) => x.type === "door" && x.id !== "mine" && x.id !== "high");
+    assert(inherited.length === 1 && inherited[0].doorType === "opening", `the neighbour's door, now wholly along the side, comes in as an opening: ${JSON.stringify(moved.symbols)}`);
+  });
+
+  test("flat is judged to the half degree, as corners are — a wall drawn a hair off the line is still one line", () => {
+    // Same room; the angled wall's far end is a fiftieth of a pixel off the true diagonal, as any
+    // wall traced by hand will be. The corner at (300,60) still lies flat on it.
+    const r = room([[0, 0], [240, 0], [300, 60], [300, 192], [0, 192]], { id: "r" });
+    const side = s.wallsOf(r)[2];
+    const moved = s.conformedDragWall(r, side.id, 30, 0, [seg(240, 0, 330, 90.02)]);
+    assert(moved.vertices.length === 5, `five corners, got ${moved.vertices.map((v) => [Math.round(v.x), Math.round(v.y)].join(",")).join(" ")}`);
+    assert(moved.vertices.some((v) => v.id === side.id), "and the wall keeps its id");
+  });
+
+  test("only the dragged wall's own corners are tidied — a break elsewhere on the room is left for later", () => {
+    // A break (an unused collinear corner) sits on the top wall at (120,0). Widening the right wall
+    // into the angled wall must not sweep it away: it goes when the room is left, as it always did.
+    const r = room([[0, 0], [120, 0], [240, 0], [240, 192], [0, 192]], { id: "r" });
+    const right = s.wallsOf(r)[2]; // (240,0) -> (240,192)
+    const moved = s.conformedDragWall(r, right.id, 60, 0, [seg(240, 0, 330, 90)]);
+    assert(moved.vertices.some((v) => v.id === "r-v1"), "the break is still there");
+    assert(!moved.vertices.some((v) => v.id === "r-v3"), "while the old bottom-right corner, now flat along the bottom, is gone");
+  });
+
+  test("an inward drag is the plain drag, whatever stands outside", () => {
+    const r = box(0, 0, 240, 192, { id: "r" });
+    const right = s.wallsOf(r)[1];
+    const moved = s.conformedDragWall(r, right.id, -60, 0, [seg(240, 0, 330, 90)]);
+    near(b(moved).maxX, 180, "60 narrower");
+    assert(moved.vertices.length === 4, "still a box");
+  });
+
+  test("a door in the dragged wall moves out with it onto the new side", () => {
+    const r = box(0, 0, 240, 192, { id: "r" });
+    const right = s.wallsOf(r)[1];
+    r.symbols = [door(right.id, 0.75)]; // 144px down the right wall
+    const moved = s.conformedDragWall(r, right.id, 60, 0, [seg(240, 0, 330, 90)]);
+    const d = moved.symbols[0];
+    const w = s.wallById(moved, d.wallId);
+    const at = s.pointOnWall(w, d.t);
+    near(at.x, 300, "on the new right side");
+    near(at.y, 144, "at the same height");
+  });
+
+  test("dragging a wall into a neighbouring room stops at that room's wall", () => {
+    const r = box(0, 0, 240, 192, { id: "r" });
+    const right = s.wallsOf(r)[1];
+    const neighbour = room([[300, 0], [420, 0], [420, 192], [300, 192]], { id: "nb" });
+    const obstacles = s.wallsOf(neighbour).map((w) => seg(w.x1, w.y1, w.x2, w.y2));
+    const moved = s.conformedDragWall(r, right.id, 100, 0, obstacles);
+    near(b(moved).maxX, 300, "flush with the neighbour, not over it");
+    assert(!s.crossesAny(moved, obstacles), "crossing nothing");
   });
 
   return { passed, failures };

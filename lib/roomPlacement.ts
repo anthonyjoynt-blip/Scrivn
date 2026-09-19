@@ -22,6 +22,7 @@
  */
 
 import {
+  type Sketch,
   type SketchRoom,
   type SketchSymbol,
   type WallGeometry,
@@ -29,10 +30,19 @@ import {
   DEFAULT_ROOM_FEET,
   MIN_WALL_PX,
   PIXELS_PER_FOOT,
+  dragWall,
   ensureClockwise,
+  freeWallLevel,
+  freeWallSegments,
+  freeWallsOf,
   newSketchId,
+  pointOnWall,
+  pruneCollinearVertices,
+  removeVertex,
   roomBounds,
   roomLevel,
+  symbolCentrePx,
+  symbolWidthPx,
   wallById,
   wallsOf,
 } from "./sketch";
@@ -147,31 +157,35 @@ export function pullDepthPx(wall: WallGeometry, point: { x: number; y: number })
  * new room's near wall IS the tapped wall, and it goes `depthPx` straight out from it, whatever
  * angle the wall lies at.
  *
- * The doors, openings and windows in that wall come with it. A door between two rooms is in both
- * rooms' walls, and a room drawn without it would show an unbroken wall where there is a doorway
- * and deduct nothing for it. On the new side a door is an OPENING — the same hole, jambs and no
- * leaf — because a leaf swings into one room only, and it is already drawn swinging into the room
- * it was placed in; a second swing on the other side would read as a pair of doors. Cabinets and
- * fixtures stay where they are: they stand against one side of a wall, not in it.
+ * It goes out only as far as the walls already there allow — `extrudeWall` — so its far side and
+ * its flanks are made of those walls where they stand in the way, angle and all, and it never lies
+ * over another room.
  *
- * Symbols keep their place along the wall. The new room is wound clockwise like every room, which
- * runs its copy of the wall the other way, so a symbol at `t` sits at `1 - t` there. Nothing else
- * about the symbol changes.
+ * The doors, openings and windows in every wall it shares come with it — the wall it was pulled
+ * from, and any wall it came to rest along — see `inheritOpenings`. On the new side a door is an
+ * OPENING: the same hole, jambs and no leaf, because a leaf swings into one room only and is
+ * already drawn swinging into the room it was placed in. Cabinets and fixtures stand against one
+ * side of a wall, not in it, and stay.
  */
-export function pullRoomFromWall(source: SketchRoom, wallId: string, depthPx: number): SketchRoom | null {
+export function pullRoomFromWall(
+  source: SketchRoom,
+  wallId: string,
+  depthPx: number,
+  around: { obstacles: Obstacle[]; rooms: SketchRoom[] } = { obstacles: [], rooms: [source] },
+): SketchRoom | null {
   const wall = wallById(source, wallId);
   if (!wall || wall.lengthPx < MIN_WALL_PX) return null;
   const depth = Math.max(PULLED_ROOM_MIN_DEPTH_PX, depthPx);
-  const n = outwardNormal(wall);
 
-  // Out, along, back: clockwise by construction when the source is, which every room is. The
-  // `ensureClockwise` is a guard for a source that somehow is not, and does nothing otherwise.
-  const vertices = ensureClockwise([
-    { id: newSketchId("v"), x: wall.x1, y: wall.y1 },
-    { id: newSketchId("v"), x: wall.x1 + n.x * depth, y: wall.y1 + n.y * depth },
-    { id: newSketchId("v"), x: wall.x2 + n.x * depth, y: wall.y2 + n.y * depth },
-    { id: newSketchId("v"), x: wall.x2, y: wall.y2 },
-  ]);
+  /*
+    The far side follows whatever walls are in the way — see `extrudeWall`. Out, along, back is
+    clockwise by construction when the source is, which every room is; `ensureClockwise` guards a
+    source that somehow is not, and does nothing otherwise.
+  */
+  const band = extrudeWall(wall, depth, around.obstacles);
+  if (!band) return null;
+  const vertices = ensureClockwise(band.far.map((p) => ({ id: newSketchId("v"), x: p.x, y: p.y })));
+  if (vertices.length < 3) return null;
   const room: SketchRoom = {
     id: newSketchId("room"),
     name: "",
@@ -186,23 +200,356 @@ export function pullRoomFromWall(source: SketchRoom, wallId: string, depthPx: nu
     freeCabinets: [],
   };
   if (roomLevel(source) !== 0) room.level = roomLevel(source);
+  const tidy = pruneCollinearVertices(room);
+  // Nothing worth calling a room: a band too thin, or nothing left in front of the wall.
+  if (Math.abs(polygonArea(tidy.vertices)) < PIXELS_PER_FOOT * PIXELS_PER_FOOT) return null;
+  return inheritOpenings(tidy, around.rooms.some((r) => r.id === source.id) ? around.rooms : [source, ...around.rooms]);
+}
 
-  // The new room's copy of the shared wall: the one whose corners are the source wall's.
-  const same = (a: { x: number; y: number }, b: { x: number; y: number }) => Math.hypot(a.x - b.x, a.y - b.y) < 0.01;
-  const shared = wallsOf(room).find(
-    (w) => (same({ x: w.x1, y: w.y1 }, { x: wall.x1, y: wall.y1 }) && same({ x: w.x2, y: w.y2 }, { x: wall.x2, y: wall.y2 })) || (same({ x: w.x1, y: w.y1 }, { x: wall.x2, y: wall.y2 }) && same({ x: w.x2, y: w.y2 }, { x: wall.x1, y: wall.y1 })),
-  );
-  if (!shared) return room;
-  const reversed = same({ x: shared.x1, y: shared.y1 }, { x: wall.x2, y: wall.y2 });
+/** Signed polygon area, in square pixels. */
+function polygonArea(vertices: { x: number; y: number }[]): number {
+  let sum = 0;
+  for (let i = 0; i < vertices.length; i++) {
+    const a = vertices[i] as { x: number; y: number };
+    const b = vertices[(i + 1) % vertices.length] as { x: number; y: number };
+    sum += a.x * b.y - b.x * a.y;
+  }
+  return sum / 2;
+}
 
-  room.symbols = source.symbols.flatMap((symbol): SketchSymbol[] => {
-    if (symbol.wallId !== wallId) return [];
-    const placed = { id: newSketchId(symbol.type), wallId: shared.id, t: reversed ? 1 - symbol.t : symbol.t };
-    if (symbol.type === "door") return [{ ...symbol, ...placed, doorType: "opening" }];
-    if (symbol.type === "window") return [{ ...symbol, ...placed }];
-    return [];
+/* ── Pushing a wall out until it meets something ────────────────────────────────────────────── */
+
+/** A straight piece of wall in the way of an extrusion — another room's wall, or a free wall. */
+export interface Obstacle {
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+}
+
+/**
+ * Every wall on a storey that a wall being pushed out could run into: rooms' walls and free walls,
+ * less the room whose wall is moving (`exceptRoomId` — its own walls move with it) or the one wall
+ * being pulled from (`exceptWall` — the rest of that room still stands in the way).
+ */
+export function obstaclesFor(sketch: Sketch, level: number, except: { roomId?: string; wall?: { roomId: string; wallId: string } }): Obstacle[] {
+  const out: Obstacle[] = [];
+  for (const room of sketch.rooms) {
+    if (room.id === except.roomId || roomLevel(room) !== level) continue;
+    for (const w of wallsOf(room)) {
+      if (except.wall && except.wall.roomId === room.id && except.wall.wallId === w.id) continue;
+      out.push({ x1: w.x1, y1: w.y1, x2: w.x2, y2: w.y2 });
+    }
+  }
+  for (const wall of freeWallsOf(sketch)) {
+    if (freeWallLevel(wall) !== level) continue;
+    for (const s of freeWallSegments(wall)) out.push({ x1: s.x1, y1: s.y1, x2: s.x2, y2: s.y2 });
+  }
+  return out;
+}
+
+/** Closer than this, two points along an extrusion are one. */
+const EXTRUDE_EPS = 0.5;
+
+/**
+ * The outline of a wall pushed `depthPx` straight out from itself, stopped by whatever walls are in
+ * the way — the shape a pulled room takes, and a dragged wall when it runs into something.
+ *
+ * Reported from the field with three pictures: a room pulled off a wall ran straight across the
+ * angled wall and door hanging off that wall's corner, and widening it ran its side over them.
+ * "Rooms shouldn't overlap like this — it should continue following that existing wall and shape
+ * and door." So the band a wall sweeps out is bounded by every wall it meets: at each point along
+ * the wall the room reaches out only as far as the first wall in the way, or the depth, whichever
+ * comes first. Where an obstacle ends and the band goes on past it, the outline steps out along
+ * the obstacle's end — usually along the next wall of whatever it was, so the new room's side is
+ * made of the walls already there, angle and all.
+ *
+ * Worked in the wall's own frame — `u` along it from its start, `v` straight out — where the far
+ * side is the lower envelope of the obstacles' pieces and the depth line. Pieces lying along the
+ * wall itself (v = 0) belong to whatever already stands against it and close the band there;
+ * pieces square to the wall have no run along it and shape nothing, which is what lets a wall
+ * hanging off a corner or standing across the band be drawn and stay a wall on its own.
+ *
+ * Returns the far side as points from the wall's start corner to its end corner, in world
+ * coordinates, corners included, and whether any obstacle limited it — or null when nothing at
+ * all fits in front of the wall.
+ */
+export function extrudeWall(wall: WallGeometry, depthPx: number, obstacles: Obstacle[]): { far: { x: number; y: number }[]; limited: boolean } | null {
+  const L = wall.lengthPx;
+  if (L <= 0 || depthPx <= 0) return null;
+  const tx = (wall.x2 - wall.x1) / L;
+  const ty = (wall.y2 - wall.y1) / L;
+  const n = outwardNormal(wall);
+  const local = (p: { x: number; y: number }) => ({ u: (p.x - wall.x1) * tx + (p.y - wall.y1) * ty, v: (p.x - wall.x1) * n.x + (p.y - wall.y1) * n.y });
+  const world = (u: number, v: number) => ({ x: wall.x1 + tx * u + n.x * v, y: wall.y1 + ty * u + n.y * v });
+
+  // The pieces of the obstacles that lie within the band, as v over u, running left to right.
+  const pieces: { u1: number; v1: number; u2: number; v2: number }[] = [];
+  for (const o of obstacles) {
+    let a = local({ x: o.x1, y: o.y1 });
+    let b = local({ x: o.x2, y: o.y2 });
+    if (a.u > b.u) [a, b] = [b, a];
+    if (b.u - a.u <= EXTRUDE_EPS) continue; // square to the wall: no run along it
+    // Clip to the band: 0 <= u <= L, 0 <= v <= depth. A piece entirely behind the wall or beyond
+    // the depth is no obstacle; one that crosses in is kept from where it crosses.
+    const vAt = (u: number) => a.v + ((b.v - a.v) * (u - a.u)) / (b.u - a.u);
+    let u1 = Math.max(a.u, 0);
+    let u2 = Math.min(b.u, L);
+    if (u2 - u1 <= EXTRUDE_EPS) continue;
+    let v1 = vAt(u1);
+    let v2 = vAt(u2);
+    if (Math.max(v1, v2) < -EXTRUDE_EPS) continue; // wholly behind the wall
+    if (Math.min(v1, v2) > depthPx + EXTRUDE_EPS) continue; // wholly beyond reach
+    // Trim the part behind the wall, so a piece that comes in from behind starts at the wall.
+    if (v1 < 0 || v2 < 0) {
+      const uAtZero = u1 + ((0 - v1) * (u2 - u1)) / (v2 - v1);
+      if (v1 < 0) {
+        u1 = uAtZero;
+        v1 = 0;
+      } else {
+        u2 = uAtZero;
+        v2 = 0;
+      }
+      if (u2 - u1 <= EXTRUDE_EPS) continue;
+    }
+    pieces.push({ u1, v1, u2, v2 });
+  }
+
+  // Where the envelope can change hands: piece ends, and pieces crossing each other.
+  const events = new Set<number>([0, L]);
+  for (const p of pieces) {
+    events.add(p.u1);
+    events.add(p.u2);
+    // Where a piece crosses the depth line, the depth takes over from it, or it from the depth.
+    if ((p.v1 - depthPx) * (p.v2 - depthPx) < 0) events.add(p.u1 + ((depthPx - p.v1) * (p.u2 - p.u1)) / (p.v2 - p.v1));
+  }
+  for (let i = 0; i < pieces.length; i++) {
+    for (let j = i + 1; j < pieces.length; j++) {
+      const p = pieces[i] as { u1: number; v1: number; u2: number; v2: number };
+      const q = pieces[j] as { u1: number; v1: number; u2: number; v2: number };
+      const lo = Math.max(p.u1, q.u1);
+      const hi = Math.min(p.u2, q.u2);
+      if (hi - lo <= EXTRUDE_EPS) continue;
+      const sp = (p.v2 - p.v1) / (p.u2 - p.u1);
+      const sq = (q.v2 - q.v1) / (q.u2 - q.u1);
+      if (Math.abs(sp - sq) < 1e-9) continue;
+      const u = (q.v1 - q.u1 * sq - (p.v1 - p.u1 * sp)) / (sp - sq);
+      if (u > lo && u < hi) events.add(u);
+    }
+  }
+  // Stops closer together than the tolerance are one stop. A wall drawn a hair off its line comes
+  // into the band a fraction past the corner rather than at it, and taken literally that fraction
+  // is a stretch with nothing in it — a sliver at full depth in front of the corner, and the far
+  // side spiking out and back through it. The corner itself stays exact whatever merged into it.
+  const stops: number[] = [];
+  for (const u of [...events].filter((u) => u >= 0 && u <= L).sort((a, b) => a - b)) {
+    const last = stops[stops.length - 1];
+    if (last === undefined || u - last > EXTRUDE_EPS) stops.push(u);
+  }
+  if ((stops[stops.length - 1] as number) < L) stops[stops.length - 1] = L;
+
+  // The far side over each stretch between stops: the lowest piece there, or the depth line.
+  const path: { u: number; v: number }[] = [{ u: 0, v: 0 }];
+  const push = (u: number, v: number) => {
+    const last = path[path.length - 1] as { u: number; v: number };
+    if (Math.hypot(u - last.u, v - last.v) > EXTRUDE_EPS) path.push({ u, v });
+  };
+  let anyRoom = false;
+  let limited = false;
+  for (let i = 0; i + 1 < stops.length; i++) {
+    const ua = stops[i] as number;
+    const ub = stops[i + 1] as number;
+    if (ub - ua <= 1e-9) continue;
+    // Which piece rules this stretch is decided at its middle; its ends are then read off that piece.
+    const um = (ua + ub) / 2;
+    let ruling: { u1: number; v1: number; u2: number; v2: number } | null = null;
+    let vm = depthPx;
+    for (const p of pieces) {
+      if (um < p.u1 || um > p.u2) continue;
+      const v = p.v1 + ((p.v2 - p.v1) * (um - p.u1)) / (p.u2 - p.u1);
+      if (v < vm) {
+        vm = v;
+        ruling = p;
+      }
+    }
+    if (ruling) limited = true;
+    // Read off the ruling piece's line, held within the band: a stretch reaches a hair past the
+    // piece's end where a stop merged into another.
+    const vAtEnd = (u: number) => (ruling ? Math.min(depthPx, Math.max(0, ruling.v1 + ((ruling.v2 - ruling.v1) * (u - ruling.u1)) / (ruling.u2 - ruling.u1))) : depthPx);
+    const va = vAtEnd(ua);
+    const vb = vAtEnd(ub);
+    if (vb > PULLED_ROOM_MIN_DEPTH_PX / 2 || va > PULLED_ROOM_MIN_DEPTH_PX / 2) anyRoom = true;
+    push(ua, va);
+    push(ub, vb);
+  }
+  push(L, 0);
+  if (!anyRoom) return null;
+
+  // Straight runs through a point are one run; the stops were only where something might change.
+  const cleaned: { u: number; v: number }[] = [];
+  for (const p of path) {
+    const a = cleaned[cleaned.length - 2];
+    const b = cleaned[cleaned.length - 1];
+    if (a && b && Math.abs((b.u - a.u) * (p.v - a.v) - (b.v - a.v) * (p.u - a.u)) <= 1e-6 * Math.max(1, Math.hypot(p.u - a.u, p.v - a.v))) cleaned.pop();
+    cleaned.push(p);
+  }
+  return { far: cleaned.map((p) => world(p.u, p.v)), limited };
+}
+
+/**
+ * The doors and windows in other rooms' walls that lie along this room's walls, copied in — a door
+ * is in both rooms' walls, and a room drawn without it shows an unbroken wall where there is a
+ * doorway and deducts nothing for it. Doors come as openings (one swing, in the room the door was
+ * placed in); windows come as windows; cabinets and fixtures stand on their own side and stay.
+ *
+ * Every wall of the room is considered, not only the one it was pulled from: the side of a pulled
+ * room that lands along another room's wall — the stub with a door in the picture that reported
+ * this — has that door too. A symbol already at the same place is not copied twice.
+ */
+export function inheritOpenings(room: SketchRoom, rooms: SketchRoom[]): SketchRoom {
+  const level = roomLevel(room);
+  const ownWalls = wallsOf(room);
+  const added: SketchSymbol[] = [];
+  const has = (wallId: string, t: number) => [...room.symbols, ...added].some((s) => s.wallId === wallId && Math.abs(s.t - t) * (wallById(room, wallId)?.lengthPx ?? 0) <= 1);
+
+  for (const other of rooms) {
+    if (other.id === room.id || roomLevel(other) !== level) continue;
+    for (const theirs of wallsOf(other)) {
+      if (theirs.lengthPx <= 0) continue;
+      for (const mine of ownWalls) {
+        if (mine.lengthPx <= 0 || !alongOneLine(mine, theirs)) continue;
+        for (const symbol of other.symbols) {
+          if (symbol.wallId !== theirs.id || (symbol.type !== "door" && symbol.type !== "window")) continue;
+          const at = pointOnWall(theirs, symbolCentrePx(symbol, other) / theirs.lengthPx);
+          const u = ((at.x - mine.x1) * (mine.x2 - mine.x1) + (at.y - mine.y1) * (mine.y2 - mine.y1)) / mine.lengthPx;
+          const half = symbolWidthPx(symbol, other) / 2;
+          if (u - half < -1 || u + half > mine.lengthPx + 1) continue; // not wholly on this wall
+          const t = u / mine.lengthPx;
+          if (has(mine.id, t)) continue;
+          const placed = { id: newSketchId(symbol.type), wallId: mine.id, t };
+          added.push(symbol.type === "door" ? { ...symbol, ...placed, doorType: "opening" } : { ...symbol, ...placed });
+        }
+      }
+    }
+  }
+  return added.length > 0 ? { ...room, symbols: [...room.symbols, ...added] } : room;
+}
+
+/** Do two walls lie along one line, overlapping — a shared wall, or a shared stretch of one? */
+function alongOneLine(a: WallGeometry, b: WallGeometry): boolean {
+  const off = (p: { x: number; y: number }, w: WallGeometry) => Math.abs((w.x2 - w.x1) * (w.y1 - p.y) - (w.x1 - p.x) * (w.y2 - w.y1)) / w.lengthPx;
+  if (off({ x: b.x1, y: b.y1 }, a) > 1.5 || off({ x: b.x2, y: b.y2 }, a) > 1.5) return false;
+  const along = (p: { x: number; y: number }) => ((p.x - a.x1) * (a.x2 - a.x1) + (p.y - a.y1) * (a.y2 - a.y1)) / a.lengthPx;
+  const lo = Math.min(along({ x: b.x1, y: b.y1 }), along({ x: b.x2, y: b.y2 }));
+  const hi = Math.max(along({ x: b.x1, y: b.y1 }), along({ x: b.x2, y: b.y2 }));
+  return Math.min(hi, a.lengthPx) - Math.max(lo, 0) > 1;
+}
+
+/**
+ * Does any wall of the room cross an obstacle — meet it at a point inside both, rather than
+ * touching it at an end or lying along it? Sharing a wall is how rooms sit together; crossing one
+ * is a drawing of something that cannot be built.
+ */
+export function crossesAny(room: SketchRoom, obstacles: Obstacle[]): boolean {
+  return wallsOf(room).some((w) => obstacles.some((o) => properlyCross(w.x1, w.y1, w.x2, w.y2, o.x1, o.y1, o.x2, o.y2)));
+}
+
+function properlyCross(ax: number, ay: number, bx: number, by: number, cx: number, cy: number, dx: number, dy: number): boolean {
+  const d = (bx - ax) * (dy - cy) - (by - ay) * (dx - cx);
+  if (Math.abs(d) < 1e-9) return false; // parallel or along one line: never a crossing
+  const t = ((cx - ax) * (dy - cy) - (cy - ay) * (dx - cx)) / d;
+  const s = ((cx - ax) * (by - ay) - (cy - ay) * (bx - ax)) / d;
+  const eps = 1e-6;
+  return t > eps && t < 1 - eps && s > eps && s < 1 - eps;
+}
+
+/**
+ * A wall dragged outward that would run into other walls follows them instead — see
+ * `extrudeWall`. A drag whose band meets nothing is the ordinary `dragWall`, which keeps the room's
+ * own angles; only a drag that would reach a wall is reshaped, and then the walls in the way become
+ * the room's side. Decided by what stands in the band, not by whether the moved walls cross
+ * anything: a room dragged clean over a neighbour that lines up with it crosses no wall of it at
+ * all. Inward drags never meet anything that is not already inside the room.
+ *
+ * Worked from the wall as it was when the drag began (`room` is that room) and the whole travel so
+ * far, not frame by frame: the shape the band takes depends on how far out it goes, and a band
+ * grown a few pixels at a time from a reshaped room would compound.
+ *
+ * The doors and windows in the dragged wall move out with it, onto whichever piece of the new
+ * side lies where they were along the wall — and the doors in the walls the room came to lie along
+ * come in as openings (`inheritOpenings`, given `rooms`), as they do for a pulled room.
+ */
+export function conformedDragWall(room: SketchRoom, wallId: string, dx: number, dy: number, obstacles: Obstacle[], rooms: SketchRoom[] = []): SketchRoom {
+  const wall = wallById(room, wallId);
+  if (!wall) return room;
+  const n = outwardNormal(wall);
+  const depth = dx * n.x + dy * n.y;
+  if (depth <= 0) return dragWall(room, wallId, dx, dy);
+  const band = extrudeWall(wall, depth, obstacles);
+  if (!band) return room;
+  if (!band.limited) return dragWall(room, wallId, dx, dy);
+  const path = band.far;
+  if (path.length < 2) return room;
+  const count = room.vertices.length;
+  const index = room.vertices.findIndex((v) => v.id === wallId);
+  const start = room.vertices[index];
+  const end = room.vertices[(index + 1) % count];
+  const before = room.vertices[(index - 1 + count) % count];
+  if (!start || !end || !before) return room;
+
+  // The far side's corners between the wall's own two. Where the band runs straight on from the
+  // start corner — the wall before it and the new side lie along one line — that corner is no
+  // corner any more: it moves up to the first turn instead of a new corner going there, keeping
+  // its id, because that id is the wall's, and the wall must stay itself for the whole drag (the
+  // grip being dragged is that wall's; lose the id and the drag stops dead a frame in).
+  let inner = path.slice(1, -1).map((p) => ({ id: newSketchId("v"), x: p.x, y: p.y }));
+  let startCorner = start;
+  const firstTurn = inner[0];
+  const startFlat = firstTurn !== undefined && flat(before, start, firstTurn);
+  if (startFlat) {
+    startCorner = { ...start, x: firstTurn.x, y: firstTurn.y };
+    inner = inner.slice(1);
+  }
+  const vertices = [...room.vertices.slice(0, index), startCorner, ...inner, ...room.vertices.slice(index + 1)];
+  const reshaped: SketchRoom = { ...room, vertices };
+
+  // Symbols on the old wall land on the piece of the new side that lies at their place along it.
+  // With the start corner moved up, the wall before it now covers the first stretch of the side.
+  const along = (p: { x: number; y: number }) => ((p.x - wall.x1) * (wall.x2 - wall.x1) + (p.y - wall.y1) * (wall.y2 - wall.y1)) / wall.lengthPx;
+  const newWalls = wallsOf(reshaped);
+  const onNewSide = (id: string) => id === start.id || inner.some((v) => v.id === id) || (startFlat && id === before.id);
+  const symbols = room.symbols.map((symbol) => {
+    if (symbol.wallId !== wallId) return symbol;
+    const u = symbol.t * wall.lengthPx;
+    const host = newWalls.find((w) => {
+      const a = along({ x: w.x1, y: w.y1 });
+      const b = along({ x: w.x2, y: w.y2 });
+      return Math.abs(b - a) > EXTRUDE_EPS && u >= Math.min(a, b) - EXTRUDE_EPS && u <= Math.max(a, b) + EXTRUDE_EPS && onNewSide(w.id);
+    });
+    if (!host) return symbol;
+    const a = along({ x: host.x1, y: host.y1 });
+    const b = along({ x: host.x2, y: host.y2 });
+    return { ...symbol, wallId: host.id, t: Math.min(1, Math.max(0, (u - a) / (b - a))) };
   });
-  return room;
+  // The end corner stays where it was, so where the band comes back to it straight along the next
+  // wall it lies flat on that wall and goes (`removeVertex` carries the symbols across). Nothing
+  // else of the room is touched: a break left elsewhere on it is pruned when the room is left, as
+  // it always was, not by dragging some other wall.
+  const withSymbols: SketchRoom = { ...reshaped, symbols };
+  const tail = inner[inner.length - 1] ?? startCorner;
+  const after = room.vertices[(index + 2) % count];
+  const tidy = after && flat(tail, end, after) ? removeVertex(withSymbols, end.id) : withSymbols;
+  return inheritOpenings(tidy, rooms);
+}
+
+/** Whether `b` lies flat on the line from `a` to `c` — no corner there, within half a degree. */
+function flat(a: { x: number; y: number }, b: { x: number; y: number }, c: { x: number; y: number }): boolean {
+  const ux = b.x - a.x;
+  const uy = b.y - a.y;
+  const vx = c.x - b.x;
+  const vy = c.y - b.y;
+  const lengths = Math.hypot(ux, uy) * Math.hypot(vx, vy);
+  return lengths > 0 && Math.abs(ux * vy - uy * vx) / lengths < 0.01;
 }
 
 /**
