@@ -438,12 +438,9 @@ function properlyCross(ax: number, ay: number, bx: number, by: number, cx: numbe
 export function conformedDragWall(room: SketchRoom, wallId: string, dx: number, dy: number, obstacles: Obstacle[]): SketchRoom {
   const wall = wallById(room, wallId);
   if (!wall) return room;
-  const n = outwardNormal(wall);
-  const depth = dx * n.x + dy * n.y;
-  if (depth <= 0) return dragWall(room, wallId, dx, dy);
-  const band = extrudeWall(wall, depth, obstacles);
-  if (!band) return room;
-  if (!band.limited) return dragWall(room, wallId, dx, dy);
+  const band = wallDragBand(wall, dx, dy, obstacles);
+  if (band === "plain") return dragWall(room, wallId, dx, dy);
+  if (band === null) return room;
   const path = band.far;
   if (path.length < 2) return room;
   const count = room.vertices.length;
@@ -503,6 +500,35 @@ export function conformedDragWall(room: SketchRoom, wallId: string, dx: number, 
   const tail = inner[inner.length - 1] ?? startCorner;
   const after = room.vertices[(index + 2) % count];
   return after && flat(tail, end, after) ? removeVertex(withSymbols, end.id) : withSymbols;
+}
+
+/**
+ * What a wall drag of `dx, dy` meets: "plain" when nothing is in the band (an inward drag, or an
+ * outward one that reaches no wall) and the ordinary `dragWall` applies; the band when a wall in
+ * the way shapes the new side; null when there is no room to move into at all.
+ */
+function wallDragBand(wall: WallGeometry, dx: number, dy: number, obstacles: Obstacle[]): ReturnType<typeof extrudeWall> | "plain" {
+  const n = outwardNormal(wall);
+  const depth = dx * n.x + dy * n.y;
+  if (depth <= 0) return "plain";
+  const band = extrudeWall(wall, depth, obstacles);
+  if (!band) return null;
+  return band.limited ? band : "plain";
+}
+
+/**
+ * Does this drag run into a wall and get reshaped by it — see `conformedDragWall`? The editor asks
+ * at the end of a drag: a wall placed by the walls in its way is left exactly there, and not then
+ * snapped to the room's own corners. Snapping is for a wall the PM put down freehand, and after a
+ * reshape the id the drag began with names the first piece of the new side — the sliver along the
+ * angled wall, in the report — whose "snap" moved that sliver off the wall it followed and pulled
+ * the top wall up askew with it.
+ */
+export function wallDragMeetsWall(room: SketchRoom, wallId: string, dx: number, dy: number, obstacles: Obstacle[]): boolean {
+  const wall = wallById(room, wallId);
+  if (!wall) return false;
+  const band = wallDragBand(wall, dx, dy, obstacles);
+  return band !== "plain" && band !== null;
 }
 
 /** Whether `b` lies flat on the line from `a` to `c` — no corner there, within half a degree. */

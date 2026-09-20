@@ -11,6 +11,7 @@ import { run as runEditorState } from "./editorState";
 import { run as runScopePicker } from "./scopePicker";
 import { run as runExportAndShortcuts } from "./exportAndShortcuts";
 import { renderShowcase, run as runMoistureGestures } from "./moistureGestures";
+import { run as runWallDragSnap } from "./wallDragSnap";
 
 interface SuiteResult {
   passed: number;
@@ -30,6 +31,7 @@ const SUITES: [string, () => Promise<SuiteResult>][] = [
   ["Editor state", runEditorState],
   ["Add from sketch", runScopePicker],
   ["Shortcuts and export", runExportAndShortcuts],
+  ["Wall drag into a wall", runWallDragSnap],
 ];
 
 async function main() {

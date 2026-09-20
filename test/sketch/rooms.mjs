@@ -797,6 +797,31 @@ export async function runRoomChecks() {
     assert(p.x >= 190 + 15 - 0.01 && p.x <= 240 - 15 + 0.01 && Math.abs(p.y - 100) < 0.01, `wholly on it: ${JSON.stringify(p)}`);
   });
 
+  test("the report: a wall widened a hair into an angled wall is not then snapped askew", () => {
+    // A room pulled down off a horizontal wall, 7'2" wide, its right wall at the corner where the
+    // neighbour's angled wall (4'3", with a door) sets off down and right. The right grip pulled 7px:
+    // the side follows the angled wall for 10" then drops straight. The editor used to snap the
+    // dragged wall to the room's own corners on release — by the wall's id, which after the reshape
+    // names that 10" sliver — and the "snap" shoved the sliver off the angled wall and the top
+    // wall up askew with it, over the door.
+    const pulled = box(85, 60, 173, 245, { id: "p" });
+    const right = s.wallsOf(pulled)[1]; // (258,60) -> (258,305)
+    const angled = [seg(258, 60, 320, 130)];
+    const moved = s.conformedDragWall(pulled, right.id, 7, 0, angled);
+    const top = s.wallsOf(moved)[0];
+    near(top.y1, 60, "the top wall's left end is where it was");
+    near(top.y2, 60, "and so is its right: level");
+    const sliver = s.wallById(moved, right.id);
+    near(sliver.lengthPx, Math.hypot(7, 7 * (70 / 62)), "the id now names the sliver along the angled wall");
+    assert(s.wallDragMeetsWall(pulled, right.id, 7, 0, angled), "so the editor must not snap it");
+    assert(!s.wallDragMeetsWall(pulled, right.id, 7, 0, []), "a freehand drag is snapped as before");
+    assert(!s.wallDragMeetsWall(pulled, right.id, -7, 0, angled), "and so is an inward one");
+    // What the snap did to it, for the record: the sliver slid 7px off the wall it was following.
+    const snapped = s.snapWallToNeighbours(moved, right.id);
+    const skewed = s.wallsOf(snapped)[0];
+    assert(Math.abs(skewed.y2 - skewed.y1) > 5, `snapping the sliver skews the top wall: ${skewed.y1} -> ${skewed.y2}`);
+  });
+
   test("flat is judged to the half degree, as corners are — a wall drawn a hair off the line is still one line", () => {
     // Same room; the angled wall's far end is a fiftieth of a pixel off the true diagonal, as any
     // wall traced by hand will be. The corner at (300,60) still lies flat on it.

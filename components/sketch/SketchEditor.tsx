@@ -88,7 +88,7 @@ import {
   withFreeWallSegmentLength,
 } from "@/lib/sketchWalls";
 import { FreeCabinetPanel, SymbolPanel } from "./SymbolPanel";
-import { type Obstacle, conformedDragWall, obstaclesFor, placeNewRoom, pullRoomFromWall, viewCentredOn } from "@/lib/roomPlacement";
+import { type Obstacle, conformedDragWall, obstaclesFor, placeNewRoom, pullRoomFromWall, viewCentredOn, wallDragMeetsWall } from "@/lib/roomPlacement";
 import { QuantitiesPanel } from "./QuantitiesPanel";
 import { type QuantityOptions, DEFAULT_QUANTITY_OPTIONS } from "@/lib/sketchQuantities";
 import type { MoistureTool, ToolMode } from "./SketchCanvas";
@@ -828,7 +828,7 @@ export function SketchEditor({
    * to follow it (`conformedDragWall`) — a shape that depends on how far out the wall has gone,
    * which frame-by-frame steps from an already reshaped room would compound.
    */
-  const wallDrag = useRef<{ roomId: string; wallId: string; room: SketchRoom; obstacles: Obstacle[]; dx: number; dy: number } | null>(null);
+  const wallDrag = useRef<{ roomId: string; wallId: string; room: SketchRoom; obstacles: Obstacle[]; dx: number; dy: number; reshaped: boolean } | null>(null);
   function handleDragWall(roomId: string, wallId: string, dx: number, dy: number) {
     const current = wallDrag.current;
     if (!current || current.roomId !== roomId || current.wallId !== wallId) {
@@ -837,11 +837,12 @@ export function SketchEditor({
       // What stands in the way is fixed at the start too: read frame by frame, a closet flush
       // inside the room stopped being "inside" the moment one frame went inward, and from then on
       // stood in the way of every frame outward.
-      wallDrag.current = { roomId, wallId, room, obstacles: obstaclesFor(sketch, activeLevel, { roomId }), dx: 0, dy: 0 };
+      wallDrag.current = { roomId, wallId, room, obstacles: obstaclesFor(sketch, activeLevel, { roomId }), dx: 0, dy: 0, reshaped: false };
     }
-    const drag = wallDrag.current as { roomId: string; wallId: string; room: SketchRoom; obstacles: Obstacle[]; dx: number; dy: number };
+    const drag = wallDrag.current as { roomId: string; wallId: string; room: SketchRoom; obstacles: Obstacle[]; dx: number; dy: number; reshaped: boolean };
     drag.dx += dx;
     drag.dy += dy;
+    drag.reshaped = wallDragMeetsWall(drag.room, wallId, drag.dx, drag.dy, drag.obstacles);
     const reshaped = conformedDragWall(drag.room, wallId, drag.dx, drag.dy, drag.obstacles);
     updateRoom(roomId, () => reshaped);
   }
@@ -1667,8 +1668,11 @@ export function SketchEditor({
           }}
           onDragWall={handleDragWall}
           onDragWallEnd={(roomId, wallId) => {
+            // A wall placed by the walls it ran into stays put; only a freehand wall is snapped to
+            // the room's own corners — see `wallDragMeetsWall`.
+            const reshaped = wallDrag.current?.reshaped ?? false;
             wallDrag.current = null;
-            updateRoom(roomId, (room) => snapWallToNeighbours(room, wallId));
+            if (!reshaped) updateRoom(roomId, (room) => snapWallToNeighbours(room, wallId));
           }}
           onMoveVertex={(roomId, vertexId, x, y) => updateRoom(roomId, (room) => moveVertex(room, vertexId, x, y))}
           onRemoveVertex={(roomId, vertexId) => updateRoom(roomId, (room) => removeVertex(room, vertexId))}
