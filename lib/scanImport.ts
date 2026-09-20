@@ -24,6 +24,28 @@
  * against the outline's edges as `outline_openings`, and an empty `walls`. The two-walls-per-axis
  * rule is the rectangle's rule; a file that brings its own polygon does not need it.
  *
+ * Since 2026-09-19 (the big basement room: fifteen corners, a hall partition, a stair, and the
+ * bookcase corner five feet off) a taps file can carry three more things, each of which the sketch
+ * already had a home for and the phone had no way to give it:
+ *
+ *  - A PARTITION END. A thin wall — the hall wall, 4½" thick — that runs into the room and stops
+ *    has two corners inches apart, and the phone's same-corner rule would fold them into one. The
+ *    phone now writes the end as TWO consecutive outline vertices, the tapped face and the far face
+ *    across the wall's thickness, and the importer keeps both: the rule that collapses a repeated
+ *    vertex is a micron wide, so a 0.115 m edge (4½ px at one pixel an inch) comes through as the
+ *    real wall it is. The editor's `MIN_WALL_PX` is a rule about DRAGGING — a wall may not be driven
+ *    below it, and a wall already below it may not be shortened further — and says nothing about a
+ *    wall that arrives short; see `collapsesAWall`. Nothing was relaxed to let the partition in.
+ *  - CABINETS, laid on the outline's edges the way openings are (`cabinets`), each with its tier.
+ *    The room's polygon runs along the wall BEHIND the cabinet, and the cabinet becomes the wall
+ *    symbol the sketch draws by hand: `CabinetSymbol`, with the phone's depth or the tier's default.
+ *  - STAIRS (`stairs`). The sketch draws a flight as a room of its own (see `StairsData`), so each
+ *    entry becomes an extra `SketchRoom` beside the imported one — the rectangle the four taps
+ *    describe, in the same frame, with the direction of travel read off them — and the editor adds
+ *    it in the same update, where `withDerivedParents` nests it in the room it stands in. The taps
+ *    are squared, not traced, and a side that lands within an inch or three of one of the room's
+ *    walls is put flush on it; the stairs loop in `scanToSketchRoom` says why both.
+ *
  * The scanner speaks metres in its own room-aligned frame (U along one pair of walls, V along the
  * other); the sketch is world pixels at `PIXELS_PER_FOOT`, y down, clockwise. The room's own
  * corner becomes the top-left of wherever the editor chooses to put it. Orientation on the page is
@@ -40,6 +62,13 @@
  *       { "edge": 3, "from_m": 0.0, "width_m": 1.295, "kind": "door",
  *         "sill_m": null, "head_m": null }
  *     ],
+ *     "cabinets": [                        // optional; runs of cabinets against the outline's edges
+ *       { "edge": 2, "from_m": 1.0, "width_m": 1.8, "tier": "base", "depth_m": 0.61 }
+ *     ],
+ *     "stairs": [                          // optional; flights, four tapped corners each
+ *       { "corners": [[u, v], [u, v], [u, v], [u, v]], "run_m": 3.0, "width_m": 0.9,
+ *         "direction": "up" }
+ *     ],
  *     "walls": [
  *       { "axis": "across", "offset_m": -0.27, "span_from_m": -1.34, "span_to_m": 2.71,
  *         "openings": [ { "kind": "door", "from_m": 1.4, "width_m": 1.2 } ] },
@@ -55,8 +84,30 @@
  * `head_m` are heights off the floor and, for a window, become its sill and its height when they
  * are at least 0.3 m apart (closer than that is two taps at the same height, and the defaults are
  * used). An opening of zero or negative `width_m` — the same jamb tapped twice — is dropped.
+ *
+ * A cabinet's `edge`, `from_m` and `width_m` mean what an opening's do; `tier` is one of the
+ * sketch's three (`base`, `wall`, `full`) and `depth_m` is how far it stands off the wall (the phone
+ * writes 0.61 for a base or full-height run and 0.305 for uppers; missing, the tier's default is
+ * used). A stairs entry's `corners` are the four taps in the OUTLINE's frame, in tap order — bottom
+ * riser left end, bottom riser right end, top riser right end, top riser left end — so the bottom
+ * riser is corners 0–1 and the top riser 2–3, and the direction of travel is from the one to the
+ * other. `run_m` and `width_m` are the phone's own tally of the same four points — run the mean of
+ * |s1-s4| and |s2-s3|, width the mean of |s1-s2| and |s3-s4| — and the importer works the same two
+ * numbers out of the corners itself rather than reading them, so the flight it draws agrees with
+ * the phone's tally by construction and a file whose tally disagrees with its corners cannot say
+ * two things. `direction` is "up" when the flight rises away from the bottom riser, which is every
+ * flight tapped from the room it starts in. A malformed cabinet or stairs entry is skipped with a
+ * note, never fatal.
+ *
+ * `outline_notes` are the phone's own sentences about what it could not place — "Cabinet 2 sits
+ * 1.95 m (6'5") off every wall – unplaced" — and for a taps file they are passed to the PM word for
+ * word, because a run that was tapped and is not on the sketch is exactly what the notice exists
+ * to say. The lap fitter writes the same field with its own diagnostics (where it found a notch's
+ * step, a chamfer's legs), which are not for the PM and are not passed on; the corner-count note
+ * covers the lap.
+ *
  * Anything else in the file is ignored, so the analysis script's extra fields (feet-and-inches
- * strings, coverage) and the phone's raw `taps` do no harm.
+ * strings, coverage), the phone's raw `taps` and its `outline_tapped` flags do no harm.
  *
  * Only what the scanner is sure of is imported. A gap it could not classify — an unscanned corner,
  * a stretch hidden behind a desk — is left as wall, because a wrong door on the sketch costs more to
@@ -64,26 +115,45 @@
  */
 
 import {
+  type CabinetSymbol,
+  type CabinetTier,
   type DoorSymbol,
   type SketchRoom,
   type SketchSymbol,
+  type StairsData,
   type Vertex,
   type WallGeometry,
   type WindowSymbol,
+  CABINET_DEFAULT_DEPTH_FEET,
+  CABINET_DEFAULT_HEIGHT_FEET,
   DEFAULT_CEILING_HEIGHT_FEET,
   DEFAULT_DOOR_HEIGHT_FEET,
   DEFAULT_WINDOW_HEIGHT_FEET,
   DEFAULT_WINDOW_SILL_FEET,
   PIXELS_PER_FOOT,
+  STAIRS_DEFAULT,
   ensureClockwise,
   isDegenerate,
   moveSymbolAlongWall,
   newSketchId,
+  rectangleVertices,
   wallsOf,
 } from "./sketch";
 
 const FEET_PER_METRE = 1 / 0.3048;
 const PX_PER_METRE = PIXELS_PER_FOOT * FEET_PER_METRE;
+
+/**
+ * How near a side of a tapped flight has to come to one of the room's walls to be put flush on it,
+ * in pixels — inches, at this scale. Three is the phone's tap noise: a corner lands within an inch
+ * or three of the tape. It is also half the sketch's own `SAME_WALL_TOLERANCE_PX` (lib/sketch.ts),
+ * inside which a sub-room's wall already counts as lying on its parent's, so nothing that snaps
+ * here was ever going to be read as a wall of its own.
+ */
+const STAIR_FLUSH_PX = 3;
+
+/** A position in world pixels — a tap once it is in the sketch's frame, before it is a vertex. */
+type Point = { x: number; y: number };
 
 export interface ScanOpening {
   kind: string;
@@ -109,6 +179,31 @@ export interface ScanOutlineOpening {
   head_m: number | null;
 }
 
+/**
+ * A run of cabinets tapped against the outline: on edge `edge`, `from_m` along it from the edge's
+ * start, `width_m` wide — the same three numbers an opening has, because the phone places both the
+ * same way (the nearest edge to the two taps). The tier is the phone's chip; the depth is the tier's
+ * standard as the phone writes it, or null when it did not, and then the sketch's own default.
+ */
+export interface ScanCabinet {
+  edge: number;
+  from_m: number;
+  width_m: number;
+  tier: CabinetTier;
+  depth_m: number | null;
+}
+
+/**
+ * A flight of stairs as four tapped corners in the outline's frame, in tap order: bottom riser
+ * left end, bottom riser right end, top riser right end, top riser left end. The phone's `run_m`
+ * and `width_m` are not kept — the builder works the same two numbers out of these corners, by
+ * the phone's own definition, and a second copy of the same number would only ever disagree.
+ */
+export interface ScanStairs {
+  corners: [[number, number], [number, number], [number, number], [number, number]];
+  direction: "up" | "down";
+}
+
 export interface ScanRoom {
   format?: string;
   name?: string;
@@ -119,12 +214,24 @@ export interface ScanRoom {
   outline?: [number, number][];
   /** Openings placed on the outline's edges, which is how tap-to-measure reports them. */
   outline_openings: ScanOutlineOpening[];
+  /** Cabinet runs placed on the outline's edges the same way. Empty for a lap scan. */
+  cabinets: ScanCabinet[];
+  /** Flights of stairs tapped in the room, each becoming a room of its own. Empty for a lap scan. */
+  stairs: ScanStairs[];
 }
 
 export type ScanImportResult =
   | {
       ok: true;
       room: SketchRoom;
+      /**
+       * Rooms that came in alongside the main one — today, one per flight of stairs the phone
+       * tapped, since the sketch draws a flight as a room (`StairsData`). Built in the same frame
+       * as `room`, so they land where they were tapped relative to it; the editor adds them in the
+       * same update as the room, and `withDerivedParents` nests each in the room it stands in.
+       * Empty when the file has no stairs, which is every lap scan.
+       */
+      extraRooms: SketchRoom[];
       notes: string[];
       /**
        * The doors that were tapped as "closet_door", in wall order. They come in as ordinary swing
@@ -146,13 +253,23 @@ function isFiniteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
 }
 
+function isCabinetTier(value: unknown): value is CabinetTier {
+  return value === "base" || value === "wall" || value === "full";
+}
+
 /**
  * Checks the shape of a parsed file. Hand-rolled rather than a schema library because the shape is
- * six fields and the messages have to say which of them is wrong in words a PM can act on.
+ * eight fields and the messages have to say which of them is wrong in words a PM can act on.
+ *
+ * `notes` is what the parser had to leave out that the PM should hear about: a cabinet or a flight
+ * of stairs written wrongly is skipped rather than failing the import — the room is still a room
+ * without it — but a skipped one is a tap the PM made and will look for on the sketch, so unlike a
+ * malformed opening (dropped silently, as it always was) it is counted and said.
  */
-export function parseScanRoom(input: unknown): { ok: true; scan: ScanRoom } | { ok: false; error: string } {
+export function parseScanRoom(input: unknown): { ok: true; scan: ScanRoom; notes: string[] } | { ok: false; error: string } {
   if (typeof input !== "object" || input === null) return { ok: false, error: "This file is not a room scan." };
   const raw = input as Record<string, unknown>;
+  const notes: string[] = [];
 
   // The outline is optional and, when malformed, ignored rather than fatal: the rectangle the
   // walls describe is still a usable room, and a bad polygon must not stop the import. Three
@@ -245,6 +362,79 @@ export function parseScanRoom(input: unknown): { ok: true; scan: ScanRoom } | { 
     }
   }
 
+  // Cabinets are checked like outline openings — edge, from, width — plus a tier the sketch knows.
+  // A cabinet of no width is the same jamb tapped twice, as for an opening. A tier the sketch does
+  // not have is a phone this importer has not met, and the cabinet is skipped rather than guessed
+  // at: a base run drawn where a wall run was tapped deducts the wrong wall. The depth is kept when
+  // it is a sensible number and left to the tier's default otherwise.
+  const cabinets: ScanCabinet[] = [];
+  let badCabinets = 0;
+  if (Array.isArray(raw.cabinets)) {
+    for (const c of raw.cabinets) {
+      if (typeof c !== "object" || c === null) {
+        badCabinets += 1;
+        continue;
+      }
+      const cab = c as Record<string, unknown>;
+      if (!isFiniteNumber(cab.edge) || !isFiniteNumber(cab.from_m) || !isFiniteNumber(cab.width_m) || cab.width_m <= 0 || !isCabinetTier(cab.tier)) {
+        badCabinets += 1;
+        continue;
+      }
+      cabinets.push({
+        edge: Math.trunc(cab.edge),
+        from_m: cab.from_m,
+        width_m: cab.width_m,
+        tier: cab.tier,
+        depth_m: isFiniteNumber(cab.depth_m) && cab.depth_m > 0 ? cab.depth_m : null,
+      });
+    }
+  }
+  if (badCabinets > 0) notes.push(`${badCabinets} cabinet${badCabinets === 1 ? "" : "s"} in the file could not be read; skipped.`);
+
+  // A flight needs its four corners, each a finite (u, v); anything else about it is optional. The
+  // direction defaults to "up" because a flight is tapped from the room it starts in, and from
+  // there it can only go up — the phone writes "up" for the same reason.
+  const stairs: ScanStairs[] = [];
+  let badStairs = 0;
+  if (Array.isArray(raw.stairs)) {
+    for (const s of raw.stairs) {
+      if (typeof s !== "object" || s === null) {
+        badStairs += 1;
+        continue;
+      }
+      const flight = s as Record<string, unknown>;
+      const corners = Array.isArray(flight.corners) ? flight.corners : [];
+      const wellFormed =
+        corners.length === 4 && corners.every((p) => Array.isArray(p) && p.length >= 2 && isFiniteNumber(p[0]) && isFiniteNumber(p[1]));
+      if (!wellFormed) {
+        badStairs += 1;
+        continue;
+      }
+      // Checked just above; this only copies the two numbers out of whatever else the point carries.
+      const point = (p: unknown): [number, number] => {
+        const q = p as [number, number];
+        return [q[0], q[1]];
+      };
+      stairs.push({
+        corners: [point(corners[0]), point(corners[1]), point(corners[2]), point(corners[3])],
+        direction: flight.direction === "down" ? "down" : "up",
+      });
+    }
+  }
+  if (badStairs > 0) notes.push(`${badStairs} flight${badStairs === 1 ? "" : "s"} of stairs in the file could not be read; skipped.`);
+
+  // The phone's own word on the taps it could not place, passed on as written — see the header.
+  // A taps file only: the lap fitter's notes in the same field are its diagnostics, not the PM's.
+  // Said before the importer's own faults with the file, so the notice reads phone first, then
+  // what this side could not read.
+  if (raw.source === "taps" && Array.isArray(raw.outline_notes)) {
+    const said: string[] = [];
+    for (const n of raw.outline_notes) {
+      if (typeof n === "string" && n.trim() !== "") said.push(n.trim());
+    }
+    notes.unshift(...said);
+  }
+
   return {
     ok: true,
     scan: {
@@ -255,7 +445,10 @@ export function parseScanRoom(input: unknown): { ok: true; scan: ScanRoom } | { 
       walls,
       outline,
       outline_openings: outlineOpenings,
+      cabinets,
+      stairs,
     },
+    notes,
   };
 }
 
@@ -507,6 +700,179 @@ export function scanToSketchRoom(scan: ScanRoom, at: { x: number; y: number }, l
     place(kind, placed, opening.width_m, { sill_m: opening.sill_m, head_m: opening.head_m });
   }
 
+  /**
+   * A cabinet run is placed exactly as an opening is — its edge, its centre along it — and becomes
+   * the same `CabinetSymbol` the editor's cabinet tool makes (`newSymbol`), with the phone's tier
+   * and depth in place of the tool's defaults. The height is the tier's standard: the phone
+   * measures nothing above the counter, and the height only feeds the wall deduction.
+   *
+   * `moveSymbolAlongWall` gives it the clamp every hand-placed symbol gets, plus the block snap: a
+   * run whose end lands within a few inches of the corner is pulled flush, which is where a real
+   * run of cabinets is and where a tap aimed at the corner meant to be.
+   */
+  let cabinetsOff = 0;
+  for (const cabinet of scan.cabinets) {
+    const placed = outlineEdge(cabinet.edge, cabinet.from_m + cabinet.width_m / 2);
+    if (placed === null) {
+      cabinetsOff += 1;
+      continue;
+    }
+    const widthFeet = toFeetInches(cabinet.width_m);
+    const symbol: CabinetSymbol = {
+      id: newSketchId("cabinet"),
+      type: "cabinet",
+      wallId: placed.wall.id,
+      t: placed.t,
+      widthFraction: (widthFeet * PIXELS_PER_FOOT) / placed.wall.lengthPx,
+      widthFeet,
+      label: "Cabinet",
+      tier: cabinet.tier,
+      depthFeet: cabinet.depth_m !== null ? toFeetInches(cabinet.depth_m) : CABINET_DEFAULT_DEPTH_FEET[cabinet.tier],
+      heightFeet: CABINET_DEFAULT_HEIGHT_FEET[cabinet.tier],
+    };
+    symbols.push(moveSymbolAlongWall(symbol, room, placed.t * placed.wall.lengthPx));
+  }
+
+  /**
+   * Each flight becomes a stair room (`newStairRoom` is the hand-drawn equivalent): the rectangle
+   * the four taps describe, put through the SAME transform as the room's own outline — same
+   * origin, same scale — so the flight lands in the room where it was tapped, and the editor's
+   * `withDerivedParents` finds it inside the room and nests it there.
+   *
+   * The direction of travel is read from the taps, not assumed: bottom riser (corners 0–1) to top
+   * riser (corners 2–3), snapped to the four the sketch draws. The risers are named by tap order,
+   * so it is read before anything reorders the corners. The rise is left null — the standard
+   * storey — since the phone did not measure the floor above; the ceiling at the foot of the flight
+   * is this room's, which is what `stairCeiling` takes as its low point.
+   *
+   * SQUARED, not traced. Everything the sketch knows about a flight assumes an axis-aligned
+   * rectangle: `stairFlight` reads run and width off the bounding box, `StairsOverlay` draws the
+   * treads across it, `rotateStairs` turns it about its centre, and `moveVertex` keeps a four-corner
+   * room square only while each corner shares an x and a y with its neighbours to half a pixel.
+   * Four taps never do. The first cut used the taps as the corners, and an inch of noise on one of
+   * them made a quadrilateral whose first drag turned it into a trapezoid, whose treads poked past
+   * its own walls, and whose width read an inch wider than its risers. So the taps are reduced to
+   * the phone's own two numbers — run, the mean of |s1-s4| and |s2-s3|; width, the mean of |s1-s2|
+   * and |s3-s4| — rounded to whole inches and laid along the direction of travel about the taps'
+   * centroid. The phone's tally and the sketch's flight then agree to the inch, the four taps are
+   * honoured in size and position, and a flight tapped askew to the room comes in square to it,
+   * which is the only way the sketch can draw one.
+   *
+   * FLUSH, when nearly so. A flight against a wall — the basement's runs on up beside the hall
+   * wall, and most do — is tapped against it, and the phone reads to an inch or three either way.
+   * Half an inch OUTSIDE the wall and `isRoomInside` (half a pixel of grace) says the flight is not
+   * in the room: it does not nest, it is left behind when the room is dragged into place, and its
+   * floor is not kept out of the room's. So a side of the rectangle within `STAIR_FLUSH_PX` of a
+   * wall of the room that runs the same way, and overlaps it, is put on that wall — from either
+   * side, so a flight the noise put an inch INSIDE goes flush too rather than drawing an inch of
+   * floor nobody can stand on. Further out than that is a flight that really leaves the room, out
+   * through a doorway, and it stays where it was tapped. Only walls running the same way count: a
+   * rectangle cannot sit flush against a chamfer, and the sketch's block snapping makes the same
+   * exception (`snapBlockToWalls`, which this follows).
+   *
+   * It follows it in the other respect too: the flight SLIDES to the nearest wall on each axis
+   * first, size unchanged, so a flight against one wall keeps the run and width the phone tallied
+   * and the PM taped. Then each side is brought flush on its own, so a flight between two walls —
+   * a stairwell — is flush to both at the stairwell's width, which is the truth of it; sliding
+   * alone would have left the far side the sum of both noises off, and outside if both were out.
+   *
+   * A flight whose taps enclose nothing — the same corner tapped twice, or two taps that landed on
+   * one riser — is not a room and is skipped with a note rather than drawn as a line.
+   */
+  const extraRooms: SketchRoom[] = [];
+  let flatFlights = 0;
+  /**
+   * The wall of the room a side of the flight should lie on, if one is within reach: parallel,
+   * overlapping the side's span, and within `STAIR_FLUSH_PX` of it. `vertical` says which way the
+   * side runs (a left or right side is vertical); `lo`..`hi` is its span the other way. Null when
+   * nothing qualifies — null, not the side's own position, because `slideBy` compares the two
+   * sides' shifts and "no wall" must lose to "a wall one pixel off", where a shift of zero would
+   * have won.
+   */
+  const flushTo = (position: number, vertical: boolean, lo: number, hi: number): number | null => {
+    let best: number | null = null;
+    let bestDistance = STAIR_FLUSH_PX + 1e-9;
+    for (const wall of walls) {
+      if (wall.lengthPx <= 0) continue;
+      if (vertical ? wall.x1 !== wall.x2 : wall.y1 !== wall.y2) continue;
+      const at = vertical ? wall.x1 : wall.y1;
+      const from = vertical ? Math.min(wall.y1, wall.y2) : Math.min(wall.x1, wall.x2);
+      const to = vertical ? Math.max(wall.y1, wall.y2) : Math.max(wall.x1, wall.x2);
+      if (Math.min(to, hi) <= Math.max(from, lo)) continue;
+      const distance = Math.abs(at - position);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        best = at;
+      }
+    }
+    return best;
+  };
+  /** How far the pair of sides on one axis slides to put whichever of them is nearer a wall on it. */
+  const slideBy = (near: number, far: number, vertical: boolean, lo: number, hi: number): number => {
+    const a = flushTo(near, vertical, lo, hi);
+    const b = flushTo(far, vertical, lo, hi);
+    const shiftA = a === null ? null : a - near;
+    const shiftB = b === null ? null : b - far;
+    if (shiftA === null) return shiftB ?? 0;
+    if (shiftB === null) return shiftA;
+    return Math.abs(shiftA) <= Math.abs(shiftB) ? shiftA : shiftB;
+  };
+  for (const flight of scan.stairs) {
+    // The taps in world pixels, unrounded: the rectangle is rounded once, when it is laid out.
+    const taps: Point[] = flight.corners.map((p) => ({
+      x: x + (p[0] - minU) * PX_PER_METRE,
+      y: y + (p[1] - minV) * PX_PER_METRE,
+    }));
+    const [s1, s2, s3, s4] = taps as [Point, Point, Point, Point];
+    const bottom = { x: (s1.x + s2.x) / 2, y: (s1.y + s2.y) / 2 };
+    const top = { x: (s3.x + s4.x) / 2, y: (s3.y + s4.y) / 2 };
+    const dx = top.x - bottom.x;
+    const dy = top.y - bottom.y;
+    const orientation: StairsData["orientation"] = Math.abs(dx) >= Math.abs(dy) ? (dx >= 0 ? 0 : 180) : dy >= 0 ? 90 : 270;
+
+    const runPx = Math.round((Math.hypot(s4.x - s1.x, s4.y - s1.y) + Math.hypot(s3.x - s2.x, s3.y - s2.y)) / 2);
+    const widthPx = Math.round((Math.hypot(s2.x - s1.x, s2.y - s1.y) + Math.hypot(s4.x - s3.x, s4.y - s3.y)) / 2);
+    const centre = { x: (s1.x + s2.x + s3.x + s4.x) / 4, y: (s1.y + s2.y + s3.y + s4.y) / 4 };
+    const acrossPage = orientation === 0 || orientation === 180;
+    const w = acrossPage ? runPx : widthPx;
+    const h = acrossPage ? widthPx : runPx;
+    let left = Math.round(centre.x - w / 2);
+    let right = left + w;
+    let above = Math.round(centre.y - h / 2);
+    let below = above + h;
+    // Slide to the nearest wall on each axis, then each side flush on its own — see above.
+    const shiftX = slideBy(left, right, true, above, below);
+    left += shiftX;
+    right += shiftX;
+    const shiftY = slideBy(above, below, false, left, right);
+    above += shiftY;
+    below += shiftY;
+    left = flushTo(left, true, above, below) ?? left;
+    right = flushTo(right, true, above, below) ?? right;
+    above = flushTo(above, false, left, right) ?? above;
+    below = flushTo(below, false, left, right) ?? below;
+
+    const stairVertices = ensureClockwise(rectangleVertices(left, above, right - left, below - above));
+    if (right <= left || below <= above || isDegenerate(stairVertices)) {
+      flatFlights += 1;
+      continue;
+    }
+    extraRooms.push({
+      id: newSketchId("room"),
+      name: "Stairs",
+      vertices: stairVertices,
+      ceilingHeightFeet: room.ceilingHeightFeet,
+      ceilingType: "sloped",
+      ceilingPeakFeet: null,
+      stairs: { orientation, direction: flight.direction, treadDepthFeet: STAIRS_DEFAULT.treadDepthFeet, riseFeet: null },
+      parentRoomId: null,
+      nestingOptOut: false,
+      symbols: [],
+      freeCabinets: [],
+      level,
+    });
+  }
+
   // A tapped room's corners were each put there on purpose, so the wall count is the news; a
   // lap's extra corners came from the fitter and are worth a second look.
   if (scan.source === "taps") {
@@ -524,6 +890,15 @@ export function scanToSketchRoom(scan: ScanRoom, at: { x: number; y: number }, l
   if (offOutline > 0) {
     notes.push(`${offOutline} opening${offOutline === 1 ? "" : "s"} named a wall the outline does not have; skipped.`);
   }
+  if (cabinetsOff > 0) {
+    notes.push(`${cabinetsOff} cabinet${cabinetsOff === 1 ? "" : "s"} named a wall the outline does not have; skipped.`);
+  }
+  if (extraRooms.length > 0) {
+    notes.push(`${extraRooms.length} flight${extraRooms.length === 1 ? "" : "s"} of stairs placed.`);
+  }
+  if (flatFlights > 0) {
+    notes.push(`${flatFlights} flight${flatFlights === 1 ? "" : "s"} of stairs had corners that enclose nothing; skipped.`);
+  }
 
   // In wall order — round the ring, then along each wall — rather than the order they were tapped
   // in, so the closets the editor offers to draw come out in the order a PM walks the room.
@@ -533,10 +908,13 @@ export function scanToSketchRoom(scan: ScanRoom, at: { x: number; y: number }, l
     .sort((a, b) => (wallIndex.get(a.wallId) ?? 0) - (wallIndex.get(b.wallId) ?? 0) || a.t - b.t)
     .map((s) => s.id);
 
-  return { ok: true, room: { ...room, symbols }, notes, closetDoorIds };
+  return { ok: true, room: { ...room, symbols }, extraRooms, notes, closetDoorIds };
 }
 
-/** File text in, sketch room out — the one call the editor makes. */
+/**
+ * File text in, sketch room out — the one call the editor makes. What the parser had to skip is
+ * said after what the builder had to, so the notice reads room first, then the file's faults.
+ */
 export function importScanRoom(text: string, at: { x: number; y: number }, level: number): ScanImportResult {
   let parsed: unknown;
   try {
@@ -546,5 +924,7 @@ export function importScanRoom(text: string, at: { x: number; y: number }, level
   }
   const checked = parseScanRoom(parsed);
   if (!checked.ok) return checked;
-  return scanToSketchRoom(checked.scan, at, level);
+  const built = scanToSketchRoom(checked.scan, at, level);
+  if (!built.ok) return built;
+  return { ...built, notes: [...built.notes, ...checked.notes] };
 }

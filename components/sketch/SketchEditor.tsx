@@ -970,6 +970,14 @@ export function SketchEditor({
    * room dragged into place first gets its closets where it now is, not where it landed. A door
    * the PM has meanwhile drawn a closet behind by hand (`closetExistsBehind`) is left alone: the
    * offer is "add the closets", not "add them again".
+   *
+   * Stairs are different: a flight the phone tapped comes in as a room of its own (`extraRooms`),
+   * and it is added WITH the room, in the same update, not offered. A closet is a guess at what is
+   * behind a door; a flight is four corners the PM stood at and tapped, in the same frame as the
+   * room's own, and it belongs on the sketch as surely as the room does. One update rather than
+   * two so `withDerivedParents` sees the flight and the room together and nests the one in the
+   * other at once, and the sketch never holds a flight without its room. Selection stays on the
+   * room: it is the one the PM will name and drag into place, and the flight follows as its child.
    */
   async function handleImportScan(file: File) {
     const text = await file.text();
@@ -980,7 +988,7 @@ export function SketchEditor({
       setImportNotice({ kind: "error", text: result.error });
       return;
     }
-    onChange((prev) => ({ ...prev, rooms: withDerivedParents([...prev.rooms, result.room]) }));
+    onChange((prev) => ({ ...prev, rooms: withDerivedParents([...prev.rooms, result.room, ...result.extraRooms]) }));
     setSelectedRoomId(result.room.id);
     setSelectedSymbolId(null);
     setTool("select");

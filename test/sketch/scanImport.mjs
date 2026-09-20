@@ -57,6 +57,12 @@ const officeScan16 = readFileSync(join(here, "fixtures", "scan-office-16.json"),
 // it in the far-right, and the 6'0" window with a 3'0" sill and a 7'0" head on the near wall.
 // No walls[] at all: the outline is the room and the openings are named against its edges.
 const officeTaps = readFileSync(join(here, "fixtures", "scan-taps-office.json"), "utf8");
+// Synthetic, to the 2026-09-19 contract: a 5 m x 4 m room with a hall partition jutting 1.5 m up
+// from the near wall (its end written as two corners 0.115 m apart — the tapped face and the far
+// face), a 1.8 m base cabinet run on the right wall (edge 2), a 3 m x 0.9 m flight tapped in the
+// room climbing up the page, and a door on the far wall. The ring starts at the bottom-left going
+// up, so the right wall is edge 2; the importer does not care where a ring starts.
+const basementTaps = readFileSync(join(here, "fixtures", "scan-taps-basement.json"), "utf8");
 
 export async function runScanImportChecks() {
   const { scan, sketch } = await load();
@@ -131,8 +137,10 @@ export async function runScanImportChecks() {
     assert(room.symbols.length === 1, `only the door should be imported, got ${room.symbols.length} symbols`);
     assert(notes.some((n) => /\d unclassified gaps? left as wall/.test(n)), `expected a note about the hidden gaps, got ${JSON.stringify(notes)}`);
     // A lap scan never writes "closet_door", so there is nothing to offer a closet behind.
-    const { closetDoorIds } = imported();
+    const { closetDoorIds, extraRooms } = imported();
     assert(Array.isArray(closetDoorIds) && closetDoorIds.length === 0, `a lap scan has no closet doors, got ${JSON.stringify(closetDoorIds)}`);
+    // Nor stairs, so nothing comes in beside the room.
+    assert(Array.isArray(extraRooms) && extraRooms.length === 0, `a lap scan brings no extra rooms, got ${extraRooms.length}`);
   });
 
   test("a window and a wide opening are told apart from a door", () => {
@@ -290,6 +298,9 @@ export async function runScanImportChecks() {
     near((horizontal[1] - horizontal[0]) / 12, 2 + 1 / 12, "closet depth", 2 / 12);
     assert(room.symbols.length === 0, "the only gap in the file is unclassified and stays wall");
     assert(notes.some((n) => /6 corners/.test(n)) && notes.some((n) => n.includes("ceiling")), `notes: ${JSON.stringify(notes)}`);
+    // The fitter's own `outline_notes` ("notch on low-V edge: near wall at -4.06 covers 1.40 m...")
+    // are its diagnostics, not the PM's; the corner-count note above is what the PM gets.
+    assert(!notes.some((n) => /low-V edge/.test(n)), `a lap's fitter notes are not passed on, got ${JSON.stringify(notes)}`);
   });
 
   test("a tapped office comes in as seven walls, 10'0\" x 15'0\", notch and chamfer both", () => {
@@ -489,6 +500,293 @@ export async function runScanImportChecks() {
     assert(sketch.wallsOf(dup.room).every((w) => w.lengthPx > 0), "no wall should be zero length");
     assert(shape(dup) === shape(plain) && placed(dup) === placed(plain), "a repeated corner should import exactly as the plain ring");
     assert(dup.notes.some((n) => /Measured by tapping; 7 walls/.test(n)), `the note should count 7 walls, got ${JSON.stringify(dup.notes)}`);
+  });
+
+  const importedBasement = () => importedOutline(basementTaps);
+
+  test("a partition end comes in as two corners 4½\" apart, and the editor treats it as the wall it is", () => {
+    const { room, notes } = importedBasement();
+    // Eight corners: four of the room, four of the partition — the two faces where they leave the
+    // near wall and the two ends of the wall's thickness. Nothing merged the close pair.
+    assert(room.vertices.length === 8, `expected 8 vertices, got ${room.vertices.length}`);
+    assert(sketch.ensureClockwise(room.vertices) === room.vertices, "room is not wound clockwise");
+    const walls = sketch.wallsOf(room);
+    assert(walls.every((w) => w.lengthPx > 0), "no wall should be zero length");
+    // 0.115 m is 4.53 px; each corner rounds to a whole pixel, so the end is 4 or 5 px.
+    const end = walls.find((w) => Math.abs(w.lengthPx - 4.5) <= 0.5);
+    assert(end !== undefined, `no 4½\" edge in ${walls.map((w) => w.lengthPx.toFixed(1))}`);
+    assert(end.index === 5, `the partition end should be edge 5, got ${end.index}`);
+    // Its two faces are the walls either side of it, running the 1.5 m in and back out.
+    near(walls[4].lengthFeet, 1.5 / 0.3048, "partition right face 4'11\"", 1.5 / 12);
+    near(walls[6].lengthFeet, 1.5 / 0.3048, "partition left face 4'11\"", 1.5 / 12);
+    assert(notes.some((n) => /Measured by tapping; 8 walls/.test(n)), `expected the taps note, got ${JSON.stringify(notes)}`);
+
+    // What the editor does on load: derive parents, and test the outline as the drag rules do.
+    // A short wall is only ever refused when a drag makes it SHORTER — see `collapsesAWall`.
+    assert(!sketch.isDegenerate(room.vertices), "the room is not degenerate");
+    assert(!sketch.collapsesAWall(room, room), "an unmoved room collapses nothing");
+    assert(sketch.withDerivedParents([room]).length === 1, "the room loads");
+    // Deselecting prunes collinear corners; the partition's are all right angles and stay.
+    assert(sketch.pruneCollinearVertices(room).vertices.length === 8, "no partition corner is collinear");
+
+    // The first drag. A far corner moves (no propagation on an eight-corner room, and nothing
+    // near enough to snap to); the far wall slides.
+    const farCorner = room.vertices[2];
+    const movedCorner = sketch.moveVertex(room, farCorner.id, farCorner.x + 20, farCorner.y - 20);
+    assert(movedCorner !== room, "dragging a far corner should not be refused");
+    const moved = movedCorner.vertices.find((v) => v.id === farCorner.id);
+    assert(moved.x === farCorner.x + 20 && moved.y === farCorner.y - 20, `far corner should land where it was dragged, got ${moved.x},${moved.y}`);
+    const slidWall = sketch.dragWall(room, walls[1].id, 0, -20);
+    assert(slidWall !== room, "dragging the far wall should not be refused");
+    // The partition's own face: pulled AWAY from the other face the end grows and the drag takes;
+    // pushed towards it the end would shrink below the 4½" it arrived at, and that is refused —
+    // the editor's own rule, that a short wall may not be made shorter.
+    const face = walls[4];
+    const thicker = sketch.dragWall(room, face.id, 10, 0);
+    assert(thicker !== room, "pulling a partition face outward should not be refused");
+    const grown = sketch.wallsOf(thicker).find((w) => w.id === end.id);
+    near(grown.lengthPx, end.lengthPx + 10, "the end grows by what the face was pulled", 1e-6);
+    const thinner = sketch.dragWall(room, face.id, -3, 0);
+    assert(thinner === room, "pushing a partition face into the other face is refused, as any short wall is");
+  });
+
+  test("a tapped cabinet run lands on the wall behind it as a base cabinet, at its width", () => {
+    const { room } = importedBasement();
+    const cabinets = room.symbols.filter((s) => s.type === "cabinet");
+    assert(cabinets.length === 1, `expected 1 cabinet, got ${cabinets.length}`);
+    const cabinet = cabinets[0];
+    const wall = sketch.wallById(room, cabinet.wallId);
+    // Edge 2 of the file is the right wall: x constant at the room's far right, running down.
+    assert(wall.index === 2, `cabinet should be on the right wall (2), got wall ${wall.index}`);
+    assert(wall.x1 === wall.x2 && wall.x1 === Math.max(...room.vertices.map((v) => v.x)), "the right wall is the one at the far right");
+    assert(cabinet.tier === "base", `tier should be base, got ${cabinet.tier}`);
+    assert(cabinet.label === "Cabinet", `label should be Cabinet, got ${cabinet.label}`);
+    // 1.8 m is 5'10.9", to the inch 5'11"; the depth is the phone's 0.61 m, which is the 24" of a
+    // base run; the height is the tier's 36".
+    near(cabinet.widthFeet, 5 + 11 / 12, "cabinet 5'11\"", 1e-9);
+    near(cabinet.depthFeet, 2, "base depth 2'0\"", 1e-9);
+    near(cabinet.heightFeet, 3, "base height 3'0\"", 1e-9);
+    // 1.0 m from the edge's start, 1.8 m wide: centre at 1.9 m of 4 m down the right wall.
+    near(cabinet.t, 1.9 / 4, "cabinet position along the right wall", 0.01);
+    // The whole run is on the wall: neither end past a corner.
+    const half = sketch.symbolWidthPx(cabinet, room) / 2;
+    assert(cabinet.t * wall.lengthPx - half >= -1e-9 && cabinet.t * wall.lengthPx + half <= wall.lengthPx + 1e-9, "the run should sit within its wall");
+    // The door on the far wall came in beside it; nothing else was invented.
+    assert(room.symbols.length === 2 && room.symbols.some((s) => s.type === "door"), `expected the door and the cabinet, got ${room.symbols.map((s) => s.type)}`);
+
+    // Tier defaults: a wall cabinet with no depth in the file takes the tier's 12", and a full-height
+    // run its 24" and 6' tall.
+    const fixture = JSON.parse(basementTaps);
+    fixture.cabinets = [
+      { edge: 2, from_m: 1.0, width_m: 1.8, tier: "wall" },
+      { edge: 6, from_m: 0.2, width_m: 0.9, tier: "full", depth_m: 0.61 },
+    ];
+    const tiers = importedOutline(JSON.stringify(fixture));
+    const upper = tiers.room.symbols.find((s) => s.type === "cabinet" && s.tier === "wall");
+    const tall = tiers.room.symbols.find((s) => s.type === "cabinet" && s.tier === "full");
+    assert(upper && upper.depthFeet === 1 && upper.heightFeet === 2.5, `an upper without a depth takes 12\" and 30\", got ${JSON.stringify(upper)}`);
+    assert(tall && tall.depthFeet === 2 && tall.heightFeet === 6, `a full-height run is 24\" deep and 6' tall, got ${JSON.stringify(tall)}`);
+  });
+
+  test("a tapped flight of stairs comes in as a stair room where it was tapped, climbing up the page", () => {
+    const { room, extraRooms, notes } = importedBasement();
+    assert(extraRooms.length === 1, `expected 1 extra room, got ${extraRooms.length}`);
+    const stairs = extraRooms[0];
+    assert(stairs.name === "Stairs", `name should be Stairs, got ${stairs.name}`);
+    assert(stairs.vertices.length === 4, `expected 4 corners, got ${stairs.vertices.length}`);
+    assert(sketch.ensureClockwise(stairs.vertices) === stairs.vertices, "stair room is not wound clockwise");
+    assert(stairs.stairs !== null, "the room should be a flight");
+    assert(stairs.stairs.orientation === 270, `a flight tapped up the page travels up (270), got ${stairs.stairs.orientation}`);
+    assert(stairs.stairs.direction === "up", `direction should be up, got ${stairs.stairs.direction}`);
+    assert(stairs.stairs.riseFeet === null, "the rise is the standard storey until measured");
+    near(stairs.stairs.treadDepthFeet, sketch.STAIRS_DEFAULT.treadDepthFeet, "tread depth default", 1e-9);
+    assert(stairs.ceilingType === "sloped", `a stairwell ceiling is sloped, got ${stairs.ceilingType}`);
+    assert(stairs.level === room.level, `the flight joins the room's storey, got ${stairs.level} vs ${room.level}`);
+    assert(stairs.id !== room.id, "the flight is its own room");
+    // Where it landed: the bottom riser's midpoint is (0.95, 3.8) m from the outline's corner, and
+    // the room's corner is at (60, 60). Every corner rounds to a whole pixel, so within one.
+    const pxPerM = 12 / 0.3048;
+    const maxY = Math.max(...stairs.vertices.map((v) => v.y));
+    const bottomRiser = stairs.vertices.filter((v) => v.y === maxY);
+    assert(bottomRiser.length === 2, `the bottom riser should be the two lowest corners, got ${bottomRiser.length}`);
+    const midX = (bottomRiser[0].x + bottomRiser[1].x) / 2;
+    near(midX, 60 + 0.95 * pxPerM, "bottom riser midpoint x", 1);
+    near(maxY, 60 + 3.8 * pxPerM, "bottom riser y", 1);
+    // The flight measures itself from its corners: 3 m long, 0.9 m wide.
+    const flight = sketch.stairFlight(stairs);
+    near(flight.runFeet, 3 / 0.3048, "run 9'10\"", 1.5 / 12);
+    near(flight.widthFeet, 0.9 / 0.3048, "width 2'11\"", 1.5 / 12);
+    // The editor adds room and flight in one update, and the flight nests in the room it stands in.
+    const together = sketch.withDerivedParents([room, ...extraRooms]);
+    assert(together[1].parentRoomId === room.id, "the flight should nest in the room it was tapped in");
+    assert(together[0].parentRoomId === null, "the room itself is nobody's child");
+    assert(notes.some((n) => /1 flight of stairs placed/.test(n)), `expected the stairs note, got ${JSON.stringify(notes)}`);
+    // A flight in open floor, 0.5 m off the nearest wall, is not pulled anywhere: it lands on the
+    // taps, to the pixel the rectangle rounds to.
+    near(Math.min(...stairs.vertices.map((v) => v.x)), 60 + 0.5 * pxPerM, "left side where it was tapped", 1);
+  });
+
+  test("a flight tapped against a wall, an inch outside it, is put flush and nests in the room", () => {
+    // The phone reads to an inch or three; a flight tapped along the left wall lands a little
+    // outside it as often as inside. Outside, `isRoomInside` said the flight was not in the room,
+    // so it did not nest and stayed behind when the room was dragged into place.
+    const pxPerM = 12 / 0.3048;
+    const nested = (u) => {
+      const fixture = JSON.parse(basementTaps);
+      fixture.stairs = [{ corners: [[u, 3.8], [u + 0.9, 3.8], [u + 0.9, 0.8], [u, 0.8]], run_m: 3.0, width_m: 0.9, direction: "up" }];
+      const result = importedOutline(JSON.stringify(fixture));
+      assert(result.extraRooms.length === 1, `expected the flight at u=${u}`);
+      const flight = result.extraRooms[0];
+      const together = sketch.withDerivedParents([result.room, flight]);
+      return { flight, bounds: sketch.roomBounds(flight), nests: together[1].parentRoomId === result.room.id };
+    };
+    for (const u of [-0.013, -0.02, -0.05, 0, 0.02, 0.05]) {
+      const { flight, bounds, nests } = nested(u);
+      assert(nests, `a flight tapped ${u} m from the left wall should nest in the room`);
+      assert(bounds.minX === 60, `its left side should be flush on the wall at 60, got ${bounds.minX} (u=${u})`);
+      // It slid, it did not shrink: the phone's width is kept when only one wall is near.
+      near(bounds.width, 0.9 * pxPerM, `width kept at 2'11\" (u=${u})`, 1);
+      const measured = sketch.stairFlight(flight);
+      near(measured.widthFeet, 0.9 / 0.3048, `stairFlight width (u=${u})`, 1.5 / 12);
+      near(measured.runFeet, 3 / 0.3048, `stairFlight run (u=${u})`, 1.5 / 12);
+    }
+    // Further out than the noise is a flight that really leaves the room — out through a doorway
+    // in the wall, say — and it stays where it was tapped, outside, unnested.
+    const away = nested(-0.2);
+    assert(!away.nests, "a flight 8\" outside the wall is not in the room and must not be dragged into it");
+    near(away.bounds.minX, 60 - 0.2 * pxPerM, "it stays where it was tapped", 1);
+    // Both walls near — a stairwell the flight's own width, corners tapped an inch out on each
+    // side — and both sides go flush, at the stairwell's width. Made by tapping the flight across
+    // the room's near-right corner region: right wall at 5.0 m, near wall at 4.0 m.
+    const well = JSON.parse(basementTaps);
+    well.stairs = [{ corners: [[4.08, 4.02], [5.02, 4.02], [5.02, 1.0], [4.08, 1.0]], run_m: 3.0, width_m: 0.94, direction: "up" }];
+    const wellResult = importedOutline(JSON.stringify(well));
+    const wellFlight = wellResult.extraRooms[0];
+    const wb = sketch.roomBounds(wellFlight);
+    assert(wb.maxX === 60 + Math.round(5.0 * pxPerM), `right side flush on the right wall, got ${wb.maxX}`);
+    assert(wb.maxY === 60 + Math.round(4.0 * pxPerM), `bottom riser flush on the near wall, got ${wb.maxY}`);
+    assert(sketch.withDerivedParents([wellResult.room, wellFlight])[1].parentRoomId === wellResult.room.id, "the flight in the corner nests");
+  });
+
+  test("a flight's four taps come in as the rectangle they describe, not the quadrilateral they are", () => {
+    // Inch-level noise on each tap of the fixture's flight. Traced as tapped it was a skewed
+    // quadrilateral: the first corner drag made a trapezoid (moveVertex only carries a neighbour
+    // along when it shares the axis to half a pixel), the treads were drawn across a bounding box
+    // that poked past the outline, and stairFlight read the width an inch wider than the risers.
+    const fixture = JSON.parse(basementTaps);
+    fixture.stairs = [{ corners: [[0.512, 3.803], [1.417, 3.781], [1.402, 0.812], [0.498, 0.831]], direction: "up" }];
+    const { room, extraRooms } = importedOutline(JSON.stringify(fixture));
+    assert(extraRooms.length === 1, "the flight comes in");
+    const stairs = extraRooms[0];
+    assert(stairs.vertices.length === 4, `expected 4 corners, got ${stairs.vertices.length}`);
+    assert(sketch.ensureClockwise(stairs.vertices) === stairs.vertices, "stair room is not wound clockwise");
+    assert(stairs.vertices.every((v) => Number.isInteger(v.x) && Number.isInteger(v.y)), "corners are whole pixels");
+    // Axis-aligned: every wall is exactly vertical or exactly horizontal.
+    const walls = sketch.wallsOf(stairs);
+    assert(walls.every((w) => w.x1 === w.x2 || w.y1 === w.y2), `expected a rectangle, got ${stairs.vertices.map((v) => `${v.x},${v.y}`).join(" ")}`);
+    assert(stairs.stairs.orientation === 270, `still climbs up the page, got ${stairs.stairs.orientation}`);
+    // Sized by the phone's own definition: run the mean of |s1-s4| and |s2-s3| (2.971 m), width the
+    // mean of |s1-s2| and |s3-s4| (0.905 m), each to the inch.
+    const pxPerM = 12 / 0.3048;
+    const flight = sketch.stairFlight(stairs);
+    near(flight.runFeet, 2.971 / 0.3048, "run 9'9\"", 1 / 12);
+    near(flight.widthFeet, 0.905 / 0.3048, "width 3'0\"", 1 / 12);
+    // Placed on the taps: the bottom riser's midpoint is where the two bottom taps' midpoint was.
+    const maxY = Math.max(...stairs.vertices.map((v) => v.y));
+    const riser = stairs.vertices.filter((v) => v.y === maxY);
+    near((riser[0].x + riser[1].x) / 2, 60 + ((0.512 + 1.417) / 2) * pxPerM, "bottom riser midpoint x", 1);
+    near(maxY, 60 + ((3.803 + 3.781) / 2) * pxPerM, "bottom riser y", 1);
+    // And it behaves as a hand-drawn flight does: dragging one corner keeps it a rectangle.
+    const corner = stairs.vertices[0];
+    const dragged = sketch.moveVertex(stairs, corner.id, corner.x, corner.y - 24);
+    assert(dragged !== stairs, "the drag is accepted");
+    const draggedWalls = sketch.wallsOf(dragged);
+    assert(draggedWalls.every((w) => w.x1 === w.x2 || w.y1 === w.y2), `a dragged corner should keep the flight square, got ${dragged.vertices.map((v) => `${v.x},${v.y}`).join(" ")}`);
+    near(sketch.roomBounds(dragged).height, sketch.roomBounds(stairs).height + 24, "the run grew by the drag", 1e-9);
+    // It still nests in the room.
+    assert(sketch.withDerivedParents([room, stairs])[1].parentRoomId === room.id, "the squared flight nests in the room");
+    // Askew to the room — tapped at 30 degrees, in open floor clear of every wall — it comes in
+    // square to the page along the nearer axis, which is the only way the sketch draws a flight;
+    // run and width are still the taps'.
+    const c = Math.cos(Math.PI / 6);
+    const s = Math.sin(Math.PI / 6);
+    const turn = ([u, v]) => [1.5 + u * c - v * s, 2.0 + u * s + v * c];
+    fixture.stairs = [{ corners: [[-0.45, 1.5], [0.45, 1.5], [0.45, -1.5], [-0.45, -1.5]].map(turn), direction: "up" }];
+    const askew = importedOutline(JSON.stringify(fixture));
+    assert(askew.extraRooms.length === 1, "the askew flight comes in");
+    const askewWalls = sketch.wallsOf(askew.extraRooms[0]);
+    assert(askewWalls.every((w) => w.x1 === w.x2 || w.y1 === w.y2), "an askew flight is drawn square");
+    assert(askew.extraRooms[0].stairs.orientation === 270, `30 degrees off up the page is still up, got ${askew.extraRooms[0].stairs.orientation}`);
+    near(sketch.stairFlight(askew.extraRooms[0]).runFeet, 3 / 0.3048, "askew run", 1.5 / 12);
+    near(sketch.stairFlight(askew.extraRooms[0]).widthFeet, 0.9 / 0.3048, "askew width", 1.5 / 12);
+  });
+
+  test("the direction of travel is read from the risers, whichever way the flight was tapped", () => {
+    // s1..s4 are bottom-left, bottom-right, top-right, top-left facing up the flight, so the same
+    // 3 m x 0.9 m flight tapped facing each way of the page names each orientation.
+    const flights = [
+      { corners: [[0.5, 1.0], [0.5, 1.9], [3.5, 1.9], [3.5, 1.0]], orientation: 0 },
+      { corners: [[1.4, 0.8], [0.5, 0.8], [0.5, 3.8], [1.4, 3.8]], orientation: 90 },
+      { corners: [[3.5, 1.9], [3.5, 1.0], [0.5, 1.0], [0.5, 1.9]], orientation: 180 },
+      { corners: [[0.5, 3.8], [1.4, 3.8], [1.4, 0.8], [0.5, 0.8]], orientation: 270 },
+    ];
+    for (const { corners, orientation } of flights) {
+      const fixture = JSON.parse(basementTaps);
+      fixture.stairs = [{ corners, run_m: 3.0, width_m: 0.9, direction: "up" }];
+      const result = importedOutline(JSON.stringify(fixture));
+      assert(result.extraRooms.length === 1, `expected 1 flight for orientation ${orientation}`);
+      const stairs = result.extraRooms[0];
+      assert(stairs.stairs.orientation === orientation, `expected orientation ${orientation}, got ${stairs.stairs.orientation}`);
+      assert(sketch.ensureClockwise(stairs.vertices) === stairs.vertices, `flight at ${orientation} is not wound clockwise`);
+      const flight = sketch.stairFlight(stairs);
+      near(flight.runFeet, 3 / 0.3048, `run at ${orientation}`, 1.5 / 12);
+      near(flight.widthFeet, 0.9 / 0.3048, `width at ${orientation}`, 1.5 / 12);
+    }
+    // A flight going down from this room keeps that too.
+    const fixture = JSON.parse(basementTaps);
+    fixture.stairs[0].direction = "down";
+    const down = importedOutline(JSON.stringify(fixture));
+    assert(down.extraRooms[0].stairs.direction === "down", "a flight tapped as going down goes down");
+  });
+
+  test("a cabinet or a flight the file got wrong is skipped with a note, never fatal", () => {
+    const fixture = JSON.parse(basementTaps);
+    fixture.cabinets = [
+      { edge: 2, from_m: 1.0, width_m: 1.8, tier: "base", depth_m: 0.61 },
+      { edge: 2, from_m: 1.0, width_m: 1.8, tier: "island" },
+      { edge: 3, from_m: 0.1, width_m: 0 },
+      { edge: 9, from_m: 0.1, width_m: 0.6, tier: "wall" },
+      "not a cabinet",
+    ];
+    fixture.stairs = [
+      { corners: [[0.5, 3.8], [1.4, 3.8], [1.4, 0.8], [0.5, 0.8]], direction: "up" },
+      { corners: [[0.5, 3.8], [1.4, 3.8], [1.4, 0.8]], direction: "up" },
+      { corners: [[2.0, 2.0], [2.0, 2.0], [2.0, 2.0], [2.0, 2.0]], direction: "up" },
+      null,
+    ];
+    // What the phone itself could not place it names in `outline_notes`, in its own words, and
+    // those reach the PM as written: a run that was tapped and is not on the sketch is exactly what
+    // the notice is for. Anything in the list that is not a sentence is ignored.
+    fixture.outline_notes = ["Cabinet 2 sits 1.95 m (6'5\") off every wall – unplaced", "", 42, null, "  Opening 3 sits 0.7 m (2'4\") off every wall – unplaced  "];
+    const result = importedOutline(JSON.stringify(fixture));
+    assert(result.notes.includes("Cabinet 2 sits 1.95 m (6'5\") off every wall – unplaced"), `expected the phone's cabinet note word for word, got ${JSON.stringify(result.notes)}`);
+    assert(result.notes.includes("Opening 3 sits 0.7 m (2'4\") off every wall – unplaced"), `expected the phone's opening note, trimmed, got ${JSON.stringify(result.notes)}`);
+    assert(result.notes.length === result.notes.filter((n) => typeof n === "string" && n !== "").length, "no empty or non-string note");
+    // The phone's word comes before this side's complaints about the file.
+    assert(result.notes.indexOf("Cabinet 2 sits 1.95 m (6'5\") off every wall – unplaced") < result.notes.findIndex((n) => /could not be read/.test(n)), `phone first, then the importer, got ${JSON.stringify(result.notes)}`);
+    // The one good cabinet and the one good flight come in; the room is untouched by the rest.
+    assert(result.room.vertices.length === 8, "the room still imports");
+    assert(result.room.symbols.filter((s) => s.type === "cabinet").length === 1, `only the well-formed cabinet should come in, got ${result.room.symbols.filter((s) => s.type === "cabinet").length}`);
+    assert(result.extraRooms.length === 1, `only the well-formed flight should come in, got ${result.extraRooms.length}`);
+    assert(result.notes.some((n) => /3 cabinets in the file could not be read; skipped/.test(n)), `expected a note about the unreadable cabinets, got ${JSON.stringify(result.notes)}`);
+    assert(result.notes.some((n) => /1 cabinet named a wall the outline does not have; skipped/.test(n)), `expected a note about the stray cabinet, got ${JSON.stringify(result.notes)}`);
+    assert(result.notes.some((n) => /2 flights of stairs in the file could not be read; skipped/.test(n)), `expected a note about the unreadable flights, got ${JSON.stringify(result.notes)}`);
+    assert(result.notes.some((n) => /1 flight of stairs had corners that enclose nothing; skipped/.test(n)), `expected a note about the flat flight, got ${JSON.stringify(result.notes)}`);
+    assert(result.notes.some((n) => /1 flight of stairs placed/.test(n)), `the good flight is still counted, got ${JSON.stringify(result.notes)}`);
+    // Absent altogether is simply none: no notes, nothing extra, the office as it always was.
+    const office = importedOutline(officeTaps);
+    assert(office.extraRooms.length === 0 && !office.room.symbols.some((s) => s.type === "cabinet"), "a file without the new fields has neither");
+    assert(!office.notes.some((n) => /cabinet|stairs/.test(n)), `no note about what was never there, got ${JSON.stringify(office.notes)}`);
   });
 
   return { passed, failures };
