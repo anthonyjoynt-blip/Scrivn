@@ -554,6 +554,28 @@ export async function runRoomChecks() {
     near(s.pullDepthPx(top, { x: 100, y: 30 }), -30, "a point inside the room is a negative depth off the wall");
   });
 
+  test("the report: a room already standing against part of the wall leaves only the rest of it to pull from", () => {
+    // A 3'6" x 2'9" room against the top part of the bedroom's right wall, and a room pulled off
+    // that wall came out the full 16' — over the room already there. Its near wall was a hair
+    // inside the line (a pixel: snapped flush, as far as anyone could see), which read as "wholly
+    // behind the wall" and dropped it from the band.
+    const bedroom = box(0, 0, 240, 192, { id: "bed" });
+    const right = s.wallsOf(bedroom)[1]; // (240,0) -> (240,192), out is +x
+    for (const [dx, note] of [[0, "exactly on the line"], [-1, "a pixel inside it"], [3, "three pixels off it"]]) {
+      const already = box(240 + dx, 0, 42, 33, { id: "top" });
+      const sketch = { rooms: [bedroom, already] };
+      const obstacles = s.obstaclesFor(sketch, 0, { wall: { roomId: "bed", wallId: right.id } });
+      const pulled = s.pullRoomFromWall(bedroom, right.id, 33, { obstacles, rooms: sketch.rooms });
+      const bb = b(pulled);
+      assert(bb.minY >= 33 - 0.01 && bb.maxY === 192 && bb.minX === 240 && bb.maxX === 273, `${note}: only below the room already there — ${JSON.stringify(bb)}`);
+      assert(pulled.vertices.length === 4, `${note}: a plain rectangle, ${pulled.vertices.length} corners`);
+    }
+    // The whole wall taken: nothing to pull.
+    const whole = box(239, 0, 42, 192, { id: "top" });
+    const sketch = { rooms: [bedroom, whole] };
+    assert(s.pullRoomFromWall(bedroom, right.id, 33, { obstacles: s.obstaclesFor(sketch, 0, { wall: { roomId: "bed", wallId: right.id } }), rooms: sketch.rooms }) === null, "a room along the whole wall, a pixel inside it, leaves nothing");
+  });
+
   test("a room already standing against the wall leaves nothing to pull", () => {
     const r = box(0, 0, 240, 192, { id: "src" });
     const bottom = s.wallsOf(r)[2];

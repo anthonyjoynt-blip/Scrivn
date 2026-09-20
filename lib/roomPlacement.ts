@@ -274,6 +274,13 @@ export function obstaclesFor(
   return out;
 }
 
+/**
+ * Within this of the wall's line, a piece is along the wall — the same six pixels that make a
+ * sub-room's wall count as lying on its parent's (`exposedWallRuns`), and that room snapping
+ * lands within.
+ */
+const ALONG_WALL_PX = 6;
+
 /** Closer than this, two points along an extrusion are one. */
 const EXTRUDE_EPS = 0.5;
 
@@ -324,6 +331,14 @@ export function extrudeWall(wall: WallGeometry, depthPx: number, obstacles: Obst
     if (u2 - u1 <= EXTRUDE_EPS) continue;
     let v1 = vAt(u1);
     let v2 = vAt(u2);
+    // A piece running along the wall within the same tolerance as a shared wall anywhere else is
+    // ON the wall: a room already standing against it, which leaves nothing to pull there. A room
+    // snapped flush lands a pixel or so either side of the line, and a pixel inside read as
+    // "wholly behind the wall" — so the room pulled off that wall ran the whole length, over it.
+    if (Math.abs(v1) <= ALONG_WALL_PX && Math.abs(v2) <= ALONG_WALL_PX) {
+      v1 = 0;
+      v2 = 0;
+    }
     if (Math.max(v1, v2) < -EXTRUDE_EPS) continue; // wholly behind the wall
     if (Math.min(v1, v2) > depthPx + EXTRUDE_EPS) continue; // wholly beyond reach
     // Trim the part behind the wall, so a piece that comes in from behind starts at the wall.
