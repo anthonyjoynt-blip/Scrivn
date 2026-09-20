@@ -7,6 +7,7 @@
  */
 
 import { run as runDragGestures } from "./dragGestures";
+import { run as runLabelHitOrder } from "./labelHitOrder";
 import { run as runEditorState } from "./editorState";
 import { run as runScopePicker } from "./scopePicker";
 import { run as runExportAndShortcuts } from "./exportAndShortcuts";
@@ -27,6 +28,7 @@ declare global {
 
 const SUITES: [string, () => Promise<SuiteResult>][] = [
   ["Sketch gestures", runDragGestures],
+  ["Room names: painted above, tapped below", runLabelHitOrder],
   ["Moisture mapping", runMoistureGestures],
   ["Editor state", runEditorState],
   ["Add from sketch", runScopePicker],

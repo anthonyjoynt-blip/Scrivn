@@ -17,6 +17,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 import { checkDirectory } from "./stateRules.mjs";
+import { checkLabelPass } from "./labelRules.mjs";
 import { runPlacementChecks } from "./placement.mjs";
 import { runDimensionChecks } from "./dimensions.mjs";
 import { runWallChecks } from "./walls.mjs";
@@ -46,6 +47,17 @@ if (violations.length > 0) {
   process.exit(1);
 }
 console.log("  Source rules: ok (no setState inside a state updater)");
+
+// And the drawing order of a room's name — see labelRules.mjs for why this is a source rule too.
+const labelProblems = checkLabelPass(join(root, "components", "sketch", "SketchCanvas.tsx"));
+if (labelProblems.length > 0) {
+  console.error("\n  Source rule failed: the room name is not drawn in the label pass\n");
+  for (const problem of labelProblems) console.error(`    ${problem}`);
+  console.error("\n  Konva paints in tree order. A name drawn inside RoomShape sits under that room's fixtures,");
+  console.error("  doors and cabinets and under every room drawn after it; RoomLabel after the rooms map is on top.\n");
+  process.exit(1);
+}
+console.log("  Source rules: ok (the room name is drawn in the label pass, after every room)");
 
 /*
   Placement is pure geometry, so it runs here in Node too rather than in the browser. A cabinet

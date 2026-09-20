@@ -937,6 +937,33 @@ export async function runRoomChecks() {
     assert(!s.crossesAny(moved, obstacles), "crossing nothing");
   });
 
+  /* ── The room's name on the drawing ─────────────────────────────────────────────────────────────
+   *
+   * From the field: "the room labels are getting hidden behind fixtures and doors and they should
+   * be remaining visible, as well as the option to hide a room label." The drawing order is a
+   * source rule (see labelRules.mjs); this is the data side — a field that old sketches do not
+   * have and new ones must keep.
+   */
+
+  test("a room's name shows unless it is hidden — a sketch saved before the field existed shows every name", () => {
+    const old = box(0, 0, 240, 192, { id: "old" });
+    assert(!("labelHidden" in old), "the fixture has no such field, like every room saved before it existed");
+    assert(s.labelShown(old) === true, "and its name shows");
+    assert(s.labelShown({ ...old, labelHidden: false }) === true, "shown when the field says so");
+    assert(s.labelShown({ ...old, labelHidden: true }) === false, "hidden when the field says so");
+  });
+
+  test("a hidden name stays hidden through a save — the field round-trips with the sketch", () => {
+    const hall = box(0, 0, 38, 45, { id: "hall", name: "Hall", labelHidden: true });
+    const bath = box(60, 0, 99, 60, { id: "bath", name: "Bathroom" });
+    const sketch = { rooms: [hall, bath] };
+    const back = JSON.parse(JSON.stringify(sketch));
+    assert(back.rooms[0].labelHidden === true, "the hall comes back hidden");
+    assert(s.labelShown(back.rooms[0]) === false, "and reads as hidden");
+    assert(!("labelHidden" in back.rooms[1]), "the bathroom, never touched, gains no field on the way through");
+    assert(s.labelShown(back.rooms[1]) === true, "and still shows its name");
+  });
+
   return { passed, failures };
 }
 

@@ -30,6 +30,7 @@ import {
   formatFeetInches,
   formatSmallDimension,
   insertVertexOnWall,
+  labelShown,
   moveFreeCabinet,
   moveSymbolAlongWall,
   moveVertex,
@@ -1878,6 +1879,25 @@ export function SketchEditor({
               ))}
             </datalist>
             {knownRoomNames.length > 0 && <p className="field-note">Suggestions come from rooms already named in this claim.</p>}
+          </div>
+
+          {/*
+            Whether the name is drawn on the plan — see `labelHidden`. Directly under the name,
+            because it is about the name. Stored as the hidden case so a sketch saved before the
+            field existed reads as shown without being rewritten; nothing here ever writes undefined.
+          */}
+          <div className="question">
+            <label className="checkbox-label">
+              <input
+                type="checkbox"
+                checked={labelShown(selectedRoom)}
+                onChange={(e) => updateRoom(selectedRoom.id, (room) => ({ ...room, labelHidden: !e.target.checked }))}
+              />
+              Show name on sketch
+            </label>
+            {!labelShown(selectedRoom) && (
+              <p className="field-note">Hidden on the drawing only. The room keeps its name in the scope, and a double-tap where the name was still renames it.</p>
+            )}
           </div>
 
 

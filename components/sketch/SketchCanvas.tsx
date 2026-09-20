@@ -2,7 +2,9 @@
 
 import { useRef } from "react";
 import { Arc, Circle, Ellipse, Group, Layer, Line, Rect, Shape, Stage, Text } from "react-konva";
-import type Konva from "konva";
+// A value import, not a type: the room label measures its name with a Konva.Text — see `RoomLabel`.
+// Safe here because react-konva pulls Konva in anyway, and this module is already client-only.
+import Konva from "konva";
 import type { KonvaEventObject } from "konva/lib/Node";
 import {
   type MoistureMap,
@@ -13,6 +15,7 @@ import {
   cellsAlongStroke,
   cellsUnderBrush,
   emptyMoistureMap,
+  parseCellKey,
   readingBand,
   floorRuns,
   roomMoisture,
@@ -42,6 +45,7 @@ import {
   isInsideRoom,
   isNestedWithin,
   isRoomInside,
+  labelShown,
   openingsSharedWith,
   stretchSharedWithAnother,
   roomBounds,
@@ -142,6 +146,48 @@ const COLORS = {
 };
 
 const HIT = { wall: 28, handle: 22, symbol: 30 };
+
+/** The room name's type size, in screen pixels. One constant so the label and its plate agree. */
+const LABEL_FONT_PX = 13;
+
+/**
+ * The live Konva group of every room's drawn name, by room id — see `RoomLabel`.
+ *
+ * A room and its name are two nodes in two places since the names moved into their own pass, and a
+ * drag on the room has to carry the name with it on every frame: a room slid across the plan must
+ * not leave its name behind until the drop. Konva slides the node it is dragging and nothing else,
+ * so the room's group looks its name up here and positions it by hand from its own `onDragMove`.
+ * The sketch data still changes only on the drop, exactly as before.
+ *
+ * One direction only. The name itself listens to nothing — its tap target never left `RoomShape`
+ * (see the note there) — so there is no drag that could start from the name's own group, and
+ * nothing here for the name to carry back. A ref, not state: this runs at pointer rate and nothing
+ * else on the canvas changes with it.
+ */
+type LabelNodes = Map<string, Konva.Group>;
+
+/** A ref callback that keeps `map` pointing at the live node for `id`, and forgets it on unmount. */
+function track(map: LabelNodes, id: string) {
+  return (node: Konva.Group | null) => {
+    if (node) map.set(id, node);
+    else map.delete(id);
+  };
+}
+
+/**
+ * What a room's floor is painted, before any thumbnail highlight or moisture wash is laid over it.
+ *
+ * A sub-room sits on top of its parent's fill, so it gets a tint of its own — otherwise a closet
+ * drawn inside a bedroom is invisible against it. The name's plate uses the same colour (see
+ * `RoomLabel`), so over a floor painted this colour the plate is invisible and only where a fixture
+ * or a door swing runs under the name does it show at all. Over a floor painted anything ELSE — a
+ * thumbnail's ceiling highlight, a moisture wash — the plate would show as a pale patch, so the
+ * label leaves it out there; see `RoomLabel`.
+ */
+function roomFill(room: SketchRoom, selected: boolean): string {
+  if (selected) return COLORS.fillSelected;
+  return room.parentRoomId ? COLORS.subRoom : COLORS.fill;
+}
 
 /**
  * Take a pointer gesture for this node alone, so the room group above does not also start dragging.
@@ -330,6 +376,8 @@ export default function SketchCanvas(props: SketchCanvasProps) {
   const lastPinchDist = useRef<number | null>(null);
   /** The stroke in progress: which room it started in, and where the brush last was. */
   const stroke = useRef<{ roomId: string; last: { x: number; y: number } } | null>(null);
+  /** Each room's drawn name, so a drag on the room carries it along — see `LabelNodes`. */
+  const labelNodes = useRef<LabelNodes>(new Map());
 
   const painting = moistureTool === "paint" || moistureTool === "erase";
   const brushPx = BRUSH_SCREEN_PX / view.scale;
@@ -779,6 +827,42 @@ export default function SketchCanvas(props: SketchCanvasProps) {
             onResizeIsland={props.onResizeIsland}
             onPullStart={startPull}
             onPlaceStart={startPlacing}
+            labelNodes={labelNodes.current}
+          />
+        ))}
+
+        {/*
+          The label pass: every room's name, drawn after EVERY room rather than inside its own.
+
+          Inside `RoomShape` the name came before the symbols and cabinets, which paint over it, and
+          before every later room, which paints over all of it — so a 5' x 8' bathroom's name sat
+          under its tub, a hall's under its door swing, and a bedroom's under the closet drawn inside
+          it. From the field: "the room labels are getting hidden behind fixtures and doors and they
+          should be remaining visible." Here, after the last room's last cabinet and the last
+          sub-room, a name paints over everything that used to bury it.
+
+          PAINT order only, never HIT order. Nothing in this pass listens: the name's tap target — the
+          invisible rect that selects on one tap and renames on two — stayed in `RoomShape`, exactly
+          where it was, under that room's fixtures, handles and every later room. It has to. Konva
+          hit-tests topmost-first, and a 120px-wide target hoisted up here would sit over a tub's
+          edge, a vanity's front, a kitchen island, and — in a hall narrower than the target — the
+          selected room's own wall grips, taking every one of those taps and drags for the room. A
+          name is drawn on top of what buries it; it does not get to be TAPPED on top of what it
+          covers. So: labels above every room, but the rooms keep every gesture they had.
+
+          Same layer as the rooms all the same, so `renderSketchImage` and the hit canvas see one
+          tree, and a drag on a room carries its name along through `LabelNodes`.
+        */}
+        {rooms.map((room) => (
+          <RoomLabel
+            key={`label-${room.id}`}
+            room={room}
+            zoom={view.scale}
+            selected={room.id === selectedRoomId}
+            highlight={props.highlight?.roomId === room.id ? props.highlight : null}
+            moisture={moisture}
+            showMoisture={showMoisture}
+            labelNodes={labelNodes.current}
           />
         ))}
 
@@ -948,6 +1032,7 @@ function RoomShape({
   onResizeIsland,
   onPullStart,
   onPlaceStart,
+  labelNodes,
 }: {
   room: SketchRoom;
   /** Every room on the plan — a cabinet has to know which sub-rooms stand on its wall. */
@@ -956,6 +1041,8 @@ function RoomShape({
   onPullStart: (roomId: string, wall: WallGeometry) => void;
   /** A wall was pressed with a door, opening or window tool — the canvas takes the gesture from here. */
   onPlaceStart: (roomId: string, wall: WallGeometry, t: number) => void;
+  /** Where this room finds its drawn name, to carry it along while dragged — see `LabelNodes`. */
+  labelNodes: LabelNodes;
   /** The free walls on the storey — a wall label has to know what carries on from its corners. */
   freeWalls: FreeWall[];
   tool: ToolMode;
@@ -1179,6 +1266,12 @@ function RoomShape({
       /* Only once selected — see `updatePanEligibility` — and never while moisture mapping, which
          puts the geometry into read-only: the room was drawn once, this mode annotates it. */
       draggable={selected && tool !== "island" && moistureTool === null}
+      /* The drawn name lives in its own pass now, so it is carried by hand — see `LabelNodes`. Only
+         the room's OWN drag, for the same reason as `onDragEnd` below: a corner's drag bubbles here too. */
+      onDragMove={(e) => {
+        if (e.target !== e.currentTarget) return;
+        labelNodes.get(room.id)?.position(e.target.position());
+      }}
       onDragEnd={(e) => {
         /*
           Only the room's OWN drag, never a child's.
@@ -1196,6 +1289,7 @@ function RoomShape({
         const dx = e.target.x();
         const dy = e.target.y();
         e.target.position({ x: 0, y: 0 });
+        labelNodes.get(room.id)?.position({ x: 0, y: 0 });
         if (dx !== 0 || dy !== 0) onMoveRoom(room.id, dx, dy);
       }}
     >
@@ -1214,17 +1308,8 @@ function RoomShape({
           context.closePath();
           context.fillStrokeShape(shape);
         }}
-        /* A sub-room sits on top of its parent's fill, so it gets a tint of its own — otherwise a
-           closet drawn inside a bedroom is invisible against it. */
-        fill={
-          highlight?.surface === "ceiling"
-            ? COLORS.highlightCeiling
-            : selected
-              ? COLORS.fillSelected
-              : room.parentRoomId
-                ? COLORS.subRoom
-                : COLORS.fill
-        }
+        /* The floor colour — see `roomFill` — unless a thumbnail is picking this ceiling out. */
+        fill={highlight?.surface === "ceiling" ? COLORS.highlightCeiling : roomFill(room, selected)}
         stroke={selected ? COLORS.selected : "transparent"}
         strokeWidth={1 / zoom}
         onMouseDown={(e) => handleBodyPointer(e)}
@@ -1339,23 +1424,26 @@ function RoomShape({
       )}
 
       {/*
-        The room's name, with its own tap target on top.
+        The room's name is NOT drawn here — only its tap target is.
 
-        The Text itself stays non-listening and an invisible rect carries the events: a single tap
-        has to keep selecting the room exactly as tapping anywhere else inside it does, and only the
-        double-tap is special. Making the Text listen would have swallowed the single tap.
+        The name itself used to be drawn at this point in the order, under the symbols, the cabinets
+        and every room drawn later, and that is where it got buried. It is drawn in the label pass
+        after every room instead; see `RoomLabel`. Its tap target stays HERE, at exactly this point
+        in the order, because where a name is painted and where it is tapped are two different
+        questions. Konva hit-tests topmost-first, and this rect is 120px wide: moved up to the label
+        pass with the name, it sat over the tub's edge, the vanity's front, a kitchen island and — in
+        a hall narrower than 120px — the selected room's own wall grips, and took every one of those
+        taps and drags for the room. A PM pulling a hall's wall in from 4'11" to 3'2" moved the hall
+        instead. Down here it is under all of them, as it always was, and a tap lands on whatever it
+        used to land on.
+
+        The Text stays non-listening (in `RoomLabel`) and this invisible rect carries the events: a
+        single tap has to keep selecting the room exactly as tapping anywhere else inside it does,
+        and only the double-tap is special. Making the Text listen would have swallowed the single
+        tap. Unconditional — a hidden name (`labelHidden`) keeps its rect, so a single tap there
+        still selects and a double-tap still renames, which is how a name hidden by mistake is
+        found again from the drawing.
       */}
-      <Text
-        x={anchor.x - bounds.width / 2}
-        y={anchor.y - 7 / zoom}
-        width={bounds.width}
-        align="center"
-        text={room.name.trim() || "Untitled room"}
-        fontSize={13 / zoom}
-        fontStyle="bold"
-        fill={COLORS.label}
-        listening={false}
-      />
       <Rect
         x={anchor.x - 60 / zoom}
         y={anchor.y - 11 / zoom}
@@ -1490,6 +1578,135 @@ function RoomShape({
         ))}
       </Group>
     </>
+  );
+}
+
+/**
+ * How big a room's name will draw, in screen pixels: the widest line and the height of all of them.
+ *
+ * Measured with a Konva.Text set up exactly as the label's own — same font, same size, same box to
+ * wrap in — so the plate under the name fits the name rather than guessing from a character count,
+ * and follows it when a long name wraps to a second line inside a narrow room. Never added to a
+ * layer: it exists to be measured and is thrown away.
+ */
+function measureName(text: string, boxWidthPx: number): { width: number; height: number } {
+  const probe = new Konva.Text({ text, width: boxWidthPx, align: "center", fontSize: LABEL_FONT_PX, fontStyle: "bold" });
+  const size = { width: probe.getTextWidth(), height: probe.height() };
+  probe.destroy();
+  return size;
+}
+
+/**
+ * Whether any painted moisture cell of the room lies under `rect` (world pixels).
+ *
+ * The plate under a name must not sit on a wash — see `RoomLabel` — but a wet corner on the far
+ * side of the room is no reason to lose the plate over a dry tub. So the test is the cells under
+ * the plate itself, not "is anything in this room painted". Cells are indexed from the room's
+ * bounding-box origin (see `cellSizePx`), so the rect is brought into that grid and the painted
+ * keys checked against it; a room with nothing painted answers before parsing a single key.
+ */
+function washUnder(room: SketchRoom, moisture: MoistureMap, rect: { x: number; y: number; width: number; height: number }): boolean {
+  const data = roomMoisture(moisture, room.id);
+  if (data.floorCells.length === 0 && data.ceilingCells.length === 0) return false;
+  const size = cellSizePx();
+  const bounds = roomBounds(room);
+  // Cells whose span overlaps the rect — a cell that only meets its edge does not count.
+  const minCol = Math.floor((rect.x - bounds.minX) / size);
+  const maxCol = Math.ceil((rect.x + rect.width - bounds.minX) / size) - 1;
+  const minRow = Math.floor((rect.y - bounds.minY) / size);
+  const maxRow = Math.ceil((rect.y + rect.height - bounds.minY) / size) - 1;
+  for (const key of [...data.floorCells, ...data.ceilingCells]) {
+    const cell = parseCellKey(key);
+    if (cell && cell.col >= minCol && cell.col <= maxCol && cell.row >= minRow && cell.row <= maxRow) return true;
+  }
+  return false;
+}
+
+/**
+ * One room's drawn name, in the label pass after every room — see the note at the pass itself.
+ *
+ * Two things, bottom to top: a plate and the name. NOT the name's tap target — that stayed in
+ * `RoomShape`, in the hit order it always had, and the note there says why. Everything here is
+ * `listening={false}`, so a tap on a drawn name falls straight through to whatever the room would
+ * have given it before the name was hoisted: the tub, the grip, or the room's own tap rect.
+ *
+ * The plate exists because winning the paint order is not enough. A name drawn over a tub's outline
+ * or a door's swing is on top of it but still crossed by it, and bold type through a tangle of
+ * strokes is not legible. The plate is the room's own floor colour at 70%, sized to the text: over
+ * a clean floor it is invisible, and where a fixture runs under the name it fades the fixture to
+ * where the name reads while leaving the fixture recognisably there. Rounded so it reads as a label
+ * and not as a missing piece of the fixture.
+ *
+ * No plate at all where the floor under the name is painted some OTHER colour than the room's:
+ * under a thumbnail's ceiling highlight, or over a moisture wash (`washUnder`). There the plate is
+ * not invisible but a pale rounded patch — on a moisture document, a dry-looking hole in the middle
+ * of a wet floor, which is a false statement about the loss. The name reads a little worse there
+ * and says nothing untrue.
+ *
+ * A HIDDEN name (`labelHidden`) draws nothing here at all; its tap rect in `RoomShape` stays, so a
+ * single tap there still selects the room and a double-tap still opens the rename.
+ *
+ * The group registers itself in `LabelNodes` so the room's own drag can carry it: the room group
+ * slides during a drag and this one, a sibling, would otherwise stay put until the drop.
+ */
+function RoomLabel({
+  room,
+  zoom,
+  selected,
+  highlight,
+  moisture,
+  showMoisture,
+  labelNodes,
+}: {
+  room: SketchRoom;
+  zoom: number;
+  selected: boolean;
+  /** Already narrowed to this room by the caller, or null when this room is not the subject. */
+  highlight: { roomId: string; wallIds: string[]; surface: "walls" | "ceiling" } | null;
+  labelNodes: LabelNodes;
+} & Pick<SketchCanvasProps, "moisture" | "showMoisture">) {
+  if (!labelShown(room)) return null;
+
+  const bounds = roomBounds(room);
+  // Guaranteed to be inside the room, unlike the bounding-box centre — see `roomLabelAnchor`.
+  const anchor = roomLabelAnchor(room);
+  const name = room.name.trim() || "Untitled room";
+  // Screen pixels, like the font: the text's box is the room's width as drawn, so it wraps the same.
+  const size = measureName(name, bounds.width * zoom);
+  const plate = {
+    x: anchor.x - (size.width / 2 + 6) / zoom,
+    y: anchor.y - 9 / zoom,
+    width: (size.width + 12) / zoom,
+    height: (size.height + 4) / zoom,
+  };
+  const floorIsOwnColour = highlight?.surface !== "ceiling" && !(showMoisture && washUnder(room, moisture, plate));
+
+  return (
+    <Group ref={track(labelNodes, room.id)} listening={false}>
+      {floorIsOwnColour && (
+        <Rect
+          x={plate.x}
+          y={plate.y}
+          width={plate.width}
+          height={plate.height}
+          cornerRadius={3 / zoom}
+          fill={roomFill(room, selected)}
+          opacity={0.7}
+          listening={false}
+        />
+      )}
+      <Text
+        x={anchor.x - bounds.width / 2}
+        y={anchor.y - 7 / zoom}
+        width={bounds.width}
+        align="center"
+        text={name}
+        fontSize={LABEL_FONT_PX / zoom}
+        fontStyle="bold"
+        fill={COLORS.label}
+        listening={false}
+      />
+    </Group>
   );
 }
 

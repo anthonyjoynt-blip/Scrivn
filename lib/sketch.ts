@@ -392,6 +392,22 @@ export interface SketchRoom {
    */
   name: string;
   /**
+   * True when the name is NOT drawn on the plan.
+   *
+   * Asked for from the field alongside the label pass that keeps names above fixtures: a 3' hall or
+   * a closet is smaller on paper than its own name, and once the name is guaranteed to paint on top
+   * it is guaranteed to cover the door swing, the wall lines, whatever the little room holds. The
+   * PM decides which matters. The name itself stays — it names the room in the scope, the panel and
+   * the document — only the drawing leaves it out.
+   *
+   * Optional on the type so a sketch saved before it existed still loads, and read through
+   * `labelShown`, which treats a missing field as shown. Nothing writes undefined. Hiding is a
+   * drawing choice, not data: the tap target under the name stays where it was, so a single tap
+   * still selects the room and a double-tap still opens the rename — which is how a name hidden by
+   * mistake is found again without the panel.
+   */
+  labelHidden?: boolean;
+  /**
    * The room's outline, clockwise, in world pixels. Four vertices is a rectangle; six makes an L.
    * Never fewer than three — see `MIN_VERTICES`.
    */
@@ -1236,6 +1252,14 @@ export function roomLabelAnchor(room: SketchRoom): { x: number; y: number } {
   }
 
   return best ? { x: best.x, y: best.y } : centre;
+}
+
+/**
+ * Whether a room's name is drawn on the plan — see `labelHidden`. A sketch saved before the field
+ * existed has no such field, and every one of its rooms shows its name, as it always did.
+ */
+export function labelShown(room: SketchRoom): boolean {
+  return room.labelHidden !== true;
 }
 
 function distanceToSegment(px: number, py: number, x1: number, y1: number, x2: number, y2: number): number {
