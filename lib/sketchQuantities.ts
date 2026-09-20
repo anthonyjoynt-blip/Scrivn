@@ -10,6 +10,7 @@ import {
   type SketchSymbol,
   isBlockSymbol,
   isDeductible,
+  isNestedWithin,
   openingSquareFeet,
   standsOnFloor,
   stairCeiling,
@@ -195,9 +196,11 @@ export function roomQuantities(room: SketchRoom, sketch: Sketch, options: Quanti
 
   const perimeter = wallsOf(room).reduce((sum, wall) => sum + wall.lengthFeet, 0);
 
-  // Children's footprints come out of this room's floor and ceiling — see the header note.
+  // Children's footprints come out of this room's floor and ceiling — see the header note. Only
+  // the children standing INSIDE it: a sub-room beside its parent (pulled off its wall and made
+  // its sub-room by choice) has a floor of its own that was never part of this one.
   const childArea = sketch.rooms
-    .filter((r) => r.parentRoomId === room.id)
+    .filter((r) => isNestedWithin(r, room))
     .reduce((sum, child) => sum + grossFloorArea(child), 0);
 
   const outlineArea = grossFloorArea(room) - childArea;
@@ -224,7 +227,8 @@ export function roomQuantities(room: SketchRoom, sketch: Sketch, options: Quanti
     }
   }
 
-  const openings = options.deductOpeningsFromWallArea ? openingSquareFeet(room) : 0;
+  // Other rooms' doors in this room's walls count too — see `openingSquareFeetOnWall`.
+  const openings = options.deductOpeningsFromWallArea ? openingSquareFeet(room, sketch.rooms) : 0;
 
   const profile = ceilingProfile(room);
 

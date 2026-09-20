@@ -24,7 +24,6 @@
 import {
   type Sketch,
   type SketchRoom,
-  type SketchSymbol,
   type WallGeometry,
   DEFAULT_CEILING_HEIGHT_FEET,
   DEFAULT_ROOM_FEET,
@@ -35,14 +34,14 @@ import {
   freeWallLevel,
   freeWallSegments,
   freeWallsOf,
+  isRoomInside,
   newSketchId,
-  pointOnWall,
+  nextRoomName,
   pruneCollinearVertices,
+  reflowContents,
   removeVertex,
   roomBounds,
   roomLevel,
-  symbolCentrePx,
-  symbolWidthPx,
   wallById,
   wallsOf,
 } from "./sketch";
@@ -161,11 +160,12 @@ export function pullDepthPx(wall: WallGeometry, point: { x: number; y: number })
  * its flanks are made of those walls where they stand in the way, angle and all, and it never lies
  * over another room.
  *
- * The doors, openings and windows in every wall it shares come with it — the wall it was pulled
- * from, and any wall it came to rest along — see `inheritOpenings`. On the new side a door is an
- * OPENING: the same hole, jambs and no leaf, because a leaf swings into one room only and is
- * already drawn swinging into the room it was placed in. Cabinets and fixtures stand against one
- * side of a wall, not in it, and stay.
+ * The doors, openings and windows in every wall it shares are seen from the new side — the wall
+ * it was pulled from, and any wall it came to rest along — without being copied into it: a door
+ * is one thing in one room's wall, drawn and deducted from both sides (`openingsSharedWith`). A
+ * first version copied them in as openings of the new room's own, and the copies drifted from the
+ * doors they were copies of the first time either was moved. Cabinets and fixtures stand against
+ * one side of a wall, not in it, and are the one room's.
  */
 export function pullRoomFromWall(
   source: SketchRoom,
@@ -188,7 +188,7 @@ export function pullRoomFromWall(
   if (vertices.length < 3) return null;
   const room: SketchRoom = {
     id: newSketchId("room"),
-    name: "",
+    name: nextRoomName(around.rooms),
     vertices,
     ceilingHeightFeet: source.ceilingHeightFeet ?? DEFAULT_CEILING_HEIGHT_FEET,
     ceilingType: "flat",
@@ -203,7 +203,7 @@ export function pullRoomFromWall(
   const tidy = pruneCollinearVertices(room);
   // Nothing worth calling a room: a band too thin, or nothing left in front of the wall.
   if (Math.abs(polygonArea(tidy.vertices)) < PIXELS_PER_FOOT * PIXELS_PER_FOOT) return null;
-  return inheritOpenings(tidy, around.rooms.some((r) => r.id === source.id) ? around.rooms : [source, ...around.rooms]);
+  return tidy;
 }
 
 /** Signed polygon area, in square pixels. */
@@ -234,8 +234,13 @@ export interface Obstacle {
  */
 export function obstaclesFor(sketch: Sketch, level: number, except: { roomId?: string; wall?: { roomId: string; wallId: string } }): Obstacle[] {
   const out: Obstacle[] = [];
+  const from = sketch.rooms.find((r) => r.id === (except.roomId ?? except.wall?.roomId));
   for (const room of sketch.rooms) {
     if (room.id === except.roomId || roomLevel(room) !== level) continue;
+    // A room drawn inside the one being worked on — its closet — lies behind every wall of it,
+    // whichever it is. Its walls are not in the way; a closet flush to the wall has a wall along
+    // that very line, and taken as an obstacle it read as a room already standing in front.
+    if (from && room.id !== from.id && isRoomInside(room, from)) continue;
     for (const w of wallsOf(room)) {
       if (except.wall && except.wall.roomId === room.id && except.wall.wallId === w.id) continue;
       out.push({ x1: w.x1, y1: w.y1, x2: w.x2, y2: w.y2 });
@@ -397,55 +402,6 @@ export function extrudeWall(wall: WallGeometry, depthPx: number, obstacles: Obst
 }
 
 /**
- * The doors and windows in other rooms' walls that lie along this room's walls, copied in — a door
- * is in both rooms' walls, and a room drawn without it shows an unbroken wall where there is a
- * doorway and deducts nothing for it. Doors come as openings (one swing, in the room the door was
- * placed in); windows come as windows; cabinets and fixtures stand on their own side and stay.
- *
- * Every wall of the room is considered, not only the one it was pulled from: the side of a pulled
- * room that lands along another room's wall — the stub with a door in the picture that reported
- * this — has that door too. A symbol already at the same place is not copied twice.
- */
-export function inheritOpenings(room: SketchRoom, rooms: SketchRoom[]): SketchRoom {
-  const level = roomLevel(room);
-  const ownWalls = wallsOf(room);
-  const added: SketchSymbol[] = [];
-  const has = (wallId: string, t: number) => [...room.symbols, ...added].some((s) => s.wallId === wallId && Math.abs(s.t - t) * (wallById(room, wallId)?.lengthPx ?? 0) <= 1);
-
-  for (const other of rooms) {
-    if (other.id === room.id || roomLevel(other) !== level) continue;
-    for (const theirs of wallsOf(other)) {
-      if (theirs.lengthPx <= 0) continue;
-      for (const mine of ownWalls) {
-        if (mine.lengthPx <= 0 || !alongOneLine(mine, theirs)) continue;
-        for (const symbol of other.symbols) {
-          if (symbol.wallId !== theirs.id || (symbol.type !== "door" && symbol.type !== "window")) continue;
-          const at = pointOnWall(theirs, symbolCentrePx(symbol, other) / theirs.lengthPx);
-          const u = ((at.x - mine.x1) * (mine.x2 - mine.x1) + (at.y - mine.y1) * (mine.y2 - mine.y1)) / mine.lengthPx;
-          const half = symbolWidthPx(symbol, other) / 2;
-          if (u - half < -1 || u + half > mine.lengthPx + 1) continue; // not wholly on this wall
-          const t = u / mine.lengthPx;
-          if (has(mine.id, t)) continue;
-          const placed = { id: newSketchId(symbol.type), wallId: mine.id, t };
-          added.push(symbol.type === "door" ? { ...symbol, ...placed, doorType: "opening" } : { ...symbol, ...placed });
-        }
-      }
-    }
-  }
-  return added.length > 0 ? { ...room, symbols: [...room.symbols, ...added] } : room;
-}
-
-/** Do two walls lie along one line, overlapping — a shared wall, or a shared stretch of one? */
-function alongOneLine(a: WallGeometry, b: WallGeometry): boolean {
-  const off = (p: { x: number; y: number }, w: WallGeometry) => Math.abs((w.x2 - w.x1) * (w.y1 - p.y) - (w.x1 - p.x) * (w.y2 - w.y1)) / w.lengthPx;
-  if (off({ x: b.x1, y: b.y1 }, a) > 1.5 || off({ x: b.x2, y: b.y2 }, a) > 1.5) return false;
-  const along = (p: { x: number; y: number }) => ((p.x - a.x1) * (a.x2 - a.x1) + (p.y - a.y1) * (a.y2 - a.y1)) / a.lengthPx;
-  const lo = Math.min(along({ x: b.x1, y: b.y1 }), along({ x: b.x2, y: b.y2 }));
-  const hi = Math.max(along({ x: b.x1, y: b.y1 }), along({ x: b.x2, y: b.y2 }));
-  return Math.min(hi, a.lengthPx) - Math.max(lo, 0) > 1;
-}
-
-/**
  * Does any wall of the room cross an obstacle — meet it at a point inside both, rather than
  * touching it at an end or lying along it? Sharing a wall is how rooms sit together; crossing one
  * is a drawing of something that cannot be built.
@@ -476,10 +432,10 @@ function properlyCross(ax: number, ay: number, bx: number, by: number, cx: numbe
  * grown a few pixels at a time from a reshaped room would compound.
  *
  * The doors and windows in the dragged wall move out with it, onto whichever piece of the new
- * side lies where they were along the wall — and the doors in the walls the room came to lie along
- * come in as openings (`inheritOpenings`, given `rooms`), as they do for a pulled room.
+ * side lies where they were along the wall. The doors in the walls the room came to lie along are
+ * seen from the new side without being copied in (`openingsSharedWith`), as for a pulled room.
  */
-export function conformedDragWall(room: SketchRoom, wallId: string, dx: number, dy: number, obstacles: Obstacle[], rooms: SketchRoom[] = []): SketchRoom {
+export function conformedDragWall(room: SketchRoom, wallId: string, dx: number, dy: number, obstacles: Obstacle[]): SketchRoom {
   const wall = wallById(room, wallId);
   if (!wall) return room;
   const n = outwardNormal(wall);
@@ -518,8 +474,16 @@ export function conformedDragWall(room: SketchRoom, wallId: string, dx: number, 
   const along = (p: { x: number; y: number }) => ((p.x - wall.x1) * (wall.x2 - wall.x1) + (p.y - wall.y1) * (wall.y2 - wall.y1)) / wall.lengthPx;
   const newWalls = wallsOf(reshaped);
   const onNewSide = (id: string) => id === start.id || inner.some((v) => v.id === id) || (startFlat && id === before.id);
+  // Everything else in the room follows the rule every resize follows (`reflowContents`): a
+  // symbol on a wall that changed length — the wall before the moved corner, now longer or (at a
+  // reflex corner) shorter — stays the same distance from whichever corner it was nearer, and an
+  // island holds its corner. A symbol's place is a fraction of its wall, so left alone it slid
+  // along with the wall: reported from the field as an opening that drifted down the wall on the
+  // next widening. The same rule as the plain drag, so a drag that meets a wall part-way through
+  // does not move the doors differently from the frames before it.
+  const reflowed = new Map(reflowContents(room, { ...reshaped, symbols: room.symbols }).symbols.map((s) => [s.id, s] as const));
   const symbols = room.symbols.map((symbol) => {
-    if (symbol.wallId !== wallId) return symbol;
+    if (symbol.wallId !== wallId) return reflowed.get(symbol.id) ?? symbol;
     const u = symbol.t * wall.lengthPx;
     const host = newWalls.find((w) => {
       const a = along({ x: w.x1, y: w.y1 });
@@ -535,11 +499,10 @@ export function conformedDragWall(room: SketchRoom, wallId: string, dx: number, 
   // wall it lies flat on that wall and goes (`removeVertex` carries the symbols across). Nothing
   // else of the room is touched: a break left elsewhere on it is pruned when the room is left, as
   // it always was, not by dragging some other wall.
-  const withSymbols: SketchRoom = { ...reshaped, symbols };
+  const withSymbols: SketchRoom = { ...reshaped, symbols, freeCabinets: reflowContents(room, reshaped).freeCabinets };
   const tail = inner[inner.length - 1] ?? startCorner;
   const after = room.vertices[(index + 2) % count];
-  const tidy = after && flat(tail, end, after) ? removeVertex(withSymbols, end.id) : withSymbols;
-  return inheritOpenings(tidy, rooms);
+  return after && flat(tail, end, after) ? removeVertex(withSymbols, end.id) : withSymbols;
 }
 
 /** Whether `b` lies flat on the line from `a` to `c` — no corner there, within half a degree. */

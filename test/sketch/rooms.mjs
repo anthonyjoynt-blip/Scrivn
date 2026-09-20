@@ -21,7 +21,10 @@ async function load() {
   const outDir = mkdtempSync(join(tmpdir(), "room-tests-"));
   const entry = join(outDir, "entry.ts");
   const lib = (name) => join(root, "lib", name).replace(/\\/g, "/");
-  writeFileSync(entry, `export * from "${lib("sketch.ts")}";\nexport * from "${lib("roomPlacement.ts")}";\nexport * from "${lib("sketchQuantities.ts")}";\n`);
+  writeFileSync(
+    entry,
+    `export * from "${lib("sketch.ts")}";\nexport * from "${lib("roomPlacement.ts")}";\nexport * from "${lib("sketchQuantities.ts")}";\nexport * from "${lib("scopeMarks.ts")}";\nexport { findDerived } from "${lib("gapCheck.ts")}";\n`,
+  );
   const outfile = join(outDir, "sketch.mjs");
   await build({ entryPoints: [entry], bundle: true, format: "esm", platform: "neutral", outfile, logLevel: "silent" });
   const mod = await import(pathToFileURL(outfile).href);
@@ -137,6 +140,150 @@ export async function runRoomChecks() {
     assert(s.rotateStairs(r) === r, "unchanged");
   });
 
+  /* What a new room is called. */
+
+  test("new rooms are numbered on from the highest number in use, whatever else the plan holds", () => {
+    assert(s.nextRoomName([]) === "Room 1", "an empty plan starts at 1");
+    const named = (name) => ({ ...box(0, 0, 10, 10), name });
+    assert(s.nextRoomName([named("Room 1"), named("Kitchen"), named("Stairs")]) === "Room 2", "only numbered names count");
+    assert(s.nextRoomName([named("Room 1"), named("Room 5")]) === "Room 6", "one past the highest, not the count");
+    assert(s.nextRoomName([named("room 3"), named(" Room 2 ")]) === "Room 4", "case and spaces do not matter");
+    assert(s.nextRoomName([named("Room 2b"), named("Rooms 4"), named("")]) === "Room 1", "a number with letters after it is a name of its own");
+    assert(s.nextRoomName([{ ...named("Room 7"), level: -1 }]) === "Room 8", "numbers are shared across storeys");
+  });
+
+  test("a pulled room is named on from the plan it joins", () => {
+    const src = { ...box(0, 0, 240, 192, { id: "src" }), name: "Room 1" };
+    const other = { ...box(400, 0, 100, 100, { id: "o" }), name: "Room 4" };
+    const pulled = s.pullRoomFromWall(src, s.wallsOf(src)[2].id, 120, { obstacles: [], rooms: [src, other] });
+    assert(pulled.name === "Room 5", `got "${pulled.name}"`);
+  });
+
+  /* Sub-rooms by choice. */
+
+  test("the report: a closet pulled off the bedroom's wall can be made its sub-room, and stays one when dragged", () => {
+    const bedroom = { ...box(0, 0, 240, 192, { id: "bed" }), name: "Bedroom" };
+    const closet = { ...box(0, 192, 60, 40, { id: "cl" }), name: "Closet", chosenParentRoomId: "bed" };
+    const derived = s.withDerivedParents([bedroom, closet]);
+    assert(derived[1].parentRoomId === "bed", "the choice is the parent, outside or not");
+    assert(!s.isRoomInside(closet, bedroom), "and it is not inside");
+    // Dragged away and re-derived, as every move is: still the bedroom's.
+    const moved = s.withDerivedParents([bedroom, s.translateRoom(derived[1], 500, 500)]);
+    assert(moved[1].parentRoomId === "bed", "a chosen parent survives a move");
+    assert(moved[0].parentRoomId === null, "the bedroom is nobody's");
+  });
+
+  test("a chosen parent is set aside while it is missing, on another storey, or would make a loop — never lost", () => {
+    const bedroom = { ...box(0, 0, 240, 192, { id: "bed" }), name: "Bedroom" };
+    const closet = { ...box(0, 192, 60, 40, { id: "cl" }), chosenParentRoomId: "bed" };
+    const alone = s.withDerivedParents([closet]);
+    assert(alone[0].parentRoomId === null && alone[0].chosenParentRoomId === "bed", "no bedroom on the plan: no parent, choice kept");
+    const back = s.withDerivedParents([bedroom, ...alone]);
+    assert(back[1].parentRoomId === "bed", "and it is honoured again the moment the bedroom is back — undo brings the link with it");
+    const upstairs = s.withDerivedParents([{ ...bedroom, level: 1 }, closet]);
+    assert(upstairs[1].parentRoomId === null, "another storey is not a parent");
+    const a = { ...box(0, 0, 100, 100, { id: "a" }), chosenParentRoomId: "b" };
+    const b = { ...box(300, 0, 100, 100, { id: "b" }), chosenParentRoomId: "a" };
+    const loop = s.withDerivedParents([a, b]);
+    assert(loop[0].parentRoomId === null && loop[1].parentRoomId === null, "a loop honours neither");
+    const self = s.withDerivedParents([{ ...box(0, 0, 100, 100, { id: "me" }), chosenParentRoomId: "me" }]);
+    assert(self[0].parentRoomId === null, "a room is not its own parent");
+    // A ring of three honours none; a chain of three is honoured all the way, and the last of it
+    // may be nobody's sub-room but the first's.
+    const ring = s.withDerivedParents([
+      { ...box(0, 0, 100, 100, { id: "a" }), chosenParentRoomId: "b" },
+      { ...box(300, 0, 100, 100, { id: "b" }), chosenParentRoomId: "c" },
+      { ...box(600, 0, 100, 100, { id: "c" }), chosenParentRoomId: "a" },
+    ]);
+    assert(ring.every((r) => r.parentRoomId === null), `a ring of three: ${ring.map((r) => r.parentRoomId)}`);
+    const chainRooms = [
+      { ...box(0, 0, 100, 100, { id: "a" }), chosenParentRoomId: "b" },
+      { ...box(300, 0, 100, 100, { id: "b" }), chosenParentRoomId: "c" },
+      box(600, 0, 100, 100, { id: "c" }),
+    ];
+    const chain = s.withDerivedParents(chainRooms);
+    assert(chain.map((r) => r.parentRoomId).join(",") === "b,c,", `a chain of three: ${chain.map((r) => r.parentRoomId)}`);
+    assert(s.possibleParents(chain[2], chain).length === 0, "the last of the chain may not be made a sub-room of anything above it");
+  });
+
+  test("a choice pointing up the drawing cannot close a loop through the rooms between", () => {
+    // A big room chosen to be the sub-room of a small one drawn two rooms deep inside it:
+    // A chooses B; B is drawn inside C; C is drawn inside A. Geometry taken all at once against
+    // a snapshot made A -> B, B -> C, C -> A — a loop, flipping back on the next pass.
+    const a = { ...box(0, 0, 400, 400, { id: "A" }), chosenParentRoomId: "B" };
+    const c = box(50, 50, 200, 200, { id: "C" });
+    const bb = box(80, 80, 40, 40, { id: "B" });
+    const once = s.withDerivedParents([a, bb, c]);
+    const links = (rs) => rs.map((r) => `${r.id}->${r.parentRoomId}`).join(" ");
+    assert(links(once) === "A->B B->C C->null", `no loop: ${links(once)}`);
+    const twice = s.withDerivedParents(once);
+    assert(links(twice) === links(once), `and it holds still on the next pass: ${links(twice)}`);
+  });
+
+  test("a choice beats the drawing, and beats the old opt-out; the drawing still decides for the rest", () => {
+    const big = box(0, 0, 240, 192, { id: "big" });
+    const inside = box(10, 10, 60, 40, { id: "in" });
+    const other = box(400, 0, 100, 100, { id: "other" });
+    // Drawn inside `big`, chosen to be `other`'s: the choice wins.
+    const chosen = s.withDerivedParents([big, { ...inside, chosenParentRoomId: "other", nestingOptOut: true }, other]);
+    assert(chosen[1].parentRoomId === "other", `chosen over drawn and over opt-out, got ${chosen[1].parentRoomId}`);
+    // Nothing chosen: drawn inside `big`, so `big`'s — as it always was.
+    const plain = s.withDerivedParents([big, inside, other]);
+    assert(plain[1].parentRoomId === "big", "derived when nothing is chosen");
+    // Opted out with nothing chosen: nobody's.
+    const out = s.withDerivedParents([big, { ...inside, nestingOptOut: true }, other]);
+    assert(out[1].parentRoomId === null, "the explicit no still holds");
+  });
+
+  test("a big room chosen to be its own small room's sub-room is not, in the same pass, made that room's parent", () => {
+    // `small` is drawn inside `big`; the PM makes `big` a sub-room of `small` (odd, but allowed).
+    // The drawing would make `small` a sub-room of `big` — a loop — so it must not.
+    const big = { ...box(0, 0, 240, 192, { id: "big" }), chosenParentRoomId: "small" };
+    const small = box(10, 10, 60, 40, { id: "small" });
+    const derived = s.withDerivedParents([big, small]);
+    assert(derived[0].parentRoomId === "small", "the choice holds");
+    assert(derived[1].parentRoomId === null, "and the drawing does not close the loop");
+  });
+
+  test("the list of possible parents: the others on this storey that are not already under this one", () => {
+    const bed = box(0, 0, 240, 192, { id: "bed" });
+    const closet = { ...box(10, 10, 60, 40, { id: "cl" }), parentRoomId: "bed" };
+    const shelf = { ...box(400, 0, 20, 20, { id: "shelf" }), chosenParentRoomId: "cl" };
+    const hall = box(300, 0, 100, 100, { id: "hall" });
+    const up = { ...box(0, 0, 100, 100, { id: "up" }), level: 1 };
+    const ids = s.possibleParents(bed, [bed, closet, shelf, hall, up]).map((r) => r.id);
+    assert(ids.join(",") === "hall", `not itself, not its closet, not the shelf under the closet, not upstairs: ${ids}`);
+    const forCloset = s.possibleParents(closet, [bed, closet, shelf, hall, up]).map((r) => r.id);
+    assert(forCloset.join(",") === "bed,hall", `the closet may have the bedroom or the hall: ${forCloset}`);
+  });
+
+  test("a sub-room beside its parent hides none of the parent's wall, and takes nothing off its floor", () => {
+    const bedroom = { ...box(0, 0, 240, 192, { id: "bed" }), name: "Bedroom" };
+    const beside = { ...box(60, 192, 60, 40, { id: "cl" }), name: "Closet", chosenParentRoomId: "bed" };
+    const rooms = s.withDerivedParents([bedroom, beside]);
+    const bottom = s.wallsOf(rooms[0])[2]; // (240,192) -> (0,192): the wall the closet stands against
+    const runs = s.exposedWallRuns(rooms[0], bottom.id, rooms);
+    assert(runs.length === 1 && runs[0][0] === 0 && runs[0][1] === 1, `the whole wall is still the bedroom's: ${JSON.stringify(runs)}`);
+    assert(s.wallDimensions(rooms[0], bottom, rooms).length === 1, "one label, the full 20'");
+    assert(!s.isNestedWithin(rooms[1], rooms[0]), "linked, not within");
+    const q = s.roomQuantities(rooms[0], { rooms }, s.DEFAULT_QUANTITY_OPTIONS);
+    near(q.floorArea, 320, "20' x 16' — the closet's floor is its own");
+    near(q.ceilingArea, 320, "and so is its ceiling");
+    // The same closet drawn INSIDE the bedroom, linked the same way: now it does.
+    const within = { ...beside, vertices: box(60, 152, 60, 40).vertices };
+    const nested = s.withDerivedParents([bedroom, within]);
+    assert(s.isNestedWithin(nested[1], nested[0]), "within");
+    assert(s.exposedWallRuns(nested[0], bottom.id, nested).length === 2, "the closet's share of the wall is hidden from the bedroom");
+    near(s.roomQuantities(nested[0], { rooms: nested }, s.DEFAULT_QUANTITY_OPTIONS).floorArea, 320 - (60 * 40) / 144, "and its floor comes out of the bedroom's");
+  });
+
+  test("the summary says sub-room of, which is true beside the parent as well as inside it", () => {
+    const bedroom = { ...box(0, 0, 240, 192, { id: "bed" }), name: "Bedroom" };
+    const beside = { ...box(60, 192, 60, 40, { id: "cl" }), name: "Closet", chosenParentRoomId: "bed" };
+    const text = s.sketchSummaryText({ rooms: s.withDerivedParents([bedroom, beside]) });
+    assert(text.includes("Closet — sub-room of Bedroom"), `got:\n${text}`);
+  });
+
   /* Where a new room lands. */
 
   test("a new room lands beside the selected room — to its right first", () => {
@@ -222,7 +369,7 @@ export async function runRoomChecks() {
     const bb = b(pulled);
     assert(bb.minX === 0 && bb.maxX === 240 && bb.minY === 192 && bb.maxY === 312, `bounds ${JSON.stringify(bb)}`);
     assert(s.ensureClockwise(pulled.vertices) === pulled.vertices, "wound clockwise");
-    assert(pulled.ceilingHeightFeet === 8 && pulled.name === "" && pulled.stairs === null, "an ordinary room");
+    assert(pulled.ceilingHeightFeet === 8 && pulled.name === "Room 1" && pulled.stairs === null, "an ordinary room, named as new rooms are");
   });
 
   test("off an angled wall the new room keeps the wall's angle", () => {
@@ -236,29 +383,19 @@ export async function runRoomChecks() {
     assert(corners.includes("282,162") && corners.includes("162,282"), `far corners 60 out along the wall's normal, got ${corners}`);
   });
 
-  test("the doors in the wall come with it, as openings, at the same place along the wall", () => {
-    const source = box(0, 0, 240, 192, { id: "src" });
-    const bottom = s.wallsOf(source)[2];
-    source.symbols = [door(bottom.id, 0.25)]; // 60px from the wall's start, which is the right-hand corner
-    const pulled = s.pullRoomFromWall(source, bottom.id, 120);
-    assert(pulled.symbols.length === 1, `one symbol, got ${pulled.symbols.length}`);
-    const copy = pulled.symbols[0];
-    assert(copy.type === "door" && copy.doorType === "opening", `an opening on the far side, got ${copy.type}/${copy.doorType}`);
-    assert(copy.widthFeet === 2.5 && copy.heightFeet === 6.67, "same size");
-    const shared = s.wallById(pulled, copy.wallId);
-    const at = s.pointOnWall(shared, copy.t);
-    near(at.x, 180, "same place in the world — 60px from the right-hand corner");
-    near(at.y, 192, "on the shared wall");
-    assert(copy.id !== "d", "its own id");
-  });
-
-  test("windows come too; cabinets stay on their own side", () => {
+  test("the doors and windows in the wall are seen from the new room, in the wall it shares; cabinets are not", () => {
+    // One door, one symbol: the new room draws it, deducts it and can slide it, but never holds a
+    // copy — a copy drifted from the door the first time either was moved.
     const source = box(0, 0, 240, 192, { id: "src" });
     const bottom = s.wallsOf(source)[2];
     const other = s.wallsOf(source)[0];
-    source.symbols = [windowOn(bottom.id, 0.5), cabinetOn(bottom.id, 0.75), door(other.id, 0.5)];
+    source.symbols = [door(bottom.id, 0.25), windowOn(bottom.id, 0.5), cabinetOn(bottom.id, 0.75), door(other.id, 0.5, { id: "far" })];
     const pulled = s.pullRoomFromWall(source, bottom.id, 120);
-    assert(pulled.symbols.length === 1 && pulled.symbols[0].type === "window", `just the window, got ${pulled.symbols.map((x) => x.type)}`);
+    assert(pulled.symbols.length === 0, `nothing of its own, got ${pulled.symbols.map((x) => x.type)}`);
+    const shared = s.openingsSharedWith(pulled, [source, pulled]);
+    assert(shared.map((x) => x.symbol.type).sort().join(",") === "door,window", `the door and the window in the shared wall, not the cabinet nor the door in another wall: ${shared.map((x) => x.symbol.id)}`);
+    const top = s.wallsOf(pulled).find((w) => Math.abs(w.y1 - 192) < 0.01 && Math.abs(w.y2 - 192) < 0.01);
+    assert(shared.every((x) => x.wallId === top.id), "both in the pulled room's top wall, the one it was pulled from");
   });
 
   test("a tap pulls a room of the default depth; nothing shallower than a foot is pulled", () => {
@@ -356,6 +493,24 @@ export async function runRoomChecks() {
     assert(pts(band.far) === "240,192 240,252 120,252 120,312 0,312 0,192", `got ${pts(band.far)}`);
   });
 
+  test("a closet inside the room, flush to the wall, is behind it — not a room standing in front", () => {
+    // The closet's top wall runs along the bedroom's top wall from inside. Taken as an obstacle it
+    // read as a room already there, and the pull off that wall started only past the closet.
+    const bedroom = box(60, 40, 192, 144, { id: "bed" });
+    const closet = { ...box(60, 40, 48, 30, { id: "cl" }), parentRoomId: "bed" };
+    const sketch = { rooms: [bedroom, closet] };
+    const top = s.wallsOf(bedroom)[0]; // (60,40) -> (252,40), out is -y
+    const obstacles = s.obstaclesFor(sketch, 0, { wall: { roomId: "bed", wallId: top.id } });
+    assert(obstacles.length === 3, `the bedroom's other three walls and nothing of the closet's: ${obstacles.length}`);
+    const pulled = s.pullRoomFromWall(bedroom, top.id, 100, { obstacles, rooms: sketch.rooms });
+    const bb = b(pulled);
+    assert(bb.minX === 60 && bb.maxX === 252 && bb.minY === -60 && bb.maxY === 40, `the whole wall's width: ${JSON.stringify(bb)}`);
+    // Dragging the bedroom's wall outward is the same: its closet is not in the way.
+    assert(s.obstaclesFor(sketch, 0, { roomId: "bed" }).length === 0, "nothing in the way of the bedroom's own walls");
+    // A closet inside some OTHER room still counts, as any wall does.
+    assert(s.obstaclesFor(sketch, 0, { roomId: "cl" }).length === 4, "from the closet's side the bedroom's walls are walls");
+  });
+
   test("a room already standing against the wall leaves nothing to pull", () => {
     const r = box(0, 0, 240, 192, { id: "src" });
     const bottom = s.wallsOf(r)[2];
@@ -372,31 +527,150 @@ export async function runRoomChecks() {
     near(s.grossFloorArea(pulled), (120 * 60 + 120 * 120) / 144, "the area of the stepped band");
   });
 
-  test("a door in any wall the new room lands along comes with it — not only the wall it was pulled from", () => {
+  test("a door in any wall the new room lands along is seen from it — never copied into it", () => {
     // The stub in the picture: the room the new one is pulled beside has a door in the wall the new
-    // room's side comes to lie along.
+    // room's side comes to lie along. A first version copied that door into the pulled room as an
+    // opening of its own; the copy then drifted from the door (see the drift test below).
     const src = box(0, 0, 240, 192, { id: "src" });
     const bottom = s.wallsOf(src)[2];
+    src.symbols = [door(bottom.id, 0.25, { id: "in-src" })];
     // A neighbour to the right whose left wall (240,192)->(240,312) will be the pulled room's right side.
     const neighbour = room([[240, 192], [360, 192], [360, 312], [240, 312]], { id: "nb" });
     const left = s.wallsOf(neighbour)[3]; // (240,312) -> (240,192)
-    neighbour.symbols = [door(left.id, 0.5)];
+    neighbour.symbols = [door(left.id, 0.5, { id: "in-nb" })];
     const pulled = s.pullRoomFromWall(src, bottom.id, 120, { obstacles: [], rooms: [src, neighbour] });
-    const inherited = pulled.symbols.filter((x) => x.type === "door");
-    assert(inherited.length === 1 && inherited[0].doorType === "opening", `expected the neighbour's door as an opening, got ${JSON.stringify(pulled.symbols)}`);
-    const w = s.wallById(pulled, inherited[0].wallId);
-    const at = s.pointOnWall(w, inherited[0].t);
-    near(at.x, 240, "on the shared side");
-    near(at.y, 252, "at the same place along it");
+    assert(pulled.symbols.length === 0, `nothing copied in: ${JSON.stringify(pulled.symbols)}`);
+    const seen = s.openingsSharedWith(pulled, [src, neighbour, pulled]).map((x) => x.symbol.id).sort();
+    assert(seen.join(",") === "in-nb,in-src", `both doors are seen from the new room: ${seen}`);
   });
 
-  test("inheriting is idempotent: a door already there is not copied again", () => {
+  test("a shared door straddling the corner counts for the stretch in each wall; the grip keeps clear of it; its label yields only there", () => {
+    // Bedroom 20' bottom wall, door centred at 10'; a 10' flight against the right half and a 10'
+    // room against the left half: the door is half in each of their top walls.
+    const src = box(0, 0, 240, 192, { id: "src" });
+    const bottom = s.wallsOf(src)[2];
+    src.symbols = [door(bottom.id, 0.5)];
+    const flightRight = box(120, 192, 120, 36, { id: "fr" });
+    const roomLeft = box(0, 192, 120, 120, { id: "rl" });
+    const rooms = [src, flightRight, roomLeft];
+    const doorArea = 2.5 * (20 / 3);
+    near(s.openingSquareFeet(flightRight, rooms), doorArea / 2, "half the hole in the flight's wall");
+    near(s.openingSquareFeet(roomLeft, rooms), doorArea / 2, "half in the room's");
+    near(s.openingSquareFeet(src, rooms), doorArea, "the whole of it in the bedroom's, once");
+    const [shared] = s.openingsSharedWith(flightRight, rooms);
+    near(shared.toPx - shared.fromPx, 15, "the stretch it covers of that wall");
+    // The flight's top wall (120,192)->(240,192) holds the shared door's half at its start; the
+    // grip goes to the clear stretch, not the middle of the wall where it would sit under the door.
+    const flightTop = s.wallsOf(flightRight).find((w) => w.y1 === 192 && w.y2 === 192);
+    const bare = s.wallGripSpan(flightRight, flightTop);
+    const aware = s.wallGripSpan(flightRight, flightTop, rooms);
+    near(bare.t, 0.5, "as if the wall were empty: dead centre");
+    assert(aware.t !== 0.5 && aware.clearPx < bare.clearPx, `clear of the door: ${JSON.stringify(aware)}`);
+    // A window at the far right end of the bedroom's wall shares its stretch with the flight...
+    src.symbols.push(windowOn(bottom.id, 0.1)); // 24px from the wall's start, the right-hand corner
+    const win = src.symbols[1];
+    const wc = s.symbolCentrePx(win, src);
+    const ww = s.symbolWidthPx(win, src);
+    assert(s.stretchSharedWithAnother(src, bottom, wc - ww / 2, wc + ww / 2, rooms), "the window's stretch is shared with the flight");
+    // ...but with the flight gone that end of the wall is nobody else's, whatever the left half is.
+    assert(!s.stretchSharedWithAnother(src, bottom, wc - ww / 2, wc + ww / 2, [src, roomLeft]), "not shared: its label may show");
+  });
+
+  test("the sketch data lists what a room sees in its walls, labelled and numbered for that room", () => {
+    const src = { ...box(0, 0, 240, 192, { id: "src" }), name: "  " }; // no name to speak of
+    const bottom = s.wallsOf(src)[2];
+    src.symbols = [door(bottom.id, 0.25, { id: "d1" }), { ...door(bottom.id, 0.5, { id: "o1" }), doorType: "opening" }, windowOn(bottom.id, 0.8)];
+    const pulled = s.pullRoomFromWall(src, bottom.id, 120);
+    const out = s.sketchOutput({ rooms: [src, pulled] });
+    const wallNo = s.wallsOf(pulled).findIndex((w) => Math.abs(w.y1 - 192) < 0.01 && Math.abs(w.y2 - 192) < 0.01) + 1;
+    const seen = out[1].sharedOpenings.map((o) => `${o.label}@${o.wall}:${o.widthFeet}:${o.withRoom}`).sort();
+    assert(
+      seen.join(" | ") === [`Opening (no door)@${wallNo}:2.5:Unnamed room`, `Single swing door@${wallNo}:2.5:Unnamed room`, `Window@${wallNo}:3:Unnamed room`].join(" | "),
+      `got ${seen.join(" | ")}`,
+    );
+    assert(out[0].sharedOpenings.length === 0, "the owner lists nothing as shared: they are its own");
+  });
+
+  test("a painting scope line on the pulled room's wall leaves out the door it shares", () => {
+    const src = box(0, 0, 240, 192, { id: "src" });
+    const bottom = s.wallsOf(src)[2];
+    src.symbols = [door(bottom.id, 0.5)];
+    const pulled = s.pullRoomFromWall(src, bottom.id, 120);
+    const top = s.wallsOf(pulled).find((w) => Math.abs(w.y1 - 192) < 0.01 && Math.abs(w.y2 - 192) < 0.01);
+    const mark = { walls: [{ roomId: pulled.id, wallId: top.id, startT: 0, endT: 1 }], floorCells: {} };
+    near(s.fullWallSquareFeet(mark, { rooms: [src, pulled] }), 20 * 8 - 2.5 * (20 / 3), "20' x 8' less the door");
+  });
+
+  test("a placeholder name matches an extraction room exactly, never by containment", () => {
+    assert(s.isPlaceholderRoomName("Room 3") && s.isPlaceholderRoomName(" room 12 ") && !s.isPlaceholderRoomName("Living Room 1") && !s.isPlaceholderRoomName(""), "what counts as one");
+    const suggestions = { "room 1": { equipment: {}, floorSquareFeet: 1, wallRunFeet: null, ceilingSquareFeet: null, parentRoomKey: null }, "master bedroom": { equipment: {}, floorSquareFeet: 2, wallRunFeet: null, ceilingSquareFeet: null, parentRoomKey: null } };
+    assert(s.findDerived(suggestions, "Living Room 1") === undefined, "a room nobody has named is not the living room");
+    assert(s.findDerived(suggestions, "Room 1")?.floorSquareFeet === 1, "but it is Room 1 when the extraction says Room 1");
+    assert(s.findDerived(suggestions, "Bedroom")?.floorSquareFeet === 2, "a typed name still matches by containment");
+  });
+
+  test("a sketch saved with a copy of the door in the pulled room still has one hole there, not two", () => {
+    // Saved while doors were being copied into pulled rooms: the source's door and, in the pulled
+    // room's own wall, an opening at the same place. Drawn once, deducted once — through the copy.
     const src = box(0, 0, 240, 192, { id: "src" });
     const bottom = s.wallsOf(src)[2];
     src.symbols = [door(bottom.id, 0.25)];
-    const once = s.pullRoomFromWall(src, bottom.id, 120, { obstacles: [], rooms: [src] });
-    const twice = s.inheritOpenings(once, [src, once]);
-    assert(once.symbols.length === 1 && twice.symbols.length === 1, `expected one opening either way, got ${once.symbols.length}/${twice.symbols.length}`);
+    const pulled = s.pullRoomFromWall(src, bottom.id, 120);
+    const top = s.wallsOf(pulled).find((w) => Math.abs(w.y1 - 192) < 0.01 && Math.abs(w.y2 - 192) < 0.01);
+    // The copy sits at the same world point: 60px from the source wall's start, (180,192).
+    const at = s.pointOnWall(bottom, 0.25);
+    const u = ((at.x - top.x1) * (top.x2 - top.x1) + (at.y - top.y1) * (top.y2 - top.y1)) / top.lengthPx;
+    const withCopy = { ...pulled, symbols: [{ ...door(top.id, u / top.lengthPx, { id: "copy" }), doorType: "opening" }] };
+    assert(s.openingsSharedWith(withCopy, [src, withCopy]).length === 0, "the source's door is not shared in on top of its copy");
+    near(s.openingSquareFeet(withCopy, [src, withCopy]), 2.5 * (20 / 3), "deducted once");
+    // A copy nudged along, still overlapping the door, is that hole — two doorways cannot overlap
+    // in a wall; one slid clear of it (three feet, past its own width) is not, and the door shows
+    // through again beside it — two holes, honestly.
+    const nudged = { ...withCopy, symbols: [{ ...withCopy.symbols[0], t: withCopy.symbols[0].t + 20 / top.lengthPx }] };
+    assert(s.openingsSharedWith(nudged, [src, nudged]).length === 0, "nudged, still overlapping: the same hole");
+    const slid = { ...withCopy, symbols: [{ ...withCopy.symbols[0], t: withCopy.symbols[0].t + 36 / top.lengthPx }] };
+    assert(s.openingsSharedWith(slid, [src, slid]).length === 1, "a copy moved clear is no longer the same hole");
+  });
+
+  test("the report: a door in a shared wall is drawn by both rooms — whichever is on top shows it", () => {
+    // A door in the source's bottom wall; the room pulled below shares that wall and draws the door
+    // over its own wall and floor, so the leaf is not lost under them. A flight of stairs dragged
+    // against the same wall shares it just the same, pulled or not.
+    const src = box(0, 0, 240, 192, { id: "src" });
+    const bottom = s.wallsOf(src)[2];
+    src.symbols = [door(bottom.id, 0.5), windowOn(s.wallsOf(src)[0].id, 0.5), cabinetOn(bottom.id, 0.1)];
+    const below = box(0, 192, 240, 120, { id: "below" });
+    const shared = s.openingsSharedWith(below, [src, below]);
+    assert(shared.length === 1 && shared[0].symbol.type === "door" && shared[0].room.id === "src", `the door and only the door: ${JSON.stringify(shared.map((x) => x.symbol.type))}`);
+    // Half a wall: a flight of stairs against the right half of the wall still shares the door, but
+    // one against the left half, clear of it, does not.
+    const flightRight = box(120, 192, 120, 36, { id: "fr" });
+    const flightLeft = box(0, 192, 100, 36, { id: "fl" });
+    assert(s.openingsSharedWith(flightRight, [src, flightRight]).length === 1, "the door is half in the flight's wall");
+    assert(s.openingsSharedWith(flightLeft, [src, flightLeft]).length === 0, "and not at all in a wall that stops short of it");
+    // Not across storeys, and not from a wall that merely runs parallel some way off.
+    const upstairs = { ...box(0, 192, 240, 120, { id: "up" }), level: 1 };
+    assert(s.openingsSharedWith(upstairs, [src, upstairs]).length === 0, "another storey shares nothing");
+    const apart = box(0, 230, 240, 120, { id: "apart" });
+    assert(s.openingsSharedWith(apart, [src, apart]).length === 0, "a wall a few feet off is not the same wall");
+  });
+
+  test("a shared door comes off the wall area of both rooms, and the summary says whose it is", () => {
+    // A 2'6" x 6'8" door in the source's bottom wall: 16.67 SF of no wall, from either side.
+    const src = { ...box(0, 0, 240, 192, { id: "src" }), name: "Main" };
+    const bottom = s.wallsOf(src)[2];
+    src.symbols = [door(bottom.id, 0.5)];
+    const pulled = { ...s.pullRoomFromWall(src, bottom.id, 120, { obstacles: [], rooms: [src] }), name: "Room 1" };
+    const rooms = [src, pulled];
+    const doorArea = 2.5 * (20 / 3);
+    near(s.openingSquareFeet(pulled), 0, "the pulled room has no openings of its own");
+    near(s.openingSquareFeet(pulled, rooms), doorArea, "but the door in its top wall is no wall, seen from its side too");
+    near(s.openingSquareFeet(src, rooms), doorArea, "and the source counts it once, not once more for having a neighbour");
+    const q = s.roomQuantities(pulled, { rooms }, s.DEFAULT_QUANTITY_OPTIONS);
+    near(q.deductions.openingSquareFeet, doorArea, "the quantities table takes it off the pulled room's wall area");
+    const text = s.sketchSummaryText({ rooms });
+    const wallNo = s.wallsOf(pulled).findIndex((w) => Math.abs(w.y1 - 192) < 0.01 && Math.abs(w.y2 - 192) < 0.01) + 1;
+    assert(text.includes(`Single swing door — wall ${wallNo}, shared with Main, 2'6" wide`), `the pulled room's data names the door it shares:\n${text}`);
   });
 
   test("dragging a wall that crosses nothing is the plain drag, angles kept", () => {
@@ -423,16 +697,16 @@ export async function runRoomChecks() {
     assert(moved.vertices.length === 5, `five corners and no more — the old bottom-right corner now lies flat along the bottom: ${corners}`);
   });
 
-  test("and the door in the wall the room came to lie along comes in as an opening", () => {
+  test("and the door in the wall the room came to lie along is seen from the reshaped room, not copied in", () => {
     const r = box(0, 0, 240, 192, { id: "r" });
     const right = s.wallsOf(r)[1];
     // The angled wall belongs to a neighbour, with a door in it.
     const nb = room([[240, 0], [330, 90], [400, 90], [400, 0]], { id: "nb" });
     const angled = s.wallsOf(nb)[0]; // (240,0) -> (330,90)
     nb.symbols = [door(angled.id, 0.5)];
-    const moved = s.conformedDragWall(r, right.id, 60, 0, s.wallsOf(nb).map((w) => seg(w.x1, w.y1, w.x2, w.y2)), [r, nb]);
-    const inherited = moved.symbols.filter((x) => x.type === "door");
-    assert(inherited.length === 1 && inherited[0].doorType === "opening", `expected the door as an opening, got ${JSON.stringify(moved.symbols)}`);
+    const moved = s.conformedDragWall(r, right.id, 60, 0, s.wallsOf(nb).map((w) => seg(w.x1, w.y1, w.x2, w.y2)));
+    assert(moved.symbols.length === 0, `nothing copied in: ${JSON.stringify(moved.symbols)}`);
+    assert(s.openingsSharedWith(moved, [moved, nb]).length === 1, "the door is seen from the reshaped room");
   });
 
   test("the dragged wall keeps its id when its start corner comes to lie flat — the drag must not stop dead", () => {
@@ -446,9 +720,8 @@ export async function runRoomChecks() {
     const side = s.wallsOf(r)[2]; // (300,60) -> (300,192), out is +x
     const nb = room([[240, 0], [330, 90], [400, 90], [400, 0]], { id: "nb" });
     const angled = s.wallsOf(nb)[0];
-    nb.symbols = [door(angled.id, 0.5)]; // centred at (285,45): only wholly on the side once it runs the whole diagonal
     r.symbols = [door(side.id, 0.5, { id: "mine" }), door(side.id, 0.1, { id: "high" })]; // (300,126) and (300,73) on the dragged wall
-    const moved = s.conformedDragWall(r, side.id, 30, 0, s.wallsOf(nb).map((w) => seg(w.x1, w.y1, w.x2, w.y2)), [r, nb]);
+    const moved = s.conformedDragWall(r, side.id, 30, 0, s.wallsOf(nb).map((w) => seg(w.x1, w.y1, w.x2, w.y2)));
     const corners = moved.vertices.map((v) => [Math.round(v.x), Math.round(v.y)].join(","));
     assert(corners.join(" ") === "0,0 240,0 330,90 330,192 0,192", `the side runs the whole diagonal then straight down, five corners: ${corners}`);
     const kept = moved.vertices.find((v) => v.id === side.id);
@@ -461,8 +734,67 @@ export async function runRoomChecks() {
     const highAt = s.pointOnWall(s.wallById(moved, high.wallId), high.t);
     near(highAt.y, 73.2, "the door near the top keeps its height too");
     near(highAt.x, 313.2, "on the diagonal, which is what the side is there now — the wall before the moved corner");
-    const inherited = moved.symbols.filter((x) => x.type === "door" && x.id !== "mine" && x.id !== "high");
-    assert(inherited.length === 1 && inherited[0].doorType === "opening", `the neighbour's door, now wholly along the side, comes in as an opening: ${JSON.stringify(moved.symbols)}`);
+    assert(moved.symbols.length === 2, `only the room's own two doors: ${JSON.stringify(moved.symbols)}`);
+  });
+
+  test("the report: an opening on the wall the corner slides along stays put", () => {
+    // The room after one widening has an opening on its diagonal, centred at (270,30). Widening
+    // again slides the corner along the diagonal, which gets longer; the opening's place is a
+    // fraction of that wall, so left alone it slid too — reported as two openings overlapping,
+    // back when the neighbour's door was also copied in where it really was.
+    const r = room([[0, 0], [240, 0], [300, 60], [300, 192], [0, 192]], { id: "r" });
+    const diagonal = s.wallsOf(r)[1]; // (240,0) -> (300,60)
+    const side = s.wallsOf(r)[2];
+    r.symbols = [{ ...door(diagonal.id, 0.5, { id: "own" }), doorType: "opening" }]; // centred at (270,30)
+    const moved = s.conformedDragWall(r, side.id, 30, 0, [seg(240, 0, 330, 90)]);
+    const openings = moved.symbols.filter((x) => x.type === "door");
+    assert(openings.length === 1 && openings[0].id === "own", `the one opening: ${JSON.stringify(moved.symbols)}`);
+    const at = s.pointOnWall(s.wallById(moved, openings[0].wallId), openings[0].t);
+    near(at.x, 270, "still where it was");
+    near(at.y, 30, "not slid along the longer wall");
+    // The same rule as the plain drag (`reflowContents`): an opening keeps its distance from the
+    // corner it is nearer. By the fixed corner it stays put; by the sliding corner it goes with it.
+    const place = (t) => {
+      const rr = { ...r, symbols: [{ ...r.symbols[0], t }] };
+      const m = s.conformedDragWall(rr, side.id, 30, 0, [seg(240, 0, 330, 90)]);
+      return s.pointOnWall(s.wallById(m, m.symbols[0].wallId), m.symbols[0].t);
+    };
+    near(place(0.25).x, 255, "by the fixed corner: stays");
+    near(place(0.75).x, 315, "by the sliding corner: 30px further along, with it");
+  });
+
+  test("a door near the moving corner travels with it the same whether or not the band meets a wall", () => {
+    // The plain drag keeps a door the same distance from the corner it is nearer (`reflowContents`).
+    // A drag that meets a wall part-way through must not move the doors differently from the
+    // frames before it, or the door jumps the moment the band touches something.
+    const r = box(0, 0, 240, 192, { id: "r" });
+    const right = s.wallsOf(r)[1];
+    const top = s.wallsOf(r)[0];
+    r.symbols = [door(top.id, 0.9)]; // centred at x=216, 24px from the moving corner
+    const at = (room) => s.pointOnWall(s.wallById(room, room.symbols[0].wallId), room.symbols[0].t).x;
+    const plain = s.conformedDragWall(r, right.id, 100, 0, []);
+    const met = s.conformedDragWall(r, right.id, 100, 0, [seg(300, 100, 300, 192)]); // a wall in the lower half of the band only
+    near(at(plain), 316, "plain: still 24px from the corner, now at 340");
+    near(at(met), 316, "met a wall: the same");
+  });
+
+  test("at a reflex corner the wall before the moved corner gets shorter, and its door stays on it", () => {
+    // An L: the inner wall (240,100)->(120,100) runs back over the band when the wall below it is
+    // dragged right, so the corner slides back along it and the wall shrinks from 120 to 50. The
+    // door centred on it is kept on the wall it is on, not stored past its end.
+    const l = room([[0, 0], [240, 0], [240, 100], [120, 100], [120, 192], [0, 192]], { id: "l" });
+    const inner = s.wallsOf(l)[2]; // (240,100) -> (120,100)
+    const lower = s.wallsOf(l)[3]; // (120,100) -> (120,192)
+    l.symbols = [door(inner.id, 0.5)];
+    const moved = s.conformedDragWall(l, lower.id, 80, 0, [seg(190, 100, 190, 192)]);
+    const corners = moved.vertices.map((v) => [Math.round(v.x), Math.round(v.y)].join(",")).join(" ");
+    assert(corners === "0,0 240,0 240,100 190,100 190,192 0,192", `the corner slid back to the wall in the way: ${corners}`);
+    const d = moved.symbols[0];
+    assert(d.t >= 0 && d.t <= 1, `on its wall, t=${d.t}`);
+    const w = s.wallById(moved, d.wallId);
+    near(w.lengthPx, 50, "the wall it is on is the shortened one");
+    const p = s.pointOnWall(w, d.t);
+    assert(p.x >= 190 + 15 - 0.01 && p.x <= 240 - 15 + 0.01 && Math.abs(p.y - 100) < 0.01, `wholly on it: ${JSON.stringify(p)}`);
   });
 
   test("flat is judged to the half degree, as corners are — a wall drawn a hair off the line is still one line", () => {

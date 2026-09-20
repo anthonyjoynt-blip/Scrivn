@@ -167,6 +167,11 @@ export async function runWallChecks() {
     assert(b.minX === 300 && b.maxX === 420 && b.minY === 300 && b.maxY === 396, `bounds ${JSON.stringify(b)}`);
     near(s.grossFloorArea(closed.room), 80, "10' x 8'");
     assert(closed.usedFreeWallIds.length === 0, "nothing else used");
+    assert(closed.room.name === "Room 1", `a drawn room is named like any other new room, got "${closed.room.name}"`);
+    // With a "Room 1" already on the plan the next is "Room 2".
+    const existing = { ...closed.room, id: "r1" };
+    const again = s.addDraftPoint([pt(500, 300), pt(620, 300), pt(620, 396), pt(500, 396)], pt(500, 300), sketchWith([existing]), 0, 12);
+    assert(again.kind === "room" && again.room.name === "Room 2", `next one is Room 2, got ${again.kind === "room" ? again.room.name : again.kind}`);
   });
 
   test("the room is wound clockwise whichever way it was tapped", () => {
@@ -210,6 +215,7 @@ export async function runWallChecks() {
     assert(step.room.vertices.length === 4, `four corners, got ${step.room.vertices.length}`);
     const derived = s.withDerivedParents([r, step.room]);
     assert(derived[1].parentRoomId === r.id, "and it nests in the room it was cut from");
+    assert(step.room.name === "Room 1", `a room cut from a corner is named like any other new room, got "${step.room.name}"`);
   });
 
   test("the piece kept is the smaller one — the closet, not the rest of the bedroom", () => {

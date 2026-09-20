@@ -104,7 +104,7 @@ export function fullWallSquareFeet(mark: ScopeMark, sketch: Sketch): number {
       somebody was comparing numbers.
     */
     const gross = wall.lengthFeet * (room.ceilingHeightFeet ?? 8);
-    return sum + Math.max(0, gross - openingSquareFeetOnWall(room, wall.id));
+    return sum + Math.max(0, gross - openingSquareFeetOnWall(room, wall.id, sketch.rooms));
   }, 0);
 }
 

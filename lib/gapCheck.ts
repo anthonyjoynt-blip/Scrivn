@@ -75,6 +75,7 @@ import {
   withDerivedFields,
 } from "./types";
 import { type GapCheckQuestion, type GapCheckQuestionKind, type GapCheckResult, parseBucketCounts } from "./questions";
+import { isPlaceholderRoomName } from "./sketch";
 
 /**
  * Deterministic, zero-API-call gap-check for water losses. Pure function of the current
@@ -228,7 +229,8 @@ export function findDerived(
   const contains = (haystack: string, needle: string) =>
     new RegExp(`(^| )${needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}( |$)`).test(haystack);
 
-  const candidates = Object.keys(suggestions).filter((k) => contains(k, key) || contains(key, k));
+  // A sketch room still called "Room 2" is nobody's yet — see `isPlaceholderRoomName`.
+  const candidates = Object.keys(suggestions).filter((k) => !isPlaceholderRoomName(k) && (contains(k, key) || contains(key, k)));
   const only = candidates.length === 1 ? candidates[0] : undefined;
   return only === undefined ? undefined : suggestions[only];
 }

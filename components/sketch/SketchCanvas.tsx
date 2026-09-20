@@ -40,6 +40,10 @@ import {
   freeWallSegments,
   pointOnWall,
   isInsideRoom,
+  isNestedWithin,
+  isRoomInside,
+  openingsSharedWith,
+  stretchSharedWithAnother,
   roomBounds,
   stairFlight,
   stairCeiling,
@@ -88,6 +92,17 @@ const UNDERLAY_OPACITY = 0.4;
 
 /** Dash pattern for an underlay wall, in screen pixels — divided by zoom so it holds its look. */
 const UNDERLAY_DASH = [7, 5];
+
+/**
+ * Is this sub-room drawn INSIDE its parent? The deeper mark inset (`SUB_ROOM_FACE_INSET`) exists
+ * because a nested room's interior is on the same side of the shared wall as its parent's; a
+ * sub-room standing beside its parent, made one by choice, has its interior on the far side, where
+ * the ordinary inset already keeps the two marks apart.
+ */
+function standsInsideParent(room: SketchRoom, rooms: SketchRoom[]): boolean {
+  const parent = room.parentRoomId ? rooms.find((r) => r.id === room.parentRoomId) : undefined;
+  return parent !== undefined && isNestedWithin(room, parent);
+}
 
 const COLORS = {
   wall: "#1b3a5c",
@@ -473,7 +488,11 @@ export default function SketchCanvas(props: SketchCanvasProps) {
     // Everything on the storey but the wall being pulled from stands in the way — the outline
     // shown is the shape the room will actually take, walls and all. See `extrudeWall`.
     const obstacles: Obstacle[] = [];
+    const from = rooms.find((r) => r.id === roomId);
     for (const room of rooms) {
+      // Not the closets inside the room being pulled from: behind the wall, not in front of it —
+      // the same rule as `obstaclesFor`, which decides the room that is made.
+      if (from && room.id !== from.id && isRoomInside(room, from)) continue;
       for (const w of wallsOf(room)) {
         if (room.id === roomId && w.id === wall.id) continue;
         obstacles.push({ x1: w.x1, y1: w.y1, x2: w.x2, y2: w.y2 });
@@ -910,7 +929,7 @@ function RoomShape({
   */
   const gripReach = new Map<string, number>();
   for (const wall of walls) {
-    const span = wallGripSpan(room, wall);
+    const span = wallGripSpan(room, wall, rooms);
     if (!span) continue;
     const at = pointOnWall(wall, span.t);
     gripReach.set(wall.id, Math.hypot(at.x - anchor.x, at.y - anchor.y) / 2);
@@ -1051,6 +1070,7 @@ function RoomShape({
       back: the vertices are the source of truth for where the room is, and letting the node keep its
       own offset would put the two out of step.
     */
+    <>
     <Group
       /* Only once selected — see `updatePanEligibility` — and never while moisture mapping, which
          puts the geometry into read-only: the room was drawn once, this mode annotates it. */
@@ -1185,6 +1205,7 @@ function RoomShape({
       {showMoisture && (
         <AffectedWalls
           room={room}
+          nested={standsInsideParent(room, rooms)}
           moisture={moisture}
           zoom={zoom}
           interactive={moistureTool === "read"}
@@ -1260,7 +1281,7 @@ function RoomShape({
           <WallGrabHandle
             key={`grab-${wall.id}`}
             wall={wall}
-            span={wallGripSpan(room, wall)}
+            span={wallGripSpan(room, wall, rooms)}
             maxRadius={gripReach.get(wall.id) ?? Infinity}
             zoom={zoom}
             onDrag={(dx, dy) => onDragWall(room.id, wall.id, dx, dy)}
@@ -1330,6 +1351,41 @@ function RoomShape({
       ))}
       </Group>
     </Group>
+
+      {/*
+        Other rooms' doors and windows that sit in this room's walls, drawn over this room's wall
+        and floor so they are not lost under them — see `openingsSharedWith`. Live, not a picture:
+        it is the same door seen from this side, so a press picks it up where it lives, in the
+        other room — selection moves there with it — and a drag slides that door. The first
+        version copied the door into this room's own data instead, and the PM sliding one saw "the
+        original opening underneath the one I am moving".
+
+        A sibling of the room's group, not a child: the group is what Konva slides while the room
+        is dragged, and the door is the other room's — inside the group it went along for the ride
+        and was on screen twice until the drop.
+      */}
+      <Group listening={moistureTool === null}>
+        {openingsSharedWith(room, rooms).map(({ room: theirs, symbol }) => (
+          <SymbolShape
+            key={`${theirs.id}:${symbol.id}`}
+            room={theirs}
+            rooms={rooms}
+            freeWalls={freeWalls}
+            symbol={symbol}
+            zoom={zoom}
+            interactive={tool !== "pull"}
+            selected={symbol.id === selectedSymbolId}
+            onSelect={() => {
+              onSelectRoom(theirs.id);
+              onSelectSymbol(symbol.id);
+            }}
+            showSizes={showSizes}
+            onMove={(centrePx) => onMoveSymbol(theirs.id, symbol.id, centrePx)}
+            onResize={(centrePx, widthPx) => onResizeSymbol(theirs.id, symbol.id, centrePx, widthPx)}
+          />
+        ))}
+      </Group>
+    </>
   );
 }
 
@@ -1872,7 +1928,13 @@ function SymbolShape({
         }}
       />
 
-      {showSizes && <SymbolSizeLabel symbol={symbol} x0={x0} width={w} rowY={rowY} flip={flip} zoom={zoom} />}
+      {/*
+        The width label sits outside the wall — which, on a wall two rooms share, is inside the
+        other room, on top of that room's own measurement of the wall. On a short wall the two
+        figures sat on each other, reported from the field. The wall wins: an unselected opening on
+        a shared wall keeps its width to itself, and shows it the moment it is selected.
+      */}
+      {showSizes && (selected || !stretchSharedWithAnother(room, wall, x0, x1, rooms)) && <SymbolSizeLabel symbol={symbol} x0={x0} width={w} rowY={rowY} flip={flip} zoom={zoom} />}
       {offsets && <SymbolOffsetLabels offsets={offsets} rowY={rowY} flip={flip} zoom={zoom} />}
 
       {selected && <SymbolEndHandles x0={x0} x1={x1} zoom={zoom} onResize={onResize} />}
@@ -2600,6 +2662,7 @@ function hatchPattern(): HTMLCanvasElement | undefined {
  */
 function AffectedWalls({
   room,
+  nested,
   moisture,
   zoom,
   interactive,
@@ -2607,6 +2670,8 @@ function AffectedWalls({
   onSelectReading,
 }: {
   room: SketchRoom;
+  /** Drawn inside its parent, so its marks sit deeper — see `SUB_ROOM_FACE_INSET`. */
+  nested: boolean;
   moisture: MoistureMap;
   zoom: number;
   interactive: boolean;
@@ -2628,7 +2693,7 @@ function AffectedWalls({
             reading={reading}
             wall={wall}
             anchor={anchor}
-            nested={room.parentRoomId != null}
+            nested={nested}
             zoom={zoom}
             interactive={interactive}
             markStyle={markStyle}
@@ -2696,7 +2761,7 @@ function ReadingHandles({
     onWallB.x,
     onWallB.y,
     anchor,
-    (room.parentRoomId != null ? SUB_ROOM_FACE_INSET : WALL_FACE_INSET) / zoom,
+    (standsInsideParent(room, rooms) ? SUB_ROOM_FACE_INSET : WALL_FACE_INSET) / zoom,
   );
   const face = insetTowards(onWallA.x, onWallA.y, onWallB.x, onWallB.y, anchor, inset);
   const a = { x: face.x1, y: face.y1 };

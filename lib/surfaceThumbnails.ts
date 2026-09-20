@@ -1,4 +1,4 @@
-import type { Sketch, SketchRoom } from "./sketch";
+import { type Sketch, type SketchRoom, isPlaceholderRoomName } from "./sketch";
 import type { ScopeMarks } from "./scopeMarks";
 import type { MoistureMap } from "./moisture";
 import { roomMoisture } from "./moisture";
@@ -74,7 +74,8 @@ function matchSketchRoom(rooms: SketchRoom[], roomName: string | null): SketchRo
     new RegExp(`(^| )${needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}( |$)`).test(haystack);
   const candidates = rooms.filter((r) => {
     const name = normaliseRoomName(r.name ?? "");
-    return contains(name, key) || contains(key, name);
+    // A sketch room still called "Room 2" is nobody's yet — see `isPlaceholderRoomName`.
+    return !isPlaceholderRoomName(name) && (contains(name, key) || contains(key, name));
   });
   return candidates.length === 1 ? candidates[0] : undefined;
 }

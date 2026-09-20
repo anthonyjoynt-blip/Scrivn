@@ -36,7 +36,9 @@ import {
   newFreeCabinet,
   newSketchId,
   newSymbol,
+  nextRoomName,
   parseFeetInches,
+  possibleParents,
   pruneCollinearVertices,
   newStairRoom,
   rectangleVertices,
@@ -86,7 +88,7 @@ import {
   withFreeWallSegmentLength,
 } from "@/lib/sketchWalls";
 import { FreeCabinetPanel, SymbolPanel } from "./SymbolPanel";
-import { conformedDragWall, obstaclesFor, placeNewRoom, pullRoomFromWall, viewCentredOn } from "@/lib/roomPlacement";
+import { type Obstacle, conformedDragWall, obstaclesFor, placeNewRoom, pullRoomFromWall, viewCentredOn } from "@/lib/roomPlacement";
 import { QuantitiesPanel } from "./QuantitiesPanel";
 import { type QuantityOptions, DEFAULT_QUANTITY_OPTIONS } from "@/lib/sketchQuantities";
 import type { MoistureTool, ToolMode } from "./SketchCanvas";
@@ -127,6 +129,12 @@ const CANVAS_HEIGHT = 460;
  * measurement was entered had no real size. Starting at a plausible square means the sketch measures
  * something from the first frame even if the user goes straight to dragging walls around.
  */
+/** "20' x 16'" — what tells two rooms called Closet apart in the "Sub-room of" list. */
+function roomSizeLabel(room: SketchRoom): string {
+  const b = roomBounds(room);
+  return `${formatFeetInches(b.width / PIXELS_PER_FOOT)} x ${formatFeetInches(b.height / PIXELS_PER_FOOT)}`;
+}
+
 const NEW_ROOM = {
   width: DEFAULT_ROOM_FEET * PIXELS_PER_FOOT,
   height: DEFAULT_ROOM_FEET * PIXELS_PER_FOOT,
@@ -515,20 +523,31 @@ export function SketchEditor({
   const selectedIsland = selectedRoom?.freeCabinets.find((c) => c.id === selectedSymbolId) ?? null;
 
   /**
-   * The room this one is drawn inside, ignoring whether the user has opted out of nesting.
+   * The room this one is drawn inside, whatever has been chosen for it.
    *
-   * Asked with the opt-out cleared on purpose: the control has to stay on screen after you press
-   * "Separate room", or the only way back would be to drag the room out and in again.
+   * Asked with the opt-out and the choice cleared on purpose: the note under the "Sub-room of" list
+   * says where the drawing puts the room, which is worth seeing exactly when the choice disagrees.
    */
   const nestedInside = (() => {
     if (!selectedRoom) return null;
-    const asIfNesting = sketch.rooms.map((r) => (r.id === selectedRoom.id ? { ...r, nestingOptOut: false } : r));
+    const asIfNesting = sketch.rooms.map((r) => (r.id === selectedRoom.id ? { ...r, nestingOptOut: false, chosenParentRoomId: null } : r));
     const parentId = containingRoomId(asIfNesting, selectedRoom.id);
     return parentId ? (sketch.rooms.find((r) => r.id === parentId) ?? null) : null;
   })();
 
-  function setNesting(roomId: string, optOut: boolean) {
-    onChange({ ...sketch, rooms: withDerivedParents(sketch.rooms.map((r) => (r.id === roomId ? { ...r, nestingOptOut: optOut } : r))) });
+  /** What the "Sub-room of" list offers: the other rooms on this storey that are not already under this one. */
+  const parentChoices = selectedRoom ? possibleParents(selectedRoom, sketch.rooms) : [];
+
+  /**
+   * The PM's answer to "Sub-room of": a room, or none. Explicit either way — a room chosen stays
+   * chosen wherever it is dragged, and "Not a sub-room" is the opt-out that survives the same way.
+   * See `chosenParentRoomId`.
+   */
+  function setParentChoice(roomId: string, parentId: string | null) {
+    onChange({
+      ...sketch,
+      rooms: withDerivedParents(sketch.rooms.map((r) => (r.id === roomId ? { ...r, chosenParentRoomId: parentId, nestingOptOut: parentId === null } : r))),
+    });
   }
 
   const updateRoom = useCallback(
@@ -809,26 +828,28 @@ export function SketchEditor({
    * to follow it (`conformedDragWall`) — a shape that depends on how far out the wall has gone,
    * which frame-by-frame steps from an already reshaped room would compound.
    */
-  const wallDrag = useRef<{ roomId: string; wallId: string; room: SketchRoom; dx: number; dy: number } | null>(null);
+  const wallDrag = useRef<{ roomId: string; wallId: string; room: SketchRoom; obstacles: Obstacle[]; dx: number; dy: number } | null>(null);
   function handleDragWall(roomId: string, wallId: string, dx: number, dy: number) {
     const current = wallDrag.current;
     if (!current || current.roomId !== roomId || current.wallId !== wallId) {
       const room = sketch.rooms.find((r) => r.id === roomId);
       if (!room) return;
-      wallDrag.current = { roomId, wallId, room, dx: 0, dy: 0 };
+      // What stands in the way is fixed at the start too: read frame by frame, a closet flush
+      // inside the room stopped being "inside" the moment one frame went inward, and from then on
+      // stood in the way of every frame outward.
+      wallDrag.current = { roomId, wallId, room, obstacles: obstaclesFor(sketch, activeLevel, { roomId }), dx: 0, dy: 0 };
     }
-    const drag = wallDrag.current as { roomId: string; wallId: string; room: SketchRoom; dx: number; dy: number };
+    const drag = wallDrag.current as { roomId: string; wallId: string; room: SketchRoom; obstacles: Obstacle[]; dx: number; dy: number };
     drag.dx += dx;
     drag.dy += dy;
-    const obstacles = obstaclesFor(sketch, activeLevel, { roomId });
-    const reshaped = conformedDragWall(drag.room, wallId, drag.dx, drag.dy, obstacles, sketch.rooms);
+    const reshaped = conformedDragWall(drag.room, wallId, drag.dx, drag.dy, drag.obstacles);
     updateRoom(roomId, () => reshaped);
   }
 
   /**
    * The next room over, pulled off a wall of this one — see `pullRoomFromWall`. It lands selected
-   * and unnamed, like any new room, with the tool put away: the next press is for naming it or
-   * dragging its far wall, not for pulling another.
+   * and numbered ("Room 3"), like any new room, with the tool put away: the next press is for
+   * naming it or dragging its far wall, not for pulling another.
    */
   function handlePullRoom(roomId: string, wallId: string, depthPx: number) {
     const source = sketch.rooms.find((r) => r.id === roomId);
@@ -853,7 +874,7 @@ export function SketchEditor({
     // A rectangle is just the four-vertex case; every new room starts as one.
     const room: SketchRoom = {
       id: newSketchId("room"),
-      name: "",
+      name: nextRoomName(sketch.rooms),
       vertices: ensureClockwise(rectangleVertices(x, y, NEW_ROOM.width, NEW_ROOM.height)),
       ceilingHeightFeet: DEFAULT_CEILING_HEIGHT_FEET,
       ceilingType: "flat",
@@ -1024,7 +1045,9 @@ export function SketchEditor({
     if (!room) return;
 
     setDeletedRoom({ room, index, moisture: roomMoisture(moisture, roomId) });
-    onChange((prev) => ({ ...prev, rooms: prev.rooms.filter((r) => r.id !== roomId) }));
+    // Re-derived so a sub-room of the deleted room does not keep pointing at it; a chosen parent
+    // is only set aside (`validChosenParent`), and comes back with the room if this is undone.
+    onChange((prev) => ({ ...prev, rooms: withDerivedParents(prev.rooms.filter((r) => r.id !== roomId)) }));
     if (selectedRoomId === roomId) {
       setSelectedRoomId(null);
       setSelectedSymbolId(null);
@@ -1841,32 +1864,38 @@ export function SketchEditor({
 
 
           {/*
-            Sits directly under the name rather than below the measurements, because it only appears
-            sometimes and a control that appears sometimes has to appear somewhere you're already
-            looking. Shown whenever the geometry puts this room inside another, whichever way the
-            choice currently falls — otherwise opting out would hide the control that undoes it.
+            Any room can be a sub-room of another on its storey — a closet pulled off the bedroom's
+            wall, one drawn beside it corner by corner — not only one the drawing puts inside
+            another, which is all the old two-button control ever offered. The list shows the parent
+            as it stands, chosen or worked out from the drawing, and "Not a sub-room" is an explicit
+            no. Sits directly under the name, where the control always was.
           */}
-          {nestedInside && (
+          {parentChoices.length > 0 && (
             <div className="question">
-              <label className="prompt">This room is drawn inside {nestedInside.name.trim() || "another room"}</label>
-              <div className="option-group" role="group" aria-label="Sub-room">
-                <button
-                  type="button"
-                  className={`option-btn${!selectedRoom.nestingOptOut ? " selected" : ""}`}
-                  aria-pressed={!selectedRoom.nestingOptOut}
-                  onClick={() => setNesting(selectedRoom.id, false)}
-                >
-                  Sub-room of it
-                </button>
-                <button
-                  type="button"
-                  className={`option-btn${selectedRoom.nestingOptOut ? " selected" : ""}`}
-                  aria-pressed={selectedRoom.nestingOptOut}
-                  onClick={() => setNesting(selectedRoom.id, true)}
-                >
-                  Separate room
-                </button>
-              </div>
+              <label className="prompt" htmlFor="sketch-room-parent">
+                Sub-room of
+              </label>
+              <select
+                id="sketch-room-parent"
+                value={selectedRoom.parentRoomId ?? ""}
+                onChange={(e) => setParentChoice(selectedRoom.id, e.target.value || null)}
+              >
+                <option value="">Not a sub-room</option>
+                {parentChoices.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {`${r.name.trim() || "Untitled room"} — ${roomSizeLabel(r)}`}
+                  </option>
+                ))}
+              </select>
+              <p className="field-note">
+                {nestedInside && selectedRoom.parentRoomId !== nestedInside.id
+                  ? `Drawn inside ${nestedInside.name.trim() || "another room"}, and kept separate from it.`
+                  : nestedInside
+                    ? `Drawn inside ${nestedInside.name.trim() || "another room"}: its floor and ceiling come out of that room's.`
+                    : selectedRoom.parentRoomId
+                      ? "Grouped with its parent for the scope; standing beside it, its floor and walls stay its own."
+                      : "For a closet or alcove that belongs to another room — pulled off its wall, or drawn beside it."}
+              </p>
             </div>
           )}
 

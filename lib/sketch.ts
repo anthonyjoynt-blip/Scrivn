@@ -423,14 +423,30 @@ export interface SketchRoom {
    * The room this one sits inside — a closet within a bedroom, an ensuite off a primary. Null for a
    * room standing on its own.
    *
-   * Derived from geometry rather than declared: a room dragged wholly inside another becomes its
-   * sub-room, and dragging it back out clears the link (see `containingRoomId`). That keeps the
-   * relationship honest — it can't claim a nesting the drawing doesn't show.
+   * Derived from geometry unless chosen: a room dragged wholly inside another becomes its
+   * sub-room, and dragging it back out clears the link (see `containingRoomId`) — or the PM names
+   * the parent outright (`chosenParentRoomId`), and then this is that room whatever the drawing
+   * shows. Always read this field, never the choice: it is the one answer, however it was reached.
    *
-   * The parent's polygon still covers the sub-room's footprint. Nothing computes floor area yet, so
-   * nothing is double-counted today, but any later area calculation has to subtract its children.
+   * A sub-room drawn INSIDE its parent shares the parent's floor: its footprint comes out of the
+   * parent's floor and ceiling (`roomQuantities`) and its walls hide the stretch of the parent's
+   * wall they stand on (`exposedWallRuns`). One that stands BESIDE its parent — pulled off its
+   * wall, drawn behind its door — shares nothing but the wall between them, and is a sub-room for
+   * grouping only. Every consumer that assumes the footprint is inside gates on `isRoomInside`.
    */
   parentRoomId: string | null;
+  /**
+   * The parent the PM picked from the list, when they did.
+   *
+   * Nesting was derived from geometry alone, so a closet pulled off a bedroom's wall, or drawn
+   * beside it corner by corner, could never be the bedroom's — the control to make it one only
+   * appeared for a room drawn inside another. Asked for from the field: select the room, pick its
+   * parent from a dropdown of the others. This is that pick. It wins over geometry and over
+   * `nestingOptOut`, survives dragging, and is ignored (not lost) while its room is missing —
+   * deleted and not yet undone — or would make a loop. Optional because sketches saved before it
+   * existed have no such field; absent means "nothing chosen", the same as null.
+   */
+  chosenParentRoomId?: string | null;
   /**
    * Set when the user says this room is NOT a sub-room, even though it sits inside another.
    *
@@ -940,6 +956,10 @@ export function exposedWallRuns(room: SketchRoom, wallId: string, rooms: SketchR
     if (child.parentRoomId !== room.id) continue;
     // Belt and braces with `containingRoomId`, which is what sets parentRoomId in the first place.
     if (roomLevel(child) !== roomLevel(room)) continue;
+    // Only a sub-room standing INSIDE this one hides any of its wall. A closet pulled off the
+    // wall, made a sub-room by choice, has its near wall on the same line — from the other side,
+    // where it hides nothing: this wall is still whole from in here.
+    if (!isRoomInside(child, room)) continue;
     for (const childWall of wallsOf(child)) {
       // Both ends on this wall's line, or it is a different wall that merely passes nearby.
       if (across(childWall.x1, childWall.y1) > SAME_WALL_TOLERANCE_PX) continue;
@@ -1117,15 +1137,21 @@ export function wallHandleRadii(wallLengthPx: number, zoom: number): { corner: n
  * Returns null when nothing on the wall is long enough to be worth aiming at — a wall completely
  * covered by cabinetry has no grip, and is pulled by its corners instead.
  */
-export function wallGripSpan(room: SketchRoom, wall: WallGeometry): { t: number; clearPx: number } | null {
-  const occupied: { from: number; to: number }[] = room.symbols
-    .filter((s) => s.wallId === wall.id)
-    .map((s) => {
-      const half = symbolWidthPx(s, room) / 2;
-      const centre = symbolCentrePx(s, room);
-      return { from: centre - half, to: centre + half };
-    })
-    .sort((a, b) => a.from - b.from);
+export function wallGripSpan(room: SketchRoom, wall: WallGeometry, rooms: SketchRoom[] = []): { t: number; clearPx: number } | null {
+  // Another room's door in this wall (`openingsSharedWith`) is drawn on top of the grip, live, so
+  // the grip has to keep clear of it as it does of the room's own — laid out as if the wall were
+  // empty, it sat under the door and every press on it picked the door up instead.
+  const shared = rooms.length > 0 ? openingsSharedWith(room, rooms).filter((s) => s.wallId === wall.id) : [];
+  const occupied: { from: number; to: number }[] = [
+    ...room.symbols
+      .filter((s) => s.wallId === wall.id)
+      .map((s) => {
+        const half = symbolWidthPx(s, room) / 2;
+        const centre = symbolCentrePx(s, room);
+        return { from: centre - half, to: centre + half };
+      }),
+    ...shared.map((s) => ({ from: s.fromPx, to: s.toPx })),
+  ].sort((a, b) => a.from - b.from);
 
   // Collect every clear stretch, then take the longest. Gathering first rather than tracking a
   // running best keeps this readable and sidesteps narrowing a mutable captured in a closure.
@@ -1756,12 +1782,81 @@ export function containingRoomId(rooms: SketchRoom[], roomId: string): string | 
   return best?.id ?? null;
 }
 
-/** Re-derives every room's parent. Cheap, and called after any move so the links can't go stale. */
+/**
+ * Re-derives every room's parent. Cheap, and called after any move so the links can't go stale.
+ *
+ * A chosen parent (`chosenParentRoomId`) is the parent, full stop, so long as the room is there
+ * on the same storey and the choice makes no loop. The rest follow geometry, worked out AFTER the
+ * choices are in place: `containingRoomId` refuses to nest a room inside its own descendant, and it
+ * reads the links to know who those are, so a small room drawn inside a big one that has just been
+ * made its sub-room is not, for one pass, also made its parent.
+ */
 export function withDerivedParents(rooms: SketchRoom[]): SketchRoom[] {
-  return rooms.map((room) => {
-    const parentRoomId = room.nestingOptOut ? null : containingRoomId(rooms, room.id);
+  const out = rooms.map((room) => {
+    const parentRoomId = validChosenParent(rooms, room);
+    if (parentRoomId === null) return room;
     return parentRoomId === room.parentRoomId ? room : { ...room, parentRoomId };
   });
+  // One room at a time, each seeing the links made before it: a choice pointing UP the drawing (a
+  // big room chosen to be the sub-room of a small one drawn two rooms deep inside it) would
+  // otherwise close a loop through the rooms between, geometry taking each of them in turn
+  // against a snapshot that showed none of the others' new links.
+  for (let i = 0; i < out.length; i++) {
+    const room = out[i] as SketchRoom;
+    if (validChosenParent(rooms, room) !== null) continue;
+    const parentRoomId = room.nestingOptOut ? null : containingRoomId(out, room.id);
+    if (parentRoomId !== room.parentRoomId) out[i] = { ...room, parentRoomId };
+  }
+  return out;
+}
+
+/**
+ * The room's chosen parent, if the choice can be honoured now: the parent exists, is on the same
+ * storey, is not the room itself, and following the choices on from it never comes back here.
+ */
+function validChosenParent(rooms: SketchRoom[], room: SketchRoom): string | null {
+  const id = room.chosenParentRoomId ?? null;
+  if (!id || id === room.id) return null;
+  const parent = rooms.find((r) => r.id === id);
+  if (!parent || roomLevel(parent) !== roomLevel(room)) return null;
+  const seen = new Set<string>([room.id]);
+  let cursor: SketchRoom | undefined = parent;
+  while (cursor) {
+    if (seen.has(cursor.id)) return null; // a loop, through this room or another
+    seen.add(cursor.id);
+    const next: string | null = cursor.chosenParentRoomId ?? null;
+    cursor = next ? rooms.find((r) => r.id === next) : undefined;
+  }
+  return id;
+}
+
+/**
+ * The rooms this one may be made a sub-room of: the others on its storey, less any that are
+ * already under it — a room cannot be inside its own closet. What the "Sub-room of" list offers.
+ */
+export function possibleParents(room: SketchRoom, rooms: SketchRoom[]): SketchRoom[] {
+  const under = new Set<string>([room.id]);
+  for (let grew = true; grew; ) {
+    grew = false;
+    for (const r of rooms) {
+      if (under.has(r.id)) continue;
+      const parentIds = [r.parentRoomId, r.chosenParentRoomId ?? null];
+      if (parentIds.some((id) => id && under.has(id))) {
+        under.add(r.id);
+        grew = true;
+      }
+    }
+  }
+  return rooms.filter((r) => !under.has(r.id) && roomLevel(r) === roomLevel(room));
+}
+
+/**
+ * Is `child` a sub-room standing INSIDE `parent` — linked to it and drawn within it? The gate for
+ * everything that treats a sub-room's footprint as part of the parent's (floor and ceiling area,
+ * the stretch of wall it hides). A sub-room beside its parent passes the link test and not this.
+ */
+export function isNestedWithin(child: SketchRoom, parent: SketchRoom): boolean {
+  return child.parentRoomId === parent.id && isRoomInside(child, parent);
 }
 
 /**
@@ -2047,22 +2142,130 @@ export function symbolWidthFeet(symbol: SketchSymbol, room: SketchRoom, rooms: S
  *
  * The height is clamped to the ceiling, so an opening typed taller than the room it is in cannot
  * deduct more wall than the wall has.
+ *
+ * With `rooms`, the openings other rooms have in this wall count too — a door is one hole through
+ * a wall two rooms share, and there is no wall behind it to finish from either side. See
+ * `openingsSharedWith`. Without `rooms` only this room's own are counted, as before.
  */
-export function openingSquareFeetOnWall(room: SketchRoom, wallId: string): number {
+export function openingSquareFeetOnWall(room: SketchRoom, wallId: string, rooms: SketchRoom[] = []): number {
   const ceiling = room.ceilingHeightFeet ?? DEFAULT_CEILING_HEIGHT_FEET;
-  return room.symbols.reduce((sum, symbol) => {
-    if (symbol.wallId !== wallId) return sum;
+  const own = room.symbols.filter((symbol) => symbol.wallId === wallId).map((symbol) => ({ room, symbol, widthCap: Infinity }));
+  // A shared door counts for the stretch of it that lies in THIS wall: a door straddling the corner
+  // where two rooms meet a third is half a hole in each of their walls, not a whole one in both.
+  const shared = rooms.length > 0 ? openingsSharedWith(room, rooms).filter((s) => s.wallId === wallId).map((s) => ({ room: s.room, symbol: s.symbol, widthCap: (s.toPx - s.fromPx) / PIXELS_PER_FOOT })) : [];
+  return [...own, ...shared].reduce((sum, { room: owner, symbol, widthCap }) => {
     const height = symbol.type === "door" ? symbol.heightFeet : symbol.type === "window" ? symbol.heightFeet : null;
     if (height == null) return sum;
-    const width = symbolWidthFeet(symbol, room);
+    const width = symbolWidthFeet(symbol, owner);
     if (width == null) return sum;
-    return sum + width * Math.min(height, ceiling);
+    return sum + Math.min(width, widthCap) * Math.min(height, ceiling);
   }, 0);
 }
 
 /** The same across every wall of a room. */
-export function openingSquareFeet(room: SketchRoom): number {
-  return wallsOf(room).reduce((sum, wall) => sum + openingSquareFeetOnWall(room, wall.id), 0);
+export function openingSquareFeet(room: SketchRoom, rooms: SketchRoom[] = []): number {
+  return wallsOf(room).reduce((sum, wall) => sum + openingSquareFeetOnWall(room, wall.id, rooms), 0);
+}
+
+/**
+ * The doors and windows of OTHER rooms that sit in a wall of this one: every other room's door or
+ * window whose wall lies along one of this room's walls and overlaps it, with the wall of this
+ * room it sits in. A door is one thing, in one room's wall; the room on the other side of that
+ * wall sees it, draws it, and has no wall behind it either — it is never copied into that room.
+ *
+ * A first version copied the door into the pulled room as an opening of its own. Then the two
+ * drifted: slide the original and the copy stayed, "the original opening underneath the one I am
+ * moving"; widen the pulled room and the copy slid with its wall while the door was copied in
+ * again where it really was. One symbol, seen from both sides, cannot drift from itself.
+ *
+ * Every room draws its own walls in full and its own doors as gaps in them, so the room drawn
+ * later would paint its unbroken wall — and its floor — over the other room's door: the gap fills
+ * in, the leaf disappears under the floor. Seen three ways in one picture: a room pulled below a
+ * door left "just an opening"; a flight of stairs moved against a wall hid the opening in it; a
+ * pulled room that came to lie along an angled wall lost the door in it. Hence each room draws
+ * these over its own wall and floor, whichever room is on top.
+ *
+ * Overlap, not wholly on: a door half past this room's corner is still half in its wall.
+ *
+ * Not one this room already has at the same place in the same wall: sketches saved while doors
+ * were still being copied into pulled rooms hold such a copy, and it is one hole, not two — drawn
+ * once and deducted once, through the copy, until the copy is deleted.
+ */
+export interface SharedOpening {
+  /** The room the door belongs to. */
+  room: SketchRoom;
+  symbol: SketchSymbol;
+  /** The wall of the room asking that the door lies in. */
+  wallId: string;
+  /** The stretch of that wall the door covers, in pixels from the wall's start, clipped to the wall. */
+  fromPx: number;
+  toPx: number;
+}
+
+export function openingsSharedWith(room: SketchRoom, rooms: SketchRoom[]): SharedOpening[] {
+  const level = roomLevel(room);
+  const ownWalls = wallsOf(room).filter((w) => w.lengthPx > 0);
+  const out: SharedOpening[] = [];
+  for (const other of rooms) {
+    if (other.id === room.id || roomLevel(other) !== level) continue;
+    for (const symbol of other.symbols) {
+      if (symbol.type !== "door" && symbol.type !== "window") continue;
+      const theirs = wallById(other, symbol.wallId);
+      if (!theirs || theirs.lengthPx <= 0) continue;
+      const centre = symbolCentrePx(symbol, other);
+      const half = symbolWidthPx(symbol, other) / 2;
+      const at = pointOnWall(theirs, centre / theirs.lengthPx);
+      const along = (w: WallGeometry) => ((at.x - w.x1) * (w.x2 - w.x1) + (at.y - w.y1) * (w.y2 - w.y1)) / w.lengthPx;
+      const mine = ownWalls.find((w) => {
+        if (!alongOneLine(w, theirs)) return false;
+        const u = along(w);
+        return u + half > 0 && u - half < w.lengthPx;
+      });
+      if (!mine) continue;
+      const u = along(mine);
+      const alreadyHere = room.symbols.some((own) => {
+        if (own.wallId !== mine.id || (own.type !== "door" && own.type !== "window")) return false;
+        // Overlapping at all: two doorways cannot overlap in a wall, so a copy nudged along, or a
+        // doorway tapped into both rooms a little apart, is one hole.
+        const ownCentre = symbolCentrePx(own, room);
+        const ownHalf = symbolWidthPx(own, room) / 2;
+        return Math.min(ownCentre + ownHalf, u + half) - Math.max(ownCentre - ownHalf, u - half) > 1;
+      });
+      if (!alreadyHere) out.push({ room: other, symbol, wallId: mine.id, fromPx: Math.max(0, u - half), toPx: Math.min(mine.lengthPx, u + half) });
+    }
+  }
+  return out;
+}
+
+/**
+ * Does another room on the storey have a wall along this stretch of this wall — is the stretch one
+ * two rooms share? Asked for a symbol's span rather than the whole wall: a closet pulled off one
+ * end of a long wall shares only that end of it.
+ */
+export function stretchSharedWithAnother(room: SketchRoom, wall: WallGeometry, fromPx: number, toPx: number, rooms: SketchRoom[]): boolean {
+  if (wall.lengthPx <= 0) return false;
+  const along = (p: { x: number; y: number }) => ((p.x - wall.x1) * (wall.x2 - wall.x1) + (p.y - wall.y1) * (wall.y2 - wall.y1)) / wall.lengthPx;
+  return rooms.some(
+    (other) =>
+      other.id !== room.id &&
+      roomLevel(other) === roomLevel(room) &&
+      wallsOf(other).some((w) => {
+        if (w.lengthPx <= 0 || !alongOneLine(wall, w)) return false;
+        const a = along({ x: w.x1, y: w.y1 });
+        const b = along({ x: w.x2, y: w.y2 });
+        return Math.min(Math.max(a, b), toPx) - Math.max(Math.min(a, b), fromPx) > 1;
+      }),
+  );
+}
+
+/** Do two walls lie along one line, overlapping — a shared wall, or a shared stretch of one? */
+export function alongOneLine(a: WallGeometry, b: WallGeometry): boolean {
+  const off = (p: { x: number; y: number }, w: WallGeometry) => Math.abs((w.x2 - w.x1) * (w.y1 - p.y) - (w.x1 - p.x) * (w.y2 - w.y1)) / w.lengthPx;
+  if (off({ x: b.x1, y: b.y1 }, a) > 1.5 || off({ x: b.x2, y: b.y2 }, a) > 1.5) return false;
+  const along = (p: { x: number; y: number }) => ((p.x - a.x1) * (a.x2 - a.x1) + (p.y - a.y1) * (a.y2 - a.y1)) / a.lengthPx;
+  const lo = Math.min(along({ x: b.x1, y: b.y1 }), along({ x: b.x2, y: b.y2 }));
+  const hi = Math.max(along({ x: b.x1, y: b.y1 }), along({ x: b.x2, y: b.y2 }));
+  return Math.min(hi, a.lengthPx) - Math.max(lo, 0) > 1;
 }
 
 /**
@@ -2543,6 +2746,33 @@ export function stairFlight(room: SketchRoom): {
 export function stairCeiling(room: SketchRoom): { lowFeet: number; peakFeet: number } {
   const low = room.ceilingHeightFeet ?? DEFAULT_CEILING_HEIGHT_FEET;
   return { lowFeet: low, peakFeet: low + stairFlight(room).riseFeet };
+}
+
+/**
+ * Is this a name the tool gave ("Room 3"), as opposed to one somebody typed? A placeholder matches
+ * an extraction room only exactly, never by containment — "Room 1" is a whole word inside "Living
+ * Room 1", and a room nobody has named yet must not be taken for the living room.
+ */
+export function isPlaceholderRoomName(name: string): boolean {
+  return /^\s*room\s+\d+\s*$/i.test(name);
+}
+
+/**
+ * The name a new room starts with: "Room 1", "Room 2", and so on — one past the highest number
+ * already in use, across every storey, so a plan never holds two "Room 3"s however rooms have been
+ * renamed or deleted in between. Asked for from the field: every added, pulled or drawn room came
+ * in as "Untitled room", and a plan of six of them told nobody which was which.
+ *
+ * Only the numbered names count. "Kitchen", "Stairs" and "Closet" are names the PM or the tool
+ * chose, and a plan of a kitchen and two closets still starts its first plain room at "Room 1".
+ */
+export function nextRoomName(rooms: SketchRoom[]): string {
+  let highest = 0;
+  for (const room of rooms) {
+    const match = /^\s*room\s+(\d+)\s*$/i.exec(room.name);
+    if (match) highest = Math.max(highest, Number(match[1]));
+  }
+  return `Room ${highest + 1}`;
 }
 
 /** A stair room, sized to a standard flight, ready to be dropped on the canvas. */
@@ -3042,6 +3272,11 @@ export interface SketchRoomOutput {
   stairs: { treadCount: number; runFeet: number | null; widthFeet: number | null; riseFeet: number; riserFeet: number | null; direction: "up" | "down" } | null;
   walls: SketchWallOutput[];
   symbols: SketchSymbolOutput[];
+  /**
+   * Doors and windows in other rooms' walls that this room shares — seen from this side, with no
+   * wall behind them to finish, but belonging to the other room. See `openingsSharedWith`.
+   */
+  sharedOpenings: { label: string; wall: number; widthFeet: number | null; withRoom: string }[];
   freeCabinets: SketchFreeCabinetOutput[];
 }
 
@@ -3106,6 +3341,12 @@ export function sketchOutput(sketch: Sketch): SketchRoomOutput[] {
       }
       return { ...common, label: symbol.label.trim() || "Cabinet", tier: symbol.tier, depthFeet: round2(symbol.depthFeet) };
     }),
+    sharedOpenings: openingsSharedWith(room, sketch.rooms).map(({ room: theirs, symbol, wallId }) => {
+      const width = symbolWidthFeet(symbol, theirs, sketch.rooms);
+      const label =
+        symbol.type !== "door" ? "Window" : symbol.doorType === "opening" ? "Opening (no door)" : `${DOOR_LEAVES_LABEL[symbol.leaves]} ${DOOR_TYPE_LABEL[symbol.doorType].toLowerCase()} door`;
+      return { label, wall: wallNumber.get(wallId) ?? 0, widthFeet: width == null ? null : round2(width), withRoom: theirs.name.trim() || "Unnamed room" };
+    }),
     freeCabinets: room.freeCabinets.map((cabinet) => {
       return {
         label: cabinet.label.trim() || "Island",
@@ -3138,7 +3379,9 @@ export function sketchSummaryText(sketch: Sketch): string {
   const roomText = rooms
     .map((room) => {
       const shape = room.wallCount === 4 ? "" : ` (${room.wallCount}-sided)`;
-      const within = room.withinRoom ? ` — inside ${room.withinRoom}` : "";
+      // "Sub-room of", not "inside": a closet pulled off a bedroom's wall is the bedroom's without
+      // being within it, and the estimator reads this.
+      const within = room.withinRoom ? ` — sub-room of ${room.withinRoom}` : "";
       const lines: string[] = [`${room.name}${shape}${within}`];
       if (room.ceilingHeightFeet != null) {
         const shape =
@@ -3183,6 +3426,12 @@ export function sketchSummaryText(sketch: Sketch): string {
           if (symbol.tier) parts.push(CABINET_TIER_LABEL[symbol.tier].toLowerCase());
         }
         lines.push(parts.join(", "));
+      }
+
+      // The other room's door in a shared wall: no wall there to finish from this side either.
+      for (const shared of room.sharedOpenings) {
+        const width = shared.widthFeet == null ? "" : `, ${formatFeetInches(shared.widthFeet)} wide`;
+        lines.push(`  ${shared.label} — wall ${shared.wall}, shared with ${shared.withRoom}${width}`);
       }
 
       for (const island of room.freeCabinets) {

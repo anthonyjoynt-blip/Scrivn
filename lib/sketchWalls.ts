@@ -47,6 +47,7 @@ import {
   freeWallSegments,
   freeWallsOf,
   newSketchId,
+  nextRoomName,
   pruneCollinearVertices,
   roomLevel,
   wallDimensions,
@@ -186,22 +187,24 @@ export function addDraftPoint(draft: DraftPoint[], point: DraftPoint, sketch: Sk
 
   // Back on the first corner. `roomFromPoints` wants three corners and a square foot, so two
   // corners and the first again is a line, and stays one.
+  // Whatever a closed run becomes is named like any other new room — see `nextRoomName`.
+  const name = nextRoomName(sketch.rooms);
   if (first && samePoint(first, point)) {
-    const room = roomFromPoints(draft, level);
+    const room = roomFromPoints(draft, level, name);
     return room ? { kind: "room", room, usedFreeWallIds: [] } : { kind: "ignore", reason: "degenerate" };
   }
 
   if (first) {
     const loop = loopThroughFreeWalls(draft, point, freeWallsOf(sketch).filter((w) => freeWallLevel(w) === level), radiusPx);
     if (loop) {
-      const room = roomFromPoints(loop.points, level);
+      const room = roomFromPoints(loop.points, level, name);
       if (room) return { kind: "room", room, usedFreeWallIds: loop.usedFreeWallIds };
     }
 
     if (first.on && point.on && first.on.roomId === point.on.roomId) {
       const host = sketch.rooms.find((r) => r.id === first.on?.roomId);
       const cut = host ? enclosureWithRoom(draft, point, host) : null;
-      const room = cut ? roomFromPoints(cut, level) : null;
+      const room = cut ? roomFromPoints(cut, level, name) : null;
       if (room) return { kind: "room", room, usedFreeWallIds: [] };
     }
 
@@ -380,14 +383,14 @@ function existingWalls(sketch: Sketch, level: number): { segment: WallGeometry; 
  * corner that lies straight between its neighbours dropped — tapping three points along one wall
  * should make one wall.
  */
-export function roomFromPoints(points: { x: number; y: number }[], level: number): SketchRoom | null {
+export function roomFromPoints(points: { x: number; y: number }[], level: number, name = ""): SketchRoom | null {
   const distinct = dedupe(points);
   if (distinct.length < MIN_VERTICES) return null;
   if (Math.abs(shoelace(distinct)) / 2 < MIN_ROOM_AREA_PX) return null;
 
   const room: SketchRoom = {
     id: newSketchId("room"),
-    name: "",
+    name,
     vertices: ensureClockwise(distinct.map((p) => ({ id: newSketchId("v"), x: p.x, y: p.y }))),
     ceilingHeightFeet: DEFAULT_CEILING_HEIGHT_FEET,
     ceilingType: "flat",
