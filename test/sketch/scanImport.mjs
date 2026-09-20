@@ -63,6 +63,17 @@ const officeTaps = readFileSync(join(here, "fixtures", "scan-taps-office.json"),
 // room climbing up the page, and a door on the far wall. The ring starts at the bottom-left going
 // up, so the right wall is edge 2; the importer does not care where a ring starts.
 const basementTaps = readFileSync(join(here, "fixtures", "scan-taps-basement.json"), "utf8");
+// Synthetic, to the 2026-09-20 capture contract ("arcapture-capture/1"): three rooms tapped in one
+// session, in one frame — a 4 m x 4 m family room, a 1 m x 1.2 m hall sharing its right wall, and
+// a 1.5 m x 2.4 m bathroom off the hall's right wall, reaching 0.3 m above the family room's far
+// wall so the union's top-left is nobody's corner. The doors between rooms are tapped from one
+// side each (the phone's guidance): family-to-hall on the family room's right wall, hall-to-bath on
+// the hall's. A base vanity on the bathroom's right wall, and corrections recorded on the bathroom
+// as TapSketchJson writes them — the typed wall by its edge, the typed cabinet by its number from 1,
+// each with the metres typed — a record the phone keeps of what was typed over what was tapped: the
+// outline already carries them and the importer reads none of it. The taps say which room they
+// belong to and the epochs are capture-wide; both are ignored too.
+const captureTaps = readFileSync(join(here, "fixtures", "scan-taps-capture.json"), "utf8");
 
 export async function runScanImportChecks() {
   const { scan, sketch } = await load();
@@ -787,6 +798,289 @@ export async function runScanImportChecks() {
     const office = importedOutline(officeTaps);
     assert(office.extraRooms.length === 0 && !office.room.symbols.some((s) => s.type === "cabinet"), "a file without the new fields has neither");
     assert(!office.notes.some((n) => /cabinet|stairs/.test(n)), `no note about what was never there, got ${JSON.stringify(office.notes)}`);
+  });
+
+  const pxPerM = 12 / 0.3048;
+  const importedCapture = (text = captureTaps, at = { x: 60, y: 60 }) => {
+    const result = scan.importScanRoom(text, at, 0);
+    assert(result.ok, `import failed: ${result.ok ? "" : result.error}`);
+    return result;
+  };
+  /** The three rooms of the capture, in capture order: the first is `room`, the others ride in `extraRooms`. */
+  const captureRooms = (result) => [result.room, ...result.extraRooms.filter((r) => r.stairs === null)];
+
+  test("a capture comes in as three rooms in one frame, the union's top-left at the drop point", () => {
+    const result = importedCapture();
+    assert(result.extraRooms.length === 2, `expected 2 extra rooms, got ${result.extraRooms.length}`);
+    const rooms = captureRooms(result);
+    assert(rooms.length === 3, `expected 3 rooms, got ${rooms.length}`);
+    const [family, hall, bath] = rooms;
+    assert(rooms.every((r) => r.stairs === null), "no room is a flight");
+    assert(rooms.every((r) => r.vertices.length === 4), `every room has four corners, got ${rooms.map((r) => r.vertices.length)}`);
+    assert(rooms.every((r) => sketch.ensureClockwise(r.vertices) === r.vertices), "every room is wound clockwise");
+    assert(rooms.every((r) => r.vertices.every((v) => Number.isInteger(v.x) && Number.isInteger(v.y))), "corners are whole pixels");
+    assert(new Set(rooms.map((r) => r.id)).size === 3, "three distinct ids");
+    // Sizes at 12 px/ft, each to the pixel the metre rounds to.
+    const fb = sketch.roomBounds(family);
+    const hb = sketch.roomBounds(hall);
+    const bb = sketch.roomBounds(bath);
+    near(fb.width, 4.0 * pxPerM, "family room 4 m wide", 1);
+    near(fb.height, 4.0 * pxPerM, "family room 4 m deep", 1);
+    near(hb.width, 1.0 * pxPerM, "hall 1 m wide", 1);
+    near(hb.height, 1.2 * pxPerM, "hall 1.2 m deep", 1);
+    near(bb.width, 1.5 * pxPerM, "bathroom 1.5 m wide", 1);
+    near(bb.height, 2.4 * pxPerM, "bathroom 2.4 m deep", 1);
+    // The union's top-left is at the drop point: the family room's left edge, the bathroom's top.
+    const minX = Math.min(...rooms.map((r) => sketch.roomBounds(r).minX));
+    const minY = Math.min(...rooms.map((r) => sketch.roomBounds(r).minY));
+    assert(minX === 60 && minY === 60, `the capture should land with its top-left at (60, 60), got (${minX}, ${minY})`);
+    assert(bb.minY === 60, `the bathroom's top is the union's top, got ${bb.minY}`);
+    near(fb.minY, 60 + 0.3 * pxPerM, "the family room's top is 0.3 m below the drop point", 1);
+    // Relative positions kept: the hall's top is 1.4 m below the family room's, its left is on the
+    // family room's right, and the bathroom's left is on the hall's right.
+    near(hb.minY - fb.minY, 1.4 * pxPerM, "hall 1.4 m down the family room's wall", 1);
+    near(hb.minX - fb.minX, 4.0 * pxPerM, "hall against the family room's right wall", 1);
+    near(bb.minX - fb.minX, 5.0 * pxPerM, "bathroom against the hall's right wall", 1);
+    // Each room joins the storey it was imported on.
+    assert(rooms.every((r) => r.level === 0), "every room is on the storey it was imported on");
+    const upstairs = scan.importScanRoom(captureTaps, { x: 0, y: 0 }, 1);
+    assert(upstairs.ok && captureRooms(upstairs).every((r) => r.level === 1), "and on level 1 when imported there");
+  });
+
+  test("a wall two rooms share is one line: the shared-wall corners coincide to the pixel", () => {
+    const [family, hall, bath] = captureRooms(importedCapture());
+    const fb = sketch.roomBounds(family);
+    const hb = sketch.roomBounds(hall);
+    const bb = sketch.roomBounds(bath);
+    // The hall's left wall IS the family room's right wall, x for x; both hall corners on it lie on
+    // the family room's wall between its corners.
+    assert(Math.abs(hb.minX - fb.maxX) <= 1, `hall's left wall should be on the family room's right wall, got ${hb.minX} vs ${fb.maxX}`);
+    const familyRight = sketch.wallsOf(family).find((w) => w.x1 === w.x2 && w.x1 === fb.maxX);
+    assert(familyRight !== undefined, "the family room has a right wall");
+    for (const v of hall.vertices.filter((v) => v.x === hb.minX)) {
+      assert(v.y > fb.minY && v.y < fb.maxY, `hall corner (${v.x}, ${v.y}) should be along the family room's right wall (${fb.minY}..${fb.maxY})`);
+    }
+    // The bathroom's left wall is the hall's right wall over the hall's height.
+    assert(Math.abs(bb.minX - hb.maxX) <= 1, `bathroom's left wall should be on the hall's right wall, got ${bb.minX} vs ${hb.maxX}`);
+    // The same metre became the same pixel, not a pixel either side: exact, not just within one.
+    assert(hb.minX === fb.maxX && bb.minX === hb.maxX, `shared walls should share their pixel exactly, got ${fb.maxX}/${hb.minX} and ${hb.maxX}/${bb.minX}`);
+    // Moved elsewhere, the same: the frame is the capture's, not the page's.
+    const moved = captureRooms(importedCapture(captureTaps, { x: 300, y: 120 }));
+    const mb = moved.map((r) => sketch.roomBounds(r));
+    assert(mb[1].minX === mb[0].maxX && mb[2].minX === mb[1].maxX, "shared walls still share their pixel at another drop point");
+    assert(mb[0].minX === 300 && mb[2].minY === 120, "and the union's top-left is at the new drop point");
+  });
+
+  test("the rooms are named from the file, and the hall beside the family room is a neighbour, not a sub-room", () => {
+    const result = importedCapture();
+    const rooms = captureRooms(result);
+    assert(rooms.map((r) => r.name).join("|") === "Room 1|Room 2|Room 3", `names should come from the file, got ${rooms.map((r) => r.name)}`);
+    // The editor adds room and extraRooms in one update through withDerivedParents. Nothing here is
+    // inside anything: the hall's corners are ON the family room's wall, and a room beside another
+    // is not in it.
+    const together = sketch.withDerivedParents([result.room, ...result.extraRooms]);
+    assert(together.every((r) => r.parentRoomId === null), `no room should nest in another, got ${together.map((r) => `${r.name}:${r.parentRoomId}`)}`);
+    assert(!sketch.isRoomInside(rooms[1], rooms[0]), "the hall is not inside the family room");
+    assert(!sketch.isRoomInside(rooms[2], rooms[1]) && !sketch.isRoomInside(rooms[1], rooms[2]), "hall and bathroom are neighbours");
+    // The notice: how many, placed as tapped — and no per-room "Measured by tapping" sentence, which
+    // for three rooms would be three sentences of nothing.
+    assert(result.notes[0] === "3 rooms imported, placed as tapped.", `expected the count to lead, got ${JSON.stringify(result.notes)}`);
+    assert(!result.notes.some((n) => /Measured by tapping/.test(n)), `no per-room measurement note in a capture, got ${JSON.stringify(result.notes)}`);
+    assert(result.notes.length === 1, `nothing else to say about a clean capture, got ${JSON.stringify(result.notes)}`);
+    // The ceilings are each room's own.
+    near(rooms[0].ceilingHeightFeet, 8, "family room ceiling 2.44 m is 8'0\"", 1e-9);
+    near(rooms[2].ceilingHeightFeet, 7 + 7 / 12, "bathroom ceiling 2.3 m is 7'7\"", 1e-9);
+  });
+
+  test("doors tapped from one side land on that room's wall; the cabinet lands in the bathroom", () => {
+    const result = importedCapture();
+    const [family, hall, bath] = captureRooms(result);
+    // Family-to-hall door: on the family room's right wall (edge 1), 1.5 m down, 0.9 m wide.
+    const familyDoors = family.symbols.filter((s) => s.type === "door");
+    assert(familyDoors.length === 1, `expected 1 door on the family room, got ${familyDoors.length}`);
+    const familyWall = sketch.wallById(family, familyDoors[0].wallId);
+    assert(familyWall.index === 1 && familyWall.x1 === familyWall.x2 && familyWall.x1 === sketch.roomBounds(family).maxX, `family door should be on the right wall (1), got wall ${familyWall.index}`);
+    near(familyDoors[0].t, (1.5 + 0.45) / 4.0, "family door 1.95 m down a 4 m wall", 0.01);
+    near(familyDoors[0].widthFeet, 2 + 11 / 12, "family door 2'11\"", 1e-9);
+    // Hall-to-bath door: on the hall's right wall (edge 1), a 2'0" door on a 1.2 m wall, clamped
+    // whole on the wall.
+    const hallDoors = hall.symbols.filter((s) => s.type === "door");
+    assert(hallDoors.length === 1, `expected 1 door on the hall, got ${hallDoors.length}`);
+    const hallWall = sketch.wallById(hall, hallDoors[0].wallId);
+    assert(hallWall.index === 1 && hallWall.x1 === hallWall.x2 && hallWall.x1 === sketch.roomBounds(hall).maxX, `hall door should be on the right wall (1), got wall ${hallWall.index}`);
+    near(hallDoors[0].widthFeet, 2, "hall door 2'0\"", 1e-9);
+    const half = sketch.symbolWidthPx(hallDoors[0], hall) / 2;
+    assert(hallDoors[0].t * hallWall.lengthPx - half >= -1e-9 && hallDoors[0].t * hallWall.lengthPx + half <= hallWall.lengthPx + 1e-9, "the hall door sits within its wall");
+    // The door the hall was entered by is on the family room's wall and nowhere else: tapped from
+    // one side, it comes in once.
+    assert(bath.symbols.filter((s) => s.type === "door").length === 0, "the bathroom was entered by the hall's door and has none of its own");
+    assert(family.symbols.length === 1 && hall.symbols.length === 1, "one symbol each on the family room and the hall");
+    // The vanity: a base run on the bathroom's right wall (edge 1), 0.3 m down, 0.9 m wide.
+    const cabinets = bath.symbols.filter((s) => s.type === "cabinet");
+    assert(cabinets.length === 1, `expected 1 cabinet in the bathroom, got ${cabinets.length}`);
+    const cabinetWall = sketch.wallById(bath, cabinets[0].wallId);
+    assert(cabinetWall.index === 1 && cabinetWall.x1 === sketch.roomBounds(bath).maxX, `cabinet should be on the bathroom's right wall (1), got wall ${cabinetWall.index}`);
+    assert(cabinets[0].tier === "base", `tier should be base, got ${cabinets[0].tier}`);
+    near(cabinets[0].widthFeet, 2 + 11 / 12, "vanity 2'11\"", 1e-9);
+    near(cabinets[0].depthFeet, 1 + 9 / 12, "vanity 0.53 m deep is 1'9\"", 1e-9);
+    near(cabinets[0].t, (0.3 + 0.45) / 2.4, "vanity 0.75 m down a 2.4 m wall", 0.01);
+    assert(bath.symbols.length === 1, `only the vanity in the bathroom, got ${bath.symbols.map((s) => s.type)}`);
+    // No closet doors were tapped, so none are offered.
+    assert(result.closetDoorIds.length === 0, `no closet doors, got ${JSON.stringify(result.closetDoorIds)}`);
+  });
+
+  test("a capture's per-room notes are named by room; closet doors are offered for the first room alone", () => {
+    const fixture = JSON.parse(captureTaps);
+    // The phone's own sentence on room 3, a stray cabinet on room 2, a closet door in rooms 1 and 3.
+    fixture.rooms[2].outline_notes = ["Cabinet 2 sits 1.1 m (3'7\") off every wall – unplaced"];
+    fixture.rooms[1].cabinets = [{ edge: 7, from_m: 0.1, width_m: 0.5, tier: "wall" }];
+    fixture.rooms[0].outline_openings.push({ edge: 3, from_m: 1.0, width_m: 0.76, kind: "closet_door", sill_m: null, head_m: null });
+    fixture.rooms[2].outline_openings.push({ edge: 0, from_m: 0.2, width_m: 0.76, kind: "closet_door", sill_m: null, head_m: null });
+    const result = importedCapture(JSON.stringify(fixture));
+    assert(result.notes[0] === "3 rooms imported, placed as tapped.", `the count still leads, got ${JSON.stringify(result.notes)}`);
+    // The rooms' own faults first, then the file's, each named as the room is on the sketch.
+    assert(result.notes.includes("Room 2: 1 cabinet named a wall the outline does not have; skipped."), `expected the hall's stray cabinet named by room, got ${JSON.stringify(result.notes)}`);
+    assert(result.notes.includes("Room 3: Cabinet 2 sits 1.1 m (3'7\") off every wall – unplaced"), `expected the phone's sentence named by room, got ${JSON.stringify(result.notes)}`);
+    assert(result.notes.indexOf("Room 2: 1 cabinet named a wall the outline does not have; skipped.") < result.notes.indexOf("Room 3: Cabinet 2 sits 1.1 m (3'7\") off every wall – unplaced"), "rooms first, then the file's faults");
+    // The closet door in the first room is offered; the one in the third comes in as a swing door,
+    // unoffered — the result's shape names one room's doors.
+    const [family, , bath] = captureRooms(result);
+    const familyCloset = family.symbols.find((s) => s.type === "door" && s.widthFeet === 2.5);
+    assert(familyCloset !== undefined && result.closetDoorIds.length === 1 && result.closetDoorIds[0] === familyCloset.id, `the first room's closet door is offered, got ${JSON.stringify(result.closetDoorIds)}`);
+    const bathCloset = bath.symbols.find((s) => s.type === "door");
+    assert(bathCloset !== undefined && bathCloset.doorType === "swing", "the bathroom's closet door is a swing door on its wall");
+    // A room without a name is named by its number, the same in the note and on the sketch.
+    const unnamed = JSON.parse(captureTaps);
+    delete unnamed.rooms[2].name;
+    unnamed.rooms[1].name = "  ";
+    unnamed.rooms[1].cabinets = [{ edge: 7, from_m: 0.1, width_m: 0.5, tier: "wall" }];
+    const numbered = importedCapture(JSON.stringify(unnamed));
+    assert(captureRooms(numbered).map((r) => r.name).join("|") === "Room 1|Room 2|Room 3", `unnamed rooms take their number, got ${captureRooms(numbered).map((r) => r.name)}`);
+    assert(numbered.notes.some((n) => n.startsWith("Room 2: ")), `the note uses the same name, got ${JSON.stringify(numbered.notes)}`);
+    // A name the PM gave on the phone passes through as written.
+    const named = JSON.parse(captureTaps);
+    named.rooms[0].name = "Family room";
+    assert(importedCapture(JSON.stringify(named)).room.name === "Family room", "a room's own name passes through");
+  });
+
+  test("a room the capture got wrong is left out with a note; a capture with no readable room is refused", () => {
+    // Two corners are not a room: the hall is left out and the other two still land as tapped.
+    const fixture = JSON.parse(captureTaps);
+    fixture.rooms[1].outline = [[4.0, 1.4], [5.0, 1.4]];
+    const result = importedCapture(JSON.stringify(fixture));
+    const rooms = captureRooms(result);
+    assert(rooms.length === 2 && result.extraRooms.length === 1, `expected 2 rooms, got ${rooms.length}`);
+    assert(rooms.map((r) => r.name).join("|") === "Room 1|Room 3", `the hall should be left out, got ${rooms.map((r) => r.name)}`);
+    assert(result.notes[0] === "2 rooms imported, placed as tapped.", `the count says two, got ${JSON.stringify(result.notes)}`);
+    assert(result.notes.some((n) => /^Room 2: .*Left out\.$/.test(n)), `expected a note naming the room left out, got ${JSON.stringify(result.notes)}`);
+    // The two that came in are still where they were tapped relative to each other.
+    const fb = sketch.roomBounds(rooms[0]);
+    const bb = sketch.roomBounds(rooms[1]);
+    near(bb.minX - fb.minX, 5.0 * pxPerM, "bathroom still 5 m right of the family room's left wall", 1);
+    assert(fb.minX === 60 && bb.minY === 60, "the union of what came in lands at the drop point");
+    // A room that is too small to be a room is left out the same way, after the frame is found.
+    const tiny = JSON.parse(captureTaps);
+    tiny.rooms[2].outline = [[5.0, 0.0], [5.3, 0.0], [5.3, 0.3], [5.0, 0.3]];
+    const withTiny = importedCapture(JSON.stringify(tiny));
+    assert(captureRooms(withTiny).length === 2 && withTiny.notes.some((n) => /^Room 3: The scanned room is too small to be a room\. Left out\.$/.test(n)), `expected the bathroom left out as too small, got ${JSON.stringify(withTiny.notes)}`);
+    // Not a room at all in the list.
+    const junk = JSON.parse(captureTaps);
+    junk.rooms.splice(1, 0, "not a room");
+    const withJunk = importedCapture(JSON.stringify(junk));
+    assert(captureRooms(withJunk).length === 3 && withJunk.notes.some((n) => /Room 2 in the file is not a room; left out\./.test(n)), `a non-room entry is skipped with a note, got ${JSON.stringify(withJunk.notes)}`);
+    // Nothing readable, or nothing at all, is refused in words.
+    const none = JSON.parse(captureTaps);
+    for (const room of none.rooms) room.outline = [[0, 0]];
+    const refused = scan.importScanRoom(JSON.stringify(none), { x: 0, y: 0 }, 0);
+    assert(!refused.ok && /None of the 3 rooms/.test(refused.error), `expected a refusal naming the count, got ${refused.ok ? "ok" : refused.error}`);
+    const empty = scan.importScanRoom(JSON.stringify({ format: "arcapture-capture/1", source: "taps", rooms: [] }), { x: 0, y: 0 }, 0);
+    assert(!empty.ok && /no rooms/.test(empty.error), `an empty capture is refused, got ${empty.ok ? "ok" : empty.error}`);
+    // A Scrivn sketch file has a rooms list too; without the format it is still not a scan.
+    const sketchFile = scan.importScanRoom(JSON.stringify({ rooms: [{ outline: [[0, 0], [4, 0], [4, 4], [0, 4]] }] }), { x: 0, y: 0 }, 0);
+    assert(!sketchFile.ok && /no walls/.test(sketchFile.error), `a rooms list without the capture format is not a capture, got ${sketchFile.ok ? "ok" : sketchFile.error}`);
+  });
+
+  test("a capture room is read by the one-room validators, and a single room in the old shape is untouched", () => {
+    // The capture's `source` reaches each room: the notes pass and the room counts as tapped. A
+    // flight in a capture room comes in after every room, in the capture's frame.
+    const fixture = JSON.parse(captureTaps);
+    fixture.rooms[0].stairs = [{ corners: [[0.5, 3.8], [1.4, 3.8], [1.4, 0.8], [0.5, 0.8]], run_m: 3.0, width_m: 0.9, direction: "up" }];
+    const result = importedCapture(JSON.stringify(fixture));
+    assert(result.extraRooms.length === 3, `expected 2 rooms and a flight, got ${result.extraRooms.length}`);
+    assert(result.extraRooms[2].stairs !== null && result.extraRooms[0].stairs === null && result.extraRooms[1].stairs === null, "the flight comes after the rooms");
+    const flight = result.extraRooms[2];
+    // Bottom riser midpoint at (0.95, 3.8) m in the capture's frame, whose origin is (0, -0.3).
+    const maxY = Math.max(...flight.vertices.map((v) => v.y));
+    near(maxY, 60 + (3.8 + 0.3) * pxPerM, "flight's bottom riser in the capture's frame", 1);
+    const together = sketch.withDerivedParents([result.room, ...result.extraRooms]);
+    assert(together[3].parentRoomId === result.room.id, "the flight nests in the family room it was tapped in");
+    assert(together.slice(0, 3).every((r) => r.parentRoomId === null), "the rooms stay neighbours");
+    assert(result.notes.includes("Room 1: 1 flight of stairs placed."), `the flight is counted under its room, got ${JSON.stringify(result.notes)}`);
+    // The old shape, one room at the top level, imports exactly as before this contract existed.
+    const single = importedOutline(basementTaps);
+    assert(single.room.name === "Basement (synthetic)" && single.extraRooms.length === 1 && single.notes[0] === "Measured by tapping; 8 walls.", `a one-room file is untouched, got ${JSON.stringify(single.notes)}`);
+    // And a capture of ONE room — which the phone does not write, but the shape allows — is that
+    // room, with the capture's sentence for one.
+    const lone = JSON.parse(captureTaps);
+    lone.rooms = [lone.rooms[0]];
+    const loneResult = importedCapture(JSON.stringify(lone));
+    assert(loneResult.extraRooms.length === 0 && loneResult.room.vertices[0].x === 60 && loneResult.room.vertices[0].y === 60, "one room in a capture lands at the drop point");
+    assert(loneResult.notes[0] === "1 room imported, placed as tapped.", `got ${JSON.stringify(loneResult.notes)}`);
+  });
+
+  test("the result says which shape it came from, so the editor's lead is not chosen by counting rooms", () => {
+    // The editor puts "Room imported." in front of a one-room file's notes and in front of nothing
+    // else, because a capture's notes already lead with its count. A capture that came in with one
+    // drawable room is the case that tells the two apart: counted, it looks like a one-room file and
+    // would read "Room imported. 1 room imported, placed as tapped." — the same news twice.
+    assert(imported().kind === "room" && importedOutline(officeTaps).kind === "room" && importedOutline(basementTaps).kind === "room", "a one-room file, lap or taps, is kind room");
+    assert(importedCapture().kind === "capture", "a three-room capture is kind capture");
+    const short = JSON.parse(captureTaps);
+    short.rooms[1].outline = [[4.0, 1.4], [5.0, 1.4]];
+    short.rooms[2].outline = [[5.0, -0.3], [6.5, -0.3]];
+    const oneLeft = importedCapture(JSON.stringify(short));
+    assert(oneLeft.kind === "capture" && oneLeft.extraRooms.length === 0, `a capture with one drawable room is still kind capture, got ${oneLeft.kind} with ${oneLeft.extraRooms.length} extra`);
+    assert(oneLeft.notes[0] === "1 room imported, placed as tapped.", `and its own count leads, got ${JSON.stringify(oneLeft.notes)}`);
+    assert(!oneLeft.notes.some((n) => /^Room imported\./.test(n)), "the importer never says the editor's sentence");
+    const lone = JSON.parse(captureTaps);
+    lone.rooms = [lone.rooms[0]];
+    assert(importedCapture(JSON.stringify(lone)).kind === "capture", "a capture of one room is kind capture");
+    // A one-room file with a flight is still one room: the flight in extraRooms does not make it a capture.
+    const withFlight = importedOutline(basementTaps);
+    assert(withFlight.extraRooms.length === 1 && withFlight.kind === "room", "a flight beside the room does not change the kind");
+  });
+
+  test("the file's extent is known before the import, so the drop point is sized to what will land", () => {
+    // The three-room capture: 6.5 m across (family room to the bathroom's far wall) by 4.3 m down
+    // (the bathroom's top, 0.3 m above the family room, to the family room's far wall).
+    const extent = scan.scanExtentPx(captureTaps);
+    assert(extent !== null, "a capture has an extent");
+    near(extent.width, 6.5 * pxPerM, "capture 6.5 m wide", 1);
+    near(extent.height, 4.3 * pxPerM, "capture 4.3 m deep", 1);
+    // It is the size of what the import then draws, to the pixel.
+    const result = importedCapture();
+    const rooms = captureRooms(result);
+    const minX = Math.min(...rooms.map((r) => sketch.roomBounds(r).minX));
+    const maxX = Math.max(...rooms.map((r) => sketch.roomBounds(r).maxX));
+    const minY = Math.min(...rooms.map((r) => sketch.roomBounds(r).minY));
+    const maxY = Math.max(...rooms.map((r) => sketch.roomBounds(r).maxY));
+    assert(extent.width === maxX - minX && extent.height === maxY - minY, `extent should be what lands, got ${extent.width}x${extent.height} vs ${maxX - minX}x${maxY - minY}`);
+    // A one-room file is that room's size, whichever way it was measured.
+    const officeExtent = scan.scanExtentPx(office);
+    const officeBounds = sketch.roomBounds(imported().room);
+    assert(officeExtent !== null && officeExtent.width === officeBounds.width && officeExtent.height === officeBounds.height, `the office's extent is the office, got ${JSON.stringify(officeExtent)} vs ${officeBounds.width}x${officeBounds.height}`);
+    const tapsExtent = scan.scanExtentPx(officeTaps);
+    const tapsBounds = sketch.roomBounds(importedOutline(officeTaps).room);
+    assert(tapsExtent !== null && tapsExtent.width === tapsBounds.width && tapsExtent.height === tapsBounds.height, "the tapped office's extent is the tapped office");
+    // A room the capture got wrong still counts towards the extent, as it does towards the origin;
+    // a file that will not read has none, and the editor falls back to a room's size.
+    const short = JSON.parse(captureTaps);
+    short.rooms[1].outline = [[4.0, 1.4], [5.0, 1.4]];
+    const shortExtent = scan.scanExtentPx(JSON.stringify(short));
+    assert(shortExtent !== null && shortExtent.width === extent.width && shortExtent.height === extent.height, "a room left out for two corners was never in the union");
+    assert(scan.scanExtentPx("{ not json") === null, "not JSON, no extent");
+    assert(scan.scanExtentPx(JSON.stringify({ rooms: [] })) === null, "not a scan, no extent");
+    assert(scan.scanExtentPx(JSON.stringify({ format: "arcapture-capture/1", source: "taps", rooms: [] })) === null, "an empty capture, no extent");
   });
 
   return { passed, failures };

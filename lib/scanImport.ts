@@ -46,12 +46,54 @@
  *    are squared, not traced, and a side that lands within an inch or three of one of the room's
  *    walls is put flush on it; the stairs loop in `scanToSketchRoom` says why both.
  *
+ * Since 2026-09-20 the phone can capture a HOUSE in one session — the family room, the small hall
+ * off it, the bathroom off that — and write the lot in ONE file, "arcapture-capture/1", with every
+ * room's coordinates in one shared frame. Before, each room was its own Start and Export in its own
+ * ARCore session, so where the rooms stood relative to each other was lost at the door and the PM
+ * dragged each one up against the last by eye. Now they land here as they stand in the building,
+ * and the PM types the tape where the phone was rough. Each room in a capture is exactly the object
+ * a one-room file is, so a room is read by the same validators whichever file it arrives in; what
+ * changes is the FRAME. A one-room file's polygon has its own top-left put at `at`. A capture's
+ * rooms are all built against one origin — the top-left of the union of their outlines, which is
+ * what lands at `at` — so the same metre in two rooms' outlines becomes the same pixel, a wall two
+ * rooms share is one line on the sketch rather than two a pixel apart, and a room a metre to the
+ * right of another comes in a metre to the right. The first room becomes `room` (selected, named,
+ * dragged by the PM) and the rest ride in `extraRooms` ahead of the stairs, so the editor's one
+ * update adds them all and `withDerivedParents` sees them together: the hall beside the family
+ * room is a neighbour, not a sub-room, because none of its corners is inside the other.
+ *
+ * A door between two rooms is tapped from ONE of them — that is the phone's guidance — and lands
+ * on that room's wall. One tapped from both sides comes in twice, once on each room's wall, and
+ * nothing here folds the pair: two taps a wall's thickness apart in two rooms' outlines are two
+ * symbols to this importer, and guessing which to keep is worse than the PM deleting one. The
+ * guidance exists so they do not have to. Closet doors are offered for the first room only, because
+ * the editor's offer is built from one room's id and the result names one room's doors whichever
+ * shape it came from; a closet door tapped in the third room comes in as the swing door it is,
+ * unoffered. The result does say which shape it came from (`kind`), because the notice the editor
+ * shows leads differently for the two — see `ScanImportResult`.
+ *
  * The scanner speaks metres in its own room-aligned frame (U along one pair of walls, V along the
  * other); the sketch is world pixels at `PIXELS_PER_FOOT`, y down, clockwise. The room's own
  * corner becomes the top-left of wherever the editor chooses to put it. Orientation on the page is
  * arbitrary — the scanner has no idea which way is north and neither does the sketch.
  *
- * ── The JSON ────────────────────────────────────────────────────────────────────────────────
+ * ── The JSON: a capture ─────────────────────────────────────────────────────────────────────
+ *   {
+ *     "format": "arcapture-capture/1",
+ *     "source": "taps",
+ *     "frame": { "theta_deg": 12.3 },      // the capture's rotation off ARCore's frame; not needed here
+ *     "rooms": [ ROOM, ROOM, ... ],        // capture order; each ROOM is the one-room object below,
+ *                                          //   plus "name": "Room 1" and "index": 0, with every
+ *                                          //   outline and stairs coordinate in the CAPTURE's frame
+ *     "epochs": [ ... ],                   // capture-wide; ignored
+ *     "taps": [ { ..., "room": 0 }, ... ]  // each tap says which room it belongs to; ignored
+ *   }
+ * The phone writes this shape when there are two or more rooms and the one-room shape below when
+ * there is one, so a single room keeps importing through every path it always did. The file is
+ * told apart by its `format` alone — NOT by the presence of `rooms`, which a Scrivn sketch file
+ * also has, and which must still be refused as "not a room scan".
+ *
+ * ── The JSON: one room ──────────────────────────────────────────────────────────────────────
  *   {
  *     "format": "arcapture-room/1",        // optional; older files from the analysis script have none
  *     "name": "Office",                    // optional
@@ -107,7 +149,9 @@
  * covers the lap.
  *
  * Anything else in the file is ignored, so the analysis script's extra fields (feet-and-inches
- * strings, coverage), the phone's raw `taps` and its `outline_tapped` flags do no harm.
+ * strings, coverage), the phone's raw `taps` and its `outline_tapped` flags do no harm. Nor do a
+ * capture's `frame`, `epochs` and `corrections`: the outline the phone writes already has its
+ * corrections and its frame applied, and the rest is the phone's record of how it got there.
  *
  * Only what the scanner is sure of is imported. A gap it could not classify — an unscanned corner,
  * a stretch hidden behind a desk — is left as wall, because a wrong door on the sketch costs more to
@@ -207,6 +251,11 @@ export interface ScanStairs {
 export interface ScanRoom {
   format?: string;
   name?: string;
+  /**
+   * The room's position in a capture's `rooms` list, as the phone wrote it (its taps say `"room":
+   * index`). Absent for a one-room file. The default name of an unnamed capture room is made of it.
+   */
+  index?: number;
   source?: string;
   ceiling_m?: number | null;
   walls: ScanWall[];
@@ -220,16 +269,55 @@ export interface ScanRoom {
   stairs: ScanStairs[];
 }
 
+/** The `format` a file of several rooms declares; see the header. */
+export const CAPTURE_FORMAT = "arcapture-capture/1";
+
+/**
+ * A whole capture: several rooms tapped in one session, in one frame. `rooms` is in capture order,
+ * each read by the same validators as a one-room file, with its coordinates left where the phone
+ * put them — in the capture's shared frame, NOT re-based to the room's own corner. Where each room
+ * lands is the builder's business, and for a capture the builder is told the frame once for all.
+ */
+export interface ScanCapture {
+  format: typeof CAPTURE_FORMAT;
+  source?: string;
+  rooms: ScanRoom[];
+}
+
+/**
+ * The point of the scanner's frame, in metres, that lands at `at` when a room is built. A one-room
+ * import leaves it to the builder, which uses the polygon's own top-left so the room's corner is
+ * the drop point; a capture hands every room the same one — the top-left of the union of its rooms
+ * — so their pixels agree.
+ */
+export interface ScanOrigin {
+  u: number;
+  v: number;
+}
+
 export type ScanImportResult =
   | {
       ok: true;
+      /**
+       * Which shape the file was: one room at the top level, or a capture of rooms. The editor
+       * leads its notice by this and by nothing else, because the two shapes' notes start
+       * differently: a capture's first note is the importer's own count ("3 rooms imported,
+       * placed as tapped.") and a one-room file's notes have no such sentence, so the editor
+       * supplies "Room imported." for the one and not the other. It is not something to work out
+       * from the result — a capture that came in with ONE drawable room (the other tapped short)
+       * still says "1 room imported, placed as tapped.", and counting the rooms would put "Room
+       * imported." in front of that.
+       */
+      kind: "room" | "capture";
       room: SketchRoom;
       /**
-       * Rooms that came in alongside the main one — today, one per flight of stairs the phone
-       * tapped, since the sketch draws a flight as a room (`StairsData`). Built in the same frame
-       * as `room`, so they land where they were tapped relative to it; the editor adds them in the
-       * same update as the room, and `withDerivedParents` nests each in the room it stands in.
-       * Empty when the file has no stairs, which is every lap scan.
+       * Rooms that came in alongside the main one, in the same frame as `room` so they land where
+       * they were tapped relative to it: for a capture, every room after the first, in capture
+       * order; then one per flight of stairs the phone tapped in any room, since the sketch draws
+       * a flight as a room (`StairsData`). The editor adds them in the same update as the room,
+       * and `withDerivedParents` nests each in the room it stands in — a flight in the room it was
+       * tapped in, a neighbouring room in nothing. Empty for a one-room file with no stairs, which
+       * is every lap scan.
        */
       extraRooms: SketchRoom[];
       notes: string[];
@@ -238,11 +326,44 @@ export type ScanImportResult =
        * doors on the room's wall — the sketch has no closet-door type and needs none — but the
        * editor offers to draw the closet behind each one (`closetBehindDoor`), and once the symbol
        * is built nothing else says which doors those were. Empty for a lap scan, which never
-       * writes the kind.
+       * writes the kind. For a capture these are the FIRST room's alone — see the header.
        */
       closetDoorIds: string[];
     }
   | { ok: false; error: string };
+
+/**
+ * How much of the page a file's rooms will take, in world pixels: the union of every room's outline
+ * (for a one-room file, the one), at the scale the rooms are built to. `null` when the file will
+ * not parse or no room in it has a polygon — the import that follows says why in words.
+ *
+ * Exists because the editor picks the drop point BEFORE it imports — `importScanRoom` takes `at`
+ * and builds against it — and a spot found for a room's default size is not clear for a capture
+ * two or three rooms wide: the hall and bathroom lap the room already on the page to the right,
+ * and a small room that lands wholly inside an existing one is nested into it by
+ * `withDerivedParents`. Sized here, `placeNewRoom` finds a pocket the whole capture fits. The file
+ * is parsed twice, once here and once to build; it is a few kilobytes and this stays one call the
+ * editor can read, where an `at` that is a callback would not be.
+ */
+export function scanExtentPx(text: string): { width: number; height: number } | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  const checked = parseScan(parsed);
+  if (!checked.ok) return null;
+  const scans = checked.kind === "capture" ? checked.capture.rooms : [checked.scan];
+  const polygons = scans.map(polygonOf).flatMap((shape) => (shape.ok ? [shape.polygon] : []));
+  if (polygons.length === 0) return null;
+  const us = polygons.flatMap((polygon) => polygon.map((p) => p[0]));
+  const vs = polygons.flatMap((polygon) => polygon.map((p) => p[1]));
+  return {
+    width: Math.round((Math.max(...us) - Math.min(...us)) * PX_PER_METRE),
+    height: Math.round((Math.max(...vs) - Math.min(...vs)) * PX_PER_METRE),
+  };
+}
 
 /** Nearest inch, which is what a tape reads to and the precision the scan actually has. */
 function toFeetInches(metres: number): number {
@@ -440,6 +561,7 @@ export function parseScanRoom(input: unknown): { ok: true; scan: ScanRoom; notes
     scan: {
       format: typeof raw.format === "string" ? raw.format : undefined,
       name: typeof raw.name === "string" ? raw.name : undefined,
+      index: isFiniteNumber(raw.index) ? Math.trunc(raw.index) : undefined,
       source: typeof raw.source === "string" ? raw.source : undefined,
       ceiling_m: isFiniteNumber(raw.ceiling_m) ? raw.ceiling_m : null,
       walls,
@@ -450,6 +572,74 @@ export function parseScanRoom(input: unknown): { ok: true; scan: ScanRoom; notes
     },
     notes,
   };
+}
+
+/** What a capture room is called in the notice and on the sketch: the phone's name, else its number. */
+function captureRoomName(name: string | undefined, index: number): string {
+  return name !== undefined && name.trim() !== "" ? name : `Room ${index + 1}`;
+}
+
+/**
+ * Checks a capture: `rooms`, each through `parseScanRoom`. The capture says `source` once, at the
+ * top, and each room means the same, so a room without its own inherits it — that is what lets a
+ * room's `outline_notes` through and marks it as tapped, the same as in a one-room file.
+ *
+ * A room that cannot be read is LEFT OUT with a note, not fatal, on the reasoning that covers a
+ * malformed cabinet: the capture is still a capture without it, the others still land where they
+ * were tapped, and the PM who tapped the missing one will look for it on the sketch and needs to
+ * hear why it is not there. Only a capture with no readable room at all is refused, in words. The
+ * note names the room the way the sketch will, so "Room 2" in the notice is "Room 2" on the page.
+ */
+export function parseScanCapture(input: unknown): { ok: true; capture: ScanCapture; notes: string[] } | { ok: false; error: string } {
+  if (typeof input !== "object" || input === null) return { ok: false, error: "This file is not a room scan." };
+  const raw = input as Record<string, unknown>;
+  if (!Array.isArray(raw.rooms) || raw.rooms.length === 0) {
+    return { ok: false, error: "This capture has no rooms in it." };
+  }
+  const source = typeof raw.source === "string" ? raw.source : undefined;
+  const rooms: ScanRoom[] = [];
+  const notes: string[] = [];
+  raw.rooms.forEach((entry, position) => {
+    if (typeof entry !== "object" || entry === null) {
+      notes.push(`Room ${position + 1} in the file is not a room; left out.`);
+      return;
+    }
+    const room = entry as Record<string, unknown>;
+    const merged = typeof room.source === "string" || source === undefined ? room : { ...room, source };
+    const parsed = parseScanRoom(merged);
+    // The phone's index when it wrote one (its taps refer to it), else the room's place in the list.
+    const index = parsed.ok && parsed.scan.index !== undefined ? parsed.scan.index : position;
+    const name = captureRoomName(typeof room.name === "string" ? room.name : undefined, index);
+    if (!parsed.ok) {
+      notes.push(`${name}: ${parsed.error} Left out.`);
+      return;
+    }
+    rooms.push({ ...parsed.scan, name, index });
+    notes.push(...parsed.notes.map((n) => `${name}: ${n}`));
+  });
+  if (rooms.length === 0) {
+    return { ok: false, error: `None of the ${raw.rooms.length} rooms in this capture could be read.` };
+  }
+  return { ok: true, capture: { format: CAPTURE_FORMAT, source, rooms }, notes };
+}
+
+export type ParsedScan =
+  | { ok: true; kind: "room"; scan: ScanRoom; notes: string[] }
+  | { ok: true; kind: "capture"; capture: ScanCapture; notes: string[] }
+  | { ok: false; error: string };
+
+/**
+ * Either shape. The capture is told apart by its `format` and nothing else: a Scrivn sketch file
+ * has a `rooms` list too, and it must go on being refused as "not a room scan — it has no walls",
+ * which is what the one-room parser says of it.
+ */
+export function parseScan(input: unknown): ParsedScan {
+  if (typeof input === "object" && input !== null && (input as Record<string, unknown>).format === CAPTURE_FORMAT) {
+    const parsed = parseScanCapture(input);
+    return parsed.ok ? { ok: true, kind: "capture", capture: parsed.capture, notes: parsed.notes } : parsed;
+  }
+  const parsed = parseScanRoom(input);
+  return parsed.ok ? { ok: true, kind: "room", scan: parsed.scan, notes: parsed.notes } : parsed;
 }
 
 /**
@@ -473,42 +663,56 @@ function openingKind(kind: string): "door" | "closet_door" | "opening" | "window
 }
 
 /**
- * Builds the sketch room. `at` is where its top-left corner lands, in world pixels, and `level` the
- * storey it joins; both are the editor's business, not the scan's.
+ * The polygon a scan describes, in its own metres: the scanner's outline when it sent one, else
+ * the rectangle the four walls describe, in the same clockwise order (top-left, top-right,
+ * bottom-right, bottom-left). One path for both, so a four-point outline is the rectangle exactly,
+ * openings and all. The two-walls-per-axis rule only applies when the rectangle is all there is: a
+ * tapped room has an outline and no walls at all.
+ *
+ * Its own function because a capture needs every room's polygon BEFORE any room is built, to find
+ * the one origin they are all built against; a one-room import asks for it once, on the way in.
  */
-export function scanToSketchRoom(scan: ScanRoom, at: { x: number; y: number }, level: number): ScanImportResult {
-  // The polygon: the scanner's outline when it sent one, else the rectangle the four walls
-  // describe, in the same clockwise order (top-left, top-right, bottom-right, bottom-left). One
-  // path for both, so a four-point outline is the rectangle exactly, openings and all. The
-  // two-walls-per-axis rule only applies when the rectangle is all there is: a tapped room has an
-  // outline and no walls at all.
-  let polygon: [number, number][];
-  if (scan.outline !== undefined) {
-    polygon = scan.outline;
-  } else {
-    const across = scan.walls.filter((w) => w.axis === "across").sort((a, b) => a.offset_m - b.offset_m);
-    const along = scan.walls.filter((w) => w.axis === "along").sort((a, b) => a.offset_m - b.offset_m);
-    if (across.length !== 2 || along.length !== 2) {
-      return {
-        ok: false,
-        error: `The scan needs two facing walls on each side to make a room; it has ${across.length} and ${along.length}.`,
-      };
-    }
-    // The rectangle in the scanner's frame: U between the `along` walls, V between the `across` ones.
-    const u0 = (along[0] as ScanWall).offset_m;
-    const u1 = (along[1] as ScanWall).offset_m;
-    const v0 = (across[0] as ScanWall).offset_m;
-    const v1 = (across[1] as ScanWall).offset_m;
-    polygon = [
+function polygonOf(scan: ScanRoom): { ok: true; polygon: [number, number][] } | { ok: false; error: string } {
+  if (scan.outline !== undefined) return { ok: true, polygon: scan.outline };
+  const across = scan.walls.filter((w) => w.axis === "across").sort((a, b) => a.offset_m - b.offset_m);
+  const along = scan.walls.filter((w) => w.axis === "along").sort((a, b) => a.offset_m - b.offset_m);
+  if (across.length !== 2 || along.length !== 2) {
+    return {
+      ok: false,
+      error: `The scan needs two facing walls on each side to make a room; it has ${across.length} and ${along.length}.`,
+    };
+  }
+  // The rectangle in the scanner's frame: U between the `along` walls, V between the `across` ones.
+  const u0 = (along[0] as ScanWall).offset_m;
+  const u1 = (along[1] as ScanWall).offset_m;
+  const v0 = (across[0] as ScanWall).offset_m;
+  const v1 = (across[1] as ScanWall).offset_m;
+  return {
+    ok: true,
+    polygon: [
       [u0, v0],
       [u1, v0],
       [u1, v1],
       [u0, v1],
-    ];
-  }
+    ],
+  };
+}
 
-  // The room's own corner becomes the drop point: the polygon's top-left, which for the rectangle
-  // is (u0, v0) and for a notched or chamfered one may be a vertex the rectangle never had.
+/**
+ * Builds the sketch room. `at` is where the frame's origin lands, in world pixels, and `level` the
+ * storey the room joins; both are the editor's business, not the scan's. `origin` is which point of
+ * the scanner's frame that is (`ScanOrigin`): left out, it is the polygon's own top-left, so the
+ * room's corner is the drop point; a capture passes the one its rooms share, and then the room
+ * lands wherever it stands relative to that.
+ */
+export function scanToSketchRoom(scan: ScanRoom, at: { x: number; y: number }, level: number, origin?: ScanOrigin): ScanImportResult {
+  const shape = polygonOf(scan);
+  if (!shape.ok) return shape;
+  const polygon = shape.polygon;
+
+  // The polygon's own top-left, which for the rectangle is (u0, v0) and for a notched or chamfered
+  // one may be a vertex the rectangle never had. The size check is the room's own whatever the
+  // origin; the origin defaults to this corner.
   const minU = Math.min(...polygon.map((p) => p[0]));
   const minV = Math.min(...polygon.map((p) => p[1]));
   const width = Math.max(...polygon.map((p) => p[0])) - minU;
@@ -516,10 +720,13 @@ export function scanToSketchRoom(scan: ScanRoom, at: { x: number; y: number }, l
   if (width < 0.5 || depth < 0.5) return { ok: false, error: "The scanned room is too small to be a room." };
 
   const { x, y } = at;
-  // Whole pixels: one pixel is one inch, and the scan is not better than that.
+  const { u: originU, v: originV } = origin ?? { u: minU, v: minV };
+  // Whole pixels: one pixel is one inch, and the scan is not better than that. Rounded from the
+  // origin, not from the room's own corner, so two rooms built against one origin put the same
+  // metre on the same pixel.
   const toPx = (p: [number, number]): { x: number; y: number } => ({
-    x: x + Math.round((p[0] - minU) * PX_PER_METRE),
-    y: y + Math.round((p[1] - minV) * PX_PER_METRE),
+    x: x + Math.round((p[0] - originU) * PX_PER_METRE),
+    y: y + Math.round((p[1] - originV) * PX_PER_METRE),
   });
   // `ring` is the polygon in the file's own order, which is what an outline opening's edge index
   // counts along; `vertices` is the same ring wound clockwise, which for a well-formed file is the
@@ -564,7 +771,7 @@ export function scanToSketchRoom(scan: ScanRoom, at: { x: number; y: number }, l
    */
   const edgeFor = (wall: ScanWall, centre: { x: number; y: number }): { wall: WallGeometry; t: number } | null => {
     const horizontal = wall.axis === "across";
-    const offsetPx = horizontal ? y + (wall.offset_m - minV) * PX_PER_METRE : x + (wall.offset_m - minU) * PX_PER_METRE;
+    const offsetPx = horizontal ? y + (wall.offset_m - originV) * PX_PER_METRE : x + (wall.offset_m - originU) * PX_PER_METRE;
     let best: { wall: WallGeometry; t: number; d: number } | null = null;
     let diagonal: { wall: WallGeometry; t: number; d: number } | null = null;
     for (const w of walls) {
@@ -650,8 +857,8 @@ export function scanToSketchRoom(scan: ScanRoom, at: { x: number; y: number }, l
       const along_m = wall.span_from_m + opening.from_m + opening.width_m / 2;
       const centreUV: [number, number] = wall.axis === "across" ? [along_m, wall.offset_m] : [wall.offset_m, along_m];
       const centre = {
-        x: x + (centreUV[0] - minU) * PX_PER_METRE,
-        y: y + (centreUV[1] - minV) * PX_PER_METRE,
+        x: x + (centreUV[0] - originU) * PX_PER_METRE,
+        y: y + (centreUV[1] - originV) * PX_PER_METRE,
       };
       const placed = edgeFor(wall, centre);
       if (placed === null) {
@@ -820,8 +1027,8 @@ export function scanToSketchRoom(scan: ScanRoom, at: { x: number; y: number }, l
   for (const flight of scan.stairs) {
     // The taps in world pixels, unrounded: the rectangle is rounded once, when it is laid out.
     const taps: Point[] = flight.corners.map((p) => ({
-      x: x + (p[0] - minU) * PX_PER_METRE,
-      y: y + (p[1] - minV) * PX_PER_METRE,
+      x: x + (p[0] - originU) * PX_PER_METRE,
+      y: y + (p[1] - originV) * PX_PER_METRE,
     }));
     const [s1, s2, s3, s4] = taps as [Point, Point, Point, Point];
     const bottom = { x: (s1.x + s2.x) / 2, y: (s1.y + s2.y) / 2 };
@@ -873,13 +1080,9 @@ export function scanToSketchRoom(scan: ScanRoom, at: { x: number; y: number }, l
     });
   }
 
-  // A tapped room's corners were each put there on purpose, so the wall count is the news; a
-  // lap's extra corners came from the fitter and are worth a second look.
-  if (scan.source === "taps") {
-    notes.push(`Measured by tapping; ${vertices.length} walls.`);
-  } else if (vertices.length > 4) {
-    notes.push(`The scan drew ${vertices.length} corners (a notch or an angled wall); check them against the room.`);
-  }
+  // What the builder had to leave out or assume, in the order the PM walks it: the room itself
+  // first, then its openings, cabinets and flights. The sentence about how the room was measured
+  // is `measurementNote`, said by the importer — see there for why it is not said here.
   if (ceiling === null) notes.push("The scan did not see the ceiling; 8' assumed.");
   if (skipped > 0) notes.push(`${skipped} unclassified gap${skipped === 1 ? "" : "s"} left as wall.`);
   if (flatWindows > 0) {
@@ -908,12 +1111,100 @@ export function scanToSketchRoom(scan: ScanRoom, at: { x: number; y: number }, l
     .sort((a, b) => (wallIndex.get(a.wallId) ?? 0) - (wallIndex.get(b.wallId) ?? 0) || a.t - b.t)
     .map((s) => s.id);
 
-  return { ok: true, room: { ...room, symbols }, extraRooms, notes, closetDoorIds };
+  // One room built is a one-room result; the capture importer says otherwise for its own.
+  return { ok: true, kind: "room", room: { ...room, symbols }, extraRooms, notes, closetDoorIds };
 }
 
 /**
- * File text in, sketch room out — the one call the editor makes. What the parser had to skip is
- * said after what the builder had to, so the notice reads room first, then the file's faults.
+ * The one sentence about how a room was measured, which leads the notice for a one-room file. A
+ * tapped room's corners were each put there on purpose, so the wall count is the news; a lap's
+ * extra corners came from the fitter and are worth a second look; a lap that drew a rectangle has
+ * nothing to say.
+ *
+ * Said by the importer rather than the builder because it is a sentence about the FILE's room, and
+ * a capture's notice leads with a sentence about its rooms instead ("3 rooms imported, placed as
+ * tapped.") — three of these in a row, one per room, would be three sentences of nothing where
+ * the PM is looking for what went wrong.
+ */
+export function measurementNote(scan: ScanRoom, room: SketchRoom): string | null {
+  if (scan.source === "taps") return `Measured by tapping; ${room.vertices.length} walls.`;
+  if (room.vertices.length > 4) return `The scan drew ${room.vertices.length} corners (a notch or an angled wall); check them against the room.`;
+  return null;
+}
+
+/**
+ * Several rooms, one frame — see the header. Every room's polygon is found first, because the
+ * origin they are all built against is the top-left of the UNION of them: that is what lands at
+ * `at`, so the whole capture drops where a single room would have, and each room keeps its place
+ * relative to the others. The first room that builds is `room` — the one the editor selects and
+ * the one whose closet doors are offered — and the rest are `extraRooms`, in capture order, ahead
+ * of every flight of stairs from every room.
+ *
+ * A room that will not build (the phone wrote too few corners, or a ring that folds over itself)
+ * is left out with a note, on the reasoning `parseScanCapture` gives for one it could not read,
+ * and a capture in which nothing builds is refused. A room with no polygon at all is left out of
+ * the union too, so the others still drop with their own top-left at `at`; one the builder refuses
+ * afterwards — too small to be a room, or folded — has already had its say in the union, and the
+ * half-metre a too-small room can add to it is nothing against the drag that follows.
+ *
+ * `fileNotes` are the parser's, already named by room; they come after the builders' notes so the
+ * notice reads rooms first, then the file's faults, as it does for one room.
+ */
+function importScanCapture(capture: ScanCapture, fileNotes: string[], at: { x: number; y: number }, level: number): ScanImportResult {
+  const drawable: { scan: ScanRoom; polygon: [number, number][] }[] = [];
+  const leftOut: string[] = [];
+  capture.rooms.forEach((scan, position) => {
+    const shape = polygonOf(scan);
+    if (!shape.ok) {
+      leftOut.push(`${captureRoomName(scan.name, scan.index ?? position)}: ${shape.error} Left out.`);
+      return;
+    }
+    drawable.push({ scan, polygon: shape.polygon });
+  });
+  if (drawable.length === 0) {
+    return { ok: false, error: `None of the ${capture.rooms.length} rooms in this capture could be drawn.` };
+  }
+  const origin: ScanOrigin = {
+    u: Math.min(...drawable.flatMap((d) => d.polygon.map((p) => p[0]))),
+    v: Math.min(...drawable.flatMap((d) => d.polygon.map((p) => p[1]))),
+  };
+
+  const rooms: SketchRoom[] = [];
+  const flights: SketchRoom[] = [];
+  const notes: string[] = [];
+  let closetDoorIds: string[] = [];
+  drawable.forEach(({ scan }, position) => {
+    const label = captureRoomName(scan.name, scan.index ?? position);
+    // A room that arrived unnamed is named here as the note names it, so the two agree.
+    const built = scanToSketchRoom({ ...scan, name: label }, at, level, origin);
+    if (!built.ok) {
+      leftOut.push(`${label}: ${built.error} Left out.`);
+      return;
+    }
+    if (rooms.length === 0) closetDoorIds = built.closetDoorIds;
+    rooms.push(built.room);
+    flights.push(...built.extraRooms);
+    notes.push(...built.notes.map((n) => `${label}: ${n}`));
+  });
+  const room = rooms[0];
+  if (room === undefined) {
+    return { ok: false, error: `None of the ${capture.rooms.length} rooms in this capture could be drawn.` };
+  }
+  return {
+    ok: true,
+    kind: "capture",
+    room,
+    extraRooms: [...rooms.slice(1), ...flights],
+    notes: [`${rooms.length} room${rooms.length === 1 ? "" : "s"} imported, placed as tapped.`, ...notes, ...leftOut, ...fileNotes],
+    closetDoorIds,
+  };
+}
+
+/**
+ * File text in, sketch room(s) out — the one call the editor makes. Either shape: a one-room file
+ * builds one room at `at`; a capture builds its rooms together (`importScanCapture`), the first
+ * as `room` and the rest in `extraRooms`. What the parser had to skip is said after what the
+ * builder had to, so the notice reads room first, then the file's faults.
  */
 export function importScanRoom(text: string, at: { x: number; y: number }, level: number): ScanImportResult {
   let parsed: unknown;
@@ -922,9 +1213,11 @@ export function importScanRoom(text: string, at: { x: number; y: number }, level
   } catch {
     return { ok: false, error: "This file is not a room scan — it is not valid JSON." };
   }
-  const checked = parseScanRoom(parsed);
+  const checked = parseScan(parsed);
   if (!checked.ok) return checked;
+  if (checked.kind === "capture") return importScanCapture(checked.capture, checked.notes, at, level);
   const built = scanToSketchRoom(checked.scan, at, level);
   if (!built.ok) return built;
-  return { ...built, notes: [...built.notes, ...checked.notes] };
+  const measured = measurementNote(checked.scan, built.room);
+  return { ...built, notes: [...(measured === null ? [] : [measured]), ...built.notes, ...checked.notes] };
 }

@@ -2,7 +2,7 @@
 
 import { type Dispatch, type SetStateAction, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import { importScanRoom } from "@/lib/scanImport";
+import { importScanRoom, scanExtentPx } from "@/lib/scanImport";
 import {
   type DoorType,
   type FreeCabinet,
@@ -979,11 +979,31 @@ export function SketchEditor({
    * two so `withDerivedParents` sees the flight and the room together and nests the one in the
    * other at once, and the sketch never holds a flight without its room. Selection stays on the
    * room: it is the one the PM will name and drag into place, and the flight follows as its child.
+   *
+   * A CAPTURE — several rooms tapped in one session, in one file — arrives the same way: the first
+   * room as `room`, the others in `extraRooms` beside the flights, every one in the frame they
+   * were tapped in, so the hall lands against the family room's wall as it stands in the house.
+   * The same one update adds them all, and `withDerivedParents` finds no room inside another and
+   * leaves them neighbours. Selection is the first room, as the PM tapped it first; the whole
+   * capture is dragged into place from any of its rooms, one at a time, since the rooms are
+   * neighbours and not a group — the point of the frame is that they need no dragging against each
+   * other, only against the house. The importer's own first note says how many rooms came in and
+   * that they were placed as tapped, so it leads the notice; "Room imported." is for the one-room
+   * file, where the importer has no such sentence. Which is which is the result's `kind`, not a
+   * count of what came in: a capture whose second room the phone wrote short comes in as one room
+   * and still says "1 room imported, placed as tapped.", and "Room imported." in front of that
+   * would be the same news twice.
    */
   async function handleImportScan(file: File) {
     const text = await file.text();
-    // A scanned room is about a room's size; where exactly it lands is the PM's to fix, in view.
-    const { x, y } = placeRoom(NEW_ROOM.width, NEW_ROOM.height);
+    // Where exactly it lands is the PM's to fix, in view; how much room it needs is the file's to
+    // say. A capture is two or three rooms wide, and a spot clear for one room's default size would
+    // have its hall and bathroom lapping the room already on the page to the right — and a small
+    // room landing wholly inside one is nested into it. The importer takes the drop point before it
+    // parses, so the size is asked for first (`scanExtentPx`); a file that will not parse falls
+    // back to a room's size and the import that follows says what was wrong with it.
+    const extent = scanExtentPx(text) ?? { width: NEW_ROOM.width, height: NEW_ROOM.height };
+    const { x, y } = placeRoom(extent.width, extent.height);
     const result = importScanRoom(text, { x, y }, activeLevel);
     if (!result.ok) {
       setImportNotice({ kind: "error", text: result.error });
@@ -997,11 +1017,15 @@ export function SketchEditor({
     const roomId = result.room.id;
     const closetDoorIds = result.closetDoorIds;
     const closetCount = closetDoorIds.length;
-    const parts = ["Room imported.", ...result.notes];
+    // A capture's first note is already its lead — the count — so only the one-room file gets one
+    // from here. By the file's shape, not by counting rooms in the result: see the doc above.
+    const parts = result.kind === "capture" ? [...result.notes] : ["Room imported.", ...result.notes];
     if (closetCount > 0) {
       parts.push(closetCount === 1 ? "1 closet door tapped — add a closet behind it?" : `${closetCount} closet doors tapped — add a closet behind each?`);
     }
-    if (parts.length === 1) {
+    // One room with nothing to say about it needs no notice; a capture always has its count to say,
+    // since which rooms came in and where is the news.
+    if (result.kind === "room" && parts.length === 1) {
       setImportNotice(null);
       return;
     }

@@ -1,0 +1,94 @@
+{
+  "format": "arcapture-capture/1",
+  "source": "taps",
+  "frame": {"theta_deg": 12.3},
+  "rooms": [
+    {
+      "name": "Room 1",
+      "index": 0,
+      "width_m": 4.0,
+      "depth_m": 4.0,
+      "ceiling_m": 2.44,
+      "outline": [[0.0, 0.0], [4.0, 0.0], [4.0, 4.0], [0.0, 4.0]],
+      "outline_tapped": [true, true, true, true],
+      "squared": true,
+      "outline_unsquared": [[0.0, 0.0], [4.01, -0.01], [4.0, 4.0], [-0.01, 4.01]],
+      "outline_openings": [
+        {"edge": 1, "from_m": 1.5, "width_m": 0.9, "kind": "door", "sill_m": null, "head_m": null}
+      ],
+      "outline_notes": [],
+      "walls": [],
+      "cabinets": [],
+      "stairs": [],
+      "stairs_snapped": [],
+      "corrections": []
+    },
+    {
+      "name": "Room 2",
+      "index": 1,
+      "width_m": 1.0,
+      "depth_m": 1.2,
+      "ceiling_m": 2.44,
+      "outline": [[4.0, 1.4], [5.0, 1.4], [5.0, 2.6], [4.0, 2.6]],
+      "outline_tapped": [true, true, true, true],
+      "squared": true,
+      "outline_unsquared": [[4.0, 1.4], [5.0, 1.41], [5.01, 2.6], [4.0, 2.6]],
+      "outline_openings": [
+        {"edge": 1, "from_m": 0.05, "width_m": 0.6, "kind": "door", "sill_m": null, "head_m": null}
+      ],
+      "outline_notes": [],
+      "walls": [],
+      "cabinets": [],
+      "stairs": [],
+      "stairs_snapped": [],
+      "corrections": []
+    },
+    {
+      "name": "Room 3",
+      "index": 2,
+      "width_m": 1.5,
+      "depth_m": 2.4,
+      "ceiling_m": 2.3,
+      "outline": [[5.0, -0.3], [6.5, -0.3], [6.5, 2.1], [5.0, 2.1]],
+      "outline_tapped": [true, true, true, true],
+      "squared": true,
+      "outline_unsquared": [[5.0, -0.3], [6.47, -0.31], [6.48, 2.1], [5.0, 2.1]],
+      "outline_openings": [],
+      "outline_notes": [],
+      "walls": [],
+      "cabinets": [
+        {"edge": 1, "from_m": 0.3, "width_m": 0.9, "tier": "base", "depth_m": 0.53}
+      ],
+      "stairs": [],
+      "stairs_snapped": [],
+      "corrections": [
+        {"kind": "wall", "edge": 0, "metres": 1.500},
+        {"kind": "cabinet", "number": 1, "metres": 0.900}
+      ]
+    }
+  ],
+  "epochs": [
+    {"epoch": 0, "theta_deg": 0.0, "tx_m": 0.0, "ty_m": 0.0, "taps": 12},
+    {"epoch": 1, "theta_deg": 1.4, "tx_m": 0.03, "ty_m": -0.02, "taps": 6}
+  ],
+  "taps": [
+    {"label": "corner", "which": "corner", "x": 0.0, "y": 0.0, "z": 0.0, "distance_m": 2.1, "estimated": false, "t_s": 1.0, "epoch": 0, "room": 0},
+    {"label": "corner", "which": "corner", "x": 4.0, "y": 0.0, "z": 0.0, "distance_m": 2.4, "estimated": false, "t_s": 4.0, "epoch": 0, "room": 0},
+    {"label": "door", "which": "left", "x": 4.0, "y": 1.5, "z": 1.1, "distance_m": 1.9, "estimated": false, "t_s": 6.0, "epoch": 0, "room": 0},
+    {"label": "door", "which": "right", "x": 4.0, "y": 2.4, "z": 1.1, "distance_m": 1.9, "estimated": false, "t_s": 7.0, "epoch": 0, "room": 0},
+    {"label": "corner", "which": "corner", "x": 4.0, "y": 4.0, "z": 0.0, "distance_m": 2.6, "estimated": false, "t_s": 9.0, "epoch": 0, "room": 0},
+    {"label": "corner", "which": "corner", "x": 0.0, "y": 4.0, "z": 0.0, "distance_m": 2.2, "estimated": false, "t_s": 11.0, "epoch": 0, "room": 0},
+    {"label": "corner", "which": "corner", "x": 4.0, "y": 1.4, "z": 0.0, "distance_m": 1.1, "estimated": false, "t_s": 20.0, "epoch": 0, "room": 1},
+    {"label": "corner", "which": "corner", "x": 5.0, "y": 1.4, "z": 0.0, "distance_m": 1.2, "estimated": false, "t_s": 22.0, "epoch": 0, "room": 1},
+    {"label": "door", "which": "left", "x": 5.0, "y": 1.45, "z": 1.1, "distance_m": 0.9, "estimated": false, "t_s": 23.0, "epoch": 0, "room": 1},
+    {"label": "door", "which": "right", "x": 5.0, "y": 2.05, "z": 1.1, "distance_m": 0.9, "estimated": false, "t_s": 24.0, "epoch": 0, "room": 1},
+    {"label": "corner", "which": "corner", "x": 5.0, "y": 2.6, "z": 0.0, "distance_m": 1.2, "estimated": false, "t_s": 26.0, "epoch": 0, "room": 1},
+    {"label": "corner", "which": "corner", "x": 4.0, "y": 2.6, "z": 0.0, "distance_m": 1.1, "estimated": false, "t_s": 28.0, "epoch": 0, "room": 1},
+    {"label": "corner", "which": "corner", "x": 5.0, "y": -0.3, "z": 0.0, "distance_m": 1.6, "estimated": false, "t_s": 40.0, "epoch": 1, "room": 2},
+    {"label": "corner", "which": "corner", "x": 6.5, "y": -0.3, "z": 0.0, "distance_m": 1.8, "estimated": false, "t_s": 42.0, "epoch": 1, "room": 2},
+    {"label": "cabinet", "which": "left", "tier": "base", "x": 6.5, "y": 0.0, "z": 0.9, "distance_m": 1.0, "estimated": false, "t_s": 43.0, "epoch": 1, "room": 2},
+    {"label": "cabinet", "which": "right", "tier": "base", "x": 6.5, "y": 0.9, "z": 0.9, "distance_m": 1.0, "estimated": false, "t_s": 44.0, "epoch": 1, "room": 2},
+    {"label": "corner", "which": "corner", "x": 6.5, "y": 2.1, "z": 0.0, "distance_m": 1.7, "estimated": false, "t_s": 46.0, "epoch": 1, "room": 2},
+    {"label": "corner", "which": "corner", "x": 5.0, "y": 2.1, "z": 0.0, "distance_m": 1.5, "estimated": false, "t_s": 48.0, "epoch": 1, "room": 2}
+  ]
+}
