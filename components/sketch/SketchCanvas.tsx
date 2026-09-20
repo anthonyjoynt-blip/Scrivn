@@ -61,7 +61,7 @@ import {
   wallsOf,
 } from "@/lib/sketch";
 import { type DraftPoint, WALL_SNAP_SCREEN_PX, absorbedFreeWallIds, snapDraftPoint, wallDimensionsWithExtensions } from "@/lib/sketchWalls";
-import { type Obstacle, PULLED_ROOM_DEFAULT_DEPTH_PX, PULLED_ROOM_MIN_DEPTH_PX, extrudeWall, outwardNormal, pullDepthPx } from "@/lib/roomPlacement";
+import { type Obstacle, PULLED_ROOM_DEFAULT_DEPTH_PX, PULLED_ROOM_MIN_DEPTH_PX, extrudeWall, outwardNormal, pullDepthPx, reversedWall } from "@/lib/roomPlacement";
 
 /**
  * The drawing surface. Rendering and pointer handling only — every state change is reported upward
@@ -92,6 +92,9 @@ const UNDERLAY_OPACITY = 0.4;
 
 /** Dash pattern for an underlay wall, in screen pixels — divided by zoom so it holds its look. */
 const UNDERLAY_DASH = [7, 5];
+
+/** A press that travels less than this along the wall, in screen pixels, is a tap, not a drag. */
+const PLACE_DRAG_PX = 6;
 
 /**
  * Is this sub-room drawn INSIDE its parent? The deeper mark inset (`SUB_ROOM_FACE_INSET`) exists
@@ -265,7 +268,11 @@ export interface SketchCanvasProps {
    */
   onTapWall: (roomId: string, wallId: string, screen: { x: number; y: number }, run: [number, number]) => void;
   /** A wall was tapped while a symbol tool is active. */
-  onPlaceSymbol: (roomId: string, wallId: string, t: number) => void;
+  /**
+   * A door, opening or window put on a wall at `t` — and, when the finger was dragged along the
+   * wall rather than tapped, as wide as the drag (`widthPx`); a tap takes the standard width.
+   */
+  onPlaceSymbol: (roomId: string, wallId: string, t: number, widthPx?: number) => void;
   /** A wall was double-tapped — splits it, which is how an L-shape starts. */
   onSplitWall: (roomId: string, wallId: string, t: number) => void;
   /** A wall was dragged sideways; dx/dy is the increment since the last frame, in world pixels. */
@@ -480,26 +487,35 @@ export default function SketchCanvas(props: SketchCanvasProps) {
     that never moves is a tap, and pulls a room of the default depth. Like the wall tool's rubber
     band, the outline is moved by hand rather than through React state — it changes every frame.
   */
-  const pull = useRef<{ roomId: string; wall: WallGeometry; depthPx: number; moved: boolean; obstacles: Obstacle[] } | null>(null);
+  const pull = useRef<{ roomId: string; wall: WallGeometry; depthPx: number; moved: boolean; obstacles: Obstacle[]; inwardObstacles: Obstacle[] } | null>(null);
   const pullOutline = useRef<Konva.Line>(null);
   const pullLabel = useRef<Konva.Text>(null);
 
   function startPull(roomId: string, wall: WallGeometry) {
     // Everything on the storey but the wall being pulled from stands in the way — the outline
-    // shown is the shape the room will actually take, walls and all. See `extrudeWall`.
+    // shown is the shape the room will actually take, walls and all. See `extrudeWall`. Two sets:
+    // going OUT, the closets inside the room being pulled from are behind the wall, not in front
+    // of it; going IN they are exactly what is in the way — the same rule as `obstaclesFor`,
+    // which decides the room that is made.
     const obstacles: Obstacle[] = [];
+    const inwardObstacles: Obstacle[] = [];
     const from = rooms.find((r) => r.id === roomId);
     for (const room of rooms) {
-      // Not the closets inside the room being pulled from: behind the wall, not in front of it —
-      // the same rule as `obstaclesFor`, which decides the room that is made.
-      if (from && room.id !== from.id && isRoomInside(room, from)) continue;
+      const inside = from !== undefined && room.id !== from.id && isRoomInside(room, from);
       for (const w of wallsOf(room)) {
         if (room.id === roomId && w.id === wall.id) continue;
-        obstacles.push({ x1: w.x1, y1: w.y1, x2: w.x2, y2: w.y2 });
+        const piece = { x1: w.x1, y1: w.y1, x2: w.x2, y2: w.y2 };
+        if (!inside) obstacles.push(piece);
+        inwardObstacles.push(piece);
       }
     }
-    for (const free of props.freeWalls ?? []) for (const s of freeWallSegments(free)) obstacles.push({ x1: s.x1, y1: s.y1, x2: s.x2, y2: s.y2 });
-    pull.current = { roomId, wall, depthPx: PULLED_ROOM_DEFAULT_DEPTH_PX, moved: false, obstacles };
+    for (const free of props.freeWalls ?? []) {
+      for (const s of freeWallSegments(free)) {
+        obstacles.push({ x1: s.x1, y1: s.y1, x2: s.x2, y2: s.y2 });
+        inwardObstacles.push({ x1: s.x1, y1: s.y1, x2: s.x2, y2: s.y2 });
+      }
+    }
+    pull.current = { roomId, wall, depthPx: PULLED_ROOM_DEFAULT_DEPTH_PX, moved: false, obstacles, inwardObstacles };
     drawPull();
   }
 
@@ -508,20 +524,24 @@ export default function SketchCanvas(props: SketchCanvasProps) {
     const outline = pullOutline.current;
     const label = pullLabel.current;
     if (!active || !outline || !label) return;
-    const { wall, depthPx } = active;
+    const { depthPx } = active;
+    // Inward is the same band off the wall walked the other way — see `reversedWall`.
+    const inward = depthPx < 0;
+    const wall = inward ? reversedWall(active.wall) : active.wall;
+    const depth = Math.abs(depthPx);
     const n = outwardNormal(wall);
-    const band = depthPx >= PULLED_ROOM_MIN_DEPTH_PX ? extrudeWall(wall, depthPx, active.obstacles) : null;
+    const band = depth >= PULLED_ROOM_MIN_DEPTH_PX ? extrudeWall(wall, depth, inward ? active.inwardObstacles : active.obstacles) : null;
     outline.points(band ? band.far.flatMap((p) => [p.x, p.y]) : []);
-    const far = { x: (wall.x1 + wall.x2) / 2 + n.x * (depthPx + 14 / view.scale), y: (wall.y1 + wall.y2) / 2 + n.y * (depthPx + 14 / view.scale) };
-    label.text(depthPx >= PULLED_ROOM_MIN_DEPTH_PX ? formatFeetInches(depthPx / PIXELS_PER_FOOT) : "");
+    const far = { x: (wall.x1 + wall.x2) / 2 + n.x * (depth + 14 / view.scale), y: (wall.y1 + wall.y2) / 2 + n.y * (depth + 14 / view.scale) };
+    label.text(depth >= PULLED_ROOM_MIN_DEPTH_PX ? formatFeetInches(depth / PIXELS_PER_FOOT) : "");
     label.position({ x: far.x - 35 / view.scale, y: far.y - 6 / view.scale });
     outline.getLayer()?.batchDraw();
   }
 
   /**
-   * The finger moved while pulling: the depth follows it. Inward — back into the room the wall
-   * belongs to — is nothing: the outline collapses onto the wall, and letting go there pulls no
-   * room. A pull is outward by definition, and a finger that went the other way did not mean one.
+   * The finger moved while pulling: the depth follows it, signed — out of the room for the next
+   * room over, into it for a closet off that wall. Within a foot of the wall either way the
+   * outline collapses onto the wall, and letting go there pulls no room.
    */
   function movePull(): boolean {
     const active = pull.current;
@@ -529,7 +549,7 @@ export default function SketchCanvas(props: SketchCanvasProps) {
     const world = stageRef.current?.getRelativePointerPosition();
     if (!world) return true;
     active.moved = true;
-    active.depthPx = Math.max(0, pullDepthPx(active.wall, world));
+    active.depthPx = pullDepthPx(active.wall, world);
     drawPull();
     return true;
   }
@@ -541,8 +561,71 @@ export default function SketchCanvas(props: SketchCanvasProps) {
     pullOutline.current?.points([]);
     pullLabel.current?.text("");
     pullOutline.current?.getLayer()?.batchDraw();
-    if (active.moved && active.depthPx < PULLED_ROOM_MIN_DEPTH_PX) return;
+    if (active.moved && Math.abs(active.depthPx) < PULLED_ROOM_MIN_DEPTH_PX) return;
     props.onPullRoom?.(active.roomId, active.wall.id, active.moved ? active.depthPx : PULLED_ROOM_DEFAULT_DEPTH_PX);
+  }
+
+  /*
+    Placing a door, opening or window: press on the wall, and either lift — a tap, the standard
+    width at that spot — or drag along the wall and lift, which draws the opening as wide as the
+    drag, from where the finger went down to where it came up. Asked for from the field: every
+    door landed at 3' and was resized afterwards by its end handles, two more gestures for a width
+    the PM knew when they touched the wall. The bar is moved by hand, like the pull outline: it
+    changes every frame.
+  */
+  const placing = useRef<{ roomId: string; wall: WallGeometry; t0: number; t1: number; moved: boolean } | null>(null);
+  const placeBar = useRef<Konva.Line>(null);
+  const placeLabel = useRef<Konva.Text>(null);
+
+  function startPlacing(roomId: string, wall: WallGeometry, t: number) {
+    placing.current = { roomId, wall, t0: t, t1: t, moved: false };
+    drawPlacing();
+  }
+
+  function drawPlacing() {
+    const active = placing.current;
+    const bar = placeBar.current;
+    const label = placeLabel.current;
+    if (!active || !bar || !label) return;
+    const { wall, t0, t1 } = active;
+    const a = pointOnWall(wall, Math.min(t0, t1));
+    const b = pointOnWall(wall, Math.max(t0, t1));
+    bar.points(active.moved ? [a.x, a.y, b.x, b.y] : []);
+    const widthPx = Math.abs(t1 - t0) * wall.lengthPx;
+    label.text(active.moved ? formatFeetInches(widthPx / PIXELS_PER_FOOT) : "");
+    const n = outwardNormal(wall);
+    const mid = { x: (a.x + b.x) / 2 + n.x * (14 / view.scale), y: (a.y + b.y) / 2 + n.y * (14 / view.scale) };
+    label.position({ x: mid.x - 35 / view.scale, y: mid.y - 6 / view.scale });
+    bar.getLayer()?.batchDraw();
+  }
+
+  /** The finger moved while placing: the far end of the opening follows it along the wall. */
+  function movePlacing(): boolean {
+    const active = placing.current;
+    if (!active) return false;
+    const world = stageRef.current?.getRelativePointerPosition();
+    if (!world) return true;
+    const t = tapFractionOnWall(active.wall, world.x, world.y);
+    // A finger that has not travelled along the wall is still a tap, however it wobbled.
+    if (Math.abs(t - active.t0) * active.wall.lengthPx > PLACE_DRAG_PX / view.scale) active.moved = true;
+    if (active.moved) active.t1 = t;
+    drawPlacing();
+    return true;
+  }
+
+  function endPlacing() {
+    const active = placing.current;
+    if (!active) return;
+    placing.current = null;
+    placeBar.current?.points([]);
+    placeLabel.current?.text("");
+    placeBar.current?.getLayer()?.batchDraw();
+    if (!active.moved) {
+      props.onPlaceSymbol(active.roomId, active.wall.id, active.t0);
+      return;
+    }
+    const widthPx = Math.abs(active.t1 - active.t0) * active.wall.lengthPx;
+    props.onPlaceSymbol(active.roomId, active.wall.id, (active.t0 + active.t1) / 2, widthPx);
   }
 
   function hideRubberBand() {
@@ -614,20 +697,22 @@ export default function SketchCanvas(props: SketchCanvasProps) {
         if (!beginStroke(e)) handleBackgroundPointer(e);
       }}
       onMouseMove={(e) => {
-        if (movePull()) return;
+        if (movePull() || movePlacing()) return;
         if (!continueStroke(e)) moveRubberBand();
       }}
       onMouseUp={() => {
         endStroke();
         endPull();
+        endPlacing();
       }}
       onMouseLeave={() => {
         endStroke();
         endPull();
+        endPlacing();
         hideRubberBand();
       }}
       onTouchMove={(e) => {
-        if (movePull()) {
+        if (movePull() || movePlacing()) {
           e.evt.preventDefault();
           return;
         }
@@ -636,6 +721,7 @@ export default function SketchCanvas(props: SketchCanvasProps) {
       onTouchEnd={() => {
         endStroke();
         endPull();
+        endPlacing();
         lastPinchDist.current = null;
       }}
       onClick={handleWallClick}
@@ -692,6 +778,7 @@ export default function SketchCanvas(props: SketchCanvasProps) {
             onMoveIsland={props.onMoveIsland}
             onResizeIsland={props.onResizeIsland}
             onPullStart={startPull}
+            onPlaceStart={startPlacing}
           />
         ))}
 
@@ -736,6 +823,12 @@ export default function SketchCanvas(props: SketchCanvasProps) {
         <Layer listening={false}>
           <Line ref={pullOutline} points={[]} closed stroke={COLORS.handle} strokeWidth={wallStrokePx(view.scale)} dash={[8 / view.scale, 6 / view.scale]} fill="rgba(201, 122, 14, 0.08)" />
           <Text ref={pullLabel} text="" width={70 / view.scale} align="center" fontSize={11 / view.scale} fill={COLORS.handle} />
+        </Layer>
+      )}
+      {(tool === "door" || tool === "opening" || tool === "window") && (
+        <Layer listening={false}>
+          <Line ref={placeBar} points={[]} stroke={COLORS.handle} strokeWidth={wallStrokePx(view.scale) + 2 / view.scale} lineCap="butt" />
+          <Text ref={placeLabel} text="" width={70 / view.scale} align="center" fontSize={11 / view.scale} fill={COLORS.handle} />
         </Layer>
       )}
       {drawingWalls && (
@@ -854,12 +947,15 @@ function RoomShape({
   onMoveIsland,
   onResizeIsland,
   onPullStart,
+  onPlaceStart,
 }: {
   room: SketchRoom;
   /** Every room on the plan — a cabinet has to know which sub-rooms stand on its wall. */
   rooms: SketchRoom[];
   /** A wall was pressed with the pull tool — the canvas takes the gesture from here. */
   onPullStart: (roomId: string, wall: WallGeometry) => void;
+  /** A wall was pressed with a door, opening or window tool — the canvas takes the gesture from here. */
+  onPlaceStart: (roomId: string, wall: WallGeometry, t: number) => void;
   /** The free walls on the storey — a wall label has to know what carries on from its corners. */
   freeWalls: FreeWall[];
   tool: ToolMode;
@@ -987,6 +1083,14 @@ function RoomShape({
     if (tool === "pull") {
       onSelectRoom(room.id);
       onPullStart(room.id, wall);
+      return;
+    }
+
+    // A door, opening or window is placed when the finger lifts: a tap drops it at the standard
+    // width, a drag along the wall draws it as wide as the drag — see `startPlacing`.
+    if (tool === "door" || tool === "opening" || tool === "window") {
+      onSelectRoom(room.id);
+      onPlaceStart(room.id, wall, tapFractionOnWall(wall, world.x, world.y));
       return;
     }
 

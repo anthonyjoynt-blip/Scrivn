@@ -855,11 +855,13 @@ export function SketchEditor({
   function handlePullRoom(roomId: string, wallId: string, depthPx: number) {
     const source = sketch.rooms.find((r) => r.id === roomId);
     // Everything else on the storey is in the way, including the rest of the source room — only
-    // the wall being pulled from is not, being where the new room begins.
-    const around = { obstacles: obstaclesFor(sketch, activeLevel, { wall: { roomId, wallId } }), rooms: sketch.rooms };
+    // the wall being pulled from is not, being where the new room begins. A negative depth is a
+    // pull INTO the room: a closet off that wall, for which the room's own closets are in the way.
+    const inward = depthPx < 0;
+    const around = { obstacles: obstaclesFor(sketch, activeLevel, { wall: { roomId, wallId }, inward }), rooms: sketch.rooms };
     const room = source ? pullRoomFromWall(source, wallId, depthPx, around) : null;
     if (!room) {
-      setWallNotice("Nothing fits in front of that wall — there is a room there already.");
+      setWallNotice(inward ? "Nothing fits inside that wall — there is a closet there already." : "Nothing fits in front of that wall — there is a room there already.");
       return;
     }
     setWallNotice(null);
@@ -1233,7 +1235,7 @@ export function SketchEditor({
     setLengthDraft("");
   }
 
-  function handlePlaceSymbol(roomId: string, wallId: string, t: number) {
+  function handlePlaceSymbol(roomId: string, wallId: string, t: number, widthPx?: number) {
     // Islands are placed on open floor, and a break isn't a symbol at all — both are handled
     // elsewhere and must not fall through to symbol placement.
     if (tool === "select" || tool === "island" || tool === "break") return;
@@ -1243,12 +1245,14 @@ export function SketchEditor({
     const created = newSymbol(tool === "opening" ? "door" : (tool as SymbolType), wallId, t, room);
     // A fixture is created generic then specialised, so it arrives at its own standard footprint
     // rather than a toilet's.
-    const symbol =
+    const shaped =
       created.type === "fixture"
         ? withFixtureType(created, room, pendingFixture)
         : tool === "opening" && created.type === "door"
           ? { ...created, doorType: "opening" as const }
           : created;
+    // Drawn as wide as the finger was dragged along the wall, when it was — see the canvas.
+    const symbol = widthPx == null ? shaped : withSymbolWidthPx(shaped, room, widthPx, sketch.rooms, freeWallsOf(sketch));
     updateRoom(roomId, (r) => ({ ...r, symbols: [...r.symbols, symbol] }));
     setSelectedRoomId(roomId);
     setSelectedSymbolId(symbol.id);
@@ -1609,7 +1613,7 @@ export function SketchEditor({
           : tool === "select"
             ? "Tap to select, drag to move. Double-tap a wall or its measurement to type its length. For an L: tap Break, tap a wall, then drag one half out. Drag empty space to pan; pinch to zoom."
             : tool === "pull"
-              ? wallNotice ?? "Drag out from a wall to pull the next room off it — same wall, same doors and openings. A tap pulls a 12' room."
+              ? wallNotice ?? "Drag out from a wall to pull the next room off it, or in for a closet inside — same wall, same doors. A tap pulls a 12' room out."
             : tool === "island"
               ? "Tap open floor inside the room to drop a free-standing cabinet."
               : tool === "break"
@@ -1617,8 +1621,10 @@ export function SketchEditor({
                 : tool === "fixture"
                   ? `Tap the wall where the ${FIXTURE_LABEL[pendingFixture].toLowerCase()} goes.`
                   : tool === "opening"
-                    ? "Tap the wall where the opening goes. Drag either end to set how wide it is."
-                    : `Tap the wall where the ${SYMBOL_LABEL[tool as SymbolType].toLowerCase()} goes.`}
+                    ? "Tap the wall where the opening goes, or press and drag along the wall to draw it as wide as you want."
+                    : tool === "door" || tool === "window"
+                      ? `Tap the wall where the ${SYMBOL_LABEL[tool].toLowerCase()} goes, or press and drag along the wall to draw it as wide as you want.`
+                      : `Tap the wall where the ${SYMBOL_LABEL[tool as SymbolType].toLowerCase()} goes.`}
       </p>
 
       <div className={`sketch-canvas-wrap${readOnly ? " sketch-canvas-readonly" : ""}`} ref={containerRef}>

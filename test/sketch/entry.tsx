@@ -31,7 +31,7 @@ const SUITES: [string, () => Promise<SuiteResult>][] = [
   ["Editor state", runEditorState],
   ["Add from sketch", runScopePicker],
   ["Shortcuts and export", runExportAndShortcuts],
-  ["Wall drag into a wall", runWallDragSnap],
+  ["Wall gestures through the editor", runWallDragSnap],
 ];
 
 async function main() {

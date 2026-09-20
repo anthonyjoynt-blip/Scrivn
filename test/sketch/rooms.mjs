@@ -511,6 +511,49 @@ export async function runRoomChecks() {
     assert(s.obstaclesFor(sketch, 0, { roomId: "cl" }).length === 4, "from the closet's side the bedroom's walls are walls");
   });
 
+  test("a negative depth pulls INTO the room: a closet off that wall, a sub-room the moment it lands", () => {
+    const bedroom = box(60, 40, 192, 144, { id: "bed" });
+    const top = s.wallsOf(bedroom)[0]; // (60,40) -> (252,40), out is -y
+    const sketch = { rooms: [bedroom] };
+    const closet = s.pullRoomFromWall(bedroom, top.id, -24, { obstacles: s.obstaclesFor(sketch, 0, { wall: { roomId: "bed", wallId: top.id }, inward: true }), rooms: sketch.rooms });
+    const bb = b(closet);
+    assert(bb.minX === 60 && bb.maxX === 252 && bb.minY === 40 && bb.maxY === 64, `2' deep, inside, along the whole wall: ${JSON.stringify(bb)}`);
+    assert(s.ensureClockwise(closet.vertices) === closet.vertices, "wound clockwise like every room");
+    const derived = s.withDerivedParents([bedroom, closet]);
+    assert(derived[1].parentRoomId === "bed", "and it is the bedroom's sub-room by geometry");
+    assert(closet.name === "Room 1", "named like any new room");
+    // Too deep is bounded by the far wall: the band stops at the bottom wall, 12' in.
+    const deep = s.pullRoomFromWall(bedroom, top.id, -300, { obstacles: s.obstaclesFor(sketch, 0, { wall: { roomId: "bed", wallId: top.id }, inward: true }), rooms: sketch.rooms });
+    near(b(deep).maxY, 184, "no deeper than the room");
+  });
+
+  test("pulling in meets the closets already inside; pulling out does not", () => {
+    const bedroom = box(60, 40, 192, 144, { id: "bed" });
+    const top = s.wallsOf(bedroom)[0];
+    // A closet standing against the bottom wall, under the right half of the room.
+    const existing = { ...box(156, 154, 96, 30, { id: "cl" }), parentRoomId: "bed" };
+    const sketch = { rooms: [bedroom, existing] };
+    const inward = s.obstaclesFor(sketch, 0, { wall: { roomId: "bed", wallId: top.id }, inward: true });
+    const outward = s.obstaclesFor(sketch, 0, { wall: { roomId: "bed", wallId: top.id } });
+    assert(inward.length === 3 + 4 && outward.length === 3, `in: the room's other walls and the closet's; out: the room's other walls only (${inward.length}/${outward.length})`);
+    // Pulled in to the bottom: the new room stops at the closet over its stretch, and reaches the
+    // bottom wall past it.
+    const pulled = s.pullRoomFromWall(bedroom, top.id, -144, { obstacles: inward, rooms: sketch.rooms });
+    const corners = pulled.vertices.map((v) => [Math.round(v.x), Math.round(v.y)].join(",")).join(" ");
+    assert(pulled.vertices.length === 6, `steps around the closet: ${corners}`);
+    assert(corners.includes("252,154") && corners.includes("156,154") && corners.includes("156,184"), `down to the closet's top on the right, to the bottom wall on the left: ${corners}`);
+  });
+
+  test("a wall walked the other way", () => {
+    const r = box(0, 0, 240, 192, { id: "r" });
+    const top = s.wallsOf(r)[0];
+    const back = s.reversedWall(top);
+    assert(back.x1 === 240 && back.y1 === 0 && back.x2 === 0 && back.y2 === 0 && back.id === top.id, "same wall, ends swapped, same id");
+    const n = s.outwardNormal(back);
+    near(n.y, 1, "its outside is the room's inside");
+    near(s.pullDepthPx(top, { x: 100, y: 30 }), -30, "a point inside the room is a negative depth off the wall");
+  });
+
   test("a room already standing against the wall leaves nothing to pull", () => {
     const r = box(0, 0, 240, 192, { id: "src" });
     const bottom = s.wallsOf(r)[2];

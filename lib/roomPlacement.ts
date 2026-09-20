@@ -139,8 +139,16 @@ export function outwardNormal(wall: WallGeometry): { x: number; y: number } {
 }
 
 /**
- * How far out from the wall a point is, in world pixels: positive on the outside of the room.
- * The depth a pull gesture has reached.
+ * The same wall walked the other way, so that its outward side (`outwardNormal`) is the room's
+ * inside: what an inward pull extrudes from.
+ */
+export function reversedWall(wall: WallGeometry): WallGeometry {
+  return { ...wall, x1: wall.x2, y1: wall.y2, x2: wall.x1, y2: wall.y1, rotation: (wall.rotation + 180) % 360 };
+}
+
+/**
+ * How far out from the wall a point is, in world pixels: positive on the outside of the room,
+ * negative inside it. The depth a pull gesture has reached, and which way it went.
  */
 export function pullDepthPx(wall: WallGeometry, point: { x: number; y: number }): number {
   const n = outwardNormal(wall);
@@ -166,6 +174,10 @@ export function pullDepthPx(wall: WallGeometry, point: { x: number; y: number })
  * first version copied them in as openings of the new room's own, and the copies drifted from the
  * doors they were copies of the first time either was moved. Cabinets and fixtures stand against
  * one side of a wall, not in it, and are the one room's.
+ *
+ * A NEGATIVE depth pulls the other way, into the room the wall belongs to: a closet off that wall,
+ * bounded by the room's other walls and whatever already stands inside it, and a sub-room of it by
+ * geometry the moment it lands. Asked for from the field: the pull only ever went out.
  */
 export function pullRoomFromWall(
   source: SketchRoom,
@@ -173,14 +185,17 @@ export function pullRoomFromWall(
   depthPx: number,
   around: { obstacles: Obstacle[]; rooms: SketchRoom[] } = { obstacles: [], rooms: [source] },
 ): SketchRoom | null {
-  const wall = wallById(source, wallId);
-  if (!wall || wall.lengthPx < MIN_WALL_PX) return null;
-  const depth = Math.max(PULLED_ROOM_MIN_DEPTH_PX, depthPx);
+  const own = wallById(source, wallId);
+  if (!own || own.lengthPx < MIN_WALL_PX) return null;
+  // Inward is the same band off the same wall taken the other way round — see `reversedWall`.
+  const wall = depthPx < 0 ? reversedWall(own) : own;
+  const depth = Math.max(PULLED_ROOM_MIN_DEPTH_PX, Math.abs(depthPx));
 
   /*
     The far side follows whatever walls are in the way — see `extrudeWall`. Out, along, back is
     clockwise by construction when the source is, which every room is; `ensureClockwise` guards a
-    source that somehow is not, and does nothing otherwise.
+    source that somehow is not, and does nothing otherwise — and puts an inward pull, which comes
+    out the other way round, right.
   */
   const band = extrudeWall(wall, depth, around.obstacles);
   if (!band) return null;
@@ -232,15 +247,21 @@ export interface Obstacle {
  * less the room whose wall is moving (`exceptRoomId` — its own walls move with it) or the one wall
  * being pulled from (`exceptWall` — the rest of that room still stands in the way).
  */
-export function obstaclesFor(sketch: Sketch, level: number, except: { roomId?: string; wall?: { roomId: string; wallId: string } }): Obstacle[] {
+export function obstaclesFor(
+  sketch: Sketch,
+  level: number,
+  except: { roomId?: string; wall?: { roomId: string; wallId: string }; inward?: boolean },
+): Obstacle[] {
   const out: Obstacle[] = [];
   const from = sketch.rooms.find((r) => r.id === (except.roomId ?? except.wall?.roomId));
   for (const room of sketch.rooms) {
     if (room.id === except.roomId || roomLevel(room) !== level) continue;
     // A room drawn inside the one being worked on — its closet — lies behind every wall of it,
-    // whichever it is. Its walls are not in the way; a closet flush to the wall has a wall along
-    // that very line, and taken as an obstacle it read as a room already standing in front.
-    if (from && room.id !== from.id && isRoomInside(room, from)) continue;
+    // whichever it is. Its walls are not in the way of a wall going OUT; a closet flush to the
+    // wall has a wall along that very line, and taken as an obstacle it read as a room already
+    // standing in front. Going IN (`inward`, a closet pulled into the room) they are exactly what
+    // is in the way.
+    if (!except.inward && from && room.id !== from.id && isRoomInside(room, from)) continue;
     for (const w of wallsOf(room)) {
       if (except.wall && except.wall.roomId === room.id && except.wall.wallId === w.id) continue;
       out.push({ x1: w.x1, y1: w.y1, x2: w.x2, y2: w.y2 });
