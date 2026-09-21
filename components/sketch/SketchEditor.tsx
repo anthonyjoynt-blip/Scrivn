@@ -65,13 +65,13 @@ import {
   withFreeCabinetSizePx,
   withSymbolWidthPx,
   withWallRunLength,
-  MAIN_LEVEL,
   defaultUnderlayLevel,
   freeWallSegments,
   freeWallsOf,
   freeWallsOnLevel,
   levelLabel,
   levelsOf,
+  openingLevel,
   roomsOnLevel,
   withLevel,
 } from "@/lib/sketch";
@@ -289,8 +289,11 @@ export function SketchEditor({
    * Editor state rather than sketch data: a level is a fact about the building and belongs on the
    * rooms (see `SketchRoom.level`), but WHICH ONE you happen to be looking at is a view, in exactly
    * the way `view` is. Two people opening the same claim should not inherit each other's tab.
+   *
+   * Opens on the main level when anything is drawn there, else on the storey last worked on — see
+   * `openingLevel`. Read once: the sketch changing under an open editor must not switch its tab.
    */
-  const [activeLevel, setActiveLevel] = useState(MAIN_LEVEL);
+  const [activeLevel, setActiveLevel] = useState(() => openingLevel(sketch));
   /** Null hides the underlay; otherwise the level being traced. Seeded on first use, see below. */
   const [underlayLevel, setUnderlayLevel] = useState<number | null>(null);
   const [underlayTouched, setUnderlayTouched] = useState(false);
@@ -933,6 +936,7 @@ export function SketchEditor({
     setActiveLevel(level);
     setSelectedRoomId(null);
     setSelectedSymbolId(null);
+    setNewReadingId(null);
     setUnderlayTouched(false);
   }
 
@@ -1381,6 +1385,72 @@ export function SketchEditor({
         )}
       </div>
 
+      {/*
+        The storeys, and what is traced under the one being drawn.
+
+        Above the tools rather than among them: which floor you are on frames everything else in the
+        toolbar, and a level control sitting between Door and Window would read as another thing to
+        place. The order is physical — lowest at the left, highest at the right — so the row matches
+        the building rather than the order the levels were added in.
+
+        Shown in every mode, viewing included. It sat with the drawing tools, so View only — the
+        door most looks come through — had no way onto another storey: a basement-only claim
+        opened as an empty main level with a dashed trace underneath and nothing to press. Which
+        storey you are looking at is a view choice, not an edit, and so is what is shown under it;
+        only adding a storey is an edit, and only that is held back while locked. Hidden while
+        locked on a single-storey sketch, where one button that is already pressed says nothing.
+      */}
+      {(!readOnly || levels.length > 1) && (
+      <div className="sketch-levels" role="toolbar" aria-label="Levels">
+        {!readOnly && (
+          <button type="button" className="btn-secondary" onClick={() => handleAddLevel(-1)} title="Add a storey below the lowest one">
+            + Level below
+          </button>
+        )}
+        <div className="option-group" role="group" aria-label="Level being shown">
+          {levels.map((level) => (
+            <button
+              key={level}
+              type="button"
+              className={`option-btn${level === activeLevel ? " selected" : ""}`}
+              aria-pressed={level === activeLevel}
+              onClick={() => handleSwitchLevel(level)}
+            >
+              {levelLabel(level)}
+            </button>
+          ))}
+        </div>
+        {!readOnly && (
+          <button type="button" className="btn-secondary" onClick={() => handleAddLevel(1)} title="Add a storey above the highest one">
+            + Level above
+          </button>
+        )}
+        {levels.length > 1 && (
+          <label className="sketch-underlay">
+            {/* "Trace over" named one use of this and undersold it — mostly it is just seeing what
+                is above or below while you work, and tracing is one thing you might do with that. */}
+            <span>Also show</span>
+            <select
+              value={resolvedUnderlay === null ? "none" : String(resolvedUnderlay)}
+              onChange={(e) => {
+                setUnderlayTouched(true);
+                setUnderlayLevel(e.target.value === "none" ? null : Number(e.target.value));
+              }}
+            >
+              <option value="none">Nothing</option>
+              {levels
+                .filter((level) => level !== activeLevel)
+                .map((level) => (
+                  <option key={level} value={String(level)}>
+                    {levelLabel(level)}
+                  </option>
+                ))}
+            </select>
+          </label>
+        )}
+      </div>
+      )}
+
       {readOnly ? null : mode === "moisture" ? (
         <div className="sketch-toolbar" role="toolbar" aria-label="Moisture tools">
           <div className="option-group" role="group" aria-label="Moisture tool">
@@ -1448,58 +1518,6 @@ export function SketchEditor({
         </div>
       ) : (
       <>
-      {/*
-        The storeys, and what is traced under the one being drawn.
-
-        Above the tools rather than among them: which floor you are on frames everything else in the
-        toolbar, and a level control sitting between Door and Window would read as another thing to
-        place. The order is physical — lowest at the left, highest at the right — so the row matches
-        the building rather than the order the levels were added in.
-      */}
-      <div className="sketch-levels" role="toolbar" aria-label="Levels">
-        <button type="button" className="btn-secondary" onClick={() => handleAddLevel(-1)} title="Add a storey below the lowest one">
-          + Level below
-        </button>
-        <div className="option-group" role="group" aria-label="Level being drawn">
-          {levels.map((level) => (
-            <button
-              key={level}
-              type="button"
-              className={`option-btn${level === activeLevel ? " selected" : ""}`}
-              aria-pressed={level === activeLevel}
-              onClick={() => handleSwitchLevel(level)}
-            >
-              {levelLabel(level)}
-            </button>
-          ))}
-        </div>
-        <button type="button" className="btn-secondary" onClick={() => handleAddLevel(1)} title="Add a storey above the highest one">
-          + Level above
-        </button>
-        {levels.length > 1 && (
-          <label className="sketch-underlay">
-            {/* "Trace over" named one use of this and undersold it — mostly it is just seeing what
-                is above or below while you work, and tracing is one thing you might do with that. */}
-            <span>Also show</span>
-            <select
-              value={resolvedUnderlay === null ? "none" : String(resolvedUnderlay)}
-              onChange={(e) => {
-                setUnderlayTouched(true);
-                setUnderlayLevel(e.target.value === "none" ? null : Number(e.target.value));
-              }}
-            >
-              <option value="none">Nothing</option>
-              {levels
-                .filter((level) => level !== activeLevel)
-                .map((level) => (
-                  <option key={level} value={String(level)}>
-                    {levelLabel(level)}
-                  </option>
-                ))}
-            </select>
-          </label>
-        )}
-      </div>
       <div className="sketch-toolbar" role="toolbar" aria-label="Sketch tools">
         <button type="button" className="btn-secondary" onClick={handleAddRoom}>
           + Add room

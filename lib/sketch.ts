@@ -765,6 +765,25 @@ export function defaultUnderlayLevel(sketch: Sketch, active: number): number | n
   return above ?? null;
 }
 
+/**
+ * The storey the sketch opens on.
+ *
+ * The main level whenever anything is drawn on it — most claims are entirely on it and it is the
+ * one a PM expects. Otherwise the storey the last thing was drawn on. A claim that was only a
+ * basement so far, sent straight to "Level below" from the phone, opened on an empty main level
+ * with the basement traced dashed underneath, and read as the sketch being missing. Rooms and
+ * free walls are kept in the order they were made, so the last one is the last one worked on.
+ */
+export function openingLevel(sketch: Sketch): number {
+  if (roomsOnLevel(sketch, MAIN_LEVEL).length > 0 || freeWallsOnLevel(sketch, MAIN_LEVEL).length > 0) return MAIN_LEVEL;
+  const lastRoom = sketch.rooms[sketch.rooms.length - 1];
+  if (lastRoom !== undefined) return roomLevel(lastRoom);
+  const walls = freeWallsOf(sketch);
+  const lastWall = walls[walls.length - 1];
+  if (lastWall !== undefined) return freeWallLevel(lastWall);
+  return MAIN_LEVEL;
+}
+
 
 let idCounter = 0;
 /** Client-only ids for React keys and lookup. Never leave the browser. */

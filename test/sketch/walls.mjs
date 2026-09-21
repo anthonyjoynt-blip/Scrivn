@@ -662,6 +662,24 @@ export async function runWallChecks() {
     assert(s.sketchSummaryText({ rooms: [], freeWalls: [f] }).includes("Wall 1"), "and with no rooms at all");
   });
 
+  test("the sketch opens on the main level when anything is drawn there", () => {
+    const main = box();
+    const below = room([[0, 0], [96, 0], [96, 96], [0, 96]], { id: "below", name: "Rec room", level: -1 });
+    assert(s.openingLevel({ rooms: [below, main] }) === 0, "main has a room");
+    assert(s.openingLevel({ rooms: [below], freeWalls: [freeWall("f", [[0, 0], [60, 0]])] }) === 0, "main has a wall");
+    assert(s.openingLevel({ rooms: [] }) === 0, "empty sketch");
+    assert(s.openingLevel({ rooms: [], levels: [-1] }) === 0, "an added storey with nothing on it");
+  });
+
+  test("otherwise it opens on the storey last worked on", () => {
+    const below = room([[0, 0], [96, 0], [96, 96], [0, 96]], { id: "below", name: "Rec room", level: -1 });
+    const above = room([[0, 0], [96, 0], [96, 96], [0, 96]], { id: "above", name: "Bedroom", level: 1 });
+    assert(s.openingLevel({ rooms: [below] }) === -1, "a basement-only scan opens on the basement");
+    assert(s.openingLevel({ rooms: [below, above] }) === 1, "the last room drawn decides");
+    assert(s.openingLevel({ rooms: [above, below] }) === -1, "in either order");
+    assert(s.openingLevel({ rooms: [], freeWalls: [freeWall("f", [[0, 0], [60, 0]], { level: 2 })] }) === 2, "a wall alone decides too");
+  });
+
   test("a sketch with only free walls still counts as a sketch", () => {
     assert(s.hasSketchContent({ rooms: [], freeWalls: [freeWall("f", [[0, 0], [60, 0]])] }), "has content");
     assert(!s.hasSketchContent({ rooms: [] }), "an empty one does not");
