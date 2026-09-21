@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { type GapCheckQuestion, siblingQuestionIds } from "@/lib/questions";
 import { type AskedQuestion, formatQuestionLog, hasQuestionLog, recordRound } from "@/lib/questionLog";
 import { type SavedClaimState, resumeStep } from "@/lib/claimState";
@@ -77,7 +77,10 @@ import { type Trade, type WorkOrder, availableTrades, buildWorkOrders, unavailab
 import { WorkOrderSelector } from "@/components/WorkOrderSelector";
 import { SketchEditor } from "@/components/sketch/SketchEditor";
 import { type Sketch, emptySketch, hasSketchContent, knownRoomNames, levelsOf, wallsOf } from "@/lib/sketch";
-import { type MoistureMap, emptyMoistureMap, hasMoistureContent, roomMoistureSummary } from "@/lib/moisture";
+import { type MoistureMap, emptyMoistureMap, hasMoistureContent, pruneMoisture, roomMoistureSummary } from "@/lib/moisture";
+import { SCAN_DROP, type PendingScan, adoptScan, convertScan, scanDecision } from "@/lib/scanInbox";
+import { useScanInbox } from "@/lib/useScanInbox";
+import { ScanInboxMessage, ScanInboxNotice, scanAdoptedMessage } from "@/components/sketch/ScanInboxNotice";
 import { DEFAULT_EQUIPMENT_SETTINGS, claimEquipment } from "@/lib/equipment";
 import {
   type AttachmentTarget,
@@ -325,6 +328,16 @@ export default function Home() {
   const [scopeMarks, setScopeMarks] = useState<ScopeMarks>({});
   /** The question whose marking is open, if any. */
   const [markingQuestion, setMarkingQuestion] = useState<{ question: GapCheckQuestion; measure: ScopeMeasure } | null>(null);
+  /*
+    Scans from a paired phone, on their way in — see lib/scanInbox.ts for the rule and
+    lib/useScanInbox.ts for how they arrive. Three pieces of screen state, none of it claim data:
+    the receipt after a scan was applied, the scan that could not be drawn (kept on screen with
+    its reason and a Discard, because a scan that silently vanished would be a scan the phone
+    seemed to lose), and whether an answer is in flight.
+  */
+  const [scanMessage, setScanMessage] = useState<string | null>(null);
+  const [scanIssue, setScanIssue] = useState<{ scanId: string; error: string } | null>(null);
+  const [scanBusy, setScanBusy] = useState(false);
 
   /* ── Saving, and picking a claim back up ─────────────────────────────────────────────────────
      Assembled from the same nineteen states listed in `SavedClaimState`, and only those — see
@@ -428,6 +441,133 @@ export default function Home() {
     // it would flush on every render instead of at the points that asked for it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [saveCheckpoint]);
+
+  /* ── Scans from a paired phone ────────────────────────────────────────────────────────────────
+     Off in the dev fail-open for the reason saving is, and held back while a claim is loading so a
+     scan is never applied to the blank state the loaded claim is about to replace. The rule for what
+     happens to one is `scanDecision` in lib/scanInbox.ts; this is only the wiring. */
+  const scanInbox = useScanInbox({ claimId: persistence.claimId, enabled: isSupabaseConfigured() && !persistence.loading });
+  const pendingScan = scanInbox.pending[0] ?? null;
+  /**
+   * What this page did with each scan, by id, so no scan is applied twice. The server is told
+   * separately and may not hear it; a row that comes back on the next poll is answered again from
+   * this rather than adopted again. Applying a scan twice would be harmless to the drawing — it
+   * replaces what it drew — but not to the estimator, who would watch it happen.
+   */
+  const scanOutcomes = useRef(new Map<string, "adopted" | "discarded">());
+  /** How many rooms the waiting scan draws, for the notice; null when it does not draw. */
+  const pendingScanRoomCount = useMemo(() => {
+    if (!pendingScan) return null;
+    const result = convertScan(pendingScan.body, SCAN_DROP, pendingScan.level);
+    return result.ok ? 1 + result.extraRooms.length : null;
+  }, [pendingScan]);
+  /**
+   * Whether the waiting scan goes in on its own or is a question. A scan that would not draw is a
+   * question too — the only answer on offer is Discard, but it must be the estimator's.
+   */
+  const pendingScanDecision = pendingScan
+    ? scanIssue?.scanId === pendingScan.id
+      ? "ask"
+      : scanDecision(sketch, moisture, scopeMarks, pendingScan.level)
+    : null;
+
+  /**
+   * The scan applied: the storey's rooms replaced, readings on rooms that are gone dropped (scope
+   * marks prune themselves — see the effect on `sketch` below), the server told, and a save forced,
+   * because a drawing that has just changed under the estimator should not be waiting on a timer.
+   */
+  function adoptPendingScan(scan: PendingScan) {
+    if (scanOutcomes.current.has(scan.id)) return;
+    const adopted = adoptScan(sketch, scan);
+    if ("ok" in adopted) {
+      setScanIssue({ scanId: scan.id, error: adopted.error });
+      return;
+    }
+    scanOutcomes.current.set(scan.id, "adopted");
+    setSketch(adopted.sketch);
+    setMoisture((prev) => pruneMoisture(prev, adopted.sketch));
+    setScanIssue(null);
+    setScanMessage(scanAdoptedMessage(scan.level, adopted.roomCount));
+    setScanBusy(true);
+    void scanInbox.resolve(scan.id, "adopted").finally(() => setScanBusy(false));
+    checkpoint();
+  }
+
+  function discardPendingScan(scan: PendingScan) {
+    scanOutcomes.current.set(scan.id, "discarded");
+    setScanIssue(null);
+    setScanBusy(true);
+    void scanInbox.resolve(scan.id, "discarded").finally(() => setScanBusy(false));
+  }
+
+  /*
+    Apply without asking when nothing would be lost. Re-run as the decision's inputs change, because
+    the answer changes with them: a storey that was mid-edit when the scan arrived may be cleared a
+    minute later, and the scan waiting on it then goes in.
+  */
+  useEffect(() => {
+    if (!pendingScan) return;
+    const outcome = scanOutcomes.current.get(pendingScan.id);
+    if (outcome) {
+      // Dealt with here already; the server did not hear it. Say it again rather than redo it.
+      void scanInbox.resolve(pendingScan.id, outcome);
+      return;
+    }
+    if (pendingScanDecision === "adopt") adoptPendingScan(pendingScan);
+    // `adoptPendingScan` and `scanInbox` are new every render; the decision already carries the
+    // sketch, moisture and marks it was made from.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingScan, pendingScanDecision]);
+
+  /*
+    The scan strip, built once so the two places it can show agree — see where it is rendered.
+  */
+  const scanNotice = (
+    <>
+      {pendingScan && pendingScanDecision === "ask" && !scanOutcomes.current.has(pendingScan.id) && (
+        <ScanInboxNotice
+          scan={pendingScan}
+          roomCount={pendingScanRoomCount}
+          decision="ask"
+          error={scanIssue?.scanId === pendingScan.id ? scanIssue.error : null}
+          onAdopt={() => adoptPendingScan(pendingScan)}
+          onDiscard={() => discardPendingScan(pendingScan)}
+          busy={scanBusy}
+        />
+      )}
+      {scanMessage && <ScanInboxMessage message={scanMessage} onDismiss={() => setScanMessage(null)} />}
+    </>
+  );
+
+  /*
+    The phone's deep link: `?id=<claim>&sketch=1` opens the claim with the sketch up, so a tap on
+    the phone after a scan lands on the drawing it produced. Remembered on mount and acted on once
+    the claim has loaded — opening the editor over the blank pre-load state would show an empty
+    canvas and then swap the drawing in under it. The parameter is then dropped from the address so
+    a reload, or the link pasted elsewhere, opens the claim rather than the editor.
+
+    Opened in VIEW, through the same door as the "View sketch" button: the link is followed on a
+    phone, to look at what the scan drew, and a phone is where a stray drag moves a wall with
+    nothing to say it happened — the case the View door exists for (see `openSketch`). Here a nudge
+    would also break the phone's ownership of the drawing, so every later re-scan would ask instead
+    of applying. Editing is one tap away on the editor's own lock.
+  */
+  const openSketchFromLink = useRef(false);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URL(window.location.href).searchParams;
+    openSketchFromLink.current = params.get("sketch") === "1" && params.get("id") !== null;
+  }, []);
+  useEffect(() => {
+    if (!openSketchFromLink.current || persistence.loading || persistence.claimId === null) return;
+    openSketchFromLink.current = false;
+    openSketch(true);
+    const url = new URL(window.location.href);
+    url.searchParams.delete("sketch");
+    window.history.replaceState(null, "", url.toString());
+    // `openSketch` is a plain function of this component; the two values that gate it are listed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [persistence.loading, persistence.claimId]);
 
   /*
     The pending list, recomputed from the answers on screen rather than snapshotted at Continue.
@@ -748,6 +888,11 @@ export default function Home() {
     setSketchImages([]);
     setMarkingQuestion(null);
     setQuestionLog([]);
+    // A scan's receipt, or the scan that would not draw, belongs to the claim it was sent to.
+    setScanMessage(null);
+    setScanIssue(null);
+    setScanBusy(false);
+    scanOutcomes.current = new Map();
     /*
       Let go of the saved row as well as the state on screen.
 
@@ -1359,6 +1504,15 @@ ${asbestosSection}`;
       )}
 
       {/*
+        A scan from the phone that needs an answer, or the receipt for one that did not. With the
+        editor closed it sits here above the sketch buttons; with the editor open it is handed to
+        the editor (`notice`), which shows it beside its own strips — the only place still visible
+        once the editor has gone full screen. Never shown for a scan this page has already answered
+        — see `scanOutcomes`.
+      */}
+      {!showSketch && scanNotice}
+
+      {/*
         The sketch. Rendered outside the step conditionals on purpose — it's an independent optional
         action available from claim creation onward, not a stage in the pipeline, so it neither
         advances `step` nor waits for one.
@@ -1366,6 +1520,7 @@ ${asbestosSection}`;
       {showSketch ? (
         <SketchEditor
           sketch={sketch}
+          notice={scanNotice}
           knownRoomNames={sketchRoomNames}
           moisture={moisture}
           statedEquipment={statedEquipment}

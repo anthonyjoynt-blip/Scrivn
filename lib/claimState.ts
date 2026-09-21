@@ -108,6 +108,9 @@ export const NOT_PERSISTED: Record<string, string> = {
   sketchImages: "derived — re-rendered from sketch, moisture and sketchAttachments on load",
   saveCheckpoint: "a counter that asks for an immediate write; nothing about the claim itself",
   sketchOpensReadOnly: "which door the sketch was opened by, on this screen",
+  scanMessage: "the receipt for a scan just applied from the phone; the scan itself is in the sketch",
+  scanIssue: "a scan from the phone that would not draw, awaiting Discard on this screen; the row lives on the server",
+  scanBusy: "whether an answer about a scan is on its way to the server right now",
 };
 
 /**

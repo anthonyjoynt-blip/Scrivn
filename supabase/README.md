@@ -23,17 +23,32 @@ The one thing to get right is which of the two goes in `NEXT_PUBLIC_SUPABASE_ANO
 the **publishable** one. A `sb_secret_…` value in a `NEXT_PUBLIC_` variable would be compiled into
 the browser bundle and hand every visitor unrestricted database access.
 
-## 2. Run the migration
+## 2. Run the migrations
 
-**SQL Editor** → paste the contents of `migrations/0001_profiles.sql` → Run.
+**SQL Editor** → paste the contents of each file in `migrations/`, in this order, and Run each one.
+Every file says in its header which one it follows, and every statement in them is written to be
+idempotent, so re-running a file is safe.
 
-That creates the `profiles` table, its Row Level Security policies, and the trigger that creates a
-profile row whenever an account is created. Re-running it is safe (every statement is written to be
-idempotent).
+| File | What it adds |
+|---|---|
+| `0001_profiles.sql` | The `profiles` table, its Row Level Security policies, and the trigger that creates a profile row whenever an account is created |
+| `0002_billing.sql` | Billing columns on `profiles`, locked down at the column level |
+| `0003_trial.sql` | The free trial: five claims in thirty days, no card |
+| `0004_organizations_and_claims.sql` | Organizations, membership, saved claims, and the policies that make the organization the tenant boundary |
+| `0005_claim_list_columns.sql` | The `address`, `insurer` and `status` columns the claims list searches and sorts by, with the trigram search index |
+| `0005_letterhead.sql` | Per-organization letterhead columns, the owner role check, and the private `logos` bucket |
+| `0006_device_tokens_and_scans.sql` | Paired phones: pairing codes, device tokens and received room scans, plus the SECURITY DEFINER functions the phone-facing `/api/device/...` routes call as `anon` |
 
-Verify: **Table Editor → profiles** should exist, with a green **RLS enabled** badge. If that badge
-says RLS is disabled, stop and re-run — the anon key is public, so an un-protected table here is
-readable by anyone.
+Verify: **Table Editor** should show each table with a green **RLS enabled** badge — `profiles`,
+`organizations`, `organization_members`, `claims`, and after 0006 `device_pairings`,
+`device_tokens` and `claim_scans`. If any badge says RLS is disabled, stop and re-run — the anon key
+is public, so an un-protected table here is readable by anyone.
+
+Two scripts check the policies against the real database, each with two throwaway accounts (see the
+header of each file for the environment variables): `npm run test:rls` for the claims and letterhead
+policies from 0004 and 0005, and `npm run test:device:rls` for the phone pairing functions and
+tables from 0006. Until 0006 has been applied, the phone-pairing API routes answer with a sentence
+saying so rather than a generic failure.
 
 ## 3. Require email confirmation
 

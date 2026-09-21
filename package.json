@@ -26,7 +26,9 @@
     "test:closet": "node test/sketch/closet.mjs",
     "test:moisture": "node test/moisture/run.mjs",
     "test:sw": "node test/sw/run.mjs",
-    "test:letterhead": "node test/letterhead/run.mjs"
+    "test:letterhead": "node test/letterhead/run.mjs",
+    "test:device": "node test/device/run.mjs",
+    "test:device:rls": "node test/device/rls.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "latest",
@@ -37,6 +39,7 @@
     "jspdf": "latest",
     "konva": "^10.3.2",
     "next": "latest",
+    "qrcode": "^1.5.4",
     "react": "latest",
     "react-dom": "latest",
     "react-konva": "^19.2.5",
@@ -46,6 +49,7 @@
   },
   "devDependencies": {
     "@types/node": "latest",
+    "@types/qrcode": "^1.5.6",
     "@types/react": "latest",
     "@types/react-dom": "latest",
     "esbuild": "^0.28.2",

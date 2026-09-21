@@ -551,6 +551,32 @@ export interface Sketch {
   levels?: number[];
   /** Walls drawn on their own — see `FreeWall`. Optional so a sketch saved before they existed still loads. */
   freeWalls?: FreeWall[];
+  /**
+   * The phone scan this geometry came from, when it did — see `lib/scanInbox.ts`.
+   *
+   * Absent on a hand-drawn sketch and on every sketch saved before the companion existed. While the
+   * fingerprint it carries still matches the drawing, the phone owns the geometry and a newer scan
+   * of the same storey may replace it without asking; the first edit in the editor breaks that
+   * match, and from then on a new scan is offered rather than applied.
+   */
+  scan?: SketchScan;
+}
+
+/**
+ * Where a sketch's geometry came from: the scan received from the phone, and the state of the
+ * drawing as it was adopted, so a later look can tell whether anyone has touched it since.
+ */
+export interface SketchScan {
+  /** The `claim_scans` row this sketch was built from. */
+  scanId: string;
+  /** The phone's own id for the capture, when it sent one. */
+  captureId: string | null;
+  /** When the server received it (ISO 8601). */
+  receivedAt: string;
+  /** The storey the scan was applied to. */
+  level: number;
+  /** `sketchFingerprint` of the sketch as adopted — equal to the current one until somebody edits. */
+  fingerprint: string;
 }
 
 export function emptySketch(): Sketch {

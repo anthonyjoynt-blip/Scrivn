@@ -42,7 +42,15 @@ const AUTH_PAGES = new Set(["/login", "/signup", "/forgot-password"]);
  * NEXT_PUBLIC_SHOW_MARKETING_NAV hides the links to these pages; it deliberately has no effect
  * here. The pages stay directly reachable by URL whether or not the site advertises them.
  */
-const PUBLIC_PAGES = new Set(["/", "/how-it-works", "/pricing", "/faq", "/contact", "/auth/auth-code-error"]);
+const PUBLIC_PAGES = new Set(["/", "/how-it-works", "/pricing", "/faq", "/contact", "/auth/auth-code-error", "/pair"]);
+/*
+  `/pair` is where the pairing QR on the Account page points. It is meant to be scanned from inside
+  the companion app, which never opens it — but a phone's own camera app will, and that visitor must
+  land on a sentence saying what to do, not on the login form with the code riding along in the
+  redirect. The page is static instructions with nothing of the account on it, and it never reads or
+  echoes the code in its query. See app/pair/page.tsx.
+*/
+
 /**
  * Route Handlers reachable while signed out: the email-confirmation landing point, sign-out
  * (harmless, and must work even if the session is already half-gone), and the Stripe webhook.
@@ -143,7 +151,19 @@ export async function middleware(request: NextRequest) {
     return response;
   }
 
-  if (PUBLIC_ROUTES.has(pathname) || PUBLIC_PAGES.has(pathname) || isInstallAsset(pathname)) {
+  /*
+    `/api/device/` (singular) is the paired phone's door, and is open here for the reason the Stripe
+    webhook is: the caller has no cookies and no session — it is a phone, not a browser — so a login
+    gate would simply break scanning. And exactly like the webhook, these routes are NOT
+    unauthenticated in effect. Every request carries a bearer device token, and every SQL function
+    the routes call checks its hash before doing anything at all; a request without one is answered
+    401 before a database client is even built. See lib/deviceRepo.ts.
+
+    `/api/devices` (plural) is the other end of the same feature — the Account page minting a code
+    and listing phones — and is driven by a signed-in person, so it stays behind the cookie check
+    with everything else. The `/` after `device` is what keeps the two apart.
+  */
+  if (PUBLIC_ROUTES.has(pathname) || PUBLIC_PAGES.has(pathname) || isInstallAsset(pathname) || pathname.startsWith("/api/device/")) {
     return supabaseResponse;
   }
 

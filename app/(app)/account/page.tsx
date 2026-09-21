@@ -1,9 +1,11 @@
 import Link from "next/link";
 import { unstable_rethrow } from "next/navigation";
 import { LetterheadForm } from "@/components/LetterheadForm";
+import { PairedPhones } from "@/components/PairedPhones";
 import { ProfileForm } from "@/components/ProfileForm";
 import { loadProfile, type Profile } from "@/lib/profileRepo";
-import { NotSignedInError } from "@/lib/claimsRepo";
+import { NotSignedInError, currentRole } from "@/lib/claimsRepo";
+import { listDeviceTokens, type DeviceTokenItem } from "@/lib/deviceRepo";
 import { loadOrganizationLetterhead, type OrganizationLetterheadState } from "@/lib/organizationRepo";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
 import { getUsageState } from "@/lib/usage";
@@ -46,6 +48,26 @@ async function letterheadCard(): Promise<{ state: OrganizationLetterheadState } 
 }
 
 /**
+ * The paired phones card's data, or why there is none — the same three outcomes as `letterheadCard`,
+ * for the same reasons. The likeliest error is again a migration not yet applied (0006 this time),
+ * which should read as one sentence in the card rather than take the account page down.
+ */
+async function devicesCard(): Promise<{ devices: DeviceTokenItem[]; canRevokeAll: boolean } | { error: string } | null> {
+  if (!isSupabaseConfigured()) return null;
+  try {
+    const [devices, role] = await Promise.all([listDeviceTokens(), currentRole()]);
+    // An owner may revoke anyone's phone, a member only their own; the SQL function enforces both
+    // regardless of which buttons the page shows.
+    return { devices, canRevokeAll: role === "owner" };
+  } catch (err) {
+    unstable_rethrow(err);
+    if (err instanceof NotSignedInError) return null;
+    console.error("[account] paired phones unavailable:", err);
+    return { error: "Phone pairing isn’t available right now." };
+  }
+}
+
+/**
  * Account and subscription settings.
  *
  * Everything billing-related — card, invoices, plan changes, cancellation — is a single link out to
@@ -54,14 +76,14 @@ async function letterheadCard(): Promise<{ state: OrganizationLetterheadState } 
  * gain over a page Stripe already maintains and keeps PCI-compliant.
  */
 export default async function AccountPage({ searchParams }: { searchParams: Promise<{ portal?: string }> }) {
-  const [usage, letterhead, profile] = await Promise.all([getUsageState(), letterheadCard(), profileCard()]);
+  const [usage, letterhead, profile, devices] = await Promise.all([getUsageState(), letterheadCard(), profileCard(), devicesCard()]);
   const params = await searchParams;
   const plan = planForTier(usage?.tier);
 
   return (
     <main>
       <h1>Account</h1>
-      <p className="subtitle">Your subscription, usage, details and letterhead.</p>
+      <p className="subtitle">Your subscription, usage, details, letterhead and paired phones.</p>
 
       {profile && (
         <div className="card">
@@ -154,6 +176,14 @@ export default async function AccountPage({ searchParams }: { searchParams: Prom
           <h2>Company letterhead</h2>
           <p className="subtitle">What every downloaded or emailed document carries across the top.</p>
           {"error" in letterhead ? <p className="field-note">{letterhead.error}</p> : <LetterheadForm initial={letterhead.state} />}
+        </div>
+      )}
+
+      {devices && (
+        <div className="card">
+          <h2>Paired phones</h2>
+          <p className="subtitle">Phones running Scrivn Scan that can send room scans into your claims.</p>
+          {"error" in devices ? <p className="field-note">{devices.error}</p> : <PairedPhones initial={devices.devices} canRevokeAll={devices.canRevokeAll} />}
         </div>
       )}
     </main>

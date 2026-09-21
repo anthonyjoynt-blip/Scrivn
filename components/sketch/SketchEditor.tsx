@@ -1,6 +1,6 @@
 "use client";
 
-import { type Dispatch, type SetStateAction, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { type Dispatch, type ReactNode, type SetStateAction, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { importScanRoom, scanExtentPx } from "@/lib/scanImport";
 import {
@@ -169,6 +169,7 @@ export function SketchEditor({
   onMoistureChange,
   onClose,
   startReadOnly = false,
+  notice,
 }: {
   sketch: Sketch;
   /** Room names already used elsewhere in this claim — offered as autocomplete so a sketch room can be matched back to the scope later. */
@@ -203,6 +204,13 @@ export function SketchEditor({
    * change to a number on a document.
    */
   startReadOnly?: boolean;
+  /**
+   * A strip the page wants shown with the drawing — a scan that has just arrived from the phone, or
+   * the receipt for one applied. Rendered here, beside the editor's own notices, rather than above
+   * the card, because in full screen the card covers everything else on the page and news about the
+   * drawing has to be where the drawing is.
+   */
+  notice?: ReactNode;
 }) {
   const [tool, setTool] = useState<ToolMode>("select");
   /*
@@ -1613,6 +1621,7 @@ export function SketchEditor({
           </button>
         </div>
       )}
+      {notice}
       {importNotice && (
         <div className="sketch-undo" role={importNotice.kind === "error" ? "alert" : "status"}>
           <span>{importNotice.text}</span>

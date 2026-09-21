@@ -985,6 +985,144 @@ button:disabled {
   color: var(--success, #2e7d4f);
 }
 
+/* ---- paired phones (account page — see components/PairedPhones.tsx) ---- */
+
+.paired-phones-list {
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0;
+}
+
+.paired-phone {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.paired-phone.is-revoked .paired-phone-name {
+  color: var(--text-muted);
+  text-decoration: line-through;
+}
+
+.paired-phone-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.paired-phone-name {
+  font-weight: 600;
+}
+
+.paired-phone-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+
+.paired-phone-used::before {
+  content: "·";
+  margin-right: 10px;
+}
+
+.paired-phone-state {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.paired-phone-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.paired-phone-actions .field-note {
+  margin: 0;
+}
+
+@media (max-width: 640px) {
+  .paired-phone {
+    flex-wrap: wrap;
+  }
+  .paired-phone-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+}
+
+/* The code, shown two ways at once: the QR for a camera, the letters for anyone whose camera will
+   not focus on a laptop screen. Centred and generous, because it is read from arm's length. */
+.pairing-code {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 6px;
+  margin: 20px 0 8px;
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--color-navy-tint);
+}
+
+.pairing-qr {
+  display: block;
+  width: 240px;
+  /* Auto, not 240px: a fixed height would stretch the code sideways on a phone narrower than the
+     card allows for; the image is square and the width rule scales it, so the height follows. */
+  height: auto;
+  max-width: 100%;
+  border-radius: 4px;
+  background: #fff;
+}
+
+.pairing-instructions {
+  margin: 8px 0 0;
+  font-size: 0.92rem;
+  max-width: 34ch;
+}
+
+.pairing-code .pairing-or {
+  margin: 4px 0 0;
+}
+
+.pairing-letters {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 2rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: var(--color-navy);
+  font-variant-numeric: tabular-nums;
+}
+
+.pairing-letters.is-expired {
+  color: var(--text-muted);
+  text-decoration: line-through;
+}
+
+.pairing-expiry {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.pairing-expiry.is-expired {
+  color: var(--danger-text);
+}
+
+.paired-phones > .field-note {
+  margin: 12px 0 0;
+}
+
 /* ---- sketch tool ---- */
 
 .sketch-header {
@@ -1173,6 +1311,17 @@ button:disabled {
   padding: 5px 12px;
   font-size: 0.8rem;
   line-height: 1;
+}
+
+/* A scan from the phone, on the claim page above the sketch — see components/sketch/ScanInboxNotice.tsx.
+   The same strip as the editor's own import result, wrapping because its sentence is longer and
+   it shares the row with two buttons on a phone-width screen. */
+.scan-inbox-notice {
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.scan-inbox-notice > span {
+  flex: 1 1 240px;
 }
 
 /* `position: relative` is load-bearing: the length popup is positioned against the viewport but

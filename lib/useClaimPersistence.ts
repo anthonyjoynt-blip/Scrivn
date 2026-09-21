@@ -94,6 +94,13 @@ export function useClaimPersistence({
   claimIdRef.current = claimId;
   const lastSaved = useRef<string>("");
   const inFlight = useRef(false);
+  /**
+   * Set when a write was asked for while another was on the wire, so the one in flight runs again
+   * when it lands. Without it the asked-for write was simply dropped: a checkpoint — a gap-check
+   * round committed, a scan adopted — that happened to coincide with a slow PUT of the previous edit
+   * was never written until something else changed, and the status meanwhile said "Saved".
+   */
+  const writeAgain = useRef(false);
   /** Set while `apply` is pushing a loaded claim in, so the resulting change does not save it back. */
   const applying = useRef(false);
   /*
@@ -167,7 +174,10 @@ export function useClaimPersistence({
     // Nothing changed since the last successful write — the commonest case once a PM stops typing.
     if (serialised === lastSaved.current) return;
     if (!hasAnyContent(current)) return;
-    if (inFlight.current) return;
+    if (inFlight.current) {
+      writeAgain.current = true;
+      return;
+    }
 
     inFlight.current = true;
     setStatus("saving");
@@ -232,6 +242,14 @@ export function useClaimPersistence({
       setStatus(queued ? "pending" : "error");
     } finally {
       inFlight.current = false;
+      /*
+        The write that was asked for while this one was out. It re-reads the state as it is now and
+        compares it with what was just saved, so it writes only when something newer exists.
+      */
+      if (writeAgain.current) {
+        writeAgain.current = false;
+        void write();
+      }
     }
   }, [enabled, refreshPendingCount]);
 
