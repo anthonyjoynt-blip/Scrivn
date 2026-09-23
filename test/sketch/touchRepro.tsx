@@ -41,6 +41,22 @@ function makeRoom(id: string, name: string, x: number, y: number, w: number, h: 
   };
 }
 
+/** A base run of [widthFeet] whose middle sits at [t] along wall [wall] of [room]. */
+function cabinet(id: string, room: SketchRoom, wall: number, t: number, widthFeet: number) {
+  return {
+    id,
+    wallId: room.vertices[wall]!.id,
+    t,
+    widthFraction: 0.3,
+    widthFeet,
+    type: "cabinet" as const,
+    label: "Cabinet",
+    tier: "base" as const,
+    depthFeet: 2,
+    heightFeet: 3,
+  };
+}
+
 /**
  * The kitchen's jog from room_20260922_201320, to scale: two parallel walls joined by a diagonal
  * that should be perpendicular. Square up is the fix — see lib/sketchSquare.ts.
@@ -72,7 +88,16 @@ const seeded: Sketch = {
   rooms: [
     jog,
     // Marked as a scan that read no ceiling, so the panel's "Not measured" note is on screen here.
-    { ...makeRoom("kitchen", "Kitchen", 30, 30, 14, 11, 0), ceilingMeasured: false },
+    (() => {
+      // Two base runs meeting at the Kitchen's top-right corner: the 8' one keeps it and the 6'
+      // one stops short by its depth, so the drawing mitres — see cornerYieldPx in lib/sketch.ts.
+      const kitchen = { ...makeRoom("kitchen", "Kitchen", 30, 30, 14, 11, 0), ceilingMeasured: false };
+      kitchen.symbols = [
+        cabinet("run-top", kitchen, 0, 1 - 4 / 14, 8),
+        cabinet("run-right", kitchen, 1, 3 / 11, 6),
+      ];
+      return kitchen;
+    })(),
     makeRoom("hall", "Hall", 30 + 14 * FT, 30, 4, 11, 0),
     makeRoom("rec", "Rec room", 30, 30, 16, 11, -1),
   ],

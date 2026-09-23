@@ -2147,7 +2147,9 @@ export function symbolWidthPx(symbol: SketchSymbol, room: SketchRoom, rooms: Ske
   const raw = symbol.widthFeet != null ? symbol.widthFeet * PIXELS_PER_FOOT : symbol.widthFraction * (wall?.lengthPx ?? 0);
   if (!wall || wall.lengthPx <= 0) return Math.max(6, raw);
   const run = blockRunPx(symbol, room, rooms, freeWalls);
-  return capToRun(raw, run.to - run.from);
+  // Less whatever the run round the corner owns: a trim, not a shove — see `cornerYieldPx`.
+  const yielded = cornerYieldPx(symbol, room, wall);
+  return capToRun(raw - yielded.atStart - yielded.atEnd, run.to - run.from);
 }
 
 /**
@@ -2200,6 +2202,85 @@ function blockRunPx(symbol: SketchSymbol, room: SketchRoom, rooms: SketchRoom[],
   return { from: lo * wall.lengthPx, to: hi * wall.lengthPx };
 }
 
+/**
+ * How much of a cabinet run's wall is taken by the run round the corner from it.
+ *
+ * Two runs meeting at an inside corner are an L with ONE corner unit in it, not two blocks
+ * crossing. Drawn as two full rectangles they overlap in a square as deep as both of them — the
+ * kitchen of 2026-09-22 arrived exactly so, its second run starting 1'2" BEFORE its wall began —
+ * and the overlap is not only ugly: the floor deduction counts that square twice, so the room
+ * loses four square feet of floor it has.
+ *
+ * So one run keeps the corner and the other stops short of it by the keeper's depth. The LONGER
+ * run keeps it, which is the same convention squaring a corner uses and the same one a fitter
+ * uses — the corner unit belongs to the run that carries on past it. Ties go to whichever was
+ * drawn first, so the answer never changes under a redraw.
+ *
+ * Compared on RAW widths, never on the capped ones this very function is helping to work out.
+ *
+ * Only floor-standing runs yield to each other: a wall cabinet and the base run under it are at
+ * different heights and share nothing, and neither do two wall cabinets meeting over a corner —
+ * they are one cupboard in reality, but nothing about the floor depends on it.
+ */
+function cornerYieldPx(symbol: SketchSymbol, room: SketchRoom, wall: WallGeometry): { atStart: number; atEnd: number } {
+  const none = { atStart: 0, atEnd: 0 };
+  if (!isBlockSymbol(symbol) || symbol.type !== "cabinet" || !standsOnFloor(symbol.tier)) return none;
+  const walls = wallsOf(room);
+  const index = walls.findIndex((w) => w.id === wall.id);
+  if (index < 0) return none;
+  const n = walls.length;
+  const before = walls[(index - 1 + n) % n] as WallGeometry;
+  const after = walls[(index + 1) % n] as WallGeometry;
+  /*
+    This run has to reach the corner as well. A neighbour's run ending at it overlaps nothing when
+    this one starts three feet along its own wall — there is no corner unit there, just two runs
+    in the same room.
+  */
+  const mine = rawBlockWidthPx(symbol);
+  const centre = symbol.t * wall.lengthPx;
+  const reachesStart = centre - mine / 2 <= CORNER_REACH_PX;
+  const reachesEnd = wall.lengthPx - (centre + mine / 2) <= CORNER_REACH_PX;
+  return {
+    atStart: reachesStart ? cornerKeeperDepthPx(symbol, room, before, false) : 0,
+    atEnd: reachesEnd ? cornerKeeperDepthPx(symbol, room, after, true) : 0,
+  };
+}
+
+/**
+ * The depth of the run on [neighbour] that owns the corner this run also reaches, or 0.
+ *
+ * [neighbourStartsThere] says which end of the neighbour touches the shared corner: the wall after
+ * this one starts at it, the wall before it ends at it.
+ */
+function cornerKeeperDepthPx(symbol: BlockSymbol, room: SketchRoom, neighbour: WallGeometry, neighbourStartsThere: boolean): number {
+  const mine = rawBlockWidthPx(symbol);
+  let deepest = 0;
+  for (const other of room.symbols) {
+    if (other.id === symbol.id) continue;
+    if (!isBlockSymbol(other) || other.type !== "cabinet" || !standsOnFloor(other.tier)) continue;
+    if (other.wallId !== neighbour.id) continue;
+    const theirs = rawBlockWidthPx(other);
+    // The longer run keeps the corner; a tie goes to the one drawn first.
+    const keepsIt = theirs > mine || (theirs === mine && room.symbols.indexOf(other) < room.symbols.indexOf(symbol));
+    if (!keepsIt) continue;
+    // Does it actually reach the corner? Its centre less half its width, measured from whichever
+    // end of its own wall the corner is.
+    const centre = other.t * neighbour.lengthPx;
+    const edge = neighbourStartsThere ? centre - theirs / 2 : neighbour.lengthPx - (centre + theirs / 2);
+    if (edge > CORNER_REACH_PX) continue;
+    deepest = Math.max(deepest, cabinetDepthPx(other));
+  }
+  return deepest;
+}
+
+/** A run whose end is within this of a corner is treated as meeting it — 3in, a scribe's worth. */
+const CORNER_REACH_PX = 3;
+
+/** A block's width before any capping, in pixels: what the symbol itself says it is. */
+function rawBlockWidthPx(symbol: SketchSymbol): number {
+  return symbol.widthFeet != null ? symbol.widthFeet * PIXELS_PER_FOOT : 0;
+}
+
 /** Applies the "no wider than the stretch of wall it can stand on" rule, in the caller's unit. */
 function capToRun(raw: number, runPx: number, perFoot = 1): number {
   const floor = 6 / perFoot;
@@ -2227,8 +2308,15 @@ export function symbolCentrePx(symbol: SketchSymbol, room: SketchRoom, rooms: Sk
   if (!wall || wall.lengthPx <= 0) return 0;
   const half = symbolWidthPx(symbol, room, rooms, freeWalls) / 2;
   const run = blockRunPx(symbol, room, rooms, freeWalls);
+  /*
+    A run trimmed at a corner keeps its FAR edge: the cabinets it lost are the ones in the corner
+    square, which the neighbouring run owns, and the rest of it has not moved an inch. So the
+    middle shifts by half of what came off, away from the end that yielded.
+  */
+  const yielded = cornerYieldPx(symbol, room, wall);
+  const centre = symbol.t * wall.lengthPx + yielded.atStart / 2 - yielded.atEnd / 2;
   // The width cap guarantees `half` is at most half the run, so the low bound never exceeds the high.
-  return Math.min(run.to - half, Math.max(run.from + half, symbol.t * wall.lengthPx));
+  return Math.min(run.to - half, Math.max(run.from + half, centre));
 }
 
 /**
