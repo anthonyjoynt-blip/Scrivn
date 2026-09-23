@@ -186,6 +186,48 @@ export async function runScanImportChecks() {
     assert(result.room.ceilingMeasured === false, "and it says it is a default");
   });
 
+  test("an island comes in as a free-standing block where the phone put it", () => {
+    const fixture = JSON.parse(office);
+    fixture.islands = [{ number: 1, u: 1.0, v: 1.2, width_m: 1.83, depth_m: 0.91, depth_measured: true, angle_deg: 0, tier: "base" }];
+    const result = scan.importScanRoom(JSON.stringify(fixture), { x: 0, y: 0 }, 0);
+    assert(result.ok, "import failed");
+    const islands = result.room.freeCabinets;
+    assert(islands.length === 1, `expected 1 island, got ${islands.length}`);
+    const isl = islands[0];
+    assert(isl.label === "Island", `label ${isl.label}`);
+    near(isl.widthFeet, 1.83 / 0.3048, "6' wide", 1 / 24);
+    near(isl.depthFeet, 0.91 / 0.3048, "3' deep", 1 / 24);
+    // Its middle lands where the phone said, as an offset from the room's own top-left.
+    const bounds = sketch.roomBounds(result.room);
+    const middleX = bounds.minX + isl.x + isl.widthPx / 2;
+    const middleY = bounds.minY + isl.y + isl.depthPx / 2;
+    assert(Math.abs(middleX - bounds.minX) > 1, "the island is not on the room's corner");
+    assert(middleX > bounds.minX && middleX < bounds.maxX, `island x ${middleX} outside ${bounds.minX}..${bounds.maxX}`);
+    assert(middleY > bounds.minY && middleY < bounds.maxY, `island y ${middleY} outside ${bounds.minY}..${bounds.maxY}`);
+    // Measured: no note about a guessed depth.
+    assert(!result.notes.some((n) => /depth was not measured/.test(n)), `unexpected note: ${result.notes}`);
+  });
+
+  test("an island whose depth was never tapped says so", () => {
+    const fixture = JSON.parse(office);
+    fixture.islands = [{ number: 1, u: 1.0, v: 1.2, width_m: 1.83, depth_m: 0.61, depth_measured: false, tier: "base" }];
+    const result = scan.importScanRoom(JSON.stringify(fixture), { x: 0, y: 0 }, 0);
+    assert(result.ok, "import failed");
+    assert(result.room.freeCabinets.length === 1, "the island is still drawn");
+    assert(result.notes.some((n) => /depth was not measured/.test(n)), `expected a note, got ${JSON.stringify(result.notes)}`);
+  });
+
+  test("a file with no islands has none, and rubbish in the list is skipped with a note", () => {
+    const plain = imported();
+    assert(plain.room.freeCabinets.length === 0, "no islands in a file that sends none");
+    const fixture = JSON.parse(office);
+    fixture.islands = [{ u: 1, v: 1 }, "nonsense", { u: 1, v: 1, width_m: 1.2, depth_m: 0.9 }];
+    const result = scan.importScanRoom(JSON.stringify(fixture), { x: 0, y: 0 }, 0);
+    assert(result.ok, "import failed");
+    assert(result.room.freeCabinets.length === 1, `only the readable one, got ${result.room.freeCabinets.length}`);
+    assert(result.notes.some((n) => /2 islands in the file could not be read/.test(n)), `expected a note, got ${JSON.stringify(result.notes)}`);
+  });
+
   test("the room comes in under the name the phone sent", () => {
     const fixture = JSON.parse(office);
     fixture.name = "Main Bathroom";

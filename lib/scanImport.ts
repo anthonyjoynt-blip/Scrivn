@@ -172,6 +172,8 @@ import {
   CABINET_DEFAULT_HEIGHT_FEET,
   type CeilingType,
   DEFAULT_CEILING_HEIGHT_FEET,
+  formatFeetInches,
+  roomBounds,
   DEFAULT_DOOR_HEIGHT_FEET,
   DEFAULT_WINDOW_HEIGHT_FEET,
   DEFAULT_WINDOW_SILL_FEET,
@@ -249,6 +251,23 @@ export interface ScanStairs {
   direction: "up" | "down";
 }
 
+/**
+ * An island as the phone measured it: [u] and [v] its middle in the outline's frame, [width_m] the
+ * run and [depth_m] how deep it is — measured when [depth_measured], the tier's own depth when
+ * nobody tapped the back edge. [angle_deg] is the run's turn, which is recorded and not yet used:
+ * `FreeCabinet` is an axis-aligned block.
+ */
+export interface ScanIsland {
+  number?: number;
+  u: number;
+  v: number;
+  width_m: number;
+  depth_m: number;
+  depth_measured?: boolean;
+  angle_deg?: number;
+  tier?: string;
+}
+
 export interface ScanRoom {
   format?: string;
   name?: string;
@@ -279,6 +298,15 @@ export interface ScanRoom {
   outline_openings: ScanOutlineOpening[];
   /** Cabinet runs placed on the outline's edges the same way. Empty for a lap scan. */
   cabinets: ScanCabinet[];
+  /**
+   * Cabinet runs that stood in open floor rather than against a wall — islands.
+   *
+   * The phone tells them apart itself (a run more than a cabinet's depth off every wall is not on
+   * one) and sends the middle, the size and the turn. Absent from a file written before
+   * 2026-09-22, where an island was named in `outline_notes` and sent nowhere at all: a kitchen's
+   * island simply did not arrive.
+   */
+  islands: ScanIsland[];
   /** Flights of stairs tapped in the room, each becoming a room of its own. Empty for a lap scan. */
   stairs: ScanStairs[];
 }
@@ -526,6 +554,37 @@ export function parseScanRoom(input: unknown): { ok: true; scan: ScanRoom; notes
   }
   if (badCabinets > 0) notes.push(`${badCabinets} cabinet${badCabinets === 1 ? "" : "s"} in the file could not be read; skipped.`);
 
+  // An island needs a middle and a size and nothing else. A tier the sketch does not have is
+  // dropped to "base", which is what an island is nine times in ten, rather than skipping a block
+  // of cabinetry the estimator stood in front of and tapped.
+  const islands: ScanIsland[] = [];
+  let badIslands = 0;
+  if (Array.isArray(raw.islands)) {
+    for (const i of raw.islands) {
+      if (typeof i !== "object" || i === null) {
+        badIslands += 1;
+        continue;
+      }
+      const isl = i as Record<string, unknown>;
+      if (!isFiniteNumber(isl.u) || !isFiniteNumber(isl.v) || !isFiniteNumber(isl.width_m) || isl.width_m <= 0) {
+        badIslands += 1;
+        continue;
+      }
+      islands.push({
+        number: isFiniteNumber(isl.number) ? Math.trunc(isl.number) : undefined,
+        u: isl.u,
+        v: isl.v,
+        width_m: isl.width_m,
+          // 3', Scrivn's own default island depth, for a file that sends none.
+        depth_m: isFiniteNumber(isl.depth_m) && isl.depth_m > 0 ? isl.depth_m : 3 / FEET_PER_METRE,
+        depth_measured: isl.depth_measured === true,
+        angle_deg: isFiniteNumber(isl.angle_deg) ? isl.angle_deg : 0,
+        tier: isCabinetTier(isl.tier) ? isl.tier : "base",
+      });
+    }
+  }
+  if (badIslands > 0) notes.push(`${badIslands} island${badIslands === 1 ? "" : "s"} in the file could not be read; skipped.`);
+
   // A flight needs its four corners, each a finite (u, v); anything else about it is optional. The
   // direction defaults to "up" because a flight is tapped from the room it starts in, and from
   // there it can only go up — the phone writes "up" for the same reason.
@@ -586,6 +645,7 @@ export function parseScanRoom(input: unknown): { ok: true; scan: ScanRoom; notes
       outline,
       outline_openings: outlineOpenings,
       cabinets,
+      islands,
       stairs,
     },
     notes,
@@ -812,6 +872,36 @@ export function scanToSketchRoom(scan: ScanRoom, at: { x: number; y: number }, l
   const closetDoors = new Set<string>();
   const notes: string[] = [];
   let skipped = 0;
+
+  /*
+    Islands: cabinet runs the phone found standing in open floor. `FreeCabinet` is an axis-aligned
+    block positioned from the room's bounding-box top-left, so the middle the phone sends becomes a
+    top-left by half its size — and the run's turn is dropped, which is the one thing lost in the
+    crossing. An island at an angle to the room comes in square to it, and is dragged round in the
+    editor like any other block. Most are parallel to the counters they sit between.
+  */
+  const bounds = roomBounds(room);
+  const feetInchesText = (metres: number): string => formatFeetInches(toFeetInches(metres));
+  for (const isl of scan.islands) {
+    const widthPx = Math.max(1, Math.round(isl.width_m * PX_PER_METRE));
+    const depthPx = Math.max(1, Math.round(isl.depth_m * PX_PER_METRE));
+    const middle = toPx([isl.u, isl.v]);
+    room.freeCabinets.push({
+      id: newSketchId("island"),
+      x: middle.x - widthPx / 2 - bounds.minX,
+      y: middle.y - depthPx / 2 - bounds.minY,
+      widthPx,
+      depthPx,
+      widthFeet: toFeetInches(isl.width_m),
+      depthFeet: toFeetInches(isl.depth_m),
+      label: "Island",
+      tier: (isl.tier ?? "base") as CabinetTier,
+    });
+    if (isl.depth_measured !== true) {
+      notes.push(`Island ${isl.number ?? room.freeCabinets.length}: its depth was not measured on the phone — drawn ${feetInchesText(isl.depth_m)} deep.`);
+    }
+  }
+
   let flatWindows = 0;
 
   /**
