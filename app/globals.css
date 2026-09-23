@@ -1268,9 +1268,273 @@ button:disabled {
   }
   /* The gesture instructions are onboarding, and they cost a quarter of a phone screen. They stay in
      the in-page view, which is the one you meet first; nobody expands to full screen to read. */
-  .sketch-card-expanded .sketch-hint {
+  /* The one under the toolbar, not the "Tap a room to record its moisture readings." that stands
+     in for the panel in the sidebar — that one is the only thing in the sheet with nothing
+     selected, and hiding it left an empty sheet. */
+  .sketch-card-expanded .sketch-stage > .sketch-hint {
     display: none;
   }
+}
+
+/* ---- the phone layout ----
+   Below `PHONE_LAYOUT_QUERY` the editor stops being a card in a page and becomes the screen: the
+   plan gets everything between the header and a bottom bar the thumb can reach, and the panels that
+   were a column beside it rise over it as sheets. The DOM is the same one the desktop draws — what
+   changes is where it sits — so nothing about the drawing depends on which layout is in force.
+
+   Two of these rules undo the ones above for a tablet-width window: the 900px block gives the
+   canvas a fixed 62dvh and lets the body scroll, which is right when the properties are UNDER the
+   plan and wrong when they are over it. They come after that block on purpose. */
+
+.sketch-card-phone {
+  padding: 0;
+}
+.sketch-card-phone .sketch-header {
+  padding: 10px 12px 4px;
+  margin-bottom: 0;
+  gap: 6px;
+  flex-wrap: nowrap;
+  align-items: center;
+}
+.sketch-card-phone .sketch-header .option-group {
+  flex-wrap: nowrap;
+}
+/* The same tidying the 700px block does for a narrow expanded card, said again for the layout
+   itself: a coarse-pointer tablet between 700 and 900 is a phone layout and that block misses it.
+   The title goes — a full-screen drawing surface does not need a caption saying so. */
+.sketch-card-phone .sketch-header > div:first-child {
+  display: none;
+}
+.sketch-card-phone .sketch-header button {
+  white-space: nowrap;
+  padding: 8px 12px;
+  font-size: 0.85rem;
+  /* The header is tapped as often as the bar — the same floor applies to it. */
+  min-height: 44px;
+}
+/* An iPhone SE is 320px, and there the four header controls came to 326px: the lock grows by the
+   width of "🔒 View only" when it is pressed and pushed Done off the edge. */
+@media (max-width: 360px) {
+  .sketch-card-phone .sketch-header {
+    gap: 4px;
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+  .sketch-card-phone .sketch-header button {
+    padding: 8px 9px;
+  }
+}
+/* Done is full width and first in the stack on a narrow PAGE, where the header is a column and
+   nothing else marks the way out. Here the header is a row and Done is the last thing in it, as it
+   is on the desktop — full width would push the mode pills off the screen. */
+.sketch-card-phone .sketch-done {
+  order: 0;
+  width: auto;
+  white-space: nowrap;
+}
+.sketch-card-phone .sketch-body {
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  padding: 0 10px;
+}
+.sketch-card-phone .sketch-stage {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.sketch-card-phone .sketch-canvas-wrap {
+  flex: 1;
+  height: auto;
+  min-height: 0;
+}
+/* 16px or iOS zooms the whole page the moment a field takes focus, and a plan that jumps when you
+   type a wall length is a plan you then have to find again. 44px is the target size everything on
+   this layout is held to. */
+.sketch-card-phone input:not([type="checkbox"]):not([type="radio"]),
+.sketch-card-phone select,
+.sketch-card-phone textarea {
+  font-size: 16px;
+  min-height: 44px;
+}
+/* Said again with two classes, because the pickers inside the panels carry `font: inherit` from
+   rules of their own that are just as specific and come later — the storey picker and the moisture
+   material picker were still 12px, which is exactly what iOS zooms the page for. */
+.sketch-card-phone .sketch-side select,
+.sketch-card-phone .sketch-sheet select,
+.sketch-card-phone .sketch-bar select {
+  font-size: 16px;
+  min-height: 44px;
+}
+
+/* The bar. One line of what a tap does now, then the tools, with zoom held to the right. */
+.sketch-bar-line {
+  margin: 0;
+  padding: 6px 14px 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.sketch-bar {
+  position: relative;
+  z-index: 12;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px calc(8px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--border);
+  background: #fff;
+}
+/* The bar scrolls sideways rather than wrapping: a bar that grows a second row moves every button
+   under the thumb that was already aiming at one. */
+.sketch-bar-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.sketch-bar-tools::-webkit-scrollbar {
+  display: none;
+}
+.sketch-bar-tools > * {
+  flex-shrink: 0;
+}
+.sketch-bar .option-btn,
+.sketch-bar .btn-secondary,
+.sketch-bar .sketch-fixture-select {
+  min-height: 44px;
+  padding: 10px 14px;
+  font-size: 0.9rem;
+}
+.sketch-bar-more {
+  flex-shrink: 0;
+}
+.sketch-bar .sketch-zoom {
+  margin-left: 0;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.sketch-bar .sketch-zoom button {
+  min-width: 44px;
+}
+.sketch-bar .sketch-zoom-level {
+  display: none;
+}
+/* On a phone the zoom buttons go and the three tools fit instead: two 44px buttons are a quarter
+   of a 375px bar, and pinch is what a hand actually does to a plan — the hint line says so, and
+   Reset zoom is in More for the pinch that went too far. Kept on a tablet, where there is room. */
+@media (max-width: 480px) {
+  .sketch-bar .sketch-zoom {
+    display: none;
+  }
+}
+
+/* The sheets. Children of the card, which is fixed, so they rise over the plan rather than
+   scrolling with it. Closed they are translated off the bottom AND hidden, because a sheet that is
+   merely off screen still takes focus from the tab key. */
+.sketch-sheet {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 20;
+  max-height: 64dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: #fff;
+  border-top: 1px solid var(--border);
+  border-radius: 16px 16px 0 0;
+  box-shadow: 0 -10px 30px rgba(15, 23, 42, 0.18);
+  padding: 4px 14px calc(18px + env(safe-area-inset-bottom));
+  transform: translateY(101%);
+  visibility: hidden;
+  transition: transform 160ms ease, visibility 160ms;
+}
+.sketch-sheet-open {
+  transform: none;
+  visibility: visible;
+}
+.sketch-sheet-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 15;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: rgba(15, 23, 42, 0.32);
+}
+.sketch-sheet-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 0;
+  background: #fff;
+}
+.sketch-sheet-grip {
+  flex: 1;
+  height: 4px;
+  max-width: 44px;
+  margin-left: calc(50% - 22px);
+  border-radius: 999px;
+  background: #cfd9e4;
+}
+.sketch-sheet-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  padding-bottom: 10px;
+}
+.sketch-sheet-grid > * {
+  width: 100%;
+  min-height: 44px;
+}
+.sketch-sheet-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-bottom: 6px;
+}
+.sketch-sheet-row > * {
+  min-height: 44px;
+}
+/* Inside a sheet the levels are a plain wrapping row — the underlay picker's `margin-left: auto`
+   pushes it off the edge of a phone-width sheet. */
+.sketch-card-phone .sketch-sheet .sketch-underlay {
+  margin-left: 0;
+}
+.sketch-card-phone .sketch-sheet .sketch-levels {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+/* The properties sheet scrolls itself.
+   `@media (max-width: 900px)` above turns the sidebar's own scrolling off, because THERE the
+   panels sit under the plan and the body scrolls as one. Here they rise over it inside a fixed
+   card, so the sheet is the only thing that can scroll — and that rule names two classes, so this
+   has to as well. The right gutter comes from the same place: 4px, left over from making room for
+   a scrollbar in a column. */
+.sketch-card-phone .sketch-side {
+  overflow-y: auto;
+  padding-right: 14px;
+}
+
+/* The properties sheet holds panels written for a column, which start with their own rules and
+   spacing — inside a sheet the sheet's own head is the separator. */
+.sketch-card-phone .sketch-side .sketch-panel {
+  margin-top: 0;
+  padding-top: 14px;
+}
+.sketch-card-phone .sketch-side .sketch-summary {
+  margin-top: 14px;
 }
 
 /* The turn-it-round shortcut, floated over the drawing it applies to. Bottom-right, because the

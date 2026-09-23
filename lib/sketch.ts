@@ -3559,11 +3559,13 @@ export function knownRoomNames(sources: {
   extractionRooms?: { roomName: string }[] | null;
   dgigRooms?: { roomName: string }[] | null;
   contentsRooms?: { roomName: string }[] | null;
+  /** Rooms already named on the sketch — including the names the phone sent with a scan. */
+  sketchRooms?: { roomName: string }[] | null;
 }): string[] {
   const seen = new Set<string>();
   const names: string[] = [];
 
-  for (const list of [sources.extractionRooms, sources.dgigRooms, sources.contentsRooms]) {
+  for (const list of [sources.extractionRooms, sources.dgigRooms, sources.contentsRooms, sources.sketchRooms]) {
     for (const room of list ?? []) {
       const name = room.roomName.trim();
       if (name === "") continue;

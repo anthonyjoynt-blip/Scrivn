@@ -76,6 +76,17 @@ import {
   withLevel,
 } from "@/lib/sketch";
 import {
+  PHONE_LAYOUT_QUERY,
+  SKETCH_BAR_KEYS,
+  SKETCH_DESKTOP_LEADING,
+  SKETCH_DESKTOP_TRAILING,
+  SKETCH_PLACEMENT_KEYS,
+  moistureKeys,
+  sketchMoreKeys,
+  type MoistureToolKey,
+  type SketchToolKey,
+} from "@/lib/sketchTouch";
+import {
   type DraftPoint,
   addDraftPoint,
   connectedFreeWallIds,
@@ -158,6 +169,28 @@ type PendingLength =
     }
   /** One piece of a free wall, named by the corner it starts at — see `withFreeWallSegmentLength`. */
   | { kind: "freeWall"; wallId: string; vertexId: string; screen: { x: number; y: number } };
+
+/**
+ * Whether the editor should lay itself out for a finger — see `PHONE_LAYOUT_QUERY`.
+ *
+ * False until mounted, on purpose: the server has no viewport to measure, and a layout guessed
+ * during rendering and corrected afterwards is a flash of the wrong screen. The desktop layout is
+ * the one that survives being wrong for a frame.
+ */
+function usePhoneLayout(): boolean {
+  const [phone, setPhone] = useState(false);
+  useEffect(() => {
+    const query = window.matchMedia(PHONE_LAYOUT_QUERY);
+    const apply = () => setPhone(query.matches);
+    apply();
+    query.addEventListener("change", apply);
+    return () => query.removeEventListener("change", apply);
+  }, []);
+  return phone;
+}
+
+/** How far a finger may travel and still count as a tap rather than a drag. */
+const TAP_SLOP_PX = 8;
 
 export function SketchEditor({
   sketch,
@@ -282,7 +315,43 @@ export function SketchEditor({
    * viewport puts the canvas and the controls in view at once, which is also the only arrangement in
    * which a change and its result are visible in the same glance.
    */
-  const [expanded, setExpanded] = useState(false);
+  const [expandedByUser, setExpanded] = useState(false);
+  /**
+   * A phone is full screen from the moment the sketch opens.
+   *
+   * The 460px card in a scrolling page is the desktop's shape: on a phone it left a drawing
+   * surface the size of a business card under six rows of buttons, and every session began with
+   * the same tap on Full screen. Expanded is not a mode there, it is the screen.
+   */
+  const phone = usePhoneLayout();
+  const expanded = phone || expandedByUser;
+  /*
+    Once the sketch has had the screen it keeps it. A tablet rotated from portrait to landscape
+    crosses out of the phone layout, and without this the editor would fold back into the claim
+    page mid-drawing — the plan gone behind the form, the page scrolled wherever it had been left.
+    Full screen is a control again at that width, so there is still a way back out of it.
+  */
+  useEffect(() => {
+    if (phone) setExpanded(true);
+  }, [phone]);
+  /**
+   * Which bottom sheet is up: the tools behind More, or the properties of what is selected.
+   *
+   * Phone only — on the desktop the same panels are the right-hand column, which is always up.
+   */
+  const [sheet, setSheet] = useState<"none" | "more" | "details">("none");
+  /**
+   * The finger on the plan: where it went down, and whether a selection is waiting for it to lift.
+   *
+   * A tap selects on pointerDOWN, so the plan can be dragged in the same gesture — which means the
+   * sheet cannot simply rise when the selection changes: it would rise under the finger at the
+   * start of every drag. The selection is held here instead and shown when the finger lifts, and
+   * only if it lifted where it landed.
+   */
+  const pointerOnPlan = useRef<{ x: number; y: number } | null>(null);
+  const detailsWaiting = useRef(false);
+  /** The More button, so closing a sheet hands focus back to the bar and not to the document. */
+  const moreButtonRef = useRef<HTMLButtonElement | null>(null);
   /**
    * Which storey is being drawn, and which other one is traced underneath it.
    *
@@ -530,6 +599,39 @@ export function SketchEditor({
     [onMoistureChange],
   );
   const selectedSymbol = selectedRoom?.symbols.find((s) => s.id === selectedSymbolId) ?? null;
+  /**
+   * What is selected, as one value, so the phone's properties sheet can rise when it changes.
+   *
+   * A symbol wins over a wall, and a wall over its room, which is the order the panels below are
+   * chosen in: the sheet must show what the tap was aimed at.
+   */
+  const selectionKey = selectedSymbol
+    ? `symbol:${selectedSymbol.id}`
+    : selectedWall
+      ? `wall:${selectedWall.id}`
+      : selectedRoom
+        ? `room:${selectedRoom.id}`
+        : null;
+  /*
+    Tap a wall and its properties are there — the whole point of a sheet rather than a column
+    below the fold, since typing a length used to mean scrolling away from the wall being typed.
+
+    Not while a finger is down: dragging a room selects it, and a sheet rising over the room you
+    are moving is the drawing hiding itself. A drag ends with the sheet still down and the
+    properties one tap away on the bar, which is the right answer for a move.
+  */
+  useEffect(() => {
+    if (!phone) return;
+    if (selectionKey === null) {
+      setSheet((open) => (open === "details" ? "none" : open));
+      return;
+    }
+    if (pointerOnPlan.current !== null) {
+      detailsWaiting.current = true;
+      return;
+    }
+    setSheet("details");
+  }, [phone, selectionKey]);
   // Islands share `selectedSymbolId` — ids are unique across both collections, and only one thing
   // is ever selected, so a second piece of selection state would only be able to disagree.
   const selectedIsland = selectedRoom?.freeCabinets.find((c) => c.id === selectedSymbolId) ?? null;
@@ -629,7 +731,16 @@ export function SketchEditor({
         }
       }
 
-      if (event.key === "Escape" && expanded) {
+      // A sheet is the innermost thing open, so Escape puts that away first.
+      if (event.key === "Escape" && sheet !== "none") {
+        closeSheet();
+        event.preventDefault();
+        return;
+      }
+
+      // Not on a phone: there full screen is the layout rather than a mode, and Escape would be
+      // leaving for a page that has nothing to show.
+      if (event.key === "Escape" && expanded && !phone) {
         setExpanded(false);
         event.preventDefault();
         return;
@@ -1309,8 +1420,268 @@ export function SketchEditor({
   const summary = sketchSummaryText(sketch);
   const zoomPercent = Math.round(view.scale * 100);
 
+  /** The sentence under the toolbar, or above the bar on a phone: what a tap does right now. */
+  const hintText =
+        mode === "moisture"
+          ? moistureTool === "read"
+            ? "Tap a wall to record a reading there. Drag either end of a mark to cover only the wet run."
+            : `${moistureTool === "erase" ? "Drag to erase" : "Drag to highlight"} the affected ${paintSurface}. Pinch to zoom.`
+          : tool === "wall"
+            ? wallNotice
+              ? wallNotice
+              : wallDraft.length === 0
+              ? "Tap where the wall starts. Taps snap to corners and to other walls."
+              : "Tap the next corner. Tap the first corner again to close a room; tap the last corner again, or Done, to keep the walls as drawn."
+          : sketch.rooms.length === 0
+          ? "Add a room, or tap Wall and draw one corner by corner."
+          : tool === "select"
+            ? "Tap to select, drag to move. Double-tap a wall or its measurement to type its length. For an L: tap Break, tap a wall, then drag one half out. Drag empty space to pan; pinch to zoom."
+            : tool === "pull"
+              ? wallNotice ?? "Drag out from a wall to pull the next room off it, or in for a closet inside — same wall, same doors. A tap pulls a 12' room out."
+            : tool === "island"
+              ? "Tap open floor inside the room to drop a free-standing cabinet."
+              : tool === "break"
+                ? "Tap a wall where you want a new corner, then drag that corner or either half of the wall to shape it."
+                : tool === "fixture"
+                  ? `Tap the wall where the ${FIXTURE_LABEL[pendingFixture].toLowerCase()} goes.`
+                  : tool === "opening"
+                    ? "Tap the wall where the opening goes, or press and drag along the wall to draw it as wide as you want."
+                    : tool === "door" || tool === "window"
+                      ? `Tap the wall where the ${SYMBOL_LABEL[tool].toLowerCase()} goes, or press and drag along the wall to draw it as wide as you want.`
+                      : `Tap the wall where the ${SYMBOL_LABEL[tool as SymbolType].toLowerCase()} goes.`;
+
+  /**
+   * Puts a sheet away and hands focus back to the bar.
+   *
+   * Without the focus, closing a sheet with the keyboard drops focus to the document body and the
+   * next Tab walks into the claim page behind a full-screen card nobody can see through.
+   */
+  function closeSheet() {
+    setSheet("none");
+    moreButtonRef.current?.focus();
+  }
+
+  /** Zoom, with Reset only where there is room for it. */
+  function zoomControls(withReset: boolean) {
+    return (
+      <div className="sketch-zoom">
+        <button type="button" className="btn-secondary" aria-label="Zoom out" onClick={() => setView((v) => ({ ...v, scale: clampZoom(v.scale / 1.2) }))}>
+          −
+        </button>
+        <span className="sketch-zoom-level">{zoomPercent}%</span>
+        <button type="button" className="btn-secondary" aria-label="Zoom in" onClick={() => setView((v) => ({ ...v, scale: clampZoom(v.scale * 1.2) }))}>
+          +
+        </button>
+        {withReset && (
+          <button type="button" className="btn-secondary" onClick={() => setView(defaultView())}>
+            Reset
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  /** The storeys, and what is traced under the one being drawn. Above the tools on the desktop,
+      in the More sheet on a phone — in both cases framing everything else rather than sitting
+      among the things you place. The order is physical, lowest at the left. */
+  const levelStrip = (!readOnly || levels.length > 1) && (
+      <div className="sketch-levels" role="toolbar" aria-label="Levels">
+        {!readOnly && (
+          <button type="button" className="btn-secondary" onClick={() => handleAddLevel(-1)} title="Add a storey below the lowest one">
+            + Level below
+          </button>
+        )}
+        <div className="option-group" role="group" aria-label="Level being shown">
+          {levels.map((level) => (
+            <button
+              key={level}
+              type="button"
+              className={`option-btn${level === activeLevel ? " selected" : ""}`}
+              aria-pressed={level === activeLevel}
+              onClick={() => handleSwitchLevel(level)}
+            >
+              {levelLabel(level)}
+            </button>
+          ))}
+        </div>
+        {!readOnly && (
+          <button type="button" className="btn-secondary" onClick={() => handleAddLevel(1)} title="Add a storey above the highest one">
+            + Level above
+          </button>
+        )}
+        {levels.length > 1 && (
+          <label className="sketch-underlay">
+            {/* "Trace over" named one use of this and undersold it — mostly it is just seeing what
+                is above or below while you work, and tracing is one thing you might do with that. */}
+            <span>Also show</span>
+            <select
+              value={resolvedUnderlay === null ? "none" : String(resolvedUnderlay)}
+              onChange={(e) => {
+                setUnderlayTouched(true);
+                setUnderlayLevel(e.target.value === "none" ? null : Number(e.target.value));
+              }}
+            >
+              <option value="none">Nothing</option>
+              {levels
+                .filter((level) => level !== activeLevel)
+                .map((level) => (
+                  <option key={level} value={String(level)}>
+                    {levelLabel(level)}
+                  </option>
+                ))}
+            </select>
+          </label>
+        )}
+      </div>
+  );
+
+  /*
+    Every tool as a node under its name — see `lib/sketchTouch.ts` for why the names are a list
+    of their own. The desktop row and the phone's bar and sheet all draw from this one map, so a
+    tool cannot be worded one way in one place and another way in the other.
+  */
+  const noRooms = sketch.rooms.length === 0;
+  const placementNode = (key: SketchToolKey, label: string) => (
+    <button
+      key={key}
+      type="button"
+      className={`option-btn${tool === key ? " selected" : ""}`}
+      aria-pressed={tool === key}
+      disabled={noRooms && key !== "wall"}
+      onClick={() => setTool(tool === key ? "select" : (key as ToolMode))}
+    >
+      {label}
+    </button>
+  );
+  const toolNodes: Record<SketchToolKey, ReactNode> = {
+    /* Phone only. On the desktop a tool toggles back to selecting, and a button for the thing
+       that happens by itself would be a fourteenth button. On a bar of three it is the way back
+       from a tool, and it has to be visible. */
+    select: (
+      <button
+        key="select"
+        type="button"
+        className={`option-btn${tool === "select" ? " selected" : ""}`}
+        aria-pressed={tool === "select"}
+        onClick={() => setTool("select")}
+      >
+        Select
+      </button>
+    ),
+    room: (
+      <button key="room" type="button" className="btn-secondary" onClick={handleAddRoom}>
+        + Add room
+      </button>
+    ),
+    /* Stairs are a room, not a fitting — see `StairsData`. Added the same way one is. */
+    stairs: (
+      <button key="stairs" type="button" className="btn-secondary" onClick={handleAddStairs}>
+        + Add stairs
+      </button>
+    ),
+    /* A room measured by the phone scanner, from the JSON it saves next to its point cloud. */
+    scan: (
+      <button key="scan" type="button" className="btn-secondary" onClick={() => scanFileRef.current?.click()}>
+        Import scan
+      </button>
+    ),
+    /* Walls a corner at a time: a partition into a room, or a room of any shape from scratch.
+       The one tool that works on an empty sketch, since it is a way to start one. */
+    wall: placementNode("wall", "Wall"),
+    /* The next room over, off a wall of this one — same wall, same doors. */
+    pull: placementNode("pull", "Pull room"),
+    break: placementNode("break", "Break"),
+    door: placementNode("door", "Door"),
+    /* A missing wall or a cased opening: the same hole in a wall, described by width and head
+       height rather than by a leaf. */
+    opening: placementNode("opening", "Opening"),
+    window: placementNode("window", "Window"),
+    cabinet: placementNode("cabinet", "Cabinet"),
+    island: placementNode("island", "Island"),
+    /* Picking a fixture arms the tool in the same action — two steps for one intent would just
+       be a way to have the wrong fixture selected. */
+    fixture: (
+      <select
+        key="fixture"
+        className={`sketch-fixture-select${tool === "fixture" ? " selected" : ""}`}
+        aria-label="Fixture to place"
+        value={tool === "fixture" ? pendingFixture : ""}
+        disabled={noRooms}
+        onChange={(e) => {
+          if (e.target.value === "") {
+            setTool("select");
+            return;
+          }
+          setPendingFixture(e.target.value as FixtureType);
+          setTool("fixture");
+        }}
+      >
+        <option value="">Fixture…</option>
+        {(Object.keys(FIXTURE_LABEL) as FixtureType[]).map((type) => (
+          <option key={type} value={type}>
+            {FIXTURE_LABEL[type]}
+          </option>
+        ))}
+      </select>
+    ),
+    sizes: (
+      <button
+        key="sizes"
+        type="button"
+        className={`option-btn${showSizes ? " selected" : ""}`}
+        aria-pressed={showSizes}
+        onClick={() => setShowSizes((v) => !v)}
+      >
+        Sizes
+      </button>
+    ),
+  };
+
+  const brushInHand = moistureTool === "paint" || moistureTool === "erase";
+  const moistureNode = (key: "read" | "paint" | "erase", label: string) => (
+    <button
+      key={key}
+      type="button"
+      className={`option-btn${moistureTool === key ? " selected" : ""}`}
+      aria-pressed={moistureTool === key}
+      onClick={() => setMoistureTool(key)}
+    >
+      {label}
+    </button>
+  );
+  const surfaceNode = (key: "floor" | "ceiling", label: string) => (
+    <button
+      key={key}
+      type="button"
+      className={`option-btn${paintSurface === key ? " selected" : ""}`}
+      aria-pressed={paintSurface === key}
+      onClick={() => setPaintSurface(key)}
+    >
+      {label}
+    </button>
+  );
+  const moistureNodes: Record<MoistureToolKey, ReactNode> = {
+    read: moistureNode("read", "Wall reading"),
+    paint: moistureNode("paint", "Highlight"),
+    erase: moistureNode("erase", "Erase"),
+    floor: surfaceNode("floor", "Floor"),
+    ceiling: surfaceNode("ceiling", "Ceiling"),
+    /* The clean sketch is one toggle away, because it is the same drawing without this layer. */
+    showMoisture: (
+      <button
+        key="showMoisture"
+        type="button"
+        className={`option-btn${showMoisture ? " selected" : ""}`}
+        aria-pressed={showMoisture}
+        onClick={() => setShowMoisture((v) => !v)}
+      >
+        Show moisture
+      </button>
+    ),
+  };
+
   return (
-    <div className={`card sketch-card${expanded ? " sketch-card-expanded" : ""}`}>
+    <div className={`card sketch-card${expanded ? " sketch-card-expanded" : ""}${phone ? " sketch-card-phone" : ""}`}>
       <div className="sketch-header">
         <div>
           <h2>Sketch</h2>
@@ -1360,14 +1731,18 @@ export function SketchEditor({
         >
           {readOnly ? "🔒 View only" : "Editing"}
         </button>
-        <button
-          type="button"
-          className="btn-secondary"
-          onClick={() => setExpanded((v) => !v)}
-          title={expanded ? "Back to the page (Esc)" : "Give the sketch the whole screen"}
-        >
-          {expanded ? "Exit full screen" : "Full screen"}
-        </button>
+        {/* A phone is already full screen and has no page to go back to, so the control that
+            would only ever say "Exit" is not shown there. */}
+        {!phone && (
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={() => setExpanded((v) => !v)}
+            title={expanded ? "Back to the page (Esc)" : "Give the sketch the whole screen"}
+          >
+            {expanded ? "Exit full screen" : "Full screen"}
+          </button>
+        )}
         {/*
           The way out, and it looks like it.
 
@@ -1378,9 +1753,12 @@ export function SketchEditor({
           Still hidden in full screen: Exit full screen is the way back from there, and it sits right
           beside this.
         */}
-        {!expanded && (
+        {/* Always there on a phone: it is the only way back, since full screen is not a mode. */}
+        {(!expanded || phone) && (
           <button className="btn-primary sketch-done" onClick={onClose}>
-            Done — back to claim
+            {/* The phone says it in one word: the header is a single row there and the sentence
+                would take half of it. */}
+            {phone ? "Done" : "Done — back to claim"}
           </button>
         )}
       </div>
@@ -1400,75 +1778,13 @@ export function SketchEditor({
         only adding a storey is an edit, and only that is held back while locked. Hidden while
         locked on a single-storey sketch, where one button that is already pressed says nothing.
       */}
-      {(!readOnly || levels.length > 1) && (
-      <div className="sketch-levels" role="toolbar" aria-label="Levels">
-        {!readOnly && (
-          <button type="button" className="btn-secondary" onClick={() => handleAddLevel(-1)} title="Add a storey below the lowest one">
-            + Level below
-          </button>
-        )}
-        <div className="option-group" role="group" aria-label="Level being shown">
-          {levels.map((level) => (
-            <button
-              key={level}
-              type="button"
-              className={`option-btn${level === activeLevel ? " selected" : ""}`}
-              aria-pressed={level === activeLevel}
-              onClick={() => handleSwitchLevel(level)}
-            >
-              {levelLabel(level)}
-            </button>
-          ))}
-        </div>
-        {!readOnly && (
-          <button type="button" className="btn-secondary" onClick={() => handleAddLevel(1)} title="Add a storey above the highest one">
-            + Level above
-          </button>
-        )}
-        {levels.length > 1 && (
-          <label className="sketch-underlay">
-            {/* "Trace over" named one use of this and undersold it — mostly it is just seeing what
-                is above or below while you work, and tracing is one thing you might do with that. */}
-            <span>Also show</span>
-            <select
-              value={resolvedUnderlay === null ? "none" : String(resolvedUnderlay)}
-              onChange={(e) => {
-                setUnderlayTouched(true);
-                setUnderlayLevel(e.target.value === "none" ? null : Number(e.target.value));
-              }}
-            >
-              <option value="none">Nothing</option>
-              {levels
-                .filter((level) => level !== activeLevel)
-                .map((level) => (
-                  <option key={level} value={String(level)}>
-                    {levelLabel(level)}
-                  </option>
-                ))}
-            </select>
-          </label>
-        )}
-      </div>
-      )}
+      {!phone && levelStrip}
 
-      {readOnly ? null : mode === "moisture" ? (
+      {/* The desktop toolbars. A phone gets the same nodes on its bottom bar and in More. */}
+      {!phone && !readOnly && (mode === "moisture" ? (
         <div className="sketch-toolbar" role="toolbar" aria-label="Moisture tools">
           <div className="option-group" role="group" aria-label="Moisture tool">
-            {([
-              { value: "read", label: "Wall reading" },
-              { value: "paint", label: "Highlight" },
-              { value: "erase", label: "Erase" },
-            ] as const).map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                className={`option-btn${moistureTool === option.value ? " selected" : ""}`}
-                aria-pressed={moistureTool === option.value}
-                onClick={() => setMoistureTool(option.value)}
-              >
-                {option.label}
-              </button>
-            ))}
+            {(["read", "paint", "erase"] as MoistureToolKey[]).map((key) => moistureNodes[key])}
           </div>
           {/*
             Which surface the brush paints — shown only with a brush in hand.
@@ -1479,142 +1795,40 @@ export function SketchEditor({
             the tool being called "Highlight" rather than "Highlight floor" — pressing it and then
             being asked which surface is a sequence that explains itself.
           */}
-          {(moistureTool === "paint" || moistureTool === "erase") && (
+          {brushInHand && (
             <div className="option-group" role="group" aria-label="Surface to highlight">
-              {([
-                { value: "floor", label: "Floor" },
-                { value: "ceiling", label: "Ceiling" },
-              ] as const).map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  className={`option-btn${paintSurface === option.value ? " selected" : ""}`}
-                  aria-pressed={paintSurface === option.value}
-                  onClick={() => setPaintSurface(option.value)}
-                >
-                  {option.label}
-                </button>
-              ))}
+              {(["floor", "ceiling"] as MoistureToolKey[]).map((key) => moistureNodes[key])}
             </div>
           )}
-          {/* The clean sketch is one toggle away, because it is the same drawing without this layer. */}
-          <button
-            type="button"
-            className={`option-btn${showMoisture ? " selected" : ""}`}
-            aria-pressed={showMoisture}
-            onClick={() => setShowMoisture((v) => !v)}
-          >
-            Show moisture
-          </button>
-          <div className="sketch-zoom">
-            <button type="button" className="btn-secondary" aria-label="Zoom out" onClick={() => setView((v) => ({ ...v, scale: clampZoom(v.scale / 1.2) }))}>
-              −
-            </button>
-            <span className="sketch-zoom-level">{zoomPercent}%</span>
-            <button type="button" className="btn-secondary" aria-label="Zoom in" onClick={() => setView((v) => ({ ...v, scale: clampZoom(v.scale * 1.2) }))}>
-              +
-            </button>
-          </div>
+          {moistureNodes.showMoisture}
+          {zoomControls(false)}
         </div>
       ) : (
-      <>
-      <div className="sketch-toolbar" role="toolbar" aria-label="Sketch tools">
-        <button type="button" className="btn-secondary" onClick={handleAddRoom}>
-          + Add room
-        </button>
-        {/* Stairs are a room, not a fitting — see `StairsData`. Added the same way one is. */}
-        <button type="button" className="btn-secondary" onClick={handleAddStairs}>
-          + Add stairs
-        </button>
-        {/* A room measured by the phone scanner, from the JSON it saves next to its point cloud. */}
-        <button type="button" className="btn-secondary" onClick={() => scanFileRef.current?.click()}>
-          Import scan
-        </button>
-        <input
-          ref={scanFileRef}
-          type="file"
-          accept=".json,application/json"
-          hidden
-          aria-label="Room scan file"
-          onChange={(e) => {
-            const file = e.target.files?.[0];
-            // Reset so choosing the same file again still fires a change.
-            e.target.value = "";
-            if (file) void handleImportScan(file);
-          }}
-        />
-        <div className="option-group" role="group" aria-label="Placement tool">
-          {([
-            /* Walls a corner at a time: a partition into a room, or a room of any shape from
-               scratch. The one tool that works on an empty sketch, since it is a way to start one. */
-            { tool: "wall", label: "Wall" },
-            /* The next room over, off a wall of this one — same wall, same doors. */
-            { tool: "pull", label: "Pull room" },
-            { tool: "break", label: "Break" },
-            { tool: "door", label: "Door" },
-            /* A missing wall or a cased opening: the same hole in a wall, described by width and
-               head height rather than by a leaf. */
-            { tool: "opening", label: "Opening" },
-            { tool: "window", label: "Window" },
-            { tool: "cabinet", label: "Cabinet" },
-            { tool: "island", label: "Island" },
-          ] as { tool: ToolMode; label: string }[]).map((option) => (
-            <button
-              key={option.tool}
-              type="button"
-              className={`option-btn${tool === option.tool ? " selected" : ""}`}
-              aria-pressed={tool === option.tool}
-              disabled={sketch.rooms.length === 0 && option.tool !== "wall"}
-              onClick={() => setTool(tool === option.tool ? "select" : option.tool)}
-            >
-              {option.label}
-            </button>
-          ))}
+        <div className="sketch-toolbar" role="toolbar" aria-label="Sketch tools">
+          {SKETCH_DESKTOP_LEADING.map((key) => toolNodes[key])}
+          <div className="option-group" role="group" aria-label="Placement tool">
+            {SKETCH_PLACEMENT_KEYS.map((key) => toolNodes[key])}
+          </div>
+          {SKETCH_DESKTOP_TRAILING.map((key) => toolNodes[key])}
+          {zoomControls(true)}
         </div>
-        {/*
-          Picking a fixture arms the tool in the same action — two steps for one intent would just be
-          a way to have the wrong fixture selected.
-        */}
-        <select
-          className={`sketch-fixture-select${tool === "fixture" ? " selected" : ""}`}
-          aria-label="Fixture to place"
-          value={tool === "fixture" ? pendingFixture : ""}
-          disabled={sketch.rooms.length === 0}
-          onChange={(e) => {
-            if (e.target.value === "") {
-              setTool("select");
-              return;
-            }
-            setPendingFixture(e.target.value as FixtureType);
-            setTool("fixture");
-          }}
-        >
-          <option value="">Fixture…</option>
-          {(Object.keys(FIXTURE_LABEL) as FixtureType[]).map((type) => (
-            <option key={type} value={type}>
-              {FIXTURE_LABEL[type]}
-            </option>
-          ))}
-        </select>
+      ))}
 
-        <button type="button" className={`option-btn${showSizes ? " selected" : ""}`} aria-pressed={showSizes} onClick={() => setShowSizes((v) => !v)}>
-          Sizes
-        </button>
-        <div className="sketch-zoom">
-          <button type="button" className="btn-secondary" aria-label="Zoom out" onClick={() => setView((v) => ({ ...v, scale: clampZoom(v.scale / 1.2) }))}>
-            −
-          </button>
-          <span className="sketch-zoom-level">{zoomPercent}%</span>
-          <button type="button" className="btn-secondary" aria-label="Zoom in" onClick={() => setView((v) => ({ ...v, scale: clampZoom(v.scale * 1.2) }))}>
-            +
-          </button>
-          <button type="button" className="btn-secondary" onClick={() => setView(defaultView())}>
-            Reset
-          </button>
-        </div>
-      </div>
-      </>
-      )}
+      {/* Mounted outside the toolbars: Import scan lives on the bar on a phone and in the desktop
+          row otherwise, and the input it opens must exist wherever the button is. */}
+      <input
+        ref={scanFileRef}
+        type="file"
+        accept=".json,application/json"
+        hidden
+        aria-label="Room scan file"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          // Reset so choosing the same file again still fires a change.
+          e.target.value = "";
+          if (file) void handleImportScan(file);
+        }}
+      />
 
       {/*
         Two columns when expanded, one stacked flow when not — see `.sketch-body` in globals.css.
@@ -1657,37 +1871,41 @@ export function SketchEditor({
 
       {/* The hint follows the MODE first: the sketching instructions describe gestures that are
           switched off while mapping, so leaving them up told the PM to do impossible things. */}
-      <p className="field-note sketch-hint">
-        {mode === "moisture"
-          ? moistureTool === "read"
-            ? "Tap a wall to record a reading there. Drag either end of a mark to cover only the wet run."
-            : `${moistureTool === "erase" ? "Drag to erase" : "Drag to highlight"} the affected ${paintSurface}. Pinch to zoom.`
-          : tool === "wall"
-            ? wallNotice
-              ? wallNotice
-              : wallDraft.length === 0
-              ? "Tap where the wall starts. Taps snap to corners and to other walls."
-              : "Tap the next corner. Tap the first corner again to close a room; tap the last corner again, or Done, to keep the walls as drawn."
-          : sketch.rooms.length === 0
-          ? "Add a room, or tap Wall and draw one corner by corner."
-          : tool === "select"
-            ? "Tap to select, drag to move. Double-tap a wall or its measurement to type its length. For an L: tap Break, tap a wall, then drag one half out. Drag empty space to pan; pinch to zoom."
-            : tool === "pull"
-              ? wallNotice ?? "Drag out from a wall to pull the next room off it, or in for a closet inside — same wall, same doors. A tap pulls a 12' room out."
-            : tool === "island"
-              ? "Tap open floor inside the room to drop a free-standing cabinet."
-              : tool === "break"
-                ? "Tap a wall where you want a new corner, then drag that corner or either half of the wall to shape it."
-                : tool === "fixture"
-                  ? `Tap the wall where the ${FIXTURE_LABEL[pendingFixture].toLowerCase()} goes.`
-                  : tool === "opening"
-                    ? "Tap the wall where the opening goes, or press and drag along the wall to draw it as wide as you want."
-                    : tool === "door" || tool === "window"
-                      ? `Tap the wall where the ${SYMBOL_LABEL[tool].toLowerCase()} goes, or press and drag along the wall to draw it as wide as you want.`
-                      : `Tap the wall where the ${SYMBOL_LABEL[tool as SymbolType].toLowerCase()} goes.`}
-      </p>
+      {/* On a phone this is the one line above the bar — see `sketch-bar-line` below. */}
+      {!phone && <p className="field-note sketch-hint">{hintText}</p>}
 
-      <div className={`sketch-canvas-wrap${readOnly ? " sketch-canvas-readonly" : ""}`} ref={containerRef}>
+      <div
+        className={`sketch-canvas-wrap${readOnly ? " sketch-canvas-readonly" : ""}`}
+        ref={containerRef}
+        /* Capture, so the finger is on record before Konva's own handlers select anything. */
+        onPointerDownCapture={(e) => {
+          pointerOnPlan.current = { x: e.clientX, y: e.clientY };
+          detailsWaiting.current = false;
+        }}
+        onPointerUp={(e) => {
+          const from = pointerOnPlan.current;
+          pointerOnPlan.current = null;
+          const waiting = detailsWaiting.current;
+          detailsWaiting.current = false;
+          if (!phone) return;
+          // A tap, not a drag: a move is a placement or a nudge, and its properties can wait for
+          // the estimator to ask for them.
+          const still = from !== null && Math.hypot(e.clientX - from.x, e.clientY - from.y) <= TAP_SLOP_PX;
+          if (!still) return;
+          /*
+            `waiting` is the tap that CHANGED the selection — the effect above saw the finger down
+            and left it here. `selectionKey` is the tap on something already selected, which
+            changes no state at all and so reaches no effect: without it, a room dragged into place
+            (selected, sheet deliberately down) could never be tapped for its name again, and
+            neither could anything whose sheet had just been closed.
+          */
+          if (waiting || selectionKey !== null) setSheet("details");
+        }}
+        onPointerCancel={() => {
+          pointerOnPlan.current = null;
+          detailsWaiting.current = false;
+        }}
+      >
         <SketchCanvas
           rooms={activeRooms}
           underlayRooms={underlayRooms}
@@ -1869,7 +2087,23 @@ export function SketchEditor({
       </div>
       </div>
 
-      <div className="sketch-side">
+      {/*
+        The properties: a column beside the plan on the desktop, a sheet that rises over it on a
+        phone. Same DOM either way — a panel that had to be rebuilt for the small screen would be
+        two panels to keep in step, and the one nobody is looking at is the one that rots.
+      */}
+      <div
+        className={`sketch-side${phone ? ` sketch-sheet${sheet === "details" ? " sketch-sheet-open" : ""}` : ""}`}
+        aria-hidden={phone && sheet !== "details"}
+      >
+      {phone && (
+        <div className="sketch-sheet-head">
+          <span className="sketch-sheet-grip" aria-hidden="true" />
+          <button type="button" className="btn-secondary" onClick={closeSheet}>
+            Close
+          </button>
+        </div>
+      )}
 
       {mode === "moisture" && <MoistureLegend />}
 
@@ -2210,6 +2444,103 @@ export function SketchEditor({
       )}
       </div>
       </div>
+
+      {/*
+        The bottom bar, and what it opens.
+
+        Thumbs reach the bottom of a phone and not the top of it, so the tools that carry a
+        walk-through sit there: Select, Wall, Door, then More for the rest — the same shape as the
+        companion's chip bar, because the same estimator uses both in the same hour. Above it, one
+        line saying what a tap will do now. Both sheets are the card's children rather than the
+        body's, so they rise over the plan instead of scrolling with it.
+      */}
+      {phone && (
+        <>
+          {!readOnly && <p className="field-note sketch-bar-line">{hintText}</p>}
+          <div className="sketch-bar" role="toolbar" aria-label={mode === "moisture" ? "Moisture tools" : "Sketch tools"}>
+            <div className="sketch-bar-tools">
+              {!readOnly && (mode === "moisture"
+                ? moistureKeys(moistureTool).bar.map((key) => moistureNodes[key])
+                : SKETCH_BAR_KEYS.map((key) => toolNodes[key]))}
+            </div>
+            {/* Outside the row that scrolls: the tools can run off the end of a 360px bar, and the
+                way to the ones that did must not be the thing that ran off it. */}
+            <button
+              ref={moreButtonRef}
+              type="button"
+              className={`option-btn sketch-bar-more${sheet === "more" ? " selected" : ""}`}
+              aria-pressed={sheet === "more"}
+              aria-expanded={sheet === "more"}
+              onClick={() => setSheet((open) => (open === "more" ? "none" : "more"))}
+            >
+              More…
+            </button>
+            {zoomControls(false)}
+          </div>
+          {/*
+            Only More darkens the plan behind it.
+
+            The properties sheet is not a dialog — it is what is selected, and the plan has to stay
+            live underneath: the second tap of a double-tap to type a wall length was landing on the
+            backdrop, which put the sheet away instead of opening the length box. Tapping the plan
+            with the sheet up selects something else and the sheet follows it, which is what an
+            inspector should do. More is a menu, so it is modal and a tap off it puts it away.
+          */}
+          {sheet === "more" && (
+            <button
+              type="button"
+              className="sketch-sheet-backdrop"
+              /* Hidden from the keyboard and from a screen reader: it is a gesture, not a control,
+                 and as a control it was an invisible "Close" covering the whole editor, announced
+                 immediately before the sheet's own Close. */
+              aria-hidden="true"
+              tabIndex={-1}
+              onClick={closeSheet}
+            />
+          )}
+          <div className={`sketch-sheet sketch-sheet-more${sheet === "more" ? " sketch-sheet-open" : ""}`} aria-hidden={sheet !== "more"}>
+            <div className="sketch-sheet-head">
+              <span className="sketch-sheet-grip" aria-hidden="true" />
+              <button type="button" className="btn-secondary" onClick={closeSheet}>
+                Close
+              </button>
+            </div>
+            {levelStrip}
+            {!readOnly && (
+              <div
+                className="sketch-sheet-grid"
+                /*
+                  Picking a tool puts the sheet away, because the next thing to do is tap the plan
+                  and the sheet is over it — Window then meant Window, Close, tap. A tap on the
+                  fixture picker must NOT close it, since its menu is still open at that moment, so
+                  that one closes on its change instead.
+                */
+                onClick={(e) => {
+                  if ((e.target as HTMLElement).closest("button") !== null) closeSheet();
+                }}
+                onChange={closeSheet}
+              >
+                {mode === "moisture"
+                  ? moistureKeys(moistureTool).more.map((key) => moistureNodes[key])
+                  : sketchMoreKeys().map((key) => toolNodes[key])}
+              </div>
+            )}
+            {/* Read-only has no tools to list, so Sizes is offered on its own: a locked plan is
+                looked at, and the measurements are most of what there is to look at. */}
+            {readOnly && <div className="sketch-sheet-grid">{toolNodes.sizes}</div>}
+            <div className="sketch-sheet-row">
+              <button type="button" className="btn-secondary" onClick={() => setView(defaultView())}>
+                Reset zoom
+              </button>
+              {/* The way to the quantities and the wall lengths with nothing selected — otherwise
+                  the sheet they live in only ever rises for a selection. */}
+              <button type="button" className="btn-secondary" onClick={() => setSheet("details")}>
+                Quantities & data
+              </button>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

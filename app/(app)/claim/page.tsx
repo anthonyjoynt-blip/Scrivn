@@ -78,7 +78,7 @@ import { WorkOrderSelector } from "@/components/WorkOrderSelector";
 import { SketchEditor } from "@/components/sketch/SketchEditor";
 import { type Sketch, emptySketch, hasSketchContent, knownRoomNames, levelsOf, wallsOf } from "@/lib/sketch";
 import { type MoistureMap, emptyMoistureMap, hasMoistureContent, pruneMoisture, roomMoistureSummary } from "@/lib/moisture";
-import { SCAN_DROP, type PendingScan, adoptScan, convertScan, scanDecision } from "@/lib/scanInbox";
+import { SCAN_DROP, type PendingScan, adoptScan, convertScan, namedRooms, scanDecision } from "@/lib/scanInbox";
 import { useScanInbox } from "@/lib/useScanInbox";
 import { ScanInboxMessage, ScanInboxNotice, scanAdoptedMessage } from "@/components/sketch/ScanInboxNotice";
 import { DEFAULT_EQUIPMENT_SETTINGS, claimEquipment } from "@/lib/equipment";
@@ -827,8 +827,21 @@ export default function Home() {
    * sketch drawn at intake has no room names to offer yet but one drawn after extraction does.
    */
   const sketchRoomNames = useMemo(
-    () => knownRoomNames({ extractionRooms: extraction?.rooms, dgigRooms: dgigData.rooms, contentsRooms: bricABrac.rooms }),
-    [extraction, dgigData.rooms, bricABrac.rooms],
+    () =>
+      knownRoomNames({
+        extractionRooms: extraction?.rooms,
+        dgigRooms: dgigData.rooms,
+        contentsRooms: bricABrac.rooms,
+        /*
+          And the rooms the sketch already has names for, which on a scanned claim is where the
+          phone's names are: the estimator names each room at Review on the walk-through, and a
+          second scan of the same house should offer those names back rather than make them type
+          "Basement Bedroom" again into a datalist that has never heard of it. `namedRooms` drops
+          the "Room 3" placeholders, which are not names anyone means to reuse.
+        */
+        sketchRooms: namedRooms(sketch.rooms).map((roomName) => ({ roomName })),
+      }),
+    [extraction, dgigData.rooms, bricABrac.rooms, sketch.rooms],
   );
   // Every open question answered — equivalently, nothing left open. Uses the open list rather
   // than the rendered one, which still carries the questions already answered.
