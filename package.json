@@ -25,6 +25,7 @@
     "test:scan-import": "node test/sketch/scanImport.mjs",
     "test:closet": "node test/sketch/closet.mjs",
     "test:touch": "node test/sketch/touch.mjs",
+    "test:square": "node test/sketch/square.mjs",
     "test:moisture": "node test/moisture/run.mjs",
     "test:sw": "node test/sw/run.mjs",
     "test:letterhead": "node test/letterhead/run.mjs",

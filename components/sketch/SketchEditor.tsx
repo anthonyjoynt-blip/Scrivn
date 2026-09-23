@@ -11,6 +11,7 @@ import {
   type SketchRoom,
   type SketchSymbol,
   type SketchView,
+  type Vertex,
   type SymbolType,
   SYMBOL_LABEL,
   clampZoom,
@@ -105,6 +106,7 @@ import { FreeCabinetPanel, SymbolPanel } from "./SymbolPanel";
 import { type Obstacle, conformedDragWall, obstaclesFor, placeNewRoom, pullRoomFromWall, viewCentredOn, wallDragMeetsWall } from "@/lib/roomPlacement";
 import { QuantitiesPanel } from "./QuantitiesPanel";
 import { type QuantityOptions, DEFAULT_QUANTITY_OPTIONS } from "@/lib/sketchQuantities";
+import { SQUARE_TOLERANCE_DEG, leaningCorners, squareUpRoom } from "@/lib/sketchSquare";
 import type { MoistureTool, ToolMode } from "./SketchCanvas";
 import {
   type MoistureMap,
@@ -390,6 +392,14 @@ export function SketchEditor({
    */
   const [deletedRoom, setDeletedRoom] = useState<{ room: SketchRoom; index: number; moisture: RoomMoisture } | null>(null);
   /**
+   * The corners as they were before the last Square up, for the one step back a delete gets.
+   *
+   * Squaring moves several corners at once and there is no way to drag them back to where they
+   * were, which is the difference between this and every other edit in this panel: a wall you
+   * drag, you drag back. So it is offered as an undo rather than trusted to be right.
+   */
+  const [squared, setSquared] = useState<{ roomId: string; vertices: Vertex[]; count: number } | null>(null);
+  /**
    * What the last scan import had to say — a refusal, or the caveats of a room that did come in
    * (no ceiling seen, a gap left as wall). Shown in the same bar as the delete undo, and cleared
    * the same way: by the PM dismissing it.
@@ -647,6 +657,8 @@ export function SketchEditor({
     [onMoistureChange],
   );
   const selectedSymbol = selectedRoom?.symbols.find((s) => s.id === selectedSymbolId) ?? null;
+  /** The selected room's corners that are near enough to square to be worth offering. */
+  const leaning = useMemo(() => (selectedRoom === null ? [] : leaningCorners(selectedRoom)), [selectedRoom]);
   /**
    * What is selected, as one value, so the phone's properties sheet can rise when it changes.
    *
@@ -1262,6 +1274,30 @@ export function SketchEditor({
   }
 
   /** Puts the last deleted room back where it was, readings and all. */
+  /**
+   * Squares the leaning corners of [roomId] — see `lib/sketchSquare.ts` for what that means.
+   *
+   * The whole room at once rather than a corner at a time, because squaring one often squares its
+   * neighbour for free (the kitchen's jog did), and because picking a corner on a phone is fiddly
+   * when the fix is "make this room the shape it obviously is".
+   */
+  function handleSquareUp(roomId: string) {
+    const room = sketch.rooms.find((r) => r.id === roomId);
+    if (!room) return;
+    const before = room.vertices;
+    const result = squareUpRoom(room);
+    if (result.moved.length === 0) return;
+    updateRoom(roomId, () => result.room);
+    setSquared({ roomId, vertices: before, count: result.moved.length });
+  }
+
+  function restoreSquared() {
+    if (!squared) return;
+    const { roomId, vertices } = squared;
+    setSquared(null);
+    updateRoom(roomId, (room) => ({ ...room, vertices }));
+  }
+
   function restoreRoom() {
     if (!deletedRoom) return;
     onChange((prev) => {
@@ -1893,6 +1929,16 @@ export function SketchEditor({
           </button>
         </div>
       )}
+      {squared && !deletedRoom && (
+        <div className="sketch-undo" role="status">
+          <span>
+            {squared.count} corner{squared.count === 1 ? "" : "s"} squared.
+          </span>
+          <button type="button" className="btn-secondary" onClick={restoreSquared}>
+            Undo
+          </button>
+        </div>
+      )}
       {deletedWall && !deletedRoom && (
         <div className="sketch-undo" role="status">
           <span>Wall deleted.</span>
@@ -2436,11 +2482,32 @@ export function SketchEditor({
               />
             </>
           ) : (
-            <div className="actions-row">
-              <button className="btn-secondary" onClick={() => handleDeleteRoom(selectedRoom.id)} title="Delete key">
-                Delete room
-              </button>
-            </div>
+            <>
+              {/*
+                Offered only when there is something to square, with the count in the label: a
+                button that says what it is about to do needs no confirmation, and one that would
+                do nothing should not be there to press.
+              */}
+              {leaning.length > 0 && (
+                <div className="question">
+                  <label className="prompt">Corners</label>
+                  <div className="actions-row">
+                    <button className="btn-secondary" onClick={() => handleSquareUp(selectedRoom.id)}>
+                      Square up {leaning.length} corner{leaning.length === 1 ? "" : "s"}
+                    </button>
+                  </div>
+                  <p className="field-note">
+                    Moves each one the shortest way along its longer wall until the two walls meet square. A corner more
+                    than {SQUARE_TOLERANCE_DEG}&deg; out is left alone — that is a shape somebody drew, not a slip.
+                  </p>
+                </div>
+              )}
+              <div className="actions-row">
+                <button className="btn-secondary" onClick={() => handleDeleteRoom(selectedRoom.id)} title="Delete key">
+                  Delete room
+                </button>
+              </div>
+            </>
           )}
         </div>
       )}

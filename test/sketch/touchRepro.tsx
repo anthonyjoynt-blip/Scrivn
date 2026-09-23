@@ -4,6 +4,9 @@
  *
  *   node test/sketch/touchRepro.mjs        (serves on :4622)
  *
+ * Seeded with the kitchen's leaning jog from room_20260922_201320 as well, which is the case
+ * Square up exists for — see lib/sketchSquare.ts.
+ *
  * Held open at 375 x 812 with a coarse pointer, which is what `PHONE_LAYOUT_QUERY` asks about.
  */
 
@@ -38,8 +41,36 @@ function makeRoom(id: string, name: string, x: number, y: number, w: number, h: 
   };
 }
 
+/**
+ * The kitchen's jog from room_20260922_201320, to scale: two parallel walls joined by a diagonal
+ * that should be perpendicular. Square up is the fix — see lib/sketchSquare.ts.
+ */
+const M = 39.3701;
+const jog: SketchRoom = {
+  id: "jog",
+  name: "Kitchen",
+  level: 0,
+  vertices: ([
+    [-3.12, -0.79],
+    [-0.57, -0.79],
+    [0.02, -2.89],
+    [4.85, -2.89],
+    [4.85, 1.5],
+    [-3.12, 1.5],
+  ] as [number, number][]).map(([x, y], i) => ({ id: `jog-v${i}`, x: 260 + x * M, y: 220 + y * M })),
+  ceilingHeightFeet: 8,
+  ceilingType: "flat",
+  ceilingPeakFeet: null,
+  stairs: null,
+  parentRoomId: null,
+  nestingOptOut: false,
+  symbols: [],
+  freeCabinets: [],
+};
+
 const seeded: Sketch = {
   rooms: [
+    jog,
     // Marked as a scan that read no ceiling, so the panel's "Not measured" note is on screen here.
     { ...makeRoom("kitchen", "Kitchen", 30, 30, 14, 11, 0), ceilingMeasured: false },
     makeRoom("hall", "Hall", 30 + 14 * FT, 30, 4, 11, 0),
