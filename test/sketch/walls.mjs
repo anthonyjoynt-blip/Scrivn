@@ -680,6 +680,53 @@ export async function runWallChecks() {
     assert(s.openingLevel({ rooms: [], freeWalls: [freeWall("f", [[0, 0], [60, 0]], { level: 2 })] }) === 2, "a wall alone decides too");
   });
 
+  test("the view frames what is on the storey, centred", () => {
+    // The 20' x 16' box: 240 x 192 world pixels at the origin.
+    const r = box();
+    const view = s.fitView(s.levelBounds({ rooms: [r] }, 0), 400, 300);
+    // The short way decides: (300 - 48) / 192.
+    assert(Math.abs(view.scale - 252 / 192) < 0.001, `scale ${view.scale}`);
+    // The room's middle lands in the canvas's middle, both ways.
+    const middleX = view.x + 120 * view.scale;
+    const middleY = view.y + 96 * view.scale;
+    assert(Math.abs(middleX - 200) < 0.001, `x centre ${middleX}`);
+    assert(Math.abs(middleY - 150) < 0.001, `y centre ${middleY}`);
+  });
+
+  test("one small room is framed but not blown up past the fit's ceiling", () => {
+    const closet = room([[0, 0], [48, 0], [48, 60], [0, 60]], { id: "closet" });
+    const view = s.fitView(s.levelBounds({ rooms: [closet] }, 0), 400, 300);
+    assert(view.scale === s.FIT_MAX_ZOOM, `a 4' closet would otherwise open at ${view.scale}x`);
+  });
+
+  test("a big plan is scaled down to fit, and never below the zoom floor", () => {
+    const wide = room([[0, 0], [600, 0], [600, 300], [0, 300]], { id: "wide" });
+    const view = s.fitView(s.levelBounds({ rooms: [wide] }, 0), 400, 300);
+    assert(Math.abs(view.scale - 352 / 600) < 0.001, `scale ${view.scale}`);
+
+    const huge = room([[0, 0], [4000, 0], [4000, 3000], [0, 3000]], { id: "huge" });
+    const floored = s.fitView(s.levelBounds({ rooms: [huge] }, 0), 400, 300);
+    assert(floored.scale === s.MIN_ZOOM, `the zoom floor still applies: ${floored.scale}`);
+  });
+
+  test("an empty storey is left at the origin, and so is a canvas with no size yet", () => {
+    assert(s.levelBounds({ rooms: [] }, 0) === null, "nothing on it");
+    const origin = s.fitView(null, 400, 300);
+    assert(origin.x === 0 && origin.y === 0 && origin.scale === 1, "the default view");
+    const unmeasured = s.fitView({ minX: 0, minY: 0, maxX: 96, maxY: 96 }, 0, 0);
+    assert(unmeasured.scale === 1, "a canvas that has not been measured cannot be fitted to");
+  });
+
+  test("the bounds are the storey's own, walls included", () => {
+    const r = box();
+    const far = room([[0, 0], [96, 0], [96, 96], [0, 96]], { id: "up", level: 1 });
+    const wall = freeWall("f", [[400, 400], [460, 400]]);
+    const b = s.levelBounds({ rooms: [r, far], freeWalls: [wall] }, 0);
+    assert(b.maxX === 460, `maxX ${b.maxX} — the free wall counts`);
+    const upstairs = s.levelBounds({ rooms: [r, far], freeWalls: [wall] }, 1);
+    assert(upstairs.maxX === 96, `the storey above is on its own: ${upstairs.maxX}`);
+  });
+
   test("a sketch with only free walls still counts as a sketch", () => {
     assert(s.hasSketchContent({ rooms: [], freeWalls: [freeWall("f", [[0, 0], [60, 0]])] }), "has content");
     assert(!s.hasSketchContent({ rooms: [] }), "an empty one does not");

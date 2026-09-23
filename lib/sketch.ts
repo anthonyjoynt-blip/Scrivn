@@ -536,6 +536,66 @@ export function clampZoom(scale: number): number {
   return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, scale));
 }
 
+/**
+ * As far as a fit will zoom in on its own.
+ *
+ * A one-room sketch would otherwise fill a phone at 4x, where a 13' wall is drawn a foot long and
+ * the plan reads as a cartoon of itself. Zooming further is still one pinch away; this is only
+ * about what the sketch looks like the moment it opens.
+ */
+export const FIT_MAX_ZOOM = 2;
+
+/** The rectangle everything on one storey sits in, in world pixels, or null when it is empty. */
+export function levelBounds(sketch: Sketch, level: number): { minX: number; minY: number; maxX: number; maxY: number } | null {
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const room of roomsOnLevel(sketch, level)) {
+    const b = roomBounds(room);
+    minX = Math.min(minX, b.minX);
+    minY = Math.min(minY, b.minY);
+    maxX = Math.max(maxX, b.maxX);
+    maxY = Math.max(maxY, b.maxY);
+  }
+  for (const wall of freeWallsOnLevel(sketch, level)) {
+    for (const vertex of wall.vertices) {
+      minX = Math.min(minX, vertex.x);
+      minY = Math.min(minY, vertex.y);
+      maxX = Math.max(maxX, vertex.x);
+      maxY = Math.max(maxY, vertex.y);
+    }
+  }
+  if (!Number.isFinite(minX)) return null;
+  return { minX, minY, maxX, maxY };
+}
+
+/**
+ * The view that frames [bounds] in a canvas of [width] x [height], centred.
+ *
+ * A sketch used to open at the world origin whatever was drawn, which on a desktop meant a plan
+ * somewhere near the top left of a large canvas and on a phone meant a corner of one room and a
+ * screen of empty grid — the first thing every phone session did was pinch and drag to find the
+ * drawing. Reset does the same thing rather than returning to an origin nothing is near.
+ */
+export function fitView(
+  bounds: { minX: number; minY: number; maxX: number; maxY: number } | null,
+  width: number,
+  height: number,
+  pad = 24,
+): SketchView {
+  if (bounds === null || width <= 0 || height <= 0) return defaultView();
+  const contentWidth = Math.max(1, bounds.maxX - bounds.minX);
+  const contentHeight = Math.max(1, bounds.maxY - bounds.minY);
+  const room = Math.min((width - pad * 2) / contentWidth, (height - pad * 2) / contentHeight);
+  const scale = Math.min(FIT_MAX_ZOOM, clampZoom(room));
+  return {
+    scale,
+    x: (width - contentWidth * scale) / 2 - bounds.minX * scale,
+    y: (height - contentHeight * scale) / 2 - bounds.minY * scale,
+  };
+}
+
 export interface Sketch {
   rooms: SketchRoom[];
   /**

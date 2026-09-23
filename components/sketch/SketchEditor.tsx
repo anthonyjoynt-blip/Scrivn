@@ -66,9 +66,11 @@ import {
   withSymbolWidthPx,
   withWallRunLength,
   defaultUnderlayLevel,
+  fitView,
   freeWallSegments,
   freeWallsOf,
   freeWallsOnLevel,
+  levelBounds,
   levelLabel,
   levelsOf,
   openingLevel,
@@ -423,15 +425,61 @@ export function SketchEditor({
   useLayoutEffect(() => {
     const el = containerRef.current;
     if (!el) return;
+    const sizeNow = () => ({
+      width: Math.max(280, el.clientWidth),
+      height: expanded ? Math.max(240, el.clientHeight) : CANVAS_HEIGHT,
+    });
     const measure = () => {
-      setCanvasWidth(Math.max(280, el.clientWidth));
-      setCanvasHeight(expanded ? Math.max(240, el.clientHeight) : CANVAS_HEIGHT);
+      const { width, height } = sizeNow();
+      setCanvasWidth(width);
+      setCanvasHeight(height);
     };
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(el);
-    return () => observer.disconnect();
+    /*
+      Frame the drawing, one frame after the layout rather than during it.
+
+      The stage starts at a guessed 600px, so a fit computed before the canvas is measured frames
+      the plan for a canvas that does not exist — on a phone it put the drawing off the right-hand
+      edge. Even this effect's own first read is early: the bar and the hint above it have not
+      taken their height yet, and the plan lands above the middle of a canvas that then grows. A
+      frame later the layout has settled and the numbers are the real ones.
+
+      `sketch` and `activeLevel` are this effect's first values, which is what they are when the
+      sketch opens. `framed` makes it once and for all: from here the view is the PM's, and a fit
+      that reasserted itself would undo every pan. It is set even when there was nothing to frame,
+      so the first room drawn on an empty sketch is not yanked into the middle later.
+    */
+    let frame = 0;
+    if (!framed.current) {
+      frame = requestAnimationFrame(() => {
+        framed.current = true;
+        const bounds = levelBounds(sketch, activeLevel);
+        if (bounds === null) return;
+        const { width, height } = sizeNow();
+        setView(fitView(bounds, width, height));
+      });
+    }
+    return () => {
+      observer.disconnect();
+      if (frame !== 0) cancelAnimationFrame(frame);
+    };
   }, [expanded]);
+
+  /** The view that frames what is on this storey, or the origin when there is nothing on it. */
+  function fitToLevel(): SketchView {
+    return fitView(levelBounds(sketch, activeLevel), canvasWidth, canvasHeight);
+  }
+  /**
+   * Whether the drawing has been framed yet — see the measuring effect, which does it.
+   *
+   * Set on the canvas's FIRST REAL measurement, and then never again: the view is the PM's from
+   * that moment, and a fit that reasserted itself would undo every pan. Set even when there was
+   * nothing to frame, so that a room drawn on an empty sketch is not yanked into the middle by the
+   * next thing that resizes the canvas.
+   */
+  const framed = useRef(false);
 
   /*
     While expanded the sketch owns the viewport, so the page behind it must not scroll — on iOS a
@@ -1473,7 +1521,7 @@ export function SketchEditor({
           +
         </button>
         {withReset && (
-          <button type="button" className="btn-secondary" onClick={() => setView(defaultView())}>
+          <button type="button" className="btn-secondary" onClick={() => setView(fitToLevel())}>
             Reset
           </button>
         )}
@@ -2529,7 +2577,7 @@ export function SketchEditor({
                 looked at, and the measurements are most of what there is to look at. */}
             {readOnly && <div className="sketch-sheet-grid">{toolNodes.sizes}</div>}
             <div className="sketch-sheet-row">
-              <button type="button" className="btn-secondary" onClick={() => setView(defaultView())}>
+              <button type="button" className="btn-secondary" onClick={() => setView(fitToLevel())}>
                 Reset zoom
               </button>
               {/* The way to the quantities and the wall lengths with nothing selected — otherwise
