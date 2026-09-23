@@ -208,6 +208,62 @@ export async function runScanImportChecks() {
     assert(!result.notes.some((n) => /depth was not measured/.test(n)), `unexpected note: ${result.notes}`);
   });
 
+  test("an island lying across the room is drawn across it", () => {
+    // The kitchen of 2026-09-23 and its real numbers: a 2.365 m run 0.903 m deep, tapped at
+    // -90.9 deg. The turn was recorded and dropped, so the island arrived square to the room and
+    // the estimator saw a 3' run across a 7'9" one - a quarter turn from where they had stood.
+    const fixture = JSON.parse(office);
+    fixture.islands = [{ number: 1, u: 1.0, v: 1.2, width_m: 2.365, depth_m: 0.903, depth_measured: true, angle_deg: -90.908, tier: "base" }];
+    const result = scan.importScanRoom(JSON.stringify(fixture), { x: 0, y: 0 }, 0);
+    assert(result.ok, "import failed");
+    const isl = result.room.freeCabinets[0];
+    near(isl.widthFeet, 0.903 / 0.3048, "across the page is the run's DEPTH", 1 / 24);
+    near(isl.depthFeet, 2.365 / 0.3048, "down the page is the RUN", 1 / 24);
+    // Swapping is a drawing fix, not a quantity one. Compared against the SAME island sent along
+    // the room rather than against the metric product, because both sides are rounded to the inch
+    // and the invariant is that the swap hands back the same two numbers the other way round.
+    const along = JSON.parse(office);
+    along.islands = [{ ...fixture.islands[0], angle_deg: 0 }];
+    const flat = scan.importScanRoom(JSON.stringify(along), { x: 0, y: 0 }, 0).room.freeCabinets[0];
+    near(isl.widthFeet, flat.depthFeet, "width and depth are swapped, not recomputed", 1e-9);
+    near(isl.depthFeet, flat.widthFeet, "and the other way", 1e-9);
+    near(isl.widthFeet * isl.depthFeet, flat.widthFeet * flat.depthFeet, "so the footprint is untouched", 1e-9);
+    assert(!result.notes.some((n) => /at an angle to the room/.test(n)), `unexpected note: ${result.notes}`);
+  });
+
+  test("an island lying along the room, or from a file with no turn, is left as it was", () => {
+    for (const angle of [1.4, 179.2, undefined]) {
+      const fixture = JSON.parse(office);
+      fixture.islands = [{ number: 1, u: 1.0, v: 1.2, width_m: 2.365, depth_m: 0.903, depth_measured: true, angle_deg: angle, tier: "base" }];
+      const result = scan.importScanRoom(JSON.stringify(fixture), { x: 0, y: 0 }, 0);
+      assert(result.ok, "import failed");
+      const isl = result.room.freeCabinets[0];
+      near(isl.widthFeet, 2.365 / 0.3048, `the run is across the page (angle ${angle})`, 1 / 24);
+      near(isl.depthFeet, 0.903 / 0.3048, `and its depth down it (angle ${angle})`, 1 / 24);
+    }
+  });
+
+  test("an island at a real angle is drawn square and says so", () => {
+    // 30 degrees is no quarter turn, and an axis-aligned block cannot say it. A block the estimator
+    // can see is wrong and drag beats one quietly turned to an angle it is not at.
+    const fixture = JSON.parse(office);
+    fixture.islands = [{ number: 1, u: 1.0, v: 1.2, width_m: 2.365, depth_m: 0.903, depth_measured: true, angle_deg: 30, tier: "base" }];
+    const result = scan.importScanRoom(JSON.stringify(fixture), { x: 0, y: 0 }, 0);
+    assert(result.ok, "import failed");
+    near(result.room.freeCabinets[0].widthFeet, 2.365 / 0.3048, "left as it came", 1 / 24);
+    assert(result.notes.some((n) => /at an angle to the room/.test(n)), `expected a note, got ${JSON.stringify(result.notes)}`);
+  });
+
+  test("a run and its reverse are the same run", () => {
+    assert(scan.islandQuarterTurn(-90.908) === "across", "-90.9");
+    assert(scan.islandQuarterTurn(89.3) === "across", "89.3");
+    assert(scan.islandQuarterTurn(269.5) === "across", "269.5");
+    assert(scan.islandQuarterTurn(179.2) === "along", "179.2");
+    assert(scan.islandQuarterTurn(-1.1) === "along", "-1.1");
+    assert(scan.islandQuarterTurn(45) === "neither", "45 belongs to neither");
+    assert(scan.islandQuarterTurn(undefined) === "along", "a file with no turn");
+  });
+
   test("an island whose depth was never tapped says so", () => {
     const fixture = JSON.parse(office);
     fixture.islands = [{ number: 1, u: 1.0, v: 1.2, width_m: 1.83, depth_m: 0.61, depth_measured: false, tier: "base" }];

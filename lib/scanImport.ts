@@ -254,7 +254,7 @@ export interface ScanStairs {
 /**
  * An island as the phone measured it: [u] and [v] its middle in the outline's frame, [width_m] the
  * run and [depth_m] how deep it is — measured when [depth_measured], the tier's own depth when
- * nobody tapped the back edge. [angle_deg] is the run's turn, which is recorded and not yet used:
+ * nobody tapped the back edge. [angle_deg] is the run's turn, read by [islandQuarterTurn]:
  * `FreeCabinet` is an axis-aligned block.
  */
 export interface ScanIsland {
@@ -324,6 +324,28 @@ export interface ScanCapture {
   format: typeof CAPTURE_FORMAT;
   source?: string;
   rooms: ScanRoom[];
+}
+
+/**
+ * How far off a quarter turn an island's run may be and still be taken as lying on that axis.
+ *
+ * Generous, because the answer is only ever which of two ways round to draw a rectangle, and the
+ * phone's own reading of a run's bearing carries a degree or two of tap noise. Past this the run is
+ * at a real angle, which an axis-aligned block cannot say at all.
+ */
+export const QUARTER_TURN_TOLERANCE_DEG = 20;
+
+/**
+ * Which way an island's run lies relative to the room's axes: along the page, across it, or at an
+ * angle no quarter turn describes. A run and its reverse are the same run, so the bearing is read
+ * modulo 180 degrees.
+ */
+export function islandQuarterTurn(angleDeg: number | undefined): "along" | "across" | "neither" {
+  if (!isFiniteNumber(angleDeg)) return "along";
+  const a = ((angleDeg % 180) + 180) % 180;
+  if (a <= QUARTER_TURN_TOLERANCE_DEG || a >= 180 - QUARTER_TURN_TOLERANCE_DEG) return "along";
+  if (Math.abs(a - 90) <= QUARTER_TURN_TOLERANCE_DEG) return "across";
+  return "neither";
 }
 
 /**
@@ -876,15 +898,29 @@ export function scanToSketchRoom(scan: ScanRoom, at: { x: number; y: number }, l
   /*
     Islands: cabinet runs the phone found standing in open floor. `FreeCabinet` is an axis-aligned
     block positioned from the room's bounding-box top-left, so the middle the phone sends becomes a
-    top-left by half its size — and the run's turn is dropped, which is the one thing lost in the
-    crossing. An island at an angle to the room comes in square to it, and is dragged round in the
-    editor like any other block. Most are parallel to the counters they sit between.
+    top-left by half its size.
+
+    The run's turn USED to be dropped here, and the kitchen of 2026-09-23 is what that cost: an
+    island tapped at -90.9 deg arrived square to the room, so a 7'9" run across a 3'0" one was
+    drawn as a 3'0" run across a 7'9" one — a quarter turn from where the estimator had stood to
+    tap it, and the first thing they said about the sketch.
+
+    A quarter turn needs no rotation, which is why it can be fixed here and a true diagonal cannot:
+    an island lying across the room is the same block with its width and depth swapped. So a run
+    within [QUARTER_TURN_TOLERANCE_DEG] of the room's cross axis is swapped, one along the room is
+    left as it is, and anything else — an island at 30 deg, which no swap describes — is left square
+    with a note, because a block the estimator can see is wrong and drag is better than one quietly
+    turned to an angle it is not at.
   */
   const bounds = roomBounds(room);
   const feetInchesText = (metres: number): string => formatFeetInches(toFeetInches(metres));
   for (const isl of scan.islands) {
-    const widthPx = Math.max(1, Math.round(isl.width_m * PX_PER_METRE));
-    const depthPx = Math.max(1, Math.round(isl.depth_m * PX_PER_METRE));
+    const turn = islandQuarterTurn(isl.angle_deg);
+    // Across the room: the same block, its run measured down the page instead of across it.
+    const acrossM = turn === "across" ? isl.depth_m : isl.width_m;
+    const downM = turn === "across" ? isl.width_m : isl.depth_m;
+    const widthPx = Math.max(1, Math.round(acrossM * PX_PER_METRE));
+    const depthPx = Math.max(1, Math.round(downM * PX_PER_METRE));
     const middle = toPx([isl.u, isl.v]);
     room.freeCabinets.push({
       id: newSketchId("island"),
@@ -892,13 +928,17 @@ export function scanToSketchRoom(scan: ScanRoom, at: { x: number; y: number }, l
       y: middle.y - depthPx / 2 - bounds.minY,
       widthPx,
       depthPx,
-      widthFeet: toFeetInches(isl.width_m),
-      depthFeet: toFeetInches(isl.depth_m),
+      widthFeet: toFeetInches(acrossM),
+      depthFeet: toFeetInches(downM),
       label: "Island",
       tier: (isl.tier ?? "base") as CabinetTier,
     });
+    const which = `Island ${isl.number ?? room.freeCabinets.length}`;
     if (isl.depth_measured !== true) {
-      notes.push(`Island ${isl.number ?? room.freeCabinets.length}: its depth was not measured on the phone — drawn ${feetInchesText(isl.depth_m)} deep.`);
+      notes.push(`${which}: its depth was not measured on the phone — drawn ${feetInchesText(isl.depth_m)} deep.`);
+    }
+    if (turn === "neither") {
+      notes.push(`${which}: it was tapped at an angle to the room — drawn square, drag it round if it matters.`);
     }
   }
 
