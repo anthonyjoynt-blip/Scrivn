@@ -2232,17 +2232,27 @@ function cornerYieldPx(symbol: SketchSymbol, room: SketchRoom, wall: WallGeometr
   const before = walls[(index - 1 + n) % n] as WallGeometry;
   const after = walls[(index + 1) % n] as WallGeometry;
   /*
-    This run has to reach the corner as well. A neighbour's run ending at it overlaps nothing when
-    this one starts three feet along its own wall — there is no corner unit there, just two runs
-    in the same room.
+    How much of the corner square this run actually reaches into, which is not the same question as
+    whether it reaches the CORNER.
+
+    This asked for a corner-reach of three inches on both runs until 2026-09-23, and the kitchen
+    walked that afternoon is what was wrong with it. One run filled its wall end to end and owned
+    the corner; the run round the corner started 1 ft 6 in along its own. Three inches said "there
+    is no corner unit there" and trimmed nothing — but both are 2 ft deep, so the second run still
+    ran 6 in into the first one's corner square, and the estimator saw two cabinets crossing.
+
+    The overlap is simply the keeper's depth less how far this run starts from the corner, floored
+    at nothing. A run starting ON the corner yields the whole depth, as it always did; one starting
+    1 ft 6 in from a 2 ft keeper yields 6 in; one starting 3 ft away yields nothing and needs no
+    special case to say so.
   */
   const mine = rawBlockWidthPx(symbol);
   const centre = symbol.t * wall.lengthPx;
-  const reachesStart = centre - mine / 2 <= CORNER_REACH_PX;
-  const reachesEnd = wall.lengthPx - (centre + mine / 2) <= CORNER_REACH_PX;
+  const fromStart = Math.max(0, centre - mine / 2);
+  const fromEnd = Math.max(0, wall.lengthPx - (centre + mine / 2));
   return {
-    atStart: reachesStart ? cornerKeeperDepthPx(symbol, room, before, false) : 0,
-    atEnd: reachesEnd ? cornerKeeperDepthPx(symbol, room, after, true) : 0,
+    atStart: Math.max(0, cornerKeeperDepthPx(symbol, room, before, false) - fromStart),
+    atEnd: Math.max(0, cornerKeeperDepthPx(symbol, room, after, true) - fromEnd),
   };
 }
 

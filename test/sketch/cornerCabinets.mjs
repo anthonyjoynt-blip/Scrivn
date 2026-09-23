@@ -151,6 +151,24 @@ test("the perimeter follows the trimmed run", () => {
   near(q.perimeterFloor, 72 - 16, "perimeter less both runs", 0.01);
 });
 
+test("a run that stops short of the corner yields only what it actually overlaps", () => {
+  // The kitchen of 2026-09-23 13:16. Wall 0 carries a run filling it end to end, so it owns the
+  // corner; wall 1's run starts 1'6" from that corner. Both are 2' deep, so they overlap by the
+  // 6" the short run reaches INTO the corner square - and no more.
+  const long = run("long", 0, 0.5, 20);            // fills the 20' wall, both ends on corners
+  const short = run("short", 1, (1.5 + 1.75 / 2) / 16, 1.75);
+  const room = kitchen([long, short]);
+  near(s.symbolWidthFeet(long, room, [room]), 20, "the keeper is untouched", 1e-6);
+  near(s.symbolWidthFeet(short, room, [room]), 1.75 - 0.5, "yields the 6in it overlaps, not the whole 2ft", 0.02);
+});
+
+test("a run already clear of the corner square is not touched at all", () => {
+  const long = run("long", 0, 0.5, 20);
+  const short = run("short", 1, (3 + 2 / 2) / 16, 2);   // starts 3' along, past the 2' deep keeper
+  const room = kitchen([long, short]);
+  near(s.symbolWidthFeet(short, room, [room]), 2, "nothing to yield", 1e-6);
+});
+
 test("a tie goes to whichever was drawn first, and stays there", () => {
   const first = run("first", 0, 1 - 4 / 20, 8);
   const second = run("second", 1, 4 / 16, 8);
