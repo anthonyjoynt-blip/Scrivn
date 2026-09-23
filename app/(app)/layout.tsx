@@ -50,6 +50,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             Terms
           </a>
         )}
+        <Link href="/help">Help</Link>
         <Link href="/contact">Contact</Link>
       </footer>
     </>

@@ -1123,6 +1123,144 @@ button:disabled {
   margin: 12px 0 0;
 }
 
+/* ---- the help page ----
+   A document, not a form: wide measure for the prose, the drawings beside what they draw, and the
+   same line art as the phone's how-to (navy walls, amber marks, muted rules) so the two read as
+   one product. Nothing here is interactive, which is why none of it is a control. */
+
+.help h1 {
+  margin: 0 0 6px;
+}
+.help h2 {
+  margin: 0 0 12px;
+}
+.help h3 {
+  margin: 18px 0 6px;
+  font-size: 1rem;
+  color: var(--color-navy);
+}
+.help p {
+  max-width: 68ch;
+  line-height: 1.55;
+}
+.help-contents {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+.help-contents a {
+  font-size: 0.9rem;
+}
+.help-steps {
+  margin: 0 0 6px;
+  padding-left: 22px;
+  max-width: 68ch;
+}
+.help-steps li {
+  margin-bottom: 10px;
+  line-height: 1.55;
+}
+
+/* The drawing and the words it belongs to, side by side until there is no room for two columns. */
+.help-figure {
+  display: flex;
+  align-items: flex-start;
+  gap: 22px;
+  margin: 18px 0;
+}
+.help-figure > div {
+  flex: 1;
+  min-width: 0;
+}
+.help-figure p:first-child {
+  margin-top: 0;
+}
+.help-art {
+  flex-shrink: 0;
+  width: 200px;
+  height: 138px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #fff;
+  padding: 6px;
+}
+@media (max-width: 720px) {
+  .help-figure {
+    flex-direction: column;
+    gap: 10px;
+  }
+  .help-art {
+    width: 100%;
+    height: auto;
+    aspect-ratio: 160 / 110;
+  }
+}
+
+/* The line art's own vocabulary — one class per kind of thing, as the phone's drawables have. */
+.help-wall {
+  fill: none;
+  stroke: var(--color-navy);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.help-rule {
+  fill: none;
+  stroke: #5b6472;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+}
+.help-dash {
+  fill: none;
+  stroke: #5b6472;
+  stroke-width: 1.6;
+  stroke-dasharray: 6 4;
+  stroke-linecap: round;
+}
+.help-mark {
+  fill: #c97a0e;
+}
+.help-pill {
+  fill: #fff;
+  stroke: var(--border);
+  stroke-width: 1.4;
+}
+.help-block {
+  fill: rgba(27, 58, 92, 0.12);
+  stroke: var(--color-navy);
+  stroke-width: 2;
+}
+.help-wet {
+  fill: rgba(201, 122, 14, 0.16);
+  stroke: none;
+}
+.help-band {
+  fill: none;
+  stroke: #c97a0e;
+  stroke-width: 4;
+  stroke-linecap: round;
+}
+
+.help-faq {
+  margin: 0;
+  max-width: 68ch;
+}
+.help-faq dt {
+  font-weight: 600;
+  color: var(--color-navy);
+  margin-top: 16px;
+}
+.help-faq dt:first-child {
+  margin-top: 0;
+}
+.help-faq dd {
+  margin: 4px 0 0;
+  line-height: 1.55;
+}
+
 /* ---- sketch tool ---- */
 
 .sketch-header {
