@@ -40,7 +40,8 @@ function makeRoom(id: string, name: string, x: number, y: number, w: number, h: 
 
 const seeded: Sketch = {
   rooms: [
-    makeRoom("kitchen", "Kitchen", 30, 30, 14, 11, 0),
+    // Marked as a scan that read no ceiling, so the panel's "Not measured" note is on screen here.
+    { ...makeRoom("kitchen", "Kitchen", 30, 30, 14, 11, 0), ceilingMeasured: false },
     makeRoom("hall", "Hall", 30 + 14 * FT, 30, 4, 11, 0),
     makeRoom("rec", "Rec room", 30, 30, 16, 11, -1),
   ],

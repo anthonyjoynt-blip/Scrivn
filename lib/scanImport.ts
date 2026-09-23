@@ -170,6 +170,7 @@ import {
   type WindowSymbol,
   CABINET_DEFAULT_DEPTH_FEET,
   CABINET_DEFAULT_HEIGHT_FEET,
+  type CeilingType,
   DEFAULT_CEILING_HEIGHT_FEET,
   DEFAULT_DOOR_HEIGHT_FEET,
   DEFAULT_WINDOW_HEIGHT_FEET,
@@ -258,6 +259,19 @@ export interface ScanRoom {
   index?: number;
   source?: string;
   ceiling_m?: number | null;
+  /**
+   * The ceiling's shape and its other end, as the phone's `CeilingFit` read them off the taps.
+   *
+   * `ceiling_m` is the LOW end whenever these are present, which is what `ceilingHeightFeet`
+   * means. `ceiling_run_m` is how far the ceiling travels between the two, measured across the
+   * room rather than assumed from its bounding box. `ceiling_measured` false means the phone read
+   * no ceiling anywhere and `ceiling_m` is its 8' default, not a measurement. All optional: a file
+   * from before the phone measured ceilings has none of them.
+   */
+  ceiling_type?: string | null;
+  ceiling_peak_m?: number | null;
+  ceiling_run_m?: number | null;
+  ceiling_measured?: boolean | null;
   walls: ScanWall[];
   /** The room polygon in the scanner's (u, v) frame, when the scanner found more than a rectangle. */
   outline?: [number, number][];
@@ -564,6 +578,10 @@ export function parseScanRoom(input: unknown): { ok: true; scan: ScanRoom; notes
       index: isFiniteNumber(raw.index) ? Math.trunc(raw.index) : undefined,
       source: typeof raw.source === "string" ? raw.source : undefined,
       ceiling_m: isFiniteNumber(raw.ceiling_m) ? raw.ceiling_m : null,
+      ceiling_type: typeof raw.ceiling_type === "string" ? raw.ceiling_type : null,
+      ceiling_peak_m: isFiniteNumber(raw.ceiling_peak_m) ? raw.ceiling_peak_m : null,
+      ceiling_run_m: isFiniteNumber(raw.ceiling_run_m) ? raw.ceiling_run_m : null,
+      ceiling_measured: typeof raw.ceiling_measured === "boolean" ? raw.ceiling_measured : null,
       walls,
       outline,
       outline_openings: outlineOpenings,
@@ -699,6 +717,38 @@ function polygonOf(scan: ScanRoom): { ok: true; polygon: [number, number][] } | 
 }
 
 /**
+ * The ceiling the phone measured, as the sketch records one.
+ *
+ * The phone fits a plane to the ceiling height it reads at every corner and sends what that plane
+ * says: the low end as `ceiling_m`, the shape, the high end, and the run between them measured
+ * ACROSS the room. Only the run is new information the sketch could not have worked out for
+ * itself — see `SketchRoom.ceilingRunFeet`.
+ *
+ * Everything here is defensive about the wire: a file from before the phone measured ceilings has
+ * none of these keys and comes out flat, exactly as it did before; a peak at or under the low end
+ * is not a rise and the room is flat whatever the shape said; a shape this does not recognise is
+ * treated as flat rather than guessed at.
+ */
+function ceilingShape(
+  scan: ScanRoom,
+  lowFeet: number | null,
+): { type: CeilingType; peakFeet: number | null; runFeet: number | null; measured: boolean | undefined } {
+  const flat = { type: "flat" as CeilingType, peakFeet: null, runFeet: null };
+  // `undefined` rather than true when the phone said nothing: an older file's height is neither a
+  // measurement nor known not to be one, and the sketch has never claimed to know.
+  const measured = scan.ceiling_measured == null ? undefined : scan.ceiling_measured;
+  const type = scan.ceiling_type === "sloped" ? "sloped" : scan.ceiling_type === "vaulted" ? "vaulted" : "flat";
+  if (type === "flat") return { ...flat, measured };
+
+  const low = lowFeet ?? DEFAULT_CEILING_HEIGHT_FEET;
+  const peak = scan.ceiling_peak_m != null && scan.ceiling_peak_m > 1.5 ? toFeetInches(scan.ceiling_peak_m) : null;
+  if (peak === null || peak <= low) return { ...flat, measured };
+
+  const run = scan.ceiling_run_m != null && scan.ceiling_run_m > 0 ? toFeetInches(scan.ceiling_run_m) : null;
+  return { type, peakFeet: peak, runFeet: run, measured };
+}
+
+/**
  * Builds the sketch room. `at` is where the frame's origin lands, in world pixels, and `level` the
  * storey the room joins; both are the editor's business, not the scan's. `origin` is which point of
  * the scanner's frame that is (`ScanOrigin`): left out, it is the polygon's own top-left, so the
@@ -738,13 +788,16 @@ export function scanToSketchRoom(scan: ScanRoom, at: { x: number; y: number }, l
   }
 
   const ceiling = scan.ceiling_m != null && scan.ceiling_m > 1.5 ? toFeetInches(scan.ceiling_m) : null;
+  const overhead = ceilingShape(scan, ceiling);
   const room: SketchRoom = {
     id: newSketchId("room"),
     name: scan.name ?? "",
     vertices,
     ceilingHeightFeet: ceiling ?? DEFAULT_CEILING_HEIGHT_FEET,
-    ceilingType: "flat",
-    ceilingPeakFeet: null,
+    ceilingType: overhead.type,
+    ceilingPeakFeet: overhead.peakFeet,
+    ceilingRunFeet: overhead.runFeet,
+    ceilingMeasured: overhead.measured,
     stairs: null,
     parentRoomId: null,
     nestingOptOut: false,

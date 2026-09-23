@@ -426,6 +426,25 @@ export interface SketchRoom {
    * ignored when the ceiling is flat.
    */
   ceilingType: CeilingType;
+  /**
+   * How far the ceiling travels between its low end and its high one, in feet, when the phone
+   * measured it. Null for a ceiling drawn or typed here rather than scanned.
+   *
+   * `ceilingProfile` otherwise has to assume the slope runs the length of the room's larger
+   * bounding dimension, which is the one soft number in the quantities — a shed ceiling falling
+   * across a room's short side runs 11', not the 16' the bounding box suggests, and the wall and
+   * ceiling areas follow that number. The phone reads the ceiling at every corner and so knows
+   * which way it falls; when it says so, this is used instead of the assumption.
+   */
+  ceilingRunFeet?: number | null;
+  /**
+   * False when `ceilingHeightFeet` is the 8' default rather than something anyone measured.
+   *
+   * Undefined on every sketch drawn by hand, where the height is whatever the PM typed or left at
+   * the default and the distinction has never been recorded. Only a scan sets it, and only a scan
+   * that read nothing sets it false — see the phone's `CeilingFit`.
+   */
+  ceilingMeasured?: boolean;
   ceilingPeakFeet: number | null;
   /**
    * Non-null when this "room" is a flight of stairs — see `StairsData`.

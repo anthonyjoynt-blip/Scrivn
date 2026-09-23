@@ -727,6 +727,27 @@ export async function runWallChecks() {
     assert(upstairs.maxX === 96, `the storey above is on its own: ${upstairs.maxX}`);
   });
 
+  test("a scanned ceiling's measured run is what the quantities use", () => {
+    // A 20' x 16' room with a ceiling falling 8' to 10'. The assumption takes the run to be the
+    // room's LONGER side; the phone measures it across the way the ceiling actually falls. The
+    // shorter run is the steeper slope, so more ceiling surface — the number that reaches a scope.
+    const shed = (extra) => box({ ceilingHeightFeet: 8, ceilingType: "sloped", ceilingPeakFeet: 10, ...extra });
+    const assumed = s.roomQuantities(shed({}), { rooms: [shed({})] }, s.DEFAULT_QUANTITY_OPTIONS);
+    const measured = shed({ ceilingRunFeet: 16 });
+    const read = s.roomQuantities(measured, { rooms: [measured] }, s.DEFAULT_QUANTITY_OPTIONS);
+    assert(read.ceilingArea > assumed.ceilingArea + 0.5, `measured ${read.ceilingArea} vs assumed ${assumed.ceilingArea}`);
+    // The floor never changes with the ceiling, whatever the slope does.
+    assert(Math.abs(read.floorArea - assumed.floorArea) < 1e-9, "the floor is the floor");
+  });
+
+  test("a run of zero or none falls back to the room's own span", () => {
+    const shed = (extra) => box({ ceilingHeightFeet: 8, ceilingType: "sloped", ceilingPeakFeet: 10, ...extra });
+    const none = s.roomQuantities(shed({}), { rooms: [shed({})] }, s.DEFAULT_QUANTITY_OPTIONS);
+    const zero = shed({ ceilingRunFeet: 0 });
+    const zeroed = s.roomQuantities(zero, { rooms: [zero] }, s.DEFAULT_QUANTITY_OPTIONS);
+    assert(Math.abs(none.ceilingArea - zeroed.ceilingArea) < 1e-9, "a zero run is not a run");
+  });
+
   test("a sketch with only free walls still counts as a sketch", () => {
     assert(s.hasSketchContent({ rooms: [], freeWalls: [freeWall("f", [[0, 0], [60, 0]])] }), "has content");
     assert(!s.hasSketchContent({ rooms: [] }), "an empty one does not");

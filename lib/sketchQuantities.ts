@@ -171,7 +171,19 @@ function ceilingProfile(room: SketchRoom): { meanHeightFeet: number | null; surf
   const peak = Math.max(low, room.ceilingPeakFeet);
   const bounds = roomBounds(room);
   const spanFeet = Math.max(bounds.width, bounds.height) / PIXELS_PER_FOOT;
-  const run = room.ceilingType === "vaulted" ? spanFeet / 2 : spanFeet;
+  /*
+    The run the phone measured, when there is one.
+
+    The assumption below — that a slope runs the length of the room's larger bounding dimension —
+    is this file's one soft number, and it is wrong by the difference between a room's two sides
+    whenever the ceiling falls the other way. A scan reads the ceiling at every corner and so knows
+    which way it falls and how far; `ceilingRunFeet` is that, already halved for a vault by the
+    phone, and it is believed over the assumption. A sketch drawn by hand has no such reading and
+    is unchanged.
+  */
+  const run = room.ceilingRunFeet != null && room.ceilingRunFeet > 0
+    ? room.ceilingRunFeet
+    : room.ceilingType === "vaulted" ? spanFeet / 2 : spanFeet;
   const rise = peak - low;
   const surfaceFactor = run > 0 ? Math.hypot(run, rise) / run : 1;
 

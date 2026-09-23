@@ -125,6 +125,75 @@ export async function runScanImportChecks() {
     near(room.ceilingHeightFeet, 8 + 7 / 12, "ceiling 8'7\"", 1e-9);
   });
 
+  test("a flat ceiling stays flat, and an old file has no opinion about being measured", () => {
+    const { room } = imported();
+    assert(room.ceilingType === "flat", `expected flat, got ${room.ceilingType}`);
+    assert(room.ceilingPeakFeet === null, "a flat ceiling has no peak");
+    assert(room.ceilingRunFeet === null, "and no run");
+    // A file from before the phone measured ceilings says nothing either way, and neither does the
+    // room: `false` would claim it is the 8' default, `true` would claim a measurement.
+    assert(room.ceilingMeasured === undefined, `expected undefined, got ${room.ceilingMeasured}`);
+  });
+
+  test("a shed ceiling comes in sloped, with the run the phone measured across it", () => {
+    const fixture = JSON.parse(office);
+    fixture.ceiling_m = 2.2;
+    fixture.ceiling_type = "sloped";
+    fixture.ceiling_peak_m = 2.8;
+    fixture.ceiling_run_m = 3.35;
+    fixture.ceiling_measured = true;
+    const result = scan.importScanRoom(JSON.stringify(fixture), { x: 0, y: 0 }, 0);
+    assert(result.ok, "import failed");
+    const room = result.room;
+    assert(room.ceilingType === "sloped", `expected sloped, got ${room.ceilingType}`);
+    // Within an inch: the importer rounds metres to feet and inches, as it does every length.
+    const inch = 1 / 24;
+    near(room.ceilingHeightFeet, 2.2 / 0.3048, "the low end", inch);
+    near(room.ceilingPeakFeet, 2.8 / 0.3048, "the peak", inch);
+    near(room.ceilingRunFeet, 3.35 / 0.3048, "the run", inch);
+    assert(room.ceilingMeasured === true, "the phone read it");
+  });
+
+  test("a peak that is not above the low end is not a rise", () => {
+    const fixture = JSON.parse(office);
+    fixture.ceiling_m = 2.6;
+    fixture.ceiling_type = "sloped";
+    fixture.ceiling_peak_m = 2.6;
+    fixture.ceiling_measured = true;
+    const result = scan.importScanRoom(JSON.stringify(fixture), { x: 0, y: 0 }, 0);
+    assert(result.ok, "import failed");
+    assert(result.room.ceilingType === "flat", `expected flat, got ${result.room.ceilingType}`);
+    assert(result.room.ceilingPeakFeet === null, "and no peak to go with it");
+  });
+
+  test("a shape the importer does not know is flat, not a guess", () => {
+    const fixture = JSON.parse(office);
+    fixture.ceiling_type = "coffered";
+    fixture.ceiling_peak_m = 3.4;
+    const result = scan.importScanRoom(JSON.stringify(fixture), { x: 0, y: 0 }, 0);
+    assert(result.ok, "import failed");
+    assert(result.room.ceilingType === "flat", `expected flat, got ${result.room.ceilingType}`);
+  });
+
+  test("the phone saying it measured nothing is carried, so the claim can show it", () => {
+    const fixture = JSON.parse(office);
+    fixture.ceiling_m = 2.4384;
+    fixture.ceiling_type = "flat";
+    fixture.ceiling_measured = false;
+    const result = scan.importScanRoom(JSON.stringify(fixture), { x: 0, y: 0 }, 0);
+    assert(result.ok, "import failed");
+    near(result.room.ceilingHeightFeet, 8, "the 8' default", 0.01);
+    assert(result.room.ceilingMeasured === false, "and it says it is a default");
+  });
+
+  test("the room comes in under the name the phone sent", () => {
+    const fixture = JSON.parse(office);
+    fixture.name = "Main Bathroom";
+    const result = scan.importScanRoom(JSON.stringify(fixture), { x: 0, y: 0 }, 0);
+    assert(result.ok, "import failed");
+    assert(result.room.name === "Main Bathroom", `got ${result.room.name}`);
+  });
+
   test("the door is on the right wall, at the right place, at the width the scanner saw", () => {
     const { room } = imported();
     const doors = room.symbols.filter((s) => s.type === "door");

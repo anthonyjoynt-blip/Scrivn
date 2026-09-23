@@ -2312,7 +2312,8 @@ export function SketchEditor({
                   e.target.value = selectedRoom.ceilingHeightFeet == null ? "" : formatFeetInches(selectedRoom.ceilingHeightFeet);
                   return;
                 }
-                updateRoom(selectedRoom.id, (room) => ({ ...room, ceilingHeightFeet: feet }));
+                // Typed by hand: no longer the scan's default, whatever the scan said.
+                updateRoom(selectedRoom.id, (room) => ({ ...room, ceilingHeightFeet: feet, ceilingMeasured: undefined }));
               }}
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
@@ -2321,7 +2322,23 @@ export function SketchEditor({
                 }
               }}
             />
-            <p className="field-note">Defaults to {formatFeetInches(DEFAULT_CEILING_HEIGHT_FEET)} — only worth changing when it isn&rsquo;t. Drives wall area, stair rise, and later volume-based equipment sizing.</p>
+            {/*
+              A scan says whether its height is a measurement. The phone sends 8' when it read no
+              ceiling anywhere, which is indistinguishable from a measured 8' on a document, so the
+              claim's own note says which it is — and a measured one says so too, because an
+              estimator who scanned the room should not have to remember whether this number came
+              back with it.
+            */}
+            {selectedRoom.ceilingMeasured === false ? (
+              <p className="field-note">
+                <strong>Not measured.</strong> The scan read no ceiling in this room, so this is the{" "}
+                {formatFeetInches(DEFAULT_CEILING_HEIGHT_FEET)} default — worth a tape before it reaches a document.
+              </p>
+            ) : selectedRoom.ceilingMeasured === true ? (
+              <p className="field-note">Measured by the scan. Drives wall area, stair rise, and later volume-based equipment sizing.</p>
+            ) : (
+              <p className="field-note">Defaults to {formatFeetInches(DEFAULT_CEILING_HEIGHT_FEET)} — only worth changing when it isn&rsquo;t. Drives wall area, stair rise, and later volume-based equipment sizing.</p>
+            )}
           </div>
 
           <div className="question">
@@ -2339,6 +2356,13 @@ export function SketchEditor({
                       ceilingType: type,
                       // Give a shaped ceiling a starting peak so the numbers mean something at once.
                       ceilingPeakFeet: type === "flat" ? null : (room.ceilingPeakFeet ?? (room.ceilingHeightFeet ?? DEFAULT_CEILING_HEIGHT_FEET) + 2),
+                      /*
+                        And drop the scan's measured run: it was measured ACROSS a slope that is no
+                        longer the one the room has, and keeping it would quietly size a hand-drawn
+                        shape by a number from a different ceiling. The quantities fall back to the
+                        room's own span — see `ceilingProfile`.
+                      */
+                      ceilingRunFeet: null,
                     }))
                   }
                 >
