@@ -193,9 +193,6 @@ function usePhoneLayout(): boolean {
   return phone;
 }
 
-/** How far a finger may travel and still count as a tap rather than a drag. */
-const TAP_SLOP_PX = 8;
-
 export function SketchEditor({
   sketch,
   knownRoomNames,
@@ -344,16 +341,6 @@ export function SketchEditor({
    * Phone only — on the desktop the same panels are the right-hand column, which is always up.
    */
   const [sheet, setSheet] = useState<"none" | "more" | "details">("none");
-  /**
-   * The finger on the plan: where it went down, and whether a selection is waiting for it to lift.
-   *
-   * A tap selects on pointerDOWN, so the plan can be dragged in the same gesture — which means the
-   * sheet cannot simply rise when the selection changes: it would rise under the finger at the
-   * start of every drag. The selection is held here instead and shown when the finger lifts, and
-   * only if it lifted where it landed.
-   */
-  const pointerOnPlan = useRef<{ x: number; y: number } | null>(null);
-  const detailsWaiting = useRef(false);
   /** The More button, so closing a sheet hands focus back to the bar and not to the document. */
   const moreButtonRef = useRef<HTMLButtonElement | null>(null);
   /**
@@ -673,24 +660,24 @@ export function SketchEditor({
         ? `room:${selectedRoom.id}`
         : null;
   /*
-    Tap a wall and its properties are there — the whole point of a sheet rather than a column
-    below the fold, since typing a length used to mean scrolling away from the wall being typed.
+    THE SHEET NEVER OPENS ITSELF. It follows what is selected when it is already up, and it goes
+    away when nothing is selected. Opening it is the Properties button's job.
 
-    Not while a finger is down: dragging a room selects it, and a sheet rising over the room you
-    are moving is the drawing hiding itself. A drag ends with the sheet still down and the
-    properties one tap away on the bar, which is the right answer for a move.
+    It used to rise on every selection, on the reasoning that tapping a wall should put its length
+    box in front of you. In the field that reasoning was exactly backwards, and the estimator said
+    so twice: on a phone the sheet covers the bottom half of the plan, and the bottom half of the
+    plan is usually where the thing you just tapped IS. Every attempt to grab a wall, a return or
+    a corner unit raised a panel over it. Tap, panel, close, aim, miss, panel again — "the pop ups
+    where I cant fix anything", and small returns "virtually impossible".
+
+    The reason it survived a first correction (2026-09-24, rooms excepted) is that there was no
+    other way in: the bar had More and zoom and nothing else, so a sheet that did not raise itself
+    could not be reached at all. That is fixed here as one change, because either half alone makes
+    the editor worse.
   */
   useEffect(() => {
     if (!phone) return;
-    if (selectionKey === null) {
-      setSheet((open) => (open === "details" ? "none" : open));
-      return;
-    }
-    if (pointerOnPlan.current !== null) {
-      detailsWaiting.current = true;
-      return;
-    }
-    setSheet("details");
+    if (selectionKey === null) setSheet((open) => (open === "details" ? "none" : open));
   }, [phone, selectionKey]);
   // Islands share `selectedSymbolId` — ids are unique across both collections, and only one thing
   // is ever selected, so a second piece of selection state would only be able to disagree.
@@ -1971,44 +1958,6 @@ export function SketchEditor({
       <div
         className={`sketch-canvas-wrap${readOnly ? " sketch-canvas-readonly" : ""}`}
         ref={containerRef}
-        /* Capture, so the finger is on record before Konva's own handlers select anything. */
-        onPointerDownCapture={(e) => {
-          pointerOnPlan.current = { x: e.clientX, y: e.clientY };
-          detailsWaiting.current = false;
-        }}
-        onPointerUp={(e) => {
-          const from = pointerOnPlan.current;
-          pointerOnPlan.current = null;
-          const waiting = detailsWaiting.current;
-          detailsWaiting.current = false;
-          if (!phone) return;
-          // A tap, not a drag: a move is a placement or a nudge, and its properties can wait for
-          // the estimator to ask for them.
-          const still = from !== null && Math.hypot(e.clientX - from.x, e.clientY - from.y) <= TAP_SLOP_PX;
-          if (!still) return;
-          /*
-            `waiting` is the tap that CHANGED the selection — the effect above saw the finger down
-            and left it here. A tap on something ALREADY selected changes no state and so reaches no
-            effect, and it used to raise the sheet too, so that a wall whose length box had been
-            closed could be re-opened by tapping it again.
-
-            For a WALL or a SYMBOL that is right: the sheet is the thing you came for, the length
-            box lives in it, and tapping the wall again is how you get it back.
-
-            For a ROOM it is not, and the estimator of 2026-09-24 spent an afternoon on it: every
-            attempt to grab a wall that landed a few pixels wide of it selected the room instead,
-            and the room's name, sub-room and ceiling slid up over the very drawing they were
-            aiming at. Close, aim, miss, close again. A room's properties are one tap away on the
-            bar - the button is right there - and that is the right price for a tap that was
-            probably aimed at something else.
-          */
-          const reopen = selectionKey !== null && !selectionKey.startsWith("room:");
-          if (waiting || reopen) setSheet("details");
-        }}
-        onPointerCancel={() => {
-          pointerOnPlan.current = null;
-          detailsWaiting.current = false;
-        }}
       >
         <SketchCanvas
           rooms={activeRooms}
@@ -2612,6 +2561,26 @@ export function SketchEditor({
                 ? moistureKeys(moistureTool).bar.map((key) => moistureNodes[key])
                 : SKETCH_BAR_KEYS.map((key) => toolNodes[key]))}
             </div>
+            {/*
+              The way to what is selected. It stands where the sheet used to raise itself, and it
+              is the other half of that change: a sheet that never opens itself needs a door, and
+              before this the only one was More > Quantities & data, which nobody would find while
+              trying to type a wall length.
+
+              Only when something IS selected — an empty bar button that opens a panel about
+              nothing is worse than no button.
+            */}
+            {selectionKey !== null && (
+              <button
+                type="button"
+                className={`option-btn sketch-bar-more${sheet === "details" ? " selected" : ""}`}
+                aria-pressed={sheet === "details"}
+                aria-expanded={sheet === "details"}
+                onClick={() => setSheet((open) => (open === "details" ? "none" : "details"))}
+              >
+                Edit…
+              </button>
+            )}
             {/* Outside the row that scrolls: the tools can run off the end of a 360px bar, and the
                 way to the ones that did must not be the thing that ran off it. */}
             <button
