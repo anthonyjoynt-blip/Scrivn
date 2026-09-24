@@ -2232,59 +2232,86 @@ function cornerYieldPx(symbol: SketchSymbol, room: SketchRoom, wall: WallGeometr
   const before = walls[(index - 1 + n) % n] as WallGeometry;
   const after = walls[(index + 1) % n] as WallGeometry;
   /*
-    How much of the corner square this run actually reaches into, which is not the same question as
-    whether it reaches the CORNER.
+    THE CORNER FILLS ITSELF IN. A negative answer means "reach further", not "stand back".
 
-    This asked for a corner-reach of three inches on both runs until 2026-09-23, and the kitchen
-    walked that afternoon is what was wrong with it. One run filled its wall end to end and owned
-    the corner; the run round the corner started 1 ft 6 in along its own. Three inches said "there
-    is no corner unit there" and trimmed nothing — but both are 2 ft deep, so the second run still
-    ran 6 in into the first one's corner square, and the estimator saw two cabinets crossing.
+    Two runs meeting at an inside corner are an L with one corner unit in it, and a corner unit is
+    the one cabinet in a kitchen with nothing to aim at: it has no visible ends, so nobody taps it.
+    What an estimator taps is the two runs either side, and where they stop depends on where they
+    could stand — the wall above a lower run is usually behind an upper, a backsplash or a kettle,
+    so the run gets tapped on its FACE, a couple of feet out into the room.
 
-    The overlap is simply the keeper's depth less how far this run starts from the corner, floored
-    at nothing. A run starting ON the corner yields the whole depth, as it always did; one starting
-    1 ft 6 in from a 2 ft keeper yields 6 in; one starting 3 ft away yields nothing and needs no
-    special case to say so.
+    So the rule cannot be "did the taps reach the corner". It is "are these two runs both near
+    enough to that corner that the gap between them IS the corner unit". The kitchen of
+    2026-09-24 07:06 is the case: one run stopped 1 ft 5 in short, the run round the corner
+    stopped 1 ft 9 in short, and a base cabinet is 2 ft deep. Neither reached, nothing fired, and
+    Scrivn drew two runs with a hole between them — four square feet of floor the room has not got
+    and a corner unit nobody is going to price.
+
+    So: the LONGER run reaches through to the corner and owns the square (the same convention the
+    trim always used, and the same one a fitter uses), and the shorter one stands off by exactly
+    the keeper's depth. A gap wider than a cabinet is deep is not a corner unit — that is a fridge,
+    a doorway, a dishwasher — and nothing is filled in there.
   */
   const mine = rawBlockWidthPx(symbol);
   const centre = symbol.t * wall.lengthPx;
   const fromStart = Math.max(0, centre - mine / 2);
   const fromEnd = Math.max(0, wall.lengthPx - (centre + mine / 2));
   return {
-    atStart: Math.max(0, cornerKeeperDepthPx(symbol, room, before, false) - fromStart),
-    atEnd: Math.max(0, cornerKeeperDepthPx(symbol, room, after, true) - fromEnd),
+    atStart: cornerAdjustPx(symbol, room, before, false, fromStart),
+    atEnd: cornerAdjustPx(symbol, room, after, true, fromEnd),
   };
 }
 
 /**
- * The depth of the run on [neighbour] that owns the corner this run also reaches, or 0.
+ * What this run's end does at the corner it shares with [neighbour]: a positive answer stands it
+ * back that far, a negative one reaches it that far further on, and zero leaves it alone.
  *
- * [neighbourStartsThere] says which end of the neighbour touches the shared corner: the wall after
- * this one starts at it, the wall before it ends at it.
+ * [myGapPx] is how far short of that corner this run currently stops. [neighbourStartsThere] says
+ * which end of the neighbour touches the corner — the wall after this one starts at it, the wall
+ * before it ends at it.
+ *
+ * Nothing happens unless BOTH runs come within a cabinet's depth of the corner: that is what makes
+ * the gap a corner unit rather than an appliance. Then the longer one reaches through and the
+ * shorter one stands off by the longer one's depth, which is the L a kitchen actually has.
  */
-function cornerKeeperDepthPx(symbol: BlockSymbol, room: SketchRoom, neighbour: WallGeometry, neighbourStartsThere: boolean): number {
+function cornerAdjustPx(
+  symbol: BlockSymbol, room: SketchRoom, neighbour: WallGeometry,
+  neighbourStartsThere: boolean, myGapPx: number,
+): number {
   const mine = rawBlockWidthPx(symbol);
-  let deepest = 0;
+  const myDepth = cabinetDepthPx(symbol);
+  // A run further off the corner than it is deep is not one side of a corner unit.
+  if (myGapPx > myDepth + CORNER_FILL_SLOP_PX) return 0;
+  let keeperDepth = 0;
+  let iAmTheKeeper = false;
+  let found = false;
   for (const other of room.symbols) {
     if (other.id === symbol.id) continue;
     if (!isBlockSymbol(other) || other.type !== "cabinet" || !standsOnFloor(other.tier)) continue;
     if (other.wallId !== neighbour.id) continue;
     const theirs = rawBlockWidthPx(other);
-    // The longer run keeps the corner; a tie goes to the one drawn first.
-    const keepsIt = theirs > mine || (theirs === mine && room.symbols.indexOf(other) < room.symbols.indexOf(symbol));
-    if (!keepsIt) continue;
-    // Does it actually reach the corner? Its centre less half its width, measured from whichever
-    // end of its own wall the corner is.
+    const theirDepth = cabinetDepthPx(other);
+    // How far short of the SHARED corner the neighbour stops, measured from its own wall's end.
     const centre = other.t * neighbour.lengthPx;
-    const edge = neighbourStartsThere ? centre - theirs / 2 : neighbour.lengthPx - (centre + theirs / 2);
-    if (edge > CORNER_REACH_PX) continue;
-    deepest = Math.max(deepest, cabinetDepthPx(other));
+    const gap = neighbourStartsThere ? centre - theirs / 2 : neighbour.lengthPx - (centre + theirs / 2);
+    if (gap > theirDepth + CORNER_FILL_SLOP_PX) continue;
+    found = true;
+    // The longer run keeps the corner; a tie goes to the one drawn first.
+    const theyKeep = theirs > mine || (theirs === mine && room.symbols.indexOf(other) < room.symbols.indexOf(symbol));
+    if (theyKeep) keeperDepth = Math.max(keeperDepth, theirDepth); else iAmTheKeeper = true;
   }
-  return deepest;
+  if (!found) return 0;
+  // The keeper reaches through to the corner; everyone else stands off by its depth.
+  if (iAmTheKeeper && keeperDepth === 0) return -myGapPx;
+  return Math.max(0, keeperDepth - myGapPx);
 }
 
-/** A run whose end is within this of a corner is treated as meeting it — 3in, a scribe's worth. */
-const CORNER_REACH_PX = 3;
+/**
+ * How far short of a corner two runs may BOTH stop and still have a corner unit between them, on
+ * top of a cabinet's own depth: 6 in of aim, because a run tapped on its face from across a
+ * kitchen is not tapped to the inch.
+ */
+const CORNER_FILL_SLOP_PX = 6;
 
 /** A block's width before any capping, in pixels: what the symbol itself says it is. */
 function rawBlockWidthPx(symbol: SketchSymbol): number {

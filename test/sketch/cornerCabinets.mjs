@@ -169,6 +169,62 @@ test("a run already clear of the corner square is not touched at all", () => {
   near(s.symbolWidthFeet(short, room, [room]), 2, "nothing to yield", 1e-6);
 });
 
+test("a corner both runs stop short of fills itself in", () => {
+  // The kitchen of 2026-09-24 07:06, in feet: one run stopped 1'5" short of the corner, the run
+  // round it stopped 1'9" short, and a base cabinet is 2' deep. Neither reached, so nothing used
+  // to happen - and what sits in that gap is a corner unit, which has no ends to tap.
+  const gapLong = 1.4;
+  const gapShort = 1.75;
+  const long = run("long", 0, (20 - gapLong - 10 / 2) / 20, 10);
+  const short = run("short", 1, (gapShort + 2 / 2) / 16, 2);
+  const room = kitchen([long, short]);
+  near(s.symbolWidthFeet(long, room, [room]), 10 + gapLong, "the longer run reaches through to the corner", 0.02);
+  near(s.symbolWidthFeet(short, room, [room]), 2 - (2 - gapShort), "and the shorter stands off by the keeper's depth", 0.02);
+});
+
+test("the filled corner leaves no hole and no overlap", () => {
+  const gapLong = 1.4;
+  const gapShort = 1.75;
+  const long = run("long", 0, (20 - gapLong - 10 / 2) / 20, 10);
+  const short = run("short", 1, (gapShort + 2 / 2) / 16, 2);
+  const room = kitchen([long, short]);
+  // The keeper's far edge is ON the corner...
+  const lw = s.symbolWidthFeet(long, room, [room]);
+  const lc = s.symbolCentrePx(long, room, [room]) / FT;
+  near(lc + lw / 2, 20, "the keeper ends on the corner", 0.02);
+  // ...and the other run begins exactly where the keeper's depth ends, so they touch and no more.
+  const sw = s.symbolWidthFeet(short, room, [room]);
+  const sc = s.symbolCentrePx(short, room, [room]) / FT;
+  near(sc - sw / 2, 2, "the other starts at the keeper's depth", 0.02);
+});
+
+test("a gap wider than a cabinet is deep is an appliance, not a corner unit", () => {
+  // A fridge, a dishwasher, a doorway. Filling this would invent three feet of cabinet.
+  const long = run("long", 0, (20 - 1.4 - 10 / 2) / 20, 10);
+  const far = run("far", 1, (3.5 + 2 / 2) / 16, 2);
+  const room = kitchen([long, far]);
+  near(s.symbolWidthFeet(long, room, [room]), 10, "the keeper is not stretched to meet it", 1e-6);
+  near(s.symbolWidthFeet(far, room, [room]), 2, "and the far run is left where it was tapped", 1e-6);
+});
+
+test("a run alone near a corner is not stretched to it", () => {
+  // Nothing on the next wall at all: there is no corner unit, just a run that stops short.
+  const lone = run("lone", 0, (20 - 1.4 - 10 / 2) / 20, 10);
+  const room = kitchen([lone]);
+  near(s.symbolWidthFeet(lone, room, [room]), 10, "left exactly as tapped", 1e-6);
+});
+
+test("the floor is deducted for the corner unit once, now that it is drawn", () => {
+  const gapLong = 1.4;
+  const gapShort = 1.75;
+  const long = run("long", 0, (20 - gapLong - 10 / 2) / 20, 10);
+  const short = run("short", 1, (gapShort + 2 / 2) / 16, 2);
+  const room = kitchen([long, short]);
+  const q = s.roomQuantities(room, { rooms: [room] }, DEDUCTING);
+  // 20 x 16 = 320, less the keeper (11.4 x 2) and the stand-off run (1.75 x 2).
+  near(q.floorArea, 320 - (10 + gapLong) * 2 - gapShort * 2, "the corner square is deducted, once", 0.05);
+});
+
 test("a tie goes to whichever was drawn first, and stays there", () => {
   const first = run("first", 0, 1 - 4 / 20, 8);
   const second = run("second", 1, 4 / 16, 8);
