@@ -1681,9 +1681,112 @@ export function dragWall(room: SketchRoom, wallId: string, dx: number, dy: numbe
   }
 
   const candidate: SketchRoom = { ...room, vertices };
-  if (isDegenerate(vertices) || collapsesAWall(room, candidate)) return room;
+  if (isDegenerate(vertices)) return room;
+  // A drag that has squeezed a jog out of existence FOLDS it away rather than being refused.
+  const folded = foldFlat(room, candidate);
+  if (folded) return reflowContents(room, folded);
+  if (collapsesAWall(room, candidate)) return room;
 
   return reflowContents(room, candidate);
+}
+
+/**
+ * How far off straight two walls may be and still be one wall once the jog between them has gone.
+ */
+const FOLD_STRAIGHT_DEG = 6;
+
+/**
+ * A drag that has pushed a wall back into line with its neighbours: the jog it came from, folded
+ * away, or null when this drag did no such thing.
+ *
+ * WHY THIS EXISTS. [collapsesAWall] refuses any move that drives an existing wall below
+ * [MIN_WALL_PX], which is sixteen inches. So a jog whose returns are 1 ft 5 in could be shrunk by
+ * exactly one inch and never further: the estimator of 2026-09-24 spent a while trying to push one
+ * flat and concluded, reasonably, that the editor would not let them. It would not. A jog could be
+ * made by dragging and never unmade by dragging, however much anyone wanted it flat.
+ *
+ * The refusal is right in general - it is what stops a wall being squeezed to nothing by accident,
+ * and it is what makes a pull work at all (see its own note). What was missing is that "squeezed to
+ * nothing" and "pushed back into line" look identical to a length check and are opposite intentions.
+ * They are told apart by what is LEFT: fold the collapsed wall away, and if the walls that then
+ * meet are straight, the drag was a flatten. If they are not, it was a squeeze, and it is refused
+ * exactly as before.
+ *
+ * A deliberate break ([insertVertexOnWall]) is safe from this: it makes two collinear walls and no
+ * zero-length one, so nothing here ever fires on it.
+ */
+function foldFlat(prev: SketchRoom, next: SketchRoom): SketchRoom | null {
+  const before = new Map(wallsOf(prev).map((w) => [w.id, w.lengthPx]));
+  const walls = wallsOf(next);
+  // The walls this drag drove under the minimum. Their vertices are what might fold away.
+  const collapsed = walls.filter((w) => {
+    if (w.lengthPx >= MIN_WALL_PX) return false;
+    const was = before.get(w.id);
+    return was !== undefined && w.lengthPx < was - 1e-9;
+  });
+  if (collapsed.length === 0) return null;
+
+  /*
+    EVERY one of them has to leave a straight line behind, and this is the whole safety of it.
+
+    A jog's return has the main wall on one side and the jog's face on the other, and those two
+    carry straight on once the return has gone: folding it is what the estimator asked for. A
+    PARTITION's end cap has the partition's two faces either side, and those double back on each
+    other at 180 degrees: folding it would squeeze a 4 1/2 in partition out of existence, which is
+    the very thing collapsesAWall is there to prevent, and the scan-import suite says so within a
+    second of anyone getting this wrong.
+
+    So the test is not "is this wall short" - it is "is what remains a straight line". Checked
+    before anything is removed, and one failure refuses the whole drag exactly as before.
+  */
+  const marks: { x: number; y: number }[] = [];
+  for (const wall of collapsed) {
+    const i = walls.findIndex((w) => w.id === wall.id);
+    const behind = walls[(i - 1 + walls.length) % walls.length] as WallGeometry;
+    const ahead = walls[(i + 1) % walls.length] as WallGeometry;
+    if (angleBetweenWallsDeg(behind, ahead) > FOLD_STRAIGHT_DEG) return null;
+    marks.push({ x: wall.x1, y: wall.y1 });
+  }
+
+  let room = next;
+  for (const wall of collapsed) {
+    if (room.vertices.length <= MIN_VERTICES) return null;
+    const folded = removeVertex(room, wall.id);
+    if (folded === room) return null;   // refused: nothing to gain by guessing
+    room = folded;
+  }
+
+  /*
+    Then join what the fold left, AT THE FOLD ONLY. A sweep over every collinear pair in the room
+    would undo a break made deliberately somewhere else entirely, so a corner is merged only when it
+    is both straight and standing where the jog used to be.
+  */
+  for (let guard = 0; guard < 8; guard++) {
+    const now = wallsOf(room);
+    if (now.length <= MIN_VERTICES) break;
+    const straight = now.find((w, i) => {
+      const behind = now[(i - 1 + now.length) % now.length] as WallGeometry;
+      if (angleBetweenWallsDeg(behind, w) > FOLD_STRAIGHT_DEG) return false;
+      return marks.some((m) => Math.hypot(w.x1 - m.x, w.y1 - m.y) <= MIN_WALL_PX);
+    });
+    if (!straight) break;
+    const merged = removeVertex(room, straight.id);
+    if (merged === room) break;
+    room = merged;
+  }
+
+  return isDegenerate(room.vertices) ? null : room;
+}
+
+/** The turn between two walls, 0 when they carry straight on, in degrees. */
+function angleBetweenWallsDeg(a: WallGeometry, b: WallGeometry): number {
+  if (a.lengthPx <= 0 || b.lengthPx <= 0) return 180;
+  const ax = (a.x2 - a.x1) / a.lengthPx;
+  const ay = (a.y2 - a.y1) / a.lengthPx;
+  const bx = (b.x2 - b.x1) / b.lengthPx;
+  const by = (b.y2 - b.y1) / b.lengthPx;
+  const dot = Math.min(1, Math.max(-1, ax * bx + ay * by));
+  return (Math.acos(dot) * 180) / Math.PI;
 }
 
 /**

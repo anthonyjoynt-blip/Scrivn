@@ -1519,7 +1519,7 @@ export function SketchEditor({
           : sketch.rooms.length === 0
           ? "Add a room, or tap Wall and draw one corner by corner."
           : tool === "select"
-            ? "Tap to select, drag to move. Double-tap a wall or its measurement to type its length. For an L: tap Break, tap a wall, then drag one half out. Drag empty space to pan; pinch to zoom."
+            ? "Tap to select, drag to move. Double-tap a wall or its measurement to type its length; double-tap a CORNER to remove it and join the two walls. For an L: tap Break, tap a wall, then drag one half out. Drag empty space to pan; pinch to zoom."
             : tool === "pull"
               ? wallNotice ?? "Drag out from a wall to pull the next room off it, or in for a closet inside — same wall, same doors. A tap pulls a 12' room out."
             : tool === "island"
@@ -1988,12 +1988,22 @@ export function SketchEditor({
           if (!still) return;
           /*
             `waiting` is the tap that CHANGED the selection — the effect above saw the finger down
-            and left it here. `selectionKey` is the tap on something already selected, which
-            changes no state at all and so reaches no effect: without it, a room dragged into place
-            (selected, sheet deliberately down) could never be tapped for its name again, and
-            neither could anything whose sheet had just been closed.
+            and left it here. A tap on something ALREADY selected changes no state and so reaches no
+            effect, and it used to raise the sheet too, so that a wall whose length box had been
+            closed could be re-opened by tapping it again.
+
+            For a WALL or a SYMBOL that is right: the sheet is the thing you came for, the length
+            box lives in it, and tapping the wall again is how you get it back.
+
+            For a ROOM it is not, and the estimator of 2026-09-24 spent an afternoon on it: every
+            attempt to grab a wall that landed a few pixels wide of it selected the room instead,
+            and the room's name, sub-room and ceiling slid up over the very drawing they were
+            aiming at. Close, aim, miss, close again. A room's properties are one tap away on the
+            bar - the button is right there - and that is the right price for a tap that was
+            probably aimed at something else.
           */
-          if (waiting || selectionKey !== null) setSheet("details");
+          const reopen = selectionKey !== null && !selectionKey.startsWith("room:");
+          if (waiting || reopen) setSheet("details");
         }}
         onPointerCancel={() => {
           pointerOnPlan.current = null;

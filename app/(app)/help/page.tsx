@@ -117,6 +117,11 @@ export default function HelpPage() {
               <strong>Every length on the plan is a button.</strong> Double-tap a wall or its measurement and type what
               your tape says — the room resizes around it. That is the one number worth correcting; the rest follow.
             </p>
+            <p>
+              <strong>Double-tap a corner to remove it</strong>, and the two walls either side join back into one. That
+              is how a jog you no longer want becomes a flat wall — and it is also what a scan sometimes leaves behind.
+              Pushing the jog flat with your finger works too: drive it back into line and it folds away.
+            </p>
           </div>
         </div>
 
