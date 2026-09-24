@@ -45,6 +45,13 @@
  * room to the length you typed instead of redefining what a pixel means to it.
  */
 
+/*
+  Type-only, so nothing is imported at runtime and the cycle with sketchQuantities (which imports
+  the geometry from here) never exists outside the compiler. QuantityOptions lives next door because
+  that is where the deductions are worked out; it is named here because it is saved with the sketch.
+*/
+import type { QuantityOptions } from "./sketchQuantities";
+
 /** A room's corner. Ids are stable across edits so walls and symbols can refer to them. */
 export interface Vertex {
   id: string;
@@ -639,6 +646,19 @@ export interface Sketch {
    * match, and from then on a new scan is offered rather than applied.
    */
   scan?: SketchScan;
+  /**
+   * Which deductions this sketch's quantities apply — see `QuantityOptions` in `lib/sketchQuantities.ts`.
+   *
+   * SAVED WITH THE SKETCH, and that is the point of it. These were editor state until 2026-09-24:
+   * transient, per-viewer, defaulting to all-off, and read by nothing but the Quantities panel. So
+   * an estimator could take the cabinets out of a kitchen floor, watch the number come down, send
+   * the claim, and have the scope priced off the gross floor anyway. The deduction was a readout,
+   * not a decision.
+   *
+   * A decision that prices has to travel with the drawing. Optional so every sketch saved before
+   * this loads unchanged, and absent reads as `DEFAULT_QUANTITY_OPTIONS`.
+   */
+  quantities?: QuantityOptions;
 }
 
 /**

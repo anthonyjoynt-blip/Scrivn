@@ -7,7 +7,7 @@ import { type SavedClaimState, resumeStep } from "@/lib/claimState";
 import { useClaimPersistence } from "@/lib/useClaimPersistence";
 import { useLetterhead } from "@/lib/useLetterhead";
 import type { RoomAreasByName } from "@/lib/debris";
-import { grossFloorArea } from "@/lib/sketchQuantities";
+import { roomAreasForEstimate } from "@/lib/sketchQuantities";
 import { useProfile } from "@/lib/useProfile";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
 import { resolveRound, nextQuestions } from "@/lib/questionRound";
@@ -76,7 +76,7 @@ import {
 import { type Trade, type WorkOrder, availableTrades, buildWorkOrders, unavailableTradeNote } from "@/lib/workOrders";
 import { WorkOrderSelector } from "@/components/WorkOrderSelector";
 import { SketchEditor } from "@/components/sketch/SketchEditor";
-import { type Sketch, emptySketch, hasSketchContent, knownRoomNames, levelsOf, wallsOf } from "@/lib/sketch";
+import { type Sketch, emptySketch, hasSketchContent, knownRoomNames, levelsOf } from "@/lib/sketch";
 import { type MoistureMap, emptyMoistureMap, hasMoistureContent, pruneMoisture, roomMoistureSummary } from "@/lib/moisture";
 import { SCAN_DROP, type PendingScan, adoptScan, convertScan, namedRooms, scanDecision } from "@/lib/scanInbox";
 import { useScanInbox } from "@/lib/useScanInbox";
@@ -658,19 +658,26 @@ export default function Home() {
   }, [sketch]);
 
   /*
-    What the sketch knows about each room's size, for the disposal estimate: the gross footprint and
-    the full wall run, not the moisture-marked portions — "half the room" of vinyl is half the room,
-    not half of what was painted wet. Keyed the way gap-check and the estimate look rooms up.
+    What the sketch knows about each room's size, for the disposal estimate — not the moisture-marked
+    portions: "half the room" of vinyl is half the room, not half of what was painted wet. Keyed the
+    way gap-check and the estimate look rooms up.
+
+    THROUGH `roomQuantities`, which is the same function the Quantities panel reads, and that is the
+    whole change of 2026-09-24. This used to compute its own gross footprint and its own raw wall
+    run, and the two calculations drifted apart in the way two calculations of one number always do:
+
+      - Cabinets and built-ins came off the panel and never off the estimate, so an estimator could
+        take the run out of a kitchen floor, watch the number fall, send the claim, and have the
+        disposal weighed on the gross floor anyway. The deduction was a readout, not a decision.
+      - A SUB-ROOM was counted twice. `grossFloorArea` is the room's own outline, so a closet drawn
+        inside a bedroom was weighed once as the closet and again as part of the bedroom around it.
+      - The wall run was every wall of the outline, so a partition standing in a room contributed
+        nothing to it.
+
+    The ceiling is deliberately NOT the floor any more. It is `ceilingArea` — sub-rooms out, cabinets
+    left in — because a cabinet stands on the floor and the ceiling runs over the top of it.
   */
-  const roomAreas = useMemo<RoomAreasByName>(() => {
-    const out: RoomAreasByName = {};
-    for (const room of sketch.rooms) {
-      const floor = grossFloorArea(room);
-      const run = wallsOf(room).reduce((sum, wall) => sum + wall.lengthFeet, 0);
-      out[normaliseRoomName(room.name ?? "")] = { floorSquareFeet: floor > 0 ? floor : null, wallRunFeet: run > 0 ? run : null, ceilingSquareFeet: floor > 0 ? floor : null };
-    }
-    return out;
-  }, [sketch]);
+  const roomAreas = useMemo<RoomAreasByName>(() => roomAreasForEstimate(sketch, normaliseRoomName), [sketch]);
 
   const paintableWallSF = useMemo(() => {
     const out: Record<string, number | null> = {};

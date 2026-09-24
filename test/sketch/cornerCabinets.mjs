@@ -236,5 +236,114 @@ test("a tie goes to whichever was drawn first, and stays there", () => {
   near(s.symbolWidthFeet(first, room, [room]), 8, "and again", 1e-6);
 });
 
+/* ── what the SCOPE is priced from ───────────────────────────────────────────────────────────── */
+
+/*
+  Until 2026-09-24 none of the above reached a price. The claim page worked the estimate's areas out
+  itself, from the room's own outline and the sum of its walls, and the deduction toggles fed only
+  the panel on screen - so an estimator could take a kitchen run out of the floor, watch the number
+  fall, send the claim, and have the disposal weighed on the gross floor anyway.
+*/
+
+const key = (name) => name.trim().toLowerCase();
+
+test("a deducted cabinet run reaches the estimate, and the gross floor no longer does", () => {
+  const long = run("long", 0, 1 - 5 / 20, 10);
+  const room = kitchen([long]);
+  const gross = s.roomAreasForEstimate({ rooms: [room] }, key);
+  near(gross.kitchen.floorSquareFeet, 320, "with no deduction chosen, the whole floor", 0.01);
+
+  const deducted = s.roomAreasForEstimate({ rooms: [room], quantities: DEDUCTING }, key);
+  near(deducted.kitchen.floorSquareFeet, 320 - 20, "the 10' run at 2' deep comes off", 0.01);
+  assert(deducted.kitchen.floorSquareFeet < gross.kitchen.floorSquareFeet, "the estimate sees the difference");
+});
+
+test("the choice travels with the sketch, not with whoever has the editor open", () => {
+  const room = kitchen([run("long", 0, 1 - 5 / 20, 10)]);
+  const saved = JSON.parse(JSON.stringify({ rooms: [room], quantities: DEDUCTING }));
+  near(s.roomAreasForEstimate(saved, key).kitchen.floorSquareFeet, 300, "loaded back from JSON, still deducted", 0.01);
+  const before = JSON.parse(JSON.stringify({ rooms: [room] }));
+  near(s.roomAreasForEstimate(before, key).kitchen.floorSquareFeet, 320, "a sketch saved before the field reads as no deduction", 0.01);
+});
+
+test("a cabinet does not shorten the ceiling above it", () => {
+  const room = kitchen([run("long", 0, 1 - 5 / 20, 10)]);
+  const a = s.roomAreasForEstimate({ rooms: [room], quantities: DEDUCTING }, key);
+  near(a.kitchen.ceilingSquareFeet, 320, "the ceiling runs over the top of it", 0.01);
+  assert(a.kitchen.ceilingSquareFeet !== a.kitchen.floorSquareFeet, "floor and ceiling are no longer one number");
+});
+
+test("a closet inside a bedroom is no longer weighed twice", () => {
+  /*
+    `grossFloorArea` is a room's OWN outline and takes no notice of what is nested in it, so the
+    closet's floor was disposed of once as the closet and again as part of the bedroom around it.
+  */
+  const bedroom = {
+    ...kitchen([]),
+    id: "bed",
+    name: "Bedroom",
+    vertices: [
+      { id: "b0", x: 0, y: 0 },
+      { id: "b1", x: 20 * FT, y: 0 },
+      { id: "b2", x: 20 * FT, y: 16 * FT },
+      { id: "b3", x: 0, y: 16 * FT },
+    ],
+  };
+  const closet = {
+    ...kitchen([]),
+    id: "cl",
+    name: "Closet",
+    parentRoomId: "bed",
+    vertices: [
+      { id: "c0", x: 2 * FT, y: 2 * FT },
+      { id: "c1", x: 8 * FT, y: 2 * FT },
+      { id: "c2", x: 8 * FT, y: 5 * FT },
+      { id: "c3", x: 2 * FT, y: 5 * FT },
+    ],
+  };
+  const areas = s.roomAreasForEstimate({ rooms: [bedroom, closet] }, key);
+  near(areas.closet.floorSquareFeet, 18, "the closet is 6 x 3", 0.01);
+  near(areas.bedroom.floorSquareFeet, 320 - 18, "and the bedroom is what is left of it", 0.01);
+  near(areas.bedroom.floorSquareFeet + areas.closet.floorSquareFeet, 320, "together they are the room once", 0.01);
+});
+
+test("with nothing chosen, nothing moves", () => {
+  /*
+    The promise this change has to keep. Switching the estimate onto `roomQuantities` corrects three
+    things, and only two of them should happen without the estimator asking:
+
+      - a SUB-ROOM stops being counted twice (a correction, and it applies whether or not any
+        toggle is on, because counting a closet's floor in two rooms was never a choice);
+      - a PARTITION starts contributing its wall run (the same);
+      - a CABINET comes off only when the toggle says so.
+
+    A plain room with a cabinet in it and no toggle on must read exactly as it did before, to the
+    square foot, or every saved claim quietly reprices itself.
+  */
+  const cab = run("long", 0, 1 - 5 / 20, 10);
+  const room = kitchen([cab]);
+  const plain = s.roomAreasForEstimate({ rooms: [room] }, key).kitchen;
+  const wallRun = s.wallsOf(room).reduce((sum, w) => sum + w.lengthFeet, 0);
+  near(plain.floorSquareFeet, s.grossFloorArea(room), "the floor is what it always was", 0.001);
+  near(plain.wallRunFeet, wallRun, "and so is the wall run", 0.001);
+  near(plain.ceilingSquareFeet, s.grossFloorArea(room), "and the ceiling", 0.001);
+});
+
+test("a partition standing in a room is wall, and now counts as it", () => {
+  const room = kitchen([]);
+  const partition = { id: "f1", vertices: [{ id: "fa", x: 4 * FT, y: 0 }, { id: "fb", x: 4 * FT, y: 8 * FT }], heightFeet: null };
+  const bare = s.roomAreasForEstimate({ rooms: [room] }, key).kitchen;
+  const withIt = s.roomAreasForEstimate({ rooms: [room], freeWalls: [partition] }, key).kitchen;
+  near(bare.wallRunFeet, 72, "the outline alone", 0.01);
+  near(withIt.wallRunFeet, 72 + 16, "plus both faces of an 8' partition", 0.01);
+});
+
+test("a room nobody drew is absent rather than zero", () => {
+  const empty = { ...kitchen([]), vertices: [] };
+  const areas = s.roomAreasForEstimate({ rooms: [empty] }, key);
+  assert(areas.kitchen.floorSquareFeet === null, "null, so `resolve` records it unweighed");
+  assert(areas.kitchen.wallRunFeet === null, "and the same for the run");
+});
+
 console.log(`\n  ${passed.length} passed, ${failures.length} failed\n`);
 process.exit(failures.length === 0 ? 0 : 1);

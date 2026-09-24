@@ -288,3 +288,52 @@ export function deductionSources(room: SketchRoom): SketchSymbol[] {
 }
 
 export { floorStanding };
+
+/**
+ * What the ESTIMATE is told about each room's size, keyed by `normaliseRoomName`.
+ *
+ * Structurally `RoomAreasByName` from `lib/debris.ts`, named here rather than imported so the
+ * quantities do not have to depend on the disposal estimate to describe their own output.
+ */
+export type RoomAreasForEstimate = Record<
+  string,
+  { floorSquareFeet: number | null; wallRunFeet: number | null; ceilingSquareFeet: number | null }
+>;
+
+/**
+ * Every drawn room's size as the scope should price it: the deductions the estimator chose, applied.
+ *
+ * WHY THIS IS NOT `grossFloorArea`, which is what it used to be. Until 2026-09-24 the claim page
+ * worked these out itself, from the room's own outline and the sum of its walls, and that second
+ * calculation drifted from `roomQuantities` in three ways that all understated or overstated a
+ * priced number:
+ *
+ *  - CABINETS AND BUILT-INS never came off. The toggles existed, the panel obeyed them, and the
+ *    estimate did not — so taking a kitchen run out of the floor changed a number on screen and
+ *    nothing that was sent. The deduction was a readout rather than a decision, which is the worst
+ *    kind of wrong: it looks like it worked.
+ *  - A SUB-ROOM was counted TWICE. A closet drawn inside a bedroom was weighed once as the closet
+ *    and again as part of the bedroom, because a room's own outline takes no notice of what is
+ *    nested in it.
+ *  - PARTITIONS contributed no wall run, since only the outline's own walls were summed.
+ *
+ * The ceiling is `ceilingArea` and the floor is `floorArea`, which are no longer the same number:
+ * both lose their sub-rooms, and only the floor loses the cabinets standing on it. A cabinet does
+ * not shorten the ceiling above it.
+ */
+export function roomAreasForEstimate(
+  sketch: Sketch,
+  keyOf: (name: string) => string,
+  options: QuantityOptions = sketch.quantities ?? DEFAULT_QUANTITY_OPTIONS,
+): RoomAreasForEstimate {
+  const out: RoomAreasForEstimate = {};
+  for (const room of sketch.rooms) {
+    const q = roomQuantities(room, sketch, options);
+    out[keyOf(room.name ?? "")] = {
+      floorSquareFeet: q.floorArea > 0 ? q.floorArea : null,
+      wallRunFeet: q.perimeterFloor > 0 ? q.perimeterFloor : null,
+      ceilingSquareFeet: q.ceilingArea > 0 ? q.ceilingArea : null,
+    };
+  }
+  return out;
+}

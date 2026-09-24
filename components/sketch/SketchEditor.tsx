@@ -300,7 +300,17 @@ export function SketchEditor({
    * sketch is REPORTED, not what was drawn, and two people reading the same sketch may legitimately
    * want different answers.
    */
-  const [quantityOptions, setQuantityOptions] = useState<QuantityOptions>(DEFAULT_QUANTITY_OPTIONS);
+  /*
+    ON THE SKETCH, not in this component. These choose what comes off the floor, the perimeter and
+    the wall face, and since 2026-09-24 they are what the SCOPE is priced from - so they have to
+    travel with the drawing rather than living and dying with one open editor. Absent on every
+    sketch saved before that, which reads as DEFAULT_QUANTITY_OPTIONS.
+  */
+  const quantityOptions = sketch.quantities ?? DEFAULT_QUANTITY_OPTIONS;
+  const setQuantityOptions = useCallback(
+    (next: QuantityOptions) => onChange((prev) => ({ ...prev, quantities: next })),
+    [onChange],
+  );
   /**
    * Which fixture the Fixture tool will drop.
    *
