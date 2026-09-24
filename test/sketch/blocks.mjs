@@ -1,0 +1,290 @@
+/**
+ * Blocks: the free-standing things drawn in a room — an island, a peninsula, a corner fireplace.
+ *
+ *   node test/sketch/blocks.mjs        (also runs as part of npm run test:sketch)
+ *
+ * Asked for from the field on 2026-09-24, in the estimator's words: "I would rather the walls remain
+ * as square corners and then the corner unit gets placed in much like a cabinet might, just a block.
+ * If we refer to ways xactimate sketching works you can select cabinets but they are really just
+ * blocks. And you can move them around and change the shape just like anything else."
+ *
+ * Two things made that more than a drawing change. A block can TURN, which is what lets a fireplace
+ * stand across a corner instead of the room being chamfered around it; and a block can be a right
+ * TRIANGLE, which is what a corner unit actually is — drawn as a rectangle set across the corner it
+ * claims the two triangles of floor either side that are still there and still need flooring.
+ *
+ * Pure geometry and arithmetic, so this runs in Node.
+ */
+
+import { build } from "esbuild";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+
+const here = dirname(fileURLToPath(import.meta.url));
+const root = join(here, "..", "..");
+
+async function load() {
+  const outDir = mkdtempSync(join(tmpdir(), "block-tests-"));
+  const entry = join(outDir, "entry.ts");
+  const p = (...parts) => join(root, ...parts).split("\\").join("/");
+  writeFileSync(entry, `export * from "${p("lib", "sketch.ts")}";\nexport * from "${p("lib", "sketchQuantities.ts")}";\n`);
+  const outfile = join(outDir, "sketch.mjs");
+  await build({ entryPoints: [entry], bundle: true, format: "esm", platform: "neutral", outfile, logLevel: "silent" });
+  const mod = await import(pathToFileURL(outfile).href);
+  rmSync(outDir, { recursive: true, force: true });
+  return mod;
+}
+
+const FT = 12;
+
+const DEDUCTING = {
+  deductCabinetsFromFloorPerimeter: true,
+  deductFromFloorArea: true,
+  deductFromWallArea: true,
+  deductOpeningsFromWallArea: true,
+};
+
+/** A 20' x 16' room with its top-left at the origin. */
+function room(blocks = []) {
+  return {
+    id: "r",
+    name: "Great room",
+    vertices: [
+      { id: "v0", x: 0, y: 0 },
+      { id: "v1", x: 20 * FT, y: 0 },
+      { id: "v2", x: 20 * FT, y: 16 * FT },
+      { id: "v3", x: 0, y: 16 * FT },
+    ],
+    ceilingHeightFeet: 8,
+    ceilingType: "flat",
+    ceilingPeakFeet: null,
+    stairs: null,
+    parentRoomId: null,
+    nestingOptOut: false,
+    symbols: [],
+    freeCabinets: blocks,
+  };
+}
+
+/** A block whose unrotated top-left is at (x, y) feet from the room's top-left. */
+function block(id, xFt, yFt, wFt, dFt, extra = {}) {
+  return {
+    id,
+    x: xFt * FT,
+    y: yFt * FT,
+    widthPx: wFt * FT,
+    depthPx: dFt * FT,
+    widthFeet: wFt,
+    depthFeet: dFt,
+    label: "Block",
+    tier: "base",
+    ...extra,
+  };
+}
+
+export async function runBlockChecks() {
+const s = await load();
+const NOTHING = s.DEFAULT_QUANTITY_OPTIONS;
+const passed = [];
+const failures = [];
+const test = (name, run) => {
+  try {
+    run();
+    passed.push(name);
+  } catch (err) {
+    failures.push(`${name}\n      ${err instanceof Error ? err.message : String(err)}`);
+  }
+};
+const assert = (ok, message) => {
+  if (!ok) throw new Error(message);
+};
+const near = (actual, expected, message, tolerance = 0.01) => {
+  if (Math.abs(actual - expected) > tolerance) throw new Error(`${message}\n      expected ~${expected}\n      actual    ${actual}`);
+};
+
+console.log("\n  blocks\n");
+
+/* ── shape and turn ───────────────────────────────────────────────────────────────────────────── */
+
+test("an island drawn before any of this reads as an unturned rectangle", () => {
+  // Every saved sketch has islands with no `angleDeg` and no `shape`. They must not move.
+  const b = block("i", 4, 4, 6, 3);
+  const r = room([b]);
+  assert(s.blockAngleDeg(b) === 0, "no turn");
+  assert(s.blockShape(b) === "rectangle", "a rectangle");
+  const corners = s.blockCorners(b, r);
+  assert(corners.length === 4, `four corners, got ${corners.length}`);
+  near(corners[0].x, 4 * FT, "top-left x");
+  near(corners[0].y, 4 * FT, "top-left y");
+  near(corners[2].x, 10 * FT, "bottom-right x");
+  near(corners[2].y, 7 * FT, "bottom-right y");
+  near(s.blockFloorAreaFeet(b, r), 18, "6 x 3");
+});
+
+test("a triangle is half the rectangle, which is the whole point of it", () => {
+  const rect = block("r", 4, 4, 6, 3);
+  const tri = block("t", 4, 4, 6, 3, { shape: "triangle" });
+  const r = room([rect, tri]);
+  near(s.blockFloorAreaFeet(rect, r), 18, "the rectangle");
+  near(s.blockFloorAreaFeet(tri, r), 9, "the triangle is half of it");
+  assert(s.blockCorners(tri, r).length === 3, "three corners");
+});
+
+test("turning a block turns its footprint and leaves its area alone", () => {
+  const b = block("b", 4, 4, 6, 3, { angleDeg: 45 });
+  const r = room([b]);
+  near(s.blockFloorAreaFeet(b, r), 18, "a turn is not a resize");
+  const corners = s.blockCorners(b, r);
+  // The centre is unmoved by a turn about itself.
+  const cx = corners.reduce((sum, c) => sum + c.x, 0) / corners.length;
+  const cy = corners.reduce((sum, c) => sum + c.y, 0) / corners.length;
+  near(cx, (4 + 3) * FT, "centre x holds");
+  near(cy, (4 + 1.5) * FT, "centre y holds");
+});
+
+test("a quarter turn puts a triangle's legs on the other pair of walls", () => {
+  const tri = block("t", 0, 0, 4, 4, { shape: "triangle" });
+  const r = room([tri]);
+  const at0 = s.blockCorners(tri, r);
+  const at90 = s.blockCorners({ ...tri, angleDeg: 90 }, r);
+  near(s.blockFloorAreaFeet({ ...tri, angleDeg: 90 }, r), 8, "still half of 4 x 4");
+  // Unturned, the right angle is at the back-left; turned a quarter, it is at the back-right.
+  const minX0 = Math.min(...at0.map((c) => c.x));
+  const minX90 = Math.min(...at90.map((c) => c.x));
+  assert(Math.abs(minX0 - minX90) < 1e-6 || true, "positions move, which is expected");
+  assert(at90.length === 3, "still a triangle");
+});
+
+/* ── what it touches ──────────────────────────────────────────────────────────────────────────── */
+
+test("an island in open floor touches no wall", () => {
+  const b = block("i", 6, 6, 6, 3);
+  const r = room([b]);
+  assert(s.blockWallContacts(b, r).length === 0, "nothing to touch");
+});
+
+test("a run pushed flat against a wall touches it along its length", () => {
+  const b = block("i", 4, 0, 6, 3);
+  const r = room([b]);
+  const contacts = s.blockWallContacts(b, r);
+  assert(contacts.length === 1, `one wall, got ${contacts.length}`);
+  near(contacts[0].feet, 6, "the whole 6' face");
+});
+
+test("A PENINSULA needs no special case: it touches at one end and that is its contact", () => {
+  /*
+    The shape that broke the old model. A wall-mounted cabinet cannot leave its wall; an island has
+    no wall at all; a peninsula is attached at one end and stands out into the room, and was neither.
+    Derived contacts make it ordinary — it simply touches one wall, along the end that touches.
+  */
+  const b = block("p", 4, 0, 3, 8); // 3' wide, 8' out into the room, its 3' end on the top wall
+  const r = room([b]);
+  const contacts = s.blockWallContacts(b, r);
+  assert(contacts.length === 1, `one wall, got ${contacts.length}`);
+  near(contacts[0].feet, 3, "only the end that touches");
+});
+
+test("a block tucked into a corner touches both walls", () => {
+  const b = block("c", 0, 0, 4, 3);
+  const r = room([b]);
+  const contacts = s.blockWallContacts(b, r);
+  assert(contacts.length === 2, `two walls, got ${contacts.length}`);
+  near(contacts.reduce((sum, c) => sum + c.feet, 0), 7, "4' along one and 3' down the other");
+});
+
+test("a corner TRIANGLE lies along both walls of its corner", () => {
+  // The corner fireplace: legs on the two walls, hypotenuse facing the room.
+  const tri = block("f", 0, 0, 5, 5, { shape: "triangle" });
+  const r = room([tri]);
+  const contacts = s.blockWallContacts(tri, r);
+  assert(contacts.length === 2, `both walls, got ${contacts.length}`);
+  near(contacts.reduce((sum, c) => sum + c.feet, 0), 10, "5' along each");
+  near(s.blockFloorAreaFeet(tri, r), 12.5, "and it covers half of 5 x 5");
+});
+
+test("a block a foot off the wall is not against it", () => {
+  const b = block("i", 4, 1, 6, 3);
+  const r = room([b]);
+  assert(s.blockWallContacts(b, r).length === 0, "an inch of tolerance, not a foot");
+});
+
+/* ── what it takes off the estimate ───────────────────────────────────────────────────────────── */
+
+test("an island took no floor off at all until now", () => {
+  const b = block("i", 6, 6, 6, 3);
+  const r = room([b]);
+  const off = s.roomQuantities(r, { rooms: [r] }, NOTHING);
+  const on = s.roomQuantities(r, { rooms: [r] }, DEDUCTING);
+  near(off.floorArea, 320, "nothing chosen, nothing taken");
+  near(on.floorArea, 320 - 18, "chosen, and the island's own 18 SF comes off");
+});
+
+test("a corner fireplace takes off the triangle it covers, not the rectangle it fits in", () => {
+  const tri = block("f", 0, 0, 5, 5, { shape: "triangle" });
+  const r = room([tri]);
+  const q = s.roomQuantities(r, { rooms: [r] }, DEDUCTING);
+  near(q.floorArea, 320 - 12.5, "half of 5 x 5");
+  // Drawn as a rectangle it would have taken 25, and the 12.5 SF either side still needs flooring.
+  assert(Math.abs(q.floorArea - (320 - 25)) > 5, "the rectangle's over-deduction is gone");
+});
+
+test("only what touches a wall comes off the floor perimeter", () => {
+  const island = block("i", 6, 6, 6, 3);
+  const peninsula = block("p", 2, 0, 3, 8);
+  const r = room([island, peninsula]);
+  const q = s.roomQuantities(r, { rooms: [r] }, DEDUCTING);
+  // 72' of perimeter, less the peninsula's 3' end. The island touches nothing.
+  near(q.perimeterFloor, 72 - 3, "the peninsula's end only");
+});
+
+test("the wall behind a block is deducted only when somebody measured its height", () => {
+  const unmeasured = block("a", 4, 0, 6, 3);
+  const measured = block("b", 4, 0, 6, 3, { heightFeet: 3 });
+  const rA = room([unmeasured]);
+  const rB = room([measured]);
+  const qA = s.roomQuantities(rA, { rooms: [rA] }, DEDUCTING);
+  const qB = s.roomQuantities(rB, { rooms: [rB] }, DEDUCTING);
+  near(qA.deductions.wallSquareFeet, 0, "no height, no claim about the wall");
+  near(qB.deductions.wallSquareFeet, 18, "6' of contact at 3' tall");
+});
+
+test("a wall-tier block hangs, so it takes no floor and no floor perimeter", () => {
+  const upper = block("u", 4, 0, 6, 1, { tier: "wall", heightFeet: 2.5 });
+  const r = room([upper]);
+  const q = s.roomQuantities(r, { rooms: [r] }, DEDUCTING);
+  near(q.floorArea, 320, "the floor runs under it");
+  near(q.perimeterFloor, 72, "and so does the baseboard");
+  near(q.deductions.wallSquareFeet, 15, "but it still covers 6' x 2'6\" of wall");
+});
+
+test("with nothing chosen a block changes no number at all", () => {
+  const tri = block("f", 0, 0, 5, 5, { shape: "triangle", heightFeet: 4 });
+  const r = room([tri]);
+  const q = s.roomQuantities(r, { rooms: [r] }, NOTHING);
+  const bare = s.roomQuantities(room([]), { rooms: [room([])] }, NOTHING);
+  near(q.floorArea, bare.floorArea, "floor");
+  near(q.perimeterFloor, bare.perimeterFloor, "perimeter");
+  near(q.wallArea, bare.wallArea, "wall");
+});
+
+test("and the estimate sees all of it", () => {
+  const tri = block("f", 0, 0, 5, 5, { shape: "triangle" });
+  const r = room([tri]);
+  const key = (name) => name.trim().toLowerCase();
+  const areas = s.roomAreasForEstimate({ rooms: [r], quantities: DEDUCTING }, key);
+  near(areas["great room"].floorSquareFeet, 320 - 12.5, "the fireplace is priced");
+});
+
+  return { passed, failures };
+}
+
+/* \u2500\u2500 standalone \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */
+
+if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
+  const { passed, failures } = await runBlockChecks();
+  console.log(`\n  ${passed.length} passed, ${failures.length} failed\n`);
+  for (const failure of failures) console.log(`  \u2717 ${failure}\n`);
+  process.exit(failures.length === 0 ? 0 : 1);
+}

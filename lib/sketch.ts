@@ -363,9 +363,9 @@ export function isDeductible(symbol: SketchSymbol): boolean {
  * Position is an offset from the room's top-left in world pixels, so an island travels with its
  * room when the room is moved, and stays put when the room is resized from a far corner.
  */
-export interface FreeCabinet {
+export interface Block {
   id: string;
-  /** Top-left of the block, as an offset from the room's bounding-box top-left, in world pixels. */
+  /** Top-left of the block's UNROTATED footprint, as an offset from the room's bounding-box top-left, in world pixels. */
   x: number;
   y: number;
   /** Drawn size while the room has no scale — the same fallback role `widthFraction` plays for wall symbols. */
@@ -376,7 +376,45 @@ export interface FreeCabinet {
   depthFeet: number | null;
   label: string;
   tier: CabinetTier;
+  /**
+   * Turn, in degrees clockwise about the footprint's centre. Absent means none, which is every
+   * island drawn before 2026-09-24.
+   *
+   * The reason a block turns at all is the corner fireplace: it stands across a corner at 45° and
+   * every other way of expressing that — a chamfered room, a special corner type — was tried first
+   * and was worse. See `blockCorners`.
+   */
+  angleDeg?: number;
+  /**
+   * The footprint's shape. Absent means "rectangle", which is every island drawn before this.
+   *
+   * A TRIANGLE is a right triangle with the right angle at the back-left of the unrotated
+   * footprint, so its two legs lie along the two walls of a corner it is turned into and the
+   * hypotenuse is its face. That is the shape a corner fireplace, a corner shower or a corner
+   * pantry actually is, and drawing it as a rectangle set across the corner prices two triangles
+   * of floor that are still there.
+   */
+  shape?: BlockShape;
+  /**
+   * How tall it is, for the wall-area deduction — null when nobody measured it.
+   *
+   * NULLABLE on purpose, unlike `CabinetSymbol.heightFeet` which is seeded from its tier. A seeded
+   * height is a measurement nobody took, presented as one; the wall behind a block is only deducted
+   * when somebody says how tall the block is.
+   */
+  heightFeet?: number | null;
 }
+
+/** See `Block.shape`. */
+export type BlockShape = "rectangle" | "triangle";
+
+/**
+ * The old name for a `Block`, from when the only one was a kitchen island.
+ *
+ * Kept as an alias because the room's field is still called `freeCabinets` — a stored name, and
+ * renaming it would mean migrating every saved sketch to gain nothing a reader cannot see from here.
+ */
+export type FreeCabinet = Block;
 
 export interface SketchRoom {
   id: string;
@@ -2856,6 +2894,137 @@ export function withSymbolWidthPx(symbol: SketchSymbol, room: SketchRoom, widthP
 /** Default island footprint: a 6' x 3' block, the usual kitchen island. */
 export const FREE_CABINET_DEFAULT_FEET = { width: 6, depth: 3 };
 
+/** A block's turn in degrees, treating the field's absence as none. */
+export function blockAngleDeg(block: Block): number {
+  return block.angleDeg ?? 0;
+}
+
+/** A block's shape, treating the field's absence as a rectangle. */
+export function blockShape(block: Block): BlockShape {
+  return block.shape ?? "rectangle";
+}
+
+/**
+ * A block's footprint in WORLD pixels: four corners for a rectangle, three for a triangle, turned
+ * by its angle about its own centre and wound clockwise.
+ *
+ * Everything that has to know where a block really is goes through here — what it covers of the
+ * floor, which wall it stands against, what the canvas draws, whether a tap landed on it. The
+ * stored `x`/`y`/`widthPx`/`depthPx` describe the UNROTATED footprint, and nothing outside this
+ * function should be turning them itself; three places doing their own trigonometry is how a block
+ * ends up drawn in one place and priced in another.
+ *
+ * The triangle's right angle sits at the BACK-LEFT of the unrotated footprint, so turning it by 0,
+ * 90, 180 or 270 puts the legs along the two walls of whichever corner it is being tucked into, and
+ * the hypotenuse faces the room.
+ */
+export function blockCorners(block: Block, room: SketchRoom): { x: number; y: number }[] {
+  const { width, depth } = freeCabinetSizePx(block, room);
+  const bounds = roomBounds(room);
+  const left = bounds.minX + block.x;
+  const top = bounds.minY + block.y;
+  const local =
+    blockShape(block) === "triangle"
+      ? [
+          { x: 0, y: 0 },
+          { x: width, y: 0 },
+          { x: 0, y: depth },
+        ]
+      : [
+          { x: 0, y: 0 },
+          { x: width, y: 0 },
+          { x: width, y: depth },
+          { x: 0, y: depth },
+        ];
+  const angle = (blockAngleDeg(block) * Math.PI) / 180;
+  if (angle === 0) return local.map((p) => ({ x: left + p.x, y: top + p.y }));
+  const cx = width / 2;
+  const cy = depth / 2;
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+  return local.map((p) => {
+    const dx = p.x - cx;
+    const dy = p.y - cy;
+    return { x: left + cx + dx * cos - dy * sin, y: top + cy + dx * sin + dy * cos };
+  });
+}
+
+/** A polygon's area in square pixels, by the shoelace formula. */
+function polygonAreaPxOf(points: { x: number; y: number }[]): number {
+  let sum = 0;
+  for (let i = 0; i < points.length; i++) {
+    const a = points[i] as { x: number; y: number };
+    const b = points[(i + 1) % points.length] as { x: number; y: number };
+    sum += a.x * b.y - b.x * a.y;
+  }
+  return Math.abs(sum) / 2;
+}
+
+/**
+ * The floor a block stands on, in square feet: its real footprint, so a triangle is half what the
+ * same width and depth would be as a rectangle.
+ *
+ * That halving is the whole reason the triangle exists. A corner fireplace drawn as a rectangle set
+ * across the corner claims the two triangles of floor either side of it that are still there and
+ * still need flooring.
+ */
+export function blockFloorAreaFeet(block: Block, room: SketchRoom): number {
+  return polygonAreaPxOf(blockCorners(block, room)) / (PIXELS_PER_FOOT * PIXELS_PER_FOOT);
+}
+
+/** How close a block's edge must come to a wall to count as standing against it: 3 in. */
+export const BLOCK_TOUCH_PX = 3;
+
+/**
+ * Which of a room's walls a block stands against, and how much of each it covers, in feet.
+ *
+ * DERIVED, never stored, and that is the point. A block can be dragged, turned, resized or reshaped,
+ * and any of those changes what it touches; a stored attachment would have to be rewritten by every
+ * one of those and would be wrong the first time one of them forgot. Working it out from where the
+ * block actually is means a PENINSULA — attached at one end, standing out into the room — needs no
+ * special case at all: it simply touches one wall instead of none, and its contact is the length of
+ * the edge that touches.
+ *
+ * An edge counts when it runs along the wall (within `BLOCK_TOUCH_ALONG_DEG`) and lies within
+ * `BLOCK_TOUCH_PX` of it. The overlap returned is the part of the wall the edge actually covers.
+ */
+export function blockWallContacts(block: Block, room: SketchRoom): { wallId: string; feet: number }[] {
+  const corners = blockCorners(block, room);
+  const out: { wallId: string; feet: number }[] = [];
+  for (const wall of wallsOf(room)) {
+    if (wall.lengthPx <= 0) continue;
+    const ux = (wall.x2 - wall.x1) / wall.lengthPx;
+    const uy = (wall.y2 - wall.y1) / wall.lengthPx;
+    let covered = 0;
+    for (let i = 0; i < corners.length; i++) {
+      const a = corners[i] as { x: number; y: number };
+      const b = corners[(i + 1) % corners.length] as { x: number; y: number };
+      const ex = b.x - a.x;
+      const ey = b.y - a.y;
+      const len = Math.hypot(ex, ey);
+      if (len <= 0) continue;
+      // Along the wall?
+      const cos = Math.abs((ex * ux + ey * uy) / len);
+      if (cos < Math.cos((BLOCK_TOUCH_ALONG_DEG * Math.PI) / 180)) continue;
+      // Both ends within touching distance of the wall's line?
+      const offA = Math.abs((a.x - wall.x1) * -uy + (a.y - wall.y1) * ux);
+      const offB = Math.abs((b.x - wall.x1) * -uy + (b.y - wall.y1) * ux);
+      if (offA > BLOCK_TOUCH_PX || offB > BLOCK_TOUCH_PX) continue;
+      // How much of the wall it covers, clipped to the wall's own extent.
+      const tA = (a.x - wall.x1) * ux + (a.y - wall.y1) * uy;
+      const tB = (b.x - wall.x1) * ux + (b.y - wall.y1) * uy;
+      const lo = Math.max(0, Math.min(tA, tB));
+      const hi = Math.min(wall.lengthPx, Math.max(tA, tB));
+      if (hi > lo) covered += hi - lo;
+    }
+    if (covered > 0) out.push({ wallId: wall.id, feet: covered / PIXELS_PER_FOOT });
+  }
+  return out;
+}
+
+/** How far off parallel a block's edge may run and still be "along" a wall. */
+export const BLOCK_TOUCH_ALONG_DEG = 5;
+
 /** An island's drawn footprint, resolving which size fields are authoritative. */
 export function freeCabinetSizePx(cabinet: FreeCabinet, room: SketchRoom): { width: number; depth: number } {
   if (cabinet.widthFeet != null && cabinet.depthFeet != null) {
@@ -3409,21 +3578,26 @@ export function rotateStairs(room: SketchRoom, turns = 1): SketchRoom {
 
   const vertices = room.vertices.map((v) => ({ ...v, ...turn(v.x, v.y) }));
   const after = roomBounds({ ...room, vertices });
+  /*
+    THE TURN GOES ON THE ANGLE, and the width and depth are left alone.
+
+    This used to SWAP widthPx/depthPx on an odd quarter, which is a perfectly good way to rotate a
+    rectangle and no way at all to rotate anything else: swapping a right triangle's legs MIRRORS
+    it, so a corner fireplace turned with its room would have come back facing the wrong corner. And
+    once a block carries its own `angleDeg`, doing both the swap and keeping the angle turns it
+    twice.
+
+    Adding a quarter to the angle is right for every shape and draws a rectangle in exactly the same
+    place the swap did — the footprint is positioned from its turned CENTRE either way, so only the
+    stored description differs. A block is not resized by the room turning underneath it.
+  */
   const freeCabinets = room.freeCabinets.map((island) => {
-    const swap = quarter % 2 === 1;
-    const widthPx = swap ? island.depthPx : island.widthPx;
-    const depthPx = swap ? island.widthPx : island.depthPx;
-    // Turn the block's centre, then place the turned block's corner from it — relative to the new
-    // bounds, since that is how an island is stored.
     const centre = turn(before.minX + island.x + island.widthPx / 2, before.minY + island.y + island.depthPx / 2);
     return {
       ...island,
-      x: centre.x - widthPx / 2 - after.minX,
-      y: centre.y - depthPx / 2 - after.minY,
-      widthPx,
-      depthPx,
-      widthFeet: swap ? island.depthFeet : island.widthFeet,
-      depthFeet: swap ? island.widthFeet : island.depthFeet,
+      x: centre.x - island.widthPx / 2 - after.minX,
+      y: centre.y - island.depthPx / 2 - after.minY,
+      angleDeg: (((blockAngleDeg(island) + quarter * 90) % 360) + 360) % 360,
     };
   });
 

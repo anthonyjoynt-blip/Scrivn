@@ -22,6 +22,7 @@ import { runPlacementChecks } from "./placement.mjs";
 import { runDimensionChecks } from "./dimensions.mjs";
 import { runWallChecks } from "./walls.mjs";
 import { runRoomChecks } from "./rooms.mjs";
+import { runBlockChecks } from "./blocks.mjs";
 import { runScanImportChecks } from "./scanImport.mjs";
 import { runClosetChecks } from "./closet.mjs";
 
@@ -97,6 +98,17 @@ if (roomChecks.failures.length > 0) {
   process.exit(1);
 }
 console.log(`  Rooms: ok (${roomChecks.passed.length} checks — a new room lands in view, a flight turns whole)`);
+
+const blockChecks = await runBlockChecks();
+if (blockChecks.failures.length > 0) {
+  console.error(`
+  Blocks: ${blockChecks.passed.length} passed, ${blockChecks.failures.length} FAILED
+`);
+  for (const failure of blockChecks.failures) console.error(`    ✗ ${failure}
+`);
+  process.exit(1);
+}
+console.log(`  Blocks: ok (${blockChecks.passed.length} checks — an island, a peninsula and a corner fireplace)`);
 
 // And the scan import: a room the phone measured lands as a room, with its door and nothing made up.
 const scanImport = await runScanImportChecks();

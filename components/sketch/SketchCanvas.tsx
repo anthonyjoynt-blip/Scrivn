@@ -24,6 +24,8 @@ import {
   type CabinetSymbol,
   type DoorSymbol,
   type FixtureSymbol,
+  blockAngleDeg,
+  blockShape,
   type FreeCabinet,
   type FreeWall,
   type SketchRoom,
@@ -2433,6 +2435,8 @@ function FreeCabinetShape({
   const x = bounds.minX + cabinet.x;
   const y = bounds.minY + cabinet.y;
   const upper = cabinet.tier === "wall";
+  const angle = blockAngleDeg(cabinet);
+  const triangle = blockShape(cabinet) === "triangle";
 
   const select = (e: KonvaEventObject<MouseEvent | TouchEvent>) => {
     e.cancelBubble = true;
@@ -2440,29 +2444,53 @@ function FreeCabinetShape({
   };
 
   const sizeText = cabinet.widthFeet != null && cabinet.depthFeet != null ? `${formatFeetInches(cabinet.widthFeet)} x ${formatFeetInches(cabinet.depthFeet)}` : null;
-  // Capped against the smaller side so neither handle can reach the block's centre — see below.
-  const handleRadius = Math.min(HIT.handle / zoom, Math.max(7 / zoom, Math.min(width, depth) / 3));
+
+  /*
+    Drawn as a POLYGON in the block's own frame, inside a Group turned about the block's centre, so
+    a rectangle and a right triangle are the same code and a turned block is drawn exactly where
+    `blockCorners` says it is. Those points are what the quantities price, so the drawing and the
+    estimate cannot come apart — which they would the moment two places did their own trigonometry.
+
+    The triangle's right angle sits at the back-left, matching `blockCorners`, so turning it by a
+    quarter at a time walks it round the four corners of a room.
+  */
+  const points = triangle ? [0, 0, width, 0, 0, depth] : [0, 0, width, 0, width, depth, 0, depth];
+
+  /*
+    The handles stand OUTSIDE the block on a short leader, rather than on its edge.
+
+    On the edge they had to be shrunk against the block's smaller side (`Math.min(width, depth) / 3`)
+    or they swallowed the drag that should move it — and that cap is what made a 10 in hearth or a
+    narrow return impossible to resize with a thumb. Outside, they can stay finger-sized however
+    small the block is, and they never cover it.
+  */
+  const lead = 14 / zoom;
+  const handleRadius = Math.max(7 / zoom, HIT.handle / zoom);
 
   return (
-    <Group>
-      <Rect
-        x={x}
-        y={y}
-        width={width}
-        height={depth}
+    <Group
+      x={x + width / 2}
+      y={y + depth / 2}
+      offsetX={width / 2}
+      offsetY={depth / 2}
+      rotation={angle}
+      draggable
+      onMouseDown={select}
+      onTouchStart={select}
+      onDragMove={(e) => onMove(e.target.x() - width / 2 - bounds.minX, e.target.y() - depth / 2 - bounds.minY)}
+      onDragEnd={(e) => onMove(e.target.x() - width / 2 - bounds.minX, e.target.y() - depth / 2 - bounds.minY)}
+    >
+      <Line
+        points={points}
+        closed
         fill={upper ? undefined : COLORS.cabinet}
         stroke={selected ? COLORS.selected : COLORS.symbol}
         strokeWidth={(selected ? 2.5 : 1.5) / zoom}
         dash={upper ? [5 / zoom, 3 / zoom] : undefined}
-        draggable
-        onMouseDown={select}
-        onTouchStart={select}
-        onDragMove={(e) => onMove(e.target.x() - bounds.minX, e.target.y() - bounds.minY)}
-        onDragEnd={(e) => onMove(e.target.x() - bounds.minX, e.target.y() - bounds.minY)}
       />
       <Text
-        x={x}
-        y={y + depth / 2 - 6 / zoom}
+        x={0}
+        y={depth / 2 - 6 / zoom}
         width={width}
         align="center"
         text={cabinet.label || "Island"}
@@ -2473,22 +2501,14 @@ function FreeCabinetShape({
         wrap="none"
       />
       {showSizes && sizeText && (
-        <Text x={x} y={y + depth + 3 / zoom} width={width} align="center" text={sizeText} fontSize={10 / zoom} fill={COLORS.muted} listening={false} />
+        <Text x={0} y={depth + 3 / zoom} width={width} align="center" text={sizeText} fontSize={10 / zoom} fill={COLORS.muted} listening={false} />
       )}
 
-      {/*
-        Two handles rather than four: one sets the width, one the depth. An island is axis-aligned,
-        so a corner handle would only be doing both of these at once.
-
-        The hit radius is capped against the block's smaller side for the same reason the wall
-        symbols' handles are: at the full finger-sized radius the depth handle reaches the middle of
-        a shallow island and swallows the drag that should move it, leaving it resizable but
-        immovable.
-      */}
+      {/* One handle sets the width, the other the depth — a corner handle would only do both at once. */}
       {selected && (
         <>
-          <IslandHandle x={x + width} y={y + depth / 2} zoom={zoom} hitRadius={handleRadius} onDrag={(px) => onResize(px - x, depth)} axis="x" />
-          <IslandHandle x={x + width / 2} y={y + depth} zoom={zoom} hitRadius={handleRadius} onDrag={(py) => onResize(width, py - y)} axis="y" />
+          <IslandHandle x={width + lead} y={depth / 2} zoom={zoom} hitRadius={handleRadius} onDrag={(px) => onResize(px - lead, depth)} axis="x" />
+          <IslandHandle x={width / 2} y={depth + lead} zoom={zoom} hitRadius={handleRadius} onDrag={(py) => onResize(width, py - lead)} axis="y" />
         </>
       )}
     </Group>

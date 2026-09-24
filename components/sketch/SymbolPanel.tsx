@@ -6,6 +6,9 @@ import {
   type CabinetTier,
   type FixtureSymbol,
   type FixtureType,
+  blockAngleDeg,
+  type BlockShape,
+  blockShape,
   type FreeCabinet,
   type ShowerShape,
   type DoorLeaves,
@@ -381,12 +384,82 @@ export function FreeCabinetPanel({
         onCommit={(feet) => onChange({ ...cabinet, depthFeet: feet, depthPx: feet * PIXELS_PER_FOOT })}
       />
 
+      {/*
+        SHAPE. A corner unit — a fireplace, a corner shower, a corner pantry — is a right triangle
+        with its legs on the two walls, and drawing it as a rectangle set across the corner prices
+        the two triangles of floor either side of it that are still there. The room stays square and
+        the unit stands in it, which is how Xactimate draws a cabinet and what the estimator asked
+        for on 2026-09-24: "I would rather the walls remain as square corners and then the corner
+        unit gets placed in much like a cabinet might, just a block."
+      */}
+      <div className="question">
+        <label className="prompt">Shape</label>
+        <div className="option-group" role="group" aria-label="Block shape">
+          {(["rectangle", "triangle"] as BlockShape[]).map((shape) => (
+            <button
+              key={shape}
+              type="button"
+              className={`option-btn${blockShape(cabinet) === shape ? " selected" : ""}`}
+              aria-pressed={blockShape(cabinet) === shape}
+              onClick={() => onChange({ ...cabinet, shape })}
+            >
+              {shape === "rectangle" ? "Rectangle" : "Corner (triangle)"}
+            </button>
+          ))}
+        </div>
+        {blockShape(cabinet) === "triangle" && (
+          <p className="field-note">
+            The right angle sits at the back, so the two legs lie along the walls of the corner and the long face looks into
+            the room. Turn it to pick which corner.
+          </p>
+        )}
+      </div>
+
+      {/*
+        TURN, in quarters and in eighths. Quarters walk a corner unit round the four corners of a
+        room; 45 is where a fireplace set across a square corner actually stands. A free field would
+        be more general and much worse under a thumb — these are the angles anything built in
+        actually sits at.
+      */}
+      <div className="question">
+        <label className="prompt">Turn</label>
+        <div className="option-group" role="group" aria-label="Block turn">
+          {[0, 45, 90, 135, 180, 225, 270, 315].map((deg) => (
+            <button
+              key={deg}
+              type="button"
+              className={`option-btn${blockAngleDeg(cabinet) === deg ? " selected" : ""}`}
+              aria-pressed={blockAngleDeg(cabinet) === deg}
+              onClick={() => onChange({ ...cabinet, angleDeg: deg })}
+            >
+              {deg}&deg;
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/*
+        HEIGHT, and it is allowed to be empty. Nothing is seeded from the tier the way a wall
+        cabinet's height is: a seeded height is a measurement nobody took, presented as one, and the
+        wall behind a block is deducted only when somebody says how tall it is.
+      */}
+      <MeasureField
+        id="island-height"
+        label="Height"
+        valueFeet={cabinet.heightFeet ?? null}
+        onCommit={(feet) => onChange({ ...cabinet, heightFeet: feet })}
+      />
+      <p className="field-note">
+        Only used to take the wall behind the block out of the wall area, and only when that deduction is switched on. Leave
+        it empty if nobody measured it.
+      </p>
+
       <div className="actions-row">
         <button className="btn-secondary" onClick={onDelete}>
           Delete
         </button>
       </div>
-      <p className="field-note">Drag the block to move it anywhere inside the room, or drag its right/bottom handle to resize.</p>
+      <p className="field-note">Drag the block to move it anywhere inside the room, or drag the handle beside it to resize.</p>
     </div>
   );
 }

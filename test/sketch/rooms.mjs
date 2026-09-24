@@ -119,20 +119,52 @@ export async function runRoomChecks() {
     assert(s.ensureClockwise(turned.vertices) === turned.vertices, "still wound clockwise");
   });
 
-  test("an island turns with the flight, swapping its width and depth", () => {
+  test("a block turns with the flight, and it is the FOOTPRINT that must land right", () => {
+    /*
+      This used to assert that widthPx and depthPx had been swapped, which was the mechanism rather
+      than the requirement. The mechanism changed on 2026-09-24 - the turn now goes on the block's
+      own `angleDeg`, because swapping a right triangle's legs MIRRORS it rather than turning it,
+      and a corner fireplace would have come back facing the wrong corner.
+
+      So this asks the question the old test was standing in for: where does the block actually end
+      up? Through `blockCorners`, which is what the canvas draws and what the quantities price, so a
+      future change of mechanism has to keep the answer rather than the storage.
+    */
     const flight = { ...s.newStairRoom(100, 100), freeCabinets: [{ id: "i", x: 10, y: 6, widthPx: 24, depthPx: 12, widthFeet: 2, depthFeet: 1, label: "Block", tier: "base" }] };
     const turned = s.rotateStairs(flight);
     const [island] = turned.freeCabinets;
-    near(island.widthPx, 12, "width is the old depth");
-    near(island.depthPx, 24, "depth is the old width");
-    near(island.widthFeet, 1, "in feet too");
-    // The block's centre turned with the room: from bounds-relative (22, 12) in a 132 x 36 room...
-    const bounds = b(turned);
-    const cx = bounds.minX + island.x + island.widthPx / 2;
-    const cy = bounds.minY + island.y + island.depthPx / 2;
-    // ...about the room's centre (166, 118): (122, 112) -> (172, 74).
-    near(cx, 172, "island centre x");
-    near(cy, 74, "island centre y");
+
+    const corners = s.blockCorners(island, turned);
+    const xs = corners.map((c) => c.x);
+    const ys = corners.map((c) => c.y);
+    near(Math.max(...xs) - Math.min(...xs), 12, "the footprint is now 12 across, where it was 24");
+    near(Math.max(...ys) - Math.min(...ys), 24, "and 24 deep, where it was 12");
+    near(s.blockFloorAreaFeet(island, turned), 2, "a turn is not a resize: still 2' x 1'");
+
+    // The block's centre turned with the room: from bounds-relative (22, 12) in a 132 x 36 room,
+    // about the room's centre (166, 118): (122, 112) -> (172, 74).
+    near((Math.max(...xs) + Math.min(...xs)) / 2, 172, "island centre x");
+    near((Math.max(...ys) + Math.min(...ys)) / 2, 74, "island centre y");
+  });
+
+  test("a corner triangle turned with its room faces the corner it started in", () => {
+    /*
+      The failure the change above exists for. Swapping a triangle's legs reflects it, so a fireplace
+      tucked into the top-left came back pointing into the top-RIGHT - drawn in one place and priced
+      in another. Four quarter turns must be the identity.
+    */
+    const tri = { id: "f", x: 0, y: 0, widthPx: 48, depthPx: 48, widthFeet: 4, depthFeet: 4, label: "Fireplace", tier: "base", shape: "triangle" };
+    const flight = { ...s.newStairRoom(100, 100), freeCabinets: [tri] };
+    let round = flight;
+    for (let i = 0; i < 4; i++) round = s.rotateStairs(round);
+    const [back] = round.freeCabinets;
+    const was = s.blockCorners(tri, flight);
+    const now = s.blockCorners(back, round);
+    assert(now.length === 3, "still a triangle");
+    for (let i = 0; i < 3; i++) {
+      near(now[i].x, was[i].x, `corner ${i} x is back where it started`, 0.01);
+      near(now[i].y, was[i].y, `corner ${i} y is back where it started`, 0.01);
+    }
   });
 
   test("a room that is not a flight does not turn", () => {

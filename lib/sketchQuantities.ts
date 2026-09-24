@@ -1,4 +1,6 @@
 import {
+  blockFloorAreaFeet,
+  blockWallContacts,
   type BlockSymbol,
   type FreeWall,
   freeWallsOf,
@@ -236,6 +238,36 @@ export function roomQuantities(room: SketchRoom, sketch: Sketch, options: Quanti
     }
     if (options.deductFromWallArea) {
       wallDeduction += f.widthFeet * f.heightFeet;
+    }
+  }
+
+  /*
+    FREE BLOCKS — an island, a peninsula, a corner fireplace. These deducted NOTHING until
+    2026-09-24: the loop above walks the wall-mounted symbols, and a block standing in open floor is
+    not one, so a 6' x 3' island took eighteen square feet of flooring nobody was going to lay.
+
+    Three differences from a wall run, and each is the block's freedom showing:
+
+     - the FLOOR it covers is its real footprint through `blockFloorAreaFeet`, which turns with it
+       and halves for a triangle. A corner fireplace drawn as a rectangle across the corner would
+       otherwise claim the two triangles of floor either side of it that are still there.
+     - the PERIMETER it takes is only what it actually touches (`blockWallContacts`, derived from
+       where the block is rather than stored). An island in open floor touches nothing and takes no
+       perimeter; a peninsula touches at one end and takes that end; a run pushed flat against a
+       wall touches along its length and takes it, exactly as a wall-mounted run would.
+     - the WALL behind it is deducted only when somebody said how tall it is. `heightFeet` is
+       nullable here on purpose — a seeded height is a measurement nobody took.
+  */
+  for (const block of room.freeCabinets) {
+    const onFloor = standsOnFloor(block.tier);
+    if (options.deductFromFloorArea && onFloor) {
+      floorDeduction += blockFloorAreaFeet(block, room);
+    }
+    if ((options.deductCabinetsFromFloorPerimeter && onFloor) || options.deductFromWallArea) {
+      const contacts = blockWallContacts(block, room);
+      const touching = contacts.reduce((sum, c) => sum + c.feet, 0);
+      if (options.deductCabinetsFromFloorPerimeter && onFloor) perimeterDeduction += touching;
+      if (options.deductFromWallArea && block.heightFeet != null) wallDeduction += touching * block.heightFeet;
     }
   }
 
