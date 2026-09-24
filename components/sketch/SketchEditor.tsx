@@ -45,6 +45,8 @@ import {
   newStairRoom,
   rectangleVertices,
   removeVertex,
+  squareOffCorner,
+  squareOffRefusal,
   rotateStairs,
   roomLevel,
   DOOR_TYPE_LABEL,
@@ -646,6 +648,18 @@ export function SketchEditor({
   const selectedSymbol = selectedRoom?.symbols.find((s) => s.id === selectedSymbolId) ?? null;
   /** The selected room's corners that are near enough to square to be worth offering. */
   const leaning = useMemo(() => (selectedRoom === null ? [] : leaningCorners(selectedRoom)), [selectedRoom]);
+  /**
+   * The selected room's CUT corners: the walls that could be squared back off into the corner they
+   * cut ([squareOffRefusal] passes on them). Usually none, and usually one when there is one.
+   *
+   * A rectilinear room never has any, and that falls out of the geometry rather than being tested
+   * for: in a room of right angles the walls either side of any one wall run parallel, so there is
+   * no corner for them to meet at and every wall is refused.
+   */
+  const squareable = useMemo(
+    () => (selectedRoom === null ? [] : wallsOf(selectedRoom).filter((w) => squareOffRefusal(selectedRoom, w.id) === null)),
+    [selectedRoom],
+  );
   /**
    * What is selected, as one value, so the phone's properties sheet can rise when it changes.
    *
@@ -2458,6 +2472,38 @@ export function SketchEditor({
                   <p className="field-note">
                     Moves each one the shortest way along its longer wall until the two walls meet square. A corner more
                     than {SQUARE_TOLERANCE_DEG}&deg; out is left alone — that is a shape somebody drew, not a slip.
+                  </p>
+                </div>
+              )}
+              {/*
+                A CUT corner is the other thing, and until now it was a one-way door: nothing in the
+                editor put one back. Dragging it flat is refused by the minimum wall length, the
+                fold that rescues a jog wants what is left to be straight and a chamfer leaves 45
+                degrees, and removing one of its corners joins the neighbours DIRECTLY, taking more
+                off rather than giving it back. Squaring off is its own operation — it adds room
+                back — so it gets its own button.
+
+                Listed per corner with the cut's own length, because a room can have more than one
+                and "which one" is the whole question. Square up above is not this: that nudges a
+                corner already nearly square, this rebuilds one somebody cut off.
+              */}
+              {squareable.length > 0 && (
+                <div className="question">
+                  <label className="prompt">Cut corners</label>
+                  <div className="actions-row">
+                    {squareable.map((wall) => (
+                      <button
+                        key={wall.id}
+                        className="btn-secondary"
+                        onClick={() => updateRoom(selectedRoom.id, (room) => squareOffCorner(room, wall.id))}
+                      >
+                        Square off the {formatFeetInches(wall.lengthFeet)} cut
+                      </button>
+                    ))}
+                  </div>
+                  <p className="field-note">
+                    Carries the two walls either side on until they meet, and gives the room back the corner the cut took
+                    off. A wall with a window or a door on it is left alone — a canted bay is a wall, not a mistake.
                   </p>
                 </div>
               )}

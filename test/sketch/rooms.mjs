@@ -964,6 +964,103 @@ export async function runRoomChecks() {
     assert(s.labelShown(back.rooms[1]) === true, "and still shows its name");
   });
 
+  /* Squaring a chamfer back off. */
+
+  /*
+    A 20' x 16' room whose top-right corner is cut by a 3' x 3' chamfer. Clockwise from top-left:
+    (0,0) -> (204,0) -> (240,36) -> (240,192) -> (0,192). The apex the chamfer cut off is (240, 0).
+  */
+  const chamfered = (extra = {}) =>
+    room([[0, 0], [204, 0], [240, 36], [240, 192], [0, 192]], extra);
+  /** The chamfer is the wall that STARTS at vertex 1 — (204,0) to (240,36). */
+  const chamferWall = (r) => r.vertices[1].id;
+
+  test("a chamfer squares back off to the corner it cut, and the corner is where it always was", () => {
+    const r = chamfered();
+    assert(s.squareOffRefusal(r, chamferWall(r)) === null, `it is willing: ${s.squareOffRefusal(r, chamferWall(r))}`);
+    const squared = s.squareOffCorner(r, chamferWall(r));
+    assert(squared !== r, "the room changed");
+    assert(squared.vertices.length === 4, `four corners again, got ${squared.vertices.length}`);
+    const apex = squared.vertices.find((v) => v.id === r.vertices[1].id);
+    assert(apex !== undefined, "the apex kept the first chamfer vertex's id");
+    near(apex.x, 240, "the apex is where the two walls meet, x");
+    near(apex.y, 0, "the apex is where the two walls meet, y");
+  });
+
+  test("squaring off gives the room back the floor the chamfer took", () => {
+    const r = chamfered();
+    const before = s.grossFloorArea(r);
+    const after = s.grossFloorArea(s.squareOffCorner(r, chamferWall(r)));
+    // The cut is a 3' x 3' right triangle: 4.5 SF.
+    near(after - before, 4.5, "4 1/2 square feet come back", 0.02);
+  });
+
+  test("a stray vertex on a STRAIGHT run is not a chamfer, and is left to removeVertex", () => {
+    // Four points along one wall: the two walls either side of the middle pair run the same way, so
+    // there is no corner for them to meet at however far they are extended.
+    const r = room([[0, 0], [80, 0], [160, 0], [240, 0], [240, 192], [0, 192]]);
+    const why = s.squareOffRefusal(r, r.vertices[1].id);
+    assert(why !== null, "refused");
+    assert(why.includes("parallel"), `and says why: ${why}`);
+    assert(s.squareOffCorner(r, r.vertices[1].id) === r, "and nothing moves");
+  });
+
+  test("a shallow angle is refused rather than spiked off the plan", () => {
+    // The walls either side differ by about a degree, so they meet hundreds of feet away. That is a
+    // slightly bent wall, not a corner anyone cut - and squaring it would draw a spike off the plan.
+    const r = room([[0, 0], [200, 0], [240, 10], [440, 14], [440, 192], [0, 192]]);
+    const why = s.squareOffRefusal(r, r.vertices[1].id);
+    assert(why !== null, "refused");
+    assert(s.squareOffCorner(r, r.vertices[1].id) === r, "and nothing moves");
+  });
+
+  test("a window in a canted bay stops the bay being squared away under it", () => {
+    /*
+      The case this refusal exists for. A canted bay IS a wall - it has a window in it and someone
+      will price that window - so squaring it off is almost certainly a mis-tap, and taking the
+      wall away silently would take the window with it.
+    */
+    const r = chamfered();
+    const withWindow = {
+      ...r,
+      symbols: [{ id: "w1", type: "window", wallId: chamferWall(r), t: 0.5, widthFeet: 3, heightFeet: 4, sillFeet: 3 }],
+    };
+    const why = s.squareOffRefusal(withWindow, chamferWall(r));
+    assert(why !== null, "refused");
+    assert(why.includes("something on this wall"), `and says why: ${why}`);
+    assert(s.squareOffCorner(withWindow, chamferWall(r)) === withWindow, "and nothing moves");
+  });
+
+  test("what stood on the wall OUT of the corner keeps its distance from the end that did not move", () => {
+    /*
+      The wall out of the corner grows when the corner is squared off, so a door measured from the
+      corner would slide by the growth. Measured from the far end - the end that did not move - it
+      stays where the estimator put it.
+    */
+    const r = chamfered();
+    // The wall from (240,36) to (240,192): 156 px long. A door 24 px from its far end.
+    const outWallId = r.vertices[2].id;
+    const withDoor = {
+      ...r,
+      symbols: [{ id: "d1", type: "door", wallId: outWallId, t: 1 - 24 / 156, widthFeet: 3, heightFeet: 7, swing: "in-left" }],
+    };
+    const squared = s.squareOffCorner(withDoor, chamferWall(r));
+    const door = squared.symbols.find((sym) => sym.id === "d1");
+    assert(door !== undefined, "the door survived");
+    const wall = s.wallById(squared, door.wallId);
+    near(wall.lengthPx, 192, "the wall out of the corner now runs the full height");
+    near((1 - door.t) * wall.lengthPx, 24, "and the door is still 24 px from the far end", 0.5);
+  });
+
+  test("squaring off refuses to leave a wall shorter than the editor can draw", () => {
+    // The chamfer all but consumes the top wall, so squaring it off is fine, but make the wall INTO
+    // the corner a stub and the result would be a wall nothing could grab.
+    const r = room([[0, 0], [8, 0], [240, 40], [240, 192], [0, 192]]);
+    const out = s.squareOffCorner(r, r.vertices[1].id);
+    // Either refused outright, or the result has no unusable wall in it.
+    if (out !== r) for (const w of s.wallsOf(out)) assert(w.lengthPx >= s.MIN_WALL_PX, `wall ${w.id} is ${w.lengthPx}px`);
+  });
+
   return { passed, failures };
 }
 

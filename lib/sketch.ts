@@ -1905,6 +1905,182 @@ export function removeVertex(room: SketchRoom, vertexId: string): SketchRoom {
 }
 
 /**
+ * How far off parallel the two walls either side of a chamfer must be before `squareOffCorner`
+ * will extend them to meet: 10 degrees.
+ *
+ * Two nearly parallel walls meet a very long way away, so the apex of a nearly flat "corner" is a
+ * spike somewhere off the plan. This is the guard against turning a slightly bent wall into one.
+ */
+const SQUARE_OFF_MIN_TURN_DEG = 10;
+
+/**
+ * The furthest the restored apex may stand from either end of the cut it replaces, as a multiple of
+ * that cut's own length.
+ *
+ * For a cut across a RIGHT angle each reach is strictly less than the cut, so 1 would do; the
+ * allowance is for a room corner that is acute, where the cut is shorter than the legs it joins and
+ * the apex therefore stands further out. Past this it is the near-parallel spike arriving by
+ * another route.
+ */
+const SQUARE_OFF_MAX_REACH = 1.5;
+
+/**
+ * Why `squareOffCorner` will not square a particular wall off, or null when it will.
+ *
+ * Separate from the operation so the editor can say WHICH reason on the button rather than offering
+ * one that silently does nothing.
+ */
+export function squareOffRefusal(room: SketchRoom, chamferWallId: string): string | null {
+  if (room.vertices.length <= MIN_VERTICES + 1) return "a room this simple has no corner to square off";
+  const index = room.vertices.findIndex((v) => v.id === chamferWallId);
+  if (index < 0) return "that wall is not part of this room";
+  const n = room.vertices.length;
+  const a = room.vertices[(index - 1 + n) % n] as Vertex;
+  const c1 = room.vertices[index] as Vertex;
+  const c2 = room.vertices[(index + 1) % n] as Vertex;
+  const b = room.vertices[(index + 2) % n] as Vertex;
+  if (room.symbols.some((s) => s.wallId === chamferWallId))
+    return "there is something on this wall — a canted bay with a window in it is a real wall, not a corner to square off. Move or delete it first";
+
+  const apex = cornerApex(a, c1, c2, b);
+  if (apex === null) return "the two walls either side run parallel, so there is no corner for them to meet at";
+  const chamfer = Math.hypot(c2.x - c1.x, c2.y - c1.y);
+  if (chamfer <= 0) return "that wall has no length";
+
+  /*
+    IS THIS WALL THE CUT, OR ONE OF THE WALLS IT CUT ACROSS?
+
+    Once a room has one chamfer in it, its two NEIGHBOURS also stop being parallel to their own
+    neighbours, so a test that only asks "do the walls either side meet?" offers to square off all
+    three. The editor did exactly that on 2026-09-24: one 3'7" cut, and three buttons — the cut, and
+    the 10' and 9' walls it runs between. Pressing either of the wrong two would have thrown a spike
+    across the room.
+
+    A cut across a corner is a SHORT CUT: it is shorter than both the walls it joins, always, and
+    the corner it restores sits just off its own end rather than somewhere across the plan. Both
+    tests are geometric rather than tuned — for a cut with legs p and q across a right angle, the
+    cut is sqrt(p² + q²) and the apex is p from one end and q from the other, so each reach is less
+    than the cut itself. The allowance above 1 is for a room corner that is acute rather than square.
+  */
+  const legIn = Math.hypot(c1.x - a.x, c1.y - a.y);
+  const legOut = Math.hypot(b.x - c2.x, b.y - c2.y);
+  if (chamfer >= legIn || chamfer >= legOut)
+    return "this is a wall of the room, not a cut across its corner — the cut is the short one";
+  const reach = Math.max(
+    Math.hypot(apex.x - c1.x, apex.y - c1.y),
+    Math.hypot(apex.x - c2.x, apex.y - c2.y),
+  );
+  if (reach > chamfer * SQUARE_OFF_MAX_REACH) return "those two walls meet a long way off the plan — this is a shallow angle, not a cut corner";
+
+  // The rest is a dry run of the operation itself, so that a button offering this is never a button
+  // that does nothing when pressed.
+  const candidate = squareOffCandidate(room, index, apex);
+  if (isDegenerate(candidate.vertices)) return "squaring this off would fold the room over itself";
+  const out = wallById(candidate, c1.id);
+  const into = wallById(candidate, a.id);
+  if (!out || !into) return "that corner has no walls to extend";
+  if (out.lengthPx < MIN_WALL_PX || into.lengthPx < MIN_WALL_PX)
+    return "squaring this off would leave a wall too short to draw";
+  return null;
+}
+
+/** The room with the chamfer at `index` replaced by its apex. Geometry only — contents are not reflowed. */
+function squareOffCandidate(room: SketchRoom, index: number, apex: { x: number; y: number }): SketchRoom {
+  const n = room.vertices.length;
+  const c1 = room.vertices[index] as Vertex;
+  const c2 = room.vertices[(index + 1) % n] as Vertex;
+  /*
+    The apex keeps c1's id, and c2 goes. That way every symbol on the wall INTO the corner (a.id)
+    and every symbol on the wall out of it (c2.id, re-homed below) keeps a wall to live on, and the
+    ids the rest of the sketch holds — a door's `wallId`, a cabinet's — stay meaningful.
+  */
+  const vertices = room.vertices
+    .filter((v) => v.id !== c2.id)
+    .map((v) => (v.id === c1.id ? { ...v, x: apex.x, y: apex.y } : v));
+  return { ...room, vertices };
+}
+
+/**
+ * Where the two walls either side of the chamfer `c1`→`c2` would meet if each carried straight on:
+ * the corner the chamfer cut off. Null when they do not meet usefully.
+ */
+function cornerApex(a: Vertex, c1: Vertex, c2: Vertex, b: Vertex): { x: number; y: number } | null {
+  const ux = c1.x - a.x;
+  const uy = c1.y - a.y;
+  const vx = b.x - c2.x;
+  const vy = b.y - c2.y;
+  const lu = Math.hypot(ux, uy);
+  const lv = Math.hypot(vx, vy);
+  if (lu <= 0 || lv <= 0) return null;
+  // As LINES, not rays: a turn near 0 or near 180 is the same near-parallel problem.
+  const cos = Math.min(1, Math.abs((ux * vx + uy * vy) / (lu * lv)));
+  const turnFromStraight = Math.abs(90 - Math.abs(90 - (Math.acos(cos) * 180) / Math.PI));
+  if (turnFromStraight < SQUARE_OFF_MIN_TURN_DEG) return null;
+  const denom = ux * vy - uy * vx;
+  if (Math.abs(denom) < 1e-9) return null;
+  const s = ((c2.x - a.x) * vy - (c2.y - a.y) * vx) / denom;
+  return { x: a.x + ux * s, y: a.y + uy * s };
+}
+
+/**
+ * Replaces a chamfer with the square corner it cut off: the two walls either side carry straight on
+ * until they meet, and the two chamfer vertices become that one apex.
+ *
+ * WHY THIS EXISTS. Until 2026-09-24 a chamfer was a ONE-WAY DOOR. You could draw one and then live
+ * with it, and the estimator spent an afternoon discovering that the hard way — "Couldn't do any
+ * breaks and then tap in on that to make it correct on scrivn no matter what". Every route out was
+ * blocked, and each for its own good reason:
+ *
+ *  - Dragging it flat: `collapsesAWall` refuses any drag that takes a wall under `MIN_WALL_PX`.
+ *  - `foldFlat`, the escape added for a jog, only fires when what is LEFT is straight within
+ *    `FOLD_STRAIGHT_DEG` — and a chamfer leaves 45 degrees, so it is refused by design.
+ *  - Double-tapping a chamfer corner: `removeVertex` joins the two neighbours DIRECTLY, which cuts
+ *    more off the room rather than restoring the apex. It is the right answer for a stray vertex on
+ *    a straight run and the wrong one here.
+ *
+ * None of those is wrong. What was missing is that "square this corner off" is its own operation —
+ * it ADDS a vertex's worth of room back rather than removing one — and nothing else in the editor
+ * does that. A scan that read a cut corner where the room has a square one, or a corner unit that
+ * chamfered a wall it should have stood against, both land here.
+ *
+ * Returns the room unchanged when `squareOffRefusal` has a reason.
+ */
+export function squareOffCorner(room: SketchRoom, chamferWallId: string): SketchRoom {
+  if (squareOffRefusal(room, chamferWallId) !== null) return room;
+  const index = room.vertices.findIndex((v) => v.id === chamferWallId);
+  const n = room.vertices.length;
+  const a = room.vertices[(index - 1 + n) % n] as Vertex;
+  const c1 = room.vertices[index] as Vertex;
+  const c2 = room.vertices[(index + 1) % n] as Vertex;
+  const b = room.vertices[(index + 2) % n] as Vertex;
+  const apex = cornerApex(a, c1, c2, b);
+  if (apex === null) return room;
+  const candidate = squareOffCandidate(room, index, apex);
+
+  /*
+    Reflow FIRST, re-home second, and the order is load-bearing. `reflowContents` looks a symbol's
+    wall up by id in the OLD room, and c1's id names the chamfer there and the wall out of the
+    corner here — so re-homing first has the reflow rescale a door against the chamfer it never
+    stood on, and the door slides. Reflowed first, the wall into the corner is handled normally and
+    the wall out of it is simply absent from the new room, so its symbols come through untouched for
+    this to place.
+  */
+  const reflowed = reflowContents(room, candidate);
+  const oldOut = wallById(room, c2.id);
+  const newOut = wallById(reflowed, c1.id);
+  // The far end of that wall is the end that did NOT move, so a door measured from there stays put;
+  // measured from the corner, it would slide by however much the corner gained.
+  const symbols = reflowed.symbols.map((symbol) => {
+    if (symbol.wallId !== c2.id) return symbol;
+    if (!oldOut || !newOut || oldOut.lengthPx <= 0 || newOut.lengthPx <= 0) return { ...symbol, wallId: c1.id };
+    const fromFarEnd = (1 - symbol.t) * oldOut.lengthPx;
+    return { ...symbol, wallId: c1.id, t: Math.max(0, Math.min(1, 1 - fromFarEnd / newOut.lengthPx)) };
+  });
+
+  return { ...reflowed, symbols };
+}
+
+/**
  * Adjusts a room drag so the room lands flush against, or lined up with, its neighbours.
  *
  * Without this two rooms simply overlap wherever they're dropped, which is neither a real floor plan
