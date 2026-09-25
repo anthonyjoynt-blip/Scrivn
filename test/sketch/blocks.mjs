@@ -317,6 +317,60 @@ test("and the estimate sees all of it", () => {
     assert(!s.blockInsideRoom(block("o", 18, 6, 6, 3), r), "hanging out of the right wall");
   });
 
+  /* One doorway, tapped from both sides. */
+
+  test("a doorway tapped in BOTH rooms is drawn once", () => {
+    /*
+      The walk of 2026-09-25, and the first time the join was reached in the field. The join asks
+      for the shared door to be tapped in both rooms - that is how it knows which door is which -
+      so the estimator tapped one doorway twice and got two symbols a partition apart: "for some
+      reason it plopped a door on there that shouldnt be there... not sure if the joining a room act
+      also created a door and then didnt overlap the opening."
+
+      Scrivn already refused to COUNT it twice. Nothing stopped it being drawn twice.
+    */
+    const left = room([]);
+    left.id = "left";
+    const right = {
+      ...room([]),
+      id: "right",
+      vertices: [
+        { id: "r0", x: 20 * FT, y: 0 }, { id: "r1", x: 34 * FT, y: 0 },
+        { id: "r2", x: 34 * FT, y: 16 * FT }, { id: "r3", x: 20 * FT, y: 16 * FT },
+      ],
+    };
+    // The same doorway in the wall they share, tapped from each side - and read a little differently
+    // from each, as two honest reads of one hole are: 4'3" one way, 3'7" the other.
+    left.symbols = [{ id: "d-left", type: "door", wallId: "v1", t: 0.5, widthFeet: 4.25, heightFeet: 6.7, doorType: "opening", leaves: "single", flipX: false, flipY: false }];
+    right.symbols = [{ id: "d-right", type: "door", wallId: "r3", t: 0.5, widthFeet: 3.58, heightFeet: 6.7, doorType: "opening", leaves: "single", flipX: false, flipY: false }];
+
+    const out = s.dropDuplicateSharedOpenings([left, right]);
+    const total = out.reduce((n, r) => n + r.symbols.length, 0);
+    assert(total === 1, `one doorway, one symbol - got ${total}`);
+    assert(out[0].symbols.length === 1, "the first room keeps it");
+    assert(out[1].symbols.length === 0, "and the second does not draw it again");
+  });
+
+  test("two real doorways in the same shared wall both survive", () => {
+    // The rule must not swallow a second, genuine opening: only a hole that OVERLAPS one already
+    // drawn is the same hole.
+    const left = room([]);
+    left.id = "left";
+    const right = {
+      ...room([]),
+      id: "right",
+      vertices: [
+        { id: "r0", x: 20 * FT, y: 0 }, { id: "r1", x: 34 * FT, y: 0 },
+        { id: "r2", x: 34 * FT, y: 16 * FT }, { id: "r3", x: 20 * FT, y: 16 * FT },
+      ],
+    };
+    left.symbols = [{ id: "d-a", type: "door", wallId: "v1", t: 0.2, widthFeet: 3, heightFeet: 6.7, doorType: "door", leaves: "single", flipX: false, flipY: false }];
+    right.symbols = [{ id: "d-b", type: "door", wallId: "r3", t: 0.2, widthFeet: 3, heightFeet: 6.7, doorType: "door", leaves: "single", flipX: false, flipY: false }];
+    const out = s.dropDuplicateSharedOpenings([left, right]);
+    assert(out.reduce((n, r) => n + r.symbols.length, 0) === 2,
+      "two doorways at opposite ends of the shared wall are two doorways");
+  });
+
   return { passed, failures };
 }
 

@@ -2913,6 +2913,70 @@ export function openingsSharedWith(room: SketchRoom, rooms: SketchRoom[]): Share
 }
 
 /**
+ * The same doorway, tapped once from each side, drawn once.
+ *
+ * A door between two rooms is ONE hole, and Scrivn has always known it: [openingsSharedWith] counts
+ * a door in one room's wall into its neighbour's, and refuses to count it twice. What it cannot do
+ * is stop it being DRAWN twice, and the phone now asks for exactly that — a room is laid against
+ * its neighbour by naming the doorway they share, which means tapping it in both rooms.
+ *
+ * So the estimator of 2026-09-25 tapped one doorway twice, as the join told them to, and got two
+ * symbols a partition apart: "for some reason it plopped a door on there that shouldnt be there...
+ * not sure if the joining a room act also created a door and then didnt overlap the opening."
+ *
+ * Two openings on one line, in different rooms, whose spans overlap are one doorway. The one in the
+ * EARLIER room is kept, arbitrarily but stably — both describe the same hole, and the rooms come in
+ * a fixed order, so the same capture imports the same way twice.
+ */
+export function dropDuplicateSharedOpenings(rooms: SketchRoom[]): SketchRoom[] {
+  if (rooms.length < 2) return rooms;
+  /*
+    Worked out here rather than through `openingsSharedWith`, which deliberately SKIPS a hole the
+    room already has — that being exactly the duplicate this is looking for.
+  */
+  const spanOf = (room: SketchRoom, symbol: SketchSymbol): { wall: WallGeometry; a: { x: number; y: number }; b: { x: number; y: number } } | null => {
+    if (symbol.type !== "door" && symbol.type !== "window") return null;
+    const wall = wallById(room, symbol.wallId);
+    if (!wall || wall.lengthPx <= 0) return null;
+    const centre = symbolCentrePx(symbol, room);
+    const half = symbolWidthPx(symbol, room) / 2;
+    return {
+      wall,
+      a: pointOnWall(wall, Math.max(0, centre - half) / wall.lengthPx),
+      b: pointOnWall(wall, Math.min(wall.lengthPx, centre + half) / wall.lengthPx),
+    };
+  };
+  const doomed = new Set<string>();
+  for (let i = 1; i < rooms.length; i++) {
+    const room = rooms[i] as SketchRoom;
+    if (roomLevel(room) === undefined) continue;
+    for (const own of room.symbols) {
+      const mine = spanOf(room, own);
+      if (!mine) continue;
+      for (let j = 0; j < i; j++) {
+        const earlier = rooms[j] as SketchRoom;
+        if (roomLevel(earlier) !== roomLevel(room)) continue;
+        const hit = earlier.symbols.some((their) => {
+          const theirs = spanOf(earlier, their);
+          if (!theirs || !alongOneLine(mine.wall, theirs.wall)) return false;
+          // Both spans projected onto one of the two walls, which are the same line by now.
+          const u = mine.wall;
+          const at = (p: { x: number; y: number }) => ((p.x - u.x1) * (u.x2 - u.x1) + (p.y - u.y1) * (u.y2 - u.y1)) / u.lengthPx;
+          const m0 = Math.min(at(mine.a), at(mine.b));
+          const m1 = Math.max(at(mine.a), at(mine.b));
+          const t0 = Math.min(at(theirs.a), at(theirs.b));
+          const t1 = Math.max(at(theirs.a), at(theirs.b));
+          return Math.min(m1, t1) - Math.max(m0, t0) > 1;
+        });
+        if (hit) { doomed.add(own.id); break; }
+      }
+    }
+  }
+  if (doomed.size === 0) return rooms;
+  return rooms.map((r) => (r.symbols.some((sym) => doomed.has(sym.id)) ? { ...r, symbols: r.symbols.filter((sym) => !doomed.has(sym.id)) } : r));
+}
+
+/**
  * Does another room on the storey have a wall along this stretch of this wall — is the stretch one
  * two rooms share? Asked for a symbol's span rather than the whole wall: a closet pulled off one
  * end of a long wall shares only that end of it.
@@ -3463,13 +3527,64 @@ export function withWallLength(room: SketchRoom, wallId: string, feet: number, h
     each other, which a room with a dragged corner need not be. Parallel walls give no purchase at
     all, and nothing can be done with them.
   */
-  const m = wallNormal(moving);
-  const along = m.x * u.x + m.y * u.y;
-  if (Math.abs(along) < 1e-6) return room;
-  const travel = (holdStart ? delta : -delta) / along;
+  /*
+    WHICHEVER NEIGHBOUR ACTUALLY GIVES PURCHASE.
 
-  // dragWall re-flows the symbols and islands for us — see `reflowContents`.
-  return dragWall(room, moving.id, m.x * travel, m.y * travel);
+    A wall parallel to the one being measured cannot change its length however far it moves, and the
+    rule above picks a neighbour by geometry rather than by usefulness — so it could choose the
+    useless one and give up. That is what happened to every BREAK: splitting a wall makes two
+    collinear pieces, the stub's clockwise neighbour is the other half of the same straight run, and
+    typing the stub's length returned the room untouched. The editor read that as a refusal and said
+    "That would leave the room too small to draw", which is not what went wrong and sent the
+    estimator looking for a minimum that was never the problem: "Couldn't do any breaks and then tap
+    in on that to make it correct on scrivn no matter what."
+
+    So try the chosen neighbour, and if it is parallel try the other one before giving up.
+  */
+  const candidates = holdStart
+    ? [walls[(index + 1) % walls.length], walls[(index - 1 + walls.length) % walls.length]]
+    : [walls[(index - 1 + walls.length) % walls.length], walls[(index + 1) % walls.length]];
+
+  for (const [k, mover] of candidates.entries()) {
+    if (!mover || mover.lengthPx <= 0) continue;
+    const m = wallNormal(mover);
+    const along = m.x * u.x + m.y * u.y;
+    if (Math.abs(along) < 1e-6) continue;
+    // The second candidate is on the other side, so the corner that moves is the other one.
+    const holdingStart = k === 0 ? holdStart : !holdStart;
+
+    /*
+      SOLVED, NOT APPROXIMATED. `travel = delta / along` is the LINEAR answer — exact only while the
+      wall's direction does not change as its corner moves, which is true for a square room and
+      false for a cut. On a 45 degree chamfer the corner slides along the neighbour and the wall
+      swings as it goes, so the linear step lands at sqrt(target² + delta²) rather than at target:
+      a 3 in change on a 3 ft cut came out 0.14 in long, and a 6 in change missed by enough that the
+      editor's half-inch check called it a refusal and put the number back. The chamfer could be
+      typed only in slivers, which is no way to type a number.
+
+      A few bisection steps cost nothing and make the answer exact for any shape. The length is
+      monotonic in the travel over any range that does not fold the room, so bracketing and halving
+      converges in well under the tolerance.
+    */
+    const lengthAfter = (t: number): number => {
+      const moved = dragWall(room, mover.id, m.x * t, m.y * t);
+      return wallById(moved, wallId)?.lengthPx ?? NaN;
+    };
+    let travel = (holdingStart ? delta : -delta) / along;
+    for (let i = 0; i < 24; i++) {
+      const got = lengthAfter(travel);
+      if (!Number.isFinite(got)) break;
+      const err = got - targetPx;
+      if (Math.abs(err) < 0.05) break;
+      // The same linear model as the first guess, applied to what is left over.
+      travel += (holdingStart ? -err : err) / along;
+    }
+
+    // dragWall re-flows the symbols and islands for us — see `reflowContents`.
+    const out = dragWall(room, mover.id, m.x * travel, m.y * travel);
+    if (out !== room) return out;
+  }
+  return room;
 }
 
 /**

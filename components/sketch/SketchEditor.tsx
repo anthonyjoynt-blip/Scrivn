@@ -417,6 +417,18 @@ export function SketchEditor({
    */
   const [squared, setSquared] = useState<{ roomId: string; vertices: Vertex[]; count: number } | null>(null);
   /**
+   * The corners as they were before the last corner REMOVAL, for the one step back it never had.
+   *
+   * Removing a corner is a double-tap on the corner handle, and it destroys geometry with no way
+   * back — while the Break tool's own hint sends the estimator to that same handle to DRAG it
+   * ("tap a wall where you want a new corner, then drag that corner"). A slightly slow drag reads
+   * as two taps, and a corner the estimator had just made to build a chamfer disappears.
+   *
+   * The gesture stays — it is the only way to join two walls back into one — but it is now as
+   * undoable as squaring up is.
+   */
+  const [removedVertex, setRemovedVertex] = useState<{ roomId: string; vertices: Vertex[] } | null>(null);
+  /**
    * What the last scan import had to say — a refusal, or the caveats of a room that did come in
    * (no ceiling seen, a gap left as wall). Shown in the same bar as the delete undo, and cleared
    * the same way: by the PM dismissing it.
@@ -1337,6 +1349,13 @@ export function SketchEditor({
     updateRoom(roomId, (room) => ({ ...room, vertices }));
   }
 
+  function restoreVertex() {
+    if (!removedVertex) return;
+    const { roomId, vertices } = removedVertex;
+    setRemovedVertex(null);
+    updateRoom(roomId, (room) => ({ ...room, vertices }));
+  }
+
   function restoreRoom() {
     if (!deletedRoom) return;
     onChange((prev) => {
@@ -2005,6 +2024,14 @@ export function SketchEditor({
           </button>
         </div>
       )}
+      {removedVertex && !deletedRoom && !squared && (
+        <div className="sketch-undo" role="status">
+          <span>Corner removed.</span>
+          <button type="button" className="btn-secondary" onClick={restoreVertex}>
+            Undo
+          </button>
+        </div>
+      )}
       {squared && !deletedRoom && (
         <div className="sketch-undo" role="status">
           <span>
@@ -2107,7 +2134,16 @@ export function SketchEditor({
             is why zooming in used to buy no precision and a corner fireplace could not be drawn.
           */
           onMoveVertex={(roomId, vertexId, x, y) => updateRoom(roomId, (room) => moveVertex(room, vertexId, x, y, snapWorldPx(view.scale)))}
-          onRemoveVertex={(roomId, vertexId) => updateRoom(roomId, (room) => removeVertex(room, vertexId))}
+          onRemoveVertex={(roomId, vertexId) => {
+            const before = sketch.rooms.find((r) => r.id === roomId);
+            updateRoom(roomId, (room) => {
+              const out = removeVertex(room, vertexId);
+              // Only when it actually went: removeVertex refuses a room already at MIN_VERTICES,
+              // and an Undo offered for something that did not happen is worse than none.
+              if (out !== room && before) setRemovedVertex({ roomId, vertices: before.vertices });
+              return out;
+            });
+          }}
           onMoveSymbol={(roomId, symbolId, centrePx) =>
             /*
               `sketch.rooms` is passed so a cabinet knows which sub-rooms stand on its wall — a

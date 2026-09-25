@@ -1124,6 +1124,59 @@ export async function runRoomChecks() {
     assert(atOne !== null && atEight !== null, "both return a room");
   });
 
+  /* Typing a length on the shapes a chamfer is made of. */
+
+  test("a stub left by a BREAK can be given a length", () => {
+    /*
+      Step one of every chamfer, and it did nothing at all. A break makes two COLLINEAR pieces, the
+      stub's clockwise neighbour is the other half of the same straight run, and a wall parallel to
+      the one being measured cannot change its length however far it moves - so withWallLength gave
+      up and returned the room untouched. The editor read that as a refusal and blamed the minimum
+      wall length, which was never the problem: "Couldn't do any breaks and then tap in on that to
+      make it correct on scrivn no matter what."
+    */
+    const r = box(0, 0, 240, 192);
+    const broken = s.insertVertexOnWall(r, r.vertices[0].id, 0.85);
+    const stub = s.wallsOf(broken).find((w) => Math.abs(w.lengthPx - 36) < 2);
+    assert(stub !== undefined, `the break left a 3' stub: ${s.wallsOf(broken).map((w) => w.lengthPx.toFixed(0))}`);
+    const typed = s.withWallLength(broken, stub.id, 2);
+    assert(typed !== broken, "the room changed");
+    near(s.wallById(typed, stub.id).lengthFeet, 2, "and the stub is 2 ft", 0.02);
+  });
+
+  test("a 45 degree cut takes a typed length EXACTLY, not to within an inch", () => {
+    /*
+      The travel was solved LINEARLY, which is exact only while the wall's direction does not change
+      as its corner moves - true for a square room, false for a cut. On a 45 degree chamfer the
+      corner slides along its neighbour and the wall swings as it goes, so the step landed at
+      sqrt(target^2 + delta^2): a 3 in change on a 3 ft cut came out 0.14 in long, and 6 in missed by
+      enough that the editor's half-inch check called it a refusal and put the number back. The
+      chamfer could be typed only in slivers.
+    */
+    const cut = room([[0, 0], [204, 0], [240, 36], [240, 192], [0, 192]]);
+    const wall = s.wallsOf(cut)[1];
+    /*
+      The cut starts at 4'3" across a 3 ft x 3 ft corner. Its length is bounded below by 3 ft - the
+      span it has to cross either way - so the lengths asked for here are ones it can actually take;
+      anything under that is refused, correctly, and the check below says so.
+    */
+    for (const want of [3.5, 5, 6]) {
+      const typed = s.withWallLength(cut, wall.id, want);
+      assert(typed !== cut, `${want} ft was refused outright`);
+      near(s.wallById(typed, wall.id).lengthFeet, want, `the cut is ${want} ft`, 1 / 24);
+    }
+  });
+
+  test("and a length the room genuinely cannot take is still refused", () => {
+    // The escape hatch must not become "always say yes".
+    const r = box(0, 0, 240, 192);
+    assert(s.withWallLength(r, r.vertices[0].id, 1 / 12) === r, "one inch of wall is refused");
+    // A cut cannot be shorter than the corner it crosses: 3 ft over, 3 ft down, so never under 3 ft.
+    const cut = room([[0, 0], [204, 0], [240, 36], [240, 192], [0, 192]]);
+    const wall = s.wallsOf(cut)[1];
+    assert(s.withWallLength(cut, wall.id, 2) === cut, "2 ft across a 3 ft corner is refused");
+  });
+
   return { passed, failures };
 }
 

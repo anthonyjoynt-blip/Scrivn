@@ -159,6 +159,7 @@
  */
 
 import {
+  dropDuplicateSharedOpenings,
   type CabinetSymbol,
   type CabinetTier,
   type DoorSymbol,
@@ -1389,7 +1390,20 @@ function importScanCapture(capture: ScanCapture, fileNotes: string[], at: { x: n
     flights.push(...built.extraRooms);
     notes.push(...built.notes.map((n) => `${label}: ${n}`));
   });
-  const room = rooms[0];
+  /*
+    ONE DOORWAY, TAPPED FROM BOTH SIDES, DRAWN ONCE.
+
+    The join asks the estimator to tap the shared door in BOTH rooms — that is how it knows which
+    door is which — so a joined capture arrives with two symbols a partition apart for one hole.
+    Scrivn already refuses to COUNT it twice (`openingsSharedWith`); nothing stopped it being drawn
+    twice until now: "for some reason it plopped a door on there that shouldnt be there".
+  */
+  const deduped = dropDuplicateSharedOpenings(rooms);
+  const dropped = rooms.reduce((n, r, k) => n + (r.symbols.length - (deduped[k]?.symbols.length ?? r.symbols.length)), 0);
+  if (dropped > 0) {
+    notes.push(`${dropped} ${dropped === 1 ? "doorway was" : "doorways were"} tapped from both rooms; drawn once.`);
+  }
+  const room = deduped[0];
   if (room === undefined) {
     return { ok: false, error: `None of the ${capture.rooms.length} rooms in this capture could be drawn.` };
   }
@@ -1397,7 +1411,7 @@ function importScanCapture(capture: ScanCapture, fileNotes: string[], at: { x: n
     ok: true,
     kind: "capture",
     room,
-    extraRooms: [...rooms.slice(1), ...flights],
+    extraRooms: [...deduped.slice(1), ...flights],
     notes: [`${rooms.length} room${rooms.length === 1 ? "" : "s"} imported, placed as tapped.`, ...notes, ...leftOut, ...fileNotes],
     closetDoorIds,
   };
