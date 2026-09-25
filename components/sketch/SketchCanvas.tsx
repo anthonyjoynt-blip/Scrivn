@@ -315,6 +315,11 @@ export interface SketchCanvasProps {
    * `WallDimension`.
    */
   onTapWall: (roomId: string, wallId: string, screen: { x: number; y: number }, run: [number, number]) => void;
+  /**
+   * Which wall a plain tap landed on, and which stretch of it — so the properties sheet can offer
+   * that wall's length without a box over the drawing. Null when the tap was not on a wall.
+   */
+  onTapWallSelect?: (roomId: string, wallId: string, run: [number, number]) => void;
   /** A wall was tapped while a symbol tool is active. */
   /**
    * A door, opening or window put on a wall at `t` — and, when the finger was dragged along the
@@ -815,6 +820,7 @@ export default function SketchCanvas(props: SketchCanvasProps) {
             onSelectSymbol={props.onSelectSymbol}
             onMoveRoom={props.onMoveRoom}
             onTapWall={props.onTapWall}
+            onTapWallSelect={props.onTapWallSelect}
             onPlaceSymbol={props.onPlaceSymbol}
             onSplitWall={props.onSplitWall}
             onDragWall={props.onDragWall}
@@ -1020,6 +1026,7 @@ function RoomShape({
   onSelectSymbol,
   onMoveRoom,
   onTapWall,
+  onTapWallSelect,
   onPlaceSymbol,
   onSplitWall,
   onDragWall,
@@ -1068,6 +1075,7 @@ function RoomShape({
   | "onSelectSymbol"
   | "onMoveRoom"
   | "onTapWall"
+  | "onTapWallSelect"
   | "onPlaceSymbol"
   | "onSplitWall"
   | "onDragWall"
@@ -1155,6 +1163,14 @@ function RoomShape({
       // dragged from anywhere, and on bigger rooms it worked or not depending where you grabbed.
       onSelectRoom(room.id);
       onSelectSymbol(null);
+      /*
+        And remember WHICH wall, so the sheet can offer its length. The room stays the selection —
+        dragging it must still work from here, and the strips cover every pixel of a shallow room —
+        but "the wall you just touched" is the thing the estimator means to measure, and until now
+        the only way to say a number about it was a double-tap and a box over the drawing.
+      */
+      const at = world ?? undefined;
+      onTapWallSelect?.(room.id, wall.id, exposedRunAt(room, wall.id, rooms, at ? tapFractionOnWall(wall, at.x, at.y) : 0.5));
       return;
     }
 

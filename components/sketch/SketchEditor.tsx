@@ -287,6 +287,22 @@ export function SketchEditor({
   /** Why the last tap with the wall tool drew nothing, shown in place of the hint until the next tap. */
   const [wallNotice, setWallNotice] = useState<string | null>(null);
   const [selectedWallId, setSelectedWallId] = useState<string | null>(null);
+  /**
+   * The ROOM wall the last plain tap landed on, and which stretch of it.
+   *
+   * A room's walls are not separately selectable — a tap on one selects the room, because the room
+   * is what a drag from there must move, and on a room shallower than about 4'8" the 28px strips
+   * cover every pixel of it. So this is not a selection, it is a memory of what the finger was on,
+   * and it is what lets the properties sheet offer that wall's length.
+   *
+   * Before it, the only way to type a wall's length was to double-tap its measurement and use a box
+   * that opens over the drawing — on a phone that is a small target, then a tap to focus the field,
+   * then a keyboard over half the sketch. The estimator of 2026-09-25: "getting the right
+   * measurement when dragging out is difficult so you have to try and double tap the measurement to
+   * input yourself but that brings up the pop up again."
+   */
+  const [tappedWall, setTappedWall] = useState<{ roomId: string; wallId: string; run: [number, number] } | null>(null);
+  const [tappedWallError, setTappedWallError] = useState<string | null>(null);
   /** The last free wall deleted, for the same one-step undo a room gets — see `deletedRoom`. */
   const [deletedWall, setDeletedWall] = useState<{ wall: FreeWall; index: number } | null>(null);
   /**
@@ -667,6 +683,15 @@ export function SketchEditor({
    * for: in a room of right angles the walls either side of any one wall run parallel, so there is
    * no corner for them to meet at and every wall is refused.
    */
+  /*
+    The remembered wall belongs to the room it was tapped in; once the selection is elsewhere it is
+    stale and the sheet must stop offering it. Held here rather than cleared in every handler that
+    can change the selection, because there are several and one of them would be forgotten.
+  */
+  const tappedWallHere = tappedWall !== null && selectedRoom !== null && tappedWall.roomId === selectedRoom.id
+    ? wallById(selectedRoom, tappedWall.wallId)
+    : null;
+
   const squareable = useMemo(
     () => (selectedRoom === null ? [] : wallsOf(selectedRoom).filter((w) => squareOffRefusal(selectedRoom, w.id) === null)),
     [selectedRoom],
@@ -1443,6 +1468,43 @@ export function SketchEditor({
    * The figure typed is for the stretch that was tapped — beside a closet, the wall short of the
    * closet — so the whole wall is expected to come out longer by the closet's share.
    */
+  /**
+   * Commits a length typed into the properties sheet for the wall the last tap landed on.
+   *
+   * The same arithmetic as the floating box's [handleSubmitLength], and refused the same way: the
+   * reshape is attempted, the result MEASURED, and a room that came back the wrong size means the
+   * change was refused rather than made. A field that closed on a number that never happened would
+   * be worse than no field.
+   */
+  function commitTappedWallLength(raw: string, field: HTMLInputElement) {
+    const spot = tappedWall;
+    const room = spot ? sketch.rooms.find((r) => r.id === spot.roomId) : null;
+    const wall = room && spot ? wallById(room, spot.wallId) : null;
+    if (!spot || !room || !wall) return;
+    const was = wallRunFeet(wall, spot.run);
+    const text = raw.trim();
+    if (text === "" ) { field.value = formatFeetInches(was); setTappedWallError(null); return; }
+    const feet = parseFeetInches(text);
+    if (feet == null || feet <= 0) {
+      setTappedWallError(`Enter a length like 12'6" or 12.5`);
+      field.value = formatFeetInches(was);
+      return;
+    }
+    const expected = feet + wall.lengthFeet - was;
+    const resized = withWallRunLength(room, spot.wallId, spot.run, feet);
+    const got = wallById(resized, spot.wallId)?.lengthFeet;
+    if (got == null || Math.abs(got - expected) > 1 / 24) {
+      setTappedWallError(`That would leave the room too small to draw. Shortest wall is ${formatFeetInches(MIN_WALL_PX / PIXELS_PER_FOOT)}.`);
+      field.value = formatFeetInches(was);
+      return;
+    }
+    setTappedWallError(null);
+    onChange((prev) => ({
+      ...prev,
+      rooms: withDerivedParents(prev.rooms.map((r) => (r.id === resized.id ? resized : r))),
+    }));
+  }
+
   function handleSubmitLength() {
     if (!pendingLength) return;
     const feet = parseFeetInches(lengthDraft);
@@ -2016,6 +2078,7 @@ export function SketchEditor({
           onSelectSymbol={setSelectedSymbolId}
           onMoveRoom={handleMoveRoom}
           onTapWall={handleTapWall}
+          onTapWallSelect={(roomId, wallId, run) => setTappedWall({ roomId, wallId, run })}
           onPlaceSymbol={handlePlaceSymbol}
           onRenameRoom={(roomId, screen) => {
             setNameDraft(sketch.rooms.find((r) => r.id === roomId)?.name ?? "");
@@ -2503,6 +2566,50 @@ export function SketchEditor({
                 and "which one" is the whole question. Square up above is not this: that nudges a
                 corner already nearly square, this rebuilds one somebody cut off.
               */}
+              {/*
+                THE WALL YOU JUST TOUCHED, and its length, typed here instead of in a box over the
+                drawing.
+
+                Until now the only way to set a wall's length was to double-tap its measurement,
+                which opens a floating field at the tap: a small target to hit, then another tap to
+                focus it (autofocus is off on a phone because it threw the keyboard over half the
+                sketch), then a keyboard over the drawing anyway. Three awkward steps on top of a
+                gesture that is hard to land, and the estimator of 2026-09-25 said so: "getting the
+                right measurement when dragging out is difficult so you have to try and double tap
+                the measurement to input yourself but that brings up the pop up again."
+
+                Tap the wall, press Edit, type the number. The sheet is already open and already
+                over the bottom of the plan; putting the field in it costs nothing that was not
+                already spent. The double-tap still works for anyone who prefers it.
+
+                It offers the STRETCH that was tapped, not the whole wall — matching the figure on
+                the label beside it, which is the one the estimator's tape can find. On a wall with
+                a closet against it those are different numbers.
+              */}
+              {tappedWallHere && (
+                <div className="question">
+                  <label className="prompt" htmlFor="tapped-wall-length">
+                    Wall length
+                  </label>
+                  <input
+                    id="tapped-wall-length"
+                    type="text"
+                    inputMode="text"
+                    autoComplete="off"
+                    placeholder={`12'6" or 12.5`}
+                    key={`${tappedWall?.wallId}-${tappedWall?.run?.[0]}-${tappedWall?.run?.[1]}`}
+                    defaultValue={formatFeetInches(wallRunFeet(tappedWallHere, tappedWall!.run))}
+                    onBlur={(e) => commitTappedWallLength(e.target.value, e.target)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        e.currentTarget.blur();
+                      }
+                    }}
+                  />
+                  {tappedWallError && <p className="field-note sketch-error">{tappedWallError}</p>}
+                </div>
+              )}
               {squareable.length > 0 && (
                 <div className="question">
                   <label className="prompt">Cut corners</label>
