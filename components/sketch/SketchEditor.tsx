@@ -57,6 +57,7 @@ import {
   containingRoomId,
   snapRoomTranslation,
   snapWallToNeighbours,
+  snapWorldPx,
   translateRoom as translate,
   withDerivedParents,
   sketchSummaryText,
@@ -2033,9 +2034,14 @@ export function SketchEditor({
             // the room's own corners — see `wallDragMeetsWall`.
             const reshaped = wallDrag.current?.reshaped ?? false;
             wallDrag.current = null;
-            if (!reshaped) updateRoom(roomId, (room) => snapWallToNeighbours(room, wallId));
+            if (!reshaped) updateRoom(roomId, (room) => snapWallToNeighbours(room, wallId, snapWorldPx(view.scale)));
           }}
-          onMoveVertex={(roomId, vertexId, x, y) => updateRoom(roomId, (room) => moveVertex(room, vertexId, x, y))}
+          /*
+            The snap radius is a FINGER'S WIDTH ON SCREEN, so it is divided by the zoom before it
+            reaches the geometry. Left in world pixels it was one foot at every magnification, which
+            is why zooming in used to buy no precision and a corner fireplace could not be drawn.
+          */
+          onMoveVertex={(roomId, vertexId, x, y) => updateRoom(roomId, (room) => moveVertex(room, vertexId, x, y, snapWorldPx(view.scale)))}
           onRemoveVertex={(roomId, vertexId) => updateRoom(roomId, (room) => removeVertex(room, vertexId))}
           onMoveSymbol={(roomId, symbolId, centrePx) =>
             /*

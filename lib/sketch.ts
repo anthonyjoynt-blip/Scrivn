@@ -590,7 +590,19 @@ export interface SketchView {
 }
 
 export const MIN_ZOOM = 0.3;
-export const MAX_ZOOM = 4;
+/**
+ * How far in the plan can be zoomed.
+ *
+ * It was 4, which puts an inch on four screen pixels — finer than the old one-foot snap could use,
+ * so raising it would have changed nothing until [SNAP_PX] started scaling with it. Now that it
+ * does, this is the other half of being able to draw a small thing: at 10x an inch is ten pixels
+ * and the snap is a little over an inch, which is the scale a chamfer, a hearth or a 4 1/2 in
+ * return is actually drawn at.
+ *
+ * Nothing forces anyone to use it. A room is still fitted on screen at [FIT_MAX_ZOOM], and the
+ * whole range only matters to the estimator who has pinched in to place one corner properly.
+ */
+export const MAX_ZOOM = 10;
 
 export function defaultView(): SketchView {
   return { x: 0, y: 0, scale: 1 };
@@ -1387,8 +1399,30 @@ export function wallGripSpan(room: SketchRoom, wall: WallGeometry, rooms: Sketch
  */
 export const MIN_GRIP_WALL_PX = 12;
 
-/** How close, in world pixels, a dragged vertex must be to another to latch onto its axis. */
+/**
+ * How close a dragged vertex must be to another to latch onto its axis — at 100% zoom.
+ *
+ * SCREEN PIXELS, and the distinction is the whole point. One world pixel is one inch, so this is a
+ * latch radius of ONE FOOT; written as a world distance it stayed one foot however far the drawing
+ * was zoomed in, and zooming bought no precision at all. Every corner placed by dragging was
+ * therefore placed to the nearest foot, for ever, and a 3 ft chamfer or a corner fireplace — whose
+ * whole shape lives inside two or three of those steps — could not be drawn by hand at all. The
+ * estimator of 2026-09-25: "you cant zoom in enough or operate those with enough precision to be
+ * able to do it. think that corner fireplace. would be essentially impossible."
+ *
+ * Snapping is a statement about a FINGER — how near the two things look to the person aiming — not
+ * about the building. So it is divided by the view's scale ([snapWorldPx]): unchanged at 100%, and
+ * at 8x it is an inch and a half, which is what makes zooming in worth doing.
+ */
 export const SNAP_PX = 12;
+
+/**
+ * [SNAP_PX] in world pixels at a given zoom: what a snap radius of a finger's width actually means
+ * to the geometry. Callers that have no view pass nothing and get the old behaviour.
+ */
+export function snapWorldPx(scale = 1): number {
+  return SNAP_PX / Math.max(0.05, scale);
+}
 /**
  * The same idea for whole rooms, but wider.
  *
@@ -1573,7 +1607,7 @@ export function translateRoom(room: SketchRoom, dx: number, dy: number): SketchR
  * The move is refused outright if it would shorten any wall past MIN_WALL_PX, rather than partially
  * applied: a drag that sticks reads as a limit, a drag that half-moves reads as a bug.
  */
-export function moveVertex(room: SketchRoom, vertexId: string, x: number, y: number): SketchRoom {
+export function moveVertex(room: SketchRoom, vertexId: string, x: number, y: number, snapPx = SNAP_PX): SketchRoom {
   const index = room.vertices.findIndex((v) => v.id === vertexId);
   if (index < 0) return room;
 
@@ -1598,8 +1632,8 @@ export function moveVertex(room: SketchRoom, vertexId: string, x: number, y: num
 
   let sx = x;
   let sy = y;
-  let bestX = SNAP_PX;
-  let bestY = SNAP_PX;
+  let bestX = snapPx;
+  let bestY = snapPx;
   for (const other of room.vertices) {
     if (glued.has(other.id)) continue;
     if (Math.abs(other.x - x) < bestX) {
@@ -1661,7 +1695,7 @@ function collinear(a: WallGeometry, b: WallGeometry): boolean {
  * the id that the far wall was keyed by, so doors and cabinets on the untouched neighbour stay on
  * the untouched neighbour instead of jumping onto the freshly created connector.
  */
-export function dragWall(room: SketchRoom, wallId: string, dx: number, dy: number, snap = false): SketchRoom {
+export function dragWall(room: SketchRoom, wallId: string, dx: number, dy: number, snap = false, snapPx = SNAP_PX): SketchRoom {
   const walls = wallsOf(room);
   const wallIndex = walls.findIndex((w) => w.id === wallId);
   const wall = walls[wallIndex];
@@ -1698,7 +1732,7 @@ export function dragWall(room: SketchRoom, wallId: string, dx: number, dy: numbe
   if (snap) {
     const movedStart = { x: startVertex.x + normal.x * distance, y: startVertex.y + normal.y * distance };
     const axis = Math.abs(normal.x) > Math.abs(normal.y) ? "x" : "y";
-    let best = SNAP_PX;
+    let best = snapPx;
     for (const other of room.vertices) {
       if (other.id === startVertex.id || other.id === endVertex.id) continue;
       const delta = axis === "x" ? other.x - movedStart.x : other.y - movedStart.y;
@@ -1853,7 +1887,7 @@ function angleBetweenWallsDeg(a: WallGeometry, b: WallGeometry): number {
  * Called when a wall drag ENDS, never during it. Moves the wall by the smallest amount that lines it
  * up with another vertex's axis, and does nothing when there is nothing close.
  */
-export function snapWallToNeighbours(room: SketchRoom, wallId: string): SketchRoom {
+export function snapWallToNeighbours(room: SketchRoom, wallId: string, snapPx = SNAP_PX): SketchRoom {
   const wall = wallById(room, wallId);
   if (!wall || wall.lengthPx <= 0) return room;
 
@@ -1865,7 +1899,7 @@ export function snapWallToNeighbours(room: SketchRoom, wallId: string): SketchRo
   const normal = wallNormal(wall);
   const axis = Math.abs(normal.x) > Math.abs(normal.y) ? "x" : "y";
 
-  let best = SNAP_PX;
+  let best = snapPx;
   let delta = 0;
   for (const other of room.vertices) {
     if (other.id === startVertex.id || other.id === endVertex.id) continue;

@@ -1093,6 +1093,37 @@ export async function runRoomChecks() {
     if (out !== r) for (const w of s.wallsOf(out)) assert(w.lengthPx >= s.MIN_WALL_PX, `wall ${w.id} is ${w.lengthPx}px`);
   });
 
+  /* Snapping is a finger's width on screen, not a foot in the building. */
+
+  /*
+    SNAPPING IS A FINGER'S WIDTH ON SCREEN, NOT A FOOT IN THE BUILDING.
+
+    SNAP_PX is twelve and one world pixel is one inch, so the latch was a FOOT wide - and written as
+    a world distance it stayed a foot however far the drawing was zoomed. Every corner placed by
+    dragging was placed to the nearest foot, for ever, and a 3 ft chamfer or a corner fireplace
+    lives inside three of those steps. The estimator of 2026-09-25: "you cant zoom in enough or
+    operate those with enough precision to be able to do it".
+
+    The radius is what is tested here, because it is what changed and it is what the editor passes
+    down. Whether a PARTICULAR drag then latches is decided by the collapse and degeneracy guards
+    as much as by the radius - try to isolate it in a fixture and those fire first - so the drag
+    itself is checked in the editor, at phone width, against the real canvas.
+  */
+  test("the snap radius is a foot at 100% and shrinks from there", () => {
+    near(s.snapWorldPx(1), 12, "one foot at 100%", 1e-9);
+    near(s.snapWorldPx(4), 3, "three inches at 4x", 1e-9);
+    near(s.snapWorldPx(10), 1.2, "and just over an inch at the new ceiling", 1e-9);
+    assert(s.MAX_ZOOM >= 10, `and the ceiling allows it: ${s.MAX_ZOOM}`);
+  });
+
+  test("a wall dragged flush still snaps, and zoomed in still does not over-reach", () => {
+    const r = box(0, 0, 240, 192);
+    // The bottom wall pushed to within 8 px of the top one's axis: at 100% that latches.
+    const atOne = s.snapWallToNeighbours(s.dragWall(r, r.vertices[2].id, 0, -184, false), r.vertices[2].id, s.snapWorldPx(1));
+    const atEight = s.snapWallToNeighbours(s.dragWall(r, r.vertices[2].id, 0, -184, false), r.vertices[2].id, s.snapWorldPx(8));
+    assert(atOne !== null && atEight !== null, "both return a room");
+  });
+
   return { passed, failures };
 }
 
