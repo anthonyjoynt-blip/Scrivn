@@ -1122,7 +1122,7 @@ function RoomShape({
   */
   const gripReach = new Map<string, number>();
   for (const wall of walls) {
-    const span = wallGripSpan(room, wall, rooms);
+    const span = wallGripSpan(room, wall, rooms, zoom);
     if (!span) continue;
     const at = pointOnWall(wall, span.t);
     gripReach.set(wall.id, Math.hypot(at.x - anchor.x, at.y - anchor.y) / 2);
@@ -1491,7 +1491,7 @@ function RoomShape({
           <WallGrabHandle
             key={`grab-${wall.id}`}
             wall={wall}
-            span={wallGripSpan(room, wall, rooms)}
+            span={wallGripSpan(room, wall, rooms, zoom)}
             maxRadius={gripReach.get(wall.id) ?? Infinity}
             zoom={zoom}
             onDrag={(dx, dy) => onDragWall(room.id, wall.id, dx, dy)}

@@ -57,6 +57,7 @@ import {
   containingRoomId,
   snapRoomTranslation,
   snapWallToNeighbours,
+  roomSnapWorldPx,
   snapWorldPx,
   translateRoom as translate,
   withDerivedParents,
@@ -975,6 +976,7 @@ export function SketchEditor({
       dx,
       dy,
       walls.filter((w) => !carriedWalls.has(w.id)),
+      roomSnapWorldPx(view.scale),
     );
     onChange({
       ...sketch,

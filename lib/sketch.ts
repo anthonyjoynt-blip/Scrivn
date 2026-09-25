@@ -1347,7 +1347,7 @@ export function wallHandleRadii(wallLengthPx: number, zoom: number): { corner: n
  * Returns null when nothing on the wall is long enough to be worth aiming at — a wall completely
  * covered by cabinetry has no grip, and is pulled by its corners instead.
  */
-export function wallGripSpan(room: SketchRoom, wall: WallGeometry, rooms: SketchRoom[] = []): { t: number; clearPx: number } | null {
+export function wallGripSpan(room: SketchRoom, wall: WallGeometry, rooms: SketchRoom[] = [], zoom = 1): { t: number; clearPx: number } | null {
   // Another room's door in this wall (`openingsSharedWith`) is drawn on top of the grip, live, so
   // the grip has to keep clear of it as it does of the room's own — laid out as if the wall were
   // empty, it sat under the door and every press on it picked the door up instead.
@@ -1381,7 +1381,19 @@ export function wallGripSpan(room: SketchRoom, wall: WallGeometry, rooms: Sketch
     }
   }
 
-  return best !== null && best.clearPx >= MIN_GRIP_WALL_PX ? best : null;
+  /*
+    IN SCREEN PIXELS, so zooming in gives a short wall a grip.
+
+    This compared a WORLD length against a world constant, and twelve world pixels is twelve INCHES
+    of building: a wall shorter than a foot had no drag handle at all, at any magnification, and
+    could only be reshaped by its two corner handles — which on a wall that short overlap each other.
+    A chamfer's return, a 4 1/2 in partition cap, the stub left by a break near a corner: all
+    ungrabbable, for ever, however far you zoomed in.
+
+    Measured on screen the rule says what it was always meant to say — "there is room for a finger
+    here" — and a foot-long wall at 10x is 120 screen pixels, which there plainly is.
+  */
+  return best !== null && best.clearPx * zoom >= MIN_GRIP_SCREEN_PX ? best : null;
 }
 
 /**
@@ -1397,7 +1409,10 @@ export function wallGripSpan(room: SketchRoom, wall: WallGeometry, rooms: Sketch
  * makes it bigger on screen, because the finger-sized cap is in screen pixels while the wall's third
  * is in world pixels.
  */
-export const MIN_GRIP_WALL_PX = 12;
+export const MIN_GRIP_SCREEN_PX = 12;
+
+/** The old name, in world pixels, kept for callers that reason about the building rather than the screen. */
+export const MIN_GRIP_WALL_PX = MIN_GRIP_SCREEN_PX;
 
 /**
  * How close a dragged vertex must be to another to latch onto its axis — at 100% zoom.
@@ -1432,6 +1447,22 @@ export function snapWorldPx(scale = 1): number {
  * visibly latches instead of jumping at the end.
  */
 export const ROOM_SNAP_PX = 22;
+
+/**
+ * [ROOM_SNAP_PX] in world pixels at a given zoom — the same correction [snapWorldPx] makes for a
+ * dragged corner, seventeen lines above, which this was left out of.
+ *
+ * Twenty-two world pixels is ONE FOOT TEN, and unscaled it stayed one foot ten however far the plan
+ * was zoomed: at 10x that is 220 screen pixels, well over half the width of a phone, so the moment
+ * the estimator pinched in to place a room carefully the latch owned most of the screen. A room
+ * could not be given a deliberate small offset from its neighbour — a chase, a furred-out wall, the
+ * cavity between a party wall and a stud wall — at any magnification.
+ *
+ * The free-wall drag beside it has always done this correctly (`wallSnapRadiusPx`). Rooms had not.
+ */
+export function roomSnapWorldPx(scale = 1): number {
+  return ROOM_SNAP_PX / Math.max(0.05, scale);
+}
 
 /**
  * Where to put a room's name so it stays inside the room.
@@ -2190,7 +2221,7 @@ export function squareOffCorner(room: SketchRoom, chamferWallId: string): Sketch
  * Snapping deliberately still applies to a room being dragged INSIDE another — a closet is usually
  * built into a corner, so latching onto the parent's walls is what you want there too.
  */
-export function snapRoomTranslation(rooms: SketchRoom[], roomId: string, dx: number, dy: number, freeWalls: FreeWall[] = []): { dx: number; dy: number } {
+export function snapRoomTranslation(rooms: SketchRoom[], roomId: string, dx: number, dy: number, freeWalls: FreeWall[] = [], snapPx = ROOM_SNAP_PX): { dx: number; dy: number } {
   const room = rooms.find((r) => r.id === roomId);
   if (!room) return { dx, dy };
 
@@ -2211,8 +2242,8 @@ export function snapRoomTranslation(rooms: SketchRoom[], roomId: string, dx: num
     }
   }
 
-  let bestX = ROOM_SNAP_PX;
-  let bestY = ROOM_SNAP_PX;
+  let bestX = snapPx;
+  let bestY = snapPx;
   let adjustX = 0;
   let adjustY = 0;
   for (const mine of room.vertices) {
@@ -3083,7 +3114,8 @@ export function withFreeCabinetSizePx(cabinet: FreeCabinet, room: SketchRoom, wi
   const bounds = roomBounds(room);
   const left = bounds.minX + cabinet.x;
   const top = bounds.minY + cabinet.y;
-  const fits = (w: number, d: number) => rectInsideRoom(room, left, top, w, d);
+  const fits = (w: number, d: number) =>
+    blockInsideRoom({ ...cabinet, widthPx: w, depthPx: d, widthFeet: null, depthFeet: null }, room);
 
   let { width, depth } = wanted;
   if (!fits(width, depth)) {
@@ -3135,6 +3167,48 @@ function segmentsCross(
  * themselves are checked for crossing it as well. That pair of tests is complete: if no corner is
  * outside and no wall passes through, nothing of the room's boundary is inside the rectangle.
  */
+/**
+ * Whether a BLOCK's real footprint is inside the room — its own corners, turned and the right shape.
+ *
+ * [rectInsideRoom] below tests an axis-aligned box, which is what a block was when islands were the
+ * only kind. A block can be turned and can be a triangle now, and testing the unturned box against
+ * the room let a corner fireplace at 45 degrees sit half through the wall while the box it was
+ * measured by fitted perfectly. Everything else about a block's real shape already goes through
+ * [blockCorners]; this closes the one path that did not.
+ */
+export function blockInsideRoom(block: Block, room: SketchRoom): boolean {
+  const corners = blockCorners(block, room);
+  if (corners.length === 0) return false;
+  const e = INSIDE_EPSILON_PX;
+  // Pulled a hair towards the middle, so a block laid flush against a wall is not judged outside it
+  // by a rounding error — the same allowance rectInsideRoom makes at its own edges.
+  let cx = 0;
+  let cy = 0;
+  for (const c of corners) { cx += c.x; cy += c.y; }
+  cx /= corners.length;
+  cy /= corners.length;
+  const pulled = corners.map((c) => {
+    const dx = cx - c.x;
+    const dy = cy - c.y;
+    const len = Math.hypot(dx, dy);
+    return len > 0 ? { x: c.x + (dx / len) * e, y: c.y + (dy / len) * e } : { x: c.x, y: c.y };
+  });
+  for (const p of pulled) if (!isInsideRoom(room, p.x, p.y)) return false;
+  /*
+    Corners inside is not enough, and [rectInsideRoom] has always known it: a block laid ACROSS a
+    slot or a notch has every corner in open floor and its middle in the wall. So no wall of the
+    room may cross any edge of the footprint either.
+  */
+  for (const wall of wallsOf(room)) {
+    for (let i = 0; i < pulled.length; i++) {
+      const a = pulled[i] as { x: number; y: number };
+      const b = pulled[(i + 1) % pulled.length] as { x: number; y: number };
+      if (segmentsCross(wall.x1, wall.y1, wall.x2, wall.y2, a.x, a.y, b.x, b.y)) return false;
+    }
+  }
+  return true;
+}
+
 export function rectInsideRoom(room: SketchRoom, x: number, y: number, width: number, depth: number): boolean {
   const e = INSIDE_EPSILON_PX;
   const left = x + e;
@@ -3247,8 +3321,9 @@ export function moveFreeCabinet(cabinet: FreeCabinet, room: SketchRoom, x: numbe
   const left = Math.min(Math.max(bounds.minX, snapped.left), Math.max(bounds.minX, bounds.maxX - width));
   const top = Math.min(Math.max(bounds.minY, snapped.top), Math.max(bounds.minY, bounds.maxY - depth));
 
-  if (!rectInsideRoom(room, left, top, width, depth)) return cabinet;
-  return { ...cabinet, x: left - bounds.minX, y: top - bounds.minY };
+  const moved = { ...cabinet, x: left - bounds.minX, y: top - bounds.minY };
+  if (!blockInsideRoom(moved, room)) return cabinet;
+  return moved;
 }
 
 export function newFreeCabinet(room: SketchRoom, x: number, y: number): FreeCabinet {

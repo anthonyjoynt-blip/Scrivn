@@ -277,6 +277,46 @@ test("and the estimate sees all of it", () => {
   near(areas["great room"].floorSquareFeet, 320 - 12.5, "the fireplace is priced");
 });
 
+  /* A turned block is judged by the shape it really is. */
+
+  test("a TURNED block that sticks through a wall is refused, though its unturned box would fit", () => {
+    /*
+      The bug an audit caught in this very feature on 2026-09-25. Everything about a block's real
+      shape goes through `blockCorners` — what it covers, what it touches, what is drawn — except
+      the one test that decides whether it may be THERE, which measured the unturned width x depth
+      box. So a corner fireplace at 45 degrees sat half through the wall while the box it was judged
+      by fitted perfectly.
+    */
+    const r = room([]);
+    const square = { ...block("f", 0.5, 0.5, 3, 3), angleDeg: 45 };
+    // Unturned, a 3' x 3' block half a foot inside the corner is comfortably in the room. Turned
+    // 45 degrees about its own centre, its leading corner reaches back past the wall.
+    assert(s.rectInsideRoom(r, s.roomBounds(r).minX + square.x, s.roomBounds(r).minY + square.y, 3 * FT, 3 * FT),
+      "its unturned box fits, which is what used to be asked");
+    assert(!s.blockInsideRoom(square, r), "but the block itself does not, and that is what is asked now");
+  });
+
+  test("a block laid across a slot is still refused, turned or not", () => {
+    // Corners in open floor and the middle in the wall: the case rectInsideRoom has always caught
+    // by testing its EDGES against the room's walls, which the block test has to do as well.
+    const notched = room([]);
+    notched.vertices = [
+      { id: "n0", x: 0, y: 0 }, { id: "n1", x: 20 * FT, y: 0 },
+      { id: "n2", x: 20 * FT, y: 16 * FT }, { id: "n3", x: 11 * FT, y: 16 * FT },
+      { id: "n4", x: 11 * FT, y: 6 * FT }, { id: "n5", x: 9 * FT, y: 6 * FT },
+      { id: "n6", x: 9 * FT, y: 16 * FT }, { id: "n7", x: 0, y: 16 * FT },
+    ];
+    // A 6' run spanning the 2'-wide spur that sticks up between y=6 and y=16.
+    const across = block("a", 7, 9, 6, 1.5);
+    assert(!s.blockInsideRoom(across, notched), "its middle is in the spur");
+  });
+
+  test("an ordinary unturned block is unaffected", () => {
+    const r = room([]);
+    assert(s.blockInsideRoom(block("i", 6, 6, 6, 3), r), "well inside");
+    assert(!s.blockInsideRoom(block("o", 18, 6, 6, 3), r), "hanging out of the right wall");
+  });
+
   return { passed, failures };
 }
 
