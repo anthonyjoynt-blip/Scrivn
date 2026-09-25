@@ -265,6 +265,13 @@ export interface ScanIsland {
   depth_m: number;
   depth_measured?: boolean;
   angle_deg?: number;
+  /**
+   * The footprint's shape, when the phone said one: "triangle" for a CORNER UNIT — a fireplace, a
+   * corner shower, a corner pantry — whose legs run along the two walls and whose long face looks
+   * into the room. Absent on every file written before corner units were blocks, which reads as a
+   * rectangle.
+   */
+  shape?: string;
   tier?: string;
 }
 
@@ -601,6 +608,7 @@ export function parseScanRoom(input: unknown): { ok: true; scan: ScanRoom; notes
         depth_m: isFiniteNumber(isl.depth_m) && isl.depth_m > 0 ? isl.depth_m : 3 / FEET_PER_METRE,
         depth_measured: isl.depth_measured === true,
         angle_deg: isFiniteNumber(isl.angle_deg) ? isl.angle_deg : 0,
+        shape: typeof isl.shape === "string" ? isl.shape : undefined,
         tier: isCabinetTier(isl.tier) ? isl.tier : "base",
       });
     }
@@ -915,13 +923,23 @@ export function scanToSketchRoom(scan: ScanRoom, at: { x: number; y: number }, l
   const bounds = roomBounds(room);
   const feetInchesText = (metres: number): string => formatFeetInches(toFeetInches(metres));
   for (const isl of scan.islands) {
+    /*
+      A BLOCK NOW KEEPS ITS OWN TURN. Until blocks could be turned, the only thing that could be
+      done with the angle the phone recorded was to round it to the nearest quarter and swap the
+      width and depth for a run lying across the page — so a fireplace standing at 45 degrees in a
+      corner arrived square, and everything between the quarters was thrown away.
+
+      A turned block draws and prices at its real angle, so the angle comes through as it was
+      measured and the width and depth stay the run's own. `islandQuarterTurn` is still what decides
+      whether the NOTE calls it along or across, which is a sentence for a person, not geometry.
+    */
     const turn = islandQuarterTurn(isl.angle_deg);
-    // Across the room: the same block, its run measured down the page instead of across it.
-    const acrossM = turn === "across" ? isl.depth_m : isl.width_m;
-    const downM = turn === "across" ? isl.width_m : isl.depth_m;
+    const acrossM = isl.width_m;
+    const downM = isl.depth_m;
     const widthPx = Math.max(1, Math.round(acrossM * PX_PER_METRE));
     const depthPx = Math.max(1, Math.round(downM * PX_PER_METRE));
     const middle = toPx([isl.u, isl.v]);
+    const triangle = isl.shape === "triangle";
     room.freeCabinets.push({
       id: newSketchId("island"),
       x: middle.x - widthPx / 2 - bounds.minX,
@@ -930,8 +948,10 @@ export function scanToSketchRoom(scan: ScanRoom, at: { x: number; y: number }, l
       depthPx,
       widthFeet: toFeetInches(acrossM),
       depthFeet: toFeetInches(downM),
-      label: "Island",
+      label: triangle ? "Corner unit" : "Island",
       tier: (isl.tier ?? "base") as CabinetTier,
+      ...(isFiniteNumber(isl.angle_deg) && isl.angle_deg !== 0 ? { angleDeg: isl.angle_deg } : {}),
+      ...(triangle ? { shape: "triangle" as const } : {}),
     });
     const which = `Island ${isl.number ?? room.freeCabinets.length}`;
     if (isl.depth_measured !== true) {

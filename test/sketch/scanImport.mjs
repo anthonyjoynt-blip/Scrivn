@@ -217,16 +217,35 @@ export async function runScanImportChecks() {
     const result = scan.importScanRoom(JSON.stringify(fixture), { x: 0, y: 0 }, 0);
     assert(result.ok, "import failed");
     const isl = result.room.freeCabinets[0];
-    near(isl.widthFeet, 0.903 / 0.3048, "across the page is the run's DEPTH", 1 / 24);
-    near(isl.depthFeet, 2.365 / 0.3048, "down the page is the RUN", 1 / 24);
+    /*
+      IT IS THE FOOTPRINT THAT MUST LAND ACROSS THE PAGE, not the stored width and depth.
+
+      This used to assert the two numbers had been SWAPPED, which was the mechanism rather than the
+      requirement: with no way to turn a block, rounding the angle to a quarter and swapping the
+      sides was the only way to draw a run that lay across the room. A block carries its own angle
+      now, so the run keeps its own width and depth and is TURNED - which draws in the same place,
+      prices the same floor, and keeps the 0.9 of a degree that the rounding used to throw away.
+    */
+    const corners = sketch.blockCorners(isl, result.room);
+    const xs = corners.map((c) => c.x);
+    const ys = corners.map((c) => c.y);
+    /*
+      Within a couple of inches, because the run is 0.9 of a degree off square and its bounding box
+      says so: a 7'9" run tilted by that much is 1 1/2 in wider across than its own depth. That is
+      the fraction of a degree the old rounding threw away, and seeing it here is the point.
+    */
+    near((Math.max(...xs) - Math.min(...xs)) / 12, 0.903 / 0.3048, "across the page is the run's DEPTH", 0.2);
+    near((Math.max(...ys) - Math.min(...ys)) / 12, 2.365 / 0.3048, "down the page is the RUN", 0.2);
+    near(isl.widthFeet, 2.365 / 0.3048, "and the run keeps its own width", 1 / 24);
+    near(isl.depthFeet, 0.903 / 0.3048, "and its own depth", 1 / 24);
     // Swapping is a drawing fix, not a quantity one. Compared against the SAME island sent along
     // the room rather than against the metric product, because both sides are rounded to the inch
     // and the invariant is that the swap hands back the same two numbers the other way round.
     const along = JSON.parse(office);
     along.islands = [{ ...fixture.islands[0], angle_deg: 0 }];
     const flat = scan.importScanRoom(JSON.stringify(along), { x: 0, y: 0 }, 0).room.freeCabinets[0];
-    near(isl.widthFeet, flat.depthFeet, "width and depth are swapped, not recomputed", 1e-9);
-    near(isl.depthFeet, flat.widthFeet, "and the other way", 1e-9);
+    near(isl.widthFeet, flat.widthFeet, "the same two numbers whichever way it lies", 1e-9);
+    near(isl.depthFeet, flat.depthFeet, "and the other", 1e-9);
     near(isl.widthFeet * isl.depthFeet, flat.widthFeet * flat.depthFeet, "so the footprint is untouched", 1e-9);
     assert(!result.notes.some((n) => /at an angle to the room/.test(n)), `unexpected note: ${result.notes}`);
   });
