@@ -258,8 +258,23 @@ interface DeviceTokenRow {
 export async function listDeviceTokens(): Promise<DeviceTokenItem[]> {
   const supabase = await createClient();
   const userId = await currentUserId();
+  /*
+    REVOKED PHONES ARE NOT LISTED. The row stays — the token has to remain on record to stay
+    refused, and it is the only evidence of who paired what — but a revoked phone is finished
+    business and there is nothing left to do with it on this screen.
+
+    Listing them was worse than untidy. A phone is re-paired every time the app is reinstalled, so
+    the list grew by one on every install and never shrank by anything: revoking, the only control
+    offered, turned a row grey and left it where it was. The estimator's words on 2026-09-24: "can
+    you also get rid of the old paired phones on scrivn. they just list there forever every time i
+    need to re-pair." Revoke now means the phone goes.
+  */
   const { data, error } = await withClockSkewRetry(() =>
-    supabase.from("device_tokens").select("id, name, user_id, created_at, last_used_at, revoked_at").order("created_at", { ascending: false }),
+    supabase
+      .from("device_tokens")
+      .select("id, name, user_id, created_at, last_used_at, revoked_at")
+      .is("revoked_at", null)
+      .order("created_at", { ascending: false }),
   );
   if (error) throw failure(error, "Could not list paired phones");
   return ((data ?? []) as DeviceTokenRow[]).map((row) => ({

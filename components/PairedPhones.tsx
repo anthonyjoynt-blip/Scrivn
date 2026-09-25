@@ -111,9 +111,15 @@ export function PairedPhones({ initial, canRevokeAll }: { initial: DeviceTokenIt
       const res = await fetch(`/api/devices/${device.id}`, { method: "DELETE" });
       const body = (await res.json().catch(() => null)) as { ok?: boolean; error?: string } | null;
       if (!res.ok) throw new Error(body?.error ?? REVOKE_FAILED);
-      // Marked here rather than re-fetched: the server said it changed, and the time is close enough.
-      const revokedAt = new Date().toISOString();
-      setDevices((prev) => prev.map((d) => (d.id === device.id ? { ...d, revokedAt } : d)));
+      /*
+        The row GOES, rather than turning grey and staying.
+
+        It used to be marked revoked and left in place, and since a phone is re-paired on every
+        reinstall the list only ever grew - revoking, the one control offered, changed a badge and
+        nothing else. The server no longer lists revoked phones either, so this is what a reload
+        would show anyway.
+      */
+      setDevices((prev) => prev.filter((d) => d.id !== device.id));
     } catch (err) {
       setError(err instanceof Error ? err.message : REVOKE_FAILED);
     } finally {
