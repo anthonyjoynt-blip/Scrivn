@@ -351,6 +351,50 @@ test("and the estimate sees all of it", () => {
     assert(out[1].symbols.length === 0, "and the second does not draw it again");
   });
 
+  test("a doorway tapped in both rooms a PARTITION apart is drawn once", () => {
+    /*
+      The walk of 2026-09-25 18:33. The phone lays a joined room a partition beyond its neighbour
+      (4 1/2 in), because that is where the wall's other face is - so the two taps of one doorway
+      arrive as two symbols 4 in apart, never on one line. The check above had them on one line,
+      and the one-line test (1 1/2 in) let the field's pair through: "Joined the bedroom with the
+      door and now it shows two doors there."
+    */
+    const left = room([]);
+    left.id = "left";
+    const P = 4.5;
+    const right = {
+      ...room([]),
+      id: "right",
+      vertices: [
+        { id: "r0", x: 20 * FT + P, y: 0 }, { id: "r1", x: 34 * FT, y: 0 },
+        { id: "r2", x: 34 * FT, y: 16 * FT }, { id: "r3", x: 20 * FT + P, y: 16 * FT },
+      ],
+    };
+    left.symbols = [{ id: "d-left", type: "door", wallId: "v1", t: 0.5, widthFeet: 2.75, heightFeet: 6.7, doorType: "door", leaves: "single", flipX: false, flipY: false }];
+    right.symbols = [{ id: "d-right", type: "door", wallId: "r3", t: 0.52, widthFeet: 2.9, heightFeet: 6.7, doorType: "door", leaves: "single", flipX: false, flipY: false }];
+    const out = s.dropDuplicateSharedOpenings([left, right]);
+    const total = out.reduce((n, r) => n + r.symbols.length, 0);
+    assert(total === 1, `one doorway across a partition, one symbol - got ${total}`);
+  });
+
+  test("walls a foot apart are two walls, and their doorways two doorways", () => {
+    // A closet between two rooms, say: the doorways line up, and they are still two holes.
+    const left = room([]);
+    left.id = "left";
+    const right = {
+      ...room([]),
+      id: "right",
+      vertices: [
+        { id: "r0", x: 21 * FT, y: 0 }, { id: "r1", x: 34 * FT, y: 0 },
+        { id: "r2", x: 34 * FT, y: 16 * FT }, { id: "r3", x: 21 * FT, y: 16 * FT },
+      ],
+    };
+    left.symbols = [{ id: "d-a", type: "door", wallId: "v1", t: 0.5, widthFeet: 3, heightFeet: 6.7, doorType: "door", leaves: "single", flipX: false, flipY: false }];
+    right.symbols = [{ id: "d-b", type: "door", wallId: "r3", t: 0.5, widthFeet: 3, heightFeet: 6.7, doorType: "door", leaves: "single", flipX: false, flipY: false }];
+    const out = s.dropDuplicateSharedOpenings([left, right]);
+    assert(out.reduce((n, r) => n + r.symbols.length, 0) === 2, "a foot apart is not one partition");
+  });
+
   test("two real doorways in the same shared wall both survive", () => {
     // The rule must not swallow a second, genuine opening: only a hole that OVERLAPS one already
     // drawn is the same hole.

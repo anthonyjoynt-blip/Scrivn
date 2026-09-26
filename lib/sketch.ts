@@ -2958,8 +2958,8 @@ export function dropDuplicateSharedOpenings(rooms: SketchRoom[]): SketchRoom[] {
         if (roomLevel(earlier) !== roomLevel(room)) continue;
         const hit = earlier.symbols.some((their) => {
           const theirs = spanOf(earlier, their);
-          if (!theirs || !alongOneLine(mine.wall, theirs.wall)) return false;
-          // Both spans projected onto one of the two walls, which are the same line by now.
+          if (!theirs || !acrossOnePartition(mine.wall, theirs.wall)) return false;
+          // Both spans projected onto one of the two walls: the same line, or its other face.
           const u = mine.wall;
           const at = (p: { x: number; y: number }) => ((p.x - u.x1) * (u.x2 - u.x1) + (p.y - u.y1) * (u.y2 - u.y1)) / u.lengthPx;
           const m0 = Math.min(at(mine.a), at(mine.b));
@@ -2995,6 +2995,39 @@ export function stretchSharedWithAnother(room: SketchRoom, wall: WallGeometry, f
         return Math.min(Math.max(a, b), toPx) - Math.max(Math.min(a, b), fromPx) > 1;
       }),
   );
+}
+
+/**
+ * Two walls further apart than this are not the two faces of one partition: 8 in. A 2x4 wall with
+ * drywall both sides is 4 1/2 in, which is the gap the phone lays between two rooms it joins; a
+ * 2x6 is 6 1/2.
+ */
+export const PARTITION_MAX_PX = 8;
+
+/**
+ * Do two walls face each other across one partition — parallel, no more than [PARTITION_MAX_PX]
+ * apart, overlapping along? [alongOneLine] is the special case of no gap at all.
+ *
+ * A scan never gives the no-gap case: the phone lays a room it joins a partition's thickness beyond
+ * its neighbour, because that is where the other face of the wall is. So a doorway tapped from both
+ * sides came in as two symbols 4 in apart, which the one-line test (1 1/2 in) could not see as one
+ * hole — the walk of 2026-09-25 18:33, "Joined the bedroom with the door and now it shows two doors
+ * there."
+ */
+export function acrossOnePartition(a: WallGeometry, b: WallGeometry): boolean {
+  if (a.lengthPx <= 0 || b.lengthPx <= 0) return false;
+  const ax = (a.x2 - a.x1) / a.lengthPx;
+  const ay = (a.y2 - a.y1) / a.lengthPx;
+  const bx = (b.x2 - b.x1) / b.lengthPx;
+  const by = (b.y2 - b.y1) / b.lengthPx;
+  // Parallel either way round, to 3 degrees.
+  if (Math.abs(ax * by - ay * bx) > Math.sin((3 * Math.PI) / 180)) return false;
+  const off = (p: { x: number; y: number }) => Math.abs((a.x2 - a.x1) * (a.y1 - p.y) - (a.x1 - p.x) * (a.y2 - a.y1)) / a.lengthPx;
+  if (off({ x: b.x1, y: b.y1 }) > PARTITION_MAX_PX || off({ x: b.x2, y: b.y2 }) > PARTITION_MAX_PX) return false;
+  const along = (p: { x: number; y: number }) => ((p.x - a.x1) * (a.x2 - a.x1) + (p.y - a.y1) * (a.y2 - a.y1)) / a.lengthPx;
+  const lo = Math.min(along({ x: b.x1, y: b.y1 }), along({ x: b.x2, y: b.y2 }));
+  const hi = Math.max(along({ x: b.x1, y: b.y1 }), along({ x: b.x2, y: b.y2 }));
+  return Math.min(hi, a.lengthPx) - Math.max(lo, 0) > 1;
 }
 
 /** Do two walls lie along one line, overlapping — a shared wall, or a shared stretch of one? */
