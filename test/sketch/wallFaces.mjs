@@ -4,8 +4,8 @@
  *
  * The drawing is Konva's and the browser's; what is checked here is the geometry it is drawn from -
  * where the outer faces are (`outerWallFaces`), which rooms a wall must keep off
- * (`roomsWallsMayNotCover`), where two rooms share a line (`sharedCentrelineStretches`), and where
- * the wall a door is cut through stands (`wallBandAt`).
+ * (`roomsWallsMayNotCover`), whose wall it is where two rooms share a line (`flushWallStretches`), where
+ * the wall a door is cut through stands (`wallBandAt`), and where a dragged room lands (`snapRoomTranslation`).
  *
  *   node test/sketch/wallFaces.mjs
  */
@@ -124,21 +124,58 @@ export async function runWallFaceChecks() {
     near(band.thicknessPx, 4.5, "the whole partition", 0.05);
     near(band.centrePx, -2.25, "its middle, outward", 0.05);
     // No wall of either room is drawn on one line with the other's: they are a partition apart.
-    assert(s.sharedCentrelineStretches(a, right, [a, b]).length === 0, "no shared centreline across a partition");
+    assert(s.flushWallStretches(a, right, [a, b]).length === 0, "not one line: a partition apart");
   });
 
-  test("two rooms dragged flush share the line: centred there, and only there", () => {
+  test("two rooms dragged flush: the wall is the one that carries on past, and it does not jog", () => {
+    /*
+      The phone, 2026-09-26: a room flush below a longer one, and where the long room's wall carried
+      on past, it stepped 2" - "there's this small jog now". The wall between them was centred on
+      the line and the rest of the long wall stood outside it. Now the long room owns the wall, and
+      it is one straight wall, outward from the long room all the way along.
+    */
     const a = room("a", [[0, 0], [12, 0], [12, 12], [0, 12]]);
-    // b is 8' tall, flush against a's right wall: they share the top 8' of it.
+    // b is 8' tall, flush against a's right wall: they share the top 8' of it, and a's carries on.
     const b = room("b", [[12, 0], [20, 0], [20, 8], [12, 8]]);
     const right = s.wallsOf(a)[1];
-    const shared = s.sharedCentrelineStretches(a, right, [a, b]);
+    const shared = s.flushWallStretches(a, right, [a, b]);
     assert(shared.length === 1, `one shared stretch, got ${shared.length}`);
     near(shared[0].from, 0, "from the top");
     near(shared[0].to, 8 * FT, "for 8'");
+    assert(shared[0].owned, "the wall that carries on past owns it");
     const at = (ft) => s.wallBandAt(a, right, ft * FT, [a, b]);
-    near(at(4).centrePx, 0, "centred on the shared line");
-    near(at(10).centrePx, -2, "outward below it, where nothing is next door");
+    near(at(4).centrePx, -2, "outward from a where b is next door");
+    near(at(10).centrePx, -2, "and outward below it: one straight wall, no jog");
+    // Seen from b, the same wall: not b's, and inside b's face.
+    const bLeft = s.wallsOf(b)[3];
+    const fromB = s.flushWallStretches(b, bLeft, [a, b]);
+    assert(fromB.length === 1 && !fromB[0].owned, "b agrees it is a's wall");
+    near(s.wallBandAt(b, bLeft, bLeft.lengthPx / 2, [a, b]).centrePx, 2, "inside b's face");
+  });
+
+  test("a room dragged against another lands a wall apart, back to back", () => {
+    const a = room("a", [[0, 0], [12, 0], [12, 12], [0, 12]]);
+    // b starts 6" to the right of a and is dragged 4" left - nearly flush.
+    const b = room("b", [[12.5, 0], [20, 0], [20, 12], [12.5, 12]]);
+    const d = s.snapRoomTranslation([a, b], "b", -4, 0);
+    near(b.vertices[0].x + d.dx, 12 * FT + 4, "b's left face a wall (4\") off a's right face");
+    near(d.dy, 0, "and its top in line with a's");
+  });
+
+  test("rooms on the same side of a line still line up flush: two walls in a row", () => {
+    const a = room("a", [[0, 0], [12, 0], [12, 12], [0, 12]]);
+    // b sits right of a, its top 3" below a's: dragged, its top lines up with a's top.
+    const b = room("b", [[13, 0.25], [20, 0.25], [20, 10], [13, 10]]);
+    const d = s.snapRoomTranslation([a, b], "b", 0, 0);
+    near(b.vertices[0].y + d.dy, 0, "tops in one line");
+  });
+
+  test("a closet dragged into its room's corner lands flush in the corner", () => {
+    const bed = room("bed", [[0, 0], [12, 0], [12, 12], [0, 12]]);
+    const closet = room("cl", [[8.2, 0.2], [11.8, 0.2], [11.8, 3], [8.2, 3]], { parentRoomId: "bed" });
+    const d = s.snapRoomTranslation([bed, closet], "cl", 0, 0);
+    near(closet.vertices[1].x + d.dx, 12 * FT, "its back wall on the room's right wall");
+    near(closet.vertices[1].y + d.dy, 0, "and on the room's top wall");
   });
 
   test("a closet inside a bedroom builds its walls into the bedroom; its back wall is the bedroom's", () => {
@@ -151,7 +188,7 @@ export async function runWallFaceChecks() {
     // The closet's back wall runs WITH the bedroom's (same side), so it is not a shared line:
     // the bedroom's outside wall stays outward all along, closet or no closet.
     const bedTop = s.wallsOf(bed)[0];
-    assert(s.sharedCentrelineStretches(bed, bedTop, [bed, closet]).length === 0, "no jog in the bedroom's outside wall");
+    assert(s.flushWallStretches(bed, bedTop, [bed, closet]).length === 0, "no jog in the bedroom's outside wall");
     near(s.wallBandAt(bed, bedTop, 10 * FT, [bed, closet]).centrePx, -2, "outward over the closet too");
     // The closet's front wall stands out into the bedroom, outward from the closet.
     const front = s.wallsOf(closet)[2];

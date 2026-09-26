@@ -67,7 +67,7 @@ import {
   wallsOf,
   outerWallFaces,
   roomsWallsMayNotCover,
-  sharedCentrelineStretches,
+  flushWallStretches,
   wallBandAt,
 } from "@/lib/sketch";
 import { type DraftPoint, WALL_SNAP_SCREEN_PX, absorbedFreeWallIds, snapDraftPoint, wallDimensionsWithExtensions } from "@/lib/sketchWalls";
@@ -1354,13 +1354,19 @@ function RoomShape({
         <>
           {/* The walls, Xactimate's way: 4" OUTWARD from the inside faces - see `outerWallFaces`. */}
           <WallRing room={room} rooms={rooms} thicknessPx={wallStroke} />
-          {/* Where another room shares the line, insides touching, the wall is centred on it as it
-              always was - see `sharedCentrelineStretches`. Both rooms draw it; it is one wall. */}
+          {/* Where another room shares the line, insides touching, the wall is its owner's, built
+              outward from the owner over the other floor - see `flushWallStretches`. Both rooms draw
+              it, so whichever is drawn last it is there; it is one wall. */}
           {walls.map((wall) =>
-            sharedCentrelineStretches(room, wall, rooms).map((stretch, i) => {
+            flushWallStretches(room, wall, rooms).map((stretch, i) => {
               const a = pointOnWall(wall, stretch.from / wall.lengthPx);
               const b = pointOnWall(wall, stretch.to / wall.lengthPx);
-              return <Line key={`${wall.id}:${i}`} points={[a.x, a.y, b.x, b.y]} stroke={COLORS.wall} strokeWidth={wallStroke} lineCap="square" listening={false} />;
+              // Outward is the wall's direction turned -90 degrees; the owner's wall lies that way
+              // from its face, and from the other room's face it lies the opposite way, inside.
+              const side = stretch.owned ? 1 : -1;
+              const ox = ((wall.y2 - wall.y1) / wall.lengthPx) * (wallStroke / 2) * side;
+              const oy = (-(wall.x2 - wall.x1) / wall.lengthPx) * (wallStroke / 2) * side;
+              return <Line key={`${wall.id}:${i}`} points={[a.x + ox, a.y + oy, b.x + ox, b.y + oy]} stroke={COLORS.wall} strokeWidth={wallStroke} lineCap="square" listening={false} />;
             }),
           )}
           {/* A wall a thumbnail picks out: over the wall where it stands, outside the face.
@@ -2333,8 +2339,8 @@ function SymbolShape({
  * Never painted over another room's floor (`roomsWallsMayNotCover`) - the ring is clipped to keep
  * out of every other room on the storey except the ones this room stands inside. So two scanned
  * rooms a partition apart draw their two rings into the partition and meet as one wall; two rooms
- * dragged flush, insides touching, clip each other's ring away entirely there, and the centred line
- * they share is drawn instead (`sharedCentrelineStretches`); and a closet pulled into a bedroom
+ * dragged flush, insides touching, clip each other's ring away entirely there, and the wall between
+ * them is drawn as one room's (`flushWallStretches`); and a closet pulled into a bedroom
  * builds its walls out into the bedroom, which is where they are.
  *
  * Drawn with a hand-made path because a Konva Line strokes both sides of its points: the ring is

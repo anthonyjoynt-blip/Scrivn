@@ -497,9 +497,11 @@ export async function runWallChecks() {
     // its near edges somewhere else, which is what the old box-only snapping did.
     const small = room([[-100, -100], [-34, -100], [-34, -60], [-100, -60]], { id: "small" });
     // Dragged into the notch so its right edge lands 4px shy of x=60 and its bottom 3px past y=48.
+    // It lands a WALL off the notch's walls (4 in), back to back with the L across one wall - since
+    // 2026-09-26, when rooms stopped snapping flush back to back (see snapRoomTranslation).
     const snapped = s.snapRoomTranslation([l, small], "small", 90, 111, []);
-    near(-34 + snapped.dx, 60, "right edge onto the notch's wall");
-    near(-60 + snapped.dy, 48, "bottom edge onto the notch's wall");
+    near(-34 + snapped.dx, 60 - 4, "right edge a wall off the notch's wall");
+    near(-60 + snapped.dy, 48 - 4, "bottom edge a wall off the notch's wall");
   });
 
   test("an L being dragged snaps by its inside corner too, which its box does not have", () => {

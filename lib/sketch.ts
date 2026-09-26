@@ -1418,17 +1418,29 @@ function facingAcross(wall: WallGeometry, theirs: WallGeometry): { gapPx: number
 }
 
 /**
- * The stretches of [wall] that another room shares on ONE line, insides touching - a sketch drawn
- * before walls had a side, or rooms dragged flush. Nothing stands between those two floors, and a
- * wall built outward from either would be painted over the other; so there the wall is drawn as it
- * always was, centred on the line, once for both.
+ * The stretches of [wall] that another room shares on ONE line, insides touching - rooms dragged
+ * flush before walls had a side, or pulled off a wall. Nothing stands between those two floors, so
+ * the wall has to be drawn over one of them, and [owned] says whether it is this room's: the wall is
+ * then built outward from this room as all its others are, over the neighbour's floor; if not, it
+ * is the neighbour's wall, drawn over this room's floor.
+ *
+ * WHOSE WALL. The one whose wall carries on past the other room - the long wall of the two - so that
+ * the wall it carries on as is one straight wall. Centring it on the line instead (the first cut,
+ * 2026-09-25) stepped it 2" where it carried on past: "there's this small jog now". When both carry
+ * on past, or neither does, the room earlier in the plan owns it, so the two agree.
  */
-export function sharedCentrelineStretches(room: SketchRoom, wall: WallGeometry, rooms: SketchRoom[]): { from: number; to: number }[] {
-  const out: { from: number; to: number }[] = [];
+export function flushWallStretches(room: SketchRoom, wall: WallGeometry, rooms: SketchRoom[]): { from: number; to: number; owned: boolean }[] {
+  const out: { from: number; to: number; owned: boolean }[] = [];
+  const mine = rooms.findIndex((r) => r.id === room.id);
   for (const other of roomsWallsMayNotCover(room, rooms)) {
     for (const theirs of wallsOf(other)) {
       const f = facingAcross(wall, theirs);
-      if (f && f.gapPx <= 1.5) out.push({ from: f.from, to: f.to });
+      if (!f || f.gapPx > 1.5) continue;
+      const back = facingAcross(theirs, wall);
+      const iExtend = f.from > 1 || f.to < wall.lengthPx - 1;
+      const theyExtend = back !== null && (back.from > 1 || back.to < theirs.lengthPx - 1);
+      const owned = iExtend !== theyExtend ? iExtend : mine < rooms.findIndex((r) => r.id === other.id);
+      out.push({ from: f.from, to: f.to, owned });
     }
   }
   return out;
@@ -1439,7 +1451,7 @@ export function sharedCentrelineStretches(room: SketchRoom, wall: WallGeometry, 
  * frame (+y into the room): its middle and its thickness. Built outward, it is [thicknessPx]
  * outside the face. Across a partition to another room - a scan's 4 1/2 in - it is the whole
  * partition, both rooms' walls, so an opening there is cut through both. On one line with another
- * room it is centred on the line.
+ * room it is the owner's wall ([flushWallStretches]): outside this room's face, or inside it.
  */
 export function wallBandAt(room: SketchRoom, wall: WallGeometry, alongPx: number, rooms: SketchRoom[], thicknessPx: number = WALL_THICKNESS_PX): { centrePx: number; thicknessPx: number } {
   let gap: number | null = null;
@@ -1451,7 +1463,11 @@ export function wallBandAt(room: SketchRoom, wall: WallGeometry, alongPx: number
     }
   }
   if (gap === null) return { centrePx: -thicknessPx / 2, thicknessPx };
-  if (gap <= 1.5) return { centrePx: 0, thicknessPx };
+  if (gap <= 1.5) {
+    // One line, insides touching: the wall is its owner's, outward from the owner (`flushWallStretches`).
+    const flush = flushWallStretches(room, wall, rooms).find((f) => alongPx >= f.from && alongPx <= f.to);
+    return { centrePx: flush && !flush.owned ? thicknessPx / 2 : -thicknessPx / 2, thicknessPx };
+  }
   const t = Math.max(gap, thicknessPx);
   return { centrePx: -t / 2, thicknessPx: t };
 }
@@ -2382,45 +2398,82 @@ export function snapRoomTranslation(rooms: SketchRoom[], roomId: string, dx: num
   const room = rooms.find((r) => r.id === roomId);
   if (!room) return { dx, dy };
 
-  const targetsX: number[] = [];
-  const targetsY: number[] = [];
+  /*
+    A WALL APART, BACK TO BACK (2026-09-26). Two rooms that meet do so across a wall - Xactimate's
+    rule, and the house's - so a corner snaps to another room's corner line a wall's thickness off it
+    when the two rooms lie on OPPOSITE sides of that line, and onto it when they lie on the same side
+    (two walls in a row; a closet flush in its room's corner). Snapped flush back to back, as they
+    were, the two rooms left nowhere for the wall between them: "moving rooms together end up looking
+    weird. They dont snap well". A free wall's end has no side and is snapped onto, as before.
+  */
+  const targetsX: { at: number; side: number }[] = [];
+  const targetsY: { at: number; side: number }[] = [];
   for (const other of rooms) {
     if (other.id === roomId || roomLevel(other) !== roomLevel(room)) continue;
-    for (const v of other.vertices) {
-      targetsX.push(v.x);
-      targetsY.push(v.y);
-    }
+    const sides = cornerSides(other);
+    other.vertices.forEach((v, i) => {
+      targetsX.push({ at: v.x, side: sides[i]?.sx ?? 0 });
+      targetsY.push({ at: v.y, side: sides[i]?.sy ?? 0 });
+    });
   }
   for (const wall of freeWalls) {
     if (freeWallLevel(wall) !== roomLevel(room)) continue;
     for (const v of wall.vertices) {
-      targetsX.push(v.x);
-      targetsY.push(v.y);
+      targetsX.push({ at: v.x, side: 0 });
+      targetsY.push({ at: v.y, side: 0 });
     }
   }
+  const target = (theirs: { at: number; side: number }, side: number) =>
+    side !== 0 && theirs.side !== 0 && side === -theirs.side ? theirs.at + WALL_THICKNESS_PX * side : theirs.at;
 
   let bestX = snapPx;
   let bestY = snapPx;
   let adjustX = 0;
   let adjustY = 0;
-  for (const mine of room.vertices) {
+  const mySides = cornerSides(room);
+  room.vertices.forEach((mine, i) => {
+    const side = mySides[i] ?? { sx: 0, sy: 0 };
     for (const theirs of targetsX) {
-      const delta = theirs - (mine.x + dx);
+      const delta = target(theirs, side.sx) - (mine.x + dx);
       if (Math.abs(delta) < bestX) {
         bestX = Math.abs(delta);
         adjustX = delta;
       }
     }
     for (const theirs of targetsY) {
-      const delta = theirs - (mine.y + dy);
+      const delta = target(theirs, side.sy) - (mine.y + dy);
       if (Math.abs(delta) < bestY) {
         bestY = Math.abs(delta);
         adjustY = delta;
       }
     }
-  }
+  });
 
   return { dx: dx + adjustX, dy: dy + adjustY };
+}
+
+/**
+ * Which side of each of its corners a room lies, along each axis: +1 on the + side of the corner's
+ * vertical line (x) or horizontal line (y), -1 on the - side, 0 when it is on neither (a corner on an
+ * angled wall). A room's top-left corner is (+1, +1): the room is to its right and below it. From
+ * the inward normals of the two walls that meet there (a room is clockwise: see the note on winding).
+ */
+export function cornerSides(room: SketchRoom): { sx: number; sy: number }[] {
+  const vs = room.vertices;
+  const n = vs.length;
+  const inward = (i: number) => {
+    const a = vs[i] as Vertex;
+    const b = vs[(i + 1) % n] as Vertex;
+    const len = Math.hypot(b.x - a.x, b.y - a.y);
+    return len > 0 ? { x: -(b.y - a.y) / len, y: (b.x - a.x) / len } : { x: 0, y: 0 };
+  };
+  return vs.map((_, i) => {
+    const p = inward((i - 1 + n) % n);
+    const q = inward(i);
+    const sx = p.x + q.x;
+    const sy = p.y + q.y;
+    return { sx: Math.abs(sx) < 0.3 ? 0 : Math.sign(sx), sy: Math.abs(sy) < 0.3 ? 0 : Math.sign(sy) };
+  });
 }
 
 /**

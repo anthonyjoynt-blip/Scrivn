@@ -879,33 +879,19 @@ export function SketchEditor({
         a long way from the wall you just mistapped.
       */
       if (mode === "moisture") {
-        if ((event.key === "Delete" || event.key === "Backspace") && selectedReadingId) {
-          removeReading(selectedReadingId);
-          event.preventDefault();
-        }
+        if ((event.key === "Delete" || event.key === "Backspace") && deleteSelection()) event.preventDefault();
         return;
       }
 
       // Everything below edits the geometry, which mapping deliberately freezes. Escape and undo,
       // above, are about the tool rather than the drawing, so they work in either mode.
       if (!selectedRoom) {
-        if ((event.key === "Delete" || event.key === "Backspace") && selectedWall) {
-          handleDeleteWall(selectedWall.id);
-          event.preventDefault();
-        }
+        if ((event.key === "Delete" || event.key === "Backspace") && deleteSelection()) event.preventDefault();
         return;
       }
 
       if (event.key === "Delete" || event.key === "Backspace") {
-        if (selectedSymbol) {
-          updateRoom(selectedRoom.id, (room) => ({ ...room, symbols: room.symbols.filter((s) => s.id !== selectedSymbol.id) }));
-          setSelectedSymbolId(null);
-        } else if (selectedIsland) {
-          updateRoom(selectedRoom.id, (room) => ({ ...room, freeCabinets: room.freeCabinets.filter((c) => c.id !== selectedIsland.id) }));
-          setSelectedSymbolId(null);
-        } else {
-          handleDeleteRoom(selectedRoom.id);
-        }
+        deleteSelection();
         event.preventDefault();
         return;
       }
@@ -1322,6 +1308,36 @@ export function SketchEditor({
       setSelectedRoomId(null);
       setSelectedSymbolId(null);
     }
+  }
+
+  /**
+   * Deletes what is selected: a mark while mapping; otherwise the selected door, window, cabinet or
+   * island, else a free wall, else the room. The Delete key and the phone's Delete button both come
+   * here - a phone has no Delete key, and deleting a room there meant selecting it, pressing Edit,
+   * and finding a button at the bottom of the sheet: "I cant find how to delete a room on my phone."
+   * Returns whether anything went.
+   */
+  function deleteSelection(): boolean {
+    if (mode === "moisture") {
+      if (!selectedReadingId) return false;
+      removeReading(selectedReadingId);
+      return true;
+    }
+    if (!selectedRoom) {
+      if (!selectedWall) return false;
+      handleDeleteWall(selectedWall.id);
+      return true;
+    }
+    if (selectedSymbol) {
+      updateRoom(selectedRoom.id, (room) => ({ ...room, symbols: room.symbols.filter((s) => s.id !== selectedSymbol.id) }));
+      setSelectedSymbolId(null);
+    } else if (selectedIsland) {
+      updateRoom(selectedRoom.id, (room) => ({ ...room, freeCabinets: room.freeCabinets.filter((c) => c.id !== selectedIsland.id) }));
+      setSelectedSymbolId(null);
+    } else {
+      handleDeleteRoom(selectedRoom.id);
+    }
+    return true;
   }
 
   /** Puts the last deleted room back where it was, readings and all. */
@@ -2786,6 +2802,13 @@ export function SketchEditor({
                 onClick={() => setSheet((open) => (open === "details" ? "none" : "details"))}
               >
                 Edit…
+              </button>
+            )}
+            {/* The Delete key, for a phone: what it deletes is what `deleteSelection` says, and a
+                deleted room comes back with the Undo in the notice above the plan. */}
+            {!readOnly && (mode === "moisture" ? selectedReadingId !== null : selectionKey !== null) && (
+              <button type="button" className="option-btn sketch-bar-more" onClick={() => deleteSelection()}>
+                Delete
               </button>
             )}
             {/* Outside the row that scrolls: the tools can run off the end of a 360px bar, and the
