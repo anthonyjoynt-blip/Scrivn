@@ -377,6 +377,33 @@ test("and the estimate sees all of it", () => {
     assert(total === 1, `one doorway across a partition, one symbol - got ${total}`);
   });
 
+  test("the doorway drawn once is still deducted from BOTH rooms across a partition", () => {
+    /*
+      The flip side of drawing it once. The copy in the second room is dropped, so the second room
+      only has the door through openingsSharedWith - which looked for walls on ONE line and missed
+      a wall a partition away. On the 18:33 import that left the bedroom with no door at all, in
+      the drawing or in its scope, from 2026-09-25 18:49 until this.
+    */
+    const left = room([]);
+    left.id = "left";
+    const P = 4.5;
+    const right = {
+      ...room([]),
+      id: "right",
+      vertices: [
+        { id: "r0", x: 20 * FT + P, y: 0 }, { id: "r1", x: 34 * FT, y: 0 },
+        { id: "r2", x: 34 * FT, y: 16 * FT }, { id: "r3", x: 20 * FT + P, y: 16 * FT },
+      ],
+    };
+    left.symbols = [{ id: "d-left", type: "door", wallId: "v1", t: 0.5, widthFeet: 2.75, heightFeet: 6.7, doorType: "door", leaves: "single", flipX: false, flipY: false }];
+    right.symbols = [{ id: "d-right", type: "door", wallId: "r3", t: 0.5, widthFeet: 2.75, heightFeet: 6.7, doorType: "door", leaves: "single", flipX: false, flipY: false }];
+    const [l, r] = s.dropDuplicateSharedOpenings([left, right]);
+    assert(r.symbols.length === 0, "the second room's copy is dropped");
+    const shared = s.openingsSharedWith(r, [l, r]);
+    assert(shared.length === 1 && shared[0].symbol.id === "d-left", `the first room's door is in the second room's wall - got ${shared.length}`);
+    assert(shared[0].wallId === "r3", "in the wall that faces it");
+  });
+
   test("walls a foot apart are two walls, and their doorways two doorways", () => {
     // A closet between two rooms, say: the doorways line up, and they are still two holes.
     const left = room([]);

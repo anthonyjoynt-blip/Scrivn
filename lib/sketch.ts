@@ -2892,7 +2892,9 @@ export function openingsSharedWith(room: SketchRoom, rooms: SketchRoom[]): Share
       const at = pointOnWall(theirs, centre / theirs.lengthPx);
       const along = (w: WallGeometry) => ((at.x - w.x1) * (w.x2 - w.x1) + (at.y - w.y1) * (w.y2 - w.y1)) / w.lengthPx;
       const mine = ownWalls.find((w) => {
-        if (!alongOneLine(w, theirs)) return false;
+        // Across one partition, not only on one line: a scan lays joined rooms a wall apart (see
+        // `acrossOnePartition`), and a door in that wall is in both rooms' walls all the same.
+        if (!acrossOnePartition(w, theirs)) return false;
         const u = along(w);
         return u + half > 0 && u - half < w.lengthPx;
       });
@@ -2989,7 +2991,7 @@ export function stretchSharedWithAnother(room: SketchRoom, wall: WallGeometry, f
       other.id !== room.id &&
       roomLevel(other) === roomLevel(room) &&
       wallsOf(other).some((w) => {
-        if (w.lengthPx <= 0 || !alongOneLine(wall, w)) return false;
+        if (w.lengthPx <= 0 || !acrossOnePartition(wall, w)) return false;
         const a = along({ x: w.x1, y: w.y1 });
         const b = along({ x: w.x2, y: w.y2 });
         return Math.min(Math.max(a, b), toPx) - Math.max(Math.min(a, b), fromPx) > 1;

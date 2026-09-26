@@ -76,6 +76,11 @@ for (const room of rooms) {
             : "";
     console.log(`  ${s.type} on wall ${w ? w.index : "?"} at t=${s.t.toFixed(2)}: ${sketch.formatFeetInches(s.widthFeet)}${extra}`);
   }
+  // A door or window of ANOTHER room lying in this room's wall: drawn and deducted here too.
+  for (const shared of sketch.openingsSharedWith(room, rooms)) {
+    const w = sketch.wallById(room, shared.wallId);
+    console.log(`  shared ${shared.symbol.type} of ${nameOf(shared.room)} in wall ${w ? w.index : "?"}: ${ftIn(shared.toPx - shared.fromPx)}`);
+  }
 }
 console.log("");
 for (const n of result.notes) console.log("  note:", n);
