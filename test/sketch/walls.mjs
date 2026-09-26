@@ -245,14 +245,33 @@ export async function runWallChecks() {
     assert(step.kind === "ignore" && step.reason === "covered", `expected ignore/covered, got ${JSON.stringify(step)}`);
   });
 
-  test("a run out from a wall and back to it is a room outside — a bay, standing beside the room", () => {
+  test("a run out from a wall and back to it is a room outside — a bay, standing a wall off the room", () => {
+    // Its side on the room's wall lay on that wall's inside face, insides touching; it stands a
+    // wall (4") out from it, where the wall between them ends - see `standWallApart`.
     const r = box();
     const draft = [pt(60, 0, { roomId: r.id, wallId: wall(r, 0), t: 0.25 }), pt(60, -48), pt(120, -48)];
     const step = s.addDraftPoint(draft, pt(120, 0, { roomId: r.id, wallId: wall(r, 0), t: 0.5 }), sketchWith([r]), 0, 12);
     assert(step.kind === "room", `expected a room, got ${step.kind}`);
     const b = bounds(step.room);
-    assert(b.minY === -48 && b.maxY === 0 && b.minX === 60 && b.maxX === 120, `bounds ${JSON.stringify(b)}`);
+    assert(b.minY === -48 && b.maxY === -4 && b.minX === 60 && b.maxX === 120, `bounds ${JSON.stringify(b)}`);
     assert(s.withDerivedParents([r, step.room])[1].parentRoomId === null, "not inside the room it hangs off");
+  });
+
+  test("a room drawn round from one of a room's corners to another stands a wall off it — one wall between them", () => {
+    // The room's top-right corner, 10' out, down, back to its bottom-right corner and round to the
+    // start: the new room's left side lay on the room's right wall, insides touching.
+    const r = box();
+    const start = pt(240, 0, { roomId: r.id, wallId: wall(r, 1), t: 0 });
+    const draft = [start, pt(360, 0), pt(360, 192), pt(240, 192, { roomId: r.id, wallId: wall(r, 2), t: 0 })];
+    const step = s.addDraftPoint(draft, start, sketchWith([r]), 0, 12);
+    assert(step.kind === "room", `expected a room, got ${step.kind}`);
+    const b = bounds(step.room);
+    assert(b.minX === 244 && b.maxX === 360 && b.minY === 0 && b.maxY === 192, `a wall right of the room, its top and bottom in line with the room's: ${JSON.stringify(b)}`);
+    // Drawn clear of any room, a room is where it was tapped.
+    const alone = s.addDraftPoint([pt(400, 0), pt(520, 0), pt(520, 96)], pt(400, 0), sketchWith([r]), 0, 12);
+    assert(alone.kind === "room", `expected a room, got ${alone.kind}`);
+    const a = bounds(alone.room);
+    assert(a.minX === 400 && a.maxX === 520 && a.minY === 0 && a.maxY === 96, `a room on its own, as tapped: ${JSON.stringify(a)}`);
   });
 
   test("a run from one room's wall to another room's wall is a run", () => {

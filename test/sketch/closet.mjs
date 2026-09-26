@@ -6,8 +6,9 @@
  * `closetBehindDoor` is pure geometry with one judgement in it — which side of a wall is outside —
  * and that judgement is the thing worth checking on every wall of a box, on an angled wall, and on
  * a room wound the wrong way, because a closet drawn INTO its room is wrong in a way nobody looks
- * for. The rest is arithmetic a tape can check: 3'6" for a 2'6" door, 2'0" deep, flush to the
- * corner when the door is in it, never wider than the wall. On a chamfer the closet is the corner
+ * for. The rest is arithmetic a tape can check: 3'6" for a 2'6" door, 2'0" deep, a wall (4") off
+ * the room's wall - the wall between them stands there - flush to the corner when the door is in
+ * it, never wider than the wall. On a chamfer the closet is the corner
  * the chamfer cut off instead, and the second half of the file is each of the four conditions
  * that decide it, one at a time — each with a room that passes the other three, so that dropping
  * any one of them fails a check of its own. Runs in Node like the placement, dimension and
@@ -176,8 +177,8 @@ export async function runClosetChecks() {
 
   /**
    * Everything a closet must be, whatever wall it came off: four corners wound clockwise, standing
-   * wholly outside the room, with one edge on the wall's line centred on the door and the other
-   * dimension its depth.
+   * wholly outside the room, its near edge a wall's thickness off the wall's line centred on the
+   * door and its far edge its depth beyond that.
    */
   const expectCloset = (parent, closet, wallId, { widthFeet, depthFeet, doorT = 0.5 }) => {
     assert(closet !== null, "closetBehindDoor returned null for a door");
@@ -188,8 +189,9 @@ export async function runClosetChecks() {
     assert(!sketch.isInsideRoom(parent, c.x, c.y), `closet centroid (${c.x.toFixed(1)}, ${c.y.toFixed(1)}) is inside the room`);
 
     const wall = sketch.wallById(parent, wallId);
-    const onWall = closet.vertices.filter((v) => offWall(v, wall) < 0.01);
-    assert(onWall.length === 2, `expected two corners on the wall's line, got ${onWall.length}`);
+    const T = sketch.WALL_THICKNESS_PX;
+    const onWall = closet.vertices.filter((v) => Math.abs(offWall(v, wall) - T) < 0.01);
+    assert(onWall.length === 2, `expected two corners a wall (${T}) off the wall's line, got ${onWall.length}: ${closet.vertices.map((v) => offWall(v, wall).toFixed(2))}`);
     const [p, q] = onWall.map((v) => alongWall(v, wall)).sort((a, b) => a - b);
     near(q - p, widthFeet * FT, `closet width ${widthFeet}'`, 0.01);
     const doorCentre = sketch.pointOnWall(wall, doorT);
@@ -197,9 +199,9 @@ export async function runClosetChecks() {
     assert(offWall(doorCentre, wall) < 0.01, "door centre is off its own wall (test bug)");
     assert(centreAlong >= p - 0.01 && centreAlong <= q + 0.01, `door centre at ${centreAlong.toFixed(2)} px is not on the closet's near edge [${p.toFixed(2)}, ${q.toFixed(2)}]`);
 
-    const offTheWall = closet.vertices.filter((v) => offWall(v, wall) >= 0.01);
+    const offTheWall = closet.vertices.filter((v) => Math.abs(offWall(v, wall) - T) >= 0.01);
     assert(offTheWall.length === 2, `expected two corners off the wall, got ${offTheWall.length}`);
-    for (const v of offTheWall) near(offWall(v, wall), depthFeet * FT, `closet depth ${depthFeet}'`, 0.01);
+    for (const v of offTheWall) near(offWall(v, wall), T + depthFeet * FT, `closet depth ${depthFeet}' beyond the wall between`, 0.01);
 
     assert(closet.name === "Closet", `expected the name Closet, got ${JSON.stringify(closet.name)}`);
     assert(Array.isArray(closet.symbols) && closet.symbols.length === 0, "a new closet has no symbols");
@@ -353,8 +355,16 @@ export async function runClosetChecks() {
   const squareFeet = (vertices) => Math.abs(signedArea(vertices)) / 2 / (FT * FT);
 
   /**
-   * Everything a corner closet must be: three corners wound clockwise, two of them the chamfer's
-   * own ends and the third the apex, standing outside the room — plus everything any closet is.
+   * The corner closet's share of a wall between it and the room: how far its base corners are drawn
+   * in from the chamfer's ends toward the apex - a wall's thickness off the chamfer, over the
+   * apex's height above it - so that its area is the whole corner's times (1 - k) squared.
+   */
+  const cornerShrink = (parent, wallId, apex) => sketch.WALL_THICKNESS_PX / offWall(apex, sketch.wallById(parent, wallId));
+
+  /**
+   * Everything a corner closet must be: three corners wound clockwise - the chamfer's own ends drawn
+   * in toward the apex, a wall's thickness off the chamfer, and the apex - standing outside the
+   * room, plus everything any closet is.
    */
   const expectCorner = (parent, closet, wallId, apex) => {
     assert(closet !== null, "closetBehindDoor returned null for a door");
@@ -362,7 +372,9 @@ export async function runClosetChecks() {
     assert(signedArea(closet.vertices) >= 0, "corner closet is not wound clockwise");
     assert(sketch.ensureClockwise(closet.vertices) === closet.vertices, "ensureClockwise would reverse the corner closet");
     const wall = sketch.wallById(parent, wallId);
-    for (const [x, y, what] of [[wall.x1, wall.y1, "the chamfer's start"], [wall.x2, wall.y2, "the chamfer's end"], [apex.x, apex.y, "the apex"]]) {
+    const k = cornerShrink(parent, wallId, apex);
+    const inFrom = (x, y) => [x + (apex.x - x) * k, y + (apex.y - y) * k];
+    for (const [x, y, what] of [[...inFrom(wall.x1, wall.y1), "the chamfer's start, a wall in"], [...inFrom(wall.x2, wall.y2), "the chamfer's end, a wall in"], [apex.x, apex.y, "the apex"]]) {
       assert(closet.vertices.some((v) => Math.hypot(v.x - x, v.y - y) < 0.01), `no corner at ${what} (${x.toFixed(2)}, ${y.toFixed(2)}); got ${closet.vertices.map((v) => `(${v.x.toFixed(2)}, ${v.y.toFixed(2)})`).join(" ")}`);
     }
     const c = centroid(closet.vertices);
@@ -374,20 +386,22 @@ export async function runClosetChecks() {
     assert(closet.id !== parent.id && closet.id.startsWith("room-"), `closet needs a room id of its own, got ${closet.id}`);
   };
 
-  test("a door in a 45-degree chamfer with 3' legs gets the cut-off corner: a 4.5 sq ft triangle to where the walls would have met", () => {
+  test("a door in a 45-degree chamfer with 3' legs gets the cut-off corner: to where the walls would have met, less the chamfer wall", () => {
     const parent = chamfered(12, 10, 3, { level: 1 });
     parent.symbols = [door("v1")];
     assert(sketch.closetShapeBehindDoor(parent, "door-1") === "corner", `expected "corner", got ${JSON.stringify(sketch.closetShapeBehindDoor(parent, "door-1"))}`);
     const closet = sketch.closetBehindDoor(parent, "door-1");
     // The apex is the box's own top-right corner, the one the chamfer cut off.
     expectCorner(parent, closet, "v1", { x: 12 * FT, y: 0 });
-    near(squareFeet(closet.vertices), 4.5, "a 3' x 3' right triangle is 4.5 sq ft", 0.01);
+    // The whole corner is a 3' x 3' right triangle, 4.5 sq ft; the chamfer wall takes 4" of its
+    // 25.5" height, leaving legs of 2'6.3" and 3.2 sq ft inside the walls.
+    near(squareFeet(closet.vertices), 4.5 * (1 - 4 / (36 / Math.SQRT2)) ** 2, "the corner less the chamfer wall", 0.01);
     assert(closet.level === 1, `level should be copied from the room, got ${closet.level}`);
     assert(closet.ceilingHeightFeet === 8, `ceiling should be the room's 8', got ${closet.ceilingHeightFeet}`);
     // The corner has its own size: the options that size a rectangle change nothing here.
     const sized = sketch.closetBehindDoor(parent, "door-1", { depthFeet: 5, widthFeet: 6 });
     expectCorner(parent, sized, "v1", { x: 12 * FT, y: 0 });
-    near(squareFeet(sized.vertices), 4.5, "options are ignored on a chamfer", 0.01);
+    near(squareFeet(sized.vertices), squareFeet(closet.vertices), "options are ignored on a chamfer", 0.01);
   });
 
   test("a door on the chamfered room's straight left wall still gets the rectangle — its neighbours run opposite ways", () => {
@@ -501,9 +515,12 @@ export async function runClosetChecks() {
     // wall (greatest x), whichever way the importer wound the ring.
     const xs = imported.vertices.map((v) => v.x);
     const ys = imported.vertices.map((v) => v.y);
-    expectCorner(imported, closet, diagonal.id, { x: Math.max(...xs), y: Math.min(...ys) });
-    // 3'0" legs at 45 degrees, give or take the inch each leg was rounded to.
-    near(squareFeet(closet.vertices), 4.5, "a 3' x 3' corner", 0.15);
+    const apex = { x: Math.max(...xs), y: Math.min(...ys) };
+    expectCorner(imported, closet, diagonal.id, apex);
+    // 3'0" legs at 45 degrees, give or take the inch each leg was rounded to: the whole corner.
+    const whole = (diagonal.lengthPx * offWall(apex, diagonal)) / 2 / (FT * FT);
+    near(whole, 4.5, "a 3' x 3' corner", 0.15);
+    near(squareFeet(closet.vertices), whole * (1 - cornerShrink(imported, diagonal.id, apex)) ** 2, "less the chamfer wall", 0.01);
     assert(closet.level === 1, `closet should join the storey the room was imported on, got ${closet.level}`);
     near(closet.ceilingHeightFeet, 2.591 / 0.3048, "closet takes the scanned ceiling", 0.01);
   });
@@ -518,11 +535,16 @@ export async function runClosetChecks() {
     assert(sketch.closetExistsBehind([parent, { ...closet, level: 2 }], parent, "door-1") === false, "a closet upstairs is not behind this door");
     assert(sketch.closetExistsBehind([parent, { ...closet, level: 1 }], parent, "door-1") === true, "spelling the storey out changes nothing");
     // A closet the PM has since deepened still counts: only the wall-side pair is compared.
-    const deepened = { ...closet, vertices: closet.vertices.map((v) => (v.y < -1 ? { ...v, y: v.y - 36 } : v)) };
+    const deepened = { ...closet, vertices: closet.vertices.map((v) => (v.y < -(sketch.WALL_THICKNESS_PX + 1) ? { ...v, y: v.y - 36 } : v)) };
     assert(sketch.closetExistsBehind([parent, deepened], parent, "door-1") === true, "a deepened closet is still the closet");
     // One dragged clear of the wall does not: it has moved further than an inch.
     const moved = sketch.translateRoom(closet, 0, -2);
-    assert(sketch.closetExistsBehind([parent, moved], parent, "door-1") === false, "a closet dragged 2\" off the wall is a different closet");
+    assert(sketch.closetExistsBehind([parent, moved], parent, "door-1") === false, "a closet dragged 2\" further off the wall is a different closet");
+    // One drawn before closets stood a wall off - on the wall's line, flush - is still the closet:
+    // the importer must not offer a second behind the same door.
+    const flush = sketch.translateRoom(closet, 0, sketch.WALL_THICKNESS_PX);
+    assert(Math.max(...flush.vertices.map((v) => v.y)) === 0, "the flush closet's near edge is on the wall's line (test bug otherwise)");
+    assert(sketch.closetExistsBehind([parent, flush], parent, "door-1") === true, "a closet drawn flush is still the closet behind the door");
     // The room is never its own closet, whatever its corners; a window and an unknown id are false.
     assert(sketch.closetExistsBehind([parent], parent, "no-such-symbol") === false, "an unknown id has nothing behind it");
     // And the corner: the chamfer's ends are the pair.
@@ -531,6 +553,9 @@ export async function runClosetChecks() {
     const corner = sketch.closetBehindDoor(cut, "door-1");
     assert(sketch.closetExistsBehind([cut], cut, "door-1") === false, "no corner closet yet");
     assert(sketch.closetExistsBehind([cut, corner], cut, "door-1") === true, "the corner closet is behind the chamfer's door");
+    const chamfer = sketch.wallById(cut, "v1");
+    const flushCorner = { ...corner, vertices: [{ id: "a", x: chamfer.x1, y: chamfer.y1 }, { id: "b", x: 12 * FT, y: 0 }, { id: "c", x: chamfer.x2, y: chamfer.y2 }] };
+    assert(sketch.closetExistsBehind([cut, flushCorner], cut, "door-1") === true, "and so is one drawn flush on the chamfer, as they were");
     // Two doors on one chamfer want the same corner — the corner has one shape whatever the door's
     // position — so once the first door's closet is in, the second door's is already there. This
     // is why the importer's "Add closets" checks each door against the closets it has just added.

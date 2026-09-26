@@ -33,7 +33,6 @@ import {
   WALL_THICKNESS_PX,
   dragWall,
   ensureClockwise,
-  flushWallStretches,
   freeWallLevel,
   freeWallSegments,
   freeWallsOf,
@@ -45,6 +44,7 @@ import {
   removeVertex,
   roomBounds,
   roomLevel,
+  standWallApart,
   wallById,
   wallsOf,
 } from "./sketch";
@@ -207,80 +207,11 @@ export function pulledRoomOutline(source: SketchRoom, own: WallGeometry, depthPx
   if (!band) return null;
   const clockwise = ensureClockwise(band.far.map((p) => ({ id: newSketchId("v"), x: p.x, y: p.y })));
   if (clockwise.length < 3) return null;
-  const level = roomLevel(source);
-  const tidy = pruneCollinearVertices(bareRoom(clockwise, level)).vertices;
-  const apart = standWallApart(tidy, level, around.rooms);
+  const tidy = pruneCollinearVertices({ ...source, vertices: clockwise, symbols: [], freeCabinets: [] }).vertices;
+  const apart = standWallApart(tidy, roomLevel(source), around.rooms);
   // Nothing worth calling a room: a band too thin, or nothing left in front of the wall.
   if (Math.abs(polygonArea(apart)) < PIXELS_PER_FOOT * PIXELS_PER_FOOT) return null;
   return apart;
-}
-
-/**
- * [vertices], a room being made on [level], with every side that lies flush against another room's
- * wall - insides touching - moved a wall's thickness in: rooms meet across a wall, as the phone lays
- * them and as Xactimate draws them. A pulled room stopped by a room across its far side, or filling
- * the rest of a wall beside a room already against it, came out flush with that room: the wall
- * between them was drawn over one of the two floors (`flushWallStretches`), and that room measured
- * 4" more than it has.
- *
- * Each side moved keeps its angle, and each corner is where its two sides now meet. A side too
- * short to take the move would turn round, and then the outline is kept as it was - flush beats
- * broken. Sides against the room a closet is pulled into run WITH that room's walls, not against
- * them, and are not flush in this sense: the closet shares those walls.
- */
-function standWallApart(vertices: Vertex[], level: number, rooms: SketchRoom[]): Vertex[] {
-  const probe = bareRoom(vertices, level);
-  const walls = wallsOf(probe);
-  const n = walls.length;
-  const moved = walls.map((w) => w.lengthPx > 0 && flushWallStretches(probe, w, rooms).length > 0);
-  if (!moved.includes(true)) return vertices;
-  // Each side as a line - through its start, moved in if it is flush - along its direction. In is
-  // the direction turned +90 degrees in screen space: a room is clockwise.
-  const lines = walls.map((w, i) => {
-    const dx = (w.x2 - w.x1) / w.lengthPx;
-    const dy = (w.y2 - w.y1) / w.lengthPx;
-    const k = moved[i] ? WALL_THICKNESS_PX : 0;
-    return { x: w.x1 - dy * k, y: w.y1 + dx * k, dx, dy };
-  });
-  const out: Vertex[] = [];
-  for (let i = 0; i < n; i++) {
-    const a = lines[(i - 1 + n) % n] as { x: number; y: number; dx: number; dy: number };
-    const b = lines[i] as { x: number; y: number; dx: number; dy: number };
-    const cross = a.dx * b.dy - a.dy * b.dx;
-    if (Math.abs(cross) < 1e-9) return vertices;
-    const s = ((b.x - a.x) * b.dy - (b.y - a.y) * b.dx) / cross;
-    const v = vertices[i] as Vertex;
-    const corner = { ...v, x: a.x + a.dx * s, y: a.y + a.dy * s };
-    // A corner thrown far off by a side at a shallow angle to its neighbour is not a wall's move.
-    if (Math.hypot(corner.x - v.x, corner.y - v.y) > 4 * WALL_THICKNESS_PX) return vertices;
-    out.push(corner);
-  }
-  for (let i = 0; i < n; i++) {
-    const w = walls[i] as WallGeometry;
-    const p = out[i] as Vertex;
-    const q = out[(i + 1) % n] as Vertex;
-    if ((q.x - p.x) * (w.x2 - w.x1) + (q.y - p.y) * (w.y2 - w.y1) <= 0) return vertices;
-  }
-  return out;
-}
-
-/** A room of nothing but [vertices] on [level]: enough to ask the room questions of an outline. */
-function bareRoom(vertices: Vertex[], level: number): SketchRoom {
-  const room: SketchRoom = {
-    id: newSketchId("room"),
-    name: "",
-    vertices,
-    ceilingHeightFeet: DEFAULT_CEILING_HEIGHT_FEET,
-    ceilingType: "flat",
-    ceilingPeakFeet: null,
-    stairs: null,
-    parentRoomId: null,
-    nestingOptOut: false,
-    symbols: [],
-    freeCabinets: [],
-  };
-  if (level !== 0) room.level = level;
-  return room;
 }
 
 /**
@@ -357,6 +288,11 @@ export interface Obstacle {
   y1: number;
   x2: number;
   y2: number;
+  /**
+   * A room's wall, running the way its room winds (clockwise), so which face is its outside is
+   * known: a wall dragged up to it stops at that face ([wallDragBand]). A free wall has no sides.
+   */
+  room?: boolean;
 }
 
 /**
@@ -381,7 +317,7 @@ export function obstaclesFor(
     if (!except.inward && from && room.id !== from.id && isRoomInside(room, from)) continue;
     for (const w of wallsOf(room)) {
       if (except.wall && except.wall.roomId === room.id && except.wall.wallId === w.id) continue;
-      out.push({ x1: w.x1, y1: w.y1, x2: w.x2, y2: w.y2 });
+      out.push({ x1: w.x1, y1: w.y1, x2: w.x2, y2: w.y2, room: true });
     }
   }
   for (const wall of freeWallsOf(sketch)) {
@@ -658,13 +594,14 @@ export function conformedDragWall(room: SketchRoom, wallId: string, dx: number, 
 /**
  * What a wall drag of `dx, dy` meets: "plain" when nothing is in the band (an inward drag, or an
  * outward one that reaches no wall) and the ordinary `dragWall` applies; the band when a wall in
- * the way shapes the new side; null when there is no room to move into at all.
+ * the way shapes the new side; null when there is no room to move into at all. A room's wall
+ * facing the dragged one is met at its outer face ([facingOuterFace]).
  */
 function wallDragBand(wall: WallGeometry, dx: number, dy: number, obstacles: Obstacle[]): ReturnType<typeof extrudeWall> | "plain" {
   const n = outwardNormal(wall);
   const depth = dx * n.x + dy * n.y;
   if (depth <= 0) return "plain";
-  const band = extrudeWall(wall, depth, obstacles);
+  const band = extrudeWall(wall, depth, obstacles.map((o) => facingOuterFace(o, wall)));
   if (!band) return null;
   return band.limited ? band : "plain";
 }
@@ -677,6 +614,32 @@ function wallDragBand(wall: WallGeometry, dx: number, dy: number, obstacles: Obs
  * angled wall, in the report — whose "snap" moved that sliver off the wall it followed and pulled
  * the top wall up askew with it.
  */
+/**
+ * [o] as a wall dragged up to it meets it. A room's wall FACING [wall] - parallel to 3 degrees and
+ * running the other way, as two rooms' walls do across the wall between them - stands at its outer
+ * face: a wall's thickness toward [wall], and a thickness longer at each end, which is where that
+ * room's walls stand round its corners. So the dragged wall stops a wall short of the room and clear
+ * of its corners, with one wall between the two, as rooms dragged together (`snapRoomTranslation`)
+ * and pulled rooms (`pulledRoomOutline`) have. Stopped at the inside face, as it was until
+ * 2026-09-26, the dragged room ended flush and the wall between them was drawn over one of the
+ * floors. Anything else is where it is: an angled wall (the sliver a drag follows along one keeps
+ * its shape), a wall running the same way (the room a closet stands in: the closet shares its
+ * walls), a free wall.
+ */
+function facingOuterFace(o: Obstacle, wall: WallGeometry): Obstacle {
+  if (!o.room || wall.lengthPx <= 0) return o;
+  const length = Math.hypot(o.x2 - o.x1, o.y2 - o.y1);
+  if (length <= 0) return o;
+  const ux = (o.x2 - o.x1) / length;
+  const uy = (o.y2 - o.y1) / length;
+  const wx = (wall.x2 - wall.x1) / wall.lengthPx;
+  const wy = (wall.y2 - wall.y1) / wall.lengthPx;
+  if (ux * wx + uy * wy > -Math.cos((3 * Math.PI) / 180)) return o;
+  // Out of its own room is its direction turned -90 degrees, (uy, -ux): a room is clockwise.
+  const t = WALL_THICKNESS_PX;
+  return { ...o, x1: o.x1 + uy * t - ux * t, y1: o.y1 - ux * t - uy * t, x2: o.x2 + uy * t + ux * t, y2: o.y2 - ux * t + uy * t };
+}
+
 export function wallDragMeetsWall(room: SketchRoom, wallId: string, dx: number, dy: number, obstacles: Obstacle[]): boolean {
   const wall = wallById(room, wallId);
   if (!wall) return false;

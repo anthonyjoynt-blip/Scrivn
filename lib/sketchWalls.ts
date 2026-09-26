@@ -14,6 +14,9 @@
  *     made of all of them, and those walls are used up by it
  *   * anything else is FREE WALL, kept as drawn — one straight `FreeWall` per piece
  *
+ * A room drawn up against another room's wall stands a wall off it (`standWallApart`): tapped onto
+ * that room's corners, its side lies on the other's inside face, where the wall between them is.
+ *
  * Every tap is snapped before it is kept (`snapDraftPoint`): onto a corner, onto a wall, or square
  * with the corner before it. The snapping is what makes closing a loop a matter of tapping near the
  * corner rather than on it, and what keeps a room drawn by eye from coming out with a wall a degree
@@ -50,6 +53,7 @@ import {
   nextRoomName,
   pruneCollinearVertices,
   roomLevel,
+  standWallApart,
   wallDimensions,
   wallExtensionReach,
   wallStrokePx,
@@ -187,24 +191,26 @@ export function addDraftPoint(draft: DraftPoint[], point: DraftPoint, sketch: Sk
 
   // Back on the first corner. `roomFromPoints` wants three corners and a square foot, so two
   // corners and the first again is a line, and stays one.
-  // Whatever a closed run becomes is named like any other new room — see `nextRoomName`.
+  // Whatever a closed run becomes is named like any other new room — see `nextRoomName` — and
+  // stands a wall off any room it was drawn up against — see `standWallApart`.
   const name = nextRoomName(sketch.rooms);
+  const apart = (room: SketchRoom | null) => (room ? { ...room, vertices: standWallApart(room.vertices, level, sketch.rooms) } : null);
   if (first && samePoint(first, point)) {
-    const room = roomFromPoints(draft, level, name);
+    const room = apart(roomFromPoints(draft, level, name));
     return room ? { kind: "room", room, usedFreeWallIds: [] } : { kind: "ignore", reason: "degenerate" };
   }
 
   if (first) {
     const loop = loopThroughFreeWalls(draft, point, freeWallsOf(sketch).filter((w) => freeWallLevel(w) === level), radiusPx);
     if (loop) {
-      const room = roomFromPoints(loop.points, level, name);
+      const room = apart(roomFromPoints(loop.points, level, name));
       if (room) return { kind: "room", room, usedFreeWallIds: loop.usedFreeWallIds };
     }
 
     if (first.on && point.on && first.on.roomId === point.on.roomId) {
       const host = sketch.rooms.find((r) => r.id === first.on?.roomId);
       const cut = host ? enclosureWithRoom(draft, point, host) : null;
-      const room = cut ? roomFromPoints(cut, level, name) : null;
+      const room = cut ? apart(roomFromPoints(cut, level, name)) : null;
       if (room) return { kind: "room", room, usedFreeWallIds: [] };
     }
 

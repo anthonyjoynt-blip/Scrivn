@@ -810,6 +810,35 @@ export async function runRoomChecks() {
     assert(text.includes(`Single swing door — wall ${wallNo}, shared with Main, 2'6" wide`), `the pulled room's data names the door it shares:\n${text}`);
   });
 
+  test("a wall dragged up to another room stops a wall short of it — one wall between them", () => {
+    // Stopped at the other room's inside face, as it was, the room came out flush and the wall
+    // between the two was drawn over one of the floors.
+    const r = box(0, 0, 240, 192, { id: "r" });
+    const right = s.wallsOf(r)[1]; // (240,0) -> (240,192), out is +x
+    const other = box(300, 0, 120, 192, { id: "o" });
+    const obstacles = s.obstaclesFor({ rooms: [r, other] }, 0, { roomId: "r" });
+    const moved = s.conformedDragWall(r, right.id, 100, 0, obstacles);
+    const bb = b(moved);
+    assert(moved.vertices.length === 4 && bb.maxX === 296, `a wall left of the other room (300), not on it: ${JSON.stringify(bb)}`);
+    assert(s.wallDragMeetsWall(r, right.id, 100, 0, obstacles), "and it met a wall, so it is not snapped on release");
+    near(b(s.conformedDragWall(r, right.id, 40, 0, obstacles)).maxX, 280, "short of it, the drag is the plain drag");
+    // A room beside only the lower part of the wall: out to the finger above it, a wall short of
+    // it beside it, and a wall clear of its corner.
+    const lower = box(300, 96, 120, 200, { id: "lower" });
+    const stepped = s.conformedDragWall(r, right.id, 100, 0, s.obstaclesFor({ rooms: [r, lower] }, 0, { roomId: "r" }));
+    const corners = stepped.vertices.map((v) => [Math.round(v.x), Math.round(v.y)].join(",")).join(" ");
+    assert(stepped.vertices.length === 6 && corners.includes("340,92") && corners.includes("296,92") && corners.includes("296,192"), `stepped round it a wall clear: ${corners}`);
+  });
+
+  test("a closet's wall dragged to the wall of the room it stands in still meets that wall itself", () => {
+    // The room's wall runs the same way as the closet's: the closet shares it, flush in the corner.
+    const bedroom = box(0, 0, 240, 192, { id: "bed" });
+    const closet = { ...box(0, 0, 60, 48, { id: "cl" }), parentRoomId: "bed" };
+    const right = s.wallsOf(closet)[1]; // (60,0) -> (60,48), out is +x
+    const moved = s.conformedDragWall(closet, right.id, 300, 0, s.obstaclesFor({ rooms: [bedroom, closet] }, 0, { roomId: "cl" }));
+    near(b(moved).maxX, 240, "to the room's own wall");
+  });
+
   test("dragging a wall that crosses nothing is the plain drag, angles kept", () => {
     const r = box(0, 0, 240, 192, { id: "r" });
     const right = s.wallsOf(r)[1]; // (240,0) -> (240,192), out is +x

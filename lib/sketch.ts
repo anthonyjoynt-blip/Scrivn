@@ -1447,6 +1447,74 @@ export function flushWallStretches(room: SketchRoom, wall: WallGeometry, rooms: 
 }
 
 /**
+ * [vertices], a room being made on [level], with every side that lies flush against another room's
+ * wall - insides touching - moved a wall's thickness in: rooms meet across a wall, as the phone lays
+ * them and as Xactimate draws them. A room pulled, or drawn with the wall tool, up against another
+ * came out flush with it: the wall between them was drawn over one of the two floors
+ * ([flushWallStretches]), and that room measured 4" more than it has. Used on a room as it is made
+ * (`pulledRoomOutline`, `addDraftPoint`), never on one already drawn.
+ *
+ * Each side moved keeps its angle, and each corner is where its two sides now meet. A side too
+ * short to take the move would turn round, and then the outline is kept as it was - flush beats
+ * broken. Sides against the room a closet is drawn in run WITH that room's walls, not against them,
+ * and are not flush in this sense: the closet shares those walls.
+ */
+export function standWallApart(vertices: Vertex[], level: number, rooms: SketchRoom[]): Vertex[] {
+  const probe = outlineRoom(vertices, level);
+  const walls = wallsOf(probe);
+  const n = walls.length;
+  const moved = walls.map((w) => w.lengthPx > 0 && flushWallStretches(probe, w, rooms).length > 0);
+  if (!moved.includes(true)) return vertices;
+  // Each side as a line - through its start, moved in if it is flush - along its direction. In is
+  // the direction turned +90 degrees in screen space: a room is clockwise.
+  const lines = walls.map((w, i) => {
+    const dx = (w.x2 - w.x1) / w.lengthPx;
+    const dy = (w.y2 - w.y1) / w.lengthPx;
+    const k = moved[i] ? WALL_THICKNESS_PX : 0;
+    return { x: w.x1 - dy * k, y: w.y1 + dx * k, dx, dy };
+  });
+  const out: Vertex[] = [];
+  for (let i = 0; i < n; i++) {
+    const a = lines[(i - 1 + n) % n] as { x: number; y: number; dx: number; dy: number };
+    const b = lines[i] as { x: number; y: number; dx: number; dy: number };
+    const cross = a.dx * b.dy - a.dy * b.dx;
+    if (Math.abs(cross) < 1e-9) return vertices;
+    const s = ((b.x - a.x) * b.dy - (b.y - a.y) * b.dx) / cross;
+    const v = vertices[i] as Vertex;
+    const corner = { ...v, x: a.x + a.dx * s, y: a.y + a.dy * s };
+    // A corner thrown far off by a side at a shallow angle to its neighbour is not a wall's move.
+    if (Math.hypot(corner.x - v.x, corner.y - v.y) > MITER_LIMIT * WALL_THICKNESS_PX) return vertices;
+    out.push(corner);
+  }
+  for (let i = 0; i < n; i++) {
+    const w = walls[i] as WallGeometry;
+    const p = out[i] as Vertex;
+    const q = out[(i + 1) % n] as Vertex;
+    if ((q.x - p.x) * (w.x2 - w.x1) + (q.y - p.y) * (w.y2 - w.y1) <= 0) return vertices;
+  }
+  return out;
+}
+
+/** A room of nothing but [vertices] on [level]: enough to ask the room questions of an outline. */
+function outlineRoom(vertices: Vertex[], level: number): SketchRoom {
+  const room: SketchRoom = {
+    id: newSketchId("room"),
+    name: "",
+    vertices,
+    ceilingHeightFeet: DEFAULT_CEILING_HEIGHT_FEET,
+    ceilingType: "flat",
+    ceilingPeakFeet: null,
+    stairs: null,
+    parentRoomId: null,
+    nestingOptOut: false,
+    symbols: [],
+    freeCabinets: [],
+  };
+  if (level !== 0) room.level = level;
+  return room;
+}
+
+/**
  * Where the wall a door or window cuts through stands at [alongPx] along [wall], in the wall's own
  * frame (+y into the room): its middle and its thickness. Built outward, it is [thicknessPx]
  * outside the face. Across a partition to another room - a scan's 4 1/2 in - it is the whole
@@ -4147,9 +4215,14 @@ export const CLOSET_SAME_PLACE_PX = 1;
  */
 interface ClosetFootprint {
   shape: "corner" | "rectangle";
-  /** The two corners on the wall's line, in the wall's own order. */
+  /**
+   * The closet's two corners nearest the door's wall, in the wall's own order: a wall's thickness
+   * off it, where the wall between the closet and the room ends (see `closetBehindDoor`).
+   */
+  near: [{ x: number; y: number }, { x: number; y: number }];
+  /** The same two corners ON the wall's line - where a closet drawn before 2026-09-26 has them. */
   onWall: [{ x: number; y: number }, { x: number; y: number }];
-  /** The rest of the ring, continuing from `onWall[1]` round to `onWall[0]`. */
+  /** The rest of the ring, continuing from `near[1]` round to `near[0]`. */
   beyond: { x: number; y: number }[];
 }
 
@@ -4226,7 +4299,14 @@ function closetFootprint(
   // The corner rule first: on a chamfer the closet is the corner, whatever `options` asks.
   const apex = chamferCorner(walls, wall, ox, oy);
   if (apex) {
-    return { shape: "corner", onWall: [{ x: wall.x1, y: wall.y1 }, { x: wall.x2, y: wall.y2 }], beyond: [apex] };
+    const onWall: ClosetFootprint["onWall"] = [{ x: wall.x1, y: wall.y1 }, { x: wall.x2, y: wall.y2 }];
+    // A wall's thickness off the chamfer, the legs kept on the lines of the walls either side: the
+    // triangle scaled toward its apex. A corner too shallow to lose a wall's depth and still be a
+    // closet is drawn flush, as all of them were.
+    const height = (apex.x - wall.x1) * ox + (apex.y - wall.y1) * oy;
+    const k = height > 2 * WALL_THICKNESS_PX ? WALL_THICKNESS_PX / height : 0;
+    const toward = (p: { x: number; y: number }) => ({ x: p.x + (apex.x - p.x) * k, y: p.y + (apex.y - p.y) * k });
+    return { shape: "corner", near: [toward(onWall[0]), toward(onWall[1])], onWall, beyond: [apex] };
   }
 
   // The rectangle. The door's width is its drawn width, already capped to the wall.
@@ -4242,10 +4322,14 @@ function closetFootprint(
   const ay = wall.y1 + uy * fromPx;
   const bx = ax + ux * widthPx;
   const by = ay + uy * widthPx;
+  // A wall's thickness out from the wall's line, then the closet's own depth.
+  const t = WALL_THICKNESS_PX;
+  const far = t + depthPx;
   return {
     shape: "rectangle",
+    near: [{ x: ax + ox * t, y: ay + oy * t }, { x: bx + ox * t, y: by + oy * t }],
     onWall: [{ x: ax, y: ay }, { x: bx, y: by }],
-    beyond: [{ x: bx + ox * depthPx, y: by + oy * depthPx }, { x: ax + ox * depthPx, y: ay + oy * depthPx }],
+    beyond: [{ x: bx + ox * far, y: by + oy * far }, { x: ax + ox * far, y: ay + oy * far }],
   };
 }
 
@@ -4255,9 +4339,9 @@ function closetFootprint(
  * Closets are too small to scan and too awkward to tap — the phone cannot get far enough back from
  * the walls to see them, and a PM standing in a bedroom is not going to walk into every closet to
  * measure it. What the scan DOES see, and what a PM draws first by hand, is the closet door in the
- * bedroom's wall. So the closet is drawn from that: a rectangle standing against the outside of the
- * wall, one edge on the wall's line, centred on the door, and the PM drags or types its walls to
- * fit. The office sketch this was built against has exactly such a closet — a 4'6" x 2'1"
+ * bedroom's wall. So the closet is drawn from that: a rectangle standing outside the wall, its near
+ * edge a wall's thickness off the wall's line, centred on the door, and the PM drags or types its
+ * walls to fit. The office sketch this was built against has exactly such a closet — a 4'6" x 2'1"
  * "Untitled room" drawn by hand beside its door. On a chamfer the closet is the corner the chamfer
  * cut off instead — see below.
  *
@@ -4282,7 +4366,14 @@ function closetFootprint(
  * a room inside out — and a closet drawn INTO the room on a reversed one would be wrong in the one
  * way nobody checks. Only when the probe cannot decide (a self-crossing outline can read as inside
  * on both sides) does the convention stand in. Orientation follows the wall: on an angled wall the
- * closet is a rotated rectangle, flush to that wall.
+ * closet is a rotated rectangle, square to that wall.
+ *
+ * ── A wall between them ──────────────────────────────────────────────────────────────────────
+ * The closet stands a wall's thickness (4") off the room, where the other face of the wall between
+ * them is, as any two rooms do - rooms dragged together (`snapRoomTranslation`), pulled
+ * (`pulledRoomOutline`), drawn with the wall tool. Drawn flush, as it was until 2026-09-26, the
+ * wall between them was drawn over the closet's floor, and a 2' closet showed 1'8". Its depth and
+ * width are its own, inside the walls, as the PM measures them.
  *
  * ── The corner behind a chamfer ──────────────────────────────────────────────────────────────
  * "The closet that would be in the last room in the chamfer would effectively fill the rectangle
@@ -4296,7 +4387,9 @@ function closetFootprint(
  *
  * So, before the rectangle: with w the door's wall, p the wall before it in the ring (ending at
  * w's start) and n the wall after (starting at w's end), X is where line(p) meets line(n), and the
- * closet is the triangle [w.start, w.end, X] when all of these hold —
+ * closet is the triangle [w.start, w.end, X] - less the chamfer wall, a wall's thickness of it on
+ * the chamfer's side, its legs staying on line(p) and line(n), which it shares with the room - when
+ * all of these hold —
  *
  *   (a) p and n turn against each other by at least `CHAMFER_MIN_TURN_DEG`. Parallel lines meet
  *       nowhere and near-parallel ones meet in the next street: the short connecting wall of an L
@@ -4346,7 +4439,7 @@ export function closetBehindDoor(
 ): SketchRoom | null {
   const footprint = closetFootprint(room, doorId, options);
   if (!footprint) return null;
-  const corners: Vertex[] = [...footprint.onWall, ...footprint.beyond].map(({ x, y }) => ({ id: newSketchId("v"), x, y }));
+  const corners: Vertex[] = [...footprint.near, ...footprint.beyond].map(({ x, y }) => ({ id: newSketchId("v"), x, y }));
 
   const closet: SketchRoom = {
     id: newSketchId("room"),
@@ -4381,9 +4474,10 @@ export function closetShapeBehindDoor(room: SketchRoom, doorId: string): "corner
  * Is there already a closet behind this door?
  *
  * "Already" is geometric, not by name: some OTHER room on the same storey has a corner within
- * `CLOSET_SAME_PLACE_PX` of BOTH of the corners the closet would put on the door's wall. Those two
- * are the corners that never move between the shapes — the rectangle's near edge, the triangle's
- * base. For the rectangle the pair sits INSIDE the wall, a door's width apart, and no room next
+ * `CLOSET_SAME_PLACE_PX` of BOTH of the corners the closet would put nearest the door's wall - or
+ * of both of those corners on the wall's line itself, where a closet drawn before closets stood a
+ * wall off (2026-09-26) has them. Those two are the corners that never move between the shapes —
+ * the rectangle's near edge, the triangle's base. For the rectangle the pair sits INSIDE the wall, a door's width apart, and no room next
  * door shares two such points: it shares the wall's line, and at most its ends. For the corner
  * (and for a rectangle clamped to the whole of a short wall) the pair IS the wall's ends, and a
  * room that already spans them — the room next door drawn with an edge on the chamfer — has
@@ -4405,7 +4499,8 @@ export function closetExistsBehind(rooms: SketchRoom[], room: SketchRoom, doorId
   const hasCornerAt = (other: SketchRoom, at: { x: number; y: number }) =>
     other.vertices.some((v) => Math.hypot(v.x - at.x, v.y - at.y) <= CLOSET_SAME_PLACE_PX);
   return rooms.some(
-    (other) => other.id !== room.id && roomLevel(other) === level && footprint.onWall.every((at) => hasCornerAt(other, at)),
+    (other) =>
+      other.id !== room.id && roomLevel(other) === level && [footprint.near, footprint.onWall].some((pair) => pair.every((at) => hasCornerAt(other, at))),
   );
 }
 
