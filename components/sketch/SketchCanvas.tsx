@@ -71,7 +71,7 @@ import {
   wallBandAt,
 } from "@/lib/sketch";
 import { type DraftPoint, WALL_SNAP_SCREEN_PX, absorbedFreeWallIds, snapDraftPoint, wallDimensionsWithExtensions } from "@/lib/sketchWalls";
-import { type Obstacle, PULLED_ROOM_DEFAULT_DEPTH_PX, PULLED_ROOM_MIN_DEPTH_PX, extrudeWall, outwardNormal, pullDepthPx, reversedWall } from "@/lib/roomPlacement";
+import { type Obstacle, PULLED_ROOM_DEFAULT_DEPTH_PX, PULLED_ROOM_MIN_DEPTH_PX, outwardNormal, pullBase, pullDepthPx, pulledRoomDepthPx, pulledRoomOutline } from "@/lib/roomPlacement";
 
 /**
  * The drawing surface. Rendering and pointer handling only — every state change is reported upward
@@ -584,13 +584,15 @@ export default function SketchCanvas(props: SketchCanvasProps) {
     const label = pullLabel.current;
     if (!active || !outline || !label) return;
     const { depthPx } = active;
-    // Inward is the same band off the wall walked the other way — see `reversedWall`.
+    // Out, a wall beyond the wall; in, the same band off it walked the other way - see `pullBase`.
+    // The outline is the room the editor will make of it, to the corner: `pulledRoomOutline`.
     const inward = depthPx < 0;
-    const wall = inward ? reversedWall(active.wall) : active.wall;
+    const wall = pullBase(active.wall, depthPx);
     const depth = Math.abs(depthPx);
     const n = outwardNormal(wall);
-    const band = depth >= PULLED_ROOM_MIN_DEPTH_PX ? extrudeWall(wall, depth, inward ? active.inwardObstacles : active.obstacles) : null;
-    outline.points(band ? band.far.flatMap((p) => [p.x, p.y]) : []);
+    const source = rooms.find((r) => r.id === active.roomId);
+    const shape = source && depth >= PULLED_ROOM_MIN_DEPTH_PX ? pulledRoomOutline(source, active.wall, depthPx, { obstacles: inward ? active.inwardObstacles : active.obstacles, rooms }) : null;
+    outline.points(shape ? shape.flatMap((p) => [p.x, p.y]) : []);
     const far = { x: (wall.x1 + wall.x2) / 2 + n.x * (depth + 14 / view.scale), y: (wall.y1 + wall.y2) / 2 + n.y * (depth + 14 / view.scale) };
     label.text(depth >= PULLED_ROOM_MIN_DEPTH_PX ? formatFeetInches(depth / PIXELS_PER_FOOT) : "");
     label.position({ x: far.x - 35 / view.scale, y: far.y - 6 / view.scale });
@@ -608,7 +610,8 @@ export default function SketchCanvas(props: SketchCanvasProps) {
     const world = stageRef.current?.getRelativePointerPosition();
     if (!world) return true;
     active.moved = true;
-    active.depthPx = pullDepthPx(active.wall, world);
+    // The room's own depth: pulled out, it ends under the finger a wall beyond the wall (`pulledRoomDepthPx`).
+    active.depthPx = pulledRoomDepthPx(pullDepthPx(active.wall, world));
     drawPull();
     return true;
   }

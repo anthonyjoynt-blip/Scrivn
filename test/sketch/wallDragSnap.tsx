@@ -21,7 +21,9 @@ import { gesturesFor } from "./gestures";
  *
  * The same host then takes the other two wall gestures that live in the canvas and land in the
  * editor: a pull INTO a room (a closet off a wall, the finger going in), and placing a door by a
- * tap (standard width) or by a drag along the wall (as wide as the drag).
+ * tap (standard width) or by a drag along the wall (as wide as the drag); and a pull OUT of a
+ * room, which starts a wall beyond the wall and ends under the finger, the outline shown while the
+ * finger is down being the room that lands.
  */
 
 const results: { ok: boolean; message: string }[] = [];
@@ -170,6 +172,40 @@ export async function run(): Promise<{ passed: number; failed: number; results: 
       check(drawn !== undefined && Math.abs((drawn.widthFeet ?? 0) - 4) < 0.05, `as wide as the drag: 4' (${drawn?.widthFeet}')`);
       const drawnAt = drawn ? pointOnWall(left, drawn.t) : null;
       check(drawnAt !== null && Math.abs(drawnAt.y - 224) < 1.5, `centred on the drag (y ${drawnAt?.y.toFixed(1)})`);
+    }
+
+    // ── Pulling OUT of a room: the next room over, a wall beyond the wall ────────────────────
+    // Up off the room's top wall (y 60), the finger 64 above it. Pulled flush, as it was until
+    // 2026-09-26, the wall between the two rooms was drawn over the new one's floor: "Pulling a
+    // room off a wall still creates it flush." Now the room starts a wall (4px) above the wall and
+    // ends under the finger - and the outline followed on the way is that room, corner for corner.
+    findButton("Pull room")?.click();
+    await new Promise((r) => setTimeout(r, 200));
+    const count = latestSketch.rooms.length;
+    const release = g.hold({ x: 170, y: 60 }, 0, -64);
+    const fingerY = stage.getRelativePointerPosition()?.y ?? Number.NaN;
+    const outline = stage.find("Line").find((node) => {
+      const line = node as Konva.Line;
+      return line.closed() && line.dash().length > 0 && line.points().length >= 6;
+    }) as Konva.Line | undefined;
+    const shown = outline ? outline.points() : [];
+    release();
+    await new Promise((r) => setTimeout(r, 300));
+    const out = latestSketch.rooms.find((r) => !["pulled", "main"].includes(r.id) && r.id !== closet?.id);
+    check(latestSketch.rooms.length === count + 1 && out !== undefined, "an outward pull makes a room");
+    if (out) {
+      const xs = out.vertices.map((v) => v.x);
+      const ys = out.vertices.map((v) => v.y);
+      const box = { minX: Math.min(...xs), maxX: Math.max(...xs), minY: Math.min(...ys), maxY: Math.max(...ys) };
+      check(Math.abs(box.maxY - 56) < 0.01 && Math.abs(box.minX - 85) < 0.01 && Math.abs(box.maxX - 258) < 0.01, `a wall above the top wall, its whole length (${JSON.stringify(box)})`);
+      check(Math.abs(box.minY - fingerY) < 0.5, `and up to the finger (y ${box.minY.toFixed(1)}, finger ${fingerY.toFixed(1)})`);
+      const corners = (points: number[]) => {
+        const list: string[] = [];
+        for (let i = 0; i + 1 < points.length; i += 2) list.push(`${(points[i] as number).toFixed(1)},${(points[i + 1] as number).toFixed(1)}`);
+        return list.sort().join(" ");
+      };
+      const made = corners(out.vertices.flatMap((v) => [v.x, v.y]));
+      check(corners(shown) === made, `the outline shown while pulling is the room made (${corners(shown)} / ${made})`);
     }
   } catch (err) {
     check(false, `wall-drag snap suite threw: ${err instanceof Error ? err.message : String(err)}`);

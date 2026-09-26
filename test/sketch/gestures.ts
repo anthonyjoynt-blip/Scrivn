@@ -26,6 +26,11 @@ export interface Gesture {
   drag(world: { x: number; y: number }, dx: number, dy: number): void;
   /** Press and release at a world point without moving — a tap. */
   tap(world: { x: number; y: number }): void;
+  /**
+   * Press at a world point and move by (dx, dy), and stay down: what a gesture draws while the
+   * finger is on the glass is there to be looked at. Returns the release.
+   */
+  hold(world: { x: number; y: number }, dx: number, dy: number): () => void;
 }
 
 export function gesturesFor(stage: Konva.Stage): Gesture {
@@ -66,6 +71,17 @@ export function gesturesFor(stage: Konva.Stage): Gesture {
       send("mousedown", p.x, p.y);
       send("mouseup", p.x, p.y);
       settle();
+    },
+    hold(world, dx, dy) {
+      settle();
+      const p = toClient(world);
+      send("mousedown", p.x, p.y);
+      send("mousemove", p.x + Math.sign(dx) * 5, p.y + Math.sign(dy) * 5); // note 2
+      send("mousemove", p.x + dx, p.y + dy);
+      return () => {
+        send("mouseup", p.x + dx, p.y + dy);
+        settle();
+      };
     },
   };
 }

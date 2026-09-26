@@ -393,13 +393,15 @@ export async function runRoomChecks() {
   const windowOn = (wallId, t) => ({ id: "w", wallId, t, widthFraction: 0.25, widthFeet: 3, type: "window", heightFeet: 4, sillFeet: 3 });
   const cabinetOn = (wallId, t) => ({ id: "c", wallId, t, widthFraction: 0.25, widthFeet: 3, type: "cabinet", label: "Cabinet", tier: "base", depthFeet: 2, heightFeet: 3 });
 
-  test("a room pulled off a wall shares that wall exactly and goes straight out from it", () => {
+  test("a room pulled off a wall stands a wall (4\") beyond it, the wall's whole length, and goes straight out from it", () => {
+    // Pulled flush, as it was until 2026-09-26, the two rooms' insides touched and the wall between
+    // them was drawn over the new room's floor: "Pulling a room off a wall still creates it flush."
     const source = box(0, 0, 240, 192, { id: "src" });
     const bottom = s.wallsOf(source)[2]; // runs (240,192) -> (0,192); outside is below
     const pulled = s.pullRoomFromWall(source, bottom.id, 120);
     assert(pulled && pulled.vertices.length === 4, "a four-cornered room");
     const bb = b(pulled);
-    assert(bb.minX === 0 && bb.maxX === 240 && bb.minY === 192 && bb.maxY === 312, `bounds ${JSON.stringify(bb)}`);
+    assert(bb.minX === 0 && bb.maxX === 240 && bb.minY === 196 && bb.maxY === 316, `a wall below, 120 deep: ${JSON.stringify(bb)}`);
     assert(s.ensureClockwise(pulled.vertices) === pulled.vertices, "wound clockwise");
     assert(pulled.ceilingHeightFeet === 8 && pulled.name === "Room 1" && pulled.stairs === null, "an ordinary room, named as new rooms are");
   });
@@ -410,9 +412,10 @@ export async function runRoomChecks() {
     const wall = s.wallsOf(diamond)[1];
     const pulled = s.pullRoomFromWall(diamond, wall.id, 60);
     const corners = pulled.vertices.map((v) => [Math.round(v.x), Math.round(v.y)].join(","));
-    assert(corners.includes("240,120") && corners.includes("120,240"), `shares both corners, got ${corners}`);
-    // The far wall is 60 out along the outward normal (1/√2, 1/√2): (240+42, 120+42) and (120+42, 240+42).
-    assert(corners.includes("282,162") && corners.includes("162,282"), `far corners 60 out along the wall's normal, got ${corners}`);
+    // A wall (4) out along the outward normal (1/√2, 1/√2), the near corners are (240+2.8, 120+2.8)
+    // and (120+2.8, 240+2.8); the far ones 60 further, 64 out: (240+45.3, 120+45.3) and the other.
+    assert(corners.includes("243,123") && corners.includes("123,243"), `near corners a wall out, got ${corners}`);
+    assert(corners.includes("285,165") && corners.includes("165,285"), `far corners 60 beyond them along the wall's normal, got ${corners}`);
   });
 
   test("the doors and windows in the wall are seen from the new room, in the wall it shares; cabinets are not", () => {
@@ -426,8 +429,8 @@ export async function runRoomChecks() {
     assert(pulled.symbols.length === 0, `nothing of its own, got ${pulled.symbols.map((x) => x.type)}`);
     const shared = s.openingsSharedWith(pulled, [source, pulled]);
     assert(shared.map((x) => x.symbol.type).sort().join(",") === "door,window", `the door and the window in the shared wall, not the cabinet nor the door in another wall: ${shared.map((x) => x.symbol.id)}`);
-    const top = s.wallsOf(pulled).find((w) => Math.abs(w.y1 - 192) < 0.01 && Math.abs(w.y2 - 192) < 0.01);
-    assert(shared.every((x) => x.wallId === top.id), "both in the pulled room's top wall, the one it was pulled from");
+    const top = s.wallsOf(pulled).find((w) => Math.abs(w.y1 - 196) < 0.01 && Math.abs(w.y2 - 196) < 0.01);
+    assert(shared.every((x) => x.wallId === top.id), "both in the pulled room's top wall, across the wall it was pulled from");
   });
 
   test("a tap pulls a room of the default depth; nothing shallower than a foot is pulled", () => {
@@ -536,7 +539,7 @@ export async function runRoomChecks() {
     assert(obstacles.length === 3, `the bedroom's other three walls and nothing of the closet's: ${obstacles.length}`);
     const pulled = s.pullRoomFromWall(bedroom, top.id, 100, { obstacles, rooms: sketch.rooms });
     const bb = b(pulled);
-    assert(bb.minX === 60 && bb.maxX === 252 && bb.minY === -60 && bb.maxY === 40, `the whole wall's width: ${JSON.stringify(bb)}`);
+    assert(bb.minX === 60 && bb.maxX === 252 && bb.minY === -64 && bb.maxY === 36, `the whole wall's width, a wall out: ${JSON.stringify(bb)}`);
     // Dragging the bedroom's wall outward is the same: its closet is not in the way.
     assert(s.obstaclesFor(sketch, 0, { roomId: "bed" }).length === 0, "nothing in the way of the bedroom's own walls");
     // A closet inside some OTHER room still counts, as any wall does.
@@ -568,12 +571,14 @@ export async function runRoomChecks() {
     const inward = s.obstaclesFor(sketch, 0, { wall: { roomId: "bed", wallId: top.id }, inward: true });
     const outward = s.obstaclesFor(sketch, 0, { wall: { roomId: "bed", wallId: top.id } });
     assert(inward.length === 3 + 4 && outward.length === 3, `in: the room's other walls and the closet's; out: the room's other walls only (${inward.length}/${outward.length})`);
-    // Pulled in to the bottom: the new room stops at the closet over its stretch, and reaches the
-    // bottom wall past it.
+    // Pulled in to the bottom: the new room stops a wall short of the closet over its stretch, and
+    // reaches the bottom wall past it, a wall off the closet's side - one wall between the two, as
+    // between any two rooms. Along the bedroom's own walls it runs flush: it shares those.
     const pulled = s.pullRoomFromWall(bedroom, top.id, -144, { obstacles: inward, rooms: sketch.rooms });
     const corners = pulled.vertices.map((v) => [Math.round(v.x), Math.round(v.y)].join(",")).join(" ");
     assert(pulled.vertices.length === 6, `steps around the closet: ${corners}`);
-    assert(corners.includes("252,154") && corners.includes("156,154") && corners.includes("156,184"), `down to the closet's top on the right, to the bottom wall on the left: ${corners}`);
+    assert(corners.includes("252,150") && corners.includes("152,150") && corners.includes("152,184"), `a wall above the closet on the right, to the bottom wall on the left: ${corners}`);
+    assert(corners.includes("60,40") && corners.includes("252,40") && corners.includes("60,184"), `the bedroom's own walls, flush: ${corners}`);
   });
 
   test("a wall walked the other way", () => {
@@ -590,7 +595,8 @@ export async function runRoomChecks() {
     // A 3'6" x 2'9" room against the top part of the bedroom's right wall, and a room pulled off
     // that wall came out the full 16' — over the room already there. Its near wall was a hair
     // inside the line (a pixel: snapped flush, as far as anyone could see), which read as "wholly
-    // behind the wall" and dropped it from the band.
+    // behind the wall" and dropped it from the band. The new room starts a wall out (244) and a
+    // wall below the room already there (37): one wall between each pair.
     const bedroom = box(0, 0, 240, 192, { id: "bed" });
     const right = s.wallsOf(bedroom)[1]; // (240,0) -> (240,192), out is +x
     for (const [dx, note] of [[0, "exactly on the line"], [-1, "a pixel inside it"], [3, "three pixels off it"]]) {
@@ -599,7 +605,7 @@ export async function runRoomChecks() {
       const obstacles = s.obstaclesFor(sketch, 0, { wall: { roomId: "bed", wallId: right.id } });
       const pulled = s.pullRoomFromWall(bedroom, right.id, 33, { obstacles, rooms: sketch.rooms });
       const bb = b(pulled);
-      assert(bb.minY >= 33 - 0.01 && bb.maxY === 192 && bb.minX === 240 && bb.maxX === 273, `${note}: only below the room already there — ${JSON.stringify(bb)}`);
+      assert(bb.minY === 37 && bb.maxY === 192 && bb.minX === 244 && bb.maxX === 277, `${note}: only below the room already there — ${JSON.stringify(bb)}`);
       assert(pulled.vertices.length === 4, `${note}: a plain rectangle, ${pulled.vertices.length} corners`);
     }
     // The whole wall taken: nothing to pull.
@@ -619,9 +625,42 @@ export async function runRoomChecks() {
   test("a pulled room takes the shape the walls around it allow", () => {
     const r = box(0, 0, 240, 192, { id: "src" });
     const bottom = s.wallsOf(r)[2];
+    // A bare wall at y = 252: 56 below where the room starts, a wall below the source's (196).
     const pulled = s.pullRoomFromWall(r, bottom.id, 120, { obstacles: [seg(120, 252, 240, 252)], rooms: [r] });
     assert(pulled && pulled.vertices.length === 6, `six corners, got ${pulled && pulled.vertices.length}`);
-    near(s.grossFloorArea(pulled), (120 * 60 + 120 * 120) / 144, "the area of the stepped band");
+    near(s.grossFloorArea(pulled), (120 * 56 + 120 * 120) / 144, "the area of the stepped band");
+  });
+
+  test("a room pulled beside one already against the wall stands a wall off its side", () => {
+    // The first room pulled off the left half of the wall; the second pull fills the rest of the
+    // wall and stops a wall short of the first - one wall between them, not two floors touching.
+    const src = box(0, 0, 240, 192, { id: "src" });
+    const bottom = s.wallsOf(src)[2];
+    const first = box(0, 196, 120, 120, { id: "first" });
+    const sketch = { rooms: [src, first] };
+    const pulled = s.pullRoomFromWall(src, bottom.id, 120, { obstacles: s.obstaclesFor(sketch, 0, { wall: { roomId: "src", wallId: bottom.id } }), rooms: sketch.rooms });
+    const bb = b(pulled);
+    assert(bb.minX === 124 && bb.maxX === 240 && bb.minY === 196 && bb.maxY === 316, `a wall right of the first room: ${JSON.stringify(bb)}`);
+  });
+
+  test("a room pulled toward a room across the way stops a wall short of it, and turns a wall off its side", () => {
+    const src = box(0, 0, 240, 192, { id: "src" });
+    const bottom = s.wallsOf(src)[2];
+    // A room across the way under the right half, its top 60 below where the new room starts.
+    const across = box(120, 256, 120, 120, { id: "across" });
+    const sketch = { rooms: [src, across] };
+    const pulled = s.pullRoomFromWall(src, bottom.id, 120, { obstacles: s.obstaclesFor(sketch, 0, { wall: { roomId: "src", wallId: bottom.id } }), rooms: sketch.rooms });
+    const corners = pulled.vertices.map((v) => [Math.round(v.x), Math.round(v.y)].join(",")).sort().join(" ");
+    assert(corners === "0,196 0,316 116,252 116,316 240,196 240,252", `a wall above it on the right, a wall left of its side below that: ${corners}`);
+  });
+
+  test("pulled into the notch of an L, the new room stands a wall off the L's own wall beside it", () => {
+    const ell = room([[0, 0], [240, 0], [240, 96], [120, 96], [120, 192], [0, 192]], { id: "ell" });
+    const notch = s.wallsOf(ell)[2]; // (240,96) -> (120,96), out is +y, into the notch
+    const sketch = { rooms: [ell] };
+    const pulled = s.pullRoomFromWall(ell, notch.id, 96, { obstacles: s.obstaclesFor(sketch, 0, { wall: { roomId: "ell", wallId: notch.id } }), rooms: sketch.rooms });
+    const bb = b(pulled);
+    assert(bb.minX === 124 && bb.maxX === 240 && bb.minY === 100 && bb.maxY === 196, `a wall below the notch's wall and a wall right of the L's: ${JSON.stringify(bb)}`);
   });
 
   test("a door in any wall the new room lands along is seen from it — never copied into it", () => {
@@ -631,7 +670,8 @@ export async function runRoomChecks() {
     const src = box(0, 0, 240, 192, { id: "src" });
     const bottom = s.wallsOf(src)[2];
     src.symbols = [door(bottom.id, 0.25, { id: "in-src" })];
-    // A neighbour to the right whose left wall (240,192)->(240,312) will be the pulled room's right side.
+    // A neighbour to the right whose left wall (240,192)->(240,312) the pulled room's right side
+    // will face, a wall away.
     const neighbour = room([[240, 192], [360, 192], [360, 312], [240, 312]], { id: "nb" });
     const left = s.wallsOf(neighbour)[3]; // (240,312) -> (240,192)
     neighbour.symbols = [door(left.id, 0.5, { id: "in-nb" })];
@@ -679,7 +719,7 @@ export async function runRoomChecks() {
     src.symbols = [door(bottom.id, 0.25, { id: "d1" }), { ...door(bottom.id, 0.5, { id: "o1" }), doorType: "opening" }, windowOn(bottom.id, 0.8)];
     const pulled = s.pullRoomFromWall(src, bottom.id, 120);
     const out = s.sketchOutput({ rooms: [src, pulled] });
-    const wallNo = s.wallsOf(pulled).findIndex((w) => Math.abs(w.y1 - 192) < 0.01 && Math.abs(w.y2 - 192) < 0.01) + 1;
+    const wallNo = s.wallsOf(pulled).findIndex((w) => Math.abs(w.y1 - 196) < 0.01 && Math.abs(w.y2 - 196) < 0.01) + 1;
     const seen = out[1].sharedOpenings.map((o) => `${o.label}@${o.wall}:${o.widthFeet}:${o.withRoom}`).sort();
     assert(
       seen.join(" | ") === [`Opening (no door)@${wallNo}:2.5:Unnamed room`, `Single swing door@${wallNo}:2.5:Unnamed room`, `Window@${wallNo}:3:Unnamed room`].join(" | "),
@@ -693,7 +733,7 @@ export async function runRoomChecks() {
     const bottom = s.wallsOf(src)[2];
     src.symbols = [door(bottom.id, 0.5)];
     const pulled = s.pullRoomFromWall(src, bottom.id, 120);
-    const top = s.wallsOf(pulled).find((w) => Math.abs(w.y1 - 192) < 0.01 && Math.abs(w.y2 - 192) < 0.01);
+    const top = s.wallsOf(pulled).find((w) => Math.abs(w.y1 - 196) < 0.01 && Math.abs(w.y2 - 196) < 0.01);
     const mark = { walls: [{ roomId: pulled.id, wallId: top.id, startT: 0, endT: 1 }], floorCells: {} };
     near(s.fullWallSquareFeet(mark, { rooms: [src, pulled] }), 20 * 8 - 2.5 * (20 / 3), "20' x 8' less the door");
   });
@@ -713,7 +753,7 @@ export async function runRoomChecks() {
     const bottom = s.wallsOf(src)[2];
     src.symbols = [door(bottom.id, 0.25)];
     const pulled = s.pullRoomFromWall(src, bottom.id, 120);
-    const top = s.wallsOf(pulled).find((w) => Math.abs(w.y1 - 192) < 0.01 && Math.abs(w.y2 - 192) < 0.01);
+    const top = s.wallsOf(pulled).find((w) => Math.abs(w.y1 - 196) < 0.01 && Math.abs(w.y2 - 196) < 0.01);
     // The copy sits at the same world point: 60px from the source wall's start, (180,192).
     const at = s.pointOnWall(bottom, 0.25);
     const u = ((at.x - top.x1) * (top.x2 - top.x1) + (at.y - top.y1) * (top.y2 - top.y1)) / top.lengthPx;
@@ -766,7 +806,7 @@ export async function runRoomChecks() {
     const q = s.roomQuantities(pulled, { rooms }, s.DEFAULT_QUANTITY_OPTIONS);
     near(q.deductions.openingSquareFeet, doorArea, "the quantities table takes it off the pulled room's wall area");
     const text = s.sketchSummaryText({ rooms });
-    const wallNo = s.wallsOf(pulled).findIndex((w) => Math.abs(w.y1 - 192) < 0.01 && Math.abs(w.y2 - 192) < 0.01) + 1;
+    const wallNo = s.wallsOf(pulled).findIndex((w) => Math.abs(w.y1 - 196) < 0.01 && Math.abs(w.y2 - 196) < 0.01) + 1;
     assert(text.includes(`Single swing door — wall ${wallNo}, shared with Main, 2'6" wide`), `the pulled room's data names the door it shares:\n${text}`);
   });
 

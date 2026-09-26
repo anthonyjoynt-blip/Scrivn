@@ -24,13 +24,16 @@
 import {
   type Sketch,
   type SketchRoom,
+  type Vertex,
   type WallGeometry,
   DEFAULT_CEILING_HEIGHT_FEET,
   DEFAULT_ROOM_FEET,
   MIN_WALL_PX,
   PIXELS_PER_FOOT,
+  WALL_THICKNESS_PX,
   dragWall,
   ensureClockwise,
+  flushWallStretches,
   freeWallLevel,
   freeWallSegments,
   freeWallsOf,
@@ -147,6 +150,32 @@ export function reversedWall(wall: WallGeometry): WallGeometry {
 }
 
 /**
+ * Where a room pulled off [wall] starts, as the wall it is extruded from ([extrudeWall]).
+ *
+ * OUT (a positive [depthPx]): a wall's thickness beyond the wall, which is where the wall between the
+ * two rooms stands - Xactimate's rule, and the rule rooms dragged together follow
+ * (`snapRoomTranslation`). Pulled flush off the wall, as it always was until 2026-09-26, the new
+ * room's inside touched the old one's with nowhere for the wall between them, and the wall was drawn
+ * over the new room's floor - 4" of it gone under the wall. IN (negative): on the wall's line,
+ * walked the other way (`reversedWall`) - a closet pulled into a room shares the room's own wall.
+ */
+export function pullBase(wall: WallGeometry, depthPx: number): WallGeometry {
+  if (depthPx < 0) return reversedWall(wall);
+  const n = outwardNormal(wall);
+  const t = WALL_THICKNESS_PX;
+  return { ...wall, x1: wall.x1 + n.x * t, y1: wall.y1 + n.y * t, x2: wall.x2 + n.x * t, y2: wall.y2 + n.y * t };
+}
+
+/**
+ * The depth of the room a pull makes, from how far the finger is from the wall ([pullDepthPx]):
+ * pulled out, the room ends under the finger and starts a wall out ([pullBase]); pulled in, it is
+ * the finger's reach. Within a wall of the wall, going out, there is no room.
+ */
+export function pulledRoomDepthPx(fingerPx: number): number {
+  return fingerPx > 0 ? Math.max(0, fingerPx - WALL_THICKNESS_PX) : fingerPx;
+}
+
+/**
  * How far out from the wall a point is, in world pixels: positive on the outside of the room,
  * negative inside it. The depth a pull gesture has reached, and which way it went.
  */
@@ -156,17 +185,118 @@ export function pullDepthPx(wall: WallGeometry, point: { x: number; y: number })
 }
 
 /**
+ * The outline of the room a pull makes, corners clockwise, or null when nothing worth calling a
+ * room fits: what the editor makes ([pullRoomFromWall]) and what the canvas shows while the finger
+ * is still down, so the outline followed is the room that lands.
+ *
+ * The band swept [depthPx] out from [pullBase] and stopped by whatever walls are in the way
+ * ([extrudeWall]); then every side of it that came to lie flush against another room - insides
+ * touching - moved a wall's thickness in ([standWallApart]), so the new room meets the rooms around
+ * it across a wall, as it meets the room it was pulled from.
+ */
+export function pulledRoomOutline(source: SketchRoom, own: WallGeometry, depthPx: number, around: { obstacles: Obstacle[]; rooms: SketchRoom[] }): Vertex[] | null {
+  const wall = pullBase(own, depthPx);
+  const depth = Math.max(PULLED_ROOM_MIN_DEPTH_PX, Math.abs(depthPx));
+  /*
+    The far side follows whatever walls are in the way — see `extrudeWall`. Out, along, back is
+    clockwise by construction when the source is, which every room is; `ensureClockwise` guards a
+    source that somehow is not, and does nothing otherwise — and puts an inward pull, which comes
+    out the other way round, right.
+  */
+  const band = extrudeWall(wall, depth, around.obstacles);
+  if (!band) return null;
+  const clockwise = ensureClockwise(band.far.map((p) => ({ id: newSketchId("v"), x: p.x, y: p.y })));
+  if (clockwise.length < 3) return null;
+  const level = roomLevel(source);
+  const tidy = pruneCollinearVertices(bareRoom(clockwise, level)).vertices;
+  const apart = standWallApart(tidy, level, around.rooms);
+  // Nothing worth calling a room: a band too thin, or nothing left in front of the wall.
+  if (Math.abs(polygonArea(apart)) < PIXELS_PER_FOOT * PIXELS_PER_FOOT) return null;
+  return apart;
+}
+
+/**
+ * [vertices], a room being made on [level], with every side that lies flush against another room's
+ * wall - insides touching - moved a wall's thickness in: rooms meet across a wall, as the phone lays
+ * them and as Xactimate draws them. A pulled room stopped by a room across its far side, or filling
+ * the rest of a wall beside a room already against it, came out flush with that room: the wall
+ * between them was drawn over one of the two floors (`flushWallStretches`), and that room measured
+ * 4" more than it has.
+ *
+ * Each side moved keeps its angle, and each corner is where its two sides now meet. A side too
+ * short to take the move would turn round, and then the outline is kept as it was - flush beats
+ * broken. Sides against the room a closet is pulled into run WITH that room's walls, not against
+ * them, and are not flush in this sense: the closet shares those walls.
+ */
+function standWallApart(vertices: Vertex[], level: number, rooms: SketchRoom[]): Vertex[] {
+  const probe = bareRoom(vertices, level);
+  const walls = wallsOf(probe);
+  const n = walls.length;
+  const moved = walls.map((w) => w.lengthPx > 0 && flushWallStretches(probe, w, rooms).length > 0);
+  if (!moved.includes(true)) return vertices;
+  // Each side as a line - through its start, moved in if it is flush - along its direction. In is
+  // the direction turned +90 degrees in screen space: a room is clockwise.
+  const lines = walls.map((w, i) => {
+    const dx = (w.x2 - w.x1) / w.lengthPx;
+    const dy = (w.y2 - w.y1) / w.lengthPx;
+    const k = moved[i] ? WALL_THICKNESS_PX : 0;
+    return { x: w.x1 - dy * k, y: w.y1 + dx * k, dx, dy };
+  });
+  const out: Vertex[] = [];
+  for (let i = 0; i < n; i++) {
+    const a = lines[(i - 1 + n) % n] as { x: number; y: number; dx: number; dy: number };
+    const b = lines[i] as { x: number; y: number; dx: number; dy: number };
+    const cross = a.dx * b.dy - a.dy * b.dx;
+    if (Math.abs(cross) < 1e-9) return vertices;
+    const s = ((b.x - a.x) * b.dy - (b.y - a.y) * b.dx) / cross;
+    const v = vertices[i] as Vertex;
+    const corner = { ...v, x: a.x + a.dx * s, y: a.y + a.dy * s };
+    // A corner thrown far off by a side at a shallow angle to its neighbour is not a wall's move.
+    if (Math.hypot(corner.x - v.x, corner.y - v.y) > 4 * WALL_THICKNESS_PX) return vertices;
+    out.push(corner);
+  }
+  for (let i = 0; i < n; i++) {
+    const w = walls[i] as WallGeometry;
+    const p = out[i] as Vertex;
+    const q = out[(i + 1) % n] as Vertex;
+    if ((q.x - p.x) * (w.x2 - w.x1) + (q.y - p.y) * (w.y2 - w.y1) <= 0) return vertices;
+  }
+  return out;
+}
+
+/** A room of nothing but [vertices] on [level]: enough to ask the room questions of an outline. */
+function bareRoom(vertices: Vertex[], level: number): SketchRoom {
+  const room: SketchRoom = {
+    id: newSketchId("room"),
+    name: "",
+    vertices,
+    ceilingHeightFeet: DEFAULT_CEILING_HEIGHT_FEET,
+    ceilingType: "flat",
+    ceilingPeakFeet: null,
+    stairs: null,
+    parentRoomId: null,
+    nestingOptOut: false,
+    symbols: [],
+    freeCabinets: [],
+  };
+  if (level !== 0) room.level = level;
+  return room;
+}
+
+/**
  * A new room pulled off one wall of an existing room: the far side of a shared wall.
  *
  * The next room over shares a wall with this one, exactly — same two corners, same angle — and the
  * only honest way to draw that was to add a box and drag its corners onto the neighbour's until
  * they snapped, four times, for every room in the house. Now the wall is the starting point: the
- * new room's near wall IS the tapped wall, and it goes `depthPx` straight out from it, whatever
- * angle the wall lies at.
+ * new room stands across the tapped wall from this one — its near side a wall's thickness out
+ * ([pullBase]), the wall between them filling the gap — and it is `depthPx` deep, straight out,
+ * whatever angle the wall lies at.
  *
  * It goes out only as far as the walls already there allow — `extrudeWall` — so its far side and
  * its flanks are made of those walls where they stand in the way, angle and all, and it never lies
- * over another room.
+ * over another room; and where it comes up against another room it stops a wall short of it, as it
+ * stands a wall off the room it was pulled from ([pulledRoomOutline]).
  *
  * The doors, openings and windows in every wall it shares are seen from the new side — the wall
  * it was pulled from, and any wall it came to rest along — without being copied into it: a door
@@ -187,20 +317,10 @@ export function pullRoomFromWall(
 ): SketchRoom | null {
   const own = wallById(source, wallId);
   if (!own || own.lengthPx < MIN_WALL_PX) return null;
-  // Inward is the same band off the same wall taken the other way round — see `reversedWall`.
-  const wall = depthPx < 0 ? reversedWall(own) : own;
-  const depth = Math.max(PULLED_ROOM_MIN_DEPTH_PX, Math.abs(depthPx));
-
-  /*
-    The far side follows whatever walls are in the way — see `extrudeWall`. Out, along, back is
-    clockwise by construction when the source is, which every room is; `ensureClockwise` guards a
-    source that somehow is not, and does nothing otherwise — and puts an inward pull, which comes
-    out the other way round, right.
-  */
-  const band = extrudeWall(wall, depth, around.obstacles);
-  if (!band) return null;
-  const vertices = ensureClockwise(band.far.map((p) => ({ id: newSketchId("v"), x: p.x, y: p.y })));
-  if (vertices.length < 3) return null;
+  // Out, a wall beyond the wall; in, the same band off the same wall taken the other way round -
+  // see `pullBase`. And a wall short of any other room it meets - see `pulledRoomOutline`.
+  const vertices = pulledRoomOutline(source, own, depthPx, around);
+  if (!vertices) return null;
   const room: SketchRoom = {
     id: newSketchId("room"),
     name: nextRoomName(around.rooms),
@@ -215,10 +335,7 @@ export function pullRoomFromWall(
     freeCabinets: [],
   };
   if (roomLevel(source) !== 0) room.level = roomLevel(source);
-  const tidy = pruneCollinearVertices(room);
-  // Nothing worth calling a room: a band too thin, or nothing left in front of the wall.
-  if (Math.abs(polygonArea(tidy.vertices)) < PIXELS_PER_FOOT * PIXELS_PER_FOOT) return null;
-  return tidy;
+  return room;
 }
 
 /** Signed polygon area, in square pixels. */
