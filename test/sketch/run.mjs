@@ -25,6 +25,7 @@ import { runRoomChecks } from "./rooms.mjs";
 import { runBlockChecks } from "./blocks.mjs";
 import { runScanImportChecks } from "./scanImport.mjs";
 import { runClosetChecks } from "./closet.mjs";
+import { runWallFaceChecks } from "./wallFaces.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..", "..");
@@ -130,6 +131,18 @@ if (closet.failures.length > 0) {
   process.exit(1);
 }
 console.log(`  Closets: ok (${closet.passed.length} checks — a closet lands behind its door, never in the room)`);
+
+// And the walls as Xactimate draws them: 4" outward from the inside faces, one wall where two rooms share one.
+const wallFaces = await runWallFaceChecks();
+if (wallFaces.failures.length > 0) {
+  console.error(`
+  Wall faces: ${wallFaces.passed.length} passed, ${wallFaces.failures.length} FAILED
+`);
+  for (const failure of wallFaces.failures) console.error(`    ✗ ${failure}
+`);
+  process.exit(1);
+}
+console.log(`  Wall faces: ok (${wallFaces.passed.length} checks — 4" outward from the inside faces, one wall where two rooms share one)`);
 
 await build({
   entryPoints: [join(here, "entry.tsx")],

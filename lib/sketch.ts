@@ -1299,6 +1299,163 @@ export const WALL_THICKNESS_FEET = 4 / 12;
 export function wallStrokePx(zoom: number): number {
   return Math.max(PIXELS_PER_FOOT * WALL_THICKNESS_FEET, 1.5 / Math.max(zoom, 0.01));
 }
+/*
+  WALLS AS XACTIMATE DRAWS THEM (2026-09-25, step 1 of 2).
+
+  A room's vertices are its INSIDE faces - what the tape reads and what every area and wall figure
+  is worked from - and the wall is built OUTWARD from them, 4" thick. Until now the 4" was a stroke
+  centred on the outline, half of it inside the room; two rooms shared a wall by sitting on one
+  line with their insides touching. That is not how Xactimate draws a plan, and the estimator's
+  eye is trained on Xactimate: "The more familiar that sketch tool is to xactimate the better."
+
+  It is also not where a scanned room is. The phone lays two joined rooms a partition apart
+  (4 1/2 in), because that is where the other face of the wall is, and a centred stroke on each
+  drew that partition as two walls with a sliver between them. Built outward, the two rooms' walls
+  meet and read as the one wall they are.
+
+  Nothing measured changes: the vertices stay the inside faces. Only the drawing moves. Step 2 is
+  the snapping - rooms dragged together landing a wall apart instead of on one line.
+*/
+
+/** The real wall thickness in world pixels (inches): 4. */
+export const WALL_THICKNESS_PX = PIXELS_PER_FOOT * WALL_THICKNESS_FEET;
+
+/**
+ * A mitred corner further out than this many thicknesses is clamped: a very sharp corner would
+ * otherwise throw its outer face a long way out.
+ */
+const MITER_LIMIT = 4;
+
+/**
+ * The room's OUTER wall faces: the outline pushed [thicknessPx] outward, mitred at every corner,
+ * clockwise like the room. With the room's own outline it bounds the wall ring Xactimate draws.
+ * Works for convex and re-entrant corners alike (the miter of a re-entrant corner lands inside the
+ * angle); a corner sharper than [MITER_LIMIT] is clamped.
+ */
+export function outerWallFaces(vertices: { x: number; y: number }[], thicknessPx: number): { x: number; y: number }[] {
+  const n = vertices.length;
+  if (n < 3) return vertices.map((v) => ({ x: v.x, y: v.y }));
+  // Outward normal of each edge: the direction turned -90 degrees in screen space (y down). A room
+  // is clockwise, so +90 is into the room (see the class doc on winding) and -90 is out of it.
+  const normals: { x: number; y: number }[] = [];
+  for (let i = 0; i < n; i++) {
+    const a = vertices[i] as { x: number; y: number };
+    const b = vertices[(i + 1) % n] as { x: number; y: number };
+    const len = Math.hypot(b.x - a.x, b.y - a.y);
+    normals.push(len > 1e-9 ? { x: (b.y - a.y) / len, y: -(b.x - a.x) / len } : { x: 0, y: 0 });
+  }
+  const out: { x: number; y: number }[] = [];
+  for (let i = 0; i < n; i++) {
+    const v = vertices[i] as { x: number; y: number };
+    const n1 = normals[(i - 1 + n) % n] as { x: number; y: number };
+    const n2 = normals[i] as { x: number; y: number };
+    const denom = 1 + n1.x * n2.x + n1.y * n2.y;
+    let mx: number;
+    let my: number;
+    if (denom < 1e-6) {
+      // The wall doubles straight back on itself: no miter exists; take the second wall's normal.
+      mx = n2.x * thicknessPx;
+      my = n2.y * thicknessPx;
+    } else {
+      mx = ((n1.x + n2.x) * thicknessPx) / denom;
+      my = ((n1.y + n2.y) * thicknessPx) / denom;
+    }
+    const m = Math.hypot(mx, my);
+    const limit = MITER_LIMIT * thicknessPx;
+    if (m > limit) {
+      mx = (mx / m) * limit;
+      my = (my / m) * limit;
+    }
+    out.push({ x: v.x + mx, y: v.y + my });
+  }
+  return out;
+}
+
+/**
+ * The rooms whose floors a room's wall may never be painted over: every other room on its storey
+ * except the ones it stands inside (its parent, and theirs). A closet pulled into a bedroom builds
+ * its walls out into the bedroom - that is where they are - but a room beside it never.
+ */
+export function roomsWallsMayNotCover(room: SketchRoom, rooms: SketchRoom[]): SketchRoom[] {
+  const level = roomLevel(room);
+  const ancestors = new Set<string>();
+  let parentId = room.parentRoomId;
+  let guard = 0;
+  while (parentId && guard++ < 32) {
+    ancestors.add(parentId);
+    parentId = rooms.find((r) => r.id === parentId)?.parentRoomId ?? null;
+  }
+  return rooms.filter((r) => r.id !== room.id && !ancestors.has(r.id) && roomLevel(r) === level && r.vertices.length >= 3);
+}
+
+/**
+ * Another room's wall FACING this one across a partition: parallel to 3 degrees, running the other
+ * way (two clockwise rooms share a wall that way), on this wall's outward side no further than
+ * [PARTITION_MAX_PX], and overlapping it along. Returns the gap between the two faces and the
+ * stretch of this wall it covers, or null.
+ */
+function facingAcross(wall: WallGeometry, theirs: WallGeometry): { gapPx: number; from: number; to: number } | null {
+  if (wall.lengthPx <= 0 || theirs.lengthPx <= 0) return null;
+  const ux = (wall.x2 - wall.x1) / wall.lengthPx;
+  const uy = (wall.y2 - wall.y1) / wall.lengthPx;
+  const tx = (theirs.x2 - theirs.x1) / theirs.lengthPx;
+  const ty = (theirs.y2 - theirs.y1) / theirs.lengthPx;
+  if (ux * tx + uy * ty > -Math.cos((3 * Math.PI) / 180)) return null;
+  // Outward normal of this wall: its direction turned -90 degrees (the room is clockwise).
+  const ox = uy;
+  const oy = -ux;
+  const out = (p: { x: number; y: number }) => (p.x - wall.x1) * ox + (p.y - wall.y1) * oy;
+  const g1 = out({ x: theirs.x1, y: theirs.y1 });
+  const g2 = out({ x: theirs.x2, y: theirs.y2 });
+  if (Math.min(g1, g2) < -1.5 || Math.max(g1, g2) > PARTITION_MAX_PX) return null;
+  const along = (p: { x: number; y: number }) => (p.x - wall.x1) * ux + (p.y - wall.y1) * uy;
+  const a = along({ x: theirs.x1, y: theirs.y1 });
+  const b = along({ x: theirs.x2, y: theirs.y2 });
+  const from = Math.max(0, Math.min(a, b));
+  const to = Math.min(wall.lengthPx, Math.max(a, b));
+  if (to - from <= 1) return null;
+  return { gapPx: Math.max(0, (g1 + g2) / 2), from, to };
+}
+
+/**
+ * The stretches of [wall] that another room shares on ONE line, insides touching - a sketch drawn
+ * before walls had a side, or rooms dragged flush. Nothing stands between those two floors, and a
+ * wall built outward from either would be painted over the other; so there the wall is drawn as it
+ * always was, centred on the line, once for both.
+ */
+export function sharedCentrelineStretches(room: SketchRoom, wall: WallGeometry, rooms: SketchRoom[]): { from: number; to: number }[] {
+  const out: { from: number; to: number }[] = [];
+  for (const other of roomsWallsMayNotCover(room, rooms)) {
+    for (const theirs of wallsOf(other)) {
+      const f = facingAcross(wall, theirs);
+      if (f && f.gapPx <= 1.5) out.push({ from: f.from, to: f.to });
+    }
+  }
+  return out;
+}
+
+/**
+ * Where the wall a door or window cuts through stands at [alongPx] along [wall], in the wall's own
+ * frame (+y into the room): its middle and its thickness. Built outward, it is [thicknessPx]
+ * outside the face. Across a partition to another room - a scan's 4 1/2 in - it is the whole
+ * partition, both rooms' walls, so an opening there is cut through both. On one line with another
+ * room it is centred on the line.
+ */
+export function wallBandAt(room: SketchRoom, wall: WallGeometry, alongPx: number, rooms: SketchRoom[], thicknessPx: number = WALL_THICKNESS_PX): { centrePx: number; thicknessPx: number } {
+  let gap: number | null = null;
+  for (const other of roomsWallsMayNotCover(room, rooms)) {
+    for (const theirs of wallsOf(other)) {
+      const f = facingAcross(wall, theirs);
+      if (!f || alongPx < f.from || alongPx > f.to) continue;
+      if (gap === null || f.gapPx < gap) gap = f.gapPx;
+    }
+  }
+  if (gap === null) return { centrePx: -thicknessPx / 2, thicknessPx };
+  if (gap <= 1.5) return { centrePx: 0, thicknessPx };
+  const t = Math.max(gap, thicknessPx);
+  return { centrePx: -t / 2, thicknessPx: t };
+}
+
 /** Shortest a wall may become. Below this a vertex drag is refused rather than collapsing the room. */
 export const MIN_WALL_PX = 16;
 /** A polygon needs three corners to enclose anything. */

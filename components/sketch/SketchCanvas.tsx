@@ -65,6 +65,10 @@ import {
   wallHandleRadii,
   wallStrokePx,
   wallsOf,
+  outerWallFaces,
+  roomsWallsMayNotCover,
+  sharedCentrelineStretches,
+  wallBandAt,
 } from "@/lib/sketch";
 import { type DraftPoint, WALL_SNAP_SCREEN_PX, absorbedFreeWallIds, snapDraftPoint, wallDimensionsWithExtensions } from "@/lib/sketchWalls";
 import { type Obstacle, PULLED_ROOM_DEFAULT_DEPTH_PX, PULLED_ROOM_MIN_DEPTH_PX, extrudeWall, outwardNormal, pullDepthPx, reversedWall } from "@/lib/roomPlacement";
@@ -1334,22 +1338,52 @@ function RoomShape({
         onTouchStart={(e) => handleBodyPointer(e)}
       />
 
-      {walls.map((wall) => (
-        /* Drawn at a real 4" — see `wallStrokePx`. That also leaves a shared wall room for a mark on
-           each side (see `insetTowards`): two adjacent rooms draw their own line over the same
-           centreline, which together read as one wall with two faces rather than two coincident
-           lines. */
-        <Line
-          key={wall.id}
-          points={[wall.x1, wall.y1, wall.x2, wall.y2]}
-          stroke={highlight?.wallIds.includes(wall.id) ? COLORS.highlightWall : COLORS.wall}
-          /* Heavier as well as coloured: a thumbnail is read small and printed, sometimes in
-             greyscale, where colour alone stops carrying. */
-          strokeWidth={highlight?.wallIds.includes(wall.id) ? wallStroke * 2 : wallStroke}
-          lineCap="square"
-          listening={false}
-        />
-      ))}
+      {room.stairs !== null ? (
+        /* A flight is a space, not a room with walls round it: its outline keeps the centred line. */
+        walls.map((wall) => (
+          <Line
+            key={wall.id}
+            points={[wall.x1, wall.y1, wall.x2, wall.y2]}
+            stroke={highlight?.wallIds.includes(wall.id) ? COLORS.highlightWall : COLORS.wall}
+            strokeWidth={highlight?.wallIds.includes(wall.id) ? wallStroke * 2 : wallStroke}
+            lineCap="square"
+            listening={false}
+          />
+        ))
+      ) : (
+        <>
+          {/* The walls, Xactimate's way: 4" OUTWARD from the inside faces - see `outerWallFaces`. */}
+          <WallRing room={room} rooms={rooms} thicknessPx={wallStroke} />
+          {/* Where another room shares the line, insides touching, the wall is centred on it as it
+              always was - see `sharedCentrelineStretches`. Both rooms draw it; it is one wall. */}
+          {walls.map((wall) =>
+            sharedCentrelineStretches(room, wall, rooms).map((stretch, i) => {
+              const a = pointOnWall(wall, stretch.from / wall.lengthPx);
+              const b = pointOnWall(wall, stretch.to / wall.lengthPx);
+              return <Line key={`${wall.id}:${i}`} points={[a.x, a.y, b.x, b.y]} stroke={COLORS.wall} strokeWidth={wallStroke} lineCap="square" listening={false} />;
+            }),
+          )}
+          {/* A wall a thumbnail picks out: over the wall where it stands, outside the face.
+              Heavier as well as coloured: a thumbnail is read small and printed, sometimes in
+              greyscale, where colour alone stops carrying. */}
+          {walls
+            .filter((wall) => highlight?.wallIds.includes(wall.id) && wall.lengthPx > 0)
+            .map((wall) => {
+              const ox = ((wall.y2 - wall.y1) / wall.lengthPx) * (wallStroke / 2);
+              const oy = (-(wall.x2 - wall.x1) / wall.lengthPx) * (wallStroke / 2);
+              return (
+                <Line
+                  key={`highlight:${wall.id}`}
+                  points={[wall.x1 + ox, wall.y1 + oy, wall.x2 + ox, wall.y2 + oy]}
+                  stroke={COLORS.highlightWall}
+                  strokeWidth={wallStroke * 2}
+                  lineCap="square"
+                  listening={false}
+                />
+              );
+            })}
+        </>
+      )}
 
       {showMoisture && <PaintedSurfaces room={room} moisture={moisture} zoom={zoom} />}
 
@@ -2222,7 +2256,15 @@ function SymbolShape({
     Text is turned to read the right way up on a wall running right-to-left — the same rule as the
     wall's own label. The width labels used to come out upside down along every bottom wall.
   */
-  const rowY = -(wallStrokePx(zoom) / 2 + 6 / zoom);
+  /*
+    Where the wall this opening is cut through stands, in the wall's frame: built OUTWARD from the
+    face, or across a partition to the next room, or centred on a line two rooms share - see
+    `wallBandAt`. The gap and the glyph are drawn about its middle, so a door in a scanned partition
+    opens through both rooms' walls and a window's two lines are the wall's two faces.
+  */
+  const opening = symbol.type === "door" || symbol.type === "window";
+  const band = opening ? wallBandAt(room, wall, centre, rooms, wallStrokePx(zoom)) : null;
+  const rowY = band ? band.centrePx - band.thicknessPx / 2 - 6 / zoom : -(wallStrokePx(zoom) + 6 / zoom);
   const flip = wall.rotation > 90 || wall.rotation < -90;
   const offsets = selected && (symbol.type === "door" || symbol.type === "window") ? symbolOffsetsPx(symbol, room, rooms) : null;
 
@@ -2230,10 +2272,13 @@ function SymbolShape({
     <Group x={wall.x1} y={wall.y1} rotation={wall.rotation} listening={interactive}>
       {/* Erases the wall beneath the opening. Doors and windows are gaps in the wall, not things
           drawn on top of an unbroken line. Cabinets sit against an intact wall. */}
-      {symbol.type !== "cabinet" && symbol.type !== "fixture" && <Rect x={x0} y={-2} width={w} height={4} fill={COLORS.fill} />}
-
-      {symbol.type === "door" && <DoorGlyph door={symbol} room={room} x0={x0} x1={x1} w={w} />}
-      {symbol.type === "window" && <WindowGlyph x0={x0} x1={x1} />}
+      {band && (
+        <Group y={band.centrePx}>
+          <Rect x={x0} y={-band.thicknessPx / 2 - 0.5} width={w} height={band.thicknessPx + 1} fill={COLORS.fill} listening={false} />
+          {symbol.type === "door" && <DoorGlyph door={symbol} room={room} x0={x0} x1={x1} w={w} />}
+          {symbol.type === "window" && <WindowGlyph x0={x0} x1={x1} />}
+        </Group>
+      )}
       {symbol.type === "cabinet" && <CabinetGlyph cabinet={symbol} x0={x0} w={w} depth={cabinetDepthPx(symbol)} flip={flip} />}
       {symbol.type === "fixture" && <FixtureGlyph fixture={symbol} x0={x0} w={w} depth={cabinetDepthPx(symbol)} />}
 
@@ -2278,6 +2323,72 @@ function SymbolShape({
 
       {selected && <SymbolEndHandles x0={x0} x1={x1} zoom={zoom} onResize={onResize} />}
     </Group>
+  );
+}
+
+/**
+ * A room's walls, Xactimate's way: the band between its inside faces (the room's own outline) and
+ * its outer faces 4" out (`outerWallFaces`), mitred at every corner.
+ *
+ * Never painted over another room's floor (`roomsWallsMayNotCover`) - the ring is clipped to keep
+ * out of every other room on the storey except the ones this room stands inside. So two scanned
+ * rooms a partition apart draw their two rings into the partition and meet as one wall; two rooms
+ * dragged flush, insides touching, clip each other's ring away entirely there, and the centred line
+ * they share is drawn instead (`sharedCentrelineStretches`); and a closet pulled into a bedroom
+ * builds its walls out into the bedroom, which is where they are.
+ *
+ * Drawn with a hand-made path because a Konva Line strokes both sides of its points: the ring is
+ * the outer outline with the room's own reversed inside it, so the room is the hole.
+ */
+function WallRing({ room, rooms, thicknessPx }: { room: SketchRoom; rooms: SketchRoom[]; thicknessPx: number }) {
+  const outer = outerWallFaces(room.vertices, thicknessPx);
+  const keepOff = roomsWallsMayNotCover(room, rooms);
+  const inner = room.vertices;
+  if (outer.length < 3 || inner.length < 3) return null;
+  return (
+    <Shape
+      listening={false}
+      fill={COLORS.wall}
+      sceneFunc={(context, shape) => {
+        const native = context._context;
+        // Konva slides the room's group while the room is dragged; the other rooms stay where they
+        // are, so in this room's frame they sit back by the slide.
+        const group = shape.getParent();
+        const dx = group ? group.x() : 0;
+        const dy = group ? group.y() : 0;
+        native.save();
+        if (keepOff.length > 0) {
+          native.beginPath();
+          native.rect(-1e6, -1e6, 2e6, 2e6);
+          for (const other of keepOff) {
+            const [first, ...rest] = other.vertices;
+            if (!first) continue;
+            native.moveTo(first.x - dx, first.y - dy);
+            for (const v of rest) native.lineTo(v.x - dx, v.y - dy);
+            native.closePath();
+          }
+          native.clip("evenodd");
+        }
+        context.beginPath();
+        const [o0, ...orest] = outer;
+        if (o0) {
+          context.moveTo(o0.x, o0.y);
+          for (const v of orest) context.lineTo(v.x, v.y);
+          context.closePath();
+        }
+        const last = inner[inner.length - 1];
+        if (last) {
+          context.moveTo(last.x, last.y);
+          for (let i = inner.length - 2; i >= 0; i--) {
+            const v = inner[i];
+            if (v) context.lineTo(v.x, v.y);
+          }
+          context.closePath();
+        }
+        context.fillShape(shape);
+        native.restore();
+      }}
+    />
   );
 }
 
