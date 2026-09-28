@@ -1,7 +1,7 @@
 import { importScanRoom, scanPointToPx, type ScanImportResult, type ScanOrigin } from "./scanImport";
 import { hasRoomMoisture, type MoistureMap } from "./moisture";
 import type { ScopeMarks } from "./scopeMarks";
-import { MAIN_LEVEL, roomBounds, roomLevel, roomsOnLevel, withDerivedParents, type Sketch, type SketchRoom, type SketchScan, type SketchWalk, type WalkPhoto } from "./sketch";
+import { MAIN_LEVEL, roomBounds, roomLevel, roomsOnLevel, withDerivedParents, type Sketch, type SketchRoom, type SketchScan, type SketchWalk, type WalkCamera, type WalkPhoto } from "./sketch";
 
 export type { SketchScan } from "./sketch";
 
@@ -199,11 +199,36 @@ export function walkFromScan(body: unknown, origin: ScanOrigin | undefined, at: 
       heightFeet: finite(e.height_m) ? e.height_m * FEET_PER_METRE : null,
       headingDeg: e.heading_deg,
       pitchDeg: finite(e.pitch_deg) ? e.pitch_deg : null,
+      // The file's u runs across the page and its v down it, so its axes are the page's as they come.
+      ...(() => {
+        const forward = unitVector(e.forward);
+        const up = unitVector(e.up);
+        return forward && up ? { forward, up } : {};
+      })(),
     });
   }
   if (photos.length === 0) return null;
   photos.sort((a, b) => a.tS - b.tS || a.n - b.n);
-  return { scanId, level, photos };
+  const camera = walkCamera((walk as { camera?: unknown }).camera);
+  return { scanId, level, photos, ...(camera ? { camera } : {}) };
+}
+
+/** A unit vector from the wire's [a, b, c], or undefined when it is not three finite numbers of some length. */
+function unitVector(raw: unknown): [number, number, number] | undefined {
+  if (!Array.isArray(raw) || raw.length !== 3 || !raw.every(finite)) return undefined;
+  const [a, b, c] = raw as [number, number, number];
+  const len = Math.hypot(a, b, c);
+  return len > 1e-6 ? [a / len, b / len, c / len] : undefined;
+}
+
+/** The walk's lens, or null when the file has none a photo could be laid through. */
+function walkCamera(raw: unknown): WalkCamera | null {
+  if (raw === null || typeof raw !== "object") return null;
+  const c = raw as Record<string, unknown>;
+  const { width, height, fx, fy, cx, cy } = c;
+  if (!finite(width) || !finite(height) || !finite(fx) || !finite(fy) || !finite(cx) || !finite(cy)) return null;
+  if (width <= 0 || height <= 0 || fx <= 0 || fy <= 0) return null;
+  return { width, height, fx, fy, cx, cy };
 }
 
 /**

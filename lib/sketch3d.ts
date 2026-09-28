@@ -14,9 +14,10 @@
  * the plan draws a doorway once through both. A stair flight has no walls of its own; it is steps.
  *
  * A SLOPED OR VAULTED CEILING stands its walls up to it: a wall's top follows the ceiling over it
- * (`ceilingModel`), so a shed room's high wall is its peak and a vault's end walls are gables. The
- * ceiling itself is left out, for now - this is a dollhouse, looked into from above - and so are
- * fixtures.
+ * (`ceilingModel`), so a shed room's high wall is its peak and a vault's end walls are gables.
+ *
+ * CEILINGS are built too (`ModelCeiling`), for walk mode, where the view stands inside a room at eye
+ * height and looks up; the dollhouse, looked into from above, leaves them out. Fixtures are left out.
  */
 
 import {
@@ -83,9 +84,18 @@ export interface ModelLevel {
   heightFeet: number;
 }
 
+/** A room's ceiling as triangles, each corner with its own height: flat, or following a slope or a vault. */
+export interface ModelCeiling {
+  roomId: string;
+  level: number;
+  /** Triangles in feet, three corners each, flattened: x, y, z, x, y, z, ... */
+  positions: number[];
+}
+
 export interface HouseModel {
   prisms: Prism[];
   floors: ModelFloor[];
+  ceilings: ModelCeiling[];
   levels: ModelLevel[];
   /** Everything in the model; null when there is nothing. */
   bounds: { minX: number; maxX: number; minY: number; maxY: number; minZ: number; maxZ: number } | null;
@@ -131,13 +141,92 @@ function ceilingOf(room: SketchRoom): number {
 export interface CeilingModel {
   at: (x: number, y: number) => number;
   breaks: (x1: number, y1: number, x2: number, y2: number) => number[];
+  /** A convex polygon cut where the pitch changes, so the height over each piece is linear. */
+  pieces: (polygon: { x: number; y: number }[]) => { x: number; y: number }[][];
   low: number;
   high: number;
 }
 
+/** [polygon] (convex) with the part where [side] is negative cut away. */
+function keepSide(polygon: { x: number; y: number }[], side: (p: { x: number; y: number }) => number): { x: number; y: number }[] {
+  const out: { x: number; y: number }[] = [];
+  for (let i = 0; i < polygon.length; i++) {
+    const p = polygon[i] as { x: number; y: number };
+    const q = polygon[(i + 1) % polygon.length] as { x: number; y: number };
+    const fp = side(p);
+    const fq = side(q);
+    if (fp >= 0) out.push(p);
+    if (fp >= 0 !== fq >= 0) {
+      const t = fp / (fp - fq);
+      out.push({ x: p.x + (q.x - p.x) * t, y: p.y + (q.y - p.y) * t });
+    }
+  }
+  return out;
+}
+
+function area2(polygon: { x: number; y: number }[]): number {
+  let a = 0;
+  for (let i = 0; i < polygon.length; i++) {
+    const p = polygon[i] as { x: number; y: number };
+    const q = polygon[(i + 1) % polygon.length] as { x: number; y: number };
+    a += p.x * q.y - q.x * p.y;
+  }
+  return a;
+}
+
+/**
+ * A simple polygon cut into triangles by clipping ears, as index triples - a room is a few dozen
+ * corners at most. Either winding; a corner in a straight line with its neighbours is clipped
+ * last, and a polygon that folds over itself gives what it can rather than looping.
+ */
+export function triangulate(points: { x: number; y: number }[]): [number, number, number][] {
+  const n = points.length;
+  if (n < 3) return [];
+  const sign = area2(points) >= 0 ? 1 : -1;
+  const idx = points.map((_, i) => i);
+  const out: [number, number, number][] = [];
+  const cross = (a: number, b: number, c: number) => {
+    const pa = points[a] as { x: number; y: number };
+    const pb = points[b] as { x: number; y: number };
+    const pc = points[c] as { x: number; y: number };
+    return ((pb.x - pa.x) * (pc.y - pa.y) - (pb.y - pa.y) * (pc.x - pa.x)) * sign;
+  };
+  const inside = (p: { x: number; y: number }, a: number, b: number, c: number) => {
+    const pa = points[a] as { x: number; y: number };
+    const pb = points[b] as { x: number; y: number };
+    const pc = points[c] as { x: number; y: number };
+    const d1 = ((pb.x - pa.x) * (p.y - pa.y) - (pb.y - pa.y) * (p.x - pa.x)) * sign;
+    const d2 = ((pc.x - pb.x) * (p.y - pb.y) - (pc.y - pb.y) * (p.x - pb.x)) * sign;
+    const d3 = ((pa.x - pc.x) * (p.y - pc.y) - (pa.y - pc.y) * (p.x - pc.x)) * sign;
+    return d1 > EPS && d2 > EPS && d3 > EPS;
+  };
+  let guard = 0;
+  while (idx.length > 3 && guard++ < n * n) {
+    let clipped = false;
+    for (const strict of [true, false]) {
+      for (let i = 0; i < idx.length; i++) {
+        const a = idx[(i + idx.length - 1) % idx.length] as number;
+        const b = idx[i] as number;
+        const c = idx[(i + 1) % idx.length] as number;
+        const k = cross(a, b, c);
+        if (strict ? k <= EPS : k < -EPS) continue;
+        if (idx.some((j) => j !== a && j !== b && j !== c && inside(points[j] as { x: number; y: number }, a, b, c))) continue;
+        if (k > EPS) out.push([a, b, c]);
+        idx.splice(i, 1);
+        clipped = true;
+        break;
+      }
+      if (clipped) break;
+    }
+    if (!clipped) break;
+  }
+  if (idx.length === 3 && cross(idx[0] as number, idx[1] as number, idx[2] as number) > EPS) out.push([idx[0] as number, idx[1] as number, idx[2] as number]);
+  return out;
+}
+
 export function ceilingModel(room: SketchRoom): CeilingModel {
   const low = ceilingOf(room);
-  const flat: CeilingModel = { at: () => low, breaks: () => [], low, high: low };
+  const flat: CeilingModel = { at: () => low, breaks: () => [], pieces: (polygon) => [polygon], low, high: low };
   const peak = room.ceilingPeakFeet;
   if (room.ceilingType === "flat" || peak == null || !(peak > low + EPS) || room.vertices.length < 3) return flat;
   const b = roomBounds(room);
@@ -167,7 +256,20 @@ export function ceilingModel(room: SketchRoom): CeilingModel {
     if (Math.abs(f1 - f0) < EPS) return [];
     return marks.map((m) => (m - f0) / (f1 - f0)).filter((t) => t > EPS && t < 1 - EPS);
   };
-  return { at, breaks, low, high: peak };
+  const pieces = (polygon: { x: number; y: number }[]) => {
+    const out: { x: number; y: number }[][] = [];
+    const bounds = [-Infinity, ...marks, Infinity];
+    for (let k = 0; k + 1 < bounds.length; k++) {
+      const lo = bounds[k] as number;
+      const hi = bounds[k + 1] as number;
+      let piece = polygon;
+      if (Number.isFinite(lo)) piece = keepSide(piece, (p) => along(p.x, p.y) - lo);
+      if (Number.isFinite(hi)) piece = keepSide(piece, (p) => hi - along(p.x, p.y));
+      if (piece.length >= 3 && Math.abs(area2(piece)) > EPS) out.push(piece);
+    }
+    return out;
+  };
+  return { at, breaks, pieces, low, high: peak };
 }
 
 /** Floor heights, storey by storey: each floor stands on the tallest ceiling below it plus the floor structure. */
@@ -461,6 +563,7 @@ export function houseModel(sketch: Sketch): HouseModel {
   const baseOf = (level: number) => levels.find((l) => l.level === level)?.baseY ?? 0;
   const prisms: Prism[] = [];
   const floors: ModelFloor[] = [];
+  const ceilings: ModelCeiling[] = [];
   for (const room of sketch.rooms) {
     if (room.vertices.length < 3) continue;
     const level = roomLevel(room);
@@ -473,9 +576,25 @@ export function houseModel(sketch: Sketch): HouseModel {
     roomWalls(room, levelRooms, sketch, level, baseY, prisms);
     roomCabinets(room, levelRooms, sketch, level, baseY, prisms);
     const points = room.vertices.map((v) => pt(v.x, v.y));
-    const y = baseY + 0.01 * nestingDepth(room, levelRooms);
+    const depth = nestingDepth(room, levelRooms);
+    const y = baseY + 0.01 * depth;
     const c = centroid(points);
     floors.push({ roomId: room.id, name: room.name, level, points, y, labelAt: { x: c.x, y: y + 0.1, z: c.z } });
+    // Overhead: the floor's triangles cut where the ceiling's pitch changes, each corner at its own
+    // height - a hair lower for a room inside another, as its floor is a hair higher.
+    const ceil = ceilingModel(room);
+    const positions: number[] = [];
+    for (const [a, b, t] of triangulate(room.vertices)) {
+      const tri = [room.vertices[a], room.vertices[b], room.vertices[t]] as { x: number; y: number }[];
+      for (const piece of ceil.pieces(tri)) {
+        for (let k = 1; k + 1 < piece.length; k++) {
+          for (const p of [piece[0], piece[k], piece[k + 1]] as { x: number; y: number }[]) {
+            positions.push(feet(p.x), baseY + ceil.at(p.x, p.y) - 0.01 * depth, feet(p.y));
+          }
+        }
+      }
+    }
+    if (positions.length > 0) ceilings.push({ roomId: room.id, level, positions });
   }
   for (const wall of freeWallsOf(sketch)) {
     const baseY = baseOf(freeWallLevel(wall));
@@ -512,5 +631,5 @@ export function houseModel(sketch: Sketch): HouseModel {
     grow(q.x, p.y1, q.z);
   }
   for (const f of floors) for (const q of f.points) grow(q.x, f.y, q.z);
-  return { prisms, floors, levels, bounds };
+  return { prisms, floors, ceilings, levels, bounds };
 }

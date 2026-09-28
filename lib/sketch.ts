@@ -756,6 +756,22 @@ export interface SketchWalk {
   scanId: string;
   level: number;
   photos: WalkPhoto[];
+  /** The lens the photos were taken through; absent from scans sent before 2026-09-28. */
+  camera?: WalkCamera | null;
+}
+
+/**
+ * A pinhole lens, for the photos as saved (upright): pixels, x right and y down, the focal lengths
+ * and the principal point. Walk mode lays a photo over the model through it - the field of view is
+ * the focal length against the height.
+ */
+export interface WalkCamera {
+  width: number;
+  height: number;
+  fx: number;
+  fy: number;
+  cx: number;
+  cy: number;
 }
 
 export interface WalkPhoto {
@@ -772,6 +788,13 @@ export interface WalkPhoto {
   headingDeg: number;
   /** Up or down from level, degrees, up positive; null when not known. */
   pitchDeg: number | null;
+  /**
+   * The camera's own axes, unit length, as (across the page, down the page, up): the way it looked
+   * and the way the photo's top edge pointed. They also carry how the phone was turned about the
+   * way it looked, which heading and pitch cannot. Absent from scans sent before 2026-09-28.
+   */
+  forward?: [number, number, number];
+  up?: [number, number, number];
 }
 
 export function emptySketch(): Sketch {

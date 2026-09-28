@@ -27,6 +27,7 @@ import { runScanImportChecks } from "./scanImport.mjs";
 import { runClosetChecks } from "./closet.mjs";
 import { runWallFaceChecks } from "./wallFaces.mjs";
 import { runModel3dChecks } from "./model3d.mjs";
+import { runWalkViewChecks } from "./walkView.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..", "..");
@@ -156,6 +157,18 @@ if (model3d.failures.length > 0) {
   process.exit(1);
 }
 console.log(`  3D model: ok (${model3d.passed.length} checks — the plan's walls stood up, doorways cut through both rooms)`);
+
+// Walk mode: where each photo's camera stood, how its photo hangs, where a tap goes.
+const walkView = await runWalkViewChecks();
+if (walkView.failures.length > 0) {
+  console.error(`
+  Walk mode: ${walkView.passed.length} passed, ${walkView.failures.length} FAILED
+`);
+  for (const failure of walkView.failures) console.error(`    ✗ ${failure}
+`);
+  process.exit(1);
+}
+console.log(`  Walk mode: ok (${walkView.passed.length} checks — each photo stands where it was taken, a tap goes to the nearest)`);
 
 await build({
   entryPoints: [join(here, "entry.tsx")],

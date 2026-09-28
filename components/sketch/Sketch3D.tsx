@@ -1,26 +1,45 @@
 "use client";
 
 /**
- * The house in 3D (2026-09-27), the first half of the walk-through: "Viewable in scrivn". A model of
- * the sketch the PM can turn and zoom - every room on every storey, walls standing where the plan
- * draws them, doorways cut through, stairs as steps - built by `houseModel` (lib/sketch3d.ts). The
- * photos the phone takes on its walk are pinned onto it next, where each was taken.
+ * The house in 3D (2026-09-27): "Viewable in scrivn". A model of the sketch - every room on every
+ * storey, walls standing where the plan draws them, doorways cut through, stairs as steps, walls
+ * rising to a sloped or vaulted ceiling - built by `houseModel` (lib/sketch3d.ts).
+ *
+ * TWO WAYS TO SEE IT (2026-09-28). The first cut pinned every photo of the phone's walk onto the model
+ * as a pin with a cone, and the owner's verdict was "all those little pointers to click on to get
+ * around is not the greatest user interface... i suppose more of a matterport type build". So:
+ *
+ * WALK MODE is the view from inside, standing where a photo was taken, looking the way the phone did,
+ * through the lens it did (lib/walkView.ts). The photo hangs in front of the view exactly over what it
+ * shows, its edges fading into the model, and the model carries on past them when the view is turned.
+ * Drag to look round; tap the floor to go to the photo taken nearest there; the arrow keys step
+ * forward and back, and on through the walk in the order it was taken. A plan of the storey in the
+ * corner shows where the view is standing and which way it looks. The claim opens in walk mode when
+ * its scan brought a walk.
+ *
+ * THE DOLLHOUSE is the model from above, to turn and zoom, with a ring on the floor wherever the walk
+ * can be joined; tapping near one flies down into it. "Low walls" cuts every wall at 4' there.
  *
  * three.js is loaded only when the view opens (dynamic imports), so the claim page never carries it.
- * Walls are drawn with navy tops: seen from above, the tops draw the plan the PM already knows.
- * "Low walls" cuts every wall at 4' above its floor - the dollhouse view, where the near walls stop
- * hiding the rooms and the doorways show as gaps.
- *
- * THE WALK'S PHOTOS (`sketch.walks`, placed when the scan was adopted) stand as pins where the phone
- * was, each with a cone for the way it faced. Tapping one opens its photo; Previous and Next step
- * through the walk in the order it was taken, the view following the pin. The pictures are fetched by
- * scan when the view opens (`/api/scans/<id>/photos`); a pin whose photo has not arrived from the
- * phone says so.
+ * The photos are fetched by scan (`/api/scans/<id>/photos`, signed links) and drawn as textures; one
+ * the browser will not draw is shown as a plain picture instead.
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { levelLabel, PIXELS_PER_FOOT, type Sketch } from "@/lib/sketch";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { levelLabel, PIXELS_PER_FOOT, roomLevel, type Sketch } from "@/lib/sketch";
 import { houseModel, type HouseModel, type PrismKind } from "@/lib/sketch3d";
+import {
+  destinationFor,
+  fitFovDeg,
+  photoPlane,
+  spacedOut,
+  stepFrom,
+  viewpoints,
+  wrapAngle,
+  yawPitchOf,
+  type Viewpoint,
+  type ViewpointKey,
+} from "@/lib/walkView";
 
 interface Props {
   sketch: Sketch;
@@ -36,10 +55,23 @@ const COLORS = {
   cabinetTop: 0xdcd6cc,
   step: 0xd2c2aa,
   glass: 0x9cc3e4,
+  ceiling: 0xf7f6f3,
+  ring: 0xffffff,
+  cursor: 0xf0a93e,
 };
 
 /** How high "Low walls" leaves a wall standing, above its own floor. */
 const LOW_WALL_FEET = 4;
+/** Photos closer together than this share one ring on the floor. */
+const RING_SPACING_FEET = 4;
+/** A step from one photo to the next, and the flight down from the dollhouse. */
+const STEP_MS = 750;
+const FLY_MS = 1300;
+/** A tap in the dollhouse joins the walk only this near one of its photos. */
+const JOIN_REACH_FEET = 8;
+
+type Mode = "walk" | "dollhouse";
+const keyOf = (k: ViewpointKey) => `${k.walk}:${k.photo}`;
 
 /**
  * A prism whose top is not level - a wall under a sloped ceiling - built by hand, since an extrusion
@@ -82,16 +114,35 @@ function slopedPrism(
   geometry.computeVertexNormals();
   return geometry;
 }
-/** Where a pin stands when the phone did not know how high it was: eye level. */
-const PIN_HEIGHT_FEET = 5;
-const PIN_COLOR = 0x1b3a5c;
-const PIN_SELECTED = 0xf0a93e;
-/** A tap this close to a pin, in screen pixels, opens it: a pin is a few pixels across seen from the door, and a finger is not. */
-const PICK_RADIUS_PX = 18;
 
-/** One photo of one walk: [walk] indexes `sketch.walks`, [photo] its photos (in the order taken). */
-type PhotoKey = { walk: number; photo: number };
-const keyOf = (k: PhotoKey) => `${k.walk}:${k.photo}`;
+/** A soft edge for a photo: opaque in the middle, fading out over its outer tenth. */
+function featherTexture(THREE: typeof import("three")): import("three").Texture {
+  const size = 128;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const g = canvas.getContext("2d");
+  if (g) {
+    const img = g.createImageData(size, size);
+    const edge = 0.1;
+    const ramp = (t: number) => {
+      const s = Math.min(1, Math.max(0, t / edge));
+      return s * s * (3 - 2 * s);
+    };
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        const u = (x + 0.5) / size;
+        const v = (y + 0.5) / size;
+        const a = ramp(Math.min(u, 1 - u)) * ramp(Math.min(v, 1 - v));
+        const i = (y * size + x) * 4;
+        img.data[i] = img.data[i + 1] = img.data[i + 2] = Math.round(a * 255);
+        img.data[i + 3] = 255;
+      }
+    }
+    g.putImageData(img, 0, 0);
+  }
+  return new THREE.CanvasTexture(canvas);
+}
 
 type Bounds = NonNullable<HouseModel["bounds"]>;
 type View = { position: [number, number, number]; target: [number, number, number] };
@@ -119,35 +170,65 @@ function boundsOf(model: HouseModel, level: number | "all"): Bounds | null {
   return b;
 }
 
+/** What the scene lets the controls outside it do, once it is built. */
+interface SceneApi {
+  show: (level: number | "all") => void;
+  frame: (level: number | "all") => void;
+  goTo: (key: ViewpointKey) => void;
+  step: (direction: 1 | -1) => void;
+  dollhouse: () => void;
+  refreshPhotos: () => void;
+}
+
+/** Where the view stands and looks, for the plan in the corner: feet and radians. */
+interface Pose {
+  x: number;
+  z: number;
+  yaw: number;
+  fov: number;
+}
+
 export default function Sketch3D({ sketch, onClose }: Props) {
   const model = useMemo(() => houseModel(sketch), [sketch]);
+  const walks = useMemo(() => sketch.walks ?? [], [sketch]);
+  const points = useMemo(() => viewpoints(walks, (lvl) => model.levels.find((l) => l.level === lvl)?.baseY ?? 0), [walks, model]);
   const levels = useMemo(() => [...new Set([...model.floors.map((f) => f.level), ...model.prisms.map((p) => p.level)])].sort((a, b) => b - a), [model]);
   const mountRef = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "failed">("loading");
   const [level, setLevel] = useState<number | "all">("all");
   const [low, setLow] = useState(false);
-  const walks = useMemo(() => sketch.walks ?? [], [sketch]);
-  const [selected, setSelected] = useState<PhotoKey | null>(null);
+  const [mode, setMode] = useState<Mode>(points.length > 0 ? "walk" : "dollhouse");
+  const [at, setAt] = useState<ViewpointKey | null>(points[0]?.key ?? null);
   // Signed links to each scan's photos, by scan id then photo number.
   const [urls, setUrls] = useState<Record<string, Record<number, string>>>({});
+  // Photos the browser would not draw as a texture (keyOf), shown as a plain picture instead.
+  const [failed, setFailed] = useState<Record<string, true>>({});
+  const urlsRef = useRef(urls);
+  urlsRef.current = urls;
   const levelRef = useRef<number | "all">("all");
-  // Where the camera was when the scene was last torn down, so "Low walls" does not throw the view away.
+  const modeRef = useRef<Mode>(mode);
+  const atRef = useRef<ViewpointKey | null>(at);
+  // Where the dollhouse camera was when the scene was last torn down, so "Low walls" does not throw the view away.
   const viewRef = useRef<View | null>(null);
-  // What the scene exposes to the controls outside it, once it is built.
-  const sceneApi = useRef<{
-    show: (level: number | "all") => void;
-    frame: (level: number | "all") => void;
-    highlight: (key: PhotoKey | null) => void;
-    focus: (key: PhotoKey) => void;
-  } | null>(null);
-  const selectedRef = useRef<PhotoKey | null>(null);
+  const sceneApi = useRef<SceneApi | null>(null);
+  // The plan in the corner: its marker is moved by the render loop, not by React.
+  const markerRef = useRef<SVGGElement>(null);
+  const poseRef = useRef<Pose | null>(null);
+
+  const arrive = useCallback((key: ViewpointKey) => {
+    atRef.current = key;
+    setAt(key);
+  }, []);
+  const enterMode = useCallback((next: Mode) => {
+    modeRef.current = next;
+    setMode(next);
+  }, []);
 
   useEffect(() => {
     const host = mountRef.current;
     if (!host) return;
     let disposed = false;
     let teardown: (() => void) | null = null;
-
     (async () => {
       let THREE: typeof import("three");
       let OrbitControls: typeof import("three/examples/jsm/controls/OrbitControls.js").OrbitControls;
@@ -207,8 +288,10 @@ export default function Sketch3D({ sketch, onClose }: Props) {
         })(),
       };
       const floorMaterials = COLORS.floors.map((c) => standard(c, { side: THREE.DoubleSide }));
+      const ceilingMaterial = standard(COLORS.ceiling, { side: THREE.DoubleSide });
 
       const geometries: import("three").BufferGeometry[] = [];
+      const textures: import("three").Texture[] = [];
       const groups = new Map<number, import("three").Group>();
       const groupFor = (lvl: number) => {
         let g = groups.get(lvl);
@@ -220,6 +303,14 @@ export default function Sketch3D({ sketch, onClose }: Props) {
         return g;
       };
       const baseOf = (lvl: number) => model.levels.find((l) => l.level === lvl)?.baseY ?? 0;
+      // What a tap can land on, storey by storey: the floors, and the solids in front of them.
+      const floorsOf = new Map<number, import("three").Mesh[]>();
+      const solidsOf = new Map<number, import("three").Mesh[]>();
+      const keep = (map: Map<number, import("three").Mesh[]>, lvl: number, mesh: import("three").Mesh) => {
+        const list = map.get(lvl) ?? [];
+        list.push(mesh);
+        map.set(lvl, list);
+      };
 
       // Every prism: its footprint extruded from y0 to y1. The shape is drawn in (x, -z) so that,
       // stood up by a quarter turn about x, its extrusion runs up and its y lands back on z.
@@ -231,7 +322,9 @@ export default function Sketch3D({ sketch, onClose }: Props) {
           if (prism.points.length < 3 || Math.max(...tops) - prism.y0 < 1e-3) continue;
           const geometry = slopedPrism(THREE, prism.points, prism.y0, tops);
           geometries.push(geometry);
-          groupFor(prism.level).add(new THREE.Mesh(geometry, byKind[prism.kind]));
+          const mesh = new THREE.Mesh(geometry, byKind[prism.kind]);
+          groupFor(prism.level).add(mesh);
+          keep(solidsOf, prism.level, mesh);
           continue;
         }
         let y1 = prism.y1;
@@ -248,8 +341,10 @@ export default function Sketch3D({ sketch, onClose }: Props) {
         geometries.push(geometry);
         const mesh = new THREE.Mesh(geometry, byKind[prism.kind]);
         if (prism.kind === "glass") mesh.renderOrder = 1;
+        else keep(solidsOf, prism.level, mesh);
         groupFor(prism.level).add(mesh);
       }
+      const nameLabels: import("three").Object3D[] = [];
       model.floors.forEach((floor, i) => {
         if (floor.points.length < 3) return;
         const shape = new THREE.Shape(floor.points.map((p) => new THREE.Vector2(p.x, -p.z)));
@@ -258,7 +353,9 @@ export default function Sketch3D({ sketch, onClose }: Props) {
         geometry.translate(0, floor.y, 0);
         geometries.push(geometry);
         const group = groupFor(floor.level);
-        group.add(new THREE.Mesh(geometry, floorMaterials[i % floorMaterials.length]));
+        const mesh = new THREE.Mesh(geometry, floorMaterials[i % floorMaterials.length]);
+        group.add(mesh);
+        keep(floorsOf, floor.level, mesh);
         if (floor.name.trim() !== "") {
           const div = document.createElement("div");
           div.textContent = floor.name;
@@ -268,45 +365,122 @@ export default function Sketch3D({ sketch, onClose }: Props) {
           const label = new CSS2DObject(div);
           label.position.set(floor.labelAt.x, floor.labelAt.y, floor.labelAt.z);
           group.add(label);
+          nameLabels.push(label);
         }
       });
+      // Ceilings, for standing inside: walk mode shows them, the dollhouse does not.
+      const ceilings: import("three").Mesh[] = [];
+      for (const c of model.ceilings) {
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute("position", new THREE.Float32BufferAttribute(c.positions, 3));
+        geometry.computeVertexNormals();
+        geometries.push(geometry);
+        const mesh = new THREE.Mesh(geometry, ceilingMaterial);
+        mesh.visible = false;
+        groupFor(c.level).add(mesh);
+        ceilings.push(mesh);
+      }
 
-      // The walk's photos: a pin where the phone stood, a cone the way it faced.
-      const pinMaterial = standard(PIN_COLOR, { roughness: 0.5 });
-      const pinSelected = standard(PIN_SELECTED, { roughness: 0.5 });
-      const pins = new Map<string, import("three").Mesh[]>();
-      const spots: { key: PhotoKey; at: import("three").Vector3; level: number }[] = [];
-      const pinPosition = (k: PhotoKey) => {
-        const walk = walks[k.walk];
-        const photo = walk?.photos[k.photo];
-        if (!walk || !photo) return null;
-        return new THREE.Vector3(photo.x / PIXELS_PER_FOOT, baseOf(walk.level) + (photo.heightFeet ?? PIN_HEIGHT_FEET), photo.y / PIXELS_PER_FOOT);
+      // ---- The walk ------------------------------------------------------------------------------
+      const byKey = new Map(points.map((v) => [keyOf(v.key), v] as const));
+      const vec = (v: readonly [number, number, number]) => new THREE.Vector3(v[0], v[1], v[2]);
+
+      // A ring on the floor wherever the walk can be joined, a few feet apart.
+      const ringMaterial = new THREE.MeshBasicMaterial({ color: COLORS.ring, transparent: true, opacity: 0.85, depthWrite: false });
+      materials.push(ringMaterial);
+      const ringGeometry = new THREE.RingGeometry(0.42, 0.62, 40);
+      ringGeometry.rotateX(-Math.PI / 2);
+      geometries.push(ringGeometry);
+      const rings = new Map<string, import("three").Mesh>();
+      for (const v of spacedOut(points, RING_SPACING_FEET)) {
+        const ring = new THREE.Mesh(ringGeometry, ringMaterial);
+        ring.position.set(v.position[0], baseOf(v.level) + 0.03, v.position[2]);
+        ring.renderOrder = 2;
+        groupFor(v.level).add(ring);
+        rings.set(keyOf(v.key), ring);
+      }
+      // Where a tap would go, under the pointer.
+      const cursorMaterial = new THREE.MeshBasicMaterial({ color: COLORS.cursor, transparent: true, opacity: 0.9, depthWrite: false });
+      materials.push(cursorMaterial);
+      const cursor = new THREE.Mesh(ringGeometry, cursorMaterial);
+      cursor.visible = false;
+      cursor.renderOrder = 3;
+      scene.add(cursor);
+
+      // The photos, each a picture hung in front of its camera, loaded when first needed.
+      const loader = new THREE.TextureLoader();
+      loader.setCrossOrigin("anonymous");
+      const feather = featherTexture(THREE);
+      textures.push(feather);
+      const planeGeometry = new THREE.PlaneGeometry(1, 1);
+      geometries.push(planeGeometry);
+      const photoMeshes = new Map<string, import("three").Mesh<import("three").PlaneGeometry, import("three").MeshBasicMaterial>>();
+      const photoState = new Map<string, "loading" | "ready" | "failed">();
+      const raycaster = new THREE.Raycaster();
+      /** How far ahead the photo hangs: at the wall the camera faced, which is where its picture is. */
+      const photoDistance = (v: Viewpoint) => {
+        raycaster.set(vec(v.position), vec(v.forward));
+        raycaster.near = 0.5;
+        raycaster.far = 80;
+        const hit = raycaster.intersectObjects(solidsOf.get(v.level) ?? [], false)[0];
+        return hit ? Math.min(40, Math.max(2, hit.distance - 0.1)) : 10;
       };
-      const sphereGeometry = new THREE.SphereGeometry(0.4, 16, 12);
-      const coneGeometry = new THREE.ConeGeometry(0.22, 0.9, 12);
-      // The cone's point is its +y; turned to +x it is the page's heading 0.
-      coneGeometry.rotateZ(-Math.PI / 2);
-      coneGeometry.translate(0.75, 0, 0);
-      geometries.push(sphereGeometry, coneGeometry);
-      walks.forEach((walk, wi) => {
-        walk.photos.forEach((photo, pi) => {
-          const key: PhotoKey = { walk: wi, photo: pi };
-          const at = pinPosition(key);
-          if (!at) return;
-          const pin = new THREE.Group();
-          pin.position.copy(at);
-          const ball = new THREE.Mesh(sphereGeometry, pinMaterial);
-          const cone = new THREE.Mesh(coneGeometry, pinMaterial);
-          // Heading on the page (0 right, 90 down) is a turn about up that takes +x to +z.
-          cone.rotation.set(0, -(photo.headingDeg * Math.PI) / 180, ((photo.pitchDeg ?? 0) * Math.PI) / 180, "YZX");
-          spots.push({ key, at, level: walk.level });
-          pin.add(ball, cone);
-          pins.set(keyOf(key), [ball, cone]);
-          groupFor(walk.level).add(pin);
-        });
-      });
-      const highlight = (key: PhotoKey | null) => {
-        for (const [k, meshes] of pins) for (const m of meshes) m.material = key && k === keyOf(key) ? pinSelected : pinMaterial;
+      const ensurePhoto = (v: Viewpoint | null | undefined) => {
+        if (!v) return;
+        const k = keyOf(v.key);
+        if (photoState.has(k)) return;
+        const walk = walks[v.key.walk];
+        const photo = walk?.photos[v.key.photo];
+        const url = walk && photo ? urlsRef.current[walk.scanId]?.[photo.n] : undefined;
+        if (!url) return;
+        photoState.set(k, "loading");
+        loader.load(
+          url,
+          (texture) => {
+            if (disposed) {
+              texture.dispose();
+              return;
+            }
+            texture.colorSpace = THREE.SRGBColorSpace;
+            textures.push(texture);
+            const material = new THREE.MeshBasicMaterial({
+              map: texture,
+              alphaMap: feather,
+              transparent: true,
+              opacity: 0,
+              depthTest: false,
+              depthWrite: false,
+              side: THREE.DoubleSide,
+            });
+            materials.push(material);
+            const mesh = new THREE.Mesh(planeGeometry, material);
+            const plane = photoPlane(v, photoDistance(v));
+            mesh.position.set(...plane.center);
+            mesh.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(vec(v.right), vec(v.up), vec(v.forward).negate()));
+            mesh.scale.set(plane.width, plane.height, 1);
+            mesh.renderOrder = 10;
+            mesh.visible = false;
+            groupFor(v.level).add(mesh);
+            photoMeshes.set(k, mesh);
+            photoState.set(k, "ready");
+          },
+          undefined,
+          () => {
+            photoState.set(k, "failed");
+            if (!disposed) setFailed((prev) => ({ ...prev, [k]: true }));
+          },
+        );
+      };
+      /** The photos a step or two away, so they are there when the view arrives. */
+      const prefetch = (v: Viewpoint, yaw: number) => {
+        ensurePhoto(v);
+        const walk = walks[v.key.walk];
+        if (walk) {
+          ensurePhoto(byKey.get(keyOf({ walk: v.key.walk, photo: v.key.photo + 1 })));
+          ensurePhoto(byKey.get(keyOf({ walk: v.key.walk, photo: v.key.photo - 1 })));
+        }
+        ensurePhoto(stepFrom(points, v, yaw, 1));
+        ensurePhoto(stepFrom(points, v, yaw, -1));
       };
 
       const controls = new OrbitControls(camera, renderer.domElement);
@@ -318,58 +492,187 @@ export default function Sketch3D({ sketch, onClose }: Props) {
       // Zoom goes where the PM points, not to the middle of the house: a corner can be looked at.
       controls.zoomToCursor = true;
 
-      /** Looks at [lvl]'s storey (or the whole house) from above and to the south-east, all of it in view. */
-      const frame = (lvl: number | "all") => {
+      /** Where the dollhouse looks at [lvl]'s storey (or the whole house) from: above and to the south-east, all of it in view. */
+      const framing = (lvl: number | "all") => {
         const b = boundsOf(model, lvl);
-        if (!b) return;
+        if (!b) return null;
         const cx = (b.minX + b.maxX) / 2;
         const cz = (b.minZ + b.maxZ) / 2;
         const cy = lvl === "all" ? (b.minY + b.maxY) / 2 : b.minY + 2;
         const span = Math.max(b.maxX - b.minX, b.maxZ - b.minZ, 10);
         const distance = span * 1.25 + (b.maxY - b.minY);
-        controls.target.set(cx, cy, cz);
-        camera.position.set(cx + distance * 0.45, cy + distance * 0.75, cz + distance * 0.7);
-        camera.near = Math.max(0.1, distance / 500);
-        camera.far = distance * 20;
+        return {
+          target: new THREE.Vector3(cx, cy, cz),
+          position: new THREE.Vector3(cx + distance * 0.45, cy + distance * 0.75, cz + distance * 0.7),
+          distance,
+        };
+      };
+      const frame = (lvl: number | "all") => {
+        const f = framing(lvl);
+        if (!f) return;
+        controls.target.copy(f.target);
+        camera.position.copy(f.position);
+        camera.near = Math.max(0.1, f.distance / 500);
+        camera.far = f.distance * 20;
         camera.updateProjectionMatrix();
         controls.update();
       };
       const show = (lvl: number | "all") => {
         for (const [key, group] of groups) group.visible = lvl === "all" || key === lvl;
       };
-      let glide: { from: import("three").Vector3; to: import("three").Vector3; start: number } | null = null;
-      const focus = (key: PhotoKey) => {
-        const at = pinPosition(key);
-        if (!at) return;
-        glide = { from: controls.target.clone(), to: at, start: performance.now() };
+
+      // ---- Walk mode's view -----------------------------------------------------------------------
+      type Look = { pos: import("three").Vector3; yaw: number; pitch: number; fov: number };
+      const view: Look = { pos: new THREE.Vector3(), yaw: 0, pitch: 0, fov: 60 };
+      let current: Viewpoint | null = null;
+      let zoomed = false;
+      let transition: {
+        from: Look;
+        to: Look;
+        start: number;
+        ms: number;
+        fromKey: string | null;
+        target: Viewpoint | null;
+        /** Where the view ends up: at a photo, or handed to the dollhouse. */
+        then: Mode;
+      } | null = null;
+      const lookOf = (v: Viewpoint): Look => {
+        const o = yawPitchOf(v.forward);
+        return { pos: vec(v.position), yaw: o.yaw, pitch: o.pitch, fov: fitFovDeg(v.camera, camera.aspect) };
+      };
+      const cameraLook = (): Look => {
+        const d = new THREE.Vector3();
+        camera.getWorldDirection(d);
+        const o = yawPitchOf([d.x, d.y, d.z]);
+        return { pos: camera.position.clone(), yaw: o.yaw, pitch: o.pitch, fov: camera.fov };
+      };
+      /** Everything that is only for standing inside: the ceilings on, the names and the dollhouse's controls off. */
+      const inside = (on: boolean, lvl: number) => {
+        for (const c of ceilings) c.visible = on;
+        for (const l of nameLabels) l.visible = !on;
+        controls.enabled = !on;
+        show(on ? lvl : levelRef.current);
+        camera.near = on ? 0.1 : camera.near;
+        camera.far = on ? 400 : camera.far;
+        camera.updateProjectionMatrix();
+      };
+      const goTo = (v: Viewpoint, ms = STEP_MS) => {
+        const to = lookOf(v);
+        prefetch(v, to.yaw);
+        const fromDollhouse = modeRef.current !== "walk";
+        // From wherever the view is right now - part way through another step, if it is.
+        const from = !fromDollhouse && !transition ? { ...view, pos: view.pos.clone() } : cameraLook();
+        // Where a rebuild of the scene (the walls made whole again) starts it.
+        atRef.current = v.key;
+        if (fromDollhouse) {
+          // Down from the dollhouse: the storey the photo is on, and a moment longer.
+          controls.enabled = false;
+          for (const l of nameLabels) l.visible = false;
+          show(v.level);
+          enterMode("walk");
+        }
+        transition = { from, to, start: performance.now(), ms: fromDollhouse ? FLY_MS : ms, fromKey: current ? keyOf(current.key) : null, target: v, then: "walk" };
+        zoomed = false;
+      };
+      const toDollhouse = () => {
+        const f = framing(levelRef.current);
+        if (!f) return;
+        const d = f.target.clone().sub(f.position);
+        const o = yawPitchOf([d.x, d.y, d.z]);
+        for (const c of ceilings) c.visible = false;
+        transition = {
+          from: modeRef.current === "walk" ? { ...view, pos: view.pos.clone() } : cameraLook(),
+          to: { pos: f.position, yaw: o.yaw, pitch: o.pitch, fov: 45 },
+          start: performance.now(),
+          ms: FLY_MS,
+          fromKey: current ? keyOf(current.key) : null,
+          target: null,
+          then: "dollhouse",
+        };
       };
 
-      // A tap near a pin opens its photo - the nearest on screen, on a storey in view; a drag is the camera's.
-      let down: { x: number; y: number } | null = null;
-      const onDown = (e: PointerEvent) => {
-        down = { x: e.clientX, y: e.clientY };
+      // ---- Pointer: drag to look round (walk) or turn the model (dollhouse); tap to go ------------
+      let drag: { x: number; y: number; lastX: number; lastY: number; moved: boolean } | null = null;
+      const floorHit = (clientX: number, clientY: number) => {
+        const rect = renderer.domElement.getBoundingClientRect();
+        const ndc = new THREE.Vector2(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
+        raycaster.setFromCamera(ndc, camera);
+        raycaster.near = 0.1;
+        raycaster.far = Infinity;
+        const walking = modeRef.current === "walk";
+        const lvls = walking && current ? [current.level] : [...groups.keys()].filter((l) => groups.get(l)?.visible !== false);
+        const targets: import("three").Mesh[] = [];
+        for (const l of lvls) targets.push(...(floorsOf.get(l) ?? []), ...(solidsOf.get(l) ?? []));
+        const hit = raycaster.intersectObjects(targets, false)[0];
+        if (!hit) return null;
+        const lvl = lvls.find((l) => (floorsOf.get(l) ?? []).includes(hit.object as import("three").Mesh) || (solidsOf.get(l) ?? []).includes(hit.object as import("three").Mesh));
+        if (lvl === undefined) return null;
+        const onFloor = (floorsOf.get(lvl) ?? []).includes(hit.object as import("three").Mesh);
+        let { x, z } = hit.point;
+        if (!onFloor) {
+          // A wall or a cabinet: the floor a step back from it, towards the view.
+          const back = new THREE.Vector3(camera.position.x - x, 0, camera.position.z - z);
+          if (back.lengthSq() > 1e-6) back.normalize().multiplyScalar(1.5);
+          x += back.x;
+          z += back.z;
+        }
+        return { x, z, level: lvl, y: baseOf(lvl) };
       };
-      const onUp = (e: PointerEvent) => {
-        if (!down || Math.hypot(e.clientX - down.x, e.clientY - down.y) > 6) {
-          down = null;
+      const onDown = (e: PointerEvent) => {
+        drag = { x: e.clientX, y: e.clientY, lastX: e.clientX, lastY: e.clientY, moved: false };
+        if (modeRef.current === "walk") renderer.domElement.setPointerCapture(e.pointerId);
+      };
+      const onMove = (e: PointerEvent) => {
+        if (drag && e.buttons !== 0) {
+          if (Math.hypot(e.clientX - drag.x, e.clientY - drag.y) > 5) drag.moved = true;
+          if (modeRef.current === "walk" && !transition) {
+            // Grab the scene: it follows the pointer, so the view turns the other way.
+            const k = ((view.fov * Math.PI) / 180) / Math.max(1, host.clientHeight);
+            view.yaw = wrapAngle(view.yaw + (e.clientX - drag.lastX) * k);
+            view.pitch = Math.max(-1.4, Math.min(1.4, view.pitch + (e.clientY - drag.lastY) * k));
+          }
+          drag.lastX = e.clientX;
+          drag.lastY = e.clientY;
+          cursor.visible = false;
           return;
         }
-        down = null;
-        const rect = renderer.domElement.getBoundingClientRect();
-        let best: { key: PhotoKey; d: number } | null = null;
-        for (const spot of spots) {
-          if (groups.get(spot.level)?.visible === false) continue;
-          const ndc = spot.at.clone().project(camera);
-          if (ndc.z < -1 || ndc.z > 1) continue;
-          const sx = rect.left + ((ndc.x + 1) / 2) * rect.width;
-          const sy = rect.top + ((1 - ndc.y) / 2) * rect.height;
-          const d = Math.hypot(sx - e.clientX, sy - e.clientY);
-          if (d <= PICK_RADIUS_PX && (!best || d < best.d)) best = { key: spot.key, d };
+        if (e.pointerType === "touch" || transition) {
+          cursor.visible = false;
+          return;
         }
-        if (best) setSelected(best.key);
+        const hit = floorHit(e.clientX, e.clientY);
+        cursor.visible = hit != null && (modeRef.current === "walk" || points.some((v) => v.level === hit.level));
+        if (hit) cursor.position.set(hit.x, hit.y + 0.04, hit.z);
+      };
+      const onUp = (e: PointerEvent) => {
+        const tap = drag && !drag.moved;
+        drag = null;
+        if (renderer.domElement.hasPointerCapture(e.pointerId)) renderer.domElement.releasePointerCapture(e.pointerId);
+        if (!tap || transition) return;
+        const hit = floorHit(e.clientX, e.clientY);
+        if (!hit) return;
+        if (modeRef.current === "walk") {
+          const v = destinationFor(points, hit.level, hit.x, hit.z, view.yaw);
+          if (v && v !== current) goTo(v);
+        } else {
+          const v = destinationFor(points, hit.level, hit.x, hit.z, null);
+          if (v && Math.hypot(v.position[0] - hit.x, v.position[2] - hit.z) <= JOIN_REACH_FEET) goTo(v);
+        }
+      };
+      const onLeave = () => {
+        cursor.visible = false;
+      };
+      const onWheel = (e: WheelEvent) => {
+        if (modeRef.current !== "walk") return;
+        e.preventDefault();
+        view.fov = Math.min(100, Math.max(25, view.fov * Math.exp(e.deltaY * 0.001)));
+        zoomed = true;
       };
       renderer.domElement.addEventListener("pointerdown", onDown);
+      renderer.domElement.addEventListener("pointermove", onMove);
       renderer.domElement.addEventListener("pointerup", onUp);
+      renderer.domElement.addEventListener("pointerleave", onLeave);
+      renderer.domElement.addEventListener("wheel", onWheel, { passive: false });
 
       const resize = () => {
         const w = Math.max(1, host.clientWidth);
@@ -378,58 +681,150 @@ export default function Sketch3D({ sketch, onClose }: Props) {
         labels.setSize(w, h);
         camera.aspect = w / h;
         camera.updateProjectionMatrix();
+        if (current && !zoomed && modeRef.current === "walk" && !transition) view.fov = fitFovDeg(current.camera, camera.aspect);
       };
       resize();
       const observer = new ResizeObserver(resize);
       observer.observe(host);
-      show(levelRef.current);
-      const kept = viewRef.current;
-      if (kept) {
-        const b = model.bounds;
-        const span = b ? Math.max(b.maxX - b.minX, b.maxZ - b.minZ, 10) : 50;
-        camera.position.set(...kept.position);
-        controls.target.set(...kept.target);
-        camera.near = 0.1;
-        camera.far = span * 60;
-        camera.updateProjectionMatrix();
-        controls.update();
+
+      // Where the view starts: at the photo it was at, or the first; the dollhouse when there is none.
+      const start = atRef.current ? byKey.get(keyOf(atRef.current)) ?? null : null;
+      if (modeRef.current === "walk" && start) {
+        current = start;
+        Object.assign(view, lookOf(start));
+        prefetch(start, view.yaw);
+        inside(true, start.level);
       } else {
-        frame(levelRef.current);
+        if (modeRef.current === "walk") enterMode("dollhouse");
+        show(levelRef.current);
+        const kept = viewRef.current;
+        if (kept) {
+          const b = model.bounds;
+          const span = b ? Math.max(b.maxX - b.minX, b.maxZ - b.minZ, 10) : 50;
+          camera.position.set(...kept.position);
+          controls.target.set(...kept.target);
+          camera.near = 0.1;
+          camera.far = span * 60;
+          camera.updateProjectionMatrix();
+          controls.update();
+        } else {
+          frame(levelRef.current);
+        }
       }
 
+      const smooth = (a: number, b: number, t: number) => {
+        const s = Math.min(1, Math.max(0, (t - a) / (b - a)));
+        return s * s * (3 - 2 * s);
+      };
       let raf = 0;
       const loop = () => {
         raf = requestAnimationFrame(loop);
-        if (glide) {
-          const t = Math.min(1, (performance.now() - glide.start) / 350);
-          const ease = t * (2 - t);
-          const next = glide.from.clone().lerp(glide.to, ease);
-          camera.position.add(next.clone().sub(controls.target));
-          controls.target.copy(next);
-          if (t >= 1) glide = null;
+        let fromFade = 0;
+        let toFade = 0;
+        if (transition) {
+          const tr = transition;
+          const t = Math.min(1, (performance.now() - tr.start) / tr.ms);
+          const e = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+          view.pos.lerpVectors(tr.from.pos, tr.to.pos, e);
+          view.yaw = wrapAngle(tr.from.yaw + wrapAngle(tr.to.yaw - tr.from.yaw) * e);
+          view.pitch = tr.from.pitch + (tr.to.pitch - tr.from.pitch) * e;
+          view.fov = tr.from.fov + (tr.to.fov - tr.from.fov) * e;
+          fromFade = 1 - smooth(0, 0.5, t);
+          toFade = smooth(0.55, 1, t);
+          if (tr.then === "walk" && t > 0.85) for (const c of ceilings) c.visible = true;
+          if (t >= 1) {
+            transition = null;
+            if (tr.then === "walk" && tr.target) {
+              current = tr.target;
+              inside(true, tr.target.level);
+              arrive(tr.target.key);
+            } else {
+              // Handed to the dollhouse, looking at the storey from where the flight ended.
+              current = null;
+              const f = framing(levelRef.current);
+              inside(false, 0);
+              if (f) {
+                controls.target.copy(f.target);
+                camera.near = Math.max(0.1, f.distance / 500);
+                camera.far = f.distance * 20;
+              }
+              camera.fov = 45;
+              camera.updateProjectionMatrix();
+              enterMode("dollhouse");
+            }
+          }
         }
-        controls.update();
+        const walking = transition != null || modeRef.current === "walk";
+        if (walking) {
+          camera.position.copy(view.pos);
+          camera.rotation.set(view.pitch, view.yaw, 0, "YXZ");
+          if (Math.abs(camera.fov - view.fov) > 1e-3) {
+            camera.fov = view.fov;
+            camera.updateProjectionMatrix();
+          }
+        } else {
+          controls.update();
+        }
+        // The photos: the one the view is at, crossfading to the next on a step.
+        const fromKey = transition?.fromKey ?? null;
+        const toKey = transition?.target ? keyOf(transition.target.key) : null;
+        const hereKey = !transition && modeRef.current === "walk" && current ? keyOf(current.key) : null;
+        for (const [k, mesh] of photoMeshes) {
+          const o = k === hereKey ? 1 : transition ? (k === toKey ? toFade : k === fromKey ? fromFade : 0) : 0;
+          mesh.material.opacity = o;
+          mesh.visible = o > 0.01;
+        }
+        // The rings: not under the view's own feet, and only for the storey being walked.
+        for (const [k, ring] of rings) ring.visible = !(walking && current && k === keyOf(current.key));
         renderer.render(scene, camera);
         labels.render(scene, camera);
+        // The plan in the corner follows the view.
+        if (walking) poseRef.current = { x: view.pos.x, z: view.pos.z, yaw: view.yaw, fov: view.fov };
+        const marker = markerRef.current;
+        const pose = poseRef.current;
+        if (marker && pose) marker.setAttribute("data-pose", `${pose.x.toFixed(2)},${pose.z.toFixed(2)},${pose.yaw.toFixed(3)}`);
       };
       loop();
 
-      sceneApi.current = { show, frame, highlight, focus };
-      highlight(selectedRef.current);
+      sceneApi.current = {
+        show,
+        frame,
+        goTo: (key) => {
+          const v = byKey.get(keyOf(key));
+          if (v) goTo(v);
+        },
+        step: (direction) => {
+          if (!current || transition) return;
+          const v = stepFrom(points, current, view.yaw, direction);
+          if (v) goTo(v);
+        },
+        dollhouse: () => {
+          if (modeRef.current === "walk" && !transition) toDollhouse();
+        },
+        refreshPhotos: () => {
+          if (current) prefetch(current, view.yaw);
+          else for (const v of points.slice(0, 1)) ensurePhoto(v);
+        },
+      };
       setStatus("ready");
-
       teardown = () => {
-        viewRef.current = {
-          position: [camera.position.x, camera.position.y, camera.position.z],
-          target: [controls.target.x, controls.target.y, controls.target.z],
-        };
+        if (modeRef.current === "dollhouse") {
+          viewRef.current = {
+            position: [camera.position.x, camera.position.y, camera.position.z],
+            target: [controls.target.x, controls.target.y, controls.target.z],
+          };
+        }
         cancelAnimationFrame(raf);
         observer.disconnect();
         renderer.domElement.removeEventListener("pointerdown", onDown);
+        renderer.domElement.removeEventListener("pointermove", onMove);
         renderer.domElement.removeEventListener("pointerup", onUp);
+        renderer.domElement.removeEventListener("pointerleave", onLeave);
+        renderer.domElement.removeEventListener("wheel", onWheel);
         controls.dispose();
         for (const g of geometries) g.dispose();
         for (const m of materials) m.dispose();
+        for (const t of textures) t.dispose();
         renderer.dispose();
         renderer.domElement.remove();
         labels.domElement.remove();
@@ -441,7 +836,7 @@ export default function Sketch3D({ sketch, onClose }: Props) {
       disposed = true;
       teardown?.();
     };
-  }, [model, low, walks]);
+  }, [model, low, walks, points, arrive, enterMode]);
 
   // The pictures, one request per scan, when the view opens.
   useEffect(() => {
@@ -463,45 +858,62 @@ export default function Sketch3D({ sketch, onClose }: Props) {
   }, [walks]);
 
   useEffect(() => {
-    selectedRef.current = selected;
-    sceneApi.current?.highlight(selected);
-    if (selected) sceneApi.current?.focus(selected);
-  }, [selected]);
-
-  const photoCount = walks.reduce((n, w) => n + w.photos.length, 0);
-  const current = selected ? walks[selected.walk]?.photos[selected.photo] ?? null : null;
-  const currentWalk = selected ? walks[selected.walk] ?? null : null;
-  const currentUrl = current && currentWalk ? urls[currentWalk.scanId]?.[current.n] ?? null : null;
-  const step = (by: number) => {
-    if (!selected || !currentWalk) return;
-    const next = selected.photo + by;
-    if (next < 0 || next >= currentWalk.photos.length) return;
-    setSelected({ walk: selected.walk, photo: next });
-  };
-  const clock = (seconds: number) => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
+    sceneApi.current?.refreshPhotos();
+  }, [urls, status]);
 
   useEffect(() => {
     levelRef.current = level;
-    sceneApi.current?.show(level);
-    sceneApi.current?.frame(level);
+    if (modeRef.current === "dollhouse") {
+      sceneApi.current?.show(level);
+      sceneApi.current?.frame(level);
+    }
   }, [level]);
+
+  // The dollhouse's own tool; standing inside, every wall is whole.
+  useEffect(() => {
+    if (mode === "walk" && low) setLow(false);
+  }, [mode, low]);
+
+  const current = at ? walks[at.walk]?.photos[at.photo] ?? null : null;
+  const currentWalk = at ? walks[at.walk] ?? null : null;
+  // Undefined while the scan's links are still on their way; then the photo's, or null when the phone never sent it.
+  const scanUrls = currentWalk ? urls[currentWalk.scanId] : undefined;
+  const currentUrl = current && scanUrls ? scanUrls[current.n] ?? null : null;
+  const stepAlong = useCallback(
+    (by: number) => {
+      const k = atRef.current;
+      if (!k) return;
+      const walk = walks[k.walk];
+      const next = k.photo + by;
+      if (!walk || next < 0 || next >= walk.photos.length) return;
+      sceneApi.current?.goTo({ walk: k.walk, photo: next });
+    },
+    [walks],
+  );
+  const clock = (seconds: number) => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        if (selectedRef.current) setSelected(null);
+        if (modeRef.current === "walk" && points.length > 0) sceneApi.current?.dollhouse();
         else onClose();
-      } else if (e.key === "ArrowRight" && selectedRef.current) {
-        const k = selectedRef.current;
-        setSelected((prev) => (prev && k.photo + 1 < (walks[k.walk]?.photos.length ?? 0) ? { walk: k.walk, photo: k.photo + 1 } : prev));
-      } else if (e.key === "ArrowLeft" && selectedRef.current) {
-        const k = selectedRef.current;
-        setSelected((prev) => (prev && k.photo > 0 ? { walk: k.walk, photo: k.photo - 1 } : prev));
+        return;
       }
+      if (modeRef.current !== "walk") return;
+      if (e.key === "ArrowUp" || e.key === "w" || e.key === "W") sceneApi.current?.step(1);
+      else if (e.key === "ArrowDown" || e.key === "s" || e.key === "S") sceneApi.current?.step(-1);
+      else if (e.key === "ArrowRight") stepAlong(1);
+      else if (e.key === "ArrowLeft") stepAlong(-1);
+      else return;
+      e.preventDefault();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose, walks]);
+  }, [onClose, points, stepAlong]);
+
+  const walkLevel = at ? walks[at.walk]?.level ?? 0 : 0;
+  // A finger has no arrow keys: the hint says what a phone can do.
+  const [coarse] = useState(() => typeof window !== "undefined" && window.matchMedia?.("(pointer: coarse)").matches === true);
 
   return (
     <div
@@ -523,7 +935,32 @@ export default function Sketch3D({ sketch, onClose }: Props) {
         }}
       >
         <strong style={{ fontSize: 16, color: "#1b3a5c", marginRight: 8 }}>3D view</strong>
-        {levels.length > 1 && (
+        {points.length > 0 && (
+          <div className="option-group" role="group" aria-label="How to look at it">
+            <button
+              type="button"
+              className={`option-btn${mode === "walk" ? " selected" : ""}`}
+              aria-pressed={mode === "walk"}
+              onClick={() => {
+                const key = atRef.current ?? points[0]?.key;
+                if (key) sceneApi.current?.goTo(key);
+              }}
+              disabled={status !== "ready"}
+            >
+              Walk through
+            </button>
+            <button
+              type="button"
+              className={`option-btn${mode === "dollhouse" ? " selected" : ""}`}
+              aria-pressed={mode === "dollhouse"}
+              onClick={() => sceneApi.current?.dollhouse()}
+              disabled={status !== "ready"}
+            >
+              Dollhouse
+            </button>
+          </div>
+        )}
+        {mode === "dollhouse" && levels.length > 1 && (
           <div className="option-group" role="group" aria-label="Storey">
             <button type="button" className={`option-btn${level === "all" ? " selected" : ""}`} aria-pressed={level === "all"} onClick={() => setLevel("all")}>
               Whole house
@@ -535,13 +972,17 @@ export default function Sketch3D({ sketch, onClose }: Props) {
             ))}
           </div>
         )}
-        <button type="button" className={`option-btn${low ? " selected" : ""}`} aria-pressed={low} onClick={() => setLow((v) => !v)} title="Cut every wall at 4' to see into the rooms">
-          Low walls
-        </button>
+        {mode === "dollhouse" && (
+          <button type="button" className={`option-btn${low ? " selected" : ""}`} aria-pressed={low} onClick={() => setLow((v) => !v)} title="Cut every wall at 4' to see into the rooms">
+            Low walls
+          </button>
+        )}
         <span style={{ flex: 1 }} />
-        <button type="button" className="option-btn" onClick={() => sceneApi.current?.frame(level)} disabled={status !== "ready"}>
-          Reset view
-        </button>
+        {mode === "dollhouse" && (
+          <button type="button" className="option-btn" onClick={() => sceneApi.current?.frame(level)} disabled={status !== "ready"}>
+            Reset view
+          </button>
+        )}
         <button type="button" className="option-btn" onClick={onClose}>
           Close
         </button>
@@ -552,53 +993,191 @@ export default function Sketch3D({ sketch, onClose }: Props) {
             {status === "loading" ? "Building the house in 3D…" : "This browser can't draw 3D here. Try Chrome or Safari on a recent device."}
           </p>
         )}
-        {current && currentWalk && selected && (
+        {mode === "walk" && status === "ready" && (
+          <FloorPlan
+            sketch={sketch}
+            level={walkLevel}
+            points={points}
+            at={at}
+            markerRef={markerRef}
+            onPick={(x, z) => {
+              const pose = poseRef.current;
+              const v = destinationFor(points, walkLevel, x, z, pose ? pose.yaw : null);
+              if (v) sceneApi.current?.goTo(v.key);
+            }}
+          />
+        )}
+        {mode === "walk" && current && currentWalk && at && (
           <div
             role="region"
-            aria-label="Photo from the walk"
+            aria-label="Where you are on the walk"
             style={{
               position: "absolute",
-              right: 12,
+              left: "50%",
               bottom: 12,
-              width: "min(420px, calc(100% - 24px))",
-              background: "#fff",
+              transform: "translateX(-50%)",
+              width: "min(560px, calc(100% - 24px))",
+              background: "rgba(255,255,255,0.94)",
               borderRadius: 12,
-              boxShadow: "0 6px 24px rgba(18,40,65,0.25)",
-              overflow: "hidden",
+              boxShadow: "0 6px 24px rgba(18,40,65,0.22)",
               display: "flex",
-              flexDirection: "column",
+              alignItems: "center",
+              gap: 8,
+              padding: "8px 10px",
+              flexWrap: "wrap",
             }}
           >
-            <div style={{ background: "#122841", aspectRatio: "4 / 3", display: "grid", placeItems: "center" }}>
-              {currentUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={currentUrl} alt={`Photo ${selected.photo + 1} of the walk`} style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }} />
-              ) : (
-                <p style={{ color: "#dce4ee", margin: 16, textAlign: "center" }}>This photo hasn't arrived from the phone yet.</p>
-              )}
-            </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", flexWrap: "wrap" }}>
-              <span style={{ fontSize: 13, color: "#5b6472", flex: 1, minWidth: 140 }}>
-                Photo {selected.photo + 1} of {currentWalk.photos.length} · {clock(current.tS)} into the walk
-                {walks.length > 1 ? ` · ${levelLabel(currentWalk.level)}` : ""}
-              </span>
-              <button type="button" className="option-btn" onClick={() => step(-1)} disabled={selected.photo === 0}>
-                Previous
-              </button>
-              <button type="button" className="option-btn" onClick={() => step(1)} disabled={selected.photo + 1 >= currentWalk.photos.length}>
-                Next
-              </button>
-              <button type="button" className="option-btn" onClick={() => setSelected(null)} aria-label="Close the photo">
-                Close
-              </button>
-            </div>
+            {failed[`${at.walk}:${at.photo}`] && currentUrl && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={currentUrl} alt={`Photo ${at.photo + 1} of the walk`} style={{ width: 72, height: 96, objectFit: "cover", borderRadius: 6 }} />
+            )}
+            <span style={{ fontSize: 13, color: "#5b6472", flex: 1, minWidth: 160 }}>
+              Photo {at.photo + 1} of {currentWalk.photos.length} · {clock(current.tS)} into the walk
+              {walks.length > 1 ? ` · ${levelLabel(currentWalk.level)}` : ""}
+              {scanUrls && !currentUrl ? " · this photo hasn't arrived from the phone yet" : ""}
+            </span>
+            <button type="button" className="option-btn" onClick={() => stepAlong(-1)} disabled={at.photo === 0}>
+              Previous
+            </button>
+            <button type="button" className="option-btn" onClick={() => stepAlong(1)} disabled={at.photo + 1 >= currentWalk.photos.length}>
+              Next
+            </button>
           </div>
         )}
       </div>
       <p className="field-note" style={{ margin: 0, padding: "8px 16px", paddingBottom: "calc(8px + env(safe-area-inset-bottom, 0px))", background: "#fff", borderTop: "1px solid var(--border, #e1e5ea)" }}>
-        Drag to turn · scroll or pinch to zoom · right-drag or two fingers to pan
-        {photoCount > 0 ? ` · tap a pin to see the photo taken there (${photoCount} on this walk${walks.length > 1 ? "s" : ""})` : ""}
+        {mode === "walk"
+          ? coarse
+            ? "Drag to look around · tap the floor to go there · Previous and Next go through the walk in order"
+            : "Drag to look around · tap the floor to go there · ↑ ↓ step forward and back · ← → through the walk in order · Esc for the dollhouse"
+          : `Drag to turn · scroll or pinch to zoom · right-drag or two fingers to pan${points.length > 0 ? " · tap a ring on the floor to walk in from there" : ""}`}
       </p>
     </div>
+  );
+}
+
+/**
+ * The storey's plan in the corner of walk mode: its rooms, a dot for every photo, and where the view
+ * stands with a wedge for which way it looks - moved by the render loop through [markerRef]'s
+ * `data-pose`, read here on every animation frame. Tapping it goes to the photo nearest there.
+ */
+function FloorPlan({
+  sketch,
+  level,
+  points,
+  at,
+  markerRef,
+  onPick,
+}: {
+  sketch: Sketch;
+  level: number;
+  points: Viewpoint[];
+  at: ViewpointKey | null;
+  markerRef: React.RefObject<SVGGElement | null>;
+  onPick: (x: number, z: number) => void;
+}) {
+  const rooms = useMemo(() => sketch.rooms.filter((r) => !r.stairs && roomLevel(r) === level && r.vertices.length >= 3), [sketch, level]);
+  const box = useMemo(() => {
+    let minX = Infinity;
+    let minZ = Infinity;
+    let maxX = -Infinity;
+    let maxZ = -Infinity;
+    for (const r of rooms) for (const v of r.vertices) {
+      minX = Math.min(minX, v.x / PIXELS_PER_FOOT);
+      maxX = Math.max(maxX, v.x / PIXELS_PER_FOOT);
+      minZ = Math.min(minZ, v.y / PIXELS_PER_FOOT);
+      maxZ = Math.max(maxZ, v.y / PIXELS_PER_FOOT);
+    }
+    for (const p of points) if (p.level === level) {
+      minX = Math.min(minX, p.position[0]);
+      maxX = Math.max(maxX, p.position[0]);
+      minZ = Math.min(minZ, p.position[2]);
+      maxZ = Math.max(maxZ, p.position[2]);
+    }
+    if (!Number.isFinite(minX)) return null;
+    const pad = 2;
+    return { minX: minX - pad, minZ: minZ - pad, w: maxX - minX + pad * 2, h: maxZ - minZ + pad * 2 };
+  }, [rooms, points, level]);
+  const [pose, setPose] = useState<{ x: number; z: number; yaw: number } | null>(null);
+  // Follow the view: the render loop writes where it stands on the marker, this reads it each frame.
+  useEffect(() => {
+    let raf = 0;
+    let last = "";
+    const tick = () => {
+      raf = requestAnimationFrame(tick);
+      const s = markerRef.current?.getAttribute("data-pose") ?? "";
+      if (s && s !== last) {
+        last = s;
+        const [x, z, yaw] = s.split(",").map(Number) as [number, number, number];
+        setPose({ x, z, yaw });
+      }
+    };
+    tick();
+    return () => cancelAnimationFrame(raf);
+  }, [markerRef]);
+  if (!box) return null;
+  const size = 190;
+  const scale = size / Math.max(box.w, box.h);
+  const W = box.w * scale;
+  const H = box.h * scale;
+  const sx = (x: number) => (x - box.minX) * scale;
+  const sy = (z: number) => (z - box.minZ) * scale;
+  // The view looks down its -z at yaw 0; on the plan that is up the page, and turning left is anticlockwise.
+  const wedge = pose ? (-pose.yaw * 180) / Math.PI : 0;
+  return (
+    <svg
+      width={W}
+      height={H}
+      viewBox={`0 0 ${W} ${H}`}
+      role="img"
+      aria-label="Plan of this storey: where you are standing"
+      onClick={(e) => {
+        // Drawn smaller than its own size on a narrow screen: back to the plan's pixels first.
+        const rect = (e.currentTarget as SVGSVGElement).getBoundingClientRect();
+        const k = W / Math.max(1, rect.width);
+        onPick(((e.clientX - rect.left) * k) / scale + box.minX, ((e.clientY - rect.top) * k) / scale + box.minZ);
+      }}
+      style={{
+        position: "absolute",
+        left: 12,
+        top: 12,
+        width: `min(${Math.round(W)}px, 30vw)`,
+        height: "auto",
+        background: "rgba(255,255,255,0.92)",
+        borderRadius: 10,
+        boxShadow: "0 4px 16px rgba(18,40,65,0.2)",
+        cursor: "pointer",
+      }}
+    >
+      {rooms.map((r) => (
+        <polygon
+          key={r.id}
+          points={r.vertices.map((v) => `${sx(v.x / PIXELS_PER_FOOT)},${sy(v.y / PIXELS_PER_FOOT)}`).join(" ")}
+          fill="#eef1f5"
+          stroke="#1b3a5c"
+          strokeWidth={1.5}
+          strokeLinejoin="round"
+        />
+      ))}
+      {points
+        .filter((p) => p.level === level)
+        .map((p) => (
+          <circle
+            key={`${p.key.walk}:${p.key.photo}`}
+            cx={sx(p.position[0])}
+            cy={sy(p.position[2])}
+            r={at && at.walk === p.key.walk && at.photo === p.key.photo ? 0 : 1.6}
+            fill="#8a97a8"
+          />
+        ))}
+      <g ref={markerRef}>
+        {pose && (
+          <g transform={`translate(${sx(pose.x)} ${sy(pose.z)}) rotate(${wedge})`}>
+            <path d="M0 0 L-9 -22 A 24 24 0 0 1 9 -22 Z" fill="rgba(240,169,62,0.45)" />
+            <circle r={4.5} fill="#f0a93e" stroke="#fff" strokeWidth={1.5} />
+          </g>
+        )}
+      </g>
+    </svg>
   );
 }
