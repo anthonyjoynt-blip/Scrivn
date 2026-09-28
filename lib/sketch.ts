@@ -758,6 +758,21 @@ export interface SketchWalk {
   photos: WalkPhoto[];
   /** The lens the photos were taken through; absent from scans sent before 2026-09-28. */
   camera?: WalkCamera | null;
+  /** The walk's 360° spots: a turn's frames round one place each. Absent before 2026-09-28. */
+  spots?: WalkSpot[];
+}
+
+/**
+ * A 360° spot of the walk: the phone turned once where it stood and kept a full-size frame for every
+ * slice of the turn. Walk mode stands its viewer there and shows the frames all round.
+ */
+export interface WalkSpot {
+  /** Its number on the phone, from 1. */
+  spot: number;
+  /** The lens its frames were taken through - the camera's full-size one, not the photos'. */
+  camera?: WalkCamera | null;
+  /** Its frames, in the order taken, each placed as a photo is. */
+  frames: WalkPhoto[];
 }
 
 /**

@@ -21,8 +21,11 @@ import { createClient } from "./supabase/server";
 export const SCAN_PHOTO_BUCKET = "scan-photos";
 /** A keyframe JPEG is a few hundred kilobytes; two megabytes is a ceiling, the bucket's own limit too. */
 export const MAX_SCAN_PHOTO_BYTES = 2 * 1024 * 1024;
-/** More photos than this in one scan is not a walk. */
-export const MAX_SCAN_PHOTOS = 400;
+/**
+ * Photo numbers run under this. The walk's own photos are numbered from 0 and stay under a few
+ * hundred; its 360° spots' frames are numbered from 500 (2026-09-28), 24 a spot.
+ */
+export const MAX_SCAN_PHOTOS = 1000;
 /** How long a link to a photo works: long enough to look round a house. */
 const SIGNED_SECONDS = 60 * 60;
 

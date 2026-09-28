@@ -12,6 +12,11 @@
  * (`destinationFor`), keeping roughly the way the view faces; the arrow keys step forward and back
  * (`stepFrom`). The renderer (components/sketch/Sketch3D.tsx) only draws what these decide.
  *
+ * A 360° SPOT (2026-09-28) is a viewpoint too: the place the phone turned once, with a full-size frame
+ * for every slice of the turn. Standing there shows all of them at once, each hung as a photo is, so
+ * the view can be turned all the way round; a tap near a spot goes to it rather than to a photo a
+ * little nearer, since a spot is the better place to stand.
+ *
  * UNITS are the model's (lib/sketch3d.ts): feet, x across the page, y up, z down the page. The page's
  * (x, y) are world pixels, 12 to the foot.
  */
@@ -33,7 +38,15 @@ export const DEFAULT_PHOTO_HEIGHT_FEET = 5;
 
 export interface ViewpointKey {
   walk: number;
+  /** The photo's place in its walk; -1 for a spot. */
   photo: number;
+  /** A 360° spot's number, from 1; absent for a photo. */
+  spot?: number;
+}
+
+/** A viewpoint's key as one string: a map's key, and what two keys are compared by. */
+export function viewpointId(k: ViewpointKey): string {
+  return k.spot ? `${k.walk}:s${k.spot}` : `${k.walk}:${k.photo}`;
 }
 
 export interface Viewpoint {
@@ -46,6 +59,13 @@ export interface Viewpoint {
   up: Vec3;
   right: Vec3;
   camera: WalkCamera;
+  /** Which picture this is: its scan and its number there (-1 for a spot, whose pictures are its [frames]). */
+  scanId: string;
+  n: number;
+  /** When it was taken, seconds into the walk (a spot: its first frame's). */
+  tS: number;
+  /** A 360° spot's frames, each a viewpoint of its own for where its picture hangs; absent for a photo. */
+  frames?: Viewpoint[];
 }
 
 const norm = (v: Vec3): Vec3 => {
@@ -89,28 +109,57 @@ export function directionOf(yaw: number, pitch: number): Vec3 {
 export function viewpoints(walks: SketchWalk[], baseOf: (level: number) => number): Viewpoint[] {
   const out: Viewpoint[] = [];
   walks.forEach((walk, wi) => {
-    const camera = walk.camera ?? DEFAULT_WALK_CAMERA;
     const base = baseOf(walk.level);
     walk.photos.forEach((photo, pi) => {
-      const position: Vec3 = [photo.x / PIXELS_PER_FOOT, base + (photo.heightFeet ?? DEFAULT_PHOTO_HEIGHT_FEET), photo.y / PIXELS_PER_FOOT];
-      let forward: Vec3;
-      let up: Vec3;
-      if (photo.forward && photo.up) {
-        forward = norm([photo.forward[0], photo.forward[2], photo.forward[1]]);
-        const u: Vec3 = [photo.up[0], photo.up[2], photo.up[1]];
-        up = norm(add(u, forward, -dot(u, forward)));
-      } else {
-        const h = (photo.headingDeg * Math.PI) / 180;
-        const p = ((photo.pitchDeg ?? 0) * Math.PI) / 180;
-        forward = [Math.cos(p) * Math.cos(h), Math.sin(p), Math.cos(p) * Math.sin(h)];
-        const world: Vec3 = [0, 1, 0];
-        up = norm(add(world, forward, -dot(world, forward)));
-      }
-      if (up[0] === 0 && up[1] === 0 && up[2] === 0) return;
-      out.push({ key: { walk: wi, photo: pi }, level: walk.level, position, forward, up, right: norm(cross(forward, up)), camera });
+      const v = photoViewpoint(photo, walk.camera ?? DEFAULT_WALK_CAMERA, base, walk.scanId, { walk: wi, photo: pi }, walk.level);
+      if (v) out.push(v);
     });
+    for (const spot of walk.spots ?? []) {
+      const frames = spot.frames
+        .map((f) => photoViewpoint(f, spot.camera ?? walk.camera ?? DEFAULT_WALK_CAMERA, base, walk.scanId, { walk: wi, photo: -1, spot: spot.spot }, walk.level))
+        .filter((f): f is Viewpoint => f != null);
+      if (frames.length === 0) continue;
+      // Where the phone turned: the middle of where its frames were taken, at their height.
+      const k = 1 / frames.length;
+      const position: Vec3 = [0, 0, 0];
+      for (const f of frames) for (let i = 0; i < 3; i++) position[i] = (position[i] as number) + (f.position[i] as number) * k;
+      const first = frames[0] as Viewpoint;
+      out.push({
+        key: { walk: wi, photo: -1, spot: spot.spot },
+        level: walk.level,
+        position,
+        forward: first.forward,
+        up: [0, 1, 0],
+        right: norm(cross(first.forward, [0, 1, 0])),
+        camera: first.camera,
+        scanId: walk.scanId,
+        n: -1,
+        tS: first.tS,
+        frames,
+      });
+    }
   });
   return out;
+}
+
+/** One photo (or a spot's frame) as a viewpoint, or null when its axes say nothing. */
+function photoViewpoint(photo: SketchWalk["photos"][number], camera: WalkCamera, base: number, scanId: string, key: ViewpointKey, level: number): Viewpoint | null {
+  const position: Vec3 = [photo.x / PIXELS_PER_FOOT, base + (photo.heightFeet ?? DEFAULT_PHOTO_HEIGHT_FEET), photo.y / PIXELS_PER_FOOT];
+  let forward: Vec3;
+  let up: Vec3;
+  if (photo.forward && photo.up) {
+    forward = norm([photo.forward[0], photo.forward[2], photo.forward[1]]);
+    const u: Vec3 = [photo.up[0], photo.up[2], photo.up[1]];
+    up = norm(add(u, forward, -dot(u, forward)));
+  } else {
+    const h = (photo.headingDeg * Math.PI) / 180;
+    const p = ((photo.pitchDeg ?? 0) * Math.PI) / 180;
+    forward = [Math.cos(p) * Math.cos(h), Math.sin(p), Math.cos(p) * Math.sin(h)];
+    const world: Vec3 = [0, 1, 0];
+    up = norm(add(world, forward, -dot(world, forward)));
+  }
+  if (up[0] === 0 && up[1] === 0 && up[2] === 0) return null;
+  return { key, level, position, forward, up, right: norm(cross(forward, up)), camera, scanId, n: photo.n, tS: photo.tS };
 }
 
 /**
@@ -140,6 +189,14 @@ export function fitFovDeg(camera: WalkCamera, aspect: number, margin = 1.06): nu
 
 /** How much a viewpoint facing away from the view counts against it, in feet per radian: 45 degrees is 2 1/2'. */
 const TURN_COST_FEET = 3.2;
+/** How much nearer a photo must be than a 360° spot to be gone to instead: 3'. A spot faces every way. */
+const SPOT_PULL_FEET = 3;
+
+/** How far [v] is from facing [yaw], in the scoring's feet: nothing for a spot, which faces every way. */
+function turnCost(v: Viewpoint, yaw: number | null): number {
+  if (yaw == null || v.frames) return 0;
+  return TURN_COST_FEET * Math.abs(wrapAngle(yawPitchOf(v.forward).yaw - yaw));
+}
 
 /**
  * Where a tap on the floor at (x, z) goes: the viewpoint on [level] nearest the spot, a viewpoint
@@ -150,8 +207,7 @@ export function destinationFor(points: Viewpoint[], level: number, x: number, z:
   let best: { v: Viewpoint; score: number } | null = null;
   for (const v of points) {
     if (v.level !== level) continue;
-    let score = Math.hypot(v.position[0] - x, v.position[2] - z);
-    if (yaw != null) score += TURN_COST_FEET * Math.abs(wrapAngle(yawPitchOf(v.forward).yaw - yaw));
+    const score = Math.hypot(v.position[0] - x, v.position[2] - z) + turnCost(v, yaw) - (v.frames ? SPOT_PULL_FEET : 0);
     if (!best || score < best.score) best = { v, score };
   }
   return best?.v ?? null;
@@ -180,8 +236,7 @@ export function stepFrom(points: Viewpoint[], from: Viewpoint, yaw: number, dire
     // The bearing of the step, in the view's own terms (a view at yaw 0 looks down -z).
     const off = Math.abs(wrapAngle(Math.atan2(-dx, -dz) - going));
     if (off > STEP_CONE) continue;
-    const facing = Math.abs(wrapAngle(yawPitchOf(v.forward).yaw - yaw));
-    const score = d * (1 + off) + TURN_COST_FEET * facing;
+    const score = d * (1 + off) + turnCost(v, yaw) - (v.frames ? SPOT_PULL_FEET : 0);
     if (!best || score < best.score) best = { v, score };
   }
   return best?.v ?? null;
@@ -194,7 +249,8 @@ export function stepFrom(points: Viewpoint[], from: Viewpoint, yaw: number, dire
  */
 export function spacedOut(points: Viewpoint[], minFeet: number): Viewpoint[] {
   const out: Viewpoint[] = [];
-  for (const v of points) {
+  // Every spot is marked, first; the photos then fill in round them.
+  for (const v of [...points.filter((p) => p.frames), ...points.filter((p) => !p.frames)]) {
     if (out.some((o) => o.level === v.level && Math.hypot(o.position[0] - v.position[0], o.position[2] - v.position[2]) < minFeet)) continue;
     out.push(v);
   }

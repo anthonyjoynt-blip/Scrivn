@@ -34,6 +34,7 @@ import {
   photoPlane,
   spacedOut,
   stepFrom,
+  viewpointId,
   viewpoints,
   wrapAngle,
   yawPitchOf,
@@ -71,7 +72,17 @@ const FLY_MS = 1300;
 const JOIN_REACH_FEET = 8;
 
 type Mode = "walk" | "dollhouse";
-const keyOf = (k: ViewpointKey) => `${k.walk}:${k.photo}`;
+const keyOf = viewpointId;
+/** A picture - a photo, or one frame of a spot - by its scan and number: what its texture is kept under. */
+const pictureId = (v: Viewpoint) => `${v.scanId}:${v.n}`;
+/** The pictures standing at [v]: a photo's own, or every frame of a spot. */
+const picturesAt = (v: Viewpoint): Viewpoint[] => v.frames ?? [v];
+/** A picture larger than this, either way, is drawn smaller: a spot's frames are the camera's full size, and a phone holds a turn of them. */
+const MAX_PICTURE_PX = 1280;
+/** Pictures kept on the graphics card at once; the least lately seen go first. */
+const MAX_PICTURES = 60;
+/** How wide the view is at a spot, top to bottom: a spot is for looking round, not at one photo. */
+const SPOT_FOV_DEG = 72;
 
 /**
  * A prism whose top is not level - a wall under a sloped ceiling - built by hand, since an extrusion
@@ -198,10 +209,11 @@ export default function Sketch3D({ sketch, onClose }: Props) {
   const [level, setLevel] = useState<number | "all">("all");
   const [low, setLow] = useState(false);
   const [mode, setMode] = useState<Mode>(points.length > 0 ? "walk" : "dollhouse");
-  const [at, setAt] = useState<ViewpointKey | null>(points[0]?.key ?? null);
+  // A walk with 360° spots opens at the first of them; one without, at its first photo.
+  const [at, setAt] = useState<ViewpointKey | null>((points.find((p) => p.frames) ?? points[0])?.key ?? null);
   // Signed links to each scan's photos, by scan id then photo number.
   const [urls, setUrls] = useState<Record<string, Record<number, string>>>({});
-  // Photos the browser would not draw as a texture (keyOf), shown as a plain picture instead.
+  // Pictures the browser would not draw as a texture (pictureId), shown as a plain picture instead.
   const [failed, setFailed] = useState<Record<string, true>>({});
   const urlsRef = useRef(urls);
   urlsRef.current = urls;
@@ -391,9 +403,12 @@ export default function Sketch3D({ sketch, onClose }: Props) {
       const ringGeometry = new THREE.RingGeometry(0.42, 0.62, 40);
       ringGeometry.rotateX(-Math.PI / 2);
       geometries.push(ringGeometry);
+      const spotRingGeometry = new THREE.RingGeometry(0.62, 0.95, 48);
+      spotRingGeometry.rotateX(-Math.PI / 2);
+      geometries.push(spotRingGeometry);
       const rings = new Map<string, import("three").Mesh>();
       for (const v of spacedOut(points, RING_SPACING_FEET)) {
-        const ring = new THREE.Mesh(ringGeometry, ringMaterial);
+        const ring = new THREE.Mesh(v.frames ? spotRingGeometry : ringGeometry, ringMaterial);
         ring.position.set(v.position[0], baseOf(v.level) + 0.03, v.position[2]);
         ring.renderOrder = 2;
         groupFor(v.level).add(ring);
@@ -407,17 +422,17 @@ export default function Sketch3D({ sketch, onClose }: Props) {
       cursor.renderOrder = 3;
       scene.add(cursor);
 
-      // The photos, each a picture hung in front of its camera, loaded when first needed.
-      const loader = new THREE.TextureLoader();
-      loader.setCrossOrigin("anonymous");
+      // The pictures, each hung in front of its camera, loaded when first needed.
       const feather = featherTexture(THREE);
       textures.push(feather);
       const planeGeometry = new THREE.PlaneGeometry(1, 1);
       geometries.push(planeGeometry);
-      const photoMeshes = new Map<string, import("three").Mesh<import("three").PlaneGeometry, import("three").MeshBasicMaterial>>();
-      const photoState = new Map<string, "loading" | "ready" | "failed">();
+      const pictureMeshes = new Map<string, import("three").Mesh<import("three").PlaneGeometry, import("three").MeshBasicMaterial>>();
+      const pictureState = new Map<string, "loading" | "ready" | "failed">();
+      // When each picture was last wanted, for letting the oldest go.
+      const pictureUsed = new Map<string, number>();
       const raycaster = new THREE.Raycaster();
-      /** How far ahead the photo hangs: at the wall the camera faced, which is where its picture is. */
+      /** How far ahead the picture hangs: at the wall the camera faced, which is where its picture is. */
       const photoDistance = (v: Viewpoint) => {
         raycaster.set(vec(v.position), vec(v.forward));
         raycaster.near = 0.5;
@@ -425,16 +440,52 @@ export default function Sketch3D({ sketch, onClose }: Props) {
         const hit = raycaster.intersectObjects(solidsOf.get(v.level) ?? [], false)[0];
         return hit ? Math.min(40, Math.max(2, hit.distance - 0.1)) : 10;
       };
-      const ensurePhoto = (v: Viewpoint | null | undefined) => {
-        if (!v) return;
-        const k = keyOf(v.key);
-        if (photoState.has(k)) return;
-        const walk = walks[v.key.walk];
-        const photo = walk?.photos[v.key.photo];
-        const url = walk && photo ? urlsRef.current[walk.scanId]?.[photo.n] : undefined;
+      /** A picture from [url] as a texture, no larger than [MAX_PICTURE_PX] either way. */
+      const loadPicture = (url: string, done: (t: import("three").Texture) => void, failed: () => void) => {
+        const img = new Image();
+        img.crossOrigin = "anonymous";
+        img.onload = () => {
+          const w = img.naturalWidth;
+          const h = img.naturalHeight;
+          const scale = Math.min(1, MAX_PICTURE_PX / Math.max(w, h, 1));
+          let texture: import("three").Texture;
+          if (scale < 1) {
+            const canvas = document.createElement("canvas");
+            canvas.width = Math.max(1, Math.round(w * scale));
+            canvas.height = Math.max(1, Math.round(h * scale));
+            canvas.getContext("2d")?.drawImage(img, 0, 0, canvas.width, canvas.height);
+            texture = new THREE.CanvasTexture(canvas);
+          } else {
+            texture = new THREE.Texture(img);
+          }
+          texture.needsUpdate = true;
+          done(texture);
+        };
+        img.onerror = failed;
+        img.src = url;
+      };
+      /** Lets go of the pictures least lately wanted, past [MAX_PICTURES], never one in [keepIds]. */
+      const trimPictures = (keepIds: Set<string>) => {
+        if (pictureMeshes.size <= MAX_PICTURES) return;
+        const byAge = [...pictureMeshes.keys()].filter((id) => !keepIds.has(id)).sort((a, b) => (pictureUsed.get(a) ?? 0) - (pictureUsed.get(b) ?? 0));
+        for (const id of byAge.slice(0, pictureMeshes.size - MAX_PICTURES)) {
+          const mesh = pictureMeshes.get(id);
+          if (!mesh) continue;
+          mesh.parent?.remove(mesh);
+          mesh.material.map?.dispose();
+          mesh.material.dispose();
+          pictureMeshes.delete(id);
+          pictureState.delete(id);
+        }
+      };
+      const ensurePicture = (f: Viewpoint) => {
+        const id = pictureId(f);
+        pictureUsed.set(id, performance.now());
+        if (pictureState.has(id)) return;
+        const url = urlsRef.current[f.scanId]?.[f.n];
         if (!url) return;
-        photoState.set(k, "loading");
-        loader.load(
+        pictureState.set(id, "loading");
+        loadPicture(
           url,
           (texture) => {
             if (disposed) {
@@ -442,7 +493,6 @@ export default function Sketch3D({ sketch, onClose }: Props) {
               return;
             }
             texture.colorSpace = THREE.SRGBColorSpace;
-            textures.push(texture);
             const material = new THREE.MeshBasicMaterial({
               map: texture,
               alphaMap: feather,
@@ -452,35 +502,43 @@ export default function Sketch3D({ sketch, onClose }: Props) {
               depthWrite: false,
               side: THREE.DoubleSide,
             });
-            materials.push(material);
             const mesh = new THREE.Mesh(planeGeometry, material);
-            const plane = photoPlane(v, photoDistance(v));
+            const plane = photoPlane(f, photoDistance(f));
             mesh.position.set(...plane.center);
-            mesh.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(vec(v.right), vec(v.up), vec(v.forward).negate()));
+            mesh.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(vec(f.right), vec(f.up), vec(f.forward).negate()));
             mesh.scale.set(plane.width, plane.height, 1);
             mesh.renderOrder = 10;
             mesh.visible = false;
-            groupFor(v.level).add(mesh);
-            photoMeshes.set(k, mesh);
-            photoState.set(k, "ready");
+            groupFor(f.level).add(mesh);
+            pictureMeshes.set(id, mesh);
+            pictureState.set(id, "ready");
+            trimPictures(new Set([...(current ? picturesAt(current) : []), ...(transition?.target ? picturesAt(transition.target) : [])].map(pictureId)));
           },
-          undefined,
           () => {
-            photoState.set(k, "failed");
-            if (!disposed) setFailed((prev) => ({ ...prev, [k]: true }));
+            pictureState.set(id, "failed");
+            if (!disposed) setFailed((prev) => ({ ...prev, [id]: true }));
           },
         );
       };
-      /** The photos a step or two away, so they are there when the view arrives. */
+      const ensurePhoto = (v: Viewpoint | null | undefined) => {
+        if (v) for (const f of picturesAt(v)) ensurePicture(f);
+      };
+      /** The pictures a step or two away, so they are there when the view arrives. */
       const prefetch = (v: Viewpoint, yaw: number) => {
         ensurePhoto(v);
-        const walk = walks[v.key.walk];
-        if (walk) {
+        if (!v.frames) {
           ensurePhoto(byKey.get(keyOf({ walk: v.key.walk, photo: v.key.photo + 1 })));
           ensurePhoto(byKey.get(keyOf({ walk: v.key.walk, photo: v.key.photo - 1 })));
         }
         ensurePhoto(stepFrom(points, v, yaw, 1));
         ensurePhoto(stepFrom(points, v, yaw, -1));
+      };
+      /** Disposed with the scene: every picture still held. */
+      const disposePictures = () => {
+        for (const mesh of pictureMeshes.values()) {
+          mesh.material.map?.dispose();
+          mesh.material.dispose();
+        }
       };
 
       const controls = new OrbitControls(camera, renderer.domElement);
@@ -536,7 +594,11 @@ export default function Sketch3D({ sketch, onClose }: Props) {
         /** Where the view ends up: at a photo, or handed to the dollhouse. */
         then: Mode;
       } | null = null;
-      const lookOf = (v: Viewpoint): Look => {
+      const lookOf = (v: Viewpoint, keepYaw?: number): Look => {
+        if (v.frames) {
+          // A spot faces every way: the view keeps looking where it was, level.
+          return { pos: vec(v.position), yaw: keepYaw ?? yawPitchOf(v.forward).yaw, pitch: 0, fov: SPOT_FOV_DEG };
+        }
         const o = yawPitchOf(v.forward);
         return { pos: vec(v.position), yaw: o.yaw, pitch: o.pitch, fov: fitFovDeg(v.camera, camera.aspect) };
       };
@@ -557,9 +619,9 @@ export default function Sketch3D({ sketch, onClose }: Props) {
         camera.updateProjectionMatrix();
       };
       const goTo = (v: Viewpoint, ms = STEP_MS) => {
-        const to = lookOf(v);
-        prefetch(v, to.yaw);
         const fromDollhouse = modeRef.current !== "walk";
+        const to = lookOf(v, fromDollhouse ? cameraLook().yaw : view.yaw);
+        prefetch(v, to.yaw);
         // From wherever the view is right now - part way through another step, if it is.
         const from = !fromDollhouse && !transition ? { ...view, pos: view.pos.clone() } : cameraLook();
         // Where a rebuild of the scene (the walls made whole again) starts it.
@@ -765,12 +827,12 @@ export default function Sketch3D({ sketch, onClose }: Props) {
         } else {
           controls.update();
         }
-        // The photos: the one the view is at, crossfading to the next on a step.
-        const fromKey = transition?.fromKey ?? null;
-        const toKey = transition?.target ? keyOf(transition.target.key) : null;
-        const hereKey = !transition && modeRef.current === "walk" && current ? keyOf(current.key) : null;
-        for (const [k, mesh] of photoMeshes) {
-          const o = k === hereKey ? 1 : transition ? (k === toKey ? toFade : k === fromKey ? fromFade : 0) : 0;
+        // The pictures: the ones where the view stands, crossfading to the next place's on a step.
+        const fromSet = new Set(transition?.fromKey ? picturesAt(byKey.get(transition.fromKey) as Viewpoint).map(pictureId) : []);
+        const toSet = new Set(transition?.target ? picturesAt(transition.target).map(pictureId) : []);
+        const hereSet = new Set(!transition && modeRef.current === "walk" && current ? picturesAt(current).map(pictureId) : []);
+        for (const [id, mesh] of pictureMeshes) {
+          const o = hereSet.has(id) ? 1 : transition ? Math.max(toSet.has(id) ? toFade : 0, fromSet.has(id) ? fromFade : 0) : 0;
           mesh.material.opacity = o;
           mesh.visible = o > 0.01;
         }
@@ -825,6 +887,7 @@ export default function Sketch3D({ sketch, onClose }: Props) {
         for (const g of geometries) g.dispose();
         for (const m of materials) m.dispose();
         for (const t of textures) t.dispose();
+        disposePictures();
         renderer.dispose();
         renderer.domElement.remove();
         labels.domElement.remove();
@@ -874,8 +937,10 @@ export default function Sketch3D({ sketch, onClose }: Props) {
     if (mode === "walk" && low) setLow(false);
   }, [mode, low]);
 
-  const current = at ? walks[at.walk]?.photos[at.photo] ?? null : null;
   const currentWalk = at ? walks[at.walk] ?? null : null;
+  const current = at && !at.spot ? currentWalk?.photos[at.photo] ?? null : null;
+  const spots = currentWalk?.spots ?? [];
+  const spotIndex = at?.spot ? spots.findIndex((s) => s.spot === at.spot) : -1;
   // Undefined while the scan's links are still on their way; then the photo's, or null when the phone never sent it.
   const scanUrls = currentWalk ? urls[currentWalk.scanId] : undefined;
   const currentUrl = current && scanUrls ? scanUrls[current.n] ?? null : null;
@@ -884,12 +949,30 @@ export default function Sketch3D({ sketch, onClose }: Props) {
       const k = atRef.current;
       if (!k) return;
       const walk = walks[k.walk];
+      if (!walk) return;
+      if (k.spot) {
+        // At a spot, on to the walk's next spot.
+        const list = walk.spots ?? [];
+        const next = list[list.findIndex((s) => s.spot === k.spot) + by];
+        if (next) sceneApi.current?.goTo({ walk: k.walk, photo: -1, spot: next.spot });
+        return;
+      }
       const next = k.photo + by;
-      if (!walk || next < 0 || next >= walk.photos.length) return;
+      if (next < 0 || next >= walk.photos.length) return;
       sceneApi.current?.goTo({ walk: k.walk, photo: next });
     },
     [walks],
   );
+  /** From a photo, to the 360° spot nearest where the view stands. */
+  const toNearestSpot = useCallback(() => {
+    const pose = poseRef.current;
+    const k = atRef.current;
+    const walk = k ? walks[k.walk] : undefined;
+    const spotPoints = points.filter((p) => p.frames && (!walk || p.level === walk.level));
+    if (spotPoints.length === 0) return;
+    const best = pose ? destinationFor(spotPoints, spotPoints[0]!.level, pose.x, pose.z, null) : spotPoints[0];
+    if (best) sceneApi.current?.goTo(best.key);
+  }, [points, walks]);
   const clock = (seconds: number) => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
 
   useEffect(() => {
@@ -1007,6 +1090,38 @@ export default function Sketch3D({ sketch, onClose }: Props) {
             }}
           />
         )}
+        {mode === "walk" && at?.spot != null && currentWalk && spotIndex >= 0 && (
+          <div
+            role="region"
+            aria-label="Where you are on the walk"
+            style={{
+              position: "absolute",
+              left: "50%",
+              bottom: 12,
+              transform: "translateX(-50%)",
+              width: "min(560px, calc(100% - 24px))",
+              background: "rgba(255,255,255,0.94)",
+              borderRadius: 12,
+              boxShadow: "0 6px 24px rgba(18,40,65,0.22)",
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              padding: "8px 10px",
+              flexWrap: "wrap",
+            }}
+          >
+            <span style={{ fontSize: 13, color: "#5b6472", flex: 1, minWidth: 160 }}>
+              360° spot {spotIndex + 1} of {spots.length} · drag to look all the way round
+              {walks.length > 1 ? ` · ${levelLabel(currentWalk.level)}` : ""}
+            </span>
+            <button type="button" className="option-btn" onClick={() => stepAlong(-1)} disabled={spotIndex === 0}>
+              Previous
+            </button>
+            <button type="button" className="option-btn" onClick={() => stepAlong(1)} disabled={spotIndex + 1 >= spots.length}>
+              Next
+            </button>
+          </div>
+        )}
         {mode === "walk" && current && currentWalk && at && (
           <div
             role="region"
@@ -1042,6 +1157,11 @@ export default function Sketch3D({ sketch, onClose }: Props) {
             <button type="button" className="option-btn" onClick={() => stepAlong(1)} disabled={at.photo + 1 >= currentWalk.photos.length}>
               Next
             </button>
+            {spots.length > 0 && (
+              <button type="button" className="option-btn" onClick={toNearestSpot} title="Go to the nearest 360° spot">
+                360°
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -1161,15 +1281,14 @@ function FloorPlan({
       ))}
       {points
         .filter((p) => p.level === level)
-        .map((p) => (
-          <circle
-            key={`${p.key.walk}:${p.key.photo}`}
-            cx={sx(p.position[0])}
-            cy={sy(p.position[2])}
-            r={at && at.walk === p.key.walk && at.photo === p.key.photo ? 0 : 1.6}
-            fill="#8a97a8"
-          />
-        ))}
+        .map((p) => {
+          const here = at != null && viewpointId(at) === viewpointId(p.key);
+          return p.frames ? (
+            <circle key={viewpointId(p.key)} cx={sx(p.position[0])} cy={sy(p.position[2])} r={here ? 0 : 4} fill="#fff" stroke="#1b3a5c" strokeWidth={1.5} />
+          ) : (
+            <circle key={viewpointId(p.key)} cx={sx(p.position[0])} cy={sy(p.position[2])} r={here ? 0 : 1.6} fill="#8a97a8" />
+          );
+        })}
       <g ref={markerRef}>
         {pose && (
           <g transform={`translate(${sx(pose.x)} ${sy(pose.z)}) rotate(${wedge})`}>

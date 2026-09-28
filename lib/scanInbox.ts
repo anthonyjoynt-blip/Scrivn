@@ -1,7 +1,7 @@
 import { importScanRoom, scanPointToPx, type ScanImportResult, type ScanOrigin } from "./scanImport";
 import { hasRoomMoisture, type MoistureMap } from "./moisture";
 import type { ScopeMarks } from "./scopeMarks";
-import { MAIN_LEVEL, roomBounds, roomLevel, roomsOnLevel, withDerivedParents, type Sketch, type SketchRoom, type SketchScan, type SketchWalk, type WalkCamera, type WalkPhoto } from "./sketch";
+import { MAIN_LEVEL, roomBounds, roomLevel, roomsOnLevel, withDerivedParents, type Sketch, type SketchRoom, type SketchScan, type SketchWalk, type WalkCamera, type WalkPhoto, type WalkSpot } from "./sketch";
 
 export type { SketchScan } from "./sketch";
 
@@ -181,36 +181,54 @@ export function walkFromScan(body: unknown, origin: ScanOrigin | undefined, at: 
   const walk = (parsed as { walk?: unknown }).walk;
   if (walk === null || typeof walk !== "object") return null;
   const raw = (walk as { photos?: unknown }).photos;
-  if (!Array.isArray(raw)) return null;
-  const photos: WalkPhoto[] = [];
   const seen = new Set<number>();
-  for (const entry of raw) {
-    if (entry === null || typeof entry !== "object") continue;
-    const e = entry as Record<string, unknown>;
-    if (!finite(e.n) || !Number.isInteger(e.n) || e.n < 0 || seen.has(e.n)) continue;
-    if (!finite(e.u) || !finite(e.v) || !finite(e.heading_deg)) continue;
-    seen.add(e.n);
-    const { x, y } = scanPointToPx(e.u, e.v, origin, at);
-    photos.push({
-      n: e.n,
-      tS: finite(e.t_s) ? e.t_s : 0,
-      x,
-      y,
-      heightFeet: finite(e.height_m) ? e.height_m * FEET_PER_METRE : null,
-      headingDeg: e.heading_deg,
-      pitchDeg: finite(e.pitch_deg) ? e.pitch_deg : null,
-      // The file's u runs across the page and its v down it, so its axes are the page's as they come.
-      ...(() => {
-        const forward = unitVector(e.forward);
-        const up = unitVector(e.up);
-        return forward && up ? { forward, up } : {};
-      })(),
-    });
+  /** The wire's photos (or a spot's frames), placed on the page, in the order taken; bad ones left out. */
+  const placed = (list: unknown): WalkPhoto[] => {
+    const out: WalkPhoto[] = [];
+    if (!Array.isArray(list)) return out;
+    for (const entry of list) {
+      if (entry === null || typeof entry !== "object") continue;
+      const e = entry as Record<string, unknown>;
+      if (!finite(e.n) || !Number.isInteger(e.n) || e.n < 0 || seen.has(e.n)) continue;
+      if (!finite(e.u) || !finite(e.v) || !finite(e.heading_deg)) continue;
+      seen.add(e.n);
+      const { x, y } = scanPointToPx(e.u, e.v, origin, at);
+      out.push({
+        n: e.n,
+        tS: finite(e.t_s) ? e.t_s : 0,
+        x,
+        y,
+        heightFeet: finite(e.height_m) ? e.height_m * FEET_PER_METRE : null,
+        headingDeg: e.heading_deg,
+        pitchDeg: finite(e.pitch_deg) ? e.pitch_deg : null,
+        // The file's u runs across the page and its v down it, so its axes are the page's as they come.
+        ...(() => {
+          const forward = unitVector(e.forward);
+          const up = unitVector(e.up);
+          return forward && up ? { forward, up } : {};
+        })(),
+      });
+    }
+    out.sort((a, b) => a.tS - b.tS || a.n - b.n);
+    return out;
+  };
+  const photos = placed(raw);
+  const spots: WalkSpot[] = [];
+  const rawSpots = (walk as { spots?: unknown }).spots;
+  if (Array.isArray(rawSpots)) {
+    for (const entry of rawSpots) {
+      if (entry === null || typeof entry !== "object") continue;
+      const e = entry as Record<string, unknown>;
+      if (!finite(e.spot) || !Number.isInteger(e.spot) || e.spot < 1) continue;
+      const frames = placed(e.frames);
+      if (frames.length === 0) continue;
+      const camera = walkCamera(e.camera);
+      spots.push({ spot: e.spot, frames, ...(camera ? { camera } : {}) });
+    }
   }
-  if (photos.length === 0) return null;
-  photos.sort((a, b) => a.tS - b.tS || a.n - b.n);
+  if (photos.length === 0 && spots.length === 0) return null;
   const camera = walkCamera((walk as { camera?: unknown }).camera);
-  return { scanId, level, photos, ...(camera ? { camera } : {}) };
+  return { scanId, level, photos, ...(camera ? { camera } : {}), ...(spots.length > 0 ? { spots } : {}) };
 }
 
 /** A unit vector from the wire's [a, b, c], or undefined when it is not three finite numbers of some length. */

@@ -80,6 +80,44 @@ export async function runWalkViewChecks() {
     assert(old && !("camera" in old), "an older file has no lens on record");
   });
 
+  test("a 360-degree spot stands where the phone turned, with every frame of the turn", () => {
+    // Four frames of a turn, the phone swinging a little round the spot as a held phone does.
+    const frames = [0, 90, 180, 270].map((h, i) => photo(500 + i, 10 + 0.3 * Math.cos((h * Math.PI) / 180), 6 + 0.3 * Math.sin((h * Math.PI) / 180), h));
+    const walk = { scanId: "s", level: 0, photos: [photo(1, 2, 2, 0)], spots: [{ spot: 1, camera: { width: 1080, height: 1920, fx: 1500, fy: 1500, cx: 540, cy: 960 }, frames }] };
+    const points = w.viewpoints([walk], () => 0);
+    const spot = points.find((v) => v.frames);
+    assert(spot && spot.key.spot === 1 && spot.key.photo === -1, "the spot is a viewpoint of its own");
+    nearVec(spot.position, [10, 5, 6], "in the middle of where its frames were taken", 1e-9);
+    assert(spot.frames.length === 4 && spot.frames.every((f) => f.camera.fx === 1500), "with its frames, through the spot's own lens");
+    assert(spot.frames.map((f) => f.n).join(",") === "500,501,502,503", "each frame its own picture");
+    assert(w.viewpointId(spot.key) === "0:s1" && w.viewpointId(points[0].key) === "0:0", "and keys that cannot meet a photo's");
+    // A tap a couple of feet nearer a photo than the spot still goes to the spot; farther, to the photo.
+    const closeBy = w.viewpoints([{ ...walk, photos: [photo(1, 14, 6, 0)] }], () => 0);
+    assert(w.destinationFor(closeBy, 0, 11.6, 6, null).frames, "the spot, from under 3' further");
+    assert(!w.destinationFor(closeBy, 0, 14.5, 6, null).frames, "the photo, when it is more than 3' the nearer");
+    // The spot is ringed first.
+    assert(w.spacedOut(points, 4)[0].frames, "a spot is always marked");
+  });
+
+  test("a scan's spots come in beside its photos", () => {
+    const frame = (n, h) => ({ n, t_s: n, u: 1, v: 2, height_m: 1.5, heading_deg: h, pitch_deg: 0, epoch: 0 });
+    const body = {
+      walk: {
+        photos: [frame(1, 0)],
+        spots: [
+          { spot: 1, camera: { width: 1080, height: 1920, fx: 1500, fy: 1500, cx: 540, cy: 960 }, frames: [frame(500, 0), frame(501, 20)] },
+          { spot: 0, frames: [frame(524, 0)] },
+          { spot: 2, frames: [] },
+        ],
+      },
+    };
+    const walk = w.walkFromScan(JSON.stringify(body), { u: 0, v: 0 }, { x: 0, y: 0 }, "scan-1", 0);
+    assert(walk.spots && walk.spots.length === 1, `one good spot: ${JSON.stringify(walk.spots)}`);
+    assert(walk.spots[0].camera.fx === 1500 && walk.spots[0].frames.length === 2, "its lens and frames");
+    const only = w.walkFromScan(JSON.stringify({ walk: { spots: body.walk.spots } }), { u: 0, v: 0 }, { x: 0, y: 0 }, "scan-2", 0);
+    assert(only && only.photos.length === 0 && only.spots.length === 1, "a walk of spots alone is still a walk");
+  });
+
   test("a photo from an older file stands where it was taken, looking the way it was headed", () => {
     // Heading 90 on the page is down the page: the model's +z. No axes on file, so its top is up.
     const [v] = w.viewpoints([{ scanId: "s", level: 0, photos: [photo(1, 10, 6, 90)] }], () => 0);
