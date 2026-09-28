@@ -143,9 +143,9 @@ export async function runWalkViewChecks() {
   test("the photo hangs square in front of its camera, as wide as its lens sees at that distance", () => {
     const [v] = w.viewpoints([{ scanId: "s", level: 0, photos: [photo(1, 0, 0, 0)] }], () => 0);
     const plane = w.photoPlane(v, 10);
-    nearVec(plane.center, [10, 5, 0], "10' straight ahead, at the camera's height");
-    near(plane.width, (480 / 495) * 10, "as wide as 480 px at 495 px of focal length");
-    near(plane.height, (640 / 495) * 10, "as tall");
+    nearVec(plane.center, [10, 5 - (1 / 430) * 10, 0], "10' straight ahead, at the camera's height (a hair lower: the lens's middle is a pixel above the picture's)");
+    near(plane.width, (480 / 430) * 10, "as wide as 480 px at 430 px of focal length");
+    near(plane.height, (640 / 430) * 10, "as tall");
     // A principal point off the middle moves the picture, not the camera.
     const off = w.viewpoints([{ scanId: "s", level: 0, camera: { width: 480, height: 640, fx: 500, fy: 500, cx: 230, cy: 330 }, photos: [photo(1, 0, 0, 0)] }], () => 0)[0];
     const moved = w.photoPlane(off, 10);

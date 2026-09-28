@@ -382,6 +382,8 @@ export default function Sketch3D({ sketch, onClose }: Props) {
       });
       // Ceilings, for standing inside: walk mode shows them, the dollhouse does not.
       const ceilings: import("three").Mesh[] = [];
+      // The ceilings by storey, for hanging a spot's upward frames on (they raycast hidden or not).
+      const overheadOf = new Map<number, import("three").Mesh[]>();
       for (const c of model.ceilings) {
         const geometry = new THREE.BufferGeometry();
         geometry.setAttribute("position", new THREE.Float32BufferAttribute(c.positions, 3));
@@ -391,6 +393,7 @@ export default function Sketch3D({ sketch, onClose }: Props) {
         mesh.visible = false;
         groupFor(c.level).add(mesh);
         ceilings.push(mesh);
+        keep(overheadOf, c.level, mesh);
       }
 
       // ---- The walk ------------------------------------------------------------------------------
@@ -432,12 +435,16 @@ export default function Sketch3D({ sketch, onClose }: Props) {
       // When each picture was last wanted, for letting the oldest go.
       const pictureUsed = new Map<string, number>();
       const raycaster = new THREE.Raycaster();
-      /** How far ahead the picture hangs: at the wall the camera faced, which is where its picture is. */
+      /**
+       * How far ahead the picture hangs: at what the camera faced - a wall, or for a spot's frames aimed
+       * up and down, the ceiling or the floor - which is where its picture is.
+       */
       const photoDistance = (v: Viewpoint) => {
         raycaster.set(vec(v.position), vec(v.forward));
         raycaster.near = 0.5;
         raycaster.far = 80;
-        const hit = raycaster.intersectObjects(solidsOf.get(v.level) ?? [], false)[0];
+        const targets = [...(solidsOf.get(v.level) ?? []), ...(floorsOf.get(v.level) ?? []), ...(overheadOf.get(v.level) ?? [])];
+        const hit = raycaster.intersectObjects(targets, false)[0];
         return hit ? Math.min(40, Math.max(2, hit.distance - 0.1)) : 10;
       };
       /** A picture from [url] as a texture, no larger than [MAX_PICTURE_PX] either way. */
@@ -774,6 +781,8 @@ export default function Sketch3D({ sketch, onClose }: Props) {
         }
       }
 
+      const lookDir = new THREE.Vector3();
+      const facingDir = new THREE.Vector3();
       const smooth = (a: number, b: number, t: number) => {
         const s = Math.min(1, Math.max(0, (t - a) / (b - a)));
         return s * s * (3 - 2 * s);
@@ -831,11 +840,23 @@ export default function Sketch3D({ sketch, onClose }: Props) {
         const fromSet = new Set(transition?.fromKey ? picturesAt(byKey.get(transition.fromKey) as Viewpoint).map(pictureId) : []);
         const toSet = new Set(transition?.target ? picturesAt(transition.target).map(pictureId) : []);
         const hereSet = new Set(!transition && modeRef.current === "walk" && current ? picturesAt(current).map(pictureId) : []);
+        camera.getWorldDirection(lookDir);
+        const shown: { mesh: (typeof pictureMeshes extends Map<string, infer M> ? M : never); facing: number }[] = [];
         for (const [id, mesh] of pictureMeshes) {
           const o = hereSet.has(id) ? 1 : transition ? Math.max(toSet.has(id) ? toFade : 0, fromSet.has(id) ? fromFade : 0) : 0;
           mesh.material.opacity = o;
           mesh.visible = o > 0.01;
+          if (mesh.visible) {
+            // The plane's normal points back at its camera; the picture faces the view as much as it faces away from it.
+            facingDir.set(0, 0, -1).applyQuaternion(mesh.quaternion);
+            shown.push({ mesh, facing: facingDir.dot(lookDir) });
+          }
         }
+        // Where a spot's frames overlap, the one the view looks most straight into is drawn last, on top.
+        shown.sort((a, b) => a.facing - b.facing);
+        shown.forEach((s, i) => {
+          s.mesh.renderOrder = 10 + i;
+        });
         // The rings: not under the view's own feet, and only for the storey being walked.
         for (const [k, ring] of rings) ring.visible = !(walking && current && k === keyOf(current.key));
         renderer.render(scene, camera);

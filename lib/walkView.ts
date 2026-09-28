@@ -27,11 +27,11 @@ export type Vec3 = [number, number, number];
 
 /**
  * The lens for a walk whose file did not name one (every scan sent before 2026-09-28): the phone's
- * 640 x 480 camera image stood upright, about 66 degrees top to bottom - the ARCore image on the
- * phones this runs on. A wrong guess makes the photo a little too big or small over the model; the
+ * 640 x 480 camera image stood upright - fx 430, 73 degrees top to bottom, as the first file to carry
+ * its lens read it (the guess before that, 495, made every photo 15% too small over the model). The
  * files carry the real one now.
  */
-export const DEFAULT_WALK_CAMERA: WalkCamera = { width: 480, height: 640, fx: 495, fy: 495, cx: 240, cy: 320 };
+export const DEFAULT_WALK_CAMERA: WalkCamera = { width: 480, height: 640, fx: 430, fy: 430, cx: 240, cy: 319 };
 
 /** How high the phone was when the file does not say: 5', about where it is held to look through. */
 export const DEFAULT_PHOTO_HEIGHT_FEET = 5;
