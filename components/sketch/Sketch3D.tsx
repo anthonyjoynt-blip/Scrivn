@@ -10,10 +10,16 @@
  * Walls are drawn with navy tops: seen from above, the tops draw the plan the PM already knows.
  * "Low walls" cuts every wall at 4' above its floor - the dollhouse view, where the near walls stop
  * hiding the rooms and the doorways show as gaps.
+ *
+ * THE WALK'S PHOTOS (`sketch.walks`, placed when the scan was adopted) stand as pins where the phone
+ * was, each with a cone for the way it faced. Tapping one opens its photo; Previous and Next step
+ * through the walk in the order it was taken, the view following the pin. The pictures are fetched by
+ * scan when the view opens (`/api/scans/<id>/photos`); a pin whose photo has not arrived from the
+ * phone says so.
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { levelLabel, type Sketch } from "@/lib/sketch";
+import { levelLabel, PIXELS_PER_FOOT, type Sketch } from "@/lib/sketch";
 import { houseModel, type HouseModel, type PrismKind } from "@/lib/sketch3d";
 
 interface Props {
@@ -34,6 +40,16 @@ const COLORS = {
 
 /** How high "Low walls" leaves a wall standing, above its own floor. */
 const LOW_WALL_FEET = 4;
+/** Where a pin stands when the phone did not know how high it was: eye level. */
+const PIN_HEIGHT_FEET = 5;
+const PIN_COLOR = 0x1b3a5c;
+const PIN_SELECTED = 0xf0a93e;
+/** A tap this close to a pin, in screen pixels, opens it: a pin is a few pixels across seen from the door, and a finger is not. */
+const PICK_RADIUS_PX = 18;
+
+/** One photo of one walk: [walk] indexes `sketch.walks`, [photo] its photos (in the order taken). */
+type PhotoKey = { walk: number; photo: number };
+const keyOf = (k: PhotoKey) => `${k.walk}:${k.photo}`;
 
 type Bounds = NonNullable<HouseModel["bounds"]>;
 type View = { position: [number, number, number]; target: [number, number, number] };
@@ -68,11 +84,21 @@ export default function Sketch3D({ sketch, onClose }: Props) {
   const [status, setStatus] = useState<"loading" | "ready" | "failed">("loading");
   const [level, setLevel] = useState<number | "all">("all");
   const [low, setLow] = useState(false);
+  const walks = useMemo(() => sketch.walks ?? [], [sketch]);
+  const [selected, setSelected] = useState<PhotoKey | null>(null);
+  // Signed links to each scan's photos, by scan id then photo number.
+  const [urls, setUrls] = useState<Record<string, Record<number, string>>>({});
   const levelRef = useRef<number | "all">("all");
   // Where the camera was when the scene was last torn down, so "Low walls" does not throw the view away.
   const viewRef = useRef<View | null>(null);
   // What the scene exposes to the controls outside it, once it is built.
-  const sceneApi = useRef<{ show: (level: number | "all") => void; frame: (level: number | "all") => void } | null>(null);
+  const sceneApi = useRef<{
+    show: (level: number | "all") => void;
+    frame: (level: number | "all") => void;
+    highlight: (key: PhotoKey | null) => void;
+    focus: (key: PhotoKey) => void;
+  } | null>(null);
+  const selectedRef = useRef<PhotoKey | null>(null);
 
   useEffect(() => {
     const host = mountRef.current;
@@ -193,6 +219,44 @@ export default function Sketch3D({ sketch, onClose }: Props) {
         }
       });
 
+      // The walk's photos: a pin where the phone stood, a cone the way it faced.
+      const pinMaterial = standard(PIN_COLOR, { roughness: 0.5 });
+      const pinSelected = standard(PIN_SELECTED, { roughness: 0.5 });
+      const pins = new Map<string, import("three").Mesh[]>();
+      const spots: { key: PhotoKey; at: import("three").Vector3; level: number }[] = [];
+      const pinPosition = (k: PhotoKey) => {
+        const walk = walks[k.walk];
+        const photo = walk?.photos[k.photo];
+        if (!walk || !photo) return null;
+        return new THREE.Vector3(photo.x / PIXELS_PER_FOOT, baseOf(walk.level) + (photo.heightFeet ?? PIN_HEIGHT_FEET), photo.y / PIXELS_PER_FOOT);
+      };
+      const sphereGeometry = new THREE.SphereGeometry(0.4, 16, 12);
+      const coneGeometry = new THREE.ConeGeometry(0.22, 0.9, 12);
+      // The cone's point is its +y; turned to +x it is the page's heading 0.
+      coneGeometry.rotateZ(-Math.PI / 2);
+      coneGeometry.translate(0.75, 0, 0);
+      geometries.push(sphereGeometry, coneGeometry);
+      walks.forEach((walk, wi) => {
+        walk.photos.forEach((photo, pi) => {
+          const key: PhotoKey = { walk: wi, photo: pi };
+          const at = pinPosition(key);
+          if (!at) return;
+          const pin = new THREE.Group();
+          pin.position.copy(at);
+          const ball = new THREE.Mesh(sphereGeometry, pinMaterial);
+          const cone = new THREE.Mesh(coneGeometry, pinMaterial);
+          // Heading on the page (0 right, 90 down) is a turn about up that takes +x to +z.
+          cone.rotation.set(0, -(photo.headingDeg * Math.PI) / 180, ((photo.pitchDeg ?? 0) * Math.PI) / 180, "YZX");
+          spots.push({ key, at, level: walk.level });
+          pin.add(ball, cone);
+          pins.set(keyOf(key), [ball, cone]);
+          groupFor(walk.level).add(pin);
+        });
+      });
+      const highlight = (key: PhotoKey | null) => {
+        for (const [k, meshes] of pins) for (const m of meshes) m.material = key && k === keyOf(key) ? pinSelected : pinMaterial;
+      };
+
       const controls = new OrbitControls(camera, renderer.domElement);
       controls.enableDamping = true;
       controls.dampingFactor = 0.08;
@@ -221,6 +285,39 @@ export default function Sketch3D({ sketch, onClose }: Props) {
       const show = (lvl: number | "all") => {
         for (const [key, group] of groups) group.visible = lvl === "all" || key === lvl;
       };
+      let glide: { from: import("three").Vector3; to: import("three").Vector3; start: number } | null = null;
+      const focus = (key: PhotoKey) => {
+        const at = pinPosition(key);
+        if (!at) return;
+        glide = { from: controls.target.clone(), to: at, start: performance.now() };
+      };
+
+      // A tap near a pin opens its photo - the nearest on screen, on a storey in view; a drag is the camera's.
+      let down: { x: number; y: number } | null = null;
+      const onDown = (e: PointerEvent) => {
+        down = { x: e.clientX, y: e.clientY };
+      };
+      const onUp = (e: PointerEvent) => {
+        if (!down || Math.hypot(e.clientX - down.x, e.clientY - down.y) > 6) {
+          down = null;
+          return;
+        }
+        down = null;
+        const rect = renderer.domElement.getBoundingClientRect();
+        let best: { key: PhotoKey; d: number } | null = null;
+        for (const spot of spots) {
+          if (groups.get(spot.level)?.visible === false) continue;
+          const ndc = spot.at.clone().project(camera);
+          if (ndc.z < -1 || ndc.z > 1) continue;
+          const sx = rect.left + ((ndc.x + 1) / 2) * rect.width;
+          const sy = rect.top + ((1 - ndc.y) / 2) * rect.height;
+          const d = Math.hypot(sx - e.clientX, sy - e.clientY);
+          if (d <= PICK_RADIUS_PX && (!best || d < best.d)) best = { key: spot.key, d };
+        }
+        if (best) setSelected(best.key);
+      };
+      renderer.domElement.addEventListener("pointerdown", onDown);
+      renderer.domElement.addEventListener("pointerup", onUp);
 
       const resize = () => {
         const w = Math.max(1, host.clientWidth);
@@ -251,13 +348,22 @@ export default function Sketch3D({ sketch, onClose }: Props) {
       let raf = 0;
       const loop = () => {
         raf = requestAnimationFrame(loop);
+        if (glide) {
+          const t = Math.min(1, (performance.now() - glide.start) / 350);
+          const ease = t * (2 - t);
+          const next = glide.from.clone().lerp(glide.to, ease);
+          camera.position.add(next.clone().sub(controls.target));
+          controls.target.copy(next);
+          if (t >= 1) glide = null;
+        }
         controls.update();
         renderer.render(scene, camera);
         labels.render(scene, camera);
       };
       loop();
 
-      sceneApi.current = { show, frame };
+      sceneApi.current = { show, frame, highlight, focus };
+      highlight(selectedRef.current);
       setStatus("ready");
 
       teardown = () => {
@@ -267,6 +373,8 @@ export default function Sketch3D({ sketch, onClose }: Props) {
         };
         cancelAnimationFrame(raf);
         observer.disconnect();
+        renderer.domElement.removeEventListener("pointerdown", onDown);
+        renderer.domElement.removeEventListener("pointerup", onUp);
         controls.dispose();
         for (const g of geometries) g.dispose();
         for (const m of materials) m.dispose();
@@ -281,7 +389,44 @@ export default function Sketch3D({ sketch, onClose }: Props) {
       disposed = true;
       teardown?.();
     };
-  }, [model, low]);
+  }, [model, low, walks]);
+
+  // The pictures, one request per scan, when the view opens.
+  useEffect(() => {
+    let cancelled = false;
+    for (const scanId of new Set(walks.map((w) => w.scanId))) {
+      fetch(`/api/scans/${scanId}/photos`)
+        .then((r) => (r.ok ? r.json() : { photos: [] }))
+        .then((body: { photos?: { n: number; url: string }[] }) => {
+          if (cancelled) return;
+          const byN: Record<number, string> = {};
+          for (const p of body.photos ?? []) byN[p.n] = p.url;
+          setUrls((prev) => ({ ...prev, [scanId]: byN }));
+        })
+        .catch(() => undefined);
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [walks]);
+
+  useEffect(() => {
+    selectedRef.current = selected;
+    sceneApi.current?.highlight(selected);
+    if (selected) sceneApi.current?.focus(selected);
+  }, [selected]);
+
+  const photoCount = walks.reduce((n, w) => n + w.photos.length, 0);
+  const current = selected ? walks[selected.walk]?.photos[selected.photo] ?? null : null;
+  const currentWalk = selected ? walks[selected.walk] ?? null : null;
+  const currentUrl = current && currentWalk ? urls[currentWalk.scanId]?.[current.n] ?? null : null;
+  const step = (by: number) => {
+    if (!selected || !currentWalk) return;
+    const next = selected.photo + by;
+    if (next < 0 || next >= currentWalk.photos.length) return;
+    setSelected({ walk: selected.walk, photo: next });
+  };
+  const clock = (seconds: number) => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
 
   useEffect(() => {
     levelRef.current = level;
@@ -291,11 +436,20 @@ export default function Sketch3D({ sketch, onClose }: Props) {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") {
+        if (selectedRef.current) setSelected(null);
+        else onClose();
+      } else if (e.key === "ArrowRight" && selectedRef.current) {
+        const k = selectedRef.current;
+        setSelected((prev) => (prev && k.photo + 1 < (walks[k.walk]?.photos.length ?? 0) ? { walk: k.walk, photo: k.photo + 1 } : prev));
+      } else if (e.key === "ArrowLeft" && selectedRef.current) {
+        const k = selectedRef.current;
+        setSelected((prev) => (prev && k.photo > 0 ? { walk: k.walk, photo: k.photo - 1 } : prev));
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, [onClose, walks]);
 
   return (
     <div
@@ -346,9 +500,52 @@ export default function Sketch3D({ sketch, onClose }: Props) {
             {status === "loading" ? "Building the house in 3D…" : "This browser can't draw 3D here. Try Chrome or Safari on a recent device."}
           </p>
         )}
+        {current && currentWalk && selected && (
+          <div
+            role="region"
+            aria-label="Photo from the walk"
+            style={{
+              position: "absolute",
+              right: 12,
+              bottom: 12,
+              width: "min(420px, calc(100% - 24px))",
+              background: "#fff",
+              borderRadius: 12,
+              boxShadow: "0 6px 24px rgba(18,40,65,0.25)",
+              overflow: "hidden",
+              display: "flex",
+              flexDirection: "column",
+            }}
+          >
+            <div style={{ background: "#122841", aspectRatio: "4 / 3", display: "grid", placeItems: "center" }}>
+              {currentUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={currentUrl} alt={`Photo ${selected.photo + 1} of the walk`} style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }} />
+              ) : (
+                <p style={{ color: "#dce4ee", margin: 16, textAlign: "center" }}>This photo hasn't arrived from the phone yet.</p>
+              )}
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", flexWrap: "wrap" }}>
+              <span style={{ fontSize: 13, color: "#5b6472", flex: 1, minWidth: 140 }}>
+                Photo {selected.photo + 1} of {currentWalk.photos.length} · {clock(current.tS)} into the walk
+                {walks.length > 1 ? ` · ${levelLabel(currentWalk.level)}` : ""}
+              </span>
+              <button type="button" className="option-btn" onClick={() => step(-1)} disabled={selected.photo === 0}>
+                Previous
+              </button>
+              <button type="button" className="option-btn" onClick={() => step(1)} disabled={selected.photo + 1 >= currentWalk.photos.length}>
+                Next
+              </button>
+              <button type="button" className="option-btn" onClick={() => setSelected(null)} aria-label="Close the photo">
+                Close
+              </button>
+            </div>
+          </div>
+        )}
       </div>
       <p className="field-note" style={{ margin: 0, padding: "8px 16px", paddingBottom: "calc(8px + env(safe-area-inset-bottom, 0px))", background: "#fff", borderTop: "1px solid var(--border, #e1e5ea)" }}>
         Drag to turn · scroll or pinch to zoom · right-drag or two fingers to pan
+        {photoCount > 0 ? ` · tap a pin to see the photo taken there (${photoCount} on this walk${walks.length > 1 ? "s" : ""})` : ""}
       </p>
     </div>
   );

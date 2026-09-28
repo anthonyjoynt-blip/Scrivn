@@ -709,6 +709,12 @@ export interface Sketch {
    * this loads unchanged, and absent reads as `DEFAULT_QUANTITY_OPTIONS`.
    */
   quantities?: QuantityOptions;
+  /**
+   * The photos the phone took on its walks, placed where each was taken - one walk per storey the
+   * phone scanned (see `SketchWalk`). What the 3D view pins. Optional: absent on a hand-drawn sketch,
+   * on every sketch saved before 2026-09-27, and on a scan the phone sent without photos.
+   */
+  walks?: SketchWalk[];
 }
 
 /**
@@ -726,6 +732,38 @@ export interface SketchScan {
   level: number;
   /** `sketchFingerprint` of the sketch as adopted — equal to the current one until somebody edits. */
   fingerprint: string;
+}
+
+/**
+ * The photos a phone took on one walk, placed on the plan (2026-09-27, the walk-through). Written when
+ * the scan is adopted (`adoptScan`), in the same world pixels as the rooms that scan drew, so each
+ * photo stands where it was taken among them; a re-scan of the storey replaces it. The images
+ * themselves are stored against the scan (`scanId`) and fetched when the 3D view opens.
+ *
+ * Not part of `sketchFingerprint`: moving a room by hand does not move the photos, and a sketch with
+ * photos is as phone-owned as one without.
+ */
+export interface SketchWalk {
+  /** The `claim_scans` row the photos were sent with. */
+  scanId: string;
+  level: number;
+  photos: WalkPhoto[];
+}
+
+export interface WalkPhoto {
+  /** The photo's number within its scan, as stored (`<n>.jpg`). */
+  n: number;
+  /** Seconds into the walk when it was taken. */
+  tS: number;
+  /** Where the phone stood, world pixels. */
+  x: number;
+  y: number;
+  /** How high the phone was above the floor, in feet; null when the phone did not know the floor. */
+  heightFeet: number | null;
+  /** Which way the camera faced on the page, degrees: 0 right, 90 down the page. */
+  headingDeg: number;
+  /** Up or down from level, degrees, up positive; null when not known. */
+  pitchDeg: number | null;
 }
 
 export function emptySketch(): Sketch {

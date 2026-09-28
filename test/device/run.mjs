@@ -377,6 +377,48 @@ check(same(named, ["Kitchen", "Primary bath", "Stairs"]), `"Room N" placeholders
 check(same(namedRooms([]), []), "no rooms, no names");
 check(same(namedRooms([handRoom("n", "Room", 0, 0, 12, 12, 0), handRoom("m", "Room A", 0, 0, 12, 12, 0)]), ["Room", "Room A"]), "a room actually called Room, or Room A, is a name — only the numbered placeholder is not");
 
+/* ── The walk's photos, placed on the plan (2026-09-27) ─────────────────────────────────── */
+
+{
+  // A photo taken standing on Room 1's first corner lands on that corner: the walk goes through the
+  // same drop as the rooms, whatever the capture's union put at the origin.
+  const walkBody = {
+    ...capture,
+    walk: {
+      photos: [
+        { n: 0, t_s: 3.5, u: 0, v: 0, height_m: 1.524, heading_deg: 90, pitch_deg: -10 },
+        { n: 1, t_s: 1.0, u: 2, v: 1, height_m: null, heading_deg: 0 },
+        { n: 2, t_s: 5, v: 1, heading_deg: 0 },
+        { n: 1, t_s: 9, u: 1, v: 1, heading_deg: 0 },
+      ],
+    },
+  };
+  const adopted = adoptScan({ rooms: [] }, pending(walkBody, 0));
+  check(adoptedOk(adopted), "a scan with a walk adopts");
+  if (adoptedOk(adopted)) {
+    const walk = adopted.sketch.walks?.[0];
+    check(walk !== undefined && walk.level === 0 && walk.photos.length === 2, `two photos placed - the one with no place and the repeated number left out (got ${short(walk)})`);
+    const room1 = adopted.sketch.rooms.find((r) => r.name === "Room 1");
+    const corner = walk?.photos.find((p) => p.n === 0);
+    check(
+      room1 !== undefined && corner !== undefined && room1.vertices.some((v) => Math.abs(v.x - corner.x) <= 0.5 && Math.abs(v.y - corner.y) <= 0.5),
+      `the photo on Room 1's first corner stands on that corner (photo ${short(corner)}, corners ${short(room1?.vertices.map((v) => [v.x, v.y]))})`,
+    );
+    check(corner !== undefined && Math.abs(corner.heightFeet - 5) < 1e-6 && corner.pitchDeg === -10 && corner.headingDeg === 90, `its height in feet, its pitch and heading carried (got ${short(corner)})`);
+    check(walk?.photos[0]?.n === 1, "the photos are in the order they were taken");
+    check(walk?.photos.find((p) => p.n === 1)?.heightFeet === null, "a photo with no height keeps its place");
+    const upstairs = adoptScan(adopted.sketch, pending({ ...office, walk: { photos: [{ n: 0, t_s: 0, u: 1, v: 1, heading_deg: 45 }] } }, 1));
+    check(adoptedOk(upstairs) && upstairs.sketch.walks?.length === 2, "a walk upstairs sits beside the main floor's");
+    if (adoptedOk(upstairs)) {
+      const again = adoptScan(upstairs.sketch, pending(capture, 0));
+      check(adoptedOk(again) && again.sketch.walks?.length === 1 && again.sketch.walks[0].level === 1, "re-scanning the main floor with no photos takes its old walk away and leaves upstairs' alone");
+    }
+    check(sketchFingerprint(adopted.sketch) === sketchFingerprint({ ...adopted.sketch, walks: undefined }), "the photos are not part of the fingerprint: a sketch with them is as phone-owned as one without");
+  }
+  const plain = adoptScan({ rooms: [] }, pending(capture, 0));
+  check(adoptedOk(plain) && plain.sketch.walks === undefined, "a scan with no walk leaves the sketch without one");
+}
+
 /* ── The words on the notice ─────────────────────────────────────────────────────────────────────── */
 
 check(levelLabel(0) === "Main level" && levelLabel(1) === "Level above" && levelLabel(-1) === "Level below" && levelLabel(2) === "2 levels above", `the storey names the notice is built from, each reading as a phrase once lower-cased (got ${[0, 1, -1, 2].map(levelLabel).join(" / ")})`);

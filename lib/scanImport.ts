@@ -401,6 +401,12 @@ export type ScanImportResult =
        * writes the kind. For a capture these are the FIRST room's alone — see the header.
        */
       closetDoorIds: string[];
+      /**
+       * The metre point that landed at `at`: the top-left of the rooms' union for a capture, the
+       * room's own top-left for a one-room file. Whatever else was measured in the file's frame -
+       * where the phone stood for each photo - lands through the same `scanPointToPx`.
+       */
+      origin?: ScanOrigin;
     }
   | { ok: false; error: string };
 
@@ -1414,6 +1420,7 @@ function importScanCapture(capture: ScanCapture, fileNotes: string[], at: { x: n
     extraRooms: [...deduped.slice(1), ...flights],
     notes: [`${rooms.length} room${rooms.length === 1 ? "" : "s"} imported, placed as tapped.`, ...notes, ...leftOut, ...fileNotes],
     closetDoorIds,
+    origin,
   };
 }
 
@@ -1436,5 +1443,16 @@ export function importScanRoom(text: string, at: { x: number; y: number }, level
   const built = scanToSketchRoom(checked.scan, at, level);
   if (!built.ok) return built;
   const measured = measurementNote(checked.scan, built.room);
-  return { ...built, notes: [...(measured === null ? [] : [measured]), ...built.notes, ...checked.notes] };
+  const shape = polygonOf(checked.scan);
+  const origin = shape.ok ? { u: Math.min(...shape.polygon.map((p) => p[0])), v: Math.min(...shape.polygon.map((p) => p[1])) } : undefined;
+  return { ...built, origin, notes: [...(measured === null ? [] : [measured]), ...built.notes, ...checked.notes] };
+}
+
+/**
+ * A point in a scan file's own frame (metres, u along, v down) in world pixels, dropped as the file's
+ * rooms were: the `origin` the import reports lands at `at`. Unrounded - a room's corners are rounded
+ * to the inch, and a photo's place has no inch to snap to.
+ */
+export function scanPointToPx(u: number, v: number, origin: ScanOrigin, at: { x: number; y: number }): { x: number; y: number } {
+  return { x: at.x + (u - origin.u) * PX_PER_METRE, y: at.y + (v - origin.v) * PX_PER_METRE };
 }

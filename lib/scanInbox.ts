@@ -1,7 +1,7 @@
-import { importScanRoom, type ScanImportResult } from "./scanImport";
+import { importScanRoom, scanPointToPx, type ScanImportResult, type ScanOrigin } from "./scanImport";
 import { hasRoomMoisture, type MoistureMap } from "./moisture";
 import type { ScopeMarks } from "./scopeMarks";
-import { MAIN_LEVEL, roomBounds, roomLevel, roomsOnLevel, withDerivedParents, type Sketch, type SketchRoom, type SketchScan } from "./sketch";
+import { MAIN_LEVEL, roomBounds, roomLevel, roomsOnLevel, withDerivedParents, type Sketch, type SketchRoom, type SketchScan, type SketchWalk, type WalkPhoto } from "./sketch";
 
 export type { SketchScan } from "./sketch";
 
@@ -158,6 +158,54 @@ export function scanText(body: unknown): string {
   return typeof body === "string" ? body : JSON.stringify(body);
 }
 
+const FEET_PER_METRE = 1 / 0.3048;
+const finite = (n: unknown): n is number => typeof n === "number" && Number.isFinite(n);
+
+/**
+ * The walk's photos in the scan, placed on the plan: each `walk.photos` entry the phone wrote (where
+ * it stood in the file's own frame, how high, which way it faced) through the same drop as the rooms.
+ * Null when the scan has no walk, or no photo in it can be placed. A photo with no place, or no number
+ * to store it under, is left out; one with no height or pitch keeps its place.
+ */
+export function walkFromScan(body: unknown, origin: ScanOrigin | undefined, at: { x: number; y: number }, scanId: string, level: number): SketchWalk | null {
+  if (!origin) return null;
+  let parsed: unknown = body;
+  if (typeof body === "string") {
+    try {
+      parsed = JSON.parse(body);
+    } catch {
+      return null;
+    }
+  }
+  if (parsed === null || typeof parsed !== "object") return null;
+  const walk = (parsed as { walk?: unknown }).walk;
+  if (walk === null || typeof walk !== "object") return null;
+  const raw = (walk as { photos?: unknown }).photos;
+  if (!Array.isArray(raw)) return null;
+  const photos: WalkPhoto[] = [];
+  const seen = new Set<number>();
+  for (const entry of raw) {
+    if (entry === null || typeof entry !== "object") continue;
+    const e = entry as Record<string, unknown>;
+    if (!finite(e.n) || !Number.isInteger(e.n) || e.n < 0 || seen.has(e.n)) continue;
+    if (!finite(e.u) || !finite(e.v) || !finite(e.heading_deg)) continue;
+    seen.add(e.n);
+    const { x, y } = scanPointToPx(e.u, e.v, origin, at);
+    photos.push({
+      n: e.n,
+      tS: finite(e.t_s) ? e.t_s : 0,
+      x,
+      y,
+      heightFeet: finite(e.height_m) ? e.height_m * FEET_PER_METRE : null,
+      headingDeg: e.heading_deg,
+      pitchDeg: finite(e.pitch_deg) ? e.pitch_deg : null,
+    });
+  }
+  if (photos.length === 0) return null;
+  photos.sort((a, b) => a.tS - b.tS || a.n - b.n);
+  return { scanId, level, photos };
+}
+
 /**
  * Where a scan lands on a storey: over the rooms it is replacing, so the plan stays where the
  * estimator left it, or at the default drop when the storey is empty.
@@ -228,7 +276,8 @@ export interface Adoption {
  */
 export function adoptScan(sketch: Sketch, scan: PendingScan, receivedAt: string = scan.receivedAt): Adoption | { ok: false; error: string } {
   const level = scan.level;
-  const result = convertScan(scan.body, scanDropPoint(sketch, level), level);
+  const at = scanDropPoint(sketch, level);
+  const result = convertScan(scan.body, at, level);
   if (!result.ok) return result;
   const incoming = [result.room, ...result.extraRooms];
   const kept = sketch.rooms.filter((room) => roomLevel(room) !== level);
@@ -243,7 +292,13 @@ export function adoptScan(sketch: Sketch, scan: PendingScan, receivedAt: string 
     level,
     fingerprint: sketchFingerprint(withoutScan),
   };
-  return { sketch: { ...withoutScan, scan: provenance }, roomCount: incoming.length, replacedCount, notes: result.notes };
+  // The walk's photos go where the storey's rooms went; a re-scan's replace the storey's old ones.
+  const walk = walkFromScan(scan.body, result.origin, at, scan.id, level);
+  const walks = [...(sketch.walks ?? []).filter((w) => w.level !== level), ...(walk ? [walk] : [])];
+  const adopted: Sketch = { ...withoutScan, scan: provenance };
+  if (walks.length > 0) adopted.walks = walks;
+  else delete adopted.walks;
+  return { sketch: adopted, roomCount: incoming.length, replacedCount, notes: result.notes };
 }
 
 /**
