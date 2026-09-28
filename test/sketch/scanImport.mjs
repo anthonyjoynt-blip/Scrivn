@@ -230,12 +230,13 @@ export async function runScanImportChecks() {
     const xs = corners.map((c) => c.x);
     const ys = corners.map((c) => c.y);
     /*
-      Within a couple of inches, because the run is 0.9 of a degree off square and its bounding box
-      says so: a 7'9" run tilted by that much is 1 1/2 in wider across than its own depth. That is
-      the fraction of a degree the old rounding threw away, and seeing it here is the point.
+      Exactly, since 2026-09-28: 0.9 of a degree off square is tap noise, and an island is built square
+      to its room ("island is crooked" was the owner's word for 2.3 degrees). So the turn comes in as
+      a whole quarter and the footprint lies straight across the page.
     */
-    near((Math.max(...xs) - Math.min(...xs)) / 12, 0.903 / 0.3048, "across the page is the run's DEPTH", 0.2);
-    near((Math.max(...ys) - Math.min(...ys)) / 12, 2.365 / 0.3048, "down the page is the RUN", 0.2);
+    near((Math.max(...xs) - Math.min(...xs)) / 12, 0.903 / 0.3048, "across the page is the run's DEPTH", 1 / 24);
+    near((Math.max(...ys) - Math.min(...ys)) / 12, 2.365 / 0.3048, "down the page is the RUN", 1 / 24);
+    near(isl.angleDeg, 270, "a whole quarter turn");
     near(isl.widthFeet, 2.365 / 0.3048, "and the run keeps its own width", 1 / 24);
     near(isl.depthFeet, 0.903 / 0.3048, "and its own depth", 1 / 24);
     // Swapping is a drawing fix, not a quantity one. Compared against the SAME island sent along
@@ -262,15 +263,41 @@ export async function runScanImportChecks() {
     }
   });
 
-  test("an island at a real angle is drawn square and says so", () => {
-    // 30 degrees is no quarter turn, and an axis-aligned block cannot say it. A block the estimator
-    // can see is wrong and drag beats one quietly turned to an angle it is not at.
+  test("an island at a real angle keeps it and says where to square it", () => {
+    // 30 degrees is no tap noise: a block turns, so it is drawn at 30 and the note says how to put it
+    // square if that is what it is. The Turn control is where nobody looked on 2026-09-28.
     const fixture = JSON.parse(office);
     fixture.islands = [{ number: 1, u: 1.0, v: 1.2, width_m: 2.365, depth_m: 0.903, depth_measured: true, angle_deg: 30, tier: "base" }];
     const result = scan.importScanRoom(JSON.stringify(fixture), { x: 0, y: 0 }, 0);
     assert(result.ok, "import failed");
-    near(result.room.freeCabinets[0].widthFeet, 2.365 / 0.3048, "left as it came", 1 / 24);
-    assert(result.notes.some((n) => /at an angle to the room/.test(n)), `expected a note, got ${JSON.stringify(result.notes)}`);
+    near(result.room.freeCabinets[0].widthFeet, 2.365 / 0.3048, "its own width", 1 / 24);
+    near(result.room.freeCabinets[0].angleDeg, 30, "at the angle it was tapped");
+    assert(result.notes.some((n) => /at an angle to the room/.test(n) && /Turn/.test(n)), `expected a note, got ${JSON.stringify(result.notes)}`);
+  });
+
+  test("an island a few degrees off square comes in square", () => {
+    // The walk of 2026-09-28: 2.3 degrees, from two taps 2.36 m apart.
+    for (const [tapped, square] of [[2.322, undefined], [-3.5, undefined], [88.1, 90], [-91.7, 270], [183, 180]]) {
+      const fixture = JSON.parse(office);
+      fixture.islands = [{ number: 1, u: 1.0, v: 1.2, width_m: 2.36, depth_m: 0.853, depth_measured: true, angle_deg: tapped, tier: "base" }];
+      const result = scan.importScanRoom(JSON.stringify(fixture), { x: 0, y: 0 }, 0);
+      assert(result.ok, "import failed");
+      assert(result.room.freeCabinets[0].angleDeg === square, `${tapped} came in as ${result.room.freeCabinets[0].angleDeg}, not ${square}`);
+      assert(!result.notes.some((n) => /at an angle to the room/.test(n)), `no note for ${tapped}: ${result.notes}`);
+    }
+    near(scan.squaredIslandAngle(45), 45, "a fireplace across a corner keeps its 45");
+  });
+
+  test("the ceiling's rise comes in as the phone read it", () => {
+    const fixture = JSON.parse(office);
+    Object.assign(fixture, { ceiling_m: 2.317, ceiling_type: "sloped", ceiling_peak_m: 3.537, ceiling_run_m: 6.345, ceiling_rise_deg: -90 });
+    const result = scan.importScanRoom(JSON.stringify(fixture), { x: 0, y: 0 }, 0);
+    assert(result.ok, "import failed");
+    assert(result.room.ceilingType === "sloped", "sloped");
+    near(result.room.ceilingRiseDeg, 270, "rising up the page");
+    const flat = JSON.parse(office);
+    const plain = scan.importScanRoom(JSON.stringify(flat), { x: 0, y: 0 }, 0);
+    assert(!("ceilingRiseDeg" in plain.room), "a flat room carries no rise");
   });
 
   test("a run and its reverse are the same run", () => {

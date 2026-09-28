@@ -2528,6 +2528,8 @@ export function SketchEditor({
                         room's own span — see `ceilingProfile`.
                       */
                       ceilingRunFeet: null,
+                      // And which way it rose, for the same reason.
+                      ceilingRiseDeg: null,
                     }))
                   }
                 >

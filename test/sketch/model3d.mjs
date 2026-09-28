@@ -189,6 +189,60 @@ export async function runModel3dChecks() {
     near(Math.max(...base.points.map((q) => q.z)), 2, "base runs 2' into the room from the top wall");
   });
 
+  test("a shed ceiling stands its walls up to it: the high wall at the peak, the ends sloping", () => {
+    // 12' x 10', 8' at the left wall rising to 11' at the right: the walk of 2026-09-28 had one.
+    const m = s.houseModel({ rooms: [box("a", 0, { ceilingType: "sloped", ceilingPeakFeet: 11, ceilingRiseDeg: 0 })] });
+    const walls = m.prisms.filter((p) => p.kind === "wall");
+    near(Math.max(...walls.map((p) => p.y1)), 11 + 1 / 36, "the high wall reaches the peak (its outer face 4 in further up the slope)", 0.05);
+    const right = wallsAt(m, 12.15, 10.5, 5);
+    assert(right.length === 1, "the right wall stands to 10'6\"");
+    const left = wallsAt(m, -0.15, 8.5, 5);
+    assert(left.length === 0, "the left wall stops at 8'");
+    // The top wall rises along its length: at x = 3' it is 8'9", at x = 9' 10'3".
+    const top = m.prisms.find((p) => p.kind === "wall" && p.tops && p.points.some((q) => Math.abs(q.z) < 1e-6) && p.points.every((q) => q.z <= 1e-6));
+    assert(top, "the top wall has a sloping top");
+    const at = (x) => {
+      const i = top.points.findIndex((q) => Math.abs(q.x - x) < 1e-6 && Math.abs(q.z) < 1e-6);
+      return i < 0 ? null : top.tops[i];
+    };
+    near(at(0), 8, "8' at the low end");
+    near(at(12), 11, "11' at the high end");
+  });
+
+  test("a vault's end walls are gables and its side walls stand at the eaves", () => {
+    // Ridge down the middle of the 12' side (rising along x from both ends), 8' eaves, 12' ridge.
+    const m = s.houseModel({ rooms: [box("a", 0, { ceilingType: "vaulted", ceilingPeakFeet: 12, ceilingRiseDeg: 0 })] });
+    // The top and bottom walls run along x and are cut at the ridge (x = 6').
+    const gable = m.prisms.filter((p) => p.kind === "wall" && p.tops && p.points.every((q) => q.z <= 1e-6));
+    assert(gable.length === 2, `the top wall is two pieces, one each side of the ridge (${gable.length})`);
+    near(Math.max(...gable.flatMap((p) => p.tops)), 12, "the gable peaks at the ridge", 0.05);
+    // The side walls are at the eaves: 8', level.
+    const side = wallsAt(m, 12.15, 7.9, 5);
+    assert(side.length === 1 && !side[0].tops, "the right wall is level at 8'");
+    assert(wallsAt(m, 12.15, 8.1, 5).length === 0, "and no higher");
+  });
+
+  test("a door under a slope keeps its head and the wall above it follows the ceiling", () => {
+    const a = box("a", 0, { ceilingType: "sloped", ceilingPeakFeet: 11, ceilingRiseDeg: 0 });
+    a.symbols = [door("d", "a-v0")];
+    const m = s.houseModel({ rooms: [a] });
+    // The top wall runs from (0,0) to (12',0); the door is its middle 3', from 4'6" to 7'6".
+    assert(wallsAt(m, 6, 3, -0.15).length === 0, "the doorway is open");
+    const lintel = wallsAt(m, 6, 7, -0.15)[0];
+    assert(lintel, "a lintel over the head");
+    near(lintel.y0, 6 + 8 / 12, "at the door's head");
+    assert(lintel.tops && Math.max(...lintel.tops) > Math.min(...lintel.tops) + 0.5, "and a sloping top");
+  });
+
+  test("a flat room and a hand-drawn slope with no direction still build", () => {
+    const flat = s.houseModel({ rooms: [box("a")] });
+    assert(flat.prisms.every((p) => !p.tops), "flat walls are level");
+    // No rise on record: along the larger dimension, the 12' one.
+    const drawn = s.houseModel({ rooms: [box("a", 0, { ceilingType: "sloped", ceilingPeakFeet: 10 })] });
+    assert(drawn.prisms.some((p) => p.tops), "a slope with no direction still slopes");
+    near(Math.max(...drawn.prisms.map((p) => p.y1)), 10, "up to the peak", 0.05);
+  });
+
   test("an empty sketch is an empty model", () => {
     const m = s.houseModel({ rooms: [] });
     assert(m.prisms.length === 0 && m.floors.length === 0, "nothing");

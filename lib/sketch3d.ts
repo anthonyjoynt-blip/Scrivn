@@ -13,8 +13,10 @@
  * in its own room's wall and, across a partition, in the neighbour's (`openingsSharedWith`), the way
  * the plan draws a doorway once through both. A stair flight has no walls of its own; it is steps.
  *
- * WHAT IS LEFT OUT, for now: ceilings (this is a dollhouse, looked into from above), the rise of a
- * sloped or vaulted ceiling (walls stop at the low point), and fixtures.
+ * A SLOPED OR VAULTED CEILING stands its walls up to it: a wall's top follows the ceiling over it
+ * (`ceilingModel`), so a shed room's high wall is its peak and a vault's end walls are gables. The
+ * ceiling itself is left out, for now - this is a dollhouse, looked into from above - and so are
+ * fixtures.
  */
 
 import {
@@ -53,7 +55,13 @@ export interface Prism {
   /** The footprint in feet, as (x, z) pairs in the plan's own winding. */
   points: { x: number; z: number }[];
   y0: number;
+  /** The top; with [tops], the highest of them. */
   y1: number;
+  /**
+   * Each footprint point's own top, when the top is not level: a wall under a sloped ceiling. Absent
+   * for everything else, which stands level from y0 to y1.
+   */
+  tops?: number[];
 }
 
 export interface ModelFloor {
@@ -104,6 +112,62 @@ function pt(x: number, y: number): { x: number; z: number } {
 function ceilingOf(room: SketchRoom): number {
   const h = room.ceilingHeightFeet;
   return h != null && h > 0 ? h : DEFAULT_CEILING_HEIGHT_FEET;
+}
+
+/**
+ * How high a room's ceiling stands over a point of the plan, in feet above its floor.
+ *
+ * Flat is one height. A SLOPED ceiling rises from the room's low side at `ceilingRunFeet` of run for
+ * the rise from `ceilingHeightFeet` to `ceilingPeakFeet`, and stays at the peak past it. A VAULTED one
+ * rises the same way to a ridge that far in and falls again beyond it; with no run on record the
+ * ridge is the middle of the room. Which way is `ceilingRiseDeg`, and without one the room's larger
+ * bounding dimension - what the quantities assume (`ceilingProfile`). The low side is the room's own
+ * extreme against that direction: the phone's low tap is near that wall, since it asks for the low
+ * side, and a room drawn here has no other.
+ *
+ * `breaks` is where along a segment the height stops changing linearly - the ridge, the foot of the
+ * slope, where it reaches the peak - so a wall cut there has a straight top in every piece.
+ */
+export interface CeilingModel {
+  at: (x: number, y: number) => number;
+  breaks: (x1: number, y1: number, x2: number, y2: number) => number[];
+  low: number;
+  high: number;
+}
+
+export function ceilingModel(room: SketchRoom): CeilingModel {
+  const low = ceilingOf(room);
+  const flat: CeilingModel = { at: () => low, breaks: () => [], low, high: low };
+  const peak = room.ceilingPeakFeet;
+  if (room.ceilingType === "flat" || peak == null || !(peak > low + EPS) || room.vertices.length < 3) return flat;
+  const b = roomBounds(room);
+  const deg = room.ceilingRiseDeg ?? (b.width >= b.height ? 0 : 90);
+  const dx = Math.cos((deg * Math.PI) / 180);
+  const dy = Math.sin((deg * Math.PI) / 180);
+  let sMin = Infinity;
+  let sMax = -Infinity;
+  for (const v of room.vertices) {
+    const s = v.x * dx + v.y * dy;
+    sMin = Math.min(sMin, s);
+    sMax = Math.max(sMax, s);
+  }
+  const extent = sMax - sMin;
+  if (extent < EPS) return flat;
+  const vaulted = room.ceilingType === "vaulted";
+  const run = room.ceilingRunFeet != null && room.ceilingRunFeet > 0 ? room.ceilingRunFeet * PIXELS_PER_FOOT : vaulted ? extent / 2 : extent;
+  const perPx = (peak - low) / run;
+  const along = (x: number, y: number) => x * dx + y * dy - sMin;
+  const at = vaulted
+    ? (x: number, y: number) => low + Math.max(0, run - Math.abs(along(x, y) - run)) * perPx
+    : (x: number, y: number) => low + Math.min(run, Math.max(0, along(x, y))) * perPx;
+  const marks = vaulted ? [0, run, 2 * run] : [0, run];
+  const breaks = (x1: number, y1: number, x2: number, y2: number) => {
+    const f0 = along(x1, y1);
+    const f1 = along(x2, y2);
+    if (Math.abs(f1 - f0) < EPS) return [];
+    return marks.map((m) => (m - f0) / (f1 - f0)).filter((t) => t > EPS && t < 1 - EPS);
+  };
+  return { at, breaks, low, high: peak };
 }
 
 /** Floor heights, storey by storey: each floor stands on the tallest ceiling below it plus the floor structure. */
@@ -221,7 +285,8 @@ function centroid(points: { x: number; z: number }[]): { x: number; z: number } 
 function roomWalls(room: SketchRoom, levelRooms: Sketch["rooms"], sketch: Sketch, level: number, baseY: number, out: Prism[]): void {
   const n = room.vertices.length;
   if (n < 3) return;
-  const ceiling = ceilingOf(room);
+  const ceil = ceilingModel(room);
+  const sloped = ceil.high > ceil.low + EPS;
   const outer = outerWallFaces(room.vertices, WALL_THICKNESS_PX);
   const freeWalls = freeWallsOf(sketch);
   const shared = openingsSharedWith(room, levelRooms);
@@ -259,9 +324,12 @@ function roomWalls(room: SketchRoom, levelRooms: Sketch["rooms"], sketch: Sketch
       holes.push({ from: c - w / 2, to: c + w / 2, symbol });
     }
     for (const s of shared) if (s.wallId === wall.id) holes.push({ from: Math.min(s.fromPx, s.toPx), to: Math.max(s.fromPx, s.toPx), symbol: s.symbol });
+    // Where the ceiling over this wall changes pitch: a piece between two of these has a straight top.
+    const pitchBreaks = ceil.breaks(wall.x1, wall.y1, wall.x2, wall.y2).map((t) => t * L);
     for (const [r0, r1] of ranges) {
       const cuts = [r0, r1];
       for (const h of holes) for (const s of [h.from, h.to]) if (s > r0 + EPS && s < r1 - EPS) cuts.push(s);
+      for (const s of pitchBreaks) if (s > r0 + EPS && s < r1 - EPS) cuts.push(s);
       cuts.sort((a, b) => a - b);
       for (let k = 0; k + 1 < cuts.length; k++) {
         const a = cuts[k] as number;
@@ -269,13 +337,28 @@ function roomWalls(room: SketchRoom, levelRooms: Sketch["rooms"], sketch: Sketch
         if (b - a < EPS) continue;
         const mid = (a + b) / 2;
         const hole = holes.find((h) => h.from <= mid && mid <= h.to);
-        const bands = hole ? bandsOver(hole.symbol, ceiling) : ([[0, ceiling]] as [number, number][]);
         const ia = inner(a);
         const ib = inner(b);
         const oa = outerAt(a);
         const ob = outerAt(b);
         const footprint = [pt(ia.x, ia.y), pt(ib.x, ib.y), pt(ob.x, ob.y), pt(oa.x, oa.y)];
-        for (const [y0, y1] of bands) out.push({ kind: "wall", roomId: room.id, level, points: footprint, y0: baseY + y0, y1: baseY + y1 });
+        // Under a slope the piece's lowest ceiling decides what the openings leave; a band that
+        // reaches the ceiling then follows it, point by point.
+        const tops = sloped ? [ia, ib, ob, oa].map((p) => ceil.at(p.x, p.y)) : null;
+        const ceiling = tops ? Math.min(...tops) : ceil.low;
+        const bands = hole ? bandsOver(hole.symbol, ceiling) : ([[0, ceiling]] as [number, number][]);
+        for (const [y0, y1] of bands) {
+          const follows = tops != null && Math.abs(y1 - ceiling) < EPS && Math.max(...tops) > ceiling + EPS;
+          out.push({
+            kind: "wall",
+            roomId: room.id,
+            level,
+            points: footprint,
+            y0: baseY + y0,
+            y1: baseY + (follows ? Math.max(...(tops as number[])) : y1),
+            ...(follows ? { tops: (tops as number[]).map((t) => baseY + t) } : {}),
+          });
+        }
         const glass = hole ? glassBand(hole.symbol, ceiling) : null;
         if (glass) {
           const g0 = WALL_THICKNESS_PX * 0.44;

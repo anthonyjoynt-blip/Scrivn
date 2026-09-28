@@ -40,6 +40,48 @@ const COLORS = {
 
 /** How high "Low walls" leaves a wall standing, above its own floor. */
 const LOW_WALL_FEET = 4;
+
+/**
+ * A prism whose top is not level - a wall under a sloped ceiling - built by hand, since an extrusion
+ * has one height. The same two groups as an extrusion, caps then sides, so it takes the same [top,
+ * side] materials; wound so every face looks outward whichever way round the footprint came.
+ */
+function slopedPrism(
+  THREE: typeof import("three"),
+  points: { x: number; z: number }[],
+  y0: number,
+  tops: number[],
+): import("three").BufferGeometry {
+  const n = points.length;
+  let area = 0;
+  for (let i = 0; i < n; i++) {
+    const p = points[i] as { x: number; z: number };
+    const q = points[(i + 1) % n] as { x: number; z: number };
+    area += p.x * q.z - q.x * p.z;
+  }
+  // Built for a footprint wound clockwise in (x, z); the other way, every triangle is turned over.
+  const flip = area > 0;
+  const positions: number[] = [];
+  const tri = (a: number[], b: number[], c: number[]) => positions.push(...a, ...(flip ? c : b), ...(flip ? b : c));
+  const top = (i: number) => [(points[i] as { x: number }).x, tops[i] as number, (points[i] as { z: number }).z];
+  const bottom = (i: number) => [(points[i] as { x: number }).x, y0, (points[i] as { z: number }).z];
+  for (let i = 1; i + 1 < n; i++) {
+    tri(top(0), top(i), top(i + 1));
+    tri(bottom(0), bottom(i + 1), bottom(i));
+  }
+  const caps = positions.length / 3;
+  for (let i = 0; i < n; i++) {
+    const j = (i + 1) % n;
+    tri(bottom(i), bottom(j), top(j));
+    tri(bottom(i), top(j), top(i));
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  geometry.addGroup(0, caps, 0);
+  geometry.addGroup(caps, positions.length / 3 - caps, 1);
+  geometry.computeVertexNormals();
+  return geometry;
+}
 /** Where a pin stands when the phone did not know how high it was: eye level. */
 const PIN_HEIGHT_FEET = 5;
 const PIN_COLOR = 0x1b3a5c;
@@ -182,6 +224,16 @@ export default function Sketch3D({ sketch, onClose }: Props) {
       // Every prism: its footprint extruded from y0 to y1. The shape is drawn in (x, -z) so that,
       // stood up by a quarter turn about x, its extrusion runs up and its y lands back on z.
       for (const prism of model.prisms) {
+        if (prism.tops) {
+          // A wall under a sloped ceiling: its top is each point's own.
+          const cut = baseOf(prism.level) + LOW_WALL_FEET;
+          const tops = low ? prism.tops.map((t) => Math.min(t, cut)) : prism.tops;
+          if (prism.points.length < 3 || Math.max(...tops) - prism.y0 < 1e-3) continue;
+          const geometry = slopedPrism(THREE, prism.points, prism.y0, tops);
+          geometries.push(geometry);
+          groupFor(prism.level).add(new THREE.Mesh(geometry, byKind[prism.kind]));
+          continue;
+        }
         let y1 = prism.y1;
         if (low) {
           const cut = baseOf(prism.level) + LOW_WALL_FEET;

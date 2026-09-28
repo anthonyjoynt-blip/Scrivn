@@ -483,6 +483,14 @@ export interface SketchRoom {
    */
   ceilingRunFeet?: number | null;
   /**
+   * Which way the ceiling rises, in degrees on the page - 0 along +x, 90 down the page, the way a
+   * block's turn is measured - from its low side towards its high one; for a vault, from an eave
+   * towards the ridge. The phone sends it when it read the slope (`ceiling_rise_deg`). Null or absent
+   * for a ceiling drawn or typed here, and then the 3D view assumes what the quantities do: that the
+   * slope runs along the room's larger bounding dimension. Only the 3D view reads it.
+   */
+  ceilingRiseDeg?: number | null;
+  /**
    * False when `ceilingHeightFeet` is the 8' default rather than something anyone measured.
    *
    * Undefined on every sketch drawn by hand, where the height is whatever the PM typed or left at

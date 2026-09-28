@@ -298,6 +298,8 @@ export interface ScanRoom {
   ceiling_type?: string | null;
   ceiling_peak_m?: number | null;
   ceiling_run_m?: number | null;
+  /** Which way the ceiling rises in the file's own frame, degrees from +u towards +v; see `SketchRoom.ceilingRiseDeg`. */
+  ceiling_rise_deg?: number | null;
   ceiling_measured?: boolean | null;
   walls: ScanWall[];
   /** The room polygon in the scanner's (u, v) frame, when the scanner found more than a rectangle. */
@@ -342,6 +344,24 @@ export interface ScanCapture {
  * at a real angle, which an axis-aligned block cannot say at all.
  */
 export const QUARTER_TURN_TOLERANCE_DEG = 20;
+
+/**
+ * How far off square an island may come in and still be squared: 12 degrees.
+ *
+ * The walls arrive squared and a two-tap island did not. On 2026-09-28 the kitchen island came in
+ * 2.3 degrees off its room from two taps 2.36 m apart, and Scrivn drew it that way: "island is
+ * crooked", and the estimator could not see how to turn it back. An island is built square to its
+ * room. The phone squares it itself from that day (`angle_tapped_deg` keeps what the taps said);
+ * this is the same rule for every file sent before then. A fireplace at 45 degrees keeps its angle.
+ */
+export const ISLAND_SQUARE_TOLERANCE_DEG = 12;
+
+/** An island's turn, squared to the nearest quarter when within [ISLAND_SQUARE_TOLERANCE_DEG] of it, and 0..360. */
+export function squaredIslandAngle(angleDeg: number): number {
+  const quarter = Math.round(angleDeg / 90) * 90;
+  const angle = Math.abs(angleDeg - quarter) <= ISLAND_SQUARE_TOLERANCE_DEG ? quarter : angleDeg;
+  return ((angle % 360) + 360) % 360;
+}
 
 /**
  * Which way an island's run lies relative to the room's axes: along the page, across it, or at an
@@ -677,6 +697,7 @@ export function parseScanRoom(input: unknown): { ok: true; scan: ScanRoom; notes
       ceiling_type: typeof raw.ceiling_type === "string" ? raw.ceiling_type : null,
       ceiling_peak_m: isFiniteNumber(raw.ceiling_peak_m) ? raw.ceiling_peak_m : null,
       ceiling_run_m: isFiniteNumber(raw.ceiling_run_m) ? raw.ceiling_run_m : null,
+      ceiling_rise_deg: isFiniteNumber(raw.ceiling_rise_deg) ? raw.ceiling_rise_deg : null,
       ceiling_measured: typeof raw.ceiling_measured === "boolean" ? raw.ceiling_measured : null,
       walls,
       outline,
@@ -829,8 +850,8 @@ function polygonOf(scan: ScanRoom): { ok: true; polygon: [number, number][] } | 
 function ceilingShape(
   scan: ScanRoom,
   lowFeet: number | null,
-): { type: CeilingType; peakFeet: number | null; runFeet: number | null; measured: boolean | undefined } {
-  const flat = { type: "flat" as CeilingType, peakFeet: null, runFeet: null };
+): { type: CeilingType; peakFeet: number | null; runFeet: number | null; riseDeg: number | null; measured: boolean | undefined } {
+  const flat = { type: "flat" as CeilingType, peakFeet: null, runFeet: null, riseDeg: null };
   // `undefined` rather than true when the phone said nothing: an older file's height is neither a
   // measurement nor known not to be one, and the sketch has never claimed to know.
   const measured = scan.ceiling_measured == null ? undefined : scan.ceiling_measured;
@@ -842,7 +863,9 @@ function ceilingShape(
   if (peak === null || peak <= low) return { ...flat, measured };
 
   const run = scan.ceiling_run_m != null && scan.ceiling_run_m > 0 ? toFeetInches(scan.ceiling_run_m) : null;
-  return { type, peakFeet: peak, runFeet: run, measured };
+  // The file's u runs across the page and its v down it (see `toPx`), so its angle is the page's.
+  const riseDeg = scan.ceiling_rise_deg != null ? ((scan.ceiling_rise_deg % 360) + 360) % 360 : null;
+  return { type, peakFeet: peak, runFeet: run, riseDeg, measured };
 }
 
 /**
@@ -894,6 +917,7 @@ export function scanToSketchRoom(scan: ScanRoom, at: { x: number; y: number }, l
     ceilingType: overhead.type,
     ceilingPeakFeet: overhead.peakFeet,
     ceilingRunFeet: overhead.runFeet,
+    ...(overhead.riseDeg != null ? { ceilingRiseDeg: overhead.riseDeg } : {}),
     ceilingMeasured: overhead.measured,
     stairs: null,
     parentRoomId: null,
@@ -940,7 +964,7 @@ export function scanToSketchRoom(scan: ScanRoom, at: { x: number; y: number }, l
       measured and the width and depth stay the run's own. `islandQuarterTurn` is still what decides
       whether the NOTE calls it along or across, which is a sentence for a person, not geometry.
     */
-    const turn = islandQuarterTurn(isl.angle_deg);
+    const angle = isFiniteNumber(isl.angle_deg) ? squaredIslandAngle(isl.angle_deg) : 0;
     const acrossM = isl.width_m;
     const downM = isl.depth_m;
     const widthPx = Math.max(1, Math.round(acrossM * PX_PER_METRE));
@@ -957,15 +981,17 @@ export function scanToSketchRoom(scan: ScanRoom, at: { x: number; y: number }, l
       depthFeet: toFeetInches(downM),
       label: triangle ? "Corner unit" : "Island",
       tier: (isl.tier ?? "base") as CabinetTier,
-      ...(isFiniteNumber(isl.angle_deg) && isl.angle_deg !== 0 ? { angleDeg: isl.angle_deg } : {}),
+      ...(angle !== 0 ? { angleDeg: angle } : {}),
       ...(triangle ? { shape: "triangle" as const } : {}),
     });
     const which = `Island ${isl.number ?? room.freeCabinets.length}`;
     if (isl.depth_measured !== true) {
       notes.push(`${which}: its depth was not measured on the phone — drawn ${feetInchesText(isl.depth_m)} deep.`);
     }
-    if (turn === "neither") {
-      notes.push(`${which}: it was tapped at an angle to the room — drawn square, drag it round if it matters.`);
+    if (angle % 90 !== 0) {
+      notes.push(
+        `${which}: it was tapped at an angle to the room (${Math.round(angle)}°) and is drawn at that angle. If it stands square, set its Turn to 0° in the island's Edit… panel.`,
+      );
     }
   }
 
