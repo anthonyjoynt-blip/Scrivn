@@ -26,6 +26,7 @@ import { runBlockChecks } from "./blocks.mjs";
 import { runScanImportChecks } from "./scanImport.mjs";
 import { runClosetChecks } from "./closet.mjs";
 import { runWallFaceChecks } from "./wallFaces.mjs";
+import { runModel3dChecks } from "./model3d.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..", "..");
@@ -143,6 +144,18 @@ if (wallFaces.failures.length > 0) {
   process.exit(1);
 }
 console.log(`  Wall faces: ok (${wallFaces.passed.length} checks — 4" outward from the inside faces, one wall where two rooms share one)`);
+
+// And the house in 3D: the walk-through's walls, doorways, storeys and stairs.
+const model3d = await runModel3dChecks();
+if (model3d.failures.length > 0) {
+  console.error(`
+  3D model: ${model3d.passed.length} passed, ${model3d.failures.length} FAILED
+`);
+  for (const failure of model3d.failures) console.error(`    ✗ ${failure}
+`);
+  process.exit(1);
+}
+console.log(`  3D model: ok (${model3d.passed.length} checks — the plan's walls stood up, doorways cut through both rooms)`);
 
 await build({
   entryPoints: [join(here, "entry.tsx")],

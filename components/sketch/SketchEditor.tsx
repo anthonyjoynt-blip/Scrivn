@@ -139,6 +139,8 @@ const SketchCanvas = dynamic(() => import("./SketchCanvas"), {
   ssr: false,
   loading: () => <div className="sketch-canvas-loading">Loading sketch…</div>,
 });
+// The house in 3D (the walk-through's model): three.js comes with it, so it loads only when opened.
+const Sketch3D = dynamic(() => import("./Sketch3D"), { ssr: false });
 
 const CANVAS_HEIGHT = 460;
 
@@ -265,6 +267,8 @@ export function SketchEditor({
    * everywhere, what the panel below shows, and whether the geometry can be edited at all.
    */
   const [mode, setMode] = useState<"sketch" | "moisture">("sketch");
+  // The 3D view is a window over the editor, not a mode of it: nothing drawn changes while it is open.
+  const [show3d, setShow3d] = useState(false);
   const [moistureTool, setMoistureTool] = useState<MoistureTool>("read");
   /** Floor or ceiling — the brush paints one surface at a time, into separate sets of cells. */
   const [paintSurface, setPaintSurface] = useState<PaintSurface>("floor");
@@ -1912,6 +1916,15 @@ export function SketchEditor({
             </button>
           ))}
         </div>
+        <button
+          type="button"
+          className="option-btn"
+          disabled={sketch.rooms.length === 0}
+          onClick={() => setShow3d(true)}
+          title="See the house in 3D"
+        >
+          3D view
+        </button>
         {/*
           Viewing or editing, stated rather than implied. The label says what is happening NOW, and
           the button says what pressing it will do — a control that reads "Editing" while you are
@@ -2885,10 +2898,14 @@ export function SketchEditor({
               <button type="button" className="btn-secondary" onClick={() => setSheet("details")}>
                 Quantities & data
               </button>
+              <button type="button" className="btn-secondary" disabled={sketch.rooms.length === 0} onClick={() => setShow3d(true)}>
+                3D view
+              </button>
             </div>
           </div>
         </>
       )}
+      {show3d && <Sketch3D sketch={sketch} onClose={() => setShow3d(false)} />}
     </div>
   );
 }
