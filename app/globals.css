@@ -297,6 +297,59 @@ button:disabled {
   margin-top: 28px;
 }
 
+/* ---- dictation ---- */
+
+.dictate {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-bottom: 12px;
+}
+
+.dictate-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+}
+
+.dictate-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--danger-text);
+  flex: none;
+}
+
+.dictate-live .dictate-dot {
+  animation: dictate-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes dictate-pulse {
+  50% { opacity: 0.25; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dictate-live .dictate-dot { animation: none; }
+}
+
+.dictate-interim {
+  flex: 1 1 200px;
+  min-width: 0;
+  font-size: 0.88rem;
+  font-style: italic;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dictate-note {
+  flex-basis: 100%;
+  margin: 0;
+}
+
 /* ---- loading / error ---- */
 
 .error-banner {

@@ -37,6 +37,7 @@ import { DGIGForm } from "@/components/DGIGForm";
 import { type AntimicrobialExtent, type DGIGData, type DryingClass, buildDGIGSyntheticTranscript, emptyDGIGData, emptyDGIGRoom, hasDGIGContent, newDGIGRoomId } from "@/lib/dgig";
 import { ClaimIntakeForm } from "@/components/ClaimIntakeForm";
 import { QuestionGroup } from "@/components/QuestionGroup";
+import { DictateButton, appendDictation } from "@/components/DictateButton";
 import { isQuestionAnswered } from "@/components/QuestionField";
 import { JobInformationSection } from "@/components/JobInformationSection";
 import { LetterheadBanner } from "@/components/LetterheadBanner";
@@ -1474,7 +1475,7 @@ ${asbestosSection}`;
   return (
     <main>
       <h1>Scope Assistant</h1>
-      <p className="subtitle">Fill in the claim, paste a walkthrough transcript, answer a few follow-up questions, and get an inspection report and scope document.</p>
+      <p className="subtitle">Fill in the claim, dictate or paste the walkthrough, answer a few follow-up questions, and get an inspection report and scope document.</p>
 
       {error && <div className="error-banner">{error}</div>}
       {extractionWarnings.map((w) => (
@@ -1673,8 +1674,9 @@ ${asbestosSection}`;
               This covers the emergency and repair scope only — no need to mention pack-out, pack-back, or other contents handling here. You’ll be asked about the contents assignment separately, right after this.
             </p>
           )}
+          <DictateButton onText={(spoken) => setTranscript((t) => appendDictation(t, spoken))} disabled={step === "extracting"} />
           <textarea
-            placeholder="Paste the dictated walkthrough transcript here…"
+            placeholder="Dictate or paste the walkthrough transcript here…"
             value={transcript}
             onChange={(e) => setTranscript(e.target.value)}
             disabled={step === "extracting"}
