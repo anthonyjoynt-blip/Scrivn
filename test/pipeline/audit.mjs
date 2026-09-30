@@ -72,7 +72,7 @@ function envFromLocal(name) {
   return "";
 }
 
-const MODEL = envFromLocal("ANTHROPIC_MODEL") || "claude-opus-5";
+const MODEL = envFromLocal("ANTHROPIC_MODEL") || "claude-opus-5-5";
 
 /**
  * Lines the app adds on its own, listed so they are not reported as unsupported on every claim.

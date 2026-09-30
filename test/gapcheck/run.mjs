@@ -1466,6 +1466,56 @@ check(
   "an answer that names no known material leaves the type unset, so the question comes back",
 );
 
+/* ── A floor nobody said was coming out ───────────────────────────────────────────────────────── */
+
+/*
+  Found comparing models on the same dictation: "flooring's coming up in all three" read as three
+  floors with no disposition. Nothing keys a removal off a null disposition, so the removal quantity
+  was never asked and the scope removed three floors and replaced none of them.
+*/
+const noPlan = extractionWith([
+  room("Hallway", { flooring: [{ ...removalFlooring(), type: "LAMINATE", vinylSubtype: null, disposition: null }], baseboard: [] }),
+]);
+const noPlanQuestions = nextQuestions(claim, withDerivedFields(noPlan));
+const dispositionQ = noPlanQuestions.find((q) => q.id === "room:0:flooring:0:disposition");
+check(dispositionQ !== undefined, `a floor with no plan is asked what is happening to it (asked: ${noPlanQuestions.map((q) => q.id).join(", ")})`);
+check(
+  dispositionQ !== undefined && !dispositionQ.kind.options.includes("Lifted and reinstalled"),
+  "and lifting is offered only for carpet",
+);
+const planned = resolveRound(claim, noPlan, { "room:0:flooring:0:disposition": "Removed and replaced" });
+check(planned.extraction.rooms[0].flooring[0].disposition === "REMOVE_AND_DISPOSE", `"Removed and replaced" records a removal (got ${planned.extraction.rooms[0].flooring[0].disposition})`);
+check(
+  planned.display.some((q) => q.id === "room:0:flooring:0:removalSF"),
+  "which then asks how much is coming out",
+);
+const statedPlan = extractionWith([
+  room("Hallway", { flooring: [{ ...removalFlooring(), type: "LAMINATE", vinylSubtype: null }], baseboard: [] }),
+]);
+check(
+  statedPlan.rooms[0].flooring[0].disposition !== null &&
+    !nextQuestions(claim, withDerivedFields(statedPlan)).some((q) => q.id === "room:0:flooring:0:disposition"),
+  "a floor with a stated plan is never asked for one",
+);
+check(
+  !nextQuestions(
+    claim,
+    withDerivedFields(extractionWith([room("Hallway", { flooring: [{ ...removalFlooring(), type: null, vinylSubtype: null, disposition: null }], baseboard: [] })])),
+  ).some((q) => q.id === "room:0:flooring:0:disposition"),
+  "and the plan waits for the material, as lifting depends on it",
+);
+const carpetNoPlan = extractionWith([
+  room("Hallway", { flooring: [{ ...removalFlooring(), type: "CARPET", vinylSubtype: null, disposition: null }], baseboard: [] }),
+]);
+check(
+  nextQuestions(claim, withDerivedFields(carpetNoPlan)).find((q) => q.id === "room:0:flooring:0:disposition")?.kind.options.includes("Lifted and reinstalled") === true,
+  "carpet is offered lifting",
+);
+check(
+  applyAnswer(withDerivedFields(noPlan), "room:0:flooring:0:disposition", "Ripped out-ish").rooms[0].flooring[0].disposition === null,
+  "an answer that names no known plan leaves it unset, so the question comes back",
+);
+
 /* ── How much floor is coming out, for every flooring type ────────────────────────────────────── */
 
 /*

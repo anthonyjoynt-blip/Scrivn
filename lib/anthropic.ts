@@ -8,9 +8,11 @@ import { cleanEnv } from "./env";
  * suspenders alongside the fact that Next.js Route Handlers already never ship their module code
  * to the browser. The API key (`ANTHROPIC_API_KEY`, from `.env.local`) never leaves this process.
  *
- * Mirrors the Android app's `service/scoping/ClaudeScopingClient.kt`: same default model
- * (`claude-opus-5`), same Structured Outputs shape (`output_config.format` with a JSON Schema —
- * see `schema.ts`), same stop-reason error handling (refusal / max_tokens).
+ * Mirrors the Android app's `service/scoping/ClaudeScopingClient.kt`: same Structured Outputs shape
+ * (`output_config.format` with a JSON Schema — see `schema.ts`), same stop-reason error handling
+ * (refusal / max_tokens). The model has moved on from Android's `claude-opus-5`: Opus 5.5 was run
+ * against Opus 5 on the same transcripts and came out about half the cost of a claim with the same
+ * documents, once "flooring's coming up" was spelled out as a removal in the extraction prompt.
  */
 
 export class ScopingApiError extends Error {
@@ -20,7 +22,7 @@ export class ScopingApiError extends Error {
   }
 }
 
-const DEFAULT_MODEL = "claude-opus-5";
+const DEFAULT_MODEL = "claude-opus-5-5";
 /** Matches ClaudeScopingClient.DEFAULT_MAX_TOKENS — plenty for one extraction's structured JSON. */
 const EXTRACTION_MAX_TOKENS = 8000;
 /**

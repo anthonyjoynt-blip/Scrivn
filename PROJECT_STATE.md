@@ -115,7 +115,7 @@ Pure deterministic TypeScript, zero API calls. `evaluate(extraction)` walks the 
 
 ## 3. Document generation pipeline
 
-**Two Claude API calls total**, both server-side only (`lib/anthropic.ts`, model `claude-opus-5` by default, overridable via `ANTHROPIC_MODEL`), both Structured Outputs (`output_config.format` with a hand-authored JSON Schema from `lib/schema.ts`, no `anyOf`/unions anywhere — Claude's schema compiler caps those at 16 and separately caps total property count, both limits this app has hit and designed around):
+**Two Claude API calls total**, both server-side only (`lib/anthropic.ts`, model `claude-opus-5-5` by default, overridable via `ANTHROPIC_MODEL`), both Structured Outputs (`output_config.format` with a hand-authored JSON Schema from `lib/schema.ts`, no `anyOf`/unions anywhere — Claude's schema compiler caps those at 16 and separately caps total property count, both limits this app has hit and designed around):
 
 1. **`POST /api/extract`** — transcript (or a DGIG-synthesized one, see §7) in, `WaterLossExtraction` out. `max_tokens: 8000`. This is the *only* call that ever runs on freeform text.
 2. **`POST /api/generate`** — completed `WaterLossExtraction` + `ClaimInfo` + original transcript (+ optional `contentsAssignmentNote` and `dgigData`) in; `{ inspectionReport?, scopeDocument }` out in one response. `max_tokens: 16000`. Two schema variants: full (`documentGenerationSchema`) or `scopeOnlyGenerationSchema` (no `inspectionReport` property at all when `claim.scopeOnly`).

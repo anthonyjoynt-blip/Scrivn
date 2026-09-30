@@ -36,6 +36,9 @@ Rules:
   tell; somebody is asked what the material is straight afterwards. Do NOT guess a material from the
   room ("probably tile, it's a bathroom") and do NOT drop the record because the type is missing —
   dropping it loses the largest line item on most claims, and it disappears silently.
+- Flooring disposition: "coming up", "pulling it", "tearing it out", "it's coming out" IS a stated
+  removal — record REMOVE_AND_DISPOSE, the same as "remove and replace". Leave the disposition at
+  its sentinel only when nothing at all says what is happening to the floor.
 - A room can have more than one flooring, baseboard, or wall record if the PM described mixed
   materials in that room (e.g. tile in part of a kitchen and hardwood in the rest).
 - "Emergency phase" work is anything being removed/mitigated now; "repair phase" is the

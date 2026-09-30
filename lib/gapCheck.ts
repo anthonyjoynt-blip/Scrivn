@@ -755,7 +755,18 @@ function flooringLabel(f: FlooringRecord): string {
 /** The materials extraction knows, offered when it could not tell which one this is. */
 const FLOORING_TYPE_OPTIONS = ["Carpet", "Vinyl", "Hardwood", "Laminate", "Tile", "Concrete"];
 
-const HARDWOOD_CONSTRUCTION_OPTIONS = ["Solid", "Engineered", "Prefinished", "Other"];
+const FLOORING_DISPOSITION: [string, FlooringDisposition][] = [
+  ["Removed and replaced", "REMOVE_AND_DISPOSE"],
+  ["Removed — replacement not decided yet", "REMOVE_AND_ASSESS"],
+  ["Staying — dried in place", "DRY_IN_PLACE"],
+  ["Lifted and reinstalled", "LIFT_AND_REINSTALL"],
+];
+
+function flooringDispositionOptions(f: FlooringRecord): string[] {
+  return FLOORING_DISPOSITION.filter(([, d]) => d !== "LIFT_AND_REINSTALL" || f.type === "CARPET").map(([label]) => label);
+}
+
+const HARDWOOD_CONSTRUCTION_OPTIONS =["Solid", "Engineered", "Prefinished", "Other"];
 const HARDWOOD_INSTALLATION_OPTIONS = ["Floating", "Glued", "Nailed"];
 
 function flooringQuestions(roomIndex: number, roomName: string, i: number, f: FlooringRecord, derived?: MoistureDerived): GapCheckQuestion[] {
@@ -777,6 +788,24 @@ function flooringQuestions(roomIndex: number, roomName: string, i: number, f: Fl
       roomName,
       prompt: "What type of flooring is it?",
       kind: { type: "choice", options: FLOORING_TYPE_OPTIONS },
+    });
+  }
+
+  /*
+    What is happening to the floor, when extraction did not say.
+
+    The record existing is not enough: with no disposition nothing downstream treats the floor as
+    coming out, so the removal quantity was never asked and the scope carried a removal with no
+    replacement in any room. Found on "flooring's coming up in all three" read by a model that took
+    the rooms and the floors but not the verb. Waits for the type, because lifting and reinstalling
+    is only offered for carpet.
+  */
+  if (f.type !== null && f.disposition === null) {
+    q.push({
+      id: `${base}:disposition`,
+      roomName,
+      prompt: `What is happening with the ${flooringLabel(f)}?`,
+      kind: { type: "choice", options: flooringDispositionOptions(f) },
     });
   }
 
@@ -2459,6 +2488,10 @@ function applyFlooringAnswer(f: FlooringRecord, field: string, answer: string): 
       return { ...f, padPresent: isYes(answer) };
     case "padRemoved":
       return { ...f, padRemoved: isYes(answer) };
+    case "disposition": {
+      const match = FLOORING_DISPOSITION.find(([label]) => equalsIgnoreCase(answer, label));
+      return match === undefined ? f : { ...f, disposition: match[1] };
+    }
     case "type": {
       const named = FLOORING_TYPE_OPTIONS.find((t) => equalsIgnoreCase(answer, t));
       return named === undefined ? f : { ...f, type: named.toUpperCase() as FlooringType };
