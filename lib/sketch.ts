@@ -487,7 +487,12 @@ export interface SketchRoom {
    * block's turn is measured - from its low side towards its high one; for a vault, from an eave
    * towards the ridge. The phone sends it when it read the slope (`ceiling_rise_deg`). Null or absent
    * for a ceiling drawn or typed here, and then the 3D view assumes what the quantities do: that the
-   * slope runs along the room's larger bounding dimension. Only the 3D view reads it.
+   * slope runs along the room's larger bounding dimension (`ceilingRiseDegOf`).
+   *
+   * Also written when a room with a shaped ceiling is TURNED (2026-09-30, `turnRoomAbout`): the
+   * direction it rose in, turned with it, because a turned room's bounding box no longer says which
+   * way its ceiling goes. When it is set and no run is, the quantities take the run as the room's
+   * reach in this direction (`ceilingSpanPx`), as the 3D view always did.
    */
   ceilingRiseDeg?: number | null;
   /**
@@ -1962,10 +1967,19 @@ export function translateRoom(room: SketchRoom, dx: number, dy: number): SketchR
  *
  * The move is refused outright if it would shorten any wall past MIN_WALL_PX, rather than partially
  * applied: a drag that sticks reads as a limit, a drag that half-moves reads as a bug.
+ *
+ * A room TURNED off the page (2026-09-30, the turn buttons) is edited as it would be square: a
+ * rectangle keeps its corners square in its own frame (`moveTurnedRectangleCorner`), and the snap
+ * lines a corner up with the others along the room's own walls rather than the page's axes, which in
+ * a room turned 15 degrees are lines nothing in it runs along. A room square to the page has a frame
+ * of nothing, and for it all of this is exactly what it always was.
  */
 export function moveVertex(room: SketchRoom, vertexId: string, x: number, y: number, snapPx = SNAP_PX): SketchRoom {
   const index = room.vertices.findIndex((v) => v.id === vertexId);
   if (index < 0) return room;
+
+  const turnedRectangle = moveTurnedRectangleCorner(room, index, x, y);
+  if (turnedRectangle) return turnedRectangle;
 
   const n = room.vertices.length;
   const current = room.vertices[index] as Vertex;
@@ -1986,20 +2000,34 @@ export function moveVertex(room: SketchRoom, vertexId: string, x: number, y: num
     glued.add(next.id);
   }
 
-  let sx = x;
-  let sy = y;
+  // Snapped in the room's own frame: the page's, for a room square to it.
+  const frame = roomFrameDeg(room);
+  const into = turnTrig(-frame);
+  const toFrame = (p: { x: number; y: number }) => ({ x: p.x * into.cos - p.y * into.sin, y: p.x * into.sin + p.y * into.cos });
+  const tap = toFrame({ x, y });
+  let fx = tap.x;
+  let fy = tap.y;
   let bestX = snapPx;
   let bestY = snapPx;
   for (const other of room.vertices) {
     if (glued.has(other.id)) continue;
-    if (Math.abs(other.x - x) < bestX) {
-      bestX = Math.abs(other.x - x);
-      sx = other.x;
+    const o = toFrame(other);
+    if (Math.abs(o.x - tap.x) < bestX) {
+      bestX = Math.abs(o.x - tap.x);
+      fx = o.x;
     }
-    if (Math.abs(other.y - y) < bestY) {
-      bestY = Math.abs(other.y - y);
-      sy = other.y;
+    if (Math.abs(o.y - tap.y) < bestY) {
+      bestY = Math.abs(o.y - tap.y);
+      fy = o.y;
     }
+  }
+  let sx = x;
+  let sy = y;
+  // Nothing in reach leaves the point exactly where the finger put it, turned frame or not.
+  if (fx !== tap.x || fy !== tap.y) {
+    const back = turnTrig(frame);
+    sx = fx * back.cos - fy * back.sin;
+    sy = fx * back.sin + fy * back.cos;
   }
 
   const moved = room.vertices.map((v) => {
@@ -2014,6 +2042,69 @@ export function moveVertex(room: SketchRoom, vertexId: string, x: number, y: num
   if (isDegenerate(moved) || collapsesAWall(room, candidate)) return room;
 
   return reflowContents(room, candidate);
+}
+
+/**
+ * A corner of a turned RECTANGLE, dragged: the opposite corner stays, the two beside it slide along
+ * their walls, and the room stays a rectangle in its own frame — what `moveVertex` does for one
+ * square to the page, where "along their walls" happens to be along the page's axes.
+ *
+ * Without it, a room turned 15 degrees had no neighbour sharing the dragged corner's x or y, so
+ * nothing was carried and a corner drag pulled the rectangle into a lopsided quadrilateral.
+ *
+ * Null when this is not the case it is for — not four corners, square to the page (the rule in
+ * `moveVertex` has that, snapping and all), or not a rectangle, whose corners were shaped on purpose
+ * and move one at a time as they always have. No snapping: the only corner not travelling with the
+ * dragged one is the one opposite, and lining up with that would fold the room flat.
+ */
+function moveTurnedRectangleCorner(room: SketchRoom, index: number, x: number, y: number): SketchRoom | null {
+  if (room.vertices.length !== 4) return null;
+  const current = room.vertices[index] as Vertex;
+  const prev = room.vertices[(index + 3) % 4] as Vertex;
+  const next = room.vertices[(index + 1) % 4] as Vertex;
+  const opposite = room.vertices[(index + 2) % 4] as Vertex;
+
+  const nearly = (a: number, b: number) => Math.abs(a - b) < 0.5;
+  if (nearly(prev.x, current.x) || nearly(prev.y, current.y) || nearly(next.x, current.x) || nearly(next.y, current.y)) return null;
+
+  const walls = wallsOf(room);
+  for (let i = 0; i < 4; i++) {
+    const a = walls[i] as WallGeometry;
+    const b = walls[(i + 1) % 4] as WallGeometry;
+    if (a.lengthPx <= 0 || b.lengthPx <= 0) return null;
+    const dot = ((a.x2 - a.x1) * (b.x2 - b.x1) + (a.y2 - a.y1) * (b.y2 - b.y1)) / (a.lengthPx * b.lengthPx);
+    if (Math.abs(dot) > 1e-6) return null;
+  }
+
+  const lu = Math.hypot(prev.x - opposite.x, prev.y - opposite.y);
+  const lv = Math.hypot(next.x - opposite.x, next.y - opposite.y);
+  const u = { x: (prev.x - opposite.x) / lu, y: (prev.y - opposite.y) / lu };
+  const v = { x: (next.x - opposite.x) / lv, y: (next.y - opposite.y) / lv };
+  const along = (x - opposite.x) * u.x + (y - opposite.y) * u.y;
+  const across = (x - opposite.x) * v.x + (y - opposite.y) * v.y;
+
+  const moved = room.vertices.map((vertex) => {
+    if (vertex.id === current.id) return { ...vertex, x: opposite.x + u.x * along + v.x * across, y: opposite.y + u.y * along + v.y * across };
+    if (vertex.id === prev.id) return { ...vertex, x: opposite.x + u.x * along, y: opposite.y + u.y * along };
+    if (vertex.id === next.id) return { ...vertex, x: opposite.x + v.x * across, y: opposite.y + v.y * across };
+    return vertex;
+  });
+  const candidate: SketchRoom = { ...room, vertices: moved };
+  if (isDegenerate(moved) || collapsesAWall(room, candidate)) return room;
+  return reflowContents(room, candidate);
+}
+
+/**
+ * Does this wall run square to its room's own frame — along it or across it — in a room turned off
+ * the page? What the wall snaps below ask before measuring along the wall's normal instead of along
+ * the page's nearer axis. A room square to the page answers no, and keeps the page's axes exactly as
+ * before; so does a cut corner in a turned room, which is not square to anything.
+ */
+function squareToTurnedFrame(room: SketchRoom, wall: WallGeometry): boolean {
+  const frame = roomFrameDeg(room);
+  if (Math.abs(frame) < 1e-6) return false;
+  const off = (((wall.rotation - frame) % 90) + 90) % 90;
+  return Math.min(off, 90 - off) < 1e-4;
 }
 
 /** Perpendicular unit vector of a wall, pointing into the room (clockwise winding). */
@@ -2087,14 +2178,18 @@ export function dragWall(room: SketchRoom, wallId: string, dx: number, dy: numbe
   let offset = distance;
   if (snap) {
     const movedStart = { x: startVertex.x + normal.x * distance, y: startVertex.y + normal.y * distance };
+    // In a turned room, measured along the wall's own normal: see `squareToTurnedFrame`.
+    const turned = squareToTurnedFrame(room, wall);
     const axis = Math.abs(normal.x) > Math.abs(normal.y) ? "x" : "y";
     let best = snapPx;
     for (const other of room.vertices) {
       if (other.id === startVertex.id || other.id === endVertex.id) continue;
-      const delta = axis === "x" ? other.x - movedStart.x : other.y - movedStart.y;
+      const delta = turned
+        ? (other.x - movedStart.x) * normal.x + (other.y - movedStart.y) * normal.y
+        : axis === "x" ? other.x - movedStart.x : other.y - movedStart.y;
       if (Math.abs(delta) < best) {
         best = Math.abs(delta);
-        offset = distance + delta / (axis === "x" ? normal.x : normal.y);
+        offset = distance + (turned ? delta : delta / (axis === "x" ? normal.x : normal.y));
       }
     }
   }
@@ -2253,6 +2348,28 @@ export function snapWallToNeighbours(room: SketchRoom, wallId: string, snapPx = 
   if (!startVertex || !endVertex) return room;
 
   const normal = wallNormal(wall);
+
+  /*
+    A wall of a room turned off the page lines up with the room's other corners along its own
+    normal — the line it would share with them were the room square, which is what the page's axes
+    are to a room that is. See `squareToTurnedFrame`.
+  */
+  if (squareToTurnedFrame(room, wall)) {
+    let nearest = snapPx;
+    let travel = 0;
+    for (const other of room.vertices) {
+      if (other.id === startVertex.id || other.id === endVertex.id) continue;
+      const d = (other.x - startVertex.x) * normal.x + (other.y - startVertex.y) * normal.y;
+      if (Math.abs(d) < nearest) {
+        nearest = Math.abs(d);
+        travel = d;
+      }
+    }
+    // Already on the line, give or take the last bits of a turn: nothing to do.
+    if (Math.abs(travel) < 1e-6) return room;
+    return dragWall(room, wallId, normal.x * travel, normal.y * travel);
+  }
+
   const axis = Math.abs(normal.x) > Math.abs(normal.y) ? "x" : "y";
 
   let best = snapPx;
@@ -3569,18 +3686,35 @@ export function freeCabinetSizePx(cabinet: FreeCabinet, room: SketchRoom): { wid
  *
  * The largest size that still fits is found by bisection between the size it already had — which is
  * known to fit — and the size asked for. Under the finger the handle simply stops at the wall.
+ *
+ * The corner that stays put is the block's BACK-LEFT one — the corner its width and depth are
+ * measured from, and the right angle of a triangle. On a block square to the page that is the
+ * stored top-left, so nothing changes. On a turned one, keeping the stored top-left instead moved
+ * the block's centre along the page's axes rather than its own, and the whole block slid sideways
+ * under the handle as it grew.
  */
 export function withFreeCabinetSizePx(cabinet: FreeCabinet, room: SketchRoom, widthPx: number, depthPx: number): FreeCabinet {
   const wanted = { width: Math.max(8, widthPx), depth: Math.max(8, depthPx) };
   const bounds = roomBounds(room);
-  const left = bounds.minX + cabinet.x;
-  const top = bounds.minY + cabinet.y;
+  const angle = blockAngleDeg(cabinet);
+  const now = freeCabinetSizePx(cabinet, room);
+  /** Where the stored offset has to be for a block of this size to keep its back-left corner still. */
+  const placed = (w: number, d: number): { x: number; y: number } => {
+    if (angle === 0) return { x: cabinet.x, y: cabinet.y };
+    const { cos, sin } = turnTrig(angle);
+    const cx = bounds.minX + cabinet.x + now.width / 2;
+    const cy = bounds.minY + cabinet.y + now.depth / 2;
+    const cornerX = cx - (now.width / 2) * cos + (now.depth / 2) * sin;
+    const cornerY = cy - (now.width / 2) * sin - (now.depth / 2) * cos;
+    const nx = cornerX + (w / 2) * cos - (d / 2) * sin;
+    const ny = cornerY + (w / 2) * sin + (d / 2) * cos;
+    return { x: nx - w / 2 - bounds.minX, y: ny - d / 2 - bounds.minY };
+  };
   const fits = (w: number, d: number) =>
-    blockInsideRoom({ ...cabinet, widthPx: w, depthPx: d, widthFeet: null, depthFeet: null }, room);
+    blockInsideRoom({ ...cabinet, ...placed(w, d), widthPx: w, depthPx: d, widthFeet: null, depthFeet: null }, room);
 
   let { width, depth } = wanted;
   if (!fits(width, depth)) {
-    const now = freeCabinetSizePx(cabinet, room);
     let lo = 0;
     let hi = 1;
     // Fourteen halvings resolves a room-sized span to well under a pixel, which is finer than
@@ -3594,7 +3728,7 @@ export function withFreeCabinetSizePx(cabinet: FreeCabinet, room: SketchRoom, wi
     depth = Math.max(8, now.depth + (wanted.depth - now.depth) * lo);
   }
 
-  return { ...cabinet, widthPx: width, depthPx: depth, widthFeet: width / PIXELS_PER_FOOT, depthFeet: depth / PIXELS_PER_FOOT };
+  return { ...cabinet, ...placed(width, depth), widthPx: width, depthPx: depth, widthFeet: width / PIXELS_PER_FOOT, depthFeet: depth / PIXELS_PER_FOOT };
 }
 
 /**
@@ -3706,8 +3840,9 @@ export function rectInsideRoom(room: SketchRoom, x: number, y: number, width: nu
  * left or right edge only if it is vertical AND spans some of the block's height, so a block never
  * jumps sideways to line up with a wall it is nowhere near.
  *
- * Diagonal walls are skipped. A block is an axis-aligned rectangle and cannot sit flush against an
- * angled wall, so there is nothing honest to snap it to.
+ * Diagonal walls are skipped. A block square to the page cannot sit flush against an angled wall, so
+ * there is nothing honest to snap it to. A TURNED block goes through `snapTurnedBlockToWalls`, which
+ * asks the same question in the block's own frame.
  */
 function snapBlockToWalls(
   room: SketchRoom,
@@ -3761,6 +3896,72 @@ function snapBlockToWalls(
 }
 
 /**
+ * `snapBlockToWalls` for a block that is turned: the same rule, asked along the block's own edges.
+ *
+ * A wall running along the block's width can take its back or its front edge, one running along its
+ * depth can take either end, and only when the wall spans some of the block — exactly the rule for a
+ * block square to the page, which is this with the frame turned to nothing. What it adds is that a
+ * block turned WITH its room (2026-09-30, the turn buttons) still lands flush against that room's
+ * turned walls when it is dragged to them, where the page-square rule saw only diagonals and let it
+ * stop wherever the finger did.
+ *
+ * Kept apart from the page-square version rather than replacing it so a block that was never turned
+ * snaps to the very same pixel it always did, not one a rounding error away.
+ */
+function snapTurnedBlockToWalls(
+  room: SketchRoom,
+  left: number,
+  top: number,
+  width: number,
+  depth: number,
+  angleDeg: number,
+): { left: number; top: number } {
+  const { cos, sin } = turnTrig(angleDeg);
+  // Along the block's width, and along its depth, as drawn.
+  const u = { x: cos, y: sin };
+  const v = { x: -sin, y: cos };
+  const cx = left + width / 2;
+  const cy = top + depth / 2;
+  let bestU: { at: number; gap: number } | null = null;
+  let bestV: { at: number; gap: number } | null = null;
+  // `wallAt` and `edge` are both measured from the block's centre along one of its axes; the answer
+  // is how far the block has to travel along that axis to bring the edge onto the wall.
+  const consider = (best: { at: number; gap: number } | null, wallAt: number, edge: number) => {
+    const gap = Math.abs(wallAt - edge);
+    if (gap > BLOCK_END_SNAP_PX) return best;
+    return best === null || gap < best.gap ? { at: wallAt - edge, gap } : best;
+  };
+
+  for (const wall of wallsOf(room)) {
+    if (wall.lengthPx <= 0) continue;
+    const wx = (wall.x2 - wall.x1) / wall.lengthPx;
+    const wy = (wall.y2 - wall.y1) / wall.lengthPx;
+    const a = { x: wall.x1 - cx, y: wall.y1 - cy };
+    const b = { x: wall.x2 - cx, y: wall.y2 - cy };
+    if (Math.abs(wx * u.y - wy * u.x) < 1e-6) {
+      const lo = Math.min(a.x * u.x + a.y * u.y, b.x * u.x + b.y * u.y);
+      const hi = Math.max(a.x * u.x + a.y * u.y, b.x * u.x + b.y * u.y);
+      if (width / 2 <= lo || -width / 2 >= hi) continue; // Alongside a different part of the room.
+      const at = a.x * v.x + a.y * v.y;
+      bestV = consider(bestV, at, -depth / 2);
+      bestV = consider(bestV, at, depth / 2);
+    } else if (Math.abs(wx * v.y - wy * v.x) < 1e-6) {
+      const lo = Math.min(a.x * v.x + a.y * v.y, b.x * v.x + b.y * v.y);
+      const hi = Math.max(a.x * v.x + a.y * v.y, b.x * v.x + b.y * v.y);
+      if (depth / 2 <= lo || -depth / 2 >= hi) continue;
+      const at = a.x * u.x + a.y * u.y;
+      bestU = consider(bestU, at, -width / 2);
+      bestU = consider(bestU, at, width / 2);
+    }
+  }
+
+  const du = bestU?.at ?? 0;
+  const dv = bestV?.at ?? 0;
+  if (du === 0 && dv === 0) return { left, top };
+  return { left: left + du * u.x + dv * v.x, top: top + du * u.y + dv * v.y };
+}
+
+/**
  * Moves an island, keeping the whole block inside its room.
  *
  * An island is free of any wall but not free of the room: a block sitting half outside the walls
@@ -3773,14 +3974,40 @@ function snapBlockToWalls(
  *
  * A move that cannot be made legally is refused rather than approximated. The block stays where it
  * was and under the finger it reads as hitting the wall, which is what it has done.
+ *
+ * A TURNED block is clamped by where its corners really are, not by its unturned box. The box was
+ * right only for a block square to the page: a 6' x 3' island turned a quarter is 3' across and 6'
+ * down, and clamping the 6' across kept it a foot and a half off a wall it could have stood against,
+ * while its 6' down was not clamped at all and the move was simply refused at the wall.
  */
 export function moveFreeCabinet(cabinet: FreeCabinet, room: SketchRoom, x: number, y: number): FreeCabinet {
   const { width, depth } = freeCabinetSizePx(cabinet, room);
   const bounds = roomBounds(room);
+  const angle = blockAngleDeg(cabinet);
 
-  const snapped = snapBlockToWalls(room, bounds.minX + x, bounds.minY + y, width, depth);
-  const left = Math.min(Math.max(bounds.minX, snapped.left), Math.max(bounds.minX, bounds.maxX - width));
-  const top = Math.min(Math.max(bounds.minY, snapped.top), Math.max(bounds.minY, bounds.maxY - depth));
+  let left: number;
+  let top: number;
+  if (angle === 0) {
+    const snapped = snapBlockToWalls(room, bounds.minX + x, bounds.minY + y, width, depth);
+    left = Math.min(Math.max(bounds.minX, snapped.left), Math.max(bounds.minX, bounds.maxX - width));
+    top = Math.min(Math.max(bounds.minY, snapped.top), Math.max(bounds.minY, bounds.maxY - depth));
+  } else {
+    const snapped = snapTurnedBlockToWalls(room, bounds.minX + x, bounds.minY + y, width, depth, angle);
+    // Where the corners stand relative to the unturned box's top-left, whatever the turn and shape.
+    const probe = blockCorners({ ...cabinet, x: 0, y: 0 }, room);
+    const reach = (pick: (p: { x: number; y: number }) => number, origin: number) => {
+      const values = probe.map((p) => pick(p) - origin);
+      return { lo: Math.min(...values), hi: Math.max(...values) };
+    };
+    const across = reach((p) => p.x, bounds.minX);
+    const down = reach((p) => p.y, bounds.minY);
+    const clamp = (at: number, min: number, max: number, span: { lo: number; hi: number }) => {
+      const lo = min - span.lo;
+      return Math.min(Math.max(lo, at), Math.max(lo, max - span.hi));
+    };
+    left = clamp(snapped.left, bounds.minX, bounds.maxX, across);
+    top = clamp(snapped.top, bounds.minY, bounds.maxY, down);
+  }
 
   const moved = { ...cabinet, x: left - bounds.minX, y: top - bounds.minY };
   if (!blockInsideRoom(moved, room)) return cabinet;
@@ -4223,6 +4450,549 @@ export function rotateStairs(room: SketchRoom, turns = 1): SketchRoom {
   });
 
   return { ...room, vertices, freeCabinets, stairs: { ...room.stairs, orientation: next } };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Turning a room or a block
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * How far one press of the turn buttons turns a room or a block, in degrees.
+ *
+ * Asked for from the field on 2026-09-30: "give me a rotate button ... when i select a room or block
+ * i can rotate it. in 15 degree increments or something". Scanned rooms and islands sometimes land a
+ * few degrees crooked, and nothing in the editor turned anything but a door or a flight.
+ *
+ * A STEP, not a fixed amount: a press turns to the next multiple of it (`turnStepDeg`), so a room that
+ * landed 3 degrees crooked comes square with one press the short way, and one already on a step moves
+ * a whole step. Anything drawn here starts square, and a room is read by its walls that are on a step
+ * (`roomFrameDeg`), so for a room drawn here a press is exactly 15 however its other walls slope —
+ * unless every one of its walls has been dragged off a step, when the first press brings it onto one.
+ */
+export const TURN_STEP_DEG = 15;
+
+/**
+ * The only turn a flight of stairs can take. `stairFlight` reads the run and the width off the room's
+ * bounding box, which is only the flight while the flight is square to the page. A room with a flight
+ * in it turns by this too — see `lib/sketchTurn.ts`.
+ */
+export const QUARTER_TURN_DEG = 90;
+
+/**
+ * The cosine and sine of a turn, exact at every quarter. `Math.cos(Math.PI / 2)` is 6e-17, not 0,
+ * and a quarter turn that left a wall that far off square would stop it reading as square to the
+ * code that asks with `===`.
+ */
+function turnTrig(deg: number): { cos: number; sin: number } {
+  const r = ((deg % 360) + 360) % 360;
+  if (r === 0) return { cos: 1, sin: 0 };
+  if (r === 90) return { cos: 0, sin: 1 };
+  if (r === 180) return { cos: -1, sin: 0 };
+  if (r === 270) return { cos: 0, sin: -1 };
+  const rad = (deg * Math.PI) / 180;
+  return { cos: Math.cos(rad), sin: Math.sin(rad) };
+}
+
+/**
+ * A turned coordinate with the last bits of floating-point noise rounded away, to a billionth of an
+ * inch. Six turns of 15 degrees make a quarter, and without this the corners that should then share
+ * an x sit 1e-13 apart; rounded, they share it exactly, as the room did before it was turned.
+ */
+function tidyPx(n: number): number {
+  const out = Math.round(n * 1e9) / 1e9;
+  return out === 0 ? 0 : out;
+}
+
+/**
+ * Corners that a turn has left a hair either side of one line, put back on it.
+ *
+ * Six turns of 15 degrees make a quarter, and a wall that was square to the page before them should
+ * be square to it after — `x1 === x2`, which is how several things ask. The arithmetic leaves the two
+ * ends about a billionth of an inch apart instead, and rounding each coordinate on its own cannot
+ * close that: two values 1e-9 apart round to two neighbouring steps as easily as to one. So every run
+ * of corners joined by walls within a millionth of a pixel of square is given one coordinate, their
+ * mean. A room turned 15 degrees has no such walls and nothing changes; nor does one that was never
+ * turned, which nothing here is called on.
+ */
+function settleOnAxes<P extends { x: number; y: number }>(points: P[], closed: boolean): P[] {
+  const n = points.length;
+  if (n < 2) return points;
+  const settle = (axis: "x" | "y"): number[] => {
+    const values = points.map((p) => p[axis]);
+    // Runs of consecutive corners sharing this coordinate, joined through the walls between them.
+    const group = values.map((_, i) => i);
+    const find = (i: number): number => (group[i] === i ? i : (group[i] = find(group[i] as number)));
+    const segments = closed ? n : n - 1;
+    for (let i = 0; i < segments; i++) {
+      const j = (i + 1) % n;
+      if (Math.abs((values[i] as number) - (values[j] as number)) < 1e-6) group[find(i)] = find(j);
+    }
+    const sums = new Map<number, { sum: number; count: number }>();
+    values.forEach((v, i) => {
+      const g = find(i);
+      const s = sums.get(g) ?? { sum: 0, count: 0 };
+      sums.set(g, { sum: s.sum + v, count: s.count + 1 });
+    });
+    return values.map((v, i) => {
+      const s = sums.get(find(i)) as { sum: number; count: number };
+      return s.count > 1 ? tidyPx(s.sum / s.count) : v;
+    });
+  };
+  const xs = settle("x");
+  const ys = settle("y");
+  return points.map((p, i) => ({ ...p, x: xs[i] as number, y: ys[i] as number }));
+}
+
+/** A turned outline or run of walls, with the rounding settled — see `settleOnAxes`. */
+export function settledAfterTurn<P extends { x: number; y: number }>(points: P[], closed: boolean): P[] {
+  return settleOnAxes(points, closed);
+}
+
+/** An angle brought into [0, 360), tidied the same way. */
+function normaliseDeg(deg: number): number {
+  const r = ((tidyPx(deg) % 360) + 360) % 360;
+  return r === 0 || r === 360 ? 0 : r;
+}
+
+/** A point turned `deg` clockwise on screen (y down) about `centre`, exact at the quarters and tidied. */
+export function turnedPoint(p: { x: number; y: number }, centre: { x: number; y: number }, deg: number): { x: number; y: number } {
+  return turnPointAbout(p, centre, turnTrig(deg));
+}
+
+/** `turnedPoint` with the trigonometry already worked out, for a loop that turns many points. */
+function turnPointAbout(p: { x: number; y: number }, centre: { x: number; y: number }, trig: { cos: number; sin: number }): { x: number; y: number } {
+  const dx = p.x - centre.x;
+  const dy = p.y - centre.y;
+  return { x: tidyPx(centre.x + dx * trig.cos - dy * trig.sin), y: tidyPx(centre.y + dx * trig.sin + dy * trig.cos) };
+}
+
+/**
+ * The middle of a room's floor: the centroid of its outline, which is what a room turns about. The
+ * middle of the bounding box would do for a rectangle and is the wrong place for an L, whose box
+ * centre can sit in the notch — turning about it swings the room out from where it stood.
+ */
+export function roomCentroid(room: SketchRoom): { x: number; y: number } {
+  const vs = room.vertices;
+  const n = vs.length;
+  if (n === 0) return { x: 0, y: 0 };
+  // Measured from the first corner, so the products stay small and the sum stays exact.
+  const o = vs[0] as Vertex;
+  let area = 0;
+  let cx = 0;
+  let cy = 0;
+  for (let i = 0; i < n; i++) {
+    const a = vs[i] as Vertex;
+    const b = vs[(i + 1) % n] as Vertex;
+    const ax = a.x - o.x;
+    const ay = a.y - o.y;
+    const bx = b.x - o.x;
+    const by = b.y - o.y;
+    const cross = ax * by - bx * ay;
+    area += cross;
+    cx += (ax + bx) * cross;
+    cy += (ay + by) * cross;
+  }
+  if (Math.abs(area) < 1e-9) {
+    const mean = vs.reduce((sum, v) => ({ x: sum.x + v.x / n, y: sum.y + v.y / n }), { x: 0, y: 0 });
+    return mean;
+  }
+  return { x: o.x + cx / (3 * area), y: o.y + cy / (3 * area) };
+}
+
+/**
+ * How far apart, in degrees, two walls' directions may be and still count as running the same way
+ * (or square to each other) when a room's frame is read — half a degree, what `collinear` allows a
+ * straight run of wall. Close enough that a scan's walls, squared to each other, read as one frame.
+ */
+const FRAME_SAME_WAY_DEG = 0.5;
+
+/**
+ * Which way a room is turned on the page, in degrees within (-45, 45]: the way the walls it is
+ * squared to run, taken to the nearest quarter (a rectangle turned 90 degrees is square to the page
+ * again). 0 for everything drawn square, and for a flight always.
+ *
+ * The walls are grouped by the way they run, a wall and the walls square to it being one group, and
+ * the frame is the group's:
+ *
+ *  - a group ON A STEP of the turn buttons (`TURN_STEP_DEG`) wins over one off a step, and then
+ *  - the group with the most wall in it, and then the longest single wall, then the first in order.
+ *
+ * It was the longest single wall until the review of 2026-09-30, and a room whose longest wall is a
+ * slope could not then be turned back. A hand-drawn room with three walls square to the page and one
+ * long sloping one (22'4" at 26.57 degrees) read as turned 26.57: one press turned it 11.57 under a
+ * button that says 15, the other button turned it 15 back, and from then on no number of presses
+ * brought its square walls square again — with no undo, the drawing could not be recovered.
+ *
+ * On a step first, because that is what makes a press exact: a room with any group on a step turns
+ * by exactly a step every press, and is always turned back by the other button. Most wall next,
+ * because a scan crooked everywhere has nothing on a step, and it is its walls that are square to
+ * each other that should come square on the first press, not whichever one happens to be longest.
+ * The price: a crooked room with one stretch pushed onto a step — a scanned wall dragged flush
+ * against a square neighbour — turns by steps from that stretch and no longer comes square with a
+ * press. It can still be turned and turned back exactly, which is the thing that must not break.
+ *
+ * Every part of this is the same however the room is turned — the groups, their lengths, the order
+ * of the walls — so the frame turns with the room and a press always reads the same group.
+ */
+export function roomFrameDeg(room: SketchRoom): number {
+  const ways: { at: number; length: number }[] = [];
+  for (const wall of wallsOf(room)) {
+    if (wall.lengthPx <= 0) continue;
+    let a = ((wall.rotation % 90) + 90) % 90;
+    /*
+      Within a millionth of a whole degree it IS that degree. A room turned by the buttons is always
+      on a whole degree, and the arithmetic of getting there leaves it a hair either side — which at
+      the diagonal is the difference between 45 and -45, a room read as a quarter turn round from
+      where it is. Reading the diagonal as exactly 45 every time is what lets a flight carried by the
+      room turn at the same place going round as coming back (`turnRoomInSketch`).
+    */
+    if (Math.abs(a - Math.round(a)) < 1e-6) a = Math.round(a);
+    if (a >= 90) a -= 90;
+    ways.push({ at: a, length: wall.lengthPx });
+  }
+  if (ways.length === 0) return 0;
+
+  const apart = (a: number, b: number) => {
+    const d = Math.abs(a - b) % 90;
+    return Math.min(d, 90 - d);
+  };
+  const onStep = (a: number) => {
+    const k = a / TURN_STEP_DEG;
+    return Math.abs(k - Math.round(k)) * TURN_STEP_DEG < 1e-4;
+  };
+  let best: { at: number; onStep: boolean; group: number; length: number } | null = null;
+  for (const way of ways) {
+    let group = 0;
+    for (const other of ways) if (apart(other.at, way.at) <= FRAME_SAME_WAY_DEG) group += other.length;
+    const candidate = { at: way.at, onStep: onStep(way.at), group, length: way.length };
+    // Lengths compared to a millionth of a pixel, so the rounding a turn leaves cannot change the answer.
+    const wins =
+      best === null ||
+      (candidate.onStep !== best.onStep
+        ? candidate.onStep
+        : candidate.group > best.group + 1e-6 || (Math.abs(candidate.group - best.group) <= 1e-6 && candidate.length > best.length + 1e-6));
+    if (wins) best = candidate;
+  }
+  const a = (best as { at: number }).at;
+  const frame = a > 45 ? a - 90 : a;
+  return frame === 0 ? 0 : frame;
+}
+
+/**
+ * The turn one press makes, from where something is turned now: to the next multiple of `step` in
+ * the direction pressed (+1 clockwise on screen, -1 anticlockwise). Something already on a step moves
+ * a whole step; something off one — a scan's 3 degrees — comes onto the nearest step that way.
+ *
+ * "On a step" allows a ten-thousandth of a degree, which is a thousandth of an inch over a 50' wall:
+ * far finer than anything a person drew, and coarse enough that the rounding a turn leaves behind
+ * does not read as a room knocked off its step.
+ */
+export function turnStepDeg(currentDeg: number, direction: 1 | -1, step: number = TURN_STEP_DEG): number {
+  const k = currentDeg / step;
+  if (Math.abs(k - Math.round(k)) * step < 1e-4) return direction * step;
+  const target = (direction > 0 ? Math.ceil(k) : Math.floor(k)) * step;
+  return target - currentDeg;
+}
+
+/**
+ * Which way a shaped ceiling rises on the page, in degrees: the phone's reading when there is one, or
+ * the room's larger bounding dimension — the assumption the quantities and the 3D view have always
+ * made. One function so the two cannot come to disagree about it.
+ */
+export function ceilingRiseDegOf(room: SketchRoom): number {
+  if (room.ceilingRiseDeg != null) return room.ceilingRiseDeg;
+  const b = roomBounds(room);
+  return b.width >= b.height ? 0 : 90;
+}
+
+/**
+ * How far the room reaches along the way its ceiling rises, in pixels: the run a slope is taken to
+ * cover when nobody measured one.
+ *
+ * For a room with no rise on record that is its larger bounding dimension, exactly as before. With
+ * one, it is the room's own extent in that direction. That was always the better answer — it is what
+ * the 3D view draws — and a room TURNED on the page (2026-09-30) needs it: its bounding box grows as
+ * it turns while its ceiling does not, and a slope sized by the box would come out shallower, and the
+ * ceiling smaller, every time the room was turned.
+ */
+export function ceilingSpanPx(room: SketchRoom): number {
+  if (room.ceilingRiseDeg == null) {
+    const b = roomBounds(room);
+    return Math.max(b.width, b.height);
+  }
+  const { cos, sin } = turnTrig(room.ceilingRiseDeg);
+  let lo = Infinity;
+  let hi = -Infinity;
+  for (const v of room.vertices) {
+    const s = v.x * cos + v.y * sin;
+    lo = Math.min(lo, s);
+    hi = Math.max(hi, s);
+  }
+  return hi > lo ? hi - lo : 0;
+}
+
+/**
+ * A room turned `deg` clockwise on screen about `centre`, and everything that is part of it: the
+ * outline, whatever stands on its walls, its blocks, and the way its ceiling rises.
+ *
+ *  - CORNERS keep their ids and their order, so every wall keeps its id and every door, window and
+ *    cabinet — which sits on a wall by id and a fraction along it — rides along untouched. A turn
+ *    about a point keeps the winding, so the room stays clockwise; and it keeps every length.
+ *  - A DOOR keeps which end it hinges at and which way it swings. Both are stored as world-space
+ *    mirrors read through whether the wall runs more across than down (`doorOrientation`), so a wall
+ *    turned past 45 degrees would have swapped them and the door would have flipped as the room
+ *    turned; the mirrors are swapped back where that happens.
+ *  - A BLOCK's middle turns about the same centre, and the block itself turns by the same amount on
+ *    its own angle. Its offset is from the room's bounding box, which moves as the room turns, so it
+ *    is worked out again from where its middle lands.
+ *  - A SLOPED or vaulted ceiling keeps rising the way it did: the direction is written down, turned
+ *    with the room, where before it was only the bounding box's longer side — which a turned room's
+ *    box no longer says anything about.
+ *
+ * Not for a flight — `stairFlight` needs its footprint square to the page. See `turnFlightAbout`.
+ */
+export function turnRoomAbout(room: SketchRoom, deg: number, centre: { x: number; y: number }): SketchRoom {
+  const trig = turnTrig(deg);
+  const before = roomBounds(room);
+  const vertices = settleOnAxes(room.vertices.map((v) => ({ ...v, ...turnPointAbout(v, centre, trig) })), true);
+  const outline: SketchRoom = { ...room, vertices };
+  const after = roomBounds(outline);
+
+  const wasAcross = new Map(wallsOf(room).map((w) => [w.id, w.horizontal]));
+  const isAcross = new Map(wallsOf(outline).map((w) => [w.id, w.horizontal]));
+  const symbols = room.symbols.map((symbol) => {
+    if (symbol.type !== "door") return symbol;
+    const was = wasAcross.get(symbol.wallId);
+    const is = isAcross.get(symbol.wallId);
+    if (was === undefined || is === undefined || was === is) return symbol;
+    return { ...symbol, flipX: symbol.flipY, flipY: symbol.flipX };
+  });
+
+  const freeCabinets = room.freeCabinets.map((block) => {
+    const { width, depth } = freeCabinetSizePx(block, room);
+    const middle = turnPointAbout({ x: before.minX + block.x + width / 2, y: before.minY + block.y + depth / 2 }, centre, trig);
+    return {
+      ...block,
+      x: tidyPx(middle.x - width / 2 - after.minX),
+      y: tidyPx(middle.y - depth / 2 - after.minY),
+      angleDeg: normaliseDeg(blockAngleDeg(block) + deg),
+    };
+  });
+
+  const shaped = room.ceilingType !== "flat" && room.ceilingPeakFeet != null;
+  return {
+    ...outline,
+    symbols,
+    freeCabinets,
+    ...(shaped ? { ceilingRiseDeg: normaliseDeg(ceilingRiseDegOf(room) + deg) } : {}),
+  };
+}
+
+/**
+ * A flight carried by a turn of `deg` about `centre` — the room it stands in being turned, or the
+ * flight itself — as nearly as a flight can follow it.
+ *
+ * A flight only ever stands square to the page (see `QUARTER_TURN_DEG`), so it cannot take the turn
+ * itself. What it takes is the turn of its MIDDLE, so it stays where it stood in the room, and
+ * `quarters` quarter turns of its own (`rotateStairs`), so it keeps running the way the room does to
+ * the nearest quarter. A quarter turn of the room is therefore exact: the flight lands turned and in
+ * place, as everything else in the room does. A turn of less than that leaves the flight square to
+ * the page inside a room that is not; the editor turns a room with a flight in it by quarters for
+ * exactly that reason (`roomTurnStepDeg`), so this only happens to a room that was off square to
+ * begin with — and there, the flight stays put while the room comes square around it.
+ */
+export function turnFlightAbout(room: SketchRoom, deg: number, centre: { x: number; y: number }, quarters: number): SketchRoom {
+  const b = roomBounds(room);
+  const middle = { x: b.minX + b.width / 2, y: b.minY + b.height / 2 };
+  const target = turnPointAbout(middle, centre, turnTrig(deg));
+  const turned = quarters === 0 ? room : rotateStairs(room, quarters);
+  const dx = tidyPx(target.x - middle.x);
+  const dy = tidyPx(target.y - middle.y);
+  return dx === 0 && dy === 0 ? turned : translateRoom(turned, dx, dy);
+}
+
+/**
+ * A block turned `deg` clockwise about its own middle, still inside its room — or null when there is
+ * no room to turn it where it stands.
+ *
+ *  - A block STANDING AGAINST a wall — an edge along it or a corner on it, within `BLOCK_TOUCH_PX` —
+ *    stays against it, exactly as far off it as it was (`keptOffWalls`). Turned about its middle and
+ *    no more, a peninsula flush on a wall swings a corner through the wall going one way and pulls
+ *    off it coming back: turned 15 and back, a 6' peninsula was left 9" off the wall it had been
+ *    flush against (review, 2026-09-30) — no longer touching it for the quantities, and too far off
+ *    for a drag to snap it back. Kept against the wall, the turn back puts it back flush.
+ *  - A block that swings a corner into a wall it was CLEAR of is nudged back in off that wall
+ *    (`nudgeBlockInside`), no further than half its own length. Refusing instead would mean a block
+ *    near a wall could never be turned without first dragging it into open floor. It then stands
+ *    against that wall, and a turn back keeps it there: how far off the wall it stood before is not
+ *    in the drawing. The editor remembers it for a run of presses (`turnBlockInRun`).
+ */
+export function turnBlock(block: Block, room: SketchRoom, deg: number): Block | null {
+  const against = wallsStoodAgainst(block, room);
+  const turned: Block = { ...block, angleDeg: normaliseDeg(blockAngleDeg(block) + deg) };
+  const kept = against.length > 0 ? keptOffWalls(turned, room, against) : turned;
+  if (blockInsideRoom(kept, room)) return kept;
+  return nudgeBlockInside(kept, room);
+}
+
+/**
+ * How far a block stands off a wall, square to it, from the nearest part of the block that is
+ * alongside the wall — null when no part of it is. Negative is through the wall.
+ *
+ * Only the part alongside, so a block standing past the end of a short wall, beside a different part
+ * of the room, is not taken to be against the line that wall is on.
+ */
+function blockGapToWall(corners: { x: number; y: number }[], wall: WallGeometry): number | null {
+  if (wall.lengthPx <= 0) return null;
+  const u = { x: (wall.x2 - wall.x1) / wall.lengthPx, y: (wall.y2 - wall.y1) / wall.lengthPx };
+  // Into the room, as `wallNormal`.
+  const n = { x: -u.y, y: u.x };
+  let gap: number | null = null;
+  for (let i = 0; i < corners.length; i++) {
+    const a = corners[i] as { x: number; y: number };
+    const b = corners[(i + 1) % corners.length] as { x: number; y: number };
+    const ta = (a.x - wall.x1) * u.x + (a.y - wall.y1) * u.y;
+    const tb = (b.x - wall.x1) * u.x + (b.y - wall.y1) * u.y;
+    const da = (a.x - wall.x1) * n.x + (a.y - wall.y1) * n.y;
+    const db = (b.x - wall.x1) * n.x + (b.y - wall.y1) * n.y;
+    // The stretch of this edge that is alongside the wall, as fractions of the edge.
+    let lo = 0;
+    let hi = 1;
+    if (Math.abs(tb - ta) < 1e-9) {
+      if (ta < 0 || ta > wall.lengthPx) continue;
+    } else {
+      const s0 = -ta / (tb - ta);
+      const s1 = (wall.lengthPx - ta) / (tb - ta);
+      lo = Math.max(0, Math.min(s0, s1));
+      hi = Math.min(1, Math.max(s0, s1));
+      if (lo > hi) continue;
+    }
+    const d = Math.min(da + (db - da) * lo, da + (db - da) * hi);
+    gap = gap === null ? d : Math.min(gap, d);
+  }
+  return gap;
+}
+
+/**
+ * The walls a block stands against, as lines — a wall split in two by a break is one line to a block
+ * flush along both halves — each with its inward normal and how far off it the block stands.
+ */
+interface StoodAgainst {
+  walls: WallGeometry[];
+  normal: { x: number; y: number };
+  gap: number;
+}
+
+/** How far off a line of walls a block stands: off the nearest of them. */
+function gapToLine(corners: { x: number; y: number }[], walls: WallGeometry[]): number | null {
+  let gap: number | null = null;
+  for (const wall of walls) {
+    const g = blockGapToWall(corners, wall);
+    if (g !== null) gap = gap === null ? g : Math.min(gap, g);
+  }
+  return gap;
+}
+
+/** The lines of wall a block stands against, within `BLOCK_TOUCH_PX` — see `turnBlock`. */
+function wallsStoodAgainst(block: Block, room: SketchRoom): StoodAgainst[] {
+  const corners = blockCorners(block, room);
+  const lines: StoodAgainst[] = [];
+  for (const wall of wallsOf(room)) {
+    const gap = blockGapToWall(corners, wall);
+    if (gap === null || Math.abs(gap) > BLOCK_TOUCH_PX) continue;
+    const normal = wallNormal(wall);
+    const same = lines.find(
+      (line) =>
+        line.normal.x * normal.x + line.normal.y * normal.y > 1 - 1e-9 &&
+        Math.abs(((line.walls[0] as WallGeometry).x1 - wall.x1) * normal.x + ((line.walls[0] as WallGeometry).y1 - wall.y1) * normal.y) < 0.01,
+    );
+    if (same) {
+      same.walls.push(wall);
+      same.gap = Math.min(same.gap, gap);
+    } else {
+      lines.push({ walls: [wall], normal, gap });
+    }
+  }
+  return lines;
+}
+
+/**
+ * A turned block moved square to the walls it stood against, until it stands exactly as far off each
+ * as it did before the turn — see `turnBlock`. Against one wall that is a move along the wall's
+ * normal; in a corner, against two, the one move that meets both.
+ *
+ * Two walls that face each other across the block — a block as wide as its alcove — cannot both be
+ * kept, and a block like that has no room to turn in anyway; nor can three. Those are left as turned,
+ * for `nudgeBlockInside` to do what it can.
+ */
+function keptOffWalls(turned: Block, room: SketchRoom, against: StoodAgainst[]): Block {
+  if (against.length > 2) return turned;
+  const [first, second] = against as [StoodAgainst, StoodAgainst | undefined];
+  const det = second ? first.normal.x * second.normal.y - first.normal.y * second.normal.x : 1;
+  if (Math.abs(det) < 0.1) return turned;
+  let at = turned;
+  // A pass or two more for the rare move that changes which part of the block is nearest a wall.
+  for (let pass = 0; pass < 3; pass++) {
+    const corners = blockCorners(at, room);
+    const need = against.map((line) => {
+      const now = gapToLine(corners, line.walls);
+      return now === null ? 0 : line.gap - now;
+    });
+    const [n1, n2] = need as [number, number | undefined];
+    let dx: number;
+    let dy: number;
+    if (!second) {
+      dx = first.normal.x * n1;
+      dy = first.normal.y * n1;
+    } else {
+      const m2 = n2 ?? 0;
+      dx = (n1 * second.normal.y - first.normal.y * m2) / det;
+      dy = (first.normal.x * m2 - n1 * second.normal.x) / det;
+    }
+    if (Math.abs(dx) < 1e-9 && Math.abs(dy) < 1e-9) break;
+    at = { ...at, x: at.x + dx, y: at.y + dy };
+  }
+  return at === turned ? turned : { ...at, x: tidyPx(at.x), y: tidyPx(at.y) };
+}
+
+/**
+ * A block moved the shortest way back inside its room, off whichever wall its corners went through.
+ * A few passes, because a block pushed off one wall can land on the next one in a corner. Null when
+ * it cannot be done within half the block's own length — a block that far from fitting is not being
+ * turned in place, it is being moved, and that is the PM's call.
+ */
+function nudgeBlockInside(block: Block, room: SketchRoom): Block | null {
+  const { width, depth } = freeCabinetSizePx(block, room);
+  const limit = Math.max(width, depth) / 2;
+  let at = block;
+  for (let pass = 0; pass < 8; pass++) {
+    if (blockInsideRoom(at, room)) break;
+    let push: { x: number; y: number } | null = null;
+    let deepest = 0;
+    for (const corner of blockCorners(at, room)) {
+      if (isInsideRoom(room, corner.x, corner.y)) continue;
+      // The wall it came through: the nearest one it stands behind.
+      let through: { distance: number; normal: { x: number; y: number }; depth: number } | null = null;
+      for (const wall of wallsOf(room)) {
+        if (wall.lengthPx <= 0) continue;
+        const normal = wallNormal(wall);
+        const behind = -((corner.x - wall.x1) * normal.x + (corner.y - wall.y1) * normal.y);
+        if (behind <= 0) continue;
+        const distance = distanceToSegment(corner.x, corner.y, wall.x1, wall.y1, wall.x2, wall.y2);
+        if (through === null || distance < through.distance) through = { distance, normal, depth: behind };
+      }
+      if (through && through.depth > deepest) {
+        deepest = through.depth;
+        push = through.normal;
+      }
+    }
+    if (push === null) return null;
+    const step = deepest + INSIDE_EPSILON_PX;
+    at = { ...at, x: at.x + push.x * step, y: at.y + push.y * step };
+  }
+  if (!blockInsideRoom(at, room)) return null;
+  if (Math.hypot(at.x - block.x, at.y - block.y) > limit) return null;
+  return { ...at, x: tidyPx(at.x), y: tidyPx(at.y) };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -4742,13 +5512,28 @@ export function sketchOutput(sketch: Sketch): SketchRoomOutput[] {
       return { label, wall: wallNumber.get(wallId) ?? 0, widthFeet: width == null ? null : round2(width), withRoom: theirs.name.trim() || "Unnamed room" };
     }),
     freeCabinets: room.freeCabinets.map((cabinet) => {
+      /*
+        Measured square to the room's own walls, to the nearest part of the block's real footprint.
+        For a room square to the page and a block square to it, that is the block's stored offset
+        from the room's box, exactly as it always was. It was the stored offset for everything until
+        rooms could be turned (2026-09-30): in a turned room the box is not the walls, and "from the
+        left wall" was a distance to nothing; and for a turned block it was the corner of the box
+        the block was drawn in before it was turned, not where the block is.
+      */
+      const into = turnTrig(-roomFrameDeg(room));
+      const inFrame = (p: { x: number; y: number }) => ({ x: p.x * into.cos - p.y * into.sin, y: p.x * into.sin + p.y * into.cos });
+      const outline = room.vertices.map(inFrame);
+      const footprint = blockCorners(cabinet, room).map(inFrame);
+      const fromLeft = Math.min(...footprint.map((p) => p.x)) - Math.min(...outline.map((p) => p.x));
+      const fromTop = Math.min(...footprint.map((p) => p.y)) - Math.min(...outline.map((p) => p.y));
       return {
         label: cabinet.label.trim() || "Island",
         tier: cabinet.tier,
         widthFeet: cabinet.widthFeet == null ? null : round2(cabinet.widthFeet),
         depthFeet: cabinet.depthFeet == null ? null : round2(cabinet.depthFeet),
-        fromLeftFeet: round2(cabinet.x / PIXELS_PER_FOOT),
-        fromTopFeet: round2(cabinet.y / PIXELS_PER_FOOT),
+        // Never less than nothing: a block flush on a wall may stand a rounding error past it.
+        fromLeftFeet: round2(Math.max(0, fromLeft) / PIXELS_PER_FOOT),
+        fromTopFeet: round2(Math.max(0, fromTop) / PIXELS_PER_FOOT),
       };
     }),
     };

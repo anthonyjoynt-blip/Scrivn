@@ -28,6 +28,7 @@ import { runClosetChecks } from "./closet.mjs";
 import { runWallFaceChecks } from "./wallFaces.mjs";
 import { runModel3dChecks } from "./model3d.mjs";
 import { runWalkViewChecks } from "./walkView.mjs";
+import { runTurnChecks } from "./turn.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..", "..");
@@ -169,6 +170,18 @@ if (walkView.failures.length > 0) {
   process.exit(1);
 }
 console.log(`  Walk mode: ok (${walkView.passed.length} checks — each photo stands where it was taken, a tap goes to the nearest)`);
+
+// Turning a room or a block: round and back to where it was, carrying what is part of it.
+const turnChecks = await runTurnChecks();
+if (turnChecks.failures.length > 0) {
+  console.error(`
+  Turning: ${turnChecks.passed.length} passed, ${turnChecks.failures.length} FAILED
+`);
+  for (const failure of turnChecks.failures) console.error(`    ✗ ${failure}
+`);
+  process.exit(1);
+}
+console.log(`  Turning: ok (${turnChecks.passed.length} checks — a room turns whole and comes back exactly, a block stays against its wall)`);
 
 await build({
   entryPoints: [join(here, "entry.tsx")],

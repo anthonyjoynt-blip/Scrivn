@@ -22,6 +22,7 @@
 
 import {
   blockCorners,
+  ceilingRiseDegOf,
   DEFAULT_CEILING_HEIGHT_FEET,
   FLOOR_STRUCTURE_FEET,
   freeWallLevel,
@@ -229,8 +230,7 @@ export function ceilingModel(room: SketchRoom): CeilingModel {
   const flat: CeilingModel = { at: () => low, breaks: () => [], pieces: (polygon) => [polygon], low, high: low };
   const peak = room.ceilingPeakFeet;
   if (room.ceilingType === "flat" || peak == null || !(peak > low + EPS) || room.vertices.length < 3) return flat;
-  const b = roomBounds(room);
-  const deg = room.ceilingRiseDeg ?? (b.width >= b.height ? 0 : 90);
+  const deg = ceilingRiseDegOf(room);
   const dx = Math.cos((deg * Math.PI) / 180);
   const dy = Math.sin((deg * Math.PI) / 180);
   let sMin = Infinity;

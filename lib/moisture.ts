@@ -573,6 +573,64 @@ export function cellsAlongStroke(
 }
 
 /**
+ * How a room was turned: `deg` clockwise on screen about the point `from`, which then stood at `to`.
+ * A room turns about its own middle, so the two are the same point; a flight carried by the room it
+ * stands in turns about its own middle and is then moved (`turnFlightAbout`), so they are not.
+ */
+export interface RoomTurnMotion {
+  deg: number;
+  from: { x: number; y: number };
+  to: { x: number; y: number };
+}
+
+/**
+ * A room's moisture after the room was turned (2026-09-30, the turn buttons), with the painted floor
+ * and ceiling turned with it.
+ *
+ * Wall readings need nothing: they sit on a wall by id and fraction, and the walls keep both. PAINT
+ * is the problem. Its cells are a grid square to the page and anchored at the room's bounding box
+ * (`cellsUnderBrush`), and turning the room moves that anchor, so every cell would land somewhere
+ * else, and `pruneMoisture` would drop the ones that fell outside — the wet area wrong, on a
+ * document, with nothing on screen to say so.
+ *
+ * So each cell of the TURNED room's grid asks where it was before the turn and takes the paint of the
+ * cell that stood there. Asked that way round, every cell of the new grid gets exactly one answer:
+ * turned the other way, a grid at 15 degrees lands on a square grid with some cells hit twice and
+ * some missed, and the paint comes out full of holes. The edge is as fine as the grid, 3 in.
+ */
+export function turnedRoomMoisture(data: RoomMoisture, before: SketchRoom, after: SketchRoom, turn: RoomTurnMotion): RoomMoisture {
+  if (data.floorCells.length === 0 && data.ceilingCells.length === 0) return data;
+  const size = cellSizePx();
+  const was = roomBounds(before);
+  const now = roomBounds(after);
+  const rad = (-turn.deg * Math.PI) / 180;
+  const cos = Math.cos(rad);
+  const sin = Math.sin(rad);
+  const carry = (cells: string[]): string[] => {
+    if (cells.length === 0) return cells;
+    const painted = new Set(cells);
+    const out: string[] = [];
+    const cols = Math.ceil(now.width / size);
+    const rows = Math.ceil(now.height / size);
+    for (let col = 0; col <= cols; col++) {
+      for (let row = 0; row <= rows; row++) {
+        const centre = { x: now.minX + (col + 0.5) * size, y: now.minY + (row + 0.5) * size };
+        if (!isInsideRoom(after, centre.x, centre.y)) continue;
+        // Back through the turn, to where this point of the floor stood before it.
+        const dx = centre.x - turn.to.x;
+        const dy = centre.y - turn.to.y;
+        const x = turn.from.x + dx * cos - dy * sin;
+        const y = turn.from.y + dx * sin + dy * cos;
+        const key = cellKey(Math.floor((x - was.minX) / size), Math.floor((y - was.minY) / size));
+        if (painted.has(key)) out.push(cellKey(col, row));
+      }
+    }
+    return out;
+  };
+  return { ...data, floorCells: carry(data.floorCells), ceilingCells: carry(data.ceilingCells) };
+}
+
+/**
  * Painted cells collapsed into horizontal runs, for drawing.
  *
  * A fully painted 20' room is some 4,800 cells; asking the canvas to fill that many rectangles every

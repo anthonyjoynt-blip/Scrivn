@@ -2,11 +2,11 @@ import {
   blockFloorAreaFeet,
   blockWallContacts,
   type BlockSymbol,
+  ceilingSpanPx,
   type FreeWall,
   freeWallsOf,
   MIN_VERTICES,
   PIXELS_PER_FOOT,
-  roomBounds,
   type Sketch,
   type SketchRoom,
   type SketchSymbol,
@@ -171,8 +171,9 @@ function ceilingProfile(room: SketchRoom): { meanHeightFeet: number | null; surf
   if (room.ceilingType === "flat" || room.ceilingPeakFeet == null) return { meanHeightFeet: low, surfaceFactor: 1 };
 
   const peak = Math.max(low, room.ceilingPeakFeet);
-  const bounds = roomBounds(room);
-  const spanFeet = Math.max(bounds.width, bounds.height) / PIXELS_PER_FOOT;
+  // The room's larger bounding dimension, or its reach along the way the ceiling rises when that is
+  // on record - see `ceilingSpanPx`.
+  const spanFeet = ceilingSpanPx(room) / PIXELS_PER_FOOT;
   /*
     The run the phone measured, when there is one.
 

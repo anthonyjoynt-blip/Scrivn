@@ -47,8 +47,10 @@ import {
   removeVertex,
   squareOffCorner,
   squareOffRefusal,
-  rotateStairs,
   roomLevel,
+  TURN_STEP_DEG,
+  blockAngleDeg,
+  turnStepDeg,
   DOOR_TYPE_LABEL,
   STAIRS_DEFAULT,
   stairCeiling,
@@ -98,7 +100,6 @@ import {
   addDraftPoint,
   connectedFreeWallIds,
   finishDraft,
-  freeWallsAttachedToRoom,
   moveSharedFreeWallVertex,
   snapDraftPoint,
   snapFreeWallTranslation,
@@ -106,6 +107,7 @@ import {
   wallSnapRadiusPx,
   withFreeWallSegmentLength,
 } from "@/lib/sketchWalls";
+import { type BlockTurnRun, carriedWithRoom, roomTurnForPress, roomTurnStepDeg, turnBlockInRun, turnRoomInSketch } from "@/lib/sketchTurn";
 import { FreeCabinetPanel, SymbolPanel } from "./SymbolPanel";
 import { type Obstacle, conformedDragWall, obstaclesFor, placeNewRoom, pullRoomFromWall, viewCentredOn, wallDragMeetsWall } from "@/lib/roomPlacement";
 import { QuantitiesPanel } from "./QuantitiesPanel";
@@ -123,6 +125,7 @@ import {
   roomIdForReading,
   roomMoisture,
   setRoomMoisture,
+  turnedRoomMoisture,
 } from "@/lib/moisture";
 import { MoistureLegend, MoisturePanel } from "./MoisturePanel";
 import { EquipmentPanel } from "./EquipmentPanel";
@@ -448,6 +451,8 @@ export function SketchEditor({
     text: string;
     action?: { label: string; run: () => void };
   } | null>(null);
+  /** Why the last turn of a block did not happen, until it is dismissed or a turn succeeds. See `handleTurnBlock`. */
+  const [turnNotice, setTurnNotice] = useState<string | null>(null);
   const scanFileRef = useRef<HTMLInputElement>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -816,6 +821,7 @@ export function SketchEditor({
    *   Delete / Backspace   the selected symbol, island, or — with nothing inside it selected — the room
    *   ← →                  mirror a door horizontally; turn a flight a quarter turn each way
    *   ↑ ↓                  mirror a door vertically; point a flight up or down
+   *   R / Shift+R          turn the selected room or block a step clockwise / anticlockwise
    *   Escape               leave full screen
    *
    * Anything typed into a field is left alone — without the editable-target guard, backspacing a
@@ -900,6 +906,21 @@ export function SketchEditor({
         return;
       }
 
+      /*
+        R turns what is selected a step clockwise and Shift+R a step back: the ↻ ↺ buttons over the
+        canvas, for a keyboard. Never with Ctrl or Cmd, which is the browser's reload; never on a
+        door, which the arrows already mirror; and not while the plan is locked, where the buttons
+        cannot be pressed either.
+      */
+      if (event.key.toLowerCase() === "r" && !event.ctrlKey && !event.metaKey && !event.altKey) {
+        if (readOnly || selectedSymbol) return;
+        event.preventDefault();
+        const direction = event.shiftKey ? -1 : 1;
+        if (selectedIsland) handleTurnBlock(selectedRoom.id, selectedIsland.id, direction);
+        else handleTurnRoom(selectedRoom.id, direction);
+        return;
+      }
+
       const horizontal = event.key === "ArrowLeft" || event.key === "ArrowRight";
       const vertical = event.key === "ArrowUp" || event.key === "ArrowDown";
       if (!horizontal && !vertical) return;
@@ -912,7 +933,7 @@ export function SketchEditor({
       if (selectedRoom.stairs && !selectedSymbol && !selectedIsland) {
         event.preventDefault();
         if (horizontal) {
-          handleRotateStairs(selectedRoom.id, event.key === "ArrowRight" ? 1 : -1);
+          handleTurnRoom(selectedRoom.id, event.key === "ArrowRight" ? 1 : -1);
         } else {
           const direction = event.key === "ArrowUp" ? "up" : "down";
           updateRoom(selectedRoom.id, (room) => (room.stairs ? { ...room, stairs: { ...room.stairs, direction } } : room));
@@ -956,22 +977,9 @@ export function SketchEditor({
   function handleMoveRoom(roomId: string, dx: number, dy: number) {
     const room = sketch.rooms.find((r) => r.id === roomId);
     if (!room) return;
-    const carried = new Set<string>([roomId]);
-    for (let grew = true; grew; ) {
-      grew = false;
-      for (const r of sketch.rooms) {
-        if (!carried.has(r.id) && r.parentRoomId && carried.has(r.parentRoomId)) {
-          carried.add(r.id);
-          grew = true;
-        }
-      }
-    }
+    // The same set a turn carries — see `carriedWithRoom`.
+    const { roomIds: carried, freeWallIds: carriedWalls } = carriedWithRoom(sketch, roomId);
     const walls = freeWallsOf(sketch);
-    const carriedWalls = new Set<string>();
-    for (const id of carried) {
-      const host = sketch.rooms.find((r) => r.id === id);
-      if (host) for (const wallId of freeWallsAttachedToRoom(host, walls)) carriedWalls.add(wallId);
-    }
     const snapped = snapRoomTranslation(
       sketch.rooms.filter((r) => r.id === roomId || !carried.has(r.id)),
       roomId,
@@ -1036,12 +1044,88 @@ export function SketchEditor({
   }
 
   /**
-   * Turns a flight of stairs a quarter turn — the whole flight, see `rotateStairs`. Nesting is
-   * re-derived because the footprint moves: a flight turned across a doorway may leave the room it
-   * was in.
+   * Turns a room one step, +1 clockwise on screen and -1 back — the ↺ ↻ buttons, R and Shift+R, and
+   * for a flight the arrow keys too. Asked for on 2026-09-30: "similar to door flip so when i select a
+   * room or block i can rotate it".
+   *
+   * The room turns about the middle of its floor and takes along what a drag takes — its sub-rooms and
+   * the free walls against it (lib/sketchTurn.ts). A step is `TURN_STEP_DEG`, or a quarter for a
+   * flight or a room with one in it, since a flight can only stand square to the page; and a press
+   * turns to the NEXT step, so a room a scan left 3 degrees off comes square with one press the short
+   * way (`turnStepDeg`).
+   *
+   * The paint on its floor and ceiling is turned with it (`turnedRoomMoisture`). Left alone it would
+   * be re-read against the turned room's new bounding box, land somewhere else, and be half pruned.
+   *
+   * No undo of its own: the other button is the undo, a turn back by the same step. That holds for any
+   * room with a wall on a step — everything drawn here — because the room's frame is read from those
+   * walls (`roomFrameDeg`). The one press it does not hold for is the first on a room crooked
+   * everywhere, which brings it onto a step; that is what the press is for. Nesting is re-derived, as
+   * after a drag.
+   *
+   * Two presses before React has drawn the first — a held key, two arrows in one breath — must make
+   * two turns, as the flight's turn always did through a functional update. So each turn builds on
+   * the one before it (`pendingTurn`) until the sketch it produced is the one being drawn, and the
+   * update itself is functional: were anything else to land in the same frame, the turn is worked
+   * out again on top of it rather than written over it.
    */
-  function handleRotateStairs(roomId: string, turns = 1) {
-    onChange((prev) => ({ ...prev, rooms: withDerivedParents(prev.rooms.map((room) => (room.id === roomId ? rotateStairs(room, turns) : room))) }));
+  const pendingTurn = useRef<{ from: Sketch; to: Sketch } | null>(null);
+  function handleTurnRoom(roomId: string, direction: 1 | -1) {
+    const base = pendingTurn.current && pendingTurn.current.from === sketch ? pendingTurn.current.to : sketch;
+    const turnOf = (from: Sketch) => {
+      const deg = roomTurnForPress(from, roomId, direction);
+      return deg === null ? null : turnRoomInSketch(from, roomId, deg);
+    };
+    const turn = turnOf(base);
+    if (!turn) return;
+    pendingTurn.current = { from: sketch, to: turn.sketch };
+    setTurnNotice(null);
+    onChange((prev) => (prev === base ? turn.sketch : (turnOf(prev)?.sketch ?? prev)));
+    onMoistureChange((prev) => {
+      const painted = turn.moved.some(({ before }) => {
+        const data = roomMoisture(prev, before.id);
+        return data.floorCells.length > 0 || data.ceilingCells.length > 0;
+      });
+      if (!painted) return prev;
+      return turn.moved.reduce(
+        (map, { before, after, motion }) => setRoomMoisture(map, before.id, turnedRoomMoisture(roomMoisture(map, before.id), before, after, motion)),
+        prev,
+      );
+    });
+  }
+
+  /**
+   * Turns a block — an island, a peninsula, a corner unit — one `TURN_STEP_DEG` step about its own
+   * middle. One against a wall stays against it, and one that swings a corner into a wall is nudged
+   * back off it (`turnBlock`); one with no room to turn where it stands is left as it was, and the
+   * notice says why rather than the button seeming to do nothing.
+   *
+   * Worked out again inside the update, from the block as it then is, so two presses in one frame
+   * make two turns — see `handleTurnRoom`.
+   *
+   * The presses are kept as a run (`turnBlockInRun`), so the other button takes a press back exactly
+   * even where a wall pushed the block on the way: turned back to an angle it stood at in this run, a
+   * block goes back to where it stood. The run is written from inside the update, where the block it
+   * turned from is known; worked out twice from the same block — as React may — it comes out the same.
+   */
+  const blockTurnRun = useRef<BlockTurnRun | null>(null);
+  function handleTurnBlock(roomId: string, blockId: string, direction: 1 | -1) {
+    const room = sketch.rooms.find((r) => r.id === roomId);
+    const block = room?.freeCabinets.find((c) => c.id === blockId);
+    if (!room || !block) return;
+    const turnOf = (b: FreeCabinet, r: SketchRoom) =>
+      turnBlockInRun(blockTurnRun.current, b, r, turnStepDeg(blockAngleDeg(b), direction, TURN_STEP_DEG));
+    if (!turnOf(block, room)) {
+      setTurnNotice("No room to turn it where it stands. Drag it clear of the walls, then turn it.");
+      return;
+    }
+    setTurnNotice(null);
+    updateIsland(roomId, blockId, (cabinet, current) => {
+      const turn = turnOf(cabinet, current);
+      if (!turn) return cabinet;
+      blockTurnRun.current = turn.run;
+      return turn.block;
+    });
   }
 
   /**
@@ -2080,6 +2164,14 @@ export function SketchEditor({
         </div>
       )}
       {notice}
+      {turnNotice && (
+        <div className="sketch-undo" role="status">
+          <span>{turnNotice}</span>
+          <button type="button" className="btn-secondary" onClick={() => setTurnNotice(null)}>
+            OK
+          </button>
+        </div>
+      )}
       {importNotice && (
         <div className="sketch-undo" role={importNotice.kind === "error" ? "alert" : "status"}>
           <span>{importNotice.text}</span>
@@ -2277,6 +2369,13 @@ export function SketchEditor({
              readings are attached to. */
           room={mode === "sketch" ? selectedRoom : null}
           symbol={mode === "sketch" ? selectedSymbol : null}
+          island={mode === "sketch" ? selectedIsland : null}
+          roomTurnStep={selectedRoom ? roomTurnStepDeg(sketch, selectedRoom.id) : TURN_STEP_DEG}
+          onTurn={(direction) => {
+            if (!selectedRoom) return;
+            if (selectedIsland) handleTurnBlock(selectedRoom.id, selectedIsland.id, direction);
+            else handleTurnRoom(selectedRoom.id, direction);
+          }}
           onFlipDoor={(axis) =>
             selectedRoom &&
             selectedSymbol &&
@@ -2284,7 +2383,6 @@ export function SketchEditor({
               symbol.type !== "door" ? symbol : axis === "x" ? { ...symbol, flipX: !symbol.flipX } : { ...symbol, flipY: !symbol.flipY },
             )
           }
-          onRotateStairs={() => selectedRoom && handleRotateStairs(selectedRoom.id)}
           onDoorType={(doorType) =>
             selectedRoom &&
             selectedSymbol &&
@@ -2443,7 +2541,7 @@ export function SketchEditor({
             <StairsRoomFields
               room={selectedRoom}
               onChange={(next) => updateRoom(selectedRoom.id, () => next)}
-              onRotate={() => handleRotateStairs(selectedRoom.id)}
+              onRotate={() => handleTurnRoom(selectedRoom.id, 1)}
             />
           ) : (
             <>
@@ -2915,35 +3013,51 @@ export function SketchEditor({
 /**
  * The turn-it-round controls, floated over the canvas.
  *
- * Shown only when there is something to turn, which is a door or a stair room. Everything else in
- * the tool is either dragged into place or typed, so a permanent control here would be occupied
- * doing nothing most of the time and would cover the drawing while it did.
+ * Shown only when there is something to turn: a door, a room — a flight among them — or a block.
+ * Nothing selected, or a window or a wall cabinet, and there is nothing here: a permanent control
+ * would be occupied doing nothing most of the time and would cover the drawing while it did.
  *
  * The labels describe the ACTION, not the outcome, for the reason given at the door's own panel:
  * whether a horizontal mirror moves the hinge or the swing depends on which wall the door is on, so
  * "flip across" is the only description that stays true on all four walls.
+ *
+ * THE TURN BUTTONS (2026-09-30): "similar to door flip so when i select a room or block i can rotate
+ * it". ↺ turns anticlockwise on the screen and ↻ clockwise, by the step the label shows — 15 degrees
+ * for a room or a block, a quarter for a flight or a room with one in it (`roomTurnStepDeg`). They
+ * replaced the flight's single "↻ Turn", which only ever went one way: a flight turned one quarter
+ * too far had to be turned three more to come back.
  */
 function DirectionControls({
   room,
   symbol,
+  island,
+  roomTurnStep,
+  onTurn,
   onFlipDoor,
   onDoorType,
-  onRotateStairs,
   onFlipStairs,
 }: {
   room: SketchRoom | null;
   symbol: SketchSymbol | null;
+  /** The block selected in `room`, when it is one — what a turn then applies to instead of the room. */
+  island: FreeCabinet | null;
+  /** The step a turn of the ROOM takes; a block's is always `TURN_STEP_DEG`. */
+  roomTurnStep: number;
+  onTurn: (direction: 1 | -1) => void;
   onFlipDoor: (axis: "x" | "y") => void;
   onDoorType: (type: DoorType) => void;
-  onRotateStairs: () => void;
   onFlipStairs: () => void;
 }) {
   const door = symbol?.type === "door" ? symbol : null;
-  const stairs = !symbol && room?.stairs ? room.stairs : null;
-  if (!door && !stairs) return null;
+  // With no symbol selected, a turn is the block's when one is selected, and the room's otherwise.
+  const turning = !symbol && room ? (island ? "block" : "room") : null;
+  const stairs = turning === "room" && room?.stairs ? room.stairs : null;
+  if (!door && !turning) return null;
+  const step = turning === "block" ? TURN_STEP_DEG : roomTurnStep;
+  const keys = (key: string) => (stairs ? `${key === "R" ? "→" : "←"} or ${key}` : key);
 
   return (
-    <div className="sketch-direction" role="group" aria-label={door ? "Door" : "Stair direction"}>
+    <div className="sketch-direction" role="group" aria-label={door ? "Door" : turning === "block" ? "Block" : stairs ? "Stairs" : "Room"}>
       {door && (
         <>
           {/*
@@ -2976,15 +3090,20 @@ function DirectionControls({
           )}
         </>
       )}
-      {stairs && (
+      {turning && (
         <>
-          <button type="button" className="btn-secondary" onClick={onRotateStairs} title="Turn a quarter turn (← →)">
-            ↻ Turn
+          <button type="button" className="btn-secondary" onClick={() => onTurn(-1)} title={`Turn ${step}° anticlockwise (${keys("Shift+R")})`}>
+            ↺ {step}°
           </button>
-          <button type="button" className="btn-secondary" onClick={onFlipStairs} title="Which way it climbs (↑ ↓)">
-            {stairs.direction === "up" ? "↑ Up" : "↓ Down"}
+          <button type="button" className="btn-secondary" onClick={() => onTurn(1)} title={`Turn ${step}° clockwise (${keys("R")})`}>
+            ↻ {step}°
           </button>
         </>
+      )}
+      {stairs && (
+        <button type="button" className="btn-secondary" onClick={onFlipStairs} title="Which way it climbs (↑ ↓)">
+          {stairs.direction === "up" ? "↑ Up" : "↓ Down"}
+        </button>
       )}
     </div>
   );

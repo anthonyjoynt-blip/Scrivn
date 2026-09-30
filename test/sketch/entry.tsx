@@ -13,6 +13,7 @@ import { run as runScopePicker } from "./scopePicker";
 import { run as runExportAndShortcuts } from "./exportAndShortcuts";
 import { renderShowcase, run as runMoistureGestures } from "./moistureGestures";
 import { run as runWallDragSnap } from "./wallDragSnap";
+import { run as runTurnButtons } from "./turnButtons";
 
 interface SuiteResult {
   passed: number;
@@ -34,6 +35,7 @@ const SUITES: [string, () => Promise<SuiteResult>][] = [
   ["Add from sketch", runScopePicker],
   ["Shortcuts and export", runExportAndShortcuts],
   ["Wall gestures through the editor", runWallDragSnap],
+  ["Turning a room or a block", runTurnButtons],
 ];
 
 async function main() {
