@@ -31,9 +31,8 @@ Written 2026-10-01 against the code as it stood then.
 | Contact | privacy@scrivn.ca, scrivn.ca/contact |
 | Laws | Canada (PIPEDA). No GDPR / CCPA until selling outside Canada |
 
-Still to fill in: the claim-data retention period (placeholder below), the Supabase region (Project
-Settings → General; if it is Canada, say the claims are stored in Canada), and the business name and
-address as they should appear.
+Claim data is kept 24 months after an account closes, and the Supabase project is hosted in Canada
+(both confirmed by the owner, 2026-10-01). The business name and address come from the generator.
 
 ## Sections to paste
 
@@ -59,8 +58,8 @@ Scrivn Scan runs on Google Play Services for AR (ARCore), which is provided by G
 
 **Service providers**
 
-We use these providers to run Scrivn, most of them in the United States:
-- Supabase: database, file storage and sign-in
+Your account, and your claims, photos and scans, are stored in Canada. To run Scrivn we also use the providers below, several of them in the United States, so information they handle (for example a claim's text during AI processing, or an email being sent) may be processed there:
+- Supabase: database, file storage and sign-in (hosted in Canada)
 - Vercel: website hosting
 - Anthropic: AI processing
 - Resend: email (sign-in confirmations, contact-form messages, and documents you choose to send)
@@ -69,7 +68,7 @@ We use these providers to run Scrivn, most of them in the United States:
 
 **Keeping and deleting claim data**
 
-Claims, photos and scans are kept until the company deletes them, or for [24 months] after the company's account closes. Claims can be deleted in the app. To close your account or delete your data, email privacy@scrivn.ca.
+Claims, photos and scans are kept until the company deletes them, or for 24 months after the company's account closes. Claims can be deleted in the app. To close your account or delete your data, email privacy@scrivn.ca.
 
 ---
 
