@@ -15,6 +15,13 @@
  * - THE BAKE (`bake`): each frame projected onto the panorama's picture, weighted towards its middle
  *   (the edges of a phone picture are its worst), added up with its gain, divided out, the holes filled
  *   by push-pull (every level of a pyramid fills the next finer one's gaps).
+ * - ONE RING AT A TIME (2026-10-02, "the stitch has the cabinet looking very very wrong" - the owner, of
+ *   the bar counter 4' from the spot). The phone drops about 10" when it tilts down for the floor ring, so
+ *   anything near - a counter, a cabinet, a chair - lands a few degrees apart in the level ring and the
+ *   floor ring, and mixing the two drew the counter top twice and sheared the doors. Each ring now keeps
+ *   to its own band of the sphere - the floor ring below 33 degrees down, the ceiling ring above 31 up,
+ *   the level ring between - with one short hand-off (6 degrees) where they meet, instead of the whole of
+ *   their overlap blended.
  * - THE GAINS (`gains`): every frame laid on a small panorama of its own, read back, and where two
  *   overlap their mean colours compared (lib/panorama.ts `solveGains`).
  *
@@ -31,6 +38,10 @@ type Texture = import("three").Texture;
 
 /** Nothing met within this many feet: the view through a window, or out of the model's end. */
 export const FAR_FEET = 40;
+/** Where the level ring hands over to the floor ring and to the ceiling ring, degrees of pitch, and how gradually (half the hand-off). */
+const BAND_LOW_DEG = -33;
+const BAND_HIGH_DEG = 31;
+const BAND_EASE_DEG = 3;
 
 /** How far the model is from a spot, every way (feet). */
 export interface DistanceMap {
@@ -264,12 +275,13 @@ export class PanoBaker {
         distances: { value: null },
         hasDistances: { value: 0 },
         trim: { value: 0 },
+        ring: { value: 0 },
       },
       vertexShader: QUAD_VERT,
       fragmentShader: /* glsl */ `
         uniform sampler2D map; uniform sampler2D distances; uniform int hasDistances;
         uniform vec3 forward; uniform vec3 up; uniform vec3 right; uniform vec3 offset;
-        uniform vec4 lens; uniform vec2 size; uniform vec3 gain; uniform float power; uniform int mode; uniform float trim;
+        uniform vec4 lens; uniform vec2 size; uniform vec3 gain; uniform float power; uniform int mode; uniform float trim; uniform int ring;
         varying vec2 vUv;
         ${EQUIRECT_GLSL}
         ${DISTANCE_GLSL}
@@ -296,7 +308,12 @@ export class PanoBaker {
             gl_FragColor = vec4(c, (e > 0.15 && f > 0.15) ? 1.0 : 0.0);
             return;
           }
-          float w = pow(clamp(e * f, 0.0, 1.0), power) * keep + 1e-6;
+          // A floor every covered sample keeps, so a frame's soft edge is never taken for a hole and filled over.
+          float w = pow(clamp(e * f, 0.0, 1.0), power) * keep + 1e-3;
+          float pitchDeg = (vUv.y - 0.5) * 180.0;
+          if (ring < 0) w *= 1.0 - smoothstep(${BAND_LOW_DEG - BAND_EASE_DEG}.0, ${BAND_LOW_DEG + BAND_EASE_DEG}.0, pitchDeg);
+          else if (ring > 0) w *= smoothstep(${BAND_HIGH_DEG - BAND_EASE_DEG}.0, ${BAND_HIGH_DEG + BAND_EASE_DEG}.0, pitchDeg);
+          else w *= smoothstep(${BAND_LOW_DEG - BAND_EASE_DEG}.0, ${BAND_LOW_DEG + BAND_EASE_DEG}.0, pitchDeg) * (1.0 - smoothstep(${BAND_HIGH_DEG - BAND_EASE_DEG}.0, ${BAND_HIGH_DEG + BAND_EASE_DEG}.0, pitchDeg));
           gl_FragColor = vec4(c * gain * w, w);
         }
       `,
@@ -318,6 +335,8 @@ export class PanoBaker {
     u.hasDistances!.value = dist ? 1 : 0;
     // Looking down more than about 17 degrees: the bottom quarter of the picture is the person's own legs.
     u.trim!.value = f.forward[1] < -0.3 ? 0.25 : 0;
+    // Which ring the frame is in: down (-1), level (0) or up (1), more than about 17 degrees off level.
+    u.ring!.value = f.forward[1] < -0.3 ? -1 : f.forward[1] > 0.3 ? 1 : 0;
   }
 
   /** One gain per frame and channel, from where the frames overlap on a small panorama. */
@@ -438,10 +457,10 @@ export class PanoBaker {
           vec4 a = texture(accTex, vUv);
           vec3 own = a.rgb / max(a.a, 1e-6);
           if (hasCoarse == 0) { gl_FragColor = vec4(a.a > 0.0 ? own : vec3(0.5), 1.0); return; }
-          vec3 c = mix(texture(coarse, vUv).rgb, own, smoothstep(0.0, 0.02, a.a));
+          vec3 c = mix(texture(coarse, vUv).rgb, own, smoothstep(0.0, 0.001, a.a));
           if (hasCaps == 1) {
             float pitch = (vUv.y - 0.5) * 3.14159265;
-            float hole = 1.0 - smoothstep(0.0, 0.05, a.a);
+            float hole = 1.0 - smoothstep(0.0, 0.002, a.a);
             c = mix(c, rowMean(0.02), hole * (1.0 - smoothstep(-1.40, -1.08, pitch)));
             c = mix(c, rowMean(0.98), hole * smoothstep(1.15, 1.42, pitch));
           }
