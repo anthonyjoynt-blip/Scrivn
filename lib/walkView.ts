@@ -243,6 +243,19 @@ export function stepFrom(points: Viewpoint[], from: Viewpoint, yaw: number, dire
 }
 
 /**
+ * The places walk mode goes to (2026-10-02): on a storey with 360° spots, its spots alone; on one
+ * without, its photos, as before. "the tour where you can look around should only be from your 360
+ * scan spots and not clicking off somewhere you didnt scan and the picture of the room falls away just
+ * becoming white" (the owner) - a photo shows one slice of the room, a spot all of it, so where the walk
+ * has spots a tap, an arrow key and a ring on the floor only ever lead to one. A photo is still a
+ * viewpoint (it keeps its key), just not somewhere to go.
+ */
+export function navigable(points: Viewpoint[]): Viewpoint[] {
+  const withSpots = new Set(points.filter((p) => p.frames).map((p) => p.level));
+  return points.filter((p) => (withSpots.has(p.level) ? p.frames != null : true));
+}
+
+/**
  * The viewpoints to mark on the floor: none closer than [minFeet] to one already marked, taken in
  * walk order. The walk takes a photo every step or so, and a ring at each would be the clutter walk
  * mode replaces; a tap goes to the nearest of all of them regardless.

@@ -29,6 +29,7 @@ import { runWallFaceChecks } from "./wallFaces.mjs";
 import { runModel3dChecks } from "./model3d.mjs";
 import { runWalkViewChecks } from "./walkView.mjs";
 import { runTurnChecks } from "./turn.mjs";
+import { runPanoramaChecks } from "./panorama.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..", "..");
@@ -182,6 +183,18 @@ if (turnChecks.failures.length > 0) {
   process.exit(1);
 }
 console.log(`  Turning: ok (${turnChecks.passed.length} checks — a room turns whole and comes back exactly, a block stays against its wall)`);
+
+// A 360° spot as one picture: the panorama's map, the turns from the overlaps, the gains.
+const panorama = await runPanoramaChecks();
+if (panorama.failures.length > 0) {
+  console.error(`
+  Panorama: ${panorama.passed.length} passed, ${panorama.failures.length} FAILED
+`);
+  for (const failure of panorama.failures) console.error(`    ✗ ${failure}
+`);
+  process.exit(1);
+}
+console.log(`  Panorama: ok (${panorama.passed.length} checks — frames a few degrees out come back together, exposures even out, spots alone are walked to)`);
 
 await build({
   entryPoints: [join(here, "entry.tsx")],

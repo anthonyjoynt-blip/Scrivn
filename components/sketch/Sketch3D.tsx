@@ -17,6 +17,16 @@
  * corner shows where the view is standing and which way it looks. The claim opens in walk mode when
  * its scan brought a walk.
  *
+ * SPOTS ONLY, EACH ONE PICTURE (2026-10-02). "unless im exactly where the scan happened i will only see
+ * a small slice and not the full room... we will want to clean it up a little bit if possible so it all
+ * blends together looking nice and cohesive rather than the fragmentation and ghost walls" (the owner).
+ * On a storey with 360° spots, walk mode goes only to them (lib/walkView.ts `navigable`) - the rings, a
+ * tap, the arrow keys, the plan in the corner - and a spot is no longer 28 pictures hung over the model:
+ * its frames are stitched into one panorama round it (components/sketch/panoBake.ts, lib/panorama.ts),
+ * drawn on a sphere the view stands in, the model under it drawn for depth alone so the rings still sit
+ * on its floor. A step between two spots crossfades their panoramas. The frames hang as before only
+ * until the panorama is ready, and on a graphics card that cannot stitch.
+ *
  * THE DOLLHOUSE is the model from above, to turn and zoom, with a ring on the floor wherever the walk
  * can be joined; tapping near one flies down into it. "Low walls" cuts every wall at 4' there.
  *
@@ -31,6 +41,7 @@ import { houseModel, type HouseModel, type PrismKind } from "@/lib/sketch3d";
 import {
   destinationFor,
   fitFovDeg,
+  navigable,
   photoPlane,
   spacedOut,
   stepFrom,
@@ -41,6 +52,8 @@ import {
   type Viewpoint,
   type ViewpointKey,
 } from "@/lib/walkView";
+import { alignFrames, cross as crossV, warpThrough, type PanoFrame, type V3 } from "@/lib/panorama";
+import { grayOf, PanoBaker, panoMaterial, type DistanceMap } from "./panoBake";
 
 interface Props {
   sketch: Sketch;
@@ -83,6 +96,36 @@ const MAX_PICTURE_PX = 1280;
 const MAX_PICTURES = 60;
 /** How wide the view is at a spot, top to bottom: a spot is for looking round, not at one photo. */
 const SPOT_FOV_DEG = 72;
+/**
+ * A spot's panorama is drawn on a sphere this big round it (2026-10-02): bigger than any step between
+ * two spots, so the view never leaves the one it is fading out of, and about a room's size, so the step
+ * still looks like moving forward into it.
+ */
+const PANO_RADIUS_FEET = 40;
+/** Panoramas kept on the graphics card at once (32 MB each at 4096): the least lately seen go, and are stitched again on a return - a moment, the lining up being kept. */
+const MAX_PANOS = 4;
+
+/** Where a spot's lined-up frames are kept on this device, so the lining up is done once. */
+const alignedKey = (scanId: string, spot: number) => `scrivn.pano.v1.${scanId}.${spot}`;
+function loadAligned(scanId: string, spot: number, n: number): { forward: V3; up: V3 }[] | null {
+  try {
+    const raw = window.localStorage.getItem(alignedKey(scanId, spot));
+    if (!raw) return null;
+    const list = JSON.parse(raw) as number[][];
+    if (!Array.isArray(list) || list.length !== n || !list.every((a) => Array.isArray(a) && a.length === 6 && a.every(Number.isFinite))) return null;
+    return list.map((a) => ({ forward: [a[0], a[1], a[2]] as V3, up: [a[3], a[4], a[5]] as V3 }));
+  } catch {
+    return null;
+  }
+}
+function saveAligned(scanId: string, spot: number, frames: PanoFrame[]) {
+  try {
+    const r = (x: number) => Math.round(x * 1e6) / 1e6;
+    window.localStorage.setItem(alignedKey(scanId, spot), JSON.stringify(frames.map((f) => [...f.forward.map(r), ...f.up.map(r)])));
+  } catch {
+    // Private mode or full: lined up again next time.
+  }
+}
 
 /**
  * A prism whose top is not level - a wall under a sloped ceiling - built by hand, since an extrusion
@@ -203,6 +246,8 @@ export default function Sketch3D({ sketch, onClose }: Props) {
   const model = useMemo(() => houseModel(sketch), [sketch]);
   const walks = useMemo(() => sketch.walks ?? [], [sketch]);
   const points = useMemo(() => viewpoints(walks, (lvl) => model.levels.find((l) => l.level === lvl)?.baseY ?? 0), [walks, model]);
+  // Where walk mode goes: a storey's 360° spots when it has any, its photos when not (2026-10-02).
+  const navPoints = useMemo(() => navigable(points), [points]);
   const levels = useMemo(() => [...new Set([...model.floors.map((f) => f.level), ...model.prisms.map((p) => p.level)])].sort((a, b) => b - a), [model]);
   const mountRef = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "failed">("loading");
@@ -211,6 +256,8 @@ export default function Sketch3D({ sketch, onClose }: Props) {
   const [mode, setMode] = useState<Mode>(points.length > 0 ? "walk" : "dollhouse");
   // A walk with 360° spots opens at the first of them; one without, at its first photo.
   const [at, setAt] = useState<ViewpointKey | null>((points.find((p) => p.frames) ?? points[0])?.key ?? null);
+  // A spot whose panorama is still being stitched, for the line that says so.
+  const [stitching, setStitching] = useState(false);
   // Signed links to each scan's photos, by scan id then photo number.
   const [urls, setUrls] = useState<Record<string, Record<number, string>>>({});
   // Pictures the browser would not draw as a texture (pictureId), shown as a plain picture instead.
@@ -400,7 +447,7 @@ export default function Sketch3D({ sketch, onClose }: Props) {
       const byKey = new Map(points.map((v) => [keyOf(v.key), v] as const));
       const vec = (v: readonly [number, number, number]) => new THREE.Vector3(v[0], v[1], v[2]);
 
-      // A ring on the floor wherever the walk can be joined, a few feet apart.
+      // A ring on the floor wherever the walk can be joined, a few feet apart: at the spots alone on a storey that has them.
       const ringMaterial = new THREE.MeshBasicMaterial({ color: COLORS.ring, transparent: true, opacity: 0.85, depthWrite: false });
       materials.push(ringMaterial);
       const ringGeometry = new THREE.RingGeometry(0.42, 0.62, 40);
@@ -410,7 +457,7 @@ export default function Sketch3D({ sketch, onClose }: Props) {
       spotRingGeometry.rotateX(-Math.PI / 2);
       geometries.push(spotRingGeometry);
       const rings = new Map<string, import("three").Mesh>();
-      for (const v of spacedOut(points, RING_SPACING_FEET)) {
+      for (const v of spacedOut(navPoints, RING_SPACING_FEET)) {
         const ring = new THREE.Mesh(v.frames ? spotRingGeometry : ringGeometry, ringMaterial);
         ring.position.set(v.position[0], baseOf(v.level) + 0.03, v.position[2]);
         ring.renderOrder = 2;
@@ -537,8 +584,8 @@ export default function Sketch3D({ sketch, onClose }: Props) {
           ensurePhoto(byKey.get(keyOf({ walk: v.key.walk, photo: v.key.photo + 1 })));
           ensurePhoto(byKey.get(keyOf({ walk: v.key.walk, photo: v.key.photo - 1 })));
         }
-        ensurePhoto(stepFrom(points, v, yaw, 1));
-        ensurePhoto(stepFrom(points, v, yaw, -1));
+        ensurePhoto(stepFrom(navPoints, v, yaw, 1));
+        ensurePhoto(stepFrom(navPoints, v, yaw, -1));
       };
       /** Disposed with the scene: every picture still held. */
       const disposePictures = () => {
@@ -546,6 +593,128 @@ export default function Sketch3D({ sketch, onClose }: Props) {
           mesh.material.map?.dispose();
           mesh.material.dispose();
         }
+      };
+
+      // ---- A spot's panorama (2026-10-02): its frames stitched into one picture round it -----------
+      // Made once the spot's frames have all arrived: first straight from the sensor's turns (a moment),
+      // then again once the frames are lined up against each other (a few seconds, once per device).
+      // Until then, and on a card that cannot do it, the frames hang as pictures as they always did.
+      const baker = PanoBaker.supported(renderer) ? new PanoBaker(THREE, renderer) : null;
+      const panoWidth = Math.min(renderer.capabilities.maxTextureSize, window.matchMedia?.("(pointer: coarse)").matches ? 3072 : 4096);
+      const panoGeometry = new THREE.SphereGeometry(PANO_RADIUS_FEET, 96, 48);
+      geometries.push(panoGeometry);
+      type Pano = {
+        state: "baking" | "ready" | "failed";
+        mesh: import("three").Mesh<import("three").SphereGeometry, import("three").ShaderMaterial> | null;
+        texture: import("three").Texture | null;
+        dist: DistanceMap | null;
+        usedAt: number;
+      };
+      const panos = new Map<string, Pano>();
+      const dropPano = (key: string) => {
+        const p = panos.get(key);
+        if (!p) return;
+        if (p.texture) PanoBaker.release(p.texture);
+        if (p.mesh) {
+          scene.remove(p.mesh);
+          p.mesh.material.dispose();
+        }
+        p.dist?.dispose();
+        p.state = "failed"; // so an alignment still running for it lets go
+        panos.delete(key);
+      };
+      /** Lets the least lately seen panoramas go, past [MAX_PANOS], never one in [keep]. */
+      const trimPanos = (keep: Set<string>) => {
+        if (panos.size <= MAX_PANOS) return;
+        const byAge = [...panos.entries()].filter(([k, p]) => !keep.has(k) && p.state !== "baking").sort((a, b) => a[1].usedAt - b[1].usedAt);
+        for (const [k] of byAge.slice(0, panos.size - MAX_PANOS)) dropPano(k);
+      };
+      /** The model a spot's panorama is laid through: what stands on its storey. */
+      const proxyOf = (lvl: number) => [...(solidsOf.get(lvl) ?? []), ...(floorsOf.get(lvl) ?? []), ...(overheadOf.get(lvl) ?? [])];
+      const panoFramesOf = (v: Viewpoint): PanoFrame[] =>
+        picturesAt(v).map((f) => ({
+          forward: f.forward,
+          up: f.up,
+          right: f.right,
+          offset: [f.position[0] - v.position[0], f.position[1] - v.position[1], f.position[2] - v.position[2]] as V3,
+          camera: f.camera,
+        }));
+      const panoReady = (v: Viewpoint | null | undefined) => !!v?.frames && panos.get(keyOf(v.key))?.state === "ready";
+      const ensurePano = (v: Viewpoint | null | undefined) => {
+        if (!baker || !v?.frames) return;
+        const key = keyOf(v.key);
+        const had = panos.get(key);
+        if (had) {
+          had.usedAt = performance.now();
+          return;
+        }
+        const textures = picturesAt(v).map((f) => (pictureState.get(pictureId(f)) === "ready" ? pictureMeshes.get(pictureId(f))?.material.map ?? null : null));
+        if (textures.some((t) => t == null)) return;
+        const tex = textures as import("three").Texture[];
+        const pano: Pano = { state: "baking", mesh: null, texture: null, dist: null, usedAt: performance.now() };
+        panos.set(key, pano);
+        const spot = v.key.spot as number;
+        // Off the frame being drawn: the bake takes the graphics card for a moment.
+        setTimeout(() => {
+          if (disposed) return;
+          try {
+            const started = performance.now();
+            const dist = baker.distanceMap(proxyOf(v.level), v.position);
+            pano.dist = dist;
+            const sensor = panoFramesOf(v);
+            const kept = loadAligned(v.scanId, spot, sensor.length);
+            const frames0 = kept
+              ? sensor.map((f, k) => {
+                  const a = kept[k] as { forward: V3; up: V3 };
+                  return { ...f, forward: a.forward, up: a.up, right: crossV(a.forward, a.up) };
+                })
+              : sensor;
+            const texture = baker.bake(frames0, tex, dist, baker.gains(frames0, tex, dist), panoWidth);
+            const mesh = new THREE.Mesh(panoGeometry, panoMaterial(THREE, texture));
+            mesh.position.set(...v.position);
+            mesh.frustumCulled = false;
+            mesh.visible = false;
+            scene.add(mesh);
+            pano.mesh = mesh;
+            pano.texture = texture;
+            pano.state = "ready";
+            trimPanos(new Set([key, ...(current ? [keyOf(current.key)] : []), ...(transition?.target ? [keyOf(transition.target.key)] : [])]));
+            console.info(`[walk] spot ${spot}: stitched ${frames0.length} frames ${kept ? "(lined up before)" : "(as the sensor turned them)"} in ${Math.round(performance.now() - started)} ms`);
+            if (kept) return;
+            // Then lined up against each other, and stitched again.
+            const grays = tex.map((t, k) => grayOf(t.image as CanvasImageSource & { width: number; height: number }, (sensor[k] as PanoFrame).camera.width));
+            if (grays.some((g) => g == null)) return;
+            const t0 = performance.now();
+            void alignFrames(sensor, grays as NonNullable<(typeof grays)[number]>[], warpThrough(dist.distanceOf), { cancelled: () => disposed }).then((out) => {
+              const m = pano.mesh;
+              if (!out || disposed || pano.state !== "ready" || !m) return;
+              const lined = out.frames;
+              const next = baker.bake(lined, tex, dist, baker.gains(lined, tex, dist), panoWidth);
+              const old = pano.texture;
+              (m.material.uniforms.pano as { value: import("three").Texture | null }).value = next;
+              pano.texture = next;
+              if (old) PanoBaker.release(old);
+              saveAligned(v.scanId, spot, lined);
+              console.info(`[walk] spot ${spot}: lined up ${out.used} overlaps, ${out.before.toFixed(2)} -> ${out.after.toFixed(2)} degrees, in ${Math.round(performance.now() - t0)} ms`);
+            });
+          } catch (err) {
+            pano.state = "failed";
+            console.warn(`[walk] spot ${spot}: could not be stitched; its frames hang as pictures`, err);
+          }
+        }, 0);
+      };
+      const disposePanos = () => {
+        for (const key of [...panos.keys()]) dropPano(key);
+        baker?.dispose();
+      };
+      /** The model's own materials: drawn only for depth while the view stands in a panorama, so rings sit on its floor. */
+      const modelMaterials = [...byKind.wall, ...byKind.cabinet, ...byKind.step, ...floorMaterials, ceilingMaterial];
+      let modelHidden = false;
+      const hideModel = (hide: boolean) => {
+        if (hide === modelHidden) return;
+        modelHidden = hide;
+        for (const m of modelMaterials) m.colorWrite = !hide;
+        for (const m of byKind.glass) m.visible = !hide;
       };
 
       const controls = new OrbitControls(camera, renderer.domElement);
@@ -710,7 +879,7 @@ export default function Sketch3D({ sketch, onClose }: Props) {
           return;
         }
         const hit = floorHit(e.clientX, e.clientY);
-        cursor.visible = hit != null && (modeRef.current === "walk" || points.some((v) => v.level === hit.level));
+        cursor.visible = hit != null && (modeRef.current === "walk" || navPoints.some((v) => v.level === hit.level));
         if (hit) cursor.position.set(hit.x, hit.y + 0.04, hit.z);
       };
       const onUp = (e: PointerEvent) => {
@@ -721,10 +890,10 @@ export default function Sketch3D({ sketch, onClose }: Props) {
         const hit = floorHit(e.clientX, e.clientY);
         if (!hit) return;
         if (modeRef.current === "walk") {
-          const v = destinationFor(points, hit.level, hit.x, hit.z, view.yaw);
+          const v = destinationFor(navPoints, hit.level, hit.x, hit.z, view.yaw);
           if (v && v !== current) goTo(v);
         } else {
-          const v = destinationFor(points, hit.level, hit.x, hit.z, null);
+          const v = destinationFor(navPoints, hit.level, hit.x, hit.z, null);
           if (v && Math.hypot(v.position[0] - hit.x, v.position[2] - hit.z) <= JOIN_REACH_FEET) goTo(v);
         }
       };
@@ -788,13 +957,16 @@ export default function Sketch3D({ sketch, onClose }: Props) {
         return s * s * (3 - 2 * s);
       };
       let raf = 0;
+      let lastStitching = false;
       const loop = () => {
         raf = requestAnimationFrame(loop);
         let fromFade = 0;
         let toFade = 0;
+        let stepT = 0;
         if (transition) {
           const tr = transition;
           const t = Math.min(1, (performance.now() - tr.start) / tr.ms);
+          stepT = t;
           const e = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
           view.pos.lerpVectors(tr.from.pos, tr.to.pos, e);
           view.yaw = wrapAngle(tr.from.yaw + wrapAngle(tr.to.yaw - tr.from.yaw) * e);
@@ -836,10 +1008,44 @@ export default function Sketch3D({ sketch, onClose }: Props) {
         } else {
           controls.update();
         }
-        // The pictures: the ones where the view stands, crossfading to the next place's on a step.
-        const fromSet = new Set(transition?.fromKey ? picturesAt(byKey.get(transition.fromKey) as Viewpoint).map(pictureId) : []);
-        const toSet = new Set(transition?.target ? picturesAt(transition.target).map(pictureId) : []);
-        const hereSet = new Set(!transition && modeRef.current === "walk" && current ? picturesAt(current).map(pictureId) : []);
+        // The spots' panoramas (2026-10-02): where the view stands, and on a step the one it leaves and the
+        // one it goes to. Standing in one - or stepping between two - the model is drawn for depth alone,
+        // under the panorama, so the rings still sit on its floor and go behind its walls; to and from the
+        // dollhouse the panorama fades over the model instead.
+        const fromV = transition?.fromKey ? byKey.get(transition.fromKey) ?? null : null;
+        const toV = transition?.target ?? null;
+        const hereV = !transition && modeRef.current === "walk" ? current : null;
+        ensurePano(hereV);
+        ensurePano(toV);
+        ensurePano(fromV);
+        const inPanos = walking && (hereV ? panoReady(hereV) : transition != null && transition.then === "walk" && panoReady(fromV) && panoReady(toV));
+        hideModel(inPanos);
+        const stepIn = smooth(0.15, 0.85, stepT);
+        for (const [key, p] of panos) {
+          const m = p.mesh;
+          if (!m) continue;
+          let o = 0;
+          let order = inPanos ? -10 : 50;
+          if (hereV && key === keyOf(hereV.key)) o = 1;
+          else if (toV && key === keyOf(toV.key)) {
+            o = inPanos ? stepIn : toFade;
+            order += 1;
+          } else if (fromV && key === keyOf(fromV.key)) o = inPanos ? 1 : fromFade;
+          m.visible = o > 0.005;
+          (m.material.uniforms.opacity as { value: number }).value = o;
+          m.renderOrder = order;
+        }
+        const stitchingNow = !!(hereV?.frames && baker && !panoReady(hereV) && panos.get(keyOf(hereV.key))?.state !== "failed");
+        if (stitchingNow !== lastStitching) {
+          lastStitching = stitchingNow;
+          setStitching(stitchingNow);
+        }
+        // The pictures: the ones where the view stands, crossfading to the next place's on a step - not a
+        // spot's, once its panorama shows them all.
+        const hung = (v: Viewpoint | null | undefined) => (v && !panoReady(v) ? picturesAt(v).map(pictureId) : []);
+        const fromSet = new Set(hung(fromV));
+        const toSet = new Set(hung(toV));
+        const hereSet = new Set(hung(hereV));
         camera.getWorldDirection(lookDir);
         const shown: { mesh: (typeof pictureMeshes extends Map<string, infer M> ? M : never); facing: number }[] = [];
         for (const [id, mesh] of pictureMeshes) {
@@ -878,7 +1084,7 @@ export default function Sketch3D({ sketch, onClose }: Props) {
         },
         step: (direction) => {
           if (!current || transition) return;
-          const v = stepFrom(points, current, view.yaw, direction);
+          const v = stepFrom(navPoints, current, view.yaw, direction);
           if (v) goTo(v);
         },
         dollhouse: () => {
@@ -909,6 +1115,7 @@ export default function Sketch3D({ sketch, onClose }: Props) {
         for (const m of materials) m.dispose();
         for (const t of textures) t.dispose();
         disposePictures();
+        disposePanos();
         renderer.dispose();
         renderer.domElement.remove();
         labels.domElement.remove();
@@ -920,7 +1127,7 @@ export default function Sketch3D({ sketch, onClose }: Props) {
       disposed = true;
       teardown?.();
     };
-  }, [model, low, walks, points, arrive, enterMode]);
+  }, [model, low, walks, points, navPoints, arrive, enterMode]);
 
   // The pictures, one request per scan, when the view opens.
   useEffect(() => {
@@ -1046,7 +1253,7 @@ export default function Sketch3D({ sketch, onClose }: Props) {
               className={`option-btn${mode === "walk" ? " selected" : ""}`}
               aria-pressed={mode === "walk"}
               onClick={() => {
-                const key = atRef.current ?? points[0]?.key;
+                const key = atRef.current ?? navPoints[0]?.key;
                 if (key) sceneApi.current?.goTo(key);
               }}
               disabled={status !== "ready"}
@@ -1101,12 +1308,12 @@ export default function Sketch3D({ sketch, onClose }: Props) {
           <FloorPlan
             sketch={sketch}
             level={walkLevel}
-            points={points}
+            points={navPoints}
             at={at}
             markerRef={markerRef}
             onPick={(x, z) => {
               const pose = poseRef.current;
-              const v = destinationFor(points, walkLevel, x, z, pose ? pose.yaw : null);
+              const v = destinationFor(navPoints, walkLevel, x, z, pose ? pose.yaw : null);
               if (v) sceneApi.current?.goTo(v.key);
             }}
           />
@@ -1132,7 +1339,7 @@ export default function Sketch3D({ sketch, onClose }: Props) {
             }}
           >
             <span style={{ fontSize: 13, color: "#5b6472", flex: 1, minWidth: 160 }}>
-              360° spot {spotIndex + 1} of {spots.length} · drag to look all the way round
+              360° spot {spotIndex + 1} of {spots.length} · {stitching ? "stitching its photos together…" : "drag to look all the way round"}
               {walks.length > 1 ? ` · ${levelLabel(currentWalk.level)}` : ""}
             </span>
             <button type="button" className="option-btn" onClick={() => stepAlong(-1)} disabled={spotIndex === 0}>
