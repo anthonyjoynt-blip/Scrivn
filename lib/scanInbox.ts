@@ -335,6 +335,8 @@ export function adoptScan(sketch: Sketch, scan: PendingScan, receivedAt: string 
     level,
     fingerprint: sketchFingerprint(withoutScan),
   };
+  // The closets the editor owes an offer for: applied here, away from the editor, the offer waits on the sketch.
+  if (result.closetDoors.length > 0) provenance.closetDoors = result.closetDoors;
   // The walk's photos go where the storey's rooms went; a re-scan's replace the storey's old ones.
   const walk = walkFromScan(scan.body, result.origin, at, scan.id, level);
   const walks = [...(sketch.walks ?? []).filter((w) => w.level !== level), ...(walk ? [walk] : [])];

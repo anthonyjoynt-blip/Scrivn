@@ -115,23 +115,12 @@ function DoorFields({ door, onChange }: { door: DoorSymbol; onChange: (next: Ske
       </div>
 
       {/*
-        Head height. Every door has one; an opening is described by little else.
-
-        Placed above Leaves rather than below the orientation flips because for an opening — the
-        case that most needs it — the flips are hidden and this would otherwise be the only field
-        after the type, marooned at the bottom of an otherwise empty panel.
+        Single or double, straight under the type: together they name the door ("Double bifold door"). It was
+        "Leaves", under the height, and on 2026-10-03 the estimator looked for a double door and did not find it.
       */}
-      <MeasureField
-        id="door-height"
-        label={door.doorType === "opening" ? "Opening height" : "Door height"}
-        hint={door.doorType === "opening" ? "Head height of the opening. Standard door head is 6'8\"." : undefined}
-        valueFeet={door.heightFeet}
-        onCommit={(feet) => onChange({ ...door, heightFeet: feet })}
-      />
-
       {door.doorType !== "opening" && (
       <div className="question">
-        <label className="prompt">Leaves</label>
+        <label className="prompt">Single or double</label>
         <div className="option-group" role="group" aria-label="Single or double">
           {(Object.keys(DOOR_LEAVES_LABEL) as DoorLeaves[]).map((leaves) => (
             <button
@@ -147,6 +136,18 @@ function DoorFields({ door, onChange }: { door: DoorSymbol; onChange: (next: Ske
         </div>
       </div>
       )}
+
+      {/*
+        Head height. Every door has one; an opening is described by little else - for an opening, the case that most
+        needs it, it comes straight after the type, the rest of the panel hidden.
+      */}
+      <MeasureField
+        id="door-height"
+        label={door.doorType === "opening" ? "Opening height" : "Door height"}
+        hint={door.doorType === "opening" ? "Head height of the opening. Standard door head is 6'8\"." : undefined}
+        valueFeet={door.heightFeet}
+        onCommit={(feet) => onChange({ ...door, heightFeet: feet })}
+      />
 
       {/* An opening has no leaf, so nothing to hand or swing. */}
       {door.doorType !== "opening" && (

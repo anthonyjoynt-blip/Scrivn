@@ -745,6 +745,20 @@ export interface SketchScan {
   level: number;
   /** `sketchFingerprint` of the sketch as adopted — equal to the current one until somebody edits. */
   fingerprint: string;
+  /**
+   * The doors the phone tapped as closet doors whose closets the editor has still to offer (2026-10-03). The editor's
+   * own Import scan offers them on the spot; a scan the phone sends is applied on the claim page, away from the editor,
+   * and until now the offer was simply lost there: "what does the closet door do anyways? There's no closet being
+   * added here". So it waits here until the PM answers it in the editor, either way, and then goes. Outside the
+   * fingerprint, as all of `scan` is: answering it is not an edit of the drawing, adding the closets is.
+   */
+  closetDoors?: ClosetDoorRef[];
+}
+
+/** A door tapped as a closet door, by its room: what the closet offer draws behind (`withClosetsBehind`). */
+export interface ClosetDoorRef {
+  roomId: string;
+  doorId: string;
 }
 
 /**
@@ -5356,6 +5370,34 @@ export function closetExistsBehind(rooms: SketchRoom[], room: SketchRoom, doorId
     (other) =>
       other.id !== room.id && roomLevel(other) === level && [footprint.near, footprint.onWall].some((pair) => pair.every((at) => hasCornerAt(other, at))),
   );
+}
+
+/**
+ * The closet doors of `doors` still owed a closet: the door still on its room, and nothing behind it yet
+ * (`closetExistsBehind`). What a scan's "Add closets" offers, and whether it still has anything to offer.
+ */
+export function closetsOwed(sketch: Sketch, doors: ClosetDoorRef[]): ClosetDoorRef[] {
+  return doors.filter(({ roomId, doorId }) => {
+    const room = sketch.rooms.find((r) => r.id === roomId);
+    return room !== undefined && room.symbols.some((s) => s.id === doorId && s.type === "door") && !closetExistsBehind(sketch.rooms, room, doorId);
+  });
+}
+
+/**
+ * `sketch` with a closet drawn behind each of `doors` that is still owed one (`closetsOwed`) — the scan's "Add
+ * closets", in one update. Each door is checked against the closets added before it too: two closet doors on one
+ * chamfer want the same corner, which has one shape whatever the door's place on it. The sketch itself when nothing
+ * is drawn.
+ */
+export function withClosetsBehind(sketch: Sketch, doors: ClosetDoorRef[]): Sketch {
+  const closets: SketchRoom[] = [];
+  for (const { roomId, doorId } of closetsOwed(sketch, doors)) {
+    const room = sketch.rooms.find((r) => r.id === roomId);
+    if (!room || closetExistsBehind([...sketch.rooms, ...closets], room, doorId)) continue;
+    const closet = closetBehindDoor(room, doorId);
+    if (closet) closets.push(closet);
+  }
+  return closets.length === 0 ? sketch : { ...sketch, rooms: withDerivedParents([...sketch.rooms, ...closets]) };
 }
 
 /** Re-sizes a fixture to its kind's standard footprint, used when the kind is chosen or changed. */

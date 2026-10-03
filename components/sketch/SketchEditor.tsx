@@ -25,7 +25,8 @@ import {
   PIXELS_PER_FOOT,
   DEFAULT_ROOM_FEET,
   closetBehindDoor,
-  closetExistsBehind,
+  closetsOwed,
+  withClosetsBehind,
   ensureClockwise,
   exposedRunAt,
   formatFeetInches,
@@ -200,6 +201,11 @@ function usePhoneLayout(): boolean {
     return () => query.removeEventListener("change", apply);
   }, []);
   return phone;
+}
+
+/** The closet offer's words, the same for a scan file imported here and for a scan the phone sent. */
+function closetOfferText(count: number): string {
+  return count === 1 ? "1 closet door tapped — add a closet behind it?" : `${count} closet doors tapped — add a closet behind each?`;
 }
 
 export function SketchEditor({
@@ -451,6 +457,25 @@ export function SketchEditor({
     text: string;
     action?: { label: string; run: () => void };
   } | null>(null);
+  /**
+   * The same offer for a scan the phone sent (2026-10-03, `SketchScan.closetDoors`): that scan is applied on the claim
+   * page, away from this editor, so its "Add closets" waits on the sketch - every closet door still drawn with nothing
+   * behind it - until the PM answers it here, either way. Never drawn without the answer, as for an import.
+   */
+  const owedClosets = useMemo(
+    () => (readOnly || !sketch.scan?.closetDoors ? [] : closetsOwed(sketch, sketch.scan.closetDoors)),
+    [sketch, readOnly],
+  );
+  function answerClosetOffer(add: boolean) {
+    onChange((prev) => {
+      const owed = prev.scan?.closetDoors;
+      if (!prev.scan || !owed) return prev;
+      const next = add ? withClosetsBehind(prev, owed) : prev;
+      const scan = { ...prev.scan };
+      delete scan.closetDoors;
+      return { ...next, scan };
+    });
+  }
   /** Why the last turn of a block did not happen, until it is dismissed or a turn succeeds. See `handleTurnBlock`. */
   const [turnNotice, setTurnNotice] = useState<string | null>(null);
   const scanFileRef = useRef<HTMLInputElement>(null);
@@ -1323,14 +1348,12 @@ export function SketchEditor({
     setTool("select");
 
     const roomId = result.room.id;
-    const closetDoorIds = result.closetDoorIds;
-    const closetCount = closetDoorIds.length;
+    const closetDoors = result.closetDoors;
+    const closetCount = closetDoors.length;
     // A capture's first note is already its lead — the count — so only the one-room file gets one
     // from here. By the file's shape, not by counting rooms in the result: see the doc above.
     const parts = result.kind === "capture" ? [...result.notes] : ["Room imported.", ...result.notes];
-    if (closetCount > 0) {
-      parts.push(closetCount === 1 ? "1 closet door tapped — add a closet behind it?" : `${closetCount} closet doors tapped — add a closet behind each?`);
-    }
+    if (closetCount > 0) parts.push(closetOfferText(closetCount));
     // One room with nothing to say about it needs no notice; a capture always has its count to say,
     // since which rooms came in and where is the news.
     if (result.kind === "room" && parts.length === 1) {
@@ -1345,24 +1368,12 @@ export function SketchEditor({
           ? {
               label: "Add closets",
               run: () => {
-                onChange((prev) => {
-                  // The room may have been deleted, or a door removed, since the notice went up;
-                  // whatever is still there gets its closet and the rest is quietly nothing. A door
-                  // that already has its closet — drawn by hand while the notice was up, or added
-                  // a moment ago by an earlier door in this same batch — is skipped rather than
-                  // doubled. The batch case is real: two closet doors tapped on one chamfer both
-                  // want the same corner, since the corner has one shape whatever the door's
-                  // position, so each door is checked against the closets added before it.
-                  const room = prev.rooms.find((r) => r.id === roomId);
-                  if (!room) return prev;
-                  const closets: SketchRoom[] = [];
-                  for (const doorId of closetDoorIds) {
-                    if (closetExistsBehind([...prev.rooms, ...closets], room, doorId)) continue;
-                    const closet = closetBehindDoor(room, doorId);
-                    if (closet) closets.push(closet);
-                  }
-                  return closets.length === 0 ? prev : { ...prev, rooms: withDerivedParents([...prev.rooms, ...closets]) };
-                });
+                // The room may have been deleted, or a door removed, since the notice went up;
+                // whatever is still there gets its closet and the rest is quietly nothing. A door
+                // that already has its closet — drawn by hand while the notice was up, or added a
+                // moment ago by an earlier door in this same batch — is skipped rather than doubled
+                // (`withClosetsBehind`).
+                onChange((prev) => withClosetsBehind(prev, closetDoors));
                 // The imported room, not a closet: with several closets there is no one to pick,
                 // and the room is where the PM was looking.
                 setSelectedRoomId(roomId);
@@ -2186,6 +2197,17 @@ export function SketchEditor({
           </button>
         </div>
       )}
+      {!importNotice && owedClosets.length > 0 && (
+        <div className="sketch-undo" role="status">
+          <span>{closetOfferText(owedClosets.length)}</span>
+          <button type="button" className="btn-secondary" onClick={() => answerClosetOffer(true)}>
+            Add closets
+          </button>
+          <button type="button" className="btn-secondary" onClick={() => answerClosetOffer(false)}>
+            No
+          </button>
+        </div>
+      )}
 
       {/* The hint follows the MODE first: the sketching instructions describe gestures that are
           switched off while mapping, so leaving them up told the PM to do impossible things. */}
@@ -2452,6 +2474,42 @@ export function SketchEditor({
 
       {mode === "sketch" && selectedRoom && (
         <div className="sketch-panel">
+          {/*
+            WHAT IS SELECTED COMES FIRST (2026-10-03). A door, window, cabinet or island is selected inside its room, and
+            its panel used to come after the room's name, sub-room and ceiling - on a phone, below the half of the sheet
+            that shows: "when I exported to scrivn and edited i couldn't see where to toggle it to a double door". The
+            room's fields follow under their own heading, for whoever wants them.
+          */}
+          {selectedSymbol ? (
+            <>
+              <h3 className="sketch-panel-title">{SYMBOL_LABEL[selectedSymbol.type]}</h3>
+              <SymbolPanel
+                room={selectedRoom}
+                symbol={selectedSymbol}
+                onChange={(next) => updateSymbol(selectedRoom.id, next.id, () => next)}
+                onDelete={() => {
+                  updateRoom(selectedRoom.id, (room) => ({ ...room, symbols: room.symbols.filter((s) => s.id !== selectedSymbol.id) }));
+                  setSelectedSymbolId(null);
+                }}
+                onAddCloset={selectedSymbol.type === "door" ? () => handleAddCloset(selectedRoom.id, selectedSymbol.id) : undefined}
+              />
+              <h3 className="sketch-panel-title">Room</h3>
+            </>
+          ) : selectedIsland ? (
+            <>
+              <h3 className="sketch-panel-title">Island</h3>
+              <FreeCabinetPanel
+                room={selectedRoom}
+                cabinet={selectedIsland}
+                onChange={(next) => updateIsland(selectedRoom.id, next.id, () => next)}
+                onDelete={() => {
+                  updateRoom(selectedRoom.id, (room) => ({ ...room, freeCabinets: room.freeCabinets.filter((c) => c.id !== selectedIsland.id) }));
+                  setSelectedSymbolId(null);
+                }}
+              />
+              <h3 className="sketch-panel-title">Room</h3>
+            </>
+          ) : null}
           <div className="question">
             <label className="prompt" htmlFor="sketch-room-name">
               Room name
@@ -2673,34 +2731,7 @@ export function SketchEditor({
           )}
 
 
-          {selectedSymbol ? (
-            <>
-              <h3 className="sketch-panel-title">{SYMBOL_LABEL[selectedSymbol.type]}</h3>
-              <SymbolPanel
-                room={selectedRoom}
-                symbol={selectedSymbol}
-                onChange={(next) => updateSymbol(selectedRoom.id, next.id, () => next)}
-                onDelete={() => {
-                  updateRoom(selectedRoom.id, (room) => ({ ...room, symbols: room.symbols.filter((s) => s.id !== selectedSymbol.id) }));
-                  setSelectedSymbolId(null);
-                }}
-                onAddCloset={selectedSymbol.type === "door" ? () => handleAddCloset(selectedRoom.id, selectedSymbol.id) : undefined}
-              />
-            </>
-          ) : selectedIsland ? (
-            <>
-              <h3 className="sketch-panel-title">Island</h3>
-              <FreeCabinetPanel
-                room={selectedRoom}
-                cabinet={selectedIsland}
-                onChange={(next) => updateIsland(selectedRoom.id, next.id, () => next)}
-                onDelete={() => {
-                  updateRoom(selectedRoom.id, (room) => ({ ...room, freeCabinets: room.freeCabinets.filter((c) => c.id !== selectedIsland.id) }));
-                  setSelectedSymbolId(null);
-                }}
-              />
-            </>
-          ) : (
+          {!selectedSymbol && !selectedIsland && (
             <>
               {/*
                 Offered only when there is something to square, with the count in the label: a

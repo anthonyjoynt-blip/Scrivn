@@ -74,6 +74,9 @@ const basementTaps = readFileSync(join(here, "fixtures", "scan-taps-basement.jso
 // outline already carries them and the importer reads none of it. The taps say which room they
 // belong to and the epochs are capture-wide; both are ignored too.
 const captureTaps = readFileSync(join(here, "fixtures", "scan-taps-capture.json"), "utf8");
+// The phone's own file of 2026-10-03 11:21 (room_20261003_112131), as it sent it: an 11' room with a 5'0" closet door
+// (a double bifold), a 3'10" window and a 2'11" door - "it would end up being a 5' double bifold in this one".
+const closetTaps = readFileSync(join(here, "fixtures", "scan-taps-closet-1003.json"), "utf8");
 
 export async function runScanImportChecks() {
   const { scan, sketch } = await load();
@@ -361,8 +364,8 @@ export async function runScanImportChecks() {
     assert(room.symbols.length === 1, `only the door should be imported, got ${room.symbols.length} symbols`);
     assert(notes.some((n) => /\d unclassified gaps? left as wall/.test(n)), `expected a note about the hidden gaps, got ${JSON.stringify(notes)}`);
     // A lap scan never writes "closet_door", so there is nothing to offer a closet behind.
-    const { closetDoorIds, extraRooms } = imported();
-    assert(Array.isArray(closetDoorIds) && closetDoorIds.length === 0, `a lap scan has no closet doors, got ${JSON.stringify(closetDoorIds)}`);
+    const { closetDoors, extraRooms } = imported();
+    assert(Array.isArray(closetDoors) && closetDoors.length === 0, `a lap scan has no closet doors, got ${JSON.stringify(closetDoors)}`);
     // Nor stairs, so nothing comes in beside the room.
     assert(Array.isArray(extraRooms) && extraRooms.length === 0, `a lap scan brings no extra rooms, got ${extraRooms.length}`);
   });
@@ -608,7 +611,7 @@ export async function runScanImportChecks() {
     assert(result.notes.some((n) => /2 openings named a wall the outline does not have; skipped/.test(n)), `expected a note about the stray openings, got ${JSON.stringify(result.notes)}`);
   });
 
-  test("tapped kinds: closet_door is a swing door, opening is cased, a window without heights takes the defaults", () => {
+  test("tapped kinds: closet_door is a bifold door, opening is cased, a window without heights takes the defaults", () => {
     const fixture = JSON.parse(officeTaps);
     fixture.outline_openings = [
       { edge: 0, from_m: 0.1, width_m: 0.762, kind: "closet_door", sill_m: null, head_m: null },
@@ -620,12 +623,13 @@ export async function runScanImportChecks() {
     assert(result.ok, "import failed");
     const byEdge = (i) => result.room.symbols.filter((s) => sketch.wallById(result.room, s.wallId).index === i);
     const closet = byEdge(0);
-    assert(closet.length === 1 && closet[0].type === "door" && closet[0].doorType === "swing", "closet_door should be a swing door on the closet face");
+    assert(closet.length === 1 && closet[0].type === "door" && closet[0].doorType === "bifold", "closet_door should be a bifold door on the closet face");
     near(closet[0].widthFeet, 2.5, "closet door 2'6\"", 1e-9);
-    // The symbol is an ordinary door; the result still says which one was the closet door.
+    assert(closet[0].leaves === "single", `a 2'6" closet door is a single, got ${closet[0].leaves}`);
+    // The symbol is an ordinary door; the result still says which one was the closet door, and in which room.
     assert(
-      result.closetDoorIds.length === 1 && result.closetDoorIds[0] === closet[0].id,
-      `closetDoorIds should name the closet door alone, got ${JSON.stringify(result.closetDoorIds)}`,
+      result.closetDoors.length === 1 && result.closetDoors[0].doorId === closet[0].id && result.closetDoors[0].roomId === result.room.id,
+      `closetDoors should name the closet door alone, got ${JSON.stringify(result.closetDoors)}`,
     );
     const cased = byEdge(4);
     assert(cased.length === 1 && cased[0].type === "door" && cased[0].doorType === "opening", "opening should be a cased opening on the right wall");
@@ -634,6 +638,31 @@ export async function runScanImportChecks() {
     assert(win[0].sillFeet === 3 && win[0].heightFeet === 4, `a window with only a sill takes the defaults, got sill ${win[0].sillFeet} height ${win[0].heightFeet}`);
     assert(result.room.symbols.length === 3, `expected 3 symbols, got ${result.room.symbols.length}`);
     assert(result.notes.some((n) => /1 unclassified gap left as wall/.test(n)), `expected the unclassified note, got ${JSON.stringify(result.notes)}`);
+  });
+
+  test("a door 3'6\" or wider comes in a double; a closet door a bifold either way", () => {
+    // The 11:21 room as the phone sent it: the 5'0" closet door was a single swing door before 2026-10-03.
+    const result = scan.importScanRoom(closetTaps, { x: 0, y: 0 }, 0);
+    assert(result.ok, `import failed: ${result.ok ? "" : result.error}`);
+    const doors = result.room.symbols.filter((s) => s.type === "door");
+    const closet = doors.find((s) => s.widthFeet === 5);
+    const door = doors.find((s) => s.widthFeet < 3);
+    assert(closet !== undefined && closet.doorType === "bifold" && closet.leaves === "double", `the 5'0" closet door is a double bifold, got ${closet?.leaves} ${closet?.doorType}`);
+    assert(door !== undefined && door.doorType === "swing" && door.leaves === "single", `the 2'11" door is a single swing door, got ${door?.leaves} ${door?.doorType}`);
+    assert(JSON.stringify(result.closetDoors) === JSON.stringify([{ roomId: result.room.id, doorId: closet.id }]), `the closet door is offered, got ${JSON.stringify(result.closetDoors)}`);
+    // Either side of the line, a door tapped with the Door chip, and an opening, which has no leaf to double.
+    const fixture = JSON.parse(officeTaps);
+    fixture.outline_openings = [
+      { edge: 4, from_m: 0.2, width_m: 1.22, kind: "door", sill_m: null, head_m: null },
+      { edge: 4, from_m: 2.0, width_m: 1.0, kind: "door", sill_m: null, head_m: null },
+      { edge: 6, from_m: 0.5, width_m: 1.8, kind: "opening", sill_m: null, head_m: null },
+    ];
+    const wide = scan.importScanRoom(JSON.stringify(fixture), { x: 0, y: 0 }, 0);
+    assert(wide.ok, "import failed");
+    const byWidth = (feet) => wide.room.symbols.find((s) => Math.abs(s.widthFeet - feet) < 0.05);
+    assert(byWidth(4)?.doorType === "swing" && byWidth(4)?.leaves === "double", `a 4'0" door is a double swing door, got ${byWidth(4)?.leaves} ${byWidth(4)?.doorType}`);
+    assert(byWidth(3 + 3 / 12)?.leaves === "single", `a 3'3" door is a single, got ${byWidth(3 + 3 / 12)?.leaves}`);
+    assert(byWidth(5 + 11 / 12)?.doorType === "opening", `a 5'11" opening is still an opening, got ${byWidth(5 + 11 / 12)?.doorType}`);
   });
 
   test("a tapped outline written the wrong way round still puts each opening on its own edge", () => {
@@ -1139,10 +1168,10 @@ export async function runScanImportChecks() {
     near(cabinets[0].t, (0.3 + 0.45) / 2.4, "vanity 0.75 m down a 2.4 m wall", 0.01);
     assert(bath.symbols.length === 1, `only the vanity in the bathroom, got ${bath.symbols.map((s) => s.type)}`);
     // No closet doors were tapped, so none are offered.
-    assert(result.closetDoorIds.length === 0, `no closet doors, got ${JSON.stringify(result.closetDoorIds)}`);
+    assert(result.closetDoors.length === 0, `no closet doors, got ${JSON.stringify(result.closetDoors)}`);
   });
 
-  test("a capture's per-room notes are named by room; closet doors are offered for the first room alone", () => {
+  test("a capture's per-room notes are named by room; closet doors are offered in every room", () => {
     const fixture = JSON.parse(captureTaps);
     // The phone's own sentence on room 3, a stray cabinet on room 2, a closet door in rooms 1 and 3.
     fixture.rooms[2].outline_notes = ["Cabinet 2 sits 1.1 m (3'7\") off every wall – unplaced"];
@@ -1155,13 +1184,16 @@ export async function runScanImportChecks() {
     assert(result.notes.includes("Room 2: 1 cabinet named a wall the outline does not have; skipped."), `expected the hall's stray cabinet named by room, got ${JSON.stringify(result.notes)}`);
     assert(result.notes.includes("Room 3: Cabinet 2 sits 1.1 m (3'7\") off every wall – unplaced"), `expected the phone's sentence named by room, got ${JSON.stringify(result.notes)}`);
     assert(result.notes.indexOf("Room 2: 1 cabinet named a wall the outline does not have; skipped.") < result.notes.indexOf("Room 3: Cabinet 2 sits 1.1 m (3'7\") off every wall – unplaced"), "rooms first, then the file's faults");
-    // The closet door in the first room is offered; the one in the third comes in as a swing door,
-    // unoffered — the result's shape names one room's doors.
+    // Both closet doors are offered, each with its room - until 2026-10-03 the third room's came in unoffered.
     const [family, , bath] = captureRooms(result);
     const familyCloset = family.symbols.find((s) => s.type === "door" && s.widthFeet === 2.5);
-    assert(familyCloset !== undefined && result.closetDoorIds.length === 1 && result.closetDoorIds[0] === familyCloset.id, `the first room's closet door is offered, got ${JSON.stringify(result.closetDoorIds)}`);
     const bathCloset = bath.symbols.find((s) => s.type === "door");
-    assert(bathCloset !== undefined && bathCloset.doorType === "swing", "the bathroom's closet door is a swing door on its wall");
+    assert(familyCloset !== undefined && bathCloset !== undefined, "a closet door on the family room and on the bathroom");
+    assert(
+      JSON.stringify(result.closetDoors) === JSON.stringify([{ roomId: family.id, doorId: familyCloset.id }, { roomId: bath.id, doorId: bathCloset.id }]),
+      `both rooms' closet doors are offered, got ${JSON.stringify(result.closetDoors)}`,
+    );
+    assert(bathCloset.doorType === "bifold", "the bathroom's closet door is a bifold door on its wall");
     // A room without a name is named by its number, the same in the note and on the sketch.
     const unnamed = JSON.parse(captureTaps);
     delete unnamed.rooms[2].name;

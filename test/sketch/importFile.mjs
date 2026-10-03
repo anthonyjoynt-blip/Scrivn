@@ -84,4 +84,4 @@ for (const room of rooms) {
 }
 console.log("");
 for (const n of result.notes) console.log("  note:", n);
-if (result.closetDoorIds.length > 0) console.log(`  ${result.closetDoorIds.length} closet door(s) offered on ${nameOf(result.room)}`);
+if (result.closetDoors.length > 0) console.log(`  ${result.closetDoors.length} closet door(s) offered`);

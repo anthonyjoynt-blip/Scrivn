@@ -322,12 +322,14 @@ export async function runClosetChecks() {
     fixture.outline_openings.push({ edge: 0, from_m: 0.1, width_m: 0.762, kind: "closet_door", sill_m: null, head_m: null });
     const result = scan.importScanRoom(JSON.stringify(fixture), { x: 60, y: 60 }, 1);
     assert(result.ok, `import failed: ${result.ok ? "" : result.error}`);
-    const { room: imported, closetDoorIds } = result;
+    const { room: imported } = result;
+    const closetDoorIds = result.closetDoors.map((d) => d.doorId);
+    assert(result.closetDoors.every((d) => d.roomId === imported.id), "each closet door is named with its room");
     const closetDoors = imported.symbols.filter((s) => closetDoorIds.includes(s.id));
     assert(closetDoorIds.length === 2 && closetDoors.length === 2, `expected both closet doors' ids, got ${JSON.stringify(closetDoorIds)}`);
     const edges = closetDoorIds.map((id) => sketch.wallById(imported, imported.symbols.find((s) => s.id === id).wallId).index);
     assert(edges[0] === 0 && edges[1] === 5, `ids should be in wall order (0 then 5), got walls ${edges}`);
-    assert(closetDoors.every((s) => s.type === "door" && s.doorType === "swing"), "a closet door is still an ordinary swing door on the sketch");
+    assert(closetDoors.every((s) => s.type === "door" && s.doorType === "bifold"), "a closet door is an ordinary bifold door on the sketch");
     // The ordinary door and the window are not closet doors.
     assert(imported.symbols.length === 4, `expected 4 symbols, got ${imported.symbols.length}`);
     assert(!closetDoorIds.includes(imported.symbols.find((s) => s.type === "window").id), "the window is not a closet door");
@@ -344,9 +346,9 @@ export async function runClosetChecks() {
 
   test("a scan with no closet door tapped reports none — tapped or lapped", () => {
     const taps = scan.importScanRoom(officeTaps, { x: 0, y: 0 }, 0);
-    assert(taps.ok && Array.isArray(taps.closetDoorIds) && taps.closetDoorIds.length === 0, `expected [], got ${JSON.stringify(taps.ok && taps.closetDoorIds)}`);
+    assert(taps.ok && Array.isArray(taps.closetDoors) && taps.closetDoors.length === 0, `expected [], got ${JSON.stringify(taps.ok && taps.closetDoors)}`);
     const lap = scan.importScanRoom(office, { x: 0, y: 0 }, 0);
-    assert(lap.ok && Array.isArray(lap.closetDoorIds) && lap.closetDoorIds.length === 0, `expected [], got ${JSON.stringify(lap.ok && lap.closetDoorIds)}`);
+    assert(lap.ok && Array.isArray(lap.closetDoors) && lap.closetDoors.length === 0, `expected [], got ${JSON.stringify(lap.ok && lap.closetDoors)}`);
   });
 
   /* ── the corner behind a chamfer ────────────────────────────────────────────────────────────── */

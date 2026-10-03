@@ -66,11 +66,10 @@
  * on that room's wall. One tapped from both sides comes in twice, once on each room's wall, and
  * nothing here folds the pair: two taps a wall's thickness apart in two rooms' outlines are two
  * symbols to this importer, and guessing which to keep is worse than the PM deleting one. The
- * guidance exists so they do not have to. Closet doors are offered for the first room only, because
- * the editor's offer is built from one room's id and the result names one room's doors whichever
- * shape it came from; a closet door tapped in the third room comes in as the swing door it is,
- * unoffered. The result does say which shape it came from (`kind`), because the notice the editor
- * shows leads differently for the two — see `ScanImportResult`.
+ * guidance exists so they do not have to. Closet doors are offered in every room — the result names
+ * each with its room (`closetDoors`) — where until 2026-10-03 only the first room's were. The result
+ * does say which shape it came from (`kind`), because the notice the editor shows leads differently
+ * for the two — see `ScanImportResult`.
  *
  * The scanner speaks metres in its own room-aligned frame (U along one pair of walls, V along the
  * other); the sketch is world pixels at `PIXELS_PER_FOOT`, y down, clockwise. The room's own
@@ -162,6 +161,7 @@ import {
   dropDuplicateSharedOpenings,
   type CabinetSymbol,
   type CabinetTier,
+  type ClosetDoorRef,
   type DoorSymbol,
   type SketchRoom,
   type SketchSymbol,
@@ -190,6 +190,14 @@ import {
 
 const FEET_PER_METRE = 1 / 0.3048;
 const PX_PER_METRE = PIXELS_PER_FOOT * FEET_PER_METRE;
+
+/**
+ * A door the phone measured at least this wide comes in as a double (2026-10-03): "we should maybe default to a
+ * double if its over 4' or so" — the 5'0" closet of that walk was a double bifold, and came in a single swing door.
+ * Set under 4' so a 4' pair still comes in as one when its jamb taps read an inch or two short; a single door is 3'
+ * or under, and reads well clear of it. The PM's Single / Double in the door's panel decides after that.
+ */
+export const DOUBLE_DOOR_MIN_FEET = 3.5;
 
 /**
  * How near a side of a tapped flight has to come to one of the room's walls to be put flush on it,
@@ -414,13 +422,13 @@ export type ScanImportResult =
       extraRooms: SketchRoom[];
       notes: string[];
       /**
-       * The doors that were tapped as "closet_door", in wall order. They come in as ordinary swing
-       * doors on the room's wall — the sketch has no closet-door type and needs none — but the
-       * editor offers to draw the closet behind each one (`closetBehindDoor`), and once the symbol
-       * is built nothing else says which doors those were. Empty for a lap scan, which never
-       * writes the kind. For a capture these are the FIRST room's alone — see the header.
+       * The doors that were tapped as "closet_door", each with its room: room by room, and in wall
+       * order within one. They come in as bifold doors on the room's wall, a pair when wide
+       * (`DOUBLE_DOOR_MIN_FEET`) — the sketch has no closet-door type and needs none — but the editor offers to draw the closet
+       * behind each one (`withClosetsBehind`), and once the symbol is built nothing else says which
+       * doors those were. Empty for a lap scan, which never writes the kind.
        */
-      closetDoorIds: string[];
+      closetDoors: ClosetDoorRef[];
       /**
        * The metre point that landed at `at`: the top-left of the rooms' union for a capture, the
        * room's own top-left for a one-room file. Whatever else was measured in the file's frame -
@@ -783,11 +791,12 @@ export function parseScan(input: unknown): ParsedScan {
  *
  * "door" is a floor-to-header gap of door width; "opening" is a wider one — a cased opening or a
  * missing wall. "window" (the analysis script writes it with a question mark, honestly) is a gap
- * with wall still below it. Tapping adds "closet_door", which the sketch draws as the swing door
- * it is — the closet itself is the notch in the outline, not the door. It is kept distinct here
- * rather than folded into "door" because the editor offers to draw a closet behind each one, and
- * the symbol itself cannot say which doors those were. Everything else — hidden behind furniture,
- * a corner the scan never reached, a recess — is not an opening and is not imported.
+ * with wall still below it. Tapping adds "closet_door", which comes in as a bifold door — the
+ * closet itself is the notch in the outline, or the room the editor offers to draw behind it, never
+ * the door. It is kept distinct here rather than folded into "door" because the editor offers to
+ * draw a closet behind each one, and the symbol itself cannot say which doors those were.
+ * Everything else — hidden behind furniture, a corner the scan never reached, a recess — is not an
+ * opening and is not imported.
  */
 function openingKind(kind: string): "door" | "closet_door" | "opening" | "window" | null {
   const k = kind.toLowerCase();
@@ -1072,8 +1081,9 @@ export function scanToSketchRoom(scan: ScanRoom, at: { x: number; y: number }, l
         : {
             ...base,
             type: "door",
-            doorType: kind === "opening" ? "opening" : "swing",
-            leaves: "single",
+            // A closet door comes in as a bifold, the commonest closet door; any door wide enough is a pair.
+            doorType: kind === "opening" ? "opening" : kind === "closet_door" ? "bifold" : "swing",
+            leaves: kind !== "opening" && widthFeet >= DOUBLE_DOOR_MIN_FEET ? "double" : "single",
             heightFeet: DEFAULT_DOOR_HEIGHT_FEET,
             flipX: false,
             flipY: false,
@@ -1342,13 +1352,13 @@ export function scanToSketchRoom(scan: ScanRoom, at: { x: number; y: number }, l
   // In wall order — round the ring, then along each wall — rather than the order they were tapped
   // in, so the closets the editor offers to draw come out in the order a PM walks the room.
   const wallIndex = new Map(walls.map((w) => [w.id, w.index]));
-  const closetDoorIds = symbols
+  const closetDoorRefs = symbols
     .filter((s) => closetDoors.has(s.id))
     .sort((a, b) => (wallIndex.get(a.wallId) ?? 0) - (wallIndex.get(b.wallId) ?? 0) || a.t - b.t)
-    .map((s) => s.id);
+    .map((s) => ({ roomId: room.id, doorId: s.id }));
 
   // One room built is a one-room result; the capture importer says otherwise for its own.
-  return { ok: true, kind: "room", room: { ...room, symbols }, extraRooms, notes, closetDoorIds };
+  return { ok: true, kind: "room", room: { ...room, symbols }, extraRooms, notes, closetDoors: closetDoorRefs };
 }
 
 /**
@@ -1372,9 +1382,8 @@ export function measurementNote(scan: ScanRoom, room: SketchRoom): string | null
  * Several rooms, one frame — see the header. Every room's polygon is found first, because the
  * origin they are all built against is the top-left of the UNION of them: that is what lands at
  * `at`, so the whole capture drops where a single room would have, and each room keeps its place
- * relative to the others. The first room that builds is `room` — the one the editor selects and
- * the one whose closet doors are offered — and the rest are `extraRooms`, in capture order, ahead
- * of every flight of stairs from every room.
+ * relative to the others. The first room that builds is `room` — the one the editor selects — and
+ * the rest are `extraRooms`, in capture order, ahead of every flight of stairs from every room.
  *
  * A room that will not build (the phone wrote too few corners, or a ring that folds over itself)
  * is left out with a note, on the reasoning `parseScanCapture` gives for one it could not read,
@@ -1408,7 +1417,7 @@ function importScanCapture(capture: ScanCapture, fileNotes: string[], at: { x: n
   const rooms: SketchRoom[] = [];
   const flights: SketchRoom[] = [];
   const notes: string[] = [];
-  let closetDoorIds: string[] = [];
+  const closetDoors: ClosetDoorRef[] = [];
   drawable.forEach(({ scan }, position) => {
     const label = captureRoomName(scan.name, scan.index ?? position);
     // A room that arrived unnamed is named here as the note names it, so the two agree.
@@ -1417,7 +1426,7 @@ function importScanCapture(capture: ScanCapture, fileNotes: string[], at: { x: n
       leftOut.push(`${label}: ${built.error} Left out.`);
       return;
     }
-    if (rooms.length === 0) closetDoorIds = built.closetDoorIds;
+    closetDoors.push(...built.closetDoors);
     rooms.push(built.room);
     flights.push(...built.extraRooms);
     notes.push(...built.notes.map((n) => `${label}: ${n}`));
@@ -1439,13 +1448,15 @@ function importScanCapture(capture: ScanCapture, fileNotes: string[], at: { x: n
   if (room === undefined) {
     return { ok: false, error: `None of the ${capture.rooms.length} rooms in this capture could be drawn.` };
   }
+  // Every room's, as long as the door is still drawn after the doorways tapped from both sides were folded.
+  const drawn = new Set(deduped.flatMap((r) => r.symbols.map((s) => s.id)));
   return {
     ok: true,
     kind: "capture",
     room,
     extraRooms: [...deduped.slice(1), ...flights],
     notes: [`${rooms.length} room${rooms.length === 1 ? "" : "s"} imported, placed as tapped.`, ...notes, ...leftOut, ...fileNotes],
-    closetDoorIds,
+    closetDoors: closetDoors.filter((d) => drawn.has(d.doorId)),
     origin,
   };
 }

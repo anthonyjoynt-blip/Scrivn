@@ -38,7 +38,7 @@ const {
   SCAN_DROP, SCAN_LIMITS, scanTooBig, looksLikeDeviceToken, sketchFingerprint, isPhoneOwned, scanText, scanDropPoint, convertScan, scanDecision, adoptScan, sketchFromScan, namedRooms,
   PAIRING_ALPHABET, PAIRING_CODE_LENGTH, PAIRING_CODE_TTL_SECONDS,
   newPairingCode, formatPairingCode, normalisePairingCode, newDeviceToken, hashSecret, bearerToken, appUrl, pairingUrl, claimSketchUrl,
-  MAIN_LEVEL, roomsOnLevel, roomLevel, roomBounds, levelLabel,
+  MAIN_LEVEL, roomsOnLevel, roomLevel, roomBounds, levelLabel, closetsOwed, withClosetsBehind,
   emptyMoistureMap, importScanRoom,
 } = await import(pathToFileURL(bundlePath).href);
 
@@ -57,6 +57,8 @@ const short = (value) => JSON.stringify(value)?.slice(0, 160);
 const fixture = (name) => JSON.parse(readFileSync(join(root, "test", "sketch", "fixtures", name), "utf8"));
 const capture = fixture("scan-taps-capture.json");
 const office = fixture("scan-taps-office.json");
+// The 11:21 walk of 2026-10-03, one room with a 5'0" closet door, as the phone sent it.
+const closetRoom = fixture("scan-taps-closet-1003.json");
 
 /** A hand-drawn rectangle — the shape every room the editor makes starts as — with fixed ids so the checks can name its walls. */
 function handRoom(id, name, x, y, width, height, level, extra = {}) {
@@ -417,6 +419,30 @@ check(same(namedRooms([handRoom("n", "Room", 0, 0, 12, 12, 0), handRoom("m", "Ro
   }
   const plain = adoptScan({ rooms: [] }, pending(capture, 0));
   check(adoptedOk(plain) && plain.sketch.walks === undefined, "a scan with no walk leaves the sketch without one");
+}
+
+/* ── A closet door the phone tapped (2026-10-03) ─────────────────────────────────────────────────── */
+
+{
+  // Sent from the phone, a scan is applied here, on the claim page, and the editor's import notice with its "Add
+  // closets" never showed: "what does the closet door do anyways? There's no closet being added here". The offer now
+  // waits on the sketch until the PM answers it in the editor.
+  const adopted = adoptScan({ rooms: [] }, pending(closetRoom, 0));
+  check(adoptedOk(adopted), `the 11:21 room adopts (got ${short(adopted)})`);
+  if (adoptedOk(adopted)) {
+    const owed = adopted.sketch.scan?.closetDoors ?? [];
+    const door = adopted.sketch.rooms.flatMap((r) => r.symbols).find((s) => s.id === owed[0]?.doorId);
+    check(owed.length === 1 && door?.type === "door", `its closet door is owed the offer, on the sketch (got ${short(owed)})`);
+    check(door?.doorType === "bifold" && door?.leaves === "double", `the 5'0" closet door comes in a double bifold (got ${door?.leaves} ${door?.doorType})`);
+    check(isPhoneOwned(adopted.sketch), "the offer is no edit: the sketch is still the phone's");
+    check(same(closetsOwed(adopted.sketch, owed), owed), "nothing is drawn behind the door until the PM says so");
+    const added = withClosetsBehind(adopted.sketch, owed);
+    check(added.rooms.length === adopted.sketch.rooms.length + 1, `Add closets draws the one closet (got ${added.rooms.length - adopted.sketch.rooms.length})`);
+    check(closetsOwed(added, owed).length === 0 && withClosetsBehind(added, owed) === added, "and then owes nothing: pressed again, it draws nothing");
+    check(!isPhoneOwned(added), "the closet is an edit: the next scan of the storey asks");
+  }
+  const none = adoptScan({ rooms: [] }, pending(capture, 0));
+  check(adoptedOk(none) && none.sketch.scan?.closetDoors === undefined, "a scan with no closet door owes no offer");
 }
 
 /* ── The words on the notice ─────────────────────────────────────────────────────────────────────── */

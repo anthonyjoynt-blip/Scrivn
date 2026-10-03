@@ -1,0 +1,32 @@
+{
+  "format": "arcapture-room/1",
+  "source": "taps",
+  "width_m": 3.393,
+  "depth_m": 3.379,
+  "ceiling_m": 2.120,
+  "ceiling_type": "flat",
+  "ceiling_measured": true,
+  "outline": [[-1.466, -1.510], [1.928, -1.510], [1.928, 1.869], [-1.466, 1.869]],
+  "outline_tapped": [true, true, true, true],
+  "squared": true,
+  "outline_unsquared": [[-1.344, -1.310], [1.986, -1.710], [1.869, 1.884], [-1.587, 1.855]],
+  "outline_openings": [{"edge": 2, "from_m": 1.857, "width_m": 1.528, "kind": "closet_door", "sill_m": 0.885, "head_m": 0.968}, {"edge": 3, "from_m": 1.090, "width_m": 1.167, "kind": "window", "sill_m": 1.122, "head_m": 2.046}, {"edge": 1, "from_m": 0.032, "width_m": 0.885, "kind": "door", "sill_m": 0.963, "head_m": 1.003}],
+  "outline_notes": [],
+  "walls": [],
+  "cabinets": [],
+  "islands": [],
+  "stairs": [],
+  "stairs_snapped": [],
+  "taps": [
+    {"label": "corner", "which": "corner", "x": 0.609, "y": 1.775, "z": 0.220, "distance_m": 1.667, "estimated": false, "t_s": 2.13, "epoch": 0, "cam_x": -0.047, "cam_y": 0.254},
+    {"label": "corner", "which": "corner", "x": 2.396, "y": -1.063, "z": -0.112, "distance_m": 2.425, "floor_z": -0.410, "estimated": false, "t_s": 9.63, "epoch": 0, "cam_x": 0.101, "cam_y": -0.428},
+    {"label": "corner", "which": "corner", "x": -0.902, "y": -2.496, "z": -0.086, "distance_m": 1.971, "floor_z": -0.410, "estimated": false, "t_s": 13.03, "epoch": 0, "cam_x": -0.386, "cam_y": -0.637},
+    {"label": "corner", "which": "corner", "x": -2.356, "y": 0.641, "z": -0.169, "distance_m": 1.750, "floor_z": -1.210, "ceiling_read_m": 2.120, "estimated": false, "t_s": 30.69, "epoch": 0, "cam_x": -0.762, "cam_y": 0.055},
+    {"label": "closet_door", "which": "left", "x": -1.657, "y": -0.864, "z": -0.242, "distance_m": 1.143, "floor_z": -1.210, "estimated": false, "t_s": 38.15, "epoch": 0, "cam_x": -1.133, "cam_y": 0.056},
+    {"label": "closet_door", "which": "right", "x": -2.357, "y": 0.496, "z": -0.325, "distance_m": 1.267, "floor_z": -1.210, "estimated": false, "t_s": 40.65, "epoch": 0, "cam_x": -1.199, "cam_y": 0.365},
+    {"label": "window", "which": "left", "x": -1.337, "y": 1.003, "z": -0.088, "distance_m": 1.028, "floor_z": -1.210, "estimated": false, "t_s": 45.11, "epoch": 0, "cam_x": -0.677, "cam_y": 0.281},
+    {"label": "window", "which": "right", "x": -0.284, "y": 1.506, "z": 0.836, "distance_m": 1.284, "floor_z": -1.210, "estimated": false, "t_s": 47.41, "epoch": 0, "cam_x": -0.330, "cam_y": 0.280},
+    {"label": "door", "which": "left", "x": 2.116, "y": -1.015, "z": -0.207, "distance_m": 1.023, "floor_z": -1.210, "estimated": false, "t_s": 54.28, "epoch": 0, "cam_x": 1.175, "cam_y": -0.816},
+    {"label": "door", "which": "right", "x": 1.315, "y": -1.390, "z": -0.247, "distance_m": 0.947, "floor_z": -1.210, "estimated": false, "t_s": 57.07, "epoch": 0, "cam_x": 1.304, "cam_y": -0.504}
+  ]
+}
