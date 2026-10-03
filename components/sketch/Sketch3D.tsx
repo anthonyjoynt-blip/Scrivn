@@ -104,6 +104,11 @@ const SPOT_FOV_DEG = 72;
 const PANO_RADIUS_FEET = 40;
 /** Panoramas kept on the graphics card at once (32 MB each at 4096): the least lately seen go, and are stitched again on a return - a moment, the lining up being kept. */
 const MAX_PANOS = 4;
+/**
+ * How long a spot's first stitch is held back while its frames are lined up (2026-10-03): 20 s, then shown as it is
+ * and swapped in place when the lining up finishes. Lining up took 1.9-2.2 s on a desktop for the walk of 10-03.
+ */
+const ALIGN_WAIT_MS = 20_000;
 
 /** Where a spot's lined-up frames are kept on this device, so the lining up is done once. */
 const alignedKey = (scanId: string, spot: number) => `scrivn.pano.v1.${scanId}.${spot}`;
@@ -598,13 +603,20 @@ export default function Sketch3D({ sketch, onClose }: Props) {
       // ---- A spot's panorama (2026-10-02): its frames stitched into one picture round it -----------
       // Made once the spot's frames have all arrived: first straight from the sensor's turns (a moment),
       // then again once the frames are lined up against each other (a few seconds, once per device).
-      // Until then, and on a card that cannot do it, the frames hang as pictures as they always did.
+      // SHOWN ONLY ONCE LINED UP (2026-10-03): "the 360 also does not look good. a lot of deformation and
+      // fragmentation" (the owner). The first stitch, as the sensor turned the frames, is off by 2.8-4.2
+      // degrees on the walk of 10-03 (0.8 once lined up): door casings bent where one ring hands over to the
+      // next, and edges doubled. On a phone the lining up takes longer, and that is what stood on the screen
+      // meanwhile. Now the model stands plain under "stitching its photos together…" until the lined-up stitch
+      // is ready - or [ALIGN_WAIT_MS] has gone by, or it cannot be lined up, when the first stitch shows and is
+      // swapped in place should the lining up still finish. On a card that cannot stitch, or a stitch that
+      // failed, the frames hang as pictures as they always did.
       const baker = PanoBaker.supported(renderer) ? new PanoBaker(THREE, renderer) : null;
       const panoWidth = Math.min(renderer.capabilities.maxTextureSize, window.matchMedia?.("(pointer: coarse)").matches ? 3072 : 4096);
       const panoGeometry = new THREE.SphereGeometry(PANO_RADIUS_FEET, 96, 48);
       geometries.push(panoGeometry);
       type Pano = {
-        state: "baking" | "ready" | "failed";
+        state: "baking" | "aligning" | "ready" | "failed";
         mesh: import("three").Mesh<import("three").SphereGeometry, import("three").ShaderMaterial> | null;
         texture: import("three").Texture | null;
         dist: DistanceMap | null;
@@ -626,7 +638,7 @@ export default function Sketch3D({ sketch, onClose }: Props) {
       /** Lets the least lately seen panoramas go, past [MAX_PANOS], never one in [keep]. */
       const trimPanos = (keep: Set<string>) => {
         if (panos.size <= MAX_PANOS) return;
-        const byAge = [...panos.entries()].filter(([k, p]) => !keep.has(k) && p.state !== "baking").sort((a, b) => a[1].usedAt - b[1].usedAt);
+        const byAge = [...panos.entries()].filter(([k, p]) => !keep.has(k) && p.state !== "baking" && p.state !== "aligning").sort((a, b) => a[1].usedAt - b[1].usedAt);
         for (const [k] of byAge.slice(0, panos.size - MAX_PANOS)) dropPano(k);
       };
       /** The model a spot's panorama is laid through: what stands on its storey. */
@@ -640,6 +652,8 @@ export default function Sketch3D({ sketch, onClose }: Props) {
           camera: f.camera,
         }));
       const panoReady = (v: Viewpoint | null | undefined) => !!v?.frames && panos.get(keyOf(v.key))?.state === "ready";
+      /** A spot whose panorama is still to come (its frames loading, its stitch baking or lining up): the model stands plain, no pictures hung. */
+      const panoPending = (v: Viewpoint | null | undefined) => !!v?.frames && !!baker && !panoReady(v) && panos.get(keyOf(v.key))?.state !== "failed";
       const ensurePano = (v: Viewpoint | null | undefined) => {
         if (!baker || !v?.frames) return;
         const key = keyOf(v.key);
@@ -677,26 +691,49 @@ export default function Sketch3D({ sketch, onClose }: Props) {
             scene.add(mesh);
             pano.mesh = mesh;
             pano.texture = texture;
-            pano.state = "ready";
+            // Lined up before on this device: shown now. Else held back until it is (2026-10-03, the doc above).
+            pano.state = kept ? "ready" : "aligning";
             trimPanos(new Set([key, ...(current ? [keyOf(current.key)] : []), ...(transition?.target ? [keyOf(transition.target.key)] : [])]));
             console.info(`[walk] spot ${spot}: stitched ${frames0.length} frames ${kept ? "(lined up before)" : "(as the sensor turned them)"} in ${Math.round(performance.now() - started)} ms`);
             if (kept) return;
+            /** The first stitch shown after all: the lining up could not run, gave nothing, or is taking too long. */
+            const showAsItIs = (why: string) => {
+              if (pano.state !== "aligning") return;
+              pano.state = "ready";
+              console.info(`[walk] spot ${spot}: shown as the sensor turned its frames - ${why}`);
+            };
             // Then lined up against each other, and stitched again.
             const grays = tex.map((t, k) => grayOf(t.image as CanvasImageSource & { width: number; height: number }, (sensor[k] as PanoFrame).camera.width));
-            if (grays.some((g) => g == null)) return;
+            if (grays.some((g) => g == null)) {
+              showAsItIs("its pictures could not be read to line them up");
+              return;
+            }
             const t0 = performance.now();
-            void alignFrames(sensor, grays as NonNullable<(typeof grays)[number]>[], warpThrough(dist.distanceOf), { cancelled: () => disposed }).then((out) => {
-              const m = pano.mesh;
-              if (!out || disposed || pano.state !== "ready" || !m) return;
-              const lined = out.frames;
-              const next = baker.bake(lined, tex, dist, baker.gains(lined, tex, dist), panoWidth);
-              const old = pano.texture;
-              (m.material.uniforms.pano as { value: import("three").Texture | null }).value = next;
-              pano.texture = next;
-              if (old) PanoBaker.release(old);
-              saveAligned(v.scanId, spot, lined);
-              console.info(`[walk] spot ${spot}: lined up ${out.used} overlaps, ${out.before.toFixed(2)} -> ${out.after.toFixed(2)} degrees, in ${Math.round(performance.now() - t0)} ms`);
-            });
+            const waited = setTimeout(() => showAsItIs(`still lining up after ${ALIGN_WAIT_MS / 1000} s`), ALIGN_WAIT_MS);
+            void alignFrames(sensor, grays as NonNullable<(typeof grays)[number]>[], warpThrough(dist.distanceOf), { cancelled: () => disposed })
+              .then((out) => {
+                clearTimeout(waited);
+                const m = pano.mesh;
+                if (disposed || (pano.state !== "ready" && pano.state !== "aligning") || !m) return;
+                if (!out) {
+                  showAsItIs("nothing to line up by");
+                  return;
+                }
+                const lined = out.frames;
+                const next = baker.bake(lined, tex, dist, baker.gains(lined, tex, dist), panoWidth);
+                const old = pano.texture;
+                (m.material.uniforms.pano as { value: import("three").Texture | null }).value = next;
+                pano.texture = next;
+                if (old) PanoBaker.release(old);
+                pano.state = "ready";
+                saveAligned(v.scanId, spot, lined);
+                console.info(`[walk] spot ${spot}: lined up ${out.used} overlaps, ${out.before.toFixed(2)} -> ${out.after.toFixed(2)} degrees, in ${Math.round(performance.now() - t0)} ms`);
+              })
+              .catch((err) => {
+                clearTimeout(waited);
+                console.warn(`[walk] spot ${spot}: could not be lined up`, err);
+                showAsItIs("the lining up failed");
+              });
           } catch (err) {
             pano.state = "failed";
             console.warn(`[walk] spot ${spot}: could not be stitched; its frames hang as pictures`, err);
@@ -1024,6 +1061,11 @@ export default function Sketch3D({ sketch, onClose }: Props) {
         for (const [key, p] of panos) {
           const m = p.mesh;
           if (!m) continue;
+          // Not while its frames are being lined up (2026-10-03): the first stitch waits under the model.
+          if (p.state !== "ready") {
+            m.visible = false;
+            continue;
+          }
           let o = 0;
           let order = inPanos ? -10 : 50;
           if (hereV && key === keyOf(hereV.key)) o = 1;
@@ -1041,8 +1083,9 @@ export default function Sketch3D({ sketch, onClose }: Props) {
           setStitching(stitchingNow);
         }
         // The pictures: the ones where the view stands, crossfading to the next place's on a step - not a
-        // spot's, once its panorama shows them all.
-        const hung = (v: Viewpoint | null | undefined) => (v && !panoReady(v) ? picturesAt(v).map(pictureId) : []);
+        // spot's, once its panorama shows them all, nor while it is still to come (2026-10-03: the model plain
+        // under "stitching its photos together…", not the frames hung in pieces).
+        const hung = (v: Viewpoint | null | undefined) => (v && !panoReady(v) && !panoPending(v) ? picturesAt(v).map(pictureId) : []);
         const fromSet = new Set(hung(fromV));
         const toSet = new Set(hung(toV));
         const hereSet = new Set(hung(hereV));
