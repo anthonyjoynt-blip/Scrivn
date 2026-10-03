@@ -167,7 +167,7 @@ export async function runPanoramaChecks() {
       const j = (i + 1) % n;
       const L = 0.2 + r() * 0.5;
       const ch = [L, L * 0.9, L * 0.8];
-      overlaps.push({ i: Math.min(i, j), j: Math.max(i, j), n: 3000, a: ch.map((c) => c * exposure[Math.min(i, j)]), b: ch.map((c) => c * exposure[Math.max(i, j)]) });
+      overlaps.push({ i: Math.min(i, j), j: Math.max(i, j), n: 3000, log: ch.map((c) => Math.log((c * exposure[Math.min(i, j)]) / (c * exposure[Math.max(i, j)]))) });
     }
     const g = P.solveGains(n, overlaps);
     const seen = g.map((gk, k) => gk[0] * exposure[k]);
@@ -177,6 +177,43 @@ export async function runPanoramaChecks() {
     assert(spread < 0.06, `exposures still ${(spread * 100).toFixed(1)}% apart after the gains: ${seen.map((s) => s.toFixed(3)).join(" ")}`);
     const before = (Math.max(...exposure) - Math.min(...exposure)) / Math.min(...exposure);
     assert(before > 0.2, "the test starts uneven");
+  });
+
+  await test("solving the gains: a dim room is evened as well as a bright one", () => {
+    // The 07:21 walk's bedroom: a frame half again as bright as its neighbours, in a room a tenth as bright as the rec
+    // room. On ratios the dim room's overlaps say as much as the bright room's do.
+    for (const L of [0.5, 0.05]) {
+      const exposure = [1, 1, 1.5, 1, 1, 1];
+      const overlaps = [];
+      for (let i = 0; i < 6; i++) {
+        const j = (i + 1) % 6;
+        const [a, b] = [Math.min(i, j), Math.max(i, j)];
+        overlaps.push({ i: a, j: b, n: 3000, log: [0, 1, 2].map(() => Math.log((L * exposure[a]) / (L * exposure[b]))) });
+      }
+      const g = P.solveGains(6, overlaps);
+      const seen = g.map((gk, k) => gk[1] * exposure[k]);
+      const spread = (Math.max(...seen) - Math.min(...seen)) / Math.min(...seen);
+      assert(spread < 0.06, `a room at ${L}: exposures still ${(spread * 100).toFixed(1)}% apart after the gains`);
+    }
+  });
+
+  await test("solving the gains: the level ring keeps its colour, the floor ring is evened to it", () => {
+    // Frames 0-3 the level ring, a neutral grey; 4-7 the floor ring below, 10% bluer (the phone's white balance on
+    // the carpet). The floor ring's blue comes down; the level ring's stays where it was - evened the other way, its
+    // grey walls went lavender.
+    const n = 8;
+    const blue = [0, 0, 0, 0, 0.1, 0.1, 0.1, 0.1];
+    const overlaps = [];
+    const pair = (i, j) => overlaps.push({ i, j, n: 3000, log: [0, 0, blue[i] - blue[j]] });
+    for (let k = 0; k < 4; k++) {
+      pair(k, (k + 1) % 4);
+      pair(4 + k, 4 + ((k + 1) % 4));
+      pair(k, 4 + k);
+    }
+    const level = Array.from({ length: n }, (_, k) => k < 4);
+    const g = P.solveGains(n, overlaps, level.map((l) => (l ? 0.15 : 1)), level.map((l) => (l ? 0.01 : 0.3)));
+    for (let k = 0; k < 4; k++) assert(Math.abs(Math.log(g[k][2])) < 0.01, `level frame ${k}'s blue moved ${Math.log(g[k][2]).toFixed(3)}`);
+    for (let k = 4; k < 8; k++) assert(Math.abs(Math.log(g[k][2]) + 0.1) < 0.02, `floor frame ${k}'s blue came down ${(-Math.log(g[k][2])).toFixed(3)}, not 0.1`);
   });
 
   // A made-up room: soft spots of light and dark scattered over the sphere, so every overlap has edges to match.
@@ -235,6 +272,100 @@ export async function runPanoramaChecks() {
     const after = out.frames.map((f, k) => Math.max(angleDeg(f.forward, truth[k].forward), angleDeg(f.up, truth[k].up)));
     const worst = Math.max(...after);
     assert(worst < 0.35, `worst frame still ${worst.toFixed(2)} degrees off (it started ${before.toFixed(2)}); residual ${out.before.toFixed(2)} -> ${out.after.toFixed(2)}, ${out.used} overlaps`);
+  });
+
+  await test("the seam between two rings: the cheapest path, a row a column at most, round the join too", () => {
+    const w = 60;
+    const h = 20;
+    const cost = new Float32Array(w * h).fill(1);
+    for (let x = 0; x < w; x++) cost[(x < 30 ? 5 : 12) * w + x] = 0;
+    const rows = P.seamRows(cost, w, h, 1, 0.02);
+    const off = Array.from(rows).filter((r, x) => r !== (x < 30 ? 5 : 12)).length;
+    assert(off <= 16, `${off} columns off the cheap rows: ${Array.from(rows).join(" ")}`);
+    for (let x = 0; x < w; x++) assert(Math.abs(rows[x] - rows[(x + 1) % w]) <= 1, `the seam steps ${rows[x]} -> ${rows[(x + 1) % w]} at column ${x}`);
+  });
+
+  await test("the seam's cost: it hands no place to a ring without a frame there, and goes round what the two disagree on", () => {
+    const w = 40;
+    const h = 30;
+    // The level ring has frames from row 10 up, the floor ring (below the seam) up to row 19 - but between two of its
+    // frames, columns 15-24, only up to row 12: the notch the 07:21 walk's floor ring left by the dresser.
+    const level = new Float32Array(w * h);
+    const floor = new Float32Array(w * h);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        level[y * w + x] = y >= 10 ? 0 : Number.NaN;
+        floor[y * w + x] = y <= (x >= 15 && x < 25 ? 12 : 19) ? 0 : Number.NaN;
+      }
+    }
+    const rows = P.seamRows(P.seamCost(level, floor, w, h, -1), w, h, 1, 0.02);
+    for (let x = 17; x < 23; x++) assert(rows[x] >= 10 && rows[x] <= 13, `column ${x}: a seam at row ${rows[x]} hands the floor ring rows it has no frame over`);
+    for (const x of [0, 5, 35]) assert(rows[x] >= 10 && rows[x] <= 20, `column ${x}: a seam at row ${rows[x]} left the overlap`);
+    // Both rings everywhere from row 10 to 19, and from 13 up they disagree (a dresser seen 10 degrees apart): the seam
+    // stays below it, though the middle of the overlap is in it.
+    const a = new Float32Array(w * h);
+    const b = new Float32Array(w * h);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const both = y >= 10 && y <= 19;
+        a[y * w + x] = y >= 10 ? (both && y >= 13 ? 0.3 : 0) : Number.NaN;
+        b[y * w + x] = y <= 19 ? (both && y >= 13 ? -0.3 : 0) : Number.NaN;
+      }
+    }
+    const rows2 = P.seamRows(P.seamCost(a, b, w, h, -1), w, h, 1, 0.02);
+    assert(Array.from(rows2).every((r) => r >= 10 && r <= 12), `the seam crossed where the two disagree: ${Array.from(rows2).join(" ")}`);
+  });
+
+  const stored = (linear) => Math.round(255 * Math.pow(linear, 1 / 2.2));
+
+  await test("the light along a seam: how much brighter the level ring is there, read past a thing near", () => {
+    const w = 64;
+    const h = 32;
+    const a = new Uint8Array(w * h * 4);
+    const b = new Uint8Array(w * h * 4);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const p = (y * w + x) * 4;
+        // A wall the floor ring sees 20% darker; a dark dresser across the seam that it sees 6 rows higher.
+        const inA = x >= 20 && x < 28 && y >= 10 && y < 22;
+        const inB = x >= 20 && x < 28 && y >= 16 && y < 28;
+        for (let c = 0; c < 3; c++) {
+          a[p + c] = stored(inA ? 0.02 : 0.3);
+          b[p + c] = stored((inB ? 0.02 : 0.3) * 0.8);
+        }
+        a[p + 3] = 255;
+        b[p + 3] = 255;
+      }
+    }
+    const light = P.seamLight(a, b, w, h, new Int32Array(w).fill(16));
+    for (let x = 0; x < w; x++) near(light[x], Math.log(1 / 0.8), `column ${x}`, 0.03);
+    const none = P.seamLight(a, b.map((v, i) => (i % 4 === 3 ? 0 : v)), w, h, new Int32Array(w).fill(16));
+    assert(none.every((v) => v === 0), "nothing to compare: no evening at all");
+  });
+
+  await test("comparing an overlap: the ratio of what both frames see alike, a thing near not counted even in most of it; nothing but dark says nothing", () => {
+    const n = 3000;
+    const a = new Uint8Array(n * 4);
+    const b = new Uint8Array(n * 4);
+    for (let i = 0; i < n; i++) {
+      const near = i % 10 < 3;
+      for (let c = 0; c < 3; c++) {
+        a[i * 4 + c] = stored(near ? 0.05 : 0.4);
+        b[i * 4 + c] = stored(near ? 0.6 : 0.4 * 0.7);
+      }
+      a[i * 4 + 3] = 255;
+      b[i * 4 + 3] = 255;
+    }
+    const o = P.overlapLog(a, b);
+    assert(o, "an overlap that says something");
+    for (let c = 0; c < 3; c++) near(o.log[c], Math.log(1 / 0.7), `channel ${c}`, 0.03);
+    // Most of it the thing near (the floor-ring frame beside the 07:21 walk's dresser): still the wall's ratio.
+    const mostly = (arr, nearV, wallV) => arr.map((v, i) => (i % 4 === 3 ? v : (Math.floor(i / 4) % 10 < 7 ? stored(nearV) : stored(wallV))));
+    const o2 = P.overlapLog(mostly(a, 0.05, 0.4), mostly(b, 0.6, 0.4 * 0.7));
+    assert(o2, "an overlap mostly of a thing near still says something");
+    for (let c = 0; c < 3; c++) near(o2.log[c], Math.log(1 / 0.7), `channel ${c}, seven tenths of it a thing near`, 0.03);
+    const dark = P.overlapLog(a.map((v, i) => (i % 4 === 3 ? v : 8)), b.map((v, i) => (i % 4 === 3 ? v : 8)));
+    assert(dark === null, "a dark overlap said the two are alike");
   });
 
   await test("where walk mode goes: a storey's spots when it has any, its photos when it has none", () => {

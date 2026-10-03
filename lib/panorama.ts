@@ -23,7 +23,7 @@
  *   ([solveRotations]) - residual 2.9 -> 0.75 degree on spot 1.
  * - ONE EXPOSURE. The camera set its own exposure frame by frame; where two frames overlap their
  *   brightness is compared and one gain per frame and channel evens them out ([solveGains], Brown and
- *   Lowe's gain compensation).
+ *   Lowe's gain compensation, on ratios).
  *
  * UNITS are the model's: feet, x across the page, y up, z down the page (lib/sketch3d.ts). Directions
  * are unit vectors in the same frame. A frame's pixels are its picture's at full size (`camera`), x
@@ -518,45 +518,308 @@ export async function alignFrames(
   return { frames: current, before, after, used };
 }
 
-/** Two frames' mean colour where they overlap (linear, 0..1), over [n] samples. */
+/** Two frames where they overlap: how much brighter frame [i] is there than frame [j], per channel (a log), over [n] samples. */
 export interface Overlap {
   i: number;
   j: number;
   n: number;
-  a: [number, number, number];
-  b: [number, number, number];
+  log: [number, number, number];
 }
 
 /**
- * One gain per frame and channel that evens out the frames' exposures where they overlap (Brown and
- * Lowe): sum over overlaps of n ((g_i a - g_j b)^2 / sigmaN^2 + (1 - g)^2 / sigmaG^2), least squares.
+ * One gain per frame and channel that evens out the frames' exposures where they overlap (Brown and Lowe's gain
+ * compensation, on ratios): sum over overlaps of n ((x_i - x_j + log)^2 / sigmaN^2 + x_i^2 / sigma_i^2 + x_j^2 /
+ * sigma_j^2), least squares, x the log of a gain and log how much brighter frame i is than frame j there.
+ *
+ * On ratios, not on the brightness itself as Brown and Lowe have it (2026-10-03): weighed by its own brightness, a
+ * dim room's every difference was small beside the pull of each gain towards 1, and the 07:21 walk's bedroom kept a
+ * floor-ring frame half again as bright as the level ring above it. Solved twice: the brightness (the channels' logs
+ * weighed as the eye weighs them) with each frame pulled towards no change by [sigmaG], then each channel's own
+ * difference from it by [sigmaC] - one number, or one per frame. The colour is for holding hard where the camera's
+ * own is to be trusted (the level ring: evened halfway to the floor ring's carpet-lit frames, the bedroom's grey walls
+ * went lavender) and leaving free where it is not (the floor ring's frame under the bedroom window, bluer than the
+ * level ring above it).
  */
-export function solveGains(n: number, overlaps: Overlap[], sigmaN = 0.02, sigmaG = 0.3): [number, number, number][] {
+export function solveGains(n: number, overlaps: Overlap[], sigmaG: number | ArrayLike<number> = 0.3, sigmaC: number | ArrayLike<number> = 0.04, sigmaN = 0.04): [number, number, number][] {
+  const brightness = (o: Overlap) => 0.299 * o.log[0] + 0.587 * o.log[1] + 0.114 * o.log[2];
+  const x = solveLogGains(n, overlaps, brightness, sigmaN, sigmaG);
   const out: [number, number, number][] = Array.from({ length: n }, () => [1, 1, 1]);
   for (let ch = 0; ch < 3; ch++) {
-    const A = Array.from({ length: n }, () => new Float64Array(n));
-    const b = new Float64Array(n);
-    for (const o of overlaps) {
-      if (o.n <= 0) continue;
-      const Ii = o.a[ch] as number;
-      const Ij = o.b[ch] as number;
-      const ri = A[o.i] as Float64Array;
-      const rj = A[o.j] as Float64Array;
-      ri[o.i] = (ri[o.i] as number) + o.n * ((Ii * Ii) / (sigmaN * sigmaN) + 1 / (sigmaG * sigmaG));
-      ri[o.j] = (ri[o.j] as number) - (o.n * Ii * Ij) / (sigmaN * sigmaN);
-      b[o.i] = (b[o.i] as number) + o.n / (sigmaG * sigmaG);
-      rj[o.j] = (rj[o.j] as number) + o.n * ((Ij * Ij) / (sigmaN * sigmaN) + 1 / (sigmaG * sigmaG));
-      rj[o.i] = (rj[o.i] as number) - (o.n * Ij * Ii) / (sigmaN * sigmaN);
-      b[o.j] = (b[o.j] as number) + o.n / (sigmaG * sigmaG);
-    }
-    for (let k = 0; k < n; k++) {
-      if ((A[k] as Float64Array)[k] === 0) {
-        (A[k] as Float64Array)[k] = 1;
-        b[k] = 1;
-      }
-    }
-    const g = solveLinear(A, b);
-    for (let k = 0; k < n; k++) (out[k] as [number, number, number])[ch] = Math.max(0.5, Math.min(2, g[k] as number));
+    const c = solveLogGains(n, overlaps, (o) => (o.log[ch] as number) - brightness(o), sigmaN, sigmaC);
+    for (let k = 0; k < n; k++) (out[k] as [number, number, number])[ch] = Math.max(0.5, Math.min(2, Math.exp((x[k] as number) + (c[k] as number))));
   }
   return out;
+}
+
+/** The log gains [solveGains] solves for, one per frame, from each overlap's [value] (how much brighter i is than j, a log). */
+function solveLogGains(n: number, overlaps: Overlap[], value: (o: Overlap) => number, sigmaN: number, sigma: number | ArrayLike<number>): Float64Array {
+  const prior = (k: number) => {
+    const s = typeof sigma === "number" ? sigma : (sigma[k] as number);
+    return 1 / (s * s);
+  };
+  const A = Array.from({ length: n }, () => new Float64Array(n));
+  const b = new Float64Array(n);
+  for (const o of overlaps) {
+    if (o.n <= 0) continue;
+    const d = value(o);
+    const ri = A[o.i] as Float64Array;
+    const rj = A[o.j] as Float64Array;
+    ri[o.i] = (ri[o.i] as number) + o.n * (1 / (sigmaN * sigmaN) + prior(o.i));
+    ri[o.j] = (ri[o.j] as number) - o.n / (sigmaN * sigmaN);
+    b[o.i] = (b[o.i] as number) - (o.n * d) / (sigmaN * sigmaN);
+    rj[o.j] = (rj[o.j] as number) + o.n * (1 / (sigmaN * sigmaN) + prior(o.j));
+    rj[o.i] = (rj[o.i] as number) - o.n / (sigmaN * sigmaN);
+    b[o.j] = (b[o.j] as number) + (o.n * d) / (sigmaN * sigmaN);
+  }
+  for (let k = 0; k < n; k++) {
+    if ((A[k] as Float64Array)[k] === 0) {
+      (A[k] as Float64Array)[k] = 1;
+      b[k] = 0;
+    }
+  }
+  return solveLinear(A, b);
+}
+
+/**
+ * How much brighter one frame is than another where they overlap, per channel: the median of the log of their ratio
+ * over the samples both have ([a] and [b], RGBA, alpha 128 and up where a frame has it), stored as [gamma]. Where a
+ * thing near is a degree or more apart in the two - a dresser against a pale wall in one, the wall alone in the
+ * other - the two are not one thing in two lights: a sample differing by more than [agree] (a log) is left out, and
+ * the median takes care of the rest. The 07:21 walk's floor-ring frame beside the bedroom's dresser overlapped the
+ * level ring mostly across the dresser, and with every sample counted it came out a shade too light and green.
+ * Samples darker than [dark] (0-1, as stored) say little in eight bits and are left out too. Null when a channel has
+ * fewer than [minSamples] left: an overlap with nothing to say must not say the two are alike.
+ */
+export function overlapLog(a: Uint8Array, b: Uint8Array, gamma = 2.2, dark = 0.12, minSamples = 40, agree = 1.4): { n: number; log: [number, number, number] } | null {
+  const BINS = 400;
+  const SPAN = 2;
+  const hist = new Uint32Array(BINS * 3);
+  const lg = new Float64Array(256);
+  for (let v = 1; v < 256; v++) lg[v] = Math.log(v / 255);
+  const floor = Math.ceil(dark * 255);
+  let n = 0;
+  for (let p = 0; p < a.length; p += 4) {
+    if ((a[p + 3] as number) < 128 || (b[p + 3] as number) < 128) continue;
+    n++;
+    for (let c = 0; c < 3; c++) {
+      const va = a[p + c] as number;
+      const vb = b[p + c] as number;
+      if (va < floor || vb < floor) continue;
+      const v = gamma * ((lg[va] as number) - (lg[vb] as number));
+      if (Math.abs(v) > agree) continue;
+      const k = Math.max(0, Math.min(BINS - 1, Math.floor(((v + SPAN) / (2 * SPAN)) * BINS)));
+      hist[c * BINS + k] = (hist[c * BINS + k] as number) + 1;
+    }
+  }
+  if (n < minSamples) return null;
+  const log: [number, number, number] = [0, 0, 0];
+  let used = n;
+  for (let c = 0; c < 3; c++) {
+    let total = 0;
+    for (let k = 0; k < BINS; k++) total += hist[c * BINS + k] as number;
+    if (total < minSamples) return null;
+    used = Math.min(used, total);
+    let seen = 0;
+    for (let k = 0; k < BINS; k++) {
+      const h = hist[c * BINS + k] as number;
+      if (seen + h >= total / 2) {
+        // Within the bin, as far as the middle sample lies into it.
+        const into = h > 0 ? (total / 2 - seen) / h : 0.5;
+        log[c] = ((k + into) / BINS) * 2 * SPAN - SPAN;
+        break;
+      }
+      seen += h;
+    }
+  }
+  return { n: used, log };
+}
+
+// ---- Where one ring hands over to the next (2026-10-03) -----------------------------------------
+
+/** How [seamCost] weighs a place. */
+export interface SeamCostOptions {
+  /** A difference in texture between the two rings (0-1 grey) squared, times this, up to 1. */
+  gain: number;
+  /** Each row the seam hands to a ring with no frame well over it. */
+  uncovered: number;
+  /** Times the square of the seam's distance from [toward], as a fraction of the band. */
+  centre: number;
+  /** Where between the lowest (0) and highest (1) row both rings are, the seam is drawn to. */
+  toward: number;
+}
+
+export const SEAM_COST_DEFAULTS: SeamCostOptions = { gain: 8, uncovered: 0.2, centre: 0.3, toward: 0.5 };
+
+/**
+ * What each place costs the seam between the level ring and another, for [seamRows] (2026-10-03, "360 looks good
+ * other than some warping still. can see it on the dresser" - the owner). Each ring was taken from its own height -
+ * the phone drops about 10" for the floor ring - and the model the frames are laid through has no furniture, so
+ * anything near (a dresser a metre away) lands a degree or two apart in the two: wherever the seam crosses it, it
+ * crosses it with a step, so it should cross where the two agree. And everything below the seam is the lower ring's
+ * to draw and everything above it the upper ring's, so it should not hand a place to a ring with no frame there - the
+ * 07:21 walk's floor ring left a notch between two of its frames by the dresser, a seam above it handed the notch to
+ * the floor ring, and the notch was drawn as a blur.
+ *
+ * [level] and [other] are the two rings' texture over the band the seam may take - grey less its local mean, NaN
+ * where the ring has no frame well over it - [w] columns by [h] rows, row 0 the lowest. [side] -1: the other ring is
+ * the one below the seam (the floor ring), +1 the one above it (the ceiling ring). A seam at row y of a column costs
+ * there: how much the two differ at y ([gain]; nothing where either is missing - only one is drawn there), [uncovered]
+ * for each row under y the lower ring is missing from and each row from y up the upper ring is missing from, and
+ * [centre] times the square of its distance from the middle of the rows where both rings are (none if there are none),
+ * so that where nothing else decides, the seam runs where both rings are at their best and not at either's edge.
+ */
+export function seamCost(level: Float32Array, other: Float32Array, w: number, h: number, side: 1 | -1, o: SeamCostOptions = SEAM_COST_DEFAULTS): Float32Array {
+  const lower = side < 0 ? other : level;
+  const upper = side < 0 ? level : other;
+  const out = new Float32Array(w * h);
+  for (let x = 0; x < w; x++) {
+    let lackLower = 0;
+    let lackUpper = 0;
+    let first = -1;
+    let last = -1;
+    for (let y = 0; y < h; y++) {
+      const i = y * w + x;
+      if (Number.isNaN(upper[i] as number)) lackUpper++;
+      if (!Number.isNaN(level[i] as number) && !Number.isNaN(other[i] as number)) {
+        if (first < 0) first = y;
+        last = y;
+      }
+    }
+    const mid = first < 0 ? Number.NaN : first + (last - first) * o.toward;
+    for (let y = 0; y < h; y++) {
+      const i = y * w + x;
+      const a = level[i] as number;
+      const b = other[i] as number;
+      const differ = Number.isNaN(a) || Number.isNaN(b) ? 0 : Math.min(1, o.gain * (a - b) * (a - b));
+      const centre = Number.isNaN(mid) ? 0 : o.centre * ((y - mid) / h) ** 2;
+      out[i] = differ + o.uncovered * (lackLower + lackUpper) + centre;
+      // The seam a row higher: this row is the lower ring's.
+      if (Number.isNaN(lower[i] as number)) lackLower++;
+      if (Number.isNaN(upper[i] as number)) lackUpper--;
+    }
+  }
+  return out;
+}
+
+/**
+ * The seam between two rings of a spot, as a row per column of the panorama: the cheapest path round the whole
+ * circle over [cost] ([w] columns by [h] rows, row-major, row 0 first - [seamCost]). The path moves at most
+ * [maxStep] rows from one column to the next, at [stepCost] a row: a seam that wanders for nothing draws a line that
+ * wanders. It goes round - the panorama's first and last columns are neighbours - so the path is found over three
+ * laps and the middle one kept.
+ */
+export function seamRows(cost: Float32Array, w: number, h: number, maxStep = 1, stepCost = 0.02): Int32Array {
+  const laps = 3;
+  const cols = w * laps;
+  const acc = new Float32Array(cols * h);
+  const from = new Int8Array(cols * h);
+  const at = (x: number, y: number) => cost[(x % w) + y * w] as number;
+  for (let y = 0; y < h; y++) acc[y] = at(0, y);
+  for (let x = 1; x < cols; x++) {
+    for (let y = 0; y < h; y++) {
+      let best = Infinity;
+      let step = 0;
+      for (let s = -maxStep; s <= maxStep; s++) {
+        const yy = y + s;
+        if (yy < 0 || yy >= h) continue;
+        const v = (acc[(x - 1) * h + yy] as number) + Math.abs(s) * stepCost;
+        if (v < best) { best = v; step = s; }
+      }
+      acc[x * h + y] = best + at(x, y);
+      from[x * h + y] = step;
+    }
+  }
+  let y = 0;
+  let best = Infinity;
+  for (let k = 0; k < h; k++) if ((acc[(cols - 1) * h + k] as number) < best) { best = acc[(cols - 1) * h + k] as number; y = k; }
+  const out = new Int32Array(w);
+  for (let x = cols - 1; x >= 0; x--) {
+    if (x >= w && x < 2 * w) out[x - w] = y;
+    y += from[x * h + y] as number;
+  }
+  return out;
+}
+
+/** How [seamLight] reads the light either side of a seam. */
+export interface SeamLightOptions {
+  /** The patch round each column's seam: columns each side, rows each side. */
+  halfCols: number;
+  halfRows: number;
+  /** Too dark to go by (0-1, as stored, in either ring): eight bits say little down there. */
+  dark: number;
+  /** A place where the two differ by more than this (a log) is two different things, not one in two lights: a thing near, seen a degree or more apart by the two. */
+  agree: number;
+  /** The previews' gamma: the light is compared as it was before it was stored. */
+  gamma: number;
+  /** The fewest readings a column needs. */
+  minPairs: number;
+  /** How far along the circle each column is evened with its neighbours (columns each side, twice over). */
+  smooth: number;
+  /** The most either ring is evened, either way (a log). */
+  limit: number;
+}
+
+export const SEAM_LIGHT_DEFAULTS: SeamLightOptions = { halfCols: 12, halfRows: 12, dark: 0.25, agree: 0.4, gamma: 2.2, minPairs: 60, smooth: 32, limit: 0.3 };
+
+/**
+ * How much brighter ring [a] is than ring [b] along the seam between them, column by column (2026-10-03): the seam
+ * hands one over to the other in under a degree, and a ring a shade brighter than the next - the phone sets its own
+ * exposure for every frame, and the floor ring's frames are full of carpet - would show there as a line. The median
+ * of log(a / b) in brightness over a patch round the seam ([halfCols] by [halfRows]) where both rings are there,
+ * neither is too dark and the two are near enough alike to be the same thing ([agree]): a thing near lands a degree
+ * or more apart in the two, and a dark drawer front set against a pale wall says nothing about the light. Brightness
+ * only, the same for red, green and blue - a reading per channel tinted what it got wrong. A column with too little
+ * to go on takes its neighbours' (round the circle), and every column is then evened with its own.
+ *
+ * [a] and [b] are RGBA previews, [w] by [h], row 0 straight down, alpha under 128 where the ring has nothing; [rows]
+ * the seam's row in each column. Returns a log per column - all 0 if there is nothing anywhere.
+ */
+export function seamLight(a: Uint8Array, b: Uint8Array, w: number, h: number, rows: ArrayLike<number>, o: SeamLightOptions = SEAM_LIGHT_DEFAULTS): Float32Array {
+  const grey = (p: Uint8Array, i: number) => (0.299 * (p[i] as number) + 0.587 * (p[i + 1] as number) + 0.114 * (p[i + 2] as number)) / 255;
+  const col = new Float32Array(w).fill(Number.NaN);
+  const vals: number[] = [];
+  for (let x = 0; x < w; x++) {
+    vals.length = 0;
+    const ys = Math.round(rows[x] as number);
+    for (let dy = -o.halfRows; dy <= o.halfRows; dy++) {
+      const y = ys + dy;
+      if (y < 0 || y >= h) continue;
+      for (let dx = -o.halfCols; dx <= o.halfCols; dx++) {
+        const p = (y * w + ((((x + dx) % w) + w) % w)) * 4;
+        if ((a[p + 3] as number) < 128 || (b[p + 3] as number) < 128) continue;
+        const va = grey(a, p);
+        const vb = grey(b, p);
+        if (va < o.dark || vb < o.dark) continue;
+        const v = o.gamma * Math.log(va / vb);
+        if (Math.abs(v) <= o.agree) vals.push(v);
+      }
+    }
+    if (vals.length < o.minPairs) continue;
+    vals.sort((p, q) => p - q);
+    const m = vals.length >> 1;
+    col[x] = vals.length % 2 ? (vals[m] as number) : ((vals[m - 1] as number) + (vals[m] as number)) / 2;
+  }
+  // The columns with nothing to go on, from the nearest either side that had something.
+  const known: number[] = [];
+  for (let x = 0; x < w; x++) if (!Number.isNaN(col[x] as number)) known.push(x);
+  if (known.length === 0) return new Float32Array(w);
+  for (let k = 0; k < known.length; k++) {
+    const x0 = known[k] as number;
+    const x1 = k + 1 < known.length ? (known[k + 1] as number) : (known[0] as number) + w;
+    const v0 = col[x0] as number;
+    const v1 = col[x1 % w] as number;
+    for (let x = x0 + 1; x < x1; x++) col[x % w] = v0 + ((v1 - v0) * (x - x0)) / (x1 - x0);
+  }
+  // Evened along the circle: a box each side, twice.
+  let cur = col;
+  for (let pass = 0; pass < 2; pass++) {
+    const next = new Float32Array(w);
+    for (let x = 0; x < w; x++) {
+      let sum = 0;
+      for (let d = -o.smooth; d <= o.smooth; d++) sum += cur[(((x + d) % w) + w) % w] as number;
+      next[x] = sum / (2 * o.smooth + 1);
+    }
+    cur = next;
+  }
+  return Float32Array.from(cur, (v) => Math.max(-o.limit, Math.min(o.limit, v)));
 }
