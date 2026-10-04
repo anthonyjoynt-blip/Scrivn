@@ -841,6 +841,37 @@ export async function runScanImportChecks() {
     assert(tall && tall.depthFeet === 2 && tall.heightFeet === 6, `a full-height run is 24\" deep and 6' tall, got ${JSON.stringify(tall)}`);
   });
 
+  test("a tub and a shower tapped as runs come in as the sketch's own Tub and Shower, on their walls", () => {
+    // 2026-10-04, "We also need something for tubs/ showers": the phone taps them as cabinet runs of tier tub or shower.
+    const fixture = JSON.parse(basementTaps);
+    fixture.cabinets = [
+      { edge: 2, from_m: 1.0, width_m: 1.524, tier: "tub", depth_m: 0.76 },
+      { edge: 6, from_m: 0.2, width_m: 0.9, tier: "shower", depth_m: 0.91 },
+      { edge: 9, from_m: 0.1, width_m: 0.9, tier: "shower" },
+    ];
+    fixture.islands = [{ number: 4, u: 2.0, v: 2.0, width_m: 1.7, depth_m: 0.8, depth_measured: true, angle_deg: 0, tier: "tub" }];
+    const result = importedOutline(JSON.stringify(fixture));
+    const fixtures = result.room.symbols.filter((s) => s.type === "fixture");
+    assert(fixtures.length === 2, `expected the tub and the shower, got ${JSON.stringify(fixtures)}`);
+    assert(result.room.symbols.every((s) => s.type !== "cabinet"), "neither is drawn as a cabinet");
+    const tub = fixtures.find((s) => s.fixtureType === "tub");
+    const shower = fixtures.find((s) => s.fixtureType === "shower");
+    assert(tub && shower, "one of each");
+    assert(sketch.wallById(result.room, tub.wallId).index === 2, "the tub on the right wall, as tapped");
+    // 1.524 m is 5'0"; 0.76 m to the inch is 2'6"; a tub's standard height for the wall deduction.
+    near(tub.widthFeet, 5, "tub 5'0\"", 1e-9);
+    near(tub.depthFeet, 2.5, "tub 2'6\" deep", 1e-9);
+    assert(tub.heightFeet === sketch.FIXTURE_DEFAULT_HEIGHT_FEET.tub, `the tub's height is its kind's, got ${tub.heightFeet}`);
+    near(shower.depthFeet, 3, "shower 3'0\" deep", 1e-9);
+    assert(shower.showerShape === "rectangular", "a shower stall, not a corner unit");
+    // On no wall of the outline: skipped with its own note, not called a cabinet.
+    assert(result.notes.some((n) => /1 tub or shower named a wall the outline does not have; skipped/.test(n)), `expected the stray shower's note, got ${JSON.stringify(result.notes)}`);
+    assert(!result.notes.some((n) => /cabinet/.test(n) && /could not be read/.test(n)), `a tub is not an unreadable cabinet, got ${JSON.stringify(result.notes)}`);
+    // Freestanding, it is a block named for what it is.
+    const block = result.room.freeCabinets.find((b) => b.label === "Tub");
+    assert(block, `expected a freestanding Tub block, got ${JSON.stringify(result.room.freeCabinets)}`);
+  });
+
   test("a tapped flight of stairs comes in as a stair room where it was tapped, climbing up the page", () => {
     const { room, extraRooms, notes } = importedBasement();
     assert(extraRooms.length === 1, `expected 1 extra room, got ${extraRooms.length}`);

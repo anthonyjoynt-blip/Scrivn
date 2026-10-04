@@ -129,7 +129,9 @@
  * A cabinet's `edge`, `from_m` and `width_m` mean what an opening's do; `tier` is one of the
  * sketch's three (`base`, `wall`, `full`) and `depth_m` is how far it stands off the wall (the phone
  * writes 0.61 for a base or full-height run and 0.305 for uppers; missing, the tier's default is
- * used). A stairs entry's `corners` are the four taps in the OUTLINE's frame, in tap order — bottom
+ * used). A tier of `tub` or `shower` (2026-10-04) is a tub or shower tapped the way a run is - the
+ * wall above each end - and becomes the sketch's own Tub or Shower fixture at the phone's depth
+ * (0.76 / 0.91 m, the usual 30" and 36"); in an island it is a freestanding one, a block of that name. A stairs entry's `corners` are the four taps in the OUTLINE's frame, in tap order — bottom
  * riser left end, bottom riser right end, top riser right end, top riser left end — so the bottom
  * riser is corners 0–1 and the top riser 2–3, and the direction of travel is from the one to the
  * other. `run_m` and `width_m` are the phone's own tally of the same four points — run the mean of
@@ -163,6 +165,7 @@ import {
   type CabinetTier,
   type ClosetDoorRef,
   type DoorSymbol,
+  type FixtureSymbol,
   type SketchRoom,
   type SketchSymbol,
   type StairsData,
@@ -171,6 +174,9 @@ import {
   type WindowSymbol,
   CABINET_DEFAULT_DEPTH_FEET,
   CABINET_DEFAULT_HEIGHT_FEET,
+  FIXTURE_DEFAULT_FEET,
+  FIXTURE_DEFAULT_HEIGHT_FEET,
+  FIXTURE_LABEL,
   type CeilingType,
   DEFAULT_CEILING_HEIGHT_FEET,
   formatFeetInches,
@@ -249,6 +255,22 @@ export interface ScanCabinet {
   depth_m: number | null;
 }
 
+/** What the phone taps as a run and the sketch draws as a fixture (2026-10-04): a tub or a shower. */
+export type ScanFixtureKind = "tub" | "shower";
+
+/**
+ * A tub or a shower tapped against the outline as a cabinet run is (its `cabinets` entry with a tier of `tub` or
+ * `shower`): placed the same way, drawn as the sketch's own fixture, `depth_m` the phone's (its usual 30" or 36") or
+ * null for the sketch's default.
+ */
+export interface ScanFixture {
+  edge: number;
+  from_m: number;
+  width_m: number;
+  kind: ScanFixtureKind;
+  depth_m: number | null;
+}
+
 /**
  * A flight of stairs as four tapped corners in the outline's frame, in tap order: bottom riser
  * left end, bottom riser right end, top riser right end, top riser left end. The phone's `run_m`
@@ -282,6 +304,8 @@ export interface ScanIsland {
    */
   shape?: string;
   tier?: string;
+  /** A freestanding tub or shower (its tier `tub` or `shower`): a block of that name. */
+  fixture?: ScanFixtureKind;
 }
 
 export interface ScanRoom {
@@ -316,6 +340,8 @@ export interface ScanRoom {
   outline_openings: ScanOutlineOpening[];
   /** Cabinet runs placed on the outline's edges the same way. Empty for a lap scan. */
   cabinets: ScanCabinet[];
+  /** Tubs and showers placed on the outline's edges the same way (2026-10-04). */
+  fixtures: ScanFixture[];
   /**
    * Cabinet runs that stood in open floor rather than against a wall — islands.
    *
@@ -484,6 +510,10 @@ function isCabinetTier(value: unknown): value is CabinetTier {
   return value === "base" || value === "wall" || value === "full";
 }
 
+function isFixtureKind(value: unknown): value is ScanFixtureKind {
+  return value === "tub" || value === "shower";
+}
+
 /**
  * Checks the shape of a parsed file. Hand-rolled rather than a schema library because the shape is
  * eight fields and the messages have to say which of them is wrong in words a PM can act on.
@@ -595,6 +625,7 @@ export function parseScanRoom(input: unknown): { ok: true; scan: ScanRoom; notes
   // at: a base run drawn where a wall run was tapped deducts the wrong wall. The depth is kept when
   // it is a sensible number and left to the tier's default otherwise.
   const cabinets: ScanCabinet[] = [];
+  const fixtures: ScanFixture[] = [];
   let badCabinets = 0;
   if (Array.isArray(raw.cabinets)) {
     for (const c of raw.cabinets) {
@@ -602,18 +633,22 @@ export function parseScanRoom(input: unknown): { ok: true; scan: ScanRoom; notes
         badCabinets += 1;
         continue;
       }
-      const cab = c as Record<string, unknown>;
-      if (!isFiniteNumber(cab.edge) || !isFiniteNumber(cab.from_m) || !isFiniteNumber(cab.width_m) || cab.width_m <= 0 || !isCabinetTier(cab.tier)) {
+      const { edge, from_m, width_m, tier, depth_m } = c as Record<string, unknown>;
+      if (!isFiniteNumber(edge) || !isFiniteNumber(from_m) || !isFiniteNumber(width_m) || width_m <= 0) {
         badCabinets += 1;
         continue;
       }
-      cabinets.push({
-        edge: Math.trunc(cab.edge),
-        from_m: cab.from_m,
-        width_m: cab.width_m,
-        tier: cab.tier,
-        depth_m: isFiniteNumber(cab.depth_m) && cab.depth_m > 0 ? cab.depth_m : null,
-      });
+      const depth = isFiniteNumber(depth_m) && depth_m > 0 ? depth_m : null;
+      // A tub or shower tapped as a run (2026-10-04): the sketch's own fixture, not cabinetry.
+      if (isFixtureKind(tier)) {
+        fixtures.push({ edge: Math.trunc(edge), from_m, width_m, kind: tier, depth_m: depth });
+        continue;
+      }
+      if (!isCabinetTier(tier)) {
+        badCabinets += 1;
+        continue;
+      }
+      cabinets.push({ edge: Math.trunc(edge), from_m, width_m, tier, depth_m: depth });
     }
   }
   if (badCabinets > 0) notes.push(`${badCabinets} cabinet${badCabinets === 1 ? "" : "s"} in the file could not be read; skipped.`);
@@ -645,6 +680,7 @@ export function parseScanRoom(input: unknown): { ok: true; scan: ScanRoom; notes
         angle_deg: isFiniteNumber(isl.angle_deg) ? isl.angle_deg : 0,
         shape: typeof isl.shape === "string" ? isl.shape : undefined,
         tier: isCabinetTier(isl.tier) ? isl.tier : "base",
+        ...(isFixtureKind(isl.tier) ? { fixture: isl.tier } : {}),
       });
     }
   }
@@ -711,6 +747,7 @@ export function parseScanRoom(input: unknown): { ok: true; scan: ScanRoom; notes
       outline,
       outline_openings: outlineOpenings,
       cabinets,
+      fixtures,
       islands,
       stairs,
     },
@@ -988,12 +1025,12 @@ export function scanToSketchRoom(scan: ScanRoom, at: { x: number; y: number }, l
       depthPx,
       widthFeet: toFeetInches(acrossM),
       depthFeet: toFeetInches(downM),
-      label: triangle ? "Corner unit" : "Island",
+      label: isl.fixture ? FIXTURE_LABEL[isl.fixture] : triangle ? "Corner unit" : "Island",
       tier: (isl.tier ?? "base") as CabinetTier,
       ...(angle !== 0 ? { angleDeg: angle } : {}),
       ...(triangle ? { shape: "triangle" as const } : {}),
     });
-    const which = `Island ${isl.number ?? room.freeCabinets.length}`;
+    const which = `${isl.fixture ? FIXTURE_LABEL[isl.fixture] : "Island"} ${isl.number ?? room.freeCabinets.length}`;
     if (isl.depth_measured !== true) {
       notes.push(`${which}: its depth was not measured on the phone — drawn ${feetInchesText(isl.depth_m)} deep.`);
     }
@@ -1187,6 +1224,36 @@ export function scanToSketchRoom(scan: ScanRoom, at: { x: number; y: number }, l
   }
 
   /**
+   * A tub or a shower (2026-10-04, "We also need something for tubs/ showers" - the owner) is placed exactly as a
+   * cabinet run is and becomes the sketch's own fixture, the one its fixture tool makes: the phone's width and
+   * depth, the kind's standard height (which the wall deduction reads - a built-in fixture takes the wall behind it
+   * and the floor under it out of the room's quantities, `FIXTURE_IS_BUILT_IN`).
+   */
+  let fixturesOff = 0;
+  for (const fixture of scan.fixtures) {
+    const placed = outlineEdge(fixture.edge, fixture.from_m + fixture.width_m / 2);
+    if (placed === null) {
+      fixturesOff += 1;
+      continue;
+    }
+    const widthFeet = toFeetInches(fixture.width_m);
+    const symbol: FixtureSymbol = {
+      id: newSketchId("fixture"),
+      type: "fixture",
+      wallId: placed.wall.id,
+      t: placed.t,
+      widthFraction: (widthFeet * PIXELS_PER_FOOT) / placed.wall.lengthPx,
+      widthFeet,
+      fixtureType: fixture.kind,
+      label: "",
+      depthFeet: fixture.depth_m !== null ? toFeetInches(fixture.depth_m) : FIXTURE_DEFAULT_FEET[fixture.kind].depth,
+      heightFeet: FIXTURE_DEFAULT_HEIGHT_FEET[fixture.kind],
+      showerShape: "rectangular",
+    };
+    symbols.push(moveSymbolAlongWall(symbol, room, placed.t * placed.wall.lengthPx));
+  }
+
+  /**
    * Each flight becomes a stair room (`newStairRoom` is the hand-drawn equivalent): the rectangle
    * the four taps describe, put through the SAME transform as the room's own outline — same
    * origin, same scale — so the flight lands in the room where it was tapped, and the editor's
@@ -1341,6 +1408,9 @@ export function scanToSketchRoom(scan: ScanRoom, at: { x: number; y: number }, l
   }
   if (cabinetsOff > 0) {
     notes.push(`${cabinetsOff} cabinet${cabinetsOff === 1 ? "" : "s"} named a wall the outline does not have; skipped.`);
+  }
+  if (fixturesOff > 0) {
+    notes.push(`${fixturesOff} tub${fixturesOff === 1 ? " or shower" : "s or showers"} named a wall the outline does not have; skipped.`);
   }
   if (extraRooms.length > 0) {
     notes.push(`${extraRooms.length} flight${extraRooms.length === 1 ? "" : "s"} of stairs placed.`);
