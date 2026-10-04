@@ -328,6 +328,8 @@ export class PanoBaker {
         ring: { value: 0 },
         seams: { value: null },
         hasSeams: { value: 0 },
+        hasLow: { value: 1 },
+        hasHigh: { value: 1 },
       },
       vertexShader: QUAD_VERT,
       fragmentShader: /* glsl */ `
@@ -335,6 +337,7 @@ export class PanoBaker {
         uniform vec3 forward; uniform vec3 up; uniform vec3 right; uniform vec3 offset;
         uniform vec4 lens; uniform vec2 size; uniform vec3 gain; uniform float power; uniform int mode; uniform float trim; uniform int ring;
         uniform int hasSeams;
+        uniform int hasLow; uniform int hasHigh;
         varying vec2 vUv;
         ${EQUIRECT_GLSL}
         ${DISTANCE_GLSL}
@@ -391,13 +394,25 @@ export class PanoBaker {
           }
           if (ring < 0) w *= 1.0 - smoothstep(lowDeg - ease, lowDeg + ease, pitchDeg);
           else if (ring > 0) w *= smoothstep(highDeg - ease, highDeg + ease, pitchDeg);
-          else w *= smoothstep(lowDeg - ease, lowDeg + ease, pitchDeg) * (1.0 - smoothstep(highDeg - ease, highDeg + ease, pitchDeg));
+          else {
+            // The level ring hands over only to a ring there is (2026-10-04): a 360 on the ultra-wide is the level ring
+            // alone, and keeps all it saw - 50 degrees up and down - its own frames' edges fading it out.
+            if (hasLow == 1) w *= smoothstep(lowDeg - ease, lowDeg + ease, pitchDeg);
+            if (hasHigh == 1) w *= 1.0 - smoothstep(highDeg - ease, highDeg + ease, pitchDeg);
+          }
           gl_FragColor = vec4(col * w, w);
         }
       `,
       depthTest: false,
       depthWrite: false,
     });
+  }
+
+  /** Whether [frames] have a floor ring and a ceiling ring: the level ring is cut at a seam only to a ring there is. */
+  private ringsOf(m: import("three").ShaderMaterial, frames: PanoFrame[]) {
+    const u = m.uniforms as Record<string, { value: unknown }>;
+    u.hasLow!.value = frames.some((f) => ringOf(f) < 0) ? 1 : 0;
+    u.hasHigh!.value = frames.some((f) => ringOf(f) > 0) ? 1 : 0;
   }
 
   private setFrame(m: import("three").ShaderMaterial, f: PanoFrame, texture: Texture, dist: DistanceMap | null) {
@@ -423,6 +438,7 @@ export class PanoBaker {
     const H = 128;
     const small = this.target(W, H, THREE.UnsignedByteType);
     const m = this.projector();
+    this.ringsOf(m, frames);
     (m.uniforms.mode as { value: number }).value = 1;
     m.blending = THREE.NoBlending;
     const maps: Uint8Array[] = [];
@@ -471,6 +487,7 @@ export class PanoBaker {
     const H = SEAM_W / 2;
     const target = this.target(W, H, THREE.UnsignedByteType, false);
     const m = this.projector();
+    this.ringsOf(m, frames);
     (m.uniforms.mode as { value: number }).value = 2;
     m.blending = THREE.NoBlending;
     const pictures = new Map<number, Uint8Array>();
@@ -542,6 +559,7 @@ export class PanoBaker {
     const seams = this.seams(frames, textures, dist, gains);
     const acc: RT[] = [this.target(W, H, THREE.HalfFloatType)];
     const m = this.projector();
+    this.ringsOf(m, frames);
     m.blending = THREE.CustomBlending;
     m.blendEquation = THREE.AddEquation;
     m.blendSrc = THREE.OneFactor;

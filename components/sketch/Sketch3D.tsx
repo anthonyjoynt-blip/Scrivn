@@ -956,7 +956,9 @@ export default function Sketch3D({ sketch, onClose }: Props) {
         labels.setSize(w, h);
         camera.aspect = w / h;
         camera.updateProjectionMatrix();
-        if (current && !zoomed && modeRef.current === "walk" && !transition) view.fov = fitFovDeg(current.camera, camera.aspect);
+        // A spot's view keeps its own field (2026-10-04): fitted to its first frame's lens it opened at 104 degrees on the
+        // ultra-wide's.
+        if (current && !zoomed && modeRef.current === "walk" && !transition) view.fov = current.frames ? SPOT_FOV_DEG : fitFovDeg(current.camera, camera.aspect);
       };
       resize();
       const observer = new ResizeObserver(resize);
