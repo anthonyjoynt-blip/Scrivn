@@ -316,6 +316,38 @@ export async function runPanoramaChecks() {
     assert(Array.from(rows2).every((r) => r >= 10 && r <= 12), `the seam crossed where the two disagree: ${Array.from(rows2).join(" ")}`);
   });
 
+  await test("the seam between two frames of a ring: down to up where the two agree, never where one saw nothing", () => {
+    // 2026-10-04: neighbours on the ultra-wide overlap by more than half; blended, an arched doorway 0.85 m away was
+    // drawn twice. Over a band 40 columns wide and 30 rows tall the two agree only in columns 26-28 (a plain wall
+    // between two things they see apart): the seam runs down it, though the middle of the band is elsewhere.
+    const w = 40;
+    const h = 30;
+    const random = rng(7);
+    const a = new Float32Array(w * h);
+    const b = new Float32Array(w * h);
+    for (let i = 0; i < w * h; i++) {
+      a[i] = random() - 0.5;
+      const x = i % w;
+      b[i] = x >= 26 && x <= 28 ? a[i] : -a[i];
+    }
+    const cols = P.seamColumns(P.columnSeamCost(a, b, w, h), w, h, 1, 0.02);
+    assert(cols.length === h, `a column per row, got ${cols.length}`);
+    assert(Array.from(cols).every((x) => x >= 26 && x <= 28), `the seam left the strip the two agree on: ${Array.from(cols).join(" ")}`);
+    for (let y = 1; y < h; y++) assert(Math.abs(cols[y] - cols[y - 1]) <= 1, `the seam steps ${cols[y - 1]} -> ${cols[y]} at row ${y}`);
+    // The second frame has nothing left of column 30 in its top half (its corner): there the seam keeps to its right,
+    // handing nothing to a frame that never saw it; below, where both are alike everywhere, it may come back.
+    const c = new Float32Array(w * h);
+    const d = new Float32Array(w * h);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        c[y * w + x] = 0.1;
+        d[y * w + x] = y >= 15 && x < 30 ? Number.NaN : 0.1;
+      }
+    }
+    const cols2 = P.seamColumns(P.columnSeamCost(c, d, w, h), w, h, 1, 0.02);
+    for (let y = 15; y < h; y++) assert(cols2[y] >= 30, `row ${y}: a seam at column ${cols2[y]} hands the second frame a place it has nothing over`);
+  });
+
   const stored = (linear) => Math.round(255 * Math.pow(linear, 1 / 2.2));
 
   await test("the light along a seam: how much brighter the level ring is there, read past a thing near", () => {

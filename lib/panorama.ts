@@ -740,6 +740,84 @@ export function seamRows(cost: Float32Array, w: number, h: number, maxStep = 1, 
   return out;
 }
 
+// ---- Where one frame of a ring hands over to the next round it (2026-10-04) ---------------------
+
+/** How [columnSeamCost] weighs a place. */
+export interface ColumnSeamOptions {
+  /** A difference in texture between the two frames (0-1 grey) squared, times this, up to 1. */
+  gain: number;
+  /** A place one of the two frames has nothing well over: the seam is not drawn there. */
+  uncovered: number;
+  /** Times the square of the seam's distance from the band's middle, as a fraction of the band. */
+  centre: number;
+}
+
+export const COLUMN_SEAM_DEFAULTS: ColumnSeamOptions = { gain: 8, uncovered: 1, centre: 0.3 };
+
+/**
+ * What each place in the band between two neighbouring frames of a ring costs the seam between them (2026-10-04, "The
+ * stitch doesn't look great" - the owner, of the first 360s on the ultra-wide). The ultra-wide sees 84 degrees across
+ * and its dots are 30 apart, so neighbours overlap by more than half; blended over all of it, anything the two frames
+ * see a few degrees apart - the bathroom's arched doorway 0.85 m away, the bedroom's ceiling fan over the phone - was
+ * drawn twice, a ghost beside it. Each place of the panorama is now one frame's or the other's, cut along a seam that
+ * crosses where the two agree, as the rings meet ([seamCost]).
+ *
+ * [a] and [b] are the two frames' texture over the band - grey less its local mean, NaN where the frame has nothing well
+ * over it - [w] columns (round the circle, [a]'s side first) by [h] rows. A seam at column x of a row costs there how
+ * much the two differ ([gain]), [uncovered] where either has nothing (a seam there hands a place to a frame that never
+ * saw it), and [centre] times the square of its distance from the band's middle, so that where nothing else decides,
+ * the seam runs half way between the two.
+ */
+export function columnSeamCost(a: Float32Array, b: Float32Array, w: number, h: number, o: ColumnSeamOptions = COLUMN_SEAM_DEFAULTS): Float32Array {
+  const out = new Float32Array(w * h);
+  const mid = (w - 1) / 2;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = y * w + x;
+      const va = a[i] as number;
+      const vb = b[i] as number;
+      const differ = Number.isNaN(va) || Number.isNaN(vb) ? o.uncovered : Math.min(1, o.gain * (va - vb) * (va - vb));
+      out[i] = differ + o.centre * ((x - mid) / w) ** 2;
+    }
+  }
+  return out;
+}
+
+/**
+ * The seam between two neighbouring frames of a ring, as a column per row: the cheapest path from the first row to the
+ * last over [cost] ([w] columns by [h] rows, row-major - [columnSeamCost]), moving at most [maxStep] columns from one
+ * row to the next at [stepCost] a column. Not round the circle, as [seamRows] is: it runs from straight down to
+ * straight up.
+ */
+export function seamColumns(cost: Float32Array, w: number, h: number, maxStep = 1, stepCost = 0.02): Int32Array {
+  const acc = new Float32Array(w * h);
+  const from = new Int8Array(w * h);
+  for (let x = 0; x < w; x++) acc[x] = cost[x] as number;
+  for (let y = 1; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      let best = Infinity;
+      let step = 0;
+      for (let s = -maxStep; s <= maxStep; s++) {
+        const xx = x + s;
+        if (xx < 0 || xx >= w) continue;
+        const v = (acc[(y - 1) * w + xx] as number) + Math.abs(s) * stepCost;
+        if (v < best) { best = v; step = s; }
+      }
+      acc[y * w + x] = best + (cost[y * w + x] as number);
+      from[y * w + x] = step;
+    }
+  }
+  let x = 0;
+  let best = Infinity;
+  for (let k = 0; k < w; k++) if ((acc[(h - 1) * w + k] as number) < best) { best = acc[(h - 1) * w + k] as number; x = k; }
+  const out = new Int32Array(h);
+  for (let y = h - 1; y >= 0; y--) {
+    out[y] = x;
+    x += from[y * w + x] as number;
+  }
+  return out;
+}
+
 /** How [seamLight] reads the light either side of a seam. */
 export interface SeamLightOptions {
   /** The patch round each column's seam: columns each side, rows each side. */
