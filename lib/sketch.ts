@@ -3567,8 +3567,13 @@ export function acrossOnePartition(a: WallGeometry, b: WallGeometry): boolean {
   const ay = (a.y2 - a.y1) / a.lengthPx;
   const bx = (b.x2 - b.x1) / b.lengthPx;
   const by = (b.y2 - b.y1) / b.lengthPx;
-  // Parallel either way round, to 3 degrees.
-  if (Math.abs(ax * by - ay * bx) > Math.sin((3 * Math.PI) / 180)) return false;
+  /*
+    Parallel either way round, to 6 degrees. It was 3, and the 13:04 walk of 2026-10-05 came in at 3.06: the bedroom's
+    angled wall and its walk-in closet's, either side of the one door between them, 4 in apart - "door is duplicated in
+    the bedroom closet" (the owner). Two short angled walls read from either side differ by more than two long straight
+    ones do, and how far apart the two faces stand ([PARTITION_MAX_PX], at both ends) still decides.
+  */
+  if (Math.abs(ax * by - ay * bx) > Math.sin((6 * Math.PI) / 180)) return false;
   const off = (p: { x: number; y: number }) => Math.abs((a.x2 - a.x1) * (a.y1 - p.y) - (a.x1 - p.x) * (a.y2 - a.y1)) / a.lengthPx;
   if (off({ x: b.x1, y: b.y1 }) > PARTITION_MAX_PX || off({ x: b.x2, y: b.y2 }) > PARTITION_MAX_PX) return false;
   const along = (p: { x: number; y: number }) => ((p.x - a.x1) * (a.x2 - a.x1) + (p.y - a.y1) * (a.y2 - a.y1)) / a.lengthPx;

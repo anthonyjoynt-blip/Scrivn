@@ -30,6 +30,8 @@ const SNAP_LINE_PX = 2;
 const SNAP_LINE_SIN = Math.sin((4 * Math.PI) / 180);
 /** How far a straightened side may stray from the traced outline: an inch, the grid's own grain. */
 const STRAIGHTEN_PX = 1;
+/** Half the narrowest a space may be and still be part of a room: a gap under 7" between walls is a wall ([opened]). */
+const OPEN_PX = 3;
 
 /** A line a side may be laid on: through [a], along unit [d], from [from] to [to] along it. */
 interface WallLine {
@@ -115,7 +117,14 @@ export function spaceClosedBy(run: Point[], rooms: SketchRoom[], freeWalls: Free
   }
   if (!best) return null;
 
-  const traced = traceOutline(best.cells, w, h);
+  /*
+    Not up a wall's cavity (2026-10-05, the phone's walk of 13:04): where two rooms' walls stand a little more than a
+    wall's thickness apart, the space between them is open to the flood - the walk-in's ran 1.6" wide 8' up between the
+    bedroom's wall and the main room's. Anything narrower than [OPEN_PX] twice over is let go, and the room is what is left.
+  */
+  const cells = opened(best.cells, w, h, OPEN_PX);
+  if (!cells) return null;
+  const traced = traceOutline(cells, w, h);
   if (!traced) return null;
   const straight = straighten(traced.map((c) => ({ x: c.x + x0, y: c.y + y0 })));
   const corners = laidOnWalls(straight, lines);
@@ -221,6 +230,42 @@ function band(grid: Uint8Array, w: number, h: number, x0: number, y0: number, a:
       if (along >= -cap && along <= length + cap && across > Math.min(near, far) && across < Math.max(near, far)) grid[cy * w + cx] = 1;
     }
   }
+}
+
+/**
+ * [cells] opened by a square [r] cells from its middle each way: every place the square fits inside the set, all of the
+ * square - so a part narrower than the square is gone and the rest is as it was, its straight sides and its square or
+ * wider corners exactly. Null when nothing is left. The phone's SharedWalls does the same.
+ */
+function opened(cells: Uint8Array, w: number, h: number, r: number): Uint8Array | null {
+  const pass = (src: Uint8Array, horizontal: boolean, all: boolean): Uint8Array => {
+    const out = new Uint8Array(w * h);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        let hit = all;
+        for (let k = -r; k <= r; k++) {
+          const xx = horizontal ? x + k : x;
+          const yy = horizontal ? y : y + k;
+          const v = xx >= 0 && xx < w && yy >= 0 && yy < h && src[yy * w + xx] === 1;
+          if (all && !v) {
+            hit = false;
+            break;
+          }
+          if (!all && v) {
+            hit = true;
+            break;
+          }
+        }
+        out[y * w + x] = hit ? 1 : 0;
+      }
+    }
+    return out;
+  };
+  const eroded = pass(pass(cells, true, true), false, true);
+  if (!eroded.some((v) => v === 1)) return null;
+  const grown = pass(pass(eroded, true, false), false, false);
+  for (let i = 0; i < grown.length; i++) grown[i] = grown[i] === 1 && cells[i] === 1 ? 1 : 0;
+  return grown;
 }
 
 /** The cells reached from (cx, cy) through free cells, or null when they reach the grid's edge - open. */

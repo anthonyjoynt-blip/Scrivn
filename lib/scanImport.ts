@@ -1526,6 +1526,116 @@ export function measurementNote(scan: ScanRoom, room: SketchRoom): string | null
 const OVERLAP_SETTLE_PX = 12;
 const OVERLAP_MIN_RUN_PX = 12;
 
+/** How much of a wall's length another room's wall must face for the room to be fitted to it ([fitBetweenNeighbours]). */
+const FIT_FACED_SHARE = 0.9;
+/** How far off a facing wall may stand and still place this one ([fitBetweenNeighbours]): 1'8". Two feet off is a space. */
+const FIT_GAP_MAX_PX = 20;
+/** The most a fit may change a room's width, both walls together: 2'. More is not a misread, it is a different room. */
+const FIT_MAX_CHANGE_PX = 24;
+
+/**
+ * A ROOM BETWEEN TWO ROOMS IS FITTED BETWEEN THEM (2026-10-05, the walk of 13:04): "bathrooms squished again ... giant gap
+ * between bathroom and bedroom" (the owner). The bathroom came in 4'4" wide between the two bedrooms - its corners read
+ * short behind the tub and the vanity, 4'9" one end and 3'11" the other - 3" into the bedroom above it and 1'7" short of
+ * the one below. The bedrooms, each tapped round, say where its walls are: 5'0" between them, a partition off each, the
+ * width of the tub the phone found too long for the wall it read.
+ *
+ * So a room whose two opposite walls each face another room's wall along [FIT_FACED_SHARE] of their length or more - from
+ * [OVERLAP_SETTLE_PX] inside it to [FIT_GAP_MAX_PX] off it - is put between those two walls a partition ([PARTITION_PX])
+ * off each, both its walls moved as the editor's wall drag moves one. The neighbours stay: their walls run on past it, so
+ * they are placed by more than this room is. Not when a length the PM taped would change (a wall either side of the two is
+ * the tape's), nor by more than [FIT_MAX_CHANGE_PX] in all. Run before the shared walls are settled one at a time
+ * ([settleOverlaps], [settleGaps]), which would have moved the bedroom above onto the bathroom's misread line and left the
+ * gap below as a space. Said in a note.
+ */
+function fitBetweenNeighbours(rooms: SketchRoom[], taped: Map<string, Set<string>>): { rooms: SketchRoom[]; notes: string[] } {
+  const out = [...rooms];
+  const notes: string[] = [];
+  // Not the first room: every other was laid against it, or against one that was, so it is where they are placed from.
+  for (let r = 1; r < out.length; r++) {
+    const room = out[r] as SketchRoom;
+    const walls = wallsOf(room);
+    const n = walls.length;
+    const faced = walls.map((w) => facedAllAlong(room, w, out));
+    const tapes = taped.get(room.id);
+    fit: for (let i = 0; i < n; i++) {
+      const a = faced[i];
+      if (!a) continue;
+      for (let j = i + 1; j < n; j++) {
+        const b = faced[j];
+        if (!b) continue;
+        const wi = walls[i] as WallGeometry;
+        const wj = walls[j] as WallGeometry;
+        const uix = (wi.x2 - wi.x1) / wi.lengthPx;
+        const uiy = (wi.y2 - wi.y1) / wi.lengthPx;
+        const ujx = (wj.x2 - wj.x1) / wj.lengthPx;
+        const ujy = (wj.y2 - wj.y1) / wj.lengthPx;
+        // Opposite walls of the room: parallel, running opposite ways round it, and across it from each other - half the
+        // shorter of the two or more side by side - not two stubs at either end of an L.
+        if (Math.abs(uix * ujy - uiy * ujx) > 0.05 || uix * ujx + uiy * ujy > -0.99) continue;
+        const tj1 = (wj.x1 - wi.x1) * uix + (wj.y1 - wi.y1) * uiy;
+        const tj2 = (wj.x2 - wi.x1) * uix + (wj.y2 - wi.y1) * uiy;
+        if (Math.min(wi.lengthPx, Math.max(tj1, tj2)) - Math.max(0, Math.min(tj1, tj2)) < 0.5 * Math.min(wi.lengthPx, wj.lengthPx)) continue;
+        const byI = a.s - PARTITION_PX;
+        const byJ = b.s - PARTITION_PX;
+        if (Math.abs(byI) < 1 && Math.abs(byJ) < 1) continue;
+        if (Math.abs(byI) + Math.abs(byJ) > FIT_MAX_CHANGE_PX) continue;
+        if (tapes && [i - 1, i + 1, j - 1, j + 1].some((k) => tapes.has((walls[(k + n) % n] as WallGeometry).id))) continue;
+        // Outward, round a clockwise room with y down.
+        const width = -((wj.x1 - wi.x1) * uiy + (wj.y1 - wi.y1) * -uix);
+        let next = room;
+        if (Math.abs(byI) >= 1) next = dragWall(next, wi.id, uiy * byI, -uix * byI);
+        if (Math.abs(byJ) >= 1 && (next !== room || Math.abs(byI) < 1)) {
+          const after = dragWall(next, wj.id, ujy * byJ, -ujx * byJ);
+          if (after === next) continue;
+          next = after;
+        }
+        if (next === room) continue;
+        out[r] = next;
+        notes.push(
+          `${room.name} was fitted between ${a.other.name}'s and ${b.other.name}'s walls, a wall off each: ` +
+            `${formatFeetInches(width / PIXELS_PER_FOOT)} across now ${formatFeetInches((width + byI + byJ) / PIXELS_PER_FOOT)}.`,
+        );
+        break fit;
+      }
+    }
+  }
+  return { rooms: out, notes };
+}
+
+/**
+ * Another room's wall facing [wall] of [room] along [FIT_FACED_SHARE] of its length, from [OVERLAP_SETTLE_PX] inside it to
+ * [FIT_GAP_MAX_PX] off it ([fitBetweenNeighbours]): the nearest, with how far out from [wall]'s face it stands (below
+ * zero, inside the room). Null when there is none.
+ */
+function facedAllAlong(room: SketchRoom, wall: WallGeometry, rooms: SketchRoom[]): { other: SketchRoom; s: number } | null {
+  const l = wall.lengthPx;
+  if (l < OVERLAP_MIN_RUN_PX) return null;
+  const ux = (wall.x2 - wall.x1) / l;
+  const uy = (wall.y2 - wall.y1) / l;
+  // Outward, round a clockwise room with y down.
+  const nx = uy;
+  const ny = -ux;
+  let best: { other: SketchRoom; s: number } | null = null;
+  for (const other of rooms) {
+    if (other === room || other.id === room.id) continue;
+    for (const w of wallsOf(other)) {
+      const lw = w.lengthPx;
+      if (lw <= 0) continue;
+      const wx = (w.x2 - w.x1) / lw;
+      const wy = (w.y2 - w.y1) / lw;
+      if (Math.abs(ux * wy - uy * wx) > 0.05 || ux * wx + uy * wy > -0.99) continue;
+      const s = (w.x1 - wall.x1) * nx + (w.y1 - wall.y1) * ny;
+      if (s < -OVERLAP_SETTLE_PX || s > FIT_GAP_MAX_PX) continue;
+      const t1 = (w.x1 - wall.x1) * ux + (w.y1 - wall.y1) * uy;
+      const t2 = (w.x2 - wall.x1) * ux + (w.y2 - wall.y1) * uy;
+      if (Math.min(l, Math.max(t1, t2)) - Math.max(0, Math.min(t1, t2)) < FIT_FACED_SHARE * l) continue;
+      if (!best || Math.abs(s - PARTITION_PX) < Math.abs(best.s - PARTITION_PX)) best = { other, s };
+    }
+  }
+  return best;
+}
+
 /**
  * A WALL TWO ROOMS SHARE, WHEN THE PHONE PUT ONE ROOM A LITTLE INSIDE THE OTHER (2026-10-05, "on the sketch we lost a
  * wall when we joined the bedroom" - the owner). The 04:41 walk's bedroom was laid against the family room at the door
@@ -1544,14 +1654,19 @@ function settleOverlaps(rooms: SketchRoom[]): { rooms: SketchRoom[]; notes: stri
   const notes: string[] = [];
   for (let b = 1; b < out.length; b++) {
     for (let a = 0; a < b; a++) {
-      const host = out[a] as SketchRoom;
       // One wall at a time: a drag can renumber the walls after it.
       for (let guard = 0; guard < 8; guard++) {
         const room = out[b] as SketchRoom;
+        const host = out[a] as SketchRoom;
         const next = settleOneWall(room, host);
         if (!next) break;
         out[b] = next.room;
-        notes.push(`${room.name}'s wall came in ${formatFeetInches(next.insideFeet)} inside ${host.name}'s; laid on it, one wall.`);
+        out[a] = next.host;
+        notes.push(
+          next.host === host
+            ? `${room.name}'s wall came in ${formatFeetInches(next.insideFeet)} inside ${host.name}'s; laid on it, one wall.`
+            : `${room.name}'s wall came in ${formatFeetInches(next.insideFeet)} inside ${host.name}'s; ${host.name}'s, the shorter, laid on it, one wall.`,
+        );
       }
     }
   }
@@ -1788,8 +1903,16 @@ function lineUpWalls(rooms: SketchRoom[], taped: Map<string, Set<string>>): { ro
   return { rooms: out, notes };
 }
 
-/** The first wall of [room] that came in a little inside [host] ([settleOverlaps]), laid on the host's; null when none did. */
-function settleOneWall(room: SketchRoom, host: SketchRoom): { room: SketchRoom; insideFeet: number } | null {
+/**
+ * The first wall of [room] that came in a little inside [host] ([settleOverlaps]), laid on the host's; null when none did.
+ *
+ * Unless the host's wall is the short one, faced all along ([FIT_FACED_SHARE]) by a wall of this room that runs on past it:
+ * then the host's is laid on this room's (2026-10-05, the walk of 13:04). The little hall between the bedrooms came in 4"
+ * into the bedroom above it, and that bedroom - its whole south wall, 12'6" of it, tapped round - was moved onto the hall's
+ * 3'8" to suit it, and the bathroom beside the hall then followed the bedroom. A wall placed by its whole length places a
+ * short one, not the other way about.
+ */
+function settleOneWall(room: SketchRoom, host: SketchRoom): { room: SketchRoom; host: SketchRoom; insideFeet: number } | null {
   for (const wb of wallsOf(room)) {
     const lb = wb.lengthPx;
     if (lb <= 0) continue;
@@ -1810,9 +1933,16 @@ function settleOneWall(room: SketchRoom, host: SketchRoom): { room: SketchRoom; 
       if (s >= -0.5 || s < -OVERLAP_SETTLE_PX) continue;
       const t1 = (wa.x1 - wb.x1) * ubx + (wa.y1 - wb.y1) * uby;
       const t2 = (wa.x2 - wb.x1) * ubx + (wa.y2 - wb.y1) * uby;
-      if (Math.min(lb, Math.max(t1, t2)) - Math.max(0, Math.min(t1, t2)) < OVERLAP_MIN_RUN_PX) continue;
+      const run = Math.min(lb, Math.max(t1, t2)) - Math.max(0, Math.min(t1, t2));
+      if (run < OVERLAP_MIN_RUN_PX) continue;
+      if (run >= FIT_FACED_SHARE * la && run < FIT_FACED_SHARE * lb) {
+        // The host's wall, back onto this one's line: along its own outward normal, inward by as much.
+        const movedHost = dragWall(host, wa.id, uay * s, -uax * s);
+        if (movedHost !== host) return { room, host: movedHost, insideFeet: -s / PIXELS_PER_FOOT };
+        continue;
+      }
       const moved = dragWall(room, wb.id, nbx * s, nby * s);
-      if (moved !== room) return { room: moved, insideFeet: -s / PIXELS_PER_FOOT };
+      if (moved !== room) return { room: moved, host, insideFeet: -s / PIXELS_PER_FOOT };
     }
   }
   return null;
@@ -1875,9 +2005,12 @@ function importScanCapture(capture: ScanCapture, fileNotes: string[], at: { x: n
     flights.push(...built.extraRooms);
     notes.push(...built.notes.map((n) => `${label}: ${n}`));
   });
+  // A room between two rooms is fitted between them, a wall off each (2026-10-05, the 13:04 bathroom).
+  const fitted = fitBetweenNeighbours(rooms, taped);
+  notes.push(...fitted.notes);
   // A wall one room put a little inside another is laid on it: one wall (2026-10-05). And two that came in a little too far
   // apart for one wall are brought together, half each.
-  const settled = settleOverlaps(rooms);
+  const settled = settleOverlaps(fitted.rooms);
   notes.push(...settled.notes);
   const closed = settleGaps(settled.rooms);
   notes.push(...closed.notes);

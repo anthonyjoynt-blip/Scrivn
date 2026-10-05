@@ -1,0 +1,937 @@
+{
+ "format": "arcapture-capture/1",
+ "source": "taps",
+ "frame": {
+  "theta_deg": 160.297
+ },
+ "rooms": [
+  {
+   "name": "Room 1",
+   "index": 0,
+   "width_m": 9.857,
+   "depth_m": 6.296,
+   "ceiling_m": 2.438,
+   "ceiling_type": "flat",
+   "ceiling_measured": false,
+   "outline": [
+    [
+     0.156,
+     -2.546
+    ],
+    [
+     3.984,
+     -2.546
+    ],
+    [
+     3.984,
+     -3.562
+    ],
+    [
+     7.782,
+     -3.562
+    ],
+    [
+     7.782,
+     0.038
+    ],
+    [
+     4.247,
+     0.038
+    ],
+    [
+     4.247,
+     2.723
+    ],
+    [
+     -0.919,
+     2.723
+    ],
+    [
+     -0.919,
+     0.234
+    ],
+    [
+     -1.157,
+     0.246
+    ],
+    [
+     -1.157,
+     1.299
+    ],
+    [
+     -2.075,
+     1.299
+    ],
+    [
+     -2.075,
+     -0.364
+    ],
+    [
+     -1.25,
+     -1.189
+    ],
+    [
+     -1.25,
+     -3.573
+    ],
+    [
+     0.156,
+     -3.573
+    ]
+   ],
+   "outline_tapped": [
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    false,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true
+   ],
+   "squared": true,
+   "outline_unsquared": [
+    [
+     0.13,
+     -2.59
+    ],
+    [
+     3.914,
+     -2.502
+    ],
+    [
+     4.055,
+     -3.71
+    ],
+    [
+     7.754,
+     -3.414
+    ],
+    [
+     7.81,
+     0.027
+    ],
+    [
+     4.282,
+     0.05
+    ],
+    [
+     4.212,
+     2.7
+    ],
+    [
+     -0.786,
+     2.746
+    ],
+    [
+     -1.051,
+     0.234
+    ],
+    [
+     -1.165,
+     0.246
+    ],
+    [
+     -1.148,
+     1.212
+    ],
+    [
+     -1.995,
+     1.387
+    ],
+    [
+     -2.072,
+     -0.282
+    ],
+    [
+     -1.278,
+     -1.27
+    ],
+    [
+     -1.304,
+     -3.436
+    ],
+    [
+     0.182,
+     -3.711
+    ]
+   ],
+   "outline_openings": [
+    {
+     "edge": 14,
+     "from_m": 0.188,
+     "width_m": 0.859,
+     "kind": "door",
+     "sill_m": 1.026,
+     "head_m": 1.06
+    },
+    {
+     "edge": 1,
+     "from_m": 0.17,
+     "width_m": 0.815,
+     "kind": "door",
+     "sill_m": 0.945,
+     "head_m": 0.96
+    },
+    {
+     "edge": 2,
+     "from_m": 0.267,
+     "width_m": 0.833,
+     "kind": "door",
+     "sill_m": 0.891,
+     "head_m": 0.976
+    },
+    {
+     "edge": 12,
+     "from_m": 0.211,
+     "width_m": 0.888,
+     "kind": "door",
+     "sill_m": 0.767,
+     "head_m": 0.961
+    },
+    {
+     "edge": 11,
+     "from_m": 0.516,
+     "width_m": 1.147,
+     "kind": "opening",
+     "sill_m": 0.786,
+     "head_m": 1.051
+    },
+    {
+     "edge": 10,
+     "from_m": 0.29,
+     "width_m": 0.628,
+     "kind": "door",
+     "sill_m": 0.868,
+     "head_m": 0.955
+    },
+    {
+     "edge": 15,
+     "from_m": 0,
+     "width_m": 1.028,
+     "kind": "opening",
+     "sill_m": 0,
+     "head_m": 2.438,
+     "stairs": true
+    }
+   ],
+   "outline_notes": [
+    "Opening 1 was tapped after tracking dropped and came in 0'8\" past the end of its wall – moved onto it whole",
+    "Door 5 ran past the end of its wall – laid 2'1\" to the wall (its jambs read 3'2\")"
+   ],
+   "walls": [],
+   "cabinets": [
+    {
+     "edge": 7,
+     "from_m": 0,
+     "width_m": 1.857,
+     "tier": "base",
+     "depth_m": 0.61
+    }
+   ],
+   "islands": [],
+   "stairs": [
+    {
+     "corners": [
+      [
+       0.156,
+       -3.573
+      ],
+      [
+       0.156,
+       -2.546
+      ],
+      [
+       3.386,
+       -2.546
+      ],
+      [
+       3.386,
+       -3.573
+      ]
+     ],
+     "rise_m": 2.605,
+     "run_m": 3.23,
+     "width_m": 1.028,
+     "direction": "up"
+    }
+   ],
+   "stairs_snapped": [
+    true
+   ],
+   "closed": true
+  },
+  {
+   "name": "Room 2",
+   "index": 1,
+   "width_m": 3.131,
+   "depth_m": 4.903,
+   "ceiling_m": 2.438,
+   "ceiling_type": "flat",
+   "ceiling_measured": false,
+   "outline": [
+    [
+     2.878,
+     -3.677
+    ],
+    [
+     2.878,
+     -6.808
+    ],
+    [
+     7.394,
+     -6.808
+    ],
+    [
+     7.394,
+     -5.57
+    ],
+    [
+     7.782,
+     -5.57
+    ],
+    [
+     7.782,
+     -3.677
+    ]
+   ],
+   "outline_tapped": [
+    true,
+    true,
+    true,
+    true,
+    true,
+    true
+   ],
+   "squared": true,
+   "outline_unsquared": [
+    [
+     2.825,
+     -3.652
+    ],
+    [
+     2.932,
+     -6.763
+    ],
+    [
+     7.401,
+     -6.854
+    ],
+    [
+     7.388,
+     -5.612
+    ],
+    [
+     7.792,
+     -5.528
+    ],
+    [
+     7.772,
+     -3.702
+    ]
+   ],
+   "outline_openings": [
+    {
+     "edge": 5,
+     "from_m": 2.767,
+     "width_m": 0.798,
+     "kind": "door",
+     "sill_m": 1.025,
+     "head_m": 1.059
+    },
+    {
+     "edge": 0,
+     "from_m": 1.208,
+     "width_m": 0.955,
+     "kind": "door",
+     "sill_m": 0.949,
+     "head_m": 1
+    },
+    {
+     "edge": 2,
+     "from_m": 0.084,
+     "width_m": 0.636,
+     "kind": "door",
+     "sill_m": 0.82,
+     "head_m": 0.858
+    }
+   ],
+   "outline_notes": [
+    "Room 2 was laid against Room 1 at the door they share."
+   ],
+   "walls": [],
+   "cabinets": [],
+   "islands": [],
+   "stairs": [],
+   "stairs_snapped": []
+  },
+  {
+   "name": "Room 3",
+   "index": 2,
+   "width_m": 3.445,
+   "depth_m": 5.027,
+   "ceiling_m": 2.438,
+   "ceiling_type": "flat",
+   "ceiling_measured": false,
+   "outline": [
+    [
+     -1.242,
+     1.414
+    ],
+    [
+     -1.242,
+     2.837
+    ],
+    [
+     -2.04,
+     3.635
+    ],
+    [
+     -2.04,
+     4.859
+    ],
+    [
+     -6.268,
+     4.859
+    ],
+    [
+     -6.268,
+     1.414
+    ]
+   ],
+   "outline_tapped": [
+    true,
+    true,
+    true,
+    true,
+    true,
+    true
+   ],
+   "squared": true,
+   "outline_unsquared": [
+    [
+     -1.157,
+     1.433
+    ],
+    [
+     -1.291,
+     2.872
+    ],
+    [
+     -1.993,
+     3.6
+    ],
+    [
+     -2.122,
+     4.801
+    ],
+    [
+     -6.256,
+     4.918
+    ],
+    [
+     -6.281,
+     1.395
+    ]
+   ],
+   "outline_openings": [
+    {
+     "edge": 1,
+     "from_m": 0.119,
+     "width_m": 0.777,
+     "kind": "door",
+     "sill_m": 0.768,
+     "head_m": 0.798
+    },
+    {
+     "edge": 5,
+     "from_m": 4.115,
+     "width_m": 0.785,
+     "kind": "door",
+     "sill_m": 0.763,
+     "head_m": 0.899
+    }
+   ],
+   "outline_notes": [
+    "Room 3 was laid against Room 1 at the door they share."
+   ],
+   "walls": [],
+   "cabinets": [],
+   "islands": [],
+   "stairs": [],
+   "stairs_snapped": [],
+   "closed": true
+  },
+  {
+   "name": "Room 4",
+   "index": 3,
+   "width_m": 1.615,
+   "depth_m": 1.638,
+   "ceiling_m": 2.438,
+   "ceiling_type": "flat",
+   "ceiling_measured": false,
+   "outline": [
+    [
+     -0.207,
+     2.955
+    ],
+    [
+     -0.207,
+     4.569
+    ],
+    [
+     -1.845,
+     4.569
+    ],
+    [
+     -1.845,
+     3.603
+    ],
+    [
+     -1.197,
+     2.955
+    ]
+   ],
+   "outline_tapped": [
+    true,
+    true,
+    true,
+    true,
+    true
+   ],
+   "squared": true,
+   "outline_unsquared": [
+    [
+     -0.164,
+     3.025
+    ],
+    [
+     -0.249,
+     4.524
+    ],
+    [
+     -1.869,
+     4.614
+    ],
+    [
+     -1.868,
+     3.556
+    ],
+    [
+     -1.15,
+     2.932
+    ]
+   ],
+   "outline_openings": [
+    {
+     "edge": 3,
+     "from_m": 0.06,
+     "width_m": 0.789,
+     "kind": "door",
+     "sill_m": 0.829,
+     "head_m": 0.883
+    }
+   ],
+   "outline_notes": [
+    "Room 4 was laid against Room 3 at the door they share."
+   ],
+   "walls": [],
+   "cabinets": [],
+   "islands": [],
+   "stairs": [],
+   "stairs_snapped": []
+  },
+  {
+   "name": "Room 5",
+   "index": 4,
+   "width_m": 0.953,
+   "depth_m": 1.103,
+   "ceiling_m": 2.438,
+   "ceiling_type": "flat",
+   "ceiling_measured": false,
+   "outline": [
+    [
+     -3.292,
+     0.551
+    ],
+    [
+     -3.292,
+     -0.402
+    ],
+    [
+     -2.19,
+     -0.402
+    ],
+    [
+     -2.19,
+     0.551
+    ]
+   ],
+   "outline_tapped": [
+    true,
+    true,
+    true,
+    true
+   ],
+   "squared": true,
+   "outline_unsquared": [
+    [
+     -3.302,
+     0.562
+    ],
+    [
+     -3.282,
+     -0.401
+    ],
+    [
+     -2.16,
+     -0.403
+    ],
+    [
+     -2.219,
+     0.541
+    ]
+   ],
+   "outline_openings": [
+    {
+     "edge": 3,
+     "from_m": 0.118,
+     "width_m": 0.895,
+     "kind": "closet_door",
+     "sill_m": 0.406,
+     "head_m": 0.432
+    },
+    {
+     "edge": 2,
+     "from_m": 0.038,
+     "width_m": 0.858,
+     "kind": "opening",
+     "sill_m": 0.599,
+     "head_m": 0.624
+    },
+    {
+     "edge": 0,
+     "from_m": 0.087,
+     "width_m": 0.768,
+     "kind": "door",
+     "sill_m": 0.616,
+     "head_m": 0.662
+    }
+   ],
+   "outline_notes": [
+    "Room 5 was laid against Room 1 at the door they share."
+   ],
+   "walls": [],
+   "cabinets": [],
+   "islands": [],
+   "stairs": [],
+   "stairs_snapped": []
+  },
+  {
+   "name": "Room 6",
+   "index": 5,
+   "width_m": 1.318,
+   "depth_m": 2.544,
+   "ceiling_m": 2.438,
+   "ceiling_type": "flat",
+   "ceiling_measured": false,
+   "outline": [
+    [
+     -5.951,
+     0.928
+    ],
+    [
+     -5.951,
+     -0.39
+    ],
+    [
+     -3.407,
+     -0.39
+    ],
+    [
+     -3.407,
+     0.928
+    ]
+   ],
+   "outline_tapped": [
+    true,
+    true,
+    true,
+    true
+   ],
+   "squared": true,
+   "outline_unsquared": [
+    [
+     -5.964,
+     1.018
+    ],
+    [
+     -5.938,
+     -0.436
+    ],
+    [
+     -3.377,
+     -0.344
+    ],
+    [
+     -3.437,
+     0.838
+    ]
+   ],
+   "outline_openings": [
+    {
+     "edge": 2,
+     "from_m": 0.149,
+     "width_m": 0.706,
+     "kind": "door",
+     "sill_m": 0.546,
+     "head_m": 0.597
+    }
+   ],
+   "outline_notes": [
+    "Room 6 was laid against Room 5 at the door they share.",
+    "Tub 2 is 0.15 m (0'6\") longer than its wall – trimmed to it."
+   ],
+   "walls": [],
+   "cabinets": [
+    {
+     "edge": 3,
+     "from_m": 0.071,
+     "width_m": 0.801,
+     "tier": "base",
+     "depth_m": 0.61
+    },
+    {
+     "edge": 0,
+     "from_m": 0,
+     "width_m": 1.318,
+     "tier": "tub",
+     "depth_m": 0.76
+    }
+   ],
+   "islands": [],
+   "stairs": [],
+   "stairs_snapped": []
+  },
+  {
+   "name": "Room 7",
+   "index": 6,
+   "width_m": 4.721,
+   "depth_m": 3.04,
+   "ceiling_m": 2.438,
+   "ceiling_type": "flat",
+   "ceiling_measured": false,
+   "outline": [
+    [
+     -2.119,
+     -0.314
+    ],
+    [
+     -5.946,
+     -0.314
+    ],
+    [
+     -5.946,
+     -3.354
+    ],
+    [
+     -2.089,
+     -3.354
+    ],
+    [
+     -2.089,
+     -2.069
+    ],
+    [
+     -1.225,
+     -2.069
+    ],
+    [
+     -1.225,
+     -1.554
+    ]
+   ],
+   "outline_tapped": [
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true
+   ],
+   "squared": true,
+   "outline_unsquared": [
+    [
+     -2.119,
+     -0.263
+    ],
+    [
+     -5.922,
+     -0.366
+    ],
+    [
+     -5.97,
+     -3.284
+    ],
+    [
+     -2.082,
+     -3.424
+    ],
+    [
+     -2.095,
+     -2.106
+    ],
+    [
+     -1.25,
+     -2.032
+    ],
+    [
+     -1.2,
+     -1.554
+    ]
+   ],
+   "outline_openings": [
+    {
+     "edge": 6,
+     "from_m": 0.353,
+     "width_m": 0.867,
+     "kind": "door",
+     "sill_m": 0.458,
+     "head_m": 0.486
+    },
+    {
+     "edge": 3,
+     "from_m": 0.135,
+     "width_m": 0.831,
+     "kind": "closet_door",
+     "sill_m": 0.456,
+     "head_m": 0.48
+    }
+   ],
+   "outline_notes": [
+    "Room 7 was laid against Room 1 at the door they share."
+   ],
+   "walls": [],
+   "cabinets": [],
+   "islands": [],
+   "stairs": [],
+   "stairs_snapped": [],
+   "closed": true
+  },
+  {
+   "name": "Room 8",
+   "index": 7,
+   "width_m": 2.893,
+   "depth_m": 5.708,
+   "ceiling_m": 2.438,
+   "ceiling_type": "flat",
+   "ceiling_measured": false,
+   "outline": [
+    [
+     -5.761,
+     -3.688
+    ],
+    [
+     -5.761,
+     -6.581
+    ],
+    [
+     -1.835,
+     -6.581
+    ],
+    [
+     -1.835,
+     -6.022
+    ],
+    [
+     -0.974,
+     -5.161
+    ],
+    [
+     -0.053,
+     -5.161
+    ],
+    [
+     -0.053,
+     -3.688
+    ]
+   ],
+   "outline_tapped": [
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true
+   ],
+   "squared": true,
+   "outline_unsquared": [
+    [
+     -5.803,
+     -3.614
+    ],
+    [
+     -5.719,
+     -6.539
+    ],
+    [
+     -1.869,
+     -6.623
+    ],
+    [
+     -1.773,
+     -6.05
+    ],
+    [
+     -1.002,
+     -5.151
+    ],
+    [
+     -0.056,
+     -5.144
+    ],
+    [
+     -0.05,
+     -3.763
+    ]
+   ],
+   "outline_openings": [
+    {
+     "edge": 3,
+     "from_m": 0.241,
+     "width_m": 0.844,
+     "kind": "closet_door",
+     "sill_m": 0.39,
+     "head_m": 0.514
+    },
+    {
+     "edge": 6,
+     "from_m": 0.141,
+     "width_m": 0.868,
+     "kind": "door",
+     "sill_m": 0.407,
+     "head_m": 0.461
+    }
+   ],
+   "outline_notes": [
+    "Room 8 was laid against Room 1 at the door they share."
+   ],
+   "walls": [],
+   "cabinets": [],
+   "islands": [],
+   "stairs": [],
+   "stairs_snapped": [],
+   "closed": true
+  }
+ ]
+}
