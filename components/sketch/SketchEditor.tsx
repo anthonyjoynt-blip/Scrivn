@@ -2270,7 +2270,8 @@ export function SketchEditor({
             // the room's own corners — see `wallDragMeetsWall`.
             const reshaped = wallDrag.current?.reshaped ?? false;
             wallDrag.current = null;
-            if (!reshaped) updateRoom(roomId, (room) => snapWallToNeighbours(room, wallId, snapWorldPx(view.scale)));
+            // To its own corners, and to the rooms round it (2026-10-05).
+            if (!reshaped) updateRoom(roomId, (room) => snapWallToNeighbours(room, wallId, snapWorldPx(view.scale), sketch.rooms));
           }}
           /*
             The snap radius is a FINGER'S WIDTH ON SCREEN, so it is divided by the zoom before it

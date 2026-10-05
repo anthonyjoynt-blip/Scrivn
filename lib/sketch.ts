@@ -2355,8 +2355,15 @@ function angleBetweenWallsDeg(a: WallGeometry, b: WallGeometry): number {
  *
  * Called when a wall drag ENDS, never during it. Moves the wall by the smallest amount that lines it
  * up with another vertex's axis, and does nothing when there is nothing close.
+ *
+ * And the room next door (2026-10-05): given the other [rooms], a wall let go near another room's
+ * wall that faces it comes to stand a wall's thickness off it - one wall between the two rooms - and
+ * one let go near the line of another room's wall running the same way, beside it along that line,
+ * comes onto that line. "they should be snapping together. I really dont get why snapping walls and
+ * rooms is such a struggle in this tool" (the owner): only the room's own corners were looked at, so a
+ * wall let go 3" off the room next door stayed 3" off it. The nearest of all of them wins.
  */
-export function snapWallToNeighbours(room: SketchRoom, wallId: string, snapPx = SNAP_PX): SketchRoom {
+export function snapWallToNeighbours(room: SketchRoom, wallId: string, snapPx = SNAP_PX, rooms: SketchRoom[] = []): SketchRoom {
   const wall = wallById(room, wallId);
   if (!wall || wall.lengthPx <= 0) return room;
 
@@ -2366,6 +2373,7 @@ export function snapWallToNeighbours(room: SketchRoom, wallId: string, snapPx = 
   if (!startVertex || !endVertex) return room;
 
   const normal = wallNormal(wall);
+  const neighbour = neighbourSnap(room, wall, normal, snapPx, rooms);
 
   /*
     A wall of a room turned off the page lines up with the room's other corners along its own
@@ -2383,6 +2391,7 @@ export function snapWallToNeighbours(room: SketchRoom, wallId: string, snapPx = 
         travel = d;
       }
     }
+    if (neighbour !== null && Math.abs(neighbour) < nearest) travel = neighbour;
     // Already on the line, give or take the last bits of a turn: nothing to do.
     if (Math.abs(travel) < 1e-6) return room;
     return dragWall(room, wallId, normal.x * travel, normal.y * travel);
@@ -2400,11 +2409,50 @@ export function snapWallToNeighbours(room: SketchRoom, wallId: string, snapPx = 
       delta = d;
     }
   }
+  if (neighbour !== null && Math.abs(neighbour) < best && Math.abs(neighbour) > 1e-6) return dragWall(room, wallId, normal.x * neighbour, normal.y * neighbour);
   if (delta === 0) return room;
 
   // Expressed as travel along the wall's normal, which is all `dragWall` accepts.
   const along = delta / (axis === "x" ? normal.x : normal.y);
   return dragWall(room, wallId, normal.x * along, normal.y * along);
+}
+
+/** How near parallel another room's wall must run to be snapped to: within a degree (the sine of it). */
+const SNAP_PARALLEL_SIN = Math.sin(Math.PI / 180);
+/** How far apart along their line two rooms' walls may end and still be snapped onto one line: 2'. */
+const SNAP_IN_LINE_GAP_PX = 24;
+
+/**
+ * The travel along [normal] (into the room) that would stand [wall] a wall off the nearest other room's
+ * wall it faces, or put it on the line of one running the same way beside it ([snapWallToNeighbours]),
+ * within [snapPx] - or null when there is none. A facing wall counts where the two run alongside each
+ * other for a foot or more; one in line, where they end within [SNAP_IN_LINE_GAP_PX] of each other.
+ */
+function neighbourSnap(room: SketchRoom, wall: WallGeometry, normal: { x: number; y: number }, snapPx: number, rooms: SketchRoom[]): number | null {
+  const ux = (wall.x2 - wall.x1) / wall.lengthPx;
+  const uy = (wall.y2 - wall.y1) / wall.lengthPx;
+  const level = roomLevel(room);
+  let best: number | null = null;
+  for (const other of rooms) {
+    if (other.id === room.id || roomLevel(other) !== level) continue;
+    for (const theirs of wallsOf(other)) {
+      if (theirs.lengthPx <= 0) continue;
+      const tx = (theirs.x2 - theirs.x1) / theirs.lengthPx;
+      const ty = (theirs.y2 - theirs.y1) / theirs.lengthPx;
+      if (Math.abs(ux * ty - uy * tx) > SNAP_PARALLEL_SIN) continue;
+      // Their line, out along this wall's normal; their stretch along this wall's line.
+      const at = (theirs.x1 - wall.x1) * normal.x + (theirs.y1 - wall.y1) * normal.y;
+      const a = (theirs.x1 - wall.x1) * ux + (theirs.y1 - wall.y1) * uy;
+      const b = (theirs.x2 - wall.x1) * ux + (theirs.y2 - wall.y1) * uy;
+      const overlap = Math.min(Math.max(a, b), wall.lengthPx) - Math.max(Math.min(a, b), 0);
+      // Facing: their wall stands a wall's thickness out from its face, toward this one. In line: their line.
+      const facing = ux * tx + uy * ty < 0;
+      if (facing ? overlap < PIXELS_PER_FOOT : overlap < -SNAP_IN_LINE_GAP_PX) continue;
+      const travel = facing ? at + WALL_THICKNESS_PX : at;
+      if (Math.abs(travel) < snapPx && (best === null || Math.abs(travel) < Math.abs(best))) best = travel;
+    }
+  }
+  return best;
 }
 
 /**

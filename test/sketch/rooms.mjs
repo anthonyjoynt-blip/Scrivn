@@ -830,6 +830,71 @@ export async function runRoomChecks() {
     assert(stepped.vertices.length === 6 && corners.includes("340,92") && corners.includes("296,92") && corners.includes("296,192"), `stepped round it a wall clear: ${corners}`);
   });
 
+  test("a wall within half a foot of another room's is dragged right up to it, and a nudge under 6\" moves", () => {
+    // 2026-10-05: "keeps stopping short and not allowing me to pull any further" (the owner). The drag took the pull's
+    // test - half a foot of room or none - so 6" off a room it could not move at all.
+    const r = box(0, 0, 240, 192, { id: "r" });
+    const right = s.wallsOf(r)[1];
+    const other = box(250, 0, 120, 192, { id: "o" }); // its wall stands 246..250
+    const obstacles = s.obstaclesFor({ rooms: [r, other] }, 0, { roomId: "r" });
+    near(b(s.conformedDragWall(r, right.id, 10, 0, obstacles)).maxX, 246, "up to a wall short of it, 6 away");
+    near(b(s.conformedDragWall(r, right.id, 3, 0, [])).maxX, 243, "and 3 with nothing in the way");
+  });
+
+  test("a wall dragged along another room's angled wall stands a wall off it, not flush on it", () => {
+    // The closet pulled off the bedroom's 4'1" wall, its top dragged up past the bedroom's diagonal: it lay flush
+    // along the diagonal, its floor under the bedroom's wall.
+    const bedroom = room([[229, 353], [229, 409], [200, 438], [200, 487], [36, 487], [36, 353]], { id: "bed" });
+    const closet = box(204, 438, 75, 49, { id: "cl" });
+    const top = s.wallsOf(closet)[0];
+    const moved = s.conformedDragWall(closet, top.id, 0, -20, s.obstaclesFor({ rooms: [bedroom, closet] }, 0, { roomId: "cl" }));
+    const diagonal = s.wallsOf(bedroom)[1];
+    const off = (v) => Math.abs((diagonal.x2 - diagonal.x1) * (v.y - diagonal.y1) - (diagonal.y2 - diagonal.y1) * (v.x - diagonal.x1)) / diagonal.lengthPx;
+    const along = moved.vertices.filter((v) => v.x < 229 && v.y < 438);
+    assert(along.length > 0, `the room follows the diagonal: ${pts(moved.vertices)}`);
+    for (const v of along) near(off(v), 4, `a wall off the diagonal at (${v.x.toFixed(1)}, ${v.y.toFixed(1)})`, 0.05);
+  });
+
+  test("a room pulled off a wall in a notch follows the room it came from, out to its own lines, a wall off all of it", () => {
+    // 2026-10-05: "when pulling it isnt tracing the room shape thats already there with the shared wall" (the owner):
+    // pulled off the bedroom's 4'1" wall, the closet stopped at that wall's top end, under the diagonal.
+    const bedroom = room([[229, 353], [229, 409], [200, 438], [200, 487], [36, 487], [36, 353]], { id: "bed" });
+    const rec = box(233, 321, 209, 80, { id: "rec" }); // its bottom wall at 401, 233..442
+    const own = s.wallsOf(bedroom)[2]; // the 4'1" wall, (200,438) -> (200,487)
+    const around = { obstacles: s.obstaclesFor({ rooms: [bedroom, rec] }, 0, { wall: { roomId: "bed", wallId: own.id } }), rooms: [bedroom, rec] };
+    const pulled = s.pullRoomFromWall(bedroom, own.id, 76, around);
+    const bb = b(pulled);
+    near(bb.minY, 405, "up to a wall short of the rec room");
+    near(bb.maxY, 487, "down to the bedroom's own bottom line");
+    near(bb.minX, 204, "a wall off the 4'1\" wall");
+    near(bb.maxX, 280, "out to the finger");
+    // Never on the bedroom: every corner a wall off its walls.
+    for (const v of pulled.vertices) {
+      assert(!s.isInsideRoom(bedroom, v.x, v.y), `a corner on the bedroom's floor: (${v.x.toFixed(1)}, ${v.y.toFixed(1)})`);
+      for (const w of s.wallsOf(bedroom)) {
+        const t = Math.max(0, Math.min(1, ((v.x - w.x1) * (w.x2 - w.x1) + (v.y - w.y1) * (w.y2 - w.y1)) / (w.lengthPx * w.lengthPx)));
+        const d = Math.hypot(w.x1 + (w.x2 - w.x1) * t - v.x, w.y1 + (w.y2 - w.y1) * t - v.y);
+        assert(d >= 4 - 0.05, `a corner within a wall of the bedroom: (${v.x.toFixed(1)}, ${v.y.toFixed(1)}) is ${d.toFixed(2)} off: ${pts(pulled.vertices)}`);
+      }
+    }
+  });
+
+  test("a wall let go near another room's stands a wall off it, or on the line of one beside it", () => {
+    // 2026-10-05: "they should be snapping together" (the owner): a wall let go near the room next door stayed where
+    // it was let go - only the room's own corners were looked at.
+    const bedroom = room([[229, 353], [229, 409], [200, 438], [200, 487], [36, 487], [36, 353]], { id: "bed" });
+    const rec = box(233, 321, 209, 80, { id: "rec" });
+    const r = box(210, 410, 70, 77, { id: "r" });
+    const rooms = [bedroom, rec, r];
+    near(b(s.snapWallToNeighbours(r, s.wallsOf(r)[0].id, 13, rooms)).minY, 405, "the top a wall short of the rec room");
+    near(b(s.snapWallToNeighbours(r, s.wallsOf(r)[3].id, 13, rooms)).minX, 204, "the left a wall off the bedroom's 4'1\" wall");
+    near(b(s.snapWallToNeighbours(r, s.wallsOf(r)[0].id, 13)).minY, 410, "without the rooms, nothing to snap to");
+    // In line: a room's west wall 3" out from the one below it, end to end.
+    const upper = box(0, 0, 120, 100, { id: "up" });
+    const lower = box(-3, 104, 123, 100, { id: "low" });
+    near(b(s.snapWallToNeighbours(upper, s.wallsOf(upper)[3].id, 12, [upper, lower])).minX, -3, "onto the line of the wall below");
+  });
+
   test("a closet's wall dragged to the wall of the room it stands in still meets that wall itself", () => {
     // The room's wall runs the same way as the closet's: the closet shares it, flush in the corner.
     const bedroom = box(0, 0, 240, 192, { id: "bed" });

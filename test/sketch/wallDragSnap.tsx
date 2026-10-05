@@ -117,14 +117,12 @@ export async function run(): Promise<{ passed: number; failed: number; results: 
     const top = wallsOf(after)[0];
     check(top !== undefined && Math.abs(top.y1 - 60) < 0.01 && Math.abs(top.y2 - 60) < 0.01, `the top wall stays level on release (y ${top?.y1.toFixed(1)} -> ${top?.y2.toFixed(1)})`);
     const corners = after.vertices.map((v) => `${Math.round(v.x)},${Math.round(v.y)}`).join(" ");
-    check(after.vertices.length === 5, `the side follows the angled wall for a sliver, then drops: five corners (${corners})`);
-    // The sliver lies ON the angled wall (258,60)->(320,130), not beside it.
-    const onAngled = after.vertices.every((v) => {
-      if (v.x < 258.5) return true;
-      const expectY = 60 + ((v.x - 258) * 70) / 62;
-      return Math.abs(v.y - expectY) < 1 || v.y > 200;
-    });
-    check(onAngled, `every corner past the old right wall sits on the angled wall or the far side (${corners})`);
+    // The sliver follows the angled wall (258,60)->(320,130) a wall (4px) off it, as rooms meet across a wall at any
+    // angle (2026-10-05) - until then it lay flush on it, its floor under the neighbour's wall.
+    const offAngled = (v: { x: number; y: number }) => Math.abs((v.x - 258) * 70 - (v.y - 60) * 62) / Math.hypot(62, 70);
+    const followed = after.vertices.filter((v) => v.x > 258.5 && v.y < 200);
+    check(followed.length > 0, `the side follows the angled wall for a sliver, then drops (${corners})`);
+    check(followed.every((v) => Math.abs(offAngled(v) - 4) < 0.5), `every corner past the old right wall stands a wall off the angled wall, or is on the far side (${corners})`);
     const maxX = Math.max(...after.vertices.map((v) => v.x));
     check(Math.abs(maxX - 265) < 1.5, `and the far side is 7px out, where the finger stopped (max x ${maxX.toFixed(1)})`);
 

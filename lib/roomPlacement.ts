@@ -208,10 +208,87 @@ export function pulledRoomOutline(source: SketchRoom, own: WallGeometry, depthPx
   const clockwise = ensureClockwise(band.far.map((p) => ({ id: newSketchId("v"), x: p.x, y: p.y })));
   if (clockwise.length < 3) return null;
   const tidy = pruneCollinearVertices({ ...source, vertices: clockwise, symbols: [], freeCabinets: [] }).vertices;
-  const apart = standWallApart(tidy, roomLevel(source), around.rooms);
+  const traced = depthPx > 0 ? alongSourceRoom(tidy, source, own, around.obstacles) : tidy;
+  const apart = standWallApart(traced, roomLevel(source), around.rooms);
   // Nothing worth calling a room: a band too thin, or nothing left in front of the wall.
   if (Math.abs(polygonArea(apart)) < PIXELS_PER_FOOT * PIXELS_PER_FOOT) return null;
   return apart;
+}
+
+/**
+ * A PULL FOLLOWS THE ROOM IT CAME FROM (2026-10-05). The band a pull sweeps is as wide as the wall it
+ * was pulled from, and a wall in a notch of its room - the bedroom's 4'1" wall under a diagonal closet
+ * door, with the rec room's wall above - gave a closet that stopped at the wall's own top end: "when
+ * pulling it isnt tracing the room shape thats already there with the shared wall. keeps stopping
+ * short" (the owner, on the walk of 10:07). So each side of the band carries on along the room it was
+ * pulled from, as far as that room's own lines reach that way: it is dragged out sideways as the
+ * editor's own wall drag drags a wall ([conformedDragWall]), following whatever walls stand in the way
+ * a wall off them - the room's diagonal, the room next door. A wall that is a whole side of its room
+ * reaches no further, and the band is as it was.
+ */
+function alongSourceRoom(band: Vertex[], source: SketchRoom, own: WallGeometry, obstacles: Obstacle[]): Vertex[] {
+  if (own.lengthPx <= 0) return band;
+  const ux = (own.x2 - own.x1) / own.lengthPx;
+  const uy = (own.y2 - own.y1) / own.lengthPx;
+  const along = (p: { x: number; y: number }) => (p.x - own.x1) * ux + (p.y - own.y1) * uy;
+  const reach = source.vertices.map(along);
+  // Every other wall of the source room is in the way of the sides, and so is the wall pulled from.
+  const around = [...obstacles, { x1: own.x1, y1: own.y1, x2: own.x2, y2: own.y2, room: true }];
+  let room: SketchRoom = { ...source, id: newSketchId("room"), vertices: band, symbols: [], freeCabinets: [] };
+  const walls = wallsOf(source);
+  const at = walls.findIndex((w) => w.id === own.id);
+  const n = outwardNormal(own);
+  const middle = { x: (own.x1 + own.x2) / 2 + n.x * (WALL_THICKNESS_PX + 1), y: (own.y1 + own.y2) / 2 + n.y * (WALL_THICKNESS_PX + 1) };
+  for (const [end, beyond, next] of [
+    [0, -Math.min(...reach), -1],
+    [own.lengthPx, Math.max(...reach) - own.lengthPx, 1],
+  ] as const) {
+    if (beyond <= 1 || at < 0) continue;
+    // The wall meeting the pulled one at that end. Only where it comes FORWARD - out in front of the pulled wall, as
+    // a notch's wall does - does the room carry on that way; one that turns back behind it is the room's own corner,
+    // and the band stops at the wall's end as it always has.
+    const meeting = walls[(at + next + walls.length) % walls.length] as WallGeometry;
+    const far = next < 0 ? { x: meeting.x1, y: meeting.y1 } : { x: meeting.x2, y: meeting.y2 };
+    if ((far.x - own.x1) * n.x + (far.y - own.y1) * n.y <= 1) continue;
+    // When the band stands outside it - a diagonal across the notch's corner - the band's corner is cut a wall off it
+    // first, or the side dragged from there starts inside that wall.
+    const m = outwardNormal(meeting);
+    if ((middle.x - meeting.x1) * m.x + (middle.y - meeting.y1) * m.y > 0) {
+      const cut = cutToHalfPlane(room.vertices, (q) => (q.x - meeting.x1) * m.x + (q.y - meeting.y1) * m.y - WALL_THICKNESS_PX);
+      if (cut.length < 3) continue;
+      room = { ...room, vertices: cut };
+    }
+    // The side of the band at that end: the wall square to the pulled one, across the band there.
+    const side = wallsOf(room).find((w) => {
+      const a = along({ x: w.x1, y: w.y1 });
+      const b = along({ x: w.x2, y: w.y2 });
+      return Math.abs(a - end) < 1 && Math.abs(b - end) < 1 && w.lengthPx > 1;
+    });
+    if (!side) continue;
+    const sign = end === 0 ? -1 : 1;
+    room = conformedDragWall(room, side.id, ux * sign * beyond, uy * sign * beyond, around);
+  }
+  return room.vertices;
+}
+
+/** [ring] cut to where [keep] is zero or more, its corners keeping their ids and those the cut makes taking new ones. */
+function cutToHalfPlane(ring: Vertex[], keep: (p: { x: number; y: number }) => number): Vertex[] {
+  const out: Vertex[] = [];
+  for (let i = 0; i < ring.length; i++) {
+    const p = ring[i] as Vertex;
+    const q = ring[(i + 1) % ring.length] as Vertex;
+    const kp = keep(p);
+    const kq = keep(q);
+    if (kp >= 0) out.push(p);
+    if (kp >= 0 !== kq >= 0) {
+      const t = kp / (kp - kq);
+      out.push({ id: newSketchId("v"), x: p.x + (q.x - p.x) * t, y: p.y + (q.y - p.y) * t });
+    }
+  }
+  return out.filter((p, i) => {
+    const q = out[(i + 1) % out.length] as Vertex;
+    return out.length < 2 || Math.hypot(p.x - q.x, p.y - q.y) > 1e-6;
+  });
 }
 
 /**
@@ -358,9 +435,18 @@ const EXTRUDE_EPS = 0.5;
  *
  * Returns the far side as points from the wall's start corner to its end corner, in world
  * coordinates, corners included, and whether any obstacle limited it — or null when nothing at
- * all fits in front of the wall.
+ * all fits in front of the wall: nowhere is [minDepthPx] free. A pull wants half its least room; a
+ * wall dragged ([wallDragBand]) wants any room at all to move into. A piece within [alongPx] of the
+ * wall is against it: a pull's [ALONG_WALL_PX], a room snapped flush a pixel or so off; a drag's a
+ * hair, since what it meets is a face a wall's thickness off a room, and 6" short of that face is
+ * room to move.
  */
-export function extrudeWall(wall: WallGeometry, depthPx: number, obstacles: Obstacle[]): { far: { x: number; y: number }[]; limited: boolean } | null {
+export function extrudeWall(
+  wall: WallGeometry,
+  depthPx: number,
+  obstacles: Obstacle[],
+  { minDepthPx = PULLED_ROOM_MIN_DEPTH_PX / 2, alongPx = ALONG_WALL_PX }: { minDepthPx?: number; alongPx?: number } = {},
+): { far: { x: number; y: number }[]; limited: boolean } | null {
   const L = wall.lengthPx;
   if (L <= 0 || depthPx <= 0) return null;
   const tx = (wall.x2 - wall.x1) / L;
@@ -388,7 +474,7 @@ export function extrudeWall(wall: WallGeometry, depthPx: number, obstacles: Obst
     // ON the wall: a room already standing against it, which leaves nothing to pull there. A room
     // snapped flush lands a pixel or so either side of the line, and a pixel inside read as
     // "wholly behind the wall" — so the room pulled off that wall ran the whole length, over it.
-    if (Math.abs(v1) <= ALONG_WALL_PX && Math.abs(v2) <= ALONG_WALL_PX) {
+    if (Math.abs(v1) <= alongPx && Math.abs(v2) <= alongPx) {
       v1 = 0;
       v2 = 0;
     }
@@ -472,7 +558,7 @@ export function extrudeWall(wall: WallGeometry, depthPx: number, obstacles: Obst
     const vAtEnd = (u: number) => (ruling ? Math.min(depthPx, Math.max(0, ruling.v1 + ((ruling.v2 - ruling.v1) * (u - ruling.u1)) / (ruling.u2 - ruling.u1))) : depthPx);
     const va = vAtEnd(ua);
     const vb = vAtEnd(ub);
-    if (vb > PULLED_ROOM_MIN_DEPTH_PX / 2 || va > PULLED_ROOM_MIN_DEPTH_PX / 2) anyRoom = true;
+    if (vb > minDepthPx || va > minDepthPx) anyRoom = true;
     push(ua, va);
     push(ub, vb);
   }
@@ -601,9 +687,52 @@ function wallDragBand(wall: WallGeometry, dx: number, dy: number, obstacles: Obs
   const n = outwardNormal(wall);
   const depth = dx * n.x + dy * n.y;
   if (depth <= 0) return "plain";
-  const band = extrudeWall(wall, depth, obstacles.map((o) => facingOuterFace(o, wall)));
+  /*
+    ANY DISTANCE (2026-10-05). The drag used the pull's test - half a foot of room or none - so a wall
+    within 6" of a room's wall could not be dragged up to it at all, and a nudge under 6" was refused
+    outright: "keeps stopping short and not allowing me to pull any further" (the owner). A wall
+    moves any distance it has room for.
+  */
+  const faced: Obstacle[] = [];
+  for (const o of obstacles) {
+    const face = facingOuterFace(o, wall);
+    faced.push(face);
+    if (face !== o) faced.push(...heldBack(o, face, wall));
+  }
+  const band = extrudeWall(wall, depth, faced, { minDepthPx: EXTRUDE_EPS, alongPx: EXTRUDE_EPS });
   if (!band) return null;
   return band.limited ? band : "plain";
+}
+
+/**
+ * Where [face] - a room's wall [raw] stood a wall's thickness off ([facingOuterFace]) - crosses the dragged [wall]'s
+ * line, the stretch of the wall on the side where the face is behind it while the wall itself is in front of it
+ * stands within that wall's thickness already: it can go no further out. A piece along the dragged wall closes the
+ * band there. Without it the stretch saw nothing in front of it - the face behind, the wall not counted - and the
+ * drag ran a sliver straight up into the room beyond: the closet pulled off the bedroom's 4'1" wall, its top dragged
+ * past the bedroom's diagonal (2026-10-05).
+ */
+function heldBack(raw: Obstacle, face: Obstacle, wall: WallGeometry): Obstacle[] {
+  const L = wall.lengthPx;
+  if (L <= 0) return [];
+  const tx = (wall.x2 - wall.x1) / L;
+  const ty = (wall.y2 - wall.y1) / L;
+  const n = outwardNormal(wall);
+  const local = (x: number, y: number) => ({ u: (x - wall.x1) * tx + (y - wall.y1) * ty, v: (x - wall.x1) * n.x + (y - wall.y1) * n.y });
+  const fa = local(face.x1, face.y1);
+  const fb = local(face.x2, face.y2);
+  if (fa.v > 0 === fb.v > 0 || Math.abs(fb.u - fa.u) <= EXTRUDE_EPS) return [];
+  const crossing = fa.u + ((0 - fa.v) * (fb.u - fa.u)) / (fb.v - fa.v);
+  const behindLow = (fa.u < fb.u ? fa.v : fb.v) <= 0;
+  const ra = local(raw.x1, raw.y1);
+  const rb = local(raw.x2, raw.y2);
+  if (Math.abs(rb.u - ra.u) <= EXTRUDE_EPS) return [];
+  const u1 = Math.max(behindLow ? 0 : crossing, Math.min(ra.u, rb.u), 0);
+  const u2 = Math.min(behindLow ? crossing : L, Math.max(ra.u, rb.u), L);
+  if (u2 - u1 <= EXTRUDE_EPS) return [];
+  const middle = (u1 + u2) / 2;
+  if (ra.v + ((rb.v - ra.v) * (middle - ra.u)) / (rb.u - ra.u) <= 0) return [];
+  return [{ x1: wall.x1 + tx * u1, y1: wall.y1 + ty * u1, x2: wall.x1 + tx * u2, y2: wall.y1 + ty * u2 }];
 }
 
 /**
@@ -615,16 +744,18 @@ function wallDragBand(wall: WallGeometry, dx: number, dy: number, obstacles: Obs
  * the top wall up askew with it.
  */
 /**
- * [o] as a wall dragged up to it meets it. A room's wall FACING [wall] - parallel to 3 degrees and
- * running the other way, as two rooms' walls do across the wall between them - stands at its outer
- * face: a wall's thickness toward [wall], and a thickness longer at each end, which is where that
- * room's walls stand round its corners. So the dragged wall stops a wall short of the room and clear
- * of its corners, with one wall between the two, as rooms dragged together (`snapRoomTranslation`)
- * and pulled rooms (`pulledRoomOutline`) have. Stopped at the inside face, as it was until
- * 2026-09-26, the dragged room ended flush and the wall between them was drawn over one of the
- * floors. Anything else is where it is: an angled wall (the sliver a drag follows along one keeps
- * its shape), a wall running the same way (the room a closet stands in: the closet shares its
- * walls), a free wall.
+ * [o] as a wall dragged up to it meets it. A room's wall the dragged [wall] stands OUTSIDE of - on
+ * the far side of its line from its own room - stands at its outer face: a wall's thickness toward
+ * [wall], and a thickness longer at each end, which is where that room's walls stand round its
+ * corners. So the dragged wall stops a wall short of the room and clear of its corners, with one wall
+ * between the two, as rooms dragged together (`snapRoomTranslation`) and pulled rooms
+ * (`pulledRoomOutline`) have. Stopped at the inside face, as it was until 2026-09-26, the dragged
+ * room ended flush and the wall between them was drawn over one of the floors.
+ *
+ * At ANY angle (2026-10-05): until then only a wall facing the dragged one square on stood off, and a
+ * drag that followed the bedroom's diagonal closet wall lay flush along it, its floor under that wall.
+ * A wall the dragged one is INSIDE of - the room a closet stands in - is where it is: the closet
+ * shares its walls. A free wall has no sides and is where it is.
  */
 function facingOuterFace(o: Obstacle, wall: WallGeometry): Obstacle {
   if (!o.room || wall.lengthPx <= 0) return o;
@@ -632,10 +763,11 @@ function facingOuterFace(o: Obstacle, wall: WallGeometry): Obstacle {
   if (length <= 0) return o;
   const ux = (o.x2 - o.x1) / length;
   const uy = (o.y2 - o.y1) / length;
-  const wx = (wall.x2 - wall.x1) / wall.lengthPx;
-  const wy = (wall.y2 - wall.y1) / wall.lengthPx;
-  if (ux * wx + uy * wy > -Math.cos((3 * Math.PI) / 180)) return o;
-  // Out of its own room is its direction turned -90 degrees, (uy, -ux): a room is clockwise.
+  // Out of its own room is its direction turned -90 degrees, (uy, -ux): a room is clockwise. The
+  // dragged wall's middle on that side, it is outside that room there.
+  const mx = (wall.x1 + wall.x2) / 2;
+  const my = (wall.y1 + wall.y2) / 2;
+  if ((mx - o.x1) * uy - (my - o.y1) * ux <= 0) return o;
   const t = WALL_THICKNESS_PX;
   return { ...o, x1: o.x1 + uy * t - ux * t, y1: o.y1 - ux * t - uy * t, x2: o.x2 + uy * t + ux * t, y2: o.y2 - ux * t + uy * t };
 }

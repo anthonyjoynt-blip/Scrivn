@@ -12,6 +12,9 @@
  *     SUB-ROOM of it — a closet drawn into a corner, a room split by a partition
  *   * a run that meets the free ends of walls already drawn and closes a loop with them is a room
  *     made of all of them, and those walls are used up by it
+ *   * a run from a wall to a wall - one room's and the next's, say - that closes off the space between
+ *     them and the walls already there is a ROOM of that space, a wall off every wall round it
+ *     (`spaceClosedBy`, 2026-10-05)
  *   * anything else is FREE WALL, kept as drawn — one straight `FreeWall` per piece
  *
  * A room drawn up against another room's wall stands a wall off it (`standWallApart`): tapped onto
@@ -44,6 +47,7 @@ import {
   DEFAULT_CEILING_HEIGHT_FEET,
   MIN_VERTICES,
   PIXELS_PER_FOOT,
+  WALL_THICKNESS_PX,
   ensureClockwise,
   freeWallLevel,
   freeWallSegmentRoom,
@@ -59,6 +63,7 @@ import {
   wallStrokePx,
   wallsOf,
 } from "./sketch";
+import { spaceClosedBy } from "./freeSpace";
 
 /** A corner the PM has tapped, after snapping. */
 export interface DraftPoint {
@@ -119,6 +124,11 @@ export interface SnapContext {
  * finger is what was meant whatever the previous corner was, while a wall that is straight keeps
  * the squared coordinate when the point is projected onto it, so a closet wall drawn up to the
  * room's top wall lands exactly above the corner below it.
+ *
+ * A tap OUTSIDE a room near its wall lands on the wall's outer face (2026-10-05): a wall drawn up to a
+ * room from outside meets it there, with that room's wall between them. Projected onto the inside
+ * face, as every tap was, it ran on through the wall, its square end showing in the room beyond:
+ * "placing a wall over another wall and protruding into the next room" (the owner).
  */
 export function snapDraftPoint(raw: { x: number; y: number }, ctx: SnapContext): DraftPoint {
   const r = ctx.radiusPx;
@@ -156,11 +166,35 @@ export function snapDraftPoint(raw: { x: number; y: number }, ctx: SnapContext):
       nearest = { x, y, on: on(t) };
     }
   };
-  for (const room of ctx.rooms) for (const wall of wallsOf(room)) project(wall, (t) => ({ roomId: room.id, wallId: wall.id, t }));
+  for (const room of ctx.rooms) {
+    for (const wall of wallsOf(room)) {
+      project(wall, (t) => ({ roomId: room.id, wallId: wall.id, t }));
+      const face = outerFace(room, wall);
+      if (face && (aligned.x - wall.x1) * face.nx + (aligned.y - wall.y1) * face.ny > WALL_THICKNESS_PX / 2) project(face.segment, () => null);
+    }
+  }
   for (const wall of ctx.freeWalls) for (const segment of freeWallSegments(wall)) project(segment, () => null);
   if (nearest) return nearest;
 
   return { ...aligned, on: null };
+}
+
+/** A room wall's outer face - a wall's thickness out from it, the room's wall between - and which way out is. */
+function outerFace(room: SketchRoom, wall: WallGeometry): { segment: WallGeometry; nx: number; ny: number } | null {
+  if (wall.lengthPx <= 0) return null;
+  let twice = 0;
+  for (let i = 0; i < room.vertices.length; i++) {
+    const a = room.vertices[i] as Vertex;
+    const b = room.vertices[(i + 1) % room.vertices.length] as Vertex;
+    twice += a.x * b.y - b.x * a.y;
+  }
+  const dx = (wall.x2 - wall.x1) / wall.lengthPx;
+  const dy = (wall.y2 - wall.y1) / wall.lengthPx;
+  // Out of a clockwise room is the wall's direction turned -90 degrees on the page.
+  const nx = twice >= 0 ? dy : -dy;
+  const ny = twice >= 0 ? -dx : dx;
+  const t = WALL_THICKNESS_PX;
+  return { segment: { ...wall, x1: wall.x1 + nx * t, y1: wall.y1 + ny * t, x2: wall.x2 + nx * t, y2: wall.y2 + ny * t }, nx, ny };
 }
 
 /* ── What a run becomes ─────────────────────────────────────────────────────────────────────── */
@@ -215,6 +249,20 @@ export function addDraftPoint(draft: DraftPoint[], point: DraftPoint, sketch: Sk
     }
 
     /*
+      A RUN FROM A WALL TO A WALL THAT CLOSES OFF A SPACE (2026-10-05): the closet drawn in the corner between the
+      bedroom's notch and the rec room's wall - along the bottom, then up to the rec room - "not creating a room with
+      the area thats now enclosed" (the owner). Both ends on a wall, and the space the run closes off against the walls
+      already there is a room: the run its own walls, a wall's thickness off every other.
+    */
+    const rooms = sketch.rooms.filter((r) => roomLevel(r) === level);
+    const freeWalls = freeWallsOf(sketch).filter((w) => freeWallLevel(w) === level);
+    if (onAWall(first, rooms, freeWalls) && onAWall(point, rooms, freeWalls)) {
+      const space = spaceClosedBy([...draft, point], rooms, freeWalls);
+      const room = space ? roomFromPoints(space, level, name) : null;
+      if (room) return { kind: "room", room, usedFreeWallIds: [] };
+    }
+
+    /*
       Whatever of the new piece is already wall is not drawn again. The start may only move when it
       is the run's first corner — otherwise the piece before it ends there, and would be left
       hanging. A piece that is all overlap adds nothing.
@@ -225,6 +273,17 @@ export function addDraftPoint(draft: DraftPoint[], point: DraftPoint, sketch: Sk
   }
 
   return { kind: "extend", draft: [...draft, point] };
+}
+
+/** Whether a corner of a run is on a wall already there: a room's (snapped onto it), or a free wall's. */
+function onAWall(point: DraftPoint, rooms: SketchRoom[], freeWalls: FreeWall[]): boolean {
+  if (point.on) return true;
+  const near = (s: WallGeometry) => {
+    if (s.lengthPx <= 0) return false;
+    const t = Math.max(0, Math.min(1, ((point.x - s.x1) * (s.x2 - s.x1) + (point.y - s.y1) * (s.y2 - s.y1)) / (s.lengthPx * s.lengthPx)));
+    return Math.hypot(s.x1 + (s.x2 - s.x1) * t - point.x, s.y1 + (s.y2 - s.y1) * t - point.y) <= ON_LINE_PX;
+  };
+  return rooms.some((r) => wallsOf(r).some((w) => near(w) || near(outerFace(r, w)?.segment ?? w))) || freeWalls.some((w) => freeWallSegments(w).some(near));
 }
 
 /**

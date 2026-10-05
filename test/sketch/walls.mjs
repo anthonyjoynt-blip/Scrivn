@@ -109,6 +109,16 @@ export async function runWallChecks() {
     near(p.on.t, 100 / 240, "the fraction along it");
   });
 
+  test("a tap outside a room near its wall lands on the wall's outer face, the room's wall between", () => {
+    // 2026-10-05: a wall drawn up to the rec room from below ran on through its wall, its square end in the room:
+    // "placing a wall over another wall and protruding into the next room" (the owner).
+    const p = s.snapDraftPoint({ x: 100, y: -6 }, ctx({ rooms: [box()] }));
+    assert(p.x === 100 && p.y === -4 && p.on === null, `expected the top wall's outer face, 4 above it, got ${JSON.stringify(p)}`);
+    // From inside it is the wall itself, as before.
+    const inside = s.snapDraftPoint({ x: 100, y: 3 }, ctx({ rooms: [box()] }));
+    assert(inside.y === 0 && inside.on !== null, `inside, on the wall: ${JSON.stringify(inside)}`);
+  });
+
   test("a tap further than the radius from a wall stays off it", () => {
     const p = s.snapDraftPoint({ x: 100, y: 20 }, ctx({ rooms: [box()] }));
     assert(p.y === 20 && p.on === null, `expected untouched, got ${JSON.stringify(p)}`);
@@ -280,6 +290,31 @@ export async function runWallChecks() {
     const draft = [pt(240, 96, { roomId: "a", wallId: wall(a, 1), t: 0.5 })];
     const step = s.addDraftPoint(draft, pt(300, 96, { roomId: "b", wallId: wall(b, 3), t: 0.5 }), sketchWith([a, b]), 0, 12);
     assert(step.kind === "extend", `expected extend, got ${step.kind}`);
+  });
+
+  test("a run from one room's wall to another's that closes off space is a room of it, a wall off every wall round it", () => {
+    // 2026-10-05: the closet in the corner between the bedroom's notch (a 4'1" wall under a diagonal) and the rec
+    // room's wall, drawn along the bottom and up: "not creating a room with the area thats now enclosed" (the owner).
+    const bedroom = room([[229, 353], [229, 409], [200, 438], [200, 487], [36, 487], [36, 353]], { id: "bed" });
+    const rec = room([[233, 321], [442, 321], [442, 401], [233, 401]], { id: "rec" });
+    const draft = [pt(200, 487, { roomId: "bed", wallId: wall(bedroom, 3), t: 0 }), pt(276, 487)];
+    const step = s.addDraftPoint(draft, pt(276, 401, { roomId: "rec", wallId: wall(rec, 2), t: 0.79 }), sketchWith([bedroom, rec]), 0, 12);
+    assert(step.kind === "room", `expected a room, got ${step.kind}`);
+    const corners = step.room.vertices.map((v) => `(${v.x.toFixed(2)}, ${v.y.toFixed(2)})`).join(" ");
+    const at = (x, y, what) => assert(step.room.vertices.some((v) => Math.hypot(v.x - x, v.y - y) < 0.05), `no corner at ${what} (${x}, ${y}): ${corners}`);
+    // The run is its own walls; a wall (4") off the rec room above, and off the bedroom's 4'1" wall, diagonal and
+    // right wall - its corners where those faces meet.
+    at(276, 405, "the run's top, a wall short of the rec room");
+    at(276, 487, "the run's corner");
+    at(204, 487, "the bottom line, a wall off the 4'1\" wall");
+    at(204, 438 + 4 * Math.SQRT2 - 4, "where the 4'1\" wall's face meets the diagonal's");
+    at(233, 409 + 4 * Math.SQRT2 - 4, "where the diagonal's face meets the right wall's");
+    at(233, 405, "the right wall's face under the rec room's");
+    assert(step.room.vertices.length === 6, `six corners: ${corners}`);
+    assert(s.ensureClockwise(step.room.vertices) === step.room.vertices, "wound clockwise");
+    // Open on both sides - nothing closed off - it is a run, as before.
+    const open = s.addDraftPoint([pt(200, 487, { roomId: "bed", wallId: wall(bedroom, 3), t: 0 }), pt(276, 487)], pt(276, 560), sketchWith([bedroom, rec]), 0, 12);
+    assert(open.kind === "extend", `a run into open space is a run, got ${open.kind}`);
   });
 
   test("a run that closes a loop with a free wall already drawn makes a room of both", () => {
