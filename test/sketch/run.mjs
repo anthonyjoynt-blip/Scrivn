@@ -31,6 +31,7 @@ import { runWalkViewChecks } from "./walkView.mjs";
 import { runTurnChecks } from "./turn.mjs";
 import { runPanoramaChecks } from "./panorama.mjs";
 import { runSpotStillsChecks } from "./spotStills.mjs";
+import { runRoomNamePlaceChecks } from "./roomNamePlace.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..", "..");
@@ -208,6 +209,18 @@ if (spotStills.failures.length > 0) {
   process.exit(1);
 }
 console.log(`  Spot stills: ok (${spotStills.passed.length} checks — a spot's stills in rings, turned through to the right, zoomed about the pointer)`);
+
+// A room's name: inside its room when it fits, smaller if it must, else beside it with a line to it.
+const roomNames = await runRoomNamePlaceChecks();
+if (roomNames.failures.length > 0) {
+  console.error(`
+  Room names: ${roomNames.passed.length} passed, ${roomNames.failures.length} FAILED
+`);
+  for (const failure of roomNames.failures) console.error(`    ✗ ${failure}
+`);
+  process.exit(1);
+}
+console.log(`  Room names: ok (${roomNames.passed.length} checks — a small room is never covered by its own name)`);
 
 await build({
   entryPoints: [join(here, "entry.tsx")],

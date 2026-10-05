@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef } from "react";
+import { useMemo, useRef } from "react";
 import { Arc, Circle, Ellipse, Group, Layer, Line, Rect, Shape, Stage, Text } from "react-konva";
 // A value import, not a type: the room label measures its name with a Konva.Text — see `RoomLabel`.
 // Safe here because react-konva pulls Konva in anyway, and this module is already client-only.
@@ -71,6 +71,7 @@ import {
   wallBandAt,
 } from "@/lib/sketch";
 import { type DraftPoint, WALL_SNAP_SCREEN_PX, absorbedFreeWallIds, snapDraftPoint, wallDimensionsWithExtensions } from "@/lib/sketchWalls";
+import { type NameBox, type NameSize, type NameSpot, edgeToward, fitInside, nameBox, placeOutside, wrapAtSpaces } from "@/lib/roomNamePlace";
 import { type Obstacle, PULLED_ROOM_DEFAULT_DEPTH_PX, PULLED_ROOM_MIN_DEPTH_PX, outwardNormal, pullBase, pullDepthPx, pulledRoomDepthPx, pulledRoomOutline } from "@/lib/roomPlacement";
 
 /**
@@ -389,6 +390,8 @@ export default function SketchCanvas(props: SketchCanvasProps) {
   const stroke = useRef<{ roomId: string; last: { x: number; y: number } } | null>(null);
   /** Each room's drawn name, so a drag on the room carries it along — see `LabelNodes`. */
   const labelNodes = useRef<LabelNodes>(new Map());
+  /** Where every room's name goes at this zoom: inside its room when it fits, else beside it — see `placeRoomNames`. */
+  const namePlaces = useMemo(() => placeRoomNames(rooms, view.scale), [rooms, view.scale]);
 
   const painting = moistureTool === "paint" || moistureTool === "erase";
   const brushPx = BRUSH_SCREEN_PX / view.scale;
@@ -872,6 +875,7 @@ export default function SketchCanvas(props: SketchCanvasProps) {
           <RoomLabel
             key={`label-${room.id}`}
             room={room}
+            place={namePlaces.get(room.id)}
             zoom={view.scale}
             selected={room.id === selectedRoomId}
             highlight={props.highlight?.roomId === room.id ? props.highlight : null}
@@ -1114,7 +1118,7 @@ function RoomShape({
     Outside is the drafting convention for a tight dimension anyway. The threshold is in screen
     pixels, so zooming in tucks them back inside as soon as there is room.
   */
-  const labelsOutside = Math.min(bounds.width, bounds.height) * zoom < 70;
+  const labelsOutside = wallLabelsOutside(room, zoom);
 
   /*
     A wall grip has to stay on its own side of the room, not just within its own wall's length.
@@ -1643,18 +1647,128 @@ function RoomShape({
 }
 
 /**
- * How big a room's name will draw, in screen pixels: the widest line and the height of all of them.
- *
- * Measured with a Konva.Text set up exactly as the label's own — same font, same size, same box to
- * wrap in — so the plate under the name fits the name rather than guessing from a character count,
- * and follows it when a long name wraps to a second line inside a narrow room. Never added to a
- * layer: it exists to be measured and is thrown away.
+ * How wide a line of a room's name draws, in screen pixels, at [fontPx]. Measured with a Konva.Text set up as the
+ * label's own - same font, same weight - so the plate under the name fits the name rather than guessing from a
+ * character count. One probe, kept: this runs for every room on every zoom, and it is never added to a layer.
  */
-function measureName(text: string, boxWidthPx: number): { width: number; height: number } {
-  const probe = new Konva.Text({ text, width: boxWidthPx, align: "center", fontSize: LABEL_FONT_PX, fontStyle: "bold" });
-  const size = { width: probe.getTextWidth(), height: probe.height() };
-  probe.destroy();
-  return size;
+let nameProbe: Konva.Text | null = null;
+function nameWidthPx(text: string, fontPx: number): number {
+  nameProbe ??= new Konva.Text({ fontStyle: "bold" });
+  nameProbe.setAttrs({ text, fontSize: fontPx });
+  return nameProbe.getTextWidth();
+}
+
+/** The sizes a room's name tries inside its room, largest first; beside the room it keeps [NAME_OUTSIDE_SCALE] of its size. */
+const NAME_SCALES = [1, 0.85, 0.7];
+const NAME_OUTSIDE_SCALE = 0.85;
+
+/** A room this narrow on screen has its wall lengths outside its walls - see `labelsOutside` in `RoomShape`. */
+const WALL_LABELS_OUTSIDE_BELOW_PX = 70;
+/** How far outside the walls those lengths reach, screen pixels: 13 out, 14 of type, and the wall's own few. */
+const WALL_LABELS_OUTSIDE_REACH_PX = 30;
+
+function wallLabelsOutside(room: SketchRoom, zoom: number): boolean {
+  const b = roomBounds(room);
+  return Math.min(b.width, b.height) * zoom < WALL_LABELS_OUTSIDE_BELOW_PX;
+}
+
+/** Where one room's name is drawn ([placeRoomNames]): its box in world pixels, its lines, its type size in screen pixels, and its room's own spot for it. */
+interface RoomNamePlacement {
+  spot: NameSpot;
+  lines: string[];
+  fontPx: number;
+  anchor: { x: number; y: number };
+}
+
+/**
+ * Every shown room's name, placed (2026-10-05, lib/roomNamePlace.ts): at the room's own spot ([roomLabelAnchor]) when it
+ * fits inside the room there, wrapping at its spaces to the room's width as it always did, then smaller; else beside
+ * the room with a line to it, clear of every room's floor - but a closet's name may sit on the room it is in - and of
+ * the names placed before it. The names that fit inside go first, big rooms first, so a room's name holds its spot
+ * before a closet's comes looking; then the ones that go outside, the smallest room first, as it has the fewest places
+ * near it. In world pixels at [zoom], the names being a fixed size on screen.
+ */
+function placeRoomNames(rooms: SketchRoom[], zoom: number): Map<string, RoomNamePlacement> {
+  const out = new Map<string, RoomNamePlacement>();
+  const outline = (room: SketchRoom) => room.vertices.flatMap((v) => [v.x, v.y]);
+  const ancestors = (room: SketchRoom) => {
+    const ids = new Set<string>();
+    let id = room.parentRoomId;
+    while (id && !ids.has(id)) {
+      ids.add(id);
+      id = rooms.find((r) => r.id === id)?.parentRoomId ?? null;
+    }
+    return ids;
+  };
+  // A small room's wall lengths stand outside its walls: a name beside it keeps off them too, the room taken as its
+  // bounding box grown by their reach.
+  const floorOf = (r: SketchRoom) => {
+    if (!wallLabelsOutside(r, zoom)) return outline(r);
+    const b = roomBounds(r);
+    const g = WALL_LABELS_OUTSIDE_REACH_PX / zoom;
+    return [b.minX - g, b.minY - g, b.maxX + g, b.minY - g, b.maxX + g, b.maxY + g, b.minX - g, b.maxY + g];
+  };
+  const area = (r: SketchRoom) => {
+    const b = roomBounds(r);
+    return b.width * b.height;
+  };
+  const taken: NameBox[] = [];
+  const shown = rooms.filter((r) => labelShown(r) && r.vertices.length >= 3);
+
+  // Each room's name in its sizes: its lines at each (wrapped at its spaces to the room's width, or left out when a word
+  // alone is wider) and its box - the plate, 6 px either side and 2 above and below at full size - in world pixels.
+  const sizesOf = (room: SketchRoom) => {
+    const name = room.name.trim() || "Untitled room";
+    const sized = (scale: number, wrapPx: number) => {
+      const fontPx = LABEL_FONT_PX * scale;
+      const laid = wrapAtSpaces(name, wrapPx, (line) => nameWidthPx(line, fontPx));
+      if (!laid) return null;
+      const size: NameSize = { scale, hw: (laid.width / 2 + 6 * scale) / zoom, hh: ((laid.lines.length * fontPx) / 2 + 2 * scale) / zoom };
+      return { size, lines: laid.lines, fontPx };
+    };
+    const roomWidthPx = roomBounds(room).width * zoom;
+    const inside = NAME_SCALES.map((s) => sized(s, roomWidthPx)).filter((s): s is NonNullable<typeof s> => s != null);
+    const outside = sized(NAME_OUTSIDE_SCALE, Infinity) as NonNullable<ReturnType<typeof sized>>;
+    return { inside, outside };
+  };
+
+  // Inside first, the big rooms first.
+  const beside: SketchRoom[] = [];
+  for (const room of [...shown].sort((a, b) => area(b) - area(a))) {
+    const anchor = roomLabelAnchor(room);
+    const { inside } = sizesOf(room);
+    const spot = fitInside({ room: outline(room), taken, x: anchor.x, y: anchor.y, inside: inside.map((s) => s.size), margin: 2 / zoom });
+    const chosen = spot ? inside.find((s) => s.size === spot.size) : undefined;
+    if (!spot || !chosen) {
+      beside.push(room);
+      continue;
+    }
+    out.set(room.id, { spot, lines: chosen.lines, fontPx: chosen.fontPx, anchor });
+    taken.push(nameBox(spot));
+  }
+  // Then beside their rooms, the smallest first: it has the fewest places near it.
+  for (const room of beside.sort((a, b) => area(a) - area(b))) {
+    const anchor = roomLabelAnchor(room);
+    const { inside, outside } = sizesOf(room);
+    const keepOff = ancestors(room);
+    const spot = placeOutside({
+      room: outline(room),
+      obstacles: rooms.filter((r) => !keepOff.has(r.id) && r.vertices.length >= 3).map(floorOf),
+      taken,
+      x: anchor.x,
+      y: anchor.y,
+      outside: outside.size,
+      gap: 6 / zoom,
+      // Its line to the room is best not drawn across another room's floor, where it would seem to name that one.
+      others: rooms.filter((r) => r.id !== room.id && !keepOff.has(r.id) && r.vertices.length >= 3).map(outline),
+    });
+    // Nowhere beside it either: its smallest size at its own spot, as names were always drawn.
+    const fallback = inside[inside.length - 1] ?? outside;
+    const placed = spot ? { spot, lines: outside.lines, fontPx: outside.fontPx } : { spot: { x: anchor.x, y: anchor.y, size: fallback.size, outside: false }, lines: fallback.lines, fontPx: fallback.fontPx };
+    out.set(room.id, { ...placed, anchor });
+    taken.push(nameBox(placed.spot));
+  }
+  return out;
 }
 
 /**
@@ -1707,11 +1821,17 @@ function washUnder(room: SketchRoom, moisture: MoistureMap, rect: { x: number; y
  * A HIDDEN name (`labelHidden`) draws nothing here at all; its tap rect in `RoomShape` stays, so a
  * single tap there still selects the room and a double-tap still opens the rename.
  *
+ * WHERE, AND HOW BIG ([placeRoomNames], 2026-10-05): at the room's own spot when the name fits inside the room there,
+ * smaller if it must, and otherwise beside the room on a white plate with a line to a dot in it - so a small room is
+ * never covered whole by its own name, which is what the phone's join showed of a 3'4" hall: "I cant tell where im
+ * joining" (the owner). A name beside its room has no wash or highlight under it to stay off, so its plate is always drawn.
+ *
  * The group registers itself in `LabelNodes` so the room's own drag can carry it: the room group
- * slides during a drag and this one, a sibling, would otherwise stay put until the drop.
+ * slides during a drag and this one, a sibling, would otherwise stay put until the drop - its line and dot with it.
  */
 function RoomLabel({
   room,
+  place,
   zoom,
   selected,
   highlight,
@@ -1720,49 +1840,54 @@ function RoomLabel({
   labelNodes,
 }: {
   room: SketchRoom;
+  /** Where the name goes, from [placeRoomNames]; absent for a room whose name is hidden. */
+  place: RoomNamePlacement | undefined;
   zoom: number;
   selected: boolean;
   /** Already narrowed to this room by the caller, or null when this room is not the subject. */
   highlight: { roomId: string; wallIds: string[]; surface: "walls" | "ceiling" } | null;
   labelNodes: LabelNodes;
 } & Pick<SketchCanvasProps, "moisture" | "showMoisture">) {
-  if (!labelShown(room)) return null;
+  if (!labelShown(room) || !place) return null;
 
-  const bounds = roomBounds(room);
-  // Guaranteed to be inside the room, unlike the bounding-box centre — see `roomLabelAnchor`.
-  const anchor = roomLabelAnchor(room);
-  const name = room.name.trim() || "Untitled room";
-  // Screen pixels, like the font: the text's box is the room's width as drawn, so it wraps the same.
-  const size = measureName(name, bounds.width * zoom);
-  const plate = {
-    x: anchor.x - (size.width / 2 + 6) / zoom,
-    y: anchor.y - 9 / zoom,
-    width: (size.width + 12) / zoom,
-    height: (size.height + 4) / zoom,
-  };
+  const { spot, lines, fontPx, anchor } = place;
+  // The room's name, as `placeRoomNames` laid it out: broken only at its spaces.
+  const name = lines.join("\n");
+  const box = nameBox(spot);
+  const plate = { x: box.l, y: box.t, width: box.r - box.l, height: box.b - box.t };
   const floorIsOwnColour = highlight?.surface !== "ceiling" && !(showMoisture && washUnder(room, moisture, plate));
+  const [ex, ey] = edgeToward(spot, anchor.x, anchor.y);
 
   return (
     <Group ref={track(labelNodes, room.id)} listening={false}>
-      {floorIsOwnColour && (
+      {spot.outside && (
+        <>
+          <Line points={[ex, ey, anchor.x, anchor.y]} stroke={COLORS.label} strokeWidth={1.2 / zoom} opacity={0.75} listening={false} />
+          <Circle x={anchor.x} y={anchor.y} radius={2.5 / zoom} fill={COLORS.label} listening={false} />
+        </>
+      )}
+      {(spot.outside || floorIsOwnColour) && (
         <Rect
           x={plate.x}
           y={plate.y}
           width={plate.width}
           height={plate.height}
           cornerRadius={3 / zoom}
-          fill={roomFill(room, selected)}
-          opacity={0.7}
+          fill={spot.outside ? COLORS.fill : roomFill(room, selected)}
+          opacity={spot.outside ? 0.92 : 0.7}
+          stroke={spot.outside ? COLORS.label : undefined}
+          strokeWidth={spot.outside ? 0.75 / zoom : 0}
           listening={false}
         />
       )}
       <Text
-        x={anchor.x - bounds.width / 2}
-        y={anchor.y - 7 / zoom}
-        width={bounds.width}
+        x={plate.x}
+        y={spot.y - (lines.length * fontPx) / 2 / zoom}
+        width={plate.width}
         align="center"
+        wrap="none"
         text={name}
-        fontSize={LABEL_FONT_PX / zoom}
+        fontSize={fontPx / zoom}
         fontStyle="bold"
         fill={COLORS.label}
         listening={false}
