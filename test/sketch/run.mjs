@@ -30,6 +30,7 @@ import { runModel3dChecks } from "./model3d.mjs";
 import { runWalkViewChecks } from "./walkView.mjs";
 import { runTurnChecks } from "./turn.mjs";
 import { runPanoramaChecks } from "./panorama.mjs";
+import { runSpotStillsChecks } from "./spotStills.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..", "..");
@@ -195,6 +196,18 @@ if (panorama.failures.length > 0) {
   process.exit(1);
 }
 console.log(`  Panorama: ok (${panorama.passed.length} checks — frames a few degrees out come back together, exposures even out, spots alone are walked to)`);
+
+// A 360° spot one still at a time: its rings, round them and up and down, and the zoom.
+const spotStills = await runSpotStillsChecks();
+if (spotStills.failures.length > 0) {
+  console.error(`
+  Spot stills: ${spotStills.passed.length} passed, ${spotStills.failures.length} FAILED
+`);
+  for (const failure of spotStills.failures) console.error(`    ✗ ${failure}
+`);
+  process.exit(1);
+}
+console.log(`  Spot stills: ok (${spotStills.passed.length} checks — a spot's stills in rings, turned through to the right, zoomed about the pointer)`);
 
 await build({
   entryPoints: [join(here, "entry.tsx")],

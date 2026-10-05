@@ -42,6 +42,8 @@ function updaterSpans(source) {
     const callee = match[1];
     // Updaters are passed to setters and to change handlers that forward to one.
     if (!/^(set[A-Z]|on[A-Z]\w*Change$)/.test(callee) && !/\.(set[A-Z])/.test(callee)) continue;
+    // A timer's callback is not an updater: React never runs it while rendering.
+    if (/(^|\.)set(Timeout|Interval)$/.test(callee)) continue;
 
     const open = source.indexOf("(", match.index + callee.length - 1);
     let depth = 0;

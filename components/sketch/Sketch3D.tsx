@@ -27,6 +27,16 @@
  * on its floor. A step between two spots crossfades their panoramas. The frames hang as before only
  * until the panorama is ready, and on a graphics card that cannot stitch.
  *
+ * ONE STILL AT A TIME (2026-10-05). A week of stitching left door jambs bent where two stills met, a pet
+ * bed doubled and the floor a blurred cap, and the owner called it: "instead of trying to stitch
+ * everything together into one panoramic image we just click through the photos taken, left/right or
+ * up/down... id just want the user to be able to zoom in/out in specific spots on each still frame". So
+ * at a spot the stills are shown as the phone took them, one at a time over the view
+ * (components/sketch/SpotStills.tsx): left and right round the ring, up and down to the floor's ring and
+ * back, zoomed by the wheel, a pinch or a double tap. The plan in the corner still goes anywhere, its wedge
+ * turning with the still shown, and Previous and Next go from spot to spot. The stitching stays, unused,
+ * behind [SPOT_STILLS].
+ *
  * THE DOLLHOUSE is the model from above, to turn and zoom, with a ring on the floor wherever the walk
  * can be joined; tapping near one flies down into it. "Low walls" cuts every wall at 4' there.
  *
@@ -54,6 +64,7 @@ import {
 } from "@/lib/walkView";
 import { alignFrames, cross as crossV, warpThrough, type PanoFrame, type V3 } from "@/lib/panorama";
 import { grayOf, PanoBaker, panoMaterial, type DistanceMap } from "./panoBake";
+import SpotStills, { stillWords, type SpotStillsApi, type StillShown } from "./SpotStills";
 
 interface Props {
   sketch: Sketch;
@@ -96,6 +107,11 @@ const MAX_PICTURE_PX = 1280;
 const MAX_PICTURES = 60;
 /** How wide the view is at a spot, top to bottom: a spot is for looking round, not at one photo. */
 const SPOT_FOV_DEG = 72;
+/**
+ * A 360° spot is shown one still at a time (components/sketch/SpotStills.tsx), not stitched into a panorama
+ * (2026-10-05, the doc above). False brings the stitching back: nothing of it has been taken out.
+ */
+const SPOT_STILLS = true;
 /**
  * A spot's panorama is drawn on a sphere this big round it (2026-10-02): bigger than any step between
  * two spots, so the view never leaves the one it is fading out of, and about a room's size, so the step
@@ -248,6 +264,10 @@ interface SceneApi {
   step: (direction: 1 | -1) => void;
   dollhouse: () => void;
   refreshPhotos: () => void;
+  /** Turns the walk's view to look this way (a spot's still being shown): radians. */
+  look: (yaw: number, pitch: number) => void;
+  /** Which way the view faces, or will on arriving where it is going; null in the dollhouse. */
+  heading: () => number | null;
 }
 
 /** Where the view stands and looks, for the plan in the corner: feet and radians. */
@@ -289,6 +309,13 @@ export default function Sketch3D({ sketch, onClose }: Props) {
   // The plan in the corner: its marker is moved by the render loop, not by React.
   const markerRef = useRef<SVGGElement>(null);
   const poseRef = useRef<Pose | null>(null);
+  // On a flight to or from the dollhouse, when a spot's stills stand aside for the model (2026-10-05).
+  const [flying, setFlying] = useState(false);
+  // Which still a spot is showing, for the bar along the bottom.
+  const [stillShown, setStillShown] = useState<StillShown | null>(null);
+  const stillsApi = useRef<SpotStillsApi | null>(null);
+  // While a spot's stills cover the view, the model behind them is not drawn.
+  const coveredRef = useRef(false);
 
   const arrive = useCallback((key: ViewpointKey) => {
     atRef.current = key;
@@ -591,7 +618,8 @@ export default function Sketch3D({ sketch, onClose }: Props) {
         );
       };
       const ensurePhoto = (v: Viewpoint | null | undefined) => {
-        if (v) for (const f of picturesAt(v)) ensurePicture(f);
+        // A spot's stills are shown by SpotStills, full size, and never hung in the model (2026-10-05).
+        if (v && !(SPOT_STILLS && v.frames)) for (const f of picturesAt(v)) ensurePicture(f);
       };
       /** The pictures a step or two away, so they are there when the view arrives. */
       const prefetch = (v: Viewpoint, yaw: number) => {
@@ -663,10 +691,14 @@ export default function Sketch3D({ sketch, onClose }: Props) {
           camera: f.camera,
         }));
       const panoReady = (v: Viewpoint | null | undefined) => !!v?.frames && panos.get(keyOf(v.key))?.state === "ready";
-      /** A spot whose panorama is still to come (its frames loading, its stitch baking or lining up): the model stands plain, no pictures hung. */
-      const panoPending = (v: Viewpoint | null | undefined) => !!v?.frames && !!baker && !panoReady(v) && panos.get(keyOf(v.key))?.state !== "failed";
+      /**
+       * A spot whose panorama is still to come (its frames loading, its stitch baking or lining up): the model stands plain, no
+       * pictures hung. Shown one still at a time, a spot is always this: the model plain under its stills.
+       */
+      const panoPending = (v: Viewpoint | null | undefined) =>
+        !!v?.frames && (SPOT_STILLS || (!!baker && !panoReady(v) && panos.get(keyOf(v.key))?.state !== "failed"));
       const ensurePano = (v: Viewpoint | null | undefined) => {
-        if (!baker || !v?.frames) return;
+        if (SPOT_STILLS || !baker || !v?.frames) return;
         const key = keyOf(v.key);
         const had = panos.get(key);
         if (had) {
@@ -861,6 +893,12 @@ export default function Sketch3D({ sketch, onClose }: Props) {
         }
         transition = { from, to, start: performance.now(), ms: fromDollhouse ? FLY_MS : ms, fromKey: current ? keyOf(current.key) : null, target: v, then: "walk" };
         zoomed = false;
+        if (SPOT_STILLS && v.frames) {
+          // A spot's stills come up now, to be loaded by the time the view gets there; on a flight they stand
+          // aside until it lands.
+          if (fromDollhouse) setFlying(true);
+          arrive(v.key);
+        }
       };
       const toDollhouse = () => {
         const f = framing(levelRef.current);
@@ -877,6 +915,7 @@ export default function Sketch3D({ sketch, onClose }: Props) {
           target: null,
           then: "dollhouse",
         };
+        setFlying(true);
       };
 
       // ---- Pointer: drag to look round (walk) or turn the model (dollhouse); tap to go ------------
@@ -1029,6 +1068,7 @@ export default function Sketch3D({ sketch, onClose }: Props) {
           if (tr.then === "walk" && t > 0.85) for (const c of ceilings) c.visible = true;
           if (t >= 1) {
             transition = null;
+            setFlying(false);
             if (tr.then === "walk" && tr.target) {
               current = tr.target;
               inside(true, tr.target.level);
@@ -1092,7 +1132,7 @@ export default function Sketch3D({ sketch, onClose }: Props) {
           (m.material.uniforms.opacity as { value: number }).value = o;
           m.renderOrder = order;
         }
-        const stitchingNow = !!(hereV?.frames && baker && !panoReady(hereV) && panos.get(keyOf(hereV.key))?.state !== "failed");
+        const stitchingNow = !SPOT_STILLS && !!(hereV?.frames && baker && !panoReady(hereV) && panos.get(keyOf(hereV.key))?.state !== "failed");
         if (stitchingNow !== lastStitching) {
           lastStitching = stitchingNow;
           setStitching(stitchingNow);
@@ -1123,8 +1163,11 @@ export default function Sketch3D({ sketch, onClose }: Props) {
         });
         // The rings: not under the view's own feet, and only for the storey being walked.
         for (const [k, ring] of rings) ring.visible = !(walking && current && k === keyOf(current.key));
-        renderer.render(scene, camera);
-        labels.render(scene, camera);
+        // Under a spot's stills nothing of the model shows: not drawn, only followed for the plan below.
+        if (!coveredRef.current) {
+          renderer.render(scene, camera);
+          labels.render(scene, camera);
+        }
         // The plan in the corner follows the view.
         if (walking) poseRef.current = { x: view.pos.x, z: view.pos.z, yaw: view.yaw, fov: view.fov };
         const marker = markerRef.current;
@@ -1152,6 +1195,20 @@ export default function Sketch3D({ sketch, onClose }: Props) {
           if (current) prefetch(current, view.yaw);
           else for (const v of points.slice(0, 1)) ensurePhoto(v);
         },
+        look: (yaw, pitch) => {
+          if (modeRef.current !== "walk") return;
+          if (transition) {
+            // Part way to a spot: it arrives looking this way. On the way out to the dollhouse, nothing.
+            if (transition.then === "walk") {
+              transition.to.yaw = yaw;
+              transition.to.pitch = pitch;
+            }
+            return;
+          }
+          view.yaw = yaw;
+          view.pitch = pitch;
+        },
+        heading: () => (transition ? (transition.then === "walk" ? transition.to.yaw : null) : modeRef.current === "walk" ? view.yaw : null),
       };
       setStatus("ready");
       teardown = () => {
@@ -1261,6 +1318,17 @@ export default function Sketch3D({ sketch, onClose }: Props) {
   }, [points, walks]);
   const clock = (seconds: number) => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
 
+  // A spot's stills (2026-10-05): on the stage while walk mode is at a spot - loading, unseen, on a flight in, so
+  // the first is there when it lands - and over the model, which is then not drawn, once it has.
+  const spotPoint = useMemo(() => (at?.spot ? points.find((p) => p.frames && viewpointId(p.key) === viewpointId(at)) ?? null : null), [at, points]);
+  const stillsOn = SPOT_STILLS && mode === "walk" && status === "ready" && spotPoint != null;
+  const stillsShowing = stillsOn && !flying;
+  coveredRef.current = stillsShowing;
+  const stillsShowingRef = useRef(stillsShowing);
+  stillsShowingRef.current = stillsShowing;
+  const startYaw = useCallback(() => sceneApi.current?.heading() ?? null, []);
+  const lookAt = useCallback((yaw: number, pitch: number) => sceneApi.current?.look(yaw, pitch), []);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
@@ -1269,6 +1337,25 @@ export default function Sketch3D({ sketch, onClose }: Props) {
         return;
       }
       if (modeRef.current !== "walk") return;
+      const stills = stillsShowingRef.current ? stillsApi.current : null;
+      if (stills && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        // At a spot the arrows go round its stills; Page Up and Down go through the walk's spots.
+        const k = e.key;
+        if (k === "ArrowLeft") stills.turn(-1);
+        else if (k === "ArrowRight") stills.turn(1);
+        else if (k === "ArrowUp") stills.tilt(-1);
+        else if (k === "ArrowDown") stills.tilt(1);
+        else if (k === "+" || k === "=") stills.zoomBy(1.6);
+        else if (k === "-" || k === "_") stills.zoomBy(1 / 1.6);
+        else if (k === "0") stills.fit();
+        else if (k === "PageDown") stepAlong(1);
+        else if (k === "PageUp") stepAlong(-1);
+        else if (k === "w" || k === "W") sceneApi.current?.step(1);
+        else if (k === "s" || k === "S") sceneApi.current?.step(-1);
+        else return;
+        e.preventDefault();
+        return;
+      }
       if (e.key === "ArrowUp" || e.key === "w" || e.key === "W") sceneApi.current?.step(1);
       else if (e.key === "ArrowDown" || e.key === "s" || e.key === "S") sceneApi.current?.step(-1);
       else if (e.key === "ArrowRight") stepAlong(1);
@@ -1362,6 +1449,20 @@ export default function Sketch3D({ sketch, onClose }: Props) {
             {status === "loading" ? "Building the house in 3D…" : "This browser can't draw 3D here. Try Chrome or Safari on a recent device."}
           </p>
         )}
+        {stillsOn && spotPoint && (
+          <div
+            aria-hidden={!stillsShowing}
+            style={{
+              position: "absolute",
+              inset: 0,
+              opacity: stillsShowing ? 1 : 0,
+              pointerEvents: stillsShowing ? "auto" : "none",
+              transition: "opacity 260ms ease-out",
+            }}
+          >
+            <SpotStills spot={spotPoint} urls={urls[spotPoint.scanId]} startYaw={startYaw} onLook={lookAt} onShown={setStillShown} apiRef={stillsApi} />
+          </div>
+        )}
         {mode === "walk" && status === "ready" && (
           <FloorPlan
             sketch={sketch}
@@ -1397,7 +1498,8 @@ export default function Sketch3D({ sketch, onClose }: Props) {
             }}
           >
             <span style={{ fontSize: 13, color: "#5b6472", flex: 1, minWidth: 160 }}>
-              360° spot {spotIndex + 1} of {spots.length} · {stitching ? "stitching its photos together…" : "drag to look all the way round"}
+              360° spot {spotIndex + 1} of {spots.length} ·{" "}
+              {stillsOn ? (stillShown ? stillWords(stillShown) : "its photos") : stitching ? "stitching its photos together…" : "drag to look all the way round"}
               {walks.length > 1 ? ` · ${levelLabel(currentWalk.level)}` : ""}
             </span>
             <button type="button" className="option-btn" onClick={() => stepAlong(-1)} disabled={spotIndex === 0}>
@@ -1453,9 +1555,13 @@ export default function Sketch3D({ sketch, onClose }: Props) {
       </div>
       <p className="field-note" style={{ margin: 0, padding: "8px 16px", paddingBottom: "calc(8px + env(safe-area-inset-bottom, 0px))", background: "#fff", borderTop: "1px solid var(--border, #e1e5ea)" }}>
         {mode === "walk"
-          ? coarse
-            ? "Drag to look around · tap the floor to go there · Previous and Next go through the walk in order"
-            : "Drag to look around · tap the floor to go there · ↑ ↓ step forward and back · ← → through the walk in order · Esc for the dollhouse"
+          ? stillsOn
+            ? coarse
+              ? "Swipe to look around · pinch or double-tap to zoom · Previous and Next go to the other 360s · tap the plan to go there"
+              : "← → turn · ↑ ↓ look up and down · scroll or double-click to zoom, drag to move about · Page Up / Down the other 360s · Esc for the dollhouse"
+            : coarse
+              ? "Drag to look around · tap the floor to go there · Previous and Next go through the walk in order"
+              : "Drag to look around · tap the floor to go there · ↑ ↓ step forward and back · ← → through the walk in order · Esc for the dollhouse"
           : `Drag to turn · scroll or pinch to zoom · right-drag or two fingers to pan${points.length > 0 ? " · tap a ring on the floor to walk in from there" : ""}`}
       </p>
     </div>
