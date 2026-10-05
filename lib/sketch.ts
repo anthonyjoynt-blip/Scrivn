@@ -3438,8 +3438,9 @@ export function openingsSharedWith(room: SketchRoom, rooms: SketchRoom[]): Share
       const along = (w: WallGeometry) => ((at.x - w.x1) * (w.x2 - w.x1) + (at.y - w.y1) * (w.y2 - w.y1)) / w.lengthPx;
       const mine = ownWalls.find((w) => {
         // Across one partition, not only on one line: a scan lays joined rooms a wall apart (see
-        // `acrossOnePartition`), and a door in that wall is in both rooms' walls all the same.
-        if (!acrossOnePartition(w, theirs)) return false;
+        // `acrossOnePartition`), and a door in that wall is in both rooms' walls all the same - or the
+        // doorway itself in this wall's partition though the two walls run a few degrees apart (`doorwayAcross`).
+        if (!acrossOnePartition(w, theirs) && !doorwayAcross(w, theirs, at)) return false;
         const u = along(w);
         return u + half > 0 && u - half < w.lengthPx;
       });
@@ -3505,7 +3506,9 @@ export function dropDuplicateSharedOpenings(rooms: SketchRoom[]): SketchRoom[] {
         if (roomLevel(earlier) !== roomLevel(room)) continue;
         const hit = earlier.symbols.some((their) => {
           const theirs = spanOf(earlier, their);
-          if (!theirs || !acrossOnePartition(mine.wall, theirs.wall)) return false;
+          if (!theirs) return false;
+          const middle = { x: (theirs.a.x + theirs.b.x) / 2, y: (theirs.a.y + theirs.b.y) / 2 };
+          if (!acrossOnePartition(mine.wall, theirs.wall) && !doorwayAcross(mine.wall, theirs.wall, middle)) return false;
           // Both spans projected onto one of the two walls: the same line, or its other face.
           const u = mine.wall;
           const at = (p: { x: number; y: number }) => ((p.x - u.x1) * (u.x2 - u.x1) + (p.y - u.y1) * (u.y2 - u.y1)) / u.lengthPx;
@@ -3580,6 +3583,28 @@ export function acrossOnePartition(a: WallGeometry, b: WallGeometry): boolean {
   const lo = Math.min(along({ x: b.x1, y: b.y1 }), along({ x: b.x2, y: b.y2 }));
   const hi = Math.max(along({ x: b.x1, y: b.y1 }), along({ x: b.x2, y: b.y2 }));
   return Math.min(hi, a.lengthPx) - Math.max(lo, 0) > 1;
+}
+
+/** How far two rooms' walls may turn from each other and a doorway in one still be in the other's partition ([doorwayAcross]). */
+const DOORWAY_TURN_SIN = Math.sin((15 * Math.PI) / 180);
+
+/**
+ * Is a doorway of another room - on its wall [theirs], its middle at [middle] - in the partition of wall [w]: the two walls
+ * running within 15 degrees of each other and the doorway's middle within [PARTITION_MAX_PX] of [w]'s line?
+ *
+ * The walls' own ends need not be (`acrossOnePartition`). The 13:04 walk of 2026-10-05 laid the office's angled wall 9.5
+ * degrees off the family room's, one end of it 10" from the other's line, and the office door - tapped from both rooms, the
+ * two doors' middles 5" apart - was drawn twice: "the rendered sketch you made doubled the office door" (the owner). A
+ * doorway is a hole a few feet wide; where IT is decides, not where two walls drawn round it end.
+ */
+export function doorwayAcross(w: WallGeometry, theirs: WallGeometry, middle: { x: number; y: number }): boolean {
+  if (w.lengthPx <= 0 || theirs.lengthPx <= 0) return false;
+  const ax = (w.x2 - w.x1) / w.lengthPx;
+  const ay = (w.y2 - w.y1) / w.lengthPx;
+  const bx = (theirs.x2 - theirs.x1) / theirs.lengthPx;
+  const by = (theirs.y2 - theirs.y1) / theirs.lengthPx;
+  if (Math.abs(ax * by - ay * bx) > DOORWAY_TURN_SIN) return false;
+  return Math.abs((middle.x - w.x1) * ay - (middle.y - w.y1) * ax) <= PARTITION_MAX_PX;
 }
 
 /** Do two walls lie along one line, overlapping — a shared wall, or a shared stretch of one? */

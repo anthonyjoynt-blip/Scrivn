@@ -1335,6 +1335,12 @@ export async function runScanImportChecks() {
     assert(walkIn.symbols.filter((s) => s.type === "door").length === 0, `the walk-in's copy of it is gone, got ${walkIn.symbols.map((s) => s.type)}`);
     const shared = sketch.openingsSharedWith(walkIn, rooms);
     assert(shared.some((o) => o.room.id === bedroom.id), "the bedroom's door is open in the walk-in's wall too");
+    // The office's door, tapped from it and from the main room on angled walls 9.5 degrees apart, one end of the office's
+    // 10" off the other's line: one door, the main room's, open in the office's wall all the same.
+    const office = named("Room 7");
+    assert(office.symbols.filter((s) => s.type === "door" && s.doorType === "swing").length === 0, `the office's copy of its door is gone, got ${office.symbols.map((s) => s.doorType ?? s.type)}`);
+    assert(sketch.openingsSharedWith(office, rooms).some((o) => o.room.id === named("Room 1").id), "the main room's door is open in the office's wall");
+    assert(result.notes.includes("7 doorways were tapped from both rooms; drawn once."), `seven doorways folded, got ${JSON.stringify(result.notes)}`);
   });
 
   test("the rooms are named from the file, and the hall beside the family room is a neighbour, not a sub-room", () => {
