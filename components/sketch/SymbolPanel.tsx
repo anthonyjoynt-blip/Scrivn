@@ -45,8 +45,9 @@ import {
  * `onAddCloset` is a button, not a behaviour: a door in a wall is not evidence of a closet behind
  * it, and the PM asked that closets never appear on their own. The editor passes it only for doors;
  * the panel hides it for anything else, so a window never offers a closet. See `closetBehindDoor`
- * in lib/sketch.ts for what gets drawn — a 2'0" rectangle, or on a chamfer the cut-off corner —
- * and `closetShapeBehindDoor` for which of the two a given door would get.
+ * in lib/sketch.ts for what gets drawn — the space behind the door: a notch or a cut-off corner out
+ * to the room's own walls, else a rectangle to the room behind it or 2'0" deep — and
+ * `closetShapeBehindDoor` for which of the two a given door would get.
  */
 export function SymbolPanel({
   room,
@@ -87,7 +88,7 @@ export function SymbolPanel({
         </button>
       </div>
       {offersCloset && (
-        <p className="field-note">{"Draws a closet on the other side of the wall: 2'0\" deep, centred on the door — or, on a chamfer, the cut-off corner behind it. Drag or type its walls to fit."}</p>
+        <p className="field-note">{"Draws a closet in the space behind the door: in a notch or a cut-off corner, out to the room's own walls; behind a straight wall, to the room behind it, or 2'0\" deep. Drag or type its walls to fit."}</p>
       )}
       <p className="field-note">Drag the symbol to slide it along its wall, or drag either end handle to resize it. To move it to a different wall, delete it and place a new one.</p>
     </div>

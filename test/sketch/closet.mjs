@@ -11,7 +11,10 @@
  * it, never wider than the wall. On a chamfer the closet is the corner
  * the chamfer cut off instead, and the second half of the file is each of the four conditions
  * that decide it, one at a time — each with a room that passes the other three, so that dropping
- * any one of them fails a check of its own. Runs in Node like the placement, dimension and
+ * any one of them fails a check of its own. The last part is the space behind the door
+ * (2026-10-05): a door in a notch fills the notch to the room's own lines, a closet stands a wall
+ * off every room round it, and one behind a straight wall reaches the room behind it - the rooms of
+ * the walk of 10:07, as Scrivn drew them. Runs in Node like the placement, dimension and
  * scan-import checks next door.
  */
 
@@ -335,11 +338,21 @@ export async function runClosetChecks() {
     assert(!closetDoorIds.includes(imported.symbols.find((s) => s.type === "window").id), "the window is not a closet door");
 
     const onFace = imported.symbols.find((s) => s.id === closetDoorIds[0]);
+    assert(sketch.closetShapeBehindDoor(imported, onFace.id) === "corner", "a door under the notch fills the notch");
     const closet = sketch.closetBehindDoor(imported, onFace.id);
-    expectCloset(imported, closet, onFace.wallId, { widthFeet: 3.5, depthFeet: 2, doorT: onFace.t });
     assert(closet.level === 1, `closet should join the storey the room was imported on, got ${closet.level}`);
     near(closet.ceilingHeightFeet, 8.5, "closet takes the scanned 8'6\" ceiling", 1e-9);
-    // Edge 0 is the closet face with the notch above it: the closet lands in the notch.
+    // Edge 0 is the closet face with the notch above it: the closet fills the notch (2026-10-05) - out to the
+    // room's own top and left lines, a wall off the face and off the notch's side wall.
+    const face = sketch.wallById(imported, onFace.wallId);
+    const side = sketch.wallsOf(imported)[(face.index + 1) % imported.vertices.length];
+    const b = sketch.roomBounds(imported);
+    const cb = sketch.roomBounds(closet);
+    assert(closet.vertices.length === 4, `the notch is a rectangle, got ${closet.vertices.length} corners`);
+    near(cb.minY, b.minY, "the closet's back on the room's own top line", 0.01);
+    near(cb.minX, b.minX, "its end on the room's own left line", 0.01);
+    near(cb.maxY, face.y1 - sketch.WALL_THICKNESS_PX, "a wall off the closet face", 0.01);
+    near(cb.maxX, side.x1 - sketch.WALL_THICKNESS_PX, "a wall off the notch's side wall", 0.01);
     const c = centroid(closet.vertices);
     assert(c.y < 60 + 0.635 * (12 / 0.3048) && c.x >= 60 && c.x <= 60 + 1.27 * (12 / 0.3048), `closet should sit in the notch above the face, centroid (${c.x.toFixed(1)}, ${c.y.toFixed(1)})`);
   });
@@ -415,16 +428,25 @@ export async function runClosetChecks() {
     near((p + q) / 2, centreAlong, "closet centred on the door", 0.01);
   });
 
-  test("a door on the connecting wall of an L (a jog: neighbours run the same way) gets the rectangle", () => {
+  test("a door on the connecting wall of an L fills the L's notch, out to the room's own lines", () => {
     // Clockwise: top, right side down to the step, the 4' step going left, then down the inner
-    // wall. Wall v2 is the step; v1 and v3 both run straight down, so their lines never meet.
+    // wall. Wall v2 is the step; v1 and v3 both run straight down, so their lines never meet -
+    // no chamfer. Until 2026-10-05 it got the 3'6" x 2' rectangle; the notch it opens into is the
+    // closet ("fill the space behind the closet doors that dont have a room there", the owner).
     const parent = room([[0, 0], [144, 0], [144, 60], [96, 60], [96, 120], [0, 120]]);
     parent.symbols = [door("v2")];
-    assert(sketch.closetShapeBehindDoor(parent, "door-1") === "rectangle", `expected "rectangle", got ${JSON.stringify(sketch.closetShapeBehindDoor(parent, "door-1"))}`);
+    assert(sketch.closetShapeBehindDoor(parent, "door-1") === "corner", `expected "corner", got ${JSON.stringify(sketch.closetShapeBehindDoor(parent, "door-1"))}`);
     const closet = sketch.closetBehindDoor(parent, "door-1");
-    expectCloset(parent, closet, "v2", { widthFeet: 3.5, depthFeet: 2 });
-    // Outside the L means into the notch: x past the inner wall, y past the step.
-    for (const v of closet.vertices) assert(v.x >= 96 - 0.01 && v.y >= 60 - 0.01, `corner (${v.x.toFixed(1)}, ${v.y.toFixed(1)}) is not in the notch`);
+    assert(closet.vertices.length === 4, `expected 4 corners, got ${closet.vertices.length}`);
+    assert(signedArea(closet.vertices) >= 0, "closet is not wound clockwise");
+    const b = sketch.roomBounds(closet);
+    // A wall off the step and the inner wall; the room's own right and bottom lines beyond.
+    near(b.minX, 100, "a wall off the inner wall", 0.01);
+    near(b.minY, 64, "a wall off the step", 0.01);
+    near(b.maxX, 144, "on the room's right line", 0.01);
+    near(b.maxY, 120, "on the room's bottom line", 0.01);
+    const c = centroid(closet.vertices);
+    assert(!sketch.isInsideRoom(parent, c.x, c.y), "the closet is not on the floor");
   });
 
   test("a short wall across a gentle kink in a wall run gets the rectangle; the same cut across a turn past the threshold is a chamfer", () => {
@@ -449,21 +471,31 @@ export async function runClosetChecks() {
     expectCorner(bent, sketch.closetBehindDoor(bent, "door-1"), "v1", KINK_X);
   });
 
-  test("a diagonal across an INSIDE corner (X on the room's own floor) gets the rectangle, not a triangle drawn on the floor", () => {
+  test("a diagonal across an INSIDE corner fills what is left of the notch, out to the room's own lines - never the floor", () => {
     // The L from the jog check with its inner corner (96, 60) filled in by a 3' cut at 45 degrees:
     // the same cut `chamfered` makes, across a corner that points into the room instead of out of
-    // it. Its neighbours turn a clean 90 degrees, both legs are 3' and the cut is the longest side,
-    // so (a), (c) and (d) all say chamfer; only (b) sees that where the walls would have met is on
-    // the floor. Without it the closet would be drawn on the floor — the failure this file exists
-    // to look for, and the one nobody else does.
+    // it. Where its neighbours would have met is on the floor - (b) of the chamfer rule - and a
+    // closet drawn there would be drawn on the floor: the failure this file exists to look for.
+    // What is behind the cut is the rest of the notch, and since 2026-10-05 the closet fills it:
+    // the bedroom of the 10:07 walk had exactly this, a diagonal closet door across a notch's inside
+    // corner, and the closet ran out to the room's corner ("more like the red lines", the owner).
     const parent = room([[0, 0], [144, 0], [144, 60], [132, 60], [96, 96], [96, 120], [0, 120]]);
     assert(sketch.isInsideRoom(parent, 100, 62), "the filled-in corner should be floor (test bug otherwise)");
     parent.symbols = [door("v3")];
-    assert(sketch.closetShapeBehindDoor(parent, "door-1") === "rectangle", `expected "rectangle", got ${JSON.stringify(sketch.closetShapeBehindDoor(parent, "door-1"))}`);
+    assert(sketch.closetShapeBehindDoor(parent, "door-1") === "corner", `expected "corner", got ${JSON.stringify(sketch.closetShapeBehindDoor(parent, "door-1"))}`);
     const closet = sketch.closetBehindDoor(parent, "door-1");
-    expectCloset(parent, closet, "v3", { widthFeet: 3.5, depthFeet: 2 });
+    assert(closet.vertices.length === 5, `the notch less the cut, a wall off it: 5 corners, got ${closet.vertices.length}`);
+    assert(signedArea(closet.vertices) >= 0, "closet is not wound clockwise");
     // Outside the cut is into what is left of the notch: past the inner wall's line and the step's.
     for (const v of closet.vertices) assert(v.x >= 96 - 0.01 && v.y >= 60 - 0.01, `corner (${v.x.toFixed(1)}, ${v.y.toFixed(1)}) is not in the notch`);
+    const has = (x, y, what) => assert(closet.vertices.some((v) => Math.hypot(v.x - x, v.y - y) < 0.01), `no corner at ${what} (${x}, ${y}); got ${closet.vertices.map((v) => `(${v.x.toFixed(2)}, ${v.y.toFixed(2)})`).join(" ")}`);
+    has(144, 120, "the room's own corner");
+    has(144, 64, "the right line, a wall off the step");
+    has(100, 120, "the bottom line, a wall off the inner wall");
+    const cut = sketch.wallById(parent, "v3");
+    assert(closet.vertices.filter((v) => Math.abs(offWall(v, cut) - sketch.WALL_THICKNESS_PX) < 0.01).length === 2, "two corners a wall off the cut");
+    const c = centroid(closet.vertices);
+    assert(!sketch.isInsideRoom(parent, c.x, c.y), "the closet is not on the floor");
   });
 
   test("a 20' diagonal between square neighbours meeting 14' away is a wall, not a chamfer: the rectangle", () => {
@@ -564,6 +596,134 @@ export async function runClosetChecks() {
     cut.symbols = [door("v1", { t: 0.3 }), door("v1", { t: 0.7, id: "door-2" })];
     assert(sketch.closetExistsBehind([cut], cut, "door-2") === false, "no closet behind the second chamfer door yet");
     assert(sketch.closetExistsBehind([cut, sketch.closetBehindDoor(cut, "door-1")], cut, "door-2") === true, "the first door's corner is the second door's corner too");
+  });
+
+  /* ── the space behind the door: the walk of 10:07 ─────────────────────────────────────────── */
+
+  // The rooms as Scrivn drew them from the walk of 2026-10-05 10:07 (world pixels, an inch each), and
+  // the closet doors on them. "the closets in the bedrooms are wrong. and the office too. the office and
+  // storage room closets should fill the space cleanly. not leave a gap. the corner closets are more like
+  // the red lines ... the hall closet now removes the wall between itself and the bedroom below" (the owner).
+  const walk = {
+    bedroom: room([[72, 186], [72, 63], [235, 63], [235, 100], [263, 127], [308, 127], [308, 186]], { id: "room-7", name: "Room 7" }),
+    bedroomBelow: room([[259, 383], [259, 439], [230, 468], [230, 517], [66, 517], [66, 383]], { id: "room-6", name: "Room 6" }),
+    storage: room([[412, 60], [591, 60], [591, 112], [604, 112], [604, 183], [412, 183]], { id: "room-2", name: "Room 2" }),
+    office: room([[212, 314], [64, 314], [64, 190], [212, 190], [212, 246], [242, 246], [249, 277]], { id: "room-3", name: "Room 3" }),
+    hall: room([[164, 359], [164, 318], [211, 318], [211, 359]], { id: "room-4", name: "Room 4" }),
+    bathroom: room([[60, 379], [60, 314], [160, 314], [160, 379]], { id: "room-5", name: "Room 5" }),
+    // The rec room's walls the office and the hall face: its inside face 4" off theirs.
+    recByOffice: room([[246, 150], [400, 150], [400, 300], [246, 300]], { id: "room-1a", name: "Room 1" }),
+    recByHall: room([[216, 316], [300, 316], [300, 378], [216, 378]], { id: "room-1b", name: "Room 1" }),
+  };
+  walk.bedroom.symbols = [door("v3", { widthFeet: 2.5833, doorType: "bifold", t: 0.453 })];
+  walk.bedroomBelow.symbols = [door("v1", { widthFeet: 2.5833, doorType: "bifold", t: 0.465 })];
+  walk.storage.symbols = [door("v1", { widthFeet: 2.3333, doorType: "bifold", t: 0.339 })];
+  walk.office.symbols = [door("v3", { widthFeet: 2.5833, doorType: "bifold", t: 0.333 })];
+  walk.hall.symbols = [door("v3", { widthFeet: 3, doorType: "bifold", t: 0.582 })];
+  const house = Object.values(walk);
+  const corners = (closet) => closet.vertices.map((v) => `(${v.x.toFixed(1)}, ${v.y.toFixed(1)})`).join(" ");
+  const cornerAt = (closet, x, y, what) =>
+    assert(closet.vertices.some((v) => Math.hypot(v.x - x, v.y - y) < 0.05), `no corner at ${what} (${x}, ${y}); got ${corners(closet)}`);
+
+  test("the bedroom's diagonal closet door in a notch: the closet fills the notch out to the room's corner", () => {
+    // The notch above the bedroom's right end: the top wall stops at x 235, a 3' wall down, the 3'3"
+    // diagonal with the door, a 3'9" wall over to the right wall at x 308. Where the diagonal's
+    // neighbours meet is on the floor, so this was a 2' box at 45 degrees; the closet is the notch.
+    const room7 = walk.bedroom;
+    assert(sketch.closetShapeBehindDoor(room7, "door-1", house) === "corner", "a door in a notch fills the notch");
+    const closet = sketch.closetBehindDoor(room7, "door-1", {}, house);
+    cornerAt(closet, 308, 63, "the room's corner, where its top and right walls' lines meet");
+    cornerAt(closet, 239, 63, "the top line, a wall off the notch's left wall");
+    cornerAt(closet, 308, 123, "the right line, a wall off the notch's bottom wall");
+    const diagonal = sketch.wallById(room7, "v3");
+    assert(closet.vertices.filter((v) => Math.abs(offWall(v, diagonal) - sketch.WALL_THICKNESS_PX) < 0.01).length === 2, `two corners a wall off the diagonal; got ${corners(closet)}`);
+    assert(closet.vertices.length === 5, `expected 5 corners, got ${closet.vertices.length}`);
+  });
+
+  test("the other bedroom's chamfer between two parallel walls fills to the room's corner", () => {
+    // A 3'5" diagonal from the right wall to a 4'1" wall that runs on down: the walls either side of
+    // it are parallel, so they never meet and there was no corner - a 2' box at 45 degrees again.
+    const room6 = walk.bedroomBelow;
+    const closet = sketch.closetBehindDoor(room6, "door-1", {}, house);
+    cornerAt(closet, 259, 517, "the room's corner");
+    cornerAt(closet, 234, 517, "the bottom line, a wall off the 4'1\" wall");
+    assert(closet.vertices.length === 4, `expected 4 corners, got ${closet.vertices.length}: ${corners(closet)}`);
+    const b = sketch.roomBounds(closet);
+    near(b.maxX, 259, "on the room's right line", 0.01);
+  });
+
+  test("the storage room's closet stops at the room's own outside wall, not past it", () => {
+    // A 4'4" wall with the door, set 1'1" in from the right wall: the 2' box stood 1'3" out past the
+    // room's outside wall. The closet is the notch: to the right wall's line.
+    const closet = sketch.closetBehindDoor(walk.storage, "door-1", {}, house);
+    const b = sketch.roomBounds(closet);
+    near(b.minX, 595, "a wall off the door's wall", 0.01);
+    near(b.maxX, 604, "on the room's right line", 0.01);
+    near(b.minY, 60, "on the room's top line", 0.01);
+    near(b.maxY, 108, "a wall off the 1'1\" return", 0.01);
+  });
+
+  test("the office's closet fills to the room next door, a wall short of it - no gap", () => {
+    // Behind the office's 4'8" closet wall, between it and the rec room: the 2' box left 1'1" to the
+    // office's own wall below it. The closet fills the notch, a wall off the rec room.
+    const closet = sketch.closetBehindDoor(walk.office, "door-1", {}, house);
+    const b = sketch.roomBounds(closet);
+    assert(closet.vertices.length === 4, `expected 4 corners, got ${closet.vertices.length}: ${corners(closet)}`);
+    near(b.minX, 216, "a wall off the door's wall", 0.01);
+    near(b.maxX, 242, "a wall short of the rec room", 0.01);
+    near(b.minY, 190, "on the office's top line", 0.01);
+    near(b.maxY, 242, "a wall off the office's wall below - no gap", 0.01);
+    // Without the rec room it would run on to the office's own right line.
+    near(sketch.roomBounds(sketch.closetBehindDoor(walk.office, "door-1")).maxX, 249, "alone, out to the office's own line", 0.01);
+  });
+
+  test("the hall closet fills to the bedroom behind it a wall short, so the wall between them stays", () => {
+    // The hall's closet door faces the bedroom 2' behind it: the 2' box ran 4" into the bedroom, its
+    // floor was drawn over the bedroom's wall, and the sketch lost that wall.
+    const closet = sketch.closetBehindDoor(walk.hall, "door-1", {}, house);
+    const b = sketch.roomBounds(closet);
+    near(b.minY, 363, "a wall off the hall", 0.01);
+    near(b.maxY, 379, "a wall short of the bedroom", 0.01);
+    near(b.minX, 164, "a wall off the bathroom beside it", 0.01);
+    near(b.maxX, 211, "the hall's width", 0.01);
+    // And through the offer: the same closet, and nothing of it on the bedroom.
+    const sketched = sketch.withClosetsBehind({ rooms: house }, [{ roomId: "room-4", doorId: "door-1" }]);
+    const added = sketched.rooms.find((r) => r.name === "Closet");
+    assert(added && Math.max(...added.vertices.map((v) => v.y)) <= 383 - sketch.WALL_THICKNESS_PX + 0.01, `the offer's closet runs into the bedroom: ${added && corners(added)}`);
+  });
+
+  test("the offer says yes to every closet of the walk at once, each a wall off the rest", () => {
+    const doors = ["room-7", "room-6", "room-2", "room-3", "room-4"].map((roomId) => ({ roomId, doorId: "door-1" }));
+    const sketched = sketch.withClosetsBehind({ rooms: house }, doors);
+    const added = sketched.rooms.filter((r) => r.name === "Closet");
+    assert(added.length === 5, `five closets, got ${added.length}`);
+    // No closet's middle on any room's floor, nor on another closet's.
+    for (const c of added) {
+      const m = centroid(c.vertices);
+      for (const other of sketched.rooms) {
+        if (other === c) continue;
+        assert(!sketch.isInsideRoom(other, m.x, m.y), `a closet's middle (${m.x.toFixed(1)}, ${m.y.toFixed(1)}) is on ${other.name}`);
+      }
+    }
+    assert(sketch.closetsOwed(sketched, doors).length === 0, "and then owes nothing");
+  });
+
+  test("the offer leaves a door with no room behind it for a closet; the button still draws one", () => {
+    const parent = box(12, 10);
+    parent.symbols = [door("v0")];
+    // A room 6" above the top wall: a wall each side leaves 0'2" - no closet.
+    const above = room([[0, -126], [144, -126], [144, -6], [0, -6]], { id: "room-2", name: "Above" });
+    const doors = [{ roomId: "room-1", doorId: "door-1" }];
+    assert(sketch.closetsOwed({ rooms: [parent, above] }, doors).length === 0, "nothing owed where nothing fits");
+    assert(sketch.withClosetsBehind({ rooms: [parent, above] }, doors).rooms.length === 2, "nothing drawn");
+    expectCloset(parent, sketch.closetBehindDoor(parent, "door-1", {}, [parent, above]), "v0", { widthFeet: 3.5, depthFeet: 2 });
+    // 3'4" above it, the space between is the closet: 2'8" deep, a wall each side.
+    const higher = sketch.translateRoom(above, 0, -34);
+    const closet = sketch.closetBehindDoor(parent, "door-1", {}, [parent, higher]);
+    expectCloset(parent, closet, "v0", { widthFeet: 3.5, depthFeet: 32 / 12 });
+    // And 7' up, past the reach, it is a reach-in again.
+    const far = sketch.translateRoom(above, 0, -84);
+    expectCloset(parent, sketch.closetBehindDoor(parent, "door-1", {}, [parent, far]), "v0", { widthFeet: 3.5, depthFeet: 2 });
   });
 
   return { passed, failures };

@@ -1282,7 +1282,8 @@ export function SketchEditor({
   function handleAddCloset(roomId: string, doorId: string) {
     const room = sketch.rooms.find((r) => r.id === roomId);
     if (!room) return;
-    const closet = closetBehindDoor(room, doorId);
+    // Against the rooms round it too: it fills the space behind the door, a wall short of them.
+    const closet = closetBehindDoor(room, doorId, {}, sketch.rooms);
     if (!closet) return;
     // `withDerivedParents` so a closet that lands inside another room is a sub-room at once.
     onChange((prev) => ({ ...prev, rooms: withDerivedParents([...prev.rooms, closet]) }));

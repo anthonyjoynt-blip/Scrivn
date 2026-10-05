@@ -360,6 +360,12 @@ export interface ScanRoom {
   islands: ScanIsland[];
   /** Flights of stairs tapped in the room, each becoming a room of its own. Empty for a lap scan. */
   stairs: ScanStairs[];
+  /**
+   * The outline's edges whose lengths are the PM's tape rather than the phone's: typed on the phone's Review
+   * (`corrections`, kind "wall") or the walls the room was scaled to (`room_scale`). Absent when nothing was taped. The
+   * outline already carries them; the importer only has to move nothing that would change one ([lineUpWalls]).
+   */
+  taped_edges?: number[];
 }
 
 /** The `format` a file of several rooms declares; see the header. */
@@ -467,6 +473,11 @@ export type ScanImportResult =
        * the capture importer draws theirs (`withClosetsBehind`) and offers only the rest (`closetDoors`).
        */
       closetsMarked?: ClosetDoorRef[];
+      /**
+       * The ids of the room's walls whose length is the PM's tape (`ScanRoom.taped_edges`), for the capture importer's
+       * line-up ([lineUpWalls]), which moves no wall that would change one. Absent when none was taped.
+       */
+      tapedWalls?: string[];
       /**
        * The metre point that landed at `at`: the top-left of the rooms' union for a capture, the
        * room's own top-left for a one-room file. Whatever else was measured in the file's frame -
@@ -632,6 +643,31 @@ export function parseScanRoom(input: unknown): { ok: true; scan: ScanRoom; notes
     }
   }
 
+  // The tape (2026-10-05): which edges' lengths the PM typed or scaled the room to. Read leniently - a malformed entry is
+  // a wall the line-up may move, which the PM can drag back - and only the edge is kept: the outline has the lengths.
+  const tapedEdges = new Set<number>();
+  const edgeOf = (entry: unknown): number | null =>
+    typeof entry === "object" && entry !== null && isFiniteNumber((entry as Record<string, unknown>).edge)
+      ? Math.trunc((entry as Record<string, unknown>).edge as number)
+      : null;
+  if (Array.isArray(raw.corrections)) {
+    for (const c of raw.corrections) {
+      const edge = edgeOf(c);
+      if (edge !== null && (c as Record<string, unknown>).kind === "wall") tapedEdges.add(edge);
+    }
+  }
+  if (typeof raw.room_scale === "object" && raw.room_scale !== null) {
+    const scale = raw.room_scale as Record<string, unknown>;
+    const edge = edgeOf(scale);
+    if (edge !== null) tapedEdges.add(edge);
+    if (Array.isArray(scale.tapes)) {
+      for (const t of scale.tapes) {
+        const taped = edgeOf(t);
+        if (taped !== null) tapedEdges.add(taped);
+      }
+    }
+  }
+
   // Cabinets are checked like outline openings — edge, from, width — plus a tier the sketch knows.
   // A cabinet of no width is the same jamb tapped twice, as for an opening. A tier the sketch does
   // not have is a phone this importer has not met, and the cabinet is skipped rather than guessed
@@ -763,6 +799,7 @@ export function parseScanRoom(input: unknown): { ok: true; scan: ScanRoom; notes
       fixtures,
       islands,
       stairs,
+      ...(tapedEdges.size > 0 ? { taped_edges: [...tapedEdges].sort((a, b) => a - b) } : {}),
     },
     notes,
   };
@@ -1194,6 +1231,12 @@ export function scanToSketchRoom(scan: ScanRoom, at: { x: number; y: number }, l
     return { wall, t: reversed ? 1 - t : t };
   };
 
+  // The walls the PM taped, by the edge each was typed on ([ScanRoom.taped_edges]).
+  const tapedWalls = (scan.taped_edges ?? []).flatMap((edge) => {
+    const placed = outlineEdge(edge, 0);
+    return placed === null ? [] : [placed.wall.id];
+  });
+
   let offOutline = 0;
   for (const opening of scan.outline_openings) {
     const kind = openingKind(opening.kind);
@@ -1455,6 +1498,7 @@ export function scanToSketchRoom(scan: ScanRoom, at: { x: number; y: number }, l
     notes,
     closetDoors: closetDoorRefs.filter((d) => !closetsMarked.has(d.doorId)),
     closetsMarked: closetDoorRefs.filter((d) => closetsMarked.has(d.doorId)),
+    ...(tapedWalls.length > 0 ? { tapedWalls } : {}),
   };
 }
 
@@ -1618,6 +1662,132 @@ function heldByNeighbour(room: SketchRoom, wall: ReturnType<typeof wallsOf>[numb
   return false;
 }
 
+/**
+ * How far off one line two rooms' walls may come in and still be put on it ([lineUpWalls]): a foot. The 10:07 walk's
+ * were 2" to 6" off; a jog anyone builds on purpose is more than that.
+ */
+const LINE_UP_MAX_PX = 12;
+/** How far apart along their line two rooms' walls may end and still be neighbours on it: 2', a doorway's worth. */
+const LINE_UP_GAP_PX = 24;
+/** How far two rooms' walls on one line may overlap along it - more is one room on top of the other, for the estimator. */
+const LINE_UP_OVERLAP_PX = 6;
+/** The shortest wall the line-up moves or lines up with: a foot. */
+const LINE_UP_MIN_RUN_PX = 12;
+/** How near parallel two walls must run to be on one line: within a degree (the cosine of the angle between them). */
+const LINE_UP_PARALLEL = Math.cos((1 * Math.PI) / 180);
+
+/**
+ * WALLS THAT ARE ONE WALL, PUT ON ONE LINE (2026-10-05, the walk of 10:07): "we can also see the bathroom is long and room 7
+ * is short, room 2 is also short. when we have all the information like the neighboring rooms those should be lining up
+ * when they are that close ... they dont have to line up exactly but to a small degree of difference they likely should.
+ * could also work if a user was to sketch two rooms next to each other that wont share a door" (the owner). The house's
+ * west wall came in as four rooms' west walls a foot apart end to end - the bedroom's 6" short of the others, the
+ * bathroom's 6" past them - and the storage room's east wall 6" short of the rec room's. No door joins any of them.
+ *
+ * Walls of different rooms facing the same way, within [LINE_UP_MAX_PX] of one line and end to end along it - no more than
+ * [LINE_UP_GAP_PX] apart, overlapping no more than [LINE_UP_OVERLAP_PX] - are one wall, and each is moved onto one line as
+ * the editor's wall drag moves a wall (`dragWall`: the walls either side stretch, what stands on it comes along). The line
+ * is the one that moves the least wall: the median of theirs, by length. A wall that may not move decides it instead -
+ * one whose move would change a length the PM taped (a wall either side of it is the tape's), or one already a wall off
+ * another room's ([heldByNeighbour]), which a move would open or close - and when two of those disagree the line is left
+ * as it came. Run after the shared walls are settled ([settleOverlaps], [settleGaps]), so a wall two rooms share is held
+ * where they put it. Said in a note, one per line.
+ */
+function lineUpWalls(rooms: SketchRoom[], taped: Map<string, Set<string>>): { rooms: SketchRoom[]; notes: string[] } {
+  interface Face {
+    room: number;
+    wallId: string;
+    /** Outward. */
+    nx: number;
+    ny: number;
+    /** Where its line is, out along the normal. */
+    at: number;
+    /** Its ends along the line, measured the same way for every wall facing this way. */
+    from: number;
+    to: number;
+    length: number;
+    held: boolean;
+  }
+  const faces: Face[] = [];
+  rooms.forEach((room, r) => {
+    const walls = wallsOf(room);
+    const tapes = taped.get(room.id);
+    walls.forEach((w, i) => {
+      if (w.lengthPx < LINE_UP_MIN_RUN_PX) return;
+      const ux = (w.x2 - w.x1) / w.lengthPx;
+      const uy = (w.y2 - w.y1) / w.lengthPx;
+      // Outward, round a clockwise room with y down; along it, the normal turned a quarter back.
+      const nx = uy;
+      const ny = -ux;
+      const s1 = -ny * w.x1 + nx * w.y1;
+      const s2 = -ny * w.x2 + nx * w.y2;
+      const before = walls[(i - 1 + walls.length) % walls.length] as WallGeometry;
+      const after = walls[(i + 1) % walls.length] as WallGeometry;
+      const held = tapes?.has(before.id) === true || tapes?.has(after.id) === true || heldByNeighbour(room, w, rooms, room);
+      faces.push({ room: r, wallId: w.id, nx, ny, at: nx * w.x1 + ny * w.y1, from: Math.min(s1, s2), to: Math.max(s1, s2), length: w.lengthPx, held });
+    });
+  });
+
+  // One line: every pair of neighbours on it, gathered.
+  const group = faces.map((_, i) => i);
+  const find = (i: number): number => {
+    while (group[i] !== i) i = group[i] as number;
+    return i;
+  };
+  for (let i = 0; i < faces.length; i++) {
+    for (let j = i + 1; j < faces.length; j++) {
+      const a = faces[i] as Face;
+      const b = faces[j] as Face;
+      if (a.room === b.room || a.nx * b.nx + a.ny * b.ny < LINE_UP_PARALLEL || Math.abs(a.at - b.at) > LINE_UP_MAX_PX) continue;
+      const gap = Math.max(a.from, b.from) - Math.min(a.to, b.to);
+      if (gap > LINE_UP_GAP_PX || gap < -LINE_UP_OVERLAP_PX) continue;
+      group[find(i)] = find(j);
+    }
+  }
+  const lines = new Map<number, Face[]>();
+  faces.forEach((f, i) => lines.set(find(i), [...(lines.get(find(i)) ?? []), f]));
+
+  const out = [...rooms];
+  const notes: string[] = [];
+  for (const line of lines.values()) {
+    if (new Set(line.map((f) => f.room)).size < 2) continue;
+    const held = line.filter((f) => f.held);
+    let target: number;
+    if (held.length > 0) {
+      const ats = held.map((f) => f.at);
+      if (Math.max(...ats) - Math.min(...ats) > 1) continue;
+      target = (held[0] as Face).at;
+    } else {
+      const sorted = [...line].sort((a, b) => a.at - b.at);
+      const half = sorted.reduce((sum, f) => sum + f.length, 0) / 2;
+      let run = 0;
+      target = (sorted[0] as Face).at;
+      for (const f of sorted) {
+        run += f.length;
+        if (run >= half) {
+          target = f.at;
+          break;
+        }
+      }
+    }
+    const moved: string[] = [];
+    for (const f of line) {
+      const by = target - f.at;
+      if (f.held || Math.abs(by) < 1 || Math.abs(by) > LINE_UP_MAX_PX) continue;
+      const room = out[f.room] as SketchRoom;
+      const next = dragWall(room, f.wallId, f.nx * by, f.ny * by);
+      if (next === room) continue;
+      out[f.room] = next;
+      moved.push(`${room.name}'s ${formatFeetInches(Math.abs(by) / PIXELS_PER_FOOT)} ${by > 0 ? "out" : "in"}`);
+    }
+    if (moved.length === 0) continue;
+    const names = [...new Set(line.map((f) => `${(out[f.room] as SketchRoom).name}'s`))];
+    const named = names.length === 1 ? (names[0] as string) : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1] as string}`;
+    notes.push(`${named} walls put on one line: ${moved.join(", ")}.`);
+  }
+  return { rooms: out, notes };
+}
+
 /** The first wall of [room] that came in a little inside [host] ([settleOverlaps]), laid on the host's; null when none did. */
 function settleOneWall(room: SketchRoom, host: SketchRoom): { room: SketchRoom; insideFeet: number } | null {
   for (const wb of wallsOf(room)) {
@@ -1689,6 +1859,7 @@ function importScanCapture(capture: ScanCapture, fileNotes: string[], at: { x: n
   const notes: string[] = [];
   const closetDoors: ClosetDoorRef[] = [];
   const closetsMarked: ClosetDoorRef[] = [];
+  const taped = new Map<string, Set<string>>();
   drawable.forEach(({ scan }, position) => {
     const label = captureRoomName(scan.name, scan.index ?? position);
     // A room that arrived unnamed is named here as the note names it, so the two agree.
@@ -1699,6 +1870,7 @@ function importScanCapture(capture: ScanCapture, fileNotes: string[], at: { x: n
     }
     closetDoors.push(...built.closetDoors);
     closetsMarked.push(...(built.closetsMarked ?? []));
+    if (built.tapedWalls !== undefined) taped.set(built.room.id, new Set(built.tapedWalls));
     rooms.push(built.room);
     flights.push(...built.extraRooms);
     notes.push(...built.notes.map((n) => `${label}: ${n}`));
@@ -1709,6 +1881,9 @@ function importScanCapture(capture: ScanCapture, fileNotes: string[], at: { x: n
   notes.push(...settled.notes);
   const closed = settleGaps(settled.rooms);
   notes.push(...closed.notes);
+  // And walls of neighbouring rooms a little off one line are put on it (2026-10-05).
+  const lined = lineUpWalls(closed.rooms, taped);
+  notes.push(...lined.notes);
   /*
     ONE DOORWAY, TAPPED FROM BOTH SIDES, DRAWN ONCE.
 
@@ -1717,8 +1892,8 @@ function importScanCapture(capture: ScanCapture, fileNotes: string[], at: { x: n
     Scrivn already refuses to COUNT it twice (`openingsSharedWith`); nothing stopped it being drawn
     twice until now: "for some reason it plopped a door on there that shouldnt be there".
   */
-  const deduped = dropDuplicateSharedOpenings(closed.rooms);
-  const dropped = closed.rooms.reduce((n, r, k) => n + (r.symbols.length - (deduped[k]?.symbols.length ?? r.symbols.length)), 0);
+  const deduped = dropDuplicateSharedOpenings(lined.rooms);
+  const dropped = lined.rooms.reduce((n, r, k) => n + (r.symbols.length - (deduped[k]?.symbols.length ?? r.symbols.length)), 0);
   if (dropped > 0) {
     notes.push(`${dropped} ${dropped === 1 ? "doorway was" : "doorways were"} tapped from both rooms; drawn once.`);
   }

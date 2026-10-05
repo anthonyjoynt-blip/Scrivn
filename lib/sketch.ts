@@ -1873,7 +1873,7 @@ export function roomBounds(room: SketchRoom): { minX: number; minY: number; maxX
 }
 
 /** Signed area, doubled. Negative means counter-clockwise in screen space (y down). */
-function signedArea(vertices: Vertex[]): number {
+function signedArea(vertices: readonly { x: number; y: number }[]): number {
   let sum = 0;
   for (let i = 0; i < vertices.length; i++) {
     const a = vertices[i] as Vertex;
@@ -1937,11 +1937,15 @@ export function collapsesAWall(prev: SketchRoom, next: SketchRoom): boolean {
 
 /** Is a point inside the room? Ray casting — used to keep islands on the floor of an L. */
 export function isInsideRoom(room: SketchRoom, x: number, y: number): boolean {
+  return pointInRing(room.vertices, x, y);
+}
+
+/** Whether (x, y) is inside a ring of points, by ray casting: `isInsideRoom` for an outline that is not a room yet. */
+function pointInRing(ring: readonly { x: number; y: number }[], x: number, y: number): boolean {
   let inside = false;
-  const vs = room.vertices;
-  for (let i = 0, j = vs.length - 1; i < vs.length; j = i++) {
-    const a = vs[i] as Vertex;
-    const b = vs[j] as Vertex;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const a = ring[i] as { x: number; y: number };
+    const b = ring[j] as { x: number; y: number };
     if (a.y > y !== b.y > y && x < ((b.x - a.x) * (y - a.y)) / (b.y - a.y) + a.x) inside = !inside;
   }
   return inside;
@@ -5056,42 +5060,180 @@ const SIDE_PROBE_PX = 3;
 export const CHAMFER_MIN_TURN_DEG = 30;
 
 /**
- * The longest either side of the cut-off corner may be, in feet, for the corner to be a closet —
- * condition (c) of the corner rule in `closetBehindDoor`.
+ * The most a closet that fills a notch or a cut-off corner may measure either way, in feet — and so
+ * the longest either side of a chamfer's corner may be (condition (c) of the corner rule in
+ * `closetBehindDoor`).
  *
  * A chamfer is a SHORT diagonal: three feet of leg each way in the office this was built against,
  * two and a half in the bedroom that showed the rectangle was wrong. A long diagonal wall is a wall
  * in its own right — the house is on an angle there — and the point where this room's neighbours
- * would have met is somewhere in the room next door, not in a closet. 8' is past any corner a
- * framer cuts off for a closet and short of any room.
+ * would have met is somewhere in the room next door, not in a closet. A notch is the same: the
+ * corner closets of 2026-10-05 were 6'1" x 5'4" at the most, and a notch of a room's worth of house
+ * is somebody's room. 8' is past any corner a framer cuts off for a closet and short of any room.
  */
 export const CHAMFER_FILL_MAX_FEET = 8;
 
 /**
- * How close, in world pixels (so inches), a room's corners must be to where a closet's would land
- * for `closetExistsBehind` to say the closet is already there. One inch: a closet dragged into a
- * better place has moved further than that, and is then a different closet from the one that would
- * be drawn, which is the honest answer.
+ * How far behind a door on a straight wall a closet is filled to the room standing there, in feet.
+ * Nearer than this, the space between the two rooms behind a closet door is the closet — less a
+ * wall each side; further, what is between them is not known (a room nobody tapped, a hall) and the
+ * closet is drawn `CLOSET_DEFAULT_DEPTH_FEET` deep, for the PM to drag. 6' is a deep walk-in.
  */
-export const CLOSET_SAME_PLACE_PX = 1;
+export const CLOSET_FILL_MAX_FEET = 6;
 
 /**
- * Where a closet would stand behind a door, before it is a room: the two corners on the door's
- * wall and the corners off it, in one ring. `closetBehindDoor` makes the room, `closetShapeBehindDoor`
- * reports the shape and `closetExistsBehind` looks for the wall-side pair among the other rooms, all
- * from this one outline so that they can never disagree about which shape a door gets.
+ * How near the edge of a room's rectangle, in world pixels (so inches), a corner must be to be on
+ * it, when `notchBehind` walks the outline to where a notch opens. An inch and a half: corners come
+ * in whole inches, from a scan squared to its axes or a drawing snapped to them.
+ */
+const NOTCH_EDGE_PX = 1.5;
+
+/** How near square, in degrees, a wall must run to the way most of its room runs to count toward it (`notchBehind`). */
+const ROOM_SQUARE_DEG = 1;
+
+/** A point a closet's outline passes through, before it is a room's corner. */
+type ClosetPoint = { x: number; y: number };
+
+/**
+ * Where a closet would stand behind a door, before it is a room. `closetBehindDoor` makes the room
+ * and `closetShapeBehindDoor` reports the shape, both from this one outline, so that they can never
+ * disagree about which shape a door gets.
  */
 interface ClosetFootprint {
+  /** "corner" when it fills a notch or a cut-off corner of its room, "rectangle" behind a straight wall. */
   shape: "corner" | "rectangle";
-  /**
-   * The closet's two corners nearest the door's wall, in the wall's own order: a wall's thickness
-   * off it, where the wall between the closet and the room ends (see `closetBehindDoor`).
-   */
-  near: [{ x: number; y: number }, { x: number; y: number }];
-  /** The same two corners ON the wall's line - where a closet drawn before 2026-09-26 has them. */
-  onWall: [{ x: number; y: number }, { x: number; y: number }];
-  /** The rest of the ring, continuing from `near[1]` round to `near[0]`. */
-  beyond: { x: number; y: number }[];
+  /** Its corners in ring order, either winding: `closetRoom` winds them clockwise. */
+  ring: ClosetPoint[];
+}
+
+/**
+ * A door's wall, which way is out of the room through it, and the point just behind it: a wall's
+ * thickness and an inch past the middle of the door as drawn. Every closet drawn behind the door
+ * contains that point, and a room that does is the closet already there (`closetExistsBehind`).
+ * Null when `doorId` is not a door of `room`.
+ */
+function behindDoor(room: SketchRoom, doorId: string) {
+  const door = room.symbols.find((s) => s.id === doorId);
+  if (!door || door.type !== "door") return null;
+  const walls = wallsOf(room);
+  const wall = walls.find((w) => w.id === door.wallId);
+  if (!wall || wall.lengthPx <= 0) return null;
+
+  // Along the wall.
+  const ux = (wall.x2 - wall.x1) / wall.lengthPx;
+  const uy = (wall.y2 - wall.y1) / wall.lengthPx;
+
+  // Across the wall. (-uy, ux) is the wall's direction turned +90° in screen space: the inward
+  // normal for a clockwise ring, and the outward one for a ring wound the other way.
+  const midX = (wall.x1 + wall.x2) / 2;
+  const midY = (wall.y1 + wall.y2) / 2;
+  const insideByConvention = isInsideRoom(room, midX - uy * SIDE_PROBE_PX, midY + ux * SIDE_PROBE_PX);
+  const insideAgainstIt = isInsideRoom(room, midX + uy * SIDE_PROBE_PX, midY - ux * SIDE_PROBE_PX);
+  const reversed = insideAgainstIt && !insideByConvention;
+  const ox = reversed ? -uy : uy;
+  const oy = reversed ? ux : -ux;
+
+  const along = symbolCentrePx(door, room);
+  const past = WALL_THICKNESS_PX + 1;
+  return { door, walls, wall, ux, uy, ox, oy, seed: { x: wall.x1 + ux * along + ox * past, y: wall.y1 + uy * along + oy * past } };
+}
+
+/**
+ * The notch a door's wall stands in: the part of the room's own rectangle — its bounding box, square
+ * to the way its walls run — that its outline leaves out, on the far side of that wall. The ring runs
+ * along the outline from the last corner before the wall that is on the rectangle's edge to the
+ * first one after it, then back round the rectangle's edge, through its corners.
+ *
+ * Null when the wall is ON that edge — a straight outside wall, where nothing of the room's own says
+ * how deep what is behind it is — and when the notch is more than `CHAMFER_FILL_MAX_FEET` either way.
+ */
+function notchBehind(room: SketchRoom, wall: WallGeometry): ClosetPoint[] | null {
+  const n = room.vertices.length;
+  if (n < 3) return null;
+  // Clockwise, as the walk round the rectangle below is.
+  const ring = signedArea(room.vertices) >= 0 ? room.vertices : [...room.vertices].reverse();
+  const startId = wall.id;
+  const endId = (room.vertices[(wall.index + 1) % n] as Vertex).id;
+  const ia = ring.findIndex((v) => v.id === startId);
+  const ib = ring.findIndex((v) => v.id === endId);
+  // The wall's first end, going clockwise.
+  const first = ib === (ia + 1) % n ? ia : ia === (ib + 1) % n ? ib : -1;
+  if (first < 0) return null;
+
+  // Square to the room: the way the most wall runs, a quarter turn being the same way. Taken from a
+  // wall, not averaged, so a room square to the page is square to it exactly and its corners are on
+  // its rectangle's edge to the inch.
+  const quarter = Math.PI / 2;
+  const turnOf = (w: WallGeometry) => (((Math.atan2(w.y2 - w.y1, w.x2 - w.x1) % quarter) + quarter) % quarter);
+  const walls = wallsOf(room);
+  let theta = 0;
+  let most = -1;
+  for (const w of walls) {
+    const run = walls.reduce((sum, o) => {
+      const d = Math.abs(turnOf(o) - turnOf(w));
+      return Math.min(d, quarter - d) <= (ROOM_SQUARE_DEG * Math.PI) / 180 ? sum + o.lengthPx : sum;
+    }, 0);
+    if (run > most + 1e-9) {
+      most = run;
+      theta = turnOf(w);
+    }
+  }
+  const cos = Math.cos(theta);
+  const sin = Math.sin(theta);
+  const pts = ring.map((v) => ({ x: v.x * cos + v.y * sin, y: -v.x * sin + v.y * cos }));
+  const at = (i: number) => pts[i] as ClosetPoint;
+  const x0 = Math.min(...pts.map((p) => p.x));
+  const x1 = Math.max(...pts.map((p) => p.x));
+  const y0 = Math.min(...pts.map((p) => p.y));
+  const y1 = Math.max(...pts.map((p) => p.y));
+  const w = x1 - x0;
+  const h = y1 - y0;
+  const perimeter = 2 * (w + h);
+
+  // How far clockwise round the rectangle's edge from its top-left a corner of the room stands, or
+  // null when it is not on the edge.
+  const round = (p: ClosetPoint): number | null =>
+    Math.abs(p.y - y0) <= NOTCH_EDGE_PX
+      ? p.x - x0
+      : Math.abs(p.x - x1) <= NOTCH_EDGE_PX
+        ? w + (p.y - y0)
+        : Math.abs(p.y - y1) <= NOTCH_EDGE_PX
+          ? w + h + (x1 - p.x)
+          : Math.abs(p.x - x0) <= NOTCH_EDGE_PX
+            ? 2 * w + h + (y1 - p.y)
+            : null;
+  let a = first;
+  for (let guard = 0; round(at(a)) === null && guard < n; guard++) a = (a - 1 + n) % n;
+  let b = (first + 1) % n;
+  for (let guard = 0; round(at(b)) === null && guard < n; guard++) b = (b + 1) % n;
+  const fromA = round(at(a));
+  const toB = round(at(b));
+  if (fromA === null || toB === null) return null;
+  const span = (toB - fromA + perimeter) % perimeter;
+
+  const notch: ClosetPoint[] = [];
+  for (let i = a; ; i = (i + 1) % n) {
+    notch.push(at(i));
+    if (i === b) break;
+  }
+  // Back round the edge, through the rectangle's corners between the two ends.
+  const corners = [
+    { along: 0, x: x0, y: y0 },
+    { along: w, x: x1, y: y0 },
+    { along: w + h, x: x1, y: y1 },
+    { along: 2 * w + h, x: x0, y: y1 },
+  ]
+    .map((k) => ({ ...k, past: (k.along - fromA + perimeter) % perimeter }))
+    .filter((k) => k.past > NOTCH_EDGE_PX && k.past < span - NOTCH_EDGE_PX)
+    .sort((k, l) => l.past - k.past);
+  notch.push(...corners.map(({ x, y }) => ({ x, y })));
+  if (notch.length < 3 || Math.abs(signedArea(notch)) < MIN_WALL_PX * MIN_WALL_PX) return null;
+
+  const limit = CHAMFER_FILL_MAX_FEET * PIXELS_PER_FOOT + 1;
+  const xs = notch.map((p) => p.x);
+  const ys = notch.map((p) => p.y);
+  if (Math.max(...xs) - Math.min(...xs) > limit || Math.max(...ys) - Math.min(...ys) > limit) return null;
+  return notch.map((p) => ({ x: p.x * cos - p.y * sin, y: p.x * sin + p.y * cos }));
 }
 
 /**
@@ -5138,44 +5280,86 @@ function chamferCorner(walls: WallGeometry[], wall: WallGeometry, ox: number, oy
   return { x, y };
 }
 
-/** The outline `closetBehindDoor` would draw — see there for every decision in it. */
+/** `ring` cut to where `keep` is zero or more (one Sutherland–Hodgman pass): what is left of it on that side of a line. */
+function clipToHalfPlane(ring: ClosetPoint[], keep: (p: ClosetPoint) => number): ClosetPoint[] {
+  const out: ClosetPoint[] = [];
+  for (let i = 0; i < ring.length; i++) {
+    const p = ring[i] as ClosetPoint;
+    const q = ring[(i + 1) % ring.length] as ClosetPoint;
+    const kp = keep(p);
+    const kq = keep(q);
+    if (kp >= 0) out.push(p);
+    if (kp >= 0 !== kq >= 0) {
+      const t = kp / (kp - kq);
+      out.push({ x: p.x + (q.x - p.x) * t, y: p.y + (q.y - p.y) * t });
+    }
+  }
+  // A corner on the line comes out twice: once kept, once where the cut crosses it.
+  return out.filter((p, i) => {
+    const q = out[(i + 1) % out.length] as ClosetPoint;
+    return out.length < 2 || Math.hypot(p.x - q.x, p.y - q.y) > 1e-6;
+  });
+}
+
+/**
+ * `shape`, a wall's thickness off every wall of `rooms` it stands behind: each wall the point just
+ * behind the door (`behindDoor`) is OUTSIDE of — on the far side of its line from its own room —
+ * and that runs alongside the shape, cuts the shape at the line a partition in front of it. The
+ * door's own room is one of `rooms`, so the closet stands a wall off it too; a wall whose line the
+ * point is on the room's side of is not in the way, whatever room it is. Null when what is left is
+ * no closet: not round the point, or smaller than `isDegenerate` lets a room be.
+ */
+function clippedToRooms(shape: ClosetPoint[], seed: ClosetPoint, rooms: SketchRoom[]): ClosetPoint[] | null {
+  let ring = shape;
+  for (const room of rooms) {
+    const clockwise = signedArea(room.vertices) >= 0;
+    for (const w of wallsOf(room)) {
+      if (w.lengthPx <= 0) continue;
+      const ux = (w.x2 - w.x1) / w.lengthPx;
+      const uy = (w.y2 - w.y1) / w.lengthPx;
+      // Outward, whichever way the room is wound.
+      const nx = clockwise ? uy : -uy;
+      const ny = clockwise ? -ux : ux;
+      if ((seed.x - w.x1) * nx + (seed.y - w.y1) * ny <= 0) continue;
+      // Beside the shape rather than behind or before it: no wall between the two.
+      const along = shape.map((p) => (p.x - w.x1) * ux + (p.y - w.y1) * uy);
+      if (Math.min(w.lengthPx, Math.max(...along)) - Math.max(0, Math.min(...along)) <= 1) continue;
+      ring = clipToHalfPlane(ring, (p) => (p.x - w.x1) * nx + (p.y - w.y1) * ny - WALL_THICKNESS_PX);
+      if (ring.length < 3) return null;
+    }
+  }
+  if (!pointInRing(ring, seed.x, seed.y) || Math.abs(signedArea(ring)) < MIN_WALL_PX * MIN_WALL_PX) return null;
+  return ring;
+}
+
+/**
+ * The outline `closetBehindDoor` would draw — see there for every decision in it. `strict` is the
+ * offer's: null rather than a closet drawn over a room when no closet fits behind the door.
+ */
 function closetFootprint(
   room: SketchRoom,
   doorId: string,
-  options: { depthFeet?: number; widthFeet?: number } = {},
+  options: { depthFeet?: number; widthFeet?: number },
+  rooms: SketchRoom[],
+  strict: boolean,
 ): ClosetFootprint | null {
-  const door = room.symbols.find((s) => s.id === doorId);
-  if (!door || door.type !== "door") return null;
-  const walls = wallsOf(room);
-  const wall = walls.find((w) => w.id === door.wallId);
-  if (!wall || wall.lengthPx <= 0) return null;
+  const at = behindDoor(room, doorId);
+  if (!at) return null;
+  const { door, walls, wall, ux, uy, ox, oy, seed } = at;
 
-  // Along the wall.
-  const ux = (wall.x2 - wall.x1) / wall.lengthPx;
-  const uy = (wall.y2 - wall.y1) / wall.lengthPx;
+  // What it stands a wall off: its own room, and every other room on the storey but one already
+  // standing behind the door - the closet, or the room, that is there already.
+  const level = roomLevel(room);
+  const bounding = [room, ...rooms.filter((r) => r.id !== room.id && roomLevel(r) === level && !isInsideRoom(r, seed.x, seed.y))];
 
-  // Across the wall. (-uy, ux) is the wall's direction turned +90° in screen space: the inward
-  // normal for a clockwise ring, and the outward one for a ring wound the other way.
-  const midX = (wall.x1 + wall.x2) / 2;
-  const midY = (wall.y1 + wall.y2) / 2;
-  const insideByConvention = isInsideRoom(room, midX - uy * SIDE_PROBE_PX, midY + ux * SIDE_PROBE_PX);
-  const insideAgainstIt = isInsideRoom(room, midX + uy * SIDE_PROBE_PX, midY - ux * SIDE_PROBE_PX);
-  const reversed = insideAgainstIt && !insideByConvention;
-  const ox = reversed ? -uy : uy;
-  const oy = reversed ? ux : -ux;
-
-  // The corner rule first: on a chamfer the closet is the corner, whatever `options` asks.
+  // The space behind a door in a notch or a cut-off corner: out to the room's own lines. On a chamfer
+  // in a room no rectangle is square to, the corner its neighbours would have made.
+  const notch = notchBehind(room, wall);
+  const inNotch = notch && clippedToRooms(notch, seed, bounding);
+  if (inNotch) return { shape: "corner", ring: inNotch };
   const apex = chamferCorner(walls, wall, ox, oy);
-  if (apex) {
-    const onWall: ClosetFootprint["onWall"] = [{ x: wall.x1, y: wall.y1 }, { x: wall.x2, y: wall.y2 }];
-    // A wall's thickness off the chamfer, the legs kept on the lines of the walls either side: the
-    // triangle scaled toward its apex. A corner too shallow to lose a wall's depth and still be a
-    // closet is drawn flush, as all of them were.
-    const height = (apex.x - wall.x1) * ox + (apex.y - wall.y1) * oy;
-    const k = height > 2 * WALL_THICKNESS_PX ? WALL_THICKNESS_PX / height : 0;
-    const toward = (p: { x: number; y: number }) => ({ x: p.x + (apex.x - p.x) * k, y: p.y + (apex.y - p.y) * k });
-    return { shape: "corner", near: [toward(onWall[0]), toward(onWall[1])], onWall, beyond: [apex] };
-  }
+  const inCorner = apex && clippedToRooms([{ x: wall.x1, y: wall.y1 }, { x: wall.x2, y: wall.y2 }, apex], seed, bounding);
+  if (inCorner) return { shape: "corner", ring: inCorner };
 
   // The rectangle. The door's width is its drawn width, already capped to the wall.
   const doorWidthFeet = symbolWidthFeet(door, room) ?? DEFAULT_WIDTH_FEET.door;
@@ -5192,39 +5376,93 @@ function closetFootprint(
   const by = ay + uy * widthPx;
   // A wall's thickness out from the wall's line, then the closet's own depth.
   const t = WALL_THICKNESS_PX;
-  const far = t + depthPx;
-  return {
-    shape: "rectangle",
-    near: [{ x: ax + ox * t, y: ay + oy * t }, { x: bx + ox * t, y: by + oy * t }],
-    onWall: [{ x: ax, y: ay }, { x: bx, y: by }],
-    beyond: [{ x: bx + ox * far, y: by + oy * far }, { x: ax + ox * far, y: ay + oy * far }],
+  const box = (far: number): ClosetPoint[] => [
+    { x: ax + ox * t, y: ay + oy * t },
+    { x: bx + ox * t, y: by + oy * t },
+    { x: bx + ox * far, y: by + oy * far },
+    { x: ax + ox * far, y: ay + oy * far },
+  ];
+  const asAsked = box(t + depthPx);
+  if (options.depthFeet !== undefined) return { shape: "rectangle", ring: asAsked };
+
+  // Out to the room behind it, a wall short of it, when one stands within reach; else as deep as a
+  // reach-in.
+  const reach = t + CLOSET_FILL_MAX_FEET * PIXELS_PER_FOOT;
+  const filled = clippedToRooms(box(reach), seed, bounding);
+  if (!filled) return strict ? null : { shape: "rectangle", ring: asAsked };
+  const off = (p: ClosetPoint) => (p.x - wall.x1) * ox + (p.y - wall.y1) * oy;
+  if (Math.max(...filled.map(off)) < reach - 0.5) return { shape: "rectangle", ring: filled };
+  return { shape: "rectangle", ring: clipToHalfPlane(filled, (p) => t + depthPx - off(p)) };
+}
+
+/** The closet room for `footprint`, behind a door of `room`. */
+function closetRoom(room: SketchRoom, footprint: ClosetFootprint): SketchRoom {
+  const corners: Vertex[] = footprint.ring.map(({ x, y }) => ({ id: newSketchId("v"), x, y }));
+  const closet: SketchRoom = {
+    id: newSketchId("room"),
+    name: "Closet",
+    vertices: ensureClockwise(corners),
+    ceilingHeightFeet: room.ceilingHeightFeet ?? DEFAULT_CEILING_HEIGHT_FEET,
+    ceilingType: "flat",
+    ceilingPeakFeet: null,
+    stairs: null,
+    parentRoomId: null,
+    nestingOptOut: false,
+    symbols: [],
+    freeCabinets: [],
   };
+  // The storey is copied only when the room carries one: `level` is optional so a sketch drawn
+  // before levels existed still loads, `roomLevel` reads a missing one as the main level, and
+  // nothing writes undefined.
+  return room.level === undefined ? closet : { ...closet, level: room.level };
 }
 
 /**
- * The closet behind a door: a new room on the far side of the door's wall, sized from the door.
+ * The closet behind a door: a new room on the far side of the door's wall, filling the space there.
  *
  * Closets are too small to scan and too awkward to tap — the phone cannot get far enough back from
  * the walls to see them, and a PM standing in a bedroom is not going to walk into every closet to
  * measure it. What the scan DOES see, and what a PM draws first by hand, is the closet door in the
- * bedroom's wall. So the closet is drawn from that: a rectangle standing outside the wall, its near
- * edge a wall's thickness off the wall's line, centred on the door, and the PM drags or types its
- * walls to fit. The office sketch this was built against has exactly such a closet — a 4'6" x 2'1"
- * "Untitled room" drawn by hand beside its door. On a chamfer the closet is the corner the chamfer
- * cut off instead — see below.
+ * bedroom's wall. So the closet is drawn from that, and from what stands round it, and the PM drags
+ * or types its walls to fit.
  *
  * It is a plain room. Nothing marks it as a closet but its name, so it gets everything a room gets
  * — its own walls to mark moisture on, its own quantities, its own line in the summary — and it
  * becomes a sub-room the moment it is dragged inside the room it opens off (`withDerivedParents`).
  *
- * ── Size ─────────────────────────────────────────────────────────────────────────────────────
- * Width is the door's plus `CLOSET_WIDTH_MARGIN_FEET`, never under `CLOSET_MIN_WIDTH_FEET` and
- * never longer than the wall it stands against — a closet wider than the room is not behind that
- * room's door. Depth is `CLOSET_DEFAULT_DEPTH_FEET`. `options` overrides either, and is clamped the
- * same way. The closet is centred on the door as DRAWN (`symbolCentrePx`, which keeps a door on
- * its wall whatever `t` says) and slid along the wall when centring would put an end past a
- * corner: a closet whose door is in the corner lines up with the corner, which is where such
- * closets are.
+ * ── The space behind it (2026-10-05) ─────────────────────────────────────────────────────────
+ * "the office and storage room closets should fill the space cleanly. not leave a gap. the corner
+ * closets are more like the red lines. my suggestion is to render an outline that would fill the
+ * space behind the closet doors that dont have a room there" (the owner, on the walk of 10:07). Until
+ * then a closet was a 2' rectangle pushed out behind the door, or on a chamfer the corner the chamfer
+ * cut off, and nothing round it was looked at: the bedroom's diagonal closet door in a notch got a
+ * 2' box at 45 degrees where the closet filled the notch to the room's corner, the office's left a
+ * gap to the wall below it, the storage room's stood out past the room's own outside wall, and the
+ * hall's ran 4" into the bedroom behind it and took that wall off the sketch.
+ *
+ * So, in order:
+ *
+ *   1. In a NOTCH. The room's rectangle — its bounding box, square to the way its walls run — less
+ *      its outline, on the far side of the door's wall, is a notch when the wall is not on the
+ *      rectangle's edge (`notchBehind`). A door in a notch opens into it, and the closet fills it,
+ *      out to the room's own lines: its outside walls carry straight on past the closet, as a
+ *      house's do. A chamfer across a square corner is a notch of three corners; a diagonal across
+ *      the inside corner of a notch, or a closet face under one, fills the rest of the notch. Up to
+ *      `CHAMFER_FILL_MAX_FEET` either way — past that the notch is somebody's room.
+ *   2. On a CHAMFER in a room no rectangle is square to (a house on an angle), the corner the walls
+ *      either side of it would have made — conditions (a) to (d) below.
+ *   3. Anywhere else, a RECTANGLE behind the door: the door's width plus `CLOSET_WIDTH_MARGIN_FEET`,
+ *      never under `CLOSET_MIN_WIDTH_FEET` and never longer than the wall, centred on the door as
+ *      DRAWN (`symbolCentrePx`) and slid along the wall when centring would put an end past a corner.
+ *      It is as deep as the space behind it to the next room, when one stands within
+ *      `CLOSET_FILL_MAX_FEET`; else `CLOSET_DEFAULT_DEPTH_FEET`, a reach-in. `options` sets the width
+ *      and the depth as the PM typed them instead (clamped to the wall), and a typed depth is drawn
+ *      as typed.
+ *
+ * And in every case the closet stands a wall's thickness off every room round it — `rooms`, on the
+ * door's storey — that it would otherwise run into (`clippedToRooms`), and off its own room's walls.
+ * A room already standing just behind the door is not in the way: it is the closet there already
+ * (`closetExistsBehind`), and the button draws over it, as it always has; the offer does not offer.
  *
  * ── Which side is behind ─────────────────────────────────────────────────────────────────────
  * Outside is the side of the wall the room's floor is NOT on. That is settled by asking
@@ -5247,41 +5485,23 @@ function closetFootprint(
  * "The closet that would be in the last room in the chamfer would effectively fill the rectangle
  * out behind it. It's not just a 2' push behind it." — the user, on the first version, which drew
  * the rectangle on every wall. A chamfer is a short diagonal wall cutting off a room's corner, and
- * the closet behind a door in it IS that corner: the triangle between the diagonal and the point
- * where the two walls either side of it would have met. The bedroom that showed it was a 16'7" x
- * 11'9" rectangle with a 3'6" chamfer (2'6" legs) holding a 2'6" door; a 2' rectangle pushed out
- * at 45 degrees overhangs both of the room's real walls and is not the shape of anything a framer
- * built.
- *
- * So, before the rectangle: with w the door's wall, p the wall before it in the ring (ending at
+ * the closet behind a door in it IS that corner. In a room square to its rectangle that is the notch
+ * of rule 1; in one that is not, with w the door's wall, p the wall before it in the ring (ending at
  * w's start) and n the wall after (starting at w's end), X is where line(p) meets line(n), and the
- * closet is the triangle [w.start, w.end, X] - less the chamfer wall, a wall's thickness of it on
- * the chamfer's side, its legs staying on line(p) and line(n), which it shares with the room - when
- * all of these hold —
+ * closet is the triangle [w.start, w.end, X] — less the chamfer wall — when all of these hold —
  *
  *   (a) p and n turn against each other by at least `CHAMFER_MIN_TURN_DEG`. Parallel lines meet
- *       nowhere and near-parallel ones meet in the next street: the short connecting wall of an L
- *       and the back of a bay are not chamfers, and a door in either gets the rectangle.
- *   (b) X is on the outward side of w — the side the rectangle would be drawn on, settled by the
- *       same probe — and far enough off it for the triangle to be a room `isDegenerate` would let
- *       the PM edit. A diagonal across an INSIDE corner has its X on the room's own floor; what is
- *       behind that wall is the room itself.
- *   (c) both legs, |w.start - X| and |w.end - X|, are at most `CHAMFER_FILL_MAX_FEET`. A corner
- *       closet is a corner. A long diagonal wall whose neighbours would meet fourteen feet away is
- *       a wall — the house is on an angle there, and what is behind it is somebody's room.
- *   (d) neither leg is longer than w itself. A cut ACROSS a corner leaves the chamfer as the
- *       triangle's longest side — always, at any square or obtuse corner, since the right or wide
- *       angle is at X. What this rules out is the straight wall BESIDE a chamfer: its neighbours
- *       (the chamfer and the far wall) also meet outward, close by and at a fair angle, but that
- *       triangle has its right angle at the room's own corner, so the leg across from it is longer
- *       than the wall. Without (d), a door on the 5' wall beside a 3' chamfer in a small bathroom
- *       got a 12 sq ft triangle drawn behind a straight wall.
+ *       nowhere and near-parallel ones meet in the next street.
+ *   (b) X is on the outward side of w, far enough off it for the triangle to be a room
+ *       `isDegenerate` would let the PM edit. A diagonal across an INSIDE corner has its X on the
+ *       room's own floor.
+ *   (c) both legs, |w.start - X| and |w.end - X|, are at most `CHAMFER_FILL_MAX_FEET`.
+ *   (d) neither leg is longer than w itself: the straight wall BESIDE a chamfer also meets its far
+ *       neighbour outward, but that triangle has its right angle at the room's own corner.
  *
- * The corner has its own size: `options.depthFeet` and `widthFeet` are ignored on a chamfer, since
- * a triangle that does not reach the corner is not the corner and one that does has no other size
- * to be. Everything else — name, level, ceiling, no symbols — is as for the rectangle. Three
- * vertices is the least a room may have (`MIN_VERTICES`) and this one is a room like any other; if
- * the framer squared the back off, the PM drags the apex.
+ * A corner or a notch has its own size: `options` is ignored there, since a closet that does not
+ * reach the corner is not the corner and one that does has no other size to be. If the framer
+ * squared the back off, the PM drags it.
  *
  * ── What stays where ─────────────────────────────────────────────────────────────────────────
  * The door stays on the parent's wall and the closet has no symbols. Rooms are not joined in this
@@ -5289,14 +5509,11 @@ function closetFootprint(
  * the `DoorSymbol` doc puts it, "out of one room is into the next": the bedroom's closet door is a
  * door in the bedroom's wall, which is where it was drawn and where the wall-area deduction reads.
  *
- * ── What it does not do ──────────────────────────────────────────────────────────────────────
- * No overlap check. The space behind a wall may already hold another room — the hall, the closet
- * of the room next door — and the new closet is drawn over it regardless; the PM drags it into
- * place, and refusing to draw would leave nothing to drag. And it is never called on its own: a
- * door in a wall is not evidence of a closet behind it, so the PM asks, per door. (The scan
- * importer's "Add closets" offer asks once for all of them, and uses `closetExistsBehind` to skip a
- * door whose closet the PM has already drawn by hand — or that an earlier door in the same batch
- * has just drawn, as two doors on one chamfer would.)
+ * It is never called on its own: a door in a wall is not evidence of a closet behind it, so the PM
+ * asks, per door — or on the phone's Review, where each closet door shows this outline to fill in
+ * or leave. (The scan importer's "Add closets" offer asks once for all of them, and uses
+ * `closetExistsBehind` to skip a door whose closet is already drawn — by hand, or by an earlier door
+ * in the same batch, as two doors on one chamfer would.)
  *
  * Returns null when `doorId` is not a door of `room`.
  */
@@ -5304,54 +5521,31 @@ export function closetBehindDoor(
   room: SketchRoom,
   doorId: string,
   options: { depthFeet?: number; widthFeet?: number } = {},
+  rooms: SketchRoom[] = [],
 ): SketchRoom | null {
-  const footprint = closetFootprint(room, doorId, options);
-  if (!footprint) return null;
-  const corners: Vertex[] = [...footprint.near, ...footprint.beyond].map(({ x, y }) => ({ id: newSketchId("v"), x, y }));
-
-  const closet: SketchRoom = {
-    id: newSketchId("room"),
-    name: "Closet",
-    vertices: ensureClockwise(corners),
-    ceilingHeightFeet: room.ceilingHeightFeet ?? DEFAULT_CEILING_HEIGHT_FEET,
-    ceilingType: "flat",
-    ceilingPeakFeet: null,
-    stairs: null,
-    parentRoomId: null,
-    nestingOptOut: false,
-    symbols: [],
-    freeCabinets: [],
-  };
-  // The storey is copied only when the room carries one: `level` is optional so a sketch drawn
-  // before levels existed still loads, `roomLevel` reads a missing one as the main level, and
-  // nothing writes undefined.
-  return room.level === undefined ? closet : { ...closet, level: room.level };
+  const footprint = closetFootprint(room, doorId, options, rooms, false);
+  return footprint && closetRoom(room, footprint);
 }
 
 /**
- * Which shape `closetBehindDoor` would draw behind this door — "corner" on a chamfer, "rectangle"
- * anywhere else — so the UI can say so before the PM presses the button. Null when `doorId` is not
- * a door of `room`, exactly as `closetBehindDoor` would be. Decided from the same outline, so the
- * two cannot disagree.
+ * Which shape `closetBehindDoor` would draw behind this door — "corner" in a notch or on a chamfer,
+ * "rectangle" anywhere else — so the UI can say so before the PM presses the button. Null when
+ * `doorId` is not a door of `room`, exactly as `closetBehindDoor` would be. Decided from the same
+ * outline, so the two cannot disagree.
  */
-export function closetShapeBehindDoor(room: SketchRoom, doorId: string): "corner" | "rectangle" | null {
-  return closetFootprint(room, doorId)?.shape ?? null;
+export function closetShapeBehindDoor(room: SketchRoom, doorId: string, rooms: SketchRoom[] = []): "corner" | "rectangle" | null {
+  return closetFootprint(room, doorId, {}, rooms, false)?.shape ?? null;
 }
 
 /**
  * Is there already a closet behind this door?
  *
- * "Already" is geometric, not by name: some OTHER room on the same storey has a corner within
- * `CLOSET_SAME_PLACE_PX` of BOTH of the corners the closet would put nearest the door's wall - or
- * of both of those corners on the wall's line itself, where a closet drawn before closets stood a
- * wall off (2026-09-26) has them. Those two are the corners that never move between the shapes —
- * the rectangle's near edge, the triangle's base. For the rectangle the pair sits INSIDE the wall, a door's width apart, and no room next
- * door shares two such points: it shares the wall's line, and at most its ends. For the corner
- * (and for a rectangle clamped to the whole of a short wall) the pair IS the wall's ends, and a
- * room that already spans them — the room next door drawn with an edge on the chamfer — has
- * already taken the space the closet would fill, so "already there" is the same answer by another
- * route. Only the wall-side pair is compared, so a closet the PM has deepened or squared off still
- * counts as there.
+ * Some OTHER room on the same storey stands just behind it: on the point a wall's thickness and an
+ * inch past the middle of the door (`behindDoor`), which every closet drawn behind it contains. A
+ * closet the PM has since deepened, squared off or drawn by hand still counts, and so does one drawn
+ * flush on the wall before closets stood a wall off it (2026-09-26); one dragged clear of the wall
+ * does not - it has moved somewhere else. So does a room tapped behind the door: the space is
+ * somebody's, and no closet is owed there.
  *
  * Same storey only, because rooms on different levels overlap in plan as a matter of course: the
  * closet upstairs is not the closet down here. The room the door is in is never its own closet.
@@ -5361,41 +5555,44 @@ export function closetShapeBehindDoor(room: SketchRoom, doorId: string): "corner
  * button that sometimes does nothing is worse than a closet to delete.
  */
 export function closetExistsBehind(rooms: SketchRoom[], room: SketchRoom, doorId: string): boolean {
-  const footprint = closetFootprint(room, doorId);
-  if (!footprint) return false;
+  const at = behindDoor(room, doorId);
+  if (!at) return false;
   const level = roomLevel(room);
-  const hasCornerAt = (other: SketchRoom, at: { x: number; y: number }) =>
-    other.vertices.some((v) => Math.hypot(v.x - at.x, v.y - at.y) <= CLOSET_SAME_PLACE_PX);
-  return rooms.some(
-    (other) =>
-      other.id !== room.id && roomLevel(other) === level && [footprint.near, footprint.onWall].some((pair) => pair.every((at) => hasCornerAt(other, at))),
-  );
+  return rooms.some((other) => other.id !== room.id && roomLevel(other) === level && isInsideRoom(other, at.seed.x, at.seed.y));
 }
 
 /**
- * The closet doors of `doors` still owed a closet: the door still on its room, and nothing behind it yet
- * (`closetExistsBehind`). What a scan's "Add closets" offers, and whether it still has anything to offer.
+ * The closet doors of `doors` still owed a closet: the door still on its room, nothing behind it yet
+ * (`closetExistsBehind`), and room behind it for one. What a scan's "Add closets" offers, and whether
+ * it still has anything to offer.
  */
 export function closetsOwed(sketch: Sketch, doors: ClosetDoorRef[]): ClosetDoorRef[] {
   return doors.filter(({ roomId, doorId }) => {
     const room = sketch.rooms.find((r) => r.id === roomId);
-    return room !== undefined && room.symbols.some((s) => s.id === doorId && s.type === "door") && !closetExistsBehind(sketch.rooms, room, doorId);
+    return (
+      room !== undefined &&
+      room.symbols.some((s) => s.id === doorId && s.type === "door") &&
+      !closetExistsBehind(sketch.rooms, room, doorId) &&
+      closetFootprint(room, doorId, {}, sketch.rooms, true) !== null
+    );
   });
 }
 
 /**
- * `sketch` with a closet drawn behind each of `doors` that is still owed one (`closetsOwed`) — the scan's "Add
- * closets", in one update. Each door is checked against the closets added before it too: two closet doors on one
- * chamfer want the same corner, which has one shape whatever the door's place on it. The sketch itself when nothing
- * is drawn.
+ * `sketch` with a closet drawn behind each of `doors` that is still owed one (`closetsOwed`) — the
+ * scan's "Add closets", and the closets said yes to on the phone, in one update. Each door is checked
+ * against the closets added before it too: two closet doors on one chamfer want the same corner,
+ * which has one shape whatever the door's place on it; and each closet stands a wall off those
+ * before it, as off every room. The sketch itself when nothing is drawn.
  */
 export function withClosetsBehind(sketch: Sketch, doors: ClosetDoorRef[]): Sketch {
   const closets: SketchRoom[] = [];
   for (const { roomId, doorId } of closetsOwed(sketch, doors)) {
     const room = sketch.rooms.find((r) => r.id === roomId);
-    if (!room || closetExistsBehind([...sketch.rooms, ...closets], room, doorId)) continue;
-    const closet = closetBehindDoor(room, doorId);
-    if (closet) closets.push(closet);
+    const all = [...sketch.rooms, ...closets];
+    if (!room || closetExistsBehind(all, room, doorId)) continue;
+    const footprint = closetFootprint(room, doorId, {}, all, true);
+    if (footprint) closets.push(closetRoom(room, footprint));
   }
   return closets.length === 0 ? sketch : { ...sketch, rooms: withDerivedParents([...sketch.rooms, ...closets]) };
 }

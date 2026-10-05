@@ -74,6 +74,8 @@ const basementTaps = readFileSync(join(here, "fixtures", "scan-taps-basement.jso
 // outline already carries them and the importer reads none of it. The taps say which room they
 // belong to and the epochs are capture-wide; both are ignored too.
 const captureTaps = readFileSync(join(here, "fixtures", "scan-taps-capture.json"), "utf8");
+// The walk of 2026-10-05 10:07, trimmed to what the importer reads: seven rooms of one storey, five closet doors.
+const houseTaps = readFileSync(join(here, "fixtures", "scan-taps-house-1005.json"), "utf8");
 // The phone's own file of 2026-10-03 11:21 (room_20261003_112131), as it sent it: an 11' room with a 5'0" closet door
 // (a double bifold), a 3'10" window and a 2'11" door - "it would end up being a 5' double bifold in this one".
 const closetTaps = readFileSync(join(here, "fixtures", "scan-taps-closet-1003.json"), "utf8");
@@ -1229,6 +1231,83 @@ export async function runScanImportChecks() {
       const [af, ah] = captureRooms(importedCapture(JSON.stringify(apart)));
       near(sketch.roomBounds(ah).minX - sketch.roomBounds(af).maxX, gapM * 39.3701, `${what} is left as it came`, 1);
     }
+  });
+
+  test("walls of rooms side by side a little off one line are put on it: the line that moves the least wall", () => {
+    // 2026-10-05 10:07: "the bathroom is long and room 7 is short, room 2 is also short ... those should be lining up
+    // when they are that close" (the owner). Three rooms down one outside wall, no door between them: Room 2's west wall
+    // 6" in from Room 1's, Room 3's 4" out past it. Room 1's is the longest, so its line moves the least.
+    const westLine = (westOf2, westOf3) => {
+      const capture = JSON.parse(captureTaps);
+      capture.rooms[0].outline = [[0, 0], [4, 0], [4, 3], [0, 3]];
+      capture.rooms[0].outline_openings = [];
+      capture.rooms[1].outline = [[westOf2, 3.1], [4, 3.1], [4, 5], [westOf2, 5]];
+      capture.rooms[1].outline_openings = [];
+      capture.rooms[2].outline = [[westOf3, 5.1], [4, 5.1], [4, 7], [westOf3, 5.1 + 1.9]];
+      // Nothing taped, unless a check says so: the fixture's bathroom had its first wall typed.
+      for (const r of capture.rooms) r.corrections = [];
+      return capture;
+    };
+    const result = importedCapture(JSON.stringify(westLine(0.15, -0.1)));
+    const [one, two, three] = captureRooms(result);
+    const west = (room) => sketch.roomBounds(room).minX;
+    near(west(two), west(one), "Room 2's west wall on Room 1's line", 0.01);
+    near(west(three), west(one), "and Room 3's", 0.01);
+    near(sketch.roomBounds(one).maxX - west(one), 4 * 39.3701, "Room 1 as tapped", 1);
+    assert(result.notes.some((n) => /Room 1's, Room 2's and Room 3's walls put on one line: Room 2's 0'6" out, Room 3's 0'4" in\./.test(n)), `expected the note, got ${JSON.stringify(result.notes)}`);
+
+    // A wall either side of which the PM taped stays: Room 3's top wall was typed, so its west wall decides the line.
+    const taped = westLine(0.15, -0.1);
+    taped.rooms[2].corrections = [{ kind: "wall", edge: 0, metres: 4.1 }];
+    const tapedResult = importedCapture(JSON.stringify(taped));
+    const [t1, t2, t3] = captureRooms(tapedResult);
+    near(west(t1), west(t3), "Room 1 came to Room 3's line", 0.01);
+    near(west(t2), west(t3), "and Room 2", 0.01);
+    near(sketch.roomBounds(t3).maxX - west(t3), 4.1 * 39.3701, "Room 3's taped wall is its tape", 1);
+    // So does one the room was scaled to.
+    const scaled = westLine(0.15, -0.1);
+    scaled.rooms[2].room_scale = { tapes: [{ edge: 2, metres: 4.1 }], factor: 1.02 };
+    near(west(captureRooms(importedCapture(JSON.stringify(scaled)))[0]), west(captureRooms(importedCapture(JSON.stringify(scaled)))[2]), "scaled to a tape, Room 3 decides", 0.01);
+
+    // More than a foot off is a jog, and 2' along the line is not a neighbour: both left as they came.
+    const jog = captureRooms(importedCapture(JSON.stringify(westLine(0.36, 0))));
+    near(west(jog[1]) - west(jog[0]), 0.36 * 39.3701, "a 1'2\" jog is left", 1);
+    const apart = westLine(0.15, 0);
+    apart.rooms[1].outline = [[0.15, 3.7], [4, 3.7], [4, 5], [0.15, 5]];
+    apart.rooms[2].outline = [[-0.3, 6], [4, 6], [4, 7], [-0.3, 7]];
+    const [a1, a2, a3] = captureRooms(importedCapture(JSON.stringify(apart)));
+    near(west(a2) - west(a1), 0.15 * 39.3701, "2' along the line is not a neighbour", 1);
+    near(west(a1) - west(a3), 0.3 * 39.3701, "nor is 2'11\"", 1);
+  });
+
+  test("the house of 10:07: its outside walls on one line, and every closet said yes to filling its space, a wall off every room", () => {
+    // The walk the owner marked up: "the bathroom is long and room 7 is short, room 2 is also short", "the closets in the
+    // bedrooms are wrong. and the office too", "the hall closet now removes the wall between itself and the bedroom below".
+    const house = JSON.parse(houseTaps);
+    for (const r of house.rooms) for (const o of r.outline_openings) if (o.kind === "closet_door") o.closet = true;
+    const result = importedCapture(JSON.stringify(house));
+    const rooms = captureRooms(result);
+    const named = (name) => rooms.find((r) => r.name === name);
+    const b = (name) => sketch.roomBounds(named(name));
+    // The west wall: the bedrooms, the office and the bathroom on one line.
+    for (const name of ["Room 3", "Room 5", "Room 6"]) near(b(name).minX, b("Room 7").minX, `${name}'s west wall on Room 7's line`, 0.01);
+    // The storage room's east wall on the rec room's.
+    near(b("Room 2").maxX, b("Room 1").maxX, "Room 2's east wall on Room 1's line", 0.01);
+    const closets = rooms.filter((r) => r.name === "Closet");
+    assert(closets.length === 5, `five closets, got ${closets.length}`);
+    // None of them on any room's floor, nor running into a room's wall: every corner a wall's thickness off every other room.
+    for (const c of closets) {
+      for (const other of rooms) {
+        if (other === c) continue;
+        for (const v of c.vertices) {
+          assert(!sketch.isInsideRoom(other, v.x, v.y) || sketch.wallsOf(other).some((w) => Math.abs((w.x2 - w.x1) * (v.y - w.y1) - (w.y2 - w.y1) * (v.x - w.x1)) / w.lengthPx < 0.01), `a closet corner (${v.x.toFixed(1)}, ${v.y.toFixed(1)}) is on ${other.name}'s floor`);
+        }
+      }
+    }
+    // The hall's closet stops a wall short of the bedroom below it, so the wall between them is drawn.
+    const hallCloset = closets.find((c) => sketch.isInsideRoom(c, sketch.roomBounds(named("Room 4")).minX + 10, sketch.roomBounds(named("Room 4")).maxY + 10));
+    assert(hallCloset, "a closet behind the hall's door");
+    near(sketch.roomBounds(hallCloset).maxY, b("Room 6").minY - 4, "a wall short of Room 6", 0.01);
   });
 
   test("the rooms are named from the file, and the hall beside the family room is a neighbour, not a sub-room", () => {
