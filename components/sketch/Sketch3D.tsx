@@ -109,6 +109,17 @@ const MAX_PANOS = 4;
  * and swapped in place when the lining up finishes. Lining up took 1.9-2.2 s on a desktop for the walk of 10-03.
  */
 const ALIGN_WAIT_MS = 20_000;
+/**
+ * A 360 shot on the ultra-wide - its frames' view wider across than this - is stitched as the phone's rotation sensor
+ * turned its frames and is not lined up (2026-10-05). On the walk of 04:41 the sensor had two neighbouring stills of
+ * the family room agreeing to 0.3 degrees and its turn closing on itself; the lining up, which compares what the
+ * frames see, was led off by what moves with the phone and what moves of itself - the legs and feet along the bottom
+ * of every floor still, a cat - and turned one still 15 degrees from its neighbour: "duplicated pet bed" (the owner).
+ * What a frame still disagrees with its neighbour about after that is a thing near, seen from two places, and the
+ * stitch bends the two to meet on their seam (panoBake). The main lens's spots, whose sensor drifted 2-4 degrees over
+ * a turn of 28 frames, are lined up as before.
+ */
+const SENSOR_ONLY_WIDER_THAN_DEG = 70;
 
 /** Where a spot's lined-up frames are kept on this device, so the lining up is done once. */
 const alignedKey = (scanId: string, spot: number) => `scrivn.pano.v1.${scanId}.${spot}`;
@@ -676,7 +687,8 @@ export default function Sketch3D({ sketch, onClose }: Props) {
             const dist = baker.distanceMap(proxyOf(v.level), v.position);
             pano.dist = dist;
             const sensor = panoFramesOf(v);
-            const kept = loadAligned(v.scanId, spot, sensor.length);
+            const wide = sensor.some((f) => (2 * Math.atan(f.camera.width / 2 / f.camera.fx) * 180) / Math.PI > SENSOR_ONLY_WIDER_THAN_DEG);
+            const kept = wide ? null : loadAligned(v.scanId, spot, sensor.length);
             const frames0 = kept
               ? sensor.map((f, k) => {
                   const a = kept[k] as { forward: V3; up: V3 };
@@ -691,11 +703,12 @@ export default function Sketch3D({ sketch, onClose }: Props) {
             scene.add(mesh);
             pano.mesh = mesh;
             pano.texture = texture;
-            // Lined up before on this device: shown now. Else held back until it is (2026-10-03, the doc above).
-            pano.state = kept ? "ready" : "aligning";
+            // Lined up before on this device, or on the ultra-wide (not lined up): shown now. Else held back until it is
+            // (2026-10-03, the doc above).
+            pano.state = kept || wide ? "ready" : "aligning";
             trimPanos(new Set([key, ...(current ? [keyOf(current.key)] : []), ...(transition?.target ? [keyOf(transition.target.key)] : [])]));
-            console.info(`[walk] spot ${spot}: stitched ${frames0.length} frames ${kept ? "(lined up before)" : "(as the sensor turned them)"} in ${Math.round(performance.now() - started)} ms`);
-            if (kept) return;
+            console.info(`[walk] spot ${spot}: stitched ${frames0.length} frames ${kept ? "(lined up before)" : wide ? "(on the ultra-wide: as the sensor turned them, not lined up)" : "(as the sensor turned them)"} in ${Math.round(performance.now() - started)} ms`);
+            if (kept || wide) return;
             /** The first stitch shown after all: the lining up could not run, gave nothing, or is taking too long. */
             const showAsItIs = (why: string) => {
               if (pano.state !== "aligning") return;
