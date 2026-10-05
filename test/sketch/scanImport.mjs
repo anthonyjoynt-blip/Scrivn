@@ -1165,6 +1165,43 @@ export async function runScanImportChecks() {
     assert(sketch.roomBounds(farHall).minX < sketch.roomBounds(farFamily).maxX - 12, "a room two feet inside another is left where it came");
   });
 
+  test("two rooms a little too far apart for one wall are brought together to one", () => {
+    // 2026-10-05 10:07: the office and the bedroom above came in 1'2" apart, the bathroom and the bedroom below 1'0" -
+    // "minor things but these are shared walls". Here the hall stands 0.30 m off the family room: each wall comes half
+    // way, and a partition is left between the faces.
+    const gapped = JSON.parse(captureTaps);
+    gapped.rooms = gapped.rooms.slice(0, 2);
+    gapped.rooms[1].outline = [[4.3, 1.4], [5.3, 1.4], [5.3, 2.6], [4.3, 2.6]];
+    const result = importedCapture(JSON.stringify(gapped));
+    const [family, hall] = captureRooms(result);
+    const fb = sketch.roomBounds(family);
+    const hb = sketch.roomBounds(hall);
+    near(hb.minX - fb.maxX, 4, "a partition between the faces", 0.01);
+    near(fb.maxX - fb.minX, 4 * 39.3701 + (0.3 * 39.3701 - 4) / 2, "the family room took half the gap (its corners on whole inches)", 1);
+    near(hb.maxX - hb.minX, 1.0 * 39.3701 + (0.3 * 39.3701 - 4) / 2, "and the hall the other half", 1);
+    assert(result.notes.some((n) => /Room 2's and Room 1's walls came in 1' apart; each brought half way, one wall/.test(n)), `expected the note, got ${JSON.stringify(result.notes)}`);
+
+    // A wall already a partition off another room stays where it is, and the other comes the whole way: Room 3 here
+    // stands a partition off the family room's right wall, further up it.
+    const held = JSON.parse(captureTaps);
+    held.rooms[1].outline = [[4.3, 1.4], [5.3, 1.4], [5.3, 2.6], [4.3, 2.6]];
+    held.rooms[2].outline = [[4.1, -0.3], [5.0, -0.3], [5.0, 1.2], [4.1, 1.2]];
+    const heldResult = importedCapture(JSON.stringify(held));
+    const [hf, hh] = captureRooms(heldResult);
+    near(sketch.roomBounds(hf).maxX - sketch.roomBounds(hf).minX, 4 * 39.3701, "the family room's wall, held by Room 3, did not move", 1);
+    near(sketch.roomBounds(hh).minX - sketch.roomBounds(hf).maxX, 4, "the hall came the whole way to a partition off it", 0.01);
+    assert(heldResult.notes.some((n) => /Room 2's and Room 1's walls came in 1' apart; Room 2's brought to Room 1's, one wall/.test(n)), `expected the held note, got ${JSON.stringify(heldResult.notes)}`);
+
+    // A 6" gap is a thick wall, and 2' is a space (the hall's closet stood 2' off that bedroom): both left as they came.
+    for (const [gapM, what] of [[0.15, "a thick wall"], [0.61, "a closet's space"]]) {
+      const apart = JSON.parse(captureTaps);
+      apart.rooms = apart.rooms.slice(0, 2);
+      apart.rooms[1].outline = [[4 + gapM, 1.4], [5 + gapM, 1.4], [5 + gapM, 2.6], [4 + gapM, 2.6]];
+      const [af, ah] = captureRooms(importedCapture(JSON.stringify(apart)));
+      near(sketch.roomBounds(ah).minX - sketch.roomBounds(af).maxX, gapM * 39.3701, `${what} is left as it came`, 1);
+    }
+  });
+
   test("the rooms are named from the file, and the hall beside the family room is a neighbour, not a sub-room", () => {
     const result = importedCapture();
     const rooms = captureRooms(result);

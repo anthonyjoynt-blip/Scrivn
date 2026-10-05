@@ -1488,6 +1488,110 @@ function settleOverlaps(rooms: SketchRoom[]): { rooms: SketchRoom[]; notes: stri
   return { rooms: out, notes };
 }
 
+/**
+ * Two rooms' walls that face each other a little too far apart for one wall between them are brought together to one
+ * (2026-10-05, the walk of 10:07): the office and the bedroom above it came in 1'2" apart, the bathroom and the bedroom
+ * below it 1'0" - "theres a gap on between the bedroom and bathroom above and office and other bedroom above. minor things
+ * but these are shared walls" (the owner). Rooms read a little short (the phone's corners read 2-7% small in dim light),
+ * so a gap of more than [GAP_SETTLE_MIN_PX] and up to [GAP_SETTLE_MAX_PX] between faces running alongside each other for
+ * [GAP_MIN_RUN_PX] or more is closed to [PARTITION_PX], a partition's thickness, each room's wall coming half the way. A
+ * thinner gap is a thick wall, as it came; a wider one is a space - the hall's closet stood 2' off that bedroom.
+ *
+ * But a wall already one wall off another room stays where it is ([heldByNeighbour]), and the other comes the whole way:
+ * each bedroom's wall there ran on past its gap a partition off the rec room, and halving moved it to an inch from that.
+ * So the bathroom, which read small, took all of its 8" and the office all of its 10". Both held, nothing moves.
+ */
+const GAP_SETTLE_MIN_PX = 7;
+const GAP_SETTLE_MAX_PX = 16;
+const GAP_MIN_RUN_PX = 36;
+const PARTITION_PX = 4;
+
+function settleGaps(rooms: SketchRoom[]): { rooms: SketchRoom[]; notes: string[] } {
+  const out = [...rooms];
+  const notes: string[] = [];
+  for (let b = 1; b < out.length; b++) {
+    for (let a = 0; a < b; a++) {
+      // One pair of walls at a time: a drag can renumber the walls after it.
+      for (let guard = 0; guard < 8; guard++) {
+        const next = settleOneGap(out[b] as SketchRoom, out[a] as SketchRoom, out);
+        if (!next) break;
+        out[b] = next.room;
+        out[a] = next.host;
+        notes.push(`${next.room.name}'s and ${next.host.name}'s walls came in ${formatFeetInches(next.gapFeet)} apart; ${next.how}, one wall.`);
+      }
+    }
+  }
+  return { rooms: out, notes };
+}
+
+/** The first pair of [room]'s and [host]'s facing walls a little too far apart ([settleGaps]), brought together; null when none are. */
+function settleOneGap(room: SketchRoom, host: SketchRoom, rooms: SketchRoom[]): { room: SketchRoom; host: SketchRoom; gapFeet: number; how: string } | null {
+  for (const wb of wallsOf(room)) {
+    const lb = wb.lengthPx;
+    if (lb <= 0) continue;
+    const ubx = (wb.x2 - wb.x1) / lb;
+    const uby = (wb.y2 - wb.y1) / lb;
+    // Outward, round a clockwise room with y down.
+    const nbx = uby;
+    const nby = -ubx;
+    for (const wa of wallsOf(host)) {
+      const la = wa.lengthPx;
+      if (la <= 0) continue;
+      const uax = (wa.x2 - wa.x1) / la;
+      const uay = (wa.y2 - wa.y1) / la;
+      if (Math.abs(ubx * uay - uby * uax) > 0.05 || ubx * uax + uby * uay > -0.99) continue;
+      // Where the host's wall is, out from this one's face: in front of it, across the gap.
+      const s = (wa.x1 - wb.x1) * nbx + (wa.y1 - wb.y1) * nby;
+      if (s <= GAP_SETTLE_MIN_PX || s > GAP_SETTLE_MAX_PX) continue;
+      const t1 = (wa.x1 - wb.x1) * ubx + (wa.y1 - wb.y1) * uby;
+      const t2 = (wa.x2 - wb.x1) * ubx + (wa.y2 - wb.y1) * uby;
+      if (Math.min(lb, Math.max(t1, t2)) - Math.max(0, Math.min(t1, t2)) < GAP_MIN_RUN_PX) continue;
+      const heldRoom = heldByNeighbour(room, wb, rooms, host);
+      const heldHost = heldByNeighbour(host, wa, rooms, room);
+      if (heldRoom && heldHost) continue;
+      const excess = s - PARTITION_PX;
+      const byRoom = heldRoom ? 0 : heldHost ? excess : excess / 2;
+      const byHost = excess - byRoom;
+      const movedRoom = byRoom > 0 ? dragWall(room, wb.id, nbx * byRoom, nby * byRoom) : room;
+      const movedHost = byHost > 0 ? dragWall(host, wa.id, -nbx * byHost, -nby * byHost) : host;
+      if ((byRoom > 0 && movedRoom === room) || (byHost > 0 && movedHost === host)) continue;
+      const how = byRoom === 0 ? `${host.name}'s brought to ${room.name}'s` : byHost === 0 ? `${room.name}'s brought to ${host.name}'s` : "each brought half way";
+      return { room: movedRoom, host: movedHost, gapFeet: s / PIXELS_PER_FOOT, how };
+    }
+  }
+  return null;
+}
+
+/**
+ * Whether [wall] of [room] already stands one wall off another room's facing wall - laid on it, or a partition or so off it
+ * - for a foot or more ([settleGaps]): it is where that room puts it, and moving it would open or close that one. [except]
+ * is the room across the gap being closed.
+ */
+function heldByNeighbour(room: SketchRoom, wall: ReturnType<typeof wallsOf>[number], rooms: SketchRoom[], except: SketchRoom): boolean {
+  const l = wall.lengthPx;
+  if (l <= 0) return false;
+  const ux = (wall.x2 - wall.x1) / l;
+  const uy = (wall.y2 - wall.y1) / l;
+  const nx = uy;
+  const ny = -ux;
+  for (const other of rooms) {
+    if (other === room || other === except || other.id === room.id || other.id === except.id) continue;
+    for (const w of wallsOf(other)) {
+      const lw = w.lengthPx;
+      if (lw <= 0) continue;
+      const wx = (w.x2 - w.x1) / lw;
+      const wy = (w.y2 - w.y1) / lw;
+      if (Math.abs(ux * wy - uy * wx) > 0.05 || ux * wx + uy * wy > -0.99) continue;
+      const s = (w.x1 - wall.x1) * nx + (w.y1 - wall.y1) * ny;
+      if (s < -0.5 || s > GAP_SETTLE_MIN_PX) continue;
+      const t1 = (w.x1 - wall.x1) * ux + (w.y1 - wall.y1) * uy;
+      const t2 = (w.x2 - wall.x1) * ux + (w.y2 - wall.y1) * uy;
+      if (Math.min(l, Math.max(t1, t2)) - Math.max(0, Math.min(t1, t2)) >= OVERLAP_MIN_RUN_PX) return true;
+    }
+  }
+  return false;
+}
+
 /** The first wall of [room] that came in a little inside [host] ([settleOverlaps]), laid on the host's; null when none did. */
 function settleOneWall(room: SketchRoom, host: SketchRoom): { room: SketchRoom; insideFeet: number } | null {
   for (const wb of wallsOf(room)) {
@@ -1571,9 +1675,12 @@ function importScanCapture(capture: ScanCapture, fileNotes: string[], at: { x: n
     flights.push(...built.extraRooms);
     notes.push(...built.notes.map((n) => `${label}: ${n}`));
   });
-  // A wall one room put a little inside another is laid on it: one wall (2026-10-05).
+  // A wall one room put a little inside another is laid on it: one wall (2026-10-05). And two that came in a little too far
+  // apart for one wall are brought together, half each.
   const settled = settleOverlaps(rooms);
   notes.push(...settled.notes);
+  const closed = settleGaps(settled.rooms);
+  notes.push(...closed.notes);
   /*
     ONE DOORWAY, TAPPED FROM BOTH SIDES, DRAWN ONCE.
 
@@ -1582,8 +1689,8 @@ function importScanCapture(capture: ScanCapture, fileNotes: string[], at: { x: n
     Scrivn already refuses to COUNT it twice (`openingsSharedWith`); nothing stopped it being drawn
     twice until now: "for some reason it plopped a door on there that shouldnt be there".
   */
-  const deduped = dropDuplicateSharedOpenings(settled.rooms);
-  const dropped = settled.rooms.reduce((n, r, k) => n + (r.symbols.length - (deduped[k]?.symbols.length ?? r.symbols.length)), 0);
+  const deduped = dropDuplicateSharedOpenings(closed.rooms);
+  const dropped = closed.rooms.reduce((n, r, k) => n + (r.symbols.length - (deduped[k]?.symbols.length ?? r.symbols.length)), 0);
   if (dropped > 0) {
     notes.push(`${dropped} ${dropped === 1 ? "doorway was" : "doorways were"} tapped from both rooms; drawn once.`);
   }
