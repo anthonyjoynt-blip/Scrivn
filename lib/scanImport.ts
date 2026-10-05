@@ -193,6 +193,7 @@ import {
   newSketchId,
   rectangleVertices,
   wallsOf,
+  withClosetsBehind,
 } from "./sketch";
 
 const FEET_PER_METRE = 1 / 0.3048;
@@ -240,6 +241,11 @@ export interface ScanOutlineOpening {
   width_m: number;
   sill_m: number | null;
   head_m: number | null;
+  /**
+   * A closet behind this closet door, said yes to on the phone's Review (2026-10-05): drawn on import (`withClosetsBehind`)
+   * rather than offered. Absent for every other door and every file before it.
+   */
+  closet?: boolean;
 }
 
 /**
@@ -457,6 +463,11 @@ export type ScanImportResult =
        */
       closetDoors: ClosetDoorRef[];
       /**
+       * The closet doors the phone's Review said have a closet behind them ("closet": true, 2026-10-05), in the same order:
+       * the capture importer draws theirs (`withClosetsBehind`) and offers only the rest (`closetDoors`).
+       */
+      closetsMarked?: ClosetDoorRef[];
+      /**
        * The metre point that landed at `at`: the top-left of the rooms' union for a capture, the
        * room's own top-left for a one-room file. Whatever else was measured in the file's frame -
        * where the phone stood for each photo - lands through the same `scanPointToPx`.
@@ -616,6 +627,7 @@ export function parseScanRoom(input: unknown): { ok: true; scan: ScanRoom; notes
         width_m: op.width_m,
         sill_m: isFiniteNumber(op.sill_m) ? op.sill_m : null,
         head_m: isFiniteNumber(op.head_m) ? op.head_m : null,
+        ...(op.closet === true ? { closet: true } : {}),
       });
     }
   }
@@ -978,6 +990,8 @@ export function scanToSketchRoom(scan: ScanRoom, at: { x: number; y: number }, l
   const symbols: SketchSymbol[] = [];
   /** The ids of the doors that were tapped as closet doors — see `ScanImportResult`. */
   const closetDoors = new Set<string>();
+  // The closet doors the phone's Review said yes to ([ScanOutlineOpening.closet]).
+  const closetsMarked = new Set<string>();
   const notes: string[] = [];
   let skipped = 0;
 
@@ -1096,6 +1110,7 @@ export function scanToSketchRoom(scan: ScanRoom, at: { x: number; y: number }, l
     placed: { wall: WallGeometry; t: number },
     width_m: number,
     elevation: { sill_m: number | null; head_m: number | null },
+    closet = false,
   ): void => {
     const widthFeet = toFeetInches(width_m);
     const base = {
@@ -1127,7 +1142,10 @@ export function scanToSketchRoom(scan: ScanRoom, at: { x: number; y: number }, l
             flipY: false,
           };
     symbols.push(moveSymbolAlongWall(symbol, room, placed.t * placed.wall.lengthPx));
-    if (kind === "closet_door") closetDoors.add(symbol.id);
+    if (kind === "closet_door") {
+      closetDoors.add(symbol.id);
+      if (closet) closetsMarked.add(symbol.id);
+    }
   };
 
   for (const wall of scan.walls) {
@@ -1188,7 +1206,7 @@ export function scanToSketchRoom(scan: ScanRoom, at: { x: number; y: number }, l
       offOutline += 1;
       continue;
     }
-    place(kind, placed, opening.width_m, { sill_m: opening.sill_m, head_m: opening.head_m });
+    place(kind, placed, opening.width_m, { sill_m: opening.sill_m, head_m: opening.head_m }, opening.closet === true);
   }
 
   /**
@@ -1429,7 +1447,15 @@ export function scanToSketchRoom(scan: ScanRoom, at: { x: number; y: number }, l
     .map((s) => ({ roomId: room.id, doorId: s.id }));
 
   // One room built is a one-room result; the capture importer says otherwise for its own.
-  return { ok: true, kind: "room", room: { ...room, symbols }, extraRooms, notes, closetDoors: closetDoorRefs };
+  return {
+    ok: true,
+    kind: "room",
+    room: { ...room, symbols },
+    extraRooms,
+    notes,
+    closetDoors: closetDoorRefs.filter((d) => !closetsMarked.has(d.doorId)),
+    closetsMarked: closetDoorRefs.filter((d) => closetsMarked.has(d.doorId)),
+  };
 }
 
 /**
@@ -1662,6 +1688,7 @@ function importScanCapture(capture: ScanCapture, fileNotes: string[], at: { x: n
   const flights: SketchRoom[] = [];
   const notes: string[] = [];
   const closetDoors: ClosetDoorRef[] = [];
+  const closetsMarked: ClosetDoorRef[] = [];
   drawable.forEach(({ scan }, position) => {
     const label = captureRoomName(scan.name, scan.index ?? position);
     // A room that arrived unnamed is named here as the note names it, so the two agree.
@@ -1671,6 +1698,7 @@ function importScanCapture(capture: ScanCapture, fileNotes: string[], at: { x: n
       return;
     }
     closetDoors.push(...built.closetDoors);
+    closetsMarked.push(...(built.closetsMarked ?? []));
     rooms.push(built.room);
     flights.push(...built.extraRooms);
     notes.push(...built.notes.map((n) => `${label}: ${n}`));
@@ -1694,17 +1722,27 @@ function importScanCapture(capture: ScanCapture, fileNotes: string[], at: { x: n
   if (dropped > 0) {
     notes.push(`${dropped} ${dropped === 1 ? "doorway was" : "doorways were"} tapped from both rooms; drawn once.`);
   }
-  const room = deduped[0];
+  // Every room's, as long as the door is still drawn after the doorways tapped from both sides were folded.
+  const drawn = new Set(deduped.flatMap((r) => r.symbols.map((s) => s.id)));
+  /*
+    THE CLOSETS SAID YES TO ON THE PHONE (2026-10-05): "closets arent getting added with the closet door. maybe the sketch in
+    review before you send would come up with highlighted areas where it would ask if theres a closet here, and the user could
+    tap to fill it in" (the owner). The phone's Review asks "Closet?" behind each closet door; a yes comes as "closet": true on
+    the door, and that closet is drawn here as the editor's Add closets draws one. A door with no yes is offered as before.
+  */
+  const marked = closetsMarked.filter((d) => drawn.has(d.doorId));
+  const withClosets = marked.length > 0 ? withClosetsBehind({ rooms: deduped }, marked).rooms : deduped;
+  const closetsAdded = withClosets.length - deduped.length;
+  if (closetsAdded > 0) notes.push(`${closetsAdded} closet${closetsAdded === 1 ? "" : "s"} drawn behind the closet doors marked on the phone.`);
+  const room = withClosets[0];
   if (room === undefined) {
     return { ok: false, error: `None of the ${capture.rooms.length} rooms in this capture could be drawn.` };
   }
-  // Every room's, as long as the door is still drawn after the doorways tapped from both sides were folded.
-  const drawn = new Set(deduped.flatMap((r) => r.symbols.map((s) => s.id)));
   return {
     ok: true,
     kind: "capture",
     room,
-    extraRooms: [...deduped.slice(1), ...flights],
+    extraRooms: [...withClosets.slice(1), ...flights],
     notes: [`${rooms.length} room${rooms.length === 1 ? "" : "s"} imported, placed as tapped.`, ...notes, ...leftOut, ...fileNotes],
     closetDoors: closetDoors.filter((d) => drawn.has(d.doorId)),
     origin,
@@ -1732,7 +1770,18 @@ export function importScanRoom(text: string, at: { x: number; y: number }, level
   const measured = measurementNote(checked.scan, built.room);
   const shape = polygonOf(checked.scan);
   const origin = shape.ok ? { u: Math.min(...shape.polygon.map((p) => p[0])), v: Math.min(...shape.polygon.map((p) => p[1])) } : undefined;
-  return { ...built, origin, notes: [...(measured === null ? [] : [measured]), ...built.notes, ...checked.notes] };
+  // The closets said yes to on the phone's Review, drawn as a capture's are (importScanCapture).
+  const marked = built.closetsMarked ?? [];
+  const withClosets = marked.length > 0 ? withClosetsBehind({ rooms: [built.room] }, marked).rooms : [built.room];
+  const closetsAdded = withClosets.length - 1;
+  const closetNote = closetsAdded > 0 ? [`${closetsAdded} closet${closetsAdded === 1 ? "" : "s"} drawn behind the closet doors marked on the phone.`] : [];
+  return {
+    ...built,
+    room: withClosets[0] ?? built.room,
+    extraRooms: [...withClosets.slice(1), ...built.extraRooms],
+    origin,
+    notes: [...(measured === null ? [] : [measured]), ...built.notes, ...closetNote, ...checked.notes],
+  };
 }
 
 /**

@@ -1165,6 +1165,35 @@ export async function runScanImportChecks() {
     assert(sketch.roomBounds(farHall).minX < sketch.roomBounds(farFamily).maxX - 12, "a room two feet inside another is left where it came");
   });
 
+  test("a closet said yes to on the phone's Review comes in drawn; one not answered is offered", () => {
+    // 2026-10-05: "closets arent getting added with the closet door... the user could tap to fill it in" (the owner). The
+    // phone writes "closet": true on a closet door its Review was told has a closet behind it.
+    const marked = JSON.parse(captureTaps);
+    marked.rooms[0].outline_openings.push(
+      { edge: 3, from_m: 1.0, width_m: 0.9, kind: "closet_door", sill_m: null, head_m: null, closet: true },
+      { edge: 3, from_m: 2.6, width_m: 0.8, kind: "closet_door", sill_m: null, head_m: null },
+    );
+    const result = importedCapture(JSON.stringify(marked));
+    const all = [result.room, ...result.extraRooms];
+    const closets = all.filter((r) => r.name === "Closet");
+    assert(closets.length === 1, `one closet drawn, got ${closets.length}`);
+    // Behind Room 1's left wall (x = 0 m), outside the room: a partition off and 2' deep.
+    const family = all.find((r) => r.name === "Room 1");
+    const cb = sketch.roomBounds(closets[0]);
+    const fb = sketch.roomBounds(family);
+    assert(cb.maxX <= fb.minX, `the closet is outside the room's left wall: ${cb.maxX} vs ${fb.minX}`);
+    near(cb.maxX - cb.minX, 24, "2' deep", 1);
+    assert(result.notes.some((n) => /1 closet drawn behind the closet doors marked on the phone/.test(n)), `expected the note, got ${JSON.stringify(result.notes)}`);
+    // The unmarked door is the one offered; the marked one is not offered again.
+    assert(result.closetDoors.length === 1, `one closet door left to offer, got ${result.closetDoors.length}`);
+    // No mark, nothing drawn: every closet door is offered, as before.
+    const unmarked = JSON.parse(captureTaps);
+    unmarked.rooms[0].outline_openings.push({ edge: 3, from_m: 1.0, width_m: 0.9, kind: "closet_door", sill_m: null, head_m: null });
+    const plain = importedCapture(JSON.stringify(unmarked));
+    assert(![plain.room, ...plain.extraRooms].some((r) => r.name === "Closet"), "no closet without the yes");
+    assert(plain.closetDoors.length === 1, "the door is offered");
+  });
+
   test("two rooms a little too far apart for one wall are brought together to one", () => {
     // 2026-10-05 10:07: the office and the bedroom above came in 1'2" apart, the bathroom and the bedroom below 1'0" -
     // "minor things but these are shared walls". Here the hall stands 0.30 m off the family room: each wall comes half
