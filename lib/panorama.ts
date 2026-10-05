@@ -818,6 +818,186 @@ export function seamColumns(cost: Float32Array, w: number, h: number, maxStep = 
   return out;
 }
 
+// ---- What a seam crosses: how far apart the two pictures have it, and how much brighter one is (2026-10-05) ----
+
+/**
+ * One reading across a seam: where the second picture has what the first shows there - [dx], [dy] preview samples on
+ * (right and up) - and how sure that is ([r], a correlation; 0 when there was nothing to go by); and how much brighter
+ * the first is there ([light], a log of linear light; NaN when nothing could say).
+ */
+export interface SeamReading {
+  dx: number;
+  dy: number;
+  r: number;
+  light: number;
+}
+
+/** How [readAcross] reads: the window each side of the place ([half]), the farthest a thing is looked for ([search]), all in preview samples. */
+export interface SeamReadOptions {
+  half: number;
+  search: number;
+  /** A match is believed from this correlation ... */
+  minR: number;
+  /** ... in a window with at least this much texture (its variance): a plain wall says nothing about where it is. */
+  minEnergy: number;
+  /** Too dark to read the light by (linear), and a difference of more than [agree] (a log) is two different things. */
+  dark: number;
+  agree: number;
+}
+
+export const SEAM_READ_DEFAULTS: SeamReadOptions = { half: 12, search: 10, minR: 0.55, minEnergy: 0.0003, dark: 0.03, agree: 1.6 };
+
+/** A ([2r]+1)-square window of [t] ([w] x [h]) round ([cx], [cy]), NaN outside the picture and beyond [inner] of the middle; round the circle when [wrap]. */
+function windowOf(t: Float32Array, w: number, h: number, cx: number, cy: number, r: number, wrap: boolean, inner = r): Float32Array {
+  const size = 2 * r + 1;
+  const out = new Float32Array(size * size).fill(Number.NaN);
+  for (let j = -inner; j <= inner; j++) {
+    const y = cy + j;
+    if (y < 0 || y >= h) continue;
+    for (let i = -inner; i <= inner; i++) {
+      let x = cx + i;
+      if (wrap) x = ((x % w) + w) % w;
+      else if (x < 0 || x >= w) continue;
+      out[(j + r) * size + (i + r)] = t[y * w + x] as number;
+    }
+  }
+  return out;
+}
+
+/**
+ * What a seam crosses at ([cx], [cy]) of two pictures' previews (2026-10-05, "duplicated pet bed. the stitching still
+ * has plenty of issues" - the owner, of the 04:41 walk's 360s). A thing near the phone - the pet bed, a lamp, a door a
+ * metre off - is seen a few degrees apart by two stills taken from a hand swinging round the body, and the model the
+ * stills are laid through is only the room's walls and floor. Wherever a seam crosses such a thing it crossed it with
+ * a step, or, in the hand-off, twice. Read here: where the second picture has what the first shows in a window round
+ * the place - [ta], [tb] their texture (grey less its local mean, NaN where there is nothing), coarse then fine, to a
+ * tenth of a sample - and how much brighter the first is there, the median ratio of [ga] and [gb] (linear grey, NaN
+ * where nothing) at that shift. [w] by [h], round the circle across when [wrap].
+ */
+export function readAcross(
+  ta: Float32Array, tb: Float32Array, ga: Float32Array, gb: Float32Array,
+  w: number, h: number, cx: number, cy: number, wrap = false, o: SeamReadOptions = SEAM_READ_DEFAULTS,
+): SeamReading {
+  const R = o.half + o.search;
+  const size = 2 * R + 1;
+  const pa = windowOf(ta, w, h, cx, cy, R, wrap, o.half);
+  const pb = windowOf(tb, w, h, cx, cy, R, wrap);
+  let n = 0;
+  let s = 0;
+  let ss = 0;
+  for (const v of pa) {
+    if (Number.isNaN(v)) continue;
+    n++;
+    s += v;
+    ss += v * v;
+  }
+  let dx = 0;
+  let dy = 0;
+  let r = 0;
+  if (n > o.half * o.half && ss / n - (s / n) ** 2 >= o.minEnergy) {
+    const ca = shrink(pa, size, size, 2);
+    const cb = shrink(pb, size, size, 2);
+    const coarse = bestShift(ca.p, cb.p, ca.w, ca.h, 0, 0, Math.ceil(o.search / 2));
+    const fine = bestShift(pa, pb, size, size, coarse.dx * 2, coarse.dy * 2, 2);
+    if (fine.r >= o.minR && Math.abs(fine.dx) <= o.search && Math.abs(fine.dy) <= o.search) {
+      const sub = (axis: 0 | 1) => {
+        const m = zncc(pa, pb, size, size, fine.dx - (axis === 0 ? 1 : 0), fine.dy - (axis === 1 ? 1 : 0)).r;
+        const p = zncc(pa, pb, size, size, fine.dx + (axis === 0 ? 1 : 0), fine.dy + (axis === 1 ? 1 : 0)).r;
+        const den = m - 2 * fine.r + p;
+        return Math.abs(den) > 1e-9 ? Math.max(-0.5, Math.min(0.5, (0.5 * (m - p)) / den)) : 0;
+      };
+      dx = fine.dx + sub(0);
+      dy = fine.dy + sub(1);
+      r = fine.r;
+    }
+  }
+  // The light at that shift: the median ratio where both are bright enough to say and near enough alike to be one thing.
+  const logs: number[] = [];
+  const sx = Math.round(dx);
+  const sy = Math.round(dy);
+  for (let j = -o.half; j <= o.half; j++) {
+    const ya = cy + j;
+    const yb = ya + sy;
+    if (ya < 0 || ya >= h || yb < 0 || yb >= h) continue;
+    for (let i = -o.half; i <= o.half; i++) {
+      let xa = cx + i;
+      let xb = xa + sx;
+      if (wrap) {
+        xa = ((xa % w) + w) % w;
+        xb = ((xb % w) + w) % w;
+      } else if (xa < 0 || xa >= w || xb < 0 || xb >= w) continue;
+      const va = ga[ya * w + xa] as number;
+      const vb = gb[yb * w + xb] as number;
+      if (!(va > o.dark) || !(vb > o.dark)) continue;
+      const v = Math.log(va / vb);
+      if (Math.abs(v) <= o.agree) logs.push(v);
+    }
+  }
+  let light = Number.NaN;
+  if (logs.length >= 30) {
+    logs.sort((p, q) => p - q);
+    const m = logs.length >> 1;
+    light = logs.length % 2 ? (logs[m] as number) : ((logs[m - 1] as number) + (logs[m] as number)) / 2;
+  }
+  return { dx, dy, r, light };
+}
+
+/** How [evenAlong] evens a seam's readings: over this many readings either side, at most this far apart (samples) and this much light (a log). */
+export interface EvenAlongOptions {
+  reach: number;
+  limitShift: number;
+  limitLight: number;
+}
+
+export const EVEN_ALONG_DEFAULTS: EvenAlongOptions = { reach: 6, limitShift: 12, limitLight: 0.9 };
+
+/**
+ * A seam's readings ([readAcross], one every few samples along it) as a smooth shift and light along the whole of it:
+ * each the weighted mean of those within [reach] either side - a reading weighed by how sure it was, the nearer the
+ * more - and towards nothing where little was sure: a plain wall's stretch of seam keeps the shift the things either
+ * side of it had only as far as [reach], then lets it go. Held to [limitShift] and [limitLight].
+ */
+export function evenAlong(readings: SeamReading[], o: EvenAlongOptions = EVEN_ALONG_DEFAULTS): { dx: Float32Array; dy: Float32Array; light: Float32Array } {
+  const n = readings.length;
+  const dx = new Float32Array(n);
+  const dy = new Float32Array(n);
+  const light = new Float32Array(n);
+  // A lone reading unlike both its neighbours is a bad match: left out.
+  const sure = readings.map((p, k) => {
+    if (p.r <= 0) return 0;
+    const near = [readings[k - 1], readings[k + 1]].filter((q): q is SeamReading => !!q && q.r > 0);
+    if (near.length === 2 && near.every((q) => Math.hypot(q.dx - p.dx, q.dy - p.dy) > 4)) return 0;
+    return p.r;
+  });
+  for (let k = 0; k < n; k++) {
+    let sw = 0;
+    let sx = 0;
+    let sy = 0;
+    let lw = 0;
+    let ls = 0;
+    for (let j = Math.max(0, k - o.reach); j <= Math.min(n - 1, k + o.reach); j++) {
+      const tent = 1 - Math.abs(j - k) / (o.reach + 1);
+      const p = readings[j] as SeamReading;
+      const wt = (sure[j] as number) * tent;
+      if (wt > 0) {
+        sw += wt;
+        sx += wt * p.dx;
+        sy += wt * p.dy;
+      }
+      if (!Number.isNaN(p.light)) {
+        lw += tent;
+        ls += tent * p.light;
+      }
+    }
+    // Divided by at least one reading's worth: where little was sure, the shift fades.
+    const keep = Math.max(sw, 1);
+    dx[k] = Math.max(-o.limitShift, Math.min(o.limitShift, sx / keep));
+    dy[k] = Math.max(-o.limitShift, Math.min(o.limitShift, sy / keep));
+    light[k] = lw > 0 ? Math.max(-o.limitLight, Math.min(o.limitLight, ls / lw)) : 0;
+  }
+  return { dx, dy, light };
+}
+
 /** How [seamLight] reads the light either side of a seam. */
 export interface SeamLightOptions {
   /** The patch round each column's seam: columns each side, rows each side. */

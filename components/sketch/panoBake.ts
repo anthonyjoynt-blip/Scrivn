@@ -35,6 +35,15 @@
  *   beside itself. Each pair of neighbours in a ring now meets on a seam too, row by row where the two agree
  *   (`columnSeams`; lib/panorama.ts `columnSeamCost`, `seamColumns`), handed over in a few degrees - and a still blown
  *   white by a window gives way, in a hand-off, to one that saw it.
+ * - WHERE A SEAM MUST CROSS A THING NEAR, THE TWO MEET ON IT (2026-10-05, "duplicated pet bed. the stitching still has
+ *   plenty of issues" - the owner, of the 04:41 walk). A seam cannot always go round: a pet bed on the floor, a lamp, a
+ *   door a metre away is seen a few degrees apart by two stills from a hand swinging round the body, and the model is
+ *   only the room's walls and floor. All along every seam the two are read ([readAcross], [evenAlong]) for how far
+ *   apart they have what is there and how much brighter one is, and near it each frame is bent half the way to the
+ *   other and lit half the way (`columnShift`, `ringShift`): they meet on the seam, the hand-off draws one thing once,
+ *   and each frame's own middle stays as it was taken. With every still setting its own exposure (Scrivn Scan 0.1.96)
+ *   the light is evened the same way - across the whole of a frame, from one seam's light to the other's - so a room
+ *   keeps the light each still saw in its own middle and no seam is a line.
  * - THE GAINS (`gains`): every frame laid on a small panorama of its own, read back, and where two
  *   overlap their colours compared (lib/panorama.ts `overlapLog`, `solveGains`) - the level ring the one
  *   the others are evened to.
@@ -43,7 +52,7 @@
  * straight down (the first row drawn) to straight up.
  */
 
-import { columnSeamCost, dirOfEquirect, equirectOf, overlapLog, SEAM_COST_DEFAULTS, seamColumns, seamCost, seamLight, seamRows, solveGains, type Gray, type Overlap, type PanoFrame, type V3 } from "@/lib/panorama";
+import { columnSeamCost, dirOfEquirect, equirectOf, evenAlong, overlapLog, readAcross, SEAM_COST_DEFAULTS, SEAM_LIGHT_DEFAULTS, seamColumns, seamCost, seamLight, seamRows, solveGains, type Gray, type Overlap, type PanoFrame, type SeamReading, type V3 } from "@/lib/panorama";
 
 type Three = typeof import("three");
 type Renderer = import("three").WebGLRenderer;
@@ -90,6 +99,17 @@ const COLUMN_SEAM_EASE_DEG = 1.5;
 const COLUMN_SEAM_REACH = 0.9;
 /** The seams' rows: one per row of the previews they are found on. */
 const COLUMN_SEAM_H = SEAM_W / 2;
+/**
+ * Where two frames have a thing near a few degrees apart, each is bent half the way to the other on the seam and less
+ * and less away from it - none this many degrees from a seam between neighbours, or from the seam between two rings -
+ * so a frame's own middle stays as it was taken ([PanoBaker.columnSeams], [PanoBaker.seams]). Read every few samples
+ * along a seam.
+ */
+const COLUMN_SHIFT_FALLOFF_DEG = 12;
+const RING_SHIFT_FALLOFF_DEG = 14;
+const SEAM_READ_STEP = 3;
+/** How far each ring's light may be evened to the other's along their seam (a log): each still sets its own exposure. */
+const RING_LIGHT_LIMIT = 0.8;
 
 /** Which ring a frame is in: down (-1), level (0) or up (1), more than about 17 degrees off level. */
 function ringOf(f: PanoFrame): number {
@@ -148,6 +168,7 @@ const QUAD_VERT = /* glsl */ `
  */
 const SEAM_GLSL = /* glsl */ `
   uniform sampler2D seams;
+  uniform sampler2D ringShift; uniform int hasRingShift;
   vec4 seamAt(float u) {
     float x = u * ${SEAM_W.toFixed(1)} - 0.5;
     float x0 = floor(x);
@@ -155,24 +176,42 @@ const SEAM_GLSL = /* glsl */ `
     int i1 = int(mod(x0 + 1.0, ${SEAM_W.toFixed(1)}));
     return mix(texelFetch(seams, ivec2(i0, 0), 0), texelFetch(seams, ivec2(i1, 0), 0), x - x0);
   }
+  /** How far the other ring has what the level ring shows on the seam, degrees right and up: the floor seam's (xy), the ceiling seam's (zw). */
+  vec4 ringShiftAt(float u) {
+    float x = u * ${SEAM_W.toFixed(1)} - 0.5;
+    float x0 = floor(x);
+    int i0 = int(mod(x0, ${SEAM_W.toFixed(1)}));
+    int i1 = int(mod(x0 + 1.0, ${SEAM_W.toFixed(1)}));
+    return mix(texelFetch(ringShift, ivec2(i0, 0), 0), texelFetch(ringShift, ivec2(i1, 0), 0), x - x0);
+  }
 `;
 
 /**
- * How much of this place is the frame's own within its ring ([PanoBaker.columnSeams]): its seams with the neighbour to
- * its left and to its right, degrees from the way it looks, row by row of the panorama (between texels), and a short
- * hand-off across each.
+ * This frame within its ring at a place of the panorama ([PanoBaker.columnSeams]), from its seams with the neighbour to
+ * its left and to its right, row by row (between texels): how much of the place is its own ([share], a short hand-off
+ * across each seam), how far it is bent there ([shift], degrees right and up: half way to each neighbour on the seam,
+ * nothing [COLUMN_SHIFT_FALLOFF_DEG] in), and its light ([light], a log: from one seam's evening to the other's across
+ * the frame).
  */
 const COLUMN_SEAM_GLSL = /* glsl */ `
-  uniform sampler2D colSeams; uniform int hasColSeams; uniform int frameIndex; uniform float frameYaw;
-  float columnShare(vec2 uv) {
-    float y = uv.y * ${COLUMN_SEAM_H.toFixed(1)} - 0.5;
+  uniform sampler2D colSeams; uniform sampler2D colShift; uniform int hasColSeams; uniform int frameIndex; uniform float frameYaw;
+  vec4 columnRow(sampler2D t, float v) {
+    float y = v * ${COLUMN_SEAM_H.toFixed(1)} - 0.5;
     float y0 = floor(y);
     int i0 = int(clamp(y0, 0.0, ${(COLUMN_SEAM_H - 1).toFixed(1)}));
     int i1 = int(clamp(y0 + 1.0, 0.0, ${(COLUMN_SEAM_H - 1).toFixed(1)}));
-    vec2 lr = mix(texelFetch(colSeams, ivec2(frameIndex, i0), 0).rg, texelFetch(colSeams, ivec2(frameIndex, i1), 0).rg, clamp(y - y0, 0.0, 1.0));
+    return mix(texelFetch(t, ivec2(frameIndex, i0), 0), texelFetch(t, ivec2(frameIndex, i1), 0), clamp(y - y0, 0.0, 1.0));
+  }
+  void columnOf(vec2 uv, out float share, out vec2 shift, out float light) {
+    vec4 s = columnRow(colSeams, uv.y);
+    vec4 m = columnRow(colShift, uv.y);
     float d = mod((uv.x - 0.5) * 360.0 - frameYaw + 540.0, 360.0) - 180.0;
     float ease = ${COLUMN_SEAM_EASE_DEG.toFixed(2)};
-    return smoothstep(lr.x - ease, lr.x + ease, d) * (1.0 - smoothstep(lr.y - ease, lr.y + ease, d));
+    share = smoothstep(s.x - ease, s.x + ease, d) * (1.0 - smoothstep(s.y - ease, s.y + ease, d));
+    light = mix(s.z, s.w, clamp((d - s.x) / max(s.y - s.x, 1e-3), 0.0, 1.0));
+    float fromLeft = 1.0 - smoothstep(0.0, ${COLUMN_SHIFT_FALLOFF_DEG.toFixed(1)}, d - s.x);
+    float fromRight = 1.0 - smoothstep(0.0, ${COLUMN_SHIFT_FALLOFF_DEG.toFixed(1)}, s.y - d);
+    shift = 0.5 * m.xy * fromLeft - 0.5 * m.zw * fromRight;
   }
 `;
 
@@ -380,9 +419,12 @@ export class PanoBaker {
         hasLow: { value: 1 },
         hasHigh: { value: 1 },
         colSeams: { value: null },
+        colShift: { value: null },
         hasColSeams: { value: 0 },
         frameIndex: { value: 0 },
         frameYaw: { value: 0 },
+        ringShift: { value: null },
+        hasRingShift: { value: 0 },
       },
       vertexShader: QUAD_VERT,
       fragmentShader: /* glsl */ `
@@ -397,9 +439,27 @@ export class PanoBaker {
         ${SEAM_GLSL}
         ${COLUMN_SEAM_GLSL}
         void main() {
-          vec3 d = dirOfEquirect(vUv);
+          // This frame within its ring, and bent to its neighbours on the seams where they have a thing near apart.
+          float share = 1.0;
+          vec2 shift = vec2(0.0);
+          float light = 0.0;
+          if (hasColSeams == 1) columnOf(vUv, share, shift, light);
+          if (hasSeams == 1 && hasRingShift == 1) {
+            vec4 seamHere = seamAt(vUv.x);
+            vec4 rs = ringShiftAt(vUv.x);
+            float p = (vUv.y - 0.5) * 180.0;
+            float fall = ${RING_SHIFT_FALLOFF_DEG.toFixed(1)};
+            if (ring < 0) shift += 0.5 * rs.xy * (1.0 - smoothstep(0.0, fall, seamHere.x - p));
+            else if (ring > 0) shift += 0.5 * rs.zw * (1.0 - smoothstep(0.0, fall, p - seamHere.y));
+            else {
+              if (hasLow == 1) shift -= 0.5 * rs.xy * (1.0 - smoothstep(0.0, fall, p - seamHere.x));
+              if (hasHigh == 1) shift -= 0.5 * rs.zw * (1.0 - smoothstep(0.0, fall, seamHere.y - p));
+            }
+          }
+          vec2 at = vUv + vec2(shift.x / 360.0, shift.y / 180.0);
+          vec3 d = dirOfEquirect(at);
           if (hasDistances == 1) {
-            float t = distanceFeet(texture(distances, vUv));
+            float t = distanceFeet(texture(distances, at));
             d = normalize(d * t - offset);
           }
           float z = dot(d, forward);
@@ -423,18 +483,17 @@ export class PanoBaker {
             // For the seams: one ring's picture where a frame of it covers well, evened as the bake evens it - and
             // stored as a photo is (gamma 2.2), so a dim room's dark furniture keeps its detail in eight bits.
             if (e < 0.12 || f < 0.12 || keep < 0.5) discard;
-            // Each frame of a ring where it is its own, as the bake will draw it.
-            if (hasColSeams == 1 && columnShare(vUv) < 0.5) discard;
-            gl_FragColor = vec4(pow(clamp(c * gain, 0.0, 1.0), vec3(${(1 / 2.2).toFixed(6)})), 1.0);
+            // Each frame of a ring where it is its own, bent and lit as the bake will draw it.
+            if (hasColSeams == 1 && share < 0.5) discard;
+            gl_FragColor = vec4(pow(clamp(c * gain * exp(light), 0.0, 1.0), vec3(${(1 / 2.2).toFixed(6)})), 1.0);
             return;
           }
           // Its own part of its ring ([PanoBaker.columnSeams]), and less of it where it saw only white: a still a window
           // blew out gives way, where the two hand over, to one that saw the window (2026-10-04).
-          float own = hasColSeams == 1 ? columnShare(vUv) : 1.0;
           float clipped = 1.0 - 0.95 * smoothstep(0.9, 0.995, max(c.r, max(c.g, c.b)));
           // A floor every covered sample keeps, so a frame's soft edge is never taken for a hole and filled over.
-          float w = pow(clamp(e * f, 0.0, 1.0), power) * keep * own * clipped + 1e-3;
-          vec3 col = c * gain;
+          float w = pow(clamp(e * f, 0.0, 1.0), power) * keep * share * clipped + 1e-3;
+          vec3 col = c * gain * exp(light);
           float pitchDeg = (vUv.y - 0.5) * 180.0;
           float lowDeg = ${BAND_LOW_DEG.toFixed(1)};
           float highDeg = ${BAND_HIGH_DEG.toFixed(1)};
@@ -543,14 +602,14 @@ export class PanoBaker {
    * the preview, as COLUMN_SEAM_GLSL reads it: its seam with the neighbour on its left and on its right, degrees from the
    * way it looks (-180 and 180 where it has no neighbour near enough to cut). Null when no ring has two frames.
    */
-  columnSeams(frames: PanoFrame[], textures: Texture[], dist: DistanceMap | null): Texture | null {
+  columnSeams(frames: PanoFrame[], textures: Texture[], dist: DistanceMap | null, gains: [number, number, number][] | null = null): { seams: Texture; shift: Texture } | null {
     const THREE = this.THREE;
     const W = SEAM_W;
     const H = COLUMN_SEAM_H;
     const yaw = frames.map(yawOf);
     // Half of each frame's view across, degrees: what says two neighbours overlap at all.
     const half = frames.map((f) => (Math.atan(f.camera.width / 2 / f.camera.fx) * 180) / Math.PI);
-    type Band = { a: number; b: number; x0: number; w: number; ta: Float32Array | null; tb: Float32Array | null };
+    type Band = { a: number; b: number; x0: number; w: number; ta: Float32Array | null; tb: Float32Array | null; ga: Float32Array | null; gb: Float32Array | null };
     const bands: Band[] = [];
     for (const r of [-1, 0, 1]) {
       const ring = frames.map((f, k) => k).filter((k) => ringOf(frames[k] as PanoFrame) === r).sort((i, j) => (yaw[i] as number) - (yaw[j] as number));
@@ -564,7 +623,7 @@ export class PanoBaker {
         const x0 = Math.round((((mid - COLUMN_BAND * gap) / 360 + 0.5) * W));
         const x1 = Math.round((((mid + COLUMN_BAND * gap) / 360 + 0.5) * W));
         if (x1 - x0 < 3) continue;
-        bands.push({ a, b, x0, w: x1 - x0 + 1, ta: null, tb: null });
+        bands.push({ a, b, x0, w: x1 - x0 + 1, ta: null, tb: null, ga: null, gb: null });
       }
     }
     if (bands.length === 0) return null;
@@ -579,6 +638,7 @@ export class PanoBaker {
       const mine = bands.filter((band) => band.a === k || band.b === k);
       if (mine.length === 0) continue;
       this.setFrame(m, frames[k] as PanoFrame, textures[k] as Texture, dist, k);
+      (m.uniforms.gain as { value: import("three").Vector3 }).value.set(...(gains?.[k] ?? [1, 1, 1]));
       this.pass(m, target, true);
       this.renderer.readRenderTargetPixels(target, 0, 0, W, SEAM_W / 2, buf);
       for (const band of mine) {
@@ -590,40 +650,75 @@ export class PanoBaker {
           }
         }
         const texture = textureOf(cut, band.w, H);
-        if (band.a === k) band.ta = texture;
-        else band.tb = texture;
+        const grey = linearGreyOf(cut, band.w, H);
+        if (band.a === k) {
+          band.ta = texture;
+          band.ga = grey;
+        } else {
+          band.tb = texture;
+          band.gb = grey;
+        }
       }
     }
     m.dispose();
     target.dispose();
-    // Left and right of each frame, degrees from the way it looks: as far as the circle goes where nothing cuts it.
+    // Left and right of each frame, degrees from the way it looks (as far as the circle goes where nothing cuts it), and
+    // its light at each; and how far it is bent on each, degrees right and up.
     const data = new Float32Array(frames.length * H * 4);
+    const bend = new Float32Array(frames.length * H * 4);
     for (let k = 0; k < frames.length; k++) {
       for (let y = 0; y < H; y++) {
         data[(y * frames.length + k) * 4] = -180;
         data[(y * frames.length + k) * 4 + 1] = 180;
       }
     }
+    const degPerSample = 360 / W;
     for (const band of bands) {
-      if (!band.ta || !band.tb) continue;
+      if (!band.ta || !band.tb || !band.ga || !band.gb) continue;
       const cols = seamColumns(columnSeamCost(band.ta, band.tb, band.w, H), band.w, H);
+      // What the seam crosses, every few rows: how far apart the two have it, and which is brighter there.
+      const rows: number[] = [];
+      const readings: SeamReading[] = [];
+      for (let y = 0; y < H; y += SEAM_READ_STEP) {
+        rows.push(y);
+        readings.push(readAcross(band.ta, band.tb, band.ga, band.gb, band.w, H, cols[y] as number, y));
+      }
+      const even = evenAlong(readings);
       for (let y = 0; y < H; y++) {
         const seamYaw = ((band.x0 + (cols[y] as number) + 0.5) / W - 0.5) * 360;
-        data[(y * frames.length + band.a) * 4 + 1] = wrap180(seamYaw - (yaw[band.a] as number));
-        data[(y * frames.length + band.b) * 4] = wrap180(seamYaw - (yaw[band.b] as number));
+        const along = between(rows, y);
+        const dx = lerpAt(even.dx, along) * degPerSample;
+        const dy = lerpAt(even.dy, along) * degPerSample;
+        const light = lerpAt(even.light, along);
+        const ia = (y * frames.length + band.a) * 4;
+        const ib = (y * frames.length + band.b) * 4;
+        // The frame on the left of the seam: its right edge, evened down by half the difference, bent back by half.
+        data[ia + 1] = wrap180(seamYaw - (yaw[band.a] as number));
+        data[ia + 3] = -light / 2;
+        bend[ia + 2] = dx;
+        bend[ia + 3] = dy;
+        // The frame on its right: its left edge, evened up by half, bent on by half.
+        data[ib] = wrap180(seamYaw - (yaw[band.b] as number));
+        data[ib + 2] = light / 2;
+        bend[ib] = dx;
+        bend[ib + 1] = dy;
       }
     }
-    const texture = new THREE.DataTexture(data, frames.length, H, THREE.RGBAFormat, THREE.FloatType);
-    texture.magFilter = THREE.NearestFilter;
-    texture.minFilter = THREE.NearestFilter;
-    texture.needsUpdate = true;
-    return texture;
+    const texture = (values: Float32Array) => {
+      const t = new THREE.DataTexture(values, frames.length, H, THREE.RGBAFormat, THREE.FloatType);
+      t.magFilter = THREE.NearestFilter;
+      t.minFilter = THREE.NearestFilter;
+      t.needsUpdate = true;
+      return t;
+    };
+    return { seams: texture(data), shift: texture(bend) };
   }
 
-  /** Each frame of a ring cut at its seams with its neighbours ([columnSeams]), or not cut. */
-  private withColumnSeams(m: import("three").ShaderMaterial, columns: Texture | null) {
+  /** Each frame of a ring cut, bent and lit at its seams with its neighbours ([columnSeams]), or not. */
+  private withColumnSeams(m: import("three").ShaderMaterial, columns: { seams: Texture; shift: Texture } | null) {
     const u = m.uniforms as Record<string, { value: unknown }>;
-    u.colSeams!.value = columns;
+    u.colSeams!.value = columns?.seams ?? null;
+    u.colShift!.value = columns?.shift ?? null;
     u.hasColSeams!.value = columns ? 1 : 0;
   }
 
@@ -636,7 +731,7 @@ export class PanoBaker {
    * ring. A ring that is missing leaves its seam where the fixed band had it. Each ring is drawn with its frames cut at
    * their own seams ([columns], 2026-10-04), as the bake draws it.
    */
-  seams(frames: PanoFrame[], textures: Texture[], dist: DistanceMap | null, gains: [number, number, number][] | null, columns: Texture | null = null): Texture | null {
+  seams(frames: PanoFrame[], textures: Texture[], dist: DistanceMap | null, gains: [number, number, number][] | null, columns: { seams: Texture; shift: Texture } | null = null): { seams: Texture; shift: Texture } | null {
     const THREE = this.THREE;
     const W = SEAM_W;
     const H = SEAM_W / 2;
@@ -676,14 +771,32 @@ export class PanoBaker {
     // brighter over a plain wall (the floor ring sees the lower wall at a slant) is no reason for the seam to wander.
     const levelTexture = textureOf(level, W, H);
     // Each seam's row in every column, and the light of the level ring over the other's along it.
+    const levelGrey = linearGreyOf(level, W, H);
     const seamOf = (other: Uint8Array | undefined, range: [number, number], nominalDeg: number, side: 1 | -1, toward: number) => {
-      if (!other) return { pitch: new Float32Array(W).fill(nominalDeg), light: new Float32Array(W) };
+      if (!other) return { pitch: new Float32Array(W).fill(nominalDeg), light: new Float32Array(W), dx: new Float32Array(W), dy: new Float32Array(W) };
       const y0 = rowOf(range[0]);
       const h = rowOf(range[1]) - y0 + 1;
       const band = (t: Float32Array) => t.slice(y0 * W, (y0 + h) * W);
-      const cost = seamCost(band(levelTexture), band(textureOf(other, W, H)), W, h, side, { ...SEAM_COST_DEFAULTS, toward });
+      const otherTexture = textureOf(other, W, H);
+      const cost = seamCost(band(levelTexture), band(otherTexture), W, h, side, { ...SEAM_COST_DEFAULTS, toward });
       const rows = Int32Array.from(seamRows(cost, W, h), (r) => y0 + r);
-      return { pitch: Float32Array.from(rows, pitchOf), light: seamLight(level, other, W, H, rows) };
+      // What the seam crosses, every few columns round the circle: how far apart the two rings have it (2026-10-05).
+      const otherGrey = linearGreyOf(other, W, H);
+      const xs: number[] = [];
+      const readings: SeamReading[] = [];
+      for (let x = 0; x < W; x += SEAM_READ_STEP) {
+        xs.push(x);
+        readings.push(readAcross(levelTexture, otherTexture, levelGrey, otherGrey, W, H, x, rows[x] as number, true));
+      }
+      const even = evenAlong(readings);
+      const dx = new Float32Array(W);
+      const dy = new Float32Array(W);
+      for (let x = 0; x < W; x++) {
+        const along = between(xs, x, W);
+        dx[x] = lerpAt(even.dx, along, true) * (360 / W);
+        dy[x] = lerpAt(even.dy, along, true) * (360 / W);
+      }
+      return { pitch: Float32Array.from(rows, pitchOf), light: seamLight(level, other, W, H, rows, { ...SEAM_LIGHT_DEFAULTS, limit: RING_LIGHT_LIMIT }), dx, dy };
     };
     const low = seamOf(pictures.get(-1), SEAM_LOW_RANGE, BAND_LOW_DEG, -1, SEAM_TOWARD_LOW);
     const high = seamOf(pictures.get(1), SEAM_HIGH_RANGE, BAND_HIGH_DEG, 1, SEAM_TOWARD_HIGH);
@@ -695,12 +808,23 @@ export class PanoBaker {
       data[x * 4 + 2] = low.light[x] as number;
       data[x * 4 + 3] = high.light[x] as number;
     }
-    const texture = new THREE.DataTexture(data, W, 1, THREE.RGBAFormat, THREE.FloatType);
-    texture.magFilter = THREE.NearestFilter;
-    texture.minFilter = THREE.NearestFilter;
-    texture.wrapS = THREE.RepeatWrapping;
-    texture.needsUpdate = true;
-    return texture;
+    // And how far each seam's other ring has what the level ring shows on it (see SEAM_GLSL's ringShiftAt).
+    const bend = new Float32Array(W * 4);
+    for (let x = 0; x < W; x++) {
+      bend[x * 4] = low.dx[x] as number;
+      bend[x * 4 + 1] = low.dy[x] as number;
+      bend[x * 4 + 2] = high.dx[x] as number;
+      bend[x * 4 + 3] = high.dy[x] as number;
+    }
+    const texture = (values: Float32Array) => {
+      const t = new THREE.DataTexture(values, W, 1, THREE.RGBAFormat, THREE.FloatType);
+      t.magFilter = THREE.NearestFilter;
+      t.minFilter = THREE.NearestFilter;
+      t.wrapS = THREE.RepeatWrapping;
+      t.needsUpdate = true;
+      return t;
+    };
+    return { seams: texture(data), shift: texture(bend) };
   }
 
   /**
@@ -713,8 +837,8 @@ export class PanoBaker {
     const H = width / 2;
     // Where each frame of a ring meets its neighbours (2026-10-04), then where the rings meet (2026-10-03), found on
     // previews first.
-    const columns = this.columnSeams(frames, textures, dist);
-    const seams = this.seams(frames, textures, dist, gains, columns);
+    const columns = this.columnSeams(frames, textures, dist, gains);
+    const rings = this.seams(frames, textures, dist, gains, columns);
     const acc: RT[] = [this.target(W, H, THREE.HalfFloatType)];
     const m = this.projector();
     this.ringsOf(m, frames);
@@ -724,8 +848,10 @@ export class PanoBaker {
     m.blendDst = THREE.OneFactor;
     m.blendSrcAlpha = THREE.OneFactor;
     m.blendDstAlpha = THREE.OneFactor;
-    (m.uniforms.seams as { value: Texture | null }).value = seams;
-    (m.uniforms.hasSeams as { value: number }).value = seams ? 1 : 0;
+    (m.uniforms.seams as { value: Texture | null }).value = rings?.seams ?? null;
+    (m.uniforms.hasSeams as { value: number }).value = rings ? 1 : 0;
+    (m.uniforms.ringShift as { value: Texture | null }).value = rings?.shift ?? null;
+    (m.uniforms.hasRingShift as { value: number }).value = rings ? 1 : 0;
     this.withColumnSeams(m, columns);
     frames.forEach((f, k) => {
       this.setFrame(m, f, textures[k] as Texture, dist, k);
@@ -733,8 +859,10 @@ export class PanoBaker {
       this.pass(m, acc[0] as RT, k === 0);
     });
     m.dispose();
-    seams?.dispose();
-    columns?.dispose();
+    rings?.seams.dispose();
+    rings?.shift.dispose();
+    columns?.seams.dispose();
+    columns?.shift.dispose();
 
     // Push-pull: halve until tiny, then fill each level's holes from the next coarser one.
     const down = new THREE.ShaderMaterial({
@@ -888,6 +1016,41 @@ function textureOf(p: Uint8Array, w: number, h: number): Float32Array {
     }
   }
   return out;
+}
+
+/** A preview's grey as linear light (it is stored gamma 2.2), 0-1, NaN where nothing covers it: what the light along a seam is read in. */
+function linearGreyOf(p: Uint8Array, w: number, h: number): Float32Array {
+  const g = new Float32Array(w * h);
+  const lin = new Float32Array(256);
+  for (let v = 0; v < 256; v++) lin[v] = Math.pow(v / 255, 2.2);
+  for (let i = 0; i < w * h; i++) {
+    g[i] = (p[i * 4 + 3] as number) < 128 ? Number.NaN : 0.299 * (lin[p[i * 4] as number] as number) + 0.587 * (lin[p[i * 4 + 1] as number] as number) + 0.114 * (lin[p[i * 4 + 2] as number] as number);
+  }
+  return g;
+}
+
+/** Where [x] falls among the sorted readings' places [at]: the reading before it and how far on to the next (0-1); round the circle of [period] when given. */
+function between(at: number[], x: number, period = 0): { k: number; t: number } {
+  const n = at.length;
+  if (n === 0) return { k: 0, t: 0 };
+  let k = 0;
+  while (k + 1 < n && (at[k + 1] as number) <= x) k++;
+  if (period > 0 && x < (at[0] as number)) {
+    // Before the first reading: between the last, a lap back, and the first.
+    const last = (at[n - 1] as number) - period;
+    return { k: n - 1, t: (x - last) / ((at[0] as number) - last) };
+  }
+  const next = k + 1 < n ? (at[k + 1] as number) : period > 0 ? (at[0] as number) + period : (at[k] as number);
+  const span = next - (at[k] as number);
+  return { k, t: span > 0 ? (x - (at[k] as number)) / span : 0 };
+}
+
+/** [v] between readings [along].k and the next (round to the first when [wrap]). */
+function lerpAt(v: Float32Array, along: { k: number; t: number }, wrap = false): number {
+  const a = v[along.k] as number;
+  const nk = along.k + 1 < v.length ? along.k + 1 : wrap ? 0 : along.k;
+  const b = v[nk] as number;
+  return a + (b - a) * along.t;
 }
 
 /** A frame's picture in grey at [scale] of its full size ([fullWidth] wide), for the alignment. */

@@ -348,6 +348,52 @@ export async function runPanoramaChecks() {
     for (let y = 15; y < h; y++) assert(cols2[y] >= 30, `row ${y}: a seam at column ${cols2[y]} hands the second frame a place it has nothing over`);
   });
 
+  await test("across a seam: where the second picture has what the first shows, to a tenth, and how much brighter the first is", () => {
+    // 2026-10-05, "duplicated pet bed": a thing near the phone lands a few degrees apart in two stills. The second
+    // picture here is the first moved 4 samples right and 3 down, and half as bright.
+    const w = 90;
+    const h = 90;
+    const random = rng(11);
+    const base = new Float32Array((w + 20) * (h + 20));
+    for (let i = 0; i < base.length; i++) base[i] = random();
+    const at = (x, y) => base[(y + 10) * (w + 20) + (x + 10)];
+    const ta = new Float32Array(w * h);
+    const tb = new Float32Array(w * h);
+    const ga = new Float32Array(w * h);
+    const gb = new Float32Array(w * h);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        ta[y * w + x] = at(x, y) - 0.5;
+        tb[y * w + x] = at(x - 4, y + 3) - 0.5;
+        ga[y * w + x] = 0.2 + 0.6 * at(x, y);
+        gb[y * w + x] = 0.5 * (0.2 + 0.6 * at(x - 4, y + 3));
+      }
+    }
+    const read = P.readAcross(ta, tb, ga, gb, w, h, 45, 45);
+    near(read.dx, 4, "found 4 samples right", 0.15);
+    near(read.dy, -3, "and 3 down", 0.15);
+    assert(read.r > 0.9, `sure of it, r ${read.r}`);
+    near(read.light, Math.log(2), "the first twice as bright", 0.02);
+    // A plain wall says nothing about where it is: no shift, nothing sure.
+    const plain = new Float32Array(w * h).fill(0);
+    const flat = P.readAcross(plain, plain, ga, ga, w, h, 45, 45);
+    assert(flat.r === 0 && flat.dx === 0 && flat.dy === 0, `a plain window is not read, got ${JSON.stringify(flat)}`);
+  });
+
+  await test("along a seam: the sure readings carry, a lone one unlike its neighbours does not, and plain stretches let go", () => {
+    const blank = { dx: 0, dy: 0, r: 0, light: Number.NaN };
+    const readings = Array.from({ length: 40 }, () => ({ ...blank }));
+    for (let k = 10; k < 16; k++) readings[k] = { dx: 6, dy: -2, r: 0.9, light: 0.4 };
+    readings[30] = { dx: -9, dy: 9, r: 0.8, light: Number.NaN };
+    const even = P.evenAlong(readings);
+    near(even.dx[12], 6, "the middle of the sure stretch keeps its shift", 0.6);
+    near(even.dy[12], -2, "both ways", 0.3);
+    near(even.light[12], 0.4, "and its light", 0.01);
+    assert(Math.abs(even.dx[22]) < 0.01, `far from anything sure the shift is let go, got ${even.dx[22]}`);
+    // A reading is only dropped as a bad match when both its neighbours were read and disagree; alone among nothing, it fades.
+    assert(Math.abs(even.dx[30]) < 9 * 0.9, `a lone reading is not carried at full strength, got ${even.dx[30]}`);
+  });
+
   const stored = (linear) => Math.round(255 * Math.pow(linear, 1 / 2.2));
 
   await test("the light along a seam: how much brighter the level ring is there, read past a thing near", () => {
