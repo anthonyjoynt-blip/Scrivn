@@ -1144,6 +1144,27 @@ export async function runScanImportChecks() {
     assert(mb[0].minX === 300 && mb[2].minY === 120, "and the union's top-left is at the new drop point");
   });
 
+  test("a room laid a little inside its neighbour shares its wall: laid on it, not drawn under it", () => {
+    // 2026-10-05, "on the sketch we lost a wall when we joined the bedroom": the bedroom's east wall came in 6" inside
+    // the family room's west wall, each room's floor covered the other's wall, and no wall was drawn there at all.
+    const fixture = JSON.parse(captureTaps);
+    fixture.rooms[1].outline = [[3.85, 1.4], [5.0, 1.4], [5.0, 2.6], [3.85, 2.6]];
+    const result = importedCapture(JSON.stringify(fixture));
+    const [family, hall] = captureRooms(result);
+    const fb = sketch.roomBounds(family);
+    const hb = sketch.roomBounds(hall);
+    assert(hb.minX === fb.maxX, `the hall's left wall should be laid on the family room's right wall, got ${hb.minX} vs ${fb.maxX}`);
+    // The family room stays as tapped, the hall keeps its other walls: only the one wall moved.
+    near(fb.maxX - fb.minX, 4 * 39.3701, "the family room is still 4 m across", 1);
+    near(hb.maxX - fb.maxX, 1.0 * 39.3701, "the hall's far wall stays where it was", 1);
+    assert(result.notes.some((n) => /Room 2's wall came in 0'5" inside Room 1's; laid on it, one wall/.test(n)), `expected the note, got ${JSON.stringify(result.notes)}`);
+    // Two feet in is not tap error: left as it came, for the estimator to see.
+    const far = JSON.parse(captureTaps);
+    far.rooms[1].outline = [[3.4, 1.4], [5.0, 1.4], [5.0, 2.6], [3.4, 2.6]];
+    const [farFamily, farHall] = captureRooms(importedCapture(JSON.stringify(far)));
+    assert(sketch.roomBounds(farHall).minX < sketch.roomBounds(farFamily).maxX - 12, "a room two feet inside another is left where it came");
+  });
+
   test("the rooms are named from the file, and the hall beside the family room is a neighbour, not a sub-room", () => {
     const result = importedCapture();
     const rooms = captureRooms(result);

@@ -160,6 +160,7 @@
  */
 
 import {
+  dragWall,
   dropDuplicateSharedOpenings,
   type CabinetSymbol,
   type CabinetTier,
@@ -1449,6 +1450,75 @@ export function measurementNote(scan: ScanRoom, room: SketchRoom): string | null
 }
 
 /**
+ * How far a later room's wall may have come in INSIDE an earlier room's and still be laid on it
+ * ([settleOverlaps]), and how far the two must run alongside each other to count: a foot each.
+ */
+const OVERLAP_SETTLE_PX = 12;
+const OVERLAP_MIN_RUN_PX = 12;
+
+/**
+ * A WALL TWO ROOMS SHARE, WHEN THE PHONE PUT ONE ROOM A LITTLE INSIDE THE OTHER (2026-10-05, "on the sketch we lost a
+ * wall when we joined the bedroom" - the owner). The 04:41 walk's bedroom was laid against the family room at the door
+ * they share, and its east wall came in 6" inside the family room's west wall: the two rooms' readings of the door and
+ * of their own walls disagreed by that much. Each room's floor was then drawn over the other's wall, and the sketch
+ * showed no wall there at all.
+ *
+ * A later room's wall that runs alongside an earlier room's, facing it, up to [OVERLAP_SETTLE_PX] behind it - inside
+ * the earlier room - for [OVERLAP_MIN_RUN_PX] or more, is moved onto it as the editor's own wall drag moves a wall
+ * (`dragWall`: its neighbours follow, what stands on it stays): insides touching, the one wall the sketch draws for two
+ * rooms that share a line. The earlier room is the one the later was joined to, and stays as tapped. Further in than
+ * that is not tap error, and is left for the estimator to see. Said in a note.
+ */
+function settleOverlaps(rooms: SketchRoom[]): { rooms: SketchRoom[]; notes: string[] } {
+  const out = [...rooms];
+  const notes: string[] = [];
+  for (let b = 1; b < out.length; b++) {
+    for (let a = 0; a < b; a++) {
+      const host = out[a] as SketchRoom;
+      // One wall at a time: a drag can renumber the walls after it.
+      for (let guard = 0; guard < 8; guard++) {
+        const room = out[b] as SketchRoom;
+        const next = settleOneWall(room, host);
+        if (!next) break;
+        out[b] = next.room;
+        notes.push(`${room.name}'s wall came in ${formatFeetInches(next.insideFeet)} inside ${host.name}'s; laid on it, one wall.`);
+      }
+    }
+  }
+  return { rooms: out, notes };
+}
+
+/** The first wall of [room] that came in a little inside [host] ([settleOverlaps]), laid on the host's; null when none did. */
+function settleOneWall(room: SketchRoom, host: SketchRoom): { room: SketchRoom; insideFeet: number } | null {
+  for (const wb of wallsOf(room)) {
+    const lb = wb.lengthPx;
+    if (lb <= 0) continue;
+    const ubx = (wb.x2 - wb.x1) / lb;
+    const uby = (wb.y2 - wb.y1) / lb;
+    // Outward, round a clockwise room with y down.
+    const nbx = uby;
+    const nby = -ubx;
+    for (const wa of wallsOf(host)) {
+      const la = wa.lengthPx;
+      if (la <= 0) continue;
+      const uax = (wa.x2 - wa.x1) / la;
+      const uay = (wa.y2 - wa.y1) / la;
+      // Facing each other: parallel and running opposite ways, as two rooms' walls either side of one partition do.
+      if (Math.abs(ubx * uay - uby * uax) > 0.05 || ubx * uax + uby * uay > -0.99) continue;
+      // Where the host's wall is, out from this one's face: below zero, behind it - inside this room.
+      const s = (wa.x1 - wb.x1) * nbx + (wa.y1 - wb.y1) * nby;
+      if (s >= -0.5 || s < -OVERLAP_SETTLE_PX) continue;
+      const t1 = (wa.x1 - wb.x1) * ubx + (wa.y1 - wb.y1) * uby;
+      const t2 = (wa.x2 - wb.x1) * ubx + (wa.y2 - wb.y1) * uby;
+      if (Math.min(lb, Math.max(t1, t2)) - Math.max(0, Math.min(t1, t2)) < OVERLAP_MIN_RUN_PX) continue;
+      const moved = dragWall(room, wb.id, nbx * s, nby * s);
+      if (moved !== room) return { room: moved, insideFeet: -s / PIXELS_PER_FOOT };
+    }
+  }
+  return null;
+}
+
+/**
  * Several rooms, one frame — see the header. Every room's polygon is found first, because the
  * origin they are all built against is the top-left of the UNION of them: that is what lands at
  * `at`, so the whole capture drops where a single room would have, and each room keeps its place
@@ -1501,6 +1571,9 @@ function importScanCapture(capture: ScanCapture, fileNotes: string[], at: { x: n
     flights.push(...built.extraRooms);
     notes.push(...built.notes.map((n) => `${label}: ${n}`));
   });
+  // A wall one room put a little inside another is laid on it: one wall (2026-10-05).
+  const settled = settleOverlaps(rooms);
+  notes.push(...settled.notes);
   /*
     ONE DOORWAY, TAPPED FROM BOTH SIDES, DRAWN ONCE.
 
@@ -1509,8 +1582,8 @@ function importScanCapture(capture: ScanCapture, fileNotes: string[], at: { x: n
     Scrivn already refuses to COUNT it twice (`openingsSharedWith`); nothing stopped it being drawn
     twice until now: "for some reason it plopped a door on there that shouldnt be there".
   */
-  const deduped = dropDuplicateSharedOpenings(rooms);
-  const dropped = rooms.reduce((n, r, k) => n + (r.symbols.length - (deduped[k]?.symbols.length ?? r.symbols.length)), 0);
+  const deduped = dropDuplicateSharedOpenings(settled.rooms);
+  const dropped = settled.rooms.reduce((n, r, k) => n + (r.symbols.length - (deduped[k]?.symbols.length ?? r.symbols.length)), 0);
   if (dropped > 0) {
     notes.push(`${dropped} ${dropped === 1 ? "doorway was" : "doorways were"} tapped from both rooms; drawn once.`);
   }
