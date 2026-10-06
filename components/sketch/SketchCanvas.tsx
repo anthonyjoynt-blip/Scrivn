@@ -241,6 +241,12 @@ const BRUSH_SCREEN_PX = 18;
 
 export interface SketchCanvasProps {
   rooms: SketchRoom[];
+  /**
+   * The spaces between a scan's rooms offered as rooms (2026-10-06, `SketchScan.spaces`): drawn dashed with "Room?", and a
+   * tap on one hands back its id and where the tap was on the page, for the name box.
+   */
+  suggestedSpaces?: { id: string; vertices: { x: number; y: number }[] }[];
+  onTapSpace?: (spaceId: string, screen: { x: number; y: number }) => void;
   width: number;
   height: number;
   view: SketchView;
@@ -906,6 +912,16 @@ export default function SketchCanvas(props: SketchCanvasProps) {
           />
         )}
 
+        {/* The spaces between the rooms offered as rooms (2026-10-06): dashed, "Room?", a tap makes one a room. */}
+        {(props.suggestedSpaces ?? []).map((space) => (
+          <SuggestedSpaceShape
+            key={space.id}
+            vertices={space.vertices}
+            zoom={view.scale}
+            onTap={(screen) => props.onTapSpace?.(space.id, screen)}
+          />
+        ))}
+
         {/* After the rooms, so a partition drawn into a room lies on its floor rather than under it. */}
         {(props.freeWalls ?? []).map((wall) => (
           <FreeWallShape
@@ -984,6 +1000,44 @@ function BackgroundGrid({ view, width, height }: { view: SketchView; width: numb
     lines.push(<Line key={`h${y}`} points={[left, y, right, y]} stroke={COLORS.grid} strokeWidth={1 / view.scale} />);
   }
   return <>{lines}</>;
+}
+
+/**
+ * A space between rooms offered as a room (2026-10-06, `spacesBetweenRooms`): its outline dashed in the handle colour over a
+ * light wash, "Room?" in its middle; a tap or a click anywhere on it hands back where on the page it landed.
+ */
+function SuggestedSpaceShape({ vertices, zoom, onTap }: { vertices: { x: number; y: number }[]; zoom: number; onTap: (screen: { x: number; y: number }) => void }) {
+  if (vertices.length < 3) return null;
+  let cx = 0;
+  let cy = 0;
+  for (const v of vertices) {
+    cx += v.x;
+    cy += v.y;
+  }
+  cx /= vertices.length;
+  cy /= vertices.length;
+  const fontSize = 13 / zoom;
+  const textWidth = 80 / zoom;
+  const tap = (e: KonvaEventObject<MouseEvent | TouchEvent>) => {
+    e.cancelBubble = true;
+    const stage = e.target.getStage();
+    const pointer = stage?.getPointerPosition();
+    const box = stage?.container().getBoundingClientRect();
+    onTap({ x: (box?.left ?? 0) + (pointer?.x ?? 0), y: (box?.top ?? 0) + (pointer?.y ?? 0) });
+  };
+  return (
+    <Group onClick={tap} onTap={tap}>
+      <Line
+        points={vertices.flatMap((v) => [v.x, v.y])}
+        closed
+        stroke={COLORS.handle}
+        strokeWidth={1.5 / zoom}
+        dash={[8 / zoom, 6 / zoom]}
+        fill="rgba(201, 122, 14, 0.08)"
+      />
+      <Text x={cx - textWidth / 2} y={cy - fontSize / 2} width={textWidth} align="center" text="Room?" fontSize={fontSize} fontStyle="bold" fill={COLORS.handle} />
+    </Group>
+  );
 }
 
 /**

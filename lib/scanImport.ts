@@ -196,6 +196,7 @@ import {
   wallsOf,
   withClosetsBehind,
 } from "./sketch";
+import { spacesBetweenRooms } from "./freeSpace";
 
 const FEET_PER_METRE = 1 / 0.3048;
 const PX_PER_METRE = PIXELS_PER_FOOT * FEET_PER_METRE;
@@ -479,6 +480,12 @@ export type ScanImportResult =
        * line-up ([lineUpWalls]), which moves no wall that would change one. Absent when none was taped.
        */
       tapedWalls?: string[];
+      /**
+       * The spaces between a capture's rooms that nobody tapped, each the outline a room there would have
+       * (`spacesBetweenRooms`, 2026-10-06): offered in the editor as rooms - tap one to make it a room, then name it.
+       * Worked out with the closets owed taken as said yes to, so a space never runs into a closet's place. Absent when none.
+       */
+      spaces?: { x: number; y: number }[][];
       /**
        * The metre point that landed at `at`: the top-left of the rooms' union for a capture, the
        * room's own top-left for a one-room file. Whatever else was measured in the file's frame -
@@ -2180,13 +2187,22 @@ function importScanCapture(capture: ScanCapture, fileNotes: string[], at: { x: n
   if (room === undefined) {
     return { ok: false, error: `None of the ${capture.rooms.length} rooms in this capture could be drawn.` };
   }
+  const owedClosets = closetDoors.filter((d) => drawn.has(d.doorId));
+  /*
+    THE SPACES BETWEEN THE ROOMS (2026-10-06): "not a closet but it could suggest filling this in as a room. is there a room
+    here, tap to fill it, name it" (the owner). Found with the closets still owed drawn as if said yes to - a space the closet
+    offer would fill is the closet's - and the flights, which are rooms on the plan.
+  */
+  const asIfClosets = owedClosets.length > 0 ? withClosetsBehind({ rooms: withClosets }, owedClosets).rooms : withClosets;
+  const spaces = spacesBetweenRooms([...asIfClosets, ...flights]);
   return {
     ok: true,
     kind: "capture",
     room,
     extraRooms: [...withClosets.slice(1), ...flights],
     notes: [`${rooms.length} room${rooms.length === 1 ? "" : "s"} imported, placed as tapped.`, ...notes, ...leftOut, ...fileNotes],
-    closetDoors: closetDoors.filter((d) => drawn.has(d.doorId)),
+    closetDoors: owedClosets,
+    ...(spaces.length > 0 ? { spaces } : {}),
     origin,
   };
 }

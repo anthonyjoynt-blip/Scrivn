@@ -63,6 +63,7 @@ import {
   roomSnapWorldPx,
   snapWorldPx,
   translateRoom as translate,
+  isInsideRoom,
   withDerivedParents,
   sketchSummaryText,
   translateRoom,
@@ -101,6 +102,7 @@ import {
   addDraftPoint,
   connectedFreeWallIds,
   finishDraft,
+  roomFromPoints,
   moveSharedFreeWallVertex,
   snapDraftPoint,
   snapFreeWallTranslation,
@@ -204,6 +206,12 @@ function usePhoneLayout(): boolean {
 }
 
 /** The closet offer's words, the same for a scan file imported here and for a scan the phone sent. */
+function spaceOfferText(count: number): string {
+  return count === 1
+    ? "1 space between the rooms was not tapped — is there a room there? Tap its dashed Room? to make it one."
+    : `${count} spaces between the rooms were not tapped — is there a room there? Tap a dashed Room? to make it one.`;
+}
+
 function closetOfferText(count: number): string {
   return count === 1 ? "1 closet door tapped — add a closet behind it?" : `${count} closet doors tapped — add a closet behind each?`;
 }
@@ -474,6 +482,45 @@ export function SketchEditor({
       const scan = { ...prev.scan };
       delete scan.closetDoors;
       return { ...next, scan };
+    });
+  }
+  /**
+   * The spaces between the scan's rooms offered as rooms (2026-10-06, `SketchScan.spaces`): "is there a room here, tap to fill
+   * it, name it" (the owner). Those on the storey being drawn and not yet under a room; a tap makes one a room and opens its
+   * name box, No drops the offer.
+   */
+  const owedSpaces = useMemo(() => {
+    const spaces = sketch.scan?.spaces;
+    if (readOnly || !spaces || sketch.scan?.level !== activeLevel) return [];
+    return spaces.filter((space) => {
+      const cx = space.vertices.reduce((t, v) => t + v.x, 0) / space.vertices.length;
+      const cy = space.vertices.reduce((t, v) => t + v.y, 0) / space.vertices.length;
+      return !activeRooms.some((room) => isInsideRoom(room, cx, cy));
+    });
+  }, [sketch, readOnly, activeLevel, activeRooms]);
+  function fillSpace(spaceId: string, screen: { x: number; y: number }) {
+    const space = sketch.scan?.spaces?.find((s) => s.id === spaceId);
+    if (!space) return;
+    const room = roomFromPoints(space.vertices, activeLevel, nextRoomName(sketch.rooms));
+    if (!room) return;
+    onChange((prev) => {
+      if (!prev.scan) return prev;
+      const left = (prev.scan.spaces ?? []).filter((s) => s.id !== spaceId);
+      const scan = { ...prev.scan };
+      if (left.length > 0) scan.spaces = left;
+      else delete scan.spaces;
+      return { ...prev, rooms: withDerivedParents([...prev.rooms, room]), scan };
+    });
+    setSelectedRoomId(room.id);
+    setNameDraft("");
+    setPendingName({ roomId: room.id, screen });
+  }
+  function dropSpaceOffer() {
+    onChange((prev) => {
+      if (!prev.scan?.spaces) return prev;
+      const scan = { ...prev.scan };
+      delete scan.spaces;
+      return { ...prev, scan };
     });
   }
   /** Why the last turn of a block did not happen, until it is dismissed or a turn succeeds. See `handleTurnBlock`. */
@@ -2198,6 +2245,14 @@ export function SketchEditor({
           </button>
         </div>
       )}
+      {!importNotice && owedClosets.length === 0 && owedSpaces.length > 0 && (
+        <div className="sketch-undo" role="status">
+          <span>{spaceOfferText(owedSpaces.length)}</span>
+          <button type="button" className="btn-secondary" onClick={dropSpaceOffer}>
+            No
+          </button>
+        </div>
+      )}
       {!importNotice && owedClosets.length > 0 && (
         <div className="sketch-undo" role="status">
           <span>{closetOfferText(owedClosets.length)}</span>
@@ -2221,6 +2276,8 @@ export function SketchEditor({
       >
         <SketchCanvas
           rooms={activeRooms}
+          suggestedSpaces={owedSpaces}
+          onTapSpace={fillSpace}
           underlayRooms={underlayRooms}
           width={canvasWidth}
           height={canvasHeight}

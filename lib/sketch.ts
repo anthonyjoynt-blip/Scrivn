@@ -753,6 +753,18 @@ export interface SketchScan {
    * fingerprint, as all of `scan` is: answering it is not an edit of the drawing, adding the closets is.
    */
   closetDoors?: ClosetDoorRef[];
+  /**
+   * The spaces between the scan's rooms that nobody tapped, still to be offered as rooms (2026-10-06, `spacesBetweenRooms`):
+   * each drawn dashed with "Room?" in the editor, a tap making it a room and asking its name, until it is one or the PM says
+   * No to them. Outside the fingerprint with the rest of `scan`.
+   */
+  spaces?: SuggestedSpace[];
+}
+
+/** A space between rooms offered as a room ([SketchScan.spaces]). */
+export interface SuggestedSpace {
+  id: string;
+  vertices: { x: number; y: number }[];
 }
 
 /** A door tapped as a closet door, by its room: what the closet offer draws behind (`withClosetsBehind`). */

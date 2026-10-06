@@ -337,6 +337,10 @@ export function adoptScan(sketch: Sketch, scan: PendingScan, receivedAt: string 
   };
   // The closets the editor owes an offer for: applied here, away from the editor, the offer waits on the sketch.
   if (result.closetDoors.length > 0) provenance.closetDoors = result.closetDoors;
+  // And the spaces between the rooms, offered as rooms the same way (2026-10-06).
+  if (result.spaces && result.spaces.length > 0) {
+    provenance.spaces = result.spaces.map((vertices, i) => ({ id: `space-${scan.id}-${i}`, vertices }));
+  }
   // The walk's photos go where the storey's rooms went; a re-scan's replace the storey's old ones.
   const walk = walkFromScan(scan.body, result.origin, at, scan.id, level);
   const walks = [...(sketch.walks ?? []).filter((w) => w.level !== level), ...(walk ? [walk] : [])];

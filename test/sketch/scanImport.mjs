@@ -1380,6 +1380,32 @@ export async function runScanImportChecks() {
     }
   });
 
+  test("the space over the stairs nobody tapped is offered as a room; a capture with none offers none", () => {
+    // "not a closet but it could suggest filling this in as a room. is there a room here, tap to fill it, name it" (the
+    // owner, 2026-10-06): over the stairs, between the bedroom's closet and the next bedroom, the house's wall carrying on
+    // between the two bedrooms' outside walls.
+    const result = importedCapture(house0631Taps);
+    assert(result.spaces && result.spaces.length === 1, `one space, got ${result.spaces?.length}`);
+    const space = result.spaces[0];
+    let a = 0;
+    for (let i = 0; i < space.length; i++) {
+      const p = space[i];
+      const q = space[(i + 1) % space.length];
+      a += p.x * q.y - q.x * p.y;
+    }
+    const sqft = Math.abs(a) / 2 / 144;
+    assert(sqft > 80 && sqft < 110, `about 97 sq ft once the closets owed are in, got ${sqft.toFixed(1)}`);
+    // Over the flight, and clear of every room: its middle is on no room's floor.
+    const rooms = captureRooms(result);
+    const cx = space.reduce((t, v) => t + v.x, 0) / space.length;
+    const cy = space.reduce((t, v) => t + v.y, 0) / space.length;
+    assert(!rooms.some((r) => sketch.isInsideRoom(r, cx, cy)), "the space is on no room's floor");
+    const stairs = result.extraRooms.find((r) => r.stairs);
+    assert(stairs && Math.abs(Math.max(...space.map((v) => v.y)) - (sketch.roomBounds(stairs).minY - 4)) < 1.5, "its bottom a wall off the flight");
+    // The small capture's three rooms close nothing off.
+    assert(importedCapture().spaces === undefined, "no space offered where none is left");
+  });
+
   test("the rooms are named from the file, and the hall beside the family room is a neighbour, not a sub-room", () => {
     const result = importedCapture();
     const rooms = captureRooms(result);

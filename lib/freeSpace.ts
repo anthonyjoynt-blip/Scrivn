@@ -132,6 +132,147 @@ export function spaceClosedBy(run: Point[], rooms: SketchRoom[], freeWalls: Free
   return area2(corners) >= 0 ? corners : [...corners].reverse();
 }
 
+/** The least space asked about as a room ([spacesBetweenRooms]): 12 sq ft, a small closet. */
+const ROOM_SPACE_MIN_PX = 12 * PIXELS_PER_FOOT * PIXELS_PER_FOOT;
+/** The most: 400 sq ft. More is the outdoors between two wings, not a room nobody tapped. */
+const ROOM_SPACE_MAX_PX = 400 * PIXELS_PER_FOOT * PIXELS_PER_FOOT;
+/** How far apart along their line two rooms' walls facing the same way may end and still be bridged as one wall: 16'. */
+const BRIDGE_MAX_PX = 16 * PIXELS_PER_FOOT;
+/** How far off one line two such walls may stand and still be one: 6". A foot bridged a notch in the outside wall as a room. */
+const BRIDGE_LINE_PX = 6;
+/** Half the narrowest a space asked about may be: 6", so a gap of a foot between two walls is a gap, not a room. */
+const ROOM_OPEN_PX = 6;
+
+/**
+ * THE SPACES BETWEEN THE ROOMS THAT NOBODY TAPPED (2026-10-06, the walk of 06:31): "not a closet but it could suggest
+ * filling this in as a room. is there a room here, tap to fill it, name it" (the owner, of the space over the stairs between
+ * a bedroom's closet and the next bedroom - three sides the rooms' walls, the fourth the house's own wall carrying on
+ * between the two bedrooms' outside walls).
+ *
+ * Worked on the grid [spaceClosedBy] works on: every room's floor and a wall's thickness out from its walls are taken; and
+ * where two rooms' walls face the same way within [BRIDGE_LINE_PX] of one line, ending no more than [BRIDGE_MAX_PX] apart
+ * along it, the wall between their ends is taken too - the house's wall carrying on, or a corridor's, between two rooms
+ * that stand on it. Then everything the outside reaches is outside, and each space left - between [ROOM_SPACE_MIN_PX] and
+ * [ROOM_SPACE_MAX_PX], whatever of it is narrower than [ROOM_OPEN_PX] twice let go - is traced, straightened, and its sides
+ * laid on the walls round it: the outline a room there would have, a wall off every room beside it. Clockwise, largest
+ * first. [rooms] are one storey's.
+ */
+export function spacesBetweenRooms(rooms: SketchRoom[]): Point[][] {
+  const live = rooms.filter((r) => r.vertices.length >= 3);
+  if (live.length < 2) return [];
+  const T = WALL_THICKNESS_PX;
+  const xs = live.flatMap((r) => r.vertices.map((v) => v.x));
+  const ys = live.flatMap((r) => r.vertices.map((v) => v.y));
+  const margin = T + 8;
+  const x0 = Math.floor(Math.min(...xs) - margin);
+  const y0 = Math.floor(Math.min(...ys) - margin);
+  const w = Math.ceil(Math.max(...xs) + margin) - x0;
+  const h = Math.ceil(Math.max(...ys) + margin) - y0;
+  if (w * h > 4_000_000) return [];
+  const taken = new Uint8Array(w * h);
+  const lines: WallLine[] = [];
+  interface Face {
+    room: number;
+    a: Point;
+    d: Point;
+    n: Point;
+    length: number;
+  }
+  const faces: Face[] = [];
+  live.forEach((room, r) => {
+    fillPolygon(taken, w, h, x0, y0, room.vertices);
+    const outer = mitredOutline(room.vertices, T);
+    const walls = wallsOf(room);
+    walls.forEach((wall, i) => {
+      if (wall.lengthPx <= 0) return;
+      const j = (i + 1) % walls.length;
+      fillPolygon(taken, w, h, x0, y0, [{ x: wall.x1, y: wall.y1 }, { x: wall.x2, y: wall.y2 }, outer[j] as Point, outer[i] as Point]);
+      const d = { x: (wall.x2 - wall.x1) / wall.lengthPx, y: (wall.y2 - wall.y1) / wall.lengthPx };
+      const n = outerNormal(room.vertices, d);
+      const a = { x: wall.x1 + n.x * T, y: wall.y1 + n.y * T };
+      lines.push({ a, d, from: -T, to: wall.lengthPx + T });
+      faces.push({ room: r, a, d, n, length: wall.lengthPx });
+    });
+  });
+  // Each wall's face bridged to the nearest face beyond its end on its line, of another room, facing the same way.
+  const bridgeCos = Math.cos((2 * Math.PI) / 180);
+  for (const f of faces) {
+    let best: { gap: number; q: Point } | null = null;
+    for (const g of faces) {
+      if (g.room === f.room || f.n.x * g.n.x + f.n.y * g.n.y < bridgeCos) continue;
+      const off1 = (g.a.x - f.a.x) * f.n.x + (g.a.y - f.a.y) * f.n.y;
+      const gb = { x: g.a.x + g.d.x * g.length, y: g.a.y + g.d.y * g.length };
+      const off2 = (gb.x - f.a.x) * f.n.x + (gb.y - f.a.y) * f.n.y;
+      if (Math.abs(off1) > BRIDGE_LINE_PX || Math.abs(off2) > BRIDGE_LINE_PX) continue;
+      const t1 = (g.a.x - f.a.x) * f.d.x + (g.a.y - f.a.y) * f.d.y;
+      const t2 = (gb.x - f.a.x) * f.d.x + (gb.y - f.a.y) * f.d.y;
+      const near = Math.min(t1, t2);
+      const gap = near - f.length;
+      if (gap <= 1 || gap > BRIDGE_MAX_PX) continue;
+      if (!best || gap < best.gap) best = { gap, q: t1 <= t2 ? g.a : gb };
+    }
+    if (!best) continue;
+    const p = { x: f.a.x + f.d.x * f.length, y: f.a.y + f.d.y * f.length };
+    const length = Math.hypot(best.q.x - p.x, best.q.y - p.y);
+    if (length <= 0) continue;
+    const d = { x: (best.q.x - p.x) / length, y: (best.q.y - p.y) / length };
+    // Out of the house, as the faces it joins are: across is (d.y, -d.x) in [band].
+    const outward = d.y * f.n.x - d.x * f.n.y >= 0;
+    band(taken, w, h, x0, y0, p, d, length, outward ? 0 : -T, outward ? T : 0, 0.5);
+    lines.push({ a: p, d, from: 0, to: length });
+  }
+  // Everything the outside reaches.
+  const outside = new Uint8Array(w * h);
+  const stack: number[] = [];
+  const reach = (i: number) => {
+    if (taken[i] || outside[i]) return;
+    outside[i] = 1;
+    stack.push(i);
+  };
+  for (let x = 0; x < w; x++) { reach(x); reach((h - 1) * w + x); }
+  for (let y = 0; y < h; y++) { reach(y * w); reach(y * w + w - 1); }
+  while (stack.length > 0) {
+    const i = stack.pop() as number;
+    const x = i % w;
+    const y = (i - x) / w;
+    if (x > 0) reach(i - 1);
+    if (x < w - 1) reach(i + 1);
+    if (y > 0) reach(i - w);
+    if (y < h - 1) reach(i + w);
+  }
+  // Each space left: traced, straightened, laid on its walls.
+  const seen = new Uint8Array(w * h);
+  const found: Point[][] = [];
+  for (let start = 0; start < w * h; start++) {
+    if (taken[start] || outside[start] || seen[start]) continue;
+    const cells = new Uint8Array(w * h);
+    let count = 0;
+    const queue = [start];
+    seen[start] = 1;
+    while (queue.length > 0) {
+      const i = queue.pop() as number;
+      cells[i] = 1;
+      count++;
+      const x = i % w;
+      const y = (i - x) / w;
+      for (const j of [x > 0 ? i - 1 : -1, x < w - 1 ? i + 1 : -1, y > 0 ? i - w : -1, y < h - 1 ? i + w : -1]) {
+        if (j < 0 || taken[j] || outside[j] || seen[j]) continue;
+        seen[j] = 1;
+        queue.push(j);
+      }
+    }
+    if (count < ROOM_SPACE_MIN_PX || count > ROOM_SPACE_MAX_PX) continue;
+    const open = opened(cells, w, h, ROOM_OPEN_PX);
+    if (!open) continue;
+    const traced = traceOutline(open, w, h);
+    if (!traced) continue;
+    const corners = laidOnWalls(straighten(traced.map((c) => ({ x: c.x + x0, y: c.y + y0 }))), lines);
+    if (corners.length < 3 || Math.abs(area2(corners)) / 2 < ROOM_SPACE_MIN_PX) continue;
+    found.push(area2(corners) >= 0 ? corners : [...corners].reverse());
+  }
+  return found.sort((p, q) => Math.abs(area2(q)) - Math.abs(area2(p)));
+}
+
 /** Out of a room along a wall running [d]: the way turned -90 degrees on the page for a clockwise room. */
 function outerNormal(ring: Point[], d: Point): Point {
   return area2(ring) >= 0 ? { x: d.y, y: -d.x } : { x: -d.y, y: d.x };
