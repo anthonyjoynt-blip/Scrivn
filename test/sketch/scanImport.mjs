@@ -79,6 +79,9 @@ const houseTaps = readFileSync(join(here, "fixtures", "scan-taps-house-1005.json
 // The walk of 2026-10-05 13:04, trimmed the same way: eight rooms, the bathroom between two bedrooms read 4'4" wide, and the
 // bedroom's walk-in closet joined at the door in their angled wall.
 const house1304Taps = readFileSync(join(here, "fixtures", "scan-taps-house-1304.json"), "utf8");
+// The walk of 2026-10-06 06:31, trimmed the same way: the bathroom taped 5'0" with its tub and vanity, between a joined
+// bedroom above and one below taped 11'9" and placed by tracking alone.
+const house0631Taps = readFileSync(join(here, "fixtures", "scan-taps-house-0631.json"), "utf8");
 // The phone's own file of 2026-10-03 11:21 (room_20261003_112131), as it sent it: an 11' room with a 5'0" closet door
 // (a double bifold), a 3'10" window and a 2'11" door - "it would end up being a 5' double bifold in this one".
 const closetTaps = readFileSync(join(here, "fixtures", "scan-taps-closet-1003.json"), "utf8");
@@ -1149,20 +1152,22 @@ export async function runScanImportChecks() {
     assert(mb[0].minX === 300 && mb[2].minY === 120, "and the union's top-left is at the new drop point");
   });
 
-  test("a room laid a little inside its neighbour shares its wall: laid on it, not drawn under it", () => {
+  test("a room laid a little inside its neighbour stands a wall off it: the wall between them, both floors clear", () => {
     // 2026-10-05, "on the sketch we lost a wall when we joined the bedroom": the bedroom's east wall came in 6" inside
-    // the family room's west wall, each room's floor covered the other's wall, and no wall was drawn there at all.
+    // the family room's west wall, each room's floor covered the other's wall, and no wall was drawn there at all. It was
+    // laid ON it then; since 2026-10-06 ("the tub spilling over in the bathroom ... it shouldnt overlap the wall") a
+    // partition off it, so neither room's wall is drawn over the other's floor.
     const fixture = JSON.parse(captureTaps);
     fixture.rooms[1].outline = [[3.85, 1.4], [5.0, 1.4], [5.0, 2.6], [3.85, 2.6]];
     const result = importedCapture(JSON.stringify(fixture));
     const [family, hall] = captureRooms(result);
     const fb = sketch.roomBounds(family);
     const hb = sketch.roomBounds(hall);
-    assert(hb.minX === fb.maxX, `the hall's left wall should be laid on the family room's right wall, got ${hb.minX} vs ${fb.maxX}`);
+    assert(hb.minX === fb.maxX + 4, `the hall's left wall should stand a partition off the family room's right wall, got ${hb.minX} vs ${fb.maxX}`);
     // The family room stays as tapped, the hall keeps its other walls: only the one wall moved.
     near(fb.maxX - fb.minX, 4 * 39.3701, "the family room is still 4 m across", 1);
     near(hb.maxX - fb.maxX, 1.0 * 39.3701, "the hall's far wall stays where it was", 1);
-    assert(result.notes.some((n) => /Room 2's wall came in 0'5" inside Room 1's; laid on it, one wall/.test(n)), `expected the note, got ${JSON.stringify(result.notes)}`);
+    assert(result.notes.some((n) => /Room 2's wall came in 0'5" inside Room 1's; laid a wall off it\./.test(n)), `expected the note, got ${JSON.stringify(result.notes)}`);
     // Two feet in is not tap error: left as it came, for the estimator to see.
     const far = JSON.parse(captureTaps);
     far.rooms[1].outline = [[3.4, 1.4], [5.0, 1.4], [5.0, 2.6], [3.4, 2.6]];
@@ -1313,7 +1318,7 @@ export async function runScanImportChecks() {
     near(sketch.roomBounds(hallCloset).maxY, b("Room 6").minY - 4, "a wall short of Room 6", 0.01);
   });
 
-  test("the house of 13:04: the bathroom fitted between its bedrooms, the hall laid on the bedroom, the walk-in's door drawn once", () => {
+  test("the house of 13:04: the bathroom fitted between its bedrooms, the hall a wall off the bedroom, the walk-in's door drawn once", () => {
     // "bathrooms squished again ... door is duplicated in the bedroom closet. giant gap between bathroom and bedroom" (the owner).
     const result = importedCapture(house1304Taps);
     const rooms = captureRooms(result);
@@ -1324,8 +1329,9 @@ export async function runScanImportChecks() {
     near(b("Room 6").minY - b("Room 7").maxY, 4, "a partition off the bedroom above", 0.5);
     near(b("Room 3").minY - b("Room 6").maxY, 4, "and off the bedroom below", 0.5);
     assert(result.notes.includes("Room 6 was fitted between Room 7's and Room 3's walls, a wall off each: 4'4\" across now 5'."), `the fit is said, got ${JSON.stringify(result.notes)}`);
-    // The little hall came in 4" into the bedroom above it: the hall's 3'8" wall is laid on the bedroom's 12'6", not the other way.
-    near(b("Room 5").minY, b("Room 7").maxY, "the hall's wall on the bedroom's line", 0.01);
+    // The little hall came in 4" into the bedroom above it: the hall's 3'8" wall is set a wall off the bedroom's 12'6", not
+    // the other way.
+    near(b("Room 5").minY, b("Room 7").maxY + 4, "the hall's wall a partition off the bedroom's", 0.01);
     near(b("Room 7").height, 129, "the bedroom as tapped, 10'9\" to its south wall", 0.5);
     // The walk-in's door, tapped from the bedroom and from the closet across their angled wall 3.06 degrees apart: one door,
     // the bedroom's, and the closet's wall open at it all the same.
@@ -1341,6 +1347,37 @@ export async function runScanImportChecks() {
     assert(office.symbols.filter((s) => s.type === "door" && s.doorType === "swing").length === 0, `the office's copy of its door is gone, got ${office.symbols.map((s) => s.doorType ?? s.type)}`);
     assert(sketch.openingsSharedWith(office, rooms).some((o) => o.room.id === named("Room 1").id), "the main room's door is open in the office's wall");
     assert(result.notes.includes("7 doorways were tapped from both rooms; drawn once."), `seven doorways folded, got ${JSON.stringify(result.notes)}`);
+  });
+
+  test("the house of 06:31: the bathroom keeps its tape, the bedroom below moves a wall off it, the tub fills its alcove", () => {
+    // "the tub spilling over in the bathroom needs to be fixed. it shouldnt overlap the wall. and if that close to the walls
+    // it should stretch to fit", "bathroom vanity is also overlapping a wall" (the owner).
+    const result = importedCapture(house0631Taps);
+    const rooms = captureRooms(result);
+    const named = (name) => rooms.find((r) => r.name === name);
+    const b = (name) => sketch.roomBounds(named(name));
+    // The bathroom stays 5'0" - the PM's tape - and the bedroom below, which came in 2" into it and was laid against no room,
+    // moved down to stand a partition off it: neither floor under the other's wall.
+    near(b("Room 7").height, 60, "the bathroom 5'0\" as taped", 0.5);
+    near(b("Room 5").minY - b("Room 7").maxY, 4, "the bedroom below a partition off", 0.5);
+    near(b("Room 5").height, 141, "and still 11'9\" as taped", 0.5);
+    assert(result.notes.some((n) => /Room 5, laid against no room, moved 0'6" to stand a wall off Room 7\./.test(n)), `the move is said, got ${JSON.stringify(result.notes)}`);
+    // The tub: 3'5" as read on its 5'0" wall, stretched to fill it; the vanity whole on its wall.
+    const bath = named("Room 7");
+    const tub = bath.symbols.find((s) => s.type === "fixture" && s.fixtureType === "tub");
+    const tubWall = sketch.wallById(bath, tub.wallId);
+    near(tub.widthFeet * 12, tubWall.lengthPx, "the tub wall to wall", 0.01);
+    near(tub.t, 0.5, "centred on it", 1e-6);
+    assert(result.notes.includes("Room 7: the tub read 3'5\" on a 5' wall - stretched to fill it."), `the stretch is said, got ${JSON.stringify(result.notes)}`);
+    for (const room of rooms) {
+      for (const sym of room.symbols) {
+        if (sym.type !== "cabinet" && sym.type !== "fixture") continue;
+        const wall = sketch.wallById(room, sym.wallId);
+        const half = (sym.widthFeet * 12) / 2;
+        const centre = sym.t * wall.lengthPx;
+        assert(centre - half >= -0.01 && centre + half <= wall.lengthPx + 0.01, `${room.name}'s ${sym.type} runs past its wall: ${centre - half} to ${centre + half} on ${wall.lengthPx}`);
+      }
+    }
   });
 
   test("the rooms are named from the file, and the hall beside the family room is a neighbour, not a sub-room", () => {
