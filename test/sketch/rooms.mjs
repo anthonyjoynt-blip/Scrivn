@@ -1311,6 +1311,30 @@ export async function runRoomChecks() {
     assert(s.withWallLength(cut, wall.id, 2) === cut, "2 ft across a 3 ft corner is refused");
   });
 
+  test("a corner where two rooms meet moves as one: the other room's corner at the junction comes along", () => {
+    // 2026-10-06: "grabbing that corner only moves the one wall and not that junction together. So its an extra step" (the
+    // owner, squaring a closet the scan had on an angle). A bedroom with a cut corner, and a closet in the notch a partition
+    // off it: the closet's corner by the cut stands 4" from the bedroom's.
+    const bedroom = room([[0, 0], [200, 0], [240, 40], [240, 200], [0, 200]], { id: "bed" });
+    const closet = room([[204, -60], [300, -60], [300, 36], [244, 36], [204, 4]], { id: "closet" });
+    const far = box(400, 0, 100, 100, { id: "far" });
+    const rooms = [bedroom, closet, far];
+    const corner = closet.vertices[4];
+    const partners = s.junctionCorners(rooms, closet, corner);
+    assert(partners.length === 1 && partners[0].roomId === "bed" && partners[0].vertexId === "bed-v1", `the bedroom's cut corner is at the junction, got ${JSON.stringify(partners)}`);
+    // Dragged 6 right and 8 down: the bedroom's corner goes with it, by as much; the room far off is untouched.
+    const next = s.moveJunction(rooms, "closet", corner.id, corner, partners, corner.x + 6, corner.y + 8, 0);
+    const moved = next.find((r) => r.id === "closet").vertices[4];
+    const carried = next.find((r) => r.id === "bed").vertices[1];
+    near(moved.x, 210, "the closet's corner to x 210");
+    near(moved.y, 12, "and y 12");
+    near(carried.x, 206, "the bedroom's corner 6 right with it");
+    near(carried.y, 8, "and 8 down");
+    assert(next.find((r) => r.id === "far") === far, "a room with no corner there is not touched");
+    // A corner with no other room's within two walls' thickness carries nothing.
+    assert(s.junctionCorners(rooms, far, far.vertices[0]).length === 0, "a lone corner is a lone corner");
+  });
+
   return { passed, failures };
 }
 

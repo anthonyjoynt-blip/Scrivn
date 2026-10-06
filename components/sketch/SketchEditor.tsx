@@ -23,6 +23,9 @@ import {
   DEFAULT_CEILING_HEIGHT_FEET,
   MIN_WALL_PX,
   PIXELS_PER_FOOT,
+  type JunctionCorner,
+  junctionCorners,
+  moveJunction,
   DEFAULT_ROOM_FEET,
   closetBehindDoor,
   closetsOwed,
@@ -522,6 +525,28 @@ export function SketchEditor({
       delete scan.spaces;
       return { ...prev, scan };
     });
+  }
+  /**
+   * A CORNER WHERE ROOMS MEET MOVES AS ONE (2026-10-06): "grabbing that corner only moves the one wall and not that junction
+   * together. So its an extra step" (the owner, squaring a closet the scan had on an angle - its corner and the bedroom's met
+   * there, and the drag moved the closet's alone). The other rooms' corners at the junction ([junctionCorners]) are found
+   * when the drag begins and moved by as much as the dragged corner moved, each by its own room's rules (`moveVertex`: a
+   * rectangle stays one), until the release.
+   */
+  const vertexDrag = useRef<{ roomId: string; vertexId: string; x: number; y: number; partners: JunctionCorner[] } | null>(null);
+  function handleMoveVertex(roomId: string, vertexId: string, x: number, y: number, done = false) {
+    let drag = vertexDrag.current;
+    if (!drag || drag.roomId !== roomId || drag.vertexId !== vertexId) {
+      const room = sketch.rooms.find((r) => r.id === roomId);
+      const start = room?.vertices.find((v) => v.id === vertexId);
+      if (!room || !start) return;
+      drag = { roomId, vertexId, x: start.x, y: start.y, partners: junctionCorners(sketch.rooms, room, start) };
+      vertexDrag.current = drag;
+    }
+    const begun = drag;
+    const snap = snapWorldPx(view.scale);
+    onChange((prev) => ({ ...prev, rooms: moveJunction(prev.rooms, roomId, vertexId, begun, begun.partners, x, y, snap) }));
+    if (done) vertexDrag.current = null;
   }
   /** Why the last turn of a block did not happen, until it is dismissed or a turn succeeds. See `handleTurnBlock`. */
   const [turnNotice, setTurnNotice] = useState<string | null>(null);
@@ -2335,7 +2360,7 @@ export function SketchEditor({
             reaches the geometry. Left in world pixels it was one foot at every magnification, which
             is why zooming in used to buy no precision and a corner fireplace could not be drawn.
           */
-          onMoveVertex={(roomId, vertexId, x, y) => updateRoom(roomId, (room) => moveVertex(room, vertexId, x, y, snapWorldPx(view.scale)))}
+          onMoveVertex={handleMoveVertex}
           onRemoveVertex={(roomId, vertexId) => {
             const before = sketch.rooms.find((r) => r.id === roomId);
             updateRoom(roomId, (room) => {

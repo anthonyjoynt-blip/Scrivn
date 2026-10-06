@@ -1978,6 +1978,71 @@ export function translateRoom(room: SketchRoom, dx: number, dy: number): SketchR
   return { ...room, vertices: room.vertices.map((v) => ({ ...v, x: v.x + dx, y: v.y + dy })) };
 }
 
+/** How near another room's corner must stand to a dragged corner to be the same junction and go with it: two walls' thickness. */
+export const JUNCTION_PX = 2 * WALL_THICKNESS_PX;
+
+/** Another room's corner at the same junction as a dragged one ([JUNCTION_PX]), and where it stood when the drag began. */
+export interface JunctionCorner {
+  roomId: string;
+  vertexId: string;
+  x: number;
+  y: number;
+}
+
+/**
+ * The corners of the other rooms on [room]'s storey standing at the junction of [at] - within [JUNCTION_PX] of it, the
+ * nearest of each room - which a drag of that corner carries ([moveJunction]).
+ */
+export function junctionCorners(rooms: SketchRoom[], room: SketchRoom, at: { x: number; y: number }): JunctionCorner[] {
+  const level = roomLevel(room);
+  const out: JunctionCorner[] = [];
+  for (const other of rooms) {
+    if (other.id === room.id || roomLevel(other) !== level) continue;
+    let best: Vertex | null = null;
+    let bestD = JUNCTION_PX;
+    for (const v of other.vertices) {
+      const d = Math.hypot(v.x - at.x, v.y - at.y);
+      if (d <= bestD) {
+        bestD = d;
+        best = v;
+      }
+    }
+    if (best) out.push({ roomId: other.id, vertexId: best.id, x: best.x, y: best.y });
+  }
+  return out;
+}
+
+/**
+ * A CORNER WHERE ROOMS MEET MOVES AS ONE (2026-10-06): "grabbing that corner only moves the one wall and not that junction
+ * together. So its an extra step" (the owner, squaring a closet the scan had on an angle - its corner and the bedroom's met
+ * there, and the drag moved the closet's alone). Corner [vertexId] of room [roomId] goes to (x, y) as `moveVertex` puts it,
+ * and each of [partners] - the other rooms' corners at that junction when the drag began ([junctionCorners]) - moves by as
+ * much as it did from where the drag began ([from]), by its own room's rules. Every room in [rooms], those changed new.
+ */
+export function moveJunction(
+  rooms: SketchRoom[],
+  roomId: string,
+  vertexId: string,
+  from: { x: number; y: number },
+  partners: JunctionCorner[],
+  x: number,
+  y: number,
+  snapPx = SNAP_PX,
+): SketchRoom[] {
+  const room = rooms.find((r) => r.id === roomId);
+  if (!room) return rooms;
+  const moved = moveVertex(room, vertexId, x, y, snapPx);
+  const at = moved.vertices.find((v) => v.id === vertexId);
+  const dx = at ? at.x - from.x : 0;
+  const dy = at ? at.y - from.y : 0;
+  return rooms.map((r) => {
+    if (r.id === roomId) return moved;
+    let out = r;
+    for (const p of partners) if (p.roomId === r.id) out = moveVertex(out, p.vertexId, p.x + dx, p.y + dy, 0);
+    return out;
+  });
+}
+
 /**
  * Moves one vertex.
  *

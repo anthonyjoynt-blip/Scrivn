@@ -345,7 +345,8 @@ export interface SketchCanvasProps {
   onDragWallEnd: (roomId: string, wallId: string) => void;
   /** The room's name label was double-tapped — the editor floats a rename box there. */
   onRenameRoom: (roomId: string, screen: { x: number; y: number }) => void;
-  onMoveVertex: (roomId: string, vertexId: string, x: number, y: number) => void;
+  /** A corner dragged to (x, y); `done` on the release, so a drag that carries other rooms' corners knows when it ends. */
+  onMoveVertex: (roomId: string, vertexId: string, x: number, y: number, done?: boolean) => void;
   onRemoveVertex: (roomId: string, vertexId: string) => void;
   /** A symbol was dragged along its wall; `centrePx` is the new centre in wall-local pixels. */
   onMoveSymbol: (roomId: string, symbolId: string, centrePx: number) => void;
@@ -2325,7 +2326,7 @@ function VertexHandles({
 }: {
   room: SketchRoom;
   zoom: number;
-  onMoveVertex: (roomId: string, vertexId: string, x: number, y: number) => void;
+  onMoveVertex: (roomId: string, vertexId: string, x: number, y: number, done?: boolean) => void;
   onRemoveVertex: (roomId: string, vertexId: string) => void;
 }) {
   const walls = wallsOf(room);
@@ -2352,9 +2353,9 @@ function VertexHandles({
             draggable
             onMouseDown={claimGesture}
             onTouchStart={claimGesture}
-            onDragMove={(e) => onMoveVertex(room.id, vertex.id, e.target.x(), e.target.y())}
+            onDragMove={(e) => onMoveVertex(room.id, vertex.id, e.target.x(), e.target.y(), false)}
             onDragEnd={(e) => {
-              onMoveVertex(room.id, vertex.id, e.target.x(), e.target.y());
+              onMoveVertex(room.id, vertex.id, e.target.x(), e.target.y(), true);
               // The room's vertex list is the truth; snapping and the minimum-wall rule may have
               // refused or adjusted the move, so the handle returns to wherever the vertex ended up.
               e.target.position({ x: vertex.x, y: vertex.y });
