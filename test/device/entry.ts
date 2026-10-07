@@ -8,3 +8,4 @@ export {
 export { MAIN_LEVEL, roomsOnLevel, roomLevel, roomBounds, levelLabel, closetsOwed, withClosetsBehind } from "@/lib/sketch";
 export { emptyMoistureMap } from "@/lib/moisture";
 export { importScanRoom } from "@/lib/scanImport";
+export { parseScanReport, reportSubject, REPORT_MAX_BODY_BYTES, REPORT_LIMITS } from "@/lib/scanReports";

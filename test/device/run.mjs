@@ -40,6 +40,7 @@ const {
   newPairingCode, formatPairingCode, normalisePairingCode, newDeviceToken, hashSecret, bearerToken, appUrl, pairingUrl, claimSketchUrl,
   MAIN_LEVEL, roomsOnLevel, roomLevel, roomBounds, levelLabel, closetsOwed, withClosetsBehind,
   emptyMoistureMap, importScanRoom,
+  parseScanReport, reportSubject, REPORT_MAX_BODY_BYTES, REPORT_LIMITS,
 } = await import(pathToFileURL(bundlePath).href);
 
 let passed = 0;
@@ -452,5 +453,35 @@ check(levelLabel(0) === "Main level" && levelLabel(1) === "Level above" && level
 rmSync(outDir, { recursive: true, force: true });
 
 for (const f of failures) console.error("  FAIL " + f);
+/* ── A tester's scan report (2026-10-07) ─────────────────────────────────────────────────────────── */
+
+{
+  const { gzipSync } = await import("node:zlib");
+  const log = "10-07 06:20:13.933 I/ARCapture: spin 2: not begun\n".repeat(200);
+  const logGz = gzipSync(Buffer.from(log, "utf8")).toString("base64");
+  const good = { installId: "5b1d2c3e-0000-4a4a-8b8b-123456789abc", appVersion: "0.1.110", device: "samsung SM-S938W", android: "16",
+    note: "The 360 kept saying re-find first\nRoom 4", contact: "tester@example.com", capture, captureId: "room_20261007_062100", capturedAt: "2026-10-07T10:21:00Z", logGz };
+  const ok = parseScanReport(good);
+  check(ok.ok, `a whole report parses (${short(ok)})`);
+  check(ok.ok && ok.report.logBytes === Buffer.byteLength(log), "the log's unpacked size is read");
+  check(ok.ok && ok.report.roomCount === capture.rooms.length, `rooms counted (${ok.ok && ok.report.roomCount})`);
+  check(ok.ok && ok.report.capturedAt === "2026-10-07T10:21:00.000Z", "capturedAt normalised");
+  check(ok.ok && reportSubject(ok.report, "tester@example.com") === "Scan report from tester@example.com — The 360 kept saying re-find first", `subject (${ok.ok && reportSubject(ok.report, "x")})`);
+  // Not paired, no capture: a note alone is still a report; nothing at all is not.
+  check(parseScanReport({ installId: good.installId, note: "It crashed when I pressed Send" }).ok, "a note alone is a report");
+  check(!parseScanReport({ installId: good.installId }).ok, "nothing to send is refused");
+  check(!parseScanReport({ ...good, installId: "x" }).ok, "a missing install id is refused");
+  check(!parseScanReport({ ...good, logGz: "not gzip at all" }).ok, "a log that is not base64 gzip is refused");
+  check(!parseScanReport({ ...good, logGz: Buffer.from("plain text").toString("base64") }).ok, "base64 that is not gzip is refused");
+  check(!parseScanReport({ ...good, capture: [1, 2] }).ok, "a capture that is not an object is refused");
+  check(!parseScanReport({ ...good, capturedAt: "yesterday-ish" }).ok, "a capturedAt that is no date is refused");
+  check(!parseScanReport([good]).ok && !parseScanReport(null).ok, "a body that is no object is refused");
+  // What a tester typed is kept as text, bounded, control characters out.
+  const long = parseScanReport({ ...good, note: "a\u0007b\n" + "x".repeat(10000), contact: "y".repeat(500) });
+  check(long.ok && long.report.note.startsWith("ab\n") && long.report.note.length === REPORT_LIMITS.note, "the note is cleaned and capped");
+  check(long.ok && long.report.contact.length === REPORT_LIMITS.contact, "the contact is capped");
+  check(REPORT_MAX_BODY_BYTES < 4.5 * 1024 * 1024, "the body limit sits under Vercel's 4.5 MB");
+}
+
 console.log(`\n  ${passed} passed, ${failures.length} failed\n`);
 process.exit(failures.length === 0 ? 0 : 1);

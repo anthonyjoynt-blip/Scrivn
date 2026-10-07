@@ -42,7 +42,11 @@ const AUTH_PAGES = new Set(["/login", "/signup", "/forgot-password"]);
  * NEXT_PUBLIC_SHOW_MARKETING_NAV hides the links to these pages; it deliberately has no effect
  * here. The pages stay directly reachable by URL whether or not the site advertises them.
  */
-const PUBLIC_PAGES = new Set(["/", "/how-it-works", "/pricing", "/faq", "/contact", "/auth/auth-code-error", "/pair"]);
+const PUBLIC_PAGES = new Set(["/", "/how-it-works", "/pricing", "/faq", "/contact", "/auth/auth-code-error", "/pair", "/scan-guide"]);
+/*
+  `/scan-guide` is the Scrivn Scan tester guide: static instructions a tester reads on their phone, most
+  with no Scrivn account at all (Scan is tested as a product of its own). See app/scan-guide/page.tsx.
+*/
 /*
   `/pair` is where the pairing QR on the Account page points. It is meant to be scanned from inside
   the companion app, which never opens it — but a phone's own camera app will, and that visitor must

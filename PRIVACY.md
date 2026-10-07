@@ -52,7 +52,9 @@ When you use the Dictate button, your speech is turned into text by your phone o
 
 **Scrivn Scan**
 
-Scrivn Scan uses your phone's camera to measure rooms and to take photos and 360° images. It asks for camera permission only, and does not access your location, microphone, contacts or files. Measurements and photos are sent to Scrivn when you send a scan to a claim. Scan is linked to your account by scanning a pairing code, and you can revoke a paired phone from your account at any time.
+Scrivn Scan uses your phone's camera to measure rooms and to take photos and 360° images. It asks for camera permission only, and does not access your location, microphone, contacts or files. Measurements and photos are sent to Scrivn when you send a scan to a claim. Scan is linked to your account by scanning a pairing code, and you can revoke a paired phone from your account at any time. You can use Scan without pairing it to a Scrivn account.
+
+When you choose Send to Scrivn team, Scan sends us that scan's measurements, the app's log of the scan (what the app did and how its tracking went, with your phone's model and its Android and app versions), a random ID made for this copy of the app, and whatever you write in the note and contact boxes. No photos are sent this way. We use these only to find and fix problems in Scan, and delete them within 12 months.
 
 Scrivn Scan runs on Google Play Services for AR (ARCore), which is provided by Google LLC and governed by the Google Privacy Policy.
 
@@ -83,3 +85,7 @@ Claims, photos and scans are kept until the company deletes them, or for 24 mont
   confirmation, the contact form and Send documents. Dictation: `components/DictateButton.tsx` (browser
   speech recognition, no audio leaves the device to Scrivn). Scan permissions: the
   ARCapturePrototype manifest (CAMERA and INTERNET only). Phone revoke: `components/PairedPhones.tsx`.
+  Send to Scrivn team: `app/api/device/reports/route.ts` and `lib/scanReports.ts` (capture, gzipped log,
+  install id, note, contact; the sender's address only as a salted hash for the hourly limit), table
+  `scan_reports` (0008, readable by the service role only). The 12-month deletion is a promise with no
+  job behind it yet - delete old rows by hand until there is one.
