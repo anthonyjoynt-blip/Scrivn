@@ -186,6 +186,36 @@
   color: var(--amber-dark);
 }
 
+/* installing: the steps beside the download's QR code (for a tester reading on a computer) */
+.mk .sg-install {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+  margin-bottom: 18px;
+  padding: 18px 20px 6px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.mk .sg-install .sg-h3 {
+  margin-top: 0;
+}
+.mk .sg-qr svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+@media (max-width: 560px) {
+  /* on the phone itself the code is no use: the link is right there */
+  .mk .sg-install {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 14px 14px 4px;
+  }
+  .mk .sg-qr {
+    display: none;
+  }
+}
+
 /* ---- figures ---- */
 
 .mk .sg-figs {

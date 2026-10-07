@@ -69,7 +69,11 @@ const PUBLIC_PAGES = new Set(["/", "/how-it-works", "/pricing", "/faq", "/contac
  * account. It does its own validation, size-capping, bot filtering and per-IP throttling; see
  * app/api/contact/route.ts.
  */
-const PUBLIC_ROUTES = new Set(["/auth/confirm", "/api/logout", "/api/webhooks/stripe", "/api/contact"]);
+const PUBLIC_ROUTES = new Set(["/auth/confirm", "/api/logout", "/api/webhooks/stripe", "/api/contact", "/scan-download"]);
+/*
+  `/scan-download` sends a tester to the newest Scrivn Scan build (app/scan-download/route.ts) - before the Play
+  listing, the way testers install it, and they have no account to sign in with.
+*/
 
 /**
  * The web app manifest and its icons, which must answer to a request carrying no session.

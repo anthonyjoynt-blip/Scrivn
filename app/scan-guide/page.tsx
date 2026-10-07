@@ -1,4 +1,6 @@
+import QRCode from "qrcode";
 import { MarketingShell } from "@/components/marketing/MarketingShell";
+import { appUrl } from "@/lib/deviceCodes";
 import { CaptureScreen, ClosetStep, DropAsk, HowtoArt, JoinRooms, ReportDialog, ReviewScreen, Ring, SpinDots } from "@/components/scanGuide/Figures";
 import type { HowtoName } from "@/components/scanGuide/howtoDrawings";
 import "./scan-guide.css";
@@ -72,7 +74,10 @@ function Drawing({ name, caption }: { name: HowtoName; caption: string }) {
   );
 }
 
-export default function ScanGuidePage() {
+export default async function ScanGuidePage() {
+  // The download, as a QR for a tester reading this on a computer: the phone's camera opens it.
+  const download = `${appUrl()}/scan-download`;
+  const qr = await QRCode.toString(download, { type: "svg", margin: 1, color: { dark: "#1b3a5c", light: "#ffffff" } });
   return (
     <MarketingShell page="scan-guide">
       <div className="sg">
@@ -90,6 +95,9 @@ export default function ScanGuidePage() {
           <div className="sg-quick">
             <h2>The short version</h2>
             <ol>
+              <li>
+                Install the test version from <a href="/scan-download">scrivn.ca/scan-download</a> (section 1).
+              </li>
               <li>
                 Turn the room&apos;s lights on. Press <B>Start</B>, then hold the phone up and walk a few steps until the ring turns green.
               </li>
@@ -118,6 +126,29 @@ export default function ScanGuidePage() {
           </nav>
 
           <Section id="start" n={1} title="Before you start">
+            <div className="sg-install">
+              <div className="sg-qr" aria-hidden="true" dangerouslySetInnerHTML={{ __html: qr }} />
+              <div>
+                <h3 className="sg-h3">Installing the test version</h3>
+                <p className="sg-small">Scan isn&apos;t on Google Play yet, so testers install it from our site.</p>
+                <ol className="sg-steps">
+                  <li>
+                    On your phone, open <a href="/scan-download">scrivn.ca/scan-download</a>, or point the phone&apos;s camera at this code.
+                    It downloads the newest test version.
+                  </li>
+                  <li>
+                    Open the downloaded file. Android asks whether your browser may install apps: allow it, go back, and tap{" "}
+                    <strong>Install</strong>.
+                  </li>
+                  <li>
+                    If Google Play Protect says it doesn&apos;t recognise the app or its developer, tap <strong>More details</strong>, then{" "}
+                    <strong>Install anyway</strong>. That&apos;s because it isn&apos;t from the Play Store yet.
+                  </li>
+                  <li>To update, open the same link and install over the top. Nothing you&apos;ve set is lost.</li>
+                </ol>
+                <p className="sg-small">When Scan is on Google Play you may need to uninstall this test copy before installing that one.</p>
+              </div>
+            </div>
             <ul className="sg-list">
               <li>
                 <strong>Your phone.</strong> An Android phone that runs Google&apos;s ARCore with its depth camera feature. Most recent Samsung
@@ -125,8 +156,8 @@ export default function ScanGuidePage() {
                 <Q>This phone does not support the ARCore Depth API</Q>. Please tell us which phone it was.
               </li>
               <li>
-                <strong>Installing.</strong> Use the link we sent you. The first time you open it, allow the camera (it is how Scan measures)
-                and let Android install or update <em>Google Play Services for AR</em> if it asks.
+                <strong>First open.</strong> Allow the camera (it is how Scan measures) and let Android install or update{" "}
+                <em>Google Play Services for AR</em> if it asks.
               </li>
               <li>
                 <strong>No account needed.</strong> Scan works on its own: the plan is on the phone, on the Review screen. Pairing it with a
