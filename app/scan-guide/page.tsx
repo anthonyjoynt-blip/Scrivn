@@ -104,7 +104,8 @@ export default async function ScanGuidePage() {
               <li>Stand near the middle of the room. Aim the ring at each corner, 6 to 8 ft away, and tap the screen. Go round the room.</li>
               <li>Tap corner 1 again to close the room. Then tap each door, window and opening at its two sides.</li>
               <li>
-                Open the plan (the little map, top right). Tap any wall&apos;s length and type what your tape says.
+                Open the plan (the little map, top right). Tap any wall&apos;s length and type what your tape says. <B>Share</B> sends it
+                as a PDF.
               </li>
               <li>
                 Next room: <B>Add room</B>, tap its corners, tap the doorway you came through, then <B>More…</B> → <B>Join this room to another</B>.
@@ -160,8 +161,8 @@ export default async function ScanGuidePage() {
                 <em>Google Play Services for AR</em> if it asks.
               </li>
               <li>
-                <strong>No account needed.</strong> Scan works on its own: the plan is on the phone, on the Review screen. Pairing it with a
-                Scrivn account to send rooms into a claim is optional (section 12).
+                <strong>No account needed.</strong> Scan works on its own: the plan is on the Review screen, and <B>Share</B> there sends it
+                as a PDF. Pairing it with a Scrivn account to send rooms into a claim is optional (section 12).
               </li>
               <li>
                 <strong>Lights on, phone charged.</strong> Dim rooms measure short (more on that in the tips), and the camera works hard. If
@@ -492,6 +493,12 @@ export default async function ScanGuidePage() {
                     <strong>Pinch</strong> to zoom, drag to move, double-tap to fit it back. <B>Undo last</B> takes back the last thing
                     you did.
                   </li>
+                  <li>
+                    <B>Share</B> makes a PDF: the whole plan with every wall&apos;s length on page 1, then each room&apos;s size, floor
+                    area, perimeter, ceiling and wall area, doors, windows and cabinets. Add a job name or address if you like. It&apos;s
+                    saved to <em>Download/Scrivn Scan</em> and the share sheet opens, so you can email it, print it or put it in Drive. No
+                    account needed.
+                  </li>
                 </ul>
                 <h3 className="sg-h3">The closets step</h3>
                 <p>
@@ -684,10 +691,6 @@ export default async function ScanGuidePage() {
                 <strong>Stop finishes the capture.</strong> After it the chip bar and <B>More…</B> are gone, and <B>Start</B> begins a new,
                 empty capture. Look over Review before you press Stop; a missed doorway can still go on afterwards with a long press on
                 Review.
-              </li>
-              <li>
-                <strong>The plan stays on the phone</strong> unless you send it to Scrivn. A way to save or share it on its own is not built
-                yet.
               </li>
             </ul>
             <p>
