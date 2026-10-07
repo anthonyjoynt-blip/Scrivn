@@ -104,8 +104,8 @@ export default async function ScanGuidePage() {
               <li>Stand near the middle of the room. Aim the ring at each corner, 6 to 8 ft away, and tap the screen. Go round the room.</li>
               <li>Tap corner 1 again to close the room. Then tap each door, window and opening at its two sides.</li>
               <li>
-                Open the plan (the little map, top right). Tap any wall&apos;s length and type what your tape says. <B>Share</B> sends it
-                as a PDF.
+                Open the plan (the little map, top right). <strong>Tape at least one wall in every room</strong>, the longest, then tap
+                its length and type what your tape says. <B>Share</B> sends the plan as a PDF and a JPG, to scale.
               </li>
               <li>
                 Next room: <B>Add room</B>, tap its corners, tap the doorway you came through, then <B>More…</B> → <B>Join this room to another</B>.
@@ -161,8 +161,8 @@ export default async function ScanGuidePage() {
                 <em>Google Play Services for AR</em> if it asks.
               </li>
               <li>
-                <strong>No account needed.</strong> Scan works on its own: the plan is on the Review screen, and <B>Share</B> there sends it
-                as a PDF. Pairing it with a Scrivn account to send rooms into a claim is optional (section 12).
+                <strong>No account needed.</strong> Scan works on its own: the plan is on the Review screen, and <B>Share</B> sends it as a
+                PDF and a JPG. Pairing it with a Scrivn account to send rooms into a claim is optional (section 12).
               </li>
               <li>
                 <strong>Lights on, phone charged.</strong> Dim rooms measure short (more on that in the tips), and the camera works hard. If
@@ -183,8 +183,8 @@ export default async function ScanGuidePage() {
               </figure>
               <ol className="sg-legend">
                 <li>
-                  <B>Stop</B> finishes the capture. After it the bottom row reads <B>Start</B> · <B>Export</B> · <B>Send</B>. Export saves
-                  files for us; you can ignore it.
+                  <B>Stop</B> finishes the capture. After it the bottom row reads <B>Start</B> · <B>Share</B> · <B>Send</B>. A long press
+                  on Share saves the capture&apos;s files for us; you won&apos;t need it.
                 </li>
                 <li>
                   <strong>The mini-map.</strong> Your plan so far, with you on it. Tap it (or swipe up) to open <strong>Review</strong>, the
@@ -475,6 +475,10 @@ export default async function ScanGuidePage() {
                 <p>Tap the mini-map to open Review, during a capture or after Stop. It&apos;s the whole plan, drawn to scale.</p>
                 <ul className="sg-list">
                   <li>
+                    <strong>Best practice: tape at least one wall in every room.</strong> The longest one is best. It checks the
+                    phone&apos;s reading against a real measurement and sets the plan&apos;s scale. Two walls in a dim room.
+                  </li>
+                  <li>
                     <strong>Every length is a button.</strong> Tap it and type what your tape says (<Q>8&apos;3</Q>, <Q>99&quot;</Q> or{" "}
                     <Q>8.25</Q>). The room resizes around it. The phone&apos;s reading stays visible, struck through. <B>Reset tape</B>{" "}
                     takes typed lengths off again.
@@ -494,10 +498,12 @@ export default async function ScanGuidePage() {
                     you did.
                   </li>
                   <li>
-                    <B>Share</B> makes a PDF: the whole plan with every wall&apos;s length on page 1, then each room&apos;s size, floor
-                    area, perimeter, ceiling and wall area, doors, windows and cabinets. Add a job name or address if you like. It&apos;s
-                    saved to <em>Download/Scrivn Scan</em> and the share sheet opens, so you can email it, print it or put it in Drive. No
-                    account needed.
+                    <B>Share</B> (here, or on the bottom row after Stop) makes a PDF and a JPG of the plan, to scale, walls drawn 4&quot;
+                    thick: the whole plan with every wall&apos;s length and a 10 ft scale bar, then each room&apos;s size, floor area,
+                    perimeter, ceiling and wall area, doors, windows and cabinets. It asks about closets first, as Send does. Add a job
+                    name or address if you like. Both are saved to <em>Download/Scrivn Scan</em> and the share sheet opens, so you can
+                    email them, print them or put them in Drive. No account needed. The PDF prints to scale at 100% (not fit to page);
+                    the JPG can be an underlay in Xactimate, set to scale off its 10 ft bar or any wall you taped.
                   </li>
                 </ul>
                 <h3 className="sg-h3">The closets step</h3>
@@ -577,17 +583,18 @@ export default async function ScanGuidePage() {
             <p>These come from walking real houses with the app. Each one fixed something we saw go wrong.</p>
             <div className="sg-tips">
               <div className="sg-tip">
+                <h3>Always tape at least one wall</h3>
+                <p>
+                  Best practice in every room: tape the longest wall and type it in on Review. It checks the phone against a real
+                  measurement and sets the plan&apos;s scale. In a dim room tape two. If every wall reads short by about the same, tick{" "}
+                  <strong>Scale the whole room to this wall</strong>.
+                </p>
+              </div>
+              <div className="sg-tip">
                 <h3>Turn the lights on</h3>
                 <p>
                   In dim rooms the walls read short, by 2% to 7% (a 12 ft wall coming in 3 to 10 in short). Doors and windows read true either
                   way. If a room is dim the line says <Q>Room&apos;s dim — turn the lights on for truer lengths</Q>.
-                </p>
-              </div>
-              <div className="sg-tip">
-                <h3>Tape one or two long walls</h3>
-                <p>
-                  Typing the tape for the longest wall (two walls in a dim room) puts the room right. If every wall reads short by about the
-                  same, tick <strong>Scale the whole room to this wall</strong>.
                 </p>
               </div>
               <div className="sg-tip">
