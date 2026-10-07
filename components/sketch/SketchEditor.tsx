@@ -88,6 +88,9 @@ import {
   openingLevel,
   roomsOnLevel,
   withLevel,
+  type JunctionWall,
+  junctionWalls,
+  dragWall,
 } from "@/lib/sketch";
 import {
   PHONE_LAYOUT_QUERY,
@@ -1233,23 +1236,53 @@ export function SketchEditor({
    * to follow it (`conformedDragWall`) — a shape that depends on how far out the wall has gone,
    * which frame-by-frame steps from an already reshaped room would compound.
    */
-  const wallDrag = useRef<{ roomId: string; wallId: string; room: SketchRoom; obstacles: Obstacle[]; dx: number; dy: number; reshaped: boolean } | null>(null);
+  /** A wall carried by the drag ([junctionWalls]): its room as the drag began, and what stands in its way. */
+  type CarriedWall = JunctionWall & { room: SketchRoom; obstacles: Obstacle[] };
+  const wallDrag = useRef<{
+    roomId: string;
+    wallId: string;
+    room: SketchRoom;
+    obstacles: Obstacle[];
+    carried: CarriedWall[];
+    dx: number;
+    dy: number;
+    reshaped: boolean;
+  } | null>(null);
   function handleDragWall(roomId: string, wallId: string, dx: number, dy: number) {
     const current = wallDrag.current;
     if (!current || current.roomId !== roomId || current.wallId !== wallId) {
       const room = sketch.rooms.find((r) => r.id === roomId);
       if (!room) return;
+      // The other face of the wall's partition, in each room it divides from this one (2026-10-07): it moves as this wall
+      // does, so neither stands in the other's way.
+      const partners = junctionWalls(sketch.rooms, room, wallId);
+      const moving = [{ roomId, wallId }, ...partners];
+      const notMoving = (obstacles: Obstacle[]) =>
+        obstacles.filter((o) => !moving.some((m) => {
+          const owner = sketch.rooms.find((r) => r.id === m.roomId);
+          const w = owner ? wallById(owner, m.wallId) : null;
+          return !!w && sameSegment(o, w);
+        }));
       // What stands in the way is fixed at the start too: read frame by frame, a closet flush
       // inside the room stopped being "inside" the moment one frame went inward, and from then on
       // stood in the way of every frame outward.
-      wallDrag.current = { roomId, wallId, room, obstacles: obstaclesFor(sketch, activeLevel, { roomId }), dx: 0, dy: 0, reshaped: false };
+      const carried: CarriedWall[] = [];
+      for (const p of partners) {
+        const proom = sketch.rooms.find((r) => r.id === p.roomId);
+        if (proom) carried.push({ ...p, room: proom, obstacles: notMoving(obstaclesFor(sketch, activeLevel, { roomId: p.roomId })) });
+      }
+      wallDrag.current = { roomId, wallId, room, obstacles: notMoving(obstaclesFor(sketch, activeLevel, { roomId })), carried, dx: 0, dy: 0, reshaped: false };
     }
-    const drag = wallDrag.current as { roomId: string; wallId: string; room: SketchRoom; obstacles: Obstacle[]; dx: number; dy: number; reshaped: boolean };
+    const drag = wallDrag.current as NonNullable<typeof wallDrag.current>;
     drag.dx += dx;
     drag.dy += dy;
     drag.reshaped = wallDragMeetsWall(drag.room, wallId, drag.dx, drag.dy, drag.obstacles);
     const reshaped = conformedDragWall(drag.room, wallId, drag.dx, drag.dy, drag.obstacles);
     updateRoom(roomId, () => reshaped);
+    for (const c of drag.carried) {
+      const moved = conformedDragWall(c.room, c.wallId, drag.dx, drag.dy, c.obstacles);
+      updateRoom(c.roomId, () => moved);
+    }
   }
 
   /**
@@ -2351,9 +2384,32 @@ export function SketchEditor({
             // A wall placed by the walls it ran into stays put; only a freehand wall is snapped to
             // the room's own corners — see `wallDragMeetsWall`.
             const reshaped = wallDrag.current?.reshaped ?? false;
+            const carried = wallDrag.current?.carried ?? [];
             wallDrag.current = null;
-            // To its own corners, and to the rooms round it (2026-10-05).
-            if (!reshaped) updateRoom(roomId, (room) => snapWallToNeighbours(room, wallId, snapWorldPx(view.scale), sketch.rooms));
+            // To its own corners, and to the rooms round it (2026-10-05) - not to the walls it carried, which would close the
+            // partition; and they take the snap's step too, so the partition stays as thick as it was (2026-10-07).
+            if (!reshaped) {
+              const snapPx = snapWorldPx(view.scale);
+              const carriedWall = new Map(carried.map((c) => [c.roomId, c.wallId]));
+              // One update, from the sketch as it stands now: the rooms as this render had them are as the drag began.
+              onChange((prev) => {
+                const room = prev.rooms.find((r) => r.id === roomId);
+                const wallBefore = room ? wallById(room, wallId) : null;
+                if (!room || !wallBefore) return prev;
+                const snapped = snapWallToNeighbours(room, wallId, snapPx, prev.rooms.filter((r) => !carriedWall.has(r.id)));
+                const wallAfter = wallById(snapped, wallId);
+                const sx = wallAfter ? wallAfter.x1 - wallBefore.x1 : 0;
+                const sy = wallAfter ? wallAfter.y1 - wallBefore.y1 : 0;
+                return {
+                  ...prev,
+                  rooms: prev.rooms.map((r) => {
+                    if (r.id === roomId) return snapped;
+                    const carriedId = carriedWall.get(r.id);
+                    return carriedId && (sx !== 0 || sy !== 0) ? dragWall(r, carriedId, sx, sy) : r;
+                  }),
+                };
+              });
+            }
           }}
           /*
             The snap radius is a FINGER'S WIDTH ON SCREEN, so it is divided by the zoom before it
@@ -3438,5 +3494,14 @@ function CanvasTextInput({
         </button>
       </div>
     </div>
+  );
+}
+
+/** Whether obstacle [o] is wall [w]'s own segment, either way round: a wall carried by a drag is not in its own way. */
+function sameSegment(o: Obstacle, w: { x1: number; y1: number; x2: number; y2: number }): boolean {
+  const near = (a: number, b: number) => Math.abs(a - b) < 0.01;
+  return (
+    (near(o.x1, w.x1) && near(o.y1, w.y1) && near(o.x2, w.x2) && near(o.y2, w.y2)) ||
+    (near(o.x1, w.x2) && near(o.y1, w.y2) && near(o.x2, w.x1) && near(o.y2, w.y1))
   );
 }

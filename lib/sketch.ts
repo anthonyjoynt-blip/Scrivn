@@ -2012,6 +2012,55 @@ export function junctionCorners(rooms: SketchRoom[], room: SketchRoom, at: { x: 
   return out;
 }
 
+/** Another room's wall that is the other face of a dragged wall's partition ([junctionWalls]). */
+export interface JunctionWall {
+  roomId: string;
+  wallId: string;
+}
+
+/** How far off parallel two walls may be and still be the two faces of one partition ([junctionWalls]): 5 degrees. */
+const JUNCTION_WALL_SIN = Math.sin((5 * Math.PI) / 180);
+
+/**
+ * A WALL BETWEEN ROOMS MOVES AS ONE (2026-10-07): "scrivn sketch still isnt fixed where joined walls are moving together.
+ * adjusting the closet only pulls the closet and leaves a gap from the office wall that stays behind" (the owner). The
+ * corners carried each other since 1afd592 ([junctionCorners]); a wall's drag carried nothing. These are the walls of the
+ * other rooms on [room]'s storey that are the far face of wall [wallId]'s partition: parallel to it within 5 degrees,
+ * running the other way (each room's walls run clockwise, so the two faces of one partition run opposite), within
+ * [JUNCTION_PX] of its line - flush, or a partition apart - and alongside it for at least half the shorter of the two. The
+ * nearest-overlapping one of each room. A wall dragged carries them with it.
+ */
+export function junctionWalls(rooms: SketchRoom[], room: SketchRoom, wallId: string): JunctionWall[] {
+  const w = wallsOf(room).find((x) => x.id === wallId);
+  if (!w || w.lengthPx < 1) return [];
+  const ux = (w.x2 - w.x1) / w.lengthPx;
+  const uy = (w.y2 - w.y1) / w.lengthPx;
+  const level = roomLevel(room);
+  const out: JunctionWall[] = [];
+  for (const other of rooms) {
+    if (other.id === room.id || roomLevel(other) !== level) continue;
+    let best: WallGeometry | null = null;
+    let bestOverlap = 0;
+    for (const o of wallsOf(other)) {
+      if (o.lengthPx < 1) continue;
+      const ox = (o.x2 - o.x1) / o.lengthPx;
+      const oy = (o.y2 - o.y1) / o.lengthPx;
+      if (Math.abs(ux * oy - uy * ox) > JUNCTION_WALL_SIN || ux * ox + uy * oy > 0) continue;
+      const mx = (o.x1 + o.x2) / 2 - w.x1;
+      const my = (o.y1 + o.y2) / 2 - w.y1;
+      if (Math.abs(mx * -uy + my * ux) > JUNCTION_PX) continue;
+      const t1 = (o.x1 - w.x1) * ux + (o.y1 - w.y1) * uy;
+      const t2 = (o.x2 - w.x1) * ux + (o.y2 - w.y1) * uy;
+      const overlap = Math.min(w.lengthPx, Math.max(t1, t2)) - Math.max(0, Math.min(t1, t2));
+      if (overlap < 0.5 * Math.min(w.lengthPx, o.lengthPx) || overlap <= bestOverlap) continue;
+      best = o;
+      bestOverlap = overlap;
+    }
+    if (best) out.push({ roomId: other.id, wallId: best.id });
+  }
+  return out;
+}
+
 /**
  * A CORNER WHERE ROOMS MEET MOVES AS ONE (2026-10-06): "grabbing that corner only moves the one wall and not that junction
  * together. So its an extra step" (the owner, squaring a closet the scan had on an angle - its corner and the bedroom's met

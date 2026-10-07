@@ -14,6 +14,7 @@ import { run as runExportAndShortcuts } from "./exportAndShortcuts";
 import { renderShowcase, run as runMoistureGestures } from "./moistureGestures";
 import { run as runWallDragSnap } from "./wallDragSnap";
 import { run as runTurnButtons } from "./turnButtons";
+import { run as runWallJunction } from "./wallJunction";
 
 interface SuiteResult {
   passed: number;
@@ -36,6 +37,7 @@ const SUITES: [string, () => Promise<SuiteResult>][] = [
   ["Shortcuts and export", runExportAndShortcuts],
   ["Wall gestures through the editor", runWallDragSnap],
   ["Turning a room or a block", runTurnButtons],
+  ["A wall between two rooms moves as one", runWallJunction],
 ];
 
 async function main() {

@@ -1335,6 +1335,33 @@ export async function runRoomChecks() {
     assert(s.junctionCorners(rooms, far, far.vertices[0]).length === 0, "a lone corner is a lone corner");
   });
 
+  test("a wall between two rooms moves as one: the other room's face of the partition comes along", () => {
+    // 2026-10-07: "adjusting the closet only pulls the closet and leaves a gap from the office wall that stays behind" (the
+    // owner). The office of the 10:16 walk: a closet 50" wide in its top-left corner, and the office's step beside it a
+    // partition (4") to its right. Dragging the closet's right wall 6" left takes the office's step 6" left too.
+    const office = room([[0, 24], [54, 24], [54, 0], [84, 0], [120, 36], [120, 184], [0, 184]], { id: "office" });
+    const closet = box(0, -4, 50, 24, { id: "closet" });
+    const far = box(300, 0, 100, 100, { id: "far" });
+    const rooms = [office, closet, far];
+    const right = s.wallsOf(closet).find((w) => Math.abs(w.x1 - 50) < 0.01 && Math.abs(w.x2 - 50) < 0.01);
+    const partners = s.junctionWalls(rooms, closet, right.id);
+    const step = s.wallsOf(office).find((w) => Math.abs(w.x1 - 54) < 0.01 && Math.abs(w.x2 - 54) < 0.01);
+    assert(partners.length === 1 && partners[0].roomId === "office" && partners[0].wallId === step.id, `the office's step is the far face, got ${JSON.stringify(partners)}`);
+    // The two dragged by the same 6" left, as the editor does: the partition stays 4" thick, no gap opens.
+    const movedCloset = s.conformedDragWall(closet, right.id, -6, 0, []);
+    const movedOffice = s.conformedDragWall(office, step.id, -6, 0, []);
+    const cx = Math.max(...movedCloset.vertices.map((v) => v.x));
+    const ox = Math.min(...movedOffice.vertices.filter((v) => v.y < 24.01).map((v) => v.x).filter((x) => x > 1));
+    near(cx, 44, "the closet's right wall to x 44");
+    near(ox, 48, "the office's step to x 48, a partition from it");
+    // Its own walls running the same way are not partners, nor a wall too far off, nor a room on another storey.
+    const top = s.wallsOf(closet).find((w) => Math.abs(w.y1 + 4) < 0.01 && Math.abs(w.y2 + 4) < 0.01);
+    assert(s.junctionWalls(rooms, closet, top.id).length === 0, "the closet's top wall has no room beyond it");
+    const apart = box(0, -4, 40, 24, { id: "apart" });
+    const apartRight = s.wallsOf(apart).find((w) => Math.abs(w.x1 - 40) < 0.01 && Math.abs(w.x2 - 40) < 0.01);
+    assert(s.junctionWalls([office, apart], apart, apartRight.id).length === 0, "14 in apart is two walls, not one");
+  });
+
   return { passed, failures };
 }
 
