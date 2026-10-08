@@ -1706,6 +1706,30 @@ export async function runRoomChecks() {
     assert(s.missingWallRuns(back[1], hallLeft.id, back).length === 0, "and the hall's wall is whole");
   });
 
+  test("the report: the 4\" a partition stood on at the head of a flight is floor, not a strip of bare grid", () => {
+    const rooms = [flight(), landing()];
+    const gaps = s.missingWallGaps(rooms[0], rooms);
+    assert(gaps.length === 1, `one strip, across the head, got ${gaps.length}`);
+    const xs = gaps[0].map((p) => p.x);
+    const ys = gaps[0].map((p) => p.y);
+    near(Math.min(...xs), 132, "from the flight's end");
+    near(Math.max(...xs), 136, "to the hall's face, 4\" on");
+    near(Math.max(...ys) - Math.min(...ys), 38, "the flight's width of it");
+    assert(s.missingWallGaps(rooms[1], rooms).length === 0, "painted once, by the flight");
+    const flush = [flight(), box(132, -40, 120, 120, { id: "landing", name: "Hall" })];
+    assert(s.missingWallGaps(flush[0], flush).length === 0, "and none when the two meet flush");
+  });
+
+  test("the report: a flight dragged up to a room lands flush along its run, a wall apart across it", () => {
+    // The hall's left face at x 136; the flight's right end dragged to 2" short of it.
+    const rooms = [flight({ vertices: box(0, 0, 132, 38).vertices.map((v, i) => ({ ...v, id: `flight-v${i}` })) }), landing()];
+    const along = s.snapRoomTranslation(rooms, "flight", 2, 0);
+    near(along.dx, 4, "its open end meets the hall's face, no wall between");
+    const room = box(0, 0, 132, 38, { id: "plain" });
+    const plain = s.snapRoomTranslation([room, landing()], "plain", 2, 0);
+    near(plain.dx, 0, "a plain room in its place stops a wall short, as it always has");
+  });
+
   return { passed, failures };
 }
 

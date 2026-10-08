@@ -38,6 +38,7 @@ import {
   cabinetDepthPx,
   roomLabelAnchor,
   clampZoom,
+  missingWallGaps,
   onParentWallRuns,
   openParent,
   ownMissingRuns,
@@ -1420,72 +1421,65 @@ function RoomShape({
         onMouseDown={(e) => handleBodyPointer(e)}
         onTouchStart={(e) => handleBodyPointer(e)}
       />
+      {/* The floor where a partition was taken out between this room and the next - see `missingWallGaps`. */}
+      {missingWallGaps(room, rooms).map((quad, i) => (
+        <Line
+          key={`gap:${i}`}
+          points={quad.flatMap((p) => [p.x, p.y])}
+          closed
+          fill={open ? "transparent" : roomFill(room, false, rooms)}
+          listening={false}
+        />
+      ))}
 
-      {room.stairs !== null ? (
-        /* A flight is a space, not a room with walls round it: its outline keeps the centred line - and
-           none at its ends, where it is stepped on and off (`missingWallMarks`), or anywhere else made missing. */
-        walls.flatMap((wall) =>
+      {/*
+        A flight's sides are walls, built outward as every room's are, so they line up with the walls
+        they meet; its ends are open (`missingWallMarks`). Until 2026-10-08 it kept a line centred on its
+        outline - half a wall off every wall it met: "it seems to be interfering with the walls
+        snapping together on either end" (the owner).
+      */}
+      {/* The walls, Xactimate's way: 4" OUTWARD from the inside faces - see `outerWallFaces`. */}
+      <WallRing room={room} rooms={rooms} thicknessPx={wallStroke} ownRuns={ownRuns} />
+      {/* Where another room shares the line, insides touching, the wall is its owner's, built
+          outward from the owner over the other floor - see `flushWallStretches`. Both rooms draw
+          it, so whichever is drawn last it is there; it is one wall. None where it is missing. */}
+      {walls.map((wall) =>
+        flushWallStretches(room, wall, rooms).flatMap((stretch, i) =>
           (ownRuns.get(wall.id) ?? [[0, 1]]).map(([lo, hi], k) => {
-            const a = pointOnWall(wall, lo);
-            const b = pointOnWall(wall, hi);
-            return (
-              <Line
-                key={`${wall.id}:${k}`}
-                points={[a.x, a.y, b.x, b.y]}
-                stroke={highlight?.wallIds.includes(wall.id) ? COLORS.highlightWall : COLORS.wall}
-                strokeWidth={highlight?.wallIds.includes(wall.id) ? wallStroke * 2 : wallStroke}
-                lineCap="square"
-                listening={false}
-              />
-            );
+            const from = Math.max(stretch.from, lo * wall.lengthPx);
+            const to = Math.min(stretch.to, hi * wall.lengthPx);
+            if (to - from <= 1) return null;
+            const a = pointOnWall(wall, from / wall.lengthPx);
+            const b = pointOnWall(wall, to / wall.lengthPx);
+            // Outward is the wall's direction turned -90 degrees; the owner's wall lies that way
+            // from its face, and from the other room's face it lies the opposite way, inside.
+            const side = stretch.owned ? 1 : -1;
+            const ox = ((wall.y2 - wall.y1) / wall.lengthPx) * (wallStroke / 2) * side;
+            const oy = (-(wall.x2 - wall.x1) / wall.lengthPx) * (wallStroke / 2) * side;
+            return <Line key={`${wall.id}:${i}:${k}`} points={[a.x + ox, a.y + oy, b.x + ox, b.y + oy]} stroke={COLORS.wall} strokeWidth={wallStroke} lineCap="square" listening={false} />;
           }),
-        )
-      ) : (
-        <>
-          {/* The walls, Xactimate's way: 4" OUTWARD from the inside faces - see `outerWallFaces`. */}
-          <WallRing room={room} rooms={rooms} thicknessPx={wallStroke} ownRuns={ownRuns} />
-          {/* Where another room shares the line, insides touching, the wall is its owner's, built
-              outward from the owner over the other floor - see `flushWallStretches`. Both rooms draw
-              it, so whichever is drawn last it is there; it is one wall. None where it is missing. */}
-          {walls.map((wall) =>
-            flushWallStretches(room, wall, rooms).flatMap((stretch, i) =>
-              (ownRuns.get(wall.id) ?? [[0, 1]]).map(([lo, hi], k) => {
-                const from = Math.max(stretch.from, lo * wall.lengthPx);
-                const to = Math.min(stretch.to, hi * wall.lengthPx);
-                if (to - from <= 1) return null;
-                const a = pointOnWall(wall, from / wall.lengthPx);
-                const b = pointOnWall(wall, to / wall.lengthPx);
-                // Outward is the wall's direction turned -90 degrees; the owner's wall lies that way
-                // from its face, and from the other room's face it lies the opposite way, inside.
-                const side = stretch.owned ? 1 : -1;
-                const ox = ((wall.y2 - wall.y1) / wall.lengthPx) * (wallStroke / 2) * side;
-                const oy = (-(wall.x2 - wall.x1) / wall.lengthPx) * (wallStroke / 2) * side;
-                return <Line key={`${wall.id}:${i}:${k}`} points={[a.x + ox, a.y + oy, b.x + ox, b.y + oy]} stroke={COLORS.wall} strokeWidth={wallStroke} lineCap="square" listening={false} />;
-              }),
-            ),
-          )}
-          <MissingWalls room={room} rooms={rooms} zoom={zoom} />
-          {/* A wall a thumbnail picks out: over the wall where it stands, outside the face.
-              Heavier as well as coloured: a thumbnail is read small and printed, sometimes in
-              greyscale, where colour alone stops carrying. */}
-          {walls
-            .filter((wall) => highlight?.wallIds.includes(wall.id) && wall.lengthPx > 0)
-            .map((wall) => {
-              const ox = ((wall.y2 - wall.y1) / wall.lengthPx) * (wallStroke / 2);
-              const oy = (-(wall.x2 - wall.x1) / wall.lengthPx) * (wallStroke / 2);
-              return (
-                <Line
-                  key={`highlight:${wall.id}`}
-                  points={[wall.x1 + ox, wall.y1 + oy, wall.x2 + ox, wall.y2 + oy]}
-                  stroke={COLORS.highlightWall}
-                  strokeWidth={wallStroke * 2}
-                  lineCap="square"
-                  listening={false}
-                />
-              );
-            })}
-        </>
+        ),
       )}
+      <MissingWalls room={room} rooms={rooms} zoom={zoom} />
+      {/* A wall a thumbnail picks out: over the wall where it stands, outside the face.
+          Heavier as well as coloured: a thumbnail is read small and printed, sometimes in
+          greyscale, where colour alone stops carrying. */}
+      {walls
+        .filter((wall) => highlight?.wallIds.includes(wall.id) && wall.lengthPx > 0)
+        .map((wall) => {
+          const ox = ((wall.y2 - wall.y1) / wall.lengthPx) * (wallStroke / 2);
+          const oy = (-(wall.x2 - wall.x1) / wall.lengthPx) * (wallStroke / 2);
+          return (
+            <Line
+              key={`highlight:${wall.id}`}
+              points={[wall.x1 + ox, wall.y1 + oy, wall.x2 + ox, wall.y2 + oy]}
+              stroke={COLORS.highlightWall}
+              strokeWidth={wallStroke * 2}
+              lineCap="square"
+              listening={false}
+            />
+          );
+        })}
 
       {showMoisture && <PaintedSurfaces room={room} moisture={moisture} zoom={zoom} />}
 
@@ -2604,6 +2598,8 @@ const MISSING_WALL_DASH = [9, 5];
  * export is this canvas, so the PDF shows the same.
  */
 function MissingWalls({ room, rooms, zoom }: { room: SketchRoom; rooms: SketchRoom[]; zoom: number }) {
+  // A flight's open ends are where it is stepped on and off, not a change in the ceiling: no line.
+  if (room.stairs) return null;
   return (
     <>
       {wallsOf(room).flatMap((wall) =>

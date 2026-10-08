@@ -1480,6 +1480,40 @@ export function missingWallMarks(room: SketchRoom): string[] {
     .map((w) => w.id);
 }
 
+/**
+ * The floor where a wall was taken out between two rooms that stood a partition apart: from a room's
+ * own missing wall (`ownMissingRuns`) across to the face of the room beyond it, as quads in world
+ * pixels, to be painted as floor. Without it the 4" the wall stood on shows as a strip of bare grid
+ * between them - at the foot of the owner's stairs, 2026-10-08: "this weird gap at the base of the
+ * stairs". None where the two are flush.
+ */
+export function missingWallGaps(room: SketchRoom, rooms: SketchRoom[]): { x: number; y: number }[][] {
+  const out: { x: number; y: number }[][] = [];
+  for (const wall of wallsOf(room)) {
+    const own = ownMissingRuns(room, wall.id, rooms);
+    if (own.length === 0 || wall.lengthPx <= 0) continue;
+    // Outward: the wall's direction turned -90 degrees, a room being clockwise.
+    const ox = (wall.y2 - wall.y1) / wall.lengthPx;
+    const oy = -(wall.x2 - wall.x1) / wall.lengthPx;
+    for (const other of rooms) {
+      if (other.id === room.id || roomLevel(other) !== roomLevel(room)) continue;
+      for (const theirs of wallsOf(other)) {
+        const f = facingAcross(wall, theirs);
+        if (!f || f.gapPx < 0.5) continue;
+        for (const [lo, hi] of own) {
+          const from = Math.max(f.from, lo * wall.lengthPx);
+          const to = Math.min(f.to, hi * wall.lengthPx);
+          if (to - from <= 0.5) continue;
+          const a = pointOnWall(wall, from / wall.lengthPx);
+          const b = pointOnWall(wall, to / wall.lengthPx);
+          out.push([a, b, { x: b.x + ox * f.gapPx, y: b.y + oy * f.gapPx }, { x: a.x + ox * f.gapPx, y: a.y + oy * f.gapPx }]);
+        }
+      }
+    }
+  }
+  return out;
+}
+
 /** The stretches of a wall facing another room's missing wall across one partition, as fractions. */
 function missingAcrossRuns(room: SketchRoom, wall: WallGeometry, rooms: SketchRoom[]): [number, number][] {
   const runs: [number, number][] = [];
@@ -3171,25 +3205,34 @@ export function snapRoomTranslation(rooms: SketchRoom[], roomId: string, dx: num
     were, the two rooms left nowhere for the wall between them: "moving rooms together end up looking
     weird. They dont snap well". A free wall's end has no side and is snapped onto, as before.
   */
-  const targetsX: { at: number; side: number }[] = [];
-  const targetsY: { at: number; side: number }[] = [];
+  /*
+    Except at the ends of a flight of stairs, which are open (`missingWallMarks`): there is no wall
+    between the foot of a flight and the room it lands in, so the two meet flush along the flight's
+    run - a wall apart, they left 4" of bare floor across the foot (the owner, 2026-10-08).
+  */
+  const opensAlong = (r: SketchRoom, axis: "x" | "y") =>
+    r.stairs !== null && (axis === "x") === (r.stairs.orientation === 0 || r.stairs.orientation === 180);
+  const targetsX: { at: number; side: number; open: boolean }[] = [];
+  const targetsY: { at: number; side: number; open: boolean }[] = [];
   for (const other of rooms) {
     if (other.id === roomId || roomLevel(other) !== roomLevel(room)) continue;
     const sides = cornerSides(other);
     other.vertices.forEach((v, i) => {
-      targetsX.push({ at: v.x, side: sides[i]?.sx ?? 0 });
-      targetsY.push({ at: v.y, side: sides[i]?.sy ?? 0 });
+      targetsX.push({ at: v.x, side: sides[i]?.sx ?? 0, open: opensAlong(other, "x") });
+      targetsY.push({ at: v.y, side: sides[i]?.sy ?? 0, open: opensAlong(other, "y") });
     });
   }
   for (const wall of freeWalls) {
     if (freeWallLevel(wall) !== roomLevel(room)) continue;
     for (const v of wall.vertices) {
-      targetsX.push({ at: v.x, side: 0 });
-      targetsY.push({ at: v.y, side: 0 });
+      targetsX.push({ at: v.x, side: 0, open: false });
+      targetsY.push({ at: v.y, side: 0, open: false });
     }
   }
-  const target = (theirs: { at: number; side: number }, side: number) =>
-    side !== 0 && theirs.side !== 0 && side === -theirs.side ? theirs.at + WALL_THICKNESS_PX * side : theirs.at;
+  const target = (theirs: { at: number; side: number; open: boolean }, side: number, open: boolean) =>
+    !open && !theirs.open && side !== 0 && theirs.side !== 0 && side === -theirs.side ? theirs.at + WALL_THICKNESS_PX * side : theirs.at;
+  const openX = opensAlong(room, "x");
+  const openY = opensAlong(room, "y");
 
   let bestX = snapPx;
   let bestY = snapPx;
@@ -3199,14 +3242,14 @@ export function snapRoomTranslation(rooms: SketchRoom[], roomId: string, dx: num
   room.vertices.forEach((mine, i) => {
     const side = mySides[i] ?? { sx: 0, sy: 0 };
     for (const theirs of targetsX) {
-      const delta = target(theirs, side.sx) - (mine.x + dx);
+      const delta = target(theirs, side.sx, openX) - (mine.x + dx);
       if (Math.abs(delta) < bestX) {
         bestX = Math.abs(delta);
         adjustX = delta;
       }
     }
     for (const theirs of targetsY) {
-      const delta = target(theirs, side.sy) - (mine.y + dy);
+      const delta = target(theirs, side.sy, openY) - (mine.y + dy);
       if (Math.abs(delta) < bestY) {
         bestY = Math.abs(delta);
         adjustY = delta;
