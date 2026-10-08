@@ -25,6 +25,8 @@ import {
   PIXELS_PER_FOOT,
   type JunctionCorner,
   junctionCorners,
+  type CornerJunctionWall,
+  cornerJunctionWalls,
   moveJunction,
   DEFAULT_ROOM_FEET,
   isCeilingZone,
@@ -539,21 +541,22 @@ export function SketchEditor({
    * together. So its an extra step" (the owner, squaring a closet the scan had on an angle - its corner and the bedroom's met
    * there, and the drag moved the closet's alone). The other rooms' corners at the junction ([junctionCorners]) are found
    * when the drag begins and moved by as much as the dragged corner moved, each by its own room's rules (`moveVertex`: a
-   * rectangle stays one), until the release.
+   * rectangle stays one), until the release. And a rectangle's corner, which moves its two walls whole, carries the same
+   * walls of the rooms nested with it as walls ([cornerJunctionWalls], 2026-10-08): a sub-room's corner in its room's.
    */
-  const vertexDrag = useRef<{ roomId: string; vertexId: string; x: number; y: number; partners: JunctionCorner[] } | null>(null);
+  const vertexDrag = useRef<{ roomId: string; vertexId: string; x: number; y: number; partners: JunctionCorner[]; walls: CornerJunctionWall[] } | null>(null);
   function handleMoveVertex(roomId: string, vertexId: string, x: number, y: number, done = false) {
     let drag = vertexDrag.current;
     if (!drag || drag.roomId !== roomId || drag.vertexId !== vertexId) {
       const room = sketch.rooms.find((r) => r.id === roomId);
       const start = room?.vertices.find((v) => v.id === vertexId);
       if (!room || !start) return;
-      drag = { roomId, vertexId, x: start.x, y: start.y, partners: junctionCorners(sketch.rooms, room, start) };
+      drag = { roomId, vertexId, x: start.x, y: start.y, partners: junctionCorners(sketch.rooms, room, start), walls: cornerJunctionWalls(sketch.rooms, room, vertexId) };
       vertexDrag.current = drag;
     }
     const begun = drag;
     const snap = snapWorldPx(view.scale);
-    onChange((prev) => ({ ...prev, rooms: moveJunction(prev.rooms, roomId, vertexId, begun, begun.partners, x, y, snap) }));
+    onChange((prev) => ({ ...prev, rooms: moveJunction(prev.rooms, roomId, vertexId, begun, begun.partners, x, y, snap, begun.walls) }));
     if (done) vertexDrag.current = null;
   }
   /** Why the last turn of a block did not happen, until it is dismissed or a turn succeeds. See `handleTurnBlock`. */
@@ -1261,8 +1264,9 @@ export function SketchEditor({
     if (!current || current.roomId !== roomId || current.wallId !== wallId) {
       const room = sketch.rooms.find((r) => r.id === roomId);
       if (!room) return;
-      // The other face of the wall's partition, in each room it divides from this one (2026-10-07): it moves as this wall
-      // does, so neither stands in the other's way.
+      // The other face of the wall's partition, in each room it divides from this one (2026-10-07), and the same wall in a
+      // room nested with this one - a sub-room's side on its room's wall (2026-10-08): they move as this wall does, so
+      // neither stands in the other's way.
       const partners = junctionWalls(sketch.rooms, room, wallId);
       const moving = [{ roomId, wallId }, ...partners];
       const notMoving = (obstacles: Obstacle[]) =>
@@ -1288,7 +1292,8 @@ export function SketchEditor({
     const reshaped = conformedDragWall(drag.room, wallId, drag.dx, drag.dy, drag.obstacles);
     updateRoom(roomId, () => reshaped);
     for (const c of drag.carried) {
-      const moved = conformedDragWall(c.room, c.wallId, drag.dx, drag.dy, c.obstacles);
+      // The same wall seen from a room nested with this one goes onto its line too ([junctionWalls]).
+      const moved = conformedDragWall(c.room, c.wallId, drag.dx + c.dx, drag.dy + c.dy, c.obstacles);
       updateRoom(c.roomId, () => moved);
     }
   }

@@ -1363,6 +1363,133 @@ export async function runRoomChecks() {
   });
 
   /*
+    A sub-room in a room (2026-10-08): "trying to build a sub room with dragging walls is still so painful. we need the
+    walls to just snap and join together and move together as one wall" (the owner). The family room of their pictures:
+    its right-hand end a bump 12'4" x 10'11", the bump's left step 2'6" up, and the bottom wall stepping 3" down 8" along
+    from that step, where the room below's wall meets it.
+  */
+  const family = () =>
+    room([[0, 30], [180, 30], [180, 0], [328, 0], [328, 131], [188, 131], [188, 134], [0, 134]], { id: "fam", name: "Family" });
+  const vertical = (r, x) => s.wallsOf(r).find((w) => Math.abs(w.x1 - x) < 0.01 && Math.abs(w.x2 - x) < 0.01);
+
+  test("a sub-room's side on its room's wall moves as one with it, from either room", () => {
+    const fam = family();
+    const sub = box(280, 0, 48, 50, { id: "sub", parentRoomId: "fam" });
+    const rooms = [fam, sub];
+    const famRight = vertical(fam, 328);
+    const subRight = vertical(sub, 328);
+    // The family room's wall finds the sub-room's side - the same way along one line - and the sub-room's side finds it.
+    const fromFam = s.junctionWalls(rooms, fam, famRight.id);
+    assert(fromFam.length === 1 && fromFam[0].roomId === "sub" && fromFam[0].wallId === subRight.id, `the sub-room's side goes with the family room's wall, got ${JSON.stringify(fromFam)}`);
+    near(Math.hypot(fromFam[0].dx, fromFam[0].dy), 0, "already on its line: nothing to close");
+    const fromSub = s.junctionWalls(rooms, sub, subRight.id);
+    assert(fromSub.length === 1 && fromSub[0].roomId === "fam" && fromSub[0].wallId === famRight.id, `and the family room's wall goes with the sub-room's side, got ${JSON.stringify(fromSub)}`);
+    // Its top on the bump's top, the same: a corner of the two, and the walls each side of it are one.
+    const famTop = s.wallsOf(fam).find((w) => w.y1 === 0 && w.y2 === 0);
+    const subTop = s.wallsOf(sub).find((w) => w.y1 === 0 && w.y2 === 0);
+    const tops = s.junctionWalls(rooms, sub, subTop.id);
+    assert(tops.length === 1 && tops[0].wallId === famTop.id, "the sub-room's top carries the bump's top");
+    // Dragged 12" out as the editor drags them (each by the travel and its own way in): neither is left behind. Before,
+    // the family room's wall went to 340 and the sub-room's side stayed at 328.
+    const out = s.conformedDragWall(fam, famRight.id, 12, 0, []);
+    const carried = s.conformedDragWall(sub, subRight.id, 12 + fromFam[0].dx, fromFam[0].dy, []);
+    near(vertical(out, 340)?.x1 ?? NaN, 340, "the family room's wall to 340");
+    near(Math.max(...carried.vertices.map((v) => v.x)), 340, "the sub-room's side to 340 with it");
+    // The sub-room's other walls, and a wall with no room nested on its line, carry nothing.
+    assert(s.junctionWalls(rooms, sub, vertical(sub, 280).id).length === 0, "the sub-room's left side is on no wall");
+    assert(s.junctionWalls(rooms, fam, vertical(fam, 0).id).length === 0, "the family room's left wall has nothing on it");
+  });
+
+  test("a sub-room's side a few inches off its room's wall closes onto it when either is dragged; further off, it is its own wall", () => {
+    const fam = family();
+    const near4 = box(280, 0, 44, 50, { id: "sub", parentRoomId: "fam" }); // its right side at 324, 4" in
+    const rooms = [fam, near4];
+    const famRight = vertical(fam, 328);
+    const subRight = vertical(near4, 324);
+    // Dragging the sub-room's side 3" toward the wall: the family room's wall comes onto the sub-room's line, so the two
+    // land together at 327 rather than 4" apart as they began.
+    const [p] = s.junctionWalls(rooms, near4, subRight.id);
+    assert(p && p.wallId === famRight.id, "the family room's wall 4 in off is the same wall");
+    near(p.dx, -4, "it goes 4 in onto the sub-room's line");
+    const sub2 = s.conformedDragWall(near4, subRight.id, 3, 0, []);
+    const fam2 = s.conformedDragWall(fam, famRight.id, 3 + p.dx, p.dy, []);
+    near(Math.max(...sub2.vertices.map((v) => v.x)), 327, "the sub-room's side to 327");
+    near(Math.max(...fam2.vertices.map((v) => v.x)), 327, "the family room's wall flush on it at 327");
+    // And from the family room's side, the sub-room's side goes onto its line.
+    const [q] = s.junctionWalls(rooms, fam, famRight.id);
+    near(q?.dx ?? NaN, 4, "the sub-room's side goes 4 in out onto the family room's wall");
+    // 10" off is a room standing inside with a wall of its own, and a room beside that runs the same way is not nested.
+    const apart = box(270, 0, 48, 50, { id: "apart", parentRoomId: "fam" });
+    assert(s.junctionWalls([fam, apart], apart, vertical(apart, 318).id).length === 0, "10 in off is two walls");
+    // Let go 7" off it within reach of the snap, it lands flush on the family room's wall - its line, not a wall's
+    // thickness off it, as it would a room's beyond.
+    const seven = box(270, 0, 51, 50, { id: "seven", parentRoomId: "fam" });
+    const snapped = s.snapWallToNeighbours(seven, vertical(seven, 321).id, 8, [fam, seven]);
+    near(Math.max(...snapped.vertices.map((v) => v.x)), 328, "let go 7 in off, it snaps flush onto the family room's wall");
+    const inRow = box(400, 0, 100, 100, { id: "row" });
+    const rowTop = s.wallsOf(inRow).find((w) => w.y1 === 0 && w.y2 === 0);
+    assert(s.junctionWalls([fam, inRow], inRow, rowTop.id).length === 0, "a room in a row with the bump's top is not on it");
+  });
+
+  test("the room's wall grip keeps off where a sub-room drawn over it lies on it", () => {
+    // The sub-room's wall is drawn later and took every press on the family room's grip under it: picked, the family
+    // room's wall selected the sub-room. The grip goes to the stretch the sub-room leaves clear, its tap strip and all.
+    const fam = family();
+    const sub = box(280, 0, 48, 50, { id: "sub", parentRoomId: "fam" });
+    const famRight = vertical(fam, 328);
+    near(s.wallGripSpan(fam, famRight, [fam]).t, 0.5, "alone, the grip is in the middle");
+    const span = s.wallGripSpan(fam, famRight, [fam, sub], 1);
+    const y = span.t * famRight.lengthPx;
+    assert(y > 50 + 14, `the grip is past the sub-room and its strip (at ${y.toFixed(1)})`);
+    // Drawn first, the sub-room is under the family room's grip, which stays where it was.
+    near(s.wallGripSpan(fam, famRight, [sub, fam], 1).t, 0.5, "a sub-room drawn first does not cover it");
+    // Covered end to end, the wall has no grip of its own: the sub-room's side drags both.
+    const whole = box(180, 0, 148, 131, { id: "whole", parentRoomId: "fam" });
+    assert(s.wallGripSpan(fam, famRight, [fam, whole], 1) === null, "a wall covered end to end has no grip to lose");
+  });
+
+  test("a sub-room's corner at its room's corner carries the room's two walls, square, not its corner alone", () => {
+    // The sub-room filling the family room's end, its top-right corner dragged 10" right and 6" up. Before, the family
+    // room's corner went with it alone: the family room's right wall slewed from (338, -6) to (328, 131), and the
+    // sub-room, still square, stood 10" out through it at the bottom.
+    const fam = family();
+    const sub = box(180, 0, 148, 131, { id: "sub", parentRoomId: "fam" });
+    const rooms = [fam, sub];
+    const corner = sub.vertices[1];
+    const walls = s.cornerJunctionWalls(rooms, sub, corner.id);
+    assert(walls.length === 2 && walls.every((w) => w.roomId === "fam"), `the bump's top and right wall are the sub-room's, got ${JSON.stringify(walls)}`);
+    const next = s.moveJunction(rooms, "sub", corner.id, corner, s.junctionCorners(rooms, sub, corner), 338, -6, 0, walls);
+    const famAfter = next.find((r) => r.id === "fam").vertices.map((v) => [v.x, v.y]);
+    const want = [[0, 30], [180, 30], [180, -6], [338, -6], [338, 131], [188, 131], [188, 134], [0, 134]];
+    assert(JSON.stringify(famAfter) === JSON.stringify(want), `the family room stays square round the sub-room, got ${JSON.stringify(famAfter)}`);
+    near(Math.max(...next.find((r) => r.id === "sub").vertices.map((v) => v.x)), 338, "the sub-room's right side at 338, on the family room's wall");
+    // A corner moved alone - an L's - turns its walls and carries none; its junction corners still go with it.
+    assert(s.cornerJunctionWalls(rooms, fam, fam.vertices[3].id).length === 0, "the family room's own corner carries no walls");
+  });
+
+  test("a sub-room pulled into a room does not follow a pocket under a foot; a wider step it does", () => {
+    // Pulled down off the bump's top, past its bottom: it came out with an 0'8" piece and a 3" jog in its bottom (pic 2,
+    // "11'8"", "0'8"", "11'2"" beside "10'11""), following the 8" x 3" pocket where the bottom wall steps.
+    const fam = family();
+    const top = s.wallsOf(fam).find((w) => w.y1 === 0 && w.y2 === 0);
+    const sketch = { rooms: [fam] };
+    const around = { obstacles: s.obstaclesFor(sketch, 0, { wall: { roomId: "fam", wallId: top.id }, inward: true }), rooms: sketch.rooms };
+    const pulled = s.pullRoomFromWall(fam, top.id, -150, around);
+    assert(pulled && pulled.vertices.length === 4, `a rectangle, got ${JSON.stringify(pulled?.vertices.map((v) => [v.x, v.y]))}`);
+    const b = s.roomBounds(pulled);
+    near(b.width, 148, "12'4\" wide, the bump's top");
+    near(b.height, 131, "10'11\" deep, to the bottom wall - the pocket left as the family room's floor");
+    // A step 2' along is a shape of the room, and the pull follows it.
+    const wide = room([[0, 30], [180, 30], [180, 0], [328, 0], [328, 131], [204, 131], [204, 134], [0, 134]], { id: "fam" });
+    const wideTop = s.wallsOf(wide).find((w) => w.y1 === 0 && w.y2 === 0);
+    const wideAround = { obstacles: s.obstaclesFor({ rooms: [wide] }, 0, { wall: { roomId: "fam", wallId: wideTop.id }, inward: true }), rooms: [wide] };
+    const followed = s.pullRoomFromWall(wide, wideTop.id, -150, wideAround);
+    assert(followed && followed.vertices.length === 6, `the 2' step is followed, got ${followed?.vertices.length} corners`);
+    // Pulled in short of the bottom it is the band as it always was.
+    near(s.roomBounds(s.pullRoomFromWall(fam, top.id, -120, around)).height, 120, "a 10' pull is 10' deep");
+  });
+
+  /*
     Ceiling areas (2026-10-08): Xactimate splits a room with two ceiling heights into subrooms, each
     with its own height, and so does Scrivn now. The case from the brief: a basement 30' x 15' at 8',
     with a duct bulkhead 2' x 20' along its top wall, 16" down (6'8" in the strip), not wall to wall.

@@ -15,6 +15,7 @@ import { renderShowcase, run as runMoistureGestures } from "./moistureGestures";
 import { run as runWallDragSnap } from "./wallDragSnap";
 import { run as runTurnButtons } from "./turnButtons";
 import { run as runWallJunction } from "./wallJunction";
+import { run as runSubRoomJunction } from "./subRoomJunction";
 
 interface SuiteResult {
   passed: number;
@@ -38,6 +39,7 @@ const SUITES: [string, () => Promise<SuiteResult>][] = [
   ["Wall gestures through the editor", runWallDragSnap],
   ["Turning a room or a block", runTurnButtons],
   ["A wall between two rooms moves as one", runWallJunction],
+  ["A sub-room's wall moves with its room's", runSubRoomJunction],
 ];
 
 async function main() {

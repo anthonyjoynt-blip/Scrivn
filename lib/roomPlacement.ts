@@ -205,7 +205,8 @@ export function pulledRoomOutline(source: SketchRoom, own: WallGeometry, depthPx
   */
   const band = extrudeWall(wall, depth, around.obstacles);
   if (!band) return null;
-  const clockwise = ensureClockwise(band.far.map((p) => ({ id: newSketchId("v"), x: p.x, y: p.y })));
+  const far = depthPx < 0 ? levelNarrowPockets(band.far, wall) : band.far;
+  const clockwise = ensureClockwise(far.map((p) => ({ id: newSketchId("v"), x: p.x, y: p.y })));
   if (clockwise.length < 3) return null;
   const tidy = pruneCollinearVertices({ ...source, vertices: clockwise, symbols: [], freeCabinets: [] }).vertices;
   const traced = depthPx > 0 ? alongSourceRoom(tidy, source, own, around.obstacles) : tidy;
@@ -269,6 +270,61 @@ function alongSourceRoom(band: Vertex[], source: SketchRoom, own: WallGeometry, 
     room = conformedDragWall(room, side.id, ux * sign * beyond, uy * sign * beyond, around);
   }
   return room.vertices;
+}
+
+/** Narrower than this along the wall, and no deeper than this past the far side beside it, a pocket is not followed. */
+const POCKET_PX = PIXELS_PER_FOOT;
+
+/**
+ * A PULL INTO A ROOM DOES NOT FOLLOW A POCKET UNDER A FOOT (2026-10-08). The owner pulled a sub-room down off the top of
+ * the family room's end, past its bottom wall, and it came out with an 0'8" piece and a 3" jog in its bottom: the family
+ * room's bottom wall steps 3" down 8" along from where its end begins, and the band followed the step into that 8" x 3"
+ * pocket, and every corner drag after that worked on a six-cornered room. A stretch of the far side narrower than
+ * [POCKET_PX] that reaches deeper than the far side beside it, by less than [POCKET_PX], is brought back level with
+ * it - the deeper side's level when both are shallower. Only ever nearer the wall pulled from, so never into a wall; the
+ * pocket stays the room's floor. Inward pulls only ([pulledRoomOutline]): pulled out, the band meets other rooms, and a
+ * side short of one of them is no longer flush with it.
+ */
+function levelNarrowPockets(far: { x: number; y: number }[], wall: WallGeometry): { x: number; y: number }[] {
+  const L = wall.lengthPx;
+  if (L <= 0 || far.length < 6) return far;
+  const tx = (wall.x2 - wall.x1) / L;
+  const ty = (wall.y2 - wall.y1) / L;
+  const n = outwardNormal(wall);
+  let path = far.map((p) => ({ u: (p.x - wall.x1) * tx + (p.y - wall.y1) * ty, v: (p.x - wall.x1) * n.x + (p.y - wall.y1) * n.y }));
+  const level = (a: { u: number; v: number }, b: { u: number; v: number }) => Math.abs(a.v - b.v) <= EXTRUDE_EPS && b.u - a.u > EXTRUDE_EPS;
+  const step = (a: { u: number; v: number }, b: { u: number; v: number }) => Math.abs(a.u - b.u) <= EXTRUDE_EPS;
+  for (let changed = true; changed; ) {
+    changed = false;
+    // Inside the two corners on the wall itself (the first and last points): those steps are the band's own sides.
+    for (let i = 1; i + 1 < path.length - 1; i++) {
+      const a = path[i] as { u: number; v: number };
+      const b = path[i + 1] as { u: number; v: number };
+      if (!level(a, b) || b.u - a.u >= POCKET_PX) continue;
+      const beside: number[] = [];
+      const before = path[i - 1] as { u: number; v: number };
+      const after = path[i + 2] as { u: number; v: number };
+      if (i - 1 > 0 && step(before, a)) beside.push(before.v);
+      if (i + 2 < path.length - 1 && step(b, after)) beside.push(after.v);
+      const shallower = beside.filter((v) => v < a.v && a.v - v < POCKET_PX);
+      if (shallower.length === 0) continue;
+      const v = Math.max(...shallower);
+      path[i] = { u: a.u, v };
+      path[i + 1] = { u: b.u, v };
+      changed = true;
+    }
+    // Points run together and straight runs made one, so the stretch beside a levelled pocket is one stretch again.
+    path = path.filter((p, i) => i === 0 || Math.hypot(p.u - (path[i - 1] as { u: number }).u, p.v - (path[i - 1] as { v: number }).v) > EXTRUDE_EPS);
+    const straight: { u: number; v: number }[] = [];
+    for (const p of path) {
+      const a = straight[straight.length - 2];
+      const b = straight[straight.length - 1];
+      if (a && b && Math.abs((b.u - a.u) * (p.v - a.v) - (b.v - a.v) * (p.u - a.u)) <= 1e-6 * Math.max(1, Math.hypot(p.u - a.u, p.v - a.v))) straight.pop();
+      straight.push(p);
+    }
+    path = straight;
+  }
+  return path.map((p) => ({ x: wall.x1 + tx * p.u + n.x * p.v, y: wall.y1 + ty * p.u + n.y * p.v }));
 }
 
 /** [ring] cut to where [keep] is zero or more, its corners keeping their ids and those the cut makes taking new ones. */

@@ -1904,6 +1904,17 @@ export function wallGripSpan(room: SketchRoom, wall: WallGeometry, rooms: Sketch
   // the grip has to keep clear of it as it does of the room's own — laid out as if the wall were
   // empty, it sat under the door and every press on it picked the door up instead.
   const shared = rooms.length > 0 ? openingsSharedWith(room, rooms).filter((s) => s.wallId === wall.id) : [];
+  // And a room drawn after this one with a wall on this wall's line - a sub-room flush against it (2026-10-08): its wall
+  // is drawn over the grip and took every press on it, so the family room's wall, picked, selected the sub-room instead.
+  // Half its tap strip further at each end, where the strips of its walls round the corner lie over this wall too.
+  const later = rooms.slice(rooms.findIndex((r) => r.id === room.id) + 1 || rooms.length);
+  const strip = WALL_STRIP_SCREEN_PX / 2 / Math.max(0.05, zoom);
+  const covered = later
+    .filter((other) => roomLevel(other) === roomLevel(room))
+    .flatMap((other) => wallsOf(other).filter((theirs) => liesOnLineOf(theirs, wall)))
+    .map((theirs) => spanAlong(wall, theirs))
+    .filter((span): span is [number, number] => span !== null)
+    .map(([lo, hi]) => ({ from: lo * wall.lengthPx - strip, to: hi * wall.lengthPx + strip }));
   const occupied: { from: number; to: number }[] = [
     ...room.symbols
       .filter((s) => s.wallId === wall.id)
@@ -1913,6 +1924,7 @@ export function wallGripSpan(room: SketchRoom, wall: WallGeometry, rooms: Sketch
         return { from: centre - half, to: centre + half };
       }),
     ...shared.map((s) => ({ from: s.fromPx, to: s.toPx })),
+    ...covered,
   ].sort((a, b) => a.from - b.from);
 
   // Collect every clear stretch, then take the longest. Gathering first rather than tracking a
@@ -1962,6 +1974,9 @@ export function wallGripSpan(room: SketchRoom, wall: WallGeometry, rooms: Sketch
  * is in world pixels.
  */
 export const MIN_GRIP_SCREEN_PX = 12;
+
+/** How wide a wall's invisible tap strip is on screen - the canvas's `HIT.wall`; a grip under another room's is lost. */
+const WALL_STRIP_SCREEN_PX = 28;
 
 /** The old name, in world pixels, kept for callers that reason about the building rather than the screen. */
 export const MIN_GRIP_WALL_PX = MIN_GRIP_SCREEN_PX;
@@ -2208,10 +2223,19 @@ export function junctionCorners(rooms: SketchRoom[], room: SketchRoom, at: { x: 
   return out;
 }
 
-/** Another room's wall that is the other face of a dragged wall's partition ([junctionWalls]). */
+/** Another room's wall that is the other face of a dragged wall's partition, or the same wall ([junctionWalls]). */
 export interface JunctionWall {
   roomId: string;
   wallId: string;
+  /** The same wall seen from a room nested with the dragged one, rather than the far face of a partition. */
+  sameWall: boolean;
+  /**
+   * How far it moves before the drag's own travel: onto the dragged wall's line, for the same wall seen from a room
+   * nested with this one, so the two land flush however far within six inches of it the drag found it. Nothing for the
+   * far face of a partition, which keeps its thickness.
+   */
+  dx: number;
+  dy: number;
 }
 
 /** How far off parallel two walls may be and still be the two faces of one partition ([junctionWalls]): 5 degrees. */
@@ -2225,6 +2249,14 @@ const JUNCTION_WALL_SIN = Math.sin((5 * Math.PI) / 180);
  * running the other way (each room's walls run clockwise, so the two faces of one partition run opposite), within
  * [JUNCTION_PX] of its line - flush, or a partition apart - and alongside it for at least half the shorter of the two. The
  * nearest-overlapping one of each room. A wall dragged carries them with it.
+ *
+ * And a SUB-ROOM'S SIDE ON ITS ROOM'S WALL (2026-10-08): "trying to build a sub room with dragging walls is still so
+ * painful. we need the walls to just snap and join together and move together as one wall" (the owner, a sub-room in the
+ * family room's end). A room standing inside another runs clockwise too, so its side on the other's wall runs the SAME
+ * way, and the rule above never saw it: the family room's wall dragged out left the sub-room's side behind, and the
+ * sub-room's side dragged out stopped at the family room's wall. So the walls of a room nested with this one - inside
+ * it, or it inside them - running the same way along one line (both ends of the inner one within the six inches a
+ * closet's wall counts as lying on its room's, `liesOnLineOf`) are the same wall too, and go onto its line as it moves.
  */
 export function junctionWalls(rooms: SketchRoom[], room: SketchRoom, wallId: string): JunctionWall[] {
   const w = wallsOf(room).find((x) => x.id === wallId);
@@ -2235,24 +2267,30 @@ export function junctionWalls(rooms: SketchRoom[], room: SketchRoom, wallId: str
   const out: JunctionWall[] = [];
   for (const other of rooms) {
     if (other.id === room.id || roomLevel(other) !== level) continue;
-    let best: WallGeometry | null = null;
+    const otherInside = isRoomInside(other, room);
+    const nested = otherInside || isRoomInside(room, other);
+    let best: JunctionWall | null = null;
     let bestOverlap = 0;
     for (const o of wallsOf(other)) {
       if (o.lengthPx < 1) continue;
       const ox = (o.x2 - o.x1) / o.lengthPx;
       const oy = (o.y2 - o.y1) / o.lengthPx;
-      if (Math.abs(ux * oy - uy * ox) > JUNCTION_WALL_SIN || ux * ox + uy * oy > 0) continue;
-      const mx = (o.x1 + o.x2) / 2 - w.x1;
-      const my = (o.y1 + o.y2) / 2 - w.y1;
-      if (Math.abs(mx * -uy + my * ux) > JUNCTION_PX) continue;
+      if (Math.abs(ux * oy - uy * ox) > JUNCTION_WALL_SIN) continue;
+      // Its middle, across this wall's line.
+      const across = ((o.x1 + o.x2) / 2 - w.x1) * -uy + ((o.y1 + o.y2) / 2 - w.y1) * ux;
+      const sameWay = ux * ox + uy * oy > 0;
+      if (sameWay) {
+        // One wall only between a room and one nested with it, the inner one's side on the outer one's line.
+        if (!nested || !(otherInside ? liesOnLineOf(o, w) : liesOnLineOf(w, o))) continue;
+      } else if (Math.abs(across) > JUNCTION_PX) continue;
       const t1 = (o.x1 - w.x1) * ux + (o.y1 - w.y1) * uy;
       const t2 = (o.x2 - w.x1) * ux + (o.y2 - w.y1) * uy;
       const overlap = Math.min(w.lengthPx, Math.max(t1, t2)) - Math.max(0, Math.min(t1, t2));
       if (overlap < 0.5 * Math.min(w.lengthPx, o.lengthPx) || overlap <= bestOverlap) continue;
-      best = o;
+      best = { roomId: other.id, wallId: o.id, sameWall: sameWay, dx: sameWay ? across * uy : 0, dy: sameWay ? -across * ux : 0 };
       bestOverlap = overlap;
     }
-    if (best) out.push({ roomId: other.id, wallId: best.id });
+    if (best) out.push(best);
   }
   return out;
 }
@@ -2263,6 +2301,10 @@ export function junctionWalls(rooms: SketchRoom[], room: SketchRoom, wallId: str
  * there, and the drag moved the closet's alone). Corner [vertexId] of room [roomId] goes to (x, y) as `moveVertex` puts it,
  * and each of [partners] - the other rooms' corners at that junction when the drag began ([junctionCorners]) - moves by as
  * much as it did from where the drag began ([from]), by its own room's rules. Every room in [rooms], those changed new.
+ *
+ * A room with a wall carried ([walls], [cornerJunctionWalls]) has that wall put on the line of the dragged room's wall it
+ * is, as it moves, instead of its corner moved alone: the family room's corner, carried by its sub-room's, slewed the
+ * family room's wall off square while the sub-room's stayed square, and the sub-room stood out through it (2026-10-08).
  */
 export function moveJunction(
   rooms: SketchRoom[],
@@ -2273,6 +2315,7 @@ export function moveJunction(
   x: number,
   y: number,
   snapPx = SNAP_PX,
+  walls: CornerJunctionWall[] = [],
 ): SketchRoom[] {
   const room = rooms.find((r) => r.id === roomId);
   if (!room) return rooms;
@@ -2283,9 +2326,52 @@ export function moveJunction(
   return rooms.map((r) => {
     if (r.id === roomId) return moved;
     let out = r;
+    const carried = walls.filter((w) => w.roomId === r.id);
+    if (carried.length > 0) {
+      for (const w of carried) {
+        const line = wallById(moved, w.follows);
+        const theirs = wallById(out, w.wallId);
+        if (!line || !theirs || line.lengthPx <= 0) continue;
+        const nx = -(line.y2 - line.y1) / line.lengthPx;
+        const ny = (line.x2 - line.x1) / line.lengthPx;
+        const d = (line.x1 - (theirs.x1 + theirs.x2) / 2) * nx + (line.y1 - (theirs.y1 + theirs.y2) / 2) * ny;
+        if (Math.abs(d) > 1e-6) out = dragWall(out, w.wallId, nx * d, ny * d);
+      }
+      return out;
+    }
     for (const p of partners) if (p.roomId === r.id) out = moveVertex(out, p.vertexId, p.x + dx, p.y + dy, 0);
     return out;
   });
+}
+
+/** A wall a corner drag carries ([cornerJunctionWalls]): the same wall as the dragged room's wall [follows]. */
+export interface CornerJunctionWall extends JunctionWall {
+  follows: string;
+}
+
+/**
+ * The walls of the rooms nested with [room] that are the same walls as the two meeting at its corner [vertexId]
+ * ([junctionWalls]) - when a drag of that corner moves those two walls whole, as a rectangle's corner does (`moveVertex`
+ * carries the corners beside it along). Each goes on its wall's line as the corner moves ([moveJunction]). None for any
+ * other corner: one moved alone turns its walls, and a wall turned is no line to put another on.
+ */
+export function cornerJunctionWalls(rooms: SketchRoom[], room: SketchRoom, vertexId: string): CornerJunctionWall[] {
+  const index = room.vertices.findIndex((v) => v.id === vertexId);
+  const corner = room.vertices[index];
+  const n = room.vertices.length;
+  if (!corner || n < 3) return [];
+  const ids = [(room.vertices[(index - 1 + n) % n] as Vertex).id, vertexId];
+  // Whether its walls move whole, asked of the drag itself: an inch out each way.
+  const probe = moveVertex(room, vertexId, corner.x + 1, corner.y + 1, 0);
+  const whole = probe !== room && ids.every((id) => {
+    const a = wallById(room, id);
+    const b = wallById(probe, id);
+    if (!a || !b || a.lengthPx <= 0 || b.lengthPx <= 0) return false;
+    // Carried whole, a wall keeps its direction to the last bits of a float; an inch on a 50' wall turns it 0.1 degree.
+    return Math.abs((a.x2 - a.x1) * (b.y2 - b.y1) - (a.y2 - a.y1) * (b.x2 - b.x1)) / (a.lengthPx * b.lengthPx) < 1e-9;
+  });
+  if (!whole) return [];
+  return ids.flatMap((id) => junctionWalls(rooms, room, id).filter((p) => p.sameWall).map((p) => ({ ...p, follows: id })));
 }
 
 /**
