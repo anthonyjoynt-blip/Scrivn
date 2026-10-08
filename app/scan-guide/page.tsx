@@ -599,6 +599,13 @@ export default async function ScanGuidePage() {
                 </p>
               </div>
               <div className="sg-tip">
+                <h3>Mind mirrors and glass</h3>
+                <p>
+                  The depth camera can&apos;t read a mirror or glass, and a big mirror can throw the phone off its place. Tap corners from
+                  where the mirror is out of view; for a corner in or behind one, use <B>Can&apos;t reach</B> on the walls either side.
+                </p>
+              </div>
+              <div className="sg-tip">
                 <h3>Aim where the corner is clear</h3>
                 <p>
                   A sofa, a TV or a shelf in front of the corner makes it read short. Aim above or below the clutter, wherever you can see
