@@ -2511,7 +2511,25 @@ export function SketchEditor({
               setPendingLength(null);
               setLengthError(null);
             }}
-          />
+          >
+            {pendingLength.kind === "room" &&
+              (() => {
+                const { roomId, wallId, run } = pendingLength;
+                const room = sketch.rooms.find((r) => r.id === roomId);
+                return room ? (
+                  <div className="sketch-length-tick">
+                    <MissingWallTick
+                      room={room}
+                      wallId={wallId}
+                      run={run}
+                      rooms={sketch.rooms}
+                      brief
+                      onToggle={(next) => onChange((prev) => ({ ...prev, rooms: withMissingWall(prev.rooms, roomId, wallId, next) }))}
+                    />
+                  </div>
+                ) : null;
+              })()}
+          </CanvasTextInput>
         )}
 
         {/*
@@ -2994,45 +3012,18 @@ export function SketchEditor({
                   {tappedWallError && <p className="field-note sketch-error">{tappedWallError}</p>}
                 </div>
               )}
-              {/*
-                A missing wall (`missingWalls`): Xactimate's, asked for on 2026-10-08 - an area beside
-                a room under a lower ceiling, a bulkhead between two rooms. On the tapped wall, the
-                whole of it; a wall only partly open is broken first, as it is in Xactimate. A ceiling
-                area's sides are its tick's to decide, so it is not offered there.
-              */}
-              {tappedWallHere && tappedWall && !isCeilingZone(selectedRoom, sketch.rooms) && (() => {
-                const run = tappedWall.run;
-                const middle = (run[0] + run[1]) / 2;
-                const missing = missingWallRuns(selectedRoom, tappedWall.wallId, sketch.rooms).some(([lo, hi]) => middle >= lo && middle <= hi);
-                const across = roomAcross(selectedRoom, tappedWallHere, run, sketch.rooms);
-                const step =
-                  across && across.ceilingHeightFeet != null && selectedRoom.ceilingHeightFeet != null
-                    ? selectedRoom.ceilingHeightFeet - across.ceilingHeightFeet
-                    : null;
-                const acrossName = across ? across.name.trim() || "the room across" : null;
-                return (
-                  <div className="question">
-                    <label className="checkbox-label">
-                      <input
-                        type="checkbox"
-                        checked={missing}
-                        onChange={(e) => {
-                          const next = e.target.checked;
-                          onChange((prev) => ({ ...prev, rooms: withMissingWall(prev.rooms, selectedRoom.id, tappedWall.wallId, next) }));
-                        }}
-                      />
-                      Missing wall
-                    </label>
-                    <p className="field-note">
-                      {!missing
-                        ? "No wall here: open to the space beside it, for a lower ceiling or a bulkhead between two rooms. Drawn dashed, with no wall area or base."
-                        : step == null || Math.abs(step) < 1 / 24
-                          ? `Open${acrossName ? ` to ${acrossName}` : ""}: no wall area or base${acrossName ? ", and the ceilings meet level" : ""}.`
-                          : `Open to ${acrossName}: the ${formatFeetInches(Math.abs(step))} face where the ceilings meet counts as wall area in ${step > 0 ? selectedRoom.name.trim() || "this room" : acrossName}.`}
-                    </p>
-                  </div>
-                );
-              })()}
+              {/* A missing wall (`missingWalls`) - see `MissingWallTick`, also in the length box on the drawing. */}
+              {tappedWallHere && tappedWall && (
+                <div className="question">
+                  <MissingWallTick
+                    room={selectedRoom}
+                    wallId={tappedWall.wallId}
+                    run={tappedWall.run}
+                    rooms={sketch.rooms}
+                    onToggle={(next) => onChange((prev) => ({ ...prev, rooms: withMissingWall(prev.rooms, selectedRoom.id, tappedWall.wallId, next) }))}
+                  />
+                </div>
+              )}
               {squareable.length > 0 && (
                 <div className="question">
                   <label className="prompt">Cut corners</label>
@@ -3501,6 +3492,7 @@ function CanvasTextInput({
   onChange,
   onSubmit,
   onCancel,
+  children,
 }: {
   label: string;
   screen: { x: number; y: number };
@@ -3512,6 +3504,8 @@ function CanvasTextInput({
   onChange: (value: string) => void;
   onSubmit: () => void;
   onCancel: () => void;
+  /** More about the thing named, under the field - a wall's Missing wall tick. */
+  children?: ReactNode;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const boxRef = useRef<HTMLDivElement>(null);
@@ -3570,6 +3564,7 @@ function CanvasTextInput({
         }}
       />
       {error && <p className="sketch-length-error">{error}</p>}
+      {children}
       <div className="sketch-length-actions">
         <button type="button" className="btn-secondary" onClick={onCancel}>
           Cancel
@@ -3579,6 +3574,59 @@ function CanvasTextInput({
         </button>
       </div>
     </div>
+  );
+}
+
+/**
+ * The Missing wall tick for one wall (`missingWalls`): Xactimate's missing wall, asked for on 2026-10-08 - an area
+ * beside a room under a lower ceiling, a bulkhead between two rooms. The whole wall; a wall only partly open is broken
+ * first, as it is in Xactimate.
+ *
+ * In the length box a double-tap opens AND in the panel a tap fills, because the owner looked for it in the box and it
+ * was only in the panel - "where is the missing wall function". On a ceiling area it shows what that tick decided,
+ * greyed, rather than vanishing: "Ceiling area only" sets every side of one.
+ */
+function MissingWallTick({
+  room,
+  wallId,
+  run,
+  rooms,
+  brief = false,
+  onToggle,
+}: {
+  room: SketchRoom;
+  wallId: string;
+  run: [number, number];
+  rooms: SketchRoom[];
+  /** In the length box: a note only when there is something to say. */
+  brief?: boolean;
+  onToggle: (missing: boolean) => void;
+}) {
+  const wall = wallById(room, wallId);
+  if (!wall) return null;
+  const middle = (run[0] + run[1]) / 2;
+  const missing = missingWallRuns(room, wallId, rooms).some(([lo, hi]) => middle >= lo && middle <= hi);
+  const decided = isCeilingZone(room, rooms);
+  const across = roomAcross(room, wall, run, rooms);
+  const step = across && across.ceilingHeightFeet != null && room.ceilingHeightFeet != null ? room.ceilingHeightFeet - across.ceilingHeightFeet : null;
+  const acrossName = across ? across.name.trim() || "the room across" : null;
+  const note = decided
+    ? `Set by "Ceiling area only" on ${room.name.trim() || "this room"}. Untick that in its settings to choose its walls one by one.`
+    : !missing
+      ? brief
+        ? null
+        : "No wall here: open to the space beside it, for a lower ceiling or a bulkhead between two rooms. Drawn dashed, with no wall area or base."
+      : step == null || Math.abs(step) < 1 / 24
+        ? `Open${acrossName ? ` to ${acrossName}` : ""}: no wall area or base${acrossName ? ", and the ceilings meet level" : ""}.`
+        : `Open to ${acrossName}: the ${formatFeetInches(Math.abs(step))} face where the ceilings meet counts as wall area in ${step > 0 ? room.name.trim() || "this room" : acrossName}.`;
+  return (
+    <>
+      <label className="checkbox-label">
+        <input type="checkbox" checked={missing} disabled={decided} onChange={(e) => onToggle(e.target.checked)} />
+        Missing wall
+      </label>
+      {note && <p className="field-note">{note}</p>}
+    </>
   );
 }
 

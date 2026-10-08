@@ -1829,6 +1829,25 @@ button:disabled {
   border: 1px solid var(--border);
   border-radius: 6px;
 }
+/* The Missing wall tick in the length box: a checkbox row, not the box's own label and full-width field. */
+.sketch-length-popup .sketch-length-tick {
+  margin-top: 12px;
+}
+.sketch-length-popup .sketch-length-tick label {
+  display: flex;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text);
+  margin-bottom: 0;
+}
+.sketch-length-popup .sketch-length-tick input {
+  width: 17px;
+  padding: 0;
+}
+.sketch-length-popup .sketch-length-tick .field-note {
+  font-size: 0.75rem;
+  margin: 6px 0 0;
+}
 .sketch-length-error {
   color: #9c2626;
   font-size: 0.75rem;
