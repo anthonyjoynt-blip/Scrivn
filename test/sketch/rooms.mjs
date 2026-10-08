@@ -1362,6 +1362,105 @@ export async function runRoomChecks() {
     assert(s.junctionWalls([office, apart], apart, apartRight.id).length === 0, "14 in apart is two walls, not one");
   });
 
+  /*
+    Ceiling areas (2026-10-08): Xactimate splits a room with two ceiling heights into subrooms, each
+    with its own height, and so does Scrivn now. The case from the brief: a basement 30' x 15' at 8',
+    with a duct bulkhead 2' x 20' along its top wall, 16" down (6'8" in the strip), not wall to wall.
+  */
+  const DROP = 16 / 12;
+  const basement = () => box(0, 0, 360, 180, { id: "basement", name: "Basement" });
+  const bulkhead = (over = {}) =>
+    box(60, 0, 240, 24, { id: "bulkhead", name: "Bulkhead", parentRoomId: "basement", ceilingZone: true, ceilingHeightFeet: 8 - DROP, ...over });
+  const quantities = (room, rooms) => s.roomQuantities(room, { rooms }, s.DEFAULT_QUANTITY_OPTIONS);
+
+  test("a bulkhead: the main ceiling at 8' and the strip's at 6'8\", each its own area", () => {
+    const rooms = [basement(), bulkhead()];
+    const main = quantities(rooms[0], rooms);
+    const strip = quantities(rooms[1], rooms);
+    assert(main.ceilingHeightFeet === 8, `main ceiling at 8', got ${main.ceilingHeightFeet}`);
+    near(strip.ceilingHeightFeet, 6 + 8 / 12, "the strip's ceiling at 6'8\"");
+    near(main.ceilingArea, 450 - 40, "the main ceiling is the room less the strip");
+    near(strip.ceilingArea, 40, "the strip's ceiling is 2' x 20'");
+    near(main.floorArea + strip.floorArea, 450, "and the floor is counted once between them");
+  });
+
+  test("the bulkhead's faces are wall area: 1'4\" x 20' along its long side, and its two 2' ends", () => {
+    const rooms = [basement(), bulkhead()];
+    const main = quantities(rooms[0], rooms);
+    near(main.ceilingSteps.faceSquareFeet, DROP * 20 + 2 * DROP * 2, "faces: 26.7 + 2 x 2.7 = 32 SF");
+    // The wall under the bulkhead goes up to 6'8", not 8': the 1'4" above it is inside the box.
+    near(main.ceilingSteps.wallSquareFeet, -DROP * 20, "the wall behind the bulkhead is 16\" shorter for its 20'");
+    near(main.wallArea, 90 * 8 + 32 - DROP * 20, "both in the basement's wall area");
+    near(main.gross.wallArea, main.wallArea, "and neither is a deduction");
+    near(main.perimeterFloor, 90, "the basement's base runs its whole perimeter, under the bulkhead too");
+  });
+
+  test("no wall area on the step sides below 6'8\": the strip has no wall, no base and no ceiling line of its own", () => {
+    const rooms = [basement(), bulkhead()];
+    const strip = quantities(rooms[1], rooms);
+    near(strip.wallArea, 0, "no wall area");
+    near(strip.perimeterFloor, 0, "no floor perimeter");
+    near(strip.perimeterCeiling, 0, "no ceiling perimeter");
+    // Its sides, clockwise from the top: the basement's wall, then three steps.
+    const runs = s.wallsOf(rooms[1]).map((w) => s.ceilingStepRuns(rooms[1], w.id, rooms));
+    assert(JSON.stringify(runs) === JSON.stringify([[], [[0, 1]], [[0, 1]], [[0, 1]]]), `one side on the wall, three steps, got ${JSON.stringify(runs)}`);
+  });
+
+  test("a ceiling area hides none of its room's wall: one label, the cabinets and readings stay the room's", () => {
+    const rooms = [basement(), bulkhead()];
+    const top = s.wallsOf(rooms[0])[0];
+    assert(JSON.stringify(s.exposedWallRuns(rooms[0], top.id, rooms)) === "[[0,1]]", "the basement's top wall is whole");
+    assert(!s.stretchSharedWithAnother(rooms[0], top, 60, 300, rooms), "and shares no stretch with the bulkhead");
+    assert(!s.roomsWallsMayNotCover(rooms[0], rooms).some((r) => r.id === "bulkhead"), "a wall may be drawn over a ceiling area's floor");
+    // The strip labels only its steps: its side on the wall is the basement's, labelled from there.
+    const stripTop = s.wallsOf(rooms[1])[0];
+    assert(s.wallDimensions(rooms[1], stripTop, rooms).length === 0, "no label on the strip's side along the wall");
+    // The same strip as a closet hides the stretch, as it always has.
+    const closet = [basement(), bulkhead({ ceilingZone: false })];
+    assert(s.exposedWallRuns(closet[0], top.id, closet).length === 2, "a closet there still takes its stretch");
+  });
+
+  test("a bulkhead running wall to wall has only its long face; its ends are the end walls, also 6'8\" under it", () => {
+    const rooms = [basement(), bulkhead({ vertices: box(0, 0, 360, 24).vertices.map((v, i) => ({ ...v, id: `bulkhead-v${i}` })) })];
+    const main = quantities(rooms[0], rooms);
+    near(main.ceilingSteps.faceSquareFeet, DROP * 30, "one 30' face");
+    near(main.ceilingSteps.wallSquareFeet, -DROP * (30 + 2 + 2), "the top wall and two 2' ends, each 16\" shorter");
+  });
+
+  test("a raised area keeps its faces itself; a dropped area in the middle of a room is a step all round", () => {
+    const tray = box(120, 30, 120, 120, { id: "tray", name: "Tray", parentRoomId: "basement", ceilingZone: true, ceilingHeightFeet: 9 });
+    const raised = [basement(), tray];
+    near(quantities(tray, raised).wallArea, 40 * 1, "a 10' x 10' tray 1' up: 40 SF of face, the tray's");
+    near(quantities(raised[0], raised).wallArea, 90 * 8, "and nothing on the basement's walls");
+    const dropped = [basement(), { ...tray, ceilingHeightFeet: 7 }];
+    const main = quantities(dropped[0], dropped);
+    near(main.ceilingSteps.faceSquareFeet, 40, "dropped 1' instead: the 40 SF face is the basement's");
+    near(main.ceilingSteps.wallSquareFeet, 0, "and no wall of it stands under the dropped area");
+  });
+
+  test("a ceiling area drawn out of its room, or on a flight, is a room with walls again", () => {
+    const outside = [basement(), bulkhead({ vertices: box(400, 0, 240, 24).vertices.map((v, i) => ({ ...v, id: `bulkhead-v${i}` })) })];
+    assert(!s.isCeilingZone(outside[1], outside), "standing beside the basement it is not a ceiling area");
+    near(quantities(outside[1], outside).wallArea, 44 * (8 - DROP), "and has walls all round");
+    const stairs = [basement(), bulkhead({ stairs: { treadCount: 13, direction: "up" } })];
+    assert(!s.isCeilingZone(stairs[1], stairs), "a flight has no single ceiling to step from");
+  });
+
+  test("the estimate sees the basement whole: nobody names a bulkhead, so its floor and ceiling are the basement's", () => {
+    const areas = s.roomAreasForEstimate({ rooms: [basement(), bulkhead()] }, (name) => name.toLowerCase());
+    assert(!("bulkhead" in areas), `no estimate room of its own, got ${Object.keys(areas)}`);
+    near(areas.basement.floorSquareFeet, 450, "the basement's whole floor");
+    near(areas.basement.ceilingSquareFeet, 450, "and its whole ceiling, the bulkhead's underside in it");
+    near(areas.basement.wallRunFeet, 90, "and its base all round");
+  });
+
+  test("the summary says ceiling area of, and which sides are steps", () => {
+    const text = s.sketchSummaryText({ rooms: [basement(), bulkhead()] });
+    assert(text.includes("Bulkhead — ceiling area of Basement"), `header, got:\n${text}`);
+    assert(text.includes("Side 1 — 20', on Basement's wall"), `the side along the wall, got:\n${text}`);
+    assert(text.includes("Side 2 — 2', ceiling step"), `a step, got:\n${text}`);
+  });
+
   return { passed, failures };
 }
 

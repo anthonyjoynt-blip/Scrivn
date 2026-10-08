@@ -37,6 +37,8 @@ import {
   type WallGeometry,
   cabinetDepthPx,
   roomLabelAnchor,
+  ceilingStepRuns,
+  ceilingZoneParent,
   clampZoom,
   doorOrientation,
   exposedRunAt,
@@ -190,9 +192,13 @@ function track(map: LabelNodes, id: string) {
  * or a door swing runs under the name does it show at all. Over a floor painted anything ELSE — a
  * thumbnail's ceiling highlight, a moisture wash — the plate would show as a pale patch, so the
  * label leaves it out there; see `RoomLabel`.
+ *
+ * A ceiling area (`ceilingZone`) stands on its room's floor, so it is that floor's colour.
  */
-function roomFill(room: SketchRoom, selected: boolean): string {
+function roomFill(room: SketchRoom, selected: boolean, rooms: SketchRoom[]): string {
   if (selected) return COLORS.fillSelected;
+  const parent = ceilingZoneParent(room, rooms);
+  if (parent) return roomFill(parent, false, rooms);
   return room.parentRoomId ? COLORS.subRoom : COLORS.fill;
 }
 
@@ -882,6 +888,7 @@ export default function SketchCanvas(props: SketchCanvasProps) {
           <RoomLabel
             key={`label-${room.id}`}
             room={room}
+            rooms={rooms}
             place={namePlaces.get(room.id)}
             zoom={view.scale}
             selected={room.id === selectedRoomId}
@@ -1160,6 +1167,8 @@ function RoomShape({
   // Guaranteed to be inside the room, unlike the bounding-box centre — see `roomLabelAnchor`.
   const anchor = roomLabelAnchor(room);
   const wallStroke = wallStrokePx(zoom);
+  // A ceiling area (`ceilingZone`): no walls of its own, its steps drawn dashed - see `CeilingSteps`.
+  const zone = ceilingZoneParent(room, rooms) !== null;
 
   /*
     Dimensions go OUTSIDE the outline on a room too small to hold them.
@@ -1172,8 +1181,10 @@ function RoomShape({
 
     Outside is the drafting convention for a tight dimension anyway. The threshold is in screen
     pixels, so zooming in tucks them back inside as soon as there is room.
+
+    A ceiling area's go outside always: inside them, along its room's wall, sit the room's own.
   */
-  const labelsOutside = wallLabelsOutside(room, zoom);
+  const labelsOutside = zone || wallLabelsOutside(room, zoom);
 
   /*
     A wall grip has to stay on its own side of the room, not just within its own wall's length.
@@ -1350,6 +1361,9 @@ function RoomShape({
       /* Only once selected — see `updatePanEligibility` — and never while moisture mapping, which
          puts the geometry into read-only: the room was drawn once, this mode annotates it. */
       draggable={selected && tool !== "island" && moistureTool === null}
+      /* A ceiling area answers to select and break only. Its outline lies along its room's wall and
+         across its floor, and a door, a cabinet, a reading or a pull aimed there is aimed at the room. */
+      listening={!zone || (moistureTool === null && (tool === "select" || tool === "break"))}
       /* The drawn name lives in its own pass now, so it is carried by hand — see `LabelNodes`. Only
          the room's OWN drag, for the same reason as `onDragEnd` below: a corner's drag bubbles here too. */
       onDragMove={(e) => {
@@ -1392,8 +1406,10 @@ function RoomShape({
           context.closePath();
           context.fillStrokeShape(shape);
         }}
-        /* The floor colour — see `roomFill` — unless a thumbnail is picking this ceiling out. */
-        fill={highlight?.surface === "ceiling" ? COLORS.highlightCeiling : roomFill(room, selected)}
+        /* The floor colour — see `roomFill` — unless a thumbnail is picking this ceiling out. A
+           ceiling area is painted nothing until selected: it is its room's floor, and the room's
+           wall lengths beside the wall it runs along have to show through it. */
+        fill={highlight?.surface === "ceiling" ? COLORS.highlightCeiling : zone && !selected ? "transparent" : roomFill(room, selected, rooms)}
         stroke={selected ? COLORS.selected : "transparent"}
         strokeWidth={1 / zoom}
         onMouseDown={(e) => handleBodyPointer(e)}
@@ -1412,6 +1428,8 @@ function RoomShape({
             listening={false}
           />
         ))
+      ) : zone ? (
+        <CeilingSteps room={room} rooms={rooms} zoom={zoom} />
       ) : (
         <>
           {/* The walls, Xactimate's way: 4" OUTWARD from the inside faces - see `outerWallFaces`. */}
@@ -1758,7 +1776,7 @@ function placeRoomNames(rooms: SketchRoom[], zoom: number): Map<string, RoomName
   // A small room's wall lengths stand outside its walls: a name beside it keeps off them too, the room taken as its
   // bounding box grown by their reach.
   const floorOf = (r: SketchRoom) => {
-    if (!wallLabelsOutside(r, zoom)) return outline(r);
+    if (!wallLabelsOutside(r, zoom) && ceilingZoneParent(r, rooms) === null) return outline(r);
     const b = roomBounds(r);
     const g = WALL_LABELS_OUTSIDE_REACH_PX / zoom;
     return [b.minX - g, b.minY - g, b.maxX + g, b.minY - g, b.maxX + g, b.maxY + g, b.minX - g, b.maxY + g];
@@ -1769,6 +1787,23 @@ function placeRoomNames(rooms: SketchRoom[], zoom: number): Map<string, RoomName
   };
   const taken: NameBox[] = [];
   const shown = rooms.filter((r) => labelShown(r) && r.vertices.length >= 3);
+  // A ceiling area along its room's wall is named beside it, as a small room is: inside it, along that wall, stand the
+  // room's own wall lengths - see `ceilingZone`. Beside it but within its room, never out past the room's wall.
+  const alongItsRoomsWall = (r: SketchRoom) =>
+    ceilingZoneParent(r, rooms) !== null && wallsOf(r).some((w) => ceilingStepRuns(r, w.id, rooms).reduce((sum, [lo, hi]) => sum + hi - lo, 0) < 0.99);
+  // And its line points at its longest step, a quarter along: the middle of it, and of the area, is where the figures are.
+  const stepPoint = (r: SketchRoom) => {
+    let best: { x: number; y: number } | null = null;
+    let longest = 0;
+    for (const w of wallsOf(r)) {
+      for (const [lo, hi] of ceilingStepRuns(r, w.id, rooms)) {
+        if ((hi - lo) * w.lengthPx <= longest) continue;
+        longest = (hi - lo) * w.lengthPx;
+        best = pointOnWall(w, lo + (hi - lo) / 4);
+      }
+    }
+    return best ?? roomLabelAnchor(r);
+  };
 
   // Each room's name in its sizes: its lines at each (wrapped at its spaces to the room's width, or left out when a word
   // alone is wider) and its box - the plate, 6 px either side and 2 above and below at full size - in world pixels.
@@ -1790,6 +1825,10 @@ function placeRoomNames(rooms: SketchRoom[], zoom: number): Map<string, RoomName
   // Inside first, the big rooms first.
   const beside: SketchRoom[] = [];
   for (const room of [...shown].sort((a, b) => area(b) - area(a))) {
+    if (alongItsRoomsWall(room)) {
+      beside.push(room);
+      continue;
+    }
     const anchor = roomLabelAnchor(room);
     const { inside } = sizesOf(room);
     const spot = fitInside({ room: outline(room), taken, x: anchor.x, y: anchor.y, inside: inside.map((s) => s.size), margin: 2 / zoom });
@@ -1803,9 +1842,11 @@ function placeRoomNames(rooms: SketchRoom[], zoom: number): Map<string, RoomName
   }
   // Then beside their rooms, the smallest first: it has the fewest places near it.
   for (const room of beside.sort((a, b) => area(a) - area(b))) {
-    const anchor = roomLabelAnchor(room);
+    const anchor = alongItsRoomsWall(room) ? stepPoint(room) : roomLabelAnchor(room);
     const { inside, outside } = sizesOf(room);
     const keepOff = ancestors(room);
+    const zoneParent = ceilingZoneParent(room, rooms);
+    const within = zoneParent ? roomBounds(zoneParent) : null;
     const spot = placeOutside({
       room: outline(room),
       obstacles: rooms.filter((r) => !keepOff.has(r.id) && r.vertices.length >= 3).map(floorOf),
@@ -1814,6 +1855,7 @@ function placeRoomNames(rooms: SketchRoom[], zoom: number): Map<string, RoomName
       y: anchor.y,
       outside: outside.size,
       gap: 6 / zoom,
+      bounds: within ? { l: within.minX, t: within.minY, r: within.maxX, b: within.maxY } : undefined,
       // Its line to the room is best not drawn across another room's floor, where it would seem to name that one.
       others: rooms.filter((r) => r.id !== room.id && !keepOff.has(r.id) && r.vertices.length >= 3).map(outline),
     });
@@ -1886,6 +1928,7 @@ function washUnder(room: SketchRoom, moisture: MoistureMap, rect: { x: number; y
  */
 function RoomLabel({
   room,
+  rooms,
   place,
   zoom,
   selected,
@@ -1895,6 +1938,8 @@ function RoomLabel({
   labelNodes,
 }: {
   room: SketchRoom;
+  /** Every room on the plan, for the colour of the floor under a ceiling area's name. */
+  rooms: SketchRoom[];
   /** Where the name goes, from [placeRoomNames]; absent for a room whose name is hidden. */
   place: RoomNamePlacement | undefined;
   zoom: number;
@@ -1928,7 +1973,7 @@ function RoomLabel({
           width={plate.width}
           height={plate.height}
           cornerRadius={3 / zoom}
-          fill={spot.outside ? COLORS.fill : roomFill(room, selected)}
+          fill={spot.outside ? COLORS.fill : roomFill(room, selected, rooms)}
           opacity={spot.outside ? 0.92 : 0.7}
           stroke={spot.outside ? COLORS.label : undefined}
           strokeWidth={spot.outside ? 0.75 / zoom : 0}
@@ -2512,6 +2557,37 @@ function SymbolShape({
 
       {selected && <SymbolEndHandles x0={x0} x1={x1} zoom={zoom} onResize={onResize} />}
     </Group>
+  );
+}
+
+/** A ceiling step's dash, in screen pixels: long enough not to read as a dotted upper cabinet. */
+const CEILING_STEP_DASH = [9, 5];
+
+/**
+ * A ceiling area's outline (`ceilingZone`): its steps, dashed - the drafting sign for a change in
+ * the ceiling, so they do not read as walls - and nothing where it runs along its room's wall,
+ * which the room draws. The export is this canvas, so the PDF shows the same.
+ */
+function CeilingSteps({ room, rooms, zoom }: { room: SketchRoom; rooms: SketchRoom[]; zoom: number }) {
+  return (
+    <>
+      {wallsOf(room).flatMap((wall) =>
+        ceilingStepRuns(room, wall.id, rooms).map(([lo, hi], i) => {
+          const a = pointOnWall(wall, lo);
+          const b = pointOnWall(wall, hi);
+          return (
+            <Line
+              key={`${wall.id}:${i}`}
+              points={[a.x, a.y, b.x, b.y]}
+              stroke={COLORS.wall}
+              strokeWidth={1.5 / zoom}
+              dash={CEILING_STEP_DASH.map((d) => d / zoom)}
+              listening={false}
+            />
+          );
+        }),
+      )}
+    </>
   );
 }
 

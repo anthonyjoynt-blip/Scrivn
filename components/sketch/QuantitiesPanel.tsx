@@ -1,7 +1,7 @@
 "use client";
 
 import type { Sketch } from "@/lib/sketch";
-import { formatFeetInches } from "@/lib/sketch";
+import { formatFeetInches, isCeilingZone } from "@/lib/sketch";
 import { type QuantityOptions, formatQuantity, roomQuantities } from "@/lib/sketchQuantities";
 
 /**
@@ -88,7 +88,11 @@ export function QuantitiesPanel({
                 <tr key={room.id}>
                   <th scope="row">
                     {name}
-                    {parent && <span className="sketch-qty-parent">sub-room of {parent.name.trim() || "another room"}</span>}
+                    {parent && (
+                      <span className="sketch-qty-parent">
+                        {isCeilingZone(room, sketch.rooms) ? "ceiling area of" : "sub-room of"} {parent.name.trim() || "another room"}
+                      </span>
+                    )}
                   </th>
                   <Cell value={q.perimeterFloor} gross={q.gross.perimeterFloor} unit="LF" />
                   <Cell value={q.perimeterCeiling} gross={q.perimeterCeiling} unit="LF" />
@@ -106,7 +110,9 @@ export function QuantitiesPanel({
         LF = linear feet, SF = square feet. A struck-through figure is the gross before deductions. Wall area uses each room&rsquo;s ceiling height
         {sketch.rooms.some((r) => r.ceilingHeightFeet != null) ? ` (${formatFeetInches(sketch.rooms.find((r) => r.ceilingHeightFeet != null)?.ceilingHeightFeet ?? 8)} unless changed)` : ""}. A sub-room drawn
         inside its parent has its floor and ceiling taken out of the parent&rsquo;s, so nothing is counted twice; perimeters are not, since a closet&rsquo;s
-        walls exist in addition to the room&rsquo;s. A sub-room standing beside its parent keeps its own floor and ceiling. Doors, openings and windows come out of the wall area by default, since there is no wall there to finish; switch that off
+        walls exist in addition to the room&rsquo;s. A sub-room standing beside its parent keeps its own floor and ceiling. A ceiling area &mdash; a
+        bulkhead, a dropped or raised ceiling &mdash; has no walls of its own: the face of each step, from the lower ceiling up to the higher, is wall
+        area in the higher of the two rooms, and the wall it runs along goes up to its ceiling, not the room&rsquo;s. Doors, openings and windows come out of the wall area by default, since there is no wall there to finish; switch that off
         above to compare against a gross figure. A window with no height recorded is not deducted, because a height nobody entered is not a
         measurement. A wall drawn on its own inside a room counts for that room: two faces of wall and base along both sides, and a ceiling line
         on both sides only when it goes to the ceiling.

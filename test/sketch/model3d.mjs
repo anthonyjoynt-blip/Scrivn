@@ -243,6 +243,16 @@ export async function runModel3dChecks() {
     near(Math.max(...drawn.prisms.map((p) => p.y1)), 10, "up to the peak", 0.05);
   });
 
+  test("a bulkhead stands no walls: only its faces, from its 6'8\" ceiling up to the room's 8'", () => {
+    // 2' deep along the 12' room's top wall, 8' long, not wall to wall: one long face and two ends.
+    const bulkhead = room("bulkhead", [[2 * FT, 0], [10 * FT, 0], [10 * FT, 2 * FT], [2 * FT, 2 * FT]], { parentRoomId: "a", ceilingZone: true, ceilingHeightFeet: 6 + 8 / 12 });
+    const m = s.houseModel({ rooms: [box("a"), bulkhead] });
+    const faces = m.prisms.filter((p) => p.roomId === "bulkhead");
+    assert(faces.length === 3, `three faces, got ${faces.length}`);
+    assert(faces.every((p) => Math.abs(p.y0 - (6 + 8 / 12)) < 0.01 && Math.abs(p.y1 - 8) < 0.01), "each from 6'8\" to 8'");
+    assert(wallsAt(m, 6, 4, 2.1).length === 0, "nothing stands across the floor along its step at head height");
+  });
+
   test("an empty sketch is an empty model", () => {
     const m = s.houseModel({ rooms: [] });
     assert(m.prisms.length === 0 && m.floors.length === 0, "nothing");

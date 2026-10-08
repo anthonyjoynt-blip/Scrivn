@@ -27,6 +27,7 @@ import {
   junctionCorners,
   moveJunction,
   DEFAULT_ROOM_FEET,
+  ceilingZoneParent,
   closetBehindDoor,
   closetsOwed,
   withClosetsBehind,
@@ -870,6 +871,9 @@ export function SketchEditor({
 
   /** What the "Sub-room of" list offers: the other rooms on this storey that are not already under this one. */
   const parentChoices = selectedRoom ? possibleParents(selectedRoom, sketch.rooms) : [];
+
+  /** The room this one is, or could be made, a ceiling area of: its parent, while it stands inside it. See `ceilingZone`. */
+  const ceilingAreaOf = selectedRoom ? ceilingZoneParent({ ...selectedRoom, ceilingZone: true }, sketch.rooms) : null;
 
   /**
    * The PM's answer to "Sub-room of": a room, or none. Explicit either way — a room chosen stays
@@ -2728,6 +2732,28 @@ export function SketchEditor({
                       ? "Grouped with its parent for the scope; standing beside it, its floor and walls stay its own."
                       : "For a closet or alcove that belongs to another room — pulled off its wall, or drawn beside it."}
               </p>
+              {/*
+                A ceiling area: the same space as its parent under a different ceiling - Xactimate's
+                subroom for a bulkhead or a dropped or raised ceiling. Offered only while the room
+                stands inside its parent, which is the only place it means anything.
+              */}
+              {ceilingAreaOf && (
+                <>
+                  <label className="checkbox-label" style={{ marginTop: 12 }}>
+                    <input
+                      type="checkbox"
+                      checked={selectedRoom.ceilingZone === true}
+                      onChange={(e) => updateRoom(selectedRoom.id, (room) => ({ ...room, ceilingZone: e.target.checked }))}
+                    />
+                    Ceiling area only — a bulkhead, a dropped or raised ceiling
+                  </label>
+                  <p className="field-note">
+                    {selectedRoom.ceilingZone
+                      ? `No walls of its own: along ${ceilingAreaOf.name.trim() || "its room"}'s wall it is that wall, and its other sides are steps in the ceiling, drawn dashed. Give it its own ceiling height below; the face of each step counts as wall area.`
+                      : `Tick for part of ${ceilingAreaOf.name.trim() || "its room"} with a different ceiling and no walls between them, the way Xactimate splits a room into subrooms.`}
+                  </p>
+                </>
+              )}
             </div>
           )}
 
@@ -2799,6 +2825,17 @@ export function SketchEditor({
               <p className="field-note">Measured by the scan. Drives wall area, stair rise, and later volume-based equipment sizing.</p>
             ) : (
               <p className="field-note">Defaults to {formatFeetInches(DEFAULT_CEILING_HEIGHT_FEET)} — only worth changing when it isn&rsquo;t. Drives wall area, stair rise, and later volume-based equipment sizing.</p>
+            )}
+            {/* A ceiling area's height is worth nothing without its parent's beside it: the difference is the step. */}
+            {selectedRoom.ceilingZone && ceilingAreaOf && ceilingAreaOf.ceilingHeightFeet != null && selectedRoom.ceilingHeightFeet != null && (
+              <p className="field-note">
+                {(() => {
+                  const parentName = ceilingAreaOf.name.trim() || "Its room";
+                  const step = selectedRoom.ceilingHeightFeet - ceilingAreaOf.ceilingHeightFeet;
+                  if (Math.abs(step) < 1 / 24) return `${parentName}'s ceiling is the same height, so there is no step yet.`;
+                  return `${parentName}'s ceiling is ${formatFeetInches(ceilingAreaOf.ceilingHeightFeet)}: this one is ${formatFeetInches(Math.abs(step))} ${step < 0 ? "lower" : "higher"}, the height of each step's face.`;
+                })()}
+              </p>
             )}
           </div>
 

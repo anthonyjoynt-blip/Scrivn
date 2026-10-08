@@ -23,6 +23,8 @@
 import {
   blockCorners,
   ceilingRiseDegOf,
+  ceilingStepRuns,
+  ceilingZoneParent,
   DEFAULT_CEILING_HEIGHT_FEET,
   FLOOR_STRUCTURE_FEET,
   freeWallLevel,
@@ -383,6 +385,36 @@ function centroid(points: { x: number; z: number }[]): { x: number; z: number } 
   return { x: cx / (3 * a2), z: cz / (3 * a2) };
 }
 
+/**
+ * A ceiling area's steps (`ceilingZone`): it has no walls, only a face where its ceiling meets its
+ * room's, from the lower of the two up to the higher - a board thick, on the area's side of the line.
+ */
+function ceilingStepFaces(room: SketchRoom, parent: SketchRoom, levelRooms: Sketch["rooms"], level: number, baseY: number, out: Prism[]): void {
+  const own = ceilingModel(room).low;
+  const theirs = ceilingModel(parent).low;
+  if (Math.abs(own - theirs) < EPS) return;
+  const board = WALL_THICKNESS_PX / 4;
+  for (const wall of wallsOf(room)) {
+    if (wall.lengthPx <= EPS) continue;
+    // Inward: the wall's direction turned +90 degrees on a y-down page, the other way from `roomWalls`' outward.
+    const nx = -(wall.y2 - wall.y1) / wall.lengthPx;
+    const ny = (wall.x2 - wall.x1) / wall.lengthPx;
+    for (const [lo, hi] of ceilingStepRuns(room, wall.id, levelRooms)) {
+      const a = { x: wall.x1 + (wall.x2 - wall.x1) * lo, y: wall.y1 + (wall.y2 - wall.y1) * lo };
+      const b = { x: wall.x1 + (wall.x2 - wall.x1) * hi, y: wall.y1 + (wall.y2 - wall.y1) * hi };
+      out.push({
+        kind: "wall",
+        roomId: room.id,
+        level,
+        // Wound as a wall's is: its room's side first, then the line.
+        points: [pt(a.x + nx * board, a.y + ny * board), pt(b.x + nx * board, b.y + ny * board), pt(b.x, b.y), pt(a.x, a.y)],
+        y0: baseY + Math.min(own, theirs),
+        y1: baseY + Math.max(own, theirs),
+      });
+    }
+  }
+}
+
 /** A room's walls: the plan's band 4" outward from its inside faces, cut where its openings are. */
 function roomWalls(room: SketchRoom, levelRooms: Sketch["rooms"], sketch: Sketch, level: number, baseY: number, out: Prism[]): void {
   const n = room.vertices.length;
@@ -573,7 +605,9 @@ export function houseModel(sketch: Sketch): HouseModel {
       stairSteps(room, level, baseY, prisms);
       continue;
     }
-    roomWalls(room, levelRooms, sketch, level, baseY, prisms);
+    const zoneParent = ceilingZoneParent(room, levelRooms);
+    if (zoneParent) ceilingStepFaces(room, zoneParent, levelRooms, level, baseY, prisms);
+    else roomWalls(room, levelRooms, sketch, level, baseY, prisms);
     roomCabinets(room, levelRooms, sketch, level, baseY, prisms);
     const points = room.vertices.map((v) => pt(v.x, v.y));
     const depth = nestingDepth(room, levelRooms);

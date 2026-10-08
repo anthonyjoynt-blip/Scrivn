@@ -549,6 +549,21 @@ export interface SketchRoom {
    * not be undone by nudging the room a few pixels.
    */
   nestingOptOut: boolean;
+  /**
+   * True when this sub-room is a CEILING AREA of the room it stands in, not a room walled off from
+   * it: a duct bulkhead along a basement wall, a dropped ceiling over a kitchen, a raised tray.
+   * Xactimate splits a room with two ceiling heights this way, into subrooms each with its own
+   * height (the owner, 2026-10-08), and estimators redraw these plans there.
+   *
+   * Only the ceiling is its own. Where a side lies on the parent's wall, that is still the parent's
+   * wall; everywhere else the side is a STEP in the ceiling - no wall, no base, drawn dashed - and
+   * the vertical face of the step, from the lower ceiling up to the higher, is wall area. See
+   * `ceilingStepRuns` and `roomQuantities`. Honoured only while the room stands inside its parent
+   * (`isCeilingZone`): dragged out, it is an ordinary room again, and the choice waits.
+   *
+   * Optional because sketches saved before it existed have no such field; absent is false.
+   */
+  ceilingZone?: boolean;
   symbols: SketchSymbol[];
   /** Cabinets standing in open floor rather than against a wall — see `FreeCabinet`. */
   freeCabinets: FreeCabinet[];
@@ -1264,17 +1279,15 @@ const SAME_WALL_TOLERANCE_PX = 6;
  * left alone, because they have said it is not inside this one.
  *
  * Returns `[[0, 1]]` when nothing occludes, which is the overwhelmingly common case.
+ *
+ * A ceiling area (`ceilingZone`) hides nothing: the wall carries on under its lower ceiling, still
+ * this room's, with its doors, cabinets and readings. And a ceiling area's OWN stretches are its
+ * steps; the rest of its outline is the parent's wall, labelled, marked and fitted from there.
  */
 export function exposedWallRuns(room: SketchRoom, wallId: string, rooms: SketchRoom[]): [number, number][] {
   const wall = wallById(room, wallId);
   if (!wall || wall.lengthPx <= 0) return [[0, 1]];
-
-  const dx = (wall.x2 - wall.x1) / wall.lengthPx;
-  const dy = (wall.y2 - wall.y1) / wall.lengthPx;
-  /** Distance along the wall from its start, as a fraction. */
-  const along = (x: number, y: number) => ((x - wall.x1) * dx + (y - wall.y1) * dy) / wall.lengthPx;
-  /** Perpendicular distance from the wall's line, unsigned. */
-  const across = (x: number, y: number) => Math.abs(-(x - wall.x1) * dy + (y - wall.y1) * dx);
+  if (isCeilingZone(room, rooms)) return ceilingStepRuns(room, wallId, rooms);
 
   const covered: [number, number][] = [];
   for (const child of rooms) {
@@ -1285,17 +1298,44 @@ export function exposedWallRuns(room: SketchRoom, wallId: string, rooms: SketchR
     // wall, made a sub-room by choice, has its near wall on the same line — from the other side,
     // where it hides nothing: this wall is still whole from in here.
     if (!isRoomInside(child, room)) continue;
+    if (isCeilingZone(child, rooms)) continue;
     for (const childWall of wallsOf(child)) {
       // Both ends on this wall's line, or it is a different wall that merely passes nearby.
-      if (across(childWall.x1, childWall.y1) > SAME_WALL_TOLERANCE_PX) continue;
-      if (across(childWall.x2, childWall.y2) > SAME_WALL_TOLERANCE_PX) continue;
-      const a = along(childWall.x1, childWall.y1);
-      const b = along(childWall.x2, childWall.y2);
-      const lo = Math.max(0, Math.min(a, b));
-      const hi = Math.min(1, Math.max(a, b));
-      if (hi > lo) covered.push([lo, hi]);
+      if (!liesOnLineOf(childWall, wall)) continue;
+      const span = spanAlong(wall, childWall);
+      if (span) covered.push(span);
     }
   }
+  return uncoveredRuns(covered);
+}
+
+/**
+ * Do both ends of `wall` lie within [SAME_WALL_TOLERANCE_PX] of the line `line` runs along? The
+ * test for two walls being one line rather than one passing near the other.
+ */
+function liesOnLineOf(wall: WallGeometry, line: WallGeometry): boolean {
+  if (line.lengthPx <= 0) return false;
+  const dx = (line.x2 - line.x1) / line.lengthPx;
+  const dy = (line.y2 - line.y1) / line.lengthPx;
+  const across = (x: number, y: number) => Math.abs(-(x - line.x1) * dy + (y - line.y1) * dx);
+  return across(wall.x1, wall.y1) <= SAME_WALL_TOLERANCE_PX && across(wall.x2, wall.y2) <= SAME_WALL_TOLERANCE_PX;
+}
+
+/** The stretch of `wall` that `other` spans when laid along it, as fractions of `wall`; null when none. */
+function spanAlong(wall: WallGeometry, other: WallGeometry): [number, number] | null {
+  if (wall.lengthPx <= 0) return null;
+  const dx = (wall.x2 - wall.x1) / wall.lengthPx;
+  const dy = (wall.y2 - wall.y1) / wall.lengthPx;
+  const along = (x: number, y: number) => ((x - wall.x1) * dx + (y - wall.y1) * dy) / wall.lengthPx;
+  const a = along(other.x1, other.y1);
+  const b = along(other.x2, other.y2);
+  const lo = Math.max(0, Math.min(a, b));
+  const hi = Math.min(1, Math.max(a, b));
+  return hi > lo ? [lo, hi] : null;
+}
+
+/** The gaps between `covered` stretches of a wall, slivers left out. `[[0, 1]]` when nothing is covered. */
+function uncoveredRuns(covered: [number, number][]): [number, number][] {
   if (covered.length === 0) return [[0, 1]];
 
   // Merge, then take the gaps. Two closets on one wall are as ordinary as one.
@@ -1330,6 +1370,47 @@ export function exposedRunAt(room: SketchRoom, wallId: string, rooms: SketchRoom
   if (hit) return hit;
   const longest = runs.reduce<[number, number] | null>((best, run) => (best && best[1] - best[0] >= run[1] - run[0] ? best : run), null);
   return longest ?? [0, 1];
+}
+
+/**
+ * The room a ceiling area (`ceilingZone`) belongs to, while it is one: marked so, standing inside
+ * its parent, and neither of them a flight of stairs, whose ceiling climbs with the treads and has
+ * no one height to step from. Null otherwise, and then the room is a room with walls all round.
+ */
+export function ceilingZoneParent(room: SketchRoom, rooms: SketchRoom[]): SketchRoom | null {
+  if (!room.ceilingZone || room.stairs || !room.parentRoomId) return null;
+  const parent = rooms.find((r) => r.id === room.parentRoomId);
+  return parent && !parent.stairs && isNestedWithin(room, parent) ? parent : null;
+}
+
+export function isCeilingZone(room: SketchRoom, rooms: SketchRoom[]): boolean {
+  return ceilingZoneParent(room, rooms) !== null;
+}
+
+/**
+ * The stretches of a ceiling area's side that are a STEP in the ceiling, as `[start, end]`
+ * fractions: wherever the side does not lie on its parent's wall. A bulkhead along one wall has
+ * three, its long face and its two ends; one running wall to wall has only its long face; a dropped
+ * area in the middle of a room is a step all round. Empty for a room that is not a ceiling area,
+ * whose every side is a wall.
+ *
+ * Read from the drawing rather than marked side by side. An "opening" spanning each side was the
+ * other way to say it - it is already a missing wall with a head height - and it fits worse: its
+ * width stops matching the side the moment the bulkhead is resized, it takes nothing off the floor
+ * perimeter, and every step would need one of its own. Which sides are against the parent's walls
+ * is already in the geometry, to the same six inches a closet's walls are (`exposedWallRuns`).
+ */
+export function ceilingStepRuns(room: SketchRoom, wallId: string, rooms: SketchRoom[]): [number, number][] {
+  const parent = ceilingZoneParent(room, rooms);
+  const wall = parent ? wallById(room, wallId) : null;
+  if (!parent || !wall || wall.lengthPx <= 0) return [];
+  const onParentWall: [number, number][] = [];
+  for (const theirs of wallsOf(parent)) {
+    if (!liesOnLineOf(wall, theirs)) continue;
+    const span = spanAlong(wall, theirs);
+    if (span) onParentWall.push(span);
+  }
+  return uncoveredRuns(onParentWall);
 }
 
 /**
@@ -1489,7 +1570,8 @@ export function outerWallFaces(vertices: { x: number; y: number }[], thicknessPx
 /**
  * The rooms whose floors a room's wall may never be painted over: every other room on its storey
  * except the ones it stands inside (its parent, and theirs). A closet pulled into a bedroom builds
- * its walls out into the bedroom - that is where they are - but a room beside it never.
+ * its walls out into the bedroom - that is where they are - but a room beside it never. Nor a
+ * ceiling area (`ceilingZone`), whose floor is its parent's: a wall may stand under a bulkhead.
  */
 export function roomsWallsMayNotCover(room: SketchRoom, rooms: SketchRoom[]): SketchRoom[] {
   const level = roomLevel(room);
@@ -1500,7 +1582,7 @@ export function roomsWallsMayNotCover(room: SketchRoom, rooms: SketchRoom[]): Sk
     ancestors.add(parentId);
     parentId = rooms.find((r) => r.id === parentId)?.parentRoomId ?? null;
   }
-  return rooms.filter((r) => r.id !== room.id && !ancestors.has(r.id) && roomLevel(r) === level && r.vertices.length >= 3);
+  return rooms.filter((r) => r.id !== room.id && !ancestors.has(r.id) && roomLevel(r) === level && r.vertices.length >= 3 && !isCeilingZone(r, rooms));
 }
 
 /**
@@ -3549,11 +3631,13 @@ export interface SharedOpening {
 }
 
 export function openingsSharedWith(room: SketchRoom, rooms: SketchRoom[]): SharedOpening[] {
+  // A ceiling area has no wall for a door to be in: the doors along its outline are its parent's.
+  if (isCeilingZone(room, rooms)) return [];
   const level = roomLevel(room);
   const ownWalls = wallsOf(room).filter((w) => w.lengthPx > 0);
   const out: SharedOpening[] = [];
   for (const other of rooms) {
-    if (other.id === room.id || roomLevel(other) !== level) continue;
+    if (other.id === room.id || roomLevel(other) !== level || isCeilingZone(other, rooms)) continue;
     for (const symbol of other.symbols) {
       if (symbol.type !== "door" && symbol.type !== "window") continue;
       const theirs = wallById(other, symbol.wallId);
@@ -3664,6 +3748,8 @@ export function stretchSharedWithAnother(room: SketchRoom, wall: WallGeometry, f
     (other) =>
       other.id !== room.id &&
       roomLevel(other) === roomLevel(room) &&
+      // A ceiling area along the wall shares none of it: the wall is this room's, under its ceiling.
+      !isCeilingZone(other, rooms) &&
       wallsOf(other).some((w) => {
         if (w.lengthPx <= 0 || !acrossOnePartition(wall, w)) return false;
         const a = along({ x: w.x1, y: w.y1 });
@@ -5830,6 +5916,8 @@ export interface SketchWallOutput {
   wall: number;
   lengthFeet: number | null;
   lengthLabel: string;
+  /** How much of it is a step in the ceiling rather than a wall: a ceiling area's side only (`ceilingStepRuns`). */
+  stepFeet?: number;
 }
 
 export interface SketchSymbolOutput {
@@ -5870,6 +5958,8 @@ export interface SketchRoomOutput {
   name: string;
   /** Name of the room this one sits inside, or null when it stands alone. */
   withinRoom: string | null;
+  /** A ceiling area of `withinRoom` rather than a room walled off from it - see `ceilingZone`. */
+  ceilingZone: boolean;
   /** Number of walls — four for a rectangle, six for an L. */
   wallCount: number;
   ceilingHeightFeet: number | null;
@@ -5900,9 +5990,12 @@ export function sketchOutput(sketch: Sketch): SketchRoomOutput[] {
 
     const parent = room.parentRoomId ? sketch.rooms.find((r) => r.id === room.parentRoomId) : null;
 
+    const zone = isCeilingZone(room, sketch.rooms);
+
     return {
     name: room.name.trim() || "Unnamed room",
     withinRoom: parent ? parent.name.trim() || "Unnamed room" : null,
+    ceilingZone: zone,
     wallCount: walls.length,
     ceilingHeightFeet: room.ceilingHeightFeet == null ? null : round2(room.ceilingHeightFeet),
     ceilingType: room.stairs ? "sloped" : room.ceilingType,
@@ -5924,6 +6017,7 @@ export function sketchOutput(sketch: Sketch): SketchRoomOutput[] {
       wall: i + 1,
       lengthFeet: wall.lengthFeet,
       lengthLabel: wall.lengthFeet == null ? "not measured" : formatFeetInches(wall.lengthFeet),
+      ...(zone ? { stepFeet: round2(ceilingStepRuns(room, wall.id, sketch.rooms).reduce((sum, run) => sum + wallRunFeet(wall, run), 0)) } : {}),
     })),
     symbols: room.symbols.map((symbol) => {
       const wall = wallById(room, symbol.wallId);
@@ -6003,7 +6097,7 @@ export function sketchSummaryText(sketch: Sketch): string {
       const shape = room.wallCount === 4 ? "" : ` (${room.wallCount}-sided)`;
       // "Sub-room of", not "inside": a closet pulled off a bedroom's wall is the bedroom's without
       // being within it, and the estimator reads this.
-      const within = room.withinRoom ? ` — sub-room of ${room.withinRoom}` : "";
+      const within = room.withinRoom ? ` — ${room.ceilingZone ? "ceiling area" : "sub-room"} of ${room.withinRoom}` : "";
       const lines: string[] = [`${room.name}${shape}${within}`];
       if (room.ceilingHeightFeet != null) {
         const shape =
@@ -6021,7 +6115,11 @@ export function sketchSummaryText(sketch: Sketch): string {
       }
 
       for (const wall of room.walls) {
-        lines.push(`  Wall ${wall.wall} — ${wall.lengthLabel}`);
+        // A ceiling area's sides are its parent's wall or a step in the ceiling, and the reader needs to know which.
+        const whole = wall.lengthFeet != null && wall.stepFeet != null && wall.stepFeet >= wall.lengthFeet - 0.01;
+        const step =
+          wall.stepFeet == null ? "" : wall.stepFeet <= 0 ? `, on ${room.withinRoom}'s wall` : whole ? ", ceiling step" : `, ${formatFeetInches(wall.stepFeet)} of it a ceiling step`;
+        lines.push(`  ${wall.stepFeet == null ? "Wall" : "Side"} ${wall.wall} — ${wall.lengthLabel}${step}`);
       }
 
       for (const symbol of room.symbols) {
