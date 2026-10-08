@@ -23,8 +23,10 @@
 import {
   blockCorners,
   ceilingRiseDegOf,
-  ceilingStepRuns,
-  ceilingZoneParent,
+  missingWallRuns,
+  openParent,
+  ownWallRuns,
+  roomAcross,
   DEFAULT_CEILING_HEIGHT_FEET,
   FLOOR_STRUCTURE_FEET,
   freeWallLevel,
@@ -386,20 +388,25 @@ function centroid(points: { x: number; z: number }[]): { x: number; z: number } 
 }
 
 /**
- * A ceiling area's steps (`ceilingZone`): it has no walls, only a face where its ceiling meets its
- * room's, from the lower of the two up to the higher - a board thick, on the area's side of the line.
+ * Over a room's missing walls (`missingWalls`, a ceiling area's steps): no wall, only the face where
+ * its ceiling meets the room's across, from the lower of the two up to the higher - a board thick,
+ * on this room's side of the line. Built once: by the lower room, or by a sub-room higher than the
+ * room it is open to, which never looks at its sub-rooms' walls.
  */
-function ceilingStepFaces(room: SketchRoom, parent: SketchRoom, levelRooms: Sketch["rooms"], level: number, baseY: number, out: Prism[]): void {
+function missingWallFaces(room: SketchRoom, levelRooms: Sketch["rooms"], level: number, baseY: number, out: Prism[]): void {
   const own = ceilingModel(room).low;
-  const theirs = ceilingModel(parent).low;
-  if (Math.abs(own - theirs) < EPS) return;
+  const parent = openParent(room, levelRooms);
   const board = WALL_THICKNESS_PX / 4;
   for (const wall of wallsOf(room)) {
     if (wall.lengthPx <= EPS) continue;
     // Inward: the wall's direction turned +90 degrees on a y-down page, the other way from `roomWalls`' outward.
     const nx = -(wall.y2 - wall.y1) / wall.lengthPx;
     const ny = (wall.x2 - wall.x1) / wall.lengthPx;
-    for (const [lo, hi] of ceilingStepRuns(room, wall.id, levelRooms)) {
+    for (const [lo, hi] of missingWallRuns(room, wall.id, levelRooms)) {
+      const across = roomAcross(room, wall, [lo, hi], levelRooms);
+      if (!across) continue;
+      const theirs = ceilingModel(across).low;
+      if (Math.abs(own - theirs) < EPS || (own > theirs && across !== parent)) continue;
       const a = { x: wall.x1 + (wall.x2 - wall.x1) * lo, y: wall.y1 + (wall.y2 - wall.y1) * lo };
       const b = { x: wall.x1 + (wall.x2 - wall.x1) * hi, y: wall.y1 + (wall.y2 - wall.y1) * hi };
       out.push({
@@ -448,7 +455,11 @@ function roomWalls(room: SketchRoom, levelRooms: Sketch["rooms"], sketch: Sketch
     const theirs = flushWallStretches(room, wall, levelRooms)
       .filter((s) => !s.owned)
       .map((s) => [Math.max(0, Math.min(s.from, s.to)), Math.min(L, Math.max(s.from, s.to))] as [number, number]);
-    const ranges = subtract([[0, L]], theirs);
+    // Nor where it is missing, or is the wall of the room this one is open to.
+    const ranges = subtract(
+      ownWallRuns(room, wall.id, levelRooms).map(([a, b]) => [a * L, b * L] as [number, number]),
+      theirs,
+    );
     // The holes in it: this room's doors and windows on this wall, and a neighbour's across the partition.
     const holes: { from: number; to: number; symbol: SketchSymbol }[] = [];
     for (const symbol of room.symbols) {
@@ -605,9 +616,8 @@ export function houseModel(sketch: Sketch): HouseModel {
       stairSteps(room, level, baseY, prisms);
       continue;
     }
-    const zoneParent = ceilingZoneParent(room, levelRooms);
-    if (zoneParent) ceilingStepFaces(room, zoneParent, levelRooms, level, baseY, prisms);
-    else roomWalls(room, levelRooms, sketch, level, baseY, prisms);
+    roomWalls(room, levelRooms, sketch, level, baseY, prisms);
+    missingWallFaces(room, levelRooms, level, baseY, prisms);
     roomCabinets(room, levelRooms, sketch, level, baseY, prisms);
     const points = room.vertices.map((v) => pt(v.x, v.y));
     const depth = nestingDepth(room, levelRooms);

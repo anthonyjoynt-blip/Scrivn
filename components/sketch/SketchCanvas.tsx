@@ -37,12 +37,15 @@ import {
   type WallGeometry,
   cabinetDepthPx,
   roomLabelAnchor,
-  ceilingStepRuns,
-  ceilingZoneParent,
   clampZoom,
+  onParentWallRuns,
+  openParent,
+  ownMissingRuns,
+  ownWallRuns,
   doorOrientation,
   exposedRunAt,
   formatFeetInches,
+  wallDimensions,
   freeCabinetSizePx,
   freeWallSegments,
   pointOnWall,
@@ -193,11 +196,11 @@ function track(map: LabelNodes, id: string) {
  * thumbnail's ceiling highlight, a moisture wash — the plate would show as a pale patch, so the
  * label leaves it out there; see `RoomLabel`.
  *
- * A ceiling area (`ceilingZone`) stands on its room's floor, so it is that floor's colour.
+ * A sub-room open to its room (`openParent`) stands on that room's floor, so it is that floor's colour.
  */
 function roomFill(room: SketchRoom, selected: boolean, rooms: SketchRoom[]): string {
   if (selected) return COLORS.fillSelected;
-  const parent = ceilingZoneParent(room, rooms);
+  const parent = openParent(room, rooms);
   if (parent) return roomFill(parent, false, rooms);
   return room.parentRoomId ? COLORS.subRoom : COLORS.fill;
 }
@@ -1167,8 +1170,10 @@ function RoomShape({
   // Guaranteed to be inside the room, unlike the bounding-box centre — see `roomLabelAnchor`.
   const anchor = roomLabelAnchor(room);
   const wallStroke = wallStrokePx(zoom);
-  // A ceiling area (`ceilingZone`): no walls of its own, its steps drawn dashed - see `CeilingSteps`.
-  const zone = ceilingZoneParent(room, rooms) !== null;
+  // A sub-room open to its room (`openParent`): a ceiling area, or one with a missing wall into it.
+  const open = openParent(room, rooms) !== null;
+  // The stretches of each wall that are this room's to draw - every one of nearly every wall.
+  const ownRuns = new Map(walls.map((wall) => [wall.id, ownWallRuns(room, wall.id, rooms)]));
 
   /*
     Dimensions go OUTSIDE the outline on a room too small to hold them.
@@ -1182,9 +1187,9 @@ function RoomShape({
     Outside is the drafting convention for a tight dimension anyway. The threshold is in screen
     pixels, so zooming in tucks them back inside as soon as there is room.
 
-    A ceiling area's go outside always: inside them, along its room's wall, sit the room's own.
+    An open sub-room's go outside always: inside them, along its room's wall, sit the room's own.
   */
-  const labelsOutside = zone || wallLabelsOutside(room, zoom);
+  const labelsOutside = open || wallLabelsOutside(room, zoom);
 
   /*
     A wall grip has to stay on its own side of the room, not just within its own wall's length.
@@ -1361,9 +1366,9 @@ function RoomShape({
       /* Only once selected — see `updatePanEligibility` — and never while moisture mapping, which
          puts the geometry into read-only: the room was drawn once, this mode annotates it. */
       draggable={selected && tool !== "island" && moistureTool === null}
-      /* A ceiling area answers to select and break only. Its outline lies along its room's wall and
+      /* An open sub-room answers to select and break only. Its outline lies along its room's wall and
          across its floor, and a door, a cabinet, a reading or a pull aimed there is aimed at the room. */
-      listening={!zone || (moistureTool === null && (tool === "select" || tool === "break"))}
+      listening={!open || (moistureTool === null && (tool === "select" || tool === "break"))}
       /* The drawn name lives in its own pass now, so it is carried by hand — see `LabelNodes`. Only
          the room's OWN drag, for the same reason as `onDragEnd` below: a corner's drag bubbles here too. */
       onDragMove={(e) => {
@@ -1406,10 +1411,10 @@ function RoomShape({
           context.closePath();
           context.fillStrokeShape(shape);
         }}
-        /* The floor colour — see `roomFill` — unless a thumbnail is picking this ceiling out. A
-           ceiling area is painted nothing until selected: it is its room's floor, and the room's
+        /* The floor colour — see `roomFill` — unless a thumbnail is picking this ceiling out. An
+           open sub-room is painted nothing until selected: it is its room's floor, and the room's
            wall lengths beside the wall it runs along have to show through it. */
-        fill={highlight?.surface === "ceiling" ? COLORS.highlightCeiling : zone && !selected ? "transparent" : roomFill(room, selected, rooms)}
+        fill={highlight?.surface === "ceiling" ? COLORS.highlightCeiling : open && !selected ? "transparent" : roomFill(room, selected, rooms)}
         stroke={selected ? COLORS.selected : "transparent"}
         strokeWidth={1 / zoom}
         onMouseDown={(e) => handleBodyPointer(e)}
@@ -1428,27 +1433,31 @@ function RoomShape({
             listening={false}
           />
         ))
-      ) : zone ? (
-        <CeilingSteps room={room} rooms={rooms} zoom={zoom} />
       ) : (
         <>
           {/* The walls, Xactimate's way: 4" OUTWARD from the inside faces - see `outerWallFaces`. */}
-          <WallRing room={room} rooms={rooms} thicknessPx={wallStroke} />
+          <WallRing room={room} rooms={rooms} thicknessPx={wallStroke} ownRuns={ownRuns} />
           {/* Where another room shares the line, insides touching, the wall is its owner's, built
               outward from the owner over the other floor - see `flushWallStretches`. Both rooms draw
-              it, so whichever is drawn last it is there; it is one wall. */}
+              it, so whichever is drawn last it is there; it is one wall. None where it is missing. */}
           {walls.map((wall) =>
-            flushWallStretches(room, wall, rooms).map((stretch, i) => {
-              const a = pointOnWall(wall, stretch.from / wall.lengthPx);
-              const b = pointOnWall(wall, stretch.to / wall.lengthPx);
-              // Outward is the wall's direction turned -90 degrees; the owner's wall lies that way
-              // from its face, and from the other room's face it lies the opposite way, inside.
-              const side = stretch.owned ? 1 : -1;
-              const ox = ((wall.y2 - wall.y1) / wall.lengthPx) * (wallStroke / 2) * side;
-              const oy = (-(wall.x2 - wall.x1) / wall.lengthPx) * (wallStroke / 2) * side;
-              return <Line key={`${wall.id}:${i}`} points={[a.x + ox, a.y + oy, b.x + ox, b.y + oy]} stroke={COLORS.wall} strokeWidth={wallStroke} lineCap="square" listening={false} />;
-            }),
+            flushWallStretches(room, wall, rooms).flatMap((stretch, i) =>
+              (ownRuns.get(wall.id) ?? [[0, 1]]).map(([lo, hi], k) => {
+                const from = Math.max(stretch.from, lo * wall.lengthPx);
+                const to = Math.min(stretch.to, hi * wall.lengthPx);
+                if (to - from <= 1) return null;
+                const a = pointOnWall(wall, from / wall.lengthPx);
+                const b = pointOnWall(wall, to / wall.lengthPx);
+                // Outward is the wall's direction turned -90 degrees; the owner's wall lies that way
+                // from its face, and from the other room's face it lies the opposite way, inside.
+                const side = stretch.owned ? 1 : -1;
+                const ox = ((wall.y2 - wall.y1) / wall.lengthPx) * (wallStroke / 2) * side;
+                const oy = (-(wall.x2 - wall.x1) / wall.lengthPx) * (wallStroke / 2) * side;
+                return <Line key={`${wall.id}:${i}:${k}`} points={[a.x + ox, a.y + oy, b.x + ox, b.y + oy]} stroke={COLORS.wall} strokeWidth={wallStroke} lineCap="square" listening={false} />;
+              }),
+            ),
           )}
+          <MissingWalls room={room} rooms={rooms} zoom={zoom} />
           {/* A wall a thumbnail picks out: over the wall where it stands, outside the face.
               Heavier as well as coloured: a thumbnail is read small and printed, sometimes in
               greyscale, where colour alone stops carrying. */}
@@ -1776,7 +1785,7 @@ function placeRoomNames(rooms: SketchRoom[], zoom: number): Map<string, RoomName
   // A small room's wall lengths stand outside its walls: a name beside it keeps off them too, the room taken as its
   // bounding box grown by their reach.
   const floorOf = (r: SketchRoom) => {
-    if (!wallLabelsOutside(r, zoom) && ceilingZoneParent(r, rooms) === null) return outline(r);
+    if (!wallLabelsOutside(r, zoom) && openParent(r, rooms) === null) return outline(r);
     const b = roomBounds(r);
     const g = WALL_LABELS_OUTSIDE_REACH_PX / zoom;
     return [b.minX - g, b.minY - g, b.maxX + g, b.minY - g, b.maxX + g, b.maxY + g, b.minX - g, b.maxY + g];
@@ -1787,16 +1796,38 @@ function placeRoomNames(rooms: SketchRoom[], zoom: number): Map<string, RoomName
   };
   const taken: NameBox[] = [];
   const shown = rooms.filter((r) => labelShown(r) && r.vertices.length >= 3);
-  // A ceiling area along its room's wall is named beside it, as a small room is: inside it, along that wall, stand the
-  // room's own wall lengths - see `ceilingZone`. Beside it but within its room, never out past the room's wall.
-  const alongItsRoomsWall = (r: SketchRoom) =>
-    ceilingZoneParent(r, rooms) !== null && wallsOf(r).some((w) => ceilingStepRuns(r, w.id, rooms).reduce((sum, [lo, hi]) => sum + hi - lo, 0) < 0.99);
-  // And its line points at its longest step, a quarter along: the middle of it, and of the area, is where the figures are.
+  // A sub-room open to its room (`openParent`) does not hide that room's wall lengths, so its name keeps off them, inside
+  // it or beside it - a bulkhead's name would otherwise sit on the basement's figure for the wall it runs along. Each
+  // figure's box as `WallLabel` draws it, its middle 7 px past the 11 px inset, the bounding box when the wall is angled.
+  const wallLabelBoxes = (parent: SketchRoom): NameBox[] => {
+    const inset = ((wallLabelsOutside(parent, zoom) ? -13 : 11) + 7) / zoom;
+    return wallsOf(parent).flatMap((w) => {
+      if (w.lengthPx <= 0) return [];
+      const ux = (w.x2 - w.x1) / w.lengthPx;
+      const uy = (w.y2 - w.y1) / w.lengthPx;
+      return wallDimensions(parent, w, rooms).map((d) => {
+        const mid = pointOnWall(w, d.t);
+        const cx = mid.x - uy * inset;
+        const cy = mid.y + ux * inset;
+        const along = (nameWidthPx(formatFeetInches(d.lengthFeet), 11) / 2 + 3) / zoom;
+        const across = 8 / zoom;
+        const hx = Math.abs(ux) * along + Math.abs(uy) * across;
+        const hy = Math.abs(uy) * along + Math.abs(ux) * across;
+        return { l: cx - hx, t: cy - hy, r: cx + hx, b: cy + hy };
+      });
+    });
+  };
+  const keepClearOf = (r: SketchRoom) => {
+    const parent = openParent(r, rooms);
+    return parent ? [...taken, ...wallLabelBoxes(parent)] : taken;
+  };
+  // Named beside it, its line points at its longest missing wall, a quarter along: the middle of it, and of the area,
+  // is where the figures are.
   const stepPoint = (r: SketchRoom) => {
     let best: { x: number; y: number } | null = null;
     let longest = 0;
     for (const w of wallsOf(r)) {
-      for (const [lo, hi] of ceilingStepRuns(r, w.id, rooms)) {
+      for (const [lo, hi] of ownMissingRuns(r, w.id, rooms)) {
         if ((hi - lo) * w.lengthPx <= longest) continue;
         longest = (hi - lo) * w.lengthPx;
         best = pointOnWall(w, lo + (hi - lo) / 4);
@@ -1825,13 +1856,9 @@ function placeRoomNames(rooms: SketchRoom[], zoom: number): Map<string, RoomName
   // Inside first, the big rooms first.
   const beside: SketchRoom[] = [];
   for (const room of [...shown].sort((a, b) => area(b) - area(a))) {
-    if (alongItsRoomsWall(room)) {
-      beside.push(room);
-      continue;
-    }
     const anchor = roomLabelAnchor(room);
     const { inside } = sizesOf(room);
-    const spot = fitInside({ room: outline(room), taken, x: anchor.x, y: anchor.y, inside: inside.map((s) => s.size), margin: 2 / zoom });
+    const spot = fitInside({ room: outline(room), taken: keepClearOf(room), x: anchor.x, y: anchor.y, inside: inside.map((s) => s.size), margin: 2 / zoom });
     const chosen = spot ? inside.find((s) => s.size === spot.size) : undefined;
     if (!spot || !chosen) {
       beside.push(room);
@@ -1842,15 +1869,15 @@ function placeRoomNames(rooms: SketchRoom[], zoom: number): Map<string, RoomName
   }
   // Then beside their rooms, the smallest first: it has the fewest places near it.
   for (const room of beside.sort((a, b) => area(a) - area(b))) {
-    const anchor = alongItsRoomsWall(room) ? stepPoint(room) : roomLabelAnchor(room);
+    const parentOpenTo = openParent(room, rooms);
+    const anchor = parentOpenTo ? stepPoint(room) : roomLabelAnchor(room);
     const { inside, outside } = sizesOf(room);
     const keepOff = ancestors(room);
-    const zoneParent = ceilingZoneParent(room, rooms);
-    const within = zoneParent ? roomBounds(zoneParent) : null;
+    const within = parentOpenTo ? roomBounds(parentOpenTo) : null;
     const spot = placeOutside({
       room: outline(room),
       obstacles: rooms.filter((r) => !keepOff.has(r.id) && r.vertices.length >= 3).map(floorOf),
-      taken,
+      taken: keepClearOf(room),
       x: anchor.x,
       y: anchor.y,
       outside: outside.size,
@@ -2560,19 +2587,20 @@ function SymbolShape({
   );
 }
 
-/** A ceiling step's dash, in screen pixels: long enough not to read as a dotted upper cabinet. */
-const CEILING_STEP_DASH = [9, 5];
+/** A missing wall's dash, in screen pixels: long enough not to read as a dotted upper cabinet. */
+const MISSING_WALL_DASH = [9, 5];
 
 /**
- * A ceiling area's outline (`ceilingZone`): its steps, dashed - the drafting sign for a change in
- * the ceiling, so they do not read as walls - and nothing where it runs along its room's wall,
- * which the room draws. The export is this canvas, so the PDF shows the same.
+ * A room's missing walls (`missingWalls`, and a ceiling area's steps), dashed: the drafting sign for
+ * a change in the ceiling with no wall under it, where a wall would otherwise be read. Drawn by the
+ * room that made the wall missing; the room across draws no wall there and no second line. The
+ * export is this canvas, so the PDF shows the same.
  */
-function CeilingSteps({ room, rooms, zoom }: { room: SketchRoom; rooms: SketchRoom[]; zoom: number }) {
+function MissingWalls({ room, rooms, zoom }: { room: SketchRoom; rooms: SketchRoom[]; zoom: number }) {
   return (
     <>
       {wallsOf(room).flatMap((wall) =>
-        ceilingStepRuns(room, wall.id, rooms).map(([lo, hi], i) => {
+        ownMissingRuns(room, wall.id, rooms).map(([lo, hi], i) => {
           const a = pointOnWall(wall, lo);
           const b = pointOnWall(wall, hi);
           return (
@@ -2581,7 +2609,7 @@ function CeilingSteps({ room, rooms, zoom }: { room: SketchRoom; rooms: SketchRo
               points={[a.x, a.y, b.x, b.y]}
               stroke={COLORS.wall}
               strokeWidth={1.5 / zoom}
-              dash={CEILING_STEP_DASH.map((d) => d / zoom)}
+              dash={MISSING_WALL_DASH.map((d) => d / zoom)}
               listening={false}
             />
           );
@@ -2604,12 +2632,47 @@ function CeilingSteps({ room, rooms, zoom }: { room: SketchRoom; rooms: SketchRo
  *
  * Drawn with a hand-made path because a Konva Line strokes both sides of its points: the ring is
  * the outer outline with the room's own reversed inside it, so the room is the hole.
+ *
+ * Where a wall is missing (`missingWalls`), or is the wall of the room an open sub-room is part of,
+ * there is no band: the ring is drawn in pieces, one per stretch that is the room's own
+ * (`ownWallRuns`), mitred where it turns a corner with the next and square where it stops short. At a
+ * corner whose next wall is missing it carries on the wall's thickness, to where that wall's outer
+ * face would be: so an outside wall stays one line past a partition taken out between two rooms.
  */
-function WallRing({ room, rooms, thicknessPx }: { room: SketchRoom; rooms: SketchRoom[]; thicknessPx: number }) {
+function WallRing({ room, rooms, thicknessPx, ownRuns }: { room: SketchRoom; rooms: SketchRoom[]; thicknessPx: number; ownRuns: Map<string, [number, number][]> }) {
   const outer = outerWallFaces(room.vertices, thicknessPx);
   const keepOff = roomsWallsMayNotCover(room, rooms);
   const inner = room.vertices;
   if (outer.length < 3 || inner.length < 3) return null;
+  const walls = wallsOf(room);
+  const runsOf = (i: number) => ownRuns.get((walls[(i + walls.length) % walls.length] as WallGeometry).id) ?? [[0, 1]];
+  const whole = walls.every((_, i) => {
+    const runs = runsOf(i);
+    return runs.length === 1 && runs[0]?.[0] === 0 && runs[0]?.[1] === 1;
+  });
+  const pieces: { x: number; y: number }[][] = whole
+    ? []
+    : walls.flatMap((wall, i) => {
+        if (wall.lengthPx <= 0) return [];
+        const nx = (wall.y2 - wall.y1) / wall.lengthPx;
+        const ny = -(wall.x2 - wall.x1) / wall.lengthPx;
+        const turnsIn = runsOf(i - 1).some(([, hi]) => hi >= 1);
+        const turnsOut = runsOf(i + 1).some(([lo]) => lo <= 0);
+        const ux = (wall.x2 - wall.x1) / wall.lengthPx;
+        const uy = (wall.y2 - wall.y1) / wall.lengthPx;
+        return runsOf(i).map(([lo, hi]) => {
+          const start = pointOnWall(wall, lo);
+          const end = pointOnWall(wall, hi);
+          const back = lo <= 0 && !turnsIn ? thicknessPx : 0;
+          const on = hi >= 1 && !turnsOut ? thicknessPx : 0;
+          const a = { x: start.x - ux * back, y: start.y - uy * back };
+          const b = { x: end.x + ux * on, y: end.y + uy * on };
+          const oa = lo <= 0 && turnsIn ? (outer[i] as { x: number; y: number }) : { x: a.x + nx * thicknessPx, y: a.y + ny * thicknessPx };
+          const ob = hi >= 1 && turnsOut ? (outer[(i + 1) % walls.length] as { x: number; y: number }) : { x: b.x + nx * thicknessPx, y: b.y + ny * thicknessPx };
+          return [a, b, ob, oa];
+        });
+      });
+  if (!whole && pieces.length === 0) return null;
   return (
     <Shape
       listening={false}
@@ -2635,6 +2698,17 @@ function WallRing({ room, rooms, thicknessPx }: { room: SketchRoom; rooms: Sketc
           native.clip("evenodd");
         }
         context.beginPath();
+        if (!whole) {
+          for (const [p0, ...rest] of pieces) {
+            if (!p0) continue;
+            context.moveTo(p0.x, p0.y);
+            for (const p of rest) context.lineTo(p.x, p.y);
+            context.closePath();
+          }
+          context.fillShape(shape);
+          native.restore();
+          return;
+        }
         const [o0, ...orest] = outer;
         if (o0) {
           context.moveTo(o0.x, o0.y);

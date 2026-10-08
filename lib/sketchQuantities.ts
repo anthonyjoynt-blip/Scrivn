@@ -3,8 +3,6 @@ import {
   blockWallContacts,
   type BlockSymbol,
   ceilingSpanPx,
-  ceilingStepRuns,
-  ceilingZoneParent,
   type FreeWall,
   freeWallsOf,
   MIN_VERTICES,
@@ -13,9 +11,15 @@ import {
   type SketchRoom,
   type SketchSymbol,
   isBlockSymbol,
+  isCeilingZone,
   isDeductible,
   isNestedWithin,
+  missingWallRuns,
+  onParentWallRuns,
+  openParent,
   openingSquareFeet,
+  ownWallRuns,
+  roomAcross,
   standsOnFloor,
   stairCeiling,
   stairFlight,
@@ -54,10 +58,12 @@ import { freeWallRunsIn } from "./sketchWalls";
  * footprints subtracted from floor and ceiling. Perimeter is NOT adjusted: the closet's walls are
  * real walls that exist in addition to the bedroom's, not instead of part of them.
  *
- * A CEILING AREA (`ceilingZone`) is the exception: a sub-room that is the same space as its parent
- * under a different ceiling - a duct bulkhead, a dropped or raised area - which is how Xactimate
- * splits a room with two ceiling heights. It has a floor and a ceiling and no walls: its sides are
- * its parent's wall, or steps in the ceiling. See `ceilingSteps` for what the steps are worth.
+ * A sub-room OPEN to its parent (`openParent`) is the exception: the same space as its parent under
+ * a different ceiling - a duct bulkhead, a dropped or raised area - which is how Xactimate splits a
+ * room with two ceiling heights. Where its side lies on the parent's wall, that is the parent's wall;
+ * where it is missing (`missingWalls`, or all round inside a ceiling area, `ceilingZone`) there is
+ * no wall. A MISSING WALL anywhere has no wall area, base or ceiling line, and the face above it
+ * where two ceilings differ is wall area in the higher room - see `ceilingSteps`.
  */
 
 export interface QuantityOptions {
@@ -207,42 +213,49 @@ function ceilingProfile(room: SketchRoom): { meanHeightFeet: number | null; surf
 }
 
 /**
- * What the ceiling areas (`ceilingZone`) in and of a room add to its wall area, in square feet.
+ * What missing walls and open sub-rooms (`missingWalls`, `ceilingZone`) add to a room's wall area,
+ * in square feet.
  *
- *  - FACES: the vertical drywall of each step, its length times the difference between the two
- *    ceilings - a bulkhead's long side and its two ends. Counted in the HIGHER of the two rooms, the
- *    one the face is seen from: a dropped area's faces are its parent's, a raised area's its own.
- *  - WALL: where a ceiling area lies against its parent's wall, the wall runs up to that ceiling,
- *    not the parent's - 16" shorter under a 16" bulkhead, taller under a raised area. It is still
- *    the parent's wall, so it is counted there.
+ *  - FACES: over a missing wall between two ceilings, the vertical drywall from the lower up to the
+ *    higher, its length times the difference - a bulkhead's long side and its two ends. Counted in
+ *    the HIGHER room, the one the face is seen from: a bulkhead's faces are the basement's, a raised
+ *    tray's its own. Once: the lower room never counts it.
+ *  - WALL: where an open sub-room lies against its parent's wall, the wall runs up to the sub-room's
+ *    ceiling, not the parent's - 16" shorter under a 16" bulkhead, taller under a raised area. It is
+ *    still the parent's wall, so it is counted there.
  *
  * Heights are each room's mean (`ceilingProfile`), which is the height itself for the flat ceiling
- * a bulkhead or a dropped area almost always has. Unknown when either room has no height, and then
- * nothing is added: a face of unknown height is not a measurement.
+ * a bulkhead or a dropped area almost always has. Nothing is added across a missing wall with no
+ * room beyond it, or when either room has no height: a face of unknown height is not a measurement.
  */
 function ceilingSteps(room: SketchRoom, rooms: SketchRoom[]): { faceSquareFeet: number; wallSquareFeet: number } {
   const height = (r: SketchRoom) => ceilingProfile(r).meanHeightFeet;
-  const stepFeet = (zone: SketchRoom) =>
-    wallsOf(zone).reduce((sum, wall) => sum + ceilingStepRuns(zone, wall.id, rooms).reduce((s, run) => s + wallRunFeet(wall, run), 0), 0);
   let faceSquareFeet = 0;
   let wallSquareFeet = 0;
-
-  // This room's own steps, when it is a raised area: the faces rise from its parent's ceiling to its own.
-  const parent = ceilingZoneParent(room, rooms);
   const own = height(room);
-  const parentHeight = parent ? height(parent) : null;
-  if (own != null && parentHeight != null && own > parentHeight) faceSquareFeet += stepFeet(room) * (own - parentHeight);
+  if (own == null) return { faceSquareFeet, wallSquareFeet };
 
-  // The ceiling areas in this room: a dropped one's faces, and the wall under each.
-  if (own != null) {
-    for (const zone of rooms) {
-      if (zone.parentRoomId !== room.id || ceilingZoneParent(zone, rooms) !== room) continue;
-      const zoneHeight = height(zone);
-      if (zoneHeight == null) continue;
-      const steps = stepFeet(zone);
-      const perimeter = wallsOf(zone).reduce((sum, wall) => sum + wall.lengthFeet, 0);
-      if (zoneHeight < own) faceSquareFeet += steps * (own - zoneHeight);
-      wallSquareFeet += (perimeter - steps) * (zoneHeight - own);
+  // Its own missing walls, wherever the room across is lower.
+  for (const wall of wallsOf(room)) {
+    for (const run of missingWallRuns(room, wall.id, rooms)) {
+      const across = roomAcross(room, wall, run, rooms);
+      const theirs = across ? height(across) : null;
+      if (theirs != null && own > theirs) faceSquareFeet += wallRunFeet(wall, run) * (own - theirs);
+    }
+  }
+
+  // The sub-rooms open to it: their missing walls into it where they are lower, and its wall under each.
+  for (const sub of rooms) {
+    if (sub.parentRoomId !== room.id || openParent(sub, rooms) !== room) continue;
+    const theirs = height(sub);
+    if (theirs == null) continue;
+    for (const wall of wallsOf(sub)) {
+      if (own > theirs) {
+        for (const run of missingWallRuns(sub, wall.id, rooms)) {
+          if (roomAcross(sub, wall, run, rooms) === room) faceSquareFeet += wallRunFeet(wall, run) * (own - theirs);
+        }
+      }
+      for (const run of onParentWallRuns(sub, wall.id, rooms)) wallSquareFeet += wallRunFeet(wall, run) * (theirs - own);
     }
   }
   return { faceSquareFeet, wallSquareFeet };
@@ -265,9 +278,13 @@ export function roomQuantities(room: SketchRoom, sketch: Sketch, options: Quanti
   // A room with fewer than three corners encloses nothing; everything below would divide by it.
   if (room.vertices.length < MIN_VERTICES) return empty;
 
-  // A ceiling area has no walls of its own: its sides are its parent's wall, or steps in the ceiling.
-  const zone = ceilingZoneParent(room, sketch.rooms) !== null;
-  const perimeter = zone ? 0 : wallsOf(room).reduce((sum, wall) => sum + wall.lengthFeet, 0);
+  // Only the stretches that are this room's wall: not missing, and not the wall of the room it is
+  // open to - a ceiling area has none at all. Every stretch of nearly every wall.
+  const open = openParent(room, sketch.rooms) !== null;
+  const perimeter = wallsOf(room).reduce(
+    (sum, wall) => sum + ownWallRuns(room, wall.id, sketch.rooms).reduce((s, run) => s + wallRunFeet(wall, run), 0),
+    0,
+  );
 
   // Children's footprints come out of this room's floor and ceiling — see the header note. Only
   // the children standing INSIDE it: a sub-room beside its parent (pulled off its wall and made
@@ -331,7 +348,7 @@ export function roomQuantities(room: SketchRoom, sketch: Sketch, options: Quanti
   }
 
   // Other rooms' doors in this room's walls count too — see `openingSquareFeetOnWall`.
-  const openings = options.deductOpeningsFromWallArea && !zone ? openingSquareFeet(room, sketch.rooms) : 0;
+  const openings = options.deductOpeningsFromWallArea && !open ? openingSquareFeet(room, sketch.rooms) : 0;
 
   const profile = ceilingProfile(room);
 
@@ -428,7 +445,7 @@ export function roomAreasForEstimate(
   const zones: { room: SketchRoom; q: RoomQuantities }[] = [];
   for (const room of sketch.rooms) {
     const q = roomQuantities(room, sketch, options);
-    if (ceilingZoneParent(room, sketch.rooms)) {
+    if (isCeilingZone(room, sketch.rooms)) {
       zones.push({ room, q });
       continue;
     }
@@ -441,7 +458,7 @@ export function roomAreasForEstimate(
   for (const { room, q } of zones) {
     // Up to the room it is part of: a ceiling area inside another ceiling area belongs to the room both are in.
     let owner = room;
-    for (let up = ceilingZoneParent(owner, sketch.rooms), guard = 0; up && guard < 16; up = ceilingZoneParent(owner, sketch.rooms), guard++) owner = up;
+    for (let guard = 0; isCeilingZone(owner, sketch.rooms) && guard < 16; guard++) owner = openParent(owner, sketch.rooms) as SketchRoom;
     const entry = out[keyOf(owner.name ?? "")];
     if (!entry) continue;
     entry.floorSquareFeet = (entry.floorSquareFeet ?? 0) + q.floorArea || null;

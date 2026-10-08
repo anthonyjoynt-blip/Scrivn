@@ -564,6 +564,21 @@ export interface SketchRoom {
    * Optional because sketches saved before it existed have no such field; absent is false.
    */
   ceilingZone?: boolean;
+  /**
+   * The walls of this room that are MISSING, by id (the corner each starts at): no wall there, the
+   * room open to the space beside it - Xactimate's missing wall, asked for by the owner on
+   * 2026-10-08 for a lower-ceilinged area beside a room and for a bulkhead between two rooms ("add a
+   * subroom, then delete the walls on either side so they become missing walls"). An "opening"
+   * stretched across a side was the only way to say it before, and it keeps a cased opening's
+   * jambs and 4" of wall, and cannot be landed on a short stretch.
+   *
+   * One wall, missing from both sides: the room across sees the stretch it shares with a marked
+   * wall as missing too, as a door is one hole seen from both rooms (`missingWallRuns`). The face
+   * above it, where the two ceilings differ, is wall area in the higher room (`roomQuantities`).
+   *
+   * Optional because sketches saved before it existed have no such field; absent is none.
+   */
+  missingWalls?: string[];
   symbols: SketchSymbol[];
   /** Cabinets standing in open floor rather than against a wall — see `FreeCabinet`. */
   freeCabinets: FreeCabinet[];
@@ -1280,14 +1295,15 @@ const SAME_WALL_TOLERANCE_PX = 6;
  *
  * Returns `[[0, 1]]` when nothing occludes, which is the overwhelmingly common case.
  *
- * A ceiling area (`ceilingZone`) hides nothing: the wall carries on under its lower ceiling, still
- * this room's, with its doors, cabinets and readings. And a ceiling area's OWN stretches are its
- * steps; the rest of its outline is the parent's wall, labelled, marked and fitted from there.
+ * A sub-room OPEN to its parent (`openParent`: a ceiling area, or one with a missing wall into it)
+ * hides nothing: the wall carries on under its ceiling, still this room's, with its doors, cabinets
+ * and readings. And such a sub-room's own stretches are the ones off its parent's wall; the rest of
+ * its outline is the parent's wall, labelled, marked and fitted from there.
  */
 export function exposedWallRuns(room: SketchRoom, wallId: string, rooms: SketchRoom[]): [number, number][] {
   const wall = wallById(room, wallId);
   if (!wall || wall.lengthPx <= 0) return [[0, 1]];
-  if (isCeilingZone(room, rooms)) return ceilingStepRuns(room, wallId, rooms);
+  if (openParent(room, rooms)) return uncoveredRuns(onParentWallRuns(room, wallId, rooms));
 
   const covered: [number, number][] = [];
   for (const child of rooms) {
@@ -1298,7 +1314,7 @@ export function exposedWallRuns(room: SketchRoom, wallId: string, rooms: SketchR
     // wall, made a sub-room by choice, has its near wall on the same line — from the other side,
     // where it hides nothing: this wall is still whole from in here.
     if (!isRoomInside(child, room)) continue;
-    if (isCeilingZone(child, rooms)) continue;
+    if (openParent(child, rooms)) continue;
     for (const childWall of wallsOf(child)) {
       // Both ends on this wall's line, or it is a different wall that merely passes nearby.
       if (!liesOnLineOf(childWall, wall)) continue;
@@ -1306,6 +1322,8 @@ export function exposedWallRuns(room: SketchRoom, wallId: string, rooms: SketchR
       if (span) covered.push(span);
     }
   }
+  // A stretch another room has made missing is that room's to label and mark: it draws the dashed line.
+  covered.push(...missingAcrossRuns(room, wall, rooms));
   return uncoveredRuns(covered);
 }
 
@@ -1334,18 +1352,27 @@ function spanAlong(wall: WallGeometry, other: WallGeometry): [number, number] | 
   return hi > lo ? [lo, hi] : null;
 }
 
+/** Stretches of a wall, clipped to it, in order, overlapping ones merged. */
+function mergeRuns(spans: [number, number][]): [number, number][] {
+  const sorted = spans
+    .map(([lo, hi]) => [Math.max(0, Math.min(lo, hi)), Math.min(1, Math.max(lo, hi))] as [number, number])
+    .filter(([lo, hi]) => hi > lo)
+    .sort((p, q) => p[0] - q[0]);
+  const merged: [number, number][] = [];
+  for (const span of sorted) {
+    const last = merged[merged.length - 1];
+    if (last && span[0] <= last[1]) last[1] = Math.max(last[1], span[1]);
+    else merged.push([span[0], span[1]]);
+  }
+  return merged;
+}
+
 /** The gaps between `covered` stretches of a wall, slivers left out. `[[0, 1]]` when nothing is covered. */
 function uncoveredRuns(covered: [number, number][]): [number, number][] {
   if (covered.length === 0) return [[0, 1]];
 
   // Merge, then take the gaps. Two closets on one wall are as ordinary as one.
-  covered.sort((p, q) => p[0] - q[0]);
-  const merged: [number, number][] = [];
-  for (const span of covered) {
-    const last = merged[merged.length - 1];
-    if (last && span[0] <= last[1]) last[1] = Math.max(last[1], span[1]);
-    else merged.push([span[0], span[1]]);
-  }
+  const merged = mergeRuns(covered);
 
   const free: [number, number][] = [];
   let cursor = 0;
@@ -1373,44 +1400,131 @@ export function exposedRunAt(room: SketchRoom, wallId: string, rooms: SketchRoom
 }
 
 /**
- * The room a ceiling area (`ceilingZone`) belongs to, while it is one: marked so, standing inside
- * its parent, and neither of them a flight of stairs, whose ceiling climbs with the treads and has
- * no one height to step from. Null otherwise, and then the room is a room with walls all round.
+ * The room a sub-room is OPEN to: its parent, when it stands inside it with a missing wall into it -
+ * every side inside it, for a ceiling area (`ceilingZone`), or the walls marked (`missingWalls`) -
+ * and neither is a flight of stairs, whose ceiling climbs with the treads and has no one height to
+ * step from. Null for every other room.
+ *
+ * An open sub-room is part of its parent's space under a different ceiling, Xactimate's subroom:
+ * where its side lies on the parent's wall, that is the parent's wall (`onParentWallRuns`), which
+ * carries on under it with its doors and cabinets, its height that of the sub-room's ceiling.
  */
-export function ceilingZoneParent(room: SketchRoom, rooms: SketchRoom[]): SketchRoom | null {
-  if (!room.ceilingZone || room.stairs || !room.parentRoomId) return null;
+export function openParent(room: SketchRoom, rooms: SketchRoom[]): SketchRoom | null {
+  if (!(room.ceilingZone || (room.missingWalls?.length ?? 0) > 0) || room.stairs || !room.parentRoomId) return null;
   const parent = rooms.find((r) => r.id === room.parentRoomId);
   return parent && !parent.stairs && isNestedWithin(room, parent) ? parent : null;
 }
 
+/** A ceiling area: open to its parent all round, by the "Ceiling area only" tick (`ceilingZone`). */
 export function isCeilingZone(room: SketchRoom, rooms: SketchRoom[]): boolean {
-  return ceilingZoneParent(room, rooms) !== null;
+  return room.ceilingZone === true && openParent(room, rooms) !== null;
 }
 
 /**
- * The stretches of a ceiling area's side that are a STEP in the ceiling, as `[start, end]`
- * fractions: wherever the side does not lie on its parent's wall. A bulkhead along one wall has
- * three, its long face and its two ends; one running wall to wall has only its long face; a dropped
- * area in the middle of a room is a step all round. Empty for a room that is not a ceiling area,
- * whose every side is a wall.
- *
- * Read from the drawing rather than marked side by side. An "opening" spanning each side was the
- * other way to say it - it is already a missing wall with a head height - and it fits worse: its
- * width stops matching the side the moment the bulkhead is resized, it takes nothing off the floor
- * perimeter, and every step would need one of its own. Which sides are against the parent's walls
- * is already in the geometry, to the same six inches a closet's walls are (`exposedWallRuns`).
+ * The stretches of an open sub-room's wall that lie on its parent's wall, as `[start, end]`
+ * fractions: the parent's wall, not the sub-room's. Empty for any other room. Read from the drawing,
+ * to the same six inches a closet's walls are (`exposedWallRuns`).
  */
-export function ceilingStepRuns(room: SketchRoom, wallId: string, rooms: SketchRoom[]): [number, number][] {
-  const parent = ceilingZoneParent(room, rooms);
+export function onParentWallRuns(room: SketchRoom, wallId: string, rooms: SketchRoom[]): [number, number][] {
+  const parent = openParent(room, rooms);
   const wall = parent ? wallById(room, wallId) : null;
   if (!parent || !wall || wall.lengthPx <= 0) return [];
-  const onParentWall: [number, number][] = [];
+  const spans: [number, number][] = [];
   for (const theirs of wallsOf(parent)) {
     if (!liesOnLineOf(wall, theirs)) continue;
     const span = spanAlong(wall, theirs);
-    if (span) onParentWall.push(span);
+    if (span) spans.push(span);
   }
-  return uncoveredRuns(onParentWall);
+  return mergeRuns(spans);
+}
+
+/**
+ * The stretches of a wall this room itself makes missing, as `[start, end]` fractions - the ones it
+ * draws, dashed. The whole wall when it is marked (`missingWalls`); on a ceiling area, every stretch
+ * off its parent's wall - a bulkhead along one wall has three, its long face and its two ends, one
+ * running wall to wall only its long face, a dropped area in the middle of a room all four sides.
+ */
+export function ownMissingRuns(room: SketchRoom, wallId: string, rooms: SketchRoom[]): [number, number][] {
+  const wall = wallById(room, wallId);
+  if (!wall || wall.lengthPx <= 0) return [];
+  if (room.missingWalls?.includes(wallId)) return [[0, 1]];
+  if (!isCeilingZone(room, rooms)) return [];
+  return uncoveredRuns(onParentWallRuns(room, wallId, rooms));
+}
+
+/**
+ * Every stretch of a wall with no wall in it, as `[start, end]` fractions: its own
+ * (`ownMissingRuns`), and where it faces another room's missing wall across one partition. One wall,
+ * missing from both sides - the way a door in it is one hole seen from both rooms (`openingsSharedWith`).
+ */
+export function missingWallRuns(room: SketchRoom, wallId: string, rooms: SketchRoom[]): [number, number][] {
+  const wall = wallById(room, wallId);
+  if (!wall || wall.lengthPx <= 0) return [];
+  return mergeRuns([...ownMissingRuns(room, wallId, rooms), ...missingAcrossRuns(room, wall, rooms)]);
+}
+
+/** The stretches of a wall facing another room's missing wall across one partition, as fractions. */
+function missingAcrossRuns(room: SketchRoom, wall: WallGeometry, rooms: SketchRoom[]): [number, number][] {
+  const runs: [number, number][] = [];
+  if (wall.lengthPx <= 0) return runs;
+  for (const other of rooms) {
+    if (other.id === room.id || !other.missingWalls?.length || roomLevel(other) !== roomLevel(room)) continue;
+    for (const theirs of wallsOf(other)) {
+      if (!other.missingWalls.includes(theirs.id)) continue;
+      const f = facingAcross(wall, theirs);
+      if (f) runs.push([f.from / wall.lengthPx, f.to / wall.lengthPx]);
+    }
+  }
+  return runs;
+}
+
+/**
+ * The stretches of a wall that are this room's to build, draw and count: not missing, and not its
+ * parent's (`onParentWallRuns`). `[[0, 1]]` for nearly every wall there is.
+ */
+export function ownWallRuns(room: SketchRoom, wallId: string, rooms: SketchRoom[]): [number, number][] {
+  return uncoveredRuns([...missingWallRuns(room, wallId, rooms), ...onParentWallRuns(room, wallId, rooms)]);
+}
+
+/**
+ * The rooms with one wall made missing (`missingWalls`), or standing again. Standing again takes off
+ * this wall's own mark AND the mark of any wall across that made it missing: it is one wall, so one
+ * tick puts it back from whichever side it is tapped.
+ */
+export function withMissingWall(rooms: SketchRoom[], roomId: string, wallId: string, missing: boolean): SketchRoom[] {
+  const room = rooms.find((r) => r.id === roomId);
+  const wall = room ? wallById(room, wallId) : null;
+  if (!room || !wall) return rooms;
+  if (missing) {
+    return rooms.map((r) => (r.id === roomId ? { ...r, missingWalls: [...(r.missingWalls ?? []).filter((id) => id !== wallId), wallId] } : r));
+  }
+  return rooms.map((r) => {
+    const marks = r.missingWalls ?? [];
+    const keep = marks.filter((id) => {
+      if (r.id === roomId) return id !== wallId;
+      const theirs = wallById(r, id);
+      return !theirs || roomLevel(r) !== roomLevel(room) || facingAcross(wall, theirs) === null;
+    });
+    return keep.length === marks.length ? r : { ...r, missingWalls: keep };
+  });
+}
+
+/**
+ * The room across a stretch of wall: one with a wall facing it across a partition, else the parent
+ * an open sub-room is open to. Null when there is none - a missing wall open to the outside. Across a
+ * missing wall, the room with the higher ceiling has the face between the two (`roomQuantities`).
+ */
+export function roomAcross(room: SketchRoom, wall: WallGeometry, run: [number, number], rooms: SketchRoom[]): SketchRoom | null {
+  const mid = ((run[0] + run[1]) / 2) * wall.lengthPx;
+  for (const other of rooms) {
+    if (other.id === room.id || roomLevel(other) !== roomLevel(room)) continue;
+    const facing = wallsOf(other).some((theirs) => {
+      const f = facingAcross(wall, theirs);
+      return f !== null && f.from <= mid && mid <= f.to;
+    });
+    if (facing) return other;
+  }
+  return openParent(room, rooms);
 }
 
 /**
@@ -1571,7 +1685,7 @@ export function outerWallFaces(vertices: { x: number; y: number }[], thicknessPx
  * The rooms whose floors a room's wall may never be painted over: every other room on its storey
  * except the ones it stands inside (its parent, and theirs). A closet pulled into a bedroom builds
  * its walls out into the bedroom - that is where they are - but a room beside it never. Nor a
- * ceiling area (`ceilingZone`), whose floor is its parent's: a wall may stand under a bulkhead.
+ * sub-room open to its parent (`openParent`), whose floor is its parent's: a wall may stand under a bulkhead.
  */
 export function roomsWallsMayNotCover(room: SketchRoom, rooms: SketchRoom[]): SketchRoom[] {
   const level = roomLevel(room);
@@ -1582,7 +1696,7 @@ export function roomsWallsMayNotCover(room: SketchRoom, rooms: SketchRoom[]): Sk
     ancestors.add(parentId);
     parentId = rooms.find((r) => r.id === parentId)?.parentRoomId ?? null;
   }
-  return rooms.filter((r) => r.id !== room.id && !ancestors.has(r.id) && roomLevel(r) === level && r.vertices.length >= 3 && !isCeilingZone(r, rooms));
+  return rooms.filter((r) => r.id !== room.id && !ancestors.has(r.id) && roomLevel(r) === level && r.vertices.length >= 3 && !openParent(r, rooms));
 }
 
 /**
@@ -2695,6 +2809,8 @@ export function insertVertexOnWall(room: SketchRoom, wallId: string, t: number):
 
   const vertices = [...room.vertices];
   vertices.splice(index + 1, 0, inserted);
+  // Both halves of a missing wall are missing.
+  const missingWalls = room.missingWalls?.includes(wallId) ? { missingWalls: [...room.missingWalls, inserted.id] } : {};
 
   // The original wall keeps its id and becomes the first half; the new vertex starts the second.
   const symbols = room.symbols.map((symbol) => {
@@ -2704,7 +2820,7 @@ export function insertVertexOnWall(room: SketchRoom, wallId: string, t: number):
       : { ...symbol, wallId: inserted.id, t: Math.min(1, (symbol.t - clamped) / (1 - clamped)) };
   });
 
-  return { ...room, vertices, symbols };
+  return { ...room, vertices, symbols, ...missingWalls };
 }
 
 /**
@@ -2724,7 +2840,8 @@ export function removeVertex(room: SketchRoom, vertexId: string): SketchRoom {
   const survivingWall = wallById(room, prev.id);
 
   const vertices = room.vertices.filter((v) => v.id !== vertexId);
-  const merged: SketchRoom = { ...room, vertices };
+  // The joined wall is the one before the corner, missing or not; the one after it is gone.
+  const merged: SketchRoom = room.missingWalls?.includes(vertexId) ? { ...room, vertices, missingWalls: room.missingWalls.filter((id) => id !== vertexId) } : { ...room, vertices };
   const mergedWall = wallById(merged, prev.id);
 
   if (!removedWall || !survivingWall || !mergedWall || mergedWall.lengthPx <= 0) {
@@ -3577,10 +3694,19 @@ export function symbolWidthFeet(symbol: SketchSymbol, room: SketchRoom, rooms: S
  */
 export function openingSquareFeetOnWall(room: SketchRoom, wallId: string, rooms: SketchRoom[] = []): number {
   const ceiling = room.ceilingHeightFeet ?? DEFAULT_CEILING_HEIGHT_FEET;
-  const own = room.symbols.filter((symbol) => symbol.wallId === wallId).map((symbol) => ({ room, symbol, widthCap: Infinity }));
+  // Nor where the wall is missing: an opening left there when the wall was taken out is no hole in anything.
+  const missing = missingWallRuns(room, wallId, rooms);
+  const standing = (t: number) => !missing.some(([lo, hi]) => t >= lo && t <= hi);
+  const wall = wallById(room, wallId);
+  const own = room.symbols.filter((symbol) => symbol.wallId === wallId && standing(symbol.t)).map((symbol) => ({ room, symbol, widthCap: Infinity }));
   // A shared door counts for the stretch of it that lies in THIS wall: a door straddling the corner
   // where two rooms meet a third is half a hole in each of their walls, not a whole one in both.
-  const shared = rooms.length > 0 ? openingsSharedWith(room, rooms).filter((s) => s.wallId === wallId).map((s) => ({ room: s.room, symbol: s.symbol, widthCap: (s.toPx - s.fromPx) / PIXELS_PER_FOOT })) : [];
+  const shared =
+    rooms.length > 0
+      ? openingsSharedWith(room, rooms)
+          .filter((s) => s.wallId === wallId && (!wall || wall.lengthPx <= 0 || standing((s.fromPx + s.toPx) / 2 / wall.lengthPx)))
+          .map((s) => ({ room: s.room, symbol: s.symbol, widthCap: (s.toPx - s.fromPx) / PIXELS_PER_FOOT }))
+      : [];
   return [...own, ...shared].reduce((sum, { room: owner, symbol, widthCap }) => {
     const height = symbol.type === "door" ? symbol.heightFeet : symbol.type === "window" ? symbol.heightFeet : null;
     if (height == null) return sum;
@@ -3631,13 +3757,13 @@ export interface SharedOpening {
 }
 
 export function openingsSharedWith(room: SketchRoom, rooms: SketchRoom[]): SharedOpening[] {
-  // A ceiling area has no wall for a door to be in: the doors along its outline are its parent's.
-  if (isCeilingZone(room, rooms)) return [];
+  // An open sub-room's outline is its parent's wall or none: the doors along it are its parent's.
+  if (openParent(room, rooms)) return [];
   const level = roomLevel(room);
   const ownWalls = wallsOf(room).filter((w) => w.lengthPx > 0);
   const out: SharedOpening[] = [];
   for (const other of rooms) {
-    if (other.id === room.id || roomLevel(other) !== level || isCeilingZone(other, rooms)) continue;
+    if (other.id === room.id || roomLevel(other) !== level || openParent(other, rooms)) continue;
     for (const symbol of other.symbols) {
       if (symbol.type !== "door" && symbol.type !== "window") continue;
       const theirs = wallById(other, symbol.wallId);
@@ -3748,8 +3874,8 @@ export function stretchSharedWithAnother(room: SketchRoom, wall: WallGeometry, f
     (other) =>
       other.id !== room.id &&
       roomLevel(other) === roomLevel(room) &&
-      // A ceiling area along the wall shares none of it: the wall is this room's, under its ceiling.
-      !isCeilingZone(other, rooms) &&
+      // A sub-room open to this one shares none of the wall: it is this room's, under its ceiling.
+      !openParent(other, rooms) &&
       wallsOf(other).some((w) => {
         if (w.lengthPx <= 0 || !acrossOnePartition(wall, w)) return false;
         const a = along({ x: w.x1, y: w.y1 });
@@ -5916,8 +6042,10 @@ export interface SketchWallOutput {
   wall: number;
   lengthFeet: number | null;
   lengthLabel: string;
-  /** How much of it is a step in the ceiling rather than a wall: a ceiling area's side only (`ceilingStepRuns`). */
-  stepFeet?: number;
+  /** How much of it is a missing wall (`missingWallRuns`); absent when none of it is. */
+  missingFeet?: number;
+  /** How much of it is the wall of the room an open sub-room is part of (`onParentWallRuns`); absent when none. */
+  parentWallFeet?: number;
 }
 
 export interface SketchSymbolOutput {
@@ -6017,7 +6145,11 @@ export function sketchOutput(sketch: Sketch): SketchRoomOutput[] {
       wall: i + 1,
       lengthFeet: wall.lengthFeet,
       lengthLabel: wall.lengthFeet == null ? "not measured" : formatFeetInches(wall.lengthFeet),
-      ...(zone ? { stepFeet: round2(ceilingStepRuns(room, wall.id, sketch.rooms).reduce((sum, run) => sum + wallRunFeet(wall, run), 0)) } : {}),
+      ...(() => {
+        const missingFeet = round2(missingWallRuns(room, wall.id, sketch.rooms).reduce((sum, run) => sum + wallRunFeet(wall, run), 0));
+        const parentWallFeet = round2(onParentWallRuns(room, wall.id, sketch.rooms).reduce((sum, run) => sum + wallRunFeet(wall, run), 0));
+        return { ...(missingFeet > 0 ? { missingFeet } : {}), ...(parentWallFeet > 0 ? { parentWallFeet } : {}) };
+      })(),
     })),
     symbols: room.symbols.map((symbol) => {
       const wall = wallById(room, symbol.wallId);
@@ -6115,11 +6247,11 @@ export function sketchSummaryText(sketch: Sketch): string {
       }
 
       for (const wall of room.walls) {
-        // A ceiling area's sides are its parent's wall or a step in the ceiling, and the reader needs to know which.
-        const whole = wall.lengthFeet != null && wall.stepFeet != null && wall.stepFeet >= wall.lengthFeet - 0.01;
-        const step =
-          wall.stepFeet == null ? "" : wall.stepFeet <= 0 ? `, on ${room.withinRoom}'s wall` : whole ? ", ceiling step" : `, ${formatFeetInches(wall.stepFeet)} of it a ceiling step`;
-        lines.push(`  ${wall.stepFeet == null ? "Wall" : "Side"} ${wall.wall} — ${wall.lengthLabel}${step}`);
+        // Missing, or the wall of the room an open sub-room is part of: the reader needs to know which.
+        const part = (feet: number | undefined, whole: string, some: string) =>
+          feet == null ? "" : wall.lengthFeet != null && feet >= wall.lengthFeet - 0.01 ? `, ${whole}` : `, ${formatFeetInches(feet)} ${some}`;
+        const notes = part(wall.missingFeet, "missing wall", "of it a missing wall") + part(wall.parentWallFeet, `on ${room.withinRoom}'s wall`, `of it on ${room.withinRoom}'s wall`);
+        lines.push(`  Wall ${wall.wall} — ${wall.lengthLabel}${notes}`);
       }
 
       for (const symbol of room.symbols) {

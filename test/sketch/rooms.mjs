@@ -1402,7 +1402,7 @@ export async function runRoomChecks() {
     near(strip.perimeterFloor, 0, "no floor perimeter");
     near(strip.perimeterCeiling, 0, "no ceiling perimeter");
     // Its sides, clockwise from the top: the basement's wall, then three steps.
-    const runs = s.wallsOf(rooms[1]).map((w) => s.ceilingStepRuns(rooms[1], w.id, rooms));
+    const runs = s.wallsOf(rooms[1]).map((w) => s.ownMissingRuns(rooms[1], w.id, rooms));
     assert(JSON.stringify(runs) === JSON.stringify([[], [[0, 1]], [[0, 1]], [[0, 1]]]), `one side on the wall, three steps, got ${JSON.stringify(runs)}`);
   });
 
@@ -1454,11 +1454,92 @@ export async function runRoomChecks() {
     near(areas.basement.wallRunFeet, 90, "and its base all round");
   });
 
-  test("the summary says ceiling area of, and which sides are steps", () => {
+  test("the summary says ceiling area of, and which walls are missing", () => {
     const text = s.sketchSummaryText({ rooms: [basement(), bulkhead()] });
     assert(text.includes("Bulkhead — ceiling area of Basement"), `header, got:\n${text}`);
-    assert(text.includes("Side 1 — 20', on Basement's wall"), `the side along the wall, got:\n${text}`);
-    assert(text.includes("Side 2 — 2', ceiling step"), `a step, got:\n${text}`);
+    assert(text.includes("Wall 1 — 20', on Basement's wall"), `the side along the wall, got:\n${text}`);
+    assert(text.includes("Wall 2 — 2', missing wall"), `a step, got:\n${text}`);
+  });
+
+  /*
+    Missing walls (2026-10-08, the owner): "if I had a bulkhead, in Xactimate I might add a subroom
+    like that but then delete the walls on either side so they become missing walls, and then change
+    the ceiling height". Their picture: a 17'2" strip between a room above and a room below, each a
+    partition (4") from it, the strip 16" down.
+  */
+  const above = () => box(0, 0, 206, 120, { id: "above", name: "Family" });
+  const strip = (over = {}) =>
+    box(0, 124, 206, 24, { id: "strip", name: "Bulkhead", ceilingHeightFeet: 8 - DROP, missingWalls: ["strip-v0", "strip-v2"], ...over });
+  const below = () => box(0, 152, 206, 81, { id: "below", name: "Rec room" });
+  const LONG = 206 / 12;
+
+  test("a strip between two rooms with its walls missing either side: one wall, missing from both rooms", () => {
+    const rooms = [above(), strip(), below()];
+    const aboveBottom = s.wallsOf(rooms[0])[2];
+    const belowTop = s.wallsOf(rooms[2])[0];
+    assert(JSON.stringify(s.missingWallRuns(rooms[0], aboveBottom.id, rooms)) === "[[0,1]]", "the room above sees it missing");
+    assert(JSON.stringify(s.missingWallRuns(rooms[2], belowTop.id, rooms)) === "[[0,1]]", "and the room below");
+    assert(s.ownWallRuns(rooms[0], aboveBottom.id, rooms).length === 0, "so neither builds a wall there");
+    assert(s.ownMissingRuns(rooms[0], aboveBottom.id, rooms).length === 0, "and only the strip draws the dashed line");
+    near(quantities(rooms[0], rooms).perimeterFloor, (206 * 2 + 120 * 2) / 12 - LONG, "no base along it");
+  });
+
+  test("the faces over the strip's missing walls are the higher rooms', 1'4\" each; the strip has its two ends", () => {
+    const rooms = [above(), strip(), below()];
+    near(quantities(rooms[0], rooms).ceilingSteps.faceSquareFeet, LONG * DROP, "the room above: 17'2\" x 1'4\"");
+    near(quantities(rooms[2], rooms).ceilingSteps.faceSquareFeet, LONG * DROP, "the room below the same");
+    const q = quantities(rooms[1], rooms);
+    near(q.ceilingSteps.faceSquareFeet, 0, "the strip, lower, has none");
+    near(q.perimeterFloor, 4, "its base is its two 2' ends");
+    near(q.wallArea, 4 * (8 - DROP), "and so is its wall, to its own ceiling");
+    near(q.ceilingArea, LONG * 2, "its ceiling the strip");
+  });
+
+  test("a wall made to stand again from the other side takes the mark off: one tick, one wall", () => {
+    const rooms = [above(), strip(), below()];
+    const aboveBottom = s.wallsOf(rooms[0])[2];
+    const back = s.withMissingWall(rooms, "above", aboveBottom.id, false);
+    assert(JSON.stringify(back.find((r) => r.id === "strip").missingWalls) === JSON.stringify(["strip-v2"]), "the strip's top is a wall again");
+    assert(JSON.stringify(s.missingWallRuns(back[0], aboveBottom.id, back)) === "[]", "and so is the room above's");
+    const marked = s.withMissingWall([above(), strip({ missingWalls: [] })], "above", aboveBottom.id, true);
+    assert(JSON.stringify(marked[0].missingWalls) === JSON.stringify([aboveBottom.id]), "a wall is marked missing on the room it was tapped in");
+  });
+
+  test("the report's pictures 2-4: an area beside the room under a lower ceiling, its one side open - no opening, no 4\" of wall", () => {
+    // The family room's right-hand end, 12'4" x 11'2", at 7'; its left side, across the room, missing.
+    const family = box(0, 0, 300, 134, { id: "family", name: "Family" });
+    const end = box(152, 0, 148, 134, { id: "end", name: "Room 5", parentRoomId: "family", ceilingHeightFeet: 7, missingWalls: ["end-v3"] });
+    const rooms = [family, end];
+    assert(s.openParent(end, rooms)?.id === "family", "open to the family room");
+    const q = quantities(end, rooms);
+    near(q.wallArea, 0, "no wall of its own: three sides are the family room's, one missing");
+    near(q.perimeterFloor, 0, "and no base");
+    const main = quantities(family, rooms);
+    near(main.ceilingSteps.faceSquareFeet, (134 / 12) * 1, "the 1' face across it is the family room's");
+    near(main.ceilingSteps.wallSquareFeet, -((148 + 134 + 148) / 12) * 1, "and its wall round the end runs to 7'");
+    assert(JSON.stringify(s.exposedWallRuns(family, s.wallsOf(family)[0].id, rooms)) === "[[0,1]]", "its top wall still one wall, one label");
+  });
+
+  test("a wall missing to the outside has no face, and no wall or base", () => {
+    const porch = box(0, 0, 120, 96, { id: "porch", name: "Porch", missingWalls: ["porch-v1"] });
+    const q = quantities(porch, [porch]);
+    near(q.perimeterFloor, (120 * 2 + 96) / 12, "three walls of base");
+    near(q.ceilingSteps.faceSquareFeet, 0, "nothing across it, so no face");
+  });
+
+  test("breaking a missing wall leaves both halves missing; joining them back keeps the one before", () => {
+    const porch = box(0, 0, 120, 96, { id: "porch", name: "Porch", missingWalls: ["porch-v1"] });
+    const broken = s.insertVertexOnWall(porch, "porch-v1", 0.5);
+    assert(broken.missingWalls.length === 2 && broken.missingWalls.includes("porch-v1"), `both halves, got ${broken.missingWalls}`);
+    const added = broken.missingWalls.find((id) => id !== "porch-v1");
+    const joined = s.removeVertex(broken, added);
+    assert(JSON.stringify(joined.missingWalls) === JSON.stringify(["porch-v1"]), "one missing wall again");
+  });
+
+  test("an opening left on a wall that was then made missing takes nothing more off", () => {
+    const opening = { id: "o", type: "door", wallId: "porch-v1", t: 0.5, widthFraction: 0.5, widthFeet: 4, doorType: "opening", leaves: "single", heightFeet: 7, flipX: false, flipY: false };
+    const porch = box(0, 0, 120, 96, { id: "porch", name: "Porch", missingWalls: ["porch-v1"], symbols: [opening] });
+    near(quantities(porch, [porch]).wallArea, ((120 * 2 + 96) / 12) * 8, "three walls, nothing off them");
   });
 
   return { passed, failures };

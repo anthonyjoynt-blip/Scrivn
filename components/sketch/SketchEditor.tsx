@@ -27,7 +27,11 @@ import {
   junctionCorners,
   moveJunction,
   DEFAULT_ROOM_FEET,
-  ceilingZoneParent,
+  isCeilingZone,
+  missingWallRuns,
+  openParent,
+  roomAcross,
+  withMissingWall,
   closetBehindDoor,
   closetsOwed,
   withClosetsBehind,
@@ -873,7 +877,7 @@ export function SketchEditor({
   const parentChoices = selectedRoom ? possibleParents(selectedRoom, sketch.rooms) : [];
 
   /** The room this one is, or could be made, a ceiling area of: its parent, while it stands inside it. See `ceilingZone`. */
-  const ceilingAreaOf = selectedRoom ? ceilingZoneParent({ ...selectedRoom, ceilingZone: true }, sketch.rooms) : null;
+  const ceilingAreaOf = selectedRoom ? openParent({ ...selectedRoom, ceilingZone: true }, sketch.rooms) : null;
 
   /**
    * The PM's answer to "Sub-room of": a room, or none. Explicit either way — a room chosen stays
@@ -2985,6 +2989,45 @@ export function SketchEditor({
                   {tappedWallError && <p className="field-note sketch-error">{tappedWallError}</p>}
                 </div>
               )}
+              {/*
+                A missing wall (`missingWalls`): Xactimate's, asked for on 2026-10-08 - an area beside
+                a room under a lower ceiling, a bulkhead between two rooms. On the tapped wall, the
+                whole of it; a wall only partly open is broken first, as it is in Xactimate. A ceiling
+                area's sides are its tick's to decide, so it is not offered there.
+              */}
+              {tappedWallHere && tappedWall && !isCeilingZone(selectedRoom, sketch.rooms) && (() => {
+                const run = tappedWall.run;
+                const middle = (run[0] + run[1]) / 2;
+                const missing = missingWallRuns(selectedRoom, tappedWall.wallId, sketch.rooms).some(([lo, hi]) => middle >= lo && middle <= hi);
+                const across = roomAcross(selectedRoom, tappedWallHere, run, sketch.rooms);
+                const step =
+                  across && across.ceilingHeightFeet != null && selectedRoom.ceilingHeightFeet != null
+                    ? selectedRoom.ceilingHeightFeet - across.ceilingHeightFeet
+                    : null;
+                const acrossName = across ? across.name.trim() || "the room across" : null;
+                return (
+                  <div className="question">
+                    <label className="checkbox-label">
+                      <input
+                        type="checkbox"
+                        checked={missing}
+                        onChange={(e) => {
+                          const next = e.target.checked;
+                          onChange((prev) => ({ ...prev, rooms: withMissingWall(prev.rooms, selectedRoom.id, tappedWall.wallId, next) }));
+                        }}
+                      />
+                      Missing wall
+                    </label>
+                    <p className="field-note">
+                      {!missing
+                        ? "No wall here: open to the space beside it, for a lower ceiling or a bulkhead between two rooms. Drawn dashed, with no wall area or base."
+                        : step == null || Math.abs(step) < 1 / 24
+                          ? `Open${acrossName ? ` to ${acrossName}` : ""}: no wall area or base${acrossName ? ", and the ceilings meet level" : ""}.`
+                          : `Open to ${acrossName}: the ${formatFeetInches(Math.abs(step))} face where the ceilings meet counts as wall area in ${step > 0 ? selectedRoom.name.trim() || "this room" : acrossName}.`}
+                    </p>
+                  </div>
+                );
+              })()}
               {squareable.length > 0 && (
                 <div className="question">
                   <label className="prompt">Cut corners</label>

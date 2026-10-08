@@ -253,6 +253,19 @@ export async function runModel3dChecks() {
     assert(wallsAt(m, 6, 4, 2.1).length === 0, "nothing stands across the floor along its step at head height");
   });
 
+  test("a strip between two rooms with missing walls either side: no wall across the floor, a face over each side", () => {
+    // 12' rooms above and below, 10' deep, a 2' strip at 6'8" between them a partition (4") from each.
+    const above = box("above");
+    const strip = room("strip", [[0, 10 * FT + 4], [12 * FT, 10 * FT + 4], [12 * FT, 12 * FT + 4], [0, 12 * FT + 4]], { ceilingHeightFeet: 6 + 8 / 12, missingWalls: ["strip-v0", "strip-v2"] });
+    const below = room("below", [[0, 12 * FT + 8], [12 * FT, 12 * FT + 8], [12 * FT, 22 * FT + 8], [0, 22 * FT + 8]]);
+    const m = s.houseModel({ rooms: [above, strip, below] });
+    assert(wallsAt(m, 6, 3, 10.15).length === 0, "nothing stands in the partition above the strip at head height");
+    assert(wallsAt(m, 6, 3, 12.5).length === 0, "nor below it");
+    const faces = m.prisms.filter((p) => p.roomId === "strip" && p.y0 > 6);
+    assert(faces.length === 2, `two faces, got ${faces.length}`);
+    assert(faces.every((p) => Math.abs(p.y0 - (6 + 8 / 12)) < 0.01 && Math.abs(p.y1 - 8) < 0.01), "each from 6'8\" to 8'");
+  });
+
   test("an empty sketch is an empty model", () => {
     const m = s.houseModel({ rooms: [] });
     assert(m.prisms.length === 0 && m.floors.length === 0, "nothing");
