@@ -1422,17 +1422,24 @@ function RoomShape({
       />
 
       {room.stairs !== null ? (
-        /* A flight is a space, not a room with walls round it: its outline keeps the centred line. */
-        walls.map((wall) => (
-          <Line
-            key={wall.id}
-            points={[wall.x1, wall.y1, wall.x2, wall.y2]}
-            stroke={highlight?.wallIds.includes(wall.id) ? COLORS.highlightWall : COLORS.wall}
-            strokeWidth={highlight?.wallIds.includes(wall.id) ? wallStroke * 2 : wallStroke}
-            lineCap="square"
-            listening={false}
-          />
-        ))
+        /* A flight is a space, not a room with walls round it: its outline keeps the centred line - and
+           none at its ends, where it is stepped on and off (`missingWallMarks`), or anywhere else made missing. */
+        walls.flatMap((wall) =>
+          (ownRuns.get(wall.id) ?? [[0, 1]]).map(([lo, hi], k) => {
+            const a = pointOnWall(wall, lo);
+            const b = pointOnWall(wall, hi);
+            return (
+              <Line
+                key={`${wall.id}:${k}`}
+                points={[a.x, a.y, b.x, b.y]}
+                stroke={highlight?.wallIds.includes(wall.id) ? COLORS.highlightWall : COLORS.wall}
+                strokeWidth={highlight?.wallIds.includes(wall.id) ? wallStroke * 2 : wallStroke}
+                lineCap="square"
+                listening={false}
+              />
+            );
+          }),
+        )
       ) : (
         <>
           {/* The walls, Xactimate's way: 4" OUTWARD from the inside faces - see `outerWallFaces`. */}

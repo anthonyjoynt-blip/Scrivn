@@ -1669,6 +1669,43 @@ export async function runRoomChecks() {
     near(quantities(porch, [porch]).wallArea, ((120 * 2 + 96) / 12) * 8, "three walls, nothing off them");
   });
 
+  /*
+    Stairs (2026-10-08, the owner): "putting stairs there should be no wall there otherwise how would you
+    use the stairs". A flight 11' long, 3'2" wide, running right, with a room at its head a partition
+    (4") beyond its right-hand end.
+  */
+  const flight = (over = {}) =>
+    box(0, 0, 132, 38, { id: "flight", name: "Stairs", stairs: { orientation: 0, direction: "up", treadDepthFeet: 10.5 / 12, riseFeet: null }, ...over });
+  const landing = () => box(136, -40, 120, 120, { id: "landing", name: "Hall" });
+
+  test("a flight is open at both ends and walled along its sides, with nothing marked", () => {
+    const rooms = [flight()];
+    const runs = s.wallsOf(rooms[0]).map((w) => JSON.stringify(s.missingWallRuns(rooms[0], w.id, rooms)));
+    assert(JSON.stringify(runs) === JSON.stringify(["[]", "[[0,1]]", "[]", "[[0,1]]"]), `the two 3'2" ends open, got ${runs}`);
+    near(quantities(rooms[0], rooms).perimeterFloor, 2 * 11, "base along its two sides only");
+    const turned = flight({ stairs: { orientation: 90, direction: "up", treadDepthFeet: 10.5 / 12, riseFeet: null }, vertices: box(0, 0, 38, 132).vertices.map((v, i) => ({ ...v, id: `flight-v${i}` })) });
+    const turnedRuns = s.wallsOf(turned).map((w) => s.missingWallRuns(turned, w.id, [turned]).length);
+    assert(JSON.stringify(turnedRuns) === "[1,0,1,0]", `running down the page its ends are top and bottom, got ${turnedRuns}`);
+  });
+
+  test("the room at the head of a flight has no wall across it - just the flight's width of its wall", () => {
+    const rooms = [flight(), landing()];
+    const hallLeft = s.wallsOf(rooms[1])[3];
+    const open = s.missingWallRuns(rooms[1], hallLeft.id, rooms);
+    near(open.length, 1, "one stretch open");
+    near((open[0][1] - open[0][0]) * hallLeft.lengthFeet, 38 / 12, "the flight's 3'2\" of it");
+    near(quantities(rooms[1], rooms).ceilingSteps.faceSquareFeet, 0, "and no face over a flight's end");
+    near(quantities(rooms[0], rooms).ceilingSteps.faceSquareFeet, 0, "nor in the flight");
+  });
+
+  test("a flight's end made a wall again from the room beside it stays a wall, the other end still open", () => {
+    const rooms = [flight(), landing()];
+    const hallLeft = s.wallsOf(rooms[1])[3];
+    const back = s.withMissingWall(rooms, "landing", hallLeft.id, false);
+    assert(JSON.stringify(back[0].missingWalls) === JSON.stringify(["flight-v3"]), `only the foot is open now, got ${JSON.stringify(back[0].missingWalls)}`);
+    assert(s.missingWallRuns(back[1], hallLeft.id, back).length === 0, "and the hall's wall is whole");
+  });
+
   return { passed, failures };
 }
 

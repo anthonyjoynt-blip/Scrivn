@@ -576,7 +576,8 @@ export interface SketchRoom {
    * wall as missing too, as a door is one hole seen from both rooms (`missingWallRuns`). The face
    * above it, where the two ceilings differ, is wall area in the higher room (`roomQuantities`).
    *
-   * Optional because sketches saved before it existed have no such field; absent is none.
+   * Optional because sketches saved before it existed have no such field. Absent is none - except
+   * on a flight of stairs, whose two ends are open unless said otherwise (`missingWallMarks`).
    */
   missingWalls?: string[];
   symbols: SketchSymbol[];
@@ -1447,7 +1448,7 @@ export function onParentWallRuns(room: SketchRoom, wallId: string, rooms: Sketch
 export function ownMissingRuns(room: SketchRoom, wallId: string, rooms: SketchRoom[]): [number, number][] {
   const wall = wallById(room, wallId);
   if (!wall || wall.lengthPx <= 0) return [];
-  if (room.missingWalls?.includes(wallId)) return [[0, 1]];
+  if (missingWallMarks(room).includes(wallId)) return [[0, 1]];
   if (!isCeilingZone(room, rooms)) return [];
   return uncoveredRuns(onParentWallRuns(room, wallId, rooms));
 }
@@ -1463,14 +1464,32 @@ export function missingWallRuns(room: SketchRoom, wallId: string, rooms: SketchR
   return mergeRuns([...ownMissingRuns(room, wallId, rooms), ...missingAcrossRuns(room, wall, rooms)]);
 }
 
+/**
+ * The walls a room has marked missing (`missingWalls`). A flight of stairs nobody has marked has its
+ * two ends open - the foot where you step on, the head where you step off - because a flight with a
+ * wall across either end could not be used (the owner, 2026-10-08: "putting stairs there should be no
+ * wall there otherwise how would you use the stairs"). Its sides stay walls, the stairwell's.
+ */
+export function missingWallMarks(room: SketchRoom): string[] {
+  if (room.missingWalls) return room.missingWalls;
+  if (!room.stairs) return [];
+  // Across the run: a flight running left or right ends in its up-and-down walls, and the other way about.
+  const runsAcross = room.stairs.orientation === 0 || room.stairs.orientation === 180;
+  return wallsOf(room)
+    .filter((w) => w.lengthPx > 0 && w.horizontal !== runsAcross)
+    .map((w) => w.id);
+}
+
 /** The stretches of a wall facing another room's missing wall across one partition, as fractions. */
 function missingAcrossRuns(room: SketchRoom, wall: WallGeometry, rooms: SketchRoom[]): [number, number][] {
   const runs: [number, number][] = [];
   if (wall.lengthPx <= 0) return runs;
   for (const other of rooms) {
-    if (other.id === room.id || !other.missingWalls?.length || roomLevel(other) !== roomLevel(room)) continue;
+    if (other.id === room.id || roomLevel(other) !== roomLevel(room)) continue;
+    const marks = missingWallMarks(other);
+    if (marks.length === 0) continue;
     for (const theirs of wallsOf(other)) {
-      if (!other.missingWalls.includes(theirs.id)) continue;
+      if (!marks.includes(theirs.id)) continue;
       const f = facingAcross(wall, theirs);
       if (f) runs.push([f.from / wall.lengthPx, f.to / wall.lengthPx]);
     }
@@ -1496,10 +1515,10 @@ export function withMissingWall(rooms: SketchRoom[], roomId: string, wallId: str
   const wall = room ? wallById(room, wallId) : null;
   if (!room || !wall) return rooms;
   if (missing) {
-    return rooms.map((r) => (r.id === roomId ? { ...r, missingWalls: [...(r.missingWalls ?? []).filter((id) => id !== wallId), wallId] } : r));
+    return rooms.map((r) => (r.id === roomId ? { ...r, missingWalls: [...missingWallMarks(r).filter((id) => id !== wallId), wallId] } : r));
   }
   return rooms.map((r) => {
-    const marks = r.missingWalls ?? [];
+    const marks = missingWallMarks(r);
     const keep = marks.filter((id) => {
       if (r.id === roomId) return id !== wallId;
       const theirs = wallById(r, id);

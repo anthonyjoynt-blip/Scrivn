@@ -227,6 +227,7 @@ function ceilingProfile(room: SketchRoom): { meanHeightFeet: number | null; surf
  * Heights are each room's mean (`ceilingProfile`), which is the height itself for the flat ceiling
  * a bulkhead or a dropped area almost always has. Nothing is added across a missing wall with no
  * room beyond it, or when either room has no height: a face of unknown height is not a measurement.
+ * Nor at either end of a flight of stairs, whose ceiling climbs with it and steps from nothing.
  */
 function ceilingSteps(room: SketchRoom, rooms: SketchRoom[]): { faceSquareFeet: number; wallSquareFeet: number } {
   const height = (r: SketchRoom) => ceilingProfile(r).meanHeightFeet;
@@ -236,10 +237,10 @@ function ceilingSteps(room: SketchRoom, rooms: SketchRoom[]): { faceSquareFeet: 
   if (own == null) return { faceSquareFeet, wallSquareFeet };
 
   // Its own missing walls, wherever the room across is lower.
-  for (const wall of wallsOf(room)) {
+  for (const wall of room.stairs ? [] : wallsOf(room)) {
     for (const run of missingWallRuns(room, wall.id, rooms)) {
       const across = roomAcross(room, wall, run, rooms);
-      const theirs = across ? height(across) : null;
+      const theirs = across && !across.stairs ? height(across) : null;
       if (theirs != null && own > theirs) faceSquareFeet += wallRunFeet(wall, run) * (own - theirs);
     }
   }
