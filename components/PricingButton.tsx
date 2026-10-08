@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { SubscriptionTier } from "@/lib/plans";
+import type { BillingTier, ScanInterval } from "@/lib/plans";
 
 /**
  * The Subscribe / Start free trial button.
@@ -17,6 +17,7 @@ import type { SubscriptionTier } from "@/lib/plans";
  */
 export function PricingButton({
   tier,
+  interval,
   trialDays,
   signedIn,
   available,
@@ -28,35 +29,42 @@ export function PricingButton({
    * checkout behaviour below is identical either way.
    */
   buttonClassName = "btn-primary",
+  /** The page this button sits on, which a signed-out visitor comes back to after signing up. */
+  returnPath = "/pricing",
 }: {
-  tier: SubscriptionTier;
+  tier: BillingTier;
+  /** The Scan plan's billing period; the Scrivn plans are monthly only and leave it out. */
+  interval?: ScanInterval;
   trialDays: number;
   signedIn: boolean;
   available: boolean;
   billingOpen: boolean;
   buttonClassName?: string;
+  returnPath?: "/pricing" | "/scan";
 }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // React runs effects twice in development's strict mode; without this the resume below would fire
   // two checkout sessions for one return trip.
   const resumed = useRef(false);
+  // Which button the return trip belongs to: the Scan plan has two on one page, monthly and yearly.
+  const checkoutKey = interval === "year" ? `${tier}-yearly` : tier;
 
   // Resumes the checkout the visitor started before signing in. They clicked Subscribe while signed
-  // out, went through signup/login, and came back to `/pricing?checkout=<tier>` — this picks that
+  // out, went through signup/login, and came back to `<page>?checkout=<key>` — this picks that
   // intent back up so they don't have to find the button and click it a second time.
   useEffect(() => {
     if (!signedIn || !available || !billingOpen || resumed.current) return;
     const params = new URLSearchParams(window.location.search);
-    if (params.get("checkout") !== tier) return;
+    if (params.get("checkout") !== checkoutKey) return;
     resumed.current = true;
     // Drop the parameter so a later refresh doesn't relaunch checkout.
-    window.history.replaceState({}, "", "/pricing");
+    window.history.replaceState({}, "", returnPath);
     startCheckout();
     // startCheckout is stable for this component's lifetime; re-running on identity changes would
     // risk duplicate sessions, which is the one thing this effect must not do.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [signedIn, available, tier]);
+  }, [signedIn, available, checkoutKey]);
 
   async function startCheckout() {
     setError(null);
@@ -65,7 +73,7 @@ export function PricingButton({
       const res = await fetch("/api/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tier }),
+        body: JSON.stringify({ tier, interval, from: returnPath === "/scan" ? "scan" : "pricing" }),
       });
       const data = await res.json().catch(() => null);
       if (!res.ok || !data?.url) {
@@ -80,8 +88,8 @@ export function PricingButton({
 
   function handleClick() {
     if (!signedIn) {
-      // Round-trip through signup and come back ready to check out — see resumeCheckout below.
-      const next = encodeURIComponent(`/pricing?checkout=${tier}`);
+      // Round-trip through signup and come back ready to check out — see the resume effect above.
+      const next = encodeURIComponent(`${returnPath}?checkout=${checkoutKey}`);
       window.location.href = `/signup?next=${next}`;
       return;
     }
@@ -125,11 +133,14 @@ export function PricingButton({
         trial (sign-up), so "Start free trial" is literally true. Signed in, the trial is already
         running or spent and the click goes to Stripe Checkout, so it reads "Subscribe".
 
+        The Scan plan always reads "Subscribe": its free tier is in the app, not a sign-up here, so
+        a signed-out click is a sign-up on the way to paying, not the start of a trial.
+
         `trialDays` is Stripe's own trial-on-a-paid-subscription and is separate from this — it
         stays 0 and is kept in the condition so that turning it on later still labels correctly.
       */}
       <button type="button" className={buttonClassName} onClick={handleClick} disabled={loading}>
-        {loading ? "Starting…" : !signedIn ? "Start free trial" : trialDays > 0 ? `Start ${trialDays}-day free trial` : "Subscribe"}
+        {loading ? "Starting…" : !signedIn && !interval ? "Start free trial" : trialDays > 0 ? `Start ${trialDays}-day free trial` : "Subscribe"}
       </button>
     </div>
   );

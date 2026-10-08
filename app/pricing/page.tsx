@@ -1,11 +1,13 @@
 import Link from "next/link";
 import { PLANS } from "@/lib/plans";
-import { configuredTiers } from "@/lib/stripe/prices";
+import { configuredScanIntervals, configuredTiers } from "@/lib/stripe/prices";
 import { isBillingEnabled } from "@/lib/billingGate";
 import { createClient } from "@/lib/supabase/server";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
 import { PricingButton } from "@/components/PricingButton";
 import { MarketingShell } from "@/components/marketing/MarketingShell";
+import { ScanPlanCards } from "@/components/marketing/ScanPlanCards";
+import { SCAN_PLAN } from "@/lib/plans";
 
 /**
  * The pricing page — approved design from design-reference/scrivn-pricing-mockup.html over the
@@ -79,6 +81,22 @@ export default async function PricingPage() {
             );
           })}
         </div>
+      </div>
+
+      {/*
+        Scan on its own, for someone who needs floor plans and not estimates (owner, 2026-10-08).
+        Below the Scrivn tiers rather than among them: it has no claims, and every plan above
+        already includes it — see SCAN_PLAN in lib/plans.ts.
+      */}
+      <div className="mk-tiers mk-scan-offer wrap">
+        <div className="mk-scan-offer-head">
+          <h2>Just need floor plans?</h2>
+          <p>
+            <Link href="/scan">Scrivn Scan</Link> on its own: measured floor plans from your phone. Free for {SCAN_PLAN.freeScansPerMonth} scans a month, and every
+            plan above includes it.
+          </p>
+        </div>
+        <ScanPlanCards signedIn={signedIn} billingOpen={billingOpen} available={configuredScanIntervals()} returnPath="/pricing" showFree={false} />
       </div>
 
       <div className="wrap">

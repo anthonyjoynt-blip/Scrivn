@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { PRIVACY_POLICY_URL, TERMS_URL } from "@/lib/legal";
@@ -53,6 +53,10 @@ export default function SignUpPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [sent, setSent] = useState(false);
+  // Someone on their way to the Scan plan is not here to build scopes. Read after mount, as
+  // safeNext is at submit, so the server render and the first client render agree.
+  const [forScan, setForScan] = useState(false);
+  useEffect(() => setForScan(safeNext().startsWith("/scan")), []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -146,7 +150,7 @@ export default function SignUpPage() {
     <main className="login-main">
       <div className="card login-card">
         <h1>Create your account</h1>
-        <p className="subtitle">Set up a Scrivn account to start building scopes.</p>
+        <p className="subtitle">{forScan ? "Set up a Scrivn account for your Scan plan." : "Set up a Scrivn account to start building scopes."}</p>
         {error && <div className="error-banner">{error}</div>}
         <form onSubmit={handleSubmit}>
           <div className="auth-field">

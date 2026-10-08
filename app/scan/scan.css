@@ -1,0 +1,269 @@
+/*
+ * The Scrivn Scan product page (/scan). Scoped under .mk like the rest of the marketing site and
+ * built from its tokens; only what the home page's pieces don't already cover lives here.
+ */
+
+/* ---- hero: copy beside the plan it makes ---- */
+
+.mk .sc-hero {
+  display: flex;
+  align-items: center;
+  gap: 48px;
+  padding-block: 64px 56px;
+  flex-wrap: wrap;
+}
+.mk .sc-hero-copy {
+  flex: 1 1 380px;
+  min-width: 0;
+}
+.mk .sc-eyebrow {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--amber-dark);
+  margin: 0 0 12px;
+}
+.mk .sc-hero h1 {
+  font-size: 42px;
+  font-weight: 700;
+  color: var(--navy);
+  line-height: 1.12;
+  margin: 0 0 18px;
+}
+.mk .sc-hero p.sub {
+  font-size: 18px;
+  color: var(--muted);
+  line-height: 1.55;
+  margin: 0 0 28px;
+  max-width: 520px;
+}
+.mk .sc-hero .mk-hero-ctas {
+  justify-content: flex-start;
+}
+.mk .sc-fine {
+  font-size: 13px;
+  color: var(--muted);
+  margin: 16px 0 0;
+}
+.mk .sc-hero-art {
+  flex: 1 1 340px;
+  min-width: 0;
+  max-width: 460px;
+  margin: 0 auto;
+}
+.mk .sc-hero-art svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  filter: drop-shadow(0 10px 28px rgba(18, 40, 63, 0.16));
+}
+
+@media (max-width: 640px) {
+  .mk .sc-hero {
+    padding-block: 40px 36px;
+    gap: 32px;
+  }
+  .mk .sc-hero h1 {
+    font-size: 32px;
+  }
+  .mk .sc-hero p.sub {
+    font-size: 16px;
+  }
+}
+
+/* ---- section heads ---- */
+
+.mk .sc-section {
+  padding-block: 64px;
+}
+.mk .sc-section.tint {
+  background: var(--ice);
+}
+.mk .sc-head {
+  text-align: center;
+  max-width: 640px;
+  margin: 0 auto 36px;
+}
+.mk .sc-head h2 {
+  font-size: 28px;
+  color: var(--navy);
+  margin: 0 0 10px;
+}
+.mk .sc-head p {
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1.55;
+  margin: 0;
+}
+
+/* ---- how it works: three steps ---- */
+
+.mk .sc-steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 24px;
+}
+.mk .sc-step {
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 22px;
+}
+.mk .sc-step-art {
+  border-radius: 8px;
+  background: #f7f9fb;
+  border: 1px solid var(--border);
+  padding: 10px;
+  margin-bottom: 16px;
+  aspect-ratio: 4 / 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.mk .sc-step-art svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.mk .sc-step-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--amber);
+  color: var(--navy-dark);
+  font-weight: 700;
+  font-size: 13px;
+  margin-right: 8px;
+}
+.mk .sc-step h3 {
+  font-size: 17px;
+  color: var(--navy);
+  margin: 0 0 8px;
+  display: flex;
+  align-items: center;
+}
+.mk .sc-step p {
+  font-size: 14.5px;
+  color: var(--text);
+  line-height: 1.55;
+  margin: 0;
+}
+
+@media (max-width: 820px) {
+  .mk .sc-steps {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ---- what it measures / who it's for: the home page's benefit cards, two kinds of grid ---- */
+
+.mk .sc-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 20px;
+}
+.mk .sc-card {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 22px;
+  background: var(--white);
+}
+.mk .sc-card h3 {
+  font-size: 16px;
+  color: var(--navy);
+  margin: 0 0 8px;
+}
+.mk .sc-card p {
+  font-size: 14px;
+  color: var(--muted);
+  line-height: 1.55;
+  margin: 0;
+}
+.mk .sc-card .sc-tag {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--amber-dark);
+  margin-bottom: 8px;
+}
+
+@media (max-width: 820px) {
+  .mk .sc-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ---- pricing ---- */
+
+.mk .sc-pricing .mk-tiers {
+  padding-block: 12px 0;
+}
+/* the tier cards are see-through by default, which the tinted band shows through */
+.mk .sc-pricing .mk-tier-card {
+  background: var(--white);
+}
+.mk .sc-included {
+  text-align: center;
+  color: var(--muted);
+  font-size: 14px;
+  margin: 28px auto 0;
+  max-width: 560px;
+  line-height: 1.55;
+}
+.mk .sc-included a {
+  color: var(--navy);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* ---- questions ---- */
+
+.mk .sc-faq {
+  max-width: 720px;
+  margin: 0 auto;
+}
+.mk .sc-faq details {
+  border-bottom: 1px solid var(--border);
+  padding: 16px 0;
+}
+.mk .sc-faq summary {
+  font-weight: 600;
+  color: var(--navy);
+  font-size: 16px;
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+}
+.mk .sc-faq summary::-webkit-details-marker {
+  display: none;
+}
+.mk .sc-faq summary::after {
+  content: "+";
+  color: var(--amber-dark);
+  font-weight: 700;
+}
+.mk .sc-faq details[open] summary::after {
+  content: "–";
+}
+.mk .sc-faq p {
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1.6;
+  margin: 10px 0 0;
+}
+.mk .sc-faq a {
+  color: var(--navy);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}

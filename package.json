@@ -31,6 +31,7 @@
     "test:moisture": "node test/moisture/run.mjs",
     "test:sw": "node test/sw/run.mjs",
     "test:letterhead": "node test/letterhead/run.mjs",
+    "test:billing": "node test/billing/run.mjs",
     "test:device": "node test/device/run.mjs",
     "test:device:rls": "node test/device/rls.mjs"
   },

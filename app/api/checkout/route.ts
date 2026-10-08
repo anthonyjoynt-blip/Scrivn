@@ -3,8 +3,8 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getStripe } from "@/lib/stripe/server";
 import { BILLING_DISABLED_MESSAGE, isBillingEnabled } from "@/lib/billingGate";
-import { priceIdForTier } from "@/lib/stripe/prices";
-import { PLANS, type SubscriptionTier } from "@/lib/plans";
+import { priceIdForTier, scanPriceId } from "@/lib/stripe/prices";
+import { PLANS, SCAN_TIER, isScanTier, isScrivnTier, type ScanInterval, type SubscriptionTier } from "@/lib/plans";
 
 /** Random 8-letter suffix for `integration_identifier` — lets checkout flows be compared in the Stripe Dashboard. */
 function integrationIdentifier(): string {
@@ -22,7 +22,8 @@ function integrationIdentifier(): string {
  * 1. **The user comes from the Supabase session, never the request body.** A client-supplied user
  *    id would let anyone attach a subscription to someone else's account.
  * 2. **The client sends a tier name, not a price ID.** The price is resolved server-side (see
- *    lib/stripe/prices.ts) so the only purchasable prices are this deployment's three.
+ *    lib/stripe/prices.ts) so the only purchasable prices are this deployment's configured ones —
+ *    the three Scrivn plans and Scan's monthly and yearly.
  */
 export async function POST(request: Request) {
   // Before anything else, including the auth check: there is nothing to authorise if the deployment
@@ -48,11 +49,16 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Request body must be JSON." }, { status: 400 });
   }
 
-  const tier = (body as { tier?: unknown } | null)?.tier;
-  const plan = PLANS.find((p) => p.tier === tier);
-  if (!plan) {
+  const { tier, interval, from } = (body ?? {}) as { tier?: unknown; interval?: unknown; from?: unknown };
+  // Scan on its own is a tier with two prices rather than a `Plan` — see SCAN_PLAN in lib/plans.ts.
+  const scan = tier === SCAN_TIER;
+  const plan = scan ? null : PLANS.find((p) => p.tier === tier);
+  if (!scan && !plan) {
     return NextResponse.json({ error: "Unknown plan." }, { status: 400 });
   }
+  const scanInterval: ScanInterval = interval === "year" ? "year" : "month";
+  // Where a cancelled checkout goes back to: a fixed path, never one the request names.
+  const returnPath = from === "scan" ? "/scan" : "/pricing";
 
   try {
     const stripe = getStripe();
@@ -60,7 +66,18 @@ export async function POST(request: Request) {
 
     // Reuse this user's Stripe customer if they've checked out before, so repeat checkouts and
     // plan changes stay on one customer record (and one card, one invoice history).
-    const { data: profile } = await admin.from("profiles").select("stripe_customer_id, full_name").eq("id", userId).maybeSingle();
+    const { data: profile } = await admin.from("profiles").select("stripe_customer_id, full_name, subscription_tier").eq("id", userId).maybeSingle();
+
+    // Every Scrivn plan includes Scan, so the Scan plan is for people without one; and a second Scan
+    // subscription would bill twice for the same thing.
+    const currentTier = (profile?.subscription_tier as string | null) ?? null;
+    if (scan && isScrivnTier(currentTier)) {
+      return NextResponse.json({ error: "Your Scrivn plan already includes Scan." }, { status: 409 });
+    }
+    if (scan && isScanTier(currentTier)) {
+      return NextResponse.json({ error: "You already have the Scan plan. Change or cancel it from your account." }, { status: 409 });
+    }
+
     let customerId = (profile?.stripe_customer_id as string | null) ?? null;
 
     if (!customerId) {
@@ -85,13 +102,15 @@ export async function POST(request: Request) {
       // Deliberately NOT setting payment_method_types — omitting it enables dynamic payment
       // methods, so what's offered is controlled from the Dashboard and adapts to the customer.
       // Hardcoding ['card'] here would silently disable everything else.
-      line_items: [{ price: priceIdForTier(plan.tier as SubscriptionTier), quantity: 1 }],
-      ...(plan.trialDays > 0 ? { subscription_data: { trial_period_days: plan.trialDays } } : {}),
+      line_items: [{ price: plan ? priceIdForTier(plan.tier as SubscriptionTier) : scanPriceId(scanInterval), quantity: 1 }],
+      ...(plan && plan.trialDays > 0 ? { subscription_data: { trial_period_days: plan.trialDays } } : {}),
       // Belt and braces for matching the event back to a profile in the webhook.
       client_reference_id: userId,
-      success_url: `${origin}/subscribe/success?session_id={CHECKOUT_SESSION_ID}`,
-      // Returning to pricing with no error state — a cancelled checkout is just a change of mind.
-      cancel_url: `${origin}/pricing`,
+      // `plan=scan` only words the page (the Scan plan has no claims); it grants nothing.
+      success_url: `${origin}/subscribe/success?session_id={CHECKOUT_SESSION_ID}${scan ? "&plan=scan" : ""}`,
+      // Returning to the page they came from with no error state — a cancelled checkout is just a
+      // change of mind.
+      cancel_url: `${origin}${returnPath}`,
       integration_identifier: integrationIdentifier(),
     });
 

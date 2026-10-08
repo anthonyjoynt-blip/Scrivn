@@ -9,7 +9,7 @@ import { listDeviceTokens, type DeviceTokenItem } from "@/lib/deviceRepo";
 import { loadOrganizationLetterhead, type OrganizationLetterheadState } from "@/lib/organizationRepo";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
 import { getUsageState } from "@/lib/usage";
-import { TRIAL_CLAIM_LIMIT, TRIAL_DAYS, planForTier } from "@/lib/plans";
+import { SCAN_PLAN, TRIAL_CLAIM_LIMIT, TRIAL_DAYS, isScanTier, planForTier } from "@/lib/plans";
 
 /** The person's details, or null for no card — nobody signed in, which here only happens in the dev fail-open. */
 async function profileCard(): Promise<Profile | null> {
@@ -97,7 +97,35 @@ export default async function AccountPage({ searchParams }: { searchParams: Prom
 
       <div className="card">
         <h2>Subscription</h2>
-        {plan && usage ? (
+        {usage && isScanTier(usage.tier) ? (
+          <>
+            {/* Scan on its own: no claims, so none of the Scrivn plan's rows — see SCAN_PLAN. */}
+            <div className="account-row">
+              <span className="account-label">Plan</span>
+              <span className="account-value">{SCAN_PLAN.name}, unlimited scans</span>
+            </div>
+            {usage.onTrial && (
+              <div className="account-row">
+                <span className="account-label">Scrivn trial claims used</span>
+                <span className="account-value">
+                  {usage.trialClaimsUsed} of {TRIAL_CLAIM_LIMIT}
+                </span>
+              </div>
+            )}
+            <div className="actions-row">
+              <Link href="/pricing" className="btn-secondary">
+                Scrivn plans
+              </Link>
+              <a href="/api/portal" className="btn-primary">
+                Manage billing
+              </a>
+            </div>
+            <p className="field-note">
+              Manage billing opens Stripe, where you can update your card, download invoices, or cancel. Every Scrivn plan includes Scan: choosing one ends this plan,
+              with what&rsquo;s left of it credited to your bill.
+            </p>
+          </>
+        ) : plan && usage ? (
           <>
             <div className="account-row">
               <span className="account-label">Plan</span>

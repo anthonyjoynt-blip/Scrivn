@@ -57,6 +57,33 @@ that errors — so you can launch with fewer than three if you want.
 Also update `priceLabel` in `lib/plans.ts` so the pricing page shows the real amounts. Those strings
 are display-only; Stripe remains the source of truth for what's actually charged.
 
+## 3b. Scrivn Scan on its own (added 2026-10-08)
+
+A fourth product, **Scrivn Scan**, for people who want Scan's floor plans without Scrivn. One product
+with **two** prices (monthly and yearly): both are the same plan, so one product name on the
+invoice is right here.
+
+| Product | Price | Recurring | Lookup key |
+|---|---|---|---|
+| Scrivn Scan | $19.00 CAD | Monthly | `scan_monthly` |
+| Scrivn Scan | $190.00 CAD | Yearly | `scan_yearly` |
+
+Same tax code as the others (`txcd_10103001`, SaaS) and `exclusive` tax behaviour.
+`node scripts/stripe-scan-plan.mjs` creates both in whichever account `STRIPE_SECRET_KEY` points at
+(it refuses a live key unless told `--live`) and prints the two lines for `.env.local`:
+
+```
+STRIPE_PRICE_SCAN_MONTHLY=price_...
+STRIPE_PRICE_SCAN_YEARLY=price_...
+```
+
+Run migration `0009_scan_tier.sql` first: the webhook writes `subscription_tier = 'scan'`, which
+0002's check refuses until then. The prices shown on the pages are `SCAN_PLAN` in `lib/plans.ts`.
+
+Rules the webhook keeps (`lib/billingTiers.ts`, `npm run test:billing`): checkout refuses Scan to
+anyone on a Scrivn plan (it includes Scan); someone on Scan who buys a Scrivn plan has their Scan
+subscription cancelled, prorated; and a Scan subscription's events never touch a Scrivn plan.
+
 ## 4. Local webhook testing
 
 Stripe can't reach `localhost`, so the CLI forwards events to it:
@@ -86,8 +113,8 @@ Subscribe to exactly:
 
 Stripe shows a signing secret for the endpoint — that's the production `STRIPE_WEBHOOK_SECRET`, and
 it is **not** the same as the `stripe listen` one. It goes in Vercel's environment variables along
-with `STRIPE_SECRET_KEY`, the three price IDs, `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`, and
-`SUPABASE_SERVICE_ROLE_KEY`.
+with `STRIPE_SECRET_KEY`, the three price IDs and Scan's two, `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`,
+and `SUPABASE_SERVICE_ROLE_KEY`.
 
 ## How the pieces fit
 

@@ -3,6 +3,9 @@ import type Stripe from "stripe";
 import { getStripe } from "@/lib/stripe/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { cleanEnv } from "@/lib/env";
+import { scanPriceIds } from "@/lib/stripe/prices";
+import { SCAN_TIER } from "@/lib/plans";
+import { scanSubscriptionsToCancel, subscriptionEventApplies } from "@/lib/billingTiers";
 
 /**
  * The Stripe webhook — what makes a subscription real to this app rather than only to Stripe.
@@ -82,7 +85,37 @@ function tierForPriceId(priceId: string | null | undefined): string | null {
   if (priceId === cleanEnv("STRIPE_PRICE_STARTER")) return "starter";
   if (priceId === cleanEnv("STRIPE_PRICE_GROWTH")) return "growth";
   if (priceId === process.env.STRIPE_PRICE_UNLIMITED) return "unlimited";
+  // Scan on its own: two prices (monthly, yearly), one tier.
+  if (scanPriceIds().includes(priceId)) return SCAN_TIER;
   return null;
+}
+
+/** The profile's tier now, by whichever key the event can reach it. */
+async function storedTier(admin: ReturnType<typeof createAdminClient>, match: Record<string, unknown>): Promise<string | null> {
+  const { data } = await admin.from("profiles").select("subscription_tier").match(match).maybeSingle();
+  return (data?.subscription_tier as string | null) ?? null;
+}
+
+/**
+ * Cancels the customer's Scan subscriptions once they have bought a Scrivn plan, which includes Scan
+ * — otherwise they would go on paying for both. Prorated, so the unused part of the Scan period comes
+ * back as credit on their next Scrivn bill. A failure is logged and not thrown: the Scrivn plan is
+ * already theirs, and a Stripe retry would only repeat the grant; the Scan subscription stays visible
+ * (and cancellable) in the billing portal.
+ */
+async function cancelScanOnceScrivnBought(stripe: Stripe, customerId: string, boughtTier: string, boughtId: string) {
+  try {
+    const { data } = await stripe.subscriptions.list({ customer: customerId, status: "all", limit: 20 });
+    const ids = scanSubscriptionsToCancel(
+      data.map((s) => ({ id: s.id, status: s.status, priceId: s.items.data[0]?.price?.id ?? null })),
+      scanPriceIds(),
+      boughtTier,
+      boughtId,
+    );
+    for (const id of ids) await stripe.subscriptions.cancel(id, { prorate: true, invoice_now: true });
+  } catch (err) {
+    console.error("[stripe webhook] could not cancel the Scan subscription a Scrivn plan replaces:", err);
+  }
 }
 
 /** Period end lives on the subscription item in current API versions; fall back to the subscription for older shapes. */
@@ -116,6 +149,12 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session, stripe:
   const match = userId ? { id: userId } : customerId ? { stripe_customer_id: customerId } : null;
   if (!match) return;
 
+  // Scan bought by someone already on a Scrivn plan (the checkout route refuses it, so only a race
+  // gets here): the Scrivn plan stays.
+  if (!subscriptionEventApplies({ eventTier: tier, storedTier: await storedTier(admin, match), deleted: false })) return;
+
+  if (customerId) await cancelScanOnceScrivnBought(stripe, customerId, tier, subscription.id);
+
   await admin
     .from("profiles")
     .update({
@@ -134,6 +173,11 @@ async function handleSubscriptionChange(subscription: Stripe.Subscription, delet
 
   const admin = createAdminClient();
 
+  // Not every subscription event is about the plan the profile holds: a Scan subscription a Scrivn
+  // plan replaced still sends its cancellation — see lib/billingTiers.ts.
+  const eventTier = tierForPriceId(subscription.items.data[0]?.price?.id);
+  if (!subscriptionEventApplies({ eventTier, storedTier: await storedTier(admin, { stripe_customer_id: customerId }), deleted })) return;
+
   if (deleted) {
     // Cancelled: back to no plan. Usage is left as-is rather than zeroed — resetting it would hand
     // a full fresh allowance to anyone who cancels and resubscribes.
@@ -143,7 +187,7 @@ async function handleSubscriptionChange(subscription: Stripe.Subscription, delet
 
   // A subscription that's past due, unpaid, or cancelled shouldn't keep its plan active.
   const active = subscription.status === "active" || subscription.status === "trialing";
-  const tier = active ? tierForPriceId(subscription.items.data[0]?.price?.id) : null;
+  const tier = active ? eventTier : null;
   const newPeriodEnd = periodEndIso(subscription);
 
   const { data: profile } = await admin

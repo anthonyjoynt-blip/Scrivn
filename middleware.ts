@@ -42,7 +42,11 @@ const AUTH_PAGES = new Set(["/login", "/signup", "/forgot-password"]);
  * NEXT_PUBLIC_SHOW_MARKETING_NAV hides the links to these pages; it deliberately has no effect
  * here. The pages stay directly reachable by URL whether or not the site advertises them.
  */
-const PUBLIC_PAGES = new Set(["/", "/how-it-works", "/pricing", "/faq", "/contact", "/auth/auth-code-error", "/pair", "/scan-guide"]);
+const PUBLIC_PAGES = new Set(["/", "/how-it-works", "/scan", "/pricing", "/faq", "/contact", "/auth/auth-code-error", "/pair", "/scan-guide"]);
+/*
+  `/scan` is Scrivn Scan's own product page with its plan (app/scan/page.tsx): where the app's
+  plain-text "scrivn.ca/scan" sends someone who found Scan on Google Play.
+*/
 /*
   `/scan-guide` is the Scrivn Scan tester guide: static instructions a tester reads on their phone, most
   with no Scrivn account at all (Scan is tested as a product of its own). See app/scan-guide/page.tsx.

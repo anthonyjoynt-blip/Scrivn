@@ -74,9 +74,55 @@ export const PLANS: Plan[] = [
   },
 ];
 
+/**
+ * A Scrivn plan for a tier, or null for anything else — including `SCAN_TIER`. That null is
+ * deliberate: a Scan-only subscriber has no Scrivn plan, so for claims they are where anyone without
+ * one is (the free trial, then View plans), and `lib/usage.ts` needs no Scan case at all.
+ */
 export function planForTier(tier: string | null | undefined): Plan | null {
   if (!tier) return null;
   return PLANS.find((p) => p.tier === tier) ?? null;
+}
+
+/**
+ * Scrivn Scan on its own (owner, 2026-10-08): for someone who wants measured floor plans and not
+ * estimates — a flooring or renovation contractor who found Scan on Google Play. Sold here through
+ * Stripe, never inside the app: an app that sells nothing itself may name the website in plain text,
+ * and that keeps Google's cut out of it. Every Scrivn plan includes Scan, so this is only ever bought
+ * by someone without one (the checkout route refuses it otherwise).
+ *
+ * Stored in `profiles.subscription_tier` like the Scrivn tiers (migration 0009 widens the check),
+ * but it is not one of them: no claims, no `Plan`, kept out of `PLANS` so the three-tier pricing row
+ * and the claim caps never see it. What it unlocks is on the phone — unlimited scans against the
+ * free tier's few a month — and lands with Scan's own sign-in.
+ */
+export const SCAN_TIER = "scan";
+export type ScanInterval = "month" | "year";
+/** Every tier the subscription column can hold. */
+export type BillingTier = SubscriptionTier | typeof SCAN_TIER;
+
+export const SCAN_PLAN = {
+  name: "Scrivn Scan",
+  /** Display only, as `Plan.priceLabel` is: Stripe's two prices are what's charged. CAD. */
+  monthlyLabel: "$19",
+  yearlyLabel: "$190",
+  /** The free tier, counted on the server once Scan signs in — about three a month (2026-10-01). */
+  freeScansPerMonth: 3,
+  features: [
+    "Unlimited scans",
+    "Floor plan PDF with room sizes",
+    "To-scale JPG for tracing in Xactimate or any sketch tool",
+    "Doors, windows, closets, cabinets, stairs and ceiling heights",
+  ],
+} as const;
+
+export function isScanTier(tier: string | null | undefined): boolean {
+  return tier === SCAN_TIER;
+}
+
+/** A Scrivn tier (starter, growth, unlimited) — each of which includes Scan. */
+export function isScrivnTier(tier: string | null | undefined): tier is SubscriptionTier {
+  return planForTier(tier) !== null;
 }
 
 /** The cap for a tier, or 0 for no/unknown tier — no plan means nothing can be generated. */
