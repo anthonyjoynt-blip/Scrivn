@@ -8,7 +8,8 @@
  *
  * A pulled report is the files a walk pulled off the phone would be - room_<stamp>_taps.json and
  * room_<stamp>_log.txt - with room_<stamp>_report.txt beside them (who, which phone, what they said),
- * and it is marked 'seen'. Reads NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY from .env.local
+ * and it is marked 'seen'. Since Scan 0.1.116 the log is the app's recent log, earlier runs and all, and
+ * each run a Start ended is in it whole; those come out as room_<stamp>_earlier<k>_taps.json, oldest first. Reads NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY from .env.local
  * and never prints them.
  */
 import { createClient } from "@supabase/supabase-js";
@@ -80,9 +81,26 @@ if (r.capture) {
   writeFileSync(join(out, `room_${stamp}_taps.json`), JSON.stringify(r.capture, null, 2));
   written.push(`room_${stamp}_taps.json`);
 }
+/** What starts the line holding a capture Start ended (MainActivity.CAPTURE_JSON_MARK in Scan). */
+const EARLIER_MARK = "capture json, as Start found it: ";
 if (r.log_gz) {
-  writeFileSync(join(out, `room_${stamp}_log.txt`), gunzipSync(Buffer.from(r.log_gz, "base64")));
+  const log = gunzipSync(Buffer.from(r.log_gz, "base64")).toString("utf8");
+  writeFileSync(join(out, `room_${stamp}_log.txt`), log);
   written.push(`room_${stamp}_log.txt`);
+  let k = 0;
+  for (const line of log.split("\n")) {
+    const at = line.indexOf(EARLIER_MARK);
+    if (at < 0) continue;
+    try {
+      const earlier = JSON.parse(line.slice(at + EARLIER_MARK.length));
+      k++;
+      const name = `room_${stamp}_earlier${k}_taps.json`;
+      writeFileSync(join(out, name), JSON.stringify(earlier, null, 2));
+      written.push(`${name} (ended ${line.slice(0, 18)})`);
+    } catch {
+      // A line cut short (a log trimmed to fit) is not a capture.
+    }
+  }
 }
 const meta = [
   `report ${r.id}`,

@@ -54,7 +54,7 @@ When you use the Dictate button, your speech is turned into text by your phone o
 
 Scrivn Scan uses your phone's camera to measure rooms and to take photos and 360° images. It asks for camera permission only, and does not access your location, microphone, contacts or files. Measurements and photos are sent to Scrivn when you send a scan to a claim. Scan is linked to your account by scanning a pairing code, and you can revoke a paired phone from your account at any time. You can use Scan without pairing it to a Scrivn account.
 
-When you choose Send to Scrivn team, Scan sends us that scan's measurements, the app's log of the scan (what the app did and how its tracking went, with your phone's model and its Android and app versions), a random ID made for this copy of the app, and whatever you write in the note and contact boxes. No photos are sent this way. We use these only to find and fix problems in Scan, and delete them within 12 months.
+When you choose Send to Scrivn team, Scan sends us that scan's measurements, the app's recent log (what the app did and how its tracking went, for that scan and any others made since the app was opened, including their measurements, with your phone's model and its Android and app versions), a random ID made for this copy of the app, and whatever you write in the note and contact boxes. No photos are sent this way. We use these only to find and fix problems in Scan, and delete them within 12 months.
 
 Scrivn Scan runs on Google Play Services for AR (ARCore), which is provided by Google LLC and governed by the Google Privacy Policy.
 

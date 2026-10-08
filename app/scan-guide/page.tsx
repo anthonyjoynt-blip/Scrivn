@@ -111,7 +111,8 @@ export default async function ScanGuidePage() {
                 Next room: <B>Add room</B>, tap its corners, tap the doorway you came through, then <B>More…</B> → <B>Join this room to another</B>.
               </li>
               <li>
-                Anything wrong? On the plan, tap <B>Report a problem</B> and tell us. Do it before you press Start again.
+                Anything wrong? On the plan, tap <B>Report a problem</B> and tell us. Did the room twice? Report after the second run;
+                both come along.
               </li>
             </ol>
           </div>
@@ -662,12 +663,12 @@ export default async function ScanGuidePage() {
                   </li>
                 </ol>
                 <div className="sg-warn">
-                  <strong>Report before you press Start again.</strong> The log covers the current capture only; a new Start begins a new
-                  one.
+                  <strong>Did the room more than once?</strong> Report after the last run. The scan on the screen goes, and so does the
+                  app&apos;s recent log, with every run before it since the app was opened.
                 </div>
                 <p className="sg-small">
-                  What&apos;s sent: the scan&apos;s measurements, the app&apos;s log of it, your phone&apos;s model and Android version, and
-                  what you write. No photos. It works with or without a Scrivn account, but it needs an internet connection; if it
+                  What&apos;s sent: the scan&apos;s measurements, the app&apos;s recent log (this run and any others since the app was
+                  opened), your phone&apos;s model and Android version, and what you write. No photos. It works with or without a Scrivn account, but it needs an internet connection; if it
                   can&apos;t send, it says so and offers <B>Try again</B>.
                 </p>
                 <p className="sg-small">
