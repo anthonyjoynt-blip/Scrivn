@@ -873,11 +873,50 @@ export async function runScanImportChecks() {
     near(shower.depthFeet, 3, "shower 3'0\" deep", 1e-9);
     assert(shower.showerShape === "rectangular", "a shower stall, not a corner unit");
     // On no wall of the outline: skipped with its own note, not called a cabinet.
-    assert(result.notes.some((n) => /1 tub or shower named a wall the outline does not have; skipped/.test(n)), `expected the stray shower's note, got ${JSON.stringify(result.notes)}`);
+    assert(result.notes.some((n) => /1 fixture \(tub, shower, fridge or range\) named a wall the outline does not have; skipped/.test(n)), `expected the stray shower's note, got ${JSON.stringify(result.notes)}`);
     assert(!result.notes.some((n) => /cabinet/.test(n) && /could not be read/.test(n)), `a tub is not an unreadable cabinet, got ${JSON.stringify(result.notes)}`);
     // Freestanding, it is a block named for what it is.
     const block = result.room.freeCabinets.find((b) => b.label === "Tub");
     assert(block, `expected a freestanding Tub block, got ${JSON.stringify(result.room.freeCabinets)}`);
+  });
+
+  test("a fridge and a range tapped as runs come in as the sketch's own Fridge and Range, never stretched to their wall", () => {
+    // 2026-10-11, the owner: "fixtures perhaps, could even include fridge/freezers/ranges" - Scan's Fixture chip.
+    const fixture = JSON.parse(basementTaps);
+    fixture.cabinets = [
+      { edge: 2, from_m: 0.3, width_m: 0.76, tier: "fridge", depth_m: 0.76 },
+      { edge: 2, from_m: 1.3, width_m: 0.76, tier: "range", depth_m: 0.66 },
+    ];
+    fixture.islands = [];
+    const result = importedOutline(JSON.stringify(fixture));
+    const fixtures = result.room.symbols.filter((s) => s.type === "fixture");
+    const fridge = fixtures.find((s) => s.fixtureType === "fridge");
+    const range = fixtures.find((s) => s.fixtureType === "range");
+    assert(fridge && range, `expected a fridge and a range, got ${JSON.stringify(fixtures)}`);
+    assert(result.room.symbols.every((s) => s.type !== "cabinet"), "neither is drawn as a cabinet");
+    // 0.76 m is 2'6"; 0.66 m to the inch is 2'2".
+    near(fridge.widthFeet, 2.5, "fridge 2'6\" wide", 1e-9);
+    near(fridge.depthFeet, 2.5, "fridge 2'6\" deep", 1e-9);
+    near(range.depthFeet, 26 / 12, "range 2'2\" deep", 1e-9);
+    assert(!result.notes.some((n) => /stretched to fill it/.test(n)), `a fridge or range is never stretched to its wall, got ${JSON.stringify(result.notes)}`);
+  });
+
+  test("a room with no ceiling of its own keeps the scan's main ceiling and says where it came from", () => {
+    // 2026-10-11: Scan gives a room with no ceiling tap the walk's main ceiling - ceiling_m that room's, not measured here.
+    const fixture = JSON.parse(basementTaps);
+    fixture.ceiling_m = 2.59;
+    fixture.ceiling_type = "flat";
+    fixture.ceiling_measured = false;
+    fixture.ceiling_from = "Rec Room";
+    const result = importedOutline(JSON.stringify(fixture));
+    near(result.room.ceilingHeightFeet, 8.5, "8'6\" carried", 1e-9);
+    assert(result.room.ceilingMeasured === false, "not measured in this room");
+    assert(result.room.ceilingFrom === "Rec Room", `expected ceilingFrom Rec Room, got ${result.room.ceilingFrom}`);
+    // Without it, the plain 8' default and no source.
+    const plain = JSON.parse(basementTaps);
+    plain.ceiling_measured = false;
+    delete plain.ceiling_m;
+    assert(importedOutline(JSON.stringify(plain)).room.ceilingFrom === undefined, "no source without ceiling_from");
   });
 
   test("a tapped flight of stairs comes in as a stair room where it was tapped, climbing up the page", () => {

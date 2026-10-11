@@ -503,6 +503,11 @@ export interface SketchRoom {
    * that read nothing sets it false — see the phone's `CeilingFit`.
    */
   ceilingMeasured?: boolean;
+  /**
+   * The room this one's height was carried from (2026-10-11): the scan measured no ceiling here and gave it the walk's main
+   * ceiling, measured in the room named. Set only with `ceilingMeasured` false; typing a height clears it.
+   */
+  ceilingFrom?: string;
   ceilingPeakFeet: number | null;
   /**
    * Non-null when this "room" is a flight of stairs — see `StairsData`.

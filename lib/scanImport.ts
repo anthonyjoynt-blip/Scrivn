@@ -264,8 +264,11 @@ export interface ScanCabinet {
   depth_m: number | null;
 }
 
-/** What the phone taps as a run and the sketch draws as a fixture (2026-10-04): a tub or a shower. */
-export type ScanFixtureKind = "tub" | "shower";
+/**
+ * What the phone taps as a run and the sketch draws as a fixture (2026-10-04): a tub or a shower; and since 2026-10-11 a fridge
+ * (or an upright freezer) and a range - each the sketch's own fixture of that name.
+ */
+export type ScanFixtureKind = "tub" | "shower" | "fridge" | "range";
 
 /**
  * A tub or a shower tapped against the outline as a cabinet run is (its `cabinets` entry with a tier of `tub` or
@@ -342,6 +345,11 @@ export interface ScanRoom {
   /** Which way the ceiling rises in the file's own frame, degrees from +u towards +v; see `SketchRoom.ceilingRiseDeg`. */
   ceiling_rise_deg?: number | null;
   ceiling_measured?: boolean | null;
+  /**
+   * The room the height came from when this one had no ceiling measured of its own (Scan 2026-10-11, the walk's main
+   * ceiling): `ceiling_m` is that room's measured height and `ceiling_measured` false. Absent otherwise.
+   */
+  ceiling_from?: string | null;
   walls: ScanWall[];
   /** The room polygon in the scanner's (u, v) frame, when the scanner found more than a rectangle. */
   outline?: [number, number][];
@@ -542,7 +550,7 @@ function isCabinetTier(value: unknown): value is CabinetTier {
 }
 
 function isFixtureKind(value: unknown): value is ScanFixtureKind {
-  return value === "tub" || value === "shower";
+  return value === "tub" || value === "shower" || value === "fridge" || value === "range";
 }
 
 /**
@@ -800,6 +808,7 @@ export function parseScanRoom(input: unknown): { ok: true; scan: ScanRoom; notes
       ceiling_run_m: isFiniteNumber(raw.ceiling_run_m) ? raw.ceiling_run_m : null,
       ceiling_rise_deg: isFiniteNumber(raw.ceiling_rise_deg) ? raw.ceiling_rise_deg : null,
       ceiling_measured: typeof raw.ceiling_measured === "boolean" ? raw.ceiling_measured : null,
+      ceiling_from: typeof raw.ceiling_from === "string" && raw.ceiling_from.trim() !== "" ? raw.ceiling_from.trim() : null,
       walls,
       outline,
       outline_openings: outlineOpenings,
@@ -1023,6 +1032,8 @@ export function scanToSketchRoom(scan: ScanRoom, at: { x: number; y: number }, l
     ceilingRunFeet: overhead.runFeet,
     ...(overhead.riseDeg != null ? { ceilingRiseDeg: overhead.riseDeg } : {}),
     ceilingMeasured: overhead.measured,
+    // Not read here but the scan's main ceiling, measured in the room it names (2026-10-11).
+    ...(scan.ceiling_from && ceiling != null && overhead.measured === false ? { ceilingFrom: scan.ceiling_from } : {}),
     stairs: null,
     parentRoomId: null,
     nestingOptOut: false,
@@ -1480,7 +1491,7 @@ export function scanToSketchRoom(scan: ScanRoom, at: { x: number; y: number }, l
     notes.push(`${cabinetsOff} cabinet${cabinetsOff === 1 ? "" : "s"} named a wall the outline does not have; skipped.`);
   }
   if (fixturesOff > 0) {
-    notes.push(`${fixturesOff} tub${fixturesOff === 1 ? " or shower" : "s or showers"} named a wall the outline does not have; skipped.`);
+    notes.push(`${fixturesOff} fixture${fixturesOff === 1 ? "" : "s"} (tub, shower, fridge or range) named a wall the outline does not have; skipped.`);
   }
   if (extraRooms.length > 0) {
     notes.push(`${extraRooms.length} flight${extraRooms.length === 1 ? "" : "s"} of stairs placed.`);

@@ -2827,7 +2827,7 @@ export function SketchEditor({
                   return;
                 }
                 // Typed by hand: no longer the scan's default, whatever the scan said.
-                updateRoom(selectedRoom.id, (room) => ({ ...room, ceilingHeightFeet: feet, ceilingMeasured: undefined }));
+                updateRoom(selectedRoom.id, (room) => ({ ...room, ceilingHeightFeet: feet, ceilingMeasured: undefined, ceilingFrom: undefined }));
               }}
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
@@ -2843,7 +2843,12 @@ export function SketchEditor({
               estimator who scanned the room should not have to remember whether this number came
               back with it.
             */}
-            {selectedRoom.ceilingMeasured === false ? (
+            {selectedRoom.ceilingMeasured === false && selectedRoom.ceilingFrom ? (
+              <p className="field-note">
+                <strong>As {selectedRoom.ceilingFrom}.</strong> The scan measured the ceiling there and carried it here — change it if
+                this room&rsquo;s is different.
+              </p>
+            ) : selectedRoom.ceilingMeasured === false ? (
               <p className="field-note">
                 <strong>Not measured.</strong> The scan read no ceiling in this room, so this is the{" "}
                 {formatFeetInches(DEFAULT_CEILING_HEIGHT_FEET)} default — worth a tape before it reaches a document.
