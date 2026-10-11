@@ -2,11 +2,13 @@
 
 import { type Dispatch, type ReactNode, type SetStateAction, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import { importScanRoom, scanExtentPx } from "@/lib/scanImport";
+import { type ScanLevelPart, importScanRoom, scanExtentPx, splitScanLevels } from "@/lib/scanImport";
 import {
   type DoorType,
   type FreeCabinet,
   type FreeWall,
+  type ClosetDoorRef,
+  MAIN_LEVEL,
   type Sketch,
   type SketchRoom,
   type SketchSymbol,
@@ -477,6 +479,10 @@ export function SketchEditor({
     kind: "error" | "note";
     text: string;
     action?: { label: string; run: () => void };
+    /** A choice to make before anything is imported (a file of several levels: which storey is the first). */
+    choices?: { label: string; run: () => void }[];
+    /** The way out's word, when it is not OK. */
+    dismiss?: string;
   } | null>(null);
   /**
    * The same offer for a scan the phone sent (2026-10-03, `SketchScan.closetDoors`): that scan is applied on the claim
@@ -1448,6 +1454,23 @@ export function SketchEditor({
    */
   async function handleImportScan(file: File) {
     const text = await file.text();
+    /*
+      A FILE OF SEVERAL LEVELS (2026-10-11): Scan's Export writes every level of a walk into one file, each room saying
+      its level. Imported whole, the floor above landed on the floor below. Asked first which storey the walk's first level
+      is - the question the phone's Send asks - then each level goes onto its own storey, as Send would have put it.
+    */
+    const levels = splitScanLevels(text);
+    if (levels !== null) {
+      const names = levels.map((part, k) => part.name ?? `Level ${k + 1}`);
+      const first = names[0] as string;
+      setImportNotice({
+        kind: "note",
+        text: `This file has ${levels.length} levels: ${names.join(", ")}. Which storey is ${first}? The others go above and below it.`,
+        choices: [MAIN_LEVEL, -1, 1].map((storey) => ({ label: levelName(sketch, storey), run: () => importScanLevels(levels, storey) })),
+        dismiss: "Cancel",
+      });
+      return;
+    }
     // Where exactly it lands is the PM's to fix, in view; how much room it needs is the file's to
     // say. A capture is two or three rooms wide, and a spot clear for one room's default size would
     // have its hall and bathroom lapping the room already on the page to the right — and a small
@@ -1496,6 +1519,76 @@ export function SketchEditor({
                 // The imported room, not a closet: with several closets there is no one to pick,
                 // and the room is where the PM was looking.
                 setSelectedRoomId(roomId);
+                setSelectedSymbolId(null);
+                setTool("select");
+                setImportNotice(null);
+              },
+            }
+          : undefined,
+    });
+  }
+
+  /**
+   * The levels of a capture of several ([splitScanLevels]), each onto its own storey: the first (the level the walk began
+   * on) onto [base], the others as far above or below it as they were tapped. Each level is dropped where its own storey
+   * has room for it, as Import scan drops one; the first storey is shown, its first room selected. Each level's name is
+   * kept as its storey's (`Sketch.levelNames`). The notice says what went where, then each level's notes.
+   */
+  function importScanLevels(parts: ScanLevelPart[], base: number) {
+    const start = (parts[0] as ScanLevelPart).level;
+    const viewport = { view, width: canvasWidth, height: canvasHeight };
+    const added: SketchRoom[] = [];
+    const notes: string[] = [];
+    const closetDoors: ClosetDoorRef[] = [];
+    const storeys: number[] = [];
+    const names: Record<string, string> = {};
+    let firstRoomId: string | null = null;
+    for (const [k, part] of parts.entries()) {
+      const storey = base + (part.level - start);
+      const label = part.name ?? `Level ${k + 1}`;
+      const where = `${label} (${levelName(sketch, storey)})`;
+      const extent = scanExtentPx(part.text) ?? { width: NEW_ROOM.width, height: NEW_ROOM.height };
+      const spot = placeNewRoom({ rooms: roomsOnLevel(sketch, storey), anchor: null, width: extent.width, height: extent.height, gap: NEW_ROOM.gap, viewport });
+      const result = importScanRoom(part.text, { x: spot.x, y: spot.y }, storey);
+      if (!result.ok) {
+        notes.push(`${where}: ${result.error}`);
+        continue;
+      }
+      added.push(result.room, ...result.extraRooms);
+      closetDoors.push(...result.closetDoors);
+      storeys.push(storey);
+      if (part.name !== null) names[String(storey)] = part.name;
+      notes.push(`${where}: ${result.notes.join(" ")}`);
+      if (firstRoomId === null) {
+        firstRoomId = result.room.id;
+        if (storey === base && !spot.visible) setView(viewCentredOn({ x: spot.x, y: spot.y, ...extent }, viewport));
+      }
+    }
+    if (added.length === 0) {
+      setImportNotice({ kind: "error", text: notes.join(" ") });
+      return;
+    }
+    onChange((prev) => {
+      let next: Sketch = { ...prev, rooms: withDerivedParents([...prev.rooms, ...added]) };
+      for (const storey of storeys) next = withLevel(next, storey);
+      if (Object.keys(names).length > 0) next = { ...next, levelNames: { ...(prev.levelNames ?? {}), ...names } };
+      return next;
+    });
+    handleSwitchLevel(storeys[0] as number);
+    setSelectedRoomId(firstRoomId);
+    setTool("select");
+    const parts2 = [`${storeys.length} level${storeys.length === 1 ? "" : "s"} imported, each on its own storey.`, ...notes];
+    if (closetDoors.length > 0) parts2.push(closetOfferText(closetDoors.length));
+    setImportNotice({
+      kind: "note",
+      text: parts2.join(" "),
+      action:
+        closetDoors.length > 0
+          ? {
+              label: "Add closets",
+              run: () => {
+                onChange((prev) => withClosetsBehind(prev, closetDoors));
+                setSelectedRoomId(firstRoomId);
                 setSelectedSymbolId(null);
                 setTool("select");
                 setImportNotice(null);
@@ -2311,8 +2404,13 @@ export function SketchEditor({
               {importNotice.action.label}
             </button>
           )}
+          {importNotice.choices?.map((choice) => (
+            <button key={choice.label} type="button" className="btn-secondary" onClick={choice.run}>
+              {choice.label}
+            </button>
+          ))}
           <button type="button" className="btn-secondary" onClick={() => setImportNotice(null)}>
-            OK
+            {importNotice.dismiss ?? "OK"}
           </button>
         </div>
       )}

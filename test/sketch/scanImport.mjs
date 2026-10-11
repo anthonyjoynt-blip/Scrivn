@@ -1660,6 +1660,41 @@ export async function runScanImportChecks() {
     assert(scan.scanExtentPx(JSON.stringify({ format: "arcapture-capture/1", source: "taps", rooms: [] })) === null, "an empty capture, no extent");
   });
 
+  test("a file of several levels splits into a capture per level, the walk's first level first (2026-10-11)", () => {
+    // Scan's Export of a walk on two levels: Room 1 and Room 2 on the main floor, Room 3 upstairs.
+    const whole = JSON.parse(captureTaps);
+    whole.levels = [{ level: 0, name: "Main floor" }, { level: 1, name: "Upstairs" }];
+    whole.rooms[0].level = 0;
+    whole.rooms[1].level = 0;
+    whole.rooms[2].level = 1;
+    const parts = scan.splitScanLevels(JSON.stringify(whole));
+    assert(parts !== null && parts.length === 2, `two levels, got ${JSON.stringify(parts?.map((p) => p.level))}`);
+    const [main, up] = parts;
+    assert(main.level === 0 && main.name === "Main floor" && main.roomCount === 2, "the main floor first, by its name, with its two rooms");
+    assert(up.level === 1 && up.name === "Upstairs" && up.roomCount === 1, "then upstairs, its one room");
+    const upFile = JSON.parse(up.text);
+    assert(upFile.level_name === "Upstairs" && upFile.levels === undefined, "each file names its level, and lists no others");
+    assert(upFile.rooms.length === 1 && upFile.rooms[0].index === 0 && upFile.rooms[0].level === undefined, "its rooms numbered from 0, no level on them");
+    const tapsOf = (file, room) => file.taps.filter((t) => t.room === room).length;
+    assert(tapsOf(upFile, 0) === tapsOf(whole, 2) && upFile.taps.every((t) => t.room === 0), "upstairs keeps Room 3's taps, renumbered to its room 0");
+    const mainFile = JSON.parse(main.text);
+    assert(mainFile.taps.length + upFile.taps.length === whole.taps.length, "every tap goes with its room's level, none twice");
+    // Each imports as a capture of its own.
+    const mainIn = scan.importScanRoom(main.text, { x: 0, y: 0 }, 0);
+    const upIn = scan.importScanRoom(up.text, { x: 0, y: 0 }, 1);
+    assert(mainIn.ok && mainIn.kind === "capture" && 1 + mainIn.extraRooms.filter((r) => !r.stairs).length === 2, "the main floor's file draws its two rooms");
+    assert(upIn.ok && upIn.room.level === 1 && upIn.room.name === whole.rooms[2].name, `upstairs draws its room on the storey asked (got ${upIn.ok ? upIn.room.level : upIn.error})`);
+    // The walk began upstairs: upstairs is asked about first, the rest lowest first.
+    const fromUp = JSON.parse(JSON.stringify(whole));
+    fromUp.rooms[0].level = 1;
+    fromUp.rooms[2].level = 0;
+    fromUp.rooms[1].level = -1;
+    assert(JSON.stringify(scan.splitScanLevels(JSON.stringify(fromUp)).map((p) => p.level)) === "[1,-1,0]", "the walk's first level first, then lowest first");
+    // One level, a one-room file, or not a scan: nothing to split.
+    assert(scan.splitScanLevels(captureTaps) === null, "a capture of one level is imported as it always was");
+    assert(scan.splitScanLevels(office) === null && scan.splitScanLevels("{ not json") === null, "and so is a one-room file; not JSON is not split");
+  });
+
   return { passed, failures };
 }
 

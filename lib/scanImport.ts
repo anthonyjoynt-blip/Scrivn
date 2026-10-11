@@ -536,6 +536,91 @@ export function scanExtentPx(text: string): { width: number; height: number } | 
   };
 }
 
+/** One level of a capture of several ([splitScanLevels]): the level as the phone numbered it, its name, and its file. */
+export interface ScanLevelPart {
+  /** 0 the level the walk began on, 1 above it, -1 below - the phone's numbering, not a storey of the claim. */
+  level: number;
+  /** What the estimator called it on the phone ("Basement"), or null when it was not named. */
+  name: string | null;
+  /** The capture with this level's rooms alone, as Send would have sent it - what `importScanRoom` reads. */
+  text: string;
+  /** How many rooms the phone wrote on it. */
+  roomCount: number;
+}
+
+/**
+ * A capture of several levels split into one file per level (2026-10-11), or null when the file is one level or is
+ * not a capture.
+ *
+ * Scan's Export writes every level a walk tapped into one file - each room saying its `level`, the file listing the
+ * `levels` by name - while Send sends a scan per level, each onto its own storey. Imported whole, every level's rooms
+ * landed on the one storey, the floor above drawn over the floor below. Split here into what Send would have sent: the
+ * level's rooms alone, renumbered from 0, with the taps, re-finds, re-measures and re-links that name a room ("room":
+ * index) kept for that level's rooms and renumbered with them, and the level's name as `level_name`. The level the
+ * walk began on (the first room's) comes first - the one the storey is asked of - then the rest, lowest first.
+ */
+export function splitScanLevels(text: string): ScanLevelPart[] | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+  const file = parsed as Record<string, unknown>;
+  if (!Array.isArray(file.rooms)) return null;
+  const rooms = file.rooms as unknown[];
+  const levelOf = (room: unknown): number => {
+    const level = room !== null && typeof room === "object" ? (room as Record<string, unknown>).level : undefined;
+    return typeof level === "number" && Number.isSafeInteger(level) ? level : 0;
+  };
+  const levels = [...new Set(rooms.map(levelOf))];
+  if (levels.length < 2) return null;
+  const names = new Map<number, string>();
+  if (Array.isArray(file.levels)) {
+    for (const entry of file.levels as unknown[]) {
+      if (entry === null || typeof entry !== "object") continue;
+      const { level, name } = entry as Record<string, unknown>;
+      if (typeof level === "number" && typeof name === "string" && name.trim() !== "") names.set(level, name.trim());
+    }
+  }
+  const first = levelOf(rooms[0]);
+  const order = [first, ...levels.filter((l) => l !== first).sort((a, b) => a - b)];
+  return order.map((level) => {
+    // The room's number in the file ("index", else its place) to its number in this level's file.
+    const renumber = new Map<number, number>();
+    const kept: Record<string, unknown>[] = [];
+    rooms.forEach((room, position) => {
+      if (levelOf(room) !== level || room === null || typeof room !== "object") return;
+      const own = room as Record<string, unknown>;
+      const index = typeof own.index === "number" ? own.index : position;
+      renumber.set(index, kept.length);
+      const copy: Record<string, unknown> = { ...own, index: kept.length };
+      delete copy.level;
+      kept.push(copy);
+    });
+    const part: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(file)) {
+      if (key === "levels" || key === "rooms") continue;
+      // Lists whose entries name a room: this level's, renumbered.
+      if (Array.isArray(value) && value.some((v) => v !== null && typeof v === "object" && typeof (v as Record<string, unknown>).room === "number")) {
+        part[key] = value.flatMap((v) => {
+          const room = v !== null && typeof v === "object" ? (v as Record<string, unknown>).room : undefined;
+          if (typeof room !== "number") return [v];
+          const to = renumber.get(room);
+          return to === undefined ? [] : [{ ...(v as Record<string, unknown>), room: to }];
+        });
+        continue;
+      }
+      part[key] = value;
+    }
+    part.rooms = kept;
+    const name = names.get(level) ?? null;
+    if (name !== null) part.level_name = name;
+    return { level, name, text: JSON.stringify(part), roomCount: kept.length };
+  });
+}
+
 /** Nearest inch, which is what a tape reads to and the precision the scan actually has. */
 function toFeetInches(metres: number): number {
   return Math.round(metres * FEET_PER_METRE * 12) / 12;
