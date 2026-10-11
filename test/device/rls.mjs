@@ -494,6 +494,28 @@ try {
       const { data } = await phone().rpc("device_claims", { token_hash: bobPhone.tokenHash });
       check(!rows(data).some((r) => r.id === claimId), "B's phone does not see A's claim in its list");
     }
+    {
+      // The same capture id and body as A's first scan, New claim (0010_scan_dedupe): matched only within B's own
+      // organization, so B gets a claim of B's own and never A's claim id back.
+      const { data, error } = await phone().rpc("device_receive_scan", {
+        token_hash: bobPhone.tokenHash,
+        target_claim_id: null,
+        new_scan_id: randomUUID(),
+        received_at: new Date().toISOString(),
+        body: probeBody,
+        capture_id: "probe-capture-1",
+        captured_at: null,
+        scan_level: 0,
+        new_claim: newClaim,
+      });
+      const row = rows(data)[0];
+      check(error === null && row?.created === true && row?.duplicate === false && row?.claim_id !== claimId,
+        `A's capture id sent from B's phone makes B a claim of B's own, never A's (got ${describe(error)})`);
+      if (row?.claim_id && row.claim_id !== claimId) {
+        const { data: gone } = await bob.client.from("claims").delete().eq("id", row.claim_id).select("id");
+        check(rows(gone).length === 1, "and B can delete it");
+      }
+    }
   } finally {
     const { data } = await bob.client.rpc("device_token_revoke", { token_id: bobPhone.tokenId });
     check(data === true, "B can revoke their own phone");
@@ -532,6 +554,82 @@ try {
   {
     const { data } = await alice.client.rpc("claim_scan_resolve", { scan_id: scanId1, new_status: "discarded" });
     check(data === false, "nor can the scan that created the claim be un-adopted");
+  }
+
+  /* ── A scan sent twice (0010_scan_dedupe, 2026-10-10) ───────────────────────────────────────────── */
+
+  const sendAgain = (over) =>
+    phone().rpc("device_receive_scan", {
+      token_hash: tokenHash,
+      target_claim_id: null,
+      new_scan_id: randomUUID(),
+      received_at: new Date().toISOString(),
+      body: probeBody,
+      capture_id: "probe-capture-1",
+      captured_at: null,
+      scan_level: 0,
+      new_claim: newClaim,
+      ...over,
+    });
+  const scanCount = async () => rows((await alice.client.from("claim_scans").select("id").eq("claim_id", claimId)).data).length;
+  const claimsMade = async () => rows((await alice.client.from("claims").select("id").eq("customer_name", SECRET)).data).length;
+  {
+    // New claim, sent again exactly as before - the answer lost on the way back: the claim it made, the row that made it.
+    const { data, error } = await sendAgain({});
+    const row = rows(data)[0];
+    check(error === null && row?.claim_id === claimId && row?.scan_id === scanId1,
+      `New claim sent again as it was comes back as the claim it made and the row that made it (got ${describe(error)} ${JSON.stringify(row)})`);
+    check(row?.created === true && row?.duplicate === true, "answered created, as the first send was, and marked a duplicate");
+    check((await claimsMade()) === 1 && (await scanCount()) === 2, "and there is still one claim from the capture, with its two scans");
+  }
+  {
+    // Into the claim, sent again as it was (scan 2, storey 1): that row, nothing new.
+    const { data, error } = await sendAgain({ target_claim_id: claimId, capture_id: "probe-capture-2", scan_level: 1, new_claim: null });
+    const row = rows(data)[0];
+    check(error === null && row?.scan_id === scanId2 && row?.created === false && row?.duplicate === true,
+      `a scan into a claim sent again as it was is the row already there (got ${describe(error)} ${JSON.stringify(row)})`);
+    check((await scanCount()) === 2, "and no row was added");
+  }
+  {
+    // The same capture on another storey is another scan.
+    const { data, error } = await sendAgain({ target_claim_id: claimId, capture_id: "probe-capture-2", scan_level: 0, new_claim: null });
+    const row = rows(data)[0];
+    check(error === null && row?.duplicate === false && row?.scan_id !== scanId2, `the same capture sent for another storey is a new scan (got ${describe(error)})`);
+    check((await scanCount()) === 3, "a third row");
+  }
+  let changedScan = null;
+  const changed = { ...probeBody, rooms: [{ added: SECRET }] };
+  {
+    // New claim for a capture that made one, changed since: pending in the claim it made, never a second claim.
+    const { data, error } = await sendAgain({ body: changed });
+    const row = rows(data)[0];
+    changedScan = row?.scan_id ?? null;
+    check(error === null && row?.claim_id === claimId && row?.created === false && row?.duplicate === false,
+      `New claim for a capture that already made one, changed since, goes into that claim (got ${describe(error)} ${JSON.stringify(row)})`);
+    check((await claimsMade()) === 1, "and no second claim was made");
+    const { data: scan } = await alice.client.from("claim_scans").select("status, body, created_claim").eq("id", changedScan);
+    check(scan?.[0]?.status === "pending" && scan?.[0]?.body?.rooms?.[0]?.added === SECRET && scan?.[0]?.created_claim === false,
+      "pending there with the changed capture, and not marked as the scan that made the claim");
+  }
+  {
+    // Discarded on the claim's page, then sent again: asked for back, so it comes back as a new pending row.
+    const { data: discarded } = await alice.client.rpc("claim_scan_resolve", { scan_id: changedScan, new_status: "discarded" });
+    check(discarded === true, "A can discard the changed scan");
+    const { data, error } = await sendAgain({ body: changed });
+    const row = rows(data)[0];
+    check(error === null && row?.claim_id === claimId && row?.duplicate === false && row?.scan_id !== changedScan,
+      `a discarded scan sent again comes back as a new one, not the discarded row (got ${describe(error)})`);
+    check((await claimsMade()) === 1, "still in the one claim");
+  }
+  {
+    // No capture id: never matched, every send its own row.
+    const before = await scanCount();
+    const one = await sendAgain({ target_claim_id: claimId, capture_id: null, new_claim: null });
+    const two = await sendAgain({ target_claim_id: claimId, capture_id: null, new_claim: null });
+    const a = rows(one.data)[0]; const b = rows(two.data)[0];
+    check(one.error === null && two.error === null && a?.scan_id !== b?.scan_id && a?.duplicate === false && b?.duplicate === false,
+      `a scan with no capture id is never matched (got ${describe(one.error ?? two.error)})`);
+    check((await scanCount()) === before + 2, "two sends, two rows");
   }
   {
     const { data, error } = await alice.client.rpc("device_token_revoke", { token_id: tokenId });

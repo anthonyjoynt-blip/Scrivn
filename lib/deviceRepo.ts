@@ -7,7 +7,7 @@ import { withClockSkewRetry } from "./supabase/clockSkew";
 import { NoOrganizationError, NotSignedInError } from "./claimsRepo";
 import { claimSummary, emptySavedClaimState } from "./claimState";
 import { PAIRING_CODE_TTL_SECONDS, claimSketchUrl, hashSecret, newDeviceToken, newPairingCode, normalisePairingCode, pairingUrl } from "./deviceCodes";
-import { SCAN_DROP, convertScan, scanTooBig, sketchFromScan, type PendingScan } from "./scanInbox";
+import { SCAN_DROP, convertScan, dedupeNotes, scanTooBig, sketchFromScan, type PendingScan } from "./scanInbox";
 
 /**
  * Every read and write behind a paired phone, in one place: minting a pairing code, trading it for
@@ -139,6 +139,8 @@ export interface ReceivedScan {
   scanId: string;
   /** True when this scan created the claim (and was applied to it); false when it is pending in one. */
   created: boolean;
+  /** True when this capture was already there as sent (0010_scan_dedupe): nothing new was filed, the row is the earlier one. */
+  duplicate: boolean;
   /** The deep link the phone offers: the claim, sketch open. */
   url: string;
   roomCount: number;
@@ -463,6 +465,8 @@ interface ReceiveScanRow {
   claim_id: string;
   scan_id: string;
   created: boolean;
+  /** Absent before 0010_scan_dedupe is applied: read as false. */
+  duplicate?: boolean;
 }
 
 /**
@@ -526,12 +530,15 @@ export async function receiveScan(token: string, input: ReceiveScanInput): Promi
   if (error) throw failure(error, "Could not receive the scan", PHONE_ERRORS);
   const row = (data as ReceiveScanRow[] | null)?.[0];
   if (!row) throw new Error("Could not receive the scan: no row came back.");
+  const created = row.created === true;
+  const duplicate = row.duplicate === true;
   return {
     claimId: row.claim_id,
     scanId: row.scan_id,
-    created: row.created === true,
+    created,
+    duplicate,
     url: claimSketchUrl(row.claim_id),
     roomCount,
-    notes,
+    notes: [...dedupeNotes(input.claimId === null, created, duplicate), ...notes],
   };
 }

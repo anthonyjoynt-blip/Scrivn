@@ -41,6 +41,7 @@ const {
   MAIN_LEVEL, roomsOnLevel, roomLevel, roomBounds, levelLabel, closetsOwed, withClosetsBehind,
   emptyMoistureMap, importScanRoom,
   parseScanReport, reportSubject, REPORT_MAX_BODY_BYTES, REPORT_LIMITS,
+  SCAN_ALREADY_IN, SCAN_INTO_ITS_CLAIM, dedupeNotes,
 } = await import(pathToFileURL(bundlePath).href);
 
 let passed = 0;
@@ -481,6 +482,17 @@ for (const f of failures) console.error("  FAIL " + f);
   check(long.ok && long.report.note.startsWith("ab\n") && long.report.note.length === REPORT_LIMITS.note, "the note is cleaned and capped");
   check(long.ok && long.report.contact.length === REPORT_LIMITS.contact, "the contact is capped");
   check(REPORT_MAX_BODY_BYTES < 4.5 * 1024 * 1024, "the body limit sits under Vercel's 4.5 MB");
+}
+
+/* ── A scan sent twice (0010_scan_dedupe, 2026-10-10) ────────────────────────────────────────────── */
+
+{
+  // What the database says about a send, as the phone's Sent dialog words it.
+  check(same(dedupeNotes(true, true, false), []), "a new claim made: no note");
+  check(same(dedupeNotes(false, false, false), []), "a scan pending in the claim chosen: no note");
+  check(same(dedupeNotes(true, true, true), [SCAN_ALREADY_IN]), "New claim sent again as it was: already in, nothing filed twice");
+  check(same(dedupeNotes(false, false, true), [SCAN_ALREADY_IN]), "a claim's scan sent again as it was: already in");
+  check(same(dedupeNotes(true, false, false), [SCAN_INTO_ITS_CLAIM]), "New claim for a capture that already made one, changed since: into that claim");
 }
 
 console.log(`\n  ${passed} passed, ${failures.length} failed\n`);

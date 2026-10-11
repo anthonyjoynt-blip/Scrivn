@@ -118,6 +118,22 @@ export function isPhoneOwned(sketch: Sketch): boolean {
  */
 export const SCAN_LIMITS = { corners: 5000, features: 1000 };
 
+/** What the phone's Sent dialog adds when a send was recognised as one made before (0010_scan_dedupe). */
+export const SCAN_ALREADY_IN = "Already in Scrivn from an earlier send, so nothing was filed twice.";
+/** ...and when New claim was chosen for a capture that had already made one: it went into that claim, pending. */
+export const SCAN_INTO_ITS_CLAIM = "This capture already made a claim, so the scan went into it – open the claim to add the changes.";
+
+/**
+ * The notes for a send `device_receive_scan` matched to an earlier one (0010_scan_dedupe, 2026-10-10), ahead of the
+ * importer's own: the same capture as sent before ([duplicate]), or New claim asked for a capture that had already made
+ * one, so it went into that claim pending ([created] false). Nothing otherwise. The phone shows notes as they come.
+ */
+export function dedupeNotes(newClaimAsked: boolean, created: boolean, duplicate: boolean): string[] {
+  if (duplicate) return [SCAN_ALREADY_IN];
+  if (newClaimAsked && !created) return [SCAN_INTO_ITS_CLAIM];
+  return [];
+}
+
 /**
  * Why a body is too big to convert, or null when it is within `SCAN_LIMITS`. Counts only what the
  * importer would walk — outline corners, openings, cabinets, flights — over every room the body

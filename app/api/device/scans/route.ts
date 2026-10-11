@@ -85,6 +85,7 @@ export async function POST(request: Request) {
       id: received.claimId,
       url: received.url,
       created: received.created,
+      duplicate: received.duplicate,
       scanId: received.scanId,
       roomCount: received.roomCount,
       notes: received.notes,

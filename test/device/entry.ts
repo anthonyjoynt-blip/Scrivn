@@ -1,5 +1,6 @@
 export {
   SCAN_DROP, SCAN_LIMITS, sketchFingerprint, isPhoneOwned, scanText, scanDropPoint, convertScan, scanDecision, adoptScan, sketchFromScan, namedRooms, scanTooBig,
+  SCAN_ALREADY_IN, SCAN_INTO_ITS_CLAIM, dedupeNotes,
 } from "@/lib/scanInbox";
 export {
   PAIRING_ALPHABET, PAIRING_CODE_LENGTH, PAIRING_CODE_TTL_SECONDS,
