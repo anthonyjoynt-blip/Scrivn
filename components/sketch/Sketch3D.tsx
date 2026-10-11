@@ -46,7 +46,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { levelLabel, PIXELS_PER_FOOT, roomLevel, type Sketch } from "@/lib/sketch";
+import { levelName, PIXELS_PER_FOOT, roomLevel, type Sketch } from "@/lib/sketch";
 import { houseModel, type HouseModel, type PrismKind } from "@/lib/sketch3d";
 import {
   destinationFor,
@@ -1423,7 +1423,7 @@ export default function Sketch3D({ sketch, onClose }: Props) {
             </button>
             {levels.map((l) => (
               <button key={l} type="button" className={`option-btn${level === l ? " selected" : ""}`} aria-pressed={level === l} onClick={() => setLevel(l)}>
-                {levelLabel(l)}
+                {levelName(sketch, l)}
               </button>
             ))}
           </div>
@@ -1500,7 +1500,7 @@ export default function Sketch3D({ sketch, onClose }: Props) {
             <span style={{ fontSize: 13, color: "#5b6472", flex: 1, minWidth: 160 }}>
               360° spot {spotIndex + 1} of {spots.length} ·{" "}
               {stillsOn ? (stillShown ? stillWords(stillShown) : "its photos") : stitching ? "stitching its photos together…" : "drag to look all the way round"}
-              {walks.length > 1 ? ` · ${levelLabel(currentWalk.level)}` : ""}
+              {walks.length > 1 ? ` · ${levelName(sketch, currentWalk.level)}` : ""}
             </span>
             <button type="button" className="option-btn" onClick={() => stepAlong(-1)} disabled={spotIndex === 0}>
               Previous
@@ -1536,7 +1536,7 @@ export default function Sketch3D({ sketch, onClose }: Props) {
             )}
             <span style={{ fontSize: 13, color: "#5b6472", flex: 1, minWidth: 160 }}>
               Photo {at.photo + 1} of {currentWalk.photos.length} · {clock(current.tS)} into the walk
-              {walks.length > 1 ? ` · ${levelLabel(currentWalk.level)}` : ""}
+              {walks.length > 1 ? ` · ${levelName(sketch, currentWalk.level)}` : ""}
               {scanUrls && !currentUrl ? " · this photo hasn't arrived from the phone yet" : ""}
             </span>
             <button type="button" className="option-btn" onClick={() => stepAlong(-1)} disabled={at.photo === 0}>

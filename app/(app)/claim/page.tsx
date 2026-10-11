@@ -79,7 +79,7 @@ import { WorkOrderSelector } from "@/components/WorkOrderSelector";
 import { SketchEditor } from "@/components/sketch/SketchEditor";
 import { type Sketch, emptySketch, hasSketchContent, knownRoomNames, levelsOf } from "@/lib/sketch";
 import { type MoistureMap, emptyMoistureMap, hasMoistureContent, pruneMoisture, roomMoistureSummary } from "@/lib/moisture";
-import { SCAN_DROP, type PendingScan, adoptScan, convertScan, namedRooms, scanDecision } from "@/lib/scanInbox";
+import { SCAN_DROP, type PendingScan, adoptScan, convertScan, namedRooms, scanDecision, scanLevelName } from "@/lib/scanInbox";
 import { useScanInbox } from "@/lib/useScanInbox";
 import { ScanInboxMessage, ScanInboxNotice, scanAdoptedMessage } from "@/components/sketch/ScanInboxNotice";
 import { DEFAULT_EQUIPMENT_SETTINGS, claimEquipment } from "@/lib/equipment";
@@ -488,7 +488,7 @@ export default function Home() {
     setSketch(adopted.sketch);
     setMoisture((prev) => pruneMoisture(prev, adopted.sketch));
     setScanIssue(null);
-    setScanMessage(scanAdoptedMessage(scan.level, adopted.roomCount));
+    setScanMessage(scanAdoptedMessage(scan.level, adopted.roomCount, scanLevelName(scan.body)));
     setScanBusy(true);
     void scanInbox.resolve(scan.id, "adopted").finally(() => setScanBusy(false));
     checkpoint();
@@ -780,9 +780,9 @@ export default function Home() {
       const wanted = attachmentsFor(sketchAttachments, target);
       return sketchImages
         .filter((image) => wanted.includes(image.render))
-        .map((image) => ({ dataUrl: image.dataUrl, width: image.width, height: image.height, caption: sketchRenderLabel(image.render, thumbnails) }));
+        .map((image) => ({ dataUrl: image.dataUrl, width: image.width, height: image.height, caption: sketchRenderLabel(image.render, thumbnails, sketch) }));
     },
-    [sketchAttachments, sketchImages],
+    [sketchAttachments, sketchImages, sketch],
   );
 
   /**
@@ -798,7 +798,7 @@ export default function Home() {
       if (!image) return null;
       return {
         blob: dataUrlToBlob(image.dataUrl),
-        filename: claimFileName(claim.jobNumber, claim.customerName, sketchRenderLabel(render, thumbnails), "jpg"),
+        filename: claimFileName(claim.jobNumber, claim.customerName, sketchRenderLabel(render, thumbnails, sketch), "jpg"),
       };
     },
     [sketch, moisture, claim.jobNumber, claim.customerName],
@@ -824,7 +824,7 @@ export default function Home() {
     async (render: SketchRender) => {
       const image = await renderSketchJpeg(sketch, moisture, render);
       if (!image) return;
-      downloadDataUrl(image.dataUrl, claimFileName(claim.jobNumber, claim.customerName, sketchRenderLabel(render, thumbnails), "jpg"));
+      downloadDataUrl(image.dataUrl, claimFileName(claim.jobNumber, claim.customerName, sketchRenderLabel(render, thumbnails, sketch), "jpg"));
     },
     [sketch, moisture, claim.jobNumber, claim.customerName, thumbnails],
   );
@@ -1975,6 +1975,7 @@ ${asbestosSection}`;
                   available={sketchRenders}
                   selection={sketchAttachments}
               thumbnails={thumbnails}
+              levelNames={sketch.levelNames}
                   target={{ kind: "inspectionReport" }}
                   onChange={setSketchAttachments}
                 />
@@ -2024,6 +2025,7 @@ ${asbestosSection}`;
                 available={sketchRenders}
                 selection={sketchAttachments}
               thumbnails={thumbnails}
+              levelNames={sketch.levelNames}
                 target={{ kind: "scopeDocument" }}
                 onChange={setSketchAttachments}
               />
@@ -2164,6 +2166,7 @@ ${asbestosSection}`;
                     available={sketchRenders}
                     selection={sketchAttachments}
               thumbnails={thumbnails}
+              levelNames={sketch.levelNames}
                     target={{ kind: "workOrder", trade: wo.trade }}
                     onChange={setSketchAttachments}
                   />

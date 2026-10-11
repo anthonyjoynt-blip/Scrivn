@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import type { PendingScan } from "@/lib/scanInbox";
+import { scanLevelName, type PendingScan } from "@/lib/scanInbox";
 import { levelLabel } from "@/lib/sketch";
 
 /**
@@ -60,7 +60,9 @@ export function ScanInboxNotice({
   onDiscard: () => void;
   busy: boolean;
 }) {
-  const storey = levelLabel(scan.level).toLowerCase();
+  // The phone's name for its level when it gave one ("Upstairs"), else the storey's place ("level above").
+  const named = scanLevelName(scan.body);
+  const storey = named ?? levelLabel(scan.level).toLowerCase();
   const arrived = `A scan arrived from ${phoneName(scan)} at ${clockTime(scan.receivedAt)}`;
   const text = error
     ? `${arrived}, but it could not be drawn. ${error}`
@@ -104,6 +106,6 @@ export function ScanInboxMessage({ message, onDismiss }: { message: string; onDi
 }
 
 /** The receipt's wording, shared with the page so the silent and the chosen adoption read the same. */
-export function scanAdoptedMessage(level: number, roomCount: number): string {
-  return `${levelLabel(level)} updated from your phone — ${rooms(roomCount)}.`;
+export function scanAdoptedMessage(level: number, roomCount: number, name: string | null = null): string {
+  return `${name ?? levelLabel(level)} updated from your phone — ${rooms(roomCount)}.`;
 }

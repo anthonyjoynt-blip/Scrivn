@@ -35,10 +35,10 @@ await build({
 });
 
 const {
-  SCAN_DROP, SCAN_LIMITS, scanTooBig, looksLikeDeviceToken, sketchFingerprint, isPhoneOwned, scanText, scanDropPoint, convertScan, scanDecision, adoptScan, sketchFromScan, namedRooms,
+  SCAN_DROP, SCAN_LIMITS, scanTooBig, looksLikeDeviceToken, sketchFingerprint, isPhoneOwned, scanText, scanDropPoint, convertScan, scanDecision, adoptScan, sketchFromScan, namedRooms, scanLevelName,
   PAIRING_ALPHABET, PAIRING_CODE_LENGTH, PAIRING_CODE_TTL_SECONDS,
   newPairingCode, formatPairingCode, normalisePairingCode, newDeviceToken, hashSecret, bearerToken, appUrl, pairingUrl, claimSketchUrl,
-  MAIN_LEVEL, roomsOnLevel, roomLevel, roomBounds, levelLabel, closetsOwed, withClosetsBehind,
+  MAIN_LEVEL, roomsOnLevel, roomLevel, roomBounds, levelLabel, levelName, closetsOwed, withClosetsBehind,
   emptyMoistureMap, importScanRoom,
   parseScanReport, reportSubject, REPORT_MAX_BODY_BYTES, REPORT_LIMITS,
   SCAN_ALREADY_IN, SCAN_INTO_ITS_CLAIM, dedupeNotes,
@@ -313,6 +313,22 @@ check(scanDecision(owned, noMoisture, { q1: { walls: [], floorCells: {} } }, 0) 
     }
     check(scanDecision(twoStoreys.sketch, noMoisture, markOn("room-up"), 0) === "adopt", "and a scope mark on another storey does not either");
     check(scanDecision(twoStoreys.sketch, noMoisture, noMarks, -1) === "adopt", "a storey nobody has drawn yet: adopt");
+  }
+}
+
+{
+  // Levels (2026-10-11): a capture of several levels sends a scan per level, each saying its level's name.
+  const named = { ...capture, level_name: "Upstairs" };
+  check(scanLevelName(named) === "Upstairs" && scanLevelName(JSON.stringify(named)) === "Upstairs", "the phone's name for the level is read, as an object or as text");
+  check(scanLevelName(capture) === null && scanLevelName({ ...capture, level_name: "  " }) === null, "and a scan without one, or a blank one, names nothing");
+  const up = adoptScan({ rooms: [] }, pending(named, 1));
+  check(adoptedOk(up) && up.sketch.levelNames?.["1"] === "Upstairs", `the storey takes the name (got ${adoptedOk(up) ? JSON.stringify(up.sketch.levelNames) : "no adoption"})`);
+  if (adoptedOk(up)) {
+    check(levelName(up.sketch, 1) === "Upstairs" && levelName(up.sketch, 0) === levelLabel(0), "and is called by it, a storey with none by its place");
+    const down = adoptScan(up.sketch, pending({ ...capture, level_name: "Main floor" }, 0));
+    check(adoptedOk(down) && down.sketch.levelNames?.["1"] === "Upstairs" && down.sketch.levelNames?.["0"] === "Main floor", "the next level's scan adds its own name and keeps the other's");
+    const again = adoptedOk(down) ? adoptScan(down.sketch, pending(capture, 1)) : null;
+    check(again !== null && adoptedOk(again) && again.sketch.levelNames?.["1"] === "Upstairs", "a re-scan sent without a name keeps the storey's");
   }
 }
 

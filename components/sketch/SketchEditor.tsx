@@ -90,7 +90,7 @@ import {
   freeWallsOf,
   freeWallsOnLevel,
   levelBounds,
-  levelLabel,
+  levelName,
   levelsOf,
   openingLevel,
   roomsOnLevel,
@@ -1913,7 +1913,7 @@ export function SketchEditor({
               aria-pressed={level === activeLevel}
               onClick={() => handleSwitchLevel(level)}
             >
-              {levelLabel(level)}
+              {levelName(sketch, level)}
             </button>
           ))}
         </div>
@@ -1939,7 +1939,7 @@ export function SketchEditor({
                 .filter((level) => level !== activeLevel)
                 .map((level) => (
                   <option key={level} value={String(level)}>
-                    {levelLabel(level)}
+                    {levelName(sketch, level)}
                   </option>
                 ))}
             </select>

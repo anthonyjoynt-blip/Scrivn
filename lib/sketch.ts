@@ -734,6 +734,12 @@ export interface Sketch {
    * Optional so a sketch drawn before levels existed still loads.
    */
   levels?: number[];
+  /**
+   * What storeys are called (2026-10-11), keyed by level ("1", "-1"): the names the phone's estimator gave them when the
+   * scan was sent with levels ("Upstairs", "Basement"). A storey with none is called by `levelLabel`. Optional so a
+   * sketch saved before it existed still loads.
+   */
+  levelNames?: Record<string, string>;
   /** Walls drawn on their own — see `FreeWall`. Optional so a sketch saved before they existed still loads. */
   freeWalls?: FreeWall[];
   /**
@@ -1048,6 +1054,12 @@ export function levelLabel(level: number): string {
   const n = Math.abs(level);
   const direction = level > 0 ? "above" : "below";
   return n === 1 ? `Level ${direction}` : `${n} levels ${direction}`;
+}
+
+/** What a level is called on screen: the name the scan gave it, when it gave one, else `levelLabel`'s. */
+export function levelName(sketch: Pick<Sketch, "levelNames"> | null | undefined, level: number): string {
+  const name = sketch?.levelNames?.[String(level)]?.trim();
+  return name ? name : levelLabel(level);
 }
 
 /**

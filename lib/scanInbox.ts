@@ -139,6 +139,14 @@ export function dedupeNotes(newClaimAsked: boolean, created: boolean, duplicate:
  * importer would walk — outline corners, openings, cabinets, flights — over every room the body
  * names; a body that is not even an object is left to the importer to describe.
  */
+/** The name the phone gave the scan's level (`level_name`, 2026-10-11), when it gave one. */
+export function scanLevelName(body: unknown): string | null {
+  const parsed = typeof body === "string" ? safeParse(body) : body;
+  if (parsed === null || typeof parsed !== "object") return null;
+  const name = (parsed as Record<string, unknown>).level_name;
+  return typeof name === "string" && name.trim() !== "" ? name.trim().slice(0, 60) : null;
+}
+
 export function scanTooBig(body: unknown): string | null {
   const parsed = typeof body === "string" ? safeParse(body) : body;
   if (parsed === null || typeof parsed !== "object") return null;
@@ -361,6 +369,9 @@ export function adoptScan(sketch: Sketch, scan: PendingScan, receivedAt: string 
   const walk = walkFromScan(scan.body, result.origin, at, scan.id, level);
   const walks = [...(sketch.walks ?? []).filter((w) => w.level !== level), ...(walk ? [walk] : [])];
   const adopted: Sketch = { ...withoutScan, scan: provenance };
+  // The storey's name, when the phone named its level (2026-10-11: a capture of several levels sends a scan per level).
+  const named = scanLevelName(scan.body);
+  if (named !== null) adopted.levelNames = { ...(sketch.levelNames ?? {}), [String(level)]: named };
   if (walks.length > 0) adopted.walks = walks;
   else delete adopted.walks;
   return { sketch: adopted, roomCount: incoming.length, replacedCount, notes: result.notes };

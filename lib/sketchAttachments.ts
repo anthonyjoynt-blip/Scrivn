@@ -1,6 +1,6 @@
 import type { Trade } from "./workOrders";
 import { type SurfaceThumbnail, thumbnailFor } from "./surfaceThumbnails";
-import { levelLabel } from "./sketch";
+import { levelName, type Sketch } from "./sketch";
 
 /**
  * Which rendering of the sketch goes on which document.
@@ -46,12 +46,12 @@ export function parseRender(render: SketchRender): { base: string; level: number
 }
 
 /** `thumbnails` supplies the names for per-surface renders; the two whole-plan ones are fixed. */
-export function sketchRenderLabel(render: SketchRender, thumbnails: SurfaceThumbnail[] = []): string {
+export function sketchRenderLabel(render: SketchRender, thumbnails: SurfaceThumbnail[] = [], sketch: Pick<Sketch, "levelNames"> | null = null): string {
   const direct = WHOLE_PLAN_LABEL[render];
   if (direct) return direct;
   const { base, level } = parseRender(render);
   const wholePlan = WHOLE_PLAN_LABEL[base];
-  if (wholePlan && level !== null) return `${wholePlan} — ${levelLabel(level)}`;
+  if (wholePlan && level !== null) return `${wholePlan} — ${levelName(sketch, level)}`;
   return thumbnailFor(thumbnails, render)?.label ?? render;
 }
 

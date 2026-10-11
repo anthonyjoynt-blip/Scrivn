@@ -9,6 +9,7 @@ import {
   sketchRenderLabel,
   toggleAttachment,
 } from "@/lib/sketchAttachments";
+import type { Sketch } from "@/lib/sketch";
 import type { SurfaceThumbnail } from "@/lib/surfaceThumbnails";
 import type { Trade } from "@/lib/workOrders";
 
@@ -103,12 +104,15 @@ export function SketchAttachmentToggle({
   available,
   selection,
   thumbnails,
+  levelNames,
   target,
   onChange,
 }: {
   available: SketchRender[];
   selection: SketchAttachments;
   thumbnails: SurfaceThumbnail[];
+  /** The storeys' names (`Sketch.levelNames`), for a per-level plan's label. */
+  levelNames?: Sketch["levelNames"];
   target: AttachmentTarget;
   onChange: (next: SketchAttachments) => void;
 }) {
@@ -128,7 +132,7 @@ export function SketchAttachmentToggle({
             title={sketchRenderDescription(render, thumbnails)}
             onClick={() => onChange(toggleAttachment(selection, target, render))}
           >
-            {sketchRenderLabel(render, thumbnails)}
+            {sketchRenderLabel(render, thumbnails, { levelNames })}
           </button>
         ))}
       </div>
