@@ -349,8 +349,9 @@ export default async function ScanGuidePage() {
                 <HowtoArt name="ceiling" />
                 <h3>Ceiling</h3>
                 <p>
-                  Aim at the ceiling and tap: one tap is the height. For a slope or a vault, tap the high side, then where the ceiling meets
-                  the wall at its low side. You can also set it on Review.
+                  Aim at the ceiling and tap, then tap once more to check it. A flat ceiling: the second tap on the same spot - the two
+                  reads should agree. For a slope or a vault, tap the high side, then where the ceiling meets the wall at its low side. You
+                  can also set it on Review.
                 </p>
               </div>
               <div className="sg-card">
