@@ -27,12 +27,23 @@ export type SketchRender = "clean" | "moisture" | (string & {});
 const WHOLE_PLAN_LABEL: Record<string, string> = {
   clean: "Sketch",
   moisture: "Moisture map",
+  roof: "Roof plan",
+  elevations: "Elevations",
 };
 
 const WHOLE_PLAN_DESCRIPTION: Record<string, string> = {
   clean: "The plan as drawn — rooms, doors, windows and cabinetry.",
   moisture: "The same plan with affected walls, floor and ceiling marked.",
+  roof: "The roof to scale, lettered by slope, with the slopes being roofed shaded and the ridge vent marked.",
+  elevations: "Every side of the house to scale: cladding, openings, gables and heights.",
 };
+
+/**
+ * The outside of the house's two pictures (2026-10-12, components/sketch/exteriorImages.tsx). Kept
+ * apart from the plans because they come from the exterior, not the rooms, and because the claim's
+ * selection starts them ticked the first time there is one to draw (`withExteriorDefaults`).
+ */
+export const EXTERIOR_RENDERS: SketchRender[] = ["roof", "elevations"];
 
 /**
  * A render id, split into what it draws and which storey — `clean:1` is the plan of the level above.
@@ -70,6 +81,35 @@ export interface SketchAttachments {
   scopeDocument: SketchRender[];
   /** Per trade, since a work order's audience is narrower than a document's. */
   workOrders: Partial<Record<Trade, SketchRender[]>>;
+  /**
+   * Set once the exterior's pictures have been ticked by default, so a picture the PM then unticks
+   * stays unticked rather than coming back with the next drawing. Absent until there is an exterior.
+   */
+  exteriorDefaulted?: boolean;
+}
+
+/**
+ * The exterior's pictures ticked the first time there are any to draw: the owner (10-12) wants the
+ * roof plan "included in the scope doc", and "everything should make it onto the sketch book and
+ * other docs". So both go on the inspection report and the scope document, the roof plan on the
+ * Roofing order and both on the Siding order - once. After that the ticks are the PM's.
+ */
+export function withExteriorDefaults(selection: SketchAttachments, available: SketchRender[]): SketchAttachments {
+  if (selection.exteriorDefaulted) return selection;
+  const exterior = EXTERIOR_RENDERS.filter((r) => available.includes(r));
+  if (exterior.length === 0) return selection;
+  const add = (list: SketchRender[] | undefined, renders: SketchRender[]) => [...(list ?? []), ...renders.filter((r) => !(list ?? []).includes(r))];
+  return {
+    ...selection,
+    inspectionReport: add(selection.inspectionReport, exterior),
+    scopeDocument: add(selection.scopeDocument, exterior),
+    workOrders: {
+      ...selection.workOrders,
+      ROOFING: add(selection.workOrders.ROOFING, exterior.filter((r) => r === "roof")),
+      SIDING: add(selection.workOrders.SIDING, exterior),
+    },
+    exteriorDefaulted: true,
+  };
 }
 
 /**
@@ -134,8 +174,10 @@ export function availableRenders(
   hasMoisture: boolean,
   thumbnails: SurfaceThumbnail[] = [],
   levels: number[] = [],
+  exterior: SketchRender[] = [],
 ): SketchRender[] {
-  if (!hasSketch) return [];
+  // The exterior's pictures, whatever the rooms: a hail claim can have an outside and no inside.
+  if (!hasSketch) return [...exterior];
   const base: ("clean" | "moisture")[] = hasMoisture ? ["clean", "moisture"] : ["clean"];
   /*
     One image per storey once there is more than one.
@@ -149,7 +191,7 @@ export function availableRenders(
     levels.length > 1 ? levels.flatMap((level) => base.map((b) => `${b}:${level}`)) : base;
   // Surface thumbnails are derived from the claim, so they appear and disappear as the scope changes
   // — `pruneAttachments` is what drops a selection whose surface has stopped being worked on.
-  return [...whole, ...thumbnails.map((t) => t.id)];
+  return [...whole, ...thumbnails.map((t) => t.id), ...exterior];
 }
 
 /** Drops any selection that can no longer be produced — a moisture map deleted after being ticked. */
@@ -164,5 +206,6 @@ export function pruneAttachments(selection: SketchAttachments, available: Sketch
     inspectionReport: keep(selection.inspectionReport),
     scopeDocument: keep(selection.scopeDocument),
     workOrders,
+    ...(selection.exteriorDefaulted ? { exteriorDefaulted: true } : {}),
   };
 }

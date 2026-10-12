@@ -94,7 +94,9 @@ import {
   availableRenders,
   defaultSketchAttachments,
   pruneAttachments,
+  withExteriorDefaults,
 } from "@/lib/sketchAttachments";
+import { exteriorRenders } from "@/components/sketch/exteriorImages";
 import { type SketchImage, dataUrlToBlob, downloadDataUrl, renderSketchImages, renderSketchJpeg } from "@/components/sketch/renderSketchImage";
 import { surfaceThumbnails } from "@/lib/surfaceThumbnails";
 import { SketchAttachmentToggle } from "@/components/sketch/SketchAttachmentPicker";
@@ -609,11 +611,13 @@ export default function Home() {
     `lib/surfaceThumbnails.ts`. Recomputed as the scope fills in, so a wall that stops being cut
     stops being offered and `pruneAttachments` drops it if it had already been ticked.
   */
+  /** The outside of the house's pictures, when it has something to draw - see components/sketch/exteriorImages.tsx. */
+  const exteriorPictures = useMemo(() => exteriorRenders(sketch.exterior), [sketch.exterior]);
   const thumbnails = useMemo(
     () => surfaceThumbnails(extraction, sketch, moisture, scopeMarks),
     [extraction, sketch, moisture, scopeMarks],
   );
-  const sketchRenders = availableRenders(hasSketchContent(sketch), hasMoistureContent(moisture), thumbnails, levelsOf(sketch));
+  const sketchRenders = availableRenders(hasSketchContent(sketch), hasMoistureContent(moisture), thumbnails, levelsOf(sketch), exteriorPictures);
   const sketchRenderKey = sketchRenders.join(",");
 
   /*
@@ -643,7 +647,8 @@ export default function Home() {
   useEffect(() => {
     const available = sketchRenderKey === "" ? [] : (sketchRenderKey.split(",") as SketchAttachments["inspectionReport"]);
     setSketchAttachments((prev) => {
-      const next = pruneAttachments(prev, available);
+      // And the exterior's pictures ticked the first time there are any - see `withExteriorDefaults`.
+      const next = withExteriorDefaults(pruneAttachments(prev, available), available);
       return JSON.stringify(next) === JSON.stringify(prev) ? prev : next;
     });
   }, [sketchRenderKey]);
@@ -1578,7 +1583,7 @@ ${asbestosSection}`;
         />
       ) : (
         <div className="sketch-launch">
-          {hasSketchContent(sketch) ? (
+          {hasSketchContent(sketch) || sketch.exterior ? (
             /*
               View and Edit as separate doors, with View first.
 
@@ -1590,7 +1595,7 @@ ${asbestosSection}`;
             */
             <>
               <button className="btn-secondary" onClick={() => openSketch(true)}>
-                View sketch ({sketch.rooms.length} room{sketch.rooms.length === 1 ? "" : "s"})
+                View sketch ({sketch.rooms.length} room{sketch.rooms.length === 1 ? "" : "s"}{sketch.exterior ? ", exterior" : ""})
               </button>
               <button className="btn-secondary" onClick={() => openSketch(false)}>
                 Edit sketch
@@ -2071,6 +2076,17 @@ ${asbestosSection}`;
                 {sketchRenders.includes("clean") && (
                   <button className="btn-secondary" onClick={() => void downloadSketchJpeg("clean")} title="For tracing as an Xactimate underlay">
                     Sketch JPG
+                  </button>
+                )}
+                {/* The outside's pictures as files too: the roof plan and the elevations, to keep with the job. */}
+                {sketchRenders.includes("roof") && (
+                  <button className="btn-secondary" onClick={() => void downloadSketchJpeg("roof")}>
+                    Roof plan JPG
+                  </button>
+                )}
+                {sketchRenders.includes("elevations") && (
+                  <button className="btn-secondary" onClick={() => void downloadSketchJpeg("elevations")}>
+                    Elevations JPG
                   </button>
                 )}
               </div>

@@ -40,6 +40,7 @@ async function load() {
       `export { documentGenerationUserMessage, DOCUMENT_GENERATION_SYSTEM_PROMPT, SCOPE_ONLY_SYSTEM_PROMPT } from "${lib("documentGenerationPrompt.ts")}";`,
       `export * from "${lib("exteriorImport.ts")}";`,
       `export { adoptScan, exteriorScanDecision, sketchFromScan } from "${lib("scanInbox.ts")}";`,
+      `export { availableRenders, defaultSketchAttachments, pruneAttachments, withExteriorDefaults, toggleAttachment } from "${lib("sketchAttachments.ts")}";`,
     ].join("\n"),
   );
   await build({ entryPoints: [entry], bundle: true, format: "esm", platform: "node", outfile, alias: { "@": root }, logLevel: "silent" });
@@ -633,6 +634,24 @@ test("wood shake takes house wrap; EIFS does not", () => {
   assert(siding.some((l) => l.startsWith("Remove & replace wood shake – Front – 476.7 SF")), siding.join(" | "));
   assert(siding.some((l) => l.startsWith("Remove & replace eifs – Left – 498.0 SF")), siding.join(" | "));
   assert(siding.includes("House wrap – 476.7 SF"), "wrap under the shakes only");
+});
+
+test("the roof plan and elevations go on the documents once, and an untick stays", () => {
+  // A hail claim with an outside and no inside still has both pictures to offer.
+  const available = x.availableRenders(false, false, [], [], ["roof", "elevations"]);
+  assert(available.join() === "roof,elevations", available.join());
+  assert(x.availableRenders(true, false, [], [0], ["roof"]).join() === "clean,roof", "after the plan");
+  const first = x.withExteriorDefaults(x.pruneAttachments(x.defaultSketchAttachments(), available), available);
+  assert(first.scopeDocument.includes("roof") && first.scopeDocument.includes("elevations"), first.scopeDocument.join());
+  assert(first.inspectionReport.includes("roof"), "on the inspection report too");
+  assert(first.workOrders.ROOFING.join() === "roof" && first.workOrders.SIDING.join() === "roof,elevations", JSON.stringify(first.workOrders));
+  assert(first.exteriorDefaulted === true, "remembered");
+  const unticked = x.toggleAttachment(first, { kind: "scopeDocument" }, "elevations");
+  const again = x.withExteriorDefaults(x.pruneAttachments(unticked, available), available);
+  assert(!again.scopeDocument.includes("elevations"), "the untick is the PM's");
+  // Nothing to draw yet: nothing ticked, and the defaults wait for the first picture.
+  const none = x.withExteriorDefaults(x.defaultSketchAttachments(), x.availableRenders(true, false));
+  assert(!none.exteriorDefaulted && !none.scopeDocument.includes("roof"), "waits");
 });
 
 console.log("\nfrom Scrivn Scan (arcapture-exterior/1)");

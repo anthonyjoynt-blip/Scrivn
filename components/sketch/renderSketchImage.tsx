@@ -8,6 +8,7 @@ import { PIXELS_PER_FOOT, type Sketch, freeWallsOf, freeWallsOnLevel, roomBounds
 import { type MoistureMap, emptyMoistureMap } from "@/lib/moisture";
 import { type SketchRender, parseRender } from "@/lib/sketchAttachments";
 import { type SurfaceThumbnail, thumbnailFor } from "@/lib/surfaceThumbnails";
+import { type ExteriorRender, renderExteriorImage } from "./exteriorImages";
 
 /**
  * Renders a sketch to a PNG, off screen, for attaching to a document.
@@ -187,6 +188,8 @@ export async function renderSketchImage(
   render: SketchRender,
   thumbnails: SurfaceThumbnail[] = [],
 ): Promise<SketchImage | null> {
+  // The outside of the house is drawn by its own drawings, not the plan's canvas.
+  if (render === "roof" || render === "elevations") return renderExteriorImage(sketch.exterior, render as ExteriorRender);
   return withStage(
     sketch,
     moisture,
@@ -217,6 +220,7 @@ export async function renderSketchImage(
  * `PIXELS_PER_FOOT`; there was a period when rooms could disagree and the bar had to be withheld.
  */
 export async function renderSketchJpeg(sketch: Sketch, moisture: MoistureMap, render: SketchRender): Promise<SketchImage | null> {
+  if (render === "roof" || render === "elevations") return renderExteriorImage(sketch.exterior, render as ExteriorRender, "jpeg");
   return withStage(sketch, moisture, render, (stage, frame) => {
     const width = Math.round(frame.width * PIXEL_RATIO);
     const height = Math.round(frame.height * PIXEL_RATIO);

@@ -52,14 +52,26 @@ const INK = "#1a1d23";
 /** Pixel size for drawing as an image; the editor sizes them by its stylesheet instead. */
 type Size = { width: number; height: number };
 
-export function ElevationDrawing({ side, rise, size }: { side: ExteriorSide; rise: RoofRise | null; size?: Size }) {
+/** The lettering size an elevation picks for itself, in feet: 3% of its larger dimension. */
+export function elevationFontFeet(side: ExteriorSide, rise: RoofRise | null): number {
+  const { shape, openings } = elevationFaces(side, rise);
+  const topZ = Math.max(shape.eaveZ ?? DEFAULT_EAVE_FEET, ...shape.top.map((p) => p.y), ...openings.map((o) => o.rect.y1));
+  const lowZ = Math.min(0, -shape.fallFeet);
+  return Math.max(0.5, Math.max(Math.max(1, shape.lengthFeet), topZ - lowZ) * 0.03);
+}
+
+/**
+ * One side, to scale. `fontFeet` sets the lettering, so a sheet of sides drawn at one scale can
+ * letter them all alike; left out, the drawing sizes it to itself.
+ */
+export function ElevationDrawing({ side, rise, size, fontFeet }: { side: ExteriorSide; rise: RoofRise | null; size?: Size; fontFeet?: number }) {
   const { shape, bands, openings } = elevationFaces(side, rise);
   const L = Math.max(1, shape.lengthFeet);
   const fall = shape.fallFeet;
   const eaveZ = shape.eaveZ;
   const topZ = Math.max(eaveZ ?? DEFAULT_EAVE_FEET, ...shape.top.map((p) => p.y), ...openings.map((o) => o.rect.y1));
   const lowZ = Math.min(0, -fall);
-  const fs = Math.max(0.5, Math.max(L, topZ - lowZ) * 0.03);
+  const fs = fontFeet ?? elevationFontFeet(side, rise);
   const padX = fs * 4.2;
   const groundZ = lowZ - fs * 4;
   const vx = -padX;
