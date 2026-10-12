@@ -34,7 +34,7 @@ async function load() {
     [
       `export * from "${lib("dryingPlan.ts")}";`,
       `export * from "${lib("dryingPlanSketch.ts")}";`,
-      `export { claimEquipment, roomEquipment, DEFAULT_EQUIPMENT_SETTINGS } from "${lib("equipment.ts")}";`,
+      `export { claimEquipment, roomEquipment, affectedUpperSquareFeet, DEFAULT_EQUIPMENT_SETTINGS } from "${lib("equipment.ts")}";`,
       `export { PIXELS_PER_FOOT, isInsideRoom } from "${lib("sketch.ts")}";`,
       `export { emptyMoistureMap, emptyRoomMoisture } from "${lib("moisture.ts")}";`,
     ].join("\n"),
@@ -176,24 +176,46 @@ function aimedClockwiseIntoWall(spot, length, width) {
 
 /* ── counts: the panel's numbers, not new ones ────────────────────────────────────────────────── */
 
-test("a 12 x 10 x 8 room, walls wet to 2 ft and the whole floor: 5 movers, 1 medium LGR", () => {
+test("a 12 x 10 x 8 room, walls wet to 2 ft and the whole floor: 4 movers, 1 medium LGR", () => {
   const plan = m.dryingPlan([rect()], LGR);
-  // 1 base + 120 / 50 -> 3 + (44 ft x 2 ft) / 100 -> 1.
-  equal(plan.rooms[0].airMovers.breakdown, { base: 1, floor: 3, upper: 1, insets: 0 }, "breakdown");
-  equal(plan.totalAirMovers, 5, "movers");
+  // 1 base + 120 / 50 -> 3; walls wet to 2 ft have nothing above 2 ft to count.
+  equal(plan.rooms[0].airMovers.breakdown, { base: 1, floor: 3, upper: 0, insets: 0 }, "breakdown");
+  equal(plan.totalAirMovers, 4, "movers");
   // 960 cu ft / 50 = 19.2 PPD, one 70 PPD unit.
   near(plan.dehumidifiers.required, 19.2, 1e-9, "PPD");
   equal(plan.dehumidifiers.units, 1, "dehumidifiers");
+});
+
+test("only wall above 2 ft counts, as S500 has it, on the sketch as in the calculator", () => {
+  // Typed in: 44 ft of wall wet to 4 ft is 44 x 2 = 88 sq ft above the base -> 1; to 2 ft, nothing.
+  equal(m.dryingPlan([rect({ wetHeightFeet: 4 })], LGR).rooms[0].airMovers.breakdown.upper, 1, "wet to 4 ft");
+  equal(m.dryingPlan([rect({ wetHeightFeet: 2 })], LGR).rooms[0].airMovers.breakdown.upper, 0, "wet to 2 ft");
+  // But a wall wet to 18 in is still a wet wall: the room is being dried and its movers go along it.
+  const low = rect({ wetHeightFeet: 1.5, wetFloorShare: 0, wetWalls: [true, false, false, false] });
+  assert(m.hasWetArea(low), "a wall wet below 2 ft still makes a wet room");
+  const [lowPlan] = m.dryingPlan([low], LGR).rooms;
+  equal(lowPlan.airMovers.units, 1, "the base mover");
+  equal(lowPlan.airMoverSpots.map((s) => s.wall), [0], "on the wet wall");
+
+  // On a sketch: a 10 ft wall read wet to 5 ft is 10 x 3 = 30 above the base; another read to 2 ft adds 0.
+  const room = box("bed", 0, 0, 10, 10);
+  const read = moisture({ bed: { wallReadings: [reading("a", room.vertices[0].id, { height: 5 }), reading("b", room.vertices[1].id, { height: 2 })] } });
+  equal(m.affectedUpperSquareFeet(room, read), 30, "read walls, above 2 ft only");
+  // No readings at all: every wall assumed wet to the ceiling less 2 ft, as before: 40 ft x 6 ft.
+  const unread = moisture({ bed: { floorCells: paint(10, 10) } });
+  equal(m.affectedUpperSquareFeet(room, unread), 240, "unread walls, unchanged");
 });
 
 test("a typed rectangle gives what the same room marked up on a sketch gives", () => {
   const room = box("bed", 0, 0, 12, 10);
   const walls = room.vertices.map((v) => v.id);
   const map = moisture({
-    bed: { wallReadings: walls.map((id, i) => reading(`r${i}`, id)), floorCells: paint(12, 10), ceilingCells: paint(12, 10, 20) },
+    bed: { wallReadings: walls.map((id, i) => reading(`r${i}`, id, { height: 3.5 })), floorCells: paint(12, 10), ceilingCells: paint(12, 10, 20) },
   });
   const panel = m.roomEquipment(room, map, LGR);
-  const typed = m.dryingPlan([rect({ wetCeilingShare: 0.5 })], LGR).rooms[0];
+  const typed = m.dryingPlan([rect({ wetHeightFeet: 3.5, wetCeilingShare: 0.5 })], LGR).rooms[0];
+  // 44 ft x 1.5 ft above the base + 60 sq ft of ceiling = 126 -> 2.
+  equal(typed.airMovers.breakdown.upper, 2, "walls above 2 ft and half the ceiling");
   equal(typed.airMovers.breakdown, panel.airMovers.breakdown, "air mover breakdown");
   equal(typed.airMovers.units, panel.airMovers.units, "air movers");
 });
@@ -265,8 +287,8 @@ test("movers are aimed into their wall and all chase each other clockwise, howev
 });
 
 test("with one wet wall the movers go on it, evenly spaced", () => {
-  // 20 ft wall wet to 2 ft = 40 sq ft -> 1, plus the base: 2 movers.
-  const room = rect({ lengthFeet: 20, widthFeet: 12, wetWalls: [true, false, false, false], wetFloorShare: 0 });
+  // 20 ft wall wet to 4 ft = 40 sq ft above the base -> 1, plus the base: 2 movers.
+  const room = rect({ lengthFeet: 20, widthFeet: 12, wetWalls: [true, false, false, false], wetHeightFeet: 4, wetFloorShare: 0 });
   const spots = m.dryingPlan([room], LGR).rooms[0].airMoverSpots;
   equal(spots.length, 2, "two movers");
   assert(spots.every((s) => s.wall === 0 && Math.abs(s.y - 1) < 1e-9), "both on the top wall, a foot in");
@@ -275,16 +297,16 @@ test("with one wet wall the movers go on it, evenly spaced", () => {
 });
 
 test("one mover goes on the longest wet wall", () => {
-  // Two wet walls, 9 ft and 14 ft, with their area taken out of the count so only the base mover is left.
+  // Two walls wet to 6 in, 9 ft and 14 ft: nothing above 2 ft, so only the base mover.
   const room = rect({ lengthFeet: 14, widthFeet: 9, wetHeightFeet: 0.5, wetFloorShare: 0, wetWalls: [false, true, true, false] });
-  const one = m.dryingPlan([{ ...room, wet: { ...room.wet, affectedUpperSquareFeet: 0 } }], LGR).rooms[0];
+  const one = m.dryingPlan([room], LGR).rooms[0];
   equal(one.airMovers.units, 1, "the base mover only");
   equal(one.airMoverSpots.map((s) => s.wall), [2], "on the bottom wall, the longer of the two wet ones");
 });
 
 test("no mover stands in a doorway", () => {
-  // 1 + 3 floor + 3 walls and ceiling + 2 insets = 9, enough to fill every free stretch, the door wall's too.
-  const room = { ...rect({ lengthFeet: 12, widthFeet: 10, wetCeilingShare: 1, insetsOver18Inches: 2 }), openings: [{ wall: 2, fromFeet: 4, toFeet: 7 }] };
+  // 1 + 3 floor + 2 ceiling + 3 insets = 9, enough to fill every free stretch, the door wall's too.
+  const room = { ...rect({ lengthFeet: 12, widthFeet: 10, wetCeilingShare: 1, insetsOver18Inches: 3 }), openings: [{ wall: 2, fromFeet: 4, toFeet: 7 }] };
   const spots = m.dryingPlan([room], LGR).rooms[0].airMoverSpots;
   // Wall 2 runs right to left from (12, 10): 4..7 ft along it is x 8..5, plus the margin.
   const inDoor = spots.filter((s) => s.wall === 2 && s.x > 5 - m.DOORWAY_MARGIN_FEET && s.x < 8 + m.DOORWAY_MARGIN_FEET);
@@ -293,8 +315,8 @@ test("no mover stands in a doorway", () => {
 });
 
 test("movers spill onto dry walls only once the wet walls are full", () => {
-  // 1 + 600 / 50 -> 12 + (30 ft x 2 ft) / 100 -> 1 = 14; the top wall takes 27 ft / 3 = 9.
-  const room = rect({ lengthFeet: 30, widthFeet: 20, wetWalls: [true, false, false, false] });
+  // 1 + 600 / 50 -> 12 + (30 ft x 2 ft above the base) / 100 -> 1 = 14; the top wall takes 27 ft / 3 = 9.
+  const room = rect({ lengthFeet: 30, widthFeet: 20, wetWalls: [true, false, false, false], wetHeightFeet: 4 });
   const plan = m.dryingPlan([room], LGR).rooms[0];
   equal(plan.airMovers.units, 14, "count");
   equal(plan.airMoverSpots.filter((s) => s.wall === 0).length, 9, "the wet wall full");
@@ -310,7 +332,7 @@ test("a floor-only room is ringed by movers", () => {
 
 test("movers the walls cannot take are reported, not crammed in", () => {
   // A 6 x 6 room: each wall has 3 ft between its corner clearances, room for one. Ten insets.
-  const plan = m.dryingPlan([rect({ lengthFeet: 6, widthFeet: 6, insetsOver18Inches: 10 })], LGR).rooms[0];
+  const plan = m.dryingPlan([rect({ lengthFeet: 6, widthFeet: 6, wetHeightFeet: 4, insetsOver18Inches: 10 })], LGR).rooms[0];
   equal(plan.airMovers.units, 13, "1 + 1 floor + 1 walls + 10 insets");
   equal(plan.airMoverSpots.length, 4, "one to a wall");
   equal(plan.airMoversUnplaced, 9, "the rest said");

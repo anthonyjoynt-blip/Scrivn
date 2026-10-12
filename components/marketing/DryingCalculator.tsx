@@ -195,7 +195,7 @@ export function DryingCalculator() {
 
       <p className="mk-calc-method">
         <strong>How it&apos;s worked out.</strong> Air movers, per room: 1, plus 1 for every 50 sq ft of wet floor, plus 1 for every 100
-        sq ft of wet wall and ceiling, plus 1 for each inset or offset over 18&quot;, each part rounded up. Dehumidifiers are sized once
+        sq ft of wet wall above 2 ft and wet ceiling, plus 1 for each inset or offset over 18&quot;, each part rounded up. Dehumidifiers are sized once
         over all the rooms together, since the air moves between them: LGR at cubic feet ÷ 100, 50 or 40 for class 1, 2 or 3–4;
         desiccant at 1, 2 or 3 air changes an hour; each unit rated at the low end of its size.
       </p>

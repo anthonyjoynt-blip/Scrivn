@@ -112,7 +112,7 @@ export function dehumidifiers(
 
 export interface AirMoverInput {
   affectedFloorSquareFeet: number;
-  /** Affected wall area above the base, plus affected ceiling. */
+  /** Affected wall area more than 2 ft up (`WALL_BASE_FEET`), plus affected ceiling. */
   affectedUpperSquareFeet: number;
   insetsAndOffsetsOver18Inches: number;
 }
@@ -181,12 +181,23 @@ export function affectedFloorSquareFeet(room: SketchRoom, map: MoistureMap, frac
 }
 
 /**
- * Affected wall area above the base, plus affected ceiling.
+ * The bottom of a wall that the air mover count leaves out: S500 counts affected wall ABOVE 2 ft.
+ *
+ * The movers along the base are there for the floor and the base of the wall already, so only the
+ * wet wall higher up earns more. The owner's call on 2026-10-12, to match S500: before it, a wall
+ * marked wet counted its whole wet height while an unmarked room counted only above 2 ft, so the same
+ * wall gave two answers depending on whether anyone had read it.
+ */
+export const WALL_BASE_FEET = 2;
+
+/**
+ * Affected wall area more than `WALL_BASE_FEET` up, plus affected ceiling.
  *
  * Once ANY wall in the room carries a reading, only the walls with readings count, each contributing
- * its measured run times its measured height. Marking two walls of a room says the other walls are
- * dry — that is the entire point of marking them individually — so adding an assumed area for every
- * unmarked wall inflated a partly-affected room to nearly a fully-affected one.
+ * its measured run times however far its measured height goes above 2 ft — a wall wet to 18 in adds
+ * nothing here, though it is still a wet wall the movers stand along. Marking two walls of a room says
+ * the other walls are dry — that is the entire point of marking them individually — so adding an
+ * assumed area for every unmarked wall inflated a partly-affected room to nearly a fully-affected one.
  *
  * The assumption of length x (ceiling height - 2) survives for a room with NO readings at all, where
  * nothing has been said about any wall. That is the pre-moisture-map behaviour, unchanged, and it is
@@ -197,10 +208,13 @@ export function affectedUpperSquareFeet(room: SketchRoom, map: MoistureMap): num
   const ceiling = summary.affectedCeilingSquareFeet;
 
   if (summary.readings.length > 0) {
-    return summary.readings.reduce((sum, r) => sum + (r.affectedWallSquareFeet ?? 0), 0) + ceiling;
+    return (
+      summary.readings.reduce((sum, r) => sum + (r.affectedLengthFeet ?? 0) * Math.max(0, r.affectedHeightFeet - WALL_BASE_FEET), 0) +
+      ceiling
+    );
   }
 
-  const assumedHeight = Math.max(0, (room.ceilingHeightFeet ?? 8) - 2);
+  const assumedHeight = Math.max(0, (room.ceilingHeightFeet ?? 8) - WALL_BASE_FEET);
   return wallsOf(room).reduce((sum, w) => sum + (w.lengthFeet ?? 0) * assumedHeight, 0) + ceiling;
 }
 

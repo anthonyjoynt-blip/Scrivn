@@ -682,7 +682,7 @@ export interface ReadingSummary {
   /** The wet run along that wall, which is what the affected area is actually computed from. */
   affectedLengthFeet: number | null;
   affectedHeightFeet: number;
-  /** Wall length x affected height — the number the air-mover calculation actually wants. */
+  /** Wet run x affected height: the whole wet area. The air movers count only the part above 2 ft (`affectedUpperSquareFeet`). */
   affectedWallSquareFeet: number | null;
   material: MoistureMaterial;
   /** Null when nothing has been measured yet — see `readingBand`. */

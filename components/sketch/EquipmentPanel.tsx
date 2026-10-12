@@ -192,7 +192,7 @@ export function EquipmentPanel({
       </div>
 
       <p className="field-note">
-        Air movers are per room: 1 + affected floor ÷ 50 + affected walls and ceiling ÷ 100 + insets over 18&quot;, always
+        Air movers are per room: 1 + affected floor ÷ 50 + affected wall above 2 ft and ceiling ÷ 100 + insets over 18&quot;, always
         rounded up. Dehumidifiers are sized once over the whole affected volume rather than summed per room, since the air
         moves between them.
       </p>

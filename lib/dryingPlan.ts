@@ -1,4 +1,12 @@
-import { type AirMoverInput, type AirMoverResult, type DehumidifierResult, type EquipmentSettings, airMovers, dehumidifiers } from "./equipment";
+import {
+  type AirMoverInput,
+  type AirMoverResult,
+  type DehumidifierResult,
+  type EquipmentSettings,
+  WALL_BASE_FEET,
+  airMovers,
+  dehumidifiers,
+} from "./equipment";
 
 /**
  * A drying plan: how many air movers and dehumidifiers a set of wet rooms needs, and where they go.
@@ -83,9 +91,18 @@ export interface DryingRoom {
   wet: AirMoverInput;
 }
 
-/** Whether there is anything in this room to dry: something wet, or an inset to cover. */
+/**
+ * Whether there is anything in this room to dry: something wet, or an inset to cover. A wall wet only
+ * below 2 ft counts as wet here though it adds nothing to the wall area — the room still gets its base
+ * mover, as a sketch room with a reading on it does.
+ */
 export function hasWetArea(room: DryingRoom): boolean {
-  return room.wet.affectedFloorSquareFeet > 0 || room.wet.affectedUpperSquareFeet > 0 || room.wet.insetsAndOffsetsOver18Inches > 0;
+  return (
+    room.wetWalls.length > 0 ||
+    room.wet.affectedFloorSquareFeet > 0 ||
+    room.wet.affectedUpperSquareFeet > 0 ||
+    room.wet.insetsAndOffsetsOver18Inches > 0
+  );
 }
 
 export interface RectangleRoomInput {
@@ -111,9 +128,10 @@ export interface RectangleRoomInput {
  * A plain rectangular room, as the calculator takes one: length by width by height, which walls are
  * wet and how high, and how much of the floor and ceiling.
  *
- * Wall area is each wet wall's length times how high it is wet, plus the wet ceiling: the same sum
- * the sketch makes from its moisture readings (`affectedUpperSquareFeet`), so a room typed in here
- * and the same room marked up on a sketch come out with the same air movers.
+ * Wall area is each wet wall's length times how far it is wet ABOVE 2 ft, plus the wet ceiling: the
+ * same sum the sketch makes from its moisture readings (`affectedUpperSquareFeet`), so a room typed in
+ * here and the same room marked up on a sketch come out with the same air movers. A wall wet to 2 ft
+ * or less adds no area, but it is still a wet wall, and the movers still go along it first.
  */
 export function rectangleRoom(input: RectangleRoomInput): DryingRoom {
   const length = Math.max(0, input.lengthFeet);
@@ -124,9 +142,9 @@ export function rectangleRoom(input: RectangleRoomInput): DryingRoom {
   let wallArea = 0;
   input.wetWalls.forEach((wet, wall) => {
     const run = wallLengths[wall] ?? 0;
-    if (!wet || run <= 0) return;
+    if (!wet || run <= 0 || !(input.wetHeightFeet > 0)) return;
     wetWalls.push({ wall, fromFeet: 0, toFeet: run });
-    wallArea += run * Math.max(0, input.wetHeightFeet);
+    wallArea += run * Math.max(0, input.wetHeightFeet - WALL_BASE_FEET);
   });
   return {
     id: input.id,
@@ -139,7 +157,7 @@ export function rectangleRoom(input: RectangleRoomInput): DryingRoom {
       { x: 0, y: width },
     ],
     openings: [],
-    wetWalls: wallArea > 0 ? wetWalls : [],
+    wetWalls,
     floorSquareFeet: floor,
     ceilingHeightFeet: Math.max(0, input.heightFeet),
     wet: {
