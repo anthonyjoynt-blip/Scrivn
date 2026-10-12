@@ -129,6 +129,7 @@ import { type BlockTurnRun, carriedWithRoom, roomTurnForPress, roomTurnStepDeg, 
 import { FreeCabinetPanel, SymbolPanel } from "./SymbolPanel";
 import { type Obstacle, conformedDragWall, obstaclesFor, placeNewRoom, pullRoomFromWall, viewCentredOn, wallDragMeetsWall } from "@/lib/roomPlacement";
 import { QuantitiesPanel } from "./QuantitiesPanel";
+import { ExteriorEditor } from "./ExteriorEditor";
 import { type QuantityOptions, DEFAULT_QUANTITY_OPTIONS } from "@/lib/sketchQuantities";
 import { SQUARE_TOLERANCE_DEG, leaningCorners, squareUpRoom } from "@/lib/sketchSquare";
 import type { MoistureTool, ToolMode } from "./SketchCanvas";
@@ -300,7 +301,12 @@ export function SketchEditor({
    * Sketching or mapping. A mode rather than another tool in the row: it changes what a tap means
    * everywhere, what the panel below shows, and whether the geometry can be edited at all.
    */
-  const [mode, setMode] = useState<"sketch" | "moisture">("sketch");
+  /*
+    The outside of the house is the third (2026-10-12): its own view rather than a level of rooms,
+    because nothing about it is a room - see `lib/exterior.ts`. The plan's tools, levels and panels
+    all stand aside while it is up.
+  */
+  const [mode, setMode] = useState<"sketch" | "moisture" | "exterior">("sketch");
   // The 3D view is a window over the editor, not a mode of it: nothing drawn changes while it is open.
   const [show3d, setShow3d] = useState(false);
   const [moistureTool, setMoistureTool] = useState<MoistureTool>("read");
@@ -992,6 +998,9 @@ export function SketchEditor({
         event.preventDefault();
         return;
       }
+
+      // Nothing on the plan is in view on the exterior, so no key may change it.
+      if (mode === "exterior") return;
 
       // Ctrl/Cmd+Z brings back the last deleted room, or free wall. Deliberately NOT general undo:
       // these are the actions with no other way back, and pretending to more history than exists
@@ -2213,7 +2222,9 @@ export function SketchEditor({
             <p className="subtitle" style={{ margin: 0 }}>
               {mode === "sketch"
                 ? "Optional. Draw each affected room, tap a wall to enter its real length, and place doors, windows and cabinets."
-                : "Mark where the damage is. Tap a wall for a reading, or highlight the wet floor. The room itself stays as you drew it."}
+                : mode === "moisture"
+                  ? "Mark where the damage is. Tap a wall for a reading, or highlight the wet floor. The room itself stays as you drew it."
+                  : "The outside: an elevation for each side of the house, and the roof the sides make."}
             </p>
           )}
         </div>
@@ -2221,6 +2232,7 @@ export function SketchEditor({
           {([
             { value: "sketch", label: "Sketch" },
             { value: "moisture", label: "Moisture" },
+            { value: "exterior", label: "Exterior" },
           ] as const).map((option) => (
             <button
               key={option.value}
@@ -2232,6 +2244,10 @@ export function SketchEditor({
                 setMode(option.value);
                 setTool("select");
                 setNewReadingId(null);
+                if (option.value === "exterior") {
+                  setSheet("none");
+                  cancelWallDraft();
+                }
               }}
             >
               {option.label}
@@ -2308,10 +2324,10 @@ export function SketchEditor({
         only adding a storey is an edit, and only that is held back while locked. Hidden while
         locked on a single-storey sketch, where one button that is already pressed says nothing.
       */}
-      {!phone && levelStrip}
+      {!phone && mode !== "exterior" && levelStrip}
 
       {/* The desktop toolbars. A phone gets the same nodes on its bottom bar and in More. */}
-      {!phone && !readOnly && (mode === "moisture" ? (
+      {!phone && !readOnly && mode !== "exterior" && (mode === "moisture" ? (
         <div className="sketch-toolbar" role="toolbar" aria-label="Moisture tools">
           <div className="option-group" role="group" aria-label="Moisture tool">
             {(["read", "paint", "erase"] as MoistureToolKey[]).map((key) => moistureNodes[key])}
@@ -2365,6 +2381,21 @@ export function SketchEditor({
         The DOM order is the same either way, so nothing about the page layout depends on which one
         is in force.
       */}
+      {mode === "exterior" ? (
+        <ExteriorEditor
+          exterior={sketch.exterior}
+          readOnly={readOnly}
+          onChange={(update) =>
+            onChange((prev) => {
+              const next = update(prev.exterior);
+              if (next === prev.exterior) return prev;
+              const out: Sketch = { ...prev, exterior: next };
+              if (next === undefined) delete out.exterior;
+              return out;
+            })
+          }
+        />
+      ) : (
       <div className="sketch-body">
       <div className="sketch-stage">
       {deletedRoom && (
@@ -3247,6 +3278,7 @@ export function SketchEditor({
       )}
       </div>
       </div>
+      )}
 
       {/*
         The bottom bar, and what it opens.
@@ -3257,7 +3289,7 @@ export function SketchEditor({
         line saying what a tap will do now. Both sheets are the card's children rather than the
         body's, so they rise over the plan instead of scrolling with it.
       */}
-      {phone && (
+      {phone && mode !== "exterior" && (
         <>
           {!readOnly && <p className="field-note sketch-bar-line">{hintText}</p>}
           <div className="sketch-bar" role="toolbar" aria-label={mode === "moisture" ? "Moisture tools" : "Sketch tools"}>

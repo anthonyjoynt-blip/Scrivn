@@ -51,6 +51,7 @@
   that is where the deductions are worked out; it is named here because it is saved with the sketch.
 */
 import type { QuantityOptions } from "./sketchQuantities";
+import type { Exterior } from "./exterior";
 
 /** A room's corner. Ids are stable across edits so walls and symbols can refer to them. */
 export interface Vertex {
@@ -770,6 +771,13 @@ export interface Sketch {
    * on every sketch saved before 2026-09-27, and on a scan the phone sent without photos.
    */
   walks?: SketchWalk[];
+  /**
+   * The outside of the house: an elevation per side, and the footprint and roof they make - see
+   * `lib/exterior.ts`. Not rooms and on no level, so nothing that totals the rooms ever sees it.
+   * Absent until the estimator starts one (or a scan brings one), and on every sketch saved before
+   * 2026-10-12. Outside `sketchFingerprint`: measuring the outside is not an edit of the phone's rooms.
+   */
+  exterior?: Exterior;
 }
 
 /**

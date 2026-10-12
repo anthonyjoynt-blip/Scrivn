@@ -2992,3 +2992,201 @@ button:disabled {
     grid-column: 1 / -1;
   }
 }
+
+/* ---- the exterior (2026-10-12): a tab per side, each elevation drawn to scale beside its numbers ---- */
+
+.exterior {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+/* Full screen the card is the viewport and clips; the exterior scrolls inside it as the plan's side column does. */
+.sketch-card-expanded .exterior {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.exterior-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+.exterior-tabs .option-group {
+  flex-wrap: wrap;
+}
+.exterior-pane {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(300px, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+@media (max-width: 900px) {
+  .exterior-pane {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.exterior-figure {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.exterior-svg {
+  width: 100%;
+  height: auto;
+  max-height: 62dvh;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: #ffffff;
+}
+.exterior-svg-label {
+  fill: #1a1d23;
+  font-family: inherit;
+}
+.exterior-svg-band {
+  fill: #4b5563;
+  font-family: inherit;
+  font-style: italic;
+}
+.exterior-empty {
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius);
+  padding: 28px 18px;
+  color: var(--text-muted);
+  text-align: center;
+}
+.exterior-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.exterior-subhead {
+  margin: 10px 0 0;
+  font-size: 0.9rem;
+  color: var(--color-navy);
+}
+.exterior-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 8px 12px;
+}
+.exterior-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.exterior-field .field-note {
+  margin: 0;
+}
+.exterior-field-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+.exterior-field input,
+.exterior-field select,
+.exterior-row select,
+.exterior-row input,
+.exterior-openings select,
+.exterior-feet {
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  font: inherit;
+  font-size: 0.9rem;
+  background: var(--surface);
+  color: var(--text);
+}
+.exterior-row .exterior-feet {
+  width: 6.5rem;
+}
+.exterior-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.exterior-rows > .field-note {
+  margin: 0;
+}
+.exterior-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+}
+.exterior-row-label {
+  min-width: 8rem;
+  font-size: 0.9rem;
+}
+.exterior-row-note {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+.exterior-row-x {
+  padding: 4px 10px;
+}
+.exterior-openings {
+  display: grid;
+  grid-template-columns: minmax(6.5rem, 1.2fr) repeat(4, minmax(4.2rem, 1fr)) auto;
+  gap: 6px;
+  align-items: center;
+}
+.exterior-openings .exterior-feet {
+  width: 100%;
+}
+.exterior-th {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+.exterior-table th {
+  text-align: left;
+}
+.exterior-table td {
+  white-space: normal;
+}
+.exterior-remove {
+  align-self: flex-start;
+  margin-top: 8px;
+}
+.exterior-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+.exterior-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.exterior-start {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 720px;
+}
+.exterior-start h3 {
+  margin: 0;
+}
+.exterior-start .btn-primary {
+  align-self: flex-start;
+}
+@media (max-width: 460px) {
+  .exterior-openings {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .exterior-openings .exterior-th {
+    display: none;
+  }
+}
+.exterior-fields > button,
+.exterior-rows > button {
+  align-self: flex-start;
+}
