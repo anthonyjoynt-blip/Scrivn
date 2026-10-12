@@ -12,6 +12,7 @@ import { lossTypeLabel } from "./claimInfo";
 import { baseboardFinishLine, ceilingPaintLine, ceilingQuantity, fractionLabel, primingLine } from "./paintDerivation";
 import type { ApplianceType, CeilingRecord, DoorRecord, FlooringRecord, Room, WaterLossExtraction, UnscopedItem } from "./types";
 import { disposalLine, recommendDisposal, type RoomAreasByName } from "./debris";
+import type { ExteriorScopeLines } from "./exterior";
 import { APPLIANCE_LABEL, DOOR_STYLE_LABEL, isInjectionEquipment, SUBFLOOR_LABEL, TRIM_KIND_LABEL, WINDOW_COVERING_LABEL, WINDOW_CLEANING_SIZE_LABEL, WINDOW_CLEANING_SIZES } from "./types";
 
 /**
@@ -30,13 +31,15 @@ import { APPLIANCE_LABEL, DOOR_STYLE_LABEL, isInjectionEquipment, SUBFLOOR_LABEL
  * stairs, most plumbing fixtures) simply produce no lines. That's expected: extraction never
  * populates them, so there is nothing to route.
  */
-export type Trade = "MITIGATION_DEMO" | "DRYWALL" | "PAINTING" | "FINISH_CARPENTRY" | "CONTENTS_PACK_OUT" | "CONTENTS_PACK_BACK";
+export type Trade = "MITIGATION_DEMO" | "DRYWALL" | "PAINTING" | "FINISH_CARPENTRY" | "ROOFING" | "SIDING" | "CONTENTS_PACK_OUT" | "CONTENTS_PACK_BACK";
 
 export const TRADE_LABEL: Record<Trade, string> = {
   MITIGATION_DEMO: "Mitigation & Demo",
   DRYWALL: "Drywall",
   PAINTING: "Painting",
   FINISH_CARPENTRY: "Finish Carpentry",
+  ROOFING: "Roofing",
+  SIDING: "Siding, Soffit & Eavestrough",
   CONTENTS_PACK_OUT: "Contents Pack Out",
   CONTENTS_PACK_BACK: "Contents Pack Back",
 };
@@ -52,11 +55,19 @@ export type ContentsApproach = "TM" | "BRIC_A_BRAC";
  * no equivalent — it counts boxes and rooms, with nothing describing the return trip. Offering it
  * there would mean inventing hours, so it isn't offered.
  */
-export function availableTrades(claim: ClaimInfo, contentsApproach: ContentsApproach): Trade[] {
+export function availableTrades(claim: ClaimInfo, contentsApproach: ContentsApproach, exterior: ExteriorScopeLines | null = null): Trade[] {
   const phases = claim.scopePhases;
   const trades: Trade[] = [];
   if (phases.includes("EMERGENCY")) trades.push("MITIGATION_DEMO");
   if (phases.includes("REPAIR")) trades.push("DRYWALL", "PAINTING", "FINISH_CARPENTRY");
+  /*
+    The exterior's two crews (2026-10-12), offered only when the sketch's exterior has something in
+    scope for them - the lines are the whole order, so with none there is nothing to hand a crew.
+  */
+  if (phases.includes("REPAIR") && exterior) {
+    if (exterior.roofing.length > 0) trades.push("ROOFING");
+    if (exterior.siding.length > 0) trades.push("SIDING");
+  }
   if (phases.includes("CONTENTS")) {
     trades.push("CONTENTS_PACK_OUT");
     if (contentsApproach === "TM") trades.push("CONTENTS_PACK_BACK");
@@ -244,6 +255,20 @@ function tradeNotes(trade: Trade, rooms: Room[]): string[] {
         ...unassigned,
       ];
 
+    case "ROOFING":
+      return [
+        "Confirm the shingle, colour and number of layers to tear off with the PM before starting.",
+        "Protect landscaping, windows and anything below the eaves; magnet-sweep for nails at the end of each day.",
+        "Report any soft or rotted decking to the PM before covering it.",
+      ];
+
+    case "SIDING":
+      return [
+        "Confirm the profile and colour with the PM before ordering.",
+        "Protect landscaping and windows; clean up thoroughly at the end of each day.",
+        "Report any damaged sheathing or wet framing to the PM before covering it.",
+      ];
+
     case "FINISH_CARPENTRY":
       return [
         ...(installsBaseboard
@@ -266,6 +291,11 @@ function assemble(claim: ClaimInfo, trade: Trade, body: string[], rooms: Room[] 
   const content = body.length > 0 ? body.join("\n") : "    (No items scoped for this trade on this claim.)";
   const notes = ["", "Notes", ...[...STANDING_NOTES, ...tradeNotes(trade, rooms)].map((n) => `    - ${n}`)].join("\n");
   return `${header(claim, trade)}${content}\n${notes}\n`;
+}
+
+/** The exterior's lines as a crew sheet's one section, headed the way the scope heads them. */
+function exteriorSection(lines: string[]): string[] {
+  return lines.length === 0 ? [] : ["  Exterior", ...lines.map((line) => `    - ${line}`)];
 }
 
 /** Groups per-room output, dropping rooms that produced nothing for this trade. */
@@ -798,8 +828,10 @@ export function buildWorkOrders(params: {
   paintableWallSF?: PaintableWallAreas;
   /** Each room's floor area and wall run from the sketch, for the disposal estimate — see lib/debris.ts. */
   roomAreas?: RoomAreasByName;
+  /** The exterior's lines in scope, measured off the sketch — see `exteriorScopeLines`. */
+  exterior?: ExteriorScopeLines;
 }): WorkOrder[] {
-  const { trades, claim, extraction, contentsApproach, contentsTM, bricABrac, dgigData, paintableWallSF, roomAreas } = params;
+  const { trades, claim, extraction, contentsApproach, contentsTM, bricABrac, dgigData, paintableWallSF, roomAreas, exterior } = params;
   // A contents-only claim has no extraction at all — the contents builders don't need one.
   const empty: WaterLossExtraction = extraction ?? { loss: { category: null, lossClass: null, source: null, dateOfLoss: null, yearOfBuilding: null, asbestosTestingRequired: false, asbestosSamplesTaken: null, asbestosSampleCount: null, isBasementLoss: false, hvacInspectionRequired: null }, rooms: [] };
 
@@ -817,6 +849,12 @@ export function buildWorkOrders(params: {
         break;
       case "FINISH_CARPENTRY":
         text = buildFinishCarpentry(claim, empty);
+        break;
+      case "ROOFING":
+        text = assemble(claim, trade, exteriorSection(exterior?.roofing ?? []));
+        break;
+      case "SIDING":
+        text = assemble(claim, trade, exteriorSection(exterior?.siding ?? []));
         break;
       case "CONTENTS_PACK_OUT":
         text = buildContentsPackOut(claim, contentsApproach, contentsTM, bricABrac);

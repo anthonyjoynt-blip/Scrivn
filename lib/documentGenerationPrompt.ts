@@ -763,6 +763,8 @@ Repair
   {room name}
     - {action} – {material detail} – {qualitative extent}
     ... (one bullet per record with a Repair portion)
+  Exterior   (only when CLAIM CONTEXT's "exterior" has lines — see the exterior note below)
+    - {each exterior line, written exactly as given}
   General
     - {disposal.repair — the computed disposal line, written exactly as given}
 
@@ -834,6 +836,16 @@ Notes on the scope document — tone and format matter as much as content here:
   on that single visit, so its debris is counted). If the PM stated a container in the transcript
   ("we'll need a 30-yard bin"), keep the computed line and append " — PM called for {what they
   said}" to it, so both the estimate and the PM's call are on the page.
+- EXTERIOR LINES ARE COMPUTED, NOT WRITTEN BY YOU. CLAIM CONTEXT carries "exterior": a list of
+  ready-made lines measured off the claim's exterior sketch — roofing squares and its edge lines,
+  cladding by elevation, soffit, fascia, eavestrough — for exactly the parts the estimator put in
+  scope, or an empty list. When it has lines, write an "Exterior" heading in the Repair section,
+  after the rooms and before General, with one bullet per line, EXACTLY as given and in the order
+  given — never recompute, round, merge, reword or drop one, and never add exterior work of your
+  own from the transcript. They carry real quantities on purpose; the "extent is qualitative" rule
+  does not apply to them. When REPAIR is not among scopePhases, put the Exterior heading in the one
+  phase section the document has, before its General. When the list is empty, write no Exterior
+  heading at all.
 - waterCategoryNote, when present, explains why the category is what it is — normally that enough
   days passed between the loss and the inspection for the water to have degraded, and that the PM
   confirmed it. Carry it into the document verbatim as its own sentence in the loss description, so
@@ -940,6 +952,8 @@ export function documentGenerationUserMessage(
   dgigData: DGIGData | null = null,
   /** The three computed disposal lines — see lib/debris.ts. The route always supplies them; the default is only for older callers. */
   disposal: DisposalLines = disposalLines(completedExtraction, {}),
+  /** The exterior's ready-made scope lines, in order — see lib/exterior.ts's `exteriorScopeLines`. Empty when nothing outside is in scope. */
+  exterior: string[] = [],
 ): string {
   // claimNumber/address/pmName/dateOfLoss/yearOfBuilding/dateTimeInspected are deliberately NOT
   // sent here — they only ever fed the JOB INFORMATION section, which this call no longer
@@ -963,6 +977,8 @@ export function documentGenerationUserMessage(
         dgigData,
         // Computed from the tree and the sketch — see lib/debris.ts and the disposal note above.
         disposal,
+        // Ready-made, copied exactly — see lib/exterior.ts and the exterior note above.
+        exterior,
       }
     : {
         customerName: claim.customerName,
@@ -987,6 +1003,8 @@ export function documentGenerationUserMessage(
         dgigData,
         // Computed from the tree and the sketch — see lib/debris.ts and the disposal note above.
         disposal,
+        // Ready-made, copied exactly — see lib/exterior.ts and the exterior note above.
+        exterior,
       };
 
   if (claim.scopeOnly) {

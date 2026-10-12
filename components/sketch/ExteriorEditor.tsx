@@ -15,8 +15,11 @@ import {
   type ExteriorOpeningKind,
   type ExteriorQuantities,
   type ExteriorRoof,
+  type ExteriorScope,
   type ExteriorSide,
+  emptyScope,
   exteriorQuantities,
+  exteriorScopeLines,
   FEET_PER_DOWNSPOUT,
   type Footprint,
   formatOpeningSize,
@@ -154,6 +157,64 @@ export function ExteriorEditor({ exterior, onChange, readOnly }: { exterior: Ext
       )}
 
       <ExteriorTotals exterior={exterior} q={q} />
+      <ExteriorScopePicker
+        exterior={exterior}
+        q={q}
+        readOnly={readOnly}
+        onChange={(f) => onChange((prev) => (prev ? { ...prev, scope: f(prev.scope ?? emptyScope()) } : prev))}
+      />
+    </div>
+  );
+}
+
+/**
+ * What of the outside the scope prices. Off until ticked: an exterior measured for a water claim is
+ * a record of the house, and a roof nobody decided to replace must not arrive on the scope as one.
+ */
+function ExteriorScopePicker({
+  exterior,
+  q,
+  readOnly,
+  onChange,
+}: {
+  exterior: Exterior;
+  q: ExteriorQuantities;
+  readOnly: boolean;
+  onChange: (f: (scope: ExteriorScope) => ExteriorScope) => void;
+}) {
+  const scope = exterior.scope ?? emptyScope();
+  const lines = exteriorScopeLines(exterior);
+  const all = [...lines.roofing, ...lines.siding];
+  const noRoof = q.roofing === null;
+  const tick = (label: string, checked: boolean, disabled: boolean, flip: () => void, key: string) => (
+    <label key={key} className="exterior-tick">
+      <input type="checkbox" checked={checked} disabled={readOnly || disabled} onChange={flip} />
+      <span>{label}</span>
+    </label>
+  );
+  return (
+    <div className="sketch-quantities exterior-totals">
+      <h3>In the scope</h3>
+      <p className="field-note">
+        Measuring the outside is not deciding to replace it. Tick what the scope should price: each tick puts its lines, with these quantities, on the
+        scope document under Exterior, and on the Roofing or Siding work order.
+      </p>
+      <div className="exterior-ticks">
+        {tick("Roofing", scope.roofing, noRoof, () => onChange((s) => ({ ...s, roofing: !s.roofing })), "roofing")}
+        {exterior.sides.map((side, i) =>
+          tick(
+            `${side.name.trim() || "Side"} cladding`,
+            scope.sides.includes(side.id),
+            !(q.sides[i] as SideQuantities).complete,
+            () => onChange((s) => ({ ...s, sides: s.sides.includes(side.id) ? s.sides.filter((x) => x !== side.id) : [...s.sides, side.id] })),
+            side.id,
+          ),
+        )}
+        {tick("Soffit & fascia", scope.soffitFascia, noRoof, () => onChange((s) => ({ ...s, soffitFascia: !s.soffitFascia })), "soffit")}
+        {tick("Eavestrough & downspouts", scope.eavestrough, noRoof, () => onChange((s) => ({ ...s, eavestrough: !s.eavestrough })), "trough")}
+      </div>
+      {noRoof && <p className="field-note">Roofing, soffit, fascia and eavestrough need the roof: the sides closed round the house and a pitch.</p>}
+      {all.length > 0 && <pre className="document-text exterior-lines">{all.map((l) => `- ${l}`).join("\n")}</pre>}
     </div>
   );
 }

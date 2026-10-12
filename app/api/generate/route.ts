@@ -21,9 +21,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Request body must be JSON." }, { status: 400 });
   }
 
-  const { claim, extraction, transcript, contentsAssignmentNote, dgigData, roomAreas } = (body ?? {}) as {
+  const { claim, extraction, transcript, contentsAssignmentNote, dgigData, roomAreas, exterior } = (body ?? {}) as {
     /** What the sketch knows about each room, keyed by normalised name — see lib/debris.ts. Optional: the pipeline harness sends none. */
     roomAreas?: RoomAreasByName;
+    /** The exterior's ready-made scope lines — see lib/exterior.ts's `exteriorScopeLines`. Optional: absent means none. */
+    exterior?: unknown;
     claim?: ClaimInfo;
     extraction?: WaterLossExtraction;
     transcript?: string;
@@ -43,6 +45,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "A \"transcript\" string is required." }, { status: 400 });
   }
 
+  // Strings only, and not many: these are copied onto the document word for word.
+  const exteriorLines = Array.isArray(exterior) ? exterior.filter((l): l is string => typeof l === "string" && l.length <= 300).slice(0, 40) : [];
+
   const blocked = await checkUsageAllowed();
   if (blocked) {
     return NextResponse.json({ error: blocked.error }, { status: blocked.status });
@@ -57,13 +62,13 @@ export async function POST(request: Request) {
     const generated = claim.scopeOnly
       ? await createStructuredMessage<GeneratedDocuments>({
           system: SCOPE_ONLY_SYSTEM_PROMPT,
-          userMessage: documentGenerationUserMessage(claim, extraction, transcript, null, dgigData ?? null, disposalLines(extraction, roomAreas ?? {})),
+          userMessage: documentGenerationUserMessage(claim, extraction, transcript, null, dgigData ?? null, disposalLines(extraction, roomAreas ?? {}), exteriorLines),
           schema: scopeOnlyGenerationSchema,
           maxTokens: GENERATION_MAX_TOKENS,
         })
       : await createStructuredMessage<GeneratedDocuments>({
           system: DOCUMENT_GENERATION_SYSTEM_PROMPT,
-          userMessage: documentGenerationUserMessage(claim, extraction, transcript, contentsAssignmentNote ?? null, dgigData ?? null, disposalLines(extraction, roomAreas ?? {})),
+          userMessage: documentGenerationUserMessage(claim, extraction, transcript, contentsAssignmentNote ?? null, dgigData ?? null, disposalLines(extraction, roomAreas ?? {}), exteriorLines),
           schema: documentGenerationSchema,
           maxTokens: GENERATION_MAX_TOKENS,
         });

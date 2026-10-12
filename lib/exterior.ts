@@ -775,6 +775,88 @@ export function exteriorQuantities(exterior: Exterior): ExteriorQuantities {
   };
 }
 
+// ---------------------------------------------------------------------------------------------
+// Into the scope
+// ---------------------------------------------------------------------------------------------
+
+/** Siding that goes on over a wrap and is trimmed round its openings; stucco, brick and stone are not. */
+const SIDING_KINDS: CladdingKind[] = ["vinyl", "wood", "fibre_cement", "metal"];
+
+export interface ExteriorScopeLines {
+  /** For the roofer. */
+  roofing: string[];
+  /** For the siding crew: cladding, soffit and fascia, eavestrough. */
+  siding: string[];
+}
+
+/**
+ * The exterior's lines for the scope document and the work orders: what the estimator put in
+ * scope, with the quantity the measurements give.
+ *
+ * Built here and handed over READY, as the disposal line is (lib/debris.ts): the document's writer
+ * copies each one exactly and never works a number out of its own. A line is only made for what
+ * was ticked - measuring the outside of a house is not deciding to replace it.
+ */
+export function exteriorScopeLines(exterior: Exterior | undefined): ExteriorScopeLines {
+  const out: ExteriorScopeLines = { roofing: [], siding: [] };
+  const scope = exterior?.scope;
+  if (!exterior || !scope) return out;
+  const q = exteriorQuantities(exterior);
+  const num = (v: number) => (Math.round(v * 10) / 10).toFixed(1);
+  const r = q.roofing;
+
+  if (scope.roofing && r) {
+    out.roofing.push(
+      `Remove & replace roofing – ${formatPitch(r.pitch)} – ${r.squaresWithWaste.toFixed(2)} SQ (${r.squares.toFixed(2)} SQ + ${num(r.wastePercent)}% waste)`,
+    );
+    if (r.steep) out.roofing.push(`Steep roof charge – ${r.steep}`);
+    if (r.ridgeFeet + r.hipFeet > 0) out.roofing.push(`Hip & ridge cap – ${num(r.ridgeFeet + r.hipFeet)} LF`);
+    out.roofing.push(`Drip edge – ${num(r.dripEdgeFeet)} LF (eaves + rakes)`);
+    out.roofing.push(`Starter strip – ${num(r.starterFeet)} LF (eaves)`);
+    out.roofing.push(`Ice & water barrier – ${num(r.iceWaterFeet)} LF (eaves + valleys)`);
+    if (r.valleyFeet > 0) out.roofing.push(`Valleys – ${num(r.valleyFeet)} LF`);
+  }
+
+  const sides = q.sides.filter((s) => scope.sides.includes(s.sideId) && s.complete);
+  if (sides.length > 0) {
+    const kinds = new Map<string, { label: string; kind: CladdingKind; gross: number; holes: number; net: number; names: string[] }>();
+    for (const s of sides) {
+      for (const b of s.bands) {
+        const key = b.kind === "other" ? `other:${b.label.toLowerCase()}` : b.kind;
+        const k = kinds.get(key) ?? { label: b.label, kind: b.kind, gross: 0, holes: 0, net: 0, names: [] };
+        k.gross += b.grossSquareFeet;
+        k.holes += b.openingSquareFeet;
+        k.net += b.netSquareFeet;
+        if (!k.names.includes(s.name)) k.names.push(s.name);
+        kinds.set(key, k);
+      }
+    }
+    let wrap = 0;
+    for (const k of kinds.values()) {
+      if (k.net <= 0) continue;
+      const holes = k.holes > 0.05 ? ` (${num(k.gross)} SF less ${num(k.holes)} SF of openings)` : "";
+      out.siding.push(`Remove & replace ${k.label.toLowerCase()} – ${k.names.join(", ")} – ${num(k.net)} SF${holes}`);
+      if (SIDING_KINDS.includes(k.kind)) wrap += k.net;
+    }
+    if (wrap > 0) out.siding.push(`House wrap – ${num(wrap)} SF`);
+    const sidedTrim = sides
+      .filter((s) => s.bands.some((b) => SIDING_KINDS.includes(b.kind) && b.netSquareFeet > 0))
+      .reduce((sum, s) => sum + s.openingTrimFeet, 0);
+    if (sidedTrim > 0) out.siding.push(`Trim & J-channel round openings – ${num(sidedTrim)} LF`);
+  }
+
+  if (scope.soffitFascia && r) {
+    out.siding.push(`Remove & replace soffit – ${num(r.soffitSquareFeet)} SF`);
+    out.siding.push(`Remove & replace fascia – ${num(r.fasciaFeet)} LF (eaves + rakes)`);
+  }
+  if (scope.eavestrough && r) {
+    out.siding.push(`Remove & replace eavestrough – ${num(r.eavestroughFeet)} LF`);
+    const each = r.downspouts.feet !== null ? `, ${num(r.downspouts.feet)} LF` : "";
+    out.siding.push(`Remove & replace downspouts – ${r.downspouts.count}${each}`);
+  }
+  return out;
+}
+
 /** "4/12", or "4.1/12" when it is not a whole number. */
 export function formatPitch(pitch: number): string {
   const r = Math.round(pitch * 10) / 10;

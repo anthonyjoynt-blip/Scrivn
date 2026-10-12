@@ -3190,3 +3190,18 @@ button:disabled {
 .exterior-rows > button {
   align-self: flex-start;
 }
+.exterior-ticks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+}
+.exterior-tick {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.9rem;
+}
+.exterior-lines {
+  margin-top: 10px;
+  white-space: pre-wrap;
+}

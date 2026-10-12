@@ -8,6 +8,7 @@ import { useClaimPersistence } from "@/lib/useClaimPersistence";
 import { useLetterhead } from "@/lib/useLetterhead";
 import type { RoomAreasByName } from "@/lib/debris";
 import { roomAreasForEstimate } from "@/lib/sketchQuantities";
+import { exteriorScopeLines } from "@/lib/exterior";
 import { useProfile } from "@/lib/useProfile";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
 import { resolveRound, nextQuestions } from "@/lib/questionRound";
@@ -681,6 +682,13 @@ export default function Home() {
   */
   const roomAreas = useMemo<RoomAreasByName>(() => roomAreasForEstimate(sketch, normaliseRoomName), [sketch]);
 
+  /*
+    The outside of the house, as scope lines (2026-10-12): only what the estimator ticked on the
+    sketch's Exterior, each with the quantity it measures to. Ready-made like the disposal line, so
+    the scope document copies them and the Roofing and Siding work orders are them.
+  */
+  const exteriorLines = useMemo(() => exteriorScopeLines(sketch.exterior), [sketch.exterior]);
+
   const paintableWallSF = useMemo(() => {
     const out: Record<string, number | null> = {};
     if (!extraction) return out;
@@ -966,6 +974,7 @@ export default function Home() {
         dgigData: isDGIG(claim.insurer) && hasDGIGContent(dgigData) ? dgigData : null,
         paintableWallSF,
         roomAreas,
+        exterior: exteriorLines,
       }),
     );
     setEditingWorkOrders({});
@@ -1394,7 +1403,7 @@ export default function Home() {
       // comment for why an empty form falls back to the standard derivation instead of an empty
       // Emergency/Repair section.
       const dgigPayload = isDGIG(claim.insurer) && hasDGIGContent(dgigData) ? dgigData : null;
-      const result = await postJson<{ documents: GeneratedDocuments }>("/api/generate", { claim, extraction, transcript, contentsAssignmentNote, dgigData: dgigPayload, roomAreas });
+      const result = await postJson<{ documents: GeneratedDocuments }>("/api/generate", { claim, extraction, transcript, contentsAssignmentNote, dgigData: dgigPayload, roomAreas, exterior: [...exteriorLines.roofing, ...exteriorLines.siding] });
       const documents = result.documents;
       // Contents alongside structural scope: Claude generates the structural Emergency/Repair scope
       // only (see documentGenerationPrompt.ts's SCOPE_PHASE_RULES) — the Contents section is
@@ -2096,7 +2105,7 @@ ${asbestosSection}`;
       {step === "results" && documents && (
         <>
           <WorkOrderSelector
-            available={availableTrades(claim, contentsApproach)}
+            available={availableTrades(claim, contentsApproach, exteriorLines)}
             selected={selectedTrades}
             unavailableNote={unavailableTradeNote(claim, contentsApproach)}
             onToggle={handleToggleTrade}

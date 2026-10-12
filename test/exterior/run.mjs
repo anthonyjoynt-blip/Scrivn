@@ -30,8 +30,17 @@ async function load() {
   const outDir = mkdtempSync(join(tmpdir(), "exterior-"));
   const entry = join(outDir, "entry.ts");
   const outfile = join(outDir, "entry.mjs");
-  writeFileSync(entry, `export * from "${lib("exterior.ts")}";\nexport * from "${lib("roof.ts")}";\n`);
-  await build({ entryPoints: [entry], bundle: true, format: "esm", platform: "neutral", outfile, logLevel: "silent" });
+  writeFileSync(
+    entry,
+    [
+      `export * from "${lib("exterior.ts")}";`,
+      `export * from "${lib("roof.ts")}";`,
+      `export { availableTrades, buildWorkOrders } from "${lib("workOrders.ts")}";`,
+      `export { emptyClaimInfo } from "${lib("claimInfo.ts")}";`,
+      `export { documentGenerationUserMessage, DOCUMENT_GENERATION_SYSTEM_PROMPT, SCOPE_ONLY_SYSTEM_PROMPT } from "${lib("documentGenerationPrompt.ts")}";`,
+    ].join("\n"),
+  );
+  await build({ entryPoints: [entry], bundle: true, format: "esm", platform: "node", outfile, alias: { "@": root }, logLevel: "silent" });
   const mod = await import(pathToFileURL(outfile).href);
   rmSync(outDir, { recursive: true, force: true });
   return mod;
@@ -393,6 +402,87 @@ test("a T is not built yet: area and eaves only, and it says so", () => {
 test("steep pitches are flagged", () => {
   assert(roofOf(rect(30, 20, { pitch: 8 })).roofing.steep === "7/12 to 9/12", "8/12");
   assert(roofOf(rect(30, 20, { pitch: 12 })).roofing.steep === "10/12 to 12/12", "12/12");
+});
+
+console.log("\ninto the scope");
+
+/** The owner's house at 4/12, his Left side measured, 40' along the ridge. */
+function ownersHouse(scope) {
+  const e = rect(40, ft(34, 3), { pitch: 4 }, ft(12, 7));
+  e.sides[3] = { ...ownersSide(), id: "left" };
+  if (scope) e.scope = { roofing: false, sides: [], soffitFascia: false, eavestrough: false, ...scope };
+  return e;
+}
+
+test("nothing measured outside is in scope until it is ticked", () => {
+  const lines = x.exteriorScopeLines(ownersHouse());
+  assert(lines.roofing.length === 0 && lines.siding.length === 0, "no lines without a tick");
+  assert(x.exteriorScopeLines(undefined).roofing.length === 0, "no exterior, no lines");
+});
+
+test("roofing ticked: squares with waste, the cap, the edges, ice and water", () => {
+  const { roofing, siding } = x.exteriorScopeLines(ownersHouse({ roofing: true }));
+  // 1634.38 SF -> 16.34 SQ; + 10% = 17.98 SQ (see the 4/12 house above).
+  assert(roofing[0] === "Remove & replace roofing – 4/12 – 17.98 SQ (16.34 SQ + 10.0% waste)", `first line: ${roofing[0]}`);
+  assert(roofing.includes("Hip & ridge cap – 42.0 LF"), "ridge cap the ridge's 42'");
+  assert(roofing.includes("Drip edge – 161.8 LF (eaves + rakes)"), "drip edge 84 + 77.8");
+  assert(roofing.includes("Starter strip – 84.0 LF (eaves)"), "starter");
+  assert(roofing.includes("Ice & water barrier – 84.0 LF (eaves + valleys)"), "ice and water");
+  assert(!roofing.some((l) => l.startsWith("Valleys")), "no valley line on a gable roof");
+  assert(!roofing.some((l) => l.startsWith("Steep")), "4/12 is not steep");
+  assert(siding.length === 0, "nothing for the siding crew");
+});
+
+test("a side's cladding ticked: net of its window, by name", () => {
+  const { siding } = x.exteriorScopeLines(ownersHouse({ sides: ["left"] }));
+  assert(siding[0] === "Remove & replace stucco – Left – 498.0 SF (508.0 SF less 10.1 SF of openings)", `got ${siding[0]}`);
+  assert(!siding.some((l) => l.startsWith("House wrap")), "stucco takes no house wrap line");
+});
+
+test("vinyl on two sides adds the wrap and the trim round their openings", () => {
+  const e = ownersHouse({ sides: ["left", "front"] });
+  for (const s of e.sides) s.bands = [{ id: "v", kind: "vinyl", top: null }];
+  const { siding } = x.exteriorScopeLines(e);
+  // Front 40 x 11'11" = 476.67 SF, Left 497.97 net: 974.6 SF of vinyl.
+  assert(siding[0] === "Remove & replace vinyl siding – Front, Left – 974.6 SF (984.7 SF less 10.1 SF of openings)", `got ${siding[0]}`);
+  assert(siding.includes("House wrap – 974.6 SF"), "wrap the vinyl's net");
+  assert(siding.includes("Trim & J-channel round openings – 13.8 LF"), "the window's trim");
+});
+
+test("soffit, fascia and eavestrough ticked", () => {
+  const { siding } = x.exteriorScopeLines(ownersHouse({ soffitFascia: true, eavestrough: true }));
+  assert(siding.some((l) => /^Remove & replace soffit – \d+\.\d SF$/.test(l)), "soffit");
+  assert(siding.includes("Remove & replace fascia – 161.8 LF (eaves + rakes)"), "fascia");
+  assert(siding.includes("Remove & replace eavestrough – 84.0 LF"), "eavestrough");
+  assert(siding.some((l) => l.startsWith("Remove & replace downspouts – 4, ")), "four downspouts");
+});
+
+test("the Roofing and Siding work orders are offered only with lines, and carry them", () => {
+  const claim = { ...x.emptyClaimInfo(), jobNumber: "J1", customerName: "Owner", scopePhases: ["REPAIR"] };
+  const none = x.availableTrades(claim, "TM", x.exteriorScopeLines(ownersHouse()));
+  assert(!none.includes("ROOFING") && !none.includes("SIDING"), "nothing ticked, no exterior crews");
+  const lines = x.exteriorScopeLines(ownersHouse({ roofing: true, sides: ["left"] }));
+  const trades = x.availableTrades(claim, "TM", lines);
+  assert(trades.includes("ROOFING") && trades.includes("SIDING"), `offered: ${trades.join(", ")}`);
+  assert(!x.availableTrades({ ...claim, scopePhases: ["EMERGENCY"] }, "TM", lines).includes("ROOFING"), "not without Repair");
+  const [roofing] = x.buildWorkOrders({ trades: ["ROOFING"], claim, extraction: null, contentsApproach: "TM", contentsTM: null, bricABrac: null, dgigData: null, exterior: lines });
+  assert(roofing.text.includes("  Exterior\n    - Remove & replace roofing – 4/12 – 17.98 SQ"), roofing.text);
+  assert(/WORK ORDER — ROOFING/.test(roofing.text), "headed as roofing");
+});
+
+test("the scope document is handed the lines and told to copy them", () => {
+  const extraction = { loss: { category: null, lossClass: null, source: null, dateOfLoss: null, yearOfBuilding: null, asbestosTestingRequired: false, asbestosSamplesTaken: null, asbestosSampleCount: null, isBasementLoss: false, hvacInspectionRequired: null }, rooms: [] };
+  const lines = x.exteriorScopeLines(ownersHouse({ roofing: true }));
+  const all = [...lines.roofing, ...lines.siding];
+  const claim = x.emptyClaimInfo();
+  const message = x.documentGenerationUserMessage(claim, extraction, "", null, null, undefined, all);
+  assert(message.includes(JSON.stringify(all[0]).slice(1, -1)), "the first line reaches the claim context");
+  assert(x.documentGenerationUserMessage({ ...claim, scopeOnly: true }, extraction, "", null, null, undefined, all).includes('"exterior":['), "and in scope-only mode");
+  assert(x.documentGenerationUserMessage(claim, extraction, "").includes('"exterior":[]'), "an empty list when nothing is in scope");
+  for (const prompt of [x.DOCUMENT_GENERATION_SYSTEM_PROMPT, x.SCOPE_ONLY_SYSTEM_PROMPT]) {
+    assert(/EXTERIOR LINES ARE COMPUTED, NOT WRITTEN BY YOU/.test(prompt), "the rule is in the prompt");
+    assert(/Exterior\s+\(only when CLAIM CONTEXT's "exterior" has lines/.test(prompt), "and the heading in the format");
+  }
 });
 
 console.log(`\n${passed.length} passed, ${failures.length} failed`);
