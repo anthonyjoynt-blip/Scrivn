@@ -685,12 +685,13 @@ export function SketchEditor({
 
   const selectedRoom = sketch.rooms.find((r) => r.id === selectedRoomId) ?? null;
 
-  /** Readings for a room that has been deleted would otherwise linger in the output. */
+  /**
+   * Readings for a room that has been deleted would otherwise linger in the output, and so would
+   * paint left outside a room's walls when it shrinks. `pruneMoisture` returns `prev` itself when
+   * nothing went, which is what keeps this from looping.
+   */
   useEffect(() => {
-    onMoistureChange((prev) => {
-      const next = pruneMoisture(prev, sketch);
-      return Object.keys(next.rooms).length === Object.keys(prev.rooms).length ? prev : next;
-    });
+    onMoistureChange((prev) => pruneMoisture(prev, sketch));
   }, [sketch, onMoistureChange]);
 
   function updateRoomMoisture(roomId: string, update: (prev: RoomMoisture) => RoomMoisture) {

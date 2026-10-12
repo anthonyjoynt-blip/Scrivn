@@ -218,6 +218,7 @@ check(painting.includes("Prime & paint walls – 90 SF"), "alongside the wall pr
   const unchanged = pruneMoisture(painted, { rooms: [small] });
   check(unchanged.rooms.r1.floorCells.length === cells.length, "an untouched sketch keeps all of its paint");
   check(unchanged.rooms.r1 === painted.rooms.r1, "and keeps the same object, so the effect that prunes cannot loop");
+  check(unchanged === painted, "the map itself too, which is what the editor's effect hands back");
 
   /*
     The reported case: a wall dragged INWARD.

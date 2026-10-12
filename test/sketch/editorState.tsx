@@ -5,7 +5,7 @@ import { createRoot } from "react-dom/client";
 import Konva from "konva";
 import { SketchEditor } from "@/components/sketch/SketchEditor";
 import { PIXELS_PER_FOOT, type Sketch, type SketchRoom, wallsOf } from "@/lib/sketch";
-import { type MoistureMap, emptyMoistureMap, roomMoisture } from "@/lib/moisture";
+import { type MoistureMap, cellCentreWorld, emptyMoistureMap, paintedFloorSquareFeet, parseCellKey, roomMoisture } from "@/lib/moisture";
 import { gesturesFor } from "./gestures";
 
 /**
@@ -56,13 +56,26 @@ const stairRoom = (): SketchRoom => ({
   ],
 });
 
+/** The same room cut down to a square `feet` on a side, from its top-left corner, keeping its ids. */
+const shrunkRoom = (feet: number): SketchRoom => ({
+  ...stairRoom(),
+  vertices: [
+    { id: "a", x: 60, y: 60 },
+    { id: "b", x: 60 + feet * PIXELS_PER_FOOT, y: 60 },
+    { id: "c", x: 60 + feet * PIXELS_PER_FOOT, y: 60 + feet * PIXELS_PER_FOOT },
+    { id: "d", x: 60, y: 60 + feet * PIXELS_PER_FOOT },
+  ],
+});
+
 /** Stands in for the claim page: it owns both pieces of state, exactly as the real parent does. */
 let latestMoisture: MoistureMap = emptyMoistureMap();
+let setHostSketch: ((sketch: Sketch) => void) | null = null;
 
 function Host() {
   const [sketch, setSketch] = useState<Sketch>({ rooms: [stairRoom()] });
   const [moisture, setMoisture] = useState<MoistureMap>(emptyMoistureMap());
   latestMoisture = moisture;
+  setHostSketch = setSketch;
 
   return createElement(SketchEditor, {
     sketch,
@@ -206,6 +219,39 @@ export async function run(): Promise<{ passed: number; failed: number; results: 
       check(
         surfaceText().some((t) => /Affected ceiling/.test(t) && /SF highlighted/.test(t)),
         `and the ceiling's readout appears with it (got "${surfaceText().find((t) => /ceiling/i.test(t))?.slice(0, 60)}")`,
+      );
+
+      /*
+        A room shrunk under its paint loses the paint outside its new walls.
+
+        `pruneMoisture` always clipped the cells, but the editor's effect threw its answer away unless
+        a room had been DELETED — it compared room counts — so a room cut down to 8x8 went on drawing,
+        and counting into the air movers, the floor of the room it used to be.
+      */
+      const small = shrunkRoom(8);
+      const outside = (cells: string[]) =>
+        cells.filter((key) => {
+          const cell = parseCellKey(key);
+          if (!cell) return true;
+          const centre = cellCentreWorld(small, cell.col, cell.row);
+          return centre.x > 60 + 8 * PIXELS_PER_FOOT || centre.y > 60 + 8 * PIXELS_PER_FOOT;
+        });
+      const before = roomMoisture(latestMoisture, "room-1");
+      check(
+        outside(before.floorCells).length > 0 && outside(before.ceilingCells).length > 0,
+        `the paint reaches past where the walls are about to go (${outside(before.floorCells).length} floor, ${outside(before.ceilingCells).length} ceiling cells)`,
+      );
+      setHostSketch?.({ rooms: [small] });
+      await new Promise((r) => setTimeout(r, 250));
+      const after = roomMoisture(latestMoisture, "room-1");
+      check(
+        outside(after.floorCells).length === 0 && outside(after.ceilingCells).length === 0,
+        `shrinking the room drops the paint outside it (left ${outside(after.floorCells).length} floor, ${outside(after.ceilingCells).length} ceiling)`,
+      );
+      check(after.floorCells.length > 0, "and keeps the paint still inside it");
+      check(
+        paintedFloorSquareFeet(after.floorCells) < paintedFloorSquareFeet(before.floorCells) && paintedFloorSquareFeet(after.floorCells) <= 64,
+        `so the affected floor drops to what the 8x8 can hold (${paintedFloorSquareFeet(before.floorCells)} -> ${paintedFloorSquareFeet(after.floorCells)} SF)`,
       );
     }
   } finally {

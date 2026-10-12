@@ -307,24 +307,34 @@ export function hasRoomMoisture(map: MoistureMap, roomId: string): boolean {
  *
  * Dropping it is the honest resolution. The paint described a floor that no longer exists, and the
  * alternative is an area nobody can see the edge of, cannot remove, and is billed for.
+ *
+ * Nothing to drop returns the map it was given, the same object, so the editor's effect that runs
+ * this on every sketch change can hand the result straight back without looping. It used to rebuild
+ * the map every time, and the effect told "changed" from "unchanged" by counting rooms — so a room
+ * that had shrunk under its paint still had its clipped cells thrown away.
  */
 export function pruneMoisture(map: MoistureMap, sketch: Sketch): MoistureMap {
   const live = new Map(sketch.rooms.map((r) => [r.id, r]));
   const rooms: Record<string, RoomMoisture> = {};
+  let changed = false;
   for (const [roomId, data] of Object.entries(map.rooms)) {
     const room = live.get(roomId);
-    if (!room) continue;
+    if (!room) {
+      changed = true;
+      continue;
+    }
 
     const floorCells = data.floorCells.filter((key) => cellIsInsideRoom(room, key));
     const ceilingCells = data.ceilingCells.filter((key) => cellIsInsideRoom(room, key));
-    // Rebuilt only when something actually went, so an untouched sketch keeps its object identity
-    // and the effect that calls this does not loop.
-    rooms[roomId] =
-      floorCells.length === data.floorCells.length && ceilingCells.length === data.ceilingCells.length
-        ? data
-        : { ...data, floorCells, ceilingCells };
+    // Rebuilt only when something actually went, so an untouched room keeps its object identity.
+    if (floorCells.length === data.floorCells.length && ceilingCells.length === data.ceilingCells.length) {
+      rooms[roomId] = data;
+    } else {
+      rooms[roomId] = { ...data, floorCells, ceilingCells };
+      changed = true;
+    }
   }
-  return { ...map, rooms };
+  return changed ? { ...map, rooms } : map;
 }
 
 /** Whether a stored cell key still lands inside the room it belongs to. */
