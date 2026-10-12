@@ -39,6 +39,8 @@ async function load() {
       `export { emptyClaimInfo } from "${lib("claimInfo.ts")}";`,
       `export { documentGenerationUserMessage, DOCUMENT_GENERATION_SYSTEM_PROMPT, SCOPE_ONLY_SYSTEM_PROMPT } from "${lib("documentGenerationPrompt.ts")}";`,
       `export * from "${lib("exteriorImport.ts")}";`,
+      `export * from "${lib("exteriorPhoto.ts")}";`,
+      `export * from "${lib("exteriorTrace.ts")}";`,
       `export { adoptScan, exteriorScanDecision, sketchFromScan } from "${lib("scanInbox.ts")}";`,
       `export { availableRenders, defaultSketchAttachments, pruneAttachments, withExteriorDefaults, toggleAttachment } from "${lib("sketchAttachments.ts")}";`,
     ].join("\n"),
@@ -985,6 +987,288 @@ test("a side's shapes set aside by hand fall back to its band", () => {
   const bands = { ...side, shapes: undefined };
   assert(bands.bands.length === 1 && bands.bands[0].kind === "stucco", "one band of the main cladding");
   assert(x.sideQuantities(bands).complete, "and it measures");
+});
+
+console.log("\nthe sides' photos (Scan 0.1.151)");
+
+test("each side's photos are kept: number, camera, to_photo, what is in view, and the scan to fetch them by", () => {
+  const r = x.parseScanExterior(fixture("scan-exterior-v2-photos.json"), { scanId: "scan-9" });
+  assert(r.ok, r.error);
+  const photos = r.exterior.sides[0].photos;
+  // Four sent: a matrix one short and a number outside Scan's 900s are passed over.
+  assert(photos.length === 2 && photos.map((p) => p.n).join() === "900,901", JSON.stringify(photos?.map((p) => p.n)));
+  const [square] = photos;
+  assert(square.scanId === "scan-9", "the scan it came with");
+  assert(square.camera.width === 1080 && square.camera.height === 1920 && square.camera.fx === 1500 && square.camera.cy === 960, JSON.stringify(square.camera));
+  assert(square.toPhoto.join() === "300,0,-660,0,-300,1410,0,0,1", square.toPhoto.join());
+  assert(square.inView.fromM === 2.2 && square.inView.toM === 5.8 && !square.inView.leftEnd && !square.inView.rightEnd && !square.inView.top, JSON.stringify(square.inView));
+  assert(photos[1].inView.leftEnd && photos[1].inView.rightEnd && photos[1].inView.top, "the wide one holds the whole side");
+  assert(r.notes.some((n) => /1 side was photographed: open a side to see its photo/.test(n)), r.notes.join(" | "));
+  // Everything else on the side reads as before.
+  near(x.sideQuantities(r.exterior.sides[0]).netSquareFeet, 40.015 * M2, "stucco net", 0.05);
+});
+
+test("a file brings no photos: they are kept against the side, with no scan, and it says so", () => {
+  const r = x.parseScanExterior(fixture("scan-exterior-v2-photos.json"));
+  assert(r.exterior.sides[0].photos.every((p) => p.scanId === null), "no scan to fetch them from");
+  assert(r.notes.some((n) => /a file brings no photos: send the scan from the phone/.test(n)), r.notes.join(" | "));
+  const none = x.parseScanExterior(fixture("scan-exterior-v2-sample.json"), { scanId: "s" });
+  assert(none.exterior.sides[0].photos === undefined && !none.notes.some((n) => /photographed/.test(n)), "a side with none has none");
+});
+
+/**
+ * A pinhole camera, worked independently of the code under test. The wall is the plane y = 0, x
+ * along it from its left end, z up; the camera stands outside (y < 0) looking +y, turned `yaw` to
+ * the right and tipped `pitch` up. Its to_photo is built the way Scan's SidePhoto.homography builds
+ * it: K times the camera's rows against (along, up, 1), divided through by its last entry.
+ */
+function camera({ at, yaw = 0, pitch = 0, width, height, f, cx = width / 2, cy = height / 2 }) {
+  const fwd = [Math.sin(yaw) * Math.cos(pitch), Math.cos(yaw) * Math.cos(pitch), Math.sin(pitch)];
+  const right = [Math.cos(yaw), -Math.sin(yaw), 0];
+  const down = [fwd[1] * right[2] - fwd[2] * right[1], fwd[2] * right[0] - fwd[0] * right[2], fwd[0] * right[1] - fwd[1] * right[0]];
+  const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  const q = [-at[0], -at[1], -at[2]];
+  const m = [right, down, fwd].map((r) => [r[0], r[2], dot(r, q)]);
+  const K = [[f, 0, cx], [0, f, cy], [0, 0, 1]];
+  const H = [];
+  for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) H.push(K[i][0] * m[0][j] + K[i][1] * m[1][j] + K[i][2] * m[2][j]);
+  const toPhoto = H.map((v) => v / H[8]);
+  /** Where the wall point (a, u) is seen, straight through the pinhole; null behind the camera. */
+  const see = (a, u) => {
+    const p = [a - at[0], -at[1], u - at[2]];
+    const z = dot(fwd, p);
+    return z <= 0 ? null : { x: (f * dot(right, p)) / z + cx, y: (f * dot(down, p)) / z + cy };
+  };
+  /** The wall point a pixel's ray meets, or null. */
+  const ray = (px, py) => {
+    const d = [0, 1, 2].map((k) => right[k] * ((px - cx) / f) + down[k] * ((py - cy) / f) + fwd[k]);
+    const t = -at[1] / d[1];
+    return t > 0 ? { a: at[0] + t * d[0], u: at[2] + t * d[2] } : null;
+  };
+  return { photo: { n: 900, scanId: "s", camera: { width, height, fx: f, fy: f, cx, cy }, toPhoto, inView: null }, see, ray };
+}
+
+/** A photo of a painted wall through [cam]: a red window 2-3 m along and 1.0-2.2 m up on grey stucco, sky over 4 m. */
+function shoot(cam, width, height, scale = 1) {
+  const W = Math.round(width * scale);
+  const Hh = Math.round(height * scale);
+  const data = new Uint8Array(W * Hh * 3);
+  for (let j = 0; j < Hh; j++) {
+    for (let i = 0; i < W; i++) {
+      const p = cam.ray((i + 0.5) / scale, (j + 0.5) / scale);
+      const c = !p || p.u > 4 ? [120, 170, 230] : p.a >= 2 && p.a <= 3 && p.u >= 1 && p.u <= 2.2 ? [220, 30, 30] : [180, 180, 180];
+      data.set(c, (j * W + i) * 3);
+    }
+  }
+  return { data, width: W, height: Hh, channels: 3 };
+}
+
+const oblique = () => camera({ at: [1.5, -5, 1.6], yaw: 0.45, pitch: 0.12, width: 400, height: 300, f: 330 });
+
+test("to_photo puts a wall point where the pinhole does, Scan's square-on numbers included", () => {
+  // Scan's own SidePhotoTest: 6 m along and 3 m up lands at (1140, 510).
+  const scan = x.projectToPhoto({ toPhoto: [300, 0, -660, 0, -300, 1410, 0, 0, 1] }, 6, 3);
+  near(scan.x, 1140, "x", 1e-9);
+  near(scan.y, 510, "y", 1e-9);
+  const cam = oblique();
+  for (const [a, u] of [[0, 0], [2, 1], [3, 2.2], [5.5, 3.7], [7.9, 0.4]]) {
+    const want = cam.see(a, u);
+    const got = x.projectToPhoto(cam.photo, a, u);
+    near(got.x, want.x, `x of (${a}, ${u})`, 1e-6);
+    near(got.y, want.y, `y of (${a}, ${u})`, 1e-6);
+  }
+});
+
+test("run backwards, it finds the wall point a pixel shows; behind the camera is nothing", () => {
+  const cam = oblique();
+  for (const [a, u] of [[1, 1], [2.5, 1.6], [4, 3]]) {
+    const p = cam.see(a, u);
+    const back = x.photoToElevation(cam.photo, p.x, p.y);
+    near(back.alongM, a, "along", 1e-6);
+    near(back.upM, u, "up", 1e-6);
+  }
+  // Turned 0.45 rad right from 1.5 m along, 5 m out: the wall 12 m to the left is behind it.
+  assert(cam.see(-12, 1) === null && x.projectToPhoto(cam.photo, -12, 1) === null, "behind the camera");
+  // A pixel aimed above the wall's horizon never meets it in front.
+  const up = camera({ at: [4, -5, 1.6], pitch: 1.2, width: 400, height: 300, f: 330 });
+  assert(up.ray(200, 0) === null && x.photoToElevation(up.photo, 200, 0) === null, "above the horizon");
+  const inv = x.invert3(cam.photo.toPhoto);
+  const id = [0, 1, 2].flatMap((i) => [0, 1, 2].map((j) => [0, 1, 2].reduce((s, k) => s + cam.photo.toPhoto[i * 3 + k] * inv[k * 3 + j], 0)));
+  id.forEach((v, k) => near(v, k % 4 === 0 ? 1 : 0, `identity ${k}`, 1e-9));
+});
+
+/** The first column, left to right along a row, whose pixel is red. */
+function firstRed(rgba, frame, upM) {
+  const j = Math.round(x.frameY(frame, upM) - 0.5);
+  for (let i = 0; i < frame.width; i++) {
+    const o = (j * frame.width + i) * 4;
+    if (rgba[o + 3] && rgba[o] > 150 && rgba[o + 1] < 110) return i;
+  }
+  return -1;
+}
+function lastRed(rgba, frame, upM) {
+  const j = Math.round(x.frameY(frame, upM) - 0.5);
+  for (let i = frame.width - 1; i >= 0; i--) {
+    const o = (j * frame.width + i) * 4;
+    if (rgba[o + 3] && rgba[o] > 150 && rgba[o + 1] < 110) return i;
+  }
+  return -1;
+}
+
+test("squared up, an oblique photo puts the window where it is on the wall, to the pixel", () => {
+  const cam = oblique();
+  const frame = { alongMinM: 0, alongMaxM: 6, upMinM: 0, upMaxM: 4, ppm: 50, width: 300, height: 200 };
+  const rgba = x.squareUp([{ photo: cam.photo, pixels: shoot(cam, 400, 300) }], frame);
+  // The window runs 2-3 m along: columns 100 to 149 at 50 px a metre.
+  for (const up of [1.2, 1.6, 2.0]) {
+    assert(Math.abs(firstRed(rgba, frame, up) - 100) <= 1, `left edge at ${up} m: ${firstRed(rgba, frame, up)}`);
+    assert(Math.abs(lastRed(rgba, frame, up) - 149) <= 1, `right edge at ${up} m: ${lastRed(rgba, frame, up)}`);
+  }
+  // Its sill 1.0 m and head 2.2 m: rows 150 and 90 from the top (4 m).
+  const col = Math.round(x.frameX(frame, 2.5));
+  const rows = [];
+  for (let j = 0; j < frame.height; j++) if (rgba[(j * frame.width + col) * 4] > 150 && rgba[(j * frame.width + col) * 4 + 1] < 110) rows.push(j);
+  assert(Math.abs(rows[0] - 90) <= 1 && Math.abs(rows[rows.length - 1] - 149) <= 1, `rows ${rows[0]}-${rows[rows.length - 1]}`);
+});
+
+test("a photo stored smaller than its camera is read where it now is", () => {
+  const cam = oblique();
+  const frame = { alongMinM: 0, alongMaxM: 6, upMinM: 0, upMaxM: 4, ppm: 50, width: 300, height: 200 };
+  const rgba = x.squareUp([{ photo: cam.photo, pixels: shoot(cam, 400, 300, 0.5) }], frame);
+  assert(Math.abs(firstRed(rgba, frame, 1.6) - 100) <= 2 && Math.abs(lastRed(rgba, frame, 1.6) - 149) <= 2, `${firstRed(rgba, frame, 1.6)}-${lastRed(rgba, frame, 1.6)}`);
+});
+
+test("two stills side by side make one image; what neither shows is left clear", () => {
+  const left = camera({ at: [1.5, -3, 1.6], width: 300, height: 300, f: 200 });
+  const right = camera({ at: [4.5, -3, 1.6], width: 300, height: 300, f: 200 });
+  const frame = { alongMinM: -3, alongMaxM: 9, upMinM: 0, upMaxM: 4, ppm: 25, width: 300, height: 100 };
+  const rgba = x.squareUp(
+    [
+      { photo: left.photo, pixels: shoot(left, 300, 300) },
+      { photo: right.photo, pixels: shoot(right, 300, 300) },
+    ],
+    frame,
+  );
+  // Each sees 2.25 m either side of where it stands: -0.75 to 3.75 and 2.25 to 6.75 m along.
+  const alpha = (a, u) => rgba[(Math.round(x.frameY(frame, u) - 0.5) * frame.width + Math.round(x.frameX(frame, a) - 0.5)) * 4 + 3];
+  assert(alpha(0, 2) === 255 && alpha(6.5, 2) === 255, "each half from its own still");
+  assert(alpha(-2, 2) === 0 && alpha(8.5, 2) === 0, "past both, clear");
+  assert(Math.abs(firstRed(rgba, frame, 1.6) - x.frameX(frame, 2)) <= 1.5 && Math.abs(lastRed(rgba, frame, 1.6) + 1 - x.frameX(frame, 3)) <= 1.5, "the window where it is");
+  const filled = x.fillOutside(rgba);
+  assert(filled[(50 * 300 + 5) * 4] === x.OUTSIDE_PHOTO_GREY && filled[(50 * 300 + 5) * 4 + 3] === 255, "grey for a JPEG");
+});
+
+test("the squared image: the side and a margin, cut to what the photo holds, its long edge 2400 px", () => {
+  const side = x.parseScanExterior(fixture("scan-exterior-v2-photos.json"), { scanId: "s" }).exterior.sides[0];
+  const [narrow, wide] = side.photos;
+  // The wide still holds all of it: the shapes run -2.8 to 8 m along and 0.9 to 6.4 m up.
+  const f = x.squareFrame(side, [wide]);
+  assert(Math.max(f.width, f.height) === 2400, `${f.width}x${f.height}`);
+  near(f.ppm, 2400 / (f.alongMaxM - f.alongMinM), "one scale", 1e-9);
+  assert(f.alongMinM <= -2.8 && f.alongMaxM >= 8 && f.upMinM <= 0 && f.upMaxM >= 6.4, JSON.stringify(f));
+  assert(f.alongMinM >= -2.8 - 2.5 - 1e-9 && f.upMaxM <= 6.4 + 1.5 + 1e-9, "no more than the margin");
+  // Scan's square-on still from 5 m: 540 and 960 px either side of its middle at 1500 px focal hold
+  // 2.2 to 5.8 m along (its in_view) and 1.5 +/- 3.2 m up - the gable's top out of it, as Scan says.
+  const g = x.squareFrame(side, [narrow]);
+  near(g.alongMinM, 2.2, "its left edge", 1e-6);
+  near(g.alongMaxM, 5.8, "its right edge", 1e-6);
+  near(g.upMaxM, 4.7, "its top", 1e-6);
+  near(g.upMinM, -0.6, "and the margin below the side, not the photo's foot at -1.7 m", 1e-6);
+});
+
+console.log("\nthe AI trace");
+
+/** A trace answer in pixels of a frame at 100 px a metre, its left edge 1 m left of the side and its top 6 m up. */
+const traceFrame = { alongMinM: -1, alongMaxM: 9, upMinM: -0.5, upMaxM: 6, ppm: 100, width: 1000, height: 650 };
+const wire = {
+  materials: [
+    // Stucco from 0.5 m up to the eaves at 3 m and a peak 4.5 m up at 4 m along: x = 100 + 100 a, y = 600 - 100 u.
+    { material: "stucco", polygon: [[100, 550], [900, 550], [900, 300], [500, 150], [100, 300]], partly_hidden_by: "" },
+    { material: "parging", polygon: [[100, 600], [900, 600], [900, 550], [100, 550]], partly_hidden_by: "AC unit" },
+    { material: "cedar", polygon: [[100, 300], [200, 300]], partly_hidden_by: "" },
+  ],
+  openings: [
+    { kind: "window", left: 250, right: 350, top: 380, bottom: 470, measured_to: "outer_trim", partly_hidden_by: "" },
+    { kind: "garage_door", left: 520, right: 790, top: 340, bottom: 600, measured_to: "door_itself", partly_hidden_by: "" },
+    { kind: "patio_door", left: 120, right: 200, top: 340, bottom: 550, measured_to: "frame", partly_hidden_by: "" },
+  ],
+  wall_top: [[100, 300], [500, 150], [900, 300]],
+  off_wall: [{ what: "AC unit", box: [700, 520, 800, 600] }],
+  notes: "The parging is partly behind the AC unit.",
+};
+
+test("the trace's pixels become the side's feet, and each kind what Scrivn calls it", () => {
+  const p = x.traceProposals(wire, traceFrame, 8 * M);
+  assert(p.shapes.length === 2, "the two-corner 'shape' is dropped");
+  const [stucco, parging] = p.shapes;
+  assert(stucco.kind === "stucco" && parging.kind === "parging" && parging.hiddenBy === "AC unit", JSON.stringify(p.shapes.map((s) => s.kind)));
+  // 8 x 2.5 m of wall and a 8 x 1.5 / 2 m gable: 26 m2.
+  near(stucco.squareFeet, 26 * M2, "stucco gross", 1e-6);
+  near(stucco.polygon[3].x, 4 * M, "the peak along", 1e-9);
+  near(stucco.polygon[3].y, 4.5 * M, "and up", 1e-9);
+  const [win, garage, patio] = p.openings;
+  assert(win.kind === "window" && garage.kind === "garage" && patio.kind === "door", p.openings.map((o) => o.kind).join());
+  near(win.fromLeftFeet, 1.5 * M, "window from the left", 1e-9);
+  near(win.widthFeet, 1 * M, "width", 1e-9);
+  near(win.sillFeet, 1.3 * M, "sill", 1e-9);
+  near(win.heightFeet, 0.9 * M, "height", 1e-9);
+  near(garage.sillFeet, 0, "the garage door from the level");
+  near(garage.widthFeet, 2.7 * M, "the door itself, 2.7 m", 1e-9);
+  assert(p.offWall.length === 1 && p.offWall[0].what === "AC unit", "the AC in front");
+  near(p.offWall[0].x0, 6 * M, "its box", 1e-9);
+  assert(p.notes === wire.notes, "the trace's notes");
+  // A basement window wholly under the level (y 620-640: 0.2-0.4 m below it) is left out, and said.
+  const basement = x.traceProposals({ ...wire, openings: [...wire.openings, { kind: "window", left: 300, right: 450, top: 620, bottom: 640, measured_to: "frame", partly_hidden_by: "" }] }, traceFrame, 8 * M);
+  assert(basement.openings.length === 3 && basement.checks.some((c) => /^A window lies below the side's level.*left out/.test(c)), basement.checks.join(" | "));
+});
+
+test("the wall top gives the eaves, the peak and both slopes - and says when the slopes disagree", () => {
+  const p = x.traceProposals(wire, traceFrame, 8 * M);
+  near(p.wallTop.eaveLeftFeet, 3 * M, "left eave", 1e-9);
+  near(p.wallTop.eaveRightFeet, 3 * M, "right eave", 1e-9);
+  near(p.wallTop.peak.peakFeet, 4.5 * M, "peak", 1e-9);
+  near(p.wallTop.peak.atFeet, 4 * M, "at", 1e-9);
+  // 1.5 m over 4 m: 4.5 in 12 each way.
+  near(p.wallTop.slopes[0], 4.5, "left slope", 1e-9);
+  near(p.wallTop.slopes[1], 4.5, "right slope", 1e-9);
+  assert(p.checks.some((c) => /Both slopes of the gable read 4\.5 on 12/.test(c)), p.checks.join(" | "));
+  const lopsided = x.traceProposals({ ...wire, wall_top: [[100, 300], [500, 150], [900, 260]] }, traceFrame, 8 * M);
+  assert(lopsided.checks.some((c) => /two slopes read 4\.5 and 3\.3 on 12/.test(c)), lopsided.checks.join(" | "));
+  const leaning = x.traceProposals({ ...wire, wall_top: [[100, 300], [900, 280]] }, traceFrame, 8 * M);
+  assert(leaning.wallTop.peak === null && leaning.checks.some((c) => /wall top reads 0'8" higher at the right end/.test(c)), leaning.checks.join(" | "));
+});
+
+test("ticked proposals go on the side; what is not ticked stays as the phone tapped it", () => {
+  const side = x.parseScanExterior(fixture("scan-exterior-v2-photos.json"), { scanId: "s" }).exterior.sides[0];
+  const p = x.traceProposals(wire, traceFrame, side.lengthFeet);
+  const all = x.applyTrace(side, p, {
+    shapes: p.shapes.map((s) => ({ key: s.key, kind: s.kind })),
+    openings: [{ key: p.openings[0].key, kind: "window" }, { key: p.openings[1].key, kind: "garage" }],
+    wallTop: true,
+  });
+  assert(all.shapes.length === 2 && all.shapes.every((s) => s.closed && s.id), "the two shapes, closed");
+  assert(all.openings.length === 2 && all.openings[1].kind === "garage", "two openings");
+  near(all.eaveLeftFeet, 3 * M, "eave", 1e-9);
+  near(all.gable.peakFeet, 4.5 * M, "peak", 1e-9);
+  near(all.pitchMeasured, 4.5, "the pitch from the slopes", 1e-9);
+  assert(all.photos === side.photos, "the photos stay with the side");
+  const q = x.sideQuantities(all);
+  // 26 m2 of stucco less the window (1 x 0.9) and the garage door's stucco part (2.7 x 2.6 m from 0.5 m up).
+  near(q.netSquareFeet, (26 - 0.9 - 2.7 * 2.1) * M2, "priced from the trace", 1e-6);
+  // Only a material changed and the openings left alone.
+  const some = x.applyTrace(side, p, { shapes: [{ key: p.shapes[0].key, kind: "vinyl" }], openings: [], wallTop: false });
+  assert(some.shapes.length === 1 && some.shapes[0].kind === "vinyl", "vinyl, as changed");
+  assert(some.openings === side.openings && some.eaveLeftFeet === side.eaveLeftFeet && some.gable === side.gable, "the rest untouched");
+});
+
+test("the call is told the frame in its own pixels, and priced at Opus 5.5's rate", () => {
+  const msg = x.traceUserMessage(traceFrame, { name: "Front", lengthM: 8, bottomLeftM: 0.5, bottomRightM: 0.5, leftEndInPhoto: true, rightEndInPhoto: false });
+  assert(msg.includes("1000x650 pixels") && msg.includes("100.0 pixels per metre"), msg.slice(0, 200));
+  assert(msg.includes("its left end is at x = 100") && msg.includes("its right end should be at x = 900, but may be outside the photo"), msg.slice(0, 400));
+  assert(msg.includes("[100, 550] and [900, 550]"), "the bottom corners");
+  assert(/never the trim, jamb or stucco surround/.test(msg), "the garage door rule from the owner's test");
+  // 6,000 in at $4 and 1,500 out at $20 a million.
+  near(x.traceCostUsd({ inputTokens: 6000, outputTokens: 1500, cacheCreationTokens: 0, cacheReadTokens: 0 }), 0.054, "cost", 1e-12);
 });
 
 console.log(`\n${passed.length} passed, ${failures.length} failed`);

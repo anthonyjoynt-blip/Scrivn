@@ -71,7 +71,8 @@ Ticking what is in scope doesn't count as a change.
 | `bands[]` (`/1`) `{height_m, along_m, below}` | bands bottom up: `below` is the cladding under the line, which is level at `height_m`. A band whose `below` is `"parging"` is the bottom of the cladding, not a band. `/2` sends `[]`. |
 | `openings[]` `{kind, from_m, width_m, sill_m, head_m}` | `{kind, fromLeftFeet, widthFeet, sillFeet, heightFeet = head − sill}`. `kind` is `window`, `door` or `garage` (Scan sends doors 2.3 m or wider as `garage`). Anything else reads as a window. At most 100 per side. |
 | `net_sf` / `shapes[].net_m2` | checked. Scrivn works out the side's net area itself and names any side where the two differ by more than 2%. For a `/2` side, it compares against the shapes of cladding only. Scrivn takes out only the part of an opening that is in the cladding. On the 14:20 walk, two garage doors ran 5–7 in below the stucco's bottom edge; Scan took each door out whole, and the note names both sides. Since Scan's `4078b84`, Scan also takes out only the part of each opening that falls inside each shape, so the two agree. Where shapes overlap, Scan's per-shape figures still take an opening in the overlap out of both, and Scrivn names that side. |
-| `outline`, `areas`, `gross_sf`, `opening_trim_m`, `index`, `left_joined`, `right_joined`, `eave_taps`, `shapes[].area_m2`, `shapes[].openings_m2` | not read |
+| `photos[]` (Scan 0.1.151) `{n, camera, to_photo, in_view}` | `photos`: each photo's number, camera, `to_photo` (kept in Scan's metres) and `in_view`, with the scan id it came with. At most 8 a side; one whose `to_photo` isn't 9 numbers, or whose `n` is outside 900-999, is passed over. A file brings no pictures, so its photos are kept with no scan id and the notes say so. See "The sides' photos" below. |
+| `outline`, `areas`, `gross_sf`, `opening_trim_m`, `index`, `left_joined`, `right_joined`, `eave_taps`, `shapes[].area_m2`, `shapes[].openings_m2`, `photos[].file`, `.position`, `.forward`, `.up`, `.t_s`, `.epoch` | not read |
 
 Cladding kinds are Scan's list: `stucco`, `vinyl`, `wood_shake`, `eifs`, `wood`, `fibre_cement`, `brick`, `stone` and `metal` (`parging` for shapes). Anything else comes in as "Other", labelled with the word Scan sent.
 
@@ -94,3 +95,30 @@ Cladding kinds are Scan's list: `stucco`, `vinyl`, `wood_shake`, `eifs`, `wood`,
   - Scan no longer captures a roofline, so `roofline` is `[]`;
   - `pitch_12` and `peak` still come from a gable's shape when a side has one;
   - the roof comes from the estimator in Scrivn (footprint, overhangs, pitch). The roof from Scan is off the table for now.
+
+## The sides' photos (Scan 0.1.151, 2026-10-12)
+
+Scan's Photo chip takes a still per side with ARCore's pose. The JPEG goes to `POST /api/device/scans/<scan id>/photos?n=<n>` (n from 900) and lands with the scan's other photos (`lib/scanPhotos.ts`).
+
+- **Squared up** (`lib/exteriorPhoto.ts`): `to_photo` takes (along, up) metres of the side's elevation to the photo's pixel; w > 0 is in front of the camera, as Scan's own `SidePhoto.project` reads it.
+  - The editor squares each side's photos in a canvas. It walks each pixel's point on the wall through `to_photo` and reads the photo bilinearly. Where stills overlap, it reads the one that has the point nearest its middle.
+  - The squared image covers the side and a margin, cut to what the photos hold: 2.5 m along, 0.6 m below and 1.5 m above. Its longer edge is 2400 px.
+  - What no photo shows is mid-grey (128).
+  - The photo lies behind the elevation, with **No photo / Photo faded / Photo** to switch it.
+- **AI trace** (`lib/exteriorTrace.ts`, `POST /api/exterior/trace`): one Claude call (Opus 5.5, effort high, structured output) per side, on the very JPEG the estimator sees.
+  - It is told the image's size, the pixels a metre, where the side's ends and bottom corners fall, and which ends are out of the photo.
+  - It answers in pixels: a polygon per material, the openings (a garage door to the door itself, never its surround), the wall-top line, and boxes for what stands in front of the wall.
+  - The code turns the pixels into the side's feet.
+  - The estimator ticks what goes on the side, changing a material or an opening's kind on the way:
+    - ticked shapes replace its shapes, ticked openings its openings;
+    - the wall top sets the eaves, and the peak and pitch when it has one.
+  - The checks from the owner's test are shown: both slopes of a gable alike, an eave level end to end.
+  - An opening wholly below the side's level is left out and named.
+  - Checked against the plan as extraction is (`checkUsageAllowed`), not counted.
+  - Each call is logged as one line: tokens, seconds and its cost at Opus 5.5's $4 / $20 per million.
+- **Tests:**
+  - `npm run test:exterior` reads the photos (`scan-exterior-v2-photos.json`, with Scan's own square-on numbers). It checks `to_photo` and its inverse against an independent pinhole camera, and squares an oblique photo of a painted window back to the pixel.
+  - `npm run test:exterior:trace` runs one real call (about $0.05) against a running dev server. A painted wall, photographed off to one side and tipped up, comes back within 1.5" an edge.
+- **Measured on 2026-10-12:**
+  - **Painted wall:** every edge within 0.2"; 13 s, $0.047.
+  - **The owner's west gable,** re-photographed obliquely from its squared photo of the 10-12 test: the tall window within 0.6" of the hand marks, the peak within 0.3"; 25 s, $0.063.

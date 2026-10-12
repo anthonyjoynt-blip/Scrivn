@@ -133,6 +133,26 @@ export interface ExteriorSide {
   roofline?: RooflinePoint[];
   /** The pitch the phone worked out from this side, rise in 12. Believed over the gable's own when both are there. */
   pitchMeasured?: number | null;
+  /** The phone's photos of this side (Scan 0.1.151), each with what lays it on the elevation - see lib/exteriorPhoto.ts. */
+  photos?: SidePhoto[];
+}
+
+/**
+ * A photo of a side, as Scan sends it: the picture itself is stored with the scan
+ * (`scan-photos/<org>/<scanId>/<n>.jpg`), and `toPhoto` lays it on the side's elevation. Kept in
+ * Scan's metres, untouched, because the matrix is in metres: lib/exteriorPhoto.ts converts.
+ */
+export interface SidePhoto {
+  /** Its number among the scan's photos: 900 and up. */
+  n: number;
+  /** The scan it was sent with; null when the exterior came in as a file, whose photos stay on the phone. */
+  scanId: string | null;
+  /** The JPEG upright, as saved: pixels, x right, y down. */
+  camera: { width: number; height: number; fx: number; fy: number; cx: number; cy: number };
+  /** Row by row: (along_m, up_m, 1) of this side's elevation to the photo's pixel (x, y, w), x/w across and y/w down. */
+  toPhoto: number[];
+  /** How much of the side's bottom is in the picture, and whether its ends and top are; null when Scan could not say. */
+  inView: { fromM: number; toM: number; leftEnd: boolean; rightEnd: boolean; top: boolean } | null;
 }
 
 export interface ExteriorShape {

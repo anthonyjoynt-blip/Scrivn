@@ -3154,6 +3154,30 @@ button:disabled {
   align-self: flex-start;
   margin-top: 8px;
 }
+/* A side's photo behind its elevation, and its AI trace (2026-10-12). */
+.exterior-photo-bar,
+.exterior-trace {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.exterior-photo-bar .field-note,
+.exterior-trace .field-note {
+  margin: 0;
+}
+.exterior-photo-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.exterior-trace {
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+.exterior-trace .exterior-subhead {
+  margin: 0;
+}
 .exterior-legend {
   display: flex;
   flex-wrap: wrap;

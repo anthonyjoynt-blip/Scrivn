@@ -39,8 +39,10 @@ import {
   type SideFixtureKind,
   type SideQuantities,
 } from "@/lib/exterior";
-import { ElevationDrawing, type RoofPick, RoofLegend, RoofPlanDrawing } from "./exteriorDrawings";
+import { type RoofPick, RoofLegend, RoofPlanDrawing } from "./exteriorDrawings";
 import { formatQuantity } from "@/lib/sketchQuantities";
+import type { SideTrace } from "@/lib/exteriorTrace";
+import { type PhotoOpacity, SideElevation } from "./SidePhotos";
 
 /**
  * The outside of the house (2026-10-12) - see `lib/exterior.ts` for the model and why it is not a
@@ -63,6 +65,9 @@ function lf(value: number): string {
 
 export function ExteriorEditor({ exterior, onChange, readOnly }: { exterior: Exterior | undefined; onChange: ExteriorUpdate; readOnly: boolean }) {
   const [view, setView] = useState<string>("roof");
+  /** Each side's AI trace until it is used or set aside, and how the photos are shown: kept here so a side visited again finds them. */
+  const [traces, setTraces] = useState<Record<string, SideTrace>>({});
+  const [photoOpacity, setPhotoOpacity] = useState<PhotoOpacity>("full");
   const q = useMemo(() => (exterior ? exteriorQuantities(exterior) : null), [exterior]);
 
   if (!exterior || !q) {
@@ -147,6 +152,17 @@ export function ExteriorEditor({ exterior, onChange, readOnly }: { exterior: Ext
           readOnly={readOnly}
           onUpdate={(f) => updateSide(current.id, f)}
           onRemove={() => removeSide(current.id)}
+          photoOpacity={photoOpacity}
+          onPhotoOpacity={setPhotoOpacity}
+          trace={traces[current.id]}
+          onTrace={(t) =>
+            setTraces((prev) => {
+              const next = { ...prev };
+              if (t) next[current.id] = t;
+              else delete next[current.id];
+              return next;
+            })
+          }
         />
       ) : (
         <RoofPanel exterior={exterior} q={q} readOnly={readOnly} onUpdate={updateRoof} onRemoveAll={() => onChange(() => undefined)} />
@@ -300,6 +316,10 @@ function SidePanel({
   readOnly,
   onUpdate,
   onRemove,
+  photoOpacity,
+  onPhotoOpacity,
+  trace,
+  onTrace,
 }: {
   side: ExteriorSide;
   index: number;
@@ -307,6 +327,10 @@ function SidePanel({
   readOnly: boolean;
   onUpdate: (f: (side: ExteriorSide) => ExteriorSide) => void;
   onRemove: () => void;
+  photoOpacity: PhotoOpacity;
+  onPhotoOpacity: (o: PhotoOpacity) => void;
+  trace: SideTrace | undefined;
+  onTrace: (t: SideTrace | undefined) => void;
 }) {
   const sq = q.sides[index] as SideQuantities;
   const rise = q.rises[side.id] ?? null;
@@ -318,11 +342,22 @@ function SidePanel({
   return (
     <div className="exterior-pane">
       <figure className="exterior-figure">
-        <ElevationDrawing side={side} rise={rise} />
-        <figcaption className="field-note">
-          {side.name.trim() || "Side"} elevation, to scale, seen from outside.
-          {sq.complete ? ` ${sf(sq.netSquareFeet)} of cladding after openings.` : " Put in the eave height to work out its area."}
-        </figcaption>
+        <SideElevation
+          side={side}
+          rise={rise}
+          readOnly={readOnly}
+          opacity={photoOpacity}
+          onOpacity={onPhotoOpacity}
+          trace={trace}
+          onTrace={onTrace}
+          onUpdate={onUpdate}
+          caption={
+            <figcaption className="field-note">
+              {side.name.trim() || "Side"} elevation, to scale, seen from outside.
+              {sq.complete ? ` ${sf(sq.netSquareFeet)} of cladding after openings.` : " Put in the eave height to work out its area."}
+            </figcaption>
+          }
+        />
       </figure>
 
       <div className="exterior-fields">

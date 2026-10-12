@@ -110,8 +110,21 @@ export async function createStructuredMessage<T>(params: {
   userMessage: string;
   schema: Record<string, unknown>;
   maxTokens?: number;
+  /**
+   * Pictures sent before the text (2026-10-12, the exterior's AI trace: a side's squared-up photo).
+   * Base64, no data: prefix.
+   */
+  images?: { mediaType: "image/jpeg" | "image/png"; data: string }[];
+  /** How hard it thinks. Left out, the model's own default - `medium` on Opus 5.5. */
+  effort?: "low" | "medium" | "high" | "xhigh" | "max";
 }): Promise<StructuredResult<T>> {
   const anthropic = getClient();
+  const content: Anthropic.ContentBlockParam[] | string = params.images?.length
+    ? [
+        ...params.images.map((image): Anthropic.ImageBlockParam => ({ type: "image", source: { type: "base64", media_type: image.mediaType, data: image.data } })),
+        { type: "text", text: params.userMessage },
+      ]
+    : params.userMessage;
 
   let response;
   try {
@@ -119,9 +132,10 @@ export async function createStructuredMessage<T>(params: {
       model: model(),
       max_tokens: params.maxTokens ?? EXTRACTION_MAX_TOKENS,
       system: cacheableSystem(params.system),
-      messages: [{ role: "user", content: params.userMessage }],
+      messages: [{ role: "user", content }],
       output_config: {
         format: { type: "json_schema", schema: params.schema },
+        ...(params.effort ? { effort: params.effort } : {}),
       },
     });
   } catch (err) {

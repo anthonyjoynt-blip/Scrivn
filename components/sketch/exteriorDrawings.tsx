@@ -52,12 +52,15 @@ const INK = "#1a1d23";
 /** Pixel size for drawing as an image; the editor sizes them by its stylesheet instead. */
 type Size = { width: number; height: number };
 
+/** A box in the side's frame, feet: x along from its left end, y up. */
+export type ElevationReach = { minX: number; maxX: number; minZ: number; maxZ: number };
+
 /** How far an elevation reaches: the wall, its faces, its roofline and its openings - a strip of stucco over a deck runs past the wall. */
-function elevationExtent(side: ExteriorSide, rise: RoofRise | null) {
+function elevationExtent(side: ExteriorSide, rise: RoofRise | null, reach?: ElevationReach) {
   const { shape, faces, openings } = elevationFaces(side, rise);
   const L = Math.max(1, shape.lengthFeet);
   const roofline = side.roofline ?? [];
-  const xs = [0, L, ...faces.flatMap((f) => f.poly.map((p) => p.x)), ...roofline.map((r) => r.alongFeet)];
+  const xs = [0, L, ...faces.flatMap((f) => f.poly.map((p) => p.x)), ...roofline.map((r) => r.alongFeet), ...(reach ? [reach.minX, reach.maxX] : [])];
   const ys = [
     shape.eaveZ ?? DEFAULT_EAVE_FEET,
     side.eaveRightFeet ?? 0,
@@ -65,8 +68,14 @@ function elevationExtent(side: ExteriorSide, rise: RoofRise | null) {
     ...faces.flatMap((f) => f.poly.map((p) => p.y)),
     ...roofline.map((r) => r.upFeet),
     ...openings.map((o) => o.rect.y1),
+    ...(reach ? [reach.maxZ] : []),
   ];
-  return { minX: Math.min(...xs), maxX: Math.max(...xs), topZ: Math.max(...ys), lowZ: Math.min(0, -shape.fallFeet, ...faces.flatMap((f) => f.poly.map((p) => p.y))) };
+  return {
+    minX: Math.min(...xs),
+    maxX: Math.max(...xs),
+    topZ: Math.max(...ys),
+    lowZ: Math.min(0, -shape.fallFeet, ...faces.flatMap((f) => f.poly.map((p) => p.y)), ...(reach ? [reach.minZ] : [])),
+  };
 }
 
 /** The lettering size an elevation picks for itself, in feet: 3% of its larger dimension. */
@@ -80,12 +89,35 @@ const FACE_FILL = (kind: CladdingKind | "parging") => (kind === "parging" ? "#c9
 /**
  * One side, to scale. `fontFeet` sets the lettering, so a sheet of sides drawn at one scale can
  * letter them all alike; left out, the drawing sizes it to itself.
+ *
+ * In the editor a side's photo can lie behind it (`backdrop`) and an AI trace over it (`overlay`),
+ * both drawn in the drawing's own space - x feet along, y MINUS feet up - and `reach` widens the
+ * drawing to hold them. `seeThrough` lets the photo show through the faces.
  */
-export function ElevationDrawing({ side, rise, size, fontFeet }: { side: ExteriorSide; rise: RoofRise | null; size?: Size; fontFeet?: number }) {
+export function ElevationDrawing({
+  side,
+  rise,
+  size,
+  fontFeet,
+  backdrop,
+  overlay,
+  reach,
+  seeThrough = false,
+}: {
+  side: ExteriorSide;
+  rise: RoofRise | null;
+  size?: Size;
+  fontFeet?: number;
+  backdrop?: ReactNode;
+  overlay?: ReactNode;
+  reach?: ElevationReach;
+  seeThrough?: boolean;
+}) {
   const { shape, faces, bandLines, grade, openings, fromShapes } = elevationFaces(side, rise);
   const L = Math.max(1, shape.lengthFeet);
   const eaveZ = shape.eaveZ;
-  const ext = elevationExtent(side, rise);
+  const ext = elevationExtent(side, rise, reach);
+  const faceOpacity = seeThrough ? 0.18 : 1;
   const fs = fontFeet ?? elevationFontFeet(side, rise);
   const padX = fs * 4.2;
   const groundZ = ext.lowZ - fs * 4;
@@ -142,11 +174,23 @@ export function ElevationDrawing({ side, rise, size, fontFeet }: { side: Exterio
       aria-label={`${side.name} elevation, to scale`}
     >
       <rect x={vx} y={vy} width={vw} height={vh} fill="#ffffff" />
-      <polygon points={pts([...ground, { x: vx + vw, y: groundZ }, { x: vx, y: groundZ }])} fill="#efe7da" />
-      {!fromShapes && side.base === "parging" && <polygon points={pts([shape.grade[0], shape.grade[1], shape.bottom[1], shape.bottom[0]])} fill="#c9ccd1" stroke="#8a9099" strokeWidth={1} {...stroke} />}
+      {backdrop}
+      <polygon points={pts([...ground, { x: vx + vw, y: groundZ }, { x: vx, y: groundZ }])} fill="#efe7da" fillOpacity={seeThrough ? 0.25 : 1} />
+      {!fromShapes && side.base === "parging" && (
+        <polygon points={pts([shape.grade[0], shape.grade[1], shape.bottom[1], shape.bottom[0]])} fill="#c9ccd1" fillOpacity={faceOpacity} stroke="#8a9099" strokeWidth={1} {...stroke} />
+      )}
       {faces.map((f) =>
         f.poly.length >= 3 ? (
-          <polygon key={f.id} points={pts(f.poly)} fill={f.closed ? FACE_FILL(f.kind) : "none"} stroke={fromShapes ? "#374151" : "none"} strokeWidth={fromShapes ? 1.2 : 0} strokeDasharray={f.closed ? undefined : "4 3"} {...stroke} />
+          <polygon
+            key={f.id}
+            points={pts(f.poly)}
+            fill={f.closed ? FACE_FILL(f.kind) : "none"}
+            fillOpacity={faceOpacity}
+            stroke={fromShapes || seeThrough ? "#374151" : "none"}
+            strokeWidth={fromShapes || seeThrough ? 1.2 : 0}
+            strokeDasharray={f.closed ? undefined : "4 3"}
+            {...stroke}
+          />
         ) : (
           <polyline key={f.id} points={pts(f.poly)} fill="none" stroke="#374151" strokeWidth={1.2} strokeDasharray="4 3" {...stroke} />
         ),
@@ -178,7 +222,7 @@ export function ElevationDrawing({ side, rise, size, fontFeet }: { side: Exterio
       )}
       {openings.map(({ opening, rect }) => (
         <g key={opening.id}>
-          <rect x={rect.x0} y={Y(rect.y1)} width={rect.x1 - rect.x0} height={rect.y1 - rect.y0} fill="#ffffff" stroke="#1d4ed8" strokeWidth={1.5} {...stroke} />
+          <rect x={rect.x0} y={Y(rect.y1)} width={rect.x1 - rect.x0} height={rect.y1 - rect.y0} fill="#ffffff" fillOpacity={seeThrough ? 0 : 1} stroke="#1d4ed8" strokeWidth={1.5} {...stroke} />
           <text x={(rect.x0 + rect.x1) / 2} y={Y(rect.y1) - fs * 0.3} fontSize={fs * 0.75} textAnchor="middle" {...text}>
             {formatOpeningSize(opening.widthFeet, opening.heightFeet)}
           </text>
@@ -203,6 +247,7 @@ export function ElevationDrawing({ side, rise, size, fontFeet }: { side: Exterio
       <text x={vx + fs + scaleFeet / 2} y={Y(groundZ + fs * 1.2)} fontSize={fs * 0.7} textAnchor="middle" {...text}>
         {scaleFeet}&prime;
       </text>
+      {overlay}
     </svg>
   );
 }

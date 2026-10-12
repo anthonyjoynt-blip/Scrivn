@@ -13,6 +13,9 @@
  * It arrives either as the file Scan's Export writes (room_<stamp>_exterior.json), through the
  * editor's Import scan, or under an "exterior" key of the capture a phone sends - with the rooms,
  * or alone in a capture with none.
+ *
+ * Since Scan 0.1.151 each side may carry photos, each with the matrix that lays it on the side's
+ * elevation; they are kept with the scan they came with, for lib/exteriorPhoto.ts to square up.
  */
 
 import { formatFeetInches, newSketchId } from "./sketch";
@@ -26,6 +29,7 @@ import {
   type ExteriorOpeningKind,
   type ExteriorShape,
   type ExteriorSide,
+  type SidePhoto,
   sideQuantities,
 } from "./exterior";
 
@@ -44,6 +48,11 @@ const MAX_HEIGHT_M = 60;
 const MAX_SIDES = 40;
 const MAX_OPENINGS = 100;
 const MAX_SHAPES = 40;
+/** A side photographed in a few stills side by side is a tight side; more than this is a slip. */
+const MAX_PHOTOS = 8;
+/** Scan numbers a side's photos from 900, under the scan photos' cap of 1000 (lib/scanPhotos.ts). */
+const MIN_SIDE_PHOTO = 900;
+const MAX_SIDE_PHOTO = 999;
 
 type Json = Record<string, unknown>;
 
@@ -102,6 +111,37 @@ function height(v: unknown): number | null {
   return n !== null && n >= -5 && n <= MAX_HEIGHT_M ? n : null;
 }
 
+/**
+ * A side's photos (Scan 0.1.151): each with its number, its camera, the 3x3 that lays it on the
+ * elevation and how much of the side it holds. One that cannot be laid on the wall - no matrix, a
+ * number outside Scan's range - is left out, as Scan leaves out a photo of a side with no frame.
+ */
+function sidePhotos(raw: unknown, scanId: string | null): SidePhoto[] {
+  if (!Array.isArray(raw)) return [];
+  const photos: SidePhoto[] = [];
+  for (const p of raw.slice(0, MAX_PHOTOS)) {
+    if (!isObject(p) || !isObject(p.camera)) continue;
+    const n = num(p.n);
+    const c = p.camera;
+    const camera = { width: num(c.width), height: num(c.height), fx: num(c.fx), fy: num(c.fy), cx: num(c.cx), cy: num(c.cy) };
+    const toPhoto = Array.isArray(p.to_photo) ? p.to_photo.map(num) : [];
+    if (n === null || !Number.isInteger(n) || n < MIN_SIDE_PHOTO || n > MAX_SIDE_PHOTO) continue;
+    if (camera.width === null || camera.height === null || camera.width <= 0 || camera.height <= 0) continue;
+    if (toPhoto.length !== 9 || toPhoto.some((v) => v === null)) continue;
+    const v = p.in_view;
+    const from = isObject(v) ? num(v.from_m) : null;
+    const to = isObject(v) ? num(v.to_m) : null;
+    photos.push({
+      n,
+      scanId,
+      camera: { width: camera.width, height: camera.height, fx: camera.fx ?? 0, fy: camera.fy ?? 0, cx: camera.cx ?? camera.width / 2, cy: camera.cy ?? camera.height / 2 },
+      toPhoto: toPhoto as number[],
+      inView: isObject(v) && from !== null && to !== null ? { fromM: from, toM: to, leftEnd: v.left_end === true, rightEnd: v.right_end === true, top: v.top === true } : null,
+    });
+  }
+  return photos;
+}
+
 export type ExteriorImportResult = { ok: true; exterior: Exterior; notes: string[] } | { ok: false; error: string };
 
 /** Scan's exterior, read into the claim's exterior model. */
@@ -134,6 +174,7 @@ export function parseScanExterior(input: unknown, meta: { scanId?: string | null
   /** Each side's roofline in metres, for the overhangs and for a roof that runs on past a wall. */
   const rooflines: { name: string; lengthM: number; points: { along: number; up: number; out: number | null; kind: "left_end" | "peak" | "right_end" | "point" | null }[] }[] = [];
   const overlapping: string[] = [];
+  let photographed = 0;
   for (let i = 0; i < rawSides.length; i++) {
     const raw = rawSides[i];
     if (!isObject(raw)) return { ok: false, error: `Side ${i + 1} is not a side.` };
@@ -252,6 +293,8 @@ export function parseScanExterior(input: unknown, meta: { scanId?: string | null
     }
 
     const base = Math.max(baseL, baseR) < 0.01 ? "grade" : "parging";
+    const photos = sidePhotos(raw.photos, meta.scanId ?? null);
+    if (photos.length > 0) photographed++;
     const side: ExteriorSide = {
       id: newSketchId("side"),
       name,
@@ -269,6 +312,7 @@ export function parseScanExterior(input: unknown, meta: { scanId?: string | null
       ...(shapes.length > 0 ? { shapes } : {}),
       ...(roofline.length > 0 ? { roofline: roofline.map((r) => ({ alongFeet: r.along * FEET_PER_METRE, upFeet: r.up * FEET_PER_METRE, outFeet: r.out === null ? null : r.out * FEET_PER_METRE })) } : {}),
       ...(pitch12 !== null ? { pitchMeasured: pitch12 } : {}),
+      ...(photos.length > 0 ? { photos } : {}),
     };
     sides.push(side);
     const covered = sideQuantities(side).bands.reduce((sum, b) => sum + (b.overlapSquareFeet ?? 0), 0);
@@ -304,6 +348,14 @@ export function parseScanExterior(input: unknown, meta: { scanId?: string | null
     taken out whole by a Scan file of that time, which the difference here then shows.
   */
   if (disagree.length > 0) notes.push(`Scan and Scrivn work out different areas for ${disagree.join("; ")}. Scrivn takes out of the cladding only the part of each opening that is in it; check those sides.`);
+  if (photographed > 0) {
+    const which = `${photographed} side${photographed === 1 ? " was" : "s were"} photographed`;
+    notes.push(
+      meta.scanId
+        ? `${which}: open a side to see its photo squared up behind the elevation, and AI trace it.`
+        : `${which}, but a file brings no photos: send the scan from the phone to see them here.`,
+    );
+  }
   notes.push("Type the pitch, or check the one the gables give, and the overhangs, on Roof & footprint.");
 
   const roof = defaultRoof();

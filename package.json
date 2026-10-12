@@ -31,6 +31,7 @@
     "test:moisture": "node test/moisture/run.mjs",
     "test:drying": "node test/drying/run.mjs",
     "test:exterior": "node test/exterior/run.mjs",
+    "test:exterior:trace": "node test/exterior/trace.mjs",
     "test:sw": "node test/sw/run.mjs",
     "test:letterhead": "node test/letterhead/run.mjs",
     "test:billing": "node test/billing/run.mjs",
