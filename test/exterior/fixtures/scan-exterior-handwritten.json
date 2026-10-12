@@ -1,0 +1,65 @@
+{
+  "format": "arcapture-exterior/1",
+  "capture_id": "handwritten-l-left-walk",
+  "scale": 1.0,
+  "closed": true,
+  "walk": "left",
+  "footprint": [[0, 0], [0, -10], [8, -10], [8, -6], [12, -6], [12, 0]],
+  "corners": [
+    { "u": 0, "v": 0, "from": 0, "to": 1, "outside": true },
+    { "u": 0, "v": -10, "from": 1, "to": 2, "outside": true },
+    { "u": 8, "v": -10, "from": 2, "to": 3, "outside": true },
+    { "u": 8, "v": -6, "from": 3, "to": 4, "outside": false },
+    { "u": 12, "v": -6, "from": 4, "to": 5, "outside": true },
+    { "u": 12, "v": 0, "from": 5, "to": 0, "outside": true }
+  ],
+  "sides": [
+    {
+      "index": 0, "name": "Front", "cladding": "vinyl", "length_m": 12.0,
+      "grade": "ground", "bottom_left_m": 0.2, "bottom_right_m": 0.2,
+      "eave_left_m": 3.0, "eave_right_m": 3.0, "eave_taps": 1,
+      "peak": null, "pitch_12": null, "bands": [],
+      "openings": [
+        { "kind": "garage", "number": 1, "from_m": 1.0, "width_m": 4.877, "sill_m": 0.0, "head_m": 2.134 },
+        { "kind": "window", "number": 1, "from_m": 7.0, "width_m": 1.2, "sill_m": 1.0, "head_m": 2.2 }
+      ]
+    },
+    {
+      "index": 1, "name": "Left", "cladding": "stucco", "length_m": 10.0,
+      "grade": "ground", "bottom_left_m": 0.203, "bottom_right_m": 0.355,
+      "eave_left_m": 3.836, "eave_right_m": 3.988, "eave_taps": 2,
+      "peak": { "along_m": 5.0, "height_m": 5.613 }, "pitch_12": 4.1,
+      "bands": [{ "height_m": 1.0, "along_m": 2.0, "below": "stone" }],
+      "openings": [{ "kind": "window", "number": 1, "from_m": 3.0, "width_m": 0.635, "sill_m": 0.9, "head_m": 2.373 }]
+    },
+    {
+      "index": 2, "name": "Rear", "cladding": "vinyl", "length_m": 8.0,
+      "grade": "ground", "bottom_left_m": 0.2, "bottom_right_m": 0.2,
+      "eave_left_m": 3.0, "eave_right_m": 3.0, "eave_taps": 1,
+      "peak": { "along_m": 4.0, "height_m": 4.333, "from_m": 0.0, "to_m": 8.0 }, "pitch_12": 4.0,
+      "bands": [], "openings": []
+    },
+    {
+      "index": 3, "name": "Inside right", "cladding": "vinyl", "length_m": 4.0,
+      "grade": "ground", "bottom_left_m": 0.2, "bottom_right_m": 0.2,
+      "eave_left_m": 3.0, "eave_right_m": 3.0, "eave_taps": 1,
+      "peak": null, "pitch_12": null, "bands": [], "openings": []
+    },
+    {
+      "index": 4, "name": "Right rear", "cladding": "vinyl", "length_m": 4.0,
+      "grade": "ground", "bottom_left_m": 0.2, "bottom_right_m": 0.2,
+      "eave_left_m": null, "eave_right_m": null, "eave_taps": 0,
+      "peak": null, "pitch_12": null, "bands": [], "openings": []
+    },
+    {
+      "index": 5, "name": "Right", "cladding": "fibre_cement", "length_m": 6.0,
+      "grade": "corners", "bottom_left_m": 0.0, "bottom_right_m": 0.0,
+      "eave_left_m": 3.0, "eave_right_m": 3.0, "eave_taps": 1,
+      "peak": null, "pitch_12": null,
+      "bands": [{ "height_m": 0.25, "below": "parging" }],
+      "openings": []
+    }
+  ],
+  "links": [],
+  "taps": []
+}

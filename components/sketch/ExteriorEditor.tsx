@@ -94,14 +94,16 @@ export function ExteriorEditor({ exterior, onChange, readOnly }: { exterior: Ext
   const index = exterior.sides.findIndex((s) => s.id === view);
   const current = index >= 0 ? (exterior.sides[index] as ExteriorSide) : null;
 
+  /** A change to what was measured: from here on a scanned exterior is the estimator's (`exteriorReplaceable`). */
+  const measured = (next: Exterior): Exterior => (next.source && !next.source.edited ? { ...next, source: { ...next.source, edited: true } } : next);
   const updateSide = (id: string, f: (side: ExteriorSide) => ExteriorSide) =>
-    onChange((prev) => (prev ? { ...prev, sides: prev.sides.map((s) => (s.id === id ? f(s) : s)) } : prev));
-  const updateRoof = (f: (roof: ExteriorRoof) => ExteriorRoof) => onChange((prev) => (prev ? { ...prev, roof: f(prev.roof) } : prev));
+    onChange((prev) => (prev ? measured({ ...prev, sides: prev.sides.map((s) => (s.id === id ? f(s) : s)) }) : prev));
+  const updateRoof = (f: (roof: ExteriorRoof) => ExteriorRoof) => onChange((prev) => (prev ? measured({ ...prev, roof: f(prev.roof) }) : prev));
 
   function addSide() {
     const last = exterior?.sides[exterior.sides.length - 1];
     const side = newSide(`Side ${(exterior?.sides.length ?? 0) + 1}`, 10, last?.eaveLeftFeet ?? DEFAULT_EAVE_FEET);
-    onChange((prev) => (prev ? { ...prev, sides: [...prev.sides, side] } : prev));
+    onChange((prev) => (prev ? measured({ ...prev, sides: [...prev.sides, side] }) : prev));
     setView(side.id);
   }
 
@@ -111,12 +113,12 @@ export function ExteriorEditor({ exterior, onChange, readOnly }: { exterior: Ext
       if (!prev) return prev;
       const ends = { ...prev.roof.ends };
       delete ends[id];
-      return {
+      return measured({
         ...prev,
         sides: prev.sides.filter((s) => s.id !== id),
         roof: { ...prev.roof, ends, ridgeAlong: prev.roof.ridgeAlong === id ? null : prev.roof.ridgeAlong },
         ...(prev.scope ? { scope: { ...prev.scope, sides: prev.scope.sides.filter((s) => s !== id) } } : {}),
-      };
+      });
     });
     const next = exterior?.sides[Math.max(0, at - 1)];
     setView(next && next.id !== id ? next.id : "roof");
@@ -141,6 +143,12 @@ export function ExteriorEditor({ exterior, onChange, readOnly }: { exterior: Ext
           </button>
         )}
       </div>
+
+      {exterior.source && (
+        <p className="field-note exterior-source">
+          Measured with Scrivn Scan{exterior.source.edited ? ", and changed here since" : ""}. {exterior.source.notes.join(" ")}
+        </p>
+      )}
 
       {current ? (
         <SidePanel

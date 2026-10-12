@@ -3,6 +3,7 @@
 import { type Dispatch, type ReactNode, type SetStateAction, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { type ScanLevelPart, importScanRoom, scanExtentPx, splitScanLevels } from "@/lib/scanImport";
+import { exteriorReplaceable, isExteriorOnlyScan, parseScanExterior, scanExteriorPart } from "@/lib/exteriorImport";
 import {
   type DoorType,
   type FreeCabinet,
@@ -167,6 +168,13 @@ const SketchCanvas = dynamic(() => import("./SketchCanvas"), {
 const Sketch3D = dynamic(() => import("./Sketch3D"), { ssr: false });
 
 const CANVAS_HEIGHT = 460;
+
+/** The editor's modes, in the order offered. */
+const MODES = [
+  { value: "sketch", label: "Sketch" },
+  { value: "moisture", label: "Moisture" },
+  { value: "exterior", label: "Exterior" },
+] as const;
 
 /**
  * A new room is a real 12' x 12' at the default scale, not an arbitrary rectangle of pixels.
@@ -1471,8 +1479,54 @@ export function SketchEditor({
    * and still says "1 room imported, placed as tapped.", and "Room imported." in front of that
    * would be the same news twice.
    */
+  /**
+   * Scrivn Scan's exterior into the claim (2026-10-12, `lib/exteriorImport.ts`): straight in when
+   * the claim has none or its own came from a scan untouched; otherwise asked, since one measured or
+   * corrected here is the estimator's. What the phone's notes say shows on the Exterior itself.
+   */
+  function importExterior(parsed: unknown, then: (() => void) | null = null) {
+    const result = parseScanExterior(parsed);
+    if (!result.ok) {
+      setImportNotice({ kind: "error", text: result.error });
+      return;
+    }
+    const apply = () => {
+      onChange((prev) => ({ ...prev, exterior: result.exterior }));
+      setImportNotice(null);
+      if (then) then();
+      else {
+        setMode("exterior");
+        setTool("select");
+      }
+    };
+    if (exteriorReplaceable(sketch.exterior)) {
+      apply();
+      return;
+    }
+    const n = result.exterior.sides.length;
+    setImportNotice({
+      kind: "note",
+      text: `This file has the outside of the house, ${n} side${n === 1 ? "" : "s"}. The claim already has an exterior that was measured or changed here.`,
+      choices: [{ label: "Replace it", run: apply }],
+      dismiss: "Keep mine",
+    });
+  }
+
   async function handleImportScan(file: File) {
     const text = await file.text();
+    let parsedFile: unknown = null;
+    try {
+      parsedFile = JSON.parse(text);
+    } catch {
+      // The room importer below says what is wrong with it.
+    }
+    // Only the outside of the house: no rooms to place.
+    if (isExteriorOnlyScan(parsedFile)) {
+      importExterior(parsedFile);
+      return;
+    }
+    // Rooms and the outside in one capture: the rooms as ever, then the exterior once they are in.
+    const carriesExterior = scanExteriorPart(parsedFile) !== null;
     /*
       A FILE OF SEVERAL LEVELS (2026-10-11): Scan's Export writes every level of a walk into one file, each room saying
       its level. Imported whole, the floor above landed on the floor below. Asked first which storey the walk's first level
@@ -1485,7 +1539,17 @@ export function SketchEditor({
       setImportNotice({
         kind: "note",
         text: `This file has ${levels.length} levels: ${names.join(", ")}. Which storey is ${first}? The others go above and below it.`,
-        choices: [MAIN_LEVEL, -1, 1].map((storey) => ({ label: levelName(sketch, storey), run: () => importScanLevels(levels, storey) })),
+        choices: [MAIN_LEVEL, -1, 1].map((storey) => ({
+          label: levelName(sketch, storey),
+          run: () => {
+            importScanLevels(levels, storey);
+            // The outside rides along when it can go in without asking; otherwise its own file replaces it.
+            if (carriesExterior && exteriorReplaceable(sketch.exterior)) {
+              const outside = parseScanExterior(parsedFile);
+              if (outside.ok) onChange((prev) => ({ ...prev, exterior: outside.exterior }));
+            }
+          },
+        })),
         dismiss: "Cancel",
       });
       return;
@@ -1517,6 +1581,15 @@ export function SketchEditor({
     // from here. By the file's shape, not by counting rooms in the result: see the doc above.
     const parts = result.kind === "capture" ? [...result.notes] : ["Room imported.", ...result.notes];
     if (closetCount > 0) parts.push(closetOfferText(closetCount));
+    if (carriesExterior) {
+      if (exteriorReplaceable(sketch.exterior)) {
+        const outside = parseScanExterior(parsedFile);
+        if (outside.ok) {
+          onChange((prev) => ({ ...prev, exterior: outside.exterior }));
+          parts.push(`The outside of the house came in too, ${outside.exterior.sides.length} sides: see Exterior.`);
+        } else parts.push(`The outside of the house did not come in: ${outside.error}`);
+      } else parts.push("The file's exterior was not applied: this claim's was measured or changed here. Import the exterior file on its own to replace it.");
+    }
     // One room with nothing to say about it needs no notice; a capture always has its count to say,
     // since which rooms came in and where is the news.
     if (result.kind === "room" && parts.length === 1) {
@@ -1950,6 +2023,16 @@ export function SketchEditor({
   const summary = sketchSummaryText(sketch);
   const zoomPercent = Math.round(view.scale * 100);
 
+  function switchMode(next: typeof mode) {
+    setMode(next);
+    setTool("select");
+    setNewReadingId(null);
+    if (next === "exterior") {
+      setSheet("none");
+      cancelWallDraft();
+    }
+  }
+
   /** The sentence under the toolbar, or above the bar on a phone: what a tap does right now. */
   const hintText =
         mode === "moisture"
@@ -2228,32 +2311,36 @@ export function SketchEditor({
             </p>
           )}
         </div>
-        <div className="option-group" role="group" aria-label="Mode">
-          {([
-            { value: "sketch", label: "Sketch" },
-            { value: "moisture", label: "Moisture" },
-            { value: "exterior", label: "Exterior" },
-          ] as const).map((option) => (
-            <button
-              key={option.value}
-              type="button"
-              className={`option-btn${mode === option.value ? " selected" : ""}`}
-              aria-pressed={mode === option.value}
-              disabled={option.value === "moisture" && sketch.rooms.length === 0}
-              onClick={() => {
-                setMode(option.value);
-                setTool("select");
-                setNewReadingId(null);
-                if (option.value === "exterior") {
-                  setSheet("none");
-                  cancelWallDraft();
-                }
-              }}
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
+        {/*
+          Three modes do not fit a phone's header beside the lock and Done as pills - Done, the only
+          way out there, went off the edge - so a phone picks the mode from a list.
+        */}
+        {phone ? (
+          <select className="sketch-mode-select" aria-label="Mode" value={mode} onChange={(e) => switchMode(e.target.value as typeof mode)}>
+            {MODES.map((option) => (
+              <option key={option.value} value={option.value} disabled={option.value === "moisture" && sketch.rooms.length === 0}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <div className="option-group" role="group" aria-label="Mode">
+            {MODES.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                className={`option-btn${mode === option.value ? " selected" : ""}`}
+                aria-pressed={mode === option.value}
+                disabled={option.value === "moisture" && sketch.rooms.length === 0}
+                onClick={() => switchMode(option.value)}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        )}
+        {/* On a phone the 3D view is in More, and the header has no room for it. */}
+        {!phone && (
         <button
           type="button"
           className="option-btn"
@@ -2263,6 +2350,7 @@ export function SketchEditor({
         >
           3D view
         </button>
+        )}
         {/*
           Viewing or editing, stated rather than implied. The label says what is happening NOW, and
           the button says what pressing it will do — a control that reads "Editing" while you are

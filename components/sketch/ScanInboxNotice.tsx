@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { scanLevelName, type PendingScan } from "@/lib/scanInbox";
+import { isExteriorOnlyScan } from "@/lib/exteriorImport";
 import { levelLabel } from "@/lib/sketch";
 
 /**
@@ -66,7 +67,9 @@ export function ScanInboxNotice({
   const arrived = `A scan arrived from ${phoneName(scan)} at ${clockTime(scan.receivedAt)}`;
   const text = error
     ? `${arrived}, but it could not be drawn. ${error}`
-    : `${arrived} — ${roomCount === null ? "rooms" : rooms(roomCount)} for the ${storey}. Adopting replaces the rooms on that storey, and anything drawn or metered on them goes with them.`;
+    : isExteriorOnlyScan(scan.body)
+      ? `${arrived} — the outside of the house. Adopting replaces this claim's exterior, which was measured or changed by hand here.`
+      : `${arrived} — ${roomCount === null ? "rooms" : rooms(roomCount)} for the ${storey}. Adopting replaces the rooms on that storey, and anything drawn or metered on them goes with them.`;
 
   return (
     <div className="sketch-undo scan-inbox-notice" role={error ? "alert" : "status"}>
@@ -106,6 +109,8 @@ export function ScanInboxMessage({ message, onDismiss }: { message: string; onDi
 }
 
 /** The receipt's wording, shared with the page so the silent and the chosen adoption read the same. */
-export function scanAdoptedMessage(level: number, roomCount: number, name: string | null = null): string {
-  return `${name ?? levelLabel(level)} updated from your phone — ${rooms(roomCount)}.`;
+export function scanAdoptedMessage(level: number, roomCount: number, name: string | null = null, exteriorSides?: number): string {
+  const outside = exteriorSides ? `${exteriorSides} side${exteriorSides === 1 ? "" : "s"} of the outside` : null;
+  if (roomCount === 0 && outside) return `Exterior updated from your phone — ${outside}.`;
+  return `${name ?? levelLabel(level)} updated from your phone — ${rooms(roomCount)}${outside ? `, and ${outside}` : ""}.`;
 }

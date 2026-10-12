@@ -17,7 +17,7 @@
  */
 
 import { build } from "esbuild";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -38,6 +38,8 @@ async function load() {
       `export { availableTrades, buildWorkOrders } from "${lib("workOrders.ts")}";`,
       `export { emptyClaimInfo } from "${lib("claimInfo.ts")}";`,
       `export { documentGenerationUserMessage, DOCUMENT_GENERATION_SYSTEM_PROMPT, SCOPE_ONLY_SYSTEM_PROMPT } from "${lib("documentGenerationPrompt.ts")}";`,
+      `export * from "${lib("exteriorImport.ts")}";`,
+      `export { adoptScan, exteriorScanDecision, sketchFromScan } from "${lib("scanInbox.ts")}";`,
     ].join("\n"),
   );
   await build({ entryPoints: [entry], bundle: true, format: "esm", platform: "node", outfile, alias: { "@": root }, logLevel: "silent" });
@@ -483,6 +485,118 @@ test("the scope document is handed the lines and told to copy them", () => {
     assert(/EXTERIOR LINES ARE COMPUTED, NOT WRITTEN BY YOU/.test(prompt), "the rule is in the prompt");
     assert(/Exterior\s+\(only when CLAIM CONTEXT's "exterior" has lines/.test(prompt), "and the heading in the format");
   }
+});
+
+console.log("\nfrom Scrivn Scan (arcapture-exterior/1)");
+
+const fixture = (name) => JSON.parse(readFileSync(join(here, "fixtures", name), "utf8"));
+const roomFixture = (name) => JSON.parse(readFileSync(join(root, "test", "sketch", "fixtures", name), "utf8"));
+const M = 1 / 0.3048;
+const M2 = M * M;
+const pending = (body, over = {}) => ({ id: "scan-1", claimId: "c", captureId: null, capturedAt: null, receivedAt: "2026-10-12T18:00:00Z", level: 0, body, deviceName: null, ...over });
+
+test("Scan's own sample house reads in, and Scrivn's areas agree with Scan's", () => {
+  const r = x.parseScanExterior(fixture("scan-exterior-sample.json"));
+  assert(r.ok, r.error);
+  const e = r.exterior;
+  assert(e.sides.map((s) => s.name).join() === "Front,Right,Rear,Left", e.sides.map((s) => s.name).join());
+  assert(!r.notes.some((n) => /different areas/.test(n)), r.notes.join(" | "));
+  const front = x.sideQuantities(e.sides[0]);
+  // Scan: brick 9.000 m2 gross, 1.010 openings, 7.990 net; stucco 18.000, 2.017, 15.983.
+  near(front.bands[0].netSquareFeet, 7.99 * M2, "brick net", 0.05);
+  near(front.bands[1].netSquareFeet, 15.983 * M2, "stucco net", 0.05);
+  near(front.bands[0].openingSquareFeet, 1.01 * M2, "openings in the brick", 0.05);
+  assert(e.sides[0].openings[1].kind === "door", "the door is a door");
+  near(e.sides[0].bands[0].top, 1.2 * M, "the brick runs to 1.2 m");
+  // Right's gable: (4.333 - 3.0) over 4 m = 4/12.
+  near(x.sideQuantities(e.sides[1]).pitchFromGable, 4, "4/12 from the peak", 0.01);
+  const q = x.exteriorQuantities(e);
+  assert(q.footprint.closes, q.footprint.reason);
+  near(q.footprint.areaSquareFeet, 80 * M2, "10 x 8 m footprint", 0.01);
+  assert(q.pitch.source === "sides" && q.roof, "the roof builds at the gables' pitch");
+  assert(e.source.kind === "scan" && !e.source.edited, "marked as from a scan");
+});
+
+test("a walk to the left round an L: the Front first, the inside corner where it is", () => {
+  const r = x.parseScanExterior(fixture("scan-exterior-handwritten.json"));
+  assert(r.ok, r.error);
+  const e = r.exterior;
+  assert(e.sides.map((s) => s.name).join() === "Front,Right,Right rear,Inside right,Rear,Left", e.sides.map((s) => s.name).join());
+  assert(e.sides.map((s) => s.turn).join() === "outside,outside,inside,outside,outside,outside", e.sides.map((s) => s.turn).join());
+  const f = x.exteriorFootprint(e);
+  assert(f.closes, f.reason);
+  near(f.areaSquareFeet, 104 * M2, "12 x 10 m less a 4 x 4 m notch", 0.01);
+  assert(e.source.captureId === "handwritten-l-left-walk", "capture id kept");
+});
+
+test("heights from the grade under each tap land on the level lines", () => {
+  const e = x.parseScanExterior(fixture("scan-exterior-handwritten.json")).exterior;
+  const left = e.sides.find((s) => s.name === "Left");
+  // Grade falls 0.152 m along 10 m; the band line was tapped 1.0 m up at 2.0 m along, where the
+  // grade is 0.0304 m lower than at the corner: 0.9696 m above the corner's grade.
+  near(left.bands[0].top, 0.9696 * M, "stone band top, level", 1e-4);
+  assert(left.bands[0].kind === "stone" && left.bands[1].kind === "stucco", "stone under stucco");
+  near(left.eaveRightFeet - left.eaveLeftFeet, 0.152 * M, "the eaves say the fall", 1e-6);
+  // The peak, 5.613 m above the grade under it (5.0 m along, grade 0.076 m down): 1.701 m over the eave.
+  near(x.sideQuantities(left).pitchFromGable, (1.701 / 5) * 12, "pitch from the peak", 1e-3);
+});
+
+test("garage doors, a part-wall gable, a parging line and a side with no eave", () => {
+  const r = x.parseScanExterior(fixture("scan-exterior-handwritten.json"));
+  const by = (name) => r.exterior.sides.find((s) => s.name === name);
+  const garage = by("Front").openings[0];
+  assert(garage.kind === "garage", "garage kept");
+  near(garage.heightFeet, 2.134 * M, "head less sill");
+  near(by("Rear").gable.toFeet, 8 * M, "the gable's span");
+  const right = by("Right");
+  assert(right.base === "parging", "a parging line is the bottom of the cladding");
+  near(right.baseLeftFeet, 0.25 * M, "at 0.25 m");
+  assert(right.bands.length === 1 && right.bands[0].kind === "fibre_cement", "and not a band of its own");
+  assert(by("Right rear").eaveLeftFeet === null, "no eave stays no eave");
+  assert(r.notes.some((n) => /No eave was tapped on Right rear/.test(n)), r.notes.join(" | "));
+});
+
+test("the exterior arrives inside a capture, as text, with no rooms", () => {
+  const body = JSON.stringify({ format: "arcapture-capture/1", rooms: [], exterior: fixture("scan-exterior-handwritten.json") });
+  assert(x.isExteriorOnlyScan(body), "an exterior-only capture");
+  assert(!x.isExteriorOnlyScan({ ...roomFixture("scan-taps-capture.json"), exterior: fixture("scan-exterior-sample.json") }), "with rooms it is not");
+  assert(x.parseScanExterior(body).ok, "reads from the text");
+  assert(!x.parseScanExterior({ format: "something-else" }).ok, "anything else is refused");
+  assert(!x.parseScanExterior({ format: "arcapture-exterior/1", sides: [{ name: "Front", length_m: -2 }] }).ok, "a side with no length is refused");
+});
+
+test("a phone's exterior-only scan replaces the exterior and leaves the rooms alone", () => {
+  const rooms = x.adoptScan({ rooms: [] }, pending(roomFixture("scan-taps-capture.json"), { id: "rooms" }));
+  assert(!("ok" in rooms) && rooms.sketch.rooms.length > 0, "the rooms went in");
+  const before = rooms.sketch;
+  const adopted = x.adoptScan(before, pending(fixture("scan-exterior-sample.json"), { id: "outside" }));
+  assert(!("ok" in adopted), adopted.error);
+  assert(adopted.sketch.rooms === before.rooms, "the rooms untouched");
+  assert(adopted.sketch.scan === before.scan, "and the storey's provenance");
+  assert(adopted.exteriorSides === 4 && adopted.sketch.exterior.sides.length === 4, "four sides");
+  assert(adopted.sketch.exterior.source.scanId === "outside", "with the scan it came from");
+  const made = x.sketchFromScan(fixture("scan-exterior-sample.json"), { scanId: "s", captureId: null, receivedAt: "2026-10-12T18:00:00Z" });
+  assert(made.ok && made.sketch.rooms.length === 0 && made.sketch.exterior, "a new claim from one has the exterior and no rooms");
+});
+
+test("one measured or changed by hand is asked about, one from a scan is not", () => {
+  assert(x.exteriorScanDecision({ rooms: [] }) === "adopt", "none yet");
+  assert(x.exteriorScanDecision({ rooms: [], exterior: rect(30, 20) }) === "ask", "typed by hand");
+  const scanned = x.parseScanExterior(fixture("scan-exterior-sample.json")).exterior;
+  assert(x.exteriorScanDecision({ rooms: [], exterior: scanned }) === "adopt", "from a scan, untouched");
+  const edited = { ...scanned, source: { ...scanned.source, edited: true } };
+  assert(x.exteriorScanDecision({ rooms: [], exterior: edited }) === "ask", "from a scan, then changed");
+});
+
+test("a capture with rooms and an exterior brings both, but never over a hand-made exterior", () => {
+  const body = { ...roomFixture("scan-taps-capture.json"), exterior: fixture("scan-exterior-sample.json") };
+  const fresh = x.adoptScan({ rooms: [] }, pending(body));
+  assert(!("ok" in fresh), fresh.error);
+  assert(fresh.roomCount > 0 && fresh.exteriorSides === 4, `rooms ${fresh.roomCount}, sides ${fresh.exteriorSides}`);
+  const mine = rect(30, 20);
+  const kept = x.adoptScan({ rooms: [], exterior: mine }, pending(body));
+  assert(kept.sketch.exterior === mine, "the hand-made exterior kept");
+  assert(kept.notes.some((n) => /exterior was not applied/.test(n)), kept.notes.join(" | "));
 });
 
 console.log(`\n${passed.length} passed, ${failures.length} failed`);

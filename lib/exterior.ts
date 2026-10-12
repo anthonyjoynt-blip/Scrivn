@@ -141,8 +141,12 @@ export interface Exterior {
   roof: ExteriorRoof;
   /** Optional so an exterior drawn before the scope existed loads; absent reads as nothing in scope. */
   scope?: ExteriorScope;
-  /** Where it came from when the phone measured it - see `lib/exteriorImport.ts`. */
-  source?: { kind: "scan"; captureId: string | null; scanId: string | null; receivedAt: string | null; notes: string[] };
+  /**
+   * Where it came from when the phone measured it - see `lib/exteriorImport.ts`. `edited` is set by the
+   * first change to a measurement in Scrivn; from then on it is the estimator's, and a later scan asks
+   * before replacing it. Ticking what is in scope is not a change to what was measured.
+   */
+  source?: { kind: "scan"; captureId: string | null; scanId: string | null; receivedAt: string | null; notes: string[]; edited?: boolean };
 }
 
 export const DEFAULT_EAVE_FEET = 10;

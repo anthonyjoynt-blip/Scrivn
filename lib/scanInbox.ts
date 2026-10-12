@@ -2,6 +2,7 @@ import { importScanRoom, scanPointToPx, type ScanImportResult, type ScanOrigin }
 import { hasRoomMoisture, type MoistureMap } from "./moisture";
 import type { ScopeMarks } from "./scopeMarks";
 import { MAIN_LEVEL, roomBounds, roomLevel, roomsOnLevel, withDerivedParents, type Sketch, type SketchRoom, type SketchScan, type SketchWalk, type WalkCamera, type WalkPhoto, type WalkSpot } from "./sketch";
+import { exteriorReplaceable, isExteriorOnlyScan, parseScanExterior, scanExteriorPart } from "./exteriorImport";
 
 export type { SketchScan } from "./sketch";
 
@@ -333,6 +334,27 @@ export interface Adoption {
   notes: string[];
   /** Where the new rooms are wet, mapped on the phone (2026-10-12): for the claim's moisture map (`withScanMoisture`). */
   moisture?: MoistureMap;
+  /** How many sides of the outside the scan put on the claim (2026-10-12), when it carried an exterior that went in. */
+  exteriorSides?: number;
+}
+
+/**
+ * Whether a scan that is ONLY the outside of the house may go in without asking: when the claim has
+ * no exterior, or its exterior came from a scan and nobody has changed it since (`exteriorReplaceable`).
+ * The rooms are not touched by one, so they are not asked about.
+ */
+export function exteriorScanDecision(sketch: Sketch): ScanDecision {
+  return exteriorReplaceable(sketch.exterior) ? "adopt" : "ask";
+}
+
+/**
+ * A scan that is only the outside: the claim's exterior replaced, and nothing else - not its rooms,
+ * not the storey provenance the rooms' replace rule reads.
+ */
+function adoptExteriorOnly(sketch: Sketch, scan: PendingScan, receivedAt: string): Adoption | { ok: false; error: string } {
+  const parsed = parseScanExterior(scan.body, { scanId: scan.id, receivedAt });
+  if (!parsed.ok) return parsed;
+  return { sketch: { ...sketch, exterior: parsed.exterior }, roomCount: 0, replacedCount: 0, notes: parsed.notes, exteriorSides: parsed.exterior.sides.length };
 }
 
 /**
@@ -344,6 +366,7 @@ export interface Adoption {
  * another storey may have chosen one of the replaced rooms — it cannot keep a parent that is gone.
  */
 export function adoptScan(sketch: Sketch, scan: PendingScan, receivedAt: string = scan.receivedAt): Adoption | { ok: false; error: string } {
+  if (isExteriorOnlyScan(scan.body)) return adoptExteriorOnly(sketch, scan, receivedAt);
   const level = scan.level;
   const at = scanDropPoint(sketch, level);
   const result = convertScan(scan.body, at, level);
@@ -376,7 +399,30 @@ export function adoptScan(sketch: Sketch, scan: PendingScan, receivedAt: string 
   if (named !== null) adopted.levelNames = { ...(sketch.levelNames ?? {}), [String(level)]: named };
   if (walks.length > 0) adopted.walks = walks;
   else delete adopted.walks;
-  return { sketch: adopted, roomCount: incoming.length, replacedCount, notes: result.notes, ...(result.moisture ? { moisture: result.moisture } : {}) };
+  /*
+    The outside, when the capture carried it with the rooms (2026-10-12): in place of an exterior
+    from an earlier scan, never over one measured by hand - that stays, and the note says so.
+  */
+  let notes = result.notes;
+  let exteriorSides: number | undefined;
+  if (scanExteriorPart(scan.body)) {
+    const parsed = parseScanExterior(scan.body, { scanId: scan.id, receivedAt });
+    if (!parsed.ok) notes = [...notes, `The outside of the house did not come in: ${parsed.error}`];
+    else if (!exteriorReplaceable(sketch.exterior)) notes = [...notes, "The scan's exterior was not applied: this claim's exterior was measured or changed by hand, and is kept."];
+    else {
+      adopted.exterior = parsed.exterior;
+      exteriorSides = parsed.exterior.sides.length;
+      notes = [...notes, ...parsed.notes];
+    }
+  }
+  return {
+    sketch: adopted,
+    roomCount: incoming.length,
+    replacedCount,
+    notes,
+    ...(result.moisture ? { moisture: result.moisture } : {}),
+    ...(exteriorSides !== undefined ? { exteriorSides } : {}),
+  };
 }
 
 /**

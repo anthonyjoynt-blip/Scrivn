@@ -9,6 +9,7 @@ import { claimSummary, emptySavedClaimState } from "./claimState";
 import { withScanMoisture } from "./moisture";
 import { PAIRING_CODE_TTL_SECONDS, claimSketchUrl, hashSecret, newDeviceToken, newPairingCode, normalisePairingCode, pairingUrl } from "./deviceCodes";
 import { SCAN_DROP, convertScan, dedupeNotes, scanTooBig, sketchFromScan, type PendingScan } from "./scanInbox";
+import { isExteriorOnlyScan, parseScanExterior } from "./exteriorImport";
 
 /**
  * Every read and write behind a paired phone, in one place: minting a pairing code, trading it for
@@ -495,10 +496,20 @@ export async function receiveScan(token: string, input: ReceiveScanInput): Promi
   await deviceIdentity(token);
   const tooBig = scanTooBig(input.body);
   if (tooBig !== null) throw new ScanRejectedError(tooBig);
-  const checked = convertScan(input.body, SCAN_DROP, input.level);
-  if (!checked.ok) throw new ScanRejectedError(checked.error);
-  let roomCount = 1 + checked.extraRooms.length;
-  let notes = checked.notes;
+  let roomCount: number;
+  let notes: string[];
+  // Only the outside of the house (2026-10-12): checked as an exterior, since it has no rooms to draw.
+  if (isExteriorOnlyScan(input.body)) {
+    const exterior = parseScanExterior(input.body);
+    if (!exterior.ok) throw new ScanRejectedError(exterior.error);
+    roomCount = 0;
+    notes = exterior.notes;
+  } else {
+    const checked = convertScan(input.body, SCAN_DROP, input.level);
+    if (!checked.ok) throw new ScanRejectedError(checked.error);
+    roomCount = 1 + checked.extraRooms.length;
+    notes = checked.notes;
+  }
 
   const scanId = randomUUID();
   const receivedAt = new Date().toISOString();

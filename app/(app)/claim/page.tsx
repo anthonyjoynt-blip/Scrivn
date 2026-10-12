@@ -80,7 +80,8 @@ import { WorkOrderSelector } from "@/components/WorkOrderSelector";
 import { SketchEditor } from "@/components/sketch/SketchEditor";
 import { type Sketch, emptySketch, hasSketchContent, knownRoomNames, levelsOf } from "@/lib/sketch";
 import { type MoistureMap, emptyMoistureMap, hasMoistureContent, pruneMoisture, roomMoistureSummary, withScanMoisture } from "@/lib/moisture";
-import { SCAN_DROP, type PendingScan, adoptScan, convertScan, namedRooms, scanDecision, scanLevelName } from "@/lib/scanInbox";
+import { SCAN_DROP, type PendingScan, adoptScan, convertScan, exteriorScanDecision, namedRooms, scanDecision, scanLevelName } from "@/lib/scanInbox";
+import { isExteriorOnlyScan } from "@/lib/exteriorImport";
 import { useScanInbox } from "@/lib/useScanInbox";
 import { ScanInboxMessage, ScanInboxNotice, scanAdoptedMessage } from "@/components/sketch/ScanInboxNotice";
 import { DEFAULT_EQUIPMENT_SETTINGS, claimEquipment } from "@/lib/equipment";
@@ -470,7 +471,10 @@ export default function Home() {
   const pendingScanDecision = pendingScan
     ? scanIssue?.scanId === pendingScan.id
       ? "ask"
-      : scanDecision(sketch, moisture, scopeMarks, pendingScan.level)
+      : // Only the outside of the house (2026-10-12): the rooms are not touched, so only the exterior is asked about.
+        isExteriorOnlyScan(pendingScan.body)
+        ? exteriorScanDecision(sketch)
+        : scanDecision(sketch, moisture, scopeMarks, pendingScan.level)
     : null;
 
   /**
@@ -490,7 +494,7 @@ export default function Home() {
     // The phone's moisture map comes with its rooms (2026-10-12).
     setMoisture((prev) => withScanMoisture(pruneMoisture(prev, adopted.sketch), adopted.moisture));
     setScanIssue(null);
-    setScanMessage(scanAdoptedMessage(scan.level, adopted.roomCount, scanLevelName(scan.body)));
+    setScanMessage(scanAdoptedMessage(scan.level, adopted.roomCount, scanLevelName(scan.body), adopted.exteriorSides));
     setScanBusy(true);
     void scanInbox.resolve(scan.id, "adopted").finally(() => setScanBusy(false));
     checkpoint();

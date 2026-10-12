@@ -3205,3 +3205,22 @@ button:disabled {
   margin-top: 10px;
   white-space: pre-wrap;
 }
+.exterior-table th,
+.exterior-table td {
+  white-space: normal;
+}
+.sketch-mode-select {
+  min-height: 44px;
+  padding: 6px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--color-navy);
+  background: var(--surface);
+}
+/* The phone card has no padding of its own (the plan runs edge to edge); the exterior is a form and needs a margin. */
+.sketch-card-phone .exterior {
+  padding: 4px 12px 16px;
+}
