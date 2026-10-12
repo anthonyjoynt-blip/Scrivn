@@ -559,6 +559,66 @@ export interface BandQuantities {
   grossSquareFeet: number;
   openingSquareFeet: number;
   netSquareFeet: number;
+  /** A shape's area that a shape tapped after it covers, taken out so nothing is counted twice. */
+  overlapSquareFeet?: number;
+}
+
+/** A simple polygon in triangles (ear clipping), either way round. */
+function triangulate(poly: Pt[]): Pt[][] {
+  let pts = poly.filter((p, i) => {
+    const q = poly[(i + 1) % poly.length] as Pt;
+    return Math.abs(p.x - q.x) > 1e-9 || Math.abs(p.y - q.y) > 1e-9;
+  });
+  let signed = 0;
+  for (let i = 0; i < pts.length; i++) {
+    const p = pts[i] as Pt;
+    const q = pts[(i + 1) % pts.length] as Pt;
+    signed += p.x * q.y - q.x * p.y;
+  }
+  if (signed < 0) pts = [...pts].reverse();
+  const cross = (a: Pt, b: Pt, c: Pt) => (b.x - a.x) * (c.y - b.y) - (b.y - a.y) * (c.x - b.x);
+  const inside = (p: Pt, a: Pt, b: Pt, c: Pt) => cross(a, b, p) >= -1e-12 && cross(b, c, p) >= -1e-12 && cross(c, a, p) >= -1e-12;
+  const tris: Pt[][] = [];
+  for (let guard = 0; pts.length > 3 && guard < 1000; guard++) {
+    const n = pts.length;
+    let cut = -1;
+    for (let i = 0; i < n && cut < 0; i++) {
+      const a = pts[(i - 1 + n) % n] as Pt;
+      const b = pts[i] as Pt;
+      const c = pts[(i + 1) % n] as Pt;
+      if (cross(a, b, c) <= 1e-12) continue;
+      if (pts.some((p) => p !== a && p !== b && p !== c && inside(p, a, b, c))) continue;
+      tris.push([a, b, c]);
+      cut = i;
+    }
+    // No ear: a corner on a straight edge holds it up, and it adds no area.
+    if (cut < 0) cut = pts.findIndex((b, i) => Math.abs(cross(pts[(i - 1 + n) % n] as Pt, b, pts[(i + 1) % n] as Pt)) < 1e-9);
+    if (cut < 0) break;
+    pts = pts.filter((_, k) => k !== cut);
+  }
+  if (pts.length === 3) tris.push(pts);
+  return tris;
+}
+
+/** The area two simple polygons share: the one clipped to each triangle of the other. */
+function sharedArea(a: Pt[], b: Pt[]): number {
+  let total = 0;
+  for (const [p, q, r] of triangulate(a) as [Pt, Pt, Pt][]) {
+    let part = b;
+    for (const [s, t] of [
+      [p, q],
+      [q, r],
+      [r, p],
+    ] as [Pt, Pt][]) {
+      // Keep what is left of s -> t: the inside of a counter-clockwise triangle.
+      const ea = t.y - s.y;
+      const eb = -(t.x - s.x);
+      part = clipHalf(part, ea, eb, ea * s.x + eb * s.y);
+      if (part.length < 3) break;
+    }
+    total += area(part);
+  }
+  return total;
 }
 
 export interface SideQuantities {
@@ -599,17 +659,43 @@ function shapeQuantities(side: ExteriorSide, empty: SideQuantities): SideQuantit
   if (faces.length === 0) return empty;
   const L = Math.max(1e-9, side.lengthFeet);
   const rects = side.openings.map((o) => openingRect(side, o));
-  const bands: BandQuantities[] = faces.map((f) => {
-    const gross = area(f.polygon);
-    const holes = rects.reduce((sum, r) => sum + area(clipRect(f.polygon, r.x0, r.x1, r.y0, r.y1)), 0);
-    return { bandId: f.id, kind: f.kind as CladdingKind, label: shapeLabel(f), grossSquareFeet: gross, openingSquareFeet: holes, netSquareFeet: Math.max(0, gross - holes) };
+  /*
+    Shapes that overlap - a stone wainscot tapped over a stucco wall - would count the overlap twice.
+    The later-tapped shape is taken to be the one on top, as it is laid over the first, so the
+    earlier gives up what the later covers. A shared corner or edge shares no area.
+  */
+  const lost = faces.map(() => 0);
+  for (let i = 0; i < faces.length; i++) {
+    for (let j = i + 1; j < faces.length; j++) lost[i] = (lost[i] as number) + sharedArea((faces[i] as ExteriorShape).polygon, (faces[j] as ExteriorShape).polygon);
+  }
+  const bands: BandQuantities[] = faces.map((f, i) => {
+    const own = area(f.polygon);
+    const overlap = Math.min(own, lost[i] as number);
+    const gross = own - overlap;
+    const holes = Math.min(gross, rects.reduce((sum, r) => sum + area(clipRect(f.polygon, r.x0, r.x1, r.y0, r.y1)), 0));
+    return {
+      bandId: f.id,
+      kind: f.kind as CladdingKind,
+      label: shapeLabel(f),
+      grossSquareFeet: gross,
+      openingSquareFeet: holes,
+      netSquareFeet: Math.max(0, gross - holes),
+      ...(overlap > 1e-6 ? { overlapSquareFeet: overlap } : {}),
+    };
   });
   const zl = side.eaveLeftFeet;
   const zr = side.eaveRightFeet ?? zl;
   const gross = bands.reduce((sum, b) => sum + b.grossSquareFeet, 0);
   const holes = bands.reduce((sum, b) => sum + b.openingSquareFeet, 0);
-  // Below the line between the two eaves is wall; above it, gable.
-  const wall = zl == null || zr == null ? gross : faces.reduce((sum, f) => sum + area(clipHalf(f.polygon, -(zr - zl) / L, 1, zl)), 0);
+  // Below the line between the two eaves is wall; above it, gable - each shape's share less what it gave up to an overlap.
+  const wall =
+    zl == null || zr == null
+      ? gross
+      : faces.reduce((sum, f, i) => {
+          const own = area(f.polygon);
+          const below = area(clipHalf(f.polygon, -(zr - zl) / L, 1, zl));
+          return sum + (own > 0 ? (below * (bands[i] as BandQuantities).grossSquareFeet) / own : 0);
+        }, 0);
   const baseL = side.base === "grade" ? 0 : side.baseLeftFeet;
   const baseR = side.base === "grade" ? 0 : side.baseRightFeet;
   let pitchFromGable: number | null = side.pitchMeasured ?? null;

@@ -839,6 +839,79 @@ test("a shape left open is drawn, not counted, and said", () => {
   assert(r.notes.some((n) => /left open is drawn but not counted: Front \(stucco\)/.test(n)), r.notes.join(" | "));
 });
 
+/** A side tapped as these shapes (feet), on one ground level. */
+function shapedSide(shapes, over = {}) {
+  return side({
+    lengthFeet: 10,
+    eaveLeftFeet: 8,
+    eaveRightFeet: 8,
+    heightsFrom: "level",
+    base: "grade",
+    shapes: shapes.map(([kind, poly], i) => ({ id: `sh${i}`, kind, closed: true, polygon: poly.map(([px, py]) => ({ x: px, y: py })) })),
+    ...over,
+  });
+}
+
+test("a stone wainscot tapped over a stucco wall is counted once, as the stone", () => {
+  const q = x.sideQuantities(
+    shapedSide([
+      ["stucco", [[0, 0], [10, 0], [10, 8], [0, 8]]],
+      ["stone", [[0, 0], [10, 0], [10, 3], [0, 3]]],
+    ]),
+  );
+  // 80 SF of wall, 30 of it stone tapped on top: 50 stucco, 30 stone.
+  near(q.bands[0].grossSquareFeet, 50, "stucco less the stone over it");
+  near(q.bands[0].overlapSquareFeet, 30, "what it gave up");
+  near(q.bands[1].grossSquareFeet, 30, "stone");
+  near(q.grossSquareFeet, 80, "the wall once");
+  near(q.wallSquareFeet + q.gableSquareFeet, 80, "wall and gable still the whole");
+});
+
+test("an overlap with an L-shaped face is worked exactly", () => {
+  // L of 64 SF; a 6 x 4 stone patch over its corner shares 2 x 6 + 2 x 2 = 16 SF with it.
+  const q = x.sideQuantities(
+    shapedSide([
+      ["stucco", [[0, 0], [10, 0], [10, 4], [4, 4], [4, 10], [0, 10]]],
+      ["stone", [[2, 2], [8, 2], [8, 6], [2, 6]]],
+    ]),
+  );
+  near(q.bands[0].overlapSquareFeet, 16, "the shared part");
+  near(q.bands[0].grossSquareFeet, 48, "stucco");
+  near(q.bands[1].grossSquareFeet, 24, "stone");
+});
+
+test("shapes that only share an edge share no area", () => {
+  const q = x.sideQuantities(
+    shapedSide([
+      ["stucco", [[0, 3], [10, 3], [10, 8], [0, 8]]],
+      ["stone", [[0, 0], [10, 0], [10, 3], [0, 3]]],
+    ]),
+  );
+  assert(q.bands.every((b) => !b.overlapSquareFeet), JSON.stringify(q.bands));
+  near(q.grossSquareFeet, 80, "50 + 30");
+});
+
+test("an overlap on the phone is named on the way in", () => {
+  const raw = fixture("scan-exterior-v2-sample.json");
+  raw.sides[0].shapes.push({ material: "stone", label: "Stone", closed: true, polygon: [[0, 0.9], [8, 0.9], [8, 1.9], [0, 1.9]], area_m2: 8, openings_m2: 0, net_m2: 8, overlaps: [0] });
+  const r = x.parseScanExterior(raw);
+  assert(r.notes.some((n) => /Shapes overlap on Front \(86 SF\): each overlap is counted once, as the shape tapped later/.test(n)), r.notes.join(" | "));
+  const q = x.sideQuantities(r.exterior.sides[0]);
+  // The stucco gives up what the stone covers: 8 m2, less the 0.0125 m2 sliver where the stucco's
+  // right edge leans in (8.0 m at the bottom, 7.9 m at 4.9 m up) and the stone hangs past it.
+  near(q.bands[0].grossSquareFeet, (40.765 - 7.9875) * M2, "stucco", 0.01);
+  near(q.bands[1].grossSquareFeet, 8 * M2, "stone", 0.05);
+});
+
+test("the roofline's named points: a lone end is only its own end", () => {
+  const raw = fixture("scan-exterior-v2-sample.json");
+  // An eave side whose only roofline point is its right end, 0.4 m out and 2 m past the wall.
+  raw.sides[0].roofline = [{ kind: "right_end", along_m: 10, up_m: 4, out_m: 0.4 }];
+  const r = x.parseScanExterior(raw);
+  near(r.exterior.roof.eaveOverhangFeet, 0.4 * M, "eave overhang from the eave side", 1e-9);
+  assert(r.notes.some((n) => /past Front's right end/.test(n)) && !r.notes.some((n) => /past Front's left end/.test(n)), r.notes.join(" | "));
+});
+
 test("a side's shapes set aside by hand fall back to its band", () => {
   const side = x.parseScanExterior(fixture("scan-exterior-v2-sample.json")).exterior.sides[0];
   const bands = { ...side, shapes: undefined };

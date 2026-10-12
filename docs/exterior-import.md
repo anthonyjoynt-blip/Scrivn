@@ -59,15 +59,15 @@ Ticking what is in scope doesn't count as a change.
 | `peak` `{along_m, height_m}` | `gable {atFeet, peakFeet}` |
 | `peak.from_m`, `peak.to_m` (optional) | `gable.fromFeet`, `gable.toFeet`: a gable over part of the wall. Scan doesn't send them; read when present. |
 | `pitch_12` | `pitchMeasured`: believed over the pitch Scrivn would work out from the peak |
-| `shapes[]` (`/2`) `{material, closed, polygon: [[along, up]...]}` | `shapes`: a polygon per material in the side's own frame. When there are any, they ARE the side's cladding, instead of bands, and the roof adds no gable over them. Scrivn works out each closed shape's area itself, less every opening where it overlaps it (a window across two materials comes out of both). `"parging"` is drawn and not counted. A shape with `closed: false` is drawn dashed, not counted, and named in the notes. The bottom edges of the parging shapes are drawn as the ground. |
-| `roofline[]` (`/2`) `{along_m, up_m, out_m}` | `roofline`, drawn dashed on the elevation. On a side whose roofline has a peak (a point at least 0.3 m above both ends), `out_m` is the rake overhang; on one without, the eave overhang. Each overhang is the median over the sides, and replaces the 16"/12" defaults. A roofline reaching more than 0.6 m beyond the usual overhang past a wall's end is named ("the roof runs 10'2" past Front's left end, over a porch or deck"). The roof plan doesn't draw that yet. |
+| `shapes[]` (`/2`) `{material, label, closed, polygon: [[along, up]...], overlaps?}` | `shapes`: a polygon per material in the side's own frame. When there are any, they ARE the side's cladding, instead of bands, and the roof adds no gable over them. Scrivn works out each closed shape's area itself, less every opening where it overlaps it (a window across two materials comes out of both). Where two shapes overlap, Scrivn works out the overlap itself and counts it once, as the shape tapped later: the one laid on top, such as a stone wainscot over a stucco wall. It names the side in the notes; `overlaps` is not needed for this. `"parging"` is drawn and not counted. A shape with `closed: false` (left open when a capture was stopped mid-shape) is drawn dashed, not counted, and named in the notes. The bottom edges of the parging shapes are drawn as the ground. |
+| `roofline[]` (`/2`) `{kind, along_m, up_m, out_m}` | `roofline`, drawn dashed on the elevation. `kind` is `left_end`, `peak` or `right_end`; without it, Scrivn reads them by order and height. On a side whose roofline has a peak, `out_m` is the rake overhang; on one without, the eave overhang. Each overhang is the median over the sides, and replaces the 16"/12" defaults. A roofline reaching more than 0.6 m beyond the usual overhang past a wall's end is named ("the roof runs 10'2" past Front's left end, over a porch or deck"). The roof plan doesn't draw that yet. |
 | `cladding` | the band a side falls back to when its shapes are set aside by hand (and the top band of a `/1` side) |
 | `bands[]` (`/1`) `{height_m, along_m, below}` | bands bottom up: `below` is the cladding under the line, which is level at `height_m`. A band whose `below` is `"parging"` is the bottom of the cladding, not a band. `/2` sends `[]`. |
 | `openings[]` `{kind, from_m, width_m, sill_m, head_m}` | `{kind, fromLeftFeet, widthFeet, sillFeet, heightFeet = head − sill}`. `kind` is `window`, `door` or `garage` (Scan sends doors 2.3 m or wider as `garage`). Anything else reads as a window. At most 100 per side. |
 | `net_sf` / `shapes[].net_m2` | checked. Scrivn works out the side's net area itself and names any side where the two differ by more than 2%. For a `/2` side, it compares against the shapes of cladding only, since `net_sf` counts the parging. |
 | `outline`, `areas`, `gross_sf`, `opening_trim_m`, `index`, `left_joined`, `right_joined`, `eave_taps`, `shapes[].area_m2`, `shapes[].openings_m2` | not read |
 
-Cladding kinds are Scan's list: `stucco`, `vinyl`, `wood`, `fibre_cement`, `brick`, `stone`, `metal`, plus Scrivn's `wood_shake` and `eifs` when sent. Anything else comes in as "Other", labelled with the word Scan sent.
+Cladding kinds are Scan's list: `stucco`, `vinyl`, `wood_shake`, `eifs`, `wood`, `fibre_cement`, `brick`, `stone` and `metal` (`parging` for shapes). Anything else comes in as "Other", labelled with the word Scan sent.
 
 ## Settled with Scan
 
@@ -79,7 +79,8 @@ Cladding kinds are Scan's list: `stucco`, `vinyl`, `wood`, `fibre_cement`, `bric
   - each material is tapped round as a shape;
   - the roofline is the roof edge's ends and its peak;
   - Exterior is its own capture at Start ("Exterior sketch"), so a Send is always `rooms: []` plus `"exterior"`.
-- Asked of Scan, not yet in `/2`. Scrivn manages without each:
-  - a `kind` on each roofline point (Scrivn reads the ends and the peak from order and height);
-  - an overlap flag on shapes;
-  - `wood_shake` and `eifs` as materials.
+- `/2` additions (its commit `411dc42`):
+  - each roofline point has a `kind`, and a lone point is the end it is nearer to;
+  - shapes sharing 0.1 m² or more list each other in `overlaps`;
+  - materials, in the picker's order: stucco, vinyl, wood_shake, eifs, wood, fibre_cement, brick, stone, metal, parging;
+  - every shape carries a `label`.

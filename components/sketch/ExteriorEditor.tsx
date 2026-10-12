@@ -508,7 +508,7 @@ function ShapesEditor({ side, sq, readOnly, onUpdate }: { side: ExteriorSide; sq
             </select>
             <span className="exterior-row-note">
               {shape.polygon.length} corners
-              {!shape.closed ? " · left open: not counted" : shape.kind === "parging" ? " · not counted as cladding" : q ? ` · ${sf(q.netSquareFeet)} net` : ""}
+              {!shape.closed ? " · left open: not counted" : shape.kind === "parging" ? " · not counted as cladding" : q ? ` · ${sf(q.netSquareFeet)} net${q.overlapSquareFeet ? `, less ${sf(q.overlapSquareFeet)} under a shape tapped after it` : ""}` : ""}
             </span>
           </div>
         );

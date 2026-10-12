@@ -132,7 +132,8 @@ export function parseScanExterior(input: unknown, meta: { scanId?: string | null
   const uneven: string[] = [];
   const open: string[] = [];
   /** Each side's roofline in metres, for the overhangs and for a roof that runs on past a wall. */
-  const rooflines: { name: string; lengthM: number; points: { along: number; up: number; out: number | null }[] }[] = [];
+  const rooflines: { name: string; lengthM: number; points: { along: number; up: number; out: number | null; kind: "left_end" | "peak" | "right_end" | null }[] }[] = [];
+  const overlapping: string[] = [];
   for (let i = 0; i < rawSides.length; i++) {
     const raw = rawSides[i];
     if (!isObject(raw)) return { ok: false, error: `Side ${i + 1} is not a side.` };
@@ -173,10 +174,11 @@ export function parseScanExterior(input: unknown, meta: { scanId?: string | null
       if (!closed) open.push(`${name} (${typeof sh.material === "string" ? sh.material.replace(/_/g, " ") : "a shape"})`);
       shapes.push({ id: newSketchId("shape"), ...material, closed, polygon });
     }
+    // Each point says what it is ("left_end", "peak", "right_end") since Scan's 411dc42; earlier files are read by order and height.
     const roofline = (Array.isArray(raw.roofline) ? raw.roofline : [])
       .filter(isObject)
-      .map((r) => ({ along: num(r.along_m), up: height(r.up_m), out: num(r.out_m) }))
-      .filter((r): r is { along: number; up: number; out: number | null } => r.along !== null && r.up !== null && Math.abs(r.along) <= MAX_LENGTH_M)
+      .map((r) => ({ along: num(r.along_m), up: height(r.up_m), out: num(r.out_m), kind: r.kind === "left_end" || r.kind === "peak" || r.kind === "right_end" ? r.kind : null }))
+      .filter((r): r is { along: number; up: number; out: number | null; kind: "left_end" | "peak" | "right_end" | null } => r.along !== null && r.up !== null && Math.abs(r.along) <= MAX_LENGTH_M)
       .sort((a, b) => a.along - b.along);
     if (roofline.length > 0) rooflines.push({ name, lengthM: L, points: roofline });
     const pitch12 = num(raw.pitch_12);
@@ -259,6 +261,8 @@ export function parseScanExterior(input: unknown, meta: { scanId?: string | null
       ...(pitch12 !== null && pitch12 > 0 && pitch12 <= 24 ? { pitchMeasured: pitch12 } : {}),
     };
     sides.push(side);
+    const covered = sideQuantities(side).bands.reduce((sum, b) => sum + (b.overlapSquareFeet ?? 0), 0);
+    if (covered > 1) overlapping.push(`${name} (${Math.round(covered)} SF)`);
 
     if (eave === null && shapes.length === 0) unmeasured.push(name);
     /*
@@ -283,6 +287,7 @@ export function parseScanExterior(input: unknown, meta: { scanId?: string | null
   if (unmeasured.length > 0) notes.push(`No eave was tapped on ${unmeasured.join(", ")}: put it in to count that side.`);
   if (uneven.length > 0) notes.push(`The two eave taps differ on ${uneven.join(", ")}; the eave is level, so the two are averaged.`);
   if (open.length > 0) notes.push(`A shape left open is drawn but not counted: ${open.join(", ")}.`);
+  if (overlapping.length > 0) notes.push(`Shapes overlap on ${overlapping.join(", ")}: each overlap is counted once, as the shape tapped later.`);
   if (disagree.length > 0) notes.push(`Scan and Scrivn work out different areas for ${disagree.join("; ")}.`);
   notes.push("Type the pitch, or check the one the gables give, and the overhangs, on Roof & footprint.");
 
@@ -292,7 +297,10 @@ export function parseScanExterior(input: unknown, meta: { scanId?: string | null
     side whose roofline has a peak that is the rake; on one without, the eave. Each where the phone
     read it by depth; the median of the sides, so one odd read does not set the roof.
   */
-  const hasPeak = (pts: { up: number }[]) => pts.length >= 3 && pts.slice(1, -1).some((p) => p.up > Math.max((pts[0] as { up: number }).up, (pts[pts.length - 1] as { up: number }).up) + 0.3);
+  const hasPeak = (pts: { up: number; kind: string | null }[]) =>
+    pts.some((p) => p.kind !== null)
+      ? pts.some((p) => p.kind === "peak")
+      : pts.length >= 3 && pts.slice(1, -1).some((p) => p.up > Math.max((pts[0] as { up: number }).up, (pts[pts.length - 1] as { up: number }).up) + 0.3);
   const median = (v: number[]) => {
     const sorted = [...v].sort((a, b) => a - b);
     const m = Math.floor(sorted.length / 2);
@@ -312,11 +320,13 @@ export function parseScanExterior(input: unknown, meta: { scanId?: string | null
   */
   for (const r of rooflines) {
     const typical = (hasPeak(r.points) ? roof.eaveOverhangFeet : roof.rakeOverhangFeet) / FEET_PER_METRE;
-    const first = r.points[0] as { along: number };
-    const last = r.points[r.points.length - 1] as { along: number };
+    // The ends as Scan names them; by order when it does not. A lone end is only its own end.
+    const named = r.points.some((p) => p.kind !== null);
+    const left = named ? r.points.find((p) => p.kind === "left_end") : r.points[0];
+    const right = named ? r.points.find((p) => p.kind === "right_end") : r.points[r.points.length - 1];
     for (const [end, past] of [
-      ["left", -first.along],
-      ["right", last.along - r.lengthM],
+      ["left", left ? -left.along : -Infinity],
+      ["right", right ? right.along - r.lengthM : -Infinity],
     ] as [string, number][]) {
       if (past > typical + 0.6) notes.push(`The roof runs ${formatFeetInches(past * FEET_PER_METRE)} past ${r.name}'s ${end} end, over a porch or deck: the roof plan does not draw that yet.`);
     }
