@@ -42,7 +42,11 @@ const AUTH_PAGES = new Set(["/login", "/signup", "/forgot-password"]);
  * NEXT_PUBLIC_SHOW_MARKETING_NAV hides the links to these pages; it deliberately has no effect
  * here. The pages stay directly reachable by URL whether or not the site advertises them.
  */
-const PUBLIC_PAGES = new Set(["/", "/how-it-works", "/scan", "/pricing", "/faq", "/contact", "/auth/auth-code-error", "/pair", "/scan-guide"]);
+const PUBLIC_PAGES = new Set(["/", "/how-it-works", "/scan", "/drying-calculator", "/pricing", "/faq", "/contact", "/auth/auth-code-error", "/pair", "/scan-guide"]);
+/*
+  `/drying-calculator` is the public drying equipment calculator (app/drying-calculator/page.tsx): arithmetic in
+  the browser, nothing of any account on it, and meant to be found by people who have never signed up.
+*/
 /*
   `/scan` is Scrivn Scan's own product page with its plan (app/scan/page.tsx): where the app's
   plain-text "scrivn.ca/scan" sends someone who found Scan on Google Play.
