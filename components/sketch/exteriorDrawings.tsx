@@ -12,6 +12,8 @@ import {
   zFromGrade,
 } from "@/lib/exterior";
 import type { Pt, RoofLineKind, RoofPlan } from "@/lib/roof";
+import { facetLabels, type LabelBox, lineTotals, roofLineLabels, textWidthEm } from "@/lib/roofLabels";
+import { formatQuantity } from "@/lib/sketchQuantities";
 
 /**
  * The exterior's two drawings, to scale: one side's elevation, and the roof plan. Kept apart from
@@ -41,7 +43,12 @@ export const LINE_STYLE: Record<RoofLineKind, { stroke: string; width: number; d
   ridge: { stroke: "#b91c1c", width: 3, label: "Ridge" },
   hip: { stroke: "#6d28d9", width: 2.5, label: "Hip" },
   valley: { stroke: "#1d4ed8", width: 2.5, dash: "6 4", label: "Valley" },
+  headwall: { stroke: "#0f766e", width: 3, label: "Headwall flashing" },
+  step: { stroke: "#0f766e", width: 3, dash: "2 3", label: "Step flashing" },
 };
+
+/** What a tap in "Eaves & rakes" can choose: flashing takes no eavestrough, soffit or fascia. */
+export const pickableEdge = (k: RoofLineKind) => k === "eave" || k === "rake";
 
 const RIDGE_VENT = "#15803d";
 const CHOSEN_FILL = "#d3e4f6";
@@ -257,7 +264,9 @@ export type RoofPick = "slope" | "edge" | "ridge";
 /**
  * The roof plan, to scale, front at the bottom: each slope lettered and shaded when it is being
  * roofed, the eaves and rakes drawn bold when chosen for the eavestrough, soffit and fascia, ridge
- * vent marked green. With `mode` and `onPick`, a tap on a slope, an edge or a ridge picks it.
+ * vent marked green, and every line with its true length on it (`lib/roofLabels.ts`). A lower roof
+ * is drawn first, so the house's overhang lies over it as it does seen from above. With `mode` and
+ * `onPick`, a tap on a slope, an edge or a ridge picks it.
  */
 export function RoofPlanDrawing({
   plan,
@@ -296,7 +305,31 @@ export function RoofPlanDrawing({
   const slopeOn = (key: string) => slopes === null || slopes.includes(key);
   const edgeOn = (key: string) => edges === null || edges.includes(key);
   const pick = (what: RoofPick, key: string) => (onPick ? () => onPick(what, key) : undefined);
-  const crease = (k: RoofLineKind) => k === "ridge" || k === "hip" || k === "valley";
+  const facetsDrawn = [...plan.facets].sort((p, q) => q.layer - p.layer);
+
+  // The lengths keep clear of the slopes' letters and the sides' names.
+  const sideLabels = footprint.sideIds.map((id, i) => {
+    const a = corners[i] as Pt;
+    const b = corners[(i + 1) % n] as Pt;
+    const len = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+    const out = { x: (b.y - a.y) / len, y: -(b.x - a.x) / len };
+    // Out past whatever roof reaches out over the middle of this side - a porch's runs further than the eave.
+    const along = (px: number, py: number) => ((px - a.x) * (b.x - a.x) + (py - a.y) * (b.y - a.y)) / len;
+    const reach = plan.outlineRects
+      .filter((r) => Math.min(along(r.x0, r.y0), along(r.x1, r.y1)) < len / 2 && Math.max(along(r.x0, r.y0), along(r.x1, r.y1)) > len / 2)
+      .flatMap((r) => [r.x0, r.x1].flatMap((x) => [r.y0, r.y1].map((y) => (x - a.x) * out.x + (y - a.y) * out.y)));
+    const off = Math.max(pad * 0.62, Math.max(0, ...reach) + fs * 0.75);
+    const m = { x: (a.x + b.x) / 2 + out.x * off, y: (a.y + b.y) / 2 + out.y * off };
+    // A label runs along its wall, so one down a side wall reads up the page rather than across the roof.
+    const across = Math.abs(b.y - a.y) > Math.abs(b.x - a.x);
+    return { id, m, across, text: `${nameOf(id)} ${formatFeetInches(footprint.lengthsFeet[i] ?? len)}` };
+  });
+  const facetTags = facetLabels(plan, fs);
+  const obstacles: LabelBox[] = [
+    ...facetTags.map((f) => f.box),
+    ...sideLabels.map((s) => ({ x: s.m.x, y: s.m.y, angle: s.across ? 90 : 0, width: textWidthEm(s.text) * fs * 0.85, height: fs * 1.05 })),
+  ];
+  const labels = roofLineLabels(plan, fs * 0.62, obstacles);
 
   return (
     <svg
@@ -312,7 +345,7 @@ export function RoofPlanDrawing({
       {plan.facets.length === 0 && plan.shape !== "other" &&
         plan.outlineRects.map((r, i) => <rect key={i} x={r.x0} y={Y(r.y1)} width={r.x1 - r.x0} height={r.y1 - r.y0} fill={CHOSEN_FILL} />)}
       {plan.shape === "other" && <polygon points={plan.edges.map((l) => `${l.a.x},${Y(l.a.y)}`).join(" ")} fill={CHOSEN_FILL} />}
-      {plan.facets.map((f) => (
+      {facetsDrawn.map((f) => (
         <g key={f.key} onClick={mode === "slopes" ? pick("slope", f.key) : undefined} className={mode === "slopes" ? "exterior-pick" : undefined}>
           {f.cells.map((cell, i) => (
             <polygon key={i} points={cell.map((p) => `${p.x},${Y(p.y)}`).join(" ")} fill={slopeOn(f.key) ? CHOSEN_FILL : LEFT_FILL} stroke={slopeOn(f.key) ? CHOSEN_FILL : LEFT_FILL} strokeWidth={0.5} {...stroke} />
@@ -322,7 +355,7 @@ export function RoofPlanDrawing({
       <polygon points={corners.map((p) => `${p.x},${Y(p.y)}`).join(" ")} fill="none" stroke="#6b7280" strokeWidth={1} strokeDasharray="4 3" pointerEvents="none" {...stroke} />
       {plan.lines.map((l) => {
         const s = LINE_STYLE[l.kind];
-        const off = !crease(l.kind) && !edgeOn(l.key);
+        const off = pickableEdge(l.kind) && !edgeOn(l.key);
         return (
           <line
             key={l.key}
@@ -347,7 +380,7 @@ export function RoofPlanDrawing({
       {/* What a tap can land on, wider than it is drawn: a 2-pixel rake is no target for a finger. */}
       {(mode === "edges" || mode === "ridges") &&
         plan.lines
-          .filter((l) => (mode === "edges" ? !crease(l.kind) : l.kind === "ridge"))
+          .filter((l) => (mode === "edges" ? pickableEdge(l.kind) : l.kind === "ridge"))
           .map((l) => (
             <line
               key={`hit-${l.key}`}
@@ -363,43 +396,41 @@ export function RoofPlanDrawing({
               {...stroke}
             />
           ))}
-      {plan.lines
-        .filter((l) => crease(l.kind) && l.feet >= fs * 3)
-        .map((l) => (
-          <text key={`t-${l.key}`} x={(l.a.x + l.b.x) / 2} y={Y((l.a.y + l.b.y) / 2) - fs * 0.35} fontSize={fs * 0.75} textAnchor="middle" fill={LINE_STYLE[l.kind].stroke} fontFamily={FONT} pointerEvents="none">
-            {formatFeetInches(l.feet)}
-          </text>
-        ))}
-      {plan.facets.map((f) => (
-        <g key={`label-${f.key}`} pointerEvents="none">
-          <text x={f.centroid.x} y={Y(f.centroid.y) + fs * 0.2} fontSize={fs * 1.3} fontWeight={700} textAnchor="middle" {...text} fillOpacity={slopeOn(f.key) ? 1 : 0.4}>
-            {f.label}
-          </text>
-          <text x={f.centroid.x} y={Y(f.centroid.y) + fs * 1.15} fontSize={fs * 0.65} textAnchor="middle" {...text} fillOpacity={slopeOn(f.key) ? 0.85 : 0.4}>
-            {Math.round(f.areaSquareFeet)} SF
-          </text>
-        </g>
-      ))}
-      {footprint.sideIds.map((id, i) => {
-        const a = corners[i] as Pt;
-        const b = corners[(i + 1) % n] as Pt;
-        const len = Math.hypot(b.x - a.x, b.y - a.y) || 1;
-        const out = { x: (b.y - a.y) / len, y: -(b.x - a.x) / len };
-        const m = { x: (a.x + b.x) / 2 + out.x * pad * 0.62, y: (a.y + b.y) / 2 + out.y * pad * 0.62 };
-        // A label runs along its wall, so one down a side wall reads up the page rather than across the roof.
-        const across = Math.abs(b.y - a.y) > Math.abs(b.x - a.x);
+      {labels.map((t) => {
+        const muted = pickableEdge(t.kind) && !edgeOn(t.key);
         return (
-          <text key={id} x={m.x} y={Y(m.y) + fs * 0.35} fontSize={fs * 0.85} textAnchor="middle" transform={across ? `rotate(-90 ${m.x} ${Y(m.y)})` : undefined} pointerEvents="none" {...text}>
-            {nameOf(id)} {formatFeetInches(footprint.lengthsFeet[i] ?? len)}
-          </text>
+          <g key={`t-${t.key}`} transform={`translate(${t.x} ${Y(t.y)}) rotate(${-t.angle})`} pointerEvents="none">
+            <rect x={-t.width / 2} y={-t.height / 2} width={t.width} height={t.height} rx={t.height * 0.22} fill="#ffffff" fillOpacity={0.9} />
+            <text x={0} y={t.fontFeet * 0.36} fontSize={t.fontFeet} fontWeight={600} textAnchor="middle" fill={muted ? "#8a8a8a" : LINE_STYLE[t.kind].stroke} fontFamily={FONT}>
+              {t.text}
+            </text>
+          </g>
         );
       })}
+      {facetTags.map((f) => (
+        <g key={`label-${f.key}`} pointerEvents="none">
+          <text x={f.x} y={Y(f.y) + f.size * 0.36} fontSize={f.size} fontWeight={700} textAnchor="middle" {...text} fillOpacity={slopeOn(f.key) ? 1 : 0.4}>
+            {f.letter}
+          </text>
+          {f.area && (
+            <text x={f.x} y={Y(f.y) + fs * 1.41} fontSize={fs * 0.65} textAnchor="middle" {...text} fillOpacity={slopeOn(f.key) ? 0.85 : 0.4}>
+              {f.area}
+            </text>
+          )}
+        </g>
+      ))}
+      {sideLabels.map(({ id, m, across, text: words }) => (
+        <text key={id} x={m.x} y={Y(m.y) + fs * 0.35} fontSize={fs * 0.85} textAnchor="middle" transform={across ? `rotate(-90 ${m.x} ${Y(m.y)})` : undefined} pointerEvents="none" {...text}>
+          {words}
+        </text>
+      ))}
     </svg>
   );
 }
 
+/** The legend: each kind of line with its total along the whole roof as drawn. */
 export function RoofLegend({ plan, ridgeVent }: { plan: RoofPlan; ridgeVent: boolean }) {
-  const kinds = (Object.keys(LINE_STYLE) as RoofLineKind[]).filter((k) => plan.lines.some((l) => l.kind === k));
+  const totals = lineTotals(plan);
   const swatch = (color: string, width: number, dash?: string, opacity = 1) => (
     <svg width="22" height="10" aria-hidden="true">
       <line x1="1" y1="5" x2="21" y2="5" stroke={color} strokeWidth={width} strokeDasharray={dash} strokeOpacity={opacity} />
@@ -407,10 +438,10 @@ export function RoofLegend({ plan, ridgeVent }: { plan: RoofPlan; ridgeVent: boo
   );
   return (
     <div className="exterior-legend">
-      {kinds.map((k) => (
+      {totals.map(({ kind: k, feet }) => (
         <span key={k} className="exterior-legend-item">
           {swatch(LINE_STYLE[k].stroke, LINE_STYLE[k].width, LINE_STYLE[k].dash)}
-          {LINE_STYLE[k].label}
+          {LINE_STYLE[k].label} {formatQuantity(feet)} LF
         </span>
       ))}
       {ridgeVent && (

@@ -26,7 +26,7 @@
  */
 
 import { formatFeetInches, newSketchId } from "./sketch";
-import { buildRoof, type GutterRun, gutterRuns, polygonArea, type Pt, type RoofEndKind, type RoofInput, type RoofPlan, roofRiseAlongWall } from "./roof";
+import { buildRoof, type GutterRun, gutterRuns, polygonArea, type Pt, type RoofAddition, type RoofEndKind, type RoofInput, type RoofLineKind, type RoofPlan, roofRiseAlongWall } from "./roof";
 
 export type CladdingKind = "stucco" | "vinyl" | "wood_shake" | "eifs" | "wood" | "fibre_cement" | "brick" | "stone" | "metal" | "other";
 
@@ -224,6 +224,10 @@ export interface ExteriorRoof {
   ridgeAlong: string | null;
   /** Each end of the roof by the side it stands over. Absent = gable. */
   ends: Record<string, RoofEndKind>;
+  /** Porches carried on from a slope (or lower, against the wall) and cross gables, each on a side. */
+  additions?: RoofAddition[];
+  /** An L's wing whose roof sits below the eave and stops at the wall, by the side its free end stands over. */
+  lowerWings?: string[];
   /**
    * No longer used: waste is the estimator's to add (owner, 10-12: "just want real values"). Kept
    * optional so an exterior saved with it still loads.
@@ -953,6 +957,9 @@ export function roofInput(exterior: Exterior, footprint: Footprint, pitch: numbe
     rakeOverhangFeet: Math.max(0, exterior.roof.rakeOverhangFeet),
     ridgeAlong: exterior.roof.ridgeAlong,
     ends: exterior.roof.ends,
+    additions: exterior.roof.additions ?? [],
+    lowerWings: exterior.roof.lowerWings ?? [],
+    sideNames: Object.fromEntries(exterior.sides.map((s) => [s.id, s.name.trim() || "Side"])),
   };
 }
 
@@ -991,6 +998,9 @@ export interface RoofingQuantities {
   ridgeFeet: number;
   hipFeet: number;
   valleyFeet: number;
+  /** Flashing where a lower roof meets a wall: along its level top, and up its slopes. */
+  headwallFeet: number;
+  stepFeet: number;
   /** The drip line of the chosen slopes. */
   eaveFeet: number;
   rakeFeet: number;
@@ -1055,14 +1065,15 @@ export function roofingQuantities(exterior: Exterior, roof: RoofPlan): RoofingQu
   const allSlopes = noSlopes || slopes.every((s) => s.selected);
   const areaSquareFeet = noSlopes ? roof.areaSquareFeet : slopes.filter((s) => s.selected).reduce((sum, s) => sum + s.areaSquareFeet, 0);
   const touches = (facets: string[]) => noSlopes || facets.some(slopeChosen);
-  const t: Record<"ridge" | "hip" | "valley" | "eave" | "rake", number> = { ridge: 0, hip: 0, valley: 0, eave: 0, rake: 0 };
+  const t: Record<RoofLineKind, number> = { ridge: 0, hip: 0, valley: 0, eave: 0, rake: 0, headwall: 0, step: 0 };
   for (const l of roof.lines) if (touches(l.facets)) t[l.kind] += l.feet;
   const ridgeVentFeet = roof.lines.filter((l) => l.kind === "ridge" && (R.ridgeVents ?? []).includes(l.key)).reduce((s, l) => s + l.feet, 0);
 
   // The eavestrough, soffit and fascia run along the eaves and rakes chosen, slopes or no slopes.
   const chosenEdges = R.edges ?? null;
   const edgeChosen = (key: string) => chosenEdges === null || chosenEdges.includes(key);
-  const allEdges = roof.edges.every((e) => edgeChosen(e.key));
+  // Flashing takes no eavestrough, soffit or fascia, so it is never one to choose.
+  const allEdges = roof.edges.filter((e) => e.kind === "eave" || e.kind === "rake").every((e) => edgeChosen(e.key));
   const runs = gutterRuns(roof, chosenEdges);
   const gutterFeet = runs.reduce((s, r) => s + r.feet, 0);
   const counted = R.downspouts === null;
@@ -1109,6 +1120,8 @@ export function roofingQuantities(exterior: Exterior, roof: RoofPlan): RoofingQu
     ridgeFeet: t.ridge,
     hipFeet: t.hip,
     valleyFeet: t.valley,
+    headwallFeet: t.headwall,
+    stepFeet: t.step,
     eaveFeet: t.eave,
     rakeFeet: t.rake,
     dripEdgeFeet: t.eave + t.rake,
@@ -1296,6 +1309,8 @@ export function exteriorScopeLines(exterior: Exterior | undefined): ExteriorScop
     out.roofing.push(`${metal ? "High-temperature ice & water barrier" : "Ice & water barrier"} – ${num(r.iceWaterFeet)} LF (eaves + valleys)`);
     if (R.underlayment === "synthetic" || R.underlayment === "felt") out.roofing.push(`Underlayment – ${R.underlayment} – ${sq} – photos required`);
     if (r.valleyFeet > 0) out.roofing.push(`Valleys – ${num(r.valleyFeet)} LF`);
+    if (r.stepFeet > 0) out.roofing.push(`Step flashing – ${num(r.stepFeet)} LF (a lower roof's slopes against the wall)`);
+    if (r.headwallFeet > 0) out.roofing.push(`Headwall flashing – ${num(r.headwallFeet)} LF (a lower roof's top against the wall)`);
     for (const kind of Object.keys(ROOF_VENT_LABEL) as RoofVentKind[]) {
       const n = Math.round(R.vents?.[kind] ?? 0);
       if (n > 0) out.roofing.push(`${ROOF_VENT_LABEL[kind]} – ${n}`);

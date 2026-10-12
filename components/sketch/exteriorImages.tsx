@@ -5,6 +5,7 @@ import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { type Exterior, exteriorQuantities, formatPitch } from "@/lib/exterior";
 import { formatQuantity } from "@/lib/sketchQuantities";
+import { lineTotals, textWidthEm } from "@/lib/roofLabels";
 import { ElevationDrawing, elevationFontFeet, LINE_STYLE, RoofPlanDrawing } from "./exteriorDrawings";
 
 /**
@@ -113,17 +114,24 @@ function roofSvg(exterior: Exterior): { svg: string; width: number; height: numb
   const chosen = r.slopes.filter((s) => s.selected);
   const which = r.slopes.length === 0 ? "the whole roof" : r.allSlopes ? "all slopes" : `slope${chosen.length === 1 ? "" : "s"} ${chosen.map((s) => s.label).join(", ") || "none"}`;
   const top = 96;
-  const legendY = top + planH + 36;
+  // Each kind of line with its total along the whole roof, as labelled on the plan; rows wrap.
   const keys: [string, string, number, string?, number?][] = [
-    ...(["eave", "rake", "ridge", "hip", "valley"] as const).filter((k) => plan.lines.some((l) => l.kind === k)).map((k) => [LINE_STYLE[k].label, LINE_STYLE[k].stroke, LINE_STYLE[k].width, LINE_STYLE[k].dash] as [string, string, number, string?]),
+    ...lineTotals(plan).map(({ kind: k, feet }) => [`${LINE_STYLE[k].label} ${formatQuantity(feet)} LF`, LINE_STYLE[k].stroke, LINE_STYLE[k].width, LINE_STYLE[k].dash] as [string, string, number, string?]),
     ...((exterior.roof.ridgeVents ?? []).length > 0 ? [["Ridge vent", "#15803d", 6, undefined, 0.55] as [string, string, number, string?, number?]] : []),
   ];
-  const legend = keys
-    .map(([text, color, w, dash, opacity], i) => {
-      const x = 40 + i * 170;
-      return `<line x1="${x}" y1="${legendY - 6}" x2="${x + 34}" y2="${legendY - 6}" stroke="${color}" stroke-width="${w}"${dash ? ` stroke-dasharray="${dash}"` : ""}${opacity ? ` stroke-opacity="${opacity}"` : ""}/>${label(x + 42, legendY, text, 18)}`;
-    })
-    .join("");
+  let x = 40;
+  let legendY = top + planH + 36;
+  const legendParts: string[] = [];
+  for (const [text, color, w, dash, opacity] of keys) {
+    const itemW = 42 + textWidthEm(text) * 18 + 30;
+    if (x > 40 && x + itemW > WIDTH - 40) {
+      x = 40;
+      legendY += 30;
+    }
+    legendParts.push(`<line x1="${x}" y1="${legendY - 6}" x2="${x + 34}" y2="${legendY - 6}" stroke="${color}" stroke-width="${w}"${dash ? ` stroke-dasharray="${dash}"` : ""}${opacity ? ` stroke-opacity="${opacity}"` : ""}/>${label(x + 42, legendY, text, 18)}`);
+    x += itemW;
+  }
+  const legend = legendParts.join("");
   const slopeList = r.slopes.map((s) => `${s.label} ${Math.round(s.areaSquareFeet)} SF${s.faces ? ` (${s.faces})` : ""}${s.selected ? "" : ", not roofed"}`).join(" · ");
   const height = legendY + (slopeList ? 64 : 30);
   const svg = [

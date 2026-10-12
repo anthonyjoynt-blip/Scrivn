@@ -14,6 +14,8 @@
  *   * a plain gable, a hip and a gable-hip rectangle, and the owner's 4/12 house
  *   * an L with hips (where a hip and a valley that a per-section sum would count are not there)
  *     and an L with cross gables
+ *   * the owner's own roof, 10-12: a porch that is the slope carried on, a cross gable over the
+ *     front door, a garage wing lower than the house's eave, and every line labelled with its length
  */
 
 import { build } from "esbuild";
@@ -35,6 +37,8 @@ async function load() {
     [
       `export * from "${lib("exterior.ts")}";`,
       `export * from "${lib("roof.ts")}";`,
+      `export * from "${lib("roofLabels.ts")}";`,
+      `export { formatFeetInches } from "${lib("sketch.ts")}";`,
       `export { availableTrades, buildWorkOrders } from "${lib("workOrders.ts")}";`,
       `export { emptyClaimInfo } from "${lib("claimInfo.ts")}";`,
       `export { documentGenerationUserMessage, DOCUMENT_GENERATION_SYSTEM_PROMPT, SCOPE_ONLY_SYSTEM_PROMPT } from "${lib("documentGenerationPrompt.ts")}";`,
@@ -418,6 +422,202 @@ test("a T is not built yet: area and eaves only, and it says so", () => {
 test("steep pitches are flagged", () => {
   assert(roofOf(rect(30, 20, { pitch: 8 })).roofing.steep === "7/12 to 9/12", "8/12");
   assert(roofOf(rect(30, 20, { pitch: 12 })).roofing.steep === "10/12 to 12/12", "12/12");
+});
+
+console.log("\nporches, cross gables and lower roofs (the owner's house, 10-12)");
+
+/** The lines of one kind, by kind. */
+const linesOf = (plan, kind) => plan.lines.filter((l) => l.kind === kind);
+const sum = (lines) => lines.reduce((s, l) => s + l.feet, 0);
+
+test("a porch is the front slope carried on past the wall: one slope, its eave lower, its end a rake", () => {
+  // 40 x 30 at 6/12, 1' eaves and rakes. The porch runs from the left corner 20' along the front, 6' out from the wall.
+  const q = roofOf(rect(40, 30, { pitch: 6, eaveOverhangFeet: 1, rakeOverhangFeet: 1, additions: [{ id: "p", kind: "porch", sideId: "front", fromFeet: 0, toFeet: 20, depthFeet: 6 }] }));
+  const r = q.roofing;
+  const f = 1.118034;
+  // Outline 42 x 32 = 1344, and the porch from the eave (1' out) to 6' out, from the left rake (-1) to 20: 21 x 5 = 105.
+  near(q.roof.planSquareFeet, 1449, "plan");
+  near(r.areaSquareFeet, 1449 * f, "area", 1e-2);
+  near(r.ridgeFeet, 42, "the ridge is the house's");
+  // Eaves: the rear 42, the porch's 21 at 6' out, the house's own 21 beside it.
+  near(r.eaveFeet, 42 + 21 + 21, "eaves");
+  // Rakes, plan: the left end from the porch's eave to the ridge 21 (one straight rake) and 16 behind; the right end 16 + 16; the porch's own end 5.
+  near(r.rakeFeet, (21 + 16 + 16 + 16 + 5) * f, "rakes", 1e-4);
+  const left = linesOf(q.roof, "rake").filter((l) => Math.abs(l.a.x + 1) < 1e-9 && Math.abs(l.b.x + 1) < 1e-9);
+  assert(left.length === 2 && left.some((l) => Math.abs(l.feet - 21 * f) < 1e-4), "the left rake carries straight on down over the porch");
+  near(r.valleyFeet + r.hipFeet, 0, "no valleys: it is not a roof of its own");
+  // One front slope, porch and all: 42 x 16 + 105.
+  const front = q.roof.facets.filter((s) => s.sideId === "front");
+  assert(front.length === 1, `one front slope, not ${front.length}`);
+  near(front[0].planSquareFeet, 672 + 105, "the front slope takes in the porch");
+  assert(r.gutter.runs.length === 3 && r.gutter.endCaps === 6, `the porch's eave is a run of its own: ${r.gutter.runs.length}`);
+  assert(q.roof.note === null, q.roof.note ?? "");
+  assert(!q.rises.front, "a porch puts no gable on the wall");
+});
+
+test("a cross gable rises out of the slope at its drip line: a ridge, two valleys, two rakes, and no more roof", () => {
+  // 40 x 30 at 12/12, no overhangs; a gable 10' wide over the front from 10' to 20'.
+  const q = roofOf(rect(40, 30, { pitch: 12, eaveOverhangFeet: 0, rakeOverhangFeet: 0, additions: [{ id: "g", kind: "gable", sideId: "front", fromFeet: 10, toFeet: 20 }] }));
+  const r = q.roofing;
+  // Its ridge stands 5' up at the eave and runs 5' back, level, until the slope is as high.
+  near(r.ridgeFeet, 40 + 5, "the house's ridge and the gable's");
+  // Each valley from an eave corner up to the gable's ridge: 5' of run at sqrt(3) a foot of run.
+  near(r.valleyFeet, 2 * 5 * Math.sqrt(3), "two valleys");
+  assert(linesOf(q.roof, "valley").length === 2, "two valley lines");
+  // Rakes: the gable's two of 5' run at sqrt(2), and the house's ends 2 x 30 at sqrt(2).
+  near(r.rakeFeet, (10 + 60) * Math.SQRT2, "rakes");
+  near(r.eaveFeet, 10 + 20 + 40, "the front's eave less the gable's 10'");
+  // Same pitch over the same plan: the area doesn't change.
+  near(r.areaSquareFeet, 1200 * Math.SQRT2, "area");
+  const own = q.roof.facets.filter((f) => f.key.startsWith("g-"));
+  assert(own.length === 2 && own.every((f) => Math.abs(f.planSquareFeet - 12.5) < 1e-6), "two triangles of 12.5 SF plan");
+  assert(r.gutter.runs.length === 3, "the gable breaks the front eave in two");
+  assert(!q.rises.front, "it changes no wall's gable");
+});
+
+test("over a porch the cross gable stands at the porch's eave, and its valleys run up the porch roof", () => {
+  // As above with a porch the whole front, 6' out: the gable's eaves are the porch's, 6' lower in run.
+  const q = roofOf(
+    rect(40, 30, {
+      pitch: 12,
+      eaveOverhangFeet: 0,
+      rakeOverhangFeet: 0,
+      additions: [
+        { id: "g", kind: "gable", sideId: "front", fromFeet: 10, toFeet: 20 },
+        { id: "p", kind: "porch", sideId: "front", fromFeet: 0, toFeet: 40, depthFeet: 6 },
+      ],
+    }),
+  );
+  const r = q.roofing;
+  near(q.roof.planSquareFeet, 40 * 36, "plan, porch and all");
+  near(r.ridgeFeet, 45, "ridges");
+  near(r.valleyFeet, 2 * 5 * Math.sqrt(3), "valleys");
+  const ridge = linesOf(q.roof, "ridge").find((l) => Math.abs(l.a.x - 15) < 1e-9);
+  assert(ridge && Math.abs(Math.min(ridge.a.y, ridge.b.y) + 6) < 1e-9 && Math.abs(Math.max(ridge.a.y, ridge.b.y) + 1) < 1e-9, "the gable's ridge from the porch's eave 5' back");
+  // The house's ends now run from the porch's eave: (21 + 15) x 2 at sqrt(2), and the gable's 10.
+  near(r.rakeFeet, (72 + 10) * Math.SQRT2, "rakes");
+  near(r.eaveFeet, 30 + 40, "eaves");
+});
+
+test("a garage wing lower than the house's eave stops at the wall: step flashing, no valleys", () => {
+  // The L of [0,20]x[0,10] and [0,10]x[0,20] at 12/12, no overhangs; the wing out to the rear sits lower.
+  const q = roofOf(ell({ lowerWings: ["rear"] }));
+  const r = q.roofing;
+  assert(q.roof.shape === "L" && q.roof.wingEnds.join() === "rear,right", `either arm can be the lower one: ${q.roof.wingEnds}`);
+  near(r.valleyFeet, 0, "no valleys");
+  near(r.ridgeFeet, 20 + 10, "the house's ridge, and the wing's from the wall to its gable");
+  // Where it meets the wall: its two slopes, each 5' of run up to the ridge at sqrt(2).
+  near(r.stepFeet, 2 * 5 * Math.SQRT2, "step flashing");
+  near(r.headwallFeet, 0, "no level top against the wall");
+  // The house's eave over the wing is still an eave: 20 front, 20 behind, and the wing's two sides 10 each.
+  near(r.eaveFeet, 20 + 20 + 10 + 10, "eaves");
+  near(r.rakeFeet, (20 + 10) * Math.SQRT2, "the house's two gable ends and the wing's");
+  near(r.areaSquareFeet, 300 * Math.SQRT2, "area");
+  // Two roofs, two drip lines: the house's front and back eaves, the wing's two sides.
+  assert(r.gutter.runs.length === 4 && r.gutter.endCaps === 8, `${r.gutter.runs.length} runs`);
+  assert(q.roof.edges.filter((e) => e.kind === "step").every((e) => e.layer === 1 && e.sideId === null), "flashing on the wing, at a wall that is no side of the walk");
+  const rear = q.sides.find((s) => s.sideId === "rear");
+  near(rear.gableSquareFeet, (10 * 5) / 2, "the wing's gable end, from the wing's own eave");
+  const left = q.sides.find((s) => s.sideId === "left");
+  near(left.gableSquareFeet, (10 * 5) / 2, "the left wall: the house's gable over half, the wing's eave over the rest");
+  // Named by its far end, the wider arm can be the lower one too: the same roof turned.
+  const turned = roofOf(ell({ lowerWings: ["right"] })).roofing;
+  near(turned.stepFeet, 10 * Math.SQRT2, "turned: step flashing");
+  near(turned.ridgeFeet, 30, "turned: ridges");
+});
+
+test("with overhangs the strip under the house's eave is roofed twice, and the flashing stops at the wall's end", () => {
+  // The same L with 1' eaves and rakes. The house: [-1,21]x[-1,11] = 264. The wing from the wall: [-1,11]x[10,21] = 132.
+  const q = roofOf(ell({ lowerWings: ["rear"], eaveOverhangFeet: 1, rakeOverhangFeet: 1 }));
+  const r = q.roofing;
+  near(q.roof.planSquareFeet, 264 + 132, "the 12 SF strip under the overhang counted on both roofs");
+  // Along the wall (x 0 to 20): the left slope from 0 to the ridge at 5, the right from 5 to its eave at 11.
+  near(r.stepFeet, (5 + 6) * Math.SQRT2, "step flashing");
+  // The 1' of the wing's left eave past the house's corner meets no wall: a rake.
+  near(r.rakeFeet, (24 + 12 + 1) * Math.SQRT2, "rakes");
+  near(r.eaveFeet, 22 + 22 + 11 + 11, "eaves");
+});
+
+test("a lean-to porch on a gable end: a lower roof of its own, headwall flashing at the wall", () => {
+  // 40 x 30 at 6/12, no overhangs; 8' out from the left (gable) wall, from 5' to 25' along it.
+  const e = rect(40, 30, { pitch: 6, eaveOverhangFeet: 0, rakeOverhangFeet: 0, additions: [{ id: "l", kind: "porch", sideId: "left", fromFeet: 5, toFeet: 25, depthFeet: 8, lower: true }] });
+  const q = roofOf(e);
+  const r = q.roofing;
+  const f = 1.118034;
+  near(r.headwallFeet, 20, "headwall along the wall");
+  near(r.stepFeet, 0, "no step flashing");
+  near(q.roof.planSquareFeet, 1200 + 160, "plan");
+  near(r.eaveFeet, 80 + 20, "eaves");
+  near(r.rakeFeet, (60 + 16) * f, "the house's gable ends and the lean-to's two ends", 1e-4);
+  const lean = q.roof.facets.filter((s) => s.layer > 0);
+  assert(lean.length === 1 && lean[0].sideId === "left", "one slope, draining to the left");
+  assert(r.gutter.runs.length === 3, "its eave is a run of its own");
+  e.scope = { roofing: true, sides: [], soffitFascia: false, eavestrough: false };
+  const lines = x.exteriorScopeLines(e).roofing;
+  assert(lines.some((l) => l.startsWith("Headwall flashing – 20.0 LF")), lines.join("\n"));
+  // Flashing is not eavestrough, soffit or fascia: choosing every eave and rake is choosing all.
+  e.roof.edges = q.roof.edges.filter((l) => l.kind === "eave" || l.kind === "rake").map((l) => l.key);
+  assert(x.exteriorQuantities(e).roofing.allEdges, "all chosen without the flashing");
+});
+
+test("what can't be put where it is asked says so, and is left out", () => {
+  const notes = (additions) => roofOf(rect(40, 30, { pitch: 6, eaveOverhangFeet: 1, rakeOverhangFeet: 1, additions })).roof.note ?? "";
+  assert(/No slope runs down to Left/.test(notes([{ id: "a", kind: "porch", sideId: "left", fromFeet: 0, toFeet: 30, depthFeet: 6 }])), "a porch carried on from a gable end");
+  assert(/reaches no further out than the eave/.test(notes([{ id: "a", kind: "porch", sideId: "front", fromFeet: 0, toFeet: 40, depthFeet: 1 }])), "a porch no deeper than the eave");
+  assert(/too wide/.test(notes([{ id: "a", kind: "gable", sideId: "front", fromFeet: 0, toFeet: 36 }])), "a cross gable over the ridge");
+  // The roof is left as it was.
+  near(roofOf(rect(40, 30, { pitch: 6, additions: [{ id: "a", kind: "gable", sideId: "front", fromFeet: 0, toFeet: 36 }] })).roofing.ridgeFeet, 42, "only the house's ridge");
+});
+
+/** The plan's labels as the drawing places them: lettering 3% of the plan, lengths at 0.62 of it. */
+function labelled(plan) {
+  const xs = plan.lines.flatMap((l) => [l.a.x, l.b.x]);
+  const ys = plan.lines.flatMap((l) => [l.a.y, l.b.y]);
+  const fs = Math.max(0.6, Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)) * 0.03);
+  return { fs, labels: x.roofLineLabels(plan, fs * 0.62, x.facetLabelBoxes(plan, fs)), boxes: x.facetLabelBoxes(plan, fs) };
+}
+
+test("every line carries its length: on its line, upright, and none over another or a slope's letter", () => {
+  const roofs = {
+    gable: rect(40, 30, { pitch: 6 }),
+    hip: rect(40, 30, { pitch: 6, ends: { left: "hip", right: "hip" } }),
+    "L with hips": ell({ ends: { left: "hip", right: "hip", rear: "hip" }, eaveOverhangFeet: 1 }),
+    "L with cross gables": ell({ eaveOverhangFeet: 1, rakeOverhangFeet: 1 }),
+    "porch and cross gable": rect(54, 33, {
+      pitch: 5,
+      additions: [
+        { id: "p", kind: "porch", sideId: "front", fromFeet: 0, toFeet: 23, depthFeet: ft(4, 10) },
+        { id: "g", kind: "gable", sideId: "front", fromFeet: 10, toFeet: 21 },
+      ],
+    }),
+    "lower wing": ell({ lowerWings: ["rear"], eaveOverhangFeet: 1, rakeOverhangFeet: 1 }),
+    "lean-to": rect(40, 30, { pitch: 6, additions: [{ id: "l", kind: "porch", sideId: "left", fromFeet: 5, toFeet: 25, depthFeet: 8, lower: true }] }),
+  };
+  for (const [name, e] of Object.entries(roofs)) {
+    const plan = roofOf(e).roof;
+    const { labels, boxes } = labelled(plan);
+    assert(labels.length === plan.lines.length && new Set(labels.map((l) => l.key)).size === plan.lines.length, `${name}: a label for each of ${plan.lines.length} lines, got ${labels.length}`);
+    for (const t of labels) {
+      const line = plan.lines.find((l) => l.key === t.key);
+      assert(t.text === x.formatFeetInches(line.feet), `${name}: ${t.key} reads ${t.text}, its length is ${line.feet}`);
+      assert(t.angle > -90 + 1e-9 && t.angle <= 90 + 1e-9, `${name}: ${t.key} upside down at ${t.angle}`);
+      const len = Math.hypot(line.b.x - line.a.x, line.b.y - line.a.y);
+      const off = Math.abs((line.b.x - line.a.x) * (t.y - line.a.y) - (line.b.y - line.a.y) * (t.x - line.a.x)) / len;
+      assert(t.onLine && off < 1e-6, `${name}: ${t.key} (${t.text}) is off its line by ${off.toFixed(2)}'`);
+    }
+    for (let i = 0; i < labels.length; i++) {
+      for (let j = i + 1; j < labels.length; j++) assert(!x.labelsOverlap(labels[i], labels[j]), `${name}: ${labels[i].key} (${labels[i].text}) over ${labels[j].key} (${labels[j].text})`);
+      for (const b of boxes) assert(!x.labelsOverlap(labels[i], b), `${name}: ${labels[i].key} over a slope's letter`);
+    }
+  }
+});
+
+test("the legend's totals are the lines' own, kind by kind", () => {
+  const plan = roofOf(ell({ lowerWings: ["rear"], eaveOverhangFeet: 1, rakeOverhangFeet: 1 })).roof;
+  const totals = x.lineTotals(plan);
+  assert(totals.map((t) => t.kind).join() === "ridge,eave,rake,step", totals.map((t) => t.kind).join());
+  for (const t of totals) near(t.feet, sum(linesOf(plan, t.kind)), t.kind, 1e-9);
+  near(totals.find((t) => t.kind === "step").feet, 11 * Math.SQRT2, "step flashing");
 });
 
 console.log("\ninto the scope");

@@ -39,8 +39,9 @@ import {
   type SideFixtureKind,
   type SideQuantities,
 } from "@/lib/exterior";
-import { type RoofPick, RoofLegend, RoofPlanDrawing } from "./exteriorDrawings";
+import { pickableEdge, type RoofPick, RoofLegend, RoofPlanDrawing } from "./exteriorDrawings";
 import { formatQuantity } from "@/lib/sketchQuantities";
+import type { RoofAddition, RoofPlan } from "@/lib/roof";
 import type { SideTrace } from "@/lib/exteriorTrace";
 import { type PhotoOpacity, SideElevation } from "./SidePhotos";
 
@@ -109,7 +110,13 @@ export function ExteriorEditor({ exterior, onChange, readOnly }: { exterior: Ext
       return measured({
         ...prev,
         sides: prev.sides.filter((s) => s.id !== id),
-        roof: { ...prev.roof, ends, ridgeAlong: prev.roof.ridgeAlong === id ? null : prev.roof.ridgeAlong },
+        roof: {
+          ...prev.roof,
+          ends,
+          ridgeAlong: prev.roof.ridgeAlong === id ? null : prev.roof.ridgeAlong,
+          additions: prev.roof.additions?.filter((a) => a.sideId !== id),
+          lowerWings: prev.roof.lowerWings?.filter((w) => w !== id),
+        },
         ...(prev.scope ? { scope: { ...prev.scope, sides: prev.scope.sides.filter((s) => s !== id) } } : {}),
       });
     });
@@ -786,7 +793,7 @@ function RoofPanel({
   function onPick(what: RoofPick, key: string) {
     if (readOnly || !plan) return;
     const facetKeys = plan.facets.map((f) => f.key);
-    const edgeKeys = plan.edges.map((e) => e.key);
+    const edgeKeys = plan.edges.filter((e) => pickableEdge(e.kind)).map((e) => e.key);
     if (what === "slope") onUpdate((x) => ({ ...x, slopes: toggleIn(x.slopes, facetKeys, key) }));
     else if (what === "edge") onUpdate((x) => ({ ...x, edges: toggleIn(x.edges, edgeKeys, key) }));
     else onUpdate((x) => {
@@ -936,6 +943,17 @@ function RoofPanel({
             ))}
           </>
         )}
+        {plan && plan.wingEnds.length > 0 && (
+          <Choice
+            label="A wing's roof lower, stopping at the wall"
+            hint="A garage below the house's eave with siding between: it meets the wall with step flashing, not valleys."
+            value={roof.lowerWings?.find((id) => plan.wingEnds.includes(id)) ?? "none"}
+            readOnly={readOnly}
+            options={[["none", "No: it runs into the main roof"] as [string, string], ...plan.wingEnds.map((id) => [id, `The wing out to ${nameOf(id)}`] as [string, string])]}
+            onChange={(v) => onUpdate((x) => ({ ...x, lowerWings: v === "none" ? [] : [v] }))}
+          />
+        )}
+        {plan && plan.shape !== "other" && <RoofAdditions exterior={exterior} plan={plan} lengthOf={(id) => fp.lengthsFeet[fp.sideIds.indexOf(id)] ?? 0} readOnly={readOnly} onUpdate={onUpdate} />}
 
         <h4 className="exterior-subhead">Roofing</h4>
         <Choice
@@ -1109,6 +1127,125 @@ function RoofPanel({
   );
 }
 
+type AdditionKind = "porch" | "leanto" | "gable";
+const ADDITION_LABEL: Record<AdditionKind, string> = {
+  porch: "Porch: the slope carried on",
+  leanto: "Porch: lower, against the wall",
+  gable: "Cross gable",
+};
+const additionKind = (a: RoofAddition): AdditionKind => (a.kind === "gable" ? "gable" : a.lower ? "leanto" : "porch");
+
+/**
+ * What the footprint can't tell about the roof, put on a side (the owner's house, 2026-10-12): a
+ * porch that is the slope above carried on past the wall, a lean-to porch of its own below the
+ * eave, and a cross gable rising out of a slope over a front door.
+ */
+function RoofAdditions({
+  exterior,
+  plan,
+  lengthOf,
+  readOnly,
+  onUpdate,
+}: {
+  exterior: Exterior;
+  plan: RoofPlan;
+  lengthOf: (sideId: string) => number;
+  readOnly: boolean;
+  onUpdate: (f: (roof: ExteriorRoof) => ExteriorRoof) => void;
+}) {
+  const adds = exterior.roof.additions ?? [];
+  const nameOf = (id: string) => exterior.sides.find((s) => s.id === id)?.name.trim() || "Side";
+  const set = (id: string, f: (a: RoofAddition) => RoofAddition) => onUpdate((x) => ({ ...x, additions: (x.additions ?? []).map((a) => (a.id === id ? f(a) : a)) }));
+  // A porch carried on, or a cross gable, needs a slope running down to its side: the front, usually.
+  const eaveSides = new Set(plan.facets.map((f) => f.sideId).filter((id): id is string => id !== null));
+  function add(kind: AdditionKind) {
+    const side = (kind === "leanto" ? undefined : exterior.sides.find((s) => eaveSides.has(s.id))) ?? exterior.sides[0];
+    if (!side) return;
+    const L = lengthOf(side.id) || side.lengthFeet;
+    const id = newSketchId("roof");
+    const a: RoofAddition =
+      kind === "gable"
+        ? { id, kind: "gable", sideId: side.id, fromFeet: Math.max(0, L / 2 - 5), toFeet: Math.min(L, L / 2 + 5) }
+        : { id, kind: "porch", sideId: side.id, fromFeet: 0, toFeet: L, depthFeet: 6, lower: kind === "leanto" };
+    onUpdate((x) => ({ ...x, additions: [...(x.additions ?? []), a] }));
+  }
+  return (
+    <div className="exterior-rows">
+      <span className="exterior-row-label">Porches and cross gables</span>
+      {adds.length > 0 && (
+        <div className="exterior-openings">
+          <span className="exterior-th">Kind</span>
+          <span className="exterior-th">Side</span>
+          <span className="exterior-th">From left</span>
+          <span className="exterior-th">To</span>
+          <span className="exterior-th" title="From the wall out to the porch's eave">Out from wall</span>
+          <span />
+          {adds.map((a, i) => {
+            const name = `${ADDITION_LABEL[additionKind(a)]} ${i + 1}`;
+            return (
+              <div key={a.id} style={{ display: "contents" }}>
+                <select
+                  aria-label={`${name}: kind`}
+                  value={additionKind(a)}
+                  disabled={readOnly}
+                  onChange={(e) => {
+                    const k = e.target.value as AdditionKind;
+                    set(a.id, (x) => (k === "gable" ? { id: x.id, kind: "gable", sideId: x.sideId, fromFeet: x.fromFeet, toFeet: x.toFeet } : { ...x, kind: "porch", depthFeet: x.depthFeet ?? 6, lower: k === "leanto" }));
+                  }}
+                >
+                  {(Object.keys(ADDITION_LABEL) as AdditionKind[]).map((k) => (
+                    <option key={k} value={k}>
+                      {ADDITION_LABEL[k]}
+                    </option>
+                  ))}
+                </select>
+                <select aria-label={`${name}: side`} value={a.sideId} disabled={readOnly} onChange={(e) => set(a.id, (x) => ({ ...x, sideId: e.target.value }))}>
+                  {exterior.sides.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {nameOf(s.id)}
+                    </option>
+                  ))}
+                </select>
+                <FeetInput label={`${name}: from the left corner`} value={a.fromFeet} readOnly={readOnly} allowZero onCommit={(v) => v !== null && set(a.id, (x) => ({ ...x, fromFeet: v }))} />
+                <FeetInput label={`${name}: to`} value={a.toFeet} readOnly={readOnly} onCommit={(v) => v !== null && set(a.id, (x) => ({ ...x, toFeet: v }))} />
+                {a.kind === "porch" ? (
+                  <FeetInput label={`${name}: out from the wall to its eave`} value={a.depthFeet ?? null} readOnly={readOnly} onCommit={(v) => v !== null && set(a.id, (x) => ({ ...x, depthFeet: v }))} />
+                ) : (
+                  <span />
+                )}
+                {readOnly ? (
+                  <span />
+                ) : (
+                  <button type="button" className="btn-secondary exterior-row-x" aria-label={`Remove ${name}`} onClick={() => onUpdate((x) => ({ ...x, additions: (x.additions ?? []).filter((y) => y.id !== a.id) }))}>
+                    ×
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {!readOnly && (
+        <div className="exterior-row">
+          <button type="button" className="btn-secondary" onClick={() => add("porch")}>
+            + Porch roof
+          </button>
+          <button type="button" className="btn-secondary" onClick={() => add("leanto")}>
+            + Lean-to porch
+          </button>
+          <button type="button" className="btn-secondary" onClick={() => add("gable")}>
+            + Cross gable
+          </button>
+        </div>
+      )}
+      <p className="field-note">
+        Along the side from its left end, as seen from outside. A porch roof carried on is the slope above it, one plane with its eave further out; a lean-to is a lower roof of its own, with headwall flashing where it meets
+        the wall. A cross gable stands at the drip line there (the porch&rsquo;s, when there is one), over a front door say.
+      </p>
+    </div>
+  );
+}
+
 function RoofFigures({ r }: { r: RoofingQuantities }) {
   const g = r.gutter;
   const chosen = r.slopes.filter((s) => s.selected);
@@ -1119,6 +1256,8 @@ function RoofFigures({ r }: { r: RoofingQuantities }) {
     ["Ridge", lf(r.ridgeFeet)],
     ["Hips", lf(r.hipFeet)],
     ["Valleys", lf(r.valleyFeet)],
+    ...(r.stepFeet > 0 ? [["Step flashing", lf(r.stepFeet)] as [string, string]] : []),
+    ...(r.headwallFeet > 0 ? [["Headwall flashing", lf(r.headwallFeet)] as [string, string]] : []),
     ["Eaves", lf(r.eaveFeet)],
     ["Rakes", lf(r.rakeFeet)],
     ["Drip edge (eaves + rakes)", lf(r.dripEdgeFeet)],
