@@ -267,18 +267,22 @@ test("plain gable, 40 x 30, 6/12, 16\" eaves and 12\" rakes", () => {
   near(r.pitchFactor, 1.118034, "6/12 factor", 1e-6);
   near(r.areaSquareFeet, 1533.9426, "area");
   near(r.squares, 15.339426, "squares");
-  near(r.squaresWithWaste, 16.873369, "squares + 10%");
+  // Real squares: the waste is the estimator's.
   near(r.eaveFeet, 84, "eaves 2 x 42");
   // Rakes: two ends, each 32.666667 plan across at 1.118034 = 36.522
   near(r.rakeFeet, 2 * 32.666667 * 1.118034, "rakes");
   near(r.ridgeFeet, 42, "ridge the whole outline");
   near(r.hipFeet + r.valleyFeet, 0, "no hips or valleys");
   near(r.dripEdgeFeet, 84 + 73.04489, "drip edge");
-  // Soffit: 2 x 42 x 16" flat under the eaves + 2 x 30 x 12" up the rakes x 1.118034
-  near(q.roof.soffit.eaveSquareFeet, 112, "eave soffit");
-  near(q.roof.soffit.rakeSquareFeet, 60 * 1.118034, "rake soffit");
-  assert(r.downspouts.count === 4 && r.downspouts.auto, "two 42' runs, two downspouts each");
-  near(r.downspouts.feet, 40, "each the 10' eave");
+  // Soffit by the foot at its overhang: 84 LF of eave at 16", 73.04 LF of rake at 12".
+  near(r.soffit.eaveFeet, 84, "eave soffit LF");
+  near(r.soffit.eaveSquareFeet, 112, "eave soffit");
+  near(r.soffit.rakeSquareFeet, 2 * 32.666667 * 1.118034, "rake soffit");
+  // Two eaves, each its own run with an end cap at each end; two downspouts each (42 / 35).
+  assert(r.gutter.runs.length === 2 && r.gutter.endCaps === 4 && r.gutter.outsideMitres === 0, "two straight runs");
+  assert(r.gutter.downspouts === 4 && r.gutter.downspoutsCounted, "two 42' runs, two downspouts each");
+  near(r.gutter.downspoutFeet, 4 * 10 * 1.15, "each the 10' eave + 15%");
+  assert(r.gutter.drops === 4 && r.gutter.elbows === 12, "a drop each, three elbows each");
   assert(r.steep === null, "6/12 is not steep");
 });
 
@@ -292,8 +296,15 @@ test("hip, 40 x 30, 6/12, 16\" all round: the research's 1,558 SF", () => {
   near(r.hipFeet, 4 * 16.333333 * 1.5, "hips");
   near(r.eaveFeet, 2 * (42.666667 + 32.666667), "eaves all round");
   near(r.rakeFeet, 0, "no rakes");
-  near(q.roof.soffit.rakeSquareFeet, 0, "no rake soffit");
-  near(q.roof.soffit.eaveSquareFeet, 1393.7778 - 1200, "all the overhang is eave soffit");
+  near(r.soffit.rakeFeet, 0, "no rake soffit");
+  near(r.soffit.eaveSquareFeet, 150.666667 * (16 / 12), "eave soffit, by the foot at 16\"");
+  // One run all the way round: four outside mitres and no end caps.
+  assert(r.gutter.runs.length === 1 && r.gutter.runs[0].closed, "one closed run");
+  assert(r.gutter.outsideMitres === 4 && r.gutter.endCaps === 0, `mitres ${r.gutter.outsideMitres}, caps ${r.gutter.endCaps}`);
+  // Four slopes: two trapezoids (42.667 + 10) / 2 x 16.333, two triangles 32.667 x 16.333 / 2.
+  const plans = q.roof.facets.map((f) => f.planSquareFeet).sort((a, b) => a - b);
+  near(plans[0], 266.7778, "end slope", 1e-3);
+  near(plans[3], 430.1111, "side slope", 1e-3);
 });
 
 test("gable at one end and hip at the other, 40 x 30, no overhang, 6/12", () => {
@@ -319,7 +330,7 @@ test("the owner's 4/12 house: 34'3\" gable ends, 40' along the ridge (assumed un
   // f = sqrt(1 + 1/9) = 1.054093; outline 42 x 36.916667 = 1550.5; area 1634.38
   near(r.pitchFactor, 1.0540926, "4/12 factor", 1e-6);
   near(r.areaSquareFeet, 1550.5 * 1.0540926, "area");
-  near(r.squaresWithWaste, (1550.5 * 1.0540926 * 1.1) / 100, "squares + 10%");
+  near(r.squares, (1550.5 * 1.0540926) / 100, "squares, real");
   near(r.rakeFeet, 2 * 36.916667 * 1.0540926, "rakes");
   near(r.ridgeFeet, 42, "ridge");
   // The roof's own gable on the 34'3" ends: 4/12 over 17.125' = 5'8.5" above the 12'7" eave.
@@ -422,14 +433,14 @@ test("nothing measured outside is in scope until it is ticked", () => {
   assert(x.exteriorScopeLines(undefined).roofing.length === 0, "no exterior, no lines");
 });
 
-test("roofing ticked: squares with waste, the cap, the edges, ice and water", () => {
+test("roofing ticked: real squares, the cap, starter, ice and water - and the material still to say", () => {
   const { roofing, siding } = x.exteriorScopeLines(ownersHouse({ roofing: true }));
-  // 1634.38 SF -> 16.34 SQ; + 10% = 17.98 SQ (see the 4/12 house above).
-  assert(roofing[0] === "Remove & replace roofing – 4/12 – 17.98 SQ (16.34 SQ + 10.0% waste)", `first line: ${roofing[0]}`);
+  // 1634.38 SF -> 16.34 SQ (see the 4/12 house above); no waste, that is the estimator's.
+  assert(roofing[0] === "Remove & replace roofing – material to confirm – 4/12 – 16.34 SQ (all slopes)", `first line: ${roofing[0]}`);
   assert(roofing.includes("Hip & ridge cap – 42.0 LF"), "ridge cap the ridge's 42'");
-  assert(roofing.includes("Drip edge – 161.8 LF (eaves + rakes)"), "drip edge 84 + 77.8");
-  assert(roofing.includes("Starter strip – 84.0 LF (eaves)"), "starter");
+  assert(roofing.includes("Starter – 84.0 LF (eaves)"), "starter");
   assert(roofing.includes("Ice & water barrier – 84.0 LF (eaves + valleys)"), "ice and water");
+  assert(!roofing.some((l) => l.startsWith("Drip edge")), "no drip edge until it is said yes to");
   assert(!roofing.some((l) => l.startsWith("Valleys")), "no valley line on a gable roof");
   assert(!roofing.some((l) => l.startsWith("Steep")), "4/12 is not steep");
   assert(siding.length === 0, "nothing for the siding crew");
@@ -451,12 +462,18 @@ test("vinyl on two sides adds the wrap and the trim round their openings", () =>
   assert(siding.includes("Trim & J-channel round openings – 13.8 LF"), "the window's trim");
 });
 
-test("soffit, fascia and eavestrough ticked", () => {
+test("soffit, fascia and eavestrough ticked: by the foot, with the fittings", () => {
   const { siding } = x.exteriorScopeLines(ownersHouse({ soffitFascia: true, eavestrough: true }));
-  assert(siding.some((l) => /^Remove & replace soffit – \d+\.\d SF$/.test(l)), "soffit");
-  assert(siding.includes("Remove & replace fascia – 161.8 LF (eaves + rakes)"), "fascia");
+  // Soffit: 84 LF of eave at 16" (112 SF); the rakes, 2 x 36.917 x 1.054093 = 77.8 LF at 12".
+  assert(siding.includes(`Remove & replace soffit – material to confirm – 84.0 LF at 1'4" overhang (112.0 SF) – eaves`), siding.join(" | "));
+  assert(siding.includes("Remove & replace soffit – material to confirm – 77.8 LF at 1' overhang (77.8 SF) – rakes"), siding.join(" | "));
+  assert(siding.includes("Remove & replace fascia – material to confirm – 161.8 LF (eaves + rakes)"), "fascia");
+  // Two straight eaves: an end cap at each end of each, two downspouts each, a drop each, three elbows each.
   assert(siding.includes("Remove & replace eavestrough – 84.0 LF"), "eavestrough");
-  assert(siding.some((l) => l.startsWith("Remove & replace downspouts – 4, ")), "four downspouts");
+  assert(siding.includes("End caps – 4") && siding.includes("Drops – 4") && siding.includes("Elbows – 12"), siding.join(" | "));
+  assert(!siding.some((l) => l.startsWith("Mitres")), "no corners on a gable roof's eaves");
+  // 4 x 12'7" x 1.15 = 57.88 LF.
+  assert(siding.includes("Remove & replace downspouts – 4 – 57.9 LF (eave height + 15%)"), siding.join(" | "));
 });
 
 test("the Roofing and Siding work orders are offered only with lines, and carry them", () => {
@@ -468,7 +485,7 @@ test("the Roofing and Siding work orders are offered only with lines, and carry 
   assert(trades.includes("ROOFING") && trades.includes("SIDING"), `offered: ${trades.join(", ")}`);
   assert(!x.availableTrades({ ...claim, scopePhases: ["EMERGENCY"] }, "TM", lines).includes("ROOFING"), "not without Repair");
   const [roofing] = x.buildWorkOrders({ trades: ["ROOFING"], claim, extraction: null, contentsApproach: "TM", contentsTM: null, bricABrac: null, dgigData: null, exterior: lines });
-  assert(roofing.text.includes("  Exterior\n    - Remove & replace roofing – 4/12 – 17.98 SQ"), roofing.text);
+  assert(roofing.text.includes("  Exterior\n    - Remove & replace roofing – material to confirm – 4/12 – 16.34 SQ"), roofing.text);
   assert(/WORK ORDER — ROOFING/.test(roofing.text), "headed as roofing");
 });
 
@@ -485,6 +502,137 @@ test("the scope document is handed the lines and told to copy them", () => {
     assert(/EXTERIOR LINES ARE COMPUTED, NOT WRITTEN BY YOU/.test(prompt), "the rule is in the prompt");
     assert(/Exterior\s+\(only when CLAIM CONTEXT's "exterior" has lines/.test(prompt), "and the heading in the format");
   }
+});
+
+console.log("\nslopes, edges and the owner's list (10-12)");
+
+test("roofing only the slopes picked on the plan: squares, lines and edges follow", () => {
+  const e = ownersHouse({ roofing: true });
+  const q0 = x.exteriorQuantities(e);
+  assert(q0.roof.facets.map((f) => `${f.label}:${f.key}`).join() === "A:front#0,B:rear#0", q0.roof.facets.map((f) => f.key).join());
+  e.roof.slopes = ["front#0"];
+  const r = x.exteriorQuantities(e).roofing;
+  // Half the roof: 1550.5 x 1.0540926 / 2 = 817.19 SF.
+  near(r.areaSquareFeet, (1550.5 * 1.0540926) / 2, "the front slope", 1e-3);
+  near(r.ridgeFeet, 42, "the ridge bounds it, so its cap is in");
+  near(r.eaveFeet, 42, "its own eave only");
+  // The front half of each rake: 2 x 18.458 x 1.054093.
+  near(r.rakeFeet, 36.916667 * 1.0540926, "the front halves of the rakes");
+  const { roofing } = x.exteriorScopeLines(e);
+  assert(roofing[0] === "Remove & replace roofing – material to confirm – 4/12 – 8.17 SQ (slope A)", roofing[0]);
+});
+
+test("eaves and rakes picked for the eavestrough, soffit and fascia", () => {
+  const e = ownersHouse({ eavestrough: true, soffitFascia: true });
+  const q0 = x.exteriorQuantities(e);
+  const front = q0.roof.edges.find((g) => g.kind === "eave" && g.sideId === "front");
+  assert(front && front.key === "eave:front:0", `front eave key ${front?.key}`);
+  e.roof.edges = [front.key];
+  const r = x.exteriorQuantities(e).roofing;
+  near(r.gutter.feet, 42, "one eave");
+  assert(r.gutter.endCaps === 2 && r.gutter.downspouts === 2, `caps ${r.gutter.endCaps}, downspouts ${r.gutter.downspouts}`);
+  near(r.soffit.eaveFeet, 42, "soffit along it");
+  near(r.soffit.rakeFeet, 0, "no rake soffit");
+  near(r.fasciaFeet, 42, "fascia along it");
+});
+
+test("an L with cross gables: three runs of eavestrough, six end caps, one inside mitre", () => {
+  const r = roofOf(ell({})).roofing;
+  assert(r.gutter.runs.length === 3, `runs ${r.gutter.runs.length}`);
+  assert(r.gutter.endCaps === 6 && r.gutter.insideMitres === 1 && r.gutter.outsideMitres === 0, JSON.stringify(r.gutter));
+  near(r.gutter.feet, 50, "every eave");
+  const hip = roofOf(ell({ ends: { left: "hip", right: "hip", rear: "hip" } })).roofing;
+  assert(hip.gutter.runs.length === 1 && hip.gutter.outsideMitres === 5 && hip.gutter.insideMitres === 1 && hip.gutter.endCaps === 0, JSON.stringify(hip.gutter));
+  // Five slopes on the cross-gabled L, the back of the main roof in two pieces either side of the wing.
+  assert(roofOf(ell({})).roof.facets.length === 5, "five slopes");
+});
+
+test("a slope keeps its key when a length is retyped", () => {
+  const e = ownersHouse();
+  const before = x.exteriorQuantities(e).roof.facets.map((f) => f.key).join();
+  e.sides[0].lengthFeet = 44;
+  e.sides[2].lengthFeet = 44;
+  assert(x.exteriorQuantities(e).roof.facets.map((f) => f.key).join() === before, "same keys");
+});
+
+test("every question the owner listed is asked until answered, and each answer has its line", () => {
+  const e = ownersHouse({ roofing: true, eavestrough: true, soffitFascia: true });
+  const ask = x.exteriorQuantities(e).roofing.toAnswer;
+  assert(ask.roofing.length === 10, ask.roofing.join(" | "));
+  assert(ask.eavestrough.length === 1 && ask.soffitFascia.length === 1, "leaf guard, soffit material");
+  Object.assign(e.roof, {
+    material: "composite",
+    dripEdge: true,
+    underlayment: "synthetic",
+    high: true,
+    handload: true,
+    disposalHandload: true,
+    chimney: "medium",
+    vents: { turtle: 3, exhaust: 1 },
+    pipeJacks: { four: 2, six: 1 },
+    ridgeVents: ["ridge:front#0|rear#0"],
+    leafGuard: true,
+    soffitMaterial: "metal",
+  });
+  const q = x.exteriorQuantities(e).roofing;
+  assert(q.toAnswer.roofing.length + q.toAnswer.eavestrough.length + q.toAnswer.soffitFascia.length === 0, JSON.stringify(q.toAnswer));
+  const { roofing, siding } = x.exteriorScopeLines(e);
+  for (const line of [
+    "Remove & replace roofing – Composite (laminated) shingles – 4/12 – 16.34 SQ (all slopes)",
+    "High roof charge – two storeys or more – 16.34 SQ",
+    "Drip edge – 161.8 LF (eaves + rakes) – photos required",
+    "Underlayment – synthetic – 16.34 SQ – photos required",
+    "Turtle vent – 3",
+    "Exhaust vent – 1",
+    "Ridge vent – 42.0 LF",
+    'Pipe jack – 4" – 2',
+    'Pipe jack – 6" – 1',
+    "Chimney flashing – medium",
+    "Handload roofing materials – 16.34 SQ",
+    "Handload debris to disposal – 16.34 SQ",
+  ]) assert(roofing.includes(line), `missing "${line}" in ${roofing.join(" | ")}`);
+  assert(siding.includes("Leaf guard – 84.0 LF"), "leaf guard");
+  assert(siding.some((l) => l.startsWith("Remove & replace soffit – metal – 84.0 LF")), "metal soffit");
+});
+
+test("metal roofing: closure strips, high-temperature ice and water, its own disposal", () => {
+  const e = ownersHouse({ roofing: true });
+  e.roof.material = "metal";
+  const { roofing } = x.exteriorScopeLines(e);
+  // Closure at the eaves and both sides of the ridge: 84 + 2 x 42 = 168.
+  assert(roofing.includes("Closure strips – 168.0 LF (eaves + 2 × ridge)"), roofing.join(" | "));
+  assert(roofing.includes("High-temperature ice & water barrier – 84.0 LF (eaves + valleys)"), "high-temp barrier");
+  assert(roofing.includes("Disposal – metal roofing – 16.34 SQ"), "metal disposal");
+  assert(!roofing.some((l) => l.startsWith("Starter")), "no shingle starter under metal");
+});
+
+test("steep is charged on the squares being roofed", () => {
+  const e = rect(30, 20, { pitch: 8, eaveOverhangFeet: 0, rakeOverhangFeet: 0 });
+  e.scope = { roofing: true, sides: [], soffitFascia: false, eavestrough: false };
+  // 600 x sqrt(1 + (8/12)^2) = 721.11 SF.
+  assert(x.exteriorScopeLines(e).roofing.includes("Steep roof charge – 7/12 to 9/12 – 7.21 SQ"), x.exteriorScopeLines(e).roofing.join(" | "));
+});
+
+test("what is on a wall goes on the scope, cladding ticked or not", () => {
+  const e = ownersHouse();
+  e.sides[3].fixtures = [
+    { id: "d", kind: "dryer_vent", action: "detach_reset", count: 1 },
+    { id: "h", kind: "hose_bib", action: "replace", count: 2 },
+    { id: "o", kind: "other", label: "Gas meter", action: "detach_reset", count: 1 },
+    { id: "z", kind: "light", action: "replace", count: 0 },
+  ];
+  const { siding } = x.exteriorScopeLines(e);
+  assert(siding.join("|") === "Detach & reset dryer vent – Left – 1|Replace hose bib – Left – 2|Detach & reset Gas meter – Left – 1", siding.join(" | "));
+});
+
+test("wood shake takes house wrap; EIFS does not", () => {
+  const e = ownersHouse({ sides: ["front", "left"] });
+  e.sides[0].bands = [{ id: "w", kind: "wood_shake", top: null }];
+  e.sides[3].bands = [{ id: "e", kind: "eifs", top: null }];
+  const { siding } = x.exteriorScopeLines(e);
+  assert(siding.some((l) => l.startsWith("Remove & replace wood shake – Front – 476.7 SF")), siding.join(" | "));
+  assert(siding.some((l) => l.startsWith("Remove & replace eifs – Left – 498.0 SF")), siding.join(" | "));
+  assert(siding.includes("House wrap – 476.7 SF"), "wrap under the shakes only");
 });
 
 console.log("\nfrom Scrivn Scan (arcapture-exterior/1)");

@@ -3224,3 +3224,44 @@ button:disabled {
 .sketch-card-phone .exterior {
   padding: 4px 12px 16px;
 }
+/* The roof plan picks slopes, eaves and rakes, and ridges for ridge vent. */
+.exterior-pick-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+}
+.exterior-pick {
+  cursor: pointer;
+}
+.exterior-svg-picking-slopes .exterior-pick:hover polygon {
+  fill-opacity: 0.75;
+}
+.exterior-choice {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.exterior-choice .option-group {
+  flex-wrap: wrap;
+}
+.exterior-choice .field-note {
+  margin: 0;
+}
+.exterior-unanswered {
+  color: var(--color-amber-dark);
+  font-weight: 600;
+}
+.exterior-tick-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.exterior-to-answer {
+  font-size: 0.8rem;
+  color: var(--color-amber-dark);
+  padding-left: 22px;
+}
+.exterior-row .exterior-count {
+  width: 3.5rem;
+}

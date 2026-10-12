@@ -26,16 +26,21 @@
  */
 
 import { formatFeetInches, newSketchId } from "./sketch";
-import { buildRoof, polygonArea, type Pt, type RoofEndKind, type RoofInput, type RoofPlan, roofRiseAlongWall } from "./roof";
+import { buildRoof, type GutterRun, gutterRuns, polygonArea, type Pt, type RoofEndKind, type RoofInput, type RoofPlan, roofRiseAlongWall } from "./roof";
 
-export type CladdingKind = "stucco" | "vinyl" | "wood" | "fibre_cement" | "brick" | "stone" | "metal" | "other";
+export type CladdingKind = "stucco" | "vinyl" | "wood_shake" | "eifs" | "wood" | "fibre_cement" | "brick" | "stone" | "metal" | "other";
 
-/** Scan's list (arcapture-exterior/1), so a capture's cladding reads straight across, plus "other". */
-export const CLADDING_KINDS: CladdingKind[] = ["stucco", "vinyl", "wood", "fibre_cement", "brick", "stone", "metal", "other"];
+/**
+ * The owner's four sidings first (10-12: stucco, vinyl, wood shake, EIFS), then the rest of Scan's
+ * list (arcapture-exterior/1) so a capture's cladding reads straight across, then "other".
+ */
+export const CLADDING_KINDS: CladdingKind[] = ["stucco", "vinyl", "wood_shake", "eifs", "wood", "fibre_cement", "brick", "stone", "metal", "other"];
 
 export const CLADDING_LABEL: Record<CladdingKind, string> = {
   stucco: "Stucco",
   vinyl: "Vinyl siding",
+  wood_shake: "Wood shake",
+  eifs: "EIFS",
   wood: "Wood siding",
   fibre_cement: "Fibre cement",
   brick: "Brick",
@@ -110,7 +115,51 @@ export interface ExteriorSide {
   gable: ExteriorGable | null;
   bands: CladdingBand[];
   openings: ExteriorOpening[];
+  /** What is on the wall and has to come off for the cladding, or be replaced: dryer vents, hose bibs... Optional for exteriors saved before it. */
+  fixtures?: SideFixture[];
 }
+
+export type SideFixtureKind = "dryer_vent" | "furnace_vent" | "hose_bib" | "light" | "outlet" | "other";
+
+export const SIDE_FIXTURE_LABEL: Record<SideFixtureKind, string> = {
+  dryer_vent: "Dryer vent",
+  furnace_vent: "Furnace vent",
+  hose_bib: "Hose bib",
+  light: "Light fixture",
+  outlet: "Exterior outlet",
+  other: "Other",
+};
+
+export interface SideFixture {
+  id: string;
+  kind: SideFixtureKind;
+  /** What "other" is. */
+  label?: string;
+  action: "replace" | "detach_reset";
+  count: number;
+}
+
+export type RoofMaterial = "three_tab" | "composite" | "metal" | "tile" | "cedar_shake";
+
+export const ROOF_MATERIAL_LABEL: Record<RoofMaterial, string> = {
+  three_tab: "3-tab shingles",
+  composite: "Composite (laminated) shingles",
+  metal: "Metal roofing",
+  tile: "Cement tile",
+  cedar_shake: "Cedar shakes",
+};
+
+export type RoofVentKind = "turtle" | "turbine" | "static" | "exhaust";
+
+export const ROOF_VENT_LABEL: Record<RoofVentKind, string> = {
+  turtle: "Turtle vent",
+  turbine: "Turbine vent",
+  static: "High-profile static vent",
+  exhaust: "Exhaust vent",
+};
+
+export type ChimneySize = "none" | "small" | "medium" | "large";
+export type Underlayment = "synthetic" | "felt" | "none";
 
 export interface ExteriorRoof {
   /** Rise in 12 as typed; null takes it from the sides' measured gables. */
@@ -121,9 +170,43 @@ export interface ExteriorRoof {
   ridgeAlong: string | null;
   /** Each end of the roof by the side it stands over. Absent = gable. */
   ends: Record<string, RoofEndKind>;
-  wastePercent: number;
+  /**
+   * No longer used: waste is the estimator's to add (owner, 10-12: "just want real values"). Kept
+   * optional so an exterior saved with it still loads.
+   */
+  wastePercent?: number;
   /** How many downspouts; null = one per 35 ft of eavestrough, at least one per run. */
   downspouts: number | null;
+
+  /*
+    The owner's list of 10-12, everything a roof and its eavestrough are priced from. All optional so an
+    exterior saved before it loads. A yes/no or a choice left null is NOT a no: it is a question still
+    to answer, listed as one (`RoofingQuantities.toAnswer`), never quietly left off the scope.
+  */
+  material?: RoofMaterial | null;
+  /** The slopes being roofed (`RoofFacet.key`), picked on the plan; null or absent = every slope. */
+  slopes?: string[] | null;
+  /** The eaves and rakes the eavestrough, soffit and fascia run along (`RoofEdge.key`); null or absent = all. */
+  edges?: string[] | null;
+  /** The ridges with ridge vent (`RoofLine.key`). */
+  ridgeVents?: string[];
+  vents?: Partial<Record<RoofVentKind, number>>;
+  pipeJacks?: { four: number; six: number };
+  chimney?: ChimneySize | null;
+  dripEdge?: boolean | null;
+  underlayment?: Underlayment | null;
+  /** Two storeys or higher: the high-roof charge. */
+  high?: boolean | null;
+  /** Materials carried by hand: more than 30 ft from the front of the driveway, or the truck cannot reach. */
+  handload?: boolean | null;
+  /** Debris carried by hand to disposal: nowhere for a bin on the driveway (an alley, or otherwise). */
+  disposalHandload?: boolean | null;
+  leafGuard?: boolean | null;
+  /** Elbows per downspout: two at the eave and one at the foot, unless said otherwise. */
+  elbowsPerDownspout?: number;
+  /** The downspouts' total length, typed; null or absent = each side's eave height + 15%. */
+  downspoutFeet?: number | null;
+  soffitMaterial?: "metal" | "wood" | null;
 }
 
 /** Which of the measured parts the scope prices - see `exteriorScopeLines`. */
@@ -153,7 +236,9 @@ export const DEFAULT_EAVE_FEET = 10;
 export const DEFAULT_PARGING_FEET = 8 / 12;
 export const DEFAULT_EAVE_OVERHANG_FEET = 16 / 12;
 export const DEFAULT_RAKE_OVERHANG_FEET = 12 / 12;
-export const DEFAULT_WASTE_PERCENT = 10;
+/** Downspout length over the eave height: the run down the wall, the offsets and the kick-out. */
+export const DOWNSPOUT_ALLOWANCE = 1.15;
+export const DEFAULT_ELBOWS_PER_DOWNSPOUT = 3;
 /** One downspout per this many feet of eavestrough, and at least one per run. */
 export const FEET_PER_DOWNSPOUT = 35;
 
@@ -164,7 +249,6 @@ export function defaultRoof(): ExteriorRoof {
     rakeOverhangFeet: DEFAULT_RAKE_OVERHANG_FEET,
     ridgeAlong: null,
     ends: {},
-    wastePercent: DEFAULT_WASTE_PERCENT,
     downspouts: null,
   };
 }
@@ -619,31 +703,184 @@ export interface CladdingTotal {
   netSquareFeet: number;
 }
 
+/** A slope of the roof as the estimate sees it. */
+export interface SlopeQuantity {
+  key: string;
+  label: string;
+  /** The side it drains toward, by name. */
+  faces: string;
+  planSquareFeet: number;
+  areaSquareFeet: number;
+  selected: boolean;
+}
+
 export interface RoofingQuantities {
   pitch: number;
   pitchFactor: number;
+  material: RoofMaterial | null;
+  slopes: SlopeQuantity[];
+  /** Every slope chosen - and so for an outline whose slopes are not worked out. */
+  allSlopes: boolean;
+  /** The chosen slopes on the slope, and in squares: real values, no waste (the estimator adds it). */
   areaSquareFeet: number;
   squares: number;
-  wastePercent: number;
-  squaresWithWaste: number;
+  /** Every ridge, hip and valley that bounds a chosen slope. */
   ridgeFeet: number;
   hipFeet: number;
   valleyFeet: number;
+  /** The drip line of the chosen slopes. */
   eaveFeet: number;
   rakeFeet: number;
-  /** Eaves and rakes. */
   dripEdgeFeet: number;
-  /** Along the eaves. */
   starterFeet: number;
-  /** Along the eaves and up the valleys. */
   iceWaterFeet: number;
-  /** The roof's edge: eaves and rakes. */
-  fasciaFeet: number;
-  soffitSquareFeet: number;
-  eavestroughFeet: number;
-  downspouts: { count: number; auto: boolean; feet: number | null };
-  /** "7/12 to 9/12" and up: the steep charge an estimate adds. */
+  /** Metal: foam closure at the eaves and on both sides of the ridge. */
+  closureFeet: number;
+  ridgeVentFeet: number;
+  /** "7/12 to 9/12" and up: the steep charge on the chosen slopes. */
   steep: string | null;
+  /** Every eave and rake chosen for the eavestrough, soffit and fascia. */
+  allEdges: boolean;
+  gutter: {
+    feet: number;
+    runs: GutterRun[];
+    endCaps: number;
+    outsideMitres: number;
+    insideMitres: number;
+    downspouts: number;
+    /** Counted by the rule, not typed. */
+    downspoutsCounted: boolean;
+    /** Their total length: typed, or each eave's height + 15%; null with no eave height known. */
+    downspoutFeet: number | null;
+    downspoutFeetTyped: boolean;
+    drops: number;
+    elbows: number;
+  };
+  soffit: { eaveFeet: number; rakeFeet: number; eaveSquareFeet: number; rakeSquareFeet: number };
+  fasciaFeet: number;
+  /** What is still to be answered before each part can be priced: never taken as a no. */
+  toAnswer: { roofing: string[]; eavestrough: string[]; soffitFascia: string[] };
+}
+
+function steepBand(pitch: number): string | null {
+  if (pitch >= 12 + 1e-9) return "over 12/12";
+  if (pitch >= 10 - 1e-9) return "10/12 to 12/12";
+  if (pitch >= 7 - 1e-9) return "7/12 to 9/12";
+  return null;
+}
+
+/** A side's eave height: the mean of its two corners. */
+function sideEave(side: ExteriorSide | undefined): number | null {
+  if (!side || side.eaveLeftFeet == null) return null;
+  return (side.eaveLeftFeet + (side.eaveRightFeet ?? side.eaveLeftFeet)) / 2;
+}
+
+/** The roof as priced: the slopes chosen on the plan, the eaves and rakes chosen for the eavestrough, and the owner's list of questions. */
+export function roofingQuantities(exterior: Exterior, roof: RoofPlan): RoofingQuantities {
+  const R = exterior.roof;
+  const sideById = new Map(exterior.sides.map((s) => [s.id, s]));
+  const slopeChosen = (key: string) => R.slopes == null || R.slopes.includes(key);
+  const slopes: SlopeQuantity[] = roof.facets.map((f) => ({
+    key: f.key,
+    label: f.label,
+    faces: (f.sideId !== null ? sideById.get(f.sideId)?.name.trim() : "") || "",
+    planSquareFeet: f.planSquareFeet,
+    areaSquareFeet: f.areaSquareFeet,
+    selected: slopeChosen(f.key),
+  }));
+  const noSlopes = roof.facets.length === 0;
+  const allSlopes = noSlopes || slopes.every((s) => s.selected);
+  const areaSquareFeet = noSlopes ? roof.areaSquareFeet : slopes.filter((s) => s.selected).reduce((sum, s) => sum + s.areaSquareFeet, 0);
+  const touches = (facets: string[]) => noSlopes || facets.some(slopeChosen);
+  const t: Record<"ridge" | "hip" | "valley" | "eave" | "rake", number> = { ridge: 0, hip: 0, valley: 0, eave: 0, rake: 0 };
+  for (const l of roof.lines) if (touches(l.facets)) t[l.kind] += l.feet;
+  const ridgeVentFeet = roof.lines.filter((l) => l.kind === "ridge" && (R.ridgeVents ?? []).includes(l.key)).reduce((s, l) => s + l.feet, 0);
+
+  // The eavestrough, soffit and fascia run along the eaves and rakes chosen, slopes or no slopes.
+  const chosenEdges = R.edges ?? null;
+  const edgeChosen = (key: string) => chosenEdges === null || chosenEdges.includes(key);
+  const allEdges = roof.edges.every((e) => edgeChosen(e.key));
+  const runs = gutterRuns(roof, chosenEdges);
+  const gutterFeet = runs.reduce((s, r) => s + r.feet, 0);
+  const counted = R.downspouts === null;
+  const downspouts = counted ? runs.reduce((s, r) => s + Math.max(1, Math.ceil(r.feet / FEET_PER_DOWNSPOUT - 1e-9)), 0) : Math.max(0, Math.round(R.downspouts as number));
+  // Each run down from its own eave: the eave height of the side under it, by length.
+  let heightFeet = 0;
+  let heightOver = 0;
+  for (const run of runs) {
+    for (const e of run.edges) {
+      const h = sideEave(e.sideId !== null ? sideById.get(e.sideId) : undefined);
+      if (h === null) continue;
+      heightFeet += h * e.planFeet;
+      heightOver += e.planFeet;
+    }
+  }
+  const eaveHeight = heightOver > 0 ? heightFeet / heightOver : null;
+  const typedFeet = R.downspoutFeet != null && R.downspoutFeet >= 0;
+  const downspoutFeet = typedFeet ? (R.downspoutFeet as number) : eaveHeight === null ? null : downspouts * eaveHeight * DOWNSPOUT_ALLOWANCE;
+
+  const soffitEave = roof.edges.filter((e) => e.kind === "eave" && edgeChosen(e.key)).reduce((s, e) => s + e.planFeet, 0);
+  const soffitRake = roof.edges.filter((e) => e.kind === "rake" && edgeChosen(e.key)).reduce((s, e) => s + e.feet, 0);
+  const material = R.material ?? null;
+
+  const roofingQs: string[] = [];
+  if (material === null) roofingQs.push("the roofing material");
+  if (R.dripEdge == null) roofingQs.push("drip edge, yes or no");
+  if (R.underlayment == null) roofingQs.push("underlayment: synthetic, felt or none");
+  if (R.high == null) roofingQs.push("two storeys or higher, yes or no");
+  if (R.handload == null) roofingQs.push("handload materials, yes or no");
+  if (R.disposalHandload == null) roofingQs.push("handload to disposal, yes or no");
+  if (R.chimney == null) roofingQs.push("chimney flashing: none, small, medium or large");
+  if (R.vents === undefined) roofingQs.push("how many roof vents (0 if none)");
+  if (R.pipeJacks === undefined) roofingQs.push("how many pipe jacks (0 if none)");
+  if (R.ridgeVents === undefined && roof.lines.some((l) => l.kind === "ridge")) roofingQs.push("ridge vent: which ridges, or none");
+
+  return {
+    pitch: roof.pitch,
+    pitchFactor: roof.pitchFactor,
+    material,
+    slopes,
+    allSlopes,
+    areaSquareFeet,
+    squares: areaSquareFeet / 100,
+    ridgeFeet: t.ridge,
+    hipFeet: t.hip,
+    valleyFeet: t.valley,
+    eaveFeet: t.eave,
+    rakeFeet: t.rake,
+    dripEdgeFeet: t.eave + t.rake,
+    starterFeet: t.eave,
+    iceWaterFeet: t.eave + t.valley,
+    closureFeet: t.eave + 2 * t.ridge,
+    ridgeVentFeet,
+    steep: steepBand(roof.pitch),
+    allEdges,
+    gutter: {
+      feet: gutterFeet,
+      runs,
+      endCaps: runs.reduce((s, r) => s + r.endCaps, 0),
+      outsideMitres: runs.reduce((s, r) => s + r.outsideMitres, 0),
+      insideMitres: runs.reduce((s, r) => s + r.insideMitres, 0),
+      downspouts,
+      downspoutsCounted: counted,
+      downspoutFeet,
+      downspoutFeetTyped: typedFeet,
+      drops: downspouts,
+      elbows: downspouts * Math.max(0, Math.round(R.elbowsPerDownspout ?? DEFAULT_ELBOWS_PER_DOWNSPOUT)),
+    },
+    soffit: {
+      eaveFeet: soffitEave,
+      rakeFeet: soffitRake,
+      eaveSquareFeet: soffitEave * Math.max(0, R.eaveOverhangFeet),
+      rakeSquareFeet: soffitRake * Math.max(0, R.rakeOverhangFeet),
+    },
+    fasciaFeet: soffitEave + soffitRake,
+    toAnswer: {
+      roofing: roofingQs,
+      eavestrough: R.leafGuard == null ? ["leaf guard, yes or no"] : [],
+      soffitFascia: R.soffitMaterial == null ? ["soffit and fascia: metal or wood"] : [],
+    },
+  };
 }
 
 export interface ExteriorQuantities {
@@ -666,13 +903,6 @@ export interface ExteriorQuantities {
     outsideCornerFeet: number;
     insideCornerFeet: number;
   };
-}
-
-function steepBand(pitch: number): string | null {
-  if (pitch >= 12 + 1e-9) return "over 12/12";
-  if (pitch >= 10 - 1e-9) return "10/12 to 12/12";
-  if (pitch >= 7 - 1e-9) return "7/12 to 9/12";
-  return null;
 }
 
 export function exteriorQuantities(exterior: Exterior): ExteriorQuantities {
@@ -727,36 +957,7 @@ export function exteriorQuantities(exterior: Exterior): ExteriorQuantities {
     else insideCornerFeet += height;
   });
 
-  let roofing: RoofingQuantities | null = null;
-  if (roof) {
-    const t = roof.totals;
-    const auto = exterior.roof.downspouts === null;
-    const count = auto ? roof.eaveRuns.reduce((s, run) => s + Math.max(1, Math.ceil(run / FEET_PER_DOWNSPOUT - 1e-9)), 0) : Math.max(0, Math.round(exterior.roof.downspouts as number));
-    const eaves = exterior.sides.flatMap((s) => [s.eaveLeftFeet, s.eaveRightFeet]).filter((v): v is number => v != null);
-    const eaveHeight = eaves.length > 0 ? eaves.reduce((s, v) => s + v, 0) / eaves.length : null;
-    const squares = roof.areaSquareFeet / 100;
-    roofing = {
-      pitch: roof.pitch,
-      pitchFactor: roof.pitchFactor,
-      areaSquareFeet: roof.areaSquareFeet,
-      squares,
-      wastePercent: exterior.roof.wastePercent,
-      squaresWithWaste: squares * (1 + Math.max(0, exterior.roof.wastePercent) / 100),
-      ridgeFeet: t.ridge,
-      hipFeet: t.hip,
-      valleyFeet: t.valley,
-      eaveFeet: t.eave,
-      rakeFeet: t.rake,
-      dripEdgeFeet: t.eave + t.rake,
-      starterFeet: t.eave,
-      iceWaterFeet: t.eave + t.valley,
-      fasciaFeet: t.eave + t.rake,
-      soffitSquareFeet: roof.soffit.eaveSquareFeet + roof.soffit.rakeSquareFeet,
-      eavestroughFeet: t.eave,
-      downspouts: { count, auto, feet: eaveHeight === null ? null : count * eaveHeight },
-      steep: steepBand(roof.pitch),
-    };
-  }
+  const roofing: RoofingQuantities | null = roof ? roofingQuantities(exterior, roof) : null;
 
   return {
     footprint,
@@ -783,14 +984,20 @@ export function exteriorQuantities(exterior: Exterior): ExteriorQuantities {
 // Into the scope
 // ---------------------------------------------------------------------------------------------
 
-/** Siding that goes on over a wrap and is trimmed round its openings; stucco, brick and stone are not. */
-const SIDING_KINDS: CladdingKind[] = ["vinyl", "wood", "fibre_cement", "metal"];
+/** Siding that goes on over a wrap and is trimmed round its openings; stucco, EIFS, brick and stone are not. */
+const SIDING_KINDS: CladdingKind[] = ["vinyl", "wood_shake", "wood", "fibre_cement", "metal"];
 
 export interface ExteriorScopeLines {
   /** For the roofer. */
   roofing: string[];
-  /** For the siding crew: cladding, soffit and fascia, eavestrough. */
+  /** For the siding crew: cladding and what is on the walls, soffit and fascia, eavestrough. */
   siding: string[];
+}
+
+/** "Detach & reset dryer vent", "Replace hose bib". */
+export function fixtureLine(f: SideFixture): string {
+  const what = f.kind === "other" ? f.label?.trim() || "item" : SIDE_FIXTURE_LABEL[f.kind].toLowerCase();
+  return `${f.action === "replace" ? "Replace" : "Detach & reset"} ${what}`;
 }
 
 /**
@@ -799,29 +1006,47 @@ export interface ExteriorScopeLines {
  *
  * Built here and handed over READY, as the disposal line is (lib/debris.ts): the document's writer
  * copies each one exactly and never works a number out of its own. A line is only made for what
- * was ticked - measuring the outside of a house is not deciding to replace it.
+ * was ticked - measuring the outside of a house is not deciding to replace it - and every answer
+ * given for a ticked part has its line: nothing typed in is left off. Squares are real, with no
+ * waste: that is the estimator's to add.
  */
 export function exteriorScopeLines(exterior: Exterior | undefined): ExteriorScopeLines {
   const out: ExteriorScopeLines = { roofing: [], siding: [] };
   const scope = exterior?.scope;
-  if (!exterior || !scope) return out;
+  if (!exterior) return out;
   const q = exteriorQuantities(exterior);
   const num = (v: number) => (Math.round(v * 10) / 10).toFixed(1);
   const r = q.roofing;
+  const R = exterior.roof;
 
-  if (scope.roofing && r) {
-    out.roofing.push(
-      `Remove & replace roofing – ${formatPitch(r.pitch)} – ${r.squaresWithWaste.toFixed(2)} SQ (${r.squares.toFixed(2)} SQ + ${num(r.wastePercent)}% waste)`,
-    );
-    if (r.steep) out.roofing.push(`Steep roof charge – ${r.steep}`);
+  if (scope?.roofing && r) {
+    const sq = `${r.squares.toFixed(2)} SQ`;
+    const which = r.allSlopes ? "all slopes" : `slope${r.slopes.filter((s) => s.selected).length === 1 ? "" : "s"} ${r.slopes.filter((s) => s.selected).map((s) => s.label).join(", ")}`;
+    const metal = r.material === "metal";
+    out.roofing.push(`Remove & replace roofing – ${r.material ? ROOF_MATERIAL_LABEL[r.material] : "material to confirm"} – ${formatPitch(r.pitch)} – ${sq} (${which})`);
+    if (r.steep) out.roofing.push(`Steep roof charge – ${r.steep} – ${sq}`);
+    if (R.high === true) out.roofing.push(`High roof charge – two storeys or more – ${sq}`);
     if (r.ridgeFeet + r.hipFeet > 0) out.roofing.push(`Hip & ridge cap – ${num(r.ridgeFeet + r.hipFeet)} LF`);
-    out.roofing.push(`Drip edge – ${num(r.dripEdgeFeet)} LF (eaves + rakes)`);
-    out.roofing.push(`Starter strip – ${num(r.starterFeet)} LF (eaves)`);
-    out.roofing.push(`Ice & water barrier – ${num(r.iceWaterFeet)} LF (eaves + valleys)`);
+    if (metal) out.roofing.push(`Closure strips – ${num(r.closureFeet)} LF (eaves + 2 × ridge)`);
+    else if (r.starterFeet > 0) out.roofing.push(`Starter – ${num(r.starterFeet)} LF (eaves)`);
+    if (R.dripEdge === true) out.roofing.push(`Drip edge – ${num(r.dripEdgeFeet)} LF (eaves + rakes) – photos required`);
+    out.roofing.push(`${metal ? "High-temperature ice & water barrier" : "Ice & water barrier"} – ${num(r.iceWaterFeet)} LF (eaves + valleys)`);
+    if (R.underlayment === "synthetic" || R.underlayment === "felt") out.roofing.push(`Underlayment – ${R.underlayment} – ${sq} – photos required`);
     if (r.valleyFeet > 0) out.roofing.push(`Valleys – ${num(r.valleyFeet)} LF`);
+    for (const kind of Object.keys(ROOF_VENT_LABEL) as RoofVentKind[]) {
+      const n = Math.round(R.vents?.[kind] ?? 0);
+      if (n > 0) out.roofing.push(`${ROOF_VENT_LABEL[kind]} – ${n}`);
+    }
+    if (r.ridgeVentFeet > 0) out.roofing.push(`Ridge vent – ${num(r.ridgeVentFeet)} LF`);
+    if ((R.pipeJacks?.four ?? 0) > 0) out.roofing.push(`Pipe jack – 4" – ${Math.round(R.pipeJacks?.four ?? 0)}`);
+    if ((R.pipeJacks?.six ?? 0) > 0) out.roofing.push(`Pipe jack – 6" – ${Math.round(R.pipeJacks?.six ?? 0)}`);
+    if (R.chimney && R.chimney !== "none") out.roofing.push(`Chimney flashing – ${R.chimney}`);
+    if (R.handload === true) out.roofing.push(`Handload roofing materials – ${sq}`);
+    if (R.disposalHandload === true) out.roofing.push(`Handload debris to disposal – ${sq}`);
+    if (metal) out.roofing.push(`Disposal – metal roofing – ${sq}`);
   }
 
-  const sides = q.sides.filter((s) => scope.sides.includes(s.sideId) && s.complete);
+  const sides = q.sides.filter((s) => (scope?.sides ?? []).includes(s.sideId) && s.complete);
   if (sides.length > 0) {
     const kinds = new Map<string, { label: string; kind: CladdingKind; gross: number; holes: number; net: number; names: string[] }>();
     for (const s of sides) {
@@ -848,15 +1073,35 @@ export function exteriorScopeLines(exterior: Exterior | undefined): ExteriorScop
       .reduce((sum, s) => sum + s.openingTrimFeet, 0);
     if (sidedTrim > 0) out.siding.push(`Trim & J-channel round openings – ${num(sidedTrim)} LF`);
   }
-
-  if (scope.soffitFascia && r) {
-    out.siding.push(`Remove & replace soffit – ${num(r.soffitSquareFeet)} SF`);
-    out.siding.push(`Remove & replace fascia – ${num(r.fasciaFeet)} LF (eaves + rakes)`);
+  // What is on the walls goes on whether or not the cladding is: a vent can be replaced on its own.
+  for (const side of exterior.sides) {
+    for (const f of side.fixtures ?? []) {
+      if (f.count > 0) out.siding.push(`${fixtureLine(f)} – ${side.name.trim() || "Side"} – ${Math.round(f.count)}`);
+    }
   }
-  if (scope.eavestrough && r) {
-    out.siding.push(`Remove & replace eavestrough – ${num(r.eavestroughFeet)} LF`);
-    const each = r.downspouts.feet !== null ? `, ${num(r.downspouts.feet)} LF` : "";
-    out.siding.push(`Remove & replace downspouts – ${r.downspouts.count}${each}`);
+
+  if (scope?.soffitFascia && r) {
+    const material = R.soffitMaterial ?? "material to confirm";
+    if (r.soffit.eaveFeet > 0) {
+      out.siding.push(`Remove & replace soffit – ${material} – ${num(r.soffit.eaveFeet)} LF at ${formatFeetInches(R.eaveOverhangFeet)} overhang (${num(r.soffit.eaveSquareFeet)} SF) – eaves`);
+    }
+    if (r.soffit.rakeFeet > 0) {
+      out.siding.push(`Remove & replace soffit – ${material} – ${num(r.soffit.rakeFeet)} LF at ${formatFeetInches(R.rakeOverhangFeet)} overhang (${num(r.soffit.rakeSquareFeet)} SF) – rakes`);
+    }
+    if (r.fasciaFeet > 0) out.siding.push(`Remove & replace fascia – ${material} – ${num(r.fasciaFeet)} LF (eaves + rakes)`);
+  }
+  if (scope?.eavestrough && r && r.gutter.feet > 0) {
+    const g = r.gutter;
+    out.siding.push(`Remove & replace eavestrough – ${num(g.feet)} LF`);
+    if (R.leafGuard === true) out.siding.push(`Leaf guard – ${num(g.feet)} LF`);
+    if (g.endCaps > 0) out.siding.push(`End caps – ${g.endCaps}`);
+    if (g.outsideMitres + g.insideMitres > 0) out.siding.push(`Mitres – ${g.outsideMitres + g.insideMitres} (${g.outsideMitres} outside, ${g.insideMitres} inside)`);
+    if (g.drops > 0) out.siding.push(`Drops – ${g.drops}`);
+    if (g.elbows > 0) out.siding.push(`Elbows – ${g.elbows}`);
+    if (g.downspouts > 0) {
+      const length = g.downspoutFeet === null ? "" : ` – ${num(g.downspoutFeet)} LF${g.downspoutFeetTyped ? "" : " (eave height + 15%)"}`;
+      out.siding.push(`Remove & replace downspouts – ${g.downspouts}${length}`);
+    }
   }
   return out;
 }

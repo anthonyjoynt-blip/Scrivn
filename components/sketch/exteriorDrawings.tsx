@@ -1,0 +1,336 @@
+import type { ReactNode } from "react";
+import { formatFeetInches } from "@/lib/sketch";
+import {
+  bandLabel,
+  type CladdingKind,
+  DEFAULT_EAVE_FEET,
+  elevationFaces,
+  type ExteriorSide,
+  type Footprint,
+  formatOpeningSize,
+  type RoofRise,
+  zFromGrade,
+} from "@/lib/exterior";
+import type { Pt, RoofLineKind, RoofPlan } from "@/lib/roof";
+
+/**
+ * The exterior's two drawings, to scale: one side's elevation, and the roof plan. Kept apart from
+ * the editor because the documents carry them too (`exteriorImages.ts`), and a second way of drawing
+ * them would be a copy that drifts - what the carrier sees is what the estimator saw.
+ *
+ * Styled by attributes, not by the page's stylesheet: drawn on its own as an image, an SVG has no
+ * stylesheet, and a label set by a CSS class would come out black on nothing.
+ */
+
+export const CLADDING_FILL: Record<CladdingKind, string> = {
+  stucco: "#efe5cf",
+  vinyl: "#d6e5f1",
+  wood_shake: "#dcc097",
+  eifs: "#e9e2d6",
+  wood: "#e4cba2",
+  fibre_cement: "#dddcd2",
+  brick: "#d9a28c",
+  stone: "#cbc5b9",
+  metal: "#cfd6de",
+  other: "#e4e4e4",
+};
+
+export const LINE_STYLE: Record<RoofLineKind, { stroke: string; width: number; dash?: string; label: string }> = {
+  eave: { stroke: "#1a1d23", width: 2, label: "Eave" },
+  rake: { stroke: "#b45309", width: 2.5, label: "Rake" },
+  ridge: { stroke: "#b91c1c", width: 3, label: "Ridge" },
+  hip: { stroke: "#6d28d9", width: 2.5, label: "Hip" },
+  valley: { stroke: "#1d4ed8", width: 2.5, dash: "6 4", label: "Valley" },
+};
+
+const RIDGE_VENT = "#15803d";
+const CHOSEN_FILL = "#d3e4f6";
+const LEFT_FILL = "#f1f1f1";
+const FONT = "system-ui, -apple-system, Segoe UI, sans-serif";
+const INK = "#1a1d23";
+
+/** Pixel size for drawing as an image; the editor sizes them by its stylesheet instead. */
+type Size = { width: number; height: number };
+
+export function ElevationDrawing({ side, rise, size }: { side: ExteriorSide; rise: RoofRise | null; size?: Size }) {
+  const { shape, bands, openings } = elevationFaces(side, rise);
+  const L = Math.max(1, shape.lengthFeet);
+  const fall = shape.fallFeet;
+  const eaveZ = shape.eaveZ;
+  const topZ = Math.max(eaveZ ?? DEFAULT_EAVE_FEET, ...shape.top.map((p) => p.y), ...openings.map((o) => o.rect.y1));
+  const lowZ = Math.min(0, -fall);
+  const fs = Math.max(0.5, Math.max(L, topZ - lowZ) * 0.03);
+  const padX = fs * 4.2;
+  const groundZ = lowZ - fs * 4;
+  const vx = -padX;
+  const vw = L + 2 * padX;
+  const vy = -(topZ + fs * 2.6);
+  const vh = topZ + fs * 2.6 - groundZ;
+  const Y = (z: number) => -z;
+  const pts = (poly: Pt[]) => poly.map((p) => `${p.x},${Y(p.y)}`).join(" ");
+  const stroke = { vectorEffect: "non-scaling-stroke" as const };
+  const text = { fill: INK, fontFamily: FONT };
+  const labels: ReactNode[] = [];
+
+  if (eaveZ !== null && side.eaveLeftFeet != null && side.eaveRightFeet != null) {
+    labels.push(
+      <text key="eL" x={-fs * 0.5} y={Y(eaveZ) + fs * 0.35} fontSize={fs} textAnchor="end" {...text}>
+        {formatFeetInches(side.eaveLeftFeet)}
+      </text>,
+      <text key="eR" x={L + fs * 0.5} y={Y(eaveZ) + fs * 0.35} fontSize={fs} textAnchor="start" {...text}>
+        {formatFeetInches(side.eaveRightFeet)}
+      </text>,
+    );
+  }
+  if (shape.gable) {
+    const p = shape.gable.peak;
+    const above = p.y - zFromGrade(side, p.x, 0);
+    labels.push(
+      <text key="peak" x={p.x} y={Y(p.y) - fs * 0.6} fontSize={fs} textAnchor="middle" {...text}>
+        {formatFeetInches(above)}
+        {shape.gable.source === "roof" ? " (roof)" : ""}
+      </text>,
+    );
+  }
+
+  const scaleFeet = L >= 30 ? 10 : 5;
+  return (
+    <svg
+      className="exterior-svg"
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox={`${vx} ${vy} ${vw} ${vh}`}
+      width={size?.width}
+      height={size?.height}
+      role="img"
+      aria-label={`${side.name} elevation, to scale`}
+    >
+      <rect x={vx} y={vy} width={vw} height={vh} fill="#ffffff" />
+      <polygon points={pts([{ x: vx, y: 0 }, { x: 0, y: 0 }, { x: L, y: -fall }, { x: vx + vw, y: -fall }, { x: vx + vw, y: groundZ }, { x: vx, y: groundZ }])} fill="#efe7da" />
+      {side.base === "parging" && <polygon points={pts([shape.grade[0], shape.grade[1], shape.bottom[1], shape.bottom[0]])} fill="#c9ccd1" stroke="#8a9099" strokeWidth={1} {...stroke} />}
+      {bands.map(({ band, poly }) => poly.length >= 3 && <polygon key={band.id} points={pts(poly)} fill={CLADDING_FILL[band.kind]} />)}
+      {bands.slice(0, -1).map(({ band, hi }) =>
+        Number.isFinite(hi) && eaveZ !== null && hi > Math.min(shape.bottom[0].y, shape.bottom[1].y) && hi < topZ ? (
+          <line key={`line-${band.id}`} x1={0} x2={L} y1={Y(hi)} y2={Y(hi)} stroke="#6b7280" strokeWidth={1} strokeDasharray="5 4" {...stroke} />
+        ) : null,
+      )}
+      {bands.map(({ band, poly }) => {
+        if (poly.length < 3) return null;
+        const ys = poly.map((p) => p.y);
+        const h = Math.max(...ys) - Math.min(...ys);
+        if (h < fs * 1.4) return null;
+        return (
+          <text key={`label-${band.id}`} x={fs * 0.6} y={Y(Math.min(...ys) + Math.min(h / 2, fs * 1.6))} fontSize={fs * 0.85} fill="#4b5563" fontFamily={FONT} fontStyle="italic">
+            {bandLabel(band)}
+          </text>
+        );
+      })}
+      {shape.cladding.length >= 3 && <polygon points={pts(shape.cladding)} fill="none" stroke="#374151" strokeWidth={1.5} {...stroke} />}
+      {shape.gable?.source === "roof" && eaveZ !== null && (
+        <line x1={shape.gable.from} x2={shape.gable.to} y1={Y(eaveZ)} y2={Y(eaveZ)} stroke="#9ca3af" strokeWidth={1} strokeDasharray="3 3" {...stroke} />
+      )}
+      {openings.map(({ opening, rect }) => (
+        <g key={opening.id}>
+          <rect x={rect.x0} y={Y(rect.y1)} width={rect.x1 - rect.x0} height={rect.y1 - rect.y0} fill="#ffffff" stroke="#1d4ed8" strokeWidth={1.5} {...stroke} />
+          <text x={(rect.x0 + rect.x1) / 2} y={Y(rect.y1) - fs * 0.3} fontSize={fs * 0.75} textAnchor="middle" {...text}>
+            {formatOpeningSize(opening.widthFeet, opening.heightFeet)}
+          </text>
+        </g>
+      ))}
+      <line x1={vx} x2={0} y1={0} y2={0} stroke="#7c5a3a" strokeWidth={2} {...stroke} />
+      <line x1={0} x2={L} y1={Y(0)} y2={Y(-fall)} stroke="#7c5a3a" strokeWidth={2} {...stroke} />
+      <line x1={L} x2={vx + vw} y1={Y(-fall)} y2={Y(-fall)} stroke="#7c5a3a" strokeWidth={2} {...stroke} />
+      {labels}
+      <line x1={0} x2={L} y1={Y(lowZ - fs * 1.4)} y2={Y(lowZ - fs * 1.4)} stroke="#374151" strokeWidth={1} {...stroke} />
+      <line x1={0} x2={0} y1={Y(lowZ - fs * 0.9)} y2={Y(lowZ - fs * 1.9)} stroke="#374151" strokeWidth={1} {...stroke} />
+      <line x1={L} x2={L} y1={Y(lowZ - fs * 0.9)} y2={Y(lowZ - fs * 1.9)} stroke="#374151" strokeWidth={1} {...stroke} />
+      <text x={L / 2} y={Y(lowZ - fs * 2.7)} fontSize={fs} textAnchor="middle" {...text}>
+        {formatFeetInches(shape.lengthFeet)}
+      </text>
+      <line x1={vx + fs} x2={vx + fs + scaleFeet} y1={Y(groundZ + fs * 0.8)} y2={Y(groundZ + fs * 0.8)} stroke={INK} strokeWidth={2} {...stroke} />
+      <text x={vx + fs + scaleFeet / 2} y={Y(groundZ + fs * 1.2)} fontSize={fs * 0.7} textAnchor="middle" {...text}>
+        {scaleFeet}&prime;
+      </text>
+    </svg>
+  );
+}
+
+export type RoofPick = "slope" | "edge" | "ridge";
+
+/**
+ * The roof plan, to scale, front at the bottom: each slope lettered and shaded when it is being
+ * roofed, the eaves and rakes drawn bold when chosen for the eavestrough, soffit and fascia, ridge
+ * vent marked green. With `mode` and `onPick`, a tap on a slope, an edge or a ridge picks it.
+ */
+export function RoofPlanDrawing({
+  plan,
+  footprint,
+  nameOf,
+  slopes = null,
+  edges = null,
+  ridgeVents = [],
+  mode = null,
+  onPick,
+  size,
+}: {
+  plan: RoofPlan;
+  footprint: Footprint;
+  nameOf: (id: string) => string;
+  slopes?: string[] | null;
+  edges?: string[] | null;
+  ridgeVents?: string[];
+  mode?: "slopes" | "edges" | "ridges" | null;
+  onPick?: (what: RoofPick, key: string) => void;
+  size?: Size;
+}) {
+  const corners = footprint.corners;
+  const xs = [...plan.outlineRects.flatMap((r) => [r.x0, r.x1]), ...plan.lines.flatMap((l) => [l.a.x, l.b.x]), ...corners.map((p) => p.x)];
+  const ys = [...plan.outlineRects.flatMap((r) => [r.y0, r.y1]), ...plan.lines.flatMap((l) => [l.a.y, l.b.y]), ...corners.map((p) => p.y)];
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  const minY = Math.min(...ys);
+  const maxY = Math.max(...ys);
+  const fs = Math.max(0.6, Math.max(maxX - minX, maxY - minY) * 0.03);
+  const pad = fs * 3.4;
+  const Y = (y: number) => -y;
+  const stroke = { vectorEffect: "non-scaling-stroke" as const };
+  const text = { fill: INK, fontFamily: FONT };
+  const n = corners.length;
+  const slopeOn = (key: string) => slopes === null || slopes.includes(key);
+  const edgeOn = (key: string) => edges === null || edges.includes(key);
+  const pick = (what: RoofPick, key: string) => (onPick ? () => onPick(what, key) : undefined);
+  const crease = (k: RoofLineKind) => k === "ridge" || k === "hip" || k === "valley";
+
+  return (
+    <svg
+      className={`exterior-svg${mode ? ` exterior-svg-picking-${mode}` : ""}`}
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox={`${minX - pad} ${Y(maxY) - pad} ${maxX - minX + 2 * pad} ${maxY - minY + 2 * pad}`}
+      width={size?.width}
+      height={size?.height}
+      role="img"
+      aria-label="Roof plan, to scale"
+    >
+      <rect x={minX - pad} y={Y(maxY) - pad} width={maxX - minX + 2 * pad} height={maxY - minY + 2 * pad} fill="#ffffff" />
+      {plan.facets.length === 0 && plan.shape !== "other" &&
+        plan.outlineRects.map((r, i) => <rect key={i} x={r.x0} y={Y(r.y1)} width={r.x1 - r.x0} height={r.y1 - r.y0} fill={CHOSEN_FILL} />)}
+      {plan.shape === "other" && <polygon points={plan.edges.map((l) => `${l.a.x},${Y(l.a.y)}`).join(" ")} fill={CHOSEN_FILL} />}
+      {plan.facets.map((f) => (
+        <g key={f.key} onClick={mode === "slopes" ? pick("slope", f.key) : undefined} className={mode === "slopes" ? "exterior-pick" : undefined}>
+          {f.cells.map((cell, i) => (
+            <polygon key={i} points={cell.map((p) => `${p.x},${Y(p.y)}`).join(" ")} fill={slopeOn(f.key) ? CHOSEN_FILL : LEFT_FILL} stroke={slopeOn(f.key) ? CHOSEN_FILL : LEFT_FILL} strokeWidth={0.5} {...stroke} />
+          ))}
+        </g>
+      ))}
+      <polygon points={corners.map((p) => `${p.x},${Y(p.y)}`).join(" ")} fill="none" stroke="#6b7280" strokeWidth={1} strokeDasharray="4 3" pointerEvents="none" {...stroke} />
+      {plan.lines.map((l) => {
+        const s = LINE_STYLE[l.kind];
+        const off = !crease(l.kind) && !edgeOn(l.key);
+        return (
+          <line
+            key={l.key}
+            x1={l.a.x}
+            y1={Y(l.a.y)}
+            x2={l.b.x}
+            y2={Y(l.b.y)}
+            stroke={off ? "#a3a3a3" : s.stroke}
+            strokeWidth={off ? 1 : s.width}
+            strokeDasharray={off ? "3 3" : s.dash}
+            strokeLinecap="round"
+            pointerEvents="none"
+            {...stroke}
+          />
+        );
+      })}
+      {plan.lines
+        .filter((l) => l.kind === "ridge" && ridgeVents.includes(l.key))
+        .map((l) => (
+          <line key={`rv-${l.key}`} x1={l.a.x} y1={Y(l.a.y)} x2={l.b.x} y2={Y(l.b.y)} stroke={RIDGE_VENT} strokeWidth={7} strokeOpacity={0.55} strokeLinecap="round" pointerEvents="none" {...stroke} />
+        ))}
+      {/* What a tap can land on, wider than it is drawn: a 2-pixel rake is no target for a finger. */}
+      {(mode === "edges" || mode === "ridges") &&
+        plan.lines
+          .filter((l) => (mode === "edges" ? !crease(l.kind) : l.kind === "ridge"))
+          .map((l) => (
+            <line
+              key={`hit-${l.key}`}
+              x1={l.a.x}
+              y1={Y(l.a.y)}
+              x2={l.b.x}
+              y2={Y(l.b.y)}
+              stroke="#000000"
+              strokeOpacity={0}
+              strokeWidth={22}
+              className="exterior-pick"
+              onClick={pick(mode === "edges" ? "edge" : "ridge", l.key)}
+              {...stroke}
+            />
+          ))}
+      {plan.lines
+        .filter((l) => crease(l.kind) && l.feet >= fs * 3)
+        .map((l) => (
+          <text key={`t-${l.key}`} x={(l.a.x + l.b.x) / 2} y={Y((l.a.y + l.b.y) / 2) - fs * 0.35} fontSize={fs * 0.75} textAnchor="middle" fill={LINE_STYLE[l.kind].stroke} fontFamily={FONT} pointerEvents="none">
+            {formatFeetInches(l.feet)}
+          </text>
+        ))}
+      {plan.facets.map((f) => (
+        <g key={`label-${f.key}`} pointerEvents="none">
+          <text x={f.centroid.x} y={Y(f.centroid.y) + fs * 0.2} fontSize={fs * 1.3} fontWeight={700} textAnchor="middle" {...text} fillOpacity={slopeOn(f.key) ? 1 : 0.4}>
+            {f.label}
+          </text>
+          <text x={f.centroid.x} y={Y(f.centroid.y) + fs * 1.15} fontSize={fs * 0.65} textAnchor="middle" {...text} fillOpacity={slopeOn(f.key) ? 0.85 : 0.4}>
+            {Math.round(f.areaSquareFeet)} SF
+          </text>
+        </g>
+      ))}
+      {footprint.sideIds.map((id, i) => {
+        const a = corners[i] as Pt;
+        const b = corners[(i + 1) % n] as Pt;
+        const len = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+        const out = { x: (b.y - a.y) / len, y: -(b.x - a.x) / len };
+        const m = { x: (a.x + b.x) / 2 + out.x * pad * 0.62, y: (a.y + b.y) / 2 + out.y * pad * 0.62 };
+        // A label runs along its wall, so one down a side wall reads up the page rather than across the roof.
+        const across = Math.abs(b.y - a.y) > Math.abs(b.x - a.x);
+        return (
+          <text key={id} x={m.x} y={Y(m.y) + fs * 0.35} fontSize={fs * 0.85} textAnchor="middle" transform={across ? `rotate(-90 ${m.x} ${Y(m.y)})` : undefined} pointerEvents="none" {...text}>
+            {nameOf(id)} {formatFeetInches(footprint.lengthsFeet[i] ?? len)}
+          </text>
+        );
+      })}
+    </svg>
+  );
+}
+
+export function RoofLegend({ plan, ridgeVent }: { plan: RoofPlan; ridgeVent: boolean }) {
+  const kinds = (Object.keys(LINE_STYLE) as RoofLineKind[]).filter((k) => plan.lines.some((l) => l.kind === k));
+  const swatch = (color: string, width: number, dash?: string, opacity = 1) => (
+    <svg width="22" height="10" aria-hidden="true">
+      <line x1="1" y1="5" x2="21" y2="5" stroke={color} strokeWidth={width} strokeDasharray={dash} strokeOpacity={opacity} />
+    </svg>
+  );
+  return (
+    <div className="exterior-legend">
+      {kinds.map((k) => (
+        <span key={k} className="exterior-legend-item">
+          {swatch(LINE_STYLE[k].stroke, LINE_STYLE[k].width, LINE_STYLE[k].dash)}
+          {LINE_STYLE[k].label}
+        </span>
+      ))}
+      {ridgeVent && (
+        <span className="exterior-legend-item">
+          {swatch(RIDGE_VENT, 6, undefined, 0.55)}
+          Ridge vent
+        </span>
+      )}
+      <span className="exterior-legend-item">
+        {swatch("#6b7280", 1, "4 3")}
+        Walls
+      </span>
+      <span className="exterior-legend-item">
+        <svg width="14" height="10" aria-hidden="true">
+          <rect width="14" height="10" fill={CHOSEN_FILL} />
+        </svg>
+        Being roofed
+      </span>
+    </div>
+  );
+}

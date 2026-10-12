@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState } from "react";
 import { formatFeetInches, newSketchId, parseFeetInches } from "@/lib/sketch";
 import {
   bandLabel,
@@ -9,7 +9,7 @@ import {
   type CladdingBand,
   type CladdingKind,
   DEFAULT_EAVE_FEET,
-  elevationFaces,
+  DEFAULT_ELBOWS_PER_DOWNSPOUT,
   type Exterior,
   type ExteriorOpening,
   type ExteriorOpeningKind,
@@ -21,18 +21,24 @@ import {
   exteriorQuantities,
   exteriorScopeLines,
   FEET_PER_DOWNSPOUT,
-  type Footprint,
+  fixtureLine,
   formatOpeningSize,
   formatPitch,
   lShapeExterior,
   newSide,
   OPENING_LABEL,
   rectangleExterior,
-  type RoofRise,
+  ROOF_MATERIAL_LABEL,
+  ROOF_VENT_LABEL,
+  type RoofingQuantities,
+  type RoofMaterial,
+  type RoofVentKind,
+  SIDE_FIXTURE_LABEL,
+  type SideFixture,
+  type SideFixtureKind,
   type SideQuantities,
-  zFromGrade,
 } from "@/lib/exterior";
-import type { Pt, RoofLineKind, RoofPlan } from "@/lib/roof";
+import { ElevationDrawing, type RoofPick, RoofLegend, RoofPlanDrawing } from "./exteriorDrawings";
 import { formatQuantity } from "@/lib/sketchQuantities";
 
 /**
@@ -46,25 +52,6 @@ import { formatQuantity } from "@/lib/sketchQuantities";
  */
 
 export type ExteriorUpdate = (update: (prev: Exterior | undefined) => Exterior | undefined) => void;
-
-const CLADDING_FILL: Record<CladdingKind, string> = {
-  stucco: "#efe5cf",
-  vinyl: "#d6e5f1",
-  wood: "#e4cba2",
-  fibre_cement: "#dddcd2",
-  brick: "#d9a28c",
-  stone: "#cbc5b9",
-  metal: "#cfd6de",
-  other: "#e4e4e4",
-};
-
-const LINE_STYLE: Record<RoofLineKind, { stroke: string; width: number; dash?: string; label: string }> = {
-  eave: { stroke: "#1a1d23", width: 2, label: "Eave" },
-  rake: { stroke: "#b45309", width: 2.5, label: "Rake" },
-  ridge: { stroke: "#b91c1c", width: 3, label: "Ridge" },
-  hip: { stroke: "#6d28d9", width: 2.5, label: "Hip" },
-  valley: { stroke: "#1d4ed8", width: 2.5, dash: "6 4", label: "Valley" },
-};
 
 function sf(value: number): string {
   return `${formatQuantity(value)} SF`;
@@ -178,6 +165,8 @@ export function ExteriorEditor({ exterior, onChange, readOnly }: { exterior: Ext
 /**
  * What of the outside the scope prices. Off until ticked: an exterior measured for a water claim is
  * a record of the house, and a roof nobody decided to replace must not arrive on the scope as one.
+ * A ticked part with questions unanswered says which, beside the tick: an unanswered question is
+ * never read as a no.
  */
 function ExteriorScopePicker({
   exterior,
@@ -194,21 +183,25 @@ function ExteriorScopePicker({
   const lines = exteriorScopeLines(exterior);
   const all = [...lines.roofing, ...lines.siding];
   const noRoof = q.roofing === null;
-  const tick = (label: string, checked: boolean, disabled: boolean, flip: () => void, key: string) => (
-    <label key={key} className="exterior-tick">
-      <input type="checkbox" checked={checked} disabled={readOnly || disabled} onChange={flip} />
-      <span>{label}</span>
-    </label>
+  const ask = q.roofing?.toAnswer;
+  const tick = (label: string, checked: boolean, disabled: boolean, flip: () => void, key: string, questions: string[] = []) => (
+    <div key={key} className="exterior-tick-row">
+      <label className="exterior-tick">
+        <input type="checkbox" checked={checked} disabled={readOnly || disabled} onChange={flip} />
+        <span>{label}</span>
+      </label>
+      {checked && questions.length > 0 && <span className="exterior-to-answer">Still to answer: {questions.join("; ")}.</span>}
+    </div>
   );
   return (
     <div className="sketch-quantities exterior-totals">
       <h3>In the scope</h3>
       <p className="field-note">
         Measuring the outside is not deciding to replace it. Tick what the scope should price: each tick puts its lines, with these quantities, on the
-        scope document under Exterior, and on the Roofing or Siding work order.
+        scope document under Exterior, and on the Roofing or Siding work order. The roof plan and the elevations go with the scope document.
       </p>
       <div className="exterior-ticks">
-        {tick("Roofing", scope.roofing, noRoof, () => onChange((s) => ({ ...s, roofing: !s.roofing })), "roofing")}
+        {tick("Roofing", scope.roofing, noRoof, () => onChange((s) => ({ ...s, roofing: !s.roofing })), "roofing", ask?.roofing)}
         {exterior.sides.map((side, i) =>
           tick(
             `${side.name.trim() || "Side"} cladding`,
@@ -218,8 +211,8 @@ function ExteriorScopePicker({
             side.id,
           ),
         )}
-        {tick("Soffit & fascia", scope.soffitFascia, noRoof, () => onChange((s) => ({ ...s, soffitFascia: !s.soffitFascia })), "soffit")}
-        {tick("Eavestrough & downspouts", scope.eavestrough, noRoof, () => onChange((s) => ({ ...s, eavestrough: !s.eavestrough })), "trough")}
+        {tick("Soffit & fascia", scope.soffitFascia, noRoof, () => onChange((s) => ({ ...s, soffitFascia: !s.soffitFascia })), "soffit", ask?.soffitFascia)}
+        {tick("Eavestrough & downspouts", scope.eavestrough, noRoof, () => onChange((s) => ({ ...s, eavestrough: !s.eavestrough })), "trough", ask?.eavestrough)}
       </div>
       {noRoof && <p className="field-note">Roofing, soffit, fascia and eavestrough need the roof: the sides closed round the house and a pitch.</p>}
       {all.length > 0 && <pre className="document-text exterior-lines">{all.map((l) => `- ${l}`).join("\n")}</pre>}
@@ -460,6 +453,9 @@ function SidePanel({
         <h4 className="exterior-subhead">Openings</h4>
         <OpeningsEditor side={side} readOnly={readOnly} onUpdate={onUpdate} />
 
+        <h4 className="exterior-subhead">On the wall</h4>
+        <FixturesEditor side={side} readOnly={readOnly} onUpdate={onUpdate} />
+
         <SideFigures sq={sq} />
 
         {!readOnly && (
@@ -683,18 +679,108 @@ function RoofPanel({
   onRemoveAll: () => void;
 }) {
   const [confirmRemove, setConfirmRemove] = useState(false);
+  const [mode, setMode] = useState<"slopes" | "edges" | "ridges">("slopes");
   const roof = exterior.roof;
   const plan = q.roof;
+  const r = q.roofing;
   const nameOf = (id: string) => exterior.sides.find((s) => s.id === id)?.name.trim() || "Side";
   const fp = q.footprint;
+  const ridges = plan ? plan.lines.filter((l) => l.kind === "ridge") : [];
+
+  /** One more or one fewer of a choice that means "all" while it is null. */
+  const toggleIn = (list: string[] | null | undefined, all: string[], key: string): string[] | null => {
+    const current = list ?? all;
+    const next = current.includes(key) ? current.filter((k) => k !== key) : [...current, key];
+    return all.every((k) => next.includes(k)) ? null : next;
+  };
+  function onPick(what: RoofPick, key: string) {
+    if (readOnly || !plan) return;
+    const facetKeys = plan.facets.map((f) => f.key);
+    const edgeKeys = plan.edges.map((e) => e.key);
+    if (what === "slope") onUpdate((x) => ({ ...x, slopes: toggleIn(x.slopes, facetKeys, key) }));
+    else if (what === "edge") onUpdate((x) => ({ ...x, edges: toggleIn(x.edges, edgeKeys, key) }));
+    else onUpdate((x) => {
+      const current = x.ridgeVents ?? [];
+      return { ...x, ridgeVents: current.includes(key) ? current.filter((k) => k !== key) : [...current, key] };
+    });
+  }
+
+  const chosenSlopes = r ? r.slopes.filter((s) => s.selected) : [];
+  const pickNote = !r
+    ? ""
+    : mode === "slopes"
+      ? r.slopes.length === 0
+        ? "This outline's slopes are not worked out: the whole roof is counted."
+        : r.allSlopes
+          ? `All ${r.slopes.length} slopes are being roofed. Tap a slope to leave it out.`
+          : `Slope${chosenSlopes.length === 1 ? "" : "s"} ${chosenSlopes.map((s) => s.label).join(", ") || "none"} being roofed: ${sf(r.areaSquareFeet)}. Tap a slope to add or remove it.`
+      : mode === "edges"
+        ? `${r.allEdges ? "Every eave and rake" : "The eaves and rakes drawn bold"} take the eavestrough (eaves only), soffit and fascia. Tap one to add or remove it.`
+        : ridges.length === 0
+          ? "This roof has no ridge."
+          : roof.ridgeVents === undefined
+            ? "Tap each ridge that has ridge vent, or say there is none."
+            : `Ridge vent: ${r.ridgeVentFeet > 0 ? lf(r.ridgeVentFeet) : "none"}.`;
 
   return (
     <div className="exterior-pane">
       <figure className="exterior-figure">
         {plan && fp.closes ? (
           <>
-            <RoofPlanDrawing plan={plan} footprint={fp} nameOf={nameOf} />
-            <RoofLegend plan={plan} />
+            {!readOnly && (
+              <div className="exterior-pick-bar">
+                <div className="option-group" role="group" aria-label="What a tap on the plan chooses">
+                  {(
+                    [
+                      ["slopes", "Slopes to roof"],
+                      ["edges", "Eaves & rakes"],
+                      ["ridges", "Ridge vent"],
+                    ] as const
+                  ).map(([value, label]) => (
+                    <button key={value} type="button" className={`option-btn${mode === value ? " selected" : ""}`} aria-pressed={mode === value} onClick={() => setMode(value)}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                {mode === "slopes" && plan.facets.length > 0 && (
+                  <>
+                    <button type="button" className="btn-secondary" onClick={() => onUpdate((x) => ({ ...x, slopes: null }))}>
+                      All
+                    </button>
+                    <button type="button" className="btn-secondary" onClick={() => onUpdate((x) => ({ ...x, slopes: [] }))}>
+                      None
+                    </button>
+                  </>
+                )}
+                {mode === "edges" && (
+                  <>
+                    <button type="button" className="btn-secondary" onClick={() => onUpdate((x) => ({ ...x, edges: null }))}>
+                      All
+                    </button>
+                    <button type="button" className="btn-secondary" onClick={() => onUpdate((x) => ({ ...x, edges: plan.edges.filter((e) => e.kind === "eave").map((e) => e.key) }))}>
+                      Eaves only
+                    </button>
+                  </>
+                )}
+                {mode === "ridges" && ridges.length > 0 && (
+                  <button type="button" className="btn-secondary" onClick={() => onUpdate((x) => ({ ...x, ridgeVents: [] }))}>
+                    No ridge vent
+                  </button>
+                )}
+              </div>
+            )}
+            <RoofPlanDrawing
+              plan={plan}
+              footprint={fp}
+              nameOf={nameOf}
+              slopes={roof.slopes ?? null}
+              edges={roof.edges ?? null}
+              ridgeVents={roof.ridgeVents ?? []}
+              mode={readOnly ? null : mode}
+              onPick={readOnly ? undefined : onPick}
+            />
+            <RoofLegend plan={plan} ridgeVent={(roof.ridgeVents ?? []).length > 0} />
+            {!readOnly && <p className="field-note">{pickNote}</p>}
           </>
         ) : (
           <div className="exterior-empty">
@@ -711,6 +797,7 @@ function RoofPanel({
       </figure>
 
       <div className="exterior-fields">
+        <h4 className="exterior-subhead">The roof</h4>
         <div className="exterior-grid">
           <NumberField
             id="ext-pitch"
@@ -719,37 +806,20 @@ function RoofPanel({
             placeholder={q.pitch.source === "sides" && q.pitch.value !== null ? (Math.round(q.pitch.value * 100) / 100).toString() : ""}
             readOnly={readOnly}
             max={24}
-            onCommit={(v) => onUpdate((r) => ({ ...r, pitch: v }))}
+            onCommit={(v) => onUpdate((x) => ({ ...x, pitch: v }))}
             note={
               q.pitch.fromSides.length > 0
                 ? `Measured gables give ${q.pitch.fromSides.map((f) => `${formatPitch(f.pitch)} (${f.name})`).join(", ")}.${roof.pitch === null ? " Left blank, the roof uses that." : ""}`
                 : "No gable peak measured yet, so it has to be typed."
             }
           />
-          <FeetField id="ext-eave-oh" label="Eave overhang" value={roof.eaveOverhangFeet} readOnly={readOnly} allowZero onCommit={(v) => v !== null && onUpdate((r) => ({ ...r, eaveOverhangFeet: v }))} />
-          <FeetField id="ext-rake-oh" label="Rake overhang" value={roof.rakeOverhangFeet} readOnly={readOnly} allowZero onCommit={(v) => v !== null && onUpdate((r) => ({ ...r, rakeOverhangFeet: v }))} />
-          <NumberField id="ext-waste" label="Waste %" value={roof.wastePercent} readOnly={readOnly} max={50} onCommit={(v) => onUpdate((r) => ({ ...r, wastePercent: v ?? 0 }))} />
-          <NumberField
-            id="ext-downspouts"
-            label="Downspouts"
-            value={roof.downspouts}
-            placeholder={q.roofing ? String(q.roofing.downspouts.count) : ""}
-            readOnly={readOnly}
-            integer
-            max={40}
-            onCommit={(v) => onUpdate((r) => ({ ...r, downspouts: v }))}
-            note={`Blank counts one per ${FEET_PER_DOWNSPOUT} ft of eavestrough, at least one per run.`}
-          />
+          <FeetField id="ext-eave-oh" label="Eave overhang" value={roof.eaveOverhangFeet} readOnly={readOnly} allowZero onCommit={(v) => v !== null && onUpdate((x) => ({ ...x, eaveOverhangFeet: v }))} />
+          <FeetField id="ext-rake-oh" label="Rake overhang" value={roof.rakeOverhangFeet} readOnly={readOnly} allowZero onCommit={(v) => v !== null && onUpdate((x) => ({ ...x, rakeOverhangFeet: v }))} />
         </div>
         {plan && plan.shape === "rectangle" && (
           <label className="exterior-field" htmlFor="ext-ridge">
             <span className="exterior-field-label">Ridge runs</span>
-            <select
-              id="ext-ridge"
-              value={roof.ridgeAlong ?? ""}
-              disabled={readOnly}
-              onChange={(e) => onUpdate((r) => ({ ...r, ridgeAlong: e.target.value || null }))}
-            >
+            <select id="ext-ridge" value={roof.ridgeAlong ?? ""} disabled={readOnly} onChange={(e) => onUpdate((x) => ({ ...x, ridgeAlong: e.target.value || null }))}>
               <option value="">Along the longer walls</option>
               {exterior.sides.map((s) => (
                 <option key={s.id} value={s.id}>
@@ -761,32 +831,173 @@ function RoofPanel({
         )}
         {plan && plan.ends.length > 0 && (
           <>
-            <h4 className="exterior-subhead">Roof ends</h4>
             {plan.ends.map((end) => (
-              <div key={end.sideId} className="exterior-row">
-                <span className="exterior-row-label">
-                  Over {nameOf(end.sideId)}
-                  {end.role === "wing" ? " (wing)" : ""}
-                </span>
-                <div className="option-group" role="group" aria-label={`End over ${nameOf(end.sideId)}`}>
-                  {(["gable", "hip"] as const).map((kind) => (
-                    <button
-                      key={kind}
-                      type="button"
-                      className={`option-btn${end.kind === kind ? " selected" : ""}`}
-                      aria-pressed={end.kind === kind}
-                      disabled={readOnly}
-                      onClick={() => onUpdate((r) => ({ ...r, ends: { ...r.ends, [end.sideId]: kind } }))}
-                    >
-                      {kind === "gable" ? "Gable" : "Hip"}
-                    </button>
-                  ))}
-                </div>
-              </div>
+              <Choice
+                key={end.sideId}
+                label={`End over ${nameOf(end.sideId)}${end.role === "wing" ? " (wing)" : ""}`}
+                value={end.kind}
+                readOnly={readOnly}
+                options={[
+                  ["gable", "Gable"],
+                  ["hip", "Hip"],
+                ]}
+                onChange={(kind) => onUpdate((x) => ({ ...x, ends: { ...x.ends, [end.sideId]: kind } }))}
+              />
             ))}
           </>
         )}
-        {q.roofing && <RoofFigures q={q} />}
+
+        <h4 className="exterior-subhead">Roofing</h4>
+        <Choice
+          label="Material"
+          value={roof.material ?? null}
+          readOnly={readOnly}
+          options={(Object.keys(ROOF_MATERIAL_LABEL) as RoofMaterial[]).map((m) => [m, ROOF_MATERIAL_LABEL[m]] as [RoofMaterial, string])}
+          onChange={(material) => onUpdate((x) => ({ ...x, material }))}
+        />
+        {roof.material === "metal" && (
+          <p className="field-note">Metal adds closure strips (eaves + 2 × ridge), high-temperature ice &amp; water barrier and its own disposal line.</p>
+        )}
+        <YesNo label="Drip edge (photos required)" value={roof.dripEdge ?? null} readOnly={readOnly} onChange={(dripEdge) => onUpdate((x) => ({ ...x, dripEdge }))} />
+        <Choice
+          label="Underlayment (photos required)"
+          value={roof.underlayment ?? null}
+          readOnly={readOnly}
+          options={[
+            ["synthetic", "Synthetic"],
+            ["felt", "Felt"],
+            ["none", "None"],
+          ]}
+          onChange={(underlayment) => onUpdate((x) => ({ ...x, underlayment }))}
+        />
+        <YesNo label="Two storeys or higher (high roof)" value={roof.high ?? null} readOnly={readOnly} onChange={(high) => onUpdate((x) => ({ ...x, high }))} />
+        <YesNo
+          label="Handload materials"
+          hint="More than 30 ft from the front of the driveway, or the loading truck can't reach."
+          value={roof.handload ?? null}
+          readOnly={readOnly}
+          onChange={(handload) => onUpdate((x) => ({ ...x, handload }))}
+        />
+        <YesNo
+          label="Handload to disposal"
+          hint="Nowhere to put a bin on the driveway: an alley, or otherwise."
+          value={roof.disposalHandload ?? null}
+          readOnly={readOnly}
+          onChange={(disposalHandload) => onUpdate((x) => ({ ...x, disposalHandload }))}
+        />
+        <Choice
+          label="Chimney flashing"
+          value={roof.chimney ?? null}
+          readOnly={readOnly}
+          options={[
+            ["none", "None"],
+            ["small", "Small"],
+            ["medium", "Medium"],
+            ["large", "Large"],
+          ]}
+          onChange={(chimney) => onUpdate((x) => ({ ...x, chimney }))}
+        />
+        <div className="exterior-row">
+          <span className="exterior-row-label">Roof vents</span>
+          {roof.vents === undefined && !readOnly && (
+            <button type="button" className="btn-secondary" onClick={() => onUpdate((x) => ({ ...x, vents: {} }))}>
+              None
+            </button>
+          )}
+        </div>
+        <div className="exterior-grid">
+          {(Object.keys(ROOF_VENT_LABEL) as RoofVentKind[]).map((kind) => (
+            <NumberField
+              key={kind}
+              id={`ext-vent-${kind}`}
+              label={ROOF_VENT_LABEL[kind]}
+              value={roof.vents === undefined ? null : roof.vents[kind] ?? 0}
+              readOnly={readOnly}
+              integer
+              max={99}
+              onCommit={(v) => onUpdate((x) => ({ ...x, vents: { ...(x.vents ?? {}), [kind]: v ?? 0 } }))}
+            />
+          ))}
+        </div>
+        <div className="exterior-row">
+          <span className="exterior-row-label">Pipe jacks</span>
+          {roof.pipeJacks === undefined && !readOnly && (
+            <button type="button" className="btn-secondary" onClick={() => onUpdate((x) => ({ ...x, pipeJacks: { four: 0, six: 0 } }))}>
+              None
+            </button>
+          )}
+        </div>
+        <div className="exterior-grid">
+          {(
+            [
+              ["four", '4"'],
+              ["six", '6"'],
+            ] as const
+          ).map(([size, label]) => (
+            <NumberField
+              key={size}
+              id={`ext-jack-${size}`}
+              label={`Pipe jack ${label}`}
+              value={roof.pipeJacks === undefined ? null : roof.pipeJacks[size]}
+              readOnly={readOnly}
+              integer
+              max={99}
+              onCommit={(v) => onUpdate((x) => ({ ...x, pipeJacks: { ...(x.pipeJacks ?? { four: 0, six: 0 }), [size]: v ?? 0 } }))}
+            />
+          ))}
+        </div>
+
+        <h4 className="exterior-subhead">Eavestrough</h4>
+        <YesNo label="Leaf guard" value={roof.leafGuard ?? null} readOnly={readOnly} onChange={(leafGuard) => onUpdate((x) => ({ ...x, leafGuard }))} />
+        <div className="exterior-grid">
+          <NumberField
+            id="ext-downspouts"
+            label="Downspouts"
+            value={roof.downspouts}
+            placeholder={r ? String(r.gutter.downspouts) : ""}
+            readOnly={readOnly}
+            integer
+            max={40}
+            onCommit={(v) => onUpdate((x) => ({ ...x, downspouts: v }))}
+            note={`Blank counts one per ${FEET_PER_DOWNSPOUT} ft of eavestrough, at least one per run.`}
+          />
+          <FeetField
+            id="ext-downspout-feet"
+            label="Downspouts, total length"
+            value={roof.downspoutFeet ?? null}
+            placeholder={r && r.gutter.downspoutFeet !== null && !r.gutter.downspoutFeetTyped ? formatFeetInches(r.gutter.downspoutFeet) : ""}
+            readOnly={readOnly}
+            allowZero
+            nullable
+            onCommit={(v) => onUpdate((x) => ({ ...x, downspoutFeet: v }))}
+            note="Blank takes each eave's height from its elevation, plus 15%."
+          />
+          <NumberField
+            id="ext-elbows"
+            label="Elbows per downspout"
+            value={roof.elbowsPerDownspout ?? null}
+            placeholder={String(DEFAULT_ELBOWS_PER_DOWNSPOUT)}
+            readOnly={readOnly}
+            integer
+            max={9}
+            onCommit={(v) => onUpdate((x) => ({ ...x, elbowsPerDownspout: v ?? undefined }))}
+            note="Two at the eave and one at the foot, unless changed."
+          />
+        </div>
+
+        <h4 className="exterior-subhead">Soffit &amp; fascia</h4>
+        <Choice
+          label="Material"
+          value={roof.soffitMaterial ?? null}
+          readOnly={readOnly}
+          options={[
+            ["metal", "Metal"],
+            ["wood", "Wood"],
+          ]}
+          onChange={(soffitMaterial) => onUpdate((x) => ({ ...x, soffitMaterial }))}
+        />
+
+        {r && <RoofFigures r={r} />}
         {!readOnly &&
           (confirmRemove ? (
             <div className="sketch-undo" role="alert">
@@ -808,21 +1019,31 @@ function RoofPanel({
   );
 }
 
-function RoofFigures({ q }: { q: ExteriorQuantities }) {
-  const r = q.roofing;
-  if (!r) return null;
+function RoofFigures({ r }: { r: RoofingQuantities }) {
+  const g = r.gutter;
+  const chosen = r.slopes.filter((s) => s.selected);
   const rows: [string, string][] = [
     ["Pitch", `${formatPitch(r.pitch)} (factor ${r.pitchFactor.toFixed(3)})${r.steep ? `, steep ${r.steep}` : ""}`],
-    ["Roof area", sf(r.areaSquareFeet)],
-    ["Squares", `${r.squares.toFixed(2)} SQ; ${r.squaresWithWaste.toFixed(2)} SQ with ${formatQuantity(r.wastePercent)}% waste`],
+    ["Slopes being roofed", r.slopes.length === 0 ? "the whole roof" : r.allSlopes ? `all: ${r.slopes.map((s) => s.label).join(", ")}` : chosen.map((s) => s.label).join(", ") || "none"],
+    ["Roof area", `${sf(r.areaSquareFeet)} (${r.squares.toFixed(2)} SQ, no waste)`],
     ["Ridge", lf(r.ridgeFeet)],
     ["Hips", lf(r.hipFeet)],
     ["Valleys", lf(r.valleyFeet)],
     ["Eaves", lf(r.eaveFeet)],
     ["Rakes", lf(r.rakeFeet)],
     ["Drip edge (eaves + rakes)", lf(r.dripEdgeFeet)],
-    ["Starter (eaves)", lf(r.starterFeet)],
+    r.material === "metal" ? ["Closure strips (eaves + 2 × ridge)", lf(r.closureFeet)] : ["Starter (eaves)", lf(r.starterFeet)],
     ["Ice & water (eaves + valleys)", lf(r.iceWaterFeet)],
+    ["Ridge vent", lf(r.ridgeVentFeet)],
+    ["Eavestrough", `${lf(g.feet)} in ${g.runs.length} run${g.runs.length === 1 ? "" : "s"}`],
+    ["End caps", String(g.endCaps)],
+    ["Mitres", `${g.outsideMitres + g.insideMitres} (${g.outsideMitres} outside, ${g.insideMitres} inside)`],
+    ["Drops", String(g.drops)],
+    ["Elbows", String(g.elbows)],
+    ["Downspouts", `${g.downspouts}${g.downspoutFeet !== null ? `, ${lf(g.downspoutFeet)}${g.downspoutFeetTyped ? "" : " (eave height + 15%)"}` : ""}`],
+    ["Soffit, eaves", `${lf(r.soffit.eaveFeet)} (${sf(r.soffit.eaveSquareFeet)})`],
+    ["Soffit, rakes", `${lf(r.soffit.rakeFeet)} (${sf(r.soffit.rakeSquareFeet)})`],
+    ["Fascia", lf(r.fasciaFeet)],
   ];
   return (
     <table className="sketch-qty-table exterior-table">
@@ -845,12 +1066,11 @@ function RoofFigures({ q }: { q: ExteriorQuantities }) {
 function ExteriorTotals({ exterior, q }: { exterior: Exterior; q: ExteriorQuantities }) {
   const incomplete = q.sides.filter((s) => !s.complete);
   const r = q.roofing;
+  const fixtures = exterior.sides.flatMap((side) => (side.fixtures ?? []).filter((f) => f.count > 0).map((f) => `${fixtureLine(f)} (${side.name.trim() || "Side"}) × ${f.count}`));
   return (
     <div className="sketch-quantities exterior-totals">
       <h3>Exterior quantities</h3>
-      {incomplete.length > 0 && (
-        <p className="field-note">Not counted until an eave is put in: {incomplete.map((s) => s.name || "Side").join(", ")}.</p>
-      )}
+      {incomplete.length > 0 && <p className="field-note">Not counted until an eave is put in: {incomplete.map((s) => s.name || "Side").join(", ")}.</p>}
       <div className="sketch-qty-scroll">
         <table className="sketch-qty-table">
           <thead>
@@ -893,11 +1113,7 @@ function ExteriorTotals({ exterior, q }: { exterior: Exterior; q: ExteriorQuanti
           </tr>
           <tr>
             <th scope="row">Openings</th>
-            <td>
-              {q.openings.length === 0
-                ? "none"
-                : q.openings.map((o) => `${o.count} × ${OPENING_LABEL[o.kind].toLowerCase()} ${formatOpeningSize(o.widthFeet, o.heightFeet)}`).join("; ")}
-            </td>
+            <td>{q.openings.length === 0 ? "none" : q.openings.map((o) => `${o.count} × ${OPENING_LABEL[o.kind].toLowerCase()} ${formatOpeningSize(o.widthFeet, o.heightFeet)}`).join("; ")}</td>
           </tr>
           <tr>
             <th scope="row">Trim round openings</th>
@@ -913,32 +1129,30 @@ function ExteriorTotals({ exterior, q }: { exterior: Exterior; q: ExteriorQuanti
               <td>{lf(q.totals.insideCornerFeet)}</td>
             </tr>
           )}
+          {fixtures.length > 0 && (
+            <tr>
+              <th scope="row">On the walls</th>
+              <td>{fixtures.join("; ")}</td>
+            </tr>
+          )}
           {r && (
             <>
               <tr>
                 <th scope="row">Roofing</th>
                 <td>
-                  {r.squaresWithWaste.toFixed(2)} SQ with {formatQuantity(r.wastePercent)}% waste ({sf(r.areaSquareFeet)} at {formatPitch(r.pitch)})
+                  {r.squares.toFixed(2)} SQ ({sf(r.areaSquareFeet)} at {formatPitch(r.pitch)}){r.allSlopes ? "" : `, slopes ${r.slopes.filter((s) => s.selected).map((s) => s.label).join(", ")}`}
                 </td>
               </tr>
               <tr>
-                <th scope="row">Soffit</th>
-                <td>{sf(r.soffitSquareFeet)}</td>
-              </tr>
-              <tr>
-                <th scope="row">Fascia (eaves + rakes)</th>
-                <td>{lf(r.fasciaFeet)}</td>
-              </tr>
-              <tr>
                 <th scope="row">Eavestrough</th>
-                <td>{lf(r.eavestroughFeet)}</td>
+                <td>
+                  {lf(r.gutter.feet)}, {r.gutter.downspouts} downspout{r.gutter.downspouts === 1 ? "" : "s"}
+                </td>
               </tr>
               <tr>
-                <th scope="row">Downspouts</th>
+                <th scope="row">Soffit / fascia</th>
                 <td>
-                  {r.downspouts.count}
-                  {r.downspouts.feet !== null ? `, ${lf(r.downspouts.feet)} at the eave height` : ""}
-                  {r.downspouts.auto ? " (counted)" : ""}
+                  {sf(r.soffit.eaveSquareFeet + r.soffit.rakeSquareFeet)} / {lf(r.fasciaFeet)}
                 </td>
               </tr>
             </>
@@ -947,195 +1161,147 @@ function ExteriorTotals({ exterior, q }: { exterior: Exterior; q: ExteriorQuanti
       </table>
       <p className="field-note">
         Cladding is net of openings and takes in the gables, measured or from the roof. The roof&rsquo;s area is the plan inside the drip line times the
-        pitch factor; its lines are read off the roof the footprint, overhangs and pitch make.
-        {exterior.sides.some((s) => s.gable === null) && q.roof ? " A gable nobody measured is the roof's." : ""}
+        pitch factor, for the slopes being roofed; its lines are read off the roof the footprint, overhangs and pitch make. Squares are real: waste is
+        the estimator&rsquo;s to add.
       </p>
     </div>
   );
 }
 
-// ---------------------------------------------------------------------------------------------
-// Drawings
-// ---------------------------------------------------------------------------------------------
-
-function ElevationDrawing({ side, rise }: { side: ExteriorSide; rise: RoofRise | null }) {
-  const { shape, bands, openings } = elevationFaces(side, rise);
-  const L = Math.max(1, shape.lengthFeet);
-  const fall = shape.fallFeet;
-  const eaveZ = shape.eaveZ;
-  const topZ = Math.max(eaveZ ?? DEFAULT_EAVE_FEET, ...shape.top.map((p) => p.y), ...openings.map((o) => o.rect.y1));
-  const lowZ = Math.min(0, -fall);
-  const fs = Math.max(0.5, Math.max(L, topZ - lowZ) * 0.03);
-  const padX = fs * 4.2;
-  const groundZ = lowZ - fs * 4;
-  const vx = -padX;
-  const vw = L + 2 * padX;
-  const vy = -(topZ + fs * 2.6);
-  const vh = topZ + fs * 2.6 - groundZ;
-  const Y = (z: number) => -z;
-  const pts = (poly: Pt[]) => poly.map((p) => `${p.x},${Y(p.y)}`).join(" ");
-  const stroke = { vectorEffect: "non-scaling-stroke" as const };
-  const labels: ReactNode[] = [];
-
-  if (eaveZ !== null && side.eaveLeftFeet != null && side.eaveRightFeet != null) {
-    labels.push(
-      <text key="eL" x={-fs * 0.5} y={Y(eaveZ) + fs * 0.35} fontSize={fs} textAnchor="end" className="exterior-svg-label">
-        {formatFeetInches(side.eaveLeftFeet)}
-      </text>,
-      <text key="eR" x={L + fs * 0.5} y={Y(eaveZ) + fs * 0.35} fontSize={fs} textAnchor="start" className="exterior-svg-label">
-        {formatFeetInches(side.eaveRightFeet)}
-      </text>,
-    );
-  }
-  if (shape.gable) {
-    const p = shape.gable.peak;
-    const above = p.y - zFromGrade(side, p.x, 0);
-    labels.push(
-      <text key="peak" x={p.x} y={Y(p.y) - fs * 0.6} fontSize={fs} textAnchor="middle" className="exterior-svg-label">
-        {formatFeetInches(above)}
-        {shape.gable.source === "roof" ? " (roof)" : ""}
-      </text>,
-    );
-  }
-
-  const scaleFeet = L >= 30 ? 10 : 5;
+/** What is on a wall: replaced, or taken off and put back for the cladding. */
+function FixturesEditor({ side, readOnly, onUpdate }: { side: ExteriorSide; readOnly: boolean; onUpdate: (f: (side: ExteriorSide) => ExteriorSide) => void }) {
+  const fixtures = side.fixtures ?? [];
+  const setFixture = (id: string, f: (x: SideFixture) => SideFixture) => onUpdate((s) => ({ ...s, fixtures: (s.fixtures ?? []).map((x) => (x.id === id ? f(x) : x)) }));
   return (
-    <svg className="exterior-svg" viewBox={`${vx} ${vy} ${vw} ${vh}`} role="img" aria-label={`${side.name} elevation, to scale`}>
-      <rect x={vx} y={vy} width={vw} height={vh} fill="#ffffff" />
-      <polygon points={pts([{ x: vx, y: 0 }, { x: 0, y: 0 }, { x: L, y: -fall }, { x: vx + vw, y: -fall }, { x: vx + vw, y: groundZ }, { x: vx, y: groundZ }])} fill="#efe7da" />
-      {side.base === "parging" && <polygon points={pts([shape.grade[0], shape.grade[1], shape.bottom[1], shape.bottom[0]])} fill="#c9ccd1" stroke="#8a9099" strokeWidth={1} {...stroke} />}
-      {bands.map(({ band, poly }) => poly.length >= 3 && <polygon key={band.id} points={pts(poly)} fill={CLADDING_FILL[band.kind]} />)}
-      {bands.slice(0, -1).map(({ band, hi }) =>
-        Number.isFinite(hi) && eaveZ !== null && hi > Math.min(shape.bottom[0].y, shape.bottom[1].y) && hi < topZ ? (
-          <line key={`line-${band.id}`} x1={0} x2={L} y1={Y(hi)} y2={Y(hi)} stroke="#6b7280" strokeWidth={1} strokeDasharray="5 4" {...stroke} />
-        ) : null,
-      )}
-      {bands.map(({ band, poly }) => {
-        if (poly.length < 3) return null;
-        const ys = poly.map((p) => p.y);
-        const h = Math.max(...ys) - Math.min(...ys);
-        if (h < fs * 1.4) return null;
-        return (
-          <text key={`label-${band.id}`} x={fs * 0.6} y={Y(Math.min(...ys) + Math.min(h / 2, fs * 1.6))} fontSize={fs * 0.85} className="exterior-svg-band">
-            {bandLabel(band)}
-          </text>
-        );
-      })}
-      {shape.cladding.length >= 3 && (
-        <polygon points={pts(shape.cladding)} fill="none" stroke="#374151" strokeWidth={1.5} {...stroke} />
-      )}
-      {shape.gable?.source === "roof" && eaveZ !== null && (
-        <line x1={shape.gable.from} x2={shape.gable.to} y1={Y(eaveZ)} y2={Y(eaveZ)} stroke="#9ca3af" strokeWidth={1} strokeDasharray="3 3" {...stroke} />
-      )}
-      {openings.map(({ opening, rect }) => (
-        <g key={opening.id}>
-          <rect x={rect.x0} y={Y(rect.y1)} width={rect.x1 - rect.x0} height={rect.y1 - rect.y0} fill="#ffffff" stroke="#1d4ed8" strokeWidth={1.5} {...stroke} />
-          <text x={(rect.x0 + rect.x1) / 2} y={Y(rect.y1) - fs * 0.3} fontSize={fs * 0.75} textAnchor="middle" className="exterior-svg-label">
-            {formatOpeningSize(opening.widthFeet, opening.heightFeet)}
-          </text>
-        </g>
+    <div className="exterior-rows">
+      {fixtures.map((f) => (
+        <div className="exterior-row" key={f.id}>
+          <select aria-label="Item" value={f.kind} disabled={readOnly} onChange={(e) => setFixture(f.id, (x) => ({ ...x, kind: e.target.value as SideFixtureKind }))}>
+            {(Object.keys(SIDE_FIXTURE_LABEL) as SideFixtureKind[]).map((k) => (
+              <option key={k} value={k}>
+                {SIDE_FIXTURE_LABEL[k]}
+              </option>
+            ))}
+          </select>
+          {f.kind === "other" && (
+            <input
+              type="text"
+              aria-label="What it is"
+              placeholder="What it is"
+              key={`${f.id}-${f.label ?? ""}`}
+              defaultValue={f.label ?? ""}
+              disabled={readOnly}
+              onBlur={(e) => setFixture(f.id, (x) => ({ ...x, label: e.target.value.trim() || undefined }))}
+            />
+          )}
+          <select aria-label="What is done" value={f.action} disabled={readOnly} onChange={(e) => setFixture(f.id, (x) => ({ ...x, action: e.target.value === "replace" ? "replace" : "detach_reset" }))}>
+            <option value="detach_reset">Detach &amp; reset</option>
+            <option value="replace">Replace</option>
+          </select>
+          <CountInput label={`How many: ${SIDE_FIXTURE_LABEL[f.kind]}`} value={f.count} readOnly={readOnly} onCommit={(count) => setFixture(f.id, (x) => ({ ...x, count }))} />
+          {!readOnly && (
+            <button
+              type="button"
+              className="btn-secondary exterior-row-x"
+              aria-label={`Remove ${SIDE_FIXTURE_LABEL[f.kind]}`}
+              onClick={() => onUpdate((s) => ({ ...s, fixtures: (s.fixtures ?? []).filter((x) => x.id !== f.id) }))}
+            >
+              ×
+            </button>
+          )}
+        </div>
       ))}
-      <line x1={vx} x2={0} y1={0} y2={0} stroke="#7c5a3a" strokeWidth={2} {...stroke} />
-      <line x1={0} x2={L} y1={Y(0)} y2={Y(-fall)} stroke="#7c5a3a" strokeWidth={2} {...stroke} />
-      <line x1={L} x2={vx + vw} y1={Y(-fall)} y2={Y(-fall)} stroke="#7c5a3a" strokeWidth={2} {...stroke} />
-      {labels}
-      {/* The length, under the grade. */}
-      <line x1={0} x2={L} y1={Y(lowZ - fs * 1.4)} y2={Y(lowZ - fs * 1.4)} stroke="#374151" strokeWidth={1} {...stroke} />
-      <line x1={0} x2={0} y1={Y(lowZ - fs * 0.9)} y2={Y(lowZ - fs * 1.9)} stroke="#374151" strokeWidth={1} {...stroke} />
-      <line x1={L} x2={L} y1={Y(lowZ - fs * 0.9)} y2={Y(lowZ - fs * 1.9)} stroke="#374151" strokeWidth={1} {...stroke} />
-      <text x={L / 2} y={Y(lowZ - fs * 2.7)} fontSize={fs} textAnchor="middle" className="exterior-svg-label">
-        {formatFeetInches(shape.lengthFeet)}
-      </text>
-      <line x1={vx + fs} x2={vx + fs + scaleFeet} y1={Y(groundZ + fs * 0.8)} y2={Y(groundZ + fs * 0.8)} stroke="#1a1d23" strokeWidth={2} {...stroke} />
-      <text x={vx + fs + scaleFeet / 2} y={Y(groundZ + fs * 1.2)} fontSize={fs * 0.7} textAnchor="middle" className="exterior-svg-label">
-        {scaleFeet}&prime;
-      </text>
-    </svg>
-  );
-}
-
-function RoofPlanDrawing({ plan, footprint, nameOf }: { plan: RoofPlan; footprint: Footprint; nameOf: (id: string) => string }) {
-  const corners = footprint.corners;
-  const xs = [...plan.outlineRects.flatMap((r) => [r.x0, r.x1]), ...plan.lines.flatMap((l) => [l.a.x, l.b.x]), ...corners.map((p) => p.x)];
-  const ys = [...plan.outlineRects.flatMap((r) => [r.y0, r.y1]), ...plan.lines.flatMap((l) => [l.a.y, l.b.y]), ...corners.map((p) => p.y)];
-  const minX = Math.min(...xs);
-  const maxX = Math.max(...xs);
-  const minY = Math.min(...ys);
-  const maxY = Math.max(...ys);
-  const fs = Math.max(0.6, Math.max(maxX - minX, maxY - minY) * 0.03);
-  const pad = fs * 3.4;
-  const Y = (y: number) => -y;
-  const stroke = { vectorEffect: "non-scaling-stroke" as const };
-  const n = corners.length;
-  return (
-    <svg
-      className="exterior-svg"
-      viewBox={`${minX - pad} ${Y(maxY) - pad} ${maxX - minX + 2 * pad} ${maxY - minY + 2 * pad}`}
-      role="img"
-      aria-label="Roof plan, to scale"
-    >
-      <rect x={minX - pad} y={Y(maxY) - pad} width={maxX - minX + 2 * pad} height={maxY - minY + 2 * pad} fill="#ffffff" />
-      {plan.outlineRects.map((r, i) => (
-        <rect key={i} x={r.x0} y={Y(r.y1)} width={r.x1 - r.x0} height={r.y1 - r.y0} fill="#eef1f5" />
-      ))}
-      {plan.shape === "other" && <polygon points={plan.lines.map((l) => `${l.a.x},${Y(l.a.y)}`).join(" ")} fill="#eef1f5" />}
-      <polygon points={corners.map((p) => `${p.x},${Y(p.y)}`).join(" ")} fill="none" stroke="#6b7280" strokeWidth={1} strokeDasharray="4 3" {...stroke} />
-      {plan.lines.map((l, i) => {
-        const s = LINE_STYLE[l.kind];
-        return <line key={i} x1={l.a.x} y1={Y(l.a.y)} x2={l.b.x} y2={Y(l.b.y)} stroke={s.stroke} strokeWidth={s.width} strokeDasharray={s.dash} strokeLinecap="round" {...stroke} />;
-      })}
-      {plan.lines
-        .filter((l) => (l.kind === "ridge" || l.kind === "hip" || l.kind === "valley") && l.feet >= fs * 3)
-        .map((l, i) => (
-          <text key={`t${i}`} x={(l.a.x + l.b.x) / 2} y={Y((l.a.y + l.b.y) / 2) - fs * 0.35} fontSize={fs * 0.8} textAnchor="middle" className="exterior-svg-label" fill={LINE_STYLE[l.kind].stroke}>
-            {formatFeetInches(l.feet)}
-          </text>
-        ))}
-      {footprint.sideIds.map((id, i) => {
-        const a = corners[i] as Pt;
-        const b = corners[(i + 1) % n] as Pt;
-        const len = Math.hypot(b.x - a.x, b.y - a.y) || 1;
-        const out = { x: (b.y - a.y) / len, y: -(b.x - a.x) / len };
-        const m = { x: (a.x + b.x) / 2 + out.x * pad * 0.62, y: (a.y + b.y) / 2 + out.y * pad * 0.62 };
-        // A label runs along its wall, so one down a side wall reads up the page rather than across the roof.
-        const across = Math.abs(b.y - a.y) > Math.abs(b.x - a.x);
-        return (
-          <text
-            key={id}
-            x={m.x}
-            y={Y(m.y) + fs * 0.35}
-            fontSize={fs * 0.85}
-            textAnchor="middle"
-            className="exterior-svg-label"
-            transform={across ? `rotate(-90 ${m.x} ${Y(m.y)})` : undefined}
-          >
-            {nameOf(id)} {formatFeetInches(footprint.lengthsFeet[i] ?? len)}
-          </text>
-        );
-      })}
-    </svg>
-  );
-}
-
-function RoofLegend({ plan }: { plan: RoofPlan }) {
-  const kinds = (Object.keys(LINE_STYLE) as RoofLineKind[]).filter((k) => plan.lines.some((l) => l.kind === k));
-  return (
-    <div className="exterior-legend">
-      {kinds.map((k) => (
-        <span key={k} className="exterior-legend-item">
-          <svg width="22" height="8" aria-hidden="true">
-            <line x1="1" y1="4" x2="21" y2="4" stroke={LINE_STYLE[k].stroke} strokeWidth={LINE_STYLE[k].width} strokeDasharray={LINE_STYLE[k].dash} />
-          </svg>
-          {LINE_STYLE[k].label}
-        </span>
-      ))}
-      <span className="exterior-legend-item">
-        <svg width="22" height="8" aria-hidden="true">
-          <line x1="1" y1="4" x2="21" y2="4" stroke="#6b7280" strokeWidth={1} strokeDasharray="4 3" />
-        </svg>
-        Walls
-      </span>
+      {!readOnly && (
+        <button
+          type="button"
+          className="btn-secondary"
+          onClick={() => onUpdate((s) => ({ ...s, fixtures: [...(s.fixtures ?? []), { id: newSketchId("fixture"), kind: "dryer_vent", action: "detach_reset", count: 1 }] }))}
+        >
+          + Item on the wall
+        </button>
+      )}
+      <p className="field-note">Dryer and furnace vents, hose bibs, lights: what has to be replaced, or detached and reset for the cladding. Each goes on the scope.</p>
     </div>
+  );
+}
+
+/** A yes or no that starts as neither: unanswered is not no. */
+function YesNo({ label, hint, value, readOnly, onChange }: { label: string; hint?: string; value: boolean | null; readOnly: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <Choice
+      label={label}
+      hint={hint}
+      value={value === null ? null : value ? "yes" : "no"}
+      readOnly={readOnly}
+      options={[
+        ["yes", "Yes"],
+        ["no", "No"],
+      ]}
+      onChange={(v) => onChange(v === "yes")}
+    />
+  );
+}
+
+/** One of a few answers, as buttons; none pressed until it is answered. */
+function Choice<T extends string>({
+  label,
+  hint,
+  value,
+  options,
+  readOnly,
+  onChange,
+}: {
+  label: string;
+  hint?: string;
+  value: T | null;
+  options: [T, string][];
+  readOnly: boolean;
+  onChange: (v: T) => void;
+}) {
+  return (
+    <div className="exterior-choice">
+      <span className="exterior-field-label">
+        {label}
+        {value === null && <span className="exterior-unanswered"> · to answer</span>}
+      </span>
+      <div className="option-group" role="group" aria-label={label}>
+        {options.map(([v, text]) => (
+          <button key={v} type="button" className={`option-btn${value === v ? " selected" : ""}`} aria-pressed={value === v} disabled={readOnly} onClick={() => onChange(v)}>
+            {text}
+          </button>
+        ))}
+      </div>
+      {hint && <span className="field-note">{hint}</span>}
+    </div>
+  );
+}
+
+/** A whole number in a row of other fields. */
+function CountInput({ label, value, readOnly, onCommit }: { label: string; value: number; readOnly: boolean; onCommit: (v: number) => void }) {
+  return (
+    <input
+      className="exterior-feet exterior-count"
+      type="text"
+      inputMode="numeric"
+      aria-label={label}
+      key={`${label}-${value}`}
+      defaultValue={String(value)}
+      disabled={readOnly}
+      onBlur={(e) => {
+        const n = Math.round(Number(e.target.value.trim()));
+        if (!Number.isFinite(n) || n < 0 || n > 99) {
+          e.target.value = String(value);
+          return;
+        }
+        if (n !== value) onCommit(n);
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          e.currentTarget.blur();
+        }
+      }}
+    />
   );
 }
 
@@ -1153,6 +1319,7 @@ function FeetField({
   allowZero = false,
   nullable = false,
   note,
+  placeholder,
 }: {
   id: string;
   label: string;
@@ -1162,13 +1329,14 @@ function FeetField({
   allowZero?: boolean;
   nullable?: boolean;
   note?: string;
+  placeholder?: string;
 }) {
   return (
     <div className="exterior-field">
       <label className="exterior-field-label" htmlFor={id}>
         {label}
       </label>
-      <FeetInput id={id} label={label} value={value} onCommit={onCommit} readOnly={readOnly} allowZero={allowZero} nullable={nullable} />
+      <FeetInput id={id} label={label} value={value} onCommit={onCommit} readOnly={readOnly} allowZero={allowZero} nullable={nullable} placeholder={placeholder} />
       {note && <span className="field-note">{note}</span>}
     </div>
   );
@@ -1183,6 +1351,7 @@ function FeetInput({
   readOnly = false,
   allowZero = false,
   nullable = false,
+  placeholder,
 }: {
   id?: string;
   label: string;
@@ -1191,6 +1360,7 @@ function FeetInput({
   readOnly?: boolean;
   allowZero?: boolean;
   nullable?: boolean;
+  placeholder?: string;
 }) {
   const shown = value == null ? "" : formatFeetInches(value);
   return (
@@ -1203,6 +1373,7 @@ function FeetInput({
       aria-label={id ? undefined : label}
       key={`${label}-${value ?? "none"}`}
       defaultValue={shown}
+      placeholder={placeholder}
       disabled={readOnly}
       onBlur={(e) => {
         const raw = e.target.value.trim();
