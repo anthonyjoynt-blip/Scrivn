@@ -1,5 +1,6 @@
 "use client";
 
+import { DehuKeyIcon, MoverKeyIcon } from "./EquipmentIcons";
 import type { Sketch } from "@/lib/sketch";
 import type { MoistureMap } from "@/lib/moisture";
 import type { DryingPlan } from "@/lib/dryingPlan";
@@ -154,17 +155,11 @@ export function EquipmentPanel({
           {showOnSketch && (
             <span className="equipment-key" aria-hidden="true">
               <span>
-                <svg viewBox="-8 -7 17 14" width="14" height="12">
-                  <path d="M 8 0 L -5 -5.5 L -2.5 0 L -5 5.5 Z" fill="#1b3a5c" />
-                </svg>{" "}
-                Air mover
+                <MoverKeyIcon /> Air mover
               </span>
               {plan.dehumidifiersPlaced ? (
                 <span>
-                  <svg viewBox="0 0 14 10" width="14" height="10">
-                    <rect width="14" height="10" rx="2" fill="#c97a0e" />
-                  </svg>{" "}
-                  Dehumidifier
+                  <DehuKeyIcon /> Dehumidifier
                 </span>
               ) : (
                 <span>Desiccants stand outside and duct in, so none are drawn.</span>

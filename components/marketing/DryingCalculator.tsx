@@ -1,5 +1,6 @@
 "use client";
 
+import { DehuKeyIcon, DehuSvg, MoverKeyIcon, MoverSvg } from "@/components/sketch/EquipmentIcons";
 import { useId, useState } from "react";
 import {
   DEFAULT_EQUIPMENT_SETTINGS,
@@ -330,8 +331,7 @@ const VIEW_H = 200;
 const PAD = 26;
 const WET = "#b3382c";
 const DRY = "#5b6b7c";
-const MOVER = "#1b3a5c";
-const DEHU = "#c97a0e";
+// The equipment is drawn as Scrivn Scan and the claim sketch draw it (lib/equipmentGlyphs.ts, components/sketch/EquipmentIcons.tsx).
 
 /**
  * The room to scale, with the walls as the wet/dry switches and the plan's equipment drawn on it.
@@ -383,22 +383,12 @@ function RoomPlanDrawing({
           );
         })}
 
-        {plan?.dehumidifierSpots.map((s, i) => {
-          const along = s.headingDeg === 0;
-          const w = along ? 20 : 14;
-          const h = along ? 14 : 20;
-          return (
-            <g key={`dehu-${i}`} aria-hidden="true">
-              <rect x={X(s.x) - w / 2} y={Y(s.y) - h / 2} width={w} height={h} rx={2} fill={DEHU} />
-              <text x={X(s.x)} y={Y(s.y) + 3.5} textAnchor="middle" className="mk-calc-dehu-mark">
-                D
-              </text>
-            </g>
-          );
-        })}
+        {plan?.dehumidifierSpots.map((s, i) => (
+          <DehuSvg key={`dehu-${i}`} x={X(s.x)} y={Y(s.y)} headingDeg={s.headingDeg} scale={0.8} />
+        ))}
 
         {plan?.airMoverSpots.map((s, i) => (
-          <path key={`mover-${i}`} d="M 8 0 L -5 -5.5 L -2.5 0 L -5 5.5 Z" fill={MOVER} transform={`translate(${X(s.x)} ${Y(s.y)}) rotate(${s.headingDeg})`} aria-hidden="true" />
+          <MoverSvg key={`mover-${i}`} x={X(s.x)} y={Y(s.y)} headingDeg={s.headingDeg} scale={0.6} />
         ))}
 
         {corners.map((a, i) => {
@@ -430,16 +420,10 @@ function RoomPlanDrawing({
       </svg>
       <div className="mk-calc-legend" aria-hidden="true">
         <span>
-          <svg viewBox="-8 -7 17 14" width="14" height="12">
-            <path d="M 8 0 L -5 -5.5 L -2.5 0 L -5 5.5 Z" fill={MOVER} />
-          </svg>{" "}
-          Air mover
+          <MoverKeyIcon /> Air mover
         </span>
         <span>
-          <svg viewBox="0 0 14 10" width="14" height="10">
-            <rect width="14" height="10" rx="2" fill={DEHU} />
-          </svg>{" "}
-          Dehumidifier
+          <DehuKeyIcon /> Dehumidifier
         </span>
         <span>
           <svg viewBox="0 0 16 6" width="16" height="6">

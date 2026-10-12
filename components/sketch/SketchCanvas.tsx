@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo, useRef } from "react";
-import { Arc, Circle, Ellipse, Group, Layer, Line, Rect, Shape, Stage, Text } from "react-konva";
+import { Arc, Circle, Ellipse, Group, Layer, Line, Path, Rect, Shape, Stage, Text } from "react-konva";
+import { DEHU_COLOR, DEHU_GLYPH, GLYPH_EDGE, MOVER_AIR_COLOR, MOVER_COLOR, MOVER_GLYPH } from "@/lib/equipmentGlyphs";
 // A value import, not a type: the room label measures its name with a Konva.Text — see `RoomLabel`.
 // Safe here because react-konva pulls Konva in anyway, and this module is already client-only.
 import Konva from "konva";
@@ -158,8 +159,8 @@ const COLORS = {
   /* A scope marking — where work applies, which has no severity to grade. */
   scopeMark: "#c97a0e",
   /* The drying plan's equipment, in the drying calculator's colours. */
-  airMover: "#1b3a5c",
-  dehumidifier: "#c97a0e",
+  airMover: MOVER_COLOR,
+  dehumidifier: DEHU_COLOR,
 };
 
 const HIT = { wall: 28, handle: 22, symbol: 30 };
@@ -1028,14 +1029,15 @@ function BackgroundGrid({ view, width, height }: { view: SketchView; width: numb
   return <>{lines}</>;
 }
 
-/** The drying calculator's dart, nose at +x: turned by a spot's heading, it points the way the air leaves. */
-const MOVER_DART = [8, 0, -5, -5.5, -2.5, 0, -5, 5.5];
-/** The equipment glyphs a fifth bigger on screen than on the calculator's little plan. */
-const EQUIPMENT_GLYPH_SCALE = 1.2;
+/**
+ * The equipment glyphs' size on screen: lib/equipmentGlyphs.ts's units times this, whatever the zoom - the mover's housing
+ * 18 px across.
+ */
+const EQUIPMENT_GLYPH_SCALE = 0.9;
 
 /**
- * The drying plan's equipment (`sketchDryingPlan`): an air mover as a navy dart, a dehumidifier as an
- * amber box with a D, the drying calculator's glyphs. Spots are in feet, so times PIXELS_PER_FOOT here;
+ * The drying plan's equipment (`sketchDryingPlan`), drawn as Scrivn Scan draws it (lib/equipmentGlyphs.ts, 2026-10-12): an air
+ * mover as a blower seen from above, its mouth the way the air leaves; a dehumidifier as a teal box with a water drop. Spots are in feet, so times PIXELS_PER_FOOT here;
  * the glyphs hold their size on screen at any zoom, as the names do. Deaf: a tap goes through to the
  * wall or floor under it, as if it were not there.
  *
@@ -1047,8 +1049,10 @@ function DryingEquipment({ plan, rooms, names, zoom }: { plan: DryingPlan; rooms
   const scale = EQUIPMENT_GLYPH_SCALE / zoom;
   const belowNames = (x: number, y: number, headingDeg: number) => {
     const turn = (headingDeg * Math.PI) / 180;
-    const hw = (10 * Math.abs(Math.cos(turn)) + 7 * Math.abs(Math.sin(turn))) * scale;
-    const hh = (10 * Math.abs(Math.sin(turn)) + 7 * Math.abs(Math.cos(turn))) * scale;
+    const a = DEHU_GLYPH.w / 2;
+    const b = DEHU_GLYPH.h / 2;
+    const hw = (a * Math.abs(Math.cos(turn)) + b * Math.abs(Math.sin(turn))) * scale;
+    const hh = (a * Math.abs(Math.sin(turn)) + b * Math.abs(Math.cos(turn))) * scale;
     const under = names.find((box) => boxesHit(box, { l: x - hw, t: y - hh, r: x + hw, b: y + hh }));
     return under ? under.b + hh + 3 / zoom : y;
   };
@@ -1065,23 +1069,36 @@ function DryingEquipment({ plan, rooms, names, zoom }: { plan: DryingPlan; rooms
               scaleX={scale}
               scaleY={scale}
             >
-              <Rect width={20} height={14} offsetX={10} offsetY={7} rotation={spot.headingDeg} cornerRadius={2} fill={COLORS.dehumidifier} />
+              <Rect
+                width={DEHU_GLYPH.w}
+                height={DEHU_GLYPH.h}
+                offsetX={DEHU_GLYPH.w / 2}
+                offsetY={DEHU_GLYPH.h / 2}
+                rotation={spot.headingDeg}
+                cornerRadius={DEHU_GLYPH.rx}
+                fill={COLORS.dehumidifier}
+                stroke={GLYPH_EDGE}
+                strokeWidth={1.6}
+              />
               {/* Upright whichever way the box lies. */}
-              <Text x={-10} y={-10} width={20} height={20} align="center" verticalAlign="middle" text="D" fontSize={10} fontStyle="bold" fill="#ffffff" />
+              <Path data={DEHU_GLYPH.drop} fill={GLYPH_EDGE} />
             </Group>
           )),
           ...room.airMoverSpots.map((spot, i) => (
-            <Line
+            <Group
               key={`mover:${room.roomId}:${i}`}
               x={spot.x * PIXELS_PER_FOOT}
               y={spot.y * PIXELS_PER_FOOT}
               rotation={spot.headingDeg}
               scaleX={scale}
               scaleY={scale}
-              points={MOVER_DART}
-              closed
-              fill={COLORS.airMover}
-            />
+            >
+              <Path data={MOVER_GLYPH.air} stroke={MOVER_AIR_COLOR} strokeWidth={2.2} lineCap="round" />
+              <Path data={MOVER_GLYPH.mouth} fill={COLORS.airMover} stroke={GLYPH_EDGE} strokeWidth={1.6} lineJoin="round" />
+              <Circle radius={MOVER_GLYPH.housingR} fill={COLORS.airMover} stroke={GLYPH_EDGE} strokeWidth={1.6} />
+              <Path data={MOVER_GLYPH.swirl} stroke={GLYPH_EDGE} strokeWidth={2} lineCap="round" />
+              <Circle radius={MOVER_GLYPH.hubR} fill={GLYPH_EDGE} />
+            </Group>
           )),
         ])}
     </Group>
