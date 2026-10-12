@@ -117,6 +117,40 @@ export interface ExteriorSide {
   openings: ExteriorOpening[];
   /** What is on the wall and has to come off for the cladding, or be replaced: dryer vents, hose bibs... Optional for exteriors saved before it. */
   fixtures?: SideFixture[];
+  /**
+   * "level": every height on the side is from ONE level - Scan's ground estimate for the side - so
+   * no slope of the ground is read from the two eaves, and they may differ (a gable whose eave
+   * steps). Absent: each height is from the grade under it, as a tape reads it.
+   */
+  heightsFrom?: "level";
+  /**
+   * The faces as tapped on the phone (arcapture-exterior/2): a polygon per material, round like a
+   * room. When there are any they ARE the side's cladding, in place of the bands; parging is drawn
+   * and not counted, and so is a shape left open.
+   */
+  shapes?: ExteriorShape[];
+  /** The roof's edge as the phone read it along the side: its ends, and its peak on a gable. */
+  roofline?: RooflinePoint[];
+  /** The pitch the phone worked out from this side, rise in 12. Believed over the gable's own when both are there. */
+  pitchMeasured?: number | null;
+}
+
+export interface ExteriorShape {
+  id: string;
+  kind: CladdingKind | "parging";
+  /** What "other" is. */
+  label?: string;
+  /** Tapped back round to its first corner. An open shape is drawn, never counted. */
+  closed: boolean;
+  /** Its corners in tap order, in the side's frame: feet along from the left end, feet up. */
+  polygon: Pt[];
+}
+
+export interface RooflinePoint {
+  alongFeet: number;
+  upFeet: number;
+  /** How far in front of the wall face, read by depth; null where it was aimed onto the face. */
+  outFeet: number | null;
 }
 
 export type SideFixtureKind = "dryer_vent" | "furnace_vent" | "hose_bib" | "light" | "outlet" | "other";
@@ -360,7 +394,7 @@ export interface ElevationShape {
 
 /** The grade's height in the side's frame at x along it. */
 function gradeAt(side: ExteriorSide, x: number): number {
-  if (side.eaveLeftFeet == null || side.eaveRightFeet == null || side.lengthFeet <= 0) return 0;
+  if (side.heightsFrom === "level" || side.eaveLeftFeet == null || side.eaveRightFeet == null || side.lengthFeet <= 0) return 0;
   return -((side.eaveRightFeet - side.eaveLeftFeet) * x) / side.lengthFeet;
 }
 
@@ -377,7 +411,7 @@ export function zFromGrade(side: ExteriorSide, x: number, above: number): number
  */
 export function elevationShape(side: ExteriorSide, roofRise: RoofRise | null = null): ElevationShape {
   const L = Math.max(0, side.lengthFeet);
-  const fall = side.eaveLeftFeet != null && side.eaveRightFeet != null ? side.eaveRightFeet - side.eaveLeftFeet : 0;
+  const fall = side.heightsFrom !== "level" && side.eaveLeftFeet != null && side.eaveRightFeet != null ? side.eaveRightFeet - side.eaveLeftFeet : 0;
   const grade: [Pt, Pt] = [{ x: 0, y: 0 }, { x: L, y: -fall }];
   const baseL = side.base === "grade" ? 0 : side.baseLeftFeet;
   const baseR = side.base === "grade" ? 0 : side.baseRightFeet;
@@ -460,12 +494,62 @@ export function bandRanges(side: ExteriorSide, eaveZ: number | null): { band: Cl
   });
 }
 
-/** What an elevation drawing needs: the shape, each band's face, and each opening's rectangle. */
+/** One face of cladding on an elevation: a band of it, or a shape tapped on the phone. */
+export interface ElevationFace {
+  id: string;
+  kind: CladdingKind | "parging";
+  label: string;
+  poly: Pt[];
+  /** False for a shape left open: drawn, not counted. */
+  closed: boolean;
+}
+
+function shapeLabel(shape: ExteriorShape): string {
+  if (shape.kind === "parging") return "Parging";
+  return shape.kind === "other" && shape.label?.trim() ? shape.label.trim() : CLADDING_LABEL[shape.kind];
+}
+
+/** The lowest y of a polygon's edges over x, or Infinity where it has none. */
+function lowestAt(poly: Pt[], x: number): number {
+  let low = Infinity;
+  for (let i = 0; i < poly.length; i++) {
+    const p = poly[i] as Pt;
+    const q = poly[(i + 1) % poly.length] as Pt;
+    if (x < Math.min(p.x, q.x) - 1e-9 || x > Math.max(p.x, q.x) + 1e-9) continue;
+    if (Math.abs(q.x - p.x) < 1e-9) low = Math.min(low, p.y, q.y);
+    else low = Math.min(low, p.y + ((q.y - p.y) * (x - p.x)) / (q.x - p.x));
+  }
+  return low;
+}
+
+/**
+ * The ground under a side tapped as shapes: the bottom edge of its parging, where the parging was
+ * tapped down to the ground - Scan's one level elsewhere. What the drawing stands the side on.
+ */
+function gradeFromParging(shapes: ExteriorShape[]): Pt[] | null {
+  const polys = shapes.filter((s) => s.kind === "parging" && s.polygon.length >= 3).map((s) => s.polygon);
+  if (polys.length === 0) return null;
+  const xs = [...new Set(polys.flatMap((p) => p.map((v) => Math.round(v.x * 1e6) / 1e6)))].sort((a, b) => a - b);
+  const pts = xs.map((x) => ({ x, y: Math.min(...polys.map((p) => lowestAt(p, x))) })).filter((p) => Number.isFinite(p.y));
+  return pts.length >= 2 ? pts : null;
+}
+
+/** What an elevation drawing needs: the shape, each face of cladding, the ground, and each opening's rectangle. */
 export function elevationFaces(side: ExteriorSide, roofRise: RoofRise | null = null) {
-  const shape = elevationShape(side, roofRise);
-  const bands = shape.eaveZ === null ? [] : bandRanges(side, shape.eaveZ).map(({ band, lo, hi }) => ({ band, lo, hi, poly: clipLevels(shape.cladding, lo, hi) }));
+  const fromShapes = (side.shapes ?? []).some((s) => s.polygon.length >= 2);
+  // Tapped shapes are the face: the roof draws no gable over them.
+  const shape = elevationShape(side, fromShapes ? null : roofRise);
   const openings = side.openings.map((opening) => ({ opening, rect: openingRect(side, opening) }));
-  return { shape, bands, openings };
+  if (fromShapes) {
+    const faces: ElevationFace[] = (side.shapes ?? [])
+      .filter((s) => s.polygon.length >= 2)
+      .map((s) => ({ id: s.id, kind: s.kind, label: shapeLabel(s), poly: s.polygon, closed: s.closed && s.polygon.length >= 3 }));
+    return { shape, faces, bandLines: [] as number[], grade: gradeFromParging(side.shapes ?? []) ?? [...shape.grade], openings, fromShapes };
+  }
+  const ranges = shape.eaveZ === null ? [] : bandRanges(side, shape.eaveZ);
+  const faces: ElevationFace[] = ranges.map(({ band, lo, hi }) => ({ id: band.id, kind: band.kind, label: bandLabel(band), poly: clipLevels(shape.cladding, lo, hi), closed: true }));
+  const bandLines = ranges.slice(0, -1).map((r) => r.hi).filter((v) => Number.isFinite(v));
+  return { shape, faces, bandLines, grade: [...shape.grade], openings, fromShapes };
 }
 
 export interface BandQuantities {
@@ -505,6 +589,50 @@ export function bandLabel(band: CladdingBand): string {
   return band.kind === "other" && band.label?.trim() ? band.label.trim() : CLADDING_LABEL[band.kind];
 }
 
+/**
+ * A side tapped as shapes: each closed shape of cladding is its own face, its area its polygon's,
+ * less every opening where it overlaps it - a window across a stucco/stone line comes out of both.
+ * Parging and open shapes are not counted. The wall/gable split is the line between the two eaves.
+ */
+function shapeQuantities(side: ExteriorSide, empty: SideQuantities): SideQuantities {
+  const faces = (side.shapes ?? []).filter((s) => s.closed && s.kind !== "parging" && s.polygon.length >= 3);
+  if (faces.length === 0) return empty;
+  const L = Math.max(1e-9, side.lengthFeet);
+  const rects = side.openings.map((o) => openingRect(side, o));
+  const bands: BandQuantities[] = faces.map((f) => {
+    const gross = area(f.polygon);
+    const holes = rects.reduce((sum, r) => sum + area(clipRect(f.polygon, r.x0, r.x1, r.y0, r.y1)), 0);
+    return { bandId: f.id, kind: f.kind as CladdingKind, label: shapeLabel(f), grossSquareFeet: gross, openingSquareFeet: holes, netSquareFeet: Math.max(0, gross - holes) };
+  });
+  const zl = side.eaveLeftFeet;
+  const zr = side.eaveRightFeet ?? zl;
+  const gross = bands.reduce((sum, b) => sum + b.grossSquareFeet, 0);
+  const holes = bands.reduce((sum, b) => sum + b.openingSquareFeet, 0);
+  // Below the line between the two eaves is wall; above it, gable.
+  const wall = zl == null || zr == null ? gross : faces.reduce((sum, f) => sum + area(clipHalf(f.polygon, -(zr - zl) / L, 1, zl)), 0);
+  const baseL = side.base === "grade" ? 0 : side.baseLeftFeet;
+  const baseR = side.base === "grade" ? 0 : side.baseRightFeet;
+  let pitchFromGable: number | null = side.pitchMeasured ?? null;
+  if (pitchFromGable === null && side.gable && zl != null && zr != null) {
+    const at = clamp(side.gable.atFeet, 0, L);
+    const eaveAt = zl + ((zr - zl) * at) / L;
+    if (at > 0 && at < L) pitchFromGable = ((side.gable.peakFeet - eaveAt) / Math.min(at, L - at)) * 12;
+  }
+  return {
+    ...empty,
+    complete: true,
+    wallSquareFeet: wall,
+    gableSquareFeet: Math.max(0, gross - wall),
+    grossSquareFeet: gross,
+    openingSquareFeet: holes,
+    netSquareFeet: Math.max(0, gross - holes),
+    bands,
+    corners: { leftFeet: zl == null ? 0 : zl - baseL, rightFeet: zr == null ? 0 : zr - baseR },
+    pitchFromGable,
+    gableSource: side.gable ? "measured" : null,
+  };
+}
+
 export function sideQuantities(side: ExteriorSide, roofRise: RoofRise | null = null): SideQuantities {
   const shape = elevationShape(side, roofRise);
   const openings = side.openings.map((o) => ({ id: o.id, kind: o.kind, widthFeet: o.widthFeet, heightFeet: o.heightFeet, squareFeet: o.widthFeet * o.heightFeet }));
@@ -527,6 +655,7 @@ export function sideQuantities(side: ExteriorSide, roofRise: RoofRise | null = n
     pitchFromGable: null,
     gableSource: null,
   };
+  if ((side.shapes ?? []).length > 0) return shapeQuantities(side, empty);
   if (shape.eaveZ === null || shape.cladding.length < 3) return empty;
   const eaveZ = shape.eaveZ;
 
@@ -542,8 +671,8 @@ export function sideQuantities(side: ExteriorSide, roofRise: RoofRise | null = n
   const gross = bands.reduce((s, b) => s + b.grossSquareFeet, 0);
   const holes = bands.reduce((s, b) => s + b.openingSquareFeet, 0);
 
-  let pitchFromGable: number | null = null;
-  if (shape.gable?.source === "measured") {
+  let pitchFromGable: number | null = side.pitchMeasured ?? null;
+  if (pitchFromGable === null && shape.gable?.source === "measured") {
     const half = (shape.gable.to - shape.gable.from) / 2;
     if (half > 0) pitchFromGable = ((shape.gable.peak.y - eaveZ) / half) * 12;
   }

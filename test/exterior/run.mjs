@@ -706,8 +706,9 @@ test("a side's heights are from one grade level: band lines as tapped, two eave 
   near(left.eaveLeftFeet, 3.912 * M, "eave averaged", 1e-9);
   assert(left.eaveLeftFeet === left.eaveRightFeet, "no grade fall invented from the difference");
   assert(r.notes.some((n) => /eave taps differ on Left \(6 in\)/.test(n)), r.notes.join(" | "));
-  // The peak, 5.613 m up: 1.701 m over the eave, over the 5 m half span.
-  near(x.sideQuantities(left).pitchFromGable, (1.701 / 5) * 12, "pitch from the peak", 1e-3);
+  // The phone's own pitch is believed (4.1); worked from the peak it would be 1.701 m over the 5 m half span, 4.08.
+  near(x.sideQuantities(left).pitchFromGable, 4.1, "the phone's pitch", 1e-9);
+  near(x.sideQuantities({ ...left, pitchMeasured: null }).pitchFromGable, (1.701 / 5) * 12, "the peak's, without it", 1e-3);
 });
 
 test("Scan's own Send body for an exterior walked alone", () => {
@@ -778,6 +779,71 @@ test("a capture with rooms and an exterior brings both, but never over a hand-ma
   const kept = x.adoptScan({ rooms: [], exterior: mine }, pending(body));
   assert(kept.sketch.exterior === mine, "the hand-made exterior kept");
   assert(kept.notes.some((n) => /exterior was not applied/.test(n)), kept.notes.join(" | "));
+});
+
+console.log("\nfrom Scrivn Scan, tapped as shapes (arcapture-exterior/2)");
+
+test("the owner's gable side, tapped as shapes: the stucco's own area, less its window, parging not counted", () => {
+  const r = x.parseScanExterior(fixture("scan-exterior-v2-sample.json"));
+  assert(r.ok, r.error);
+  const side = r.exterior.sides[0];
+  assert(side.shapes.length === 2 && side.shapes[0].kind === "stucco" && side.shapes[1].kind === "parging", side.shapes.map((s) => s.kind).join());
+  assert(side.shapes[0].polygon.length === 7 && side.shapes[0].closed, "seven corners, closed");
+  const q = x.sideQuantities(side);
+  // Scan: stucco 40.765 m2 gross, 0.75 m2 of window, 40.015 m2 net; parging 7.2 m2 not cladding.
+  assert(q.complete && q.bands.length === 1 && q.bands[0].kind === "stucco", q.bands.map((b) => b.kind).join());
+  near(q.grossSquareFeet, 40.765 * M2, "stucco gross", 0.05);
+  near(q.openingSquareFeet, 0.75 * M2, "the window", 0.01);
+  near(q.netSquareFeet, 40.015 * M2, "stucco net", 0.05);
+  near(q.wallSquareFeet + q.gableSquareFeet, q.grossSquareFeet, "wall and gable make the whole", 1e-6);
+  assert(!r.notes.some((n) => /different areas/.test(n)), r.notes.join(" | "));
+});
+
+test("one ground level: the eaves keep their own heights, the phone's pitch is believed", () => {
+  const side = x.parseScanExterior(fixture("scan-exterior-v2-sample.json")).exterior.sides[0];
+  assert(side.heightsFrom === "level", "heights from one level");
+  near(side.eaveLeftFeet, 3.9 * M, "eave over the left wall", 1e-9);
+  near(side.eaveRightFeet, 4.9 * M, "eave under the right rake", 1e-9);
+  near(x.sideQuantities(side).fallFeet, 0, "no slope read from them");
+  near(x.sideQuantities(side).pitchFromGable, 4.304, "Scan's 4.3/12", 1e-9);
+  near(x.sideQuantities(side).corners.leftFeet, (3.9 - 0.9) * M, "wall at the left corner, above the parging", 1e-9);
+});
+
+test("the roofline sets the rake overhang, and the roof over the deck is said, not dropped", () => {
+  const r = x.parseScanExterior(fixture("scan-exterior-v2-sample.json"));
+  // A side whose roofline has a peak is a gable: its roof edge 0.3 m out is the rake overhang.
+  near(r.exterior.roof.rakeOverhangFeet, 0.3 * M, "rake overhang", 1e-9);
+  near(r.exterior.roof.eaveOverhangFeet, 16 / 12, "no eave side measured: the default stands");
+  assert(r.notes.some((n) => /^Overhangs from the phone's roofline: rake 1'\./.test(n)), r.notes.join(" | "));
+  // 3.1 m past the left wall over the deck; 0.6 m past the right is an ordinary overhang.
+  assert(r.notes.some((n) => /The roof runs 10'2" past Front's left end/.test(n)), r.notes.join(" | "));
+  assert(!r.notes.some((n) => /past Front's right end/.test(n)), "the right end is an ordinary overhang");
+  assert(r.exterior.sides[0].roofline.length === 3, "kept on the side for the drawing");
+});
+
+test("Scan's own Send body for /2: an exterior capture of its own", () => {
+  const body = fixture("scan-exterior-v2-send.json");
+  assert(x.isExteriorOnlyScan(body), "rooms: [] plus exterior");
+  const made = x.sketchFromScan(body, { scanId: "s", captureId: null, receivedAt: "2026-10-12T20:00:00Z" });
+  assert(made.ok, made.error);
+  assert(made.sketch.rooms.length === 0 && made.sketch.exterior.sides[0].shapes.length === 2, "the shapes came in");
+});
+
+test("a shape left open is drawn, not counted, and said", () => {
+  const raw = fixture("scan-exterior-v2-sample.json");
+  raw.sides[0].shapes[0].closed = false;
+  const r = x.parseScanExterior(raw);
+  assert(r.ok, r.error);
+  const q = x.sideQuantities(r.exterior.sides[0]);
+  assert(!q.complete && q.grossSquareFeet === 0, "nothing counted from an open shape");
+  assert(r.notes.some((n) => /left open is drawn but not counted: Front \(stucco\)/.test(n)), r.notes.join(" | "));
+});
+
+test("a side's shapes set aside by hand fall back to its band", () => {
+  const side = x.parseScanExterior(fixture("scan-exterior-v2-sample.json")).exterior.sides[0];
+  const bands = { ...side, shapes: undefined };
+  assert(bands.bands.length === 1 && bands.bands[0].kind === "stucco", "one band of the main cladding");
+  assert(x.sideQuantities(bands).complete, "and it measures");
 });
 
 console.log(`\n${passed.length} passed, ${failures.length} failed`);

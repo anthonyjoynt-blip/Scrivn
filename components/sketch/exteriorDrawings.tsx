@@ -52,58 +52,83 @@ const INK = "#1a1d23";
 /** Pixel size for drawing as an image; the editor sizes them by its stylesheet instead. */
 type Size = { width: number; height: number };
 
+/** How far an elevation reaches: the wall, its faces, its roofline and its openings - a strip of stucco over a deck runs past the wall. */
+function elevationExtent(side: ExteriorSide, rise: RoofRise | null) {
+  const { shape, faces, openings } = elevationFaces(side, rise);
+  const L = Math.max(1, shape.lengthFeet);
+  const roofline = side.roofline ?? [];
+  const xs = [0, L, ...faces.flatMap((f) => f.poly.map((p) => p.x)), ...roofline.map((r) => r.alongFeet)];
+  const ys = [
+    shape.eaveZ ?? DEFAULT_EAVE_FEET,
+    side.eaveRightFeet ?? 0,
+    ...shape.top.map((p) => p.y),
+    ...faces.flatMap((f) => f.poly.map((p) => p.y)),
+    ...roofline.map((r) => r.upFeet),
+    ...openings.map((o) => o.rect.y1),
+  ];
+  return { minX: Math.min(...xs), maxX: Math.max(...xs), topZ: Math.max(...ys), lowZ: Math.min(0, -shape.fallFeet, ...faces.flatMap((f) => f.poly.map((p) => p.y))) };
+}
+
 /** The lettering size an elevation picks for itself, in feet: 3% of its larger dimension. */
 export function elevationFontFeet(side: ExteriorSide, rise: RoofRise | null): number {
-  const { shape, openings } = elevationFaces(side, rise);
-  const topZ = Math.max(shape.eaveZ ?? DEFAULT_EAVE_FEET, ...shape.top.map((p) => p.y), ...openings.map((o) => o.rect.y1));
-  const lowZ = Math.min(0, -shape.fallFeet);
-  return Math.max(0.5, Math.max(Math.max(1, shape.lengthFeet), topZ - lowZ) * 0.03);
+  const e = elevationExtent(side, rise);
+  return Math.max(0.5, Math.max(Math.max(1, e.maxX - e.minX), e.topZ - e.lowZ) * 0.03);
 }
+
+const FACE_FILL = (kind: CladdingKind | "parging") => (kind === "parging" ? "#c9ccd1" : CLADDING_FILL[kind]);
 
 /**
  * One side, to scale. `fontFeet` sets the lettering, so a sheet of sides drawn at one scale can
  * letter them all alike; left out, the drawing sizes it to itself.
  */
 export function ElevationDrawing({ side, rise, size, fontFeet }: { side: ExteriorSide; rise: RoofRise | null; size?: Size; fontFeet?: number }) {
-  const { shape, bands, openings } = elevationFaces(side, rise);
+  const { shape, faces, bandLines, grade, openings, fromShapes } = elevationFaces(side, rise);
   const L = Math.max(1, shape.lengthFeet);
-  const fall = shape.fallFeet;
   const eaveZ = shape.eaveZ;
-  const topZ = Math.max(eaveZ ?? DEFAULT_EAVE_FEET, ...shape.top.map((p) => p.y), ...openings.map((o) => o.rect.y1));
-  const lowZ = Math.min(0, -fall);
+  const ext = elevationExtent(side, rise);
   const fs = fontFeet ?? elevationFontFeet(side, rise);
   const padX = fs * 4.2;
-  const groundZ = lowZ - fs * 4;
-  const vx = -padX;
-  const vw = L + 2 * padX;
-  const vy = -(topZ + fs * 2.6);
-  const vh = topZ + fs * 2.6 - groundZ;
+  const groundZ = ext.lowZ - fs * 4;
+  const vx = ext.minX - padX;
+  const vw = ext.maxX - ext.minX + 2 * padX;
+  const vy = -(ext.topZ + fs * 2.6);
+  const vh = ext.topZ + fs * 2.6 - groundZ;
   const Y = (z: number) => -z;
   const pts = (poly: Pt[]) => poly.map((p) => `${p.x},${Y(p.y)}`).join(" ");
   const stroke = { vectorEffect: "non-scaling-stroke" as const };
   const text = { fill: INK, fontFamily: FONT };
   const labels: ReactNode[] = [];
+  const g0 = grade[0] as Pt;
+  const gN = grade[grade.length - 1] as Pt;
+  const ground = [{ x: vx, y: g0.y }, ...grade, { x: vx + vw, y: gN.y }];
 
-  if (eaveZ !== null && side.eaveLeftFeet != null && side.eaveRightFeet != null) {
+  // The eave at each end: level for a taped side, each its own on a side tapped from one level.
+  const eaveLeftZ = fromShapes || side.heightsFrom === "level" ? side.eaveLeftFeet : eaveZ;
+  const eaveRightZ = fromShapes || side.heightsFrom === "level" ? side.eaveRightFeet ?? side.eaveLeftFeet : eaveZ;
+  if (eaveLeftZ != null && side.eaveLeftFeet != null) {
     labels.push(
-      <text key="eL" x={-fs * 0.5} y={Y(eaveZ) + fs * 0.35} fontSize={fs} textAnchor="end" {...text}>
+      <text key="eL" x={-fs * 0.5} y={Y(eaveLeftZ) + fs * 0.35} fontSize={fs} textAnchor="end" {...text}>
         {formatFeetInches(side.eaveLeftFeet)}
       </text>,
-      <text key="eR" x={L + fs * 0.5} y={Y(eaveZ) + fs * 0.35} fontSize={fs} textAnchor="start" {...text}>
+    );
+  }
+  if (eaveRightZ != null && side.eaveRightFeet != null) {
+    labels.push(
+      <text key="eR" x={L + fs * 0.5} y={Y(eaveRightZ) + fs * 0.35} fontSize={fs} textAnchor="start" {...text}>
         {formatFeetInches(side.eaveRightFeet)}
       </text>,
     );
   }
-  if (shape.gable) {
-    const p = shape.gable.peak;
-    const above = p.y - zFromGrade(side, p.x, 0);
+  const peak = fromShapes ? (side.gable ? { x: side.gable.atFeet, y: zFromGrade(side, side.gable.atFeet, side.gable.peakFeet), source: "measured" } : null) : shape.gable ? { ...shape.gable.peak, source: shape.gable.source } : null;
+  if (peak) {
     labels.push(
-      <text key="peak" x={p.x} y={Y(p.y) - fs * 0.6} fontSize={fs} textAnchor="middle" {...text}>
-        {formatFeetInches(above)}
-        {shape.gable.source === "roof" ? " (roof)" : ""}
+      <text key="peak" x={peak.x} y={Y(peak.y) - fs * 0.6} fontSize={fs} textAnchor="middle" {...text}>
+        {formatFeetInches(peak.y - zFromGrade(side, peak.x, 0))}
+        {peak.source === "roof" ? " (roof)" : ""}
       </text>,
     );
   }
+  const roofline = side.roofline ?? [];
 
   const scaleFeet = L >= 30 ? 10 : 5;
   return (
@@ -117,28 +142,39 @@ export function ElevationDrawing({ side, rise, size, fontFeet }: { side: Exterio
       aria-label={`${side.name} elevation, to scale`}
     >
       <rect x={vx} y={vy} width={vw} height={vh} fill="#ffffff" />
-      <polygon points={pts([{ x: vx, y: 0 }, { x: 0, y: 0 }, { x: L, y: -fall }, { x: vx + vw, y: -fall }, { x: vx + vw, y: groundZ }, { x: vx, y: groundZ }])} fill="#efe7da" />
-      {side.base === "parging" && <polygon points={pts([shape.grade[0], shape.grade[1], shape.bottom[1], shape.bottom[0]])} fill="#c9ccd1" stroke="#8a9099" strokeWidth={1} {...stroke} />}
-      {bands.map(({ band, poly }) => poly.length >= 3 && <polygon key={band.id} points={pts(poly)} fill={CLADDING_FILL[band.kind]} />)}
-      {bands.slice(0, -1).map(({ band, hi }) =>
-        Number.isFinite(hi) && eaveZ !== null && hi > Math.min(shape.bottom[0].y, shape.bottom[1].y) && hi < topZ ? (
-          <line key={`line-${band.id}`} x1={0} x2={L} y1={Y(hi)} y2={Y(hi)} stroke="#6b7280" strokeWidth={1} strokeDasharray="5 4" {...stroke} />
+      <polygon points={pts([...ground, { x: vx + vw, y: groundZ }, { x: vx, y: groundZ }])} fill="#efe7da" />
+      {!fromShapes && side.base === "parging" && <polygon points={pts([shape.grade[0], shape.grade[1], shape.bottom[1], shape.bottom[0]])} fill="#c9ccd1" stroke="#8a9099" strokeWidth={1} {...stroke} />}
+      {faces.map((f) =>
+        f.poly.length >= 3 ? (
+          <polygon key={f.id} points={pts(f.poly)} fill={f.closed ? FACE_FILL(f.kind) : "none"} stroke={fromShapes ? "#374151" : "none"} strokeWidth={fromShapes ? 1.2 : 0} strokeDasharray={f.closed ? undefined : "4 3"} {...stroke} />
+        ) : (
+          <polyline key={f.id} points={pts(f.poly)} fill="none" stroke="#374151" strokeWidth={1.2} strokeDasharray="4 3" {...stroke} />
+        ),
+      )}
+      {bandLines.map((hi, i) =>
+        eaveZ !== null && hi > Math.min(shape.bottom[0].y, shape.bottom[1].y) && hi < ext.topZ ? (
+          <line key={`line-${i}`} x1={0} x2={L} y1={Y(hi)} y2={Y(hi)} stroke="#6b7280" strokeWidth={1} strokeDasharray="5 4" {...stroke} />
         ) : null,
       )}
-      {bands.map(({ band, poly }) => {
-        if (poly.length < 3) return null;
-        const ys = poly.map((p) => p.y);
+      {faces.map((f) => {
+        if (f.poly.length < 3 || f.kind === "parging") return null;
+        const ys = f.poly.map((p) => p.y);
         const h = Math.max(...ys) - Math.min(...ys);
         if (h < fs * 1.4) return null;
+        const left = Math.max(Math.min(...f.poly.map((p) => p.x)), 0);
         return (
-          <text key={`label-${band.id}`} x={fs * 0.6} y={Y(Math.min(...ys) + Math.min(h / 2, fs * 1.6))} fontSize={fs * 0.85} fill="#4b5563" fontFamily={FONT} fontStyle="italic">
-            {bandLabel(band)}
+          <text key={`label-${f.id}`} x={left + fs * 0.6} y={Y(Math.min(...ys) + Math.min(h / 2, fs * 1.6))} fontSize={fs * 0.85} fill="#4b5563" fontFamily={FONT} fontStyle="italic">
+            {f.label}
+            {f.closed ? "" : " (open: not counted)"}
           </text>
         );
       })}
-      {shape.cladding.length >= 3 && <polygon points={pts(shape.cladding)} fill="none" stroke="#374151" strokeWidth={1.5} {...stroke} />}
-      {shape.gable?.source === "roof" && eaveZ !== null && (
+      {!fromShapes && shape.cladding.length >= 3 && <polygon points={pts(shape.cladding)} fill="none" stroke="#374151" strokeWidth={1.5} {...stroke} />}
+      {!fromShapes && shape.gable?.source === "roof" && eaveZ !== null && (
         <line x1={shape.gable.from} x2={shape.gable.to} y1={Y(eaveZ)} y2={Y(eaveZ)} stroke="#9ca3af" strokeWidth={1} strokeDasharray="3 3" {...stroke} />
+      )}
+      {roofline.length >= 2 && (
+        <polyline points={pts(roofline.map((r) => ({ x: r.alongFeet, y: r.upFeet })))} fill="none" stroke="#7c2d12" strokeWidth={2} strokeDasharray="7 4" {...stroke} />
       )}
       {openings.map(({ opening, rect }) => (
         <g key={opening.id}>
@@ -148,14 +184,19 @@ export function ElevationDrawing({ side, rise, size, fontFeet }: { side: Exterio
           </text>
         </g>
       ))}
-      <line x1={vx} x2={0} y1={0} y2={0} stroke="#7c5a3a" strokeWidth={2} {...stroke} />
-      <line x1={0} x2={L} y1={Y(0)} y2={Y(-fall)} stroke="#7c5a3a" strokeWidth={2} {...stroke} />
-      <line x1={L} x2={vx + vw} y1={Y(-fall)} y2={Y(-fall)} stroke="#7c5a3a" strokeWidth={2} {...stroke} />
+      <polyline points={pts(ground)} fill="none" stroke="#7c5a3a" strokeWidth={2} {...stroke} />
+      {/* Where the wall stands, when the cladding runs past it. */}
+      {fromShapes && (ext.minX < -1e-6 || ext.maxX > L + 1e-6) && (
+        <>
+          <line x1={0} x2={0} y1={Y(g0.y)} y2={Y(Math.max(eaveLeftZ ?? 0, g0.y))} stroke="#6b7280" strokeWidth={1} strokeDasharray="2 3" {...stroke} />
+          <line x1={L} x2={L} y1={Y(gN.y)} y2={Y(Math.max(eaveRightZ ?? 0, gN.y))} stroke="#6b7280" strokeWidth={1} strokeDasharray="2 3" {...stroke} />
+        </>
+      )}
       {labels}
-      <line x1={0} x2={L} y1={Y(lowZ - fs * 1.4)} y2={Y(lowZ - fs * 1.4)} stroke="#374151" strokeWidth={1} {...stroke} />
-      <line x1={0} x2={0} y1={Y(lowZ - fs * 0.9)} y2={Y(lowZ - fs * 1.9)} stroke="#374151" strokeWidth={1} {...stroke} />
-      <line x1={L} x2={L} y1={Y(lowZ - fs * 0.9)} y2={Y(lowZ - fs * 1.9)} stroke="#374151" strokeWidth={1} {...stroke} />
-      <text x={L / 2} y={Y(lowZ - fs * 2.7)} fontSize={fs} textAnchor="middle" {...text}>
+      <line x1={0} x2={L} y1={Y(ext.lowZ - fs * 1.4)} y2={Y(ext.lowZ - fs * 1.4)} stroke="#374151" strokeWidth={1} {...stroke} />
+      <line x1={0} x2={0} y1={Y(ext.lowZ - fs * 0.9)} y2={Y(ext.lowZ - fs * 1.9)} stroke="#374151" strokeWidth={1} {...stroke} />
+      <line x1={L} x2={L} y1={Y(ext.lowZ - fs * 0.9)} y2={Y(ext.lowZ - fs * 1.9)} stroke="#374151" strokeWidth={1} {...stroke} />
+      <text x={L / 2} y={Y(ext.lowZ - fs * 2.7)} fontSize={fs} textAnchor="middle" {...text}>
         {formatFeetInches(shape.lengthFeet)}
       </text>
       <line x1={vx + fs} x2={vx + fs + scaleFeet} y1={Y(groundZ + fs * 0.8)} y2={Y(groundZ + fs * 0.8)} stroke={INK} strokeWidth={2} {...stroke} />

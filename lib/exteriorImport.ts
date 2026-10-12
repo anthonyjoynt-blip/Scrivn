@@ -15,7 +15,7 @@
  * or alone in a capture with none.
  */
 
-import { newSketchId } from "./sketch";
+import { formatFeetInches, newSketchId } from "./sketch";
 import {
   CLADDING_KINDS,
   type CladdingBand,
@@ -24,11 +24,18 @@ import {
   type Exterior,
   type ExteriorOpening,
   type ExteriorOpeningKind,
+  type ExteriorShape,
   type ExteriorSide,
   sideQuantities,
 } from "./exterior";
 
 export const EXTERIOR_FORMAT = "arcapture-exterior/1";
+/**
+ * /2 (2026-10-12): each material tapped round as a shape, and the roof's edge as a roofline - the
+ * owner's field test on his own gable end, where the stucco runs on over a covered deck.
+ */
+export const EXTERIOR_FORMAT_2 = "arcapture-exterior/2";
+const EXTERIOR_FORMATS: unknown[] = [EXTERIOR_FORMAT, EXTERIOR_FORMAT_2];
 
 const FEET_PER_METRE = 1 / 0.3048;
 /** No house side is longer, and no tap higher; past these a number is a slip, not a house. */
@@ -36,6 +43,7 @@ const MAX_LENGTH_M = 200;
 const MAX_HEIGHT_M = 60;
 const MAX_SIDES = 40;
 const MAX_OPENINGS = 100;
+const MAX_SHAPES = 40;
 
 type Json = Record<string, unknown>;
 
@@ -61,15 +69,15 @@ function asObject(body: unknown): unknown {
 export function scanExteriorPart(input: unknown): Json | null {
   const body = asObject(input);
   if (!isObject(body)) return null;
-  if (body.format === EXTERIOR_FORMAT) return body;
+  if (EXTERIOR_FORMATS.includes(body.format)) return body;
   const inner = body.exterior;
-  return isObject(inner) && inner.format === EXTERIOR_FORMAT ? inner : null;
+  return isObject(inner) && EXTERIOR_FORMATS.includes(inner.format) ? inner : null;
 }
 
 /** Whether a scan body has rooms to draw: a capture's non-empty "rooms", or a one-room file's outline. */
 export function scanHasRooms(input: unknown): boolean {
   const body = asObject(input);
-  if (!isObject(body) || body.format === EXTERIOR_FORMAT) return false;
+  if (!isObject(body) || EXTERIOR_FORMATS.includes(body.format)) return false;
   if (Array.isArray(body.rooms)) return body.rooms.length > 0;
   return true;
 }
@@ -122,6 +130,9 @@ export function parseScanExterior(input: unknown, meta: { scanId?: string | null
   const unmeasured: string[] = [];
   const disagree: string[] = [];
   const uneven: string[] = [];
+  const open: string[] = [];
+  /** Each side's roofline in metres, for the overhangs and for a roof that runs on past a wall. */
+  const rooflines: { name: string; lengthM: number; points: { along: number; up: number; out: number | null }[] }[] = [];
   for (let i = 0; i < rawSides.length; i++) {
     const raw = rawSides[i];
     if (!isObject(raw)) return { ok: false, error: `Side ${i + 1} is not a side.` };
@@ -139,8 +150,36 @@ export function parseScanExterior(input: unknown, meta: { scanId?: string | null
     */
     const tappedL = height(raw.eave_left_m);
     const tappedR = height(raw.eave_right_m) ?? tappedL;
+    /*
+      /2's sides are tapped as shapes, and its eaves are worked out from them: the highest corner over
+      each bottom corner, which on a gable whose stucco steps out over a deck really do differ. They
+      are kept as they are. /1's were two taps of one eave line, so they are averaged.
+    */
+    const rawShapes = (Array.isArray(raw.shapes) ? raw.shapes : []).filter(isObject);
+    const tappedAsShapes = rawShapes.length > 0;
     const eave = tappedL !== null && tappedR !== null ? (tappedL + tappedR) / 2 : tappedL;
-    if (tappedL !== null && tappedR !== null && Math.abs(tappedR - tappedL) > 0.025) uneven.push(`${name} (${Math.round(Math.abs(tappedR - tappedL) / 0.0254)} in)`);
+    const eaveLeft = tappedAsShapes ? tappedL : eave;
+    const eaveRight = tappedAsShapes ? tappedR : eave;
+    if (!tappedAsShapes && tappedL !== null && tappedR !== null && Math.abs(tappedR - tappedL) > 0.025) uneven.push(`${name} (${Math.round(Math.abs(tappedR - tappedL) / 0.0254)} in)`);
+    const shapes: ExteriorShape[] = [];
+    for (const sh of rawShapes.slice(0, MAX_SHAPES)) {
+      const polygon = (Array.isArray(sh.polygon) ? sh.polygon : [])
+        .map((pt) => (Array.isArray(pt) ? { x: num(pt[0]), y: height(pt[1]) } : { x: null, y: null }))
+        .filter((pt): pt is { x: number; y: number } => pt.x !== null && pt.y !== null && Math.abs(pt.x) <= MAX_LENGTH_M)
+        .map((pt) => ({ x: pt.x * FEET_PER_METRE, y: pt.y * FEET_PER_METRE }));
+      if (polygon.length < 2) continue;
+      const material = sh.material === "parging" ? { kind: "parging" as const } : claddingOf(sh.material);
+      const closed = sh.closed !== false && polygon.length >= 3;
+      if (!closed) open.push(`${name} (${typeof sh.material === "string" ? sh.material.replace(/_/g, " ") : "a shape"})`);
+      shapes.push({ id: newSketchId("shape"), ...material, closed, polygon });
+    }
+    const roofline = (Array.isArray(raw.roofline) ? raw.roofline : [])
+      .filter(isObject)
+      .map((r) => ({ along: num(r.along_m), up: height(r.up_m), out: num(r.out_m) }))
+      .filter((r): r is { along: number; up: number; out: number | null } => r.along !== null && r.up !== null && Math.abs(r.along) <= MAX_LENGTH_M)
+      .sort((a, b) => a.along - b.along);
+    if (roofline.length > 0) rooflines.push({ name, lengthM: L, points: roofline });
+    const pitch12 = num(raw.pitch_12);
     const bottomL = height(raw.bottom_left_m) ?? 0;
     const bottomR = height(raw.bottom_right_m) ?? bottomL;
 
@@ -163,6 +202,7 @@ export function parseScanExterior(input: unknown, meta: { scanId?: string | null
       }
       bands.push({ id: newSketchId("band"), ...claddingOf(line.below), top: line.top * FEET_PER_METRE });
     }
+    // A side tapped as shapes keeps one band of its main cladding, for when the shapes are set aside by hand.
     bands.push({ id: newSketchId("band"), ...claddingOf(raw.cladding ?? "stucco"), top: null });
 
     const openings: ExteriorOpening[] = [];
@@ -208,18 +248,27 @@ export function parseScanExterior(input: unknown, meta: { scanId?: string | null
       base,
       baseLeftFeet: Math.max(0, baseL) * FEET_PER_METRE,
       baseRightFeet: Math.max(0, baseR) * FEET_PER_METRE,
-      eaveLeftFeet: eave === null ? null : eave * FEET_PER_METRE,
-      eaveRightFeet: eave === null ? null : eave * FEET_PER_METRE,
+      eaveLeftFeet: eaveLeft === null ? null : eaveLeft * FEET_PER_METRE,
+      eaveRightFeet: eaveRight === null ? null : eaveRight * FEET_PER_METRE,
       gable,
       bands,
       openings,
+      heightsFrom: "level",
+      ...(shapes.length > 0 ? { shapes } : {}),
+      ...(roofline.length > 0 ? { roofline: roofline.map((r) => ({ alongFeet: r.along * FEET_PER_METRE, upFeet: r.up * FEET_PER_METRE, outFeet: r.out === null ? null : r.out * FEET_PER_METRE })) } : {}),
+      ...(pitch12 !== null && pitch12 > 0 && pitch12 <= 24 ? { pitchMeasured: pitch12 } : {}),
     };
     sides.push(side);
 
-    if (eave === null) unmeasured.push(name);
-    // Scan's own area, against Scrivn's own arithmetic. The gable is the measured one or none: the roof is not built yet.
-    const theirs = num(raw.net_sf);
-    if (theirs !== null && eave !== null) {
+    if (eave === null && shapes.length === 0) unmeasured.push(name);
+    /*
+      Scan's own area, against Scrivn's own arithmetic. The gable is the measured one or none: the
+      roof is not built yet. /2's net_sf counts its parging, which Scrivn does not, so a side tapped
+      as shapes is checked against the net of its closed shapes of cladding instead.
+    */
+    const cladShapes = rawShapes.filter((sh) => sh.material !== "parging" && sh.closed !== false);
+    const theirs = tappedAsShapes ? cladShapes.reduce((sum, sh) => sum + (num(sh.net_m2) ?? 0), 0) / (0.3048 * 0.3048) : num(raw.net_sf);
+    if (theirs !== null && (eave !== null || tappedAsShapes)) {
       const ours = sideQuantities(side).netSquareFeet;
       if (Math.abs(ours - theirs) > Math.max(2, theirs * 0.02)) disagree.push(`${name} (Scan ${Math.round(theirs)} SF, Scrivn ${Math.round(ours)} SF)`);
     }
@@ -233,10 +282,45 @@ export function parseScanExterior(input: unknown, meta: { scanId?: string | null
   if (scale !== null && Math.abs(scale - 1) > 0.0005) notes.push(`Scaled to a tape by the phone (x${scale.toFixed(3)}).`);
   if (unmeasured.length > 0) notes.push(`No eave was tapped on ${unmeasured.join(", ")}: put it in to count that side.`);
   if (uneven.length > 0) notes.push(`The two eave taps differ on ${uneven.join(", ")}; the eave is level, so the two are averaged.`);
+  if (open.length > 0) notes.push(`A shape left open is drawn but not counted: ${open.join(", ")}.`);
   if (disagree.length > 0) notes.push(`Scan and Scrivn work out different areas for ${disagree.join("; ")}.`);
   notes.push("Type the pitch, or check the one the gables give, and the overhangs, on Roof & footprint.");
 
   const roof = defaultRoof();
+  /*
+    The overhangs from the rooflines: how far the roof's edge stands in front of the wall face. On a
+    side whose roofline has a peak that is the rake; on one without, the eave. Each where the phone
+    read it by depth; the median of the sides, so one odd read does not set the roof.
+  */
+  const hasPeak = (pts: { up: number }[]) => pts.length >= 3 && pts.slice(1, -1).some((p) => p.up > Math.max((pts[0] as { up: number }).up, (pts[pts.length - 1] as { up: number }).up) + 0.3);
+  const median = (v: number[]) => {
+    const sorted = [...v].sort((a, b) => a - b);
+    const m = Math.floor(sorted.length / 2);
+    return sorted.length % 2 === 1 ? (sorted[m] as number) : ((sorted[m - 1] as number) + (sorted[m] as number)) / 2;
+  };
+  const outs = (gable: boolean) => rooflines.filter((r) => hasPeak(r.points) === gable).flatMap((r) => r.points.map((p) => p.out).filter((o): o is number => o !== null && o >= 0 && o < 3));
+  const eaveOuts = outs(false);
+  const rakeOuts = outs(true);
+  if (eaveOuts.length > 0) roof.eaveOverhangFeet = median(eaveOuts) * FEET_PER_METRE;
+  if (rakeOuts.length > 0) roof.rakeOverhangFeet = median(rakeOuts) * FEET_PER_METRE;
+  const read = [eaveOuts.length > 0 ? `eave ${formatFeetInches(roof.eaveOverhangFeet)}` : null, rakeOuts.length > 0 ? `rake ${formatFeetInches(roof.rakeOverhangFeet)}` : null].filter(Boolean);
+  if (read.length > 0) notes.push(`Overhangs from the phone's roofline: ${read.join(", ")}.`);
+  /*
+    A roof that runs well past a wall - over a deck or a porch - is more than the roof plan draws: it
+    is the footprint and one overhang all round. Past a gable side's ends the roof should reach the
+    eave overhang, past an eave side's the rake overhang; anything 2 ft beyond that is said.
+  */
+  for (const r of rooflines) {
+    const typical = (hasPeak(r.points) ? roof.eaveOverhangFeet : roof.rakeOverhangFeet) / FEET_PER_METRE;
+    const first = r.points[0] as { along: number };
+    const last = r.points[r.points.length - 1] as { along: number };
+    for (const [end, past] of [
+      ["left", -first.along],
+      ["right", last.along - r.lengthM],
+    ] as [string, number][]) {
+      if (past > typical + 0.6) notes.push(`The roof runs ${formatFeetInches(past * FEET_PER_METRE)} past ${r.name}'s ${end} end, over a porch or deck: the roof plan does not draw that yet.`);
+    }
+  }
   if (isObject(part.roof)) {
     const pitch = num(part.roof.pitch_in_12 ?? part.roof.pitch_12);
     const eaveOver = num(part.roof.eave_overhang_m);

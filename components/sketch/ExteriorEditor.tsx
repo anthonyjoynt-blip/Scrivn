@@ -16,6 +16,7 @@ import {
   type ExteriorQuantities,
   type ExteriorRoof,
   type ExteriorScope,
+  type ExteriorShape,
   type ExteriorSide,
   emptyScope,
   exteriorQuantities,
@@ -367,8 +368,9 @@ function SidePanel({
           <FeetField id={id("eaveR")} label="At the right corner" value={side.eaveRightFeet} readOnly={readOnly} nullable onCommit={(v) => onUpdate((s) => ({ ...s, eaveRightFeet: v, eaveLeftFeet: s.eaveLeftFeet ?? v }))} />
         </div>
         <p className="field-note">
-          The soffit line, from the grade at each corner.
-          {Math.abs(fall) > 1 / 96 ? ` The eave is level, so the grade ${fall > 0 ? "falls" : "rises"} ${formatFeetInches(Math.abs(fall))} from left to right.` : ""}
+          {side.heightsFrom === "level"
+            ? "The soffit line at each corner, from the phone's one ground level for this side."
+            : `The soffit line, from the grade at each corner.${Math.abs(fall) > 1 / 96 ? ` The eave is level, so the grade ${fall > 0 ? "falls" : "rises"} ${formatFeetInches(Math.abs(fall))} from left to right.` : ""}`}
         </p>
 
         <h4 className="exterior-subhead">Cladding starts at</h4>
@@ -447,8 +449,17 @@ function SidePanel({
           </>
         )}
 
-        <h4 className="exterior-subhead">Cladding, bottom up</h4>
-        <BandsEditor side={side} readOnly={readOnly} onUpdate={onUpdate} />
+        {(side.shapes ?? []).length > 0 ? (
+          <>
+            <h4 className="exterior-subhead">Cladding, as tapped</h4>
+            <ShapesEditor side={side} sq={sq} readOnly={readOnly} onUpdate={onUpdate} />
+          </>
+        ) : (
+          <>
+            <h4 className="exterior-subhead">Cladding, bottom up</h4>
+            <BandsEditor side={side} readOnly={readOnly} onUpdate={onUpdate} />
+          </>
+        )}
 
         <h4 className="exterior-subhead">Openings</h4>
         <OpeningsEditor side={side} readOnly={readOnly} onUpdate={onUpdate} />
@@ -464,6 +475,50 @@ function SidePanel({
           </button>
         )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * A side tapped as shapes on the phone: each shape's material can be put right here, and the whole
+ * set put aside for bands typed by hand. The polygons themselves are the phone's.
+ */
+function ShapesEditor({ side, sq, readOnly, onUpdate }: { side: ExteriorSide; sq: SideQuantities; readOnly: boolean; onUpdate: (f: (side: ExteriorSide) => ExteriorSide) => void }) {
+  const shapes = side.shapes ?? [];
+  const counted = new Map(sq.bands.map((b) => [b.bandId, b]));
+  return (
+    <div className="exterior-rows">
+      {shapes.map((shape, i) => {
+        const q = counted.get(shape.id);
+        return (
+          <div className="exterior-row" key={shape.id}>
+            <select
+              aria-label={`Shape ${i + 1}: material`}
+              value={shape.kind}
+              disabled={readOnly}
+              onChange={(e) =>
+                onUpdate((s) => ({ ...s, shapes: (s.shapes ?? []).map((x) => (x.id === shape.id ? { ...x, kind: e.target.value as ExteriorShape["kind"] } : x)) }))
+              }
+            >
+              {[...CLADDING_KINDS, "parging" as const].map((kind) => (
+                <option key={kind} value={kind}>
+                  {kind === "parging" ? "Parging" : CLADDING_LABEL[kind]}
+                </option>
+              ))}
+            </select>
+            <span className="exterior-row-note">
+              {shape.polygon.length} corners
+              {!shape.closed ? " · left open: not counted" : shape.kind === "parging" ? " · not counted as cladding" : q ? ` · ${sf(q.netSquareFeet)} net` : ""}
+            </span>
+          </div>
+        );
+      })}
+      {!readOnly && (
+        <button type="button" className="btn-secondary" onClick={() => onUpdate((s) => ({ ...s, shapes: undefined }))}>
+          Use bands instead
+        </button>
+      )}
+      <p className="field-note">Tapped round on the phone, each material its own shape. Openings come out of every shape they overlap.</p>
     </div>
   );
 }
