@@ -3,7 +3,8 @@
  * `arcapture-exterior/1`, read as it is - see docs/exterior-import.md for the format and how each
  * key lands.
  *
- * Scan measures in metres from the grade under each tap, side by side round the house, and works
+ * Scan measures in metres, each side's heights from one grade level (its ground estimate where that
+ * side was tapped), side by side round the house, and works
  * out its own areas. Scrivn keeps what was measured - lengths, heights, the peak, the band lines,
  * the openings, which corners are inside ones - and works the areas out again itself, so a side
  * typed by hand and a side tapped on the phone are priced by the same arithmetic. Scan's own net
@@ -120,6 +121,7 @@ export function parseScanExterior(input: unknown, meta: { scanId?: string | null
   const sides: ExteriorSide[] = [];
   const unmeasured: string[] = [];
   const disagree: string[] = [];
+  const uneven: string[] = [];
   for (let i = 0; i < rawSides.length; i++) {
     const raw = rawSides[i];
     if (!isObject(raw)) return { ok: false, error: `Side ${i + 1} is not a side.` };
@@ -128,21 +130,25 @@ export function parseScanExterior(input: unknown, meta: { scanId?: string | null
     if (lengthM === null || lengthM <= 0 || lengthM > MAX_LENGTH_M) return { ok: false, error: `${name} has no usable length.` };
     const L = lengthM;
 
-    const eaveL = height(raw.eave_left_m);
-    const eaveR = height(raw.eave_right_m) ?? eaveL;
+    /*
+      Every height on a side is above ONE grade level: Scan's ground estimate where the side was
+      tapped (or the lower bottom corner, with "grade": "corners"). Scan does not see the ground
+      slope along a wall, so nothing here is moved for one - a band line is at the height tapped,
+      wherever along the wall it was tapped. The eave is level, so two eave taps that differ are
+      the same line read twice: they are averaged, and a difference worth seeing is said.
+    */
+    const tappedL = height(raw.eave_left_m);
+    const tappedR = height(raw.eave_right_m) ?? tappedL;
+    const eave = tappedL !== null && tappedR !== null ? (tappedL + tappedR) / 2 : tappedL;
+    if (tappedL !== null && tappedR !== null && Math.abs(tappedR - tappedL) > 0.025) uneven.push(`${name} (${Math.round(Math.abs(tappedR - tappedL) / 0.0254)} in)`);
     const bottomL = height(raw.bottom_left_m) ?? 0;
     const bottomR = height(raw.bottom_right_m) ?? bottomL;
-    // How far the grade falls left to right: the eave is level, and so is the top of the parging.
-    const fall = eaveL !== null && eaveR !== null ? eaveR - eaveL : bottomR - bottomL;
-    /** A level line tapped `above` metres over the grade at `along`, as Scrivn holds it: above the grade at the left corner. */
-    const level = (above: number, along: number | null) => above - (along === null ? 0 : (fall * along) / L);
 
     // Bands bottom up; a parging line is the bottom of the cladding, not a cladding.
     const lines = (Array.isArray(raw.bands) ? raw.bands : [])
       .filter(isObject)
-      .map((b) => ({ at: height(b.height_m), along: num(b.along_m), below: b.below }))
-      .filter((b): b is { at: number; along: number | null; below: unknown } => b.at !== null)
-      .map((b) => ({ top: level(b.at, b.along), below: b.below }))
+      .map((b) => ({ top: height(b.height_m), below: b.below }))
+      .filter((b): b is { top: number; below: unknown } => b.top !== null)
       .sort((a, b) => a.top - b.top);
     let baseL = bottomL;
     let baseR = bottomR;
@@ -151,7 +157,7 @@ export function parseScanExterior(input: unknown, meta: { scanId?: string | null
       if (line.below === "parging") {
         if (Math.max(baseL, baseR) < 0.01) {
           baseL = line.top;
-          baseR = line.top + fall;
+          baseR = line.top;
         }
         continue;
       }
@@ -202,18 +208,18 @@ export function parseScanExterior(input: unknown, meta: { scanId?: string | null
       base,
       baseLeftFeet: Math.max(0, baseL) * FEET_PER_METRE,
       baseRightFeet: Math.max(0, baseR) * FEET_PER_METRE,
-      eaveLeftFeet: eaveL === null ? null : eaveL * FEET_PER_METRE,
-      eaveRightFeet: eaveR === null ? null : eaveR * FEET_PER_METRE,
+      eaveLeftFeet: eave === null ? null : eave * FEET_PER_METRE,
+      eaveRightFeet: eave === null ? null : eave * FEET_PER_METRE,
       gable,
       bands,
       openings,
     };
     sides.push(side);
 
-    if (eaveL === null) unmeasured.push(name);
+    if (eave === null) unmeasured.push(name);
     // Scan's own area, against Scrivn's own arithmetic. The gable is the measured one or none: the roof is not built yet.
     const theirs = num(raw.net_sf);
-    if (theirs !== null && eaveL !== null) {
+    if (theirs !== null && eave !== null) {
       const ours = sideQuantities(side).netSquareFeet;
       if (Math.abs(ours - theirs) > Math.max(2, theirs * 0.02)) disagree.push(`${name} (Scan ${Math.round(theirs)} SF, Scrivn ${Math.round(ours)} SF)`);
     }
@@ -226,6 +232,7 @@ export function parseScanExterior(input: unknown, meta: { scanId?: string | null
   const scale = num(part.scale);
   if (scale !== null && Math.abs(scale - 1) > 0.0005) notes.push(`Scaled to a tape by the phone (x${scale.toFixed(3)}).`);
   if (unmeasured.length > 0) notes.push(`No eave was tapped on ${unmeasured.join(", ")}: put it in to count that side.`);
+  if (uneven.length > 0) notes.push(`The two eave taps differ on ${uneven.join(", ")}; the eave is level, so the two are averaged.`);
   if (disagree.length > 0) notes.push(`Scan and Scrivn work out different areas for ${disagree.join("; ")}.`);
   notes.push("Type the pitch, or check the one the gables give, and the overhangs, on Roof & footprint.");
 

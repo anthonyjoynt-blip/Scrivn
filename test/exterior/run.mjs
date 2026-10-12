@@ -529,16 +529,30 @@ test("a walk to the left round an L: the Front first, the inside corner where it
   assert(e.source.captureId === "handwritten-l-left-walk", "capture id kept");
 });
 
-test("heights from the grade under each tap land on the level lines", () => {
-  const e = x.parseScanExterior(fixture("scan-exterior-handwritten.json")).exterior;
-  const left = e.sides.find((s) => s.name === "Left");
-  // Grade falls 0.152 m along 10 m; the band line was tapped 1.0 m up at 2.0 m along, where the
-  // grade is 0.0304 m lower than at the corner: 0.9696 m above the corner's grade.
-  near(left.bands[0].top, 0.9696 * M, "stone band top, level", 1e-4);
+test("a side's heights are from one grade level: band lines as tapped, two eave taps averaged", () => {
+  const r = x.parseScanExterior(fixture("scan-exterior-handwritten.json"));
+  const left = r.exterior.sides.find((s) => s.name === "Left");
+  // Scan reads one ground level per side, so a line tapped 1.0 m up is 1.0 m up wherever along it was.
+  near(left.bands[0].top, 1.0 * M, "stone band top as tapped", 1e-9);
   assert(left.bands[0].kind === "stone" && left.bands[1].kind === "stucco", "stone under stucco");
-  near(left.eaveRightFeet - left.eaveLeftFeet, 0.152 * M, "the eaves say the fall", 1e-6);
-  // The peak, 5.613 m above the grade under it (5.0 m along, grade 0.076 m down): 1.701 m over the eave.
+  // Eave tapped 3.836 m and 3.988 m: one level line read twice, so 3.912 m at both ends, and said.
+  near(left.eaveLeftFeet, 3.912 * M, "eave averaged", 1e-9);
+  assert(left.eaveLeftFeet === left.eaveRightFeet, "no grade fall invented from the difference");
+  assert(r.notes.some((n) => /eave taps differ on Left \(6 in\)/.test(n)), r.notes.join(" | "));
+  // The peak, 5.613 m up: 1.701 m over the eave, over the 5 m half span.
   near(x.sideQuantities(left).pitchFromGable, (1.701 / 5) * 12, "pitch from the peak", 1e-3);
+});
+
+test("Scan's own Send body for an exterior walked alone", () => {
+  const body = fixture("scan-exterior-send.json");
+  assert(x.isExteriorOnlyScan(body), "rooms: [] with the exterior");
+  const made = x.sketchFromScan(body, { scanId: "s", captureId: null, receivedAt: "2026-10-12T18:00:00Z" });
+  assert(made.ok, made.error);
+  const e = made.sketch.exterior;
+  assert(made.sketch.rooms.length === 0 && e.sides.length === 4, "four sides, no rooms");
+  assert(e.sides.find((s) => s.name === "Rear").openings.some((o) => o.kind === "garage"), "the 2.5 m door is a garage door");
+  assert(!made.notes.some((n) => /different areas/.test(n)), made.notes.join(" | "));
+  assert(e.source.captureId === body.exterior.capture_id, "the capture's own id");
 });
 
 test("garage doors, a part-wall gable, a parging line and a side with no eave", () => {

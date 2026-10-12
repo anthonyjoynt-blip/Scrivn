@@ -25,7 +25,7 @@ Ticking what is in scope doesn't count as a change.
 ## Conventions
 
 - **Units:** metres in the file, feet in Scrivn (÷ 0.3048).
-- **Heights:** every height is above the grade *under that point*. When `grade` is `"corners"`, Scrivn reads it the same as `"ground"`.
+- **Heights:** every height on a side is above ONE grade level: Scan's ground estimate where that side was tapped (`grade`: `"ground"`), or the lower bottom corner (`"corners"`). Scan doesn't see the ground slope along a wall, so Scrivn moves nothing for one. A slope typed by hand (different eave heights at the two corners, each from the grade under it) is a Scrivn-only reading.
 - **Walk direction:** `walk: "right"` means each next side is to the right of the last as you face them from outside (counter-clockwise seen from above). With `"left"`, Scrivn reverses the ring after the first side, so the Front stays first.
 - **Left and right:** "left", "right" and every `*_along_m` / `from_m` are as seen from outside, measured from the side's left end. That holds whichever way the walk went.
 
@@ -50,23 +50,24 @@ Ticking what is in scope doesn't count as a change.
 | `name` | `name` |
 | `length_m` | `lengthFeet` |
 | `bottom_left_m`, `bottom_right_m` | `baseLeftFeet`, `baseRightFeet` with base `"parging"`. Both about 0 means base `"grade"`. |
-| `eave_left_m`, `eave_right_m` | `eaveLeftFeet`, `eaveRightFeet`. The eave is level, so right minus left is the grade's fall. Null keeps the side but gives it no area until an eave is typed. |
+| `eave_left_m`, `eave_right_m` | `eaveLeftFeet` and `eaveRightFeet`, both set to the mean of the two taps. The eave is level and the heights share one grade level, so a difference between the taps is the same line read twice; a difference over 1 in is named in the notes. Null keeps the side but gives it no area until an eave is typed. |
 | `peak` `{along_m, height_m}` | `gable {atFeet, peakFeet}` |
-| `peak.from_m`, `peak.to_m` (optional) | `gable.fromFeet`, `gable.toFeet`, when the gable spans only part of the wall (an L). Default is the whole wall. |
+| `peak.from_m`, `peak.to_m` (optional) | `gable.fromFeet`, `gable.toFeet`, when the gable spans only part of the wall (an L). Scan doesn't send them, since it can't know where a gable ends partway along a wall; read when present. Default is the whole wall. |
 | `cladding` | the top band (to the top, gable included) |
-| `bands[]` `{height_m, below, along_m?}` | bands bottom up: `below` is the cladding under the line, and the line is level. With `along_m`, the height becomes the level line's height above the grade at the left corner, using the fall. Without it, it is taken as at the left end. A band whose `below` is `"parging"` is the bottom of the cladding, not a band. |
-| `openings[]` `{kind, from_m, width_m, sill_m, head_m}` | `{kind, fromLeftFeet, widthFeet, sillFeet, heightFeet = head − sill}`. `kind` is `window`, `door` or `garage`; anything else reads as a window. At most 100 per side. |
+| `bands[]` `{height_m, along_m, below}` | bands bottom up: `below` is the cladding under the line, and the line is level at `height_m`. `along_m` (where it was tapped) changes nothing, since the side's heights share one grade level. A band whose `below` is `"parging"` is the bottom of the cladding, not a band. |
+| `openings[]` `{kind, from_m, width_m, sill_m, head_m}` | `{kind, fromLeftFeet, widthFeet, sillFeet, heightFeet = head − sill}`. `kind` is `window`, `door` or `garage`; Scan sends a door 2.3 m (7'6") or wider as `garage`. Anything else reads as a window. At most 100 per side. |
 | `pitch_12` | not read: Scrivn works pitch out of the peak and the eave itself |
 | `net_sf` | checked: Scrivn works the side's net area out itself, and names any side where the two differ by more than 2% |
 | `outline`, `areas`, `gross_sf`, `opening_trim_m`, `index`, `left_joined`, `right_joined`, `eave_taps` | not read |
 
 Cladding kinds are Scan's list: `stucco`, `vinyl`, `wood`, `fibre_cement`, `brick`, `stone`, `metal`. Anything else comes in as "Other" labelled with the word Scan sent.
 
-## Asked of Scan, all optional
+## Settled with Scan (its commit `fe1916c`)
 
-- `bands[].along_m`, so a band line tapped mid-wall lands level on a sloping grade.
-- Opening `kind: "garage"` for overhead doors.
-- `peak.from_m` / `peak.to_m` for a gable over part of a wall.
+- Bands carry `along_m`, the tap's distance from the left end. Scrivn doesn't need it (above).
+- A door 2.3 m or wider is sent as `garage`.
+- No `peak.from_m` / `to_m`: Scan can't know where a gable ends partway along a wall.
+- Send puts the whole object under `"exterior"` in the capture. With rooms, it rides in the first level's capture; walked alone, the capture is `{"format": "arcapture-capture/1", "rooms": [], "exterior": {...}}` and Scan asks no storey. `test/exterior/fixtures/scan-exterior-send.json` is Scan's own sample of that.
 
 ## Not in the format
 
