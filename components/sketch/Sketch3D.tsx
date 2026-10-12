@@ -40,6 +40,12 @@
  * THE DOLLHOUSE is the model from above, to turn and zoom, with a ring on the floor wherever the walk
  * can be joined; tapping near one flies down into it. "Low walls" cuts every wall at 4' there.
  *
+ * WET AREAS (2026-10-12): "would it be possible to mark out the wet walls and floor in the scan on the photos. nothing
+ * big just a little water drop tag or something on the affected surface" (the owner). Every wet stretch of wall and
+ * every painted region of floor and ceiling in the claim's moisture map pins one small water drop
+ * (lib/moistureTags.ts, components/sketch/WetTag.tsx): on a spot's stills, over the walk's photos and in the dollhouse,
+ * wherever it is in view and no wall stands in front of it. "Wet areas" in the bar hides them.
+ *
  * three.js is loaded only when the view opens (dynamic imports), so the claim page never carries it.
  * The photos are fetched by scan (`/api/scans/<id>/photos`, signed links) and drawn as textures; one
  * the browser will not draw is shown as a plain picture instead.
@@ -48,6 +54,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { levelName, PIXELS_PER_FOOT, roomLevel, type Sketch } from "@/lib/sketch";
 import { houseModel, type HouseModel, type PrismKind } from "@/lib/sketch3d";
+import type { MoistureMap } from "@/lib/moisture";
+import { moistureTags, tagSeenFrom } from "@/lib/moistureTags";
 import {
   destinationFor,
   fitFovDeg,
@@ -65,9 +73,12 @@ import {
 import { alignFrames, cross as crossV, warpThrough, type PanoFrame, type V3 } from "@/lib/panorama";
 import { grayOf, PanoBaker, panoMaterial, type DistanceMap } from "./panoBake";
 import SpotStills, { stillWords, type SpotStillsApi, type StillShown } from "./SpotStills";
+import { WetDrop, wetTagElement } from "./WetTag";
 
 interface Props {
   sketch: Sketch;
+  /** The claim's moisture map: its wet areas are tagged. Absent or empty, nothing is. */
+  moisture?: MoistureMap | null;
   onClose: () => void;
 }
 
@@ -278,8 +289,13 @@ interface Pose {
   fov: number;
 }
 
-export default function Sketch3D({ sketch, onClose }: Props) {
+export default function Sketch3D({ sketch, moisture, onClose }: Props) {
   const model = useMemo(() => houseModel(sketch), [sketch]);
+  // The wet areas' tags, and whether they are shown (2026-10-12).
+  const tags = useMemo(() => (moisture ? moistureTags(sketch, moisture) : []), [sketch, moisture]);
+  const [showTags, setShowTags] = useState(true);
+  const showTagsRef = useRef(showTags);
+  showTagsRef.current = showTags;
   const walks = useMemo(() => sketch.walks ?? [], [sketch]);
   const points = useMemo(() => viewpoints(walks, (lvl) => model.levels.find((l) => l.level === lvl)?.baseY ?? 0), [walks, model]);
   // Where walk mode goes: a storey's 360° spots when it has any, its photos when not (2026-10-02).
@@ -485,6 +501,38 @@ export default function Sketch3D({ sketch, onClose }: Props) {
         ceilings.push(mesh);
         keep(overheadOf, c.level, mesh);
       }
+
+      // The wet areas' drops (2026-10-12), in the label layer over the model: each shown while its storey is, the view
+      // in front of its face, and no wall between (`tagSeenFrom`) - the label layer draws over everything, so what hides
+      // a drop is decided here. Worked out again only when the view moves to another place or the storeys shown change.
+      const tagPins = tags.map((tag) => {
+        const obj = new CSS2DObject(wetTagElement(tag));
+        obj.position.set(...tag.position);
+        obj.visible = false;
+        groupFor(tag.level).add(obj);
+        return { tag, obj };
+      });
+      const wallTop = low ? (lvl: number) => baseOf(lvl) + LOW_WALL_FEET : null;
+      let tagsSeenFor = "";
+      let tagsCovered = false;
+      const placeTags = () => {
+        if (tagPins.length === 0) return;
+        if (coveredRef.current) {
+          // Under a spot's stills, which carry their own: the layer is not drawn then, so they are put away by hand.
+          if (!tagsCovered) for (const p of tagPins) p.obj.element.style.display = "none";
+          tagsCovered = true;
+          return;
+        }
+        tagsCovered = false;
+        const on = showTagsRef.current;
+        const shownLevels = new Set([...groups].filter(([, g]) => g.visible).map(([l]) => l));
+        const at = camera.position;
+        const key = `${on}|${[...shownLevels].join(",")}|${at.x.toFixed(2)},${at.y.toFixed(2)},${at.z.toFixed(2)}`;
+        if (key === tagsSeenFor) return;
+        tagsSeenFor = key;
+        const eye: [number, number, number] = [at.x, at.y, at.z];
+        for (const p of tagPins) p.obj.visible = on && shownLevels.has(p.tag.level) && tagSeenFrom(model, eye, p.tag, { levels: shownLevels, wallTop });
+      };
 
       // ---- The walk ------------------------------------------------------------------------------
       const byKey = new Map(points.map((v) => [keyOf(v.key), v] as const));
@@ -1163,6 +1211,7 @@ export default function Sketch3D({ sketch, onClose }: Props) {
         });
         // The rings: not under the view's own feet, and only for the storey being walked.
         for (const [k, ring] of rings) ring.visible = !(walking && current && k === keyOf(current.key));
+        placeTags();
         // Under a spot's stills nothing of the model shows: not drawn, only followed for the plan below.
         if (!coveredRef.current) {
           renderer.render(scene, camera);
@@ -1242,7 +1291,7 @@ export default function Sketch3D({ sketch, onClose }: Props) {
       disposed = true;
       teardown?.();
     };
-  }, [model, low, walks, points, navPoints, arrive, enterMode]);
+  }, [model, low, walks, points, navPoints, arrive, enterMode, tags]);
 
   // The pictures, one request per scan, when the view opens.
   useEffect(() => {
@@ -1321,6 +1370,12 @@ export default function Sketch3D({ sketch, onClose }: Props) {
   // A spot's stills (2026-10-05): on the stage while walk mode is at a spot - loading, unseen, on a flight in, so
   // the first is there when it lands - and over the model, which is then not drawn, once it has.
   const spotPoint = useMemo(() => (at?.spot ? points.find((p) => p.frames && viewpointId(p.key) === viewpointId(at)) ?? null : null), [at, points]);
+  // The wet areas the spot's stills carry: on its storey, facing it, no wall between.
+  const spotTags = useMemo(() => {
+    if (!spotPoint || tags.length === 0) return [];
+    const levels = new Set([spotPoint.level]);
+    return tags.filter((t) => t.level === spotPoint.level && tagSeenFrom(model, spotPoint.position, t, { levels }));
+  }, [spotPoint, tags, model]);
   const stillsOn = SPOT_STILLS && mode === "walk" && status === "ready" && spotPoint != null;
   const stillsShowing = stillsOn && !flying;
   coveredRef.current = stillsShowing;
@@ -1433,6 +1488,19 @@ export default function Sketch3D({ sketch, onClose }: Props) {
             Low walls
           </button>
         )}
+        {tags.length > 0 && (
+          <button
+            type="button"
+            className={`option-btn${showTags ? " selected" : ""}`}
+            aria-pressed={showTags}
+            onClick={() => setShowTags((v) => !v)}
+            title={showTags ? "Hide the drops on the wet walls, floors and ceilings" : "Show a drop on each wet wall, floor and ceiling"}
+            style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+          >
+            <WetDrop width={11} height={14} />
+            Wet areas
+          </button>
+        )}
         <span style={{ flex: 1 }} />
         {mode === "dollhouse" && (
           <button type="button" className="option-btn" onClick={() => sceneApi.current?.frame(level)} disabled={status !== "ready"}>
@@ -1460,7 +1528,15 @@ export default function Sketch3D({ sketch, onClose }: Props) {
               transition: "opacity 260ms ease-out",
             }}
           >
-            <SpotStills spot={spotPoint} urls={urls[spotPoint.scanId]} startYaw={startYaw} onLook={lookAt} onShown={setStillShown} apiRef={stillsApi} />
+            <SpotStills
+              spot={spotPoint}
+              urls={urls[spotPoint.scanId]}
+              startYaw={startYaw}
+              onLook={lookAt}
+              onShown={setStillShown}
+              apiRef={stillsApi}
+              tags={showTags ? spotTags : undefined}
+            />
           </div>
         )}
         {mode === "walk" && status === "ready" && (

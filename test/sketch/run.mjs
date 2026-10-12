@@ -32,6 +32,7 @@ import { runTurnChecks } from "./turn.mjs";
 import { runPanoramaChecks } from "./panorama.mjs";
 import { runSpotStillsChecks } from "./spotStills.mjs";
 import { runRoomNamePlaceChecks } from "./roomNamePlace.mjs";
+import { runMoistureTagChecks } from "./moistureTags.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..", "..");
@@ -209,6 +210,18 @@ if (spotStills.failures.length > 0) {
   process.exit(1);
 }
 console.log(`  Spot stills: ok (${spotStills.passed.length} checks — a spot's stills in rings, turned through to the right, zoomed about the pointer)`);
+
+// The walk-through's water-drop tags: where each wet surface pins one, what hides it, where it lands on a photo.
+const moistureTags = await runMoistureTagChecks();
+if (moistureTags.failures.length > 0) {
+  console.error(`
+  Wet-area tags: ${moistureTags.passed.length} passed, ${moistureTags.failures.length} FAILED
+`);
+  for (const failure of moistureTags.failures) console.error(`    ✗ ${failure}
+`);
+  process.exit(1);
+}
+console.log(`  Wet-area tags: ok (${moistureTags.passed.length} checks — one drop per wet stretch and painted region, hidden behind walls, on the photo where it shows)`);
 
 // A room's name: inside its room when it fits, smaller if it must, else beside it with a line to it.
 const roomNames = await runRoomNamePlaceChecks();

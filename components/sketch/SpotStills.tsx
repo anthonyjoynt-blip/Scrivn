@@ -11,10 +11,16 @@
  * did: a swipe to the left turns right, a swipe up looks down. Zoom by the wheel or a pinch about the
  * pointer, a double click or tap to go in close and back, or the buttons; zoomed in, a drag moves about
  * the still. Each turn shows the next still whole again.
+ *
+ * WET AREAS (2026-10-12): the claim's wet walls, floor and ceiling are pinned on each still as small water drops
+ * ([tags], lib/moistureTags.ts), each where the still's own lens puts it (`photoPixelOf`). They move with the still as
+ * it is zoomed and swiped, and stay their own size.
  */
 
 import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type CSSProperties, type Ref } from "react";
-import { viewpointId, type Viewpoint } from "@/lib/walkView";
+import { photoPixelOf, viewpointId, type Viewpoint } from "@/lib/walkView";
+import type { MoistureTag } from "@/lib/moistureTags";
+import { WetTagPin } from "./WetTag";
 import {
   clampZoom,
   FIT,
@@ -56,6 +62,8 @@ interface Props {
   onLook: (yaw: number, pitch: number) => void;
   onShown: (shown: StillShown) => void;
   apiRef: Ref<SpotStillsApi | null>;
+  /** The wet areas to pin, already the ones seen from this spot; none when the tags are switched off. */
+  tags?: readonly MoistureTag[];
 }
 
 /** The stage's margins the still is fitted inside at a zoom of 1: clear of the bar along the bottom. */
@@ -84,7 +92,7 @@ type Gesture =
   | { kind: "swipe"; id: number; x0: number; y0: number; t0: number; axis: "x" | "y" | null }
   | { kind: "pinch"; d0: number; mx0: number; my0: number; from: StillZoom };
 
-export default function SpotStills({ spot, urls, startYaw, onLook, onShown, apiRef }: Props) {
+export default function SpotStills({ spot, urls, startYaw, onLook, onShown, apiRef, tags }: Props) {
   const rings = useMemo(() => stillRings(spot), [spot]);
   const spotId = viewpointId(spot.key);
   const stageRef = useRef<HTMLDivElement>(null);
@@ -108,6 +116,9 @@ export default function SpotStills({ spot, urls, startYaw, onLook, onShown, apiR
   const [entering, setEntering] = useState<"left" | "right" | "up" | "down" | null>(null);
   // A swipe let go short of a turn: the still slides back into place.
   const [snapping, setSnapping] = useState(false);
+  // The wet-area tag whose words are up: tapped open, or under the mouse.
+  const [tagOpen, setTagOpen] = useState<string | null>(null);
+  const [tagHover, setTagHover] = useState<string | null>(null);
 
   // A new spot: the same kind of ring when it has one, facing as near the way the view faced as it can.
   if (place.spotId !== spotId) {
@@ -298,6 +309,8 @@ export default function SpotStills({ spot, urls, startYaw, onLook, onShown, apiR
     if ((e.target as HTMLElement).closest("button")) return;
     if (e.pointerType === "mouse" && e.button !== 0) return;
     lastPointerType.current = e.pointerType;
+    // Anywhere on the still puts a wet-area tag's words away.
+    setTagOpen(null);
     try {
       e.currentTarget.setPointerCapture(e.pointerId);
     } catch {
@@ -434,6 +447,23 @@ export default function SpotStills({ spot, urls, startYaw, onLook, onShown, apiR
   // The picture on the stage is the one wanted, or the one before while it loads - never one standing in for a missing one.
   const showPicture = !!shown && !!url && broken !== url;
   const where = ring ? stillWords({ kind: ring.kind, index: place.index, count: ring.stills.length }) : "";
+  // The wet areas on the still that is up (the one before, while the next loads), as fractions of the picture.
+  const shownStill = shown ? spot.frames?.find((f) => f.n === shown.n) ?? (spot.n === shown.n ? spot : null) : null;
+  const pins = useMemo(() => {
+    if (!shownStill || !tags || tags.length === 0) return [];
+    const c = shownStill.camera;
+    return tags.flatMap((tag) => {
+      const p = photoPixelOf(shownStill, tag.position);
+      if (!p || p.x < 0 || p.y < 0 || p.x > c.width || p.y > c.height) return [];
+      return [{ tag, fx: p.x / c.width, fy: p.y / c.height }];
+    });
+  }, [shownStill, tags]);
+  // A new still puts away the words of the last one's tag.
+  const pinsStill = shownStill?.n ?? null;
+  useEffect(() => {
+    setTagOpen(null);
+    setTagHover(null);
+  }, [pinsStill]);
 
   return (
     <div
@@ -463,12 +493,9 @@ export default function SpotStills({ spot, urls, startYaw, onLook, onShown, apiR
     >
       <style>{STILL_KEYFRAMES}</style>
       {showPicture && shown && box && (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
+        // The still, and its wet areas pinned on it: they move as one.
+        <div
           key={shown.n}
-          src={shown.url}
-          alt={`360° spot photo, ${where}`}
-          draggable={false}
           className={entering && !zoomed ? `spot-still-in-${entering}` : undefined}
           style={{
             position: "absolute",
@@ -476,12 +503,30 @@ export default function SpotStills({ spot, urls, startYaw, onLook, onShown, apiR
             top: box.top + (swipe?.dy ?? 0),
             width: box.width,
             height: box.height,
-            maxWidth: "none",
-            maxHeight: "none",
             pointerEvents: "none",
             transition: snapping ? "left 150ms ease-out, top 150ms ease-out" : "none",
           }}
-        />
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={shown.url}
+            alt={`360° spot photo, ${where}`}
+            draggable={false}
+            style={{ position: "absolute", inset: 0, width: "100%", height: "100%", maxWidth: "none", maxHeight: "none", pointerEvents: "none" }}
+          />
+          {pins.map(({ tag, fx, fy }) => (
+            <WetTagPin
+              key={tag.id}
+              tag={tag}
+              left={`${fx * 100}%`}
+              top={`${fy * 100}%`}
+              open={tagOpen === tag.id || tagHover === tag.id}
+              below={box.top + fy * box.height < 72}
+              onToggle={() => setTagOpen((o) => (o === tag.id ? null : tag.id))}
+              onHover={(on) => setTagHover((h) => (on ? tag.id : h === tag.id ? null : h))}
+            />
+          ))}
+        </div>
       )}
       {message && (
         <p style={{ position: "absolute", left: 0, right: 0, top: "45%", margin: 0, textAlign: "center", color: "#d5dbe3", fontSize: 14, pointerEvents: "none" }}>{message}</p>

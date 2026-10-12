@@ -3374,7 +3374,7 @@ export function SketchEditor({
           </div>
         </>
       )}
-      {show3d && <Sketch3D sketch={sketch} onClose={() => setShow3d(false)} />}
+      {show3d && <Sketch3D sketch={sketch} moisture={moisture} onClose={() => setShow3d(false)} />}
     </div>
   );
 }

@@ -176,6 +176,19 @@ export function photoPlane(v: Viewpoint, distance: number): { center: Vec3; widt
 }
 
 /**
+ * Where the point [p] lands on [v]'s photo, in its lens's pixels (x right, y down, as `WalkCamera` takes them): the
+ * other way round from `photoPlane`. Null when the point is behind the camera or level with it. Whether it is on the
+ * photo at all is the caller's to say: anywhere outside 0..width, 0..height is off its edges.
+ */
+export function photoPixelOf(v: Viewpoint, p: Vec3): { x: number; y: number } | null {
+  const d: Vec3 = [p[0] - v.position[0], p[1] - v.position[1], p[2] - v.position[2]];
+  const ahead = dot(d, v.forward);
+  if (ahead < 0.05) return null;
+  const c = v.camera;
+  return { x: c.cx + (c.fx * dot(d, v.right)) / ahead, y: c.cy - (c.fy * dot(d, v.up)) / ahead };
+}
+
+/**
  * The view's field of view, top to bottom in degrees, that shows the whole of a photo taken through
  * [camera] in a viewport [aspect] wide to tall - a photo taller than the screen is fitted by its
  * height, one wider by its width - and a little more, so its soft edges show.
