@@ -77,8 +77,9 @@ import {
   wallBandAt,
 } from "@/lib/sketch";
 import { type DraftPoint, WALL_SNAP_SCREEN_PX, absorbedFreeWallIds, snapDraftPoint, wallDimensionsWithExtensions } from "@/lib/sketchWalls";
-import { type NameBox, type NameSize, type NameSpot, edgeToward, fitInside, nameBox, placeOutside, wrapAtSpaces } from "@/lib/roomNamePlace";
+import { type NameBox, type NameSize, type NameSpot, boxesHit, edgeToward, fitInside, nameBox, placeOutside, wrapAtSpaces } from "@/lib/roomNamePlace";
 import { type Obstacle, PULLED_ROOM_DEFAULT_DEPTH_PX, PULLED_ROOM_MIN_DEPTH_PX, outwardNormal, pullBase, pullDepthPx, pulledRoomDepthPx, pulledRoomOutline } from "@/lib/roomPlacement";
+import type { DryingPlan } from "@/lib/dryingPlan";
 
 /**
  * The drawing surface. Rendering and pointer handling only — every state change is reported upward
@@ -156,6 +157,9 @@ const COLORS = {
   moistureCeiling: "#2f6f8f",
   /* A scope marking — where work applies, which has no severity to grade. */
   scopeMark: "#c97a0e",
+  /* The drying plan's equipment, in the drying calculator's colours. */
+  airMover: "#1b3a5c",
+  dehumidifier: "#c97a0e",
 };
 
 const HIT = { wall: 28, handle: 22, symbol: 30 };
@@ -279,6 +283,11 @@ export interface SketchCanvasProps {
    */
   moisture: MoistureMap;
   showMoisture: boolean;
+  /**
+   * The drying plan's air movers and dehumidifiers (`sketchDryingPlan`), drawn where it puts them.
+   * Only the editor's moisture view passes one: an export or a thumbnail leaves it out, and draws none.
+   */
+  dryingPlan?: DryingPlan | null;
   /**
    * What the marking layer MEANS, which decides how it is drawn.
    *
@@ -866,6 +875,11 @@ export default function SketchCanvas(props: SketchCanvasProps) {
           />
         ))}
 
+        {/* After every room, so a sub-room's floor does not cover its parent's movers; before the names, which stay on top. */}
+        {props.dryingPlan && (
+          <DryingEquipment plan={props.dryingPlan} rooms={rooms} names={[...namePlaces.values()].map((place) => nameBox(place.spot))} zoom={view.scale} />
+        )}
+
         {/*
           The label pass: every room's name, drawn after EVERY room rather than inside its own.
 
@@ -1012,6 +1026,66 @@ function BackgroundGrid({ view, width, height }: { view: SketchView; width: numb
     lines.push(<Line key={`h${y}`} points={[left, y, right, y]} stroke={COLORS.grid} strokeWidth={1 / view.scale} />);
   }
   return <>{lines}</>;
+}
+
+/** The drying calculator's dart, nose at +x: turned by a spot's heading, it points the way the air leaves. */
+const MOVER_DART = [8, 0, -5, -5.5, -2.5, 0, -5, 5.5];
+/** The equipment glyphs a fifth bigger on screen than on the calculator's little plan. */
+const EQUIPMENT_GLYPH_SCALE = 1.2;
+
+/**
+ * The drying plan's equipment (`sketchDryingPlan`): an air mover as a navy dart, a dehumidifier as an
+ * amber box with a D, the drying calculator's glyphs. Spots are in feet, so times PIXELS_PER_FOOT here;
+ * the glyphs hold their size on screen at any zoom, as the names do. Deaf: a tap goes through to the
+ * wall or floor under it, as if it were not there.
+ *
+ * A room's middle is where its name is as well as where its dehumidifier goes, and the name's plate is
+ * drawn over it: a unit under a name is drawn just below the name instead, rather than buried.
+ */
+function DryingEquipment({ plan, rooms, names, zoom }: { plan: DryingPlan; rooms: SketchRoom[]; names: NameBox[]; zoom: number }) {
+  const drawn = new Set(rooms.map((room) => room.id));
+  const scale = EQUIPMENT_GLYPH_SCALE / zoom;
+  const belowNames = (x: number, y: number, headingDeg: number) => {
+    const turn = (headingDeg * Math.PI) / 180;
+    const hw = (10 * Math.abs(Math.cos(turn)) + 7 * Math.abs(Math.sin(turn))) * scale;
+    const hh = (10 * Math.abs(Math.sin(turn)) + 7 * Math.abs(Math.cos(turn))) * scale;
+    const under = names.find((box) => boxesHit(box, { l: x - hw, t: y - hh, r: x + hw, b: y + hh }));
+    return under ? under.b + hh + 3 / zoom : y;
+  };
+  return (
+    <Group listening={false}>
+      {plan.rooms
+        .filter((room) => drawn.has(room.roomId))
+        .flatMap((room) => [
+          ...room.dehumidifierSpots.map((spot, i) => (
+            <Group
+              key={`dehu:${room.roomId}:${i}`}
+              x={spot.x * PIXELS_PER_FOOT}
+              y={belowNames(spot.x * PIXELS_PER_FOOT, spot.y * PIXELS_PER_FOOT, spot.headingDeg)}
+              scaleX={scale}
+              scaleY={scale}
+            >
+              <Rect width={20} height={14} offsetX={10} offsetY={7} rotation={spot.headingDeg} cornerRadius={2} fill={COLORS.dehumidifier} />
+              {/* Upright whichever way the box lies. */}
+              <Text x={-10} y={-10} width={20} height={20} align="center" verticalAlign="middle" text="D" fontSize={10} fontStyle="bold" fill="#ffffff" />
+            </Group>
+          )),
+          ...room.airMoverSpots.map((spot, i) => (
+            <Line
+              key={`mover:${room.roomId}:${i}`}
+              x={spot.x * PIXELS_PER_FOOT}
+              y={spot.y * PIXELS_PER_FOOT}
+              rotation={spot.headingDeg}
+              scaleX={scale}
+              scaleY={scale}
+              points={MOVER_DART}
+              closed
+              fill={COLORS.airMover}
+            />
+          )),
+        ])}
+    </Group>
+  );
 }
 
 /**

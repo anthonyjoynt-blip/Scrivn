@@ -148,6 +148,7 @@ import {
 import { MoistureLegend, MoisturePanel } from "./MoisturePanel";
 import { EquipmentPanel } from "./EquipmentPanel";
 import { DEFAULT_EQUIPMENT_SETTINGS, type EquipmentSettings } from "@/lib/equipment";
+import { sketchDryingPlan } from "@/lib/dryingPlanSketch";
 
 /**
  * The sketch tool's UI: canvas plus everything around it.
@@ -309,6 +310,8 @@ export function SketchEditor({
   const [equipmentSettings, setEquipmentSettings] = useState<EquipmentSettings>(DEFAULT_EQUIPMENT_SETTINGS);
   /** The clean sketch, on demand — the same geometry with the layer simply not drawn. */
   const [showMoisture, setShowMoisture] = useState(true);
+  /** The drying plan's air movers and dehumidifiers on the moisture view; toggled in the equipment panel. */
+  const [showEquipment, setShowEquipment] = useState(true);
   /** The reading a wall tap just created, so its row can be pointed out in the panel. */
   const [newReadingId, setNewReadingId] = useState<string | null>(null);
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
@@ -427,6 +430,11 @@ export function SketchEditor({
   const levels = useMemo(() => levelsOf(sketch), [sketch]);
   const activeRooms = useMemo(() => roomsOnLevel(sketch, activeLevel), [sketch, activeLevel]);
   const activeFreeWalls = useMemo(() => freeWallsOnLevel(sketch, activeLevel), [sketch, activeLevel]);
+  /** The equipment panel's counts, laid out: only worked out on the moisture view, which is the one place it shows. */
+  const dryingPlan = useMemo(
+    () => (mode === "moisture" ? sketchDryingPlan(sketch, moisture, equipmentSettings) : null),
+    [mode, sketch, moisture, equipmentSettings],
+  );
   const selectedWall = freeWallsOf(sketch).find((w) => w.id === selectedWallId) ?? null;
   /*
     Defaults to the level below where one exists, and stops choosing for the PM the moment they
@@ -2455,6 +2463,7 @@ export function SketchEditor({
           showSizes={showSizes}
           moisture={moisture}
           showMoisture={showMoisture && mode === "moisture"}
+          dryingPlan={showEquipment ? dryingPlan : null}
           moistureTool={mode === "moisture" ? moistureTool : null}
           paintSurface={paintSurface}
           selectedReadingId={selectedReadingId}
@@ -2735,6 +2744,9 @@ export function SketchEditor({
           sketch={sketch}
           moisture={moisture}
           settings={equipmentSettings}
+          plan={dryingPlan}
+          showOnSketch={showEquipment}
+          onShowOnSketchChange={setShowEquipment}
           statedEquipment={statedEquipment}
           onSettingsChange={setEquipmentSettings}
           onResolveEquipment={onResolveEquipment}

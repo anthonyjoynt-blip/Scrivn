@@ -2,6 +2,7 @@
 
 import type { Sketch } from "@/lib/sketch";
 import type { MoistureMap } from "@/lib/moisture";
+import type { DryingPlan } from "@/lib/dryingPlan";
 import {
   DEHUMIDIFIER_SIZES,
   DEHUMIDIFIER_TYPE_LABEL,
@@ -26,6 +27,9 @@ export function EquipmentPanel({
   sketch,
   moisture,
   settings,
+  plan,
+  showOnSketch,
+  onShowOnSketchChange,
   statedEquipment,
   onSettingsChange,
   onResolveEquipment,
@@ -33,6 +37,11 @@ export function EquipmentPanel({
   sketch: Sketch;
   moisture: MoistureMap;
   settings: EquipmentSettings;
+  /** The same counts laid out (`sketchDryingPlan`): where the canvas draws them, and what the walls had no room for. */
+  plan?: DryingPlan | null;
+  /** Whether the canvas draws the plan, and the switch for it. */
+  showOnSketch?: boolean;
+  onShowOnSketchChange?: (show: boolean) => void;
   /**
    * What the claim already says is being placed, by room name then equipment type.
    *
@@ -131,6 +140,40 @@ export function EquipmentPanel({
         </div>
       </div>
 
+      {/* The drying calculator's glyphs, so the key and the plan read the same. */}
+      {plan && onShowOnSketchChange && (
+        <div className="equipment-show">
+          <button
+            type="button"
+            className={`option-btn${showOnSketch ? " selected" : ""}`}
+            aria-pressed={showOnSketch}
+            onClick={() => onShowOnSketchChange(!showOnSketch)}
+          >
+            Show on sketch
+          </button>
+          {showOnSketch && (
+            <span className="equipment-key" aria-hidden="true">
+              <span>
+                <svg viewBox="-8 -7 17 14" width="14" height="12">
+                  <path d="M 8 0 L -5 -5.5 L -2.5 0 L -5 5.5 Z" fill="#1b3a5c" />
+                </svg>{" "}
+                Air mover
+              </span>
+              {plan.dehumidifiersPlaced ? (
+                <span>
+                  <svg viewBox="0 0 14 10" width="14" height="10">
+                    <rect width="14" height="10" rx="2" fill="#c97a0e" />
+                  </svg>{" "}
+                  Dehumidifier
+                </span>
+              ) : (
+                <span>Desiccants stand outside and duct in, so none are drawn.</span>
+              )}
+            </span>
+          )}
+        </div>
+      )}
+
       {/* Only where the claim already states a count AND it is below what the map suggests. */}
       {onResolveEquipment &&
         result.rooms.flatMap((room) => {
@@ -175,18 +218,23 @@ export function EquipmentPanel({
             </tr>
           </thead>
           <tbody>
-            {result.rooms.map((room) => (
-              <tr key={room.roomId}>
-                <th scope="row">{room.roomName}</th>
-                <td>
-                  <span className="sketch-qty-value">{room.airMovers.units}</span>
-                </td>
-                <td className="equipment-working">
-                  1 base + {room.airMovers.breakdown.floor} floor + {room.airMovers.breakdown.upper} walls &amp; ceiling
-                  {room.airMovers.breakdown.insets > 0 && <> + {room.airMovers.breakdown.insets} insets</>}
-                </td>
-              </tr>
-            ))}
+            {result.rooms.map((room) => {
+              // Movers the walls had no room for: the sketch draws the rest, so these are said here.
+              const unplaced = plan?.rooms.find((r) => r.roomId === room.roomId)?.airMoversUnplaced ?? 0;
+              return (
+                <tr key={room.roomId}>
+                  <th scope="row">{room.roomName}</th>
+                  <td>
+                    <span className="sketch-qty-value">{room.airMovers.units}</span>
+                    {unplaced > 0 && <span className="equipment-working equipment-unplaced">+{unplaced} on the open floor</span>}
+                  </td>
+                  <td className="equipment-working">
+                    1 base + {room.airMovers.breakdown.floor} floor + {room.airMovers.breakdown.upper} walls &amp; ceiling
+                    {room.airMovers.breakdown.insets > 0 && <> + {room.airMovers.breakdown.insets} insets</>}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>

@@ -2202,6 +2202,29 @@ button:disabled {
   font-size: 12px;
   color: #5b6b7c;
 }
+/* The drying plan on the sketch: its switch, and a key in the drying calculator's glyphs. */
+.equipment-show {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  margin-bottom: 16px;
+}
+.equipment-key {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 14px;
+  font-size: 12px;
+  color: #5b6b7c;
+}
+.equipment-key svg {
+  vertical-align: middle;
+}
+.equipment-unplaced {
+  display: block;
+  white-space: nowrap;
+}
 
 /* The legend's two halves: wall colours, and the surface treatments. */
 .moisture-legend-group {
