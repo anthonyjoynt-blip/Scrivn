@@ -200,6 +200,19 @@ export function emptyMoistureMap(): MoistureMap {
 }
 
 /**
+ * A scan's moisture laid into a claim's (2026-10-12, Scan's moisture mapping): its rooms' readings and painted cells added
+ * under their new room ids, and its dry references filling only what the claim has not got - a reference the PM typed here
+ * is not overwritten by a phone that metered something else.
+ */
+export function withScanMoisture(map: MoistureMap, add: MoistureMap | undefined | null): MoistureMap {
+  if (!add) return map;
+  return {
+    rooms: { ...map.rooms, ...add.rooms },
+    reference: { ...(add.reference ?? {}), ...(map.reference ?? {}) },
+  };
+}
+
+/**
  * Where a wall's dry standard came from — a label, never a value.
  *
  * Deliberately does not resolve a number. `WallReading.dryStandard` is the single thing every

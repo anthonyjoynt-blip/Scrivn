@@ -1695,6 +1695,42 @@ export async function runScanImportChecks() {
     assert(scan.splitScanLevels(office) === null && scan.splitScanLevels("{ not json") === null, "and so is a one-room file; not JSON is not split");
   });
 
+  test("a scan's moisture comes in on the walls and cells of the rooms it was mapped in (Scan 2026-10-12)", () => {
+    const withWet = JSON.parse(captureTaps);
+    const ring = withWet.rooms[0].outline;
+    const edgeLen = Math.hypot(ring[1][0] - ring[0][0], ring[1][1] - ring[0][1]);
+    withWet.rooms[0].moisture = {
+      walls: [{ number: 1, edge: 0, from_m: 0.5, to_m: 1.5, height_m: 0.7, material: "paneling", reading: 22 }],
+      floor_cells: ["0,0", "1,0", "bad"],
+      ceiling_cells: [],
+      insets_over_18: 1,
+    };
+    withWet.moisture_job = { reference: { paneling: 9.5, nonsense: 3 }, water_class: 3, dehumidifier: { type: "lgr", size: "large" } };
+    const result = scan.importScanRoom(JSON.stringify(withWet), { x: 0, y: 0 }, 0);
+    assert(result.ok, `imports, got ${result.error}`);
+    assert(result.moisture !== undefined, "the moisture comes with the rooms");
+    const rooms = [result.room, ...result.extraRooms];
+    const wet = Object.entries(result.moisture.rooms);
+    assert(wet.length === 1, `one room mapped, got ${wet.length}`);
+    const [roomId, m] = wet[0];
+    const room = rooms.find((r) => r.id === roomId);
+    assert(room !== undefined, "keyed to a room that came in");
+    const reading = m.wallReadings[0];
+    assert(sketch.wallsOf(room).some((w) => w.id === reading.wallId), "on one of that room's walls");
+    near(reading.endT - reading.startT, 1.0 / edgeLen, "the stretch is 1 m of its wall", 0.01);
+    near(reading.affectedHeightFeet, 0.7 / 0.3048, "wet to 0.7 m", 0.02);
+    assert(reading.material === "paneling" && reading.reading === 22, "its material and its reading");
+    assert(reading.dryStandard === 9.5, `its dry standard the job's reference, got ${reading.dryStandard}`);
+    assert(m.floorCells.length === 2 && m.floorCells.includes("1,0"), "the painted cells, a bad one left out");
+    assert(m.insetsOver18Inches === 1, "the insets");
+    assert(result.moisture.reference.paneling === 9.5 && result.moisture.reference.nonsense === undefined, "the references it knows");
+    assert(result.moistureJob.waterClass === 3 && result.moistureJob.dehumidifierSize === "large", "the class and the dehumidifiers");
+    assert(result.notes.some((n) => n.startsWith("Moisture mapped on the phone: 1 wet wall")), `said, got ${result.notes.join(" | ")}`);
+    // A file nobody mapped has none.
+    const dry = scan.importScanRoom(captureTaps, { x: 0, y: 0 }, 0);
+    assert(dry.ok && dry.moisture === undefined && !dry.notes.some((n) => n.startsWith("Moisture")), "and a dry file says nothing of it");
+  });
+
   return { passed, failures };
 }
 

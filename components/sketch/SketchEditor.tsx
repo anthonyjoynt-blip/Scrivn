@@ -144,6 +144,7 @@ import {
   roomMoisture,
   setRoomMoisture,
   turnedRoomMoisture,
+  withScanMoisture,
 } from "@/lib/moisture";
 import { MoistureLegend, MoisturePanel } from "./MoisturePanel";
 import { EquipmentPanel } from "./EquipmentPanel";
@@ -1494,6 +1495,8 @@ export function SketchEditor({
       return;
     }
     onChange((prev) => ({ ...prev, rooms: withDerivedParents([...prev.rooms, result.room, ...result.extraRooms]) }));
+    // Where it is wet, when the phone mapped it (2026-10-12).
+    if (result.moisture) onMoistureChange((prev) => withScanMoisture(prev, result.moisture));
     setSelectedRoomId(result.room.id);
     setSelectedSymbolId(null);
     setTool("select");
@@ -1551,6 +1554,7 @@ export function SketchEditor({
     const closetDoors: ClosetDoorRef[] = [];
     const storeys: number[] = [];
     const names: Record<string, string> = {};
+    const moistures: MoistureMap[] = [];
     let firstRoomId: string | null = null;
     for (const [k, part] of parts.entries()) {
       const storey = base + (part.level - start);
@@ -1564,6 +1568,7 @@ export function SketchEditor({
         continue;
       }
       added.push(result.room, ...result.extraRooms);
+      if (result.moisture) moistures.push(result.moisture);
       closetDoors.push(...result.closetDoors);
       storeys.push(storey);
       if (part.name !== null) names[String(storey)] = part.name;
@@ -1583,6 +1588,7 @@ export function SketchEditor({
       if (Object.keys(names).length > 0) next = { ...next, levelNames: { ...(prev.levelNames ?? {}), ...names } };
       return next;
     });
+    if (moistures.length > 0) onMoistureChange((prev) => moistures.reduce((m, add) => withScanMoisture(m, add), prev));
     handleSwitchLevel(storeys[0] as number);
     setSelectedRoomId(firstRoomId);
     setTool("select");

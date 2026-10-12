@@ -197,6 +197,7 @@ import {
   withClosetsBehind,
 } from "./sketch";
 import { spacesBetweenRooms } from "./freeSpace";
+import { type MoistureMap, type MoistureMaterial, type RoomMoisture, WALL_MATERIALS, startingDryStandard } from "./moisture";
 
 const FEET_PER_METRE = 1 / 0.3048;
 const PX_PER_METRE = PIXELS_PER_FOOT * FEET_PER_METRE;
@@ -376,6 +377,37 @@ export interface ScanRoom {
    * outline already carries them; the importer only has to move nothing that would change one ([lineUpWalls]).
    */
   taped_edges?: number[];
+  /** Where the room is wet, when it was mapped on the phone (Scan 2026-10-12); absent otherwise. */
+  moisture?: ScanRoomMoisture;
+}
+
+/**
+ * A wet stretch of wall as the phone tapped it (Scan 2026-10-12, moisture mapping): on edge `edge` of the outline,
+ * `from_m` to `to_m` along it from the edge's start, wet to `height_m` above the floor (null when it did not read).
+ */
+export interface ScanWetWall {
+  edge: number;
+  from_m: number;
+  to_m: number;
+  height_m: number | null;
+  material: string;
+  reading: number | null;
+}
+
+/** A room's moisture as the phone sends it. The cells are already Scrivn's: "col,row" of 3 in cells from the room's top-left. */
+export interface ScanRoomMoisture {
+  walls: ScanWetWall[];
+  floor_cells: string[];
+  ceiling_cells: string[];
+  insets_over_18: number;
+}
+
+/** The job's side, once per file (`moisture_job`): the dry references and what the equipment is sized by. */
+export interface ScanMoistureJob {
+  reference: Partial<Record<MoistureMaterial, number>>;
+  waterClass: number;
+  dehumidifierType: string;
+  dehumidifierSize: string;
 }
 
 /** The `format` a file of several rooms declares; see the header. */
@@ -500,6 +532,13 @@ export type ScanImportResult =
        * where the phone stood for each photo - lands through the same `scanPointToPx`.
        */
       origin?: ScanOrigin;
+      /**
+       * Where the rooms are wet, keyed by the new rooms' ids, with the file's dry references (Scan 2026-10-12): laid into the
+       * claim's moisture map by whoever adds the rooms (`withScanMoisture`). Absent when nothing was mapped.
+       */
+      moisture?: MoistureMap;
+      /** The water class and dehumidifiers the phone was set to, when it said. */
+      moistureJob?: ScanMoistureJob;
     }
   | { ok: false; error: string };
 
@@ -880,6 +919,7 @@ export function parseScanRoom(input: unknown): { ok: true; scan: ScanRoom; notes
     notes.unshift(...said);
   }
 
+  const moisture = parseRoomMoisture(raw.moisture);
   return {
     ok: true,
     scan: {
@@ -902,8 +942,61 @@ export function parseScanRoom(input: unknown): { ok: true; scan: ScanRoom; notes
       islands,
       stairs,
       ...(tapedEdges.size > 0 ? { taped_edges: [...tapedEdges].sort((a, b) => a - b) } : {}),
+      ...(moisture ? { moisture } : {}),
     },
     notes,
+  };
+}
+
+/** A room's `moisture` as the phone wrote it, what of it reads; null when there is none. */
+function parseRoomMoisture(raw: unknown): ScanRoomMoisture | null {
+  if (typeof raw !== "object" || raw === null) return null;
+  const m = raw as Record<string, unknown>;
+  const walls: ScanWetWall[] = [];
+  if (Array.isArray(m.walls)) {
+    for (const w of m.walls) {
+      if (typeof w !== "object" || w === null) continue;
+      const x = w as Record<string, unknown>;
+      if (!isFiniteNumber(x.edge) || !isFiniteNumber(x.from_m) || !isFiniteNumber(x.to_m) || x.to_m <= x.from_m) continue;
+      walls.push({
+        edge: Math.trunc(x.edge),
+        from_m: x.from_m,
+        to_m: x.to_m,
+        height_m: isFiniteNumber(x.height_m) && x.height_m > 0 ? x.height_m : null,
+        material: typeof x.material === "string" ? x.material : "drywall",
+        reading: isFiniteNumber(x.reading) ? x.reading : null,
+      });
+    }
+  }
+  const cells = (v: unknown): string[] => (Array.isArray(v) ? v.filter((c): c is string => typeof c === "string" && /^-?\d+,-?\d+$/.test(c)) : []);
+  const out: ScanRoomMoisture = {
+    walls,
+    floor_cells: cells(m.floor_cells),
+    ceiling_cells: cells(m.ceiling_cells),
+    insets_over_18: isFiniteNumber(m.insets_over_18) ? Math.max(0, Math.trunc(m.insets_over_18)) : 0,
+  };
+  const any = out.walls.length > 0 || out.floor_cells.length > 0 || out.ceiling_cells.length > 0 || out.insets_over_18 > 0;
+  return any ? out : null;
+}
+
+/** The file's `moisture_job`, what of it reads; null when there is none. */
+function parseMoistureJob(raw: unknown): ScanMoistureJob | null {
+  if (typeof raw !== "object" || raw === null) return null;
+  const top = (raw as Record<string, unknown>).moisture_job;
+  if (typeof top !== "object" || top === null) return null;
+  const j = top as Record<string, unknown>;
+  const reference: Partial<Record<MoistureMaterial, number>> = {};
+  if (typeof j.reference === "object" && j.reference !== null) {
+    for (const [k, v] of Object.entries(j.reference as Record<string, unknown>)) {
+      if ((WALL_MATERIALS as string[]).includes(k) && isFiniteNumber(v) && v > 0) reference[k as MoistureMaterial] = v;
+    }
+  }
+  const dehu = typeof j.dehumidifier === "object" && j.dehumidifier !== null ? (j.dehumidifier as Record<string, unknown>) : {};
+  return {
+    reference,
+    waterClass: isFiniteNumber(j.water_class) && j.water_class >= 1 && j.water_class <= 4 ? Math.trunc(j.water_class) : 2,
+    dehumidifierType: dehu.type === "desiccant" ? "desiccant" : "lgr",
+    dehumidifierSize: dehu.size === "small" || dehu.size === "large" ? dehu.size : "medium",
   };
 }
 
@@ -1593,6 +1686,37 @@ export function scanToSketchRoom(scan: ScanRoom, at: { x: number; y: number }, l
     .sort((a, b) => (wallIndex.get(a.wallId) ?? 0) - (wallIndex.get(b.wallId) ?? 0) || a.t - b.t)
     .map((s) => ({ roomId: room.id, doorId: s.id }));
 
+  /*
+    MOISTURE (Scan 2026-10-12): each wet stretch onto the wall its edge is, as an opening is placed (`outlineEdge`), its two
+    ends as fractions of that wall - the way the sketch's own readings are kept - and the painted cells as they came, keyed
+    to this room. The dry standard is the job's to say; `importScanRoom` fills it once it has read the file's references.
+  */
+  let roomMoisture: RoomMoisture | null = null;
+  if (scan.moisture) {
+    const readings = scan.moisture.walls.flatMap((w) => {
+      const a = outlineEdge(w.edge, w.from_m);
+      const b = outlineEdge(w.edge, w.to_m);
+      if (a === null || b === null || a.wall.id !== b.wall.id) return [];
+      const material: MoistureMaterial = (WALL_MATERIALS as string[]).includes(w.material) ? (w.material as MoistureMaterial) : "drywall";
+      return [{
+        id: newSketchId("reading"),
+        wallId: a.wall.id,
+        startT: Math.min(a.t, b.t),
+        endT: Math.max(a.t, b.t),
+        affectedHeightFeet: Math.round((w.height_m ?? 2 / FEET_PER_METRE) * FEET_PER_METRE * 100) / 100,
+        material,
+        reading: w.reading,
+        dryStandard: null as number | null,
+      }];
+    });
+    roomMoisture = {
+      wallReadings: readings,
+      floorCells: scan.moisture.floor_cells,
+      ceilingCells: scan.moisture.ceiling_cells,
+      insetsOver18Inches: scan.moisture.insets_over_18,
+    };
+  }
+
   // One room built is a one-room result; the capture importer says otherwise for its own.
   return {
     ok: true,
@@ -1600,6 +1724,7 @@ export function scanToSketchRoom(scan: ScanRoom, at: { x: number; y: number }, l
     room: { ...room, symbols },
     extraRooms,
     notes,
+    ...(roomMoisture ? { moisture: { rooms: { [room.id]: roomMoisture }, reference: {} } } : {}),
     closetDoors: closetDoorRefs.filter((d) => !closetsMarked.has(d.doorId)),
     closetsMarked: closetDoorRefs.filter((d) => closetsMarked.has(d.doorId)),
     ...(tapedWalls.length > 0 ? { tapedWalls } : {}),
@@ -2223,6 +2348,7 @@ function importScanCapture(capture: ScanCapture, fileNotes: string[], at: { x: n
   // The rooms that stay where they are when two taped rooms disagree ([settleOverlaps]): the first, which every other was
   // placed from, and each the phone laid against a neighbour at the door they share - its own sentence says so.
   const fixed = new Set<string>();
+  const moistureRooms: Record<string, RoomMoisture> = {};
   drawable.forEach(({ scan }, position) => {
     const label = captureRoomName(scan.name, scan.index ?? position);
     // A room that arrived unnamed is named here as the note names it, so the two agree.
@@ -2233,6 +2359,7 @@ function importScanCapture(capture: ScanCapture, fileNotes: string[], at: { x: n
     }
     closetDoors.push(...built.closetDoors);
     closetsMarked.push(...(built.closetsMarked ?? []));
+    Object.assign(moistureRooms, built.moisture?.rooms ?? {});
     if (built.tapedWalls !== undefined) taped.set(built.room.id, new Set(built.tapedWalls));
     if (rooms.length === 0 || built.notes.some((n) => / was laid against .+ at the door they share\./.test(n))) fixed.add(built.room.id);
     rooms.push(built.room);
@@ -2300,6 +2427,7 @@ function importScanCapture(capture: ScanCapture, fileNotes: string[], at: { x: n
     closetDoors: owedClosets,
     ...(spaces.length > 0 ? { spaces } : {}),
     origin,
+    ...(Object.keys(moistureRooms).length > 0 ? { moisture: { rooms: moistureRooms, reference: {} } } : {}),
   };
 }
 
@@ -2316,6 +2444,34 @@ export function importScanRoom(text: string, at: { x: number; y: number }, level
   } catch {
     return { ok: false, error: "This file is not a room scan — it is not valid JSON." };
   }
+  return withMoistureJob(importParsed(parsed, at, level), parseMoistureJob(parsed));
+}
+
+/**
+ * The file's job settings onto what was imported (Scan 2026-10-12): the dry references with the map, each reading's dry
+ * standard from them (`startingDryStandard`, the guide's where none was metered), and a note of what came in.
+ */
+function withMoistureJob(result: ScanImportResult, job: ScanMoistureJob | null): ScanImportResult {
+  if (!result.ok) return result;
+  const reference = job?.reference ?? {};
+  if (!result.moisture) return job ? { ...result, moistureJob: job } : result;
+  const map: MoistureMap = { rooms: {}, reference };
+  let readings = 0;
+  let painted = 0;
+  for (const [id, room] of Object.entries(result.moisture.rooms)) {
+    readings += room.wallReadings.length;
+    if (room.floorCells.length > 0 || room.ceilingCells.length > 0) painted += 1;
+    map.rooms[id] = { ...room, wallReadings: room.wallReadings.map((r) => ({ ...r, dryStandard: r.dryStandard ?? startingDryStandard(map, r.material) })) };
+  }
+  const said = [
+    readings > 0 ? `${readings} wet wall${readings === 1 ? "" : "s"}` : null,
+    painted > 0 ? `wet floor or ceiling in ${painted} room${painted === 1 ? "" : "s"}` : null,
+  ].filter((x): x is string => x !== null);
+  const note = said.length > 0 ? [`Moisture mapped on the phone: ${said.join(", ")}.`] : [];
+  return { ...result, moisture: map, ...(job ? { moistureJob: job } : {}), notes: [...result.notes, ...note] };
+}
+
+function importParsed(parsed: unknown, at: { x: number; y: number }, level: number): ScanImportResult {
   const checked = parseScan(parsed);
   if (!checked.ok) return checked;
   if (checked.kind === "capture") return importScanCapture(checked.capture, checked.notes, at, level);

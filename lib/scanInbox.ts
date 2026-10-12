@@ -331,6 +331,8 @@ export interface Adoption {
   /** Rooms that were on the storey before and are gone. */
   replacedCount: number;
   notes: string[];
+  /** Where the new rooms are wet, mapped on the phone (2026-10-12): for the claim's moisture map (`withScanMoisture`). */
+  moisture?: MoistureMap;
 }
 
 /**
@@ -374,7 +376,7 @@ export function adoptScan(sketch: Sketch, scan: PendingScan, receivedAt: string 
   if (named !== null) adopted.levelNames = { ...(sketch.levelNames ?? {}), [String(level)]: named };
   if (walks.length > 0) adopted.walks = walks;
   else delete adopted.walks;
-  return { sketch: adopted, roomCount: incoming.length, replacedCount, notes: result.notes };
+  return { sketch: adopted, roomCount: incoming.length, replacedCount, notes: result.notes, ...(result.moisture ? { moisture: result.moisture } : {}) };
 }
 
 /**
@@ -384,7 +386,7 @@ export function adoptScan(sketch: Sketch, scan: PendingScan, receivedAt: string 
 export function sketchFromScan(
   body: unknown,
   scan: { scanId: string; captureId: string | null; receivedAt: string; level?: number },
-): { ok: true; sketch: Sketch; roomCount: number; notes: string[] } | { ok: false; error: string } {
+): { ok: true; sketch: Sketch; roomCount: number; notes: string[]; moisture?: MoistureMap } | { ok: false; error: string } {
   const level = scan.level ?? MAIN_LEVEL;
   const adopted = adoptScan(
     { rooms: [] },
@@ -392,7 +394,7 @@ export function sketchFromScan(
     scan.receivedAt,
   );
   if ("ok" in adopted) return adopted;
-  return { ok: true, sketch: adopted.sketch, roomCount: adopted.roomCount, notes: adopted.notes };
+  return { ok: true, sketch: adopted.sketch, roomCount: adopted.roomCount, notes: adopted.notes, ...(adopted.moisture ? { moisture: adopted.moisture } : {}) };
 }
 
 /** The rooms of a sketch a phone might be sent to pick a name from: the sketch's own, placeholders left out. */

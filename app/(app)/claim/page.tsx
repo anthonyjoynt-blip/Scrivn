@@ -78,7 +78,7 @@ import { type Trade, type WorkOrder, availableTrades, buildWorkOrders, unavailab
 import { WorkOrderSelector } from "@/components/WorkOrderSelector";
 import { SketchEditor } from "@/components/sketch/SketchEditor";
 import { type Sketch, emptySketch, hasSketchContent, knownRoomNames, levelsOf } from "@/lib/sketch";
-import { type MoistureMap, emptyMoistureMap, hasMoistureContent, pruneMoisture, roomMoistureSummary } from "@/lib/moisture";
+import { type MoistureMap, emptyMoistureMap, hasMoistureContent, pruneMoisture, roomMoistureSummary, withScanMoisture } from "@/lib/moisture";
 import { SCAN_DROP, type PendingScan, adoptScan, convertScan, namedRooms, scanDecision, scanLevelName } from "@/lib/scanInbox";
 import { useScanInbox } from "@/lib/useScanInbox";
 import { ScanInboxMessage, ScanInboxNotice, scanAdoptedMessage } from "@/components/sketch/ScanInboxNotice";
@@ -486,7 +486,8 @@ export default function Home() {
     }
     scanOutcomes.current.set(scan.id, "adopted");
     setSketch(adopted.sketch);
-    setMoisture((prev) => pruneMoisture(prev, adopted.sketch));
+    // The phone's moisture map comes with its rooms (2026-10-12).
+    setMoisture((prev) => withScanMoisture(pruneMoisture(prev, adopted.sketch), adopted.moisture));
     setScanIssue(null);
     setScanMessage(scanAdoptedMessage(scan.level, adopted.roomCount, scanLevelName(scan.body)));
     setScanBusy(true);

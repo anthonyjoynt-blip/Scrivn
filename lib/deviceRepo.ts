@@ -6,6 +6,7 @@ import { supabaseAnonKey, supabaseUrl } from "./supabase/env";
 import { withClockSkewRetry } from "./supabase/clockSkew";
 import { NoOrganizationError, NotSignedInError } from "./claimsRepo";
 import { claimSummary, emptySavedClaimState } from "./claimState";
+import { withScanMoisture } from "./moisture";
 import { PAIRING_CODE_TTL_SECONDS, claimSketchUrl, hashSecret, newDeviceToken, newPairingCode, normalisePairingCode, pairingUrl } from "./deviceCodes";
 import { SCAN_DROP, convertScan, dedupeNotes, scanTooBig, sketchFromScan, type PendingScan } from "./scanInbox";
 
@@ -509,6 +510,8 @@ export async function receiveScan(token: string, input: ReceiveScanInput): Promi
     if (!built.ok) throw new ScanRejectedError(built.error);
     const state = emptySavedClaimState();
     state.sketch = built.sketch;
+    // Where it is wet, when the phone mapped it (2026-10-12).
+    state.moisture = withScanMoisture(state.moisture, built.moisture);
     if (input.customerName !== undefined) state.claim = { ...state.claim, customerName: input.customerName.trim() };
     if (input.address !== undefined) state.claim = { ...state.claim, address: input.address.trim() };
     newClaim = { payload: state, ...claimSummary(state) };
