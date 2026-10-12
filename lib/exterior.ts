@@ -681,7 +681,18 @@ function shapeQuantities(side: ExteriorSide, empty: SideQuantities): SideQuantit
     const own = area(f.polygon);
     const overlap = Math.min(own, lost[i] as number);
     const gross = own - overlap;
-    const holes = Math.min(gross, rects.reduce((sum, r) => sum + area(clipRect(f.polygon, r.x0, r.x1, r.y0, r.y1)), 0));
+    // An opening's part under a later shape already went with the overlap: it comes out of that shape, not this one too.
+    const later = faces.slice(i + 1);
+    const holes = Math.min(
+      gross,
+      rects.reduce((sum, r) => {
+        const inside = clipRect(f.polygon, r.x0, r.x1, r.y0, r.y1);
+        const a = area(inside);
+        if (a <= 0) return sum;
+        const covered = later.reduce((c, g) => c + sharedArea(g.polygon, inside), 0);
+        return sum + a - Math.min(a, covered);
+      }, 0),
+    );
     return {
       bandId: f.id,
       kind: f.kind as CladdingKind,

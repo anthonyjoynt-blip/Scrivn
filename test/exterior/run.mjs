@@ -867,6 +867,19 @@ test("a stone wainscot tapped over a stucco wall is counted once, as the stone",
   near(q.wallSquareFeet + q.gableSquareFeet, 80, "wall and gable still the whole");
 });
 
+test("a window across the top of a stone wainscot comes out once", () => {
+  // Window 3 wide, 1 to 4 ft up; the stone over the stucco runs to 3 ft. 2 ft of it is in the stone, 1 ft above in stucco.
+  const q = x.sideQuantities(
+    shapedSide([
+      ["stucco", [[0, 0], [10, 0], [10, 8], [0, 8]]],
+      ["stone", [[0, 0], [10, 0], [10, 3], [0, 3]]],
+    ], { openings: [{ id: "w1", kind: "window", fromLeftFeet: 2, widthFeet: 3, sillFeet: 1, heightFeet: 3 }] }),
+  );
+  near(q.bands[0].openingSquareFeet, 3, "out of the stucco: only the part above the stone");
+  near(q.bands[1].openingSquareFeet, 6, "out of the stone");
+  near(q.netSquareFeet, 80 - 9, "the wall less the window once");
+});
+
 test("an overlap with an L-shaped face is worked exactly", () => {
   // L of 64 SF; a 6 x 4 stone patch over its corner shares 2 x 6 + 2 x 2 = 16 SF with it.
   const q = x.sideQuantities(
