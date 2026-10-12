@@ -44,7 +44,7 @@ Scrivn is used by restoration companies to document property-damage claims. When
 
 **AI processing**
 
-To turn a walkthrough into a scope document and inspection report, Scrivn sends the claim's text (the dictation, claim details and answers to follow-up questions) to Anthropic, PBC, which provides the Claude AI model. Anthropic processes it only to return the result and, under its commercial terms, does not use it to train its models. Photos are not sent for AI processing.
+To turn a walkthrough into a scope document and inspection report, Scrivn sends the claim's text (the dictation, claim details and answers to follow-up questions) to Anthropic, PBC, which provides the Claude AI model. When a user chooses AI trace on a side of the house in the exterior sketch, Scrivn also sends Anthropic that side's photo from Scrivn Scan, squared up to the wall, so that Claude can trace the wall's cladding, windows and doors for the user to confirm. Anthropic processes this information only to return the result and, under its commercial terms, does not use it to train its models. No other photos are sent for AI processing.
 
 **Dictation**
 
@@ -81,7 +81,8 @@ Claims, photos and scans are kept until the company deletes them, or for 24 mont
 - **No analytics, SMS or marketing.** The generated policy once claimed all three. Overstating is not
   harmless: Scrivn Scan's Play Store Data safety form has to match the policy.
 - **Where each fact comes from:** Anthropic: `lib/anthropic.ts` (claim details and transcript go to
-  `/api/extract` and `/api/generate`, no images). Resend: `lib/email/send.ts`, used by sign-in
+  `/api/extract` and `/api/generate`, no images; since 2026-10-12 a side's squared-up exterior photo
+  goes to `/api/exterior/trace` when the user presses AI trace, `lib/exteriorTrace.ts`). Resend: `lib/email/send.ts`, used by sign-in
   confirmation, the contact form and Send documents. Dictation: `components/DictateButton.tsx` (browser
   speech recognition, no audio leaves the device to Scrivn). Scan permissions: the
   ARCapturePrototype manifest (CAMERA and INTERNET only). Phone revoke: `components/PairedPhones.tsx`.
