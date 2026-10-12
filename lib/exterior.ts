@@ -263,7 +263,16 @@ export interface Exterior {
    * first change to a measurement in Scrivn; from then on it is the estimator's, and a later scan asks
    * before replacing it. Ticking what is in scope is not a change to what was measured.
    */
-  source?: { kind: "scan"; captureId: string | null; scanId: string | null; receivedAt: string | null; notes: string[]; edited?: boolean };
+  source?: {
+    kind: "scan";
+    captureId: string | null;
+    scanId: string | null;
+    receivedAt: string | null;
+    notes: string[];
+    edited?: boolean;
+    /** False when the phone's walk did not go all the way round: its sides are not yet a footprint. */
+    walkClosed?: boolean;
+  };
 }
 
 export const DEFAULT_EAVE_FEET = 10;
@@ -822,6 +831,14 @@ export function exteriorFootprint(exterior: Exterior): Footprint {
     perimeterFeet: 0,
   });
   if (sides.length < 4) return fail(`A footprint needs every side of the house: ${sides.length} of at least 4 so far.`);
+  /*
+    A walk the phone did not close can still add up to four corners by chance - six sides of a house
+    with a side or two missed - and a roof built on that would be the wrong roof. Not until the
+    estimator has worked on the sides.
+  */
+  if (exterior.source?.walkClosed === false && !exterior.source.edited) {
+    return fail("The phone's walk did not go all the way round the house: put in the sides it missed, or put the corners right, and the footprint and roof build from them.");
+  }
   const outside = sides.filter((s) => s.turn === "outside").length;
   const inside = sides.length - outside;
   if (outside - inside !== 4) {

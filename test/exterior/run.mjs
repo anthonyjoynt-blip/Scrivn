@@ -912,6 +912,46 @@ test("the roofline's named points: a lone end is only its own end", () => {
   assert(r.notes.some((n) => /past Front's right end/.test(n)) && !r.notes.some((n) => /past Front's left end/.test(n)), r.notes.join(" | "));
 });
 
+test("the owner's 14:20 walk of six sides: real gables only, overhangs, and no roof on an open walk", () => {
+  // Written before Scan's def1456, so it still carries the rear's 0.8/12 "gable" and the right's 0.06/12.
+  const r = x.parseScanExterior(fixture("scan-exterior-v2-walk-1420.json"));
+  assert(r.ok, r.error);
+  const e = r.exterior;
+  assert(e.sides.map((s) => s.name).join() === "Front,Right,Front 2,Right 2,Right 3,Rear", e.sides.map((s) => s.name).join());
+  assert(e.sides[1].turn === "inside", "the inside corner after the Right side");
+  // The rear's middle point is 0.07 m over its ends and the right's pitch 0.06/12: neither a gable.
+  assert(e.sides[5].gable === null && e.sides[5].pitchMeasured === undefined, "no gable on the rear");
+  assert(e.sides[1].gable === null && e.sides[1].pitchMeasured === undefined, "none on the right");
+  // The pitch from the two real gables: Front 4.001, Right 3 4.636.
+  near(x.exteriorPitch(e).value, (4.001 + 4.636) / 2, "4.3/12", 1e-9);
+  // Eave sides' roof edges stand out 0.294-0.781 m (median 0.4995); the gables' 0.543-0.68 (0.575).
+  near(e.roof.eaveOverhangFeet, 0.4995 * M, "eave overhang", 1e-6);
+  near(e.roof.rakeOverhangFeet, 0.575 * M, "rake overhang", 1e-6);
+  // The porch and deck roofs: 4.1 m past the Front's left wall, and past both ends of the Right side.
+  for (const end of ["Front's left", "Front's right", "Right's left", "Right's right"]) {
+    assert(r.notes.some((n) => n.includes(`past ${end} end`)), `missing ${end}: ${r.notes.join(" | ")}`);
+  }
+  assert(!r.notes.some((n) => /past (Front 2|Right 2|Right 3|Rear)'s/.test(n)), "the other sides' ends are ordinary overhangs");
+  // Six sides that happen to add up to four corners are still not the house: no footprint, no roof.
+  const q = x.exteriorQuantities(e);
+  assert(!q.footprint.closes && /did not go all the way round/.test(q.footprint.reason), q.footprint.reason);
+  assert(q.roof === null, "no roof on an open walk");
+  // Every side agrees with Scan's own figure but the two with garage doors. Each door runs below the
+  // stucco's bottom edge (sill 0.126 m, stucco from 0.26 m): Scan took the whole door out, Scrivn only
+  // the part that is stucco - 0.38 and 0.31 m2 more, with the stucco's sloping bottom edge.
+  assert(r.notes.some((n) => /different areas for Right 2 \(Scan 35 SF, Scrivn 40 SF\); Right 3 \(Scan 59 SF, Scrivn 63 SF\)\. Scrivn takes out/.test(n)), r.notes.join(" | "));
+  near(x.sideQuantities(e.sides[5]).netSquareFeet, 77.19 * M2, "the rear's stucco (Scan's to 0.01 m2)", 0.11);
+  const garage = x.sideQuantities(e.sides[3]);
+  near(garage.openingSquareFeet, garage.grossSquareFeet - garage.netSquareFeet, "the door's stucco part only", 1e-9);
+  assert(garage.openingSquareFeet < 6.732 * M2 - 4, "less than the whole door");
+});
+
+test("once the estimator works on an open walk, the footprint is tried", () => {
+  const e = x.parseScanExterior(fixture("scan-exterior-v2-walk-1420.json")).exterior;
+  e.source.edited = true;
+  assert(!/did not go all the way round/.test(x.exteriorFootprint(e).reason ?? ""), "tried once it is the estimator's");
+});
+
 test("a side's shapes set aside by hand fall back to its band", () => {
   const side = x.parseScanExterior(fixture("scan-exterior-v2-sample.json")).exterior.sides[0];
   const bands = { ...side, shapes: undefined };

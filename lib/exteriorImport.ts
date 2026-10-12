@@ -132,7 +132,7 @@ export function parseScanExterior(input: unknown, meta: { scanId?: string | null
   const uneven: string[] = [];
   const open: string[] = [];
   /** Each side's roofline in metres, for the overhangs and for a roof that runs on past a wall. */
-  const rooflines: { name: string; lengthM: number; points: { along: number; up: number; out: number | null; kind: "left_end" | "peak" | "right_end" | null }[] }[] = [];
+  const rooflines: { name: string; lengthM: number; points: { along: number; up: number; out: number | null; kind: "left_end" | "peak" | "right_end" | "point" | null }[] }[] = [];
   const overlapping: string[] = [];
   for (let i = 0; i < rawSides.length; i++) {
     const raw = rawSides[i];
@@ -177,11 +177,19 @@ export function parseScanExterior(input: unknown, meta: { scanId?: string | null
     // Each point says what it is ("left_end", "peak", "right_end") since Scan's 411dc42; earlier files are read by order and height.
     const roofline = (Array.isArray(raw.roofline) ? raw.roofline : [])
       .filter(isObject)
-      .map((r) => ({ along: num(r.along_m), up: height(r.up_m), out: num(r.out_m), kind: r.kind === "left_end" || r.kind === "peak" || r.kind === "right_end" ? r.kind : null }))
-      .filter((r): r is { along: number; up: number; out: number | null; kind: "left_end" | "peak" | "right_end" | null } => r.along !== null && r.up !== null && Math.abs(r.along) <= MAX_LENGTH_M)
+      // "point" (Scan def1456) is a turn in the roof edge between its ends: kept for the drawing, neither end nor peak.
+      .map((r) => ({ along: num(r.along_m), up: height(r.up_m), out: num(r.out_m), kind: r.kind === "left_end" || r.kind === "peak" || r.kind === "right_end" || r.kind === "point" ? r.kind : null }))
+      .filter((r): r is { along: number; up: number; out: number | null; kind: "left_end" | "peak" | "right_end" | "point" | null } => r.along !== null && r.up !== null && Math.abs(r.along) <= MAX_LENGTH_M)
       .sort((a, b) => a.along - b.along);
     if (roofline.length > 0) rooflines.push({ name, lengthM: L, points: roofline });
-    const pitch12 = num(raw.pitch_12);
+    /*
+      A pitch under 1.5/12, or a "peak" that does not stand 0.3 m over both eaves, is not a gable -
+      Scan's own rules since def1456, kept here too so a file written before them reads the same: on
+      the owner's 14:20 walk the long rear's roof edge bowed 3 in at its middle and came out as a
+      0.8/12 gable, and the right side's highest corner as 0.06/12.
+    */
+    const rawPitch = num(raw.pitch_12);
+    const pitch12 = rawPitch !== null && rawPitch >= 1.5 && rawPitch <= 24 ? rawPitch : null;
     const bottomL = height(raw.bottom_left_m) ?? 0;
     const bottomR = height(raw.bottom_right_m) ?? bottomL;
 
@@ -229,7 +237,9 @@ export function parseScanExterior(input: unknown, meta: { scanId?: string | null
     if (isObject(raw.peak)) {
       const along = num(raw.peak.along_m);
       const peak = height(raw.peak.height_m);
-      if (along !== null && peak !== null) {
+      const over = Math.max(tappedL ?? -Infinity, tappedR ?? -Infinity);
+      const stands = peak !== null && (!Number.isFinite(over) || peak >= over + 0.3);
+      if (along !== null && peak !== null && stands && (rawPitch === null || rawPitch >= 1.5)) {
         const from = num(raw.peak.from_m);
         const to = num(raw.peak.to_m);
         gable = {
@@ -258,7 +268,7 @@ export function parseScanExterior(input: unknown, meta: { scanId?: string | null
       heightsFrom: "level",
       ...(shapes.length > 0 ? { shapes } : {}),
       ...(roofline.length > 0 ? { roofline: roofline.map((r) => ({ alongFeet: r.along * FEET_PER_METRE, upFeet: r.up * FEET_PER_METRE, outFeet: r.out === null ? null : r.out * FEET_PER_METRE })) } : {}),
-      ...(pitch12 !== null && pitch12 > 0 && pitch12 <= 24 ? { pitchMeasured: pitch12 } : {}),
+      ...(pitch12 !== null ? { pitchMeasured: pitch12 } : {}),
     };
     sides.push(side);
     const covered = sideQuantities(side).bands.reduce((sum, b) => sum + (b.overlapSquareFeet ?? 0), 0);
@@ -288,7 +298,12 @@ export function parseScanExterior(input: unknown, meta: { scanId?: string | null
   if (uneven.length > 0) notes.push(`The two eave taps differ on ${uneven.join(", ")}; the eave is level, so the two are averaged.`);
   if (open.length > 0) notes.push(`A shape left open is drawn but not counted: ${open.join(", ")}.`);
   if (overlapping.length > 0) notes.push(`Shapes overlap on ${overlapping.join(", ")}: each overlap is counted once, as the shape tapped later.`);
-  if (disagree.length > 0) notes.push(`Scan and Scrivn work out different areas for ${disagree.join("; ")}.`);
+  /*
+    Scrivn takes out of the cladding only the part of an opening inside it. A garage door that runs
+    below the stucco's bottom edge - on the owner's 14:20 walk, 5-7 in below it on two sides - is
+    taken out whole by a Scan file of that time, which the difference here then shows.
+  */
+  if (disagree.length > 0) notes.push(`Scan and Scrivn work out different areas for ${disagree.join("; ")}. Scrivn takes out of the cladding only the part of each opening that is in it; check those sides.`);
   notes.push("Type the pitch, or check the one the gables give, and the overhangs, on Roof & footprint.");
 
   const roof = defaultRoof();
@@ -297,10 +312,13 @@ export function parseScanExterior(input: unknown, meta: { scanId?: string | null
     side whose roofline has a peak that is the rake; on one without, the eave. Each where the phone
     read it by depth; the median of the sides, so one odd read does not set the roof.
   */
-  const hasPeak = (pts: { up: number; kind: string | null }[]) =>
-    pts.some((p) => p.kind !== null)
-      ? pts.some((p) => p.kind === "peak")
-      : pts.length >= 3 && pts.slice(1, -1).some((p) => p.up > Math.max((pts[0] as { up: number }).up, (pts[pts.length - 1] as { up: number }).up) + 0.3);
+  // A peak stands 0.3 m over both ends of the roof edge, named or not.
+  const hasPeak = (pts: { up: number; kind: string | null }[]) => {
+    if (pts.length < 3) return false;
+    const ends = Math.max((pts[0] as { up: number }).up, (pts[pts.length - 1] as { up: number }).up);
+    const named = pts.some((p) => p.kind !== null);
+    return pts.slice(1, -1).some((p) => (!named || p.kind === "peak") && p.up >= ends + 0.3);
+  };
   const median = (v: number[]) => {
     const sorted = [...v].sort((a, b) => a - b);
     const m = Math.floor(sorted.length / 2);
@@ -344,7 +362,7 @@ export function parseScanExterior(input: unknown, meta: { scanId?: string | null
   const captureId = typeof part.capture_id === "string" ? part.capture_id : isObject(outer) && typeof outer.capture_id === "string" ? outer.capture_id : null;
   return {
     ok: true,
-    exterior: { sides, roof, source: { kind: "scan", captureId, scanId: meta.scanId ?? null, receivedAt: meta.receivedAt ?? null, notes } },
+    exterior: { sides, roof, source: { kind: "scan", captureId, scanId: meta.scanId ?? null, receivedAt: meta.receivedAt ?? null, notes, ...(closed ? {} : { walkClosed: false }) } },
     notes,
   };
 }
