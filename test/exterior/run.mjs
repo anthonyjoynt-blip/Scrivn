@@ -946,6 +946,21 @@ test("the owner's 14:20 walk of six sides: real gables only, overhangs, and no r
   assert(garage.openingSquareFeet < 6.732 * M2 - 4, "less than the whole door");
 });
 
+test("siding elevations only: an empty roofline leaves the overhangs at their defaults", () => {
+  // The owner, 10-12: Scan captures siding elevations only for now (its 60ac337), roofline [].
+  const raw = fixture("scan-exterior-v2-sample.json");
+  raw.sides[0].roofline = [];
+  const r = x.parseScanExterior(raw);
+  assert(r.ok, r.error);
+  near(r.exterior.roof.eaveOverhangFeet, 16 / 12, "eave default");
+  near(r.exterior.roof.rakeOverhangFeet, 1, "rake default");
+  assert(r.exterior.sides[0].roofline === undefined, "no roofline kept");
+  assert(!r.notes.some((n) => /roofline|past Front/.test(n)), r.notes.join(" | "));
+  // The gable still comes from the stucco shape's peak, and its pitch.
+  assert(r.exterior.sides[0].gable !== null, "the gable from the shape");
+  near(x.sideQuantities(r.exterior.sides[0]).pitchFromGable, 4.304, "its pitch", 1e-9);
+});
+
 test("once the estimator works on an open walk, the footprint is tried", () => {
   const e = x.parseScanExterior(fixture("scan-exterior-v2-walk-1420.json")).exterior;
   e.source.edited = true;
