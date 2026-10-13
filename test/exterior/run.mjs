@@ -16,7 +16,7 @@
  *     and an L with cross gables
  *   * the owner's own roof, 10-12: a porch that is the slope carried on, a cross gable over the
  *     front door, and every line labelled with its length; and a roof set below the eave that
- *     stops at the wall (a lean-to, or a wing), with step and headwall flashing
+ *     stops at the wall (a lean-to, or a wing such as the owner's garage), with step and headwall flashing
  */
 
 import { build } from "esbuild";

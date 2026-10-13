@@ -946,7 +946,7 @@ function RoofPanel({
         {plan && plan.wingEnds.length > 0 && (
           <Choice
             label="A wing's roof lower, stopping at the wall"
-            hint="A wing set below the house's eave, with a strip of wall between: it meets the wall with step flashing, not valleys. A wing whose ridge just runs lower into the house's slope is the usual kind: leave this at No."
+            hint="A wing set below the house's roof, with a strip of siding between (a garage tied in lower): it meets the wall with step flashing, not valleys."
             value={roof.lowerWings?.find((id) => plan.wingEnds.includes(id)) ?? "none"}
             readOnly={readOnly}
             options={[["none", "No: it runs into the main roof"] as [string, string], ...plan.wingEnds.map((id) => [id, `The wing out to ${nameOf(id)}`] as [string, string])]}

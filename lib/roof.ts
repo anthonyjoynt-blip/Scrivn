@@ -33,16 +33,16 @@
  *
  * ── What the footprint can't tell (2026-10-12) ─────────────────────────────────────────────────
  * Three things the estimator says on top of the footprint, each the smallest step from the tents.
- * The first two are the owner's own house: its porch and the gable over its front door.
+ * All three are on the owner's own house: its porch, the gable over its front door, and its garage.
  *   * a PORCH roof that is the slope running down to a side carried on past its wall: the same
  *     plane, so one slope, its eave further out and lower - not a roof of its own;
  *   * a CROSS GABLE rising out of a slope at its drip line (over a front door): two planes of its
  *     own, higher where they win, so its valleys fall out as an L's do;
- *   * a roof that sits LOWER and stops at a wall, with a strip of wall between it and the eave
- *     above: a lean-to porch, or a wing set below the house's eave. (A wing whose ridge is merely
- *     lower, running back into the house's slope with valleys - the owner's garage - is an
- *     ordinary wing, not this.) It is a LAYER of its own - its own drip line, its own
- *     area under the house's overhang, which still has its eave - and where its drip line stands
+ *   * a roof that sits LOWER and stops at a wall, with a strip of wall between it and the roof
+ *     above: a lean-to porch, or a wing set below the house's eave - the owner's garage, hipped at
+ *     the street end, ties in lower under a gable on the house, siding between. It is a LAYER of
+ *     its own - its own drip line, its own area under the house's overhang, which still has its
+ *     eave - and where its drip line stands
  *     against the wall it is flashing, not eave or rake: STEP flashing up a slope, HEADWALL along a
  *     level top. An L's wing can be that, or a porch.
  */
