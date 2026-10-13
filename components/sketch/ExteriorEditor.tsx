@@ -946,7 +946,7 @@ function RoofPanel({
         {plan && plan.wingEnds.length > 0 && (
           <Choice
             label="A wing's roof lower, stopping at the wall"
-            hint="A garage below the house's eave with siding between: it meets the wall with step flashing, not valleys."
+            hint="A wing set below the house's eave, with a strip of wall between: it meets the wall with step flashing, not valleys. A wing whose ridge just runs lower into the house's slope is the usual kind: leave this at No."
             value={roof.lowerWings?.find((id) => plan.wingEnds.includes(id)) ?? "none"}
             readOnly={readOnly}
             options={[["none", "No: it runs into the main roof"] as [string, string], ...plan.wingEnds.map((id) => [id, `The wing out to ${nameOf(id)}`] as [string, string])]}
@@ -1136,9 +1136,9 @@ const ADDITION_LABEL: Record<AdditionKind, string> = {
 const additionKind = (a: RoofAddition): AdditionKind => (a.kind === "gable" ? "gable" : a.lower ? "leanto" : "porch");
 
 /**
- * What the footprint can't tell about the roof, put on a side (the owner's house, 2026-10-12): a
- * porch that is the slope above carried on past the wall, a lean-to porch of its own below the
- * eave, and a cross gable rising out of a slope over a front door.
+ * What the footprint can't tell about the roof, put on a side (2026-10-12): a porch that is the
+ * slope above carried on past the wall and a cross gable rising out of a slope over a front door
+ * (both the owner's own house), and a lean-to porch of its own below the eave.
  */
 function RoofAdditions({
   exterior,

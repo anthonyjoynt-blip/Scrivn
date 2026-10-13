@@ -15,7 +15,8 @@
  *   * an L with hips (where a hip and a valley that a per-section sum would count are not there)
  *     and an L with cross gables
  *   * the owner's own roof, 10-12: a porch that is the slope carried on, a cross gable over the
- *     front door, a garage wing lower than the house's eave, and every line labelled with its length
+ *     front door, and every line labelled with its length; and a roof set below the eave that
+ *     stops at the wall (a lean-to, or a wing), with step and headwall flashing
  */
 
 import { build } from "esbuild";
@@ -424,7 +425,7 @@ test("steep pitches are flagged", () => {
   assert(roofOf(rect(30, 20, { pitch: 12 })).roofing.steep === "10/12 to 12/12", "12/12");
 });
 
-console.log("\nporches, cross gables and lower roofs (the owner's house, 10-12)");
+console.log("\nporches, cross gables and lower roofs (10-12)");
 
 /** The lines of one kind, by kind. */
 const linesOf = (plan, kind) => plan.lines.filter((l) => l.kind === kind);
@@ -499,7 +500,7 @@ test("over a porch the cross gable stands at the porch's eave, and its valleys r
   near(r.eaveFeet, 30 + 40, "eaves");
 });
 
-test("a garage wing lower than the house's eave stops at the wall: step flashing, no valleys", () => {
+test("a wing set below the house's eave stops at the wall: step flashing, no valleys", () => {
   // The L of [0,20]x[0,10] and [0,10]x[0,20] at 12/12, no overhangs; the wing out to the rear sits lower.
   const q = roofOf(ell({ lowerWings: ["rear"] }));
   const r = q.roofing;
