@@ -12,7 +12,7 @@ import {
   zFromGrade,
 } from "@/lib/exterior";
 import type { Pt, RoofLineKind, RoofPlan } from "@/lib/roof";
-import { facetLabels, type LabelBox, lineTotals, roofLineLabels, textWidthEm } from "@/lib/roofLabels";
+import { facetLabels, type LabelBox, labelsOverlap, lineTotals, roofLineLabels, textWidthEm } from "@/lib/roofLabels";
 import { formatQuantity } from "@/lib/sketchQuantities";
 
 /**
@@ -308,40 +308,72 @@ export function RoofPlanDrawing({
   const facetsDrawn = [...plan.facets].sort((p, q) => q.layer - p.layer);
 
   // The lengths keep clear of the slopes' letters and the sides' names.
+  const roofBoxes: LabelBox[] = plan.outlineRects.map((r) => ({ x: (r.x0 + r.x1) / 2, y: (r.y0 + r.y1) / 2, angle: 0, width: r.x1 - r.x0, height: r.y1 - r.y0 }));
+  const names: LabelBox[] = [];
   const sideLabels = footprint.sideIds.map((id, i) => {
     const a = corners[i] as Pt;
     const b = corners[(i + 1) % n] as Pt;
     const len = Math.hypot(b.x - a.x, b.y - a.y) || 1;
     const out = { x: (b.y - a.y) / len, y: -(b.x - a.x) / len };
-    // Out past whatever roof reaches out over the middle of this side - a porch's runs further than the eave.
+    const dir = { x: (b.x - a.x) / len, y: (b.y - a.y) / len };
+    // Out past the roof that reaches out over the middle of this side - a porch's runs further than the
+    // eave - but not on across a gap: a wall facing a U's court has its name in the court.
     const along = (px: number, py: number) => ((px - a.x) * (b.x - a.x) + (py - a.y) * (b.y - a.y)) / len;
-    const reach = plan.outlineRects
+    const spans = plan.outlineRects
       .filter((r) => Math.min(along(r.x0, r.y0), along(r.x1, r.y1)) < len / 2 && Math.max(along(r.x0, r.y0), along(r.x1, r.y1)) > len / 2)
-      .flatMap((r) => [r.x0, r.x1].flatMap((x) => [r.y0, r.y1].map((y) => (x - a.x) * out.x + (y - a.y) * out.y)));
-    const off = Math.max(pad * 0.62, Math.max(0, ...reach) + fs * 0.75);
-    const m = { x: (a.x + b.x) / 2 + out.x * off, y: (a.y + b.y) / 2 + out.y * off };
+      .map((r) => {
+        const o = [r.x0, r.x1].flatMap((x) => [r.y0, r.y1].map((y) => (x - a.x) * out.x + (y - a.y) * out.y));
+        return [Math.min(...o), Math.max(...o)] as [number, number];
+      })
+      .sort((p, q) => p[0] - q[0]);
+    let reach = 0;
+    for (const [lo, hi] of spans) if (lo <= reach + 1e-6) reach = Math.max(reach, hi);
+    const off = Math.max(pad * 0.62, reach + fs * 0.75);
     // A label runs along its wall, so one down a side wall reads up the page rather than across the roof.
     const across = Math.abs(b.y - a.y) > Math.abs(b.x - a.x);
-    return { id, m, across, text: `${nameOf(id)} ${formatFeetInches(footprint.lengthsFeet[i] ?? len)}` };
+    const text = `${nameOf(id)} ${formatFeetInches(footprint.lengthsFeet[i] ?? len)}`;
+    const width = textWidthEm(text) * fs * 0.85;
+    const height = fs * 1.05;
+    const at = (o: number, s: number): LabelBox => ({
+      x: (a.x + b.x) / 2 + out.x * o + dir.x * s,
+      y: (a.y + b.y) / 2 + out.y * o + dir.y * s,
+      angle: across ? 90 : 0,
+      width,
+      height,
+    });
+    /*
+      A short wall's name is longer than the wall: round a corner of many short sides it would lie over
+      the next side's name, or over the roof beside it. It steps further out, or slides along its wall,
+      to the first place clear of both.
+    */
+    const tries = [0, 1, 2, 3].flatMap((k) => [0, 0.25, -0.25, 0.5, -0.5, 0.75, -0.75, 1, -1].map((s) => at(off + k * height * 1.1, s * width)));
+    const hits = (t: LabelBox) => names.filter((q) => labelsOverlap(t, q, fs * 0.2)).length + roofBoxes.filter((q) => labelsOverlap(t, q)).length;
+    // The first place clear of both; failing that, the one that covers least.
+    const box = tries.reduce((best, t) => (hits(best) === 0 || hits(t) >= hits(best) ? best : t), tries[0] as LabelBox);
+    names.push(box);
+    return { id, m: { x: box.x, y: box.y }, across, text };
   });
   const facetTags = facetLabels(plan, fs);
-  const obstacles: LabelBox[] = [
-    ...facetTags.map((f) => f.box),
-    ...sideLabels.map((s) => ({ x: s.m.x, y: s.m.y, angle: s.across ? 90 : 0, width: textWidthEm(s.text) * fs * 0.85, height: fs * 1.05 })),
-  ];
+  const obstacles: LabelBox[] = [...facetTags.map((f) => f.box), ...names];
   const labels = roofLineLabels(plan, fs * 0.62, obstacles);
+  // The frame takes in every name, one stepped further out than the margin included.
+  const half = (b: LabelBox) => (b.angle === 0 ? { x: b.width / 2, y: b.height / 2 } : { x: b.height / 2, y: b.width / 2 });
+  const fx0 = Math.min(minX - pad, ...names.map((b) => b.x - half(b).x - fs * 0.3));
+  const fx1 = Math.max(maxX + pad, ...names.map((b) => b.x + half(b).x + fs * 0.3));
+  const fy0 = Math.min(minY - pad, ...names.map((b) => b.y - half(b).y - fs * 0.3));
+  const fy1 = Math.max(maxY + pad, ...names.map((b) => b.y + half(b).y + fs * 0.3));
 
   return (
     <svg
       className={`exterior-svg${mode ? ` exterior-svg-picking-${mode}` : ""}`}
       xmlns="http://www.w3.org/2000/svg"
-      viewBox={`${minX - pad} ${Y(maxY) - pad} ${maxX - minX + 2 * pad} ${maxY - minY + 2 * pad}`}
+      viewBox={`${fx0} ${Y(fy1)} ${fx1 - fx0} ${fy1 - fy0}`}
       width={size?.width}
       height={size?.height}
       role="img"
       aria-label="Roof plan, to scale"
     >
-      <rect x={minX - pad} y={Y(maxY) - pad} width={maxX - minX + 2 * pad} height={maxY - minY + 2 * pad} fill="#ffffff" />
+      <rect x={fx0} y={Y(fy1)} width={fx1 - fx0} height={fy1 - fy0} fill="#ffffff" />
       {plan.facets.length === 0 && plan.shape !== "other" &&
         plan.outlineRects.map((r, i) => <rect key={i} x={r.x0} y={Y(r.y1)} width={r.x1 - r.x0} height={r.y1 - r.y0} fill={CHOSEN_FILL} />)}
       {plan.shape === "other" && <polygon points={plan.edges.map((l) => `${l.a.x},${Y(l.a.y)}`).join(" ")} fill={CHOSEN_FILL} />}

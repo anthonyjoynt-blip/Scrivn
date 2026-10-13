@@ -226,8 +226,12 @@ export interface ExteriorRoof {
   ends: Record<string, RoofEndKind>;
   /** Porches carried on from a slope (or lower, against the wall) and cross gables, each on a side. */
   additions?: RoofAddition[];
-  /** An L's wing whose roof sits below the eave and stops at the wall, by the side its free end stands over. */
+  /** Wings whose roof sits below the eave and stops at the wall, each by the side its free end stands over. */
   lowerWings?: string[];
+  /** Of those, the ones under a gable of the roof they meet (the owner's garage), by the same side. */
+  wingGables?: string[];
+  /** Notches the roof carries over (a covered deck), each by one of its inner walls' sides. */
+  coveredNotches?: string[];
   /**
    * No longer used: waste is the estimator's to add (owner, 10-12: "just want real values"). Kept
    * optional so an exterior saved with it still loads.
@@ -959,6 +963,8 @@ export function roofInput(exterior: Exterior, footprint: Footprint, pitch: numbe
     ends: exterior.roof.ends,
     additions: exterior.roof.additions ?? [],
     lowerWings: exterior.roof.lowerWings ?? [],
+    wingGables: exterior.roof.wingGables ?? [],
+    coveredNotches: exterior.roof.coveredNotches ?? [],
     sideNames: Object.fromEntries(exterior.sides.map((s) => [s.id, s.name.trim() || "Side"])),
   };
 }

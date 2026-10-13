@@ -63,6 +63,10 @@ function sf(value: number): string {
 function lf(value: number): string {
   return `${formatQuantity(value)} LF`;
 }
+/** "A", "A and B", "A, B and C". */
+function listOf(names: string[]): string {
+  return names.length <= 1 ? (names[0] ?? "") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+}
 
 export function ExteriorEditor({ exterior, onChange, readOnly }: { exterior: Exterior | undefined; onChange: ExteriorUpdate; readOnly: boolean }) {
   const [view, setView] = useState<string>("roof");
@@ -116,6 +120,8 @@ export function ExteriorEditor({ exterior, onChange, readOnly }: { exterior: Ext
           ridgeAlong: prev.roof.ridgeAlong === id ? null : prev.roof.ridgeAlong,
           additions: prev.roof.additions?.filter((a) => a.sideId !== id),
           lowerWings: prev.roof.lowerWings?.filter((w) => w !== id),
+          wingGables: prev.roof.wingGables?.filter((w) => w !== id),
+          coveredNotches: prev.roof.coveredNotches?.filter((w) => w !== id),
         },
         ...(prev.scope ? { scope: { ...prev.scope, sides: prev.scope.sides.filter((s) => s !== id) } } : {}),
       });
@@ -913,14 +919,38 @@ function RoofPanel({
           <FeetField id="ext-eave-oh" label="Eave overhang" value={roof.eaveOverhangFeet} readOnly={readOnly} allowZero onCommit={(v) => v !== null && onUpdate((x) => ({ ...x, eaveOverhangFeet: v }))} />
           <FeetField id="ext-rake-oh" label="Rake overhang" value={roof.rakeOverhangFeet} readOnly={readOnly} allowZero onCommit={(v) => v !== null && onUpdate((x) => ({ ...x, rakeOverhangFeet: v }))} />
         </div>
-        {plan && plan.shape === "rectangle" && (
+        {plan && plan.notches.length > 0 && (
+          <div className="exterior-rows">
+            <span className="exterior-row-label">Notches the roof carries over</span>
+            {plan.notches.map((k) => (
+              <Choice
+                key={`notch-${k.sideId}`}
+                label={`${formatFeetInches(k.x1 - k.x0)} × ${formatFeetInches(k.y1 - k.y0)} at ${listOf(k.sideIds.map(nameOf))}`}
+                value={k.covered ? "covered" : "open"}
+                readOnly={readOnly}
+                options={[
+                  ["open", "Open"],
+                  ["covered", "Roofed over"],
+                ]}
+                onChange={(v) =>
+                  onUpdate((x) => ({ ...x, coveredNotches: [...(x.coveredNotches ?? []).filter((id) => !k.sideIds.includes(id)), ...(v === "covered" ? [k.sideId] : [])] }))
+                }
+              />
+            ))}
+            <p className="field-note">
+              A covered deck or porch in a corner of the house, under the roof: the roof is planned round the outline with it filled in. A porch roof that is a slope carried on past a wall goes under
+              Porches and cross gables.
+            </p>
+          </div>
+        )}
+        {plan && (plan.shape === "rectangle" || plan.shape === "wings") && (
           <label className="exterior-field" htmlFor="ext-ridge">
-            <span className="exterior-field-label">Ridge runs</span>
+            <span className="exterior-field-label">{plan.shape === "rectangle" ? "Ridge runs" : "Main roof"}</span>
             <select id="ext-ridge" value={roof.ridgeAlong ?? ""} disabled={readOnly} onChange={(e) => onUpdate((x) => ({ ...x, ridgeAlong: e.target.value || null }))}>
-              <option value="">Along the longer walls</option>
+              <option value="">{plan.shape === "rectangle" ? "Along the longer walls" : "Worked out from the outline"}</option>
               {exterior.sides.map((s) => (
                 <option key={s.id} value={s.id}>
-                  Parallel to {s.name.trim() || "Side"}
+                  {plan.shape === "rectangle" ? `Parallel to ${s.name.trim() || "Side"}` : `Over ${s.name.trim() || "Side"}, its ridge along it`}
                 </option>
               ))}
             </select>
@@ -943,7 +973,7 @@ function RoofPanel({
             ))}
           </>
         )}
-        {plan && plan.wingEnds.length > 0 && (
+        {plan && plan.shape === "L" && plan.wingEnds.length > 0 && (
           <Choice
             label="A wing's roof lower, stopping at the wall"
             hint="A wing set below the house's roof, with a strip of siding between (a garage tied in lower): it meets the wall with step flashing, not valleys."
@@ -952,6 +982,48 @@ function RoofPanel({
             options={[["none", "No: it runs into the main roof"] as [string, string], ...plan.wingEnds.map((id) => [id, `The wing out to ${nameOf(id)}`] as [string, string])]}
             onChange={(v) => onUpdate((x) => ({ ...x, lowerWings: v === "none" ? [] : [v] }))}
           />
+        )}
+        {plan && plan.shape === "L" && plan.wings.some((w) => w.lower && w.onSlope) && (
+          <Choice
+            label="Over the lower wing, the main roof has"
+            value={plan.wings.some((w) => w.gable) ? "gable" : "eave"}
+            readOnly={readOnly}
+            options={[
+              ["eave", "Its eave"],
+              ["gable", "A gable"],
+            ]}
+            onChange={(v) => onUpdate((x) => ({ ...x, wingGables: v === "gable" ? plan.wings.filter((w) => w.lower).map((w) => w.sideId) : [] }))}
+          />
+        )}
+        {plan && plan.shape === "wings" && plan.wings.length > 0 && (
+          <div className="exterior-rows">
+            <span className="exterior-row-label">Wings</span>
+            {plan.wings.map((w) => (
+              <Choice
+                key={`wing-${w.sideId}`}
+                label={`The wing out to ${nameOf(w.sideId)}`}
+                hint={w.forced ? "It has to sit lower: the note under the plan says why." : undefined}
+                value={w.gable ? "gable" : w.lower ? "lower" : "tie"}
+                readOnly={readOnly || w.forced}
+                options={[
+                  ["tie", "Into the roof it meets"],
+                  ["lower", "Lower, under its eave"],
+                  ...(w.onSlope && !w.forced ? [["gable", "Lower, under a gable"] as ["gable", string]] : []),
+                ]}
+                onChange={(how) =>
+                  onUpdate((x) => ({
+                    ...x,
+                    lowerWings: [...(x.lowerWings ?? []).filter((id) => id !== w.sideId), ...(how === "tie" ? [] : [w.sideId])],
+                    wingGables: [...(x.wingGables ?? []).filter((id) => id !== w.sideId), ...(how === "gable" ? [w.sideId] : [])],
+                  }))
+                }
+              />
+            ))}
+            <p className="field-note">
+              Into the roof it meets: its ridge runs back into that roof&rsquo;s slope, with valleys. Lower: a roof of its own, stopping at the wall with step flashing and a strip of siding between, under that
+              roof&rsquo;s eave or under a gable of it (a garage tied in lower).
+            </p>
+          </div>
         )}
         {plan && plan.shape !== "other" && <RoofAdditions exterior={exterior} plan={plan} lengthOf={(id) => fp.lengthsFeet[fp.sideIds.indexOf(id)] ?? 0} readOnly={readOnly} onUpdate={onUpdate} />}
 
