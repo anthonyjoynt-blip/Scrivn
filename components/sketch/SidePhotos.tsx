@@ -64,6 +64,21 @@ interface Squared {
 const squaredCache = new Map<string, Promise<Squared>>();
 
 async function squareSide(photos: SidePhoto[], frame: SquareFrame): Promise<Squared> {
+  const { rgba: clear, used } = await squaredPixels(photos, frame);
+  const rgba = fillOutside(clear);
+  const canvas = document.createElement("canvas");
+  canvas.width = frame.width;
+  canvas.height = frame.height;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("This browser cannot square the photo up.");
+  ctx.putImageData(new ImageData(new Uint8ClampedArray(rgba), frame.width, frame.height), 0, 0);
+  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.9));
+  if (!blob) throw new Error("This browser cannot make the squared photo.");
+  return { frame, url: URL.createObjectURL(blob), blob, used };
+}
+
+/** A side's photos fetched and squared into [frame]: clear where none of them shows the wall. */
+async function squaredPixels(photos: SidePhoto[], frame: SquareFrame): Promise<{ rgba: Uint8ClampedArray; used: number }> {
   const sources: { photo: SidePhoto; pixels: PhotoPixels }[] = [];
   for (const photo of photos) {
     if (!photo.scanId) continue;
@@ -77,16 +92,39 @@ async function squareSide(photos: SidePhoto[], frame: SquareFrame): Promise<Squa
     sources.push({ photo, pixels });
   }
   if (sources.length === 0) throw new Error("The photo has not reached Scrivn yet: the phone sends it after the scan. Try again in a minute.");
-  const rgba = fillOutside(squareUp(sources, frame));
-  const canvas = document.createElement("canvas");
-  canvas.width = frame.width;
-  canvas.height = frame.height;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) throw new Error("This browser cannot square the photo up.");
-  ctx.putImageData(new ImageData(new Uint8ClampedArray(rgba), frame.width, frame.height), 0, 0);
-  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.9));
-  if (!blob) throw new Error("This browser cannot make the squared photo.");
-  return { frame, url: URL.createObjectURL(blob), blob, used: sources.length };
+  return { rgba: squareUp(sources, frame), used: sources.length };
+}
+
+/** Squared images for the 3D view, by what they were squared from. */
+const wallPhotoCache = new Map<string, Promise<{ frame: SquareFrame; canvas: HTMLCanvasElement }>>();
+
+/**
+ * A side's photos squared up for laying on its wall in 3D (Exterior3D.tsx): the same squaring as the
+ * elevation's, but left clear where no photo shows the wall, so the wall's own cladding shows there
+ * rather than the grey a JPEG needs. Null for a side with no photo the browser can fetch (none, or a
+ * file import's, whose photos stayed on the phone, or none that shows the side).
+ */
+export function squaredWallPhoto(side: ExteriorSide): Promise<{ frame: SquareFrame; canvas: HTMLCanvasElement }> | null {
+  const photos = (side.photos ?? []).filter((p) => p.scanId);
+  if (photos.length === 0) return null;
+  const frame = squareFrame(side, photos);
+  if (!frame) return null;
+  const key = JSON.stringify({ p: photos.map((p) => [p.scanId, p.n, p.toPhoto]), f: frame });
+  let job = wallPhotoCache.get(key);
+  if (!job) {
+    job = squaredPixels(photos, frame).then(({ rgba }) => {
+      const canvas = document.createElement("canvas");
+      canvas.width = frame.width;
+      canvas.height = frame.height;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) throw new Error("This browser cannot square the photo up.");
+      ctx.putImageData(new ImageData(new Uint8ClampedArray(rgba), frame.width, frame.height), 0, 0);
+      return { frame, canvas };
+    });
+    job.catch(() => wallPhotoCache.delete(key));
+    wallPhotoCache.set(key, job);
+  }
+  return job;
 }
 
 type PhotoState = { state: "none" } | { state: "file" } | { state: "loading" } | { state: "ready"; squared: Squared } | { state: "error"; message: string };

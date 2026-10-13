@@ -74,6 +74,7 @@ import { alignFrames, cross as crossV, warpThrough, type PanoFrame, type V3 } fr
 import { grayOf, PanoBaker, panoMaterial, type DistanceMap } from "./panoBake";
 import SpotStills, { stillWords, type SpotStillsApi, type StillShown } from "./SpotStills";
 import { WetDrop, wetTagElement } from "./WetTag";
+import { applyFraming, createStage, framingOf, loadThree, STAGE_BACKGROUND_CSS } from "./stage3d";
 
 interface Props {
   sketch: Sketch;
@@ -83,7 +84,6 @@ interface Props {
 }
 
 const COLORS = {
-  background: 0xf3f5f8,
   wallSide: 0xfbf9f5,
   wallTop: 0x1b3a5c,
   floors: [0xe9e2d6, 0xe4e8ec, 0xece6dc, 0xe2e8e1, 0xebe4e8, 0xe7e3da],
@@ -348,47 +348,20 @@ export default function Sketch3D({ sketch, moisture, onClose }: Props) {
     let disposed = false;
     let teardown: (() => void) | null = null;
     (async () => {
-      let THREE: typeof import("three");
-      let OrbitControls: typeof import("three/examples/jsm/controls/OrbitControls.js").OrbitControls;
-      let CSS2DRenderer: typeof import("three/examples/jsm/renderers/CSS2DRenderer.js").CSS2DRenderer;
-      let CSS2DObject: typeof import("three/examples/jsm/renderers/CSS2DRenderer.js").CSS2DObject;
-      try {
-        THREE = await import("three");
-        ({ OrbitControls } = await import("three/examples/jsm/controls/OrbitControls.js"));
-        ({ CSS2DRenderer, CSS2DObject } = await import("three/examples/jsm/renderers/CSS2DRenderer.js"));
-      } catch {
+      const libs = await loadThree();
+      if (!libs) {
         if (!disposed) setStatus("failed");
         return;
       }
       if (disposed) return;
-
-      let renderer: import("three").WebGLRenderer;
-      try {
-        renderer = new THREE.WebGLRenderer({ antialias: true });
-      } catch {
+      const { THREE, CSS2DObject } = libs;
+      // The stage the outside's 3D view stands on too (components/sketch/stage3d.ts).
+      const stage = createStage(libs, host);
+      if (!stage) {
         setStatus("failed");
         return;
       }
-      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-      renderer.domElement.style.display = "block";
-      host.appendChild(renderer.domElement);
-
-      const labels = new CSS2DRenderer();
-      labels.domElement.style.position = "absolute";
-      labels.domElement.style.inset = "0";
-      labels.domElement.style.pointerEvents = "none";
-      host.appendChild(labels.domElement);
-
-      const scene = new THREE.Scene();
-      scene.background = new THREE.Color(COLORS.background);
-      const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 5000);
-      scene.add(new THREE.HemisphereLight(0xffffff, 0xe6e0d4, 2.1));
-      const sun = new THREE.DirectionalLight(0xffffff, 1.1);
-      sun.position.set(0.6, 1.4, 0.9);
-      scene.add(sun);
-      const fill = new THREE.DirectionalLight(0xffffff, 0.6);
-      fill.position.set(-0.8, 0.7, -0.5);
-      scene.add(fill);
+      const { renderer, labels, scene, camera, controls } = stage;
 
       const materials: import("three").Material[] = [];
       const standard = (color: number, extra: Record<string, unknown> = {}) => {
@@ -847,39 +820,14 @@ export default function Sketch3D({ sketch, moisture, onClose }: Props) {
         for (const m of byKind.glass) m.visible = !hide;
       };
 
-      const controls = new OrbitControls(camera, renderer.domElement);
-      controls.enableDamping = true;
-      controls.dampingFactor = 0.08;
-      controls.maxPolarAngle = Math.PI * 0.495;
-      controls.minDistance = 2;
-      controls.maxDistance = 2000;
-      // Zoom goes where the PM points, not to the middle of the house: a corner can be looked at.
-      controls.zoomToCursor = true;
-
       /** Where the dollhouse looks at [lvl]'s storey (or the whole house) from: above and to the south-east, all of it in view. */
       const framing = (lvl: number | "all") => {
         const b = boundsOf(model, lvl);
-        if (!b) return null;
-        const cx = (b.minX + b.maxX) / 2;
-        const cz = (b.minZ + b.maxZ) / 2;
-        const cy = lvl === "all" ? (b.minY + b.maxY) / 2 : b.minY + 2;
-        const span = Math.max(b.maxX - b.minX, b.maxZ - b.minZ, 10);
-        const distance = span * 1.25 + (b.maxY - b.minY);
-        return {
-          target: new THREE.Vector3(cx, cy, cz),
-          position: new THREE.Vector3(cx + distance * 0.45, cy + distance * 0.75, cz + distance * 0.7),
-          distance,
-        };
+        return b ? framingOf(THREE, b, lvl === "all" ? (b.minY + b.maxY) / 2 : b.minY + 2) : null;
       };
       const frame = (lvl: number | "all") => {
         const f = framing(lvl);
-        if (!f) return;
-        controls.target.copy(f.target);
-        camera.position.copy(f.position);
-        camera.near = Math.max(0.1, f.distance / 500);
-        camera.far = f.distance * 20;
-        camera.updateProjectionMatrix();
-        controls.update();
+        if (f) applyFraming(stage, f);
       };
       const show = (lvl: number | "all") => {
         for (const [key, group] of groups) group.visible = lvl === "all" || key === lvl;
@@ -1050,12 +998,7 @@ export default function Sketch3D({ sketch, moisture, onClose }: Props) {
       renderer.domElement.addEventListener("wheel", onWheel, { passive: false });
 
       const resize = () => {
-        const w = Math.max(1, host.clientWidth);
-        const h = Math.max(1, host.clientHeight);
-        renderer.setSize(w, h);
-        labels.setSize(w, h);
-        camera.aspect = w / h;
-        camera.updateProjectionMatrix();
+        stage.fit();
         // A spot's view keeps its own field (2026-10-04): fitted to its first frame's lens it opened at 104 degrees on the
         // ultra-wide's.
         if (current && !zoomed && modeRef.current === "walk" && !transition) view.fov = current.frames ? SPOT_FOV_DEG : fitFovDeg(current.camera, camera.aspect);
@@ -1274,15 +1217,12 @@ export default function Sketch3D({ sketch, moisture, onClose }: Props) {
         renderer.domElement.removeEventListener("pointerup", onUp);
         renderer.domElement.removeEventListener("pointerleave", onLeave);
         renderer.domElement.removeEventListener("wheel", onWheel);
-        controls.dispose();
         for (const g of geometries) g.dispose();
         for (const m of materials) m.dispose();
         for (const t of textures) t.dispose();
         disposePictures();
         disposePanos();
-        renderer.dispose();
-        renderer.domElement.remove();
-        labels.domElement.remove();
+        stage.dispose();
         sceneApi.current = null;
       };
     })();
@@ -1431,7 +1371,7 @@ export default function Sketch3D({ sketch, moisture, onClose }: Props) {
       role="dialog"
       aria-modal="true"
       aria-label="3D view of the sketch"
-      style={{ position: "fixed", inset: 0, zIndex: 1000, background: "#f3f5f8", display: "flex", flexDirection: "column" }}
+      style={{ position: "fixed", inset: 0, zIndex: 1000, background: STAGE_BACKGROUND_CSS, display: "flex", flexDirection: "column" }}
     >
       <div
         style={{

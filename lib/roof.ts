@@ -2284,3 +2284,20 @@ export function roofRiseAlongWall(input: RoofInput, from: Pt, to: Pt): { t: numb
   }
   return out;
 }
+
+const heightsFor = new WeakMap<RoofPlan, Map<number, Surface>>();
+
+/**
+ * Each roof's height at a plan point, in feet of run above its own drip line (below it over a porch), or null off that
+ * roof: the very surface the slopes and lines were read off, for the house drawn in 3D (lib/exterior3d.ts). Nothing is
+ * worked out again here; the plan's own sections are its surface.
+ */
+export function roofHeightAt(plan: RoofPlan, layer: number, x: number, y: number): number | null {
+  let byLayer = heightsFor.get(plan);
+  if (!byLayer) {
+    byLayer = new Map();
+    for (const l of new Set(plan.sections.map((s) => s.layer))) byLayer.set(l, new Surface(plan.sections.filter((s) => s.layer === l)));
+    heightsFor.set(plan, byLayer);
+  }
+  return byLayer.get(layer)?.z(x, y) ?? null;
+}

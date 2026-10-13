@@ -166,6 +166,8 @@ const SketchCanvas = dynamic(() => import("./SketchCanvas"), {
 });
 // The house in 3D (the walk-through's model): three.js comes with it, so it loads only when opened.
 const Sketch3D = dynamic(() => import("./Sketch3D"), { ssr: false });
+// The outside of the house in 3D, on the same stage: opened from Exterior mode.
+const Exterior3D = dynamic(() => import("./Exterior3D"), { ssr: false });
 
 const CANVAS_HEIGHT = 460;
 
@@ -2339,14 +2341,15 @@ export function SketchEditor({
             ))}
           </div>
         )}
-        {/* On a phone the 3D view is in More, and the header has no room for it. */}
+        {/* On a phone the 3D view is in More - in Exterior, which has no More, beside the sides - and the header has no
+            room for it. In Exterior mode it is the outside of the house. */}
         {!phone && (
         <button
           type="button"
           className="option-btn"
-          disabled={sketch.rooms.length === 0}
+          disabled={mode === "exterior" ? !sketch.exterior : sketch.rooms.length === 0}
           onClick={() => setShow3d(true)}
-          title="See the house in 3D"
+          title={mode === "exterior" ? "See the outside of the house in 3D" : "See the house in 3D"}
         >
           3D view
         </button>
@@ -2473,6 +2476,7 @@ export function SketchEditor({
         <ExteriorEditor
           exterior={sketch.exterior}
           readOnly={readOnly}
+          onShow3d={phone ? () => setShow3d(true) : undefined}
           onChange={(update) =>
             onChange((prev) => {
               const next = update(prev.exterior);
@@ -3494,7 +3498,12 @@ export function SketchEditor({
           </div>
         </>
       )}
-      {show3d && <Sketch3D sketch={sketch} moisture={moisture} onClose={() => setShow3d(false)} />}
+      {show3d &&
+        (mode === "exterior" ? (
+          sketch.exterior && <Exterior3D exterior={sketch.exterior} onClose={() => setShow3d(false)} />
+        ) : (
+          <Sketch3D sketch={sketch} moisture={moisture} onClose={() => setShow3d(false)} />
+        ))}
     </div>
   );
 }

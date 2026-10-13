@@ -68,7 +68,18 @@ function listOf(names: string[]): string {
   return names.length <= 1 ? (names[0] ?? "") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
 }
 
-export function ExteriorEditor({ exterior, onChange, readOnly }: { exterior: Exterior | undefined; onChange: ExteriorUpdate; readOnly: boolean }) {
+export function ExteriorEditor({
+  exterior,
+  onChange,
+  readOnly,
+  onShow3d,
+}: {
+  exterior: Exterior | undefined;
+  onChange: ExteriorUpdate;
+  readOnly: boolean;
+  /** Opens the house in 3D, where the header has no room for it (a phone). */
+  onShow3d?: () => void;
+}) {
   const [view, setView] = useState<string>("roof");
   /** Each side's AI trace until it is used or set aside, and how the photos are shown: kept here so a side visited again finds them. */
   const [traces, setTraces] = useState<Record<string, SideTrace>>({});
@@ -146,6 +157,11 @@ export function ExteriorEditor({ exterior, onChange, readOnly }: { exterior: Ext
         {!readOnly && (
           <button type="button" className="btn-secondary" onClick={addSide} title="Add the next side round the house">
             + Side
+          </button>
+        )}
+        {onShow3d && (
+          <button type="button" className="btn-secondary" onClick={onShow3d} title="See the outside of the house in 3D">
+            3D view
           </button>
         )}
       </div>

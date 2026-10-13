@@ -20,6 +20,9 @@
  *   * a T, a U and the owner's twelve corners (10-13): a main roof and its wings, the deck the roof
  *     carries over, the bay that has to sit lower on a gable end, and the garage hipped at the
  *     street and tied in lower under a gable on the house
+ *   * the house in 3D (10-13, lib/exterior3d.ts): every wall's top on the roof's underside, the roof's
+ *     top over its whole plan with no crack between slopes, the fascia all round, the garage's roof
+ *     under the house's gable with siding between, posts, the deck, and the heights on a sloping lot
  */
 
 import { build } from "esbuild";
@@ -49,6 +52,7 @@ async function load() {
       `export * from "${lib("exteriorImport.ts")}";`,
       `export * from "${lib("exteriorPhoto.ts")}";`,
       `export * from "${lib("exteriorTrace.ts")}";`,
+      `export * from "${lib("exterior3d.ts")}";`,
       `export { adoptScan, exteriorScanDecision, sketchFromScan } from "${lib("scanInbox.ts")}";`,
       `export { availableRenders, defaultSketchAttachments, pruneAttachments, withExteriorDefaults, toggleAttachment } from "${lib("sketchAttachments.ts")}";`,
     ].join("\n"),
@@ -1759,6 +1763,282 @@ test("the call is told the frame in its own pixels, and priced at Opus 5.5's rat
   assert(/never the trim, jamb or stucco surround/.test(msg), "the garage door rule from the owner's test");
   // 6,000 in at $4 and 1,500 out at $20 a million.
   near(x.traceCostUsd({ inputTokens: 6000, outputTokens: 1500, cacheCreationTokens: 0, cacheReadTokens: 0 }), 0.054, "cost", 1e-12);
+});
+
+console.log("\nthe house in 3D (10-13)");
+
+/** The 3D model, which must build. */
+function model3d(e) {
+  const m = x.exteriorModel(e);
+  assert(m.ok, m.ok ? "" : m.reason);
+  return m.model;
+}
+/** A wall's top at u along it. */
+function wallTopAt(w, u) {
+  const top = w.outline.slice(2).reverse();
+  for (let k = 0; k + 1 < top.length; k++) {
+    const p = top[k];
+    const q = top[k + 1];
+    if (u >= p.x - 1e-9 && u <= q.x + 1e-9) return q.x - p.x < 1e-9 ? Math.max(p.y, q.y) : p.y + ((q.y - p.y) * (u - p.x)) / (q.x - p.x);
+  }
+  return NaN;
+}
+/** A point of the plan, u along a wall and [inward] feet in from its face. */
+function planOf(w, u, inward) {
+  return { x: w.origin[0] + w.along[0] * u - w.out[0] * inward, y: -(w.origin[2] + w.along[2] * u - w.out[2] * inward) };
+}
+/** Every height of the roof's underside, as the view draws it, straight over a plan point (more than one where roofs overlap). */
+function undersides(model, p) {
+  const t = model.roof.under;
+  const out = [];
+  for (let i = 0; i < t.length; i += 9) {
+    const A = { x: t[i], y: -t[i + 2], h: t[i + 1] };
+    const B = { x: t[i + 3], y: -t[i + 5], h: t[i + 4] };
+    const C = { x: t[i + 6], y: -t[i + 8], h: t[i + 7] };
+    const den = (B.y - C.y) * (A.x - C.x) + (C.x - B.x) * (A.y - C.y);
+    if (Math.abs(den) < 1e-12) continue;
+    const l1 = ((B.y - C.y) * (p.x - C.x) + (C.x - B.x) * (p.y - C.y)) / den;
+    const l2 = ((C.y - A.y) * (p.x - C.x) + (A.x - C.x) * (p.y - C.y)) / den;
+    const l3 = 1 - l1 - l2;
+    if (l1 < -1e-9 || l2 < -1e-9 || l3 < -1e-9) continue;
+    out.push(l1 * A.h + l2 * B.h + l3 * C.h);
+  }
+  return out;
+}
+/**
+ * The worst gap between a wall's top and the roof's underside just inside it, along every wall - the
+ * check that the roof sits on the walls with nothing open between. [skip]: sides that stand under a
+ * covered deck's ceiling, not under the roof.
+ */
+function worstGap(model, skip = []) {
+  let worst = 0;
+  let where = "";
+  for (const w of model.walls) {
+    if (skip.includes(w.sideId)) continue;
+    for (let k = 0; k < 40; k++) {
+      const u = ((k + 0.37) / 40) * w.length;
+      const top = wallTopAt(w, u);
+      const hs = undersides(model, planOf(w, u, 0.01));
+      const gap = hs.length === 0 ? Infinity : Math.min(...hs.map((h) => Math.abs(h - top)));
+      if (gap > worst) {
+        worst = gap;
+        where = `${w.name} at ${u.toFixed(2)}: wall ${top.toFixed(3)}, roof ${hs.map((h) => h.toFixed(3)).join(" / ") || "none"}`;
+      }
+    }
+  }
+  return { worst, where };
+}
+/** The plan area the roof's top covers, and the plan length of its open edges (each roof's drip line, where nothing meets it). */
+function topCover(model) {
+  const t = model.roof.top;
+  let area = 0;
+  const edges = new Map();
+  const key = (i) => `${t[i].toFixed(4)},${t[i + 1].toFixed(4)},${t[i + 2].toFixed(4)}`;
+  for (let i = 0; i < t.length; i += 9) {
+    area += Math.abs((t[i + 3] - t[i]) * (t[i + 8] - t[i + 2]) - (t[i + 6] - t[i]) * (t[i + 5] - t[i + 2])) / 2;
+    for (const [a, b] of [
+      [i, i + 3],
+      [i + 3, i + 6],
+      [i + 6, i],
+    ]) {
+      const k = [key(a), key(b)].sort().join("|");
+      const e = edges.get(k) ?? { n: 0, len: Math.hypot(t[b] - t[a], t[b + 2] - t[a + 2]) };
+      e.n += 1;
+      edges.set(k, e);
+    }
+  }
+  let open = 0;
+  for (const e of edges.values()) if (e.n === 1) open += e.len;
+  return { area, open };
+}
+/** The fascia's area: the slab's thickness all round the eaves and rakes. */
+function fasciaArea(model) {
+  const t = model.roof.fascia;
+  let area = 0;
+  for (let i = 0; i < t.length; i += 9) {
+    const u = [t[i + 3] - t[i], t[i + 4] - t[i + 1], t[i + 5] - t[i + 2]];
+    const v = [t[i + 6] - t[i], t[i + 7] - t[i + 1], t[i + 8] - t[i + 2]];
+    area += Math.hypot(u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]) / 2;
+  }
+  return area;
+}
+/** The plan length of the steps' faces: where one part of a roof stands over another, each a quad of two triangles. */
+function stepFeet(model) {
+  const t = model.roof.steps;
+  let feet = 0;
+  // A quad's first triangle runs (x0, lo0) (x1, lo1) (x1, hi1): its foot is the first two corners.
+  for (let i = 0; i < t.length; i += 18) feet += Math.hypot(t[i + 3] - t[i], t[i + 5] - t[i + 2]);
+  return feet;
+}
+/**
+ * Everything a roof is checked for: on its walls, covering its plan, open only along its drip lines and
+ * where a step's face stands (one roof's top on each side of it), its edge closed by the fascia - a
+ * band of the slab's thickness over each eave and rake's plan length.
+ */
+function soundRoof(e, what, skip = []) {
+  const m = model3d(e);
+  const q = x.exteriorQuantities(e);
+  const gap = worstGap(m, skip);
+  assert(gap.worst < 0.02, `${what}: a gap between wall and roof - ${gap.where}`);
+  const cover = topCover(m);
+  near(cover.area, q.roof.planSquareFeet, `${what}: the roof's top over its whole plan`, 1e-3);
+  near(cover.open, q.roof.edges.reduce((s, e) => s + e.planFeet, 0) + 2 * stepFeet(m), `${what}: open only along its drip lines and steps (no cracks between slopes)`, 1e-3);
+  const T = x.ROOF_THICKNESS_FEET;
+  near(fasciaArea(m), T * q.roof.edges.filter((e) => e.kind === "eave" || e.kind === "rake").reduce((s, e) => s + e.planFeet, 0), `${what}: fascia round every eave and rake`, 1e-3);
+  return { m, q };
+}
+const wallNamed = (m, name) => m.walls.find((w) => w.name === name);
+const topOf = (w) => Math.max(...w.outline.slice(2).map((p) => p.y));
+
+test("3D: a plain gable stands on its walls - the gable ends rise to the ridge, the eave walls to the eave", () => {
+  // 40 x 30 at 6/12, 16" eaves, 12" rakes, every eave 10'. The ridge's underside is 15' of run in from
+  // the eave walls, 7'6" up: 17'6", its top half a foot above that.
+  const { m } = soundRoof(rect(40, 30, { pitch: 6 }), "gable");
+  near(m.eaves[0], 10, "the eave at the eaves measured");
+  near(topOf(wallNamed(m, "Right")), 17.5, "the gable end's peak");
+  near(topOf(wallNamed(m, "Front")), 10, "the eave wall");
+  near(m.bounds.maxY, 18, "the ridge's top");
+  for (const w of m.walls) near(w.grade[0].y, 0, `${w.name}'s ground`);
+  assert(m.notes.length === 0 && m.posts.length === 0, m.notes.join(" "));
+  // The slab's edge: two 42' eaves and four rakes of 16'4" across (a band half a foot high over each).
+  near(fasciaArea(m), 0.5 * (2 * 42 + 4 * ft(16, 4)), "fascia");
+  assert(m.roof.steps.length === 0 && m.roof.gables.length === 0, "no steps, no cross gables");
+});
+
+test("3D: hips, an L, a T and a U all sit on their walls with no crack between slopes", () => {
+  soundRoof(rect(40, 30, { pitch: 6, ends: { left: "hip", right: "hip" } }), "hip");
+  soundRoof(ell({ pitch: 8, ends: { left: "hip" } }), "L with a hip");
+  soundRoof(tee(), "T");
+  soundRoof(you(), "U");
+});
+
+test("3D: the owner's twelve corners - the garage lower under a gable on the house, siding between", () => {
+  // The garage's walls read 8' to their eave, the house's 10'. The garage roof is the house's gable over
+  // it carried down 2': with the slab half a foot thick, 1'6" of siding between all along.
+  const e = ownersRoof();
+  for (const s of e.sides) if (["garageFront", "bayLeft", "bayFront", "garageLeft"].includes(s.id)) Object.assign(s, { eaveLeftFeet: 8, eaveRightFeet: 8 });
+  const { m } = soundRoof(e, "owner's house", ["deckSide", "deckBack"]);
+  near(m.eaves[0], 10, "the house's eave");
+  near(m.eaves[1], 8, "the garage's");
+  const over = m.walls.filter((w) => w.name === "Wall over the lower roof");
+  assert(over.length === 1, `${over.length} walls over the garage`);
+  near(over[0].length, 20, "across the garage's width");
+  // The garage's own roof along that wall, read just on the garage's side of it: always 1'6" under.
+  for (let k = 0; k < 20; k++) {
+    const u = ((k + 0.5) / 20) * 20;
+    const top = wallTopAt(over[0], u);
+    const garage = Math.min(...undersides(m, planOf(over[0], u, -0.01))) + x.ROOF_THICKNESS_FEET;
+    near(top - garage, 1.5, `siding between at ${u}`, 0.02);
+  }
+  // The deck: a ceiling at the eave, a post at its open corner - the house's rear left, the walk having
+  // started at the garage - and the house's left gable carried on over it from 16' (6' of run in from
+  // the rear, at 12/12 with no overhang) down to the eave.
+  const deck = m.walls.filter((w) => w.name === "Wall over the deck");
+  assert(deck.length === 1, `${deck.length} strips over the deck`);
+  near(topOf(deck[0]), 16, "the gable over the deck");
+  assert(m.posts.length === 1, `${m.posts.length} posts`);
+  const notch = x.exteriorQuantities(e).roof.notches.find((k) => k.covered);
+  near(m.posts[0].x, notch.x0 + x.POST_SIZE_FEET, "the post in from the corner");
+  near(m.posts[0].z, -(notch.y1 - x.POST_SIZE_FEET), "the post in from the corner");
+  near(m.posts[0].y1, 10, "up to the ceiling");
+  near(m.ceilings.length / 3, 6, "the ceiling's two triangles");
+});
+
+test("3D: the owner's roof at its own lengths and overhangs, with a porch, stands on its walls", () => {
+  const e = ownersRoof({ pitch: 5, eaveOverhangFeet: 2, rakeOverhangFeet: ft(1, 10), additions: [{ id: "p", kind: "porch", sideId: "front", fromFeet: 0, toFeet: 20, depthFeet: ft(4, 10) }] });
+  const { m } = soundRoof(e, "owner's house with a porch", ["deckSide", "deckBack"]);
+  // The house's gable over the garage has its face at its drip line, from 2' left of the garage (18,-2);
+  // the porch runs on under its corner to the garage's wall at x = 20. The step between: 2' long, from
+  // the porch's top up to the gable's, which climbs 2' of run there at 5/12.
+  near(stepFeet(m), 2, "the gable's face over the porch");
+  const ys = m.roof.steps.filter((_, i) => i % 3 === 1);
+  near(Math.max(...ys) - Math.min(...ys), (2 * 5) / 12 + x.ROOF_THICKNESS_FEET, "from the porch's underside to the gable's top");
+});
+
+test("3D: a porch roof stands on posts a foot in from its eave, from the ground up", () => {
+  // The front's slope carried on 6' out at 6/12 with 1' eaves: at 5' out the run in from the old drip
+  // line is -4, so the underside is 10 + (-4 - 1) / 2 = 7'6". From 0 (the rake's end, run on past the
+  // corner by 1') to 19 (a foot short of where it stops): three posts, under 10' apart.
+  const { m } = soundRoof(rect(40, 30, { pitch: 6, eaveOverhangFeet: 1, rakeOverhangFeet: 1, additions: [{ id: "p", kind: "porch", sideId: "front", fromFeet: 0, toFeet: 20, depthFeet: 6 }] }), "porch");
+  assert(m.posts.length === 3, `${m.posts.length} posts`);
+  m.posts.forEach((p, i) => {
+    near(p.x, [0, 9.5, 19][i], "along the porch");
+    near(p.z, 5, "a foot in from its eave");
+    near(p.y0, 0, "from the ground");
+    near(p.y1, 7.5, "to the roof's underside");
+  });
+});
+
+test("3D: a cross gable's face stands under its rakes", () => {
+  // 10' wide on the front at 12/12 with no overhangs: its triangle 10' across, 5' up from the eave.
+  // Its roof reaches in over the front wall, which stands to the eave under it: the face closes that.
+  const { m } = soundRoof(rect(40, 30, { pitch: 12, eaveOverhangFeet: 0, rakeOverhangFeet: 0, additions: [{ id: "g", kind: "gable", sideId: "front", fromFeet: 10, toFeet: 20 }] }), "cross gable", ["front"]);
+  const ys = m.roof.gables.filter((_, i) => i % 3 === 1);
+  assert(ys.length === 3, `${ys.length / 3} faces`);
+  near(Math.min(...ys), 10, "its foot at the eave");
+  near(Math.max(...ys), 15, "its peak");
+});
+
+test("3D: a lean-to stands its own height under the eave; heights read off a sloping lot", () => {
+  // The lean-to (8' deep at 6/12, no overhang) meets the wall 1'6" under the eave: its eave 4' lower still.
+  const lean = model3d(rect(40, 30, { pitch: 6, eaveOverhangFeet: 0, rakeOverhangFeet: 0, additions: [{ id: "l", kind: "porch", sideId: "left", fromFeet: 5, toFeet: 25, depthFeet: 8, lower: true }] }));
+  near(lean.eaves[1], 10 - 1.5 - 4, "the lean-to's eave");
+  assert(lean.notes.some((n) => /isn't measured/.test(n)), "said to be drawn, not measured");
+  // Taped on a lot falling 4' to the back: 10' to the eave at the front, 14' at the back. The eave is the
+  // middle reading (12'), so the front's ground stands 2' up and the back's 2' down, the sides sloping.
+  const e = rect(40, 30, { pitch: 6 });
+  const set = (id, l, r) => Object.assign(e.sides.find((s) => s.id === id), { eaveLeftFeet: l, eaveRightFeet: r });
+  set("right", 10, 14);
+  set("rear", 14, 14);
+  set("left", 14, 10);
+  const { m } = soundRoof(e, "sloping lot");
+  near(m.eaves[0], 12, "the eave");
+  near(wallNamed(m, "Front").grade[0].y, 2, "the front's ground");
+  near(wallNamed(m, "Rear").grade[0].y, -2, "the back's");
+  const right = wallNamed(m, "Right").grade;
+  near(right[0].y, 2, "the right side's ground at the front");
+  near(right[right.length - 1].y, -2, "and at the back");
+  // A side tapped on the phone is read at its higher eave: a shape stopping short of the eave says nothing of the ground.
+  const tapped = rect(40, 30, { pitch: 6 });
+  Object.assign(tapped.sides[1], { heightsFrom: "level", eaveLeftFeet: ft(2, 8), eaveRightFeet: 10 });
+  near(wallNamed(model3d(tapped), "Right").grade[0].y, 0, "a stray low eave moves nothing");
+});
+
+test("3D: cladding as the elevation has it, openings in place, and what can't be stood up says why", () => {
+  const e = rect(40, 30, { pitch: 6 });
+  e.sides[0].bands = [
+    { id: "s", kind: "stone", top: 3 },
+    { id: "v", kind: "vinyl", top: null },
+  ];
+  e.sides[0].openings = [{ id: "w", kind: "window", widthFeet: 4, heightFeet: 3, sillFeet: 3, fromLeftFeet: 5 }];
+  const front = wallNamed(model3d(e), "Front");
+  assert(front.faces.map((f) => f.kind).join() === "parging,stone,vinyl", front.faces.map((f) => f.kind).join());
+  assert(front.background === "vinyl", front.background);
+  const o = front.openings[0];
+  assert(o.kind === "window" && o.x0 === 5 && o.x1 === 9 && o.y0 === 3 && o.y1 === 6, JSON.stringify(o));
+  // No pitch (none typed, no gable measured): walls only, to their eaves.
+  const walls = model3d(rect(40, 30));
+  assert(walls.roof === null && /No pitch yet/.test(walls.notes.join(" ")), walls.notes.join(" "));
+  near(topOf(wallNamed(walls, "Left")), 10, "the eave as measured");
+  const open = x.exteriorModel(exterior([ownersSide()]));
+  assert(!open.ok && /every side of the house/.test(open.reason), open.ok ? "built" : open.reason);
+});
+
+test("3D: the owner's own walk (14:53) stands up, the garage under its gable, the walls on the roof", () => {
+  const file = JSON.parse(readFileSync(join(here, "fixtures", "scan-exterior-v2-walk-1453.json"), "utf8"));
+  const r = x.parseScanExterior(file);
+  assert(r.ok, r.error);
+  const e = r.exterior;
+  const id = (name) => e.sides.find((s) => s.name === name).id;
+  // As the owner gave the roof on 10-13: the deck covered, the garage lower under a gable on the house, hipped at the street.
+  e.roof = { ...e.roof, pitch: 5, eaveOverhangFeet: 2, rakeOverhangFeet: ft(1, 10), coveredNotches: [id("Rear 3")], lowerWings: [id("Front 2")], wingGables: [id("Front 2")], ends: { [id("Front 2")]: "hip" } };
+  const { m } = soundRoof(e, "the owner's walk", [id("Left 4"), id("Rear 3")]);
+  // Every eave the walk read, in the middle: the house's 10'4", the garage's 8'9".
+  near(m.eaves[0], 10.348, "the house's eave", 0.01);
+  near(m.eaves[1], 8.757, "the garage's eave", 0.01);
+  assert(m.walls.filter((w) => w.sideId === null).length === 2, "the wall over the garage and the strip over the deck");
+  assert(m.walls.every((w) => w.sideId === null || w.background === "unclad"), "tapped as shapes: what no shape covers is left bare");
+  assert(m.walls.filter((w) => w.sideId !== null).reduce((s, w) => s + w.openings.length, 0) === 20, "every opening the walk tapped");
 });
 
 console.log(`\n${passed.length} passed, ${failures.length} failed`);
