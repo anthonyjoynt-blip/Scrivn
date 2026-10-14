@@ -18,8 +18,10 @@ import "./scan.css";
  * the Scan plan and its price up front. Scrivn comes in as the next step, not the subject.
  *
  * Every claim here is something the app does today (the tester guide at /scan-guide is the long
- * version). The free tier's few scans a month is the decided model (2026-10-01) and is counted once
- * Scan signs in; until then nothing on the phone is limited, so the page promises less than it gives.
+ * version). The free tier's few scans a month is the decided model (2026-10-01): counted by Scrivn for
+ * a phone signed in to an account with no plan, and refused past the limit once billing is on
+ * (lib/scanAllowanceRules.ts). A phone with no account is not counted, so the page promises less than
+ * it gives.
  */
 export const metadata = {
   title: "Scrivn Scan — Measured floor plans from your phone",
@@ -224,7 +226,16 @@ export default async function ScanPage() {
           </details>
           <details>
             <summary>Do I need an account?</summary>
-            <p>Not to try it: install it and start measuring. You need a Scrivn account to buy the Scan plan, which you do here on scrivn.ca.</p>
+            <p>
+              Not to try it: install it and start measuring. Sign in to a Scrivn account (in the app, tap Account) to send scans into it; the same account buys the Scan
+              plan, here on scrivn.ca.
+            </p>
+          </details>
+          <details>
+            <summary>How do I delete my account?</summary>
+            <p>
+              In the app, tap Account, then Delete account, or see <Link href="/account/delete">scrivn.ca/account/delete</Link>.
+            </p>
           </details>
           <details>
             <summary>Where do my scans go?</summary>

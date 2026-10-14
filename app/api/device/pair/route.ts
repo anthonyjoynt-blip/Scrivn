@@ -6,9 +6,14 @@ import {
   DeviceUnavailableError,
   InvalidDeviceTokenError,
   InvalidPairingCodeError,
+  ScanLimitError,
   ScanRejectedError,
   pairDevice,
 } from "@/lib/deviceRepo";
+import { BadCredentialsError, EmailNotConfirmedError } from "@/lib/passwordSignIn";
+import { TooManyAttemptsError } from "@/lib/requestGuard";
+import { SignupEmailFailedError, SignupInvalidError, SignupsClosedError } from "@/lib/signup";
+import { DeletionUnavailableError, TeamOwnerCannotDeleteError } from "@/lib/accountDeletion";
 
 /**
  * Pairing: the phone posts the code from the QR (or typed in) and leaves with its device token.
@@ -27,6 +32,19 @@ export function errorResponse(err: unknown) {
   if (err instanceof ScanRejectedError) return NextResponse.json({ error: err.message }, { status: 400 });
   if (err instanceof ClaimNotFoundError) return NextResponse.json({ error: err.message }, { status: 404 });
   if (err instanceof NoOrganizationError) return NextResponse.json({ error: err.message }, { status: 409 });
+  // Scan standing on its own (2026-10-14): the free scans, signing in, making and deleting an account.
+  if (err instanceof ScanLimitError) return NextResponse.json({ error: err.message, allowance: err.allowance }, { status: 402 });
+  if (err instanceof BadCredentialsError) return NextResponse.json({ error: err.message }, { status: 400 });
+  if (err instanceof EmailNotConfirmedError) return NextResponse.json({ error: err.message }, { status: 403 });
+  if (err instanceof TooManyAttemptsError) {
+    const seconds = Math.max(1, Math.ceil((err.retryAt.getTime() - Date.now()) / 1000));
+    return NextResponse.json({ error: err.message }, { status: 429, headers: { "Retry-After": String(seconds) } });
+  }
+  if (err instanceof SignupsClosedError) return NextResponse.json({ error: err.message }, { status: 403 });
+  if (err instanceof SignupInvalidError) return NextResponse.json({ error: err.message }, { status: 400 });
+  if (err instanceof SignupEmailFailedError) return NextResponse.json({ error: err.message }, { status: 502 });
+  if (err instanceof TeamOwnerCannotDeleteError) return NextResponse.json({ error: err.message }, { status: 409 });
+  if (err instanceof DeletionUnavailableError) return NextResponse.json({ error: err.message }, { status: 503 });
   // The migration not being applied yet lands here — a real 500, but with a sentence rather than a stack.
   if (err instanceof DeviceUnavailableError) return NextResponse.json({ error: err.message }, { status: 500 });
   const message = err instanceof Error ? err.message : "Unexpected error.";

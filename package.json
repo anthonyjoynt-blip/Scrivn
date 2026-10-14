@@ -43,7 +43,10 @@
     "test:billing": "node test/billing/run.mjs && node test/billing/db.mjs && node test/billing/routes.mjs",
     "test:billing:stripe": "node test/billing/stripe-e2e.mjs",
     "test:device": "node test/device/run.mjs",
-    "test:device:rls": "node test/device/rls.mjs"
+    "test:device:rls": "node test/device/rls.mjs",
+    "test:scanaccounts": "node test/scanaccounts/run.mjs",
+    "test:e2e:scan": "node test/e2e/scanAccounts.mjs",
+    "supabase:fake": "node test/e2e/fakeSupabase.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "latest",

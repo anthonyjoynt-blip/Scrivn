@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/client";
 import { PRIVACY_POLICY_URL, TERMS_URL } from "@/lib/legal";
 
 /** Supabase's own default floor is 6; 8 is a small, free improvement and the server stays authoritative. */
@@ -13,8 +12,8 @@ const MIN_PASSWORD_LENGTH = 8;
  *
  * Fails CLOSED: open only when the variable is exactly "true", so a missing or misspelt value shows
  * the invite-only panel rather than throwing the doors open. `NEXT_PUBLIC_` because this page is a
- * Client Component and the value is a display decision, not a secret — the real gate is Supabase's,
- * as the panel's comment explains.
+ * Client Component and the value is a display decision, not a secret. The server reads the same variable
+ * (lib/signup.ts) and refuses an account while it is not "true", which is the real gate.
  */
 const SIGNUPS_OPEN = process.env.NEXT_PUBLIC_SIGNUPS_OPEN === "true";
 
@@ -68,34 +67,40 @@ export default function SignUpPage() {
     }
 
     setLoading(true);
-    const supabase = createClient();
-    const { error: signUpError } = await supabase.auth.signUp({
-      email: email.trim(),
-      password,
-      options: {
-        // Where the emailed link comes back to. `/auth/confirm` verifies the token and then sends
-        // them on, already signed in.
-        //
-        // `next` is carried through from this page's own query string so an interrupted intent
-        // survives the whole signup round trip — someone who clicked Subscribe while signed out
-        // lands back on `/pricing?checkout=<tier>` after confirming, and checkout resumes by
-        // itself. Without this the confirmation link would always dump them on the home page with
-        // no memory of what they were trying to buy.
-        emailRedirectTo: `${window.location.origin}/auth/confirm?next=${encodeURIComponent(safeNext())}`,
-        data: { full_name: fullName.trim(), company_name: companyName.trim() },
-      },
-    });
+    /*
+      Through the server since 2026-10-14 (lib/signup.ts), not `supabase.auth.signUp` in the browser: the
+      limits on new accounts and the one-trial-per-address rule only hold if nothing can make an account
+      around them, so the account is made there with the admin API and Supabase's own sign-up stays off.
+      The server sends the confirmation email; its link goes to `/auth/confirm` exactly as before.
 
-    if (signUpError) {
-      setError(signUpError.message);
+      `next` is carried through from this page's own query string so an interrupted intent survives the
+      whole signup round trip — someone who clicked Subscribe while signed out lands back on
+      `/pricing?checkout=<tier>` after confirming, and checkout resumes by itself.
+    */
+    let failure: string | null = null;
+    try {
+      const res = await fetch("/api/signup", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email: email.trim(), password, fullName: fullName.trim(), companyName: companyName.trim(), next: safeNext() }),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as { error?: string } | null;
+        failure = body?.error ?? "Your account couldn't be made just now. Try again in a minute.";
+      }
+    } catch {
+      failure = "Couldn't reach Scrivn. Check your connection and try again.";
+    }
+
+    if (failure) {
+      setError(failure);
       setLoading(false);
       return;
     }
 
-    // Deliberately not branching on whether this address already had an account. Supabase returns a
-    // success-shaped response either way precisely so this form can't be used to enumerate who has
-    // one; showing the same message keeps that property intact. A real existing user gets an email
-    // telling them so.
+    // Deliberately not branching on whether this address already had an account. The server answers
+    // the same either way precisely so this form can't be used to enumerate who has one; showing the
+    // same message keeps that property intact. A real existing user gets an email telling them so.
     setSent(true);
     setLoading(false);
   }
@@ -120,13 +125,11 @@ export default function SignUpPage() {
   /*
     Invite-only, while Scrivn is deployed but not yet a product anyone can buy.
 
-    This panel is HONESTY, not enforcement. Sign-up runs in the browser against Supabase's public
-    anon key, so anyone who can read this page's JavaScript can call `auth.signUp` directly whatever
-    this component renders. The switch that actually refuses a new account is Supabase's own
-    "Allow new users to sign up", in the project dashboard — see SIGNUPS.md.
+    Since 2026-10-14 this panel is the face of a real gate. Accounts are made on the server (lib/signup.ts),
+    which refuses while NEXT_PUBLIC_SIGNUPS_OPEN is not "true", and Supabase's own "Allow new users to sign up"
+    stays off for good, so the public anon key can make no account at all — see SIGNUPS.md.
 
-    What this does is stop the app inviting someone to fill in a form that the backend will reject,
-    and stop a stranger who wandered in from spending five trial claims of Anthropic credit.
+    What this does is stop the app inviting someone to fill in a form the server will refuse.
   */
   if (!SIGNUPS_OPEN) {
     return (

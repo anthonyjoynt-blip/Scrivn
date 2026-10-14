@@ -43,7 +43,15 @@ const AUTH_PAGES = new Set(["/login", "/signup", "/forgot-password"]);
  * NEXT_PUBLIC_SHOW_MARKETING_NAV hides the links to these pages; it deliberately has no effect
  * here. The pages stay directly reachable by URL whether or not the site advertises them.
  */
-const PUBLIC_PAGES = new Set(["/", "/how-it-works", "/scan", "/drying-calculator", "/pricing", "/faq", "/contact", "/auth/auth-code-error", "/pair", "/scan-guide"]);
+const PUBLIC_PAGES = new Set(["/", "/how-it-works", "/scan", "/drying-calculator", "/pricing", "/faq", "/contact", "/auth/auth-code-error", "/pair", "/scan-guide", "/account/delete", "/scan/ready"]);
+/*
+  `/account/delete` is how to delete an account (app/(app)/account/delete): Google Play requires a web page
+  that explains it to someone who is NOT signed in, as well as the button in the app. Signed out it says
+  what deleting does and how; signed in it has the form.
+
+  `/scan/ready` is where the confirmation link of an account made in Scrivn Scan lands: it says to go back
+  to the app and sign in, and shows nothing of the account.
+*/
 /*
   `/drying-calculator` is the public drying equipment calculator (app/drying-calculator/page.tsx): arithmetic in
   the browser, nothing of any account on it, and meant to be found by people who have never signed up.
@@ -78,7 +86,11 @@ const PUBLIC_PAGES = new Set(["/", "/how-it-works", "/scan", "/drying-calculator
  * account. It does its own validation, size-capping, bot filtering and per-IP throttling; see
  * app/api/contact/route.ts.
  */
-const PUBLIC_ROUTES = new Set(["/auth/confirm", "/api/logout", "/api/webhooks/stripe", "/api/contact", "/scan-download"]);
+const PUBLIC_ROUTES = new Set(["/auth/confirm", "/api/logout", "/api/webhooks/stripe", "/api/contact", "/scan-download", "/api/signup"]);
+/*
+  `/api/signup` is the sign-up form's endpoint (lib/signup.ts): it exists for people without an account. It
+  checks the gate (NEXT_PUBLIC_SIGNUPS_OPEN) and the per-address and per-day limits itself.
+*/
 /*
   `/scan-download` sends a tester to the newest Scrivn Scan build (app/scan-download/route.ts) - before the Play
   listing, the way testers install it, and they have no account to sign in with.
