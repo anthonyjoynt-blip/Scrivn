@@ -191,6 +191,8 @@ async function postStep(url: string, body: unknown): Promise<{ ok: true; data: u
     */
     const res = await netFetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), timeoutMs: 330_000 });
     const data = (await res.json().catch(() => null)) as { error?: unknown } | null;
+    // Signed out (the session lapsed while offline): keep waiting, as for no signal — signing in lets it run.
+    if (res.status === 401) return { ok: false, offline: true, message: "Signed out." };
     if (!res.ok) return { ok: false, offline: false, message: (data && typeof data.error === "string" && data.error) || `Request failed (${res.status})` };
     return { ok: true, data };
   } catch (err) {
