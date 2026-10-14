@@ -573,6 +573,12 @@ export default async function ScanGuidePage() {
                     <B>Open in Scrivn</B> takes you to the claim&apos;s sketch. Scrivn may offer to fill in closets and spaces between rooms
                     that weren&apos;t tapped.
                   </li>
+                  <li>
+                    <strong>No signal?</strong> Send anyway: pick the claim from the list the phone last saw (or <B>New claim</B>). The scan
+                    and its photos are saved on the phone and go to Scrivn on their own when there is signal. Over the buttons it says
+                    &ldquo;1 scan waiting to send – it goes on its own when there is signal&rdquo;; tap that to see what is waiting, or{" "}
+                    <B>Send now</B>. Pressing Start or closing the app doesn&apos;t lose it.
+                  </li>
                 </ol>
               </div>
               <div className="sg-figs">
