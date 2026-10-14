@@ -97,8 +97,10 @@ export async function getUsageState(): Promise<UsageState | null> {
   const read = (columns: string) =>
     withClockSkewRetry(() => supabase.from("organization_members").select(`organization_id, role, organizations (${columns})`).eq("user_id", userId).limit(1).maybeSingle());
   let { data, error } = await read(ORG_BILLING_AND_PAYMENT_COLUMNS);
-  // 0011 applied and 0013 not: the plan as the build before read it, with no failed card to show.
-  if (error && isBillingSchemaMissing(error)) ({ data, error } = await read(ORG_BILLING_COLUMNS));
+  // 0011 applied and 0013 not: the plan as the build before read it, with no failed card to show. Only
+  // when the missing column is that one; without 0011 the plan's own columns are missing too, and the
+  // profile is read straight away rather than after a second failed query.
+  if (error && isBillingSchemaMissing(error) && /payment_failed_at/.test(error.message ?? "")) ({ data, error } = await read(ORG_BILLING_COLUMNS));
   if (error && isBillingSchemaMissing(error)) return legacyProfileUsage(supabase, userId);
 
   const row = data as { organization_id?: unknown; role?: unknown; organizations?: OrganizationBillingRow | OrganizationBillingRow[] | null } | null;
