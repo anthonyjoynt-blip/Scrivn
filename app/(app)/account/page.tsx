@@ -12,6 +12,7 @@ import { loadTeam, type TeamState } from "@/lib/teamRepo";
 import { isTeamsEnabled } from "@/lib/teamsGate";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
 import { getUsageState } from "@/lib/usage";
+import { allowanceFor } from "@/lib/scanAllowance";
 import { SCAN_PLAN, TRIAL_CLAIM_LIMIT, TRIAL_DAYS, isScanTier, planForTier } from "@/lib/plans";
 
 /** The person's details, or null for no card — nobody signed in, which here only happens in the dev fail-open. */
@@ -98,6 +99,14 @@ async function teamCard(): Promise<{ team: TeamState } | { error: string } | nul
 export default async function AccountPage({ searchParams }: { searchParams: Promise<{ portal?: string }> }) {
   const [usage, letterhead, profile, devices, team] = await Promise.all([getUsageState(), letterheadCard(), profileCard(), devicesCard(), teamCard()]);
   const params = await searchParams;
+  // Scrivn Scan's scans this month (0013): one sentence under Paired phones, or none if it can't be read.
+  const scans = usage?.organizationId
+    ? await allowanceFor(usage.organizationId).catch((err) => {
+        unstable_rethrow(err);
+        console.error("[account] scan allowance unavailable:", err);
+        return null;
+      })
+    : null;
   const plan = planForTier(usage?.tier);
   /*
     The plan is the organization's, and only its owner changes it (0011). Alone, everyone is the owner
@@ -265,8 +274,21 @@ export default async function AccountPage({ searchParams }: { searchParams: Prom
       {devices && (
         <div className="card">
           <h2>Paired phones</h2>
-          <p className="subtitle">Phones running Scrivn Scan that can send room scans into your claims.</p>
+          <p className="subtitle">Phones running Scrivn Scan, paired or signed in with your account, that can send room scans into your claims.</p>
+          {scans && <p className="account-scans">{scans.summary}</p>}
           {"error" in devices ? <p className="field-note">{devices.error}</p> : <PairedPhones initial={devices.devices} canRevokeAll={devices.canRevokeAll} />}
+        </div>
+      )}
+
+      {profile && (
+        <div className="card">
+          <h2>Delete account</h2>
+          <p className="subtitle">Delete your sign-in and details, and your company&rsquo;s claims if nobody else is in your account. It can&rsquo;t be undone.</p>
+          <div className="actions-row">
+            <Link href="/account/delete" className="btn-secondary">
+              Delete account…
+            </Link>
+          </div>
         </div>
       )}
     </main>

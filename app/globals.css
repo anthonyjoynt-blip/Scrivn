@@ -3747,3 +3747,38 @@ button:disabled {
     display: block;
   }
 }
+
+/* ---- delete account (app/(app)/account/delete, 2026-10-14) ---- */
+
+.plain-list {
+  margin: 0 0 16px;
+  padding-left: 20px;
+  line-height: 1.6;
+}
+
+.plain-list li {
+  margin-bottom: 8px;
+}
+
+.delete-account-form .auth-field {
+  max-width: 360px;
+}
+
+.delete-account-check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 12px 0 4px;
+  cursor: pointer;
+}
+
+.delete-account-done p {
+  margin: 0 0 12px;
+}
+
+/* Scrivn Scan's scans this month, under Paired phones on the Account page. */
+.account-scans {
+  margin: -4px 0 16px;
+  font-size: 0.92rem;
+  color: var(--text);
+}

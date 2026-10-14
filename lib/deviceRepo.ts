@@ -11,6 +11,9 @@ import { withScanMoisture } from "./moisture";
 import { PAIRING_CODE_TTL_SECONDS, claimSketchUrl, hashSecret, newDeviceToken, newPairingCode, normalisePairingCode, pairingUrl } from "./deviceCodes";
 import { SCAN_DROP, convertScan, dedupeNotes, scanTooBig, sketchFromScan, type PendingScan } from "./scanInbox";
 import { isExteriorOnlyScan, parseScanExterior } from "./exteriorImport";
+import { endSession, signInWithPassword } from "./passwordSignIn";
+import { takeScan } from "./scanAllowance";
+import { captureKey, scanLimitMessage, type ScanAllowance } from "./scanAllowanceRules";
 
 /**
  * Every read and write behind a paired phone, in one place: minting a pairing code, trading it for
@@ -73,6 +76,14 @@ export class ScanRejectedError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "ScanRejectedError";
+  }
+}
+
+/** The free scans are spent (lib/scanAllowanceRules.ts): the sentence names scrivn.ca/scan in plain text. */
+export class ScanLimitError extends Error {
+  constructor(readonly allowance: ScanAllowance) {
+    super(scanLimitMessage(allowance));
+    this.name = "ScanLimitError";
   }
 }
 
@@ -149,6 +160,8 @@ export interface ReceivedScan {
   url: string;
   roomCount: number;
   notes: string[];
+  /** The organization's scans after this one (0013): what the phone shows on its account screen. */
+  allowance: ScanAllowance;
 }
 
 /* ── Talking to Postgres ───────────────────────────────────────────────────────────────────────── */
@@ -421,6 +434,32 @@ export async function pairDevice(code: string, deviceName: string): Promise<{ to
   return { token, identity: await deviceIdentity(token) };
 }
 
+/**
+ * Scrivn Scan signing in with an email and password (2026-10-14, sa-signin): the phone leaves with a
+ * device token exactly as pairing hands one out, so a signed-in phone and a paired one are the same
+ * thing from here on — the same `device_tokens` row, listed on the Account page, revoked the same way,
+ * sending into the same organization's claims.
+ *
+ * It IS a pairing, done on the phone's behalf: signed in as the person (an in-memory session,
+ * lib/passwordSignIn.ts), a code is begun exactly as the Account page begins one, and spent at once by
+ * `pairDevice`. So no new path into `device_tokens` exists and 0006's functions remain the only ones
+ * that mint a token. The session is signed out again whatever happens.
+ */
+export async function signInDevice(email: string, password: string, deviceName: string): Promise<{ token: string; identity: DeviceIdentity; email: string }> {
+  const session = await signInWithPassword(email, password);
+  try {
+    const code = newPairingCode();
+    const letters = normalisePairingCode(code);
+    if (!letters) throw new Error("A freshly minted pairing code did not normalise.");
+    const { error } = await session.client.rpc("device_pairing_begin", { code_hash: hashSecret(letters) });
+    if (error) throw failure(error, "Could not sign the phone in", SESSION_ERRORS);
+    const { token, identity } = await pairDevice(code, deviceName);
+    return { token, identity, email: session.email };
+  } finally {
+    await endSession(session);
+  }
+}
+
 /** Who a token is: its organization, the person who paired it, and their role. */
 export async function deviceIdentity(token: string): Promise<DeviceIdentity> {
   const { data, error } = await phoneClient().rpc("device_identity", { token_hash: hashSecret(token) });
@@ -495,7 +534,7 @@ interface ReceiveScanRow {
  * `claim_scans` row, so a claim never exists without the provenance of the scan that made it.
  */
 export async function receiveScan(token: string, input: ReceiveScanInput): Promise<ReceivedScan> {
-  await deviceIdentity(token);
+  const identity = await deviceIdentity(token);
   const tooBig = scanTooBig(input.body);
   if (tooBig !== null) throw new ScanRejectedError(tooBig);
   let roomCount: number;
@@ -515,6 +554,21 @@ export async function receiveScan(token: string, input: ReceiveScanInput): Promi
 
   const scanId = randomUUID();
   const receivedAt = new Date().toISOString();
+
+  /*
+    THE FREE SCANS (0013, sa-free): counted once a capture is known to draw and before it is stored.
+    A capture counted before — sent again, sent to another claim, or shared as a plan first — passes
+    without counting, so a retry after a lost answer never costs a second scan; one over the free
+    limit is refused with the sentence that names scrivn.ca/scan.
+  */
+  const use = await takeScan({
+    organizationId: identity.organizationId,
+    userId: identity.userId,
+    tokenId: identity.tokenId,
+    captureKey: captureKey(input.captureId, scanId),
+    how: "sent",
+  });
+  if (!use.allowed) throw new ScanLimitError(use.allowance);
 
   let newClaim: Record<string, unknown> | null = null;
   if (input.claimId === null) {
@@ -556,5 +610,6 @@ export async function receiveScan(token: string, input: ReceiveScanInput): Promi
     url: claimSketchUrl(row.claim_id),
     roomCount,
     notes: [...dedupeNotes(input.claimId === null, created, duplicate), ...notes],
+    allowance: use.allowance,
   };
 }

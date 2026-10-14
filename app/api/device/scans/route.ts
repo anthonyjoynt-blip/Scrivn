@@ -89,6 +89,7 @@ export async function POST(request: Request) {
       scanId: received.scanId,
       roomCount: received.roomCount,
       notes: received.notes,
+      allowance: received.allowance,
     });
   } catch (err) {
     return errorResponse(err);

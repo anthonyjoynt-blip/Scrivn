@@ -1,6 +1,7 @@
 import "server-only";
 import Anthropic from "@anthropic-ai/sdk";
 import { cleanEnv } from "./env";
+import { recordAiSpend } from "./aiSpend";
 
 /**
  * Server-only Claude client + the shared "structured outputs call" helper both API routes use.
@@ -151,6 +152,16 @@ export async function createStructuredMessage<T>(params: {
     throw new ScopingApiError(`Claude API call failed: ${err instanceof Error ? err.message : String(err)}`, { cause: err });
   }
 
+  const usage: CallUsage = {
+    inputTokens: response.usage?.input_tokens ?? 0,
+    outputTokens: response.usage?.output_tokens ?? 0,
+    cacheCreationTokens: response.usage?.cache_creation_input_tokens ?? 0,
+    cacheReadTokens: response.usage?.cache_read_input_tokens ?? 0,
+  };
+  // The day's spend and its alarm (b-guard, lib/aiSpend.ts), before the checks below: a refused or
+  // cut-off answer was paid for all the same. Never throws.
+  await recordAiSpend(model(), usage);
+
   if (response.stop_reason === "refusal") {
     throw new ScopingApiError("Claude declined this request.");
   }
@@ -171,11 +182,6 @@ export async function createStructuredMessage<T>(params: {
   // assertion compiles regardless of what that type turns out to be.
   return {
     output: response.parsed_output as unknown as T,
-    usage: {
-      inputTokens: response.usage?.input_tokens ?? 0,
-      outputTokens: response.usage?.output_tokens ?? 0,
-      cacheCreationTokens: response.usage?.cache_creation_input_tokens ?? 0,
-      cacheReadTokens: response.usage?.cache_read_input_tokens ?? 0,
-    },
+    usage,
   };
 }
