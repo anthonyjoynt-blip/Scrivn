@@ -163,7 +163,7 @@ export default async function ScanGuidePage() {
               </li>
               <li>
                 <strong>No account needed.</strong> Scan works on its own: the plan is on the Review screen, and <B>Share</B> sends it as a
-                PDF and a JPG. Pairing it with a Scrivn account to send rooms into a claim is optional (section 12).
+                PDF and a JPG. Signing in to a Scrivn account, to send rooms into a claim, is optional (section 12).
               </li>
               <li>
                 <strong>Lights on, phone charged.</strong> Dim rooms measure short (more on that in the tips), and the camera works hard. If
@@ -561,9 +561,10 @@ export default async function ScanGuidePage() {
                 <p>If you have a Scrivn account, Scan sends rooms straight into a claim.</p>
                 <ol className="sg-steps">
                   <li>
-                    <strong>Pair once.</strong> On a phone that isn&apos;t paired, the button reads <B>Pair</B>. In Scrivn, open your
-                    Account page and press <strong>Pair a phone</strong>. Then on the phone tap <B>Pair</B> → <B>Scan code</B> and point it
-                    at the QR code (or <B>Type code</B> for the eight letters).
+                    <strong>Sign in once.</strong> Tap <B>Account</B> (top left, when you&apos;re not capturing) → <B>Sign in</B>, and use
+                    your Scrivn email and password. No account yet? <B>Create an account</B> there. Or pair instead: in Scrivn, open your
+                    Account page and press <strong>Pair a phone</strong>, then on the phone tap <B>Account</B> → <B>Pair with a code from
+                    Scrivn</B> → <B>Scan code</B> and point it at the QR code (or <B>Type code</B> for the eight letters).
                   </li>
                   <li>
                     After a capture, press <B>Stop</B>, then <B>Send</B>. Pick the claim (or <B>New claim</B>) and the storey. The rooms go
@@ -579,10 +580,15 @@ export default async function ScanGuidePage() {
                     &ldquo;1 scan waiting to send – it goes on its own when there is signal&rdquo;; tap that to see what is waiting, or{" "}
                     <B>Send now</B>. Pressing Start or closing the app doesn&apos;t lose it.
                   </li>
+                  <li>
+                    <strong>Your account</strong> is under <B>Account</B>: who you&apos;re signed in as, your scans this month,{" "}
+                    <B>Sign out</B> and <B>Delete account</B>. On the free plan a scan counts once, the first time it leaves the phone
+                    (sent, or shared as a plan); a Scrivn plan or the Scan plan has no limit.
+                  </li>
                 </ol>
               </div>
               <div className="sg-figs">
-                <Drawing name="send" caption="Pair once, then pick the claim." />
+                <Drawing name="send" caption="Sign in or pair once, then pick the claim." />
               </div>
             </div>
           </Section>

@@ -460,6 +460,17 @@ export async function signInDevice(email: string, password: string, deviceName: 
   }
 }
 
+/**
+ * Sign out, from the phone (0013, `device_token_revoke_self`): the token revokes itself, so it stops
+ * working on Scrivn as well as being forgotten on the phone. False when it was already revoked or
+ * never existed — the phone forgets it either way.
+ */
+export async function revokeOwnToken(token: string): Promise<boolean> {
+  const { data, error } = await phoneClient().rpc("device_token_revoke_self", { token_hash: hashSecret(token) });
+  if (error) throw failure(error, "Could not sign the phone out", PHONE_ERRORS);
+  return data === true;
+}
+
 /** Who a token is: its organization, the person who paired it, and their role. */
 export async function deviceIdentity(token: string): Promise<DeviceIdentity> {
   const { data, error } = await phoneClient().rpc("device_identity", { token_hash: hashSecret(token) });

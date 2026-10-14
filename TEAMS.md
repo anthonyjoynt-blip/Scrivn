@@ -125,6 +125,9 @@ invitation page `/team/invite` (also reachable signed out), and invitation email
   details, and sharing them with a company should be a decision, not a side effect.
 - **No organization switcher.** One organization at a time, as above.
 - **No invite list for the invitee.** Someone who loses the email asks for a new invitation.
+- **Delete account (2026-10-14, SCAN_ACCOUNTS.md) refuses an owner with other people in the
+  organization** until they hand it over; a member or admin who deletes their account leaves the team
+  and the claims they started stay with it. Deleting by hand in Supabase has no such check:
 - **Deleting the owner's account in Supabase leaves the team with no owner.** Nobody can manage
   billing or admins until an owner is set by hand in the SQL Editor
   (`update organization_members set role = 'owner' where …`). Hand the organization over before

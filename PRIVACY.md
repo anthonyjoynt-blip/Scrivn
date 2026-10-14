@@ -12,7 +12,9 @@ ticking the new options in the generator and pasting these sections back in, not
 in where data lives, update the sections below in the same change, then paste the new text into
 TermsFeed. The policy is only as accurate as this file.
 
-Written 2026-10-01 against the code as it stood then.
+Written 2026-10-01 against the code as it stood then; accounts in Scrivn Scan, the free-scan count,
+deleting an account and the sign-up guards added 2026-10-14 (paste the Scrivn Scan, Service providers,
+Deleting your account, and Security sections into TermsFeed again).
 
 ## Generator answers (Canada, October 2026)
 
@@ -52,7 +54,9 @@ When you use the Dictate button, your speech is turned into text by your phone o
 
 **Scrivn Scan**
 
-Scrivn Scan uses your phone's camera to measure rooms and to take photos and 360° images. It asks for camera permission only, and does not access your location, microphone, contacts or files. Measurements and photos are sent to Scrivn when you send a scan to a claim. Scan is linked to your account by scanning a pairing code, and you can revoke a paired phone from your account at any time. You can use Scan without pairing it to a Scrivn account.
+Scrivn Scan uses your phone's camera to measure rooms and to take photos and 360° images. It asks for camera permission only, and does not access your location, microphone, contacts or files. Measurements and photos are sent to Scrivn when you send a scan to a claim. You can use Scan without an account.
+
+You can sign in to Scan with your Scrivn email and password, create a Scrivn account in Scan (with your name, email address and a password), or link Scan to your account by scanning a pairing code. Your password goes to Scrivn only to sign you in and is not kept on the phone; the phone keeps a token instead, which you can end with Sign out in Scan or by revoking the phone from your account. While Scan is signed in, Scrivn records an ID for each scan the first time it is shared as a plan or sent, with the time and which phone, to count your free scans each month.
 
 When you choose Send to Scrivn team, Scan sends us that scan's measurements, the app's recent log (what the app did and how its tracking went, for that scan and any others made since the app was opened, including their measurements, with your phone's model and its Android and app versions), a random ID made for this copy of the app, and whatever you write in the note and contact boxes. No photos are sent this way. We use these only to find and fix problems in Scan, and delete them within 12 months.
 
@@ -68,13 +72,21 @@ Your account, and your claims, photos and scans, are stored in Canada. To run Sc
 - Supabase: database, file storage and sign-in (hosted in Canada)
 - Vercel: website hosting
 - Anthropic: AI processing
-- Resend: email (sign-in confirmations, contact-form messages, and documents you choose to send)
+- Resend: email (sign-in confirmations and other account emails, contact-form messages, and documents you choose to send)
 - Stripe: payments
 - Google: ARCore on Scrivn Scan, and speech recognition when you dictate on Android
 
 **Keeping and deleting claim data**
 
-Claims, photos and scans are kept until the company deletes them, or for 24 months after the company's account closes. Claims can be deleted in the app. To close your account or delete your data, email privacy@scrivn.ca.
+Claims, photos and scans are kept until the company deletes them, or for 24 months after the company's account closes. Claims can be deleted in the app.
+
+**Deleting your account**
+
+You can delete your account yourself, in Scrivn Scan (Account, then Delete account) or at scrivn.ca/account/delete, or by emailing privacy@scrivn.ca from the address on the account. You'll be asked for your password. Deleting your account deletes at once your sign-in, your name and contact details, the phones linked to your account, and problem reports you sent from Scan while signed in. If nobody else is in your company's account, it also deletes the company's claims, photos, scans, letterhead and logo, and cancels its subscription straight away (the time already paid for is not refunded). If other people are in your company's account, you leave it, and the claims stay with the company. We keep payment records, which Stripe holds as tax law requires, and a one-way scrambled copy of your email address (see below).
+
+**Security and preventing abuse**
+
+To protect accounts and limit abuse, Scrivn counts attempts to create an account and to sign in to Scan, keyed by a one-way scrambled copy (a hash) of the internet address and of the email address used, which cannot be turned back into either; these counts are deleted within two days. To stop the free trial being claimed more than once, Scrivn keeps a one-way scrambled copy of the email address of each account created, including after the account is deleted. Scrivn also keeps a daily total of what its AI processing costs, which holds no personal information.
 
 ---
 
@@ -96,6 +108,19 @@ Claims, photos and scans are kept until the company deletes them, or for 24 mont
   install id, note, contact; the sender's address only as a salted hash for the hourly limit), table
   `scan_reports` (0008, readable by the service role only). The 12-month deletion is a promise with no
   job behind it yet - delete old rows by hand until there is one.
+- **Scan accounts, the free scans, deleting and the guards** (2026-10-14, migration 0013): signing in
+  from the phone is `app/api/device/signin` (the password is checked with Supabase from the server,
+  `lib/passwordSignIn.ts`, and the phone keeps the device token, `PairingStore.kt`); creating an
+  account, in Scan or on the website, is `lib/signup.ts` (name, email, password; Scrivn sends the
+  confirmation email through Resend). The free-scan count is `scan_uses` (capture id, time, user,
+  phone, sent or saved; `lib/scanAllowance.ts`). Deleting is `lib/accountDeletion.ts` with
+  `account_close` (0013), reached from `AccountScreen.kt` and `app/(app)/account/delete`. The guards
+  are `request_limits` (salted hashes of address and email, swept after two days,
+  `lib/requestGuard.ts`) and `trial_emails` (salted hash of the normalised email, kept after deletion);
+  `ai_spend_days` holds token counts and dollars per day only. The Play Data safety form must say:
+  email address, name and purchase history collected (account management, and app functionality for
+  purchases), user IDs and app interactions (the scan count) collected for app functionality, data
+  deletion available in the app and at scrivn.ca/account/delete — see SCAN_ACCOUNTS.md.
 - **Working without a connection** (2026-10-13, offline mode): the device copies are IndexedDB
   (`lib/deviceClaims.ts`, `lib/aiJobs.ts`); signing out sweeps the copies the server already has
   (`forgetCopiedClaims` in `public/sw.js`) and keeps unsynced work, scoped to its owner by

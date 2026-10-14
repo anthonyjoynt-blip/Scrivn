@@ -445,6 +445,25 @@ const countIn = async (table, column, value) => (await s.sql(`select count(*)::i
   check(!who.error && rows(who).length === 0, "after account_close the phone's token resolves to nobody");
 }
 
+{
+  // Sign out from the phone: the token revokes itself, and only itself.
+  const person = await personWithData("signout@x.test", null);
+  const mine = newToken();
+  const other = newToken();
+  for (const t of [mine, other]) {
+    await s.service("insert into public.device_tokens (organization_id, user_id, token_hash) values ($1, $2, $3)", [person.org, person.id, sha256Hex(sha256Hex(t))]);
+  }
+  const out = await s.as(null, "select public.device_token_revoke_self($1) as ok", [sha256Hex(mine)]);
+  check(!out.error && rows(out)[0].ok === true, "a phone signs itself out with only its token");
+  const again = await s.as(null, "select public.device_token_revoke_self($1) as ok", [sha256Hex(mine)]);
+  check(rows(again)[0].ok === false, "signing out twice is harmless");
+  const gone = await s.as(null, "select * from public.device_identity($1)", [sha256Hex(mine)]);
+  const still = await s.as(null, "select * from public.device_identity($1)", [sha256Hex(other)]);
+  check(rows(gone).length === 0 && rows(still).length === 1, "that phone stops; the account's other phone does not");
+  const guess = await s.as(null, "select public.device_token_revoke_self($1) as ok", [sha256Hex("not a token")]);
+  check(rows(guess)[0].ok === false, "a token nobody holds revokes nothing");
+}
+
 await s.close();
 rmSync(outDir, { recursive: true, force: true });
 

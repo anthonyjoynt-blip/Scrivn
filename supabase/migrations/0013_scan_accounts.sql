@@ -39,7 +39,8 @@
 -- As in 0006 and 0012: P0411 "hand the organization over first", 22023 a malformed argument.
 -- Every function here is SECURITY DEFINER with an empty search_path and is granted to the service
 -- role ONLY: they are called by the server after it has checked who is asking, and a counter or a
--- limit the browser could call is one it could also not call.
+-- limit the browser could call is one it could also not call. The one exception is
+-- device_token_revoke_self (6), which a phone calls with its own token, like 0006's functions.
 -- ═══════════════════════════════════════════════════════════════════════════════════════════════
 
 do $$
@@ -410,3 +411,34 @@ $$;
 
 revoke all on function public.account_close(uuid) from public, anon, authenticated;
 grant execute on function public.account_close(uuid) to service_role;
+
+-- ---------------------------------------------------------------------------------------------
+-- 6. device_token_revoke_self — Sign out, from the phone.
+--
+-- 0006's device_token_revoke is for the Account page (a session revoking a phone). A phone signing
+-- itself out has only its token, so this takes the token's hash, as every phone-facing function does,
+-- and revokes that one token: the phone gives up its own standing grant, nothing more. True when it
+-- was live. Granted to anon like the other phone functions — the token is the credential.
+-- ---------------------------------------------------------------------------------------------
+
+drop function if exists public.device_token_revoke_self(text);
+create function public.device_token_revoke_self(token_hash text)
+returns boolean
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  changed integer;
+begin
+  update public.device_tokens t
+  set revoked_at = now()
+  where t.token_hash = public.device_secret_hash(device_token_revoke_self.token_hash)
+    and t.revoked_at is null;
+  get diagnostics changed = row_count;
+  return changed > 0;
+end;
+$$;
+
+revoke all on function public.device_token_revoke_self(text) from public;
+grant execute on function public.device_token_revoke_self(text) to anon, authenticated, service_role;

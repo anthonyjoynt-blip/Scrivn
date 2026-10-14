@@ -32,20 +32,50 @@ nobody, `sk_live_…` charges real cards.
 
 ## Sign-up — `NEXT_PUBLIC_SIGNUPS_OPEN`
 
-Off in production. While off, `/signup` shows an invite-only panel instead of the form.
+Off in production. While off, `/signup` shows an invite-only panel instead of the form, and Scrivn
+Scan's "Create an account" shows the same sentence.
 
-**This is honesty, not enforcement.** Sign-up runs in the browser against Supabase's public anon
-key, which is in every page's JavaScript, so anyone who wants to can call `auth.signUp` directly
-whatever this app renders. The flag stops the app *inviting* someone to fill in a form the backend
-should reject; it does not do the rejecting.
+**Since 2026-10-14 this is enforcement.** Both forms post to Scrivn's server (`/api/signup`,
+`/api/device/signup`, one door: `lib/signup.ts`), which refuses while the flag is not `true`, applies
+the guard below, and makes the account with Supabase's admin API. Scrivn then sends the confirmation
+email itself (Resend), with the same `/auth/confirm` link Supabase's template carried.
 
-**The switch that actually enforces it** is in the Supabase dashboard for project
-`jfwgeujrbrwiyrfcpwug`:
+**So Supabase's own switch stays OFF, for good**, also after sign-up opens:
 
 > Authentication → Sign In / Providers → Email → **Allow new users to sign up** → off
 
-With that off, `auth.signUp` fails for everyone regardless of the UI. Add testers with
-**Authentication → Users → Add user**, or Invite, which emails them a link.
+The admin API is not subject to it, and with it off the public anon key (in every page's JavaScript)
+can make no account at all, so nothing gets round the guard. Opening sign-up is
+`NEXT_PUBLIC_SIGNUPS_OPEN=true` in Vercel and a redeploy, nothing in Supabase. Add testers by hand as
+before (**Authentication → Users → Add user**). The first time sign-up opens, make one account on
+scrivn.ca and check the confirmation email arrives and its link signs you in.
+
+### The guard (b-guard)
+
+Counted in the database (`request_limit_hit`, 0013), shared by every serverless instance, numbers
+from the environment (a value that isn't a whole number keeps the default):
+
+| Variable | Limits | Default |
+|---|---|---|
+| `SIGNUP_LIMIT_PER_IP_PER_DAY` | new accounts from one address in a day (UTC) | 3 |
+| `SIGNUP_LIMIT_PER_DAY` | new accounts from everywhere in a day | 25 |
+| `SIGNIN_LIMIT_PER_IP_PER_HOUR` | Scrivn Scan sign-ins (and delete-account passwords) from one address | 30 |
+| `SIGNIN_LIMIT_PER_EMAIL_PER_HOUR` | Scrivn Scan sign-ins to one email | 10 |
+| `GUARD_HASH_SECRET` | optional salt for the hashed addresses and emails | unset |
+
+**Trial abuse:** one free trial per mailbox. Each new account's email is normalised (lower case,
+`+tag` dropped, Gmail dots dropped) and kept as a salted hash in `trial_emails`; an address seen before
+gets an account whose trial starts spent. The hash survives account deletion on purpose (PRIVACY.md
+says so), so deleting and signing up again is not five more free claims.
+
+**AI spend alarm:** every Claude call's tokens are priced (`lib/aiPricing.ts`, Opus 5.5 at US$4 / $20
+per million in / out) and added to the day's total (`ai_spend_days`). The call that takes the day past
+`AI_SPEND_ALARM_USD` emails `AI_SPEND_ALARM_EMAIL` (or `CONTACT_EMAIL`) once that day; the day is
+`AI_SPEND_TIMEZONE`'s (America/Edmonton by default). It is an estimate that only watches. **The hard
+stop is the Anthropic console's own spend limit (Settings → Limits), which only the owner can set.**
+
+The guards fail open if the database can't answer (0013 not applied, Supabase down): they are a brake,
+and Supabase's own per-address limits stand behind them.
 
 ### Why this matters more than it looks
 
