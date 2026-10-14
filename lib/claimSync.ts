@@ -1,6 +1,6 @@
 "use client";
 
-import { parseSavedClaimState, type SavedClaimState } from "./claimState";
+import { parseSavedClaimState, SAVED_CLAIM_KEYS, type SavedClaimState } from "./claimState";
 import { netFetch, isNetworkFailure } from "./connectivity";
 import { allDeviceClaims, changeDeviceClaim, deviceUser, isMine, readDeviceClaim, type DeviceClaim } from "./deviceClaims";
 
@@ -93,14 +93,23 @@ const PART: Partial<Record<keyof SavedClaimState, string>> = {
   // `step` is left out: which screen each copy was last on is not a difference in the claim.
 };
 
-/** What differs between this device's copy and the server's, in words, without repeats. */
+/**
+ * What differs between this device's copy and the server's, in words, without repeats.
+ *
+ * Every saved key is compared, not only the ones `PART` names: a field added to the claim later (the
+ * drying log, on its way) is still a difference the estimator is told about — as "other details"
+ * until it is given a name of its own here — rather than a clash that names nothing.
+ */
 export function clashDifferences(mine: SavedClaimState, theirs: SavedClaimState | null): string[] {
   if (!theirs) return [];
   const a = parseSavedClaimState(JSON.parse(JSON.stringify(mine))) as unknown as Record<string, unknown>;
   const b = parseSavedClaimState(JSON.parse(JSON.stringify(theirs))) as unknown as Record<string, unknown>;
   const out: string[] = [];
-  for (const [key, label] of Object.entries(PART)) {
-    if (stableStringify(a[key]) !== stableStringify(b[key]) && !out.includes(label!)) out.push(label!);
+  for (const key of SAVED_CLAIM_KEYS) {
+    if (key === "step") continue;
+    if (stableStringify(a[key]) === stableStringify(b[key])) continue;
+    const label = PART[key] ?? "other details";
+    if (!out.includes(label)) out.push(label);
   }
   return out;
 }
