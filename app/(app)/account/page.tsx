@@ -3,10 +3,13 @@ import { unstable_rethrow } from "next/navigation";
 import { LetterheadForm } from "@/components/LetterheadForm";
 import { PairedPhones } from "@/components/PairedPhones";
 import { ProfileForm } from "@/components/ProfileForm";
+import { TeamSection } from "@/components/TeamSection";
 import { loadProfile, type Profile } from "@/lib/profileRepo";
 import { NotSignedInError, currentRole } from "@/lib/claimsRepo";
 import { listDeviceTokens, type DeviceTokenItem } from "@/lib/deviceRepo";
 import { loadOrganizationLetterhead, type OrganizationLetterheadState } from "@/lib/organizationRepo";
+import { loadTeam, type TeamState } from "@/lib/teamRepo";
+import { isTeamsEnabled } from "@/lib/teamsGate";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
 import { getUsageState } from "@/lib/usage";
 import { SCAN_PLAN, TRIAL_CLAIM_LIMIT, TRIAL_DAYS, isScanTier, planForTier } from "@/lib/plans";
@@ -68,6 +71,23 @@ async function devicesCard(): Promise<{ devices: DeviceTokenItem[]; canRevokeAll
 }
 
 /**
+ * The Team card's data, or why there is none — the same three outcomes as the cards above, and a
+ * fourth that comes first: while TEAMS_ENABLED is off (lib/teamsGate.ts) there is no card at all and
+ * nothing is read, so the page is exactly what it was before team accounts were built.
+ */
+async function teamCard(): Promise<{ team: TeamState } | { error: string } | null> {
+  if (!isTeamsEnabled() || !isSupabaseConfigured()) return null;
+  try {
+    return { team: await loadTeam() };
+  } catch (err) {
+    unstable_rethrow(err);
+    if (err instanceof NotSignedInError) return null;
+    console.error("[account] team unavailable:", err);
+    return { error: "Your team isn’t available right now." };
+  }
+}
+
+/**
  * Account and subscription settings.
  *
  * Everything billing-related — card, invoices, plan changes, cancellation — is a single link out to
@@ -76,7 +96,7 @@ async function devicesCard(): Promise<{ devices: DeviceTokenItem[]; canRevokeAll
  * gain over a page Stripe already maintains and keeps PCI-compliant.
  */
 export default async function AccountPage({ searchParams }: { searchParams: Promise<{ portal?: string }> }) {
-  const [usage, letterhead, profile, devices] = await Promise.all([getUsageState(), letterheadCard(), profileCard(), devicesCard()]);
+  const [usage, letterhead, profile, devices, team] = await Promise.all([getUsageState(), letterheadCard(), profileCard(), devicesCard(), teamCard()]);
   const params = await searchParams;
   const plan = planForTier(usage?.tier);
   /*
@@ -89,7 +109,7 @@ export default async function AccountPage({ searchParams }: { searchParams: Prom
   return (
     <main>
       <h1>Account</h1>
-      <p className="subtitle">Your subscription, usage, details, letterhead and paired phones.</p>
+      <p className="subtitle">{team ? "Your subscription, team, usage, details, letterhead and paired phones." : "Your subscription, usage, details, letterhead and paired phones."}</p>
 
       {profile && (
         <div className="card">
@@ -225,6 +245,14 @@ export default async function AccountPage({ searchParams }: { searchParams: Prom
           </>
         )}
       </div>
+
+      {team && (
+        <div className="card">
+          <h2>Team</h2>
+          <p className="subtitle">The people who share this organization’s claims, letterhead and plan.</p>
+          {"error" in team ? <p className="field-note">{team.error}</p> : <TeamSection initial={team.team} />}
+        </div>
+      )}
 
       {letterhead && (
         <div className="card">

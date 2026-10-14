@@ -175,7 +175,10 @@ const OLD_FIELDS = ["tier", "used", "limit", "periodResetAt", "noPlan", "atLimit
   check(owner.canManageBilling && !admin.canManageBilling && !member.canManageBilling, "only the owner manages billing; an admin does not");
   check(member.used === 7 && admin.used === 7 && owner.used === 7 && member.limit === 20, "everyone on a team sees the one shared counter and cap");
   check(owner.seatLimit === 4 && owner.organizationId === "o" && member.role === "member", "the state says whose numbers they are, and the seat limit");
-  check(usageFromBilling(row, { organizationId: null, role: null }).canManageBilling === false, "no membership, no billing rights");
+  check(
+    usageFromBilling(row, { organizationId: null, role: null }).canManageBilling === true,
+    "a role that could not be read shows the billing buttons, as the page always did (checkout and the portal check the role themselves)",
+  );
 }
 
 /* ── "0011 is not applied yet" ─────────────────────────────────────────────────────────────────── */

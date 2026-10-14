@@ -33,7 +33,11 @@ export interface UsageState {
   organizationId: string | null;
   /** The signed-in person's role in it. Alone, always "owner". */
   role: OrgRole | null;
-  /** Whether this person may change the plan — the organization's owner. Alone, always true. */
+  /**
+   * Whether to SHOW this person the billing buttons — the organization's owner. Alone, always true.
+   * A role that could not be read shows them too, as the page always did: this decides only what is
+   * drawn, and checkout and the portal check the role for themselves.
+   */
   canManageBilling: boolean;
   /** People the plan covers; null = no limit (no seat price has been chosen — see SEAT_PRICING). */
   seatLimit: number | null;
@@ -103,7 +107,7 @@ export function usageFromBilling(
     trialExpiredReason,
     organizationId: membership.organizationId,
     role: membership.role,
-    canManageBilling: canManageBilling(membership.role),
+    canManageBilling: membership.role === null || canManageBilling(membership.role),
     seatLimit: row?.seat_limit ?? null,
   };
 }

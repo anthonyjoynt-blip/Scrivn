@@ -164,7 +164,7 @@ export class LocalSupabase {
    * `userId` null runs as the bare anon key. Errors come back as `{ error }` rather than throwing, the
    * way supabase-js reports them, so a check can assert on the data and the refusal alike.
    */
-  async as(userId, text, params = [], { role } = {}) {
+  async as(userId, text, params = [], { role, rollback = false } = {}) {
     const useRole = role ?? (userId ? "authenticated" : "anon");
     const claims = JSON.stringify(userId ? { sub: userId, role: useRole } : { role: useRole });
     try {
@@ -172,6 +172,8 @@ export class LocalSupabase {
         await tx.query(`select set_config('request.jwt.claims', $1, true)`, [claims]);
         await tx.exec(`set local role ${useRole}`);
         const res = await tx.query(text, params);
+        // A probe: what the call would do, then undone, so the next probe starts from the same state.
+        if (rollback) await tx.rollback();
         return res.rows;
       });
       return { data: rows, error: null };

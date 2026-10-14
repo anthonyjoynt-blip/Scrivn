@@ -104,7 +104,7 @@ async function currentUserId(): Promise<string> {
  * backfill covered the ones that predate it, so no organization means something is wrong that
  * silently saving nowhere would hide.
  */
-export async function currentMembership(): Promise<{ organizationId: string; role: OrgRole }> {
+export async function currentMembership(): Promise<{ userId: string; organizationId: string; role: OrgRole }> {
   const supabase = await createClient();
   const userId = await currentUserId();
   // The first query of most requests, so the one that meets a just-refreshed token — see clockSkew.ts.
@@ -112,7 +112,7 @@ export async function currentMembership(): Promise<{ organizationId: string; rol
   if (error) throw new Error(`Could not read organization membership: ${error.message}`);
   const first = data?.[0];
   if (!first) throw new NoOrganizationError();
-  return { organizationId: first.organization_id as string, role: isOrgRole(first.role) ? first.role : "member" };
+  return { userId, organizationId: first.organization_id as string, role: isOrgRole(first.role) ? first.role : "member" };
 }
 
 export async function currentOrganizationId(): Promise<string> {

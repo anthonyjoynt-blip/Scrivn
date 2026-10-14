@@ -38,9 +38,23 @@
  * looks like an empty result and a blocked update looks like zero rows changed, not like an error.
  * The checks below treat both as the pass, and specifically assert on the DATA, never on the absence
  * of an error, because "no error" alone would pass even if the row came back.
+ *
+ * ── Teams (0011_org_billing.sql, 0012_teams.sql) ────────────────────────────────────────────────
+ *
+ * Once those two are applied to the project, a last section runs: A invites B, B joins A's
+ * organization as a member and is held to a member's rights, A makes B an admin and back, B leaves
+ * and is checked to be back in their own organization. It is skipped, saying so, until then.
+ * test/rls/local.mjs asks the same questions and many more of every migration in a local Postgres,
+ * and can be run before anything is applied here.
+ *
+ * What it leaves behind, because nothing can be deleted from the browser: the invitations (accepted
+ * or withdrawn) in A's organization, and B's paired phones revoked — joining a team unpairs a
+ * person's phones from their own organization. Each run sends three invitations from A's
+ * organization, against a limit of twenty a day.
  */
 
 import { readFileSync } from "node:fs";
+import { createHash, randomBytes } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 
 /* ── Config ─────────────────────────────────────────────────────────────────────────────────────── */
@@ -337,6 +351,103 @@ try {
   check((gone ?? []).length === 1, "and delete it, permanently");
   const { data: after } = await alice.client.from("claims").select("id").eq("id", claimId);
   check((after ?? []).length === 0, "after which the row is genuinely gone, not hidden");
+}
+
+/* ── Teams (0011_org_billing.sql + 0012_teams.sql) ───────────────────────────────────────────────── */
+
+const teamsProbe = await alice.client.rpc("org_members");
+if (teamsProbe.error && ["PGRST202", "42883"].includes(teamsProbe.error.code)) {
+  console.log("\n  Teams: skipped — 0011_org_billing.sql and 0012_teams.sql are not applied to this project yet.");
+  console.log("  (npm run test:rls:local checks them against a local Postgres.)\n");
+} else {
+  console.log("\n  Teams\n");
+  const sha = (text) => createHash("sha256").update(text, "utf8").digest("hex");
+  const anon = createClient(URL, ANON, { auth: { persistSession: false, autoRefreshToken: false } });
+  const invite = async (email, role = "member") => {
+    const token = randomBytes(32).toString("base64url");
+    const { data, error } = await alice.client.rpc("org_invite_create", { invite_email: email, invite_role: role, token_hash: sha(token) });
+    return { token, error, id: (Array.isArray(data) ? data[0] : data)?.invite_id ?? null };
+  };
+  const membershipOf = async ({ client }) => (await client.from("organization_members").select("organization_id, role").limit(1)).data?.[0] ?? null;
+
+  const { data: teamClaimRow } = await alice.client
+    .from("claims")
+    .insert({ organization_id: aliceOrg, created_by: alice.userId, customer_name: `${SECRET}-team`, job_number: "t1", step: "intake", payload: {} })
+    .select("id")
+    .single();
+  const teamClaim = teamClaimRow?.id ?? null;
+  let bobJoined = false;
+
+  try {
+    {
+      const { error } = await alice.client.from("organizations").update({ subscription_tier: "unlimited" }).eq("id", aliceOrg);
+      check(error !== null, `A, the owner, cannot write their own plan from the browser (got ${error ? "refused" : "ACCEPTED"})`);
+    }
+    const stranger = await invite(`rls-probe-${Date.now()}@example.invalid`);
+    check(stranger.error === null && stranger.id, `A can invite an address (got ${stranger.error?.message ?? "ok"})`);
+    {
+      const { data } = await bob.client.from("organization_invites").select("id, email").eq("organization_id", aliceOrg);
+      check((data ?? []).length === 0, "B cannot see A's invitations");
+      const { data: revoked } = await bob.client.rpc("org_invite_revoke", { invite_id: stranger.id });
+      check(revoked !== true, "nor withdraw one");
+      const { error } = await bob.client.rpc("org_invite_accept", { token_hash: sha(stranger.token) });
+      check(error?.code === "P0414", `nor accept one sent to another address (P0414) (got ${error?.code ?? "ACCEPTED"})`);
+      const { data: hashes, error: hashError } = await alice.client.from("organization_invites").select("token_hash").limit(1);
+      check(hashError !== null || (hashes ?? []).length === 0, "and even A cannot read an invitation's token hash");
+      await alice.client.rpc("org_invite_revoke", { invite_id: stranger.id });
+    }
+
+    const forBob = await invite(B.email, "member");
+    check(forBob.error === null, `A invites B (got ${forBob.error?.message ?? "ok"})`);
+    {
+      const { data } = await anon.rpc("org_invite_preview", { token_hash: sha(forBob.token) });
+      const row = Array.isArray(data) ? data[0] : data;
+      check(row?.status === "open" && row?.email === B.email.trim().toLowerCase(), "the bare anon key can preview it from the token");
+      const { data: none } = await anon.rpc("org_invite_preview", { token_hash: sha("not the token") });
+      check(!none || (Array.isArray(none) && none.length === 0), "and nothing from a wrong one");
+      const { error } = await anon.rpc("org_invite_accept", { token_hash: sha(forBob.token) });
+      check(error !== null, "the bare anon key cannot accept it");
+    }
+    {
+      const { data, error } = await bob.client.rpc("org_invite_accept", { token_hash: sha(forBob.token) });
+      const row = Array.isArray(data) ? data[0] : data;
+      bobJoined = error === null;
+      check(error === null && row?.organization_id === aliceOrg && row?.role === "member", `B accepts and joins A's organization as a member (got ${error?.code ?? ""} ${error?.message ?? ""})`);
+    }
+    if (bobJoined) {
+      check((await membershipOf(bob))?.organization_id === aliceOrg, "B's session now resolves to A's organization");
+      const { data: read } = await bob.client.from("claims").select("id").eq("id", teamClaim);
+      check((read ?? []).length === 1, "B reads A's claim — teammates cover for each other");
+      const { data: edited } = await bob.client.from("claims").update({ step: "transcript" }).eq("id", teamClaim).select("id");
+      check((edited ?? []).length === 1, "and edits it");
+      const { data: deleted } = await bob.client.from("claims").delete().eq("id", teamClaim).select("id");
+      check((deleted ?? []).length === 0, "but cannot delete a claim B did not start");
+      const { error: inviteError } = await bob.client.rpc("org_invite_create", { invite_email: "x@example.invalid", invite_role: "member", token_hash: sha("x") });
+      check(inviteError?.code === "42501", `a member cannot invite (42501) (got ${inviteError?.code ?? "ACCEPTED"})`);
+      const { error: roleError } = await bob.client.rpc("org_member_set_role", { member_id: alice.userId, new_role: "member" });
+      check(roleError?.code === "42501", "nor change anyone's role");
+      const { data: members } = await bob.client.rpc("org_members");
+      check((members ?? []).some((m) => m.user_id === alice.userId && m.role === "owner"), "B sees the team: A, as owner");
+      const { data: promoted } = await alice.client.rpc("org_member_set_role", { member_id: bob.userId, new_role: "admin" });
+      check(promoted === true && (await membershipOf(bob))?.role === "admin", "A makes B an admin");
+      const { error: invitesError } = await bob.client.from("organization_invites").select("id").eq("organization_id", aliceOrg);
+      check(invitesError === null, "and as an admin B may list the invitations");
+      const { data: demoted } = await alice.client.rpc("org_member_set_role", { member_id: bob.userId, new_role: "member" });
+      check(demoted === true, "and back to a member");
+      const { data: home, error: leaveError } = await bob.client.rpc("org_leave");
+      bobJoined = leaveError !== null;
+      check(leaveError === null && home === bobOrg, `B leaves, back to B's own organization (got ${leaveError?.message ?? home})`);
+      const { error: ownerLeave } = await alice.client.rpc("org_leave");
+      check(ownerLeave?.code === "P0411", "and the owner cannot leave (P0411)");
+    }
+  } finally {
+    if (bobJoined) {
+      const { error } = await bob.client.rpc("org_leave");
+      if (error) await alice.client.rpc("org_member_remove", { member_id: bob.userId });
+    }
+    check((await membershipOf(bob))?.organization_id === bobOrg, "B is in B's own organization at the end, whatever happened above");
+    if (teamClaim) await alice.client.from("claims").delete().eq("id", teamClaim);
+  }
 }
 
 console.log(`\n  ${passed} passed, ${failures.length} failed\n`);
