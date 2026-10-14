@@ -31,6 +31,10 @@ class FakeResponse {
     return this.status >= 200 && this.status < 300;
   }
 
+  async text() {
+    return String(this.body);
+  }
+
   clone() {
     return new FakeResponse(this.body, {
       status: this.status,
@@ -184,7 +188,14 @@ export async function loadWorker(source) {
     await Promise.all(waits);
   }
 
-  return { listeners, cacheStorage, network, fetchEvent, lifecycle, timers, FakeRequest, FakeResponse };
+  /** A message from a page, as `postMessage` delivers it; resolves once the worker's work for it is done. */
+  async function message(data) {
+    const waits = [];
+    listeners.get("message")({ data, waitUntil: (promise) => waits.push(promise) });
+    await Promise.all(waits);
+  }
+
+  return { listeners, cacheStorage, network, fetchEvent, lifecycle, message, timers, FakeRequest, FakeResponse };
 }
 
 export { FakeRequest, FakeResponse };

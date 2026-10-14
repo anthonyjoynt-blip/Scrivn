@@ -21,6 +21,10 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadWorker } from "./fakeServiceWorker.mjs";
+import { installFakeIndexedDB } from "../pending/fakeIndexedDB.mjs";
+
+// The claims the device keeps (lib/deviceClaims.ts), which signing out sweeps — see `forgetCopiedClaims`.
+const idb = installFakeIndexedDB();
 
 const here = dirname(fileURLToPath(import.meta.url));
 const source = readFileSync(join(here, "..", "..", "public", "sw.js"), "utf8");
@@ -339,6 +343,111 @@ await test("signing out does not throw away the build assets", async (w) => {
   await w.fetchEvent(asset(w, "/_next/static/chunks/main-abc123.js"));
   await w.fetchEvent(new w.FakeRequest("/api/logout", { method: "POST" }));
   equal((await assetEntries(w)).length, 1, "cached assets after signing out");
+});
+
+await test("signing out removes the copies of claims, and keeps work the server has not got", async (w) => {
+  /*
+    Claims kept on the device for offline use (lib/deviceClaims.ts) carry a customer's name, address
+    and loss — the same reason the pages go. Unsynced work is the only copy there is: it stays, out of
+    sight of anyone else, until its owner signs in again.
+  */
+  idb.reset();
+  idb.seed("scrivn", 2, {
+    claims: {
+      keyPath: "id",
+      records: [
+        { id: "copy", dirty: false, clash: null },
+        { id: "unsynced", dirty: true, clash: null },
+        { id: "clash", dirty: true, clash: { state: null, version: null, at: 1 } },
+      ],
+    },
+    aiJobs: { keyPath: "key", records: [{ key: "unsynced:generate" }] },
+  });
+  await boot(w);
+  await w.fetchEvent(new w.FakeRequest("/api/logout", { method: "POST" }));
+  equal(idb.records("claims").map((r) => r.id).sort(), ["clash", "unsynced"], "claims left on the device");
+  equal(idb.records("aiJobs").length, 1, "a Claude step still waiting is work too");
+});
+
+await test("signing out on a device that never kept a claim creates no database", async (w) => {
+  idb.reset();
+  await boot(w);
+  await w.fetchEvent(new w.FakeRequest("/api/logout", { method: "POST" }));
+  assert(!idb.exists(), "expected no database to have been made just to be swept");
+});
+
+/* ── offline mode: what is kept as a page, and pages fetched ahead of need ────────────────────── */
+
+await test("a filtered list is not kept as THE list", async (w) => {
+  // A search in the office, and only that search's claims in the basement — shown as if it were all.
+  await boot(w);
+  await w.fetchEvent(navigation(w, "/claims?q=smith"));
+  assert(!(await pageEntries(w)).includes("https://scrivn.ca/claims"), "a search result should not be filed under /claims");
+  await w.fetchEvent(navigation(w, "/claims"));
+  assert((await pageEntries(w)).includes("https://scrivn.ca/claims"), "the plain list should be");
+});
+
+/** A page as Next sends it: scripts in tags, and chunk paths inside the inline React payload. */
+const pageHtml = (name) =>
+  `<html><link rel="stylesheet" href="/_next/static/css/app-1.css"><script src="/_next/static/chunks/${name}-page.js" async></script>` +
+  `<script>self.__next_f.push([1,"I:[\\"/_next/static/chunks/shared-7.js\\"]"])</script></html>`;
+
+await test("warming keeps the claim page and the list, and every build file they name", async (w) => {
+  await boot(w);
+  w.network.handler = (url) =>
+    url.endsWith("/claim") ? new w.FakeResponse(pageHtml("claim")) : url.endsWith("/claims") ? new w.FakeResponse(pageHtml("claims")) : new w.FakeResponse(`body of ${url}`);
+  await w.message({ type: "warm" });
+  const pages = await pageEntries(w);
+  assert(pages.includes("https://scrivn.ca/claim") && pages.includes("https://scrivn.ca/claims"), `expected both pages kept, got ${pages}`);
+  equal(
+    (await assetEntries(w)).sort(),
+    [
+      "https://scrivn.ca/_next/static/chunks/claim-page.js",
+      "https://scrivn.ca/_next/static/chunks/claims-page.js",
+      "https://scrivn.ca/_next/static/chunks/shared-7.js",
+      "https://scrivn.ca/_next/static/css/app-1.css",
+    ],
+    "build files kept",
+  );
+
+  // And then the claim page boots with no network at all.
+  w.network.handler = NO_NETWORK;
+  const page = await w.fetchEvent(navigation(w, "/claims"));
+  equal(page.body, pageHtml("claims"), "the list boots offline");
+  const chunk = await w.fetchEvent(asset(w, "/_next/static/chunks/shared-7.js"));
+  equal(chunk.body, "body of https://scrivn.ca/_next/static/chunks/shared-7.js", "and so do its chunks");
+});
+
+await test("warming fetches only the build files that are missing", async (w) => {
+  await boot(w);
+  await w.fetchEvent(asset(w, "/_next/static/chunks/shared-7.js"));
+  w.network.handler = (url) => (url.endsWith("/claim") || url.endsWith("/claims") ? new w.FakeResponse(pageHtml("x")) : new w.FakeResponse(`body of ${url}`));
+  w.network.calls.length = 0;
+  await w.message({ type: "warm" });
+  assert(!w.network.calls.includes("https://scrivn.ca/_next/static/chunks/shared-7.js"), "a file already here is not fetched again");
+});
+
+await test("warming keeps no page that came back as a redirect", async (w) => {
+  // Signed out: /claims is the login form by the time fetch has followed the redirect.
+  await boot(w);
+  w.network.handler = () => new w.FakeResponse("the login form", { redirected: true, url: "https://scrivn.ca/login" });
+  await w.message({ type: "warm" });
+  equal(await pageEntries(w), ["https://scrivn.ca/offline"], "cached pages");
+});
+
+await test("warming with no network stops quietly", async (w) => {
+  await boot(w);
+  w.network.handler = NO_NETWORK;
+  await w.message({ type: "warm" });
+  equal(await pageEntries(w), ["https://scrivn.ca/offline"], "nothing new kept, nothing thrown");
+});
+
+await test("warming fetches only its own two pages, whatever the message says", async (w) => {
+  await boot(w);
+  w.network.calls.length = 0;
+  await w.message({ type: "warm", paths: ["/account", "https://evil.example/x"] });
+  const pagesAsked = w.network.calls.filter((u) => !u.includes("/_next/"));
+  equal(pagesAsked, ["https://scrivn.ca/claim", "https://scrivn.ca/claims"], "pages fetched");
 });
 
 /* ── report ───────────────────────────────────────────────────────────────────────────────────── */
