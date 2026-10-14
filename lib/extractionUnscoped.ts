@@ -1,4 +1,5 @@
 import type { Room, UnscopedItem, WaterLossExtraction } from "./types";
+import { photoNotesSection } from "./photoNotesPrompt";
 import { APPLIANCE_LABEL, DOOR_STYLE_LABEL, SUBFLOOR_LABEL, TRIM_KIND_LABEL, WINDOW_COVERING_LABEL, isInjectionEquipment } from "./types";
 
 /**
@@ -104,7 +105,7 @@ export function capturedSummary(room: Room): string[] {
  * The rooms in order, each with its captured list, then the transcript. The order matters: the
  * reply is positional, and `mergeUnscoped` trusts it only when the count matches.
  */
-export function extractionUnscopedUserMessage(transcript: string, extraction: WaterLossExtraction): string {
+export function extractionUnscopedUserMessage(transcript: string, extraction: WaterLossExtraction, photoNotes?: string): string {
   const rooms = extraction.rooms
     .map((room, i) => {
       const captured = capturedSummary(room);
@@ -119,7 +120,7 @@ ${rooms}
 
 Transcript:
 
-${transcript}`;
+${transcript}${photoNotesSection(photoNotes)}`;
 }
 
 export interface ExtractionUnscopedWire {

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { SavedClaimState } from "./claimState";
-import { generationRequest, withExtraction, withGeneratedDocuments } from "./claimGeneration";
+import { extractionRequest, generationRequest, withExtraction, withGeneratedDocuments } from "./claimGeneration";
 import { syncClaim } from "./claimSync";
 import { connection, isNetworkFailure, netFetch } from "./connectivity";
 import { AI_JOBS, changeDeviceClaim, deviceChanged, deviceStorageWorks, deviceUser, newClaimId, onDeviceChange, readDeviceClaim, transact } from "./deviceClaims";
@@ -136,8 +136,8 @@ export async function waitingJobs(): Promise<AiJob[]> {
 export interface ClaimOnScreen {
   /** The claim as the page holds it right now — newer than the device's copy by up to a debounce. */
   state: () => SavedClaimState;
-  /** Put an answer in, as the page would had the call answered there. */
-  extracted: (extraction: WaterLossExtraction, warnings: string[]) => void;
+  /** Put an answer in, as the page would had the call answered there — with the photo notes it was made from. */
+  extracted: (extraction: WaterLossExtraction, warnings: string[], scopedNotes: string[]) => void;
   generated: (documents: GeneratedDocuments) => void;
 }
 
@@ -255,7 +255,9 @@ async function runClaimStep(waiting: ClaimJob): Promise<boolean> {
     return true;
   }
 
-  const request = job.kind === "extract" ? (state.transcript.trim() ? { transcript: state.transcript } : null) : generationRequest(state);
+  // The photo notes are built here, at the moment it runs, from the photos as they are now (lib/claimGeneration.ts).
+  const extract = job.kind === "extract" ? extractionRequest(state) : null;
+  const request = job.kind === "extract" ? (extract?.body ?? null) : generationRequest(state);
   const body = request && job.kind === "generate" ? { ...request, jobId: job.id } : request;
   if (!body) {
     await putJob({ ...job, error: job.kind === "extract" ? "There is no transcript to read." : "There is nothing to generate from yet." });
@@ -278,8 +280,9 @@ async function runClaimStep(waiting: ClaimJob): Promise<boolean> {
     const page = onScreen.get(job.claimId);
     if (job.kind === "extract") {
       const { extraction, warnings } = answer.data as { extraction: WaterLossExtraction; warnings?: string[] };
-      if (page) page.extracted(extraction, warnings ?? []);
-      else await intoDeviceCopy(job.claimId, (s) => withExtraction(s, extraction));
+      const scopedNotes = extract?.scopedNotes ?? [];
+      if (page) page.extracted(extraction, warnings ?? [], scopedNotes);
+      else await intoDeviceCopy(job.claimId, (s) => withExtraction(s, extraction, scopedNotes));
     } else {
       const { documents } = answer.data as { documents: GeneratedDocuments };
       if (page) page.generated(documents);

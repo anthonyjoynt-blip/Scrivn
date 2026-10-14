@@ -62,6 +62,7 @@ const server = {
   files: new Map(),
   mode: "online",
   override: null,
+  extracts: [],
   tick: 0,
   version() {
     this.tick += 1;
@@ -105,6 +106,10 @@ function handle(path, method, body, query) {
     }
   }
   if (path === "/manifest.webmanifest") return respond(200, {});
+  if (path === "/api/extract") {
+    server.extracts.push(body);
+    return respond(200, { extraction: mod.withDerivedFields({ loss: mod.emptyLoss(), rooms: [] }), warnings: [] });
+  }
   return respond(404, { error: "No such route." });
 }
 
@@ -139,6 +144,7 @@ async function test(name, run) {
   calls.length = 0;
   server.claims.clear();
   server.files.clear();
+  server.extracts.length = 0;
   server.mode = "online";
   server.override = null;
   signedIn = "user-a";
@@ -183,7 +189,20 @@ function photo(n, over = {}) {
 const photosOf = (...items) => mod.normalizeClaimPhotos({ items, deleted: [], scopedNotes: null });
 
 function room(roomId, name, level) {
-  return { id: roomId, name, vertices: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }], ceilingHeightFeet: null, ceilingType: "FLAT", ...(level === undefined ? {} : { level }) };
+  return {
+    id: roomId,
+    name,
+    vertices: [{ x: 0, y: 0 }, { x: 96, y: 0 }, { x: 96, y: 96 }, { x: 0, y: 96 }],
+    ceilingHeightFeet: 8,
+    ceilingType: "flat",
+    ceilingPeakFeet: null,
+    stairs: null,
+    parentRoomId: null,
+    nestingOptOut: false,
+    symbols: [],
+    freeCabinets: [],
+    ...(level === undefined ? {} : { level }),
+  };
 }
 const sketch = (...rooms) => ({ rooms });
 
@@ -543,6 +562,103 @@ await test("a report's size is its photos' — 30 at about 120 KB fit the email 
   assert(realistic(thirty, 30) < pdf.EMAIL_LIMIT_BYTES, `30 photos: ${realistic(thirty, 30)} bytes`);
   const message = pdf.tooBigToEmail([{ label: "Inspection Report", bytes: realistic(forty, 40), photos: 40 }]);
   assert(message && message.includes("40 photos"), `40 photos: ${message}`);
+});
+
+/* ── photo notes for the scope (stage 2) ──────────────────────────────────────────────────────── */
+
+console.log("\n  Photo notes for the scope");
+
+const notesSketch = sketch(room("bath", "Bathroom"), room("kit", "Kitchen"));
+const captionedPhotos = () =>
+  photosOf(
+    photo(1, { room: "bath", caption: "  Baseboard wet behind the vanity,\n about four feet ", captionBy: "voice" }),
+    photo(2, { room: "kit" }),
+    photo(3, { room: "", caption: "Hallway carpet wet at the bathroom door", captionBy: "voice" }),
+  );
+
+await test("one note per captioned photo — room, time, words — and the uncaptioned left out", () => {
+  const notes = mod.photoNotes(captionedPhotos(), notesSketch);
+  equal(notes.map((n) => [n.room, n.caption]), [["Bathroom", "Baseboard wet behind the vanity, about four feet"], ["room not given", "Hallway carpet wet at the bathroom door"]], "notes");
+  const text = mod.photoNotesText(notes, (ms) => `T${(ms - T0) / 60_000}`);
+  equal(text, "- Bathroom · T1 · Baseboard wet behind the vanity, about four feet\n- room not given · T3 · Hallway carpet wet at the bathroom door", "the block");
+  const twoDays = mod.photoNotesText([{ ...notes[0], takenAt: T0 }, { ...notes[1], takenAt: T0 + 2 * DAY }], (_ms, withDate) => (withDate ? "dated" : "time"));
+  assert(twoDays.includes("dated") && !twoDays.includes("time"), "photos over several days carry the date");
+  equal(mod.photoNotesText([], () => ""), "", "no notes, no block");
+});
+
+await test("a note's print changes when its caption or room does, not when the room is renamed", () => {
+  const before = mod.notePrints(mod.photoNotes(captionedPhotos(), notesSketch));
+  const renamed = mod.notePrints(mod.photoNotes(captionedPhotos(), sketch(room("bath", "Main Bathroom"), room("kit", "Kitchen"))));
+  equal(renamed, before, "a renamed room is the same note");
+  const moved = mod.notePrints(mod.photoNotes(mod.movePhoto(captionedPhotos(), id(1), "kit", "Kitchen"), notesSketch));
+  assert(JSON.stringify(moved) !== JSON.stringify(before), "a moved photo is a new note");
+});
+
+await test("the claim says how many notes the scope has not read, and stops once it has", () => {
+  const scoped = { ...captionedPhotos(), scopedNotes: mod.notePrints(mod.photoNotes(captionedPhotos(), notesSketch)) };
+  equal(mod.notesSinceScope(scoped, notesSketch, false), { added: 0, removed: 0 }, "no scope yet: nothing to say");
+  equal(mod.notesSinceScopeLine(mod.notesSinceScope(scoped, notesSketch, true)), null, "just made: nothing to say");
+  const captionedAfter = mod.captionPhoto(scoped, id(2), "Sink base swollen", "voice");
+  equal(mod.notesSinceScopeLine(mod.notesSinceScope(captionedAfter, notesSketch, true)), "1 new photo note since the scope was made.", "a caption added after");
+  const edited = mod.captionPhoto(captionedAfter, id(1), "Baseboard wet behind the vanity, six feet", "typed");
+  equal(mod.notesSinceScope(edited, notesSketch, true), { added: 2, removed: 0 }, "an edit is one changed note, not one added and one removed");
+  const gone = mod.deletePhoto(scoped, id(3));
+  equal(mod.notesSinceScopeLine(mod.notesSinceScope(gone, notesSketch, true)), "1 photo note removed since the scope was made.", "a note deleted");
+  const old = { ...captionedPhotos(), scopedNotes: null };
+  equal(mod.notesSinceScope(old, notesSketch, true).added, 2, "a scope made before photos existed has read none of them");
+});
+
+await test("the scope step is sent the notes beside the transcript, and remembers which it read", () => {
+  const state = claimState("Bell", { transcript: "Walkthrough.", sketch: notesSketch, photos: captionedPhotos() });
+  const request = mod.extractionRequest(state);
+  assert(request.body.transcript === "Walkthrough." && request.body.photoNotes.includes("Baseboard wet behind the vanity"), "extraction gets both");
+  equal(request.scopedNotes, mod.notePrints(mod.photoNotes(state.photos, notesSketch)), "with the prints of what it was sent");
+  assert(!("photoNotes" in mod.extractionRequest(claimState("Bell", { transcript: "Walkthrough." })).body), "a claim with no captions sends what it always sent");
+  equal(mod.extractionRequest(claimState("Bell")), null, "nothing to read: no request");
+  const extraction = mod.withDerivedFields({ loss: mod.emptyLoss(), rooms: [] });
+  const applied = mod.withExtraction(state, extraction, request.scopedNotes);
+  equal(applied.photos.scopedNotes, request.scopedNotes, "the claim keeps which notes the scope read");
+  equal(applied.photos.items, state.photos.items, "and nothing else of the photos changes");
+  const generation = mod.generationRequest({ ...state, extraction });
+  assert(generation.photoNotes === request.body.photoNotes, "the documents step reads the same notes");
+});
+
+await test("all five prompts carry the same-visit rule with the notes — and are unchanged without them", () => {
+  const extraction = mod.withDerivedFields({ loss: mod.emptyLoss(), rooms: [] });
+  const notes = "- Bathroom · 10:42 a.m. · Baseboard wet behind the vanity";
+  const claim = claimState("Bell").claim;
+  const builders = [
+    ["extraction", (n) => mod.extractionUserMessage("T", n)],
+    ["detail", (n) => mod.extractionDetailUserMessage("T", extraction, n)],
+    ["supplement", (n) => mod.extractionSupplementUserMessage("T", extraction, n)],
+    ["unscoped", (n) => mod.extractionUnscopedUserMessage("T", extraction, n)],
+    ["documents", (n) => mod.documentGenerationUserMessage(claim, extraction, "T", null, null, undefined, [], n)],
+    ["scope only", (n) => mod.documentGenerationUserMessage({ ...claim, scopeOnly: true }, extraction, "T", null, null, undefined, [], n)],
+  ];
+  for (const [name, build] of builders) {
+    const withNotes = build(notes);
+    assert(withNotes.includes(mod.PHOTO_NOTES_RULE) && withNotes.includes(`PHOTO NOTES:\n${notes}`), `${name}: the rule and the block`);
+    assert(withNotes.indexOf("PHOTO NOTES:") > withNotes.indexOf("T"), `${name}: after the transcript`);
+    assert(build("") === build(undefined) && !build("").includes("PHOTO NOTES"), `${name}: nothing added without notes`);
+  }
+  assert(mod.PHOTO_NOTES_RULE.includes("ONE item") && mod.PHOTO_NOTES_RULE.includes("only in a photo note is real scope"), "the rule says both halves");
+});
+
+await test("Update scope through the waiting queue: built when it runs, with the photos as they are then", async () => {
+  const state = claimState("Bell", { transcript: "Walkthrough.", sketch: notesSketch, photos: captionedPhotos() });
+  await claimOnBoth(state);
+  let page = { ...state };
+  let got = null;
+  const off = mod.claimOnScreen(CLAIM, { state: () => page, extracted: (_e, _w, scoped) => (got = scoped), generated: () => {} });
+  server.mode = "offline";
+  await mod.waitForSignal(CLAIM, "extract");
+  equal(server.extracts.length, 0, "with no signal it waits");
+  page = { ...page, photos: mod.captionPhoto(page.photos, id(2), "Sink base swollen", "voice") };
+  server.mode = "online";
+  await mod.runWaitingJobs();
+  off();
+  assert(server.extracts.length === 1 && server.extracts[0].photoNotes.includes("Sink base swollen"), "it read the caption added while it waited");
+  equal(got, mod.notePrints(mod.photoNotes(page.photos, notesSketch)), "and the page was told which notes it read");
 });
 
 /* ── done ─────────────────────────────────────────────────────────────────────────────────────── */

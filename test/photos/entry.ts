@@ -10,3 +10,12 @@ export { changeDeviceClaim, readDeviceClaim, blankDeviceClaim } from "@/lib/devi
 export * from "@/lib/devicePhotos";
 export { tooBigToEmail, EMAIL_LIMIT_BYTES, megabytes } from "@/lib/emailSize";
 export { emptySketch } from "@/lib/sketch";
+export { photoNotesFor, extractionRequest, generationRequest, withExtraction } from "@/lib/claimGeneration";
+export { photoNotesSection, PHOTO_NOTES_RULE } from "@/lib/photoNotesPrompt";
+export { extractionUserMessage } from "@/lib/extractionPrompt";
+export { extractionDetailUserMessage } from "@/lib/extractionDetailPrompt";
+export { extractionSupplementUserMessage } from "@/lib/extractionSupplement";
+export { extractionUnscopedUserMessage } from "@/lib/extractionUnscoped";
+export { documentGenerationUserMessage } from "@/lib/documentGenerationPrompt";
+export { waitForSignal, runWaitingJobs, claimOnScreen } from "@/lib/aiJobs";
+export { emptyLoss, withDerivedFields } from "@/lib/types";

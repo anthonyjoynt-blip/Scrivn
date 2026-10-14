@@ -1,3 +1,5 @@
+import { photoNotesSection } from "./photoNotesPrompt";
+
 /**
  * Plain text, sent fresh with every extraction call — not a trained or fine-tuned anything. Step
  * 1 of the pipeline: transcript in, structured JSON out, matching the schema passed alongside
@@ -158,9 +160,9 @@ Rules:
   don't infer anything else from it. Content size isn't part of this schema — that's gap-checked
   entirely downstream now, not something extraction has an opinion on at all.`;
 
-export function extractionUserMessage(transcript: string): string {
-  return `Extract the structured water-loss data from this transcript.
+export function extractionUserMessage(transcript: string, photoNotes?: string): string {
+  return `Extract the structured water-loss data from this transcript${photoNotes?.trim() ? " and the photo notes after it" : ""}.
 
 TRANSCRIPT:
-${transcript}`;
+${transcript}${photoNotesSection(photoNotes)}`;
 }

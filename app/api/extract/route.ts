@@ -10,6 +10,7 @@ import { EXTRACTION_SUPPLEMENT_SYSTEM_PROMPT, extractionSupplementUserMessage, m
 import { extractionSupplementSchema, extractionUnscopedSchema } from "@/lib/schema";
 import { withDerivedFields, type WaterLossExtraction } from "@/lib/types";
 import { checkUsageAllowed } from "@/lib/usage";
+import { MAX_PHOTO_NOTES_CHARS } from "@/lib/photoNotesPrompt";
 
 /**
  * Step 1 of the pipeline: raw transcript in, structured `WaterLossExtraction` out. Server-side
@@ -28,6 +29,16 @@ export async function POST(request: Request) {
   if (typeof transcript !== "string" || transcript.trim() === "") {
     return NextResponse.json({ error: "A non-empty \"transcript\" string is required." }, { status: 400 });
   }
+  /*
+    What was said under the claim's photos, built by the browser at the moment of this run (lib/photos.ts)
+    and read by all four calls beside the transcript — see lib/photoNotesPrompt.ts. Optional: a claim with
+    no captioned photos, and every caller before 2026-10-14, sends none.
+  */
+  const rawNotes = (body as { photoNotes?: unknown } | null)?.photoNotes;
+  if (rawNotes !== undefined && rawNotes !== null && (typeof rawNotes !== "string" || rawNotes.length > MAX_PHOTO_NOTES_CHARS)) {
+    return NextResponse.json({ error: "\"photoNotes\" must be text of a reasonable length." }, { status: 400 });
+  }
+  const photoNotes = typeof rawNotes === "string" ? rawNotes : "";
 
   // Checked but NOT counted here — a claim is counted once, on generation (see lib/usage.ts).
   // Refusing early matters anyway: extraction is the expensive call, and spending it on a claim the
@@ -40,11 +51,11 @@ export async function POST(request: Request) {
   try {
     const structure = await createStructuredMessage<ExtractionResponseWire>({
       system: EXTRACTION_SYSTEM_PROMPT,
-      userMessage: extractionUserMessage(transcript),
+      userMessage: extractionUserMessage(transcript, photoNotes),
       schema: extractionSchema,
     });
     const extraction = withDerivedFields(wireToDomain(structure.output));
-    const detailed = await withDetail(transcript, extraction);
+    const detailed = await withDetail(transcript, extraction, photoNotes);
     /*
       Call 4 first, then call 3 — in that order, deliberately. They ran side by side for a day, on
       the theory that the supplement adds extents and the sweep looks for records. It does not hold:
@@ -53,8 +64,8 @@ export async function POST(request: Request) {
       line for the same job on the document. The sweep must see everything captured, so it waits.
       About five seconds, once per claim.
     */
-    const supplemented = await withSupplement(transcript, detailed.extraction);
-    const swept = await withUnscoped(transcript, supplemented.extraction);
+    const supplemented = await withSupplement(transcript, detailed.extraction, photoNotes);
+    const swept = await withUnscoped(transcript, supplemented.extraction, photoNotes);
     const merged = mergeUnscoped(supplemented.extraction, swept.wire);
     /*
       Token usage travels back with the result so a caller can see what a claim cost. The UI ignores
@@ -93,12 +104,13 @@ export async function POST(request: Request) {
 async function withDetail(
   transcript: string,
   extraction: WaterLossExtraction,
+  photoNotes: string,
 ): Promise<{ extraction: WaterLossExtraction; usage: CallUsage | null; warning: string | null }> {
   if (!needsDetailPass(extraction)) return { extraction, usage: null, warning: null };
   try {
     const detail = await createStructuredMessage<ExtractionDetailWire>({
       system: EXTRACTION_DETAIL_SYSTEM_PROMPT,
-      userMessage: extractionDetailUserMessage(transcript, extraction),
+      userMessage: extractionDetailUserMessage(transcript, extraction, photoNotes),
       schema: extractionDetailSchema,
     });
     return { extraction: withDerivedFields(mergeDetail(extraction, detail.output)), usage: detail.usage, warning: null };
@@ -119,12 +131,13 @@ async function withDetail(
 async function withUnscoped(
   transcript: string,
   extraction: WaterLossExtraction,
+  photoNotes: string,
 ): Promise<{ wire: ExtractionUnscopedWire | null; usage: CallUsage | null; warning: string | null }> {
   if (!needsUnscopedPass(extraction)) return { wire: null, usage: null, warning: null };
   try {
     const sweep = await createStructuredMessage<ExtractionUnscopedWire>({
       system: EXTRACTION_UNSCOPED_SYSTEM_PROMPT,
-      userMessage: extractionUnscopedUserMessage(transcript, extraction),
+      userMessage: extractionUnscopedUserMessage(transcript, extraction, photoNotes),
       schema: extractionUnscopedSchema,
     });
     return { wire: sweep.output, usage: sweep.usage, warning: null };
@@ -141,12 +154,13 @@ async function withUnscoped(
 async function withSupplement(
   transcript: string,
   extraction: WaterLossExtraction,
+  photoNotes: string,
 ): Promise<{ extraction: WaterLossExtraction; usage: CallUsage | null; warning: string | null }> {
   if (!needsSupplementPass(extraction)) return { extraction, usage: null, warning: null };
   try {
     const supplement = await createStructuredMessage<ExtractionSupplementWire>({
       system: EXTRACTION_SUPPLEMENT_SYSTEM_PROMPT,
-      userMessage: extractionSupplementUserMessage(transcript, extraction),
+      userMessage: extractionSupplementUserMessage(transcript, extraction, photoNotes),
       schema: extractionSupplementSchema,
     });
     return { extraction: mergeSupplement(extraction, supplement.output), usage: supplement.usage, warning: null };

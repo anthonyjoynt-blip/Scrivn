@@ -305,3 +305,102 @@ export function photoRoomOptions(sketch: Pick<Sketch, "rooms" | "levelNames">): 
     { value: UNSORTED_ROOM, label: "Unsorted" },
   ];
 }
+
+/* ── Photo notes, for the scope step (stage 2) ──────────────────────────────────────────────────── */
+
+/** cyrb53, as lib/claimSync.ts uses: a short print compared for equality, never trusted for security. */
+function hash53(text: string): string {
+  let h1 = 0xdeadbeef;
+  let h2 = 0x41c6ce57;
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i);
+    h1 = Math.imul(h1 ^ c, 2654435761);
+    h2 = Math.imul(h2 ^ c, 1597334677);
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36);
+}
+
+export interface PhotoNote {
+  id: string;
+  /** The room as the scope step knows rooms: by name. */
+  room: string;
+  takenAt: number;
+  caption: string;
+  /** What this note was when the scope read it — its photo, where it was filed, what it said. */
+  print: string;
+}
+
+/**
+ * The captioned photos as the scope step reads them: one note each, in the order taken. A photo with
+ * no caption says nothing to the scope and is left out.
+ *
+ * The print is of the room it is filed under (by id, so renaming a room is not a change to the note)
+ * and the caption's words: moving a photo or editing its caption is a new note.
+ */
+export function photoNotes(photos: ClaimPhotos, sketch: Pick<Sketch, "rooms" | "levelNames">): PhotoNote[] {
+  const labels = roomLabels(sketch);
+  return photos.items
+    .filter(captioned)
+    .map((p) => {
+      const key = photoRoomKey(p, sketch);
+      const caption = p.caption.replace(/\s+/g, " ").trim();
+      return {
+        id: p.id,
+        room: key === UNSORTED_ROOM ? "room not given" : roomKeyLabel(key, labels),
+        takenAt: p.takenAt,
+        caption,
+        print: hash53(`${p.id}|${key}|${caption}`),
+      };
+    });
+}
+
+/** The prints of a set of notes, as `scopedNotes` stores them. */
+export function notePrints(notes: PhotoNote[]): string[] {
+  return [...new Set(notes.map((n) => n.print))].sort();
+}
+
+/**
+ * The notes as a block of text for the prompts, one line each: room · time · words. Empty when there
+ * are none, so a claim with no captions sends exactly what it sent before photos existed.
+ *
+ * `when` formats a time the way the estimator reads it on site — built in the browser, which knows
+ * the phone's time zone; the server does not.
+ */
+export function photoNotesText(notes: PhotoNote[], when: (ms: number, withDate: boolean) => string): string {
+  if (notes.length === 0) return "";
+  const days = new Set(notes.map((n) => new Date(n.takenAt).toDateString()));
+  return notes.map((n) => `- ${n.room} · ${when(n.takenAt, days.size > 1)} · ${n.caption}`).join("\n");
+}
+
+/** The phone's own way of writing a time, for the notes: "10:42 a.m.", or with the day when the photos span several. */
+export function noteTime(ms: number, withDate: boolean): string {
+  const d = new Date(ms);
+  return withDate ? d.toLocaleString("en-CA", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : d.toLocaleTimeString("en-CA", { hour: "numeric", minute: "2-digit" });
+}
+
+/**
+ * How far the photo notes have moved on since the scope was made, for the line that offers to update
+ * it: notes the scope never read — new, or edited or moved since, each of which is a new note to it —
+ * and notes it read that are gone without a new one in their place (a caption cleared, a photo
+ * deleted). An edit is one changed note, not one added and one removed. Nothing when there is no
+ * scope to compare with.
+ */
+export function notesSinceScope(photos: ClaimPhotos, sketch: Pick<Sketch, "rooms" | "levelNames">, hasScope: boolean): { added: number; removed: number } {
+  if (!hasScope) return { added: 0, removed: 0 };
+  const now = notePrints(photoNotes(photos, sketch));
+  const then = new Set(photos.scopedNotes ?? []);
+  const current = new Set(now);
+  const added = now.filter((p) => !then.has(p)).length;
+  const gone = [...then].filter((p) => !current.has(p)).length;
+  return { added, removed: Math.max(0, gone - added) };
+}
+
+/** The line itself, or null when the scope is up to date with the photos. */
+export function notesSinceScopeLine(change: { added: number; removed: number }): string | null {
+  if (change.added > 0) return `${change.added} new photo note${change.added === 1 ? "" : "s"} since the scope was made.`;
+  if (change.removed > 0) return `${change.removed} photo note${change.removed === 1 ? "" : "s"} removed since the scope was made.`;
+  return null;
+}
+

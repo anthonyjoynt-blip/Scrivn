@@ -1,4 +1,5 @@
 import type { AreaFraction, FlooringRecord, Room, WaterLossExtraction } from "./types";
+import { photoNotesSection } from "./photoNotesPrompt";
 
 /**
  * The fourth extraction call: spec fields the detail pass has no room for.
@@ -55,7 +56,7 @@ WHAT EACH FIELD MEANS:
   extent. Only meaningful with waterExtractionRequired YES.`;
 
 /** The per-room counts written out, so the model has an explicit target rather than a second reading of the transcript. */
-export function extractionSupplementUserMessage(transcript: string, extraction: WaterLossExtraction): string {
+export function extractionSupplementUserMessage(transcript: string, extraction: WaterLossExtraction, photoNotes?: string): string {
   const rooms = extraction.rooms.map((room, i) => `${i + 1}. ${room.roomName} — ${room.flooring.length} flooring`).join("\n");
   return `Rooms already identified, in order. Return exactly this many entries, in exactly this order, with exactly these flooring counts:
 
@@ -63,7 +64,7 @@ ${rooms}
 
 Transcript:
 
-${transcript}`;
+${transcript}${photoNotesSection(photoNotes)}`;
 }
 
 export interface FlooringSupplementWire {

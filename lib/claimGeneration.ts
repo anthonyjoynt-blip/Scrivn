@@ -11,6 +11,7 @@ import { type EquipmentSuggestions, normaliseRoomName, withoutResolvedSuggestion
 import { isDGIG } from "./insurers";
 import { roomMoistureSummary, type MoistureMap } from "./moisture";
 import { nextQuestions } from "./questionRound";
+import { notePrints, noteTime, photoNotes, photoNotesText } from "./photos";
 import type { Sketch } from "./sketch";
 import { roomAreasForEstimate } from "./sketchQuantities";
 import type { GeneratedDocuments, WaterLossExtraction } from "./types";
@@ -106,14 +107,47 @@ export function equipmentSuggestionsFor(sketch: Sketch, moisture: MoistureMap, r
 }
 
 /**
+ * The photo notes the scope step reads, built from the photos as they are at this moment (2026-10-14):
+ * one line per captioned photo — room, time, caption — and a print of each, which the claim keeps as
+ * what this scope was made from (`photos.scopedNotes`), for "N new photo notes since the scope was
+ * made". Built fresh every run and never copied into the transcript, so an edited or deleted caption
+ * leaves nothing behind. See lib/photoNotesPrompt.ts for the rule the prompts carry with it.
+ */
+export function photoNotesFor(state: Pick<SavedClaimState, "photos" | "sketch">): { text: string; prints: string[] } {
+  const notes = photoNotes(state.photos, state.sketch);
+  return { text: photoNotesText(notes, noteTime), prints: notePrints(notes) };
+}
+
+/**
+ * The body /api/extract is sent for this claim — the transcript (or `source`, the DGIG form's
+ * tear-out text) and the photo notes — with the notes' prints, for `withExtraction`. Null when there
+ * is nothing to read.
+ */
+export function extractionRequest(state: SavedClaimState, source = state.transcript): { body: { transcript: string; photoNotes?: string }; scopedNotes: string[] } | null {
+  if (!source.trim()) return null;
+  const notes = photoNotesFor(state);
+  return { body: notes.text ? { transcript: source, photoNotes: notes.text } : { transcript: source }, scopedNotes: notes.prints };
+}
+
+/**
  * What a returned extraction does to the claim: the tree (with the intake's year of building on it,
  * which drives asbestosTestingRequired — see claimInfo.ts's applyClaimYearOfBuilding), a fresh set
- * of answers, and the step — straight to Ready when the engine has nothing to ask.
+ * of answers, the step — straight to Ready when the engine has nothing to ask — and which photo notes
+ * it was made from (`scopedNotes`, as `extractionRequest` printed them when it was sent).
  */
-export function withExtraction(state: SavedClaimState, extraction: WaterLossExtraction): Pick<SavedClaimState, "extraction" | "answers" | "step"> {
+export function withExtraction(
+  state: SavedClaimState,
+  extraction: WaterLossExtraction,
+  scopedNotes?: string[],
+): Pick<SavedClaimState, "extraction" | "answers" | "step" | "photos"> {
   const extractionWithYear = applyClaimYearOfBuilding(state.claim, extraction);
   const questions = nextQuestions(state.claim, extractionWithYear, equipmentSuggestionsFor(state.sketch, state.moisture, state.resolvedSuggestions));
-  return { extraction: extractionWithYear, answers: {}, step: questions.length === 0 ? "ready" : "questions" };
+  return {
+    extraction: extractionWithYear,
+    answers: {},
+    step: questions.length === 0 ? "ready" : "questions",
+    photos: scopedNotes ? { ...state.photos, scopedNotes } : state.photos,
+  };
 }
 
 /** The body /api/generate is sent for this claim. Null when there is no extraction to generate from. */
@@ -131,6 +165,11 @@ export function generationRequest(state: SavedClaimState) {
     dgigData: isDGIG(state.claim.insurer) && hasDGIGContent(state.dgigData) ? state.dgigData : null,
     roomAreas: roomAreasForEstimate(state.sketch, normaliseRoomName),
     exterior: [...exterior.roofing, ...exterior.siding],
+    // The same notes the extraction read, as they stand now — see `photoNotesFor`. Absent when none.
+    ...(() => {
+      const notes = photoNotesFor(state).text;
+      return notes ? { photoNotes: notes } : {};
+    })(),
   };
 }
 

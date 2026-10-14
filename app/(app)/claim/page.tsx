@@ -6,7 +6,7 @@ import { type AskedQuestion, formatQuestionLog, hasQuestionLog, recordRound } fr
 import { type SavedClaimState, resumeStep } from "@/lib/claimState";
 import { useClaimPersistence } from "@/lib/useClaimPersistence";
 import { type ClaimStep, claimOnScreen, newJobId, setAside, tryAgain, useClaimSteps, waitForSignal } from "@/lib/aiJobs";
-import { buildAsbestosSection, buildContentsSection, equipmentSuggestionsFor, generationRequest, withExtraction, withGeneratedDocuments } from "@/lib/claimGeneration";
+import { buildAsbestosSection, buildContentsSection, equipmentSuggestionsFor, extractionRequest, generationRequest, withExtraction, withGeneratedDocuments } from "@/lib/claimGeneration";
 import { connection, isNetworkFailure, netFetch } from "@/lib/connectivity";
 import { ClashBanner } from "@/components/ClashBanner";
 import { useLetterhead } from "@/lib/useLetterhead";
@@ -83,7 +83,7 @@ import { type Sketch, emptySketch, hasSketchContent, knownRoomNames, levelsOf } 
 import { type MoistureMap, emptyMoistureMap, hasMoistureContent, pruneMoisture, roomMoistureSummary, withScanMoisture } from "@/lib/moisture";
 import { DryingLogSection } from "@/components/drying/DryingLogSection";
 import { PhotosSection, type PhotosView } from "@/components/photos/PhotosSection";
-import { type ClaimPhotos, emptyClaimPhotos } from "@/lib/photos";
+import { type ClaimPhotos, emptyClaimPhotos, notesSinceScope, notesSinceScopeLine } from "@/lib/photos";
 import { pdfPhotosFor, printablePhotoCount } from "@/lib/photoPdf";
 import { sendWaitingPhotos } from "@/lib/devicePhotos";
 import type { PdfPhoto } from "@/lib/pdf";
@@ -430,14 +430,14 @@ export default function Home() {
   const aiSteps = useClaimSteps(persistence.claimId);
   const pageState = useRef(persistedState);
   pageState.current = persistedState;
-  const applyExtracted = useRef<(extraction: WaterLossExtraction, warnings: string[]) => void>(() => {});
+  const applyExtracted = useRef<(extraction: WaterLossExtraction, warnings: string[], scopedNotes?: string[]) => void>(() => {});
   const applyGenerated = useRef<(documents: GeneratedDocuments) => void>(() => {});
   useEffect(() => {
     const id = persistence.claimId;
     if (!id) return;
     return claimOnScreen(id, {
       state: () => pageState.current,
-      extracted: (extraction, warnings) => applyExtracted.current(extraction, warnings),
+      extracted: (extraction, warnings, scopedNotes) => applyExtracted.current(extraction, warnings, scopedNotes),
       generated: (documents) => applyGenerated.current(documents),
     });
   }, [persistence.claimId]);
@@ -1324,14 +1324,16 @@ export default function Home() {
    * and has just run (lib/aiJobs.ts). The year of building goes onto the tree and the step follows
    * from what is left to ask: see `withExtraction`.
    */
-  function extracted(result: WaterLossExtraction, warnings: string[]) {
+  function extracted(result: WaterLossExtraction, warnings: string[], scopedNotes?: string[]) {
     // A pass that did not run is a claim missing what that pass carries — say so, rather than
     // letting the questions step look complete. See the route for what each pass carries.
     setExtractionWarnings(warnings);
-    const next = withExtraction(pageState.current, result);
+    const next = withExtraction(pageState.current, result, scopedNotes);
     setExtraction(next.extraction);
     setAnswers(next.answers);
     setStep(next.step as Step);
+    // Which photo notes this scope read — only that, so a caption typed while it ran is not undone.
+    if (scopedNotes) setPhotos((p) => ({ ...p, scopedNotes }));
     checkpoint();
   }
   applyExtracted.current = extracted;
@@ -1361,9 +1363,11 @@ export default function Home() {
     // Known to be offline: straight to waiting, rather than a spinner that can only fail.
     if (connection() === "offline") return waitForSignalOrFail("extract", new TypeError("offline"), onFailureStep);
     setStep("extracting");
+    // The photo notes beside it, built now from the photos as they are — see `extractionRequest`.
+    const request = extractionRequest(pageState.current, sourceText) ?? { body: { transcript: sourceText }, scopedNotes: [] };
     try {
-      const result = await postJson<{ extraction: WaterLossExtraction; warnings?: string[] }>("/api/extract", { transcript: sourceText });
-      extracted(result.extraction, result.warnings ?? []);
+      const result = await postJson<{ extraction: WaterLossExtraction; warnings?: string[] }>("/api/extract", request.body);
+      extracted(result.extraction, result.warnings ?? [], request.scopedNotes);
     } catch (err) {
       await waitForSignalOrFail("extract", err, onFailureStep);
     }
@@ -1371,6 +1375,18 @@ export default function Home() {
 
   function handleGenerate() {
     runExtraction(transcript, "transcript");
+  }
+
+  /**
+   * Photo notes added, edited or moved since the scope was made: read the walkthrough and every
+   * photo note again. Through the queue the offline steps use (lib/aiJobs.ts), so with no signal it
+   * waits and runs when the signal is back, built from the claim as it is then. Saved first, so the
+   * waiting step is never the only record of the claim.
+   */
+  async function handleUpdateScope() {
+    setError(null);
+    checkpoint();
+    await waitForSignal(persistence.claimIdNow(), "extract");
   }
 
   /**
@@ -1607,7 +1623,7 @@ export default function Home() {
                 </>
               ) : s.running ? (
                 <>
-                  <span className="spinner" /> <strong>Signal is back — {kind === "extract" ? "reading the transcript" : "generating the documents"} with Claude…</strong>
+                  <span className="spinner" /> <strong>{kind === "extract" ? "Reading the transcript" : "Generating the documents"} with Claude…</strong>
                 </>
               ) : (
                 <>
@@ -1631,6 +1647,27 @@ export default function Home() {
           </div>
         );
       })}
+
+      {/*
+        Photo notes the scope has not read: a caption added, edited or moved since the scope was made
+        (lib/photos.ts, `notesSinceScope`). Said once, here, whichever step the claim is on.
+      */}
+      {(() => {
+        const line = extraction ? notesSinceScopeLine(notesSinceScope(photos, sketch, true)) : null;
+        if (!line || aiSteps.extract !== null || step === "extracting") return null;
+        return (
+          <div className="waiting-banner" role="status">
+            <p>
+              <strong>{line}</strong> Update scope reads the walkthrough and every photo note again, then asks only what it still needs to.
+            </p>
+            <span className="waiting-banner-actions">
+              <button type="button" className="btn-secondary" onClick={() => void handleUpdateScope()}>
+                Update scope
+              </button>
+            </span>
+          </div>
+        );
+      })()}
 
       {/*
         A scan from the phone that needs an answer, or the receipt for one that did not. With the

@@ -7,6 +7,7 @@ import type { GeneratedDocuments, WaterLossExtraction } from "@/lib/types";
 import type { ClaimInfo } from "@/lib/claimInfo";
 import type { DGIGData } from "@/lib/dgig";
 import { beginGeneration, checkUsageAllowed, incrementClaimUsage, releaseGeneration } from "@/lib/usage";
+import { MAX_PHOTO_NOTES_CHARS } from "@/lib/photoNotesPrompt";
 
 /**
  * Step 3 of the pipeline: the completed claim info + extraction tree (every gap-check question
@@ -26,9 +27,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Request body must be JSON." }, { status: 400 });
   }
 
-  const { claim, extraction, transcript, contentsAssignmentNote, dgigData, roomAreas, exterior, jobId } = (body ?? {}) as {
+  const { claim, extraction, transcript, contentsAssignmentNote, dgigData, roomAreas, exterior, jobId, photoNotes } = (body ?? {}) as {
     /** The device's id for this generation, kept for every retry. Optional: the pipeline harness sends none. */
     jobId?: unknown;
+    /** What was said under the site photos, built for this run — see lib/photoNotesPrompt.ts. Optional. */
+    photoNotes?: unknown;
     /** What the sketch knows about each room, keyed by normalised name — see lib/debris.ts. Optional: the pipeline harness sends none. */
     roomAreas?: RoomAreasByName;
     /** The exterior's ready-made scope lines — see lib/exterior.ts's `exteriorScopeLines`. Optional: absent means none. */
@@ -51,6 +54,11 @@ export async function POST(request: Request) {
   if (typeof transcript !== "string") {
     return NextResponse.json({ error: "A \"transcript\" string is required." }, { status: 400 });
   }
+
+  if (photoNotes !== undefined && photoNotes !== null && (typeof photoNotes !== "string" || photoNotes.length > MAX_PHOTO_NOTES_CHARS)) {
+    return NextResponse.json({ error: "\"photoNotes\" must be text of a reasonable length." }, { status: 400 });
+  }
+  const notes = typeof photoNotes === "string" ? photoNotes : "";
 
   // Strings only, and not many: these are copied onto the document word for word.
   const exteriorLines = Array.isArray(exterior) ? exterior.filter((l): l is string => typeof l === "string" && l.length <= 300).slice(0, 40) : [];
@@ -79,13 +87,13 @@ export async function POST(request: Request) {
     const generated = claim.scopeOnly
       ? await createStructuredMessage<GeneratedDocuments>({
           system: SCOPE_ONLY_SYSTEM_PROMPT,
-          userMessage: documentGenerationUserMessage(claim, extraction, transcript, null, dgigData ?? null, disposalLines(extraction, roomAreas ?? {}), exteriorLines),
+          userMessage: documentGenerationUserMessage(claim, extraction, transcript, null, dgigData ?? null, disposalLines(extraction, roomAreas ?? {}), exteriorLines, notes),
           schema: scopeOnlyGenerationSchema,
           maxTokens: GENERATION_MAX_TOKENS,
         })
       : await createStructuredMessage<GeneratedDocuments>({
           system: DOCUMENT_GENERATION_SYSTEM_PROMPT,
-          userMessage: documentGenerationUserMessage(claim, extraction, transcript, contentsAssignmentNote ?? null, dgigData ?? null, disposalLines(extraction, roomAreas ?? {}), exteriorLines),
+          userMessage: documentGenerationUserMessage(claim, extraction, transcript, contentsAssignmentNote ?? null, dgigData ?? null, disposalLines(extraction, roomAreas ?? {}), exteriorLines, notes),
           schema: documentGenerationSchema,
           maxTokens: GENERATION_MAX_TOKENS,
         });
