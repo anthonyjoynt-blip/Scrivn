@@ -52,12 +52,14 @@ const DATA: FaqEntry[] = [
     a: "Your data is encrypted in transit and never sold to third parties. As a newer product, we're upfront that we don't yet hold formal security certifications — if that's a requirement for your company, reach out and we'll walk through exactly what's in place today.",
   },
   {
-    // ACCURACY: the mockup said "stored to your account so you can access past claims." There is no
-    // claim storage — the only table is `profiles` (supabase/migrations/), and claim state lives in
-    // React state on /claim for the length of the session. Saved claim history is a deliberate later
-    // addition, so promising it here would have been a straightforwardly false claim.
+    // ACCURACY: when the mockup was approved there was no claim storage, so this said a claim lived
+    // only in the browser session. Claims have been saved to the organization since 0004 (September
+    // 2026) and kept on the device for offline use since offline mode (October 2026), so that answer
+    // became the false one. Every fact below is in PRIVACY.md: stored in Canada, the claim's text sent
+    // to Anthropic (possibly processed in the US, not used for training), the device copies cleared
+    // at sign-out once they have reached Scrivn, and the 24 months after an account closes.
     q: "What happens to the claim information I paste in?",
-    a: "It's sent to the AI model that generates your documents, and it's never sold or shared. Saved claim history isn't built yet — a claim lives only in your browser session while you're working on it, and nothing is kept once you leave the page. Download or email your documents before you close the tab.",
+    a: "It's saved to your company's Scrivn account, stored in Canada, so you can come back to any claim. To write your documents, the claim's text is sent to the AI model (Anthropic's Claude), which may process it in the United States and doesn't use it for training. It's never sold. So Scrivn works with no signal, the claims you've opened recently are also kept on your device; signing out clears them once they've reached Scrivn. Claims are kept until you delete them, or for 24 months after your account closes.",
   },
 ];
 

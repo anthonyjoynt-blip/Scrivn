@@ -103,10 +103,12 @@ export default async function PricingPage() {
         <div className="mk-enterprise">
           <div className="mk-enterprise-copy">
             <h2>Multiple offices?</h2>
-            <p>
-              One consolidated account for your whole company — a shared claims pool across every office instead of separate subscriptions, with a discounted per-claim rate at
-              real volume.
-            </p>
+            {/*
+              This used to promise one account for the whole company with a shared claims pool. That is
+              team accounts, which are built but switched off (TEAMS_ENABLED, TEAMS.md), so it promised
+              something nobody could be given. Restore it when teams are switched on.
+            */}
+            <p>Tell us how many offices you run and roughly how many claims a month, and we&rsquo;ll quote a plan to fit.</p>
           </div>
           {/* Pre-selects the matching reason on the contact form so the enquiry arrives labelled. */}
           <Link href="/contact?reason=enterprise" className="mk-enterprise-btn">

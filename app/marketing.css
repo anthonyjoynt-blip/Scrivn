@@ -718,6 +718,8 @@
   flex-wrap: wrap;
 }
 .mk-enterprise-copy h2 {
+  /* The global h2 sets var(--text), dark on this navy panel; inheriting the panel's white is not enough. */
+  color: var(--white);
   font-size: 22px;
   margin: 0 0 8px;
 }

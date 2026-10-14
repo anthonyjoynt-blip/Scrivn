@@ -95,7 +95,8 @@ Scan plan bought earlier the same limit. So:
    addresses are stored (until the invitation is answered or lapses, and kept after as a record),
    and people on a team see each other's names, email addresses and claims.
 4. **Restore the pricing copy** if wanted. Growth's "Multiple team members, one account" was taken
-   off because it wasn't built (`lib/plans.ts`, `app/faq/page.tsx`).
+   off because it wasn't built (`lib/plans.ts`, `app/faq/page.tsx`), and so was the "Multiple
+   offices?" panel's shared claims pool (`app/pricing/page.tsx`, 2026-10-14).
 5. **Set `TEAMS_ENABLED=true`** in Vercel (Production) and redeploy.
 
 What switching it on reveals: the **Team** card on the Account page, the `/api/team/*` routes, the
