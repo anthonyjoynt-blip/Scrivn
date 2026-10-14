@@ -66,7 +66,8 @@ const TIMED_OUT = Symbol("timed out");
  * Generous on purpose. A cached HTML document names the exact chunks of the build it came from, so
  * trimming one of those is what turns an offline boot into the offline page. Several builds' worth
  * of chunks fit well inside this — including the ones loaded later, which the warm-up now fetches
- * ahead of need (the sketch canvas, the 3D view): about 70 files a build.
+ * ahead of need (the sketch canvas, the 3D view). A whole production build was 64 files on
+ * 2026-10-13.
  */
 const MAX_ASSETS = 400;
 
