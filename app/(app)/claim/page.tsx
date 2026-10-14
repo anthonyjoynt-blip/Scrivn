@@ -80,6 +80,9 @@ import { WorkOrderSelector } from "@/components/WorkOrderSelector";
 import { SketchEditor } from "@/components/sketch/SketchEditor";
 import { type Sketch, emptySketch, hasSketchContent, knownRoomNames, levelsOf } from "@/lib/sketch";
 import { type MoistureMap, emptyMoistureMap, hasMoistureContent, pruneMoisture, roomMoistureSummary, withScanMoisture } from "@/lib/moisture";
+import { DryingLogSection } from "@/components/drying/DryingLogSection";
+import { type DryingLog, emptyDryingLog } from "@/lib/dryingLog";
+import { canPrintDryingLog, dryingLogPdfParams } from "@/lib/dryingLogPdf";
 import { SCAN_DROP, type PendingScan, adoptScan, convertScan, exteriorScanDecision, namedRooms, scanDecision, scanLevelName } from "@/lib/scanInbox";
 import { isExteriorOnlyScan } from "@/lib/exteriorImport";
 import { useScanInbox } from "@/lib/useScanInbox";
@@ -253,6 +256,9 @@ export default function Home() {
    * and the marked-up one both come from the one room the PM drew — see `lib/moisture.ts`.
    */
   const [moisture, setMoisture] = useState<MoistureMap>(emptyMoistureMap());
+  /** Each visit's readings until the building is dry, beside the moisture map it refers to — see `lib/dryingLog.ts`. */
+  const [dryingLog, setDryingLog] = useState<DryingLog>(emptyDryingLog());
+  const [showDryingLog, setShowDryingLog] = useState(false);
   /**
    * Equipment suggestions the PM has already answered, so they are never offered twice.
    *
@@ -352,12 +358,12 @@ export default function Home() {
     () => ({
       step, claim, transcript, extraction, answers, questionLog, documents,
       contentsApproach, contentsTM, bricABrac, dgigData, asbestos,
-      selectedTrades, workOrders, sketch, sketchAttachments, moisture, scopeMarks, resolvedSuggestions,
+      selectedTrades, workOrders, sketch, sketchAttachments, moisture, dryingLog, scopeMarks, resolvedSuggestions,
     }),
     [
       step, claim, transcript, extraction, answers, questionLog, documents,
       contentsApproach, contentsTM, bricABrac, dgigData, asbestos,
-      selectedTrades, workOrders, sketch, sketchAttachments, moisture, scopeMarks, resolvedSuggestions,
+      selectedTrades, workOrders, sketch, sketchAttachments, moisture, dryingLog, scopeMarks, resolvedSuggestions,
     ],
   );
 
@@ -390,6 +396,7 @@ export default function Home() {
     setSketch(loaded.sketch);
     setSketchAttachments(loaded.sketchAttachments);
     setMoisture(loaded.moisture);
+    setDryingLog(loaded.dryingLog);
     setScopeMarks(loaded.scopeMarks);
     setResolvedSuggestions(loaded.resolvedSuggestions);
   }, []);
@@ -906,6 +913,8 @@ export default function Home() {
     setEditingWorkOrders({});
     setSketch(emptySketch());
     setMoisture(emptyMoistureMap());
+    setDryingLog(emptyDryingLog());
+    setShowDryingLog(false);
     setResolvedSuggestions([]);
     setShowSketch(false);
     setSketchOpensReadOnly(false);
@@ -1612,6 +1621,25 @@ ${asbestosSection}`;
         </div>
       )}
 
+      {/* The drying log, beside the sketch and for the same reason: optional, and not a step the claim passes through. */}
+      {!showSketch && (
+        <DryingLogSection
+          log={dryingLog}
+          onChange={setDryingLog}
+          open={showDryingLog}
+          onOpenChange={setShowDryingLog}
+          sketch={sketch}
+          moisture={moisture}
+          onMoistureChange={setMoisture}
+          defaultBy={claim.pmName}
+          jobNumber={claim.jobNumber}
+          customerName={claim.customerName}
+          jobInformation={buildJobInformationGroups(claim)}
+          letterhead={letterhead}
+          onCheckpoint={checkpoint}
+        />
+      )}
+
       {step === "intake" && (
         <div className="card">
           <StepHeader step={step} label="Claim Info" />
@@ -2165,6 +2193,21 @@ ${asbestosSection}`;
                   sketchImages: sketchPagesFor({ kind: "scopeDocument" }),
                 },
               } satisfies SendableDocument,
+              /* The drying log, built from the log as it stands now: it keeps growing for days after these
+                 documents were generated, so a copy taken at generation would always be out of date. */
+              ...(canPrintDryingLog(dryingLog)
+                ? [
+                    {
+                      label: "Drying Log",
+                      pdf: dryingLogPdfParams(dryingLog, moisture, {
+                        jobNumber: claim.jobNumber,
+                        customerName: claim.customerName,
+                        letterhead,
+                        jobInformation: buildJobInformationGroups(claim),
+                      }),
+                    } satisfies SendableDocument,
+                  ]
+                : []),
               ...workOrders.map(
                 (wo) =>
                   ({

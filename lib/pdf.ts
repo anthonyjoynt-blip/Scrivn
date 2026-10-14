@@ -158,6 +158,29 @@ export interface DocumentPdfParams {
    * unpredictably. Each gets a caption so a page separated from the rest still says what it shows.
    */
   sketchImages?: SketchPage[];
+  /**
+   * Tables, drawn after the body text and before the sketch pages (the drying log's readings, so far).
+   *
+   * The body is plain lines in a proportional font, which cannot hold columns of numbers in line; a table
+   * is drawn cell by cell, wraps inside its cell, and repeats its header row on a new page.
+   */
+  tables?: PdfTable[];
+}
+
+export interface PdfTableColumn {
+  title: string;
+  /** Width relative to the other columns. */
+  weight: number;
+  align?: "left" | "center";
+}
+
+export interface PdfTable {
+  caption?: string;
+  columns: PdfTableColumn[];
+  /** One string per column. A line break inside a cell starts a new line there. */
+  rows: string[][];
+  /** Small print under the table. */
+  note?: string;
 }
 
 export interface SketchPage {
@@ -194,6 +217,129 @@ function drawSketchPages(doc: jsPDF, images: SketchPage[]) {
 
     doc.addImage(image.dataUrl, "PNG", PAGE_MARGIN + (maxWidth - width) / 2, top, width, height);
   }
+}
+
+const TABLE_FONT_SIZE = 8.5;
+const TABLE_LINE_HEIGHT = 10.5;
+const TABLE_CELL_PAD = 4;
+
+/** Wraps a cell's text to its column, honouring the line breaks it already has. */
+function wrapCell(doc: jsPDF, text: string, width: number): string[] {
+  const lines: string[] = [];
+  for (const part of text.split("\n")) {
+    const wrapped = part.trim() === "" ? [""] : (doc.splitTextToSize(part, Math.max(8, width - TABLE_CELL_PAD * 2)) as string[]);
+    lines.push(...wrapped);
+  }
+  return lines;
+}
+
+/**
+ * Draws tables down the page from `startY`, and returns where to carry on.
+ *
+ * A caption, its header row and at least one row always stay together: a header stranded at the foot
+ * of a page over nothing is the thing that makes a printed log look unfinished. When a table runs on
+ * to another page its header row is drawn again.
+ */
+function drawTables(doc: jsPDF, tables: PdfTable[], startY: number, contentWidth: number, bottomLimit: number): number {
+  let y = startY + 6;
+
+  for (const table of tables) {
+    const totalWeight = table.columns.reduce((sum, c) => sum + c.weight, 0) || 1;
+    const widths = table.columns.map((c) => (contentWidth * c.weight) / totalWeight);
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(TABLE_FONT_SIZE);
+    const headerLines = table.columns.map((c, i) => wrapCell(doc, c.title, widths[i] ?? 40));
+    const headerHeight = Math.max(...headerLines.map((l) => l.length), 1) * TABLE_LINE_HEIGHT + TABLE_CELL_PAD * 2;
+
+    const rowLines = (row: string[]) => {
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(TABLE_FONT_SIZE);
+      return table.columns.map((_, i) => wrapCell(doc, row[i] ?? "", widths[i] ?? 40));
+    };
+    const rowHeight = (lines: string[][]) => Math.max(...lines.map((l) => l.length), 1) * TABLE_LINE_HEIGHT + TABLE_CELL_PAD * 2;
+
+    // The caption, the header and the first few rows stay together: one lonely row under a header at the
+    // foot of a page reads as a table that was cut off, and the rest of it starts a page later anyway.
+    const keptRowsHeight = table.rows.slice(0, 3).reduce((sum, row) => sum + rowHeight(rowLines(row)), 0);
+    const captionHeight = table.caption ? 18 : 0;
+    if (y + captionHeight + headerHeight + keptRowsHeight > bottomLimit) {
+      doc.addPage();
+      y = PAGE_MARGIN;
+    }
+
+    if (table.caption) {
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(10.5);
+      doc.setTextColor(20, 20, 20);
+      doc.text(table.caption, PAGE_MARGIN, y + 10);
+      y += captionHeight;
+    }
+
+    const drawHeader = () => {
+      doc.setFillColor(238, 242, 246);
+      doc.rect(PAGE_MARGIN, y, contentWidth, headerHeight, "F");
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(TABLE_FONT_SIZE);
+      doc.setTextColor(27, 58, 92);
+      let x = PAGE_MARGIN;
+      table.columns.forEach((c, i) => {
+        const w = widths[i] ?? 40;
+        (headerLines[i] ?? []).forEach((line, li) => {
+          const textX = c.align === "center" ? x + w / 2 : x + TABLE_CELL_PAD;
+          doc.text(line, textX, y + TABLE_CELL_PAD + TABLE_LINE_HEIGHT * (li + 1) - 2.5, c.align === "center" ? { align: "center" } : undefined);
+        });
+        x += w;
+      });
+      y += headerHeight;
+    };
+    drawHeader();
+
+    for (const row of table.rows) {
+      const lines = rowLines(row);
+      const h = rowHeight(lines);
+      if (y + h > bottomLimit) {
+        doc.addPage();
+        y = PAGE_MARGIN;
+        drawHeader();
+      }
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(TABLE_FONT_SIZE);
+      doc.setTextColor(20, 20, 20);
+      let x = PAGE_MARGIN;
+      table.columns.forEach((c, i) => {
+        const w = widths[i] ?? 40;
+        (lines[i] ?? []).forEach((line, li) => {
+          const textX = c.align === "center" ? x + w / 2 : x + TABLE_CELL_PAD;
+          doc.text(line, textX, y + TABLE_CELL_PAD + TABLE_LINE_HEIGHT * (li + 1) - 2.5, c.align === "center" ? { align: "center" } : undefined);
+        });
+        x += w;
+      });
+      y += h;
+      doc.setDrawColor(225, 229, 234);
+      doc.setLineWidth(0.5);
+      doc.line(PAGE_MARGIN, y, PAGE_MARGIN + contentWidth, y);
+    }
+
+    if (table.note) {
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(8);
+      doc.setTextColor(91, 100, 114);
+      y += 4;
+      for (const line of doc.splitTextToSize(table.note, contentWidth) as string[]) {
+        if (y + 10 > bottomLimit) {
+          doc.addPage();
+          y = PAGE_MARGIN;
+        }
+        y += 10;
+        doc.text(line, PAGE_MARGIN, y);
+      }
+    }
+    y += 18;
+  }
+
+  doc.setTextColor(20, 20, 20);
+  return y;
 }
 
 /** Builds the document and hands back the jsPDF instance, without deciding what happens to it. */
@@ -251,6 +397,9 @@ function renderDocumentPdf(params: DocumentPdfParams): jsPDF {
       y += lineHeight;
     }
   }
+
+  // Tables follow the prose they belong to, and come before the plans for the same reason the plans come last.
+  if (params.tables && params.tables.length > 0) drawTables(doc, params.tables, y, contentWidth, bottomLimit);
 
   // After every word of the document, so the plan never interrupts what it illustrates.
   if (params.sketchImages && params.sketchImages.length > 0) drawSketchPages(doc, params.sketchImages);

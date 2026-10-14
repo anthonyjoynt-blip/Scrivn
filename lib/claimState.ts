@@ -14,6 +14,8 @@ import { emptySketch, hasSketchContent } from "./sketch";
 import { normalizeStoredExtraction } from "./extractionWire";
 import type { MoistureMap } from "./moisture";
 import { emptyMoistureMap } from "./moisture";
+import type { DryingLog } from "./dryingLog";
+import { emptyDryingLog, normalizeDryingLog } from "./dryingLog";
 import type { ScopeMarks } from "./scopeMarks";
 import type { SketchAttachments } from "./sketchAttachments";
 import { defaultSketchAttachments } from "./sketchAttachments";
@@ -77,6 +79,8 @@ export interface SavedClaimState {
   sketch: Sketch;
   sketchAttachments: SketchAttachments;
   moisture: MoistureMap;
+  /** Each visit's readings until the building is dry — see `lib/dryingLog.ts`. Beside the moisture map, not inside it. */
+  dryingLog: DryingLog;
   scopeMarks: ScopeMarks;
   resolvedSuggestions: string[];
 }
@@ -92,7 +96,7 @@ export interface SavedClaimState {
 export const SAVED_CLAIM_KEYS = [
   "step", "claim", "transcript", "extraction", "answers", "questionLog", "documents",
   "contentsApproach", "contentsTM", "bricABrac", "dgigData", "asbestos",
-  "selectedTrades", "workOrders", "sketch", "sketchAttachments", "moisture", "scopeMarks",
+  "selectedTrades", "workOrders", "sketch", "sketchAttachments", "moisture", "dryingLog", "scopeMarks",
   "resolvedSuggestions",
 ] as const satisfies readonly (keyof SavedClaimState)[];
 
@@ -104,6 +108,7 @@ export const NOT_PERSISTED: Record<string, string> = {
   isEditingScopeDocument: "which panel is open on this screen",
   editingWorkOrders: "which panels are open on this screen",
   showSketch: "whether the sketch pane is open on this screen",
+  showDryingLog: "whether the drying log panel is open on this screen",
   markingQuestion: "a dialog that is open right now",
   sketchImages: "derived — re-rendered from sketch, moisture and sketchAttachments on load",
   saveCheckpoint: "a counter that asks for an immediate write; nothing about the claim itself",
@@ -140,6 +145,7 @@ export function emptySavedClaimState(): SavedClaimState {
     sketch: emptySketch(),
     sketchAttachments: defaultSketchAttachments(),
     moisture: emptyMoistureMap(),
+    dryingLog: emptyDryingLog(),
     scopeMarks: {},
     resolvedSuggestions: [],
   };
@@ -178,6 +184,9 @@ export function parseSavedClaimState(payload: unknown): SavedClaimState {
   // The same shape problem one level up: a ClaimInfo field added since a claim was saved is absent
   // from it, and the intake form binds every field to a string. `pmPhone` was the first such field.
   if (merged.claim && typeof merged.claim === "object") merged.claim = { ...emptyClaimInfo(), ...(merged.claim as object) };
+  // The log is read as arrays and numbers all the way down, and a claim saved before it existed (or by a
+  // build that held fewer of its fields) arrives without them: brought up to today's shape once, here.
+  merged.dryingLog = normalizeDryingLog(merged.dryingLog);
   return merged as unknown as SavedClaimState;
 }
 

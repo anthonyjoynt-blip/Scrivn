@@ -1,0 +1,498 @@
+/*
+  The drying log (2026-10-13). One file, one `dlog-` namespace, so nothing here reaches into another
+  component's classes and nothing of another's reaches in. Written phone first: the log is filled in
+  standing in a basement with one thumb, so every control is a full-width block that wraps rather than a
+  row that has to fit.
+
+  Colours come from the app's own variables and from the moisture map's band ramp (lib/moisture.ts).
+  "At goal" is the one colour of its own, teal, and it never stands alone: the words say it too.
+*/
+
+/* ── the entry point beside the sketch's ─────────────────────────────────────────────────────────── */
+
+.dlog-launch {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+.dlog-launch .field-note {
+  margin: 0;
+}
+.dlog-launch-status {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+.dlog-launch-status.complete {
+  color: #1c5a4b;
+  font-weight: 600;
+}
+
+/* ── the panel ───────────────────────────────────────────────────────────────────────────────────── */
+
+.dlog {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  padding: 22px;
+  margin-bottom: 20px;
+}
+@media (max-width: 640px) {
+  .dlog {
+    padding: 14px;
+    border-radius: var(--radius);
+  }
+}
+
+.dlog-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 14px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.dlog-head h2 {
+  margin: 0;
+  font-size: 1.15rem;
+}
+.dlog-head-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.dlog-status {
+  display: flex;
+  align-items: center;
+  gap: 8px 14px;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  margin-bottom: 14px;
+  border-radius: var(--radius);
+  background: var(--color-navy-tint);
+  font-size: 0.9rem;
+}
+.dlog-status.complete {
+  background: #e3f3ee;
+  color: #1c5a4b;
+}
+.dlog-bar {
+  flex: 1 1 120px;
+  min-width: 90px;
+  height: 8px;
+  border-radius: 999px;
+  background: #d5dde7;
+  overflow: hidden;
+}
+.dlog-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--color-navy);
+  border-radius: 999px;
+}
+.dlog-status.complete .dlog-bar > span {
+  background: #2e7d6b;
+}
+
+.dlog-start {
+  padding: 16px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius);
+  display: grid;
+  gap: 10px;
+  justify-items: start;
+}
+.dlog-start p {
+  margin: 0;
+  font-size: 0.92rem;
+}
+
+/* ── visit tabs ──────────────────────────────────────────────────────────────────────────────────── */
+
+.dlog-tabs {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 6px;
+  margin-bottom: 12px;
+  -webkit-overflow-scrolling: touch;
+}
+.dlog-tab {
+  flex: 0 0 auto;
+  padding: 8px 13px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--color-navy);
+  font-size: 0.85rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.dlog-tab[aria-selected="true"] {
+  background: var(--color-navy);
+  border-color: var(--color-navy);
+  color: #fff;
+}
+.dlog-tab-add {
+  border-style: dashed;
+}
+
+/* ── sections of a visit ─────────────────────────────────────────────────────────────────────────── */
+
+.dlog-section {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+.dlog-section > h3 {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 0 10px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--color-navy);
+}
+.dlog-section > h3 .dlog-aside {
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 400;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.dlog-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+}
+.dlog-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--color-navy);
+}
+.dlog input[type="text"],
+.dlog input[type="datetime-local"],
+.dlog select {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font: inherit;
+  font-size: 0.92rem;
+  font-weight: 400;
+  background: var(--surface);
+  color: var(--text);
+}
+.dlog textarea {
+  min-height: 72px;
+  font-family: inherit;
+  font-size: 0.92rem;
+  line-height: 1.45;
+}
+
+.dlog-hint {
+  margin: 6px 0 0;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+/* ── air ─────────────────────────────────────────────────────────────────────────────────────────── */
+
+.dlog-air {
+  display: grid;
+  gap: 12px;
+}
+.dlog-air-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 10px;
+}
+.dlog-air-name {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+.dlog-air-figures {
+  font-weight: 400;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── moisture points ─────────────────────────────────────────────────────────────────────────────── */
+
+.dlog-points {
+  display: grid;
+  gap: 10px;
+}
+.dlog-point {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid #dbe3ec;
+  border-radius: 8px;
+  background: #fff;
+}
+.dlog-point-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.dlog-point-name {
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+.dlog-point-meta {
+  margin-top: 2px;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+.dlog-chip {
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #fff;
+  white-space: nowrap;
+}
+.dlog-chip.dry {
+  background: #2e7d6b;
+}
+.dlog-chip.muted {
+  background: #6b7a8f;
+}
+.dlog-point-entry {
+  display: flex;
+  align-items: center;
+  gap: 8px 14px;
+  flex-wrap: wrap;
+}
+.dlog-point-entry .dlog-field {
+  flex: 0 0 8rem;
+}
+.dlog-point-entry input[type="text"] {
+  font-size: 1.1rem;
+  font-variant-numeric: tabular-nums;
+}
+.dlog-prev {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.dlog-trend-down {
+  color: #1c5a4b;
+  font-weight: 600;
+}
+.dlog-trend-up {
+  color: #9a3a2c;
+  font-weight: 600;
+}
+.dlog-point-edit {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border);
+}
+.dlog-link {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--color-navy);
+  text-decoration: underline;
+  cursor: pointer;
+}
+.dlog-link.danger {
+  color: #9a3a2c;
+}
+.dlog-row-actions {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.dlog-stopped {
+  margin-top: 10px;
+  font-size: 0.85rem;
+}
+.dlog-stopped ul {
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 6px;
+}
+.dlog-stopped li {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  color: var(--text-muted);
+}
+
+.dlog-add-point {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+  align-items: end;
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius);
+}
+
+.dlog-confirm {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--danger-border);
+  border-radius: var(--radius);
+  background: var(--danger-bg);
+  color: var(--danger-text);
+  font-size: 0.88rem;
+}
+
+/* ── summary ─────────────────────────────────────────────────────────────────────────────────────── */
+
+.dlog-scroll {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  -webkit-overflow-scrolling: touch;
+}
+.dlog-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+/* The point (or the visit) stays put while the numbers scroll under it: on a phone the readings are the
+   point of the table, and the name is what tells you which row you are reading. */
+.dlog-table th:first-child,
+.dlog-table td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  min-width: 8.5rem;
+  max-width: 11rem;
+  background: var(--surface);
+  box-shadow: 1px 0 0 var(--border);
+}
+.dlog-table th:first-child {
+  background: var(--color-navy-tint);
+}
+.dlog-table th,
+.dlog-table td {
+  padding: 7px 9px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+.dlog-table tr:last-child td {
+  border-bottom: 0;
+}
+.dlog-table th {
+  background: var(--color-navy-tint);
+  font-size: 0.74rem;
+  font-weight: 700;
+  color: var(--color-navy);
+  white-space: nowrap;
+}
+.dlog-table td.num,
+.dlog-table th.num {
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.dlog-table .sub {
+  display: block;
+  font-size: 0.74rem;
+  font-weight: 400;
+  color: var(--text-muted);
+}
+.dlog-cell-dry {
+  background: #e3f3ee;
+  color: #1c5a4b;
+  font-weight: 700;
+}
+.dlog-cell-none {
+  color: var(--text-muted);
+}
+
+.dlog-settings {
+  display: grid;
+  gap: 14px;
+}
+.dlog-setting {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
+  flex-wrap: wrap;
+}
+.dlog-setting > span:first-child {
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+.dlog-setting input[type="text"] {
+  width: 5rem;
+}
+.dlog-seg {
+  display: inline-flex;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.dlog-seg button {
+  padding: 7px 14px;
+  border: 0;
+  background: var(--surface);
+  color: var(--color-navy);
+  font-weight: 600;
+}
+.dlog-seg button[aria-pressed="true"] {
+  background: var(--color-navy);
+  color: #fff;
+}
+.dlog-standard-row {
+  display: grid;
+  grid-template-columns: minmax(6rem, 1fr) 5.5rem minmax(0, 1.4fr);
+  align-items: center;
+  gap: 10px;
+}
+.dlog-standard-row .dlog-hint {
+  margin: 0;
+}
+@media (max-width: 460px) {
+  .dlog-standard-row {
+    grid-template-columns: 1fr 5.5rem;
+  }
+  .dlog-standard-row .dlog-hint {
+    grid-column: 1 / -1;
+  }
+}
+.dlog-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 16px;
+}
