@@ -6,10 +6,10 @@ import { cleanEnv } from "../env";
 /**
  * The service-role Supabase client — bypasses Row Level Security entirely.
  *
- * It exists for the profile and billing columns that users are deliberately not allowed to write
- * themselves (`subscription_tier`, `claims_used_this_period`, the trial stamps — see
- * `supabase/migrations/0002_billing.sql` and `0003_trial.sql`, which grant `authenticated` an update
- * on three descriptive columns and nothing else). The Stripe webhook (`app/api/webhooks/stripe/route.ts`)
+ * It exists for the billing columns that users are deliberately not allowed to write themselves
+ * (`subscription_tier`, `claims_used_this_period`, the trial stamps — on profiles in
+ * `supabase/migrations/0002_billing.sql` and `0003_trial.sql`, and on organizations since
+ * `0011_org_billing.sql`, each of which lets `authenticated` update only descriptive columns). The Stripe webhook (`app/api/webhooks/stripe/route.ts`)
  * was the first caller and is the clearest case: that request arrives from Stripe's servers with no
  * user session and no cookies, so there is no "current user" whose RLS policies could authorize the
  * write. The same columns are also touched by `lib/usage.ts`, checkout, the billing portal and

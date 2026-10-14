@@ -5,6 +5,7 @@ import { createClient } from "./supabase/server";
 import { supabaseAnonKey, supabaseUrl } from "./supabase/env";
 import { withClockSkewRetry } from "./supabase/clockSkew";
 import { NoOrganizationError, NotSignedInError } from "./claimsRepo";
+import { isOrgRole, type OrgRole } from "./teams";
 import { claimSummary, emptySavedClaimState } from "./claimState";
 import { withScanMoisture } from "./moisture";
 import { PAIRING_CODE_TTL_SECONDS, claimSketchUrl, hashSecret, newDeviceToken, newPairingCode, normalisePairingCode, pairingUrl } from "./deviceCodes";
@@ -95,7 +96,8 @@ export interface DeviceIdentity {
   organizationName: string;
   userId: string;
   userName: string;
-  role: "owner" | "member";
+  /** Since 0012 an admin reads as "admin". Scrivn Scan does not read this field. */
+  role: OrgRole;
 }
 
 /** A `device_tokens` row as the Account page lists it. Never the hash. */
@@ -388,7 +390,7 @@ function identityFromRow(row: IdentityRow): DeviceIdentity {
     organizationName: row.organization_name ?? "",
     userId: row.user_id,
     userName: row.user_name ?? "",
-    role: row.role === "owner" ? "owner" : "member",
+    role: isOrgRole(row.role) ? row.role : "member",
   };
 }
 

@@ -79,6 +79,12 @@ export default async function AccountPage({ searchParams }: { searchParams: Prom
   const [usage, letterhead, profile, devices] = await Promise.all([getUsageState(), letterheadCard(), profileCard(), devicesCard()]);
   const params = await searchParams;
   const plan = planForTier(usage?.tier);
+  /*
+    The plan is the organization's, and only its owner changes it (0011). Alone, everyone is the owner
+    of their own organization, so this is false for every account today and the card is as it was; on
+    a team, a member sees the plan and the counter but not the buttons that would refuse them.
+  */
+  const teammate = usage !== null && !usage.canManageBilling;
 
   return (
     <main>
@@ -94,6 +100,7 @@ export default async function AccountPage({ searchParams }: { searchParams: Prom
       )}
 
       {params.portal === "error" && <div className="error-banner">Couldn’t open the billing portal just now. Please try again in a moment.</div>}
+      {params.portal === "owner" && <div className="error-banner">Your organization’s billing is managed by its owner.</div>}
 
       <div className="card">
         <h2>Subscription</h2>
@@ -112,18 +119,24 @@ export default async function AccountPage({ searchParams }: { searchParams: Prom
                 </span>
               </div>
             )}
-            <div className="actions-row">
-              <Link href="/pricing" className="btn-secondary">
-                Scrivn plans
-              </Link>
-              <a href="/api/portal" className="btn-primary">
-                Manage billing
-              </a>
-            </div>
-            <p className="field-note">
-              Manage billing opens Stripe, where you can update your card, download invoices, or cancel. Every Scrivn plan includes Scan: choosing one ends this plan,
-              with what&rsquo;s left of it credited to your bill.
-            </p>
+            {teammate ? (
+              <OwnerManagesBilling />
+            ) : (
+              <>
+                <div className="actions-row">
+                  <Link href="/pricing" className="btn-secondary">
+                    Scrivn plans
+                  </Link>
+                  <a href="/api/portal" className="btn-primary">
+                    Manage billing
+                  </a>
+                </div>
+                <p className="field-note">
+                  Manage billing opens Stripe, where you can update your card, download invoices, or cancel. Every Scrivn plan includes Scan: choosing one ends this plan,
+                  with what&rsquo;s left of it credited to your bill.
+                </p>
+              </>
+            )}
           </>
         ) : plan && usage ? (
           <>
@@ -143,16 +156,22 @@ export default async function AccountPage({ searchParams }: { searchParams: Prom
                 <span className="account-value">{new Date(usage.periodResetAt).toLocaleDateString()}</span>
               </div>
             )}
-            <div className="actions-row">
-              <Link href="/pricing" className="btn-secondary">
-                Change plan
-              </Link>
-              {/* A plain link, not a form — /api/portal is a GET with no side effects on our data. */}
-              <a href="/api/portal" className="btn-primary">
-                Manage billing
-              </a>
-            </div>
-            <p className="field-note">Manage billing opens Stripe, where you can update your card, download invoices, or cancel.</p>
+            {teammate ? (
+              <OwnerManagesBilling />
+            ) : (
+              <>
+                <div className="actions-row">
+                  <Link href="/pricing" className="btn-secondary">
+                    Change plan
+                  </Link>
+                  {/* A plain link, not a form — /api/portal is a GET with no side effects on our data. */}
+                  <a href="/api/portal" className="btn-primary">
+                    Manage billing
+                  </a>
+                </div>
+                <p className="field-note">Manage billing opens Stripe, where you can update your card, download invoices, or cancel.</p>
+              </>
+            )}
           </>
         ) : usage?.onTrial ? (
           <>
@@ -175,11 +194,15 @@ export default async function AccountPage({ searchParams }: { searchParams: Prom
             <p className="field-note" style={{ marginTop: 16 }}>
               Your trial ends when you’ve used {TRIAL_CLAIM_LIMIT} claims or after {TRIAL_DAYS} days, whichever comes first. No card is needed until you choose a plan.
             </p>
-            <div className="actions-row">
-              <Link href="/pricing" className="btn-primary">
-                View plans
-              </Link>
-            </div>
+            {teammate ? (
+              <OwnerManagesBilling />
+            ) : (
+              <div className="actions-row">
+                <Link href="/pricing" className="btn-primary">
+                  View plans
+                </Link>
+              </div>
+            )}
           </>
         ) : (
           <>
@@ -190,11 +213,15 @@ export default async function AccountPage({ searchParams }: { searchParams: Prom
                   ? `You’ve used all ${TRIAL_CLAIM_LIMIT} claims in your free trial. Choose a plan to keep generating documents.`
                   : "You don’t have an active subscription. Choose a plan to start generating documents."}
             </p>
-            <div className="actions-row">
-              <Link href="/pricing" className="btn-primary">
-                View plans
-              </Link>
-            </div>
+            {teammate ? (
+              <OwnerManagesBilling />
+            ) : (
+              <div className="actions-row">
+                <Link href="/pricing" className="btn-primary">
+                  View plans
+                </Link>
+              </div>
+            )}
           </>
         )}
       </div>
@@ -216,4 +243,9 @@ export default async function AccountPage({ searchParams }: { searchParams: Prom
       )}
     </main>
   );
+}
+
+/** What a teammate sees where the owner sees the billing buttons. Never rendered for an account on its own. */
+function OwnerManagesBilling() {
+  return <p className="field-note" style={{ marginTop: 16 }}>Your organization’s owner manages its plan and billing.</p>;
 }

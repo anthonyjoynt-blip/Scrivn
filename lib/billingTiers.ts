@@ -11,9 +11,9 @@ import { isScanTier, isScrivnTier } from "./plans";
  */
 
 /**
- * Whether an event about a subscription of `eventTier` may write the profile's tier, given what the
- * profile holds now. `eventTier` is the tier the subscription's price maps to, whatever its status —
- * null for a price this deployment doesn't know.
+ * Whether an event about a subscription of `eventTier` may write the organization's tier, given what
+ * it holds now (the profile's, before 0011 — the rule is the same). `eventTier` is the tier the
+ * subscription's price maps to, whatever its status — null for a price this deployment doesn't know.
  */
 export function subscriptionEventApplies({
   eventTier,
@@ -30,6 +30,31 @@ export function subscriptionEventApplies({
   // A cancelled subscription takes away only the plan it gave.
   if (deleted && eventTier && storedTier && eventTier !== storedTier) return false;
   return true;
+}
+
+/**
+ * How a Stripe event finds the organization it is about (0011: the plan is the organization's), in
+ * the order to try:
+ *
+ *   1. the checkout's `client_reference_id` as an organization id — what checkout sends now;
+ *   2. the same value as a person's id, resolved to the organization they own — what checkout sent
+ *      before 0011, so a session opened just before the change still lands;
+ *   3. the Stripe customer id, stored on the organization at its first checkout — the only key a
+ *      subscription event carries.
+ *
+ * Ids that cannot be uuids are skipped rather than sent to Postgres to fail.
+ */
+export type BillingLookup = { by: "organization" | "owner" | "customer"; value: string };
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function billingLookups({ clientReferenceId, customerId }: { clientReferenceId?: string | null; customerId?: string | null }): BillingLookup[] {
+  const out: BillingLookup[] = [];
+  if (clientReferenceId && UUID.test(clientReferenceId)) {
+    out.push({ by: "organization", value: clientReferenceId }, { by: "owner", value: clientReferenceId });
+  }
+  if (customerId) out.push({ by: "customer", value: customerId });
+  return out;
 }
 
 /** One of the customer's subscriptions, reduced to what the rule below reads. */
