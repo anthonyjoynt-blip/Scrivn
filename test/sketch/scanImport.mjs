@@ -1731,6 +1731,130 @@ export async function runScanImportChecks() {
     assert(dry.ok && dry.moisture === undefined && !dry.notes.some((n) => n.startsWith("Moisture")), "and a dry file says nothing of it");
   });
 
+  /*
+    DOOR TYPES FROM THE PHONE (2026-10-14, the launch list: "Door type on the phone: swing, bifold, pocket, sliding,
+    double"). The phone's Review sets each door's type, leaves, hinge and swing, and writes them on the door; the import
+    uses them, and guesses as it always did for a file without them.
+  */
+  const oneRoom = (outline, openings) =>
+    JSON.stringify({
+      format: "arcapture-room/1",
+      source: "taps",
+      width_m: 4,
+      depth_m: 3,
+      ceiling_m: 2.44,
+      outline,
+      outline_openings: openings,
+      walls: [],
+    });
+  const doorsOf = (text) => {
+    const result = scan.importScanRoom(text, { x: 40, y: 40 }, 0);
+    assert(result.ok, `import failed: ${result.ok ? "" : result.error}`);
+    return { room: result.room, doors: result.room.symbols.filter((s) => s.type === "door") };
+  };
+  // u right, v down, clockwise: edge 0 the top wall, 1 the right, 2 the bottom, 3 the left.
+  const box = [[0, 0], [4, 0], [4, 3], [0, 3]];
+
+  test("a door's type and leaves from the phone are what come in; a door without them is guessed as before", () => {
+    const { doors } = doorsOf(
+      oneRoom(box, [
+        { edge: 0, from_m: 0.5, width_m: 0.8, kind: "door", sill_m: null, head_m: null, door_type: "pocket", leaves: "single", hinge: "start", swing: "in" },
+        // 3'11" wide: the guess would be a pair, the phone says one leaf.
+        { edge: 1, from_m: 0.5, width_m: 1.2, kind: "door", sill_m: null, head_m: null, door_type: "swing", leaves: "single", hinge: "start", swing: "in" },
+        { edge: 2, from_m: 0.4, width_m: 1.5, kind: "closet_door", sill_m: null, head_m: null, door_type: "sliding", leaves: "double", hinge: "start", swing: "in" },
+        // A file before 2026-10-14: no type at all.
+        { edge: 3, from_m: 0.5, width_m: 1.2, kind: "door", sill_m: null, head_m: null },
+        { edge: 2, from_m: 2.5, width_m: 0.8, kind: "closet_door", sill_m: null, head_m: null },
+        // Words this build does not know are guessed, each on its own.
+        { edge: 0, from_m: 2.5, width_m: 0.8, kind: "door", sill_m: null, head_m: null, door_type: "revolving", leaves: "triple" },
+        // An opening stays an opening whatever it carries.
+        { edge: 1, from_m: 2.0, width_m: 0.8, kind: "opening", sill_m: null, head_m: null, door_type: "swing", leaves: "double" },
+      ]),
+    );
+    const got = doors.map((d) => `${d.doorType} ${d.leaves}`);
+    const want = ["pocket single", "swing single", "sliding double", "swing double", "bifold single", "swing single", "opening single"];
+    assert(JSON.stringify(got) === JSON.stringify(want), `expected ${JSON.stringify(want)}, got ${JSON.stringify(got)}`);
+    // No hinge or swing said, no mirror: as every import before.
+    const old = doors[3];
+    assert(old.flipX === false && old.flipY === false, "an old file's door is unmirrored");
+  });
+
+  /**
+   * Where the imported door is hinged and which side of its wall it swings to, in world pixels: the jamb its leaf hangs
+   * from (the hinged one, by `doorOrientation`), and +1 when the leaf sweeps into the room, -1 when out.
+   */
+  const hungAt = (room, door) => {
+    const wall = sketch.wallById(room, door.wallId);
+    const { hingeAtEnd, swingReversed } = sketch.doorOrientation(door, room);
+    const centre = sketch.symbolCentrePx(door, room);
+    const half = sketch.symbolWidthPx(door, room) / 2;
+    const jamb = sketch.pointOnWall(wall, (hingeAtEnd ? centre + half : centre - half) / wall.lengthPx);
+    // Local +y is into the room on a clockwise ring; a reversed swing draws on the other side.
+    const dx = (wall.x2 - wall.x1) / wall.lengthPx;
+    const dy = (wall.y2 - wall.y1) / wall.lengthPx;
+    const inward = { x: -dy, y: dx };
+    const side = swingReversed ? -1 : 1;
+    return { jamb, swing: { x: inward.x * side, y: inward.y * side }, inward };
+  };
+
+  test("a door comes in hinged on the jamb the phone said and swinging the way it said, on every wall", () => {
+    const PXM = 39.3701;
+    for (const [what, outline] of [
+      ["a ring written clockwise", box],
+      // Written the other way round: the importer turns it to clockwise, and "start" is then the wall's far end.
+      ["a ring written counter-clockwise", [[0, 0], [0, 3], [4, 3], [4, 0]]],
+    ]) {
+      for (let edge = 0; edge < 4; edge++) {
+        for (const hinge of ["start", "end"]) {
+          for (const swing of ["in", "out"]) {
+            const opening = { edge, from_m: 0.6, width_m: 0.8, kind: "door", sill_m: null, head_m: null, door_type: "swing", leaves: "single", hinge, swing };
+            const { room, doors } = doorsOf(oneRoom(outline, [opening]));
+            const door = doors[0];
+            const at = hungAt(room, door);
+            // Where the phone's hinged jamb is, in the room's pixels: the ring's corner at (0, 0) is the room's top-left.
+            const a = outline[edge];
+            const b = outline[(edge + 1) % 4];
+            const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+            const along = opening.from_m + (hinge === "start" ? 0 : opening.width_m);
+            const bounds = sketch.roomBounds(room);
+            const want = { x: bounds.minX + (a[0] + ((b[0] - a[0]) / len) * along) * PXM, y: bounds.minY + (a[1] + ((b[1] - a[1]) / len) * along) * PXM };
+            const label = `${what}, edge ${edge}, hinge ${hinge}, swing ${swing}`;
+            near(at.jamb.x, want.x, `${label}: hinged jamb x`, 1.5);
+            near(at.jamb.y, want.y, `${label}: hinged jamb y`, 1.5);
+            const into = at.swing.x * at.inward.x + at.swing.y * at.inward.y;
+            assert(swing === "in" ? into > 0.9 : into < -0.9, `${label}: swings ${into > 0 ? "in" : "out"}`);
+          }
+        }
+      }
+    }
+  });
+
+  test("a door's hinge and swing are mirrors on any wall, the identity when the phone says nothing", () => {
+    const across = { horizontal: true };
+    const down = { horizontal: false };
+    const flips = (wall, reversed, door) => JSON.stringify(scan.doorFlips(wall, reversed, door));
+    assert(flips(across, false, {}) === JSON.stringify({ flipX: false, flipY: false }), "nothing said, nothing mirrored");
+    assert(flips(across, false, { hinge: "end", swing: "out" }) === JSON.stringify({ flipX: true, flipY: true }), "across: hinge in X, swing in Y");
+    assert(flips(down, false, { hinge: "end", swing: "in" }) === JSON.stringify({ flipX: false, flipY: true }), "down: hinge in Y");
+    assert(flips(down, false, { hinge: "start", swing: "out" }) === JSON.stringify({ flipX: true, flipY: false }), "down: swing in X");
+    assert(flips(across, true, { hinge: "start" }) === JSON.stringify({ flipX: true, flipY: false }), "reversed: the start is the wall's far end");
+  });
+
+  test("a capture's doors carry the phone's types through the multi-room import", () => {
+    const typed = JSON.parse(captureTaps);
+    typed.rooms[0].outline_openings = typed.rooms[0].outline_openings.map((o) =>
+      o.kind === "door" ? { ...o, door_type: "pocket", leaves: "double", hinge: "end", swing: "out" } : o,
+    );
+    const result = importedCapture(JSON.stringify(typed));
+    const all = [result.room, ...result.extraRooms];
+    const doors = all.flatMap((r) => r.symbols.filter((s) => s.type === "door"));
+    assert(doors.some((d) => d.doorType === "pocket" && d.leaves === "double"), `a pocket pair came in: ${JSON.stringify(doors.map((d) => d.doorType))}`);
+    // The untyped rooms' doors are guessed as before.
+    const plain = importedCapture(captureTaps);
+    const plainDoors = [plain.room, ...plain.extraRooms].flatMap((r) => r.symbols.filter((s) => s.type === "door"));
+    assert(plainDoors.every((d) => d.doorType === "swing" || d.doorType === "bifold" || d.doorType === "opening"), "untyped doors guessed");
+  });
+
   return { passed, failures };
 }
 
