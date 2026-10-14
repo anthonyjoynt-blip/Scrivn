@@ -13,12 +13,21 @@ import { TRIAL_CLAIM_LIMIT, USAGE_WARNING_THRESHOLD } from "@/lib/plans";
  *
  * Renders nothing below the threshold, and nothing at all for a signed-out visitor or one with no
  * plan; "you have no subscription" is the pricing page's job, not a permanent banner.
+ *
+ * A declined card comes first (2026-10-14): it is the one thing on this list with a date attached,
+ * and the plan works normally until then, so the usage numbers can wait.
  */
 export async function UsageBanner() {
   if (!isSupabaseConfigured()) return null;
 
   const usage = await getUsageState();
   if (!usage) return null;
+
+  // Paused unless trial claims are left to carry on with (lib/usage.ts lets those through).
+  if (usage.paymentFailedAt) {
+    const paused = !usage.onTrial && (usage.paymentOverdue || usage.noPlan);
+    return <PaymentFailedBanner paused={paused} graceEndsAt={usage.noPlan ? null : usage.paymentGraceEndsAt} canUpdate={usage.canManageBilling} />;
+  }
 
   // Trial users get their own banner: their "limit" is the trial allowance, and the way out is
   // choosing a plan rather than waiting for a period reset that will never come.
@@ -75,6 +84,31 @@ export async function UsageBanner() {
 }
 
 const OWNER_MANAGES_PLAN = "Your organization’s owner manages the plan.";
+
+/**
+ * The card was declined. Until the grace period ends nothing has stopped, and the banner says so with
+ * the date; after it, generating is paused (lib/usage.ts) and the banner says that instead. Either
+ * way the way out is the card, in Stripe's billing portal — not the pricing page, since the plan is
+ * still theirs once the payment goes through.
+ */
+function PaymentFailedBanner({ paused, graceEndsAt, canUpdate }: { paused: boolean; graceEndsAt: string | null; canUpdate: boolean }) {
+  const action = canUpdate ? <a href="/api/portal">Update your card</a> : <>Your organization’s owner can update the card.</>;
+  if (paused) {
+    return (
+      <div className="usage-banner usage-banner-blocked" role="status">
+        <strong>Your card payment didn’t go through, so generating new documents is paused.</strong> {action}
+        {canUpdate ? " and it starts again as soon as the payment is taken." : ""}
+      </div>
+    );
+  }
+  const until = graceEndsAt ? new Date(graceEndsAt).toLocaleDateString() : null;
+  return (
+    <div className="usage-banner" role="status">
+      <strong>Your last card payment didn’t go through.</strong> Scrivn keeps working{until ? ` until ${until}` : ""} while the card is tried again. {action}
+      {canUpdate ? " to sort it out now." : ""}
+    </div>
+  );
+}
 
 /**
  * Where the banner points: the pricing page, for whoever can buy. A teammate cannot (only the owner

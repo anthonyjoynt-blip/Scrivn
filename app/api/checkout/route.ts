@@ -6,6 +6,7 @@ import { BILLING_DISABLED_MESSAGE, isBillingEnabled } from "@/lib/billingGate";
 import { priceIdForTier, scanPriceId } from "@/lib/stripe/prices";
 import { PLANS, SCAN_SEATS, SCAN_TIER, SEAT_PRICING, checkoutQuantity, isScanTier, isScrivnTier, scanTeamRefusal, type ScanInterval, type SubscriptionTier } from "@/lib/plans";
 import { canManageBilling, isOrgRole } from "@/lib/teams";
+import { cleanEnv } from "@/lib/env";
 
 /** Random 8-letter suffix for `integration_identifier` — lets checkout flows be compared in the Stripe Dashboard. */
 function integrationIdentifier(): string {
@@ -13,6 +14,16 @@ function integrationIdentifier(): string {
   let suffix = "";
   for (let i = 0; i < 8; i++) suffix += letters[Math.floor(Math.random() * letters.length)];
   return `scrivn-pricing-${suffix}`;
+}
+
+/**
+ * Stripe Tax on the checkout — STRIPE_AUTOMATIC_TAX=true (STRIPE.md, "Go-live day"). Off until the
+ * accountant has answered and Dashboard → Tax shows the settings active with a registration: with it
+ * on before then, Stripe refuses to open the checkout. `customer_update.address` lets Checkout save the
+ * address it taxes on, rather than reuse a returning customer's stale one.
+ */
+function automaticTax() {
+  return cleanEnv("STRIPE_AUTOMATIC_TAX") === "true" ? { automatic_tax: { enabled: true }, customer_update: { address: "auto" as const } } : {};
 }
 
 /**
@@ -142,6 +153,7 @@ export async function POST(request: Request) {
       // change of mind.
       cancel_url: `${origin}${returnPath}`,
       integration_identifier: integrationIdentifier(),
+      ...automaticTax(),
     });
 
     if (!session.url) {

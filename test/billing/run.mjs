@@ -14,6 +14,9 @@
  * of that code over every combination of tier, counter, trial and date that matters — plus the
  * owner-only billing flag, the seat model that has not been priced, how a Stripe event finds its
  * organization, and which errors mean "0011 is not applied yet".
+ *
+ * A declined card (0013, 2026-10-14): which payment events are about the plan held, the grace period
+ * and what the usage numbers say during and after it.
  */
 import { build } from "esbuild";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -43,6 +46,7 @@ await build({
 const {
   subscriptionEventApplies, scanSubscriptionsToCancel, billingLookups, PLANS, SCAN_TIER, SCAN_PLAN, planForTier, claimLimitForTier, isScanTier, isScrivnTier,
   TRIAL_CLAIM_LIMIT, TRIAL_DAYS, SEAT_PRICING, SCAN_SEATS, seatLimitFor, scanTeamRefusal, checkoutQuantity, usageFromBilling, isBillingSchemaMissing,
+  PAYMENT_GRACE_DAYS, paymentEventApplies, paymentGraceEndsAt, withinPaymentGrace, WEBHOOK_EVENTS,
 } = await import(pathToFileURL(bundlePath).href);
 
 let passed = 0;
@@ -225,6 +229,39 @@ check(SCAN_PLAN.features.includes("For one person"), "and the plan says so where
   );
   check(JSON.stringify(billingLookups({ customerId: "cus_1" })) === JSON.stringify([{ by: "customer", value: "cus_1" }]), "a subscription event, carrying only its customer, by the customer");
   check(JSON.stringify(billingLookups({ clientReferenceId: "not-a-uuid", customerId: null })) === "[]", "and a reference that cannot be an id is not sent to Postgres at all");
+}
+
+/* ── A declined card: the grace period (0013) ──────────────────────────────────────────────────── */
+
+{
+  check(
+    JSON.stringify([...WEBHOOK_EVENTS].sort()) === JSON.stringify(["checkout.session.completed", "customer.subscription.deleted", "customer.subscription.updated", "invoice.paid", "invoice.payment_failed"]),
+    "the webhook acts on, and the go-live script asks Stripe for, the three plan events and the two invoice events",
+  );
+  check(PAYMENT_GRACE_DAYS === 7, "the grace period is 7 days, matching Stripe's retries set to 1 week (STRIPE.md)");
+  const failed = "2026-11-01T09:30:00.000Z";
+  check(paymentGraceEndsAt(failed) === "2026-11-08T09:30:00.000Z", "and runs 7 days from the first failure");
+  const at = (days) => Date.parse(failed) + days * 86_400_000;
+  check(withinPaymentGrace(failed, at(0)) && withinPaymentGrace(failed, at(6.9)) && withinPaymentGrace(failed, at(7)), "the plan keeps working from the failure through the seventh day");
+  check(!withinPaymentGrace(failed, at(7.01)) && !withinPaymentGrace(failed, at(30)), "and not after it");
+
+  check(paymentEventApplies({ eventTier: "growth", storedTier: "growth" }), "a payment on the plan held is about it");
+  check(paymentEventApplies({ eventTier: "growth", storedTier: null }), "including one whose plan was already taken away after the grace (paying brings it back)");
+  check(paymentEventApplies({ eventTier: "scan", storedTier: "scan" }), "the Scan plan's own payments are about it");
+  check(!paymentEventApplies({ eventTier: "scan", storedTier: "starter" }), "a Scan invoice never touches a Scrivn plan, which already covers Scan");
+  check(!paymentEventApplies({ eventTier: null, storedTier: "starter" }), "and a price this deployment doesn't know is about no plan of ours");
+
+  const owner = { organizationId: "o", role: "owner" };
+  const growth = { subscription_tier: "growth", claims_used_this_period: 10 };
+  const paid = usageFromBilling(growth, owner, at(1));
+  check(paid.paymentFailedAt === null && paid.paymentGraceEndsAt === null && !paid.paymentOverdue, "a plan paid up shows no failure (and nor does any database without 0013, whose rows carry no payment_failed_at)");
+  const during = usageFromBilling({ ...growth, payment_failed_at: failed }, owner, at(3));
+  check(during.paymentFailedAt === failed && during.paymentGraceEndsAt === "2026-11-08T09:30:00.000Z" && !during.paymentOverdue, "three days in: the failure and its date are shown, nothing is paused");
+  check(!during.noPlan && !during.atLimit && during.remaining === 65, "and the plan works as normal, the allowance untouched");
+  const after = usageFromBilling({ ...growth, payment_failed_at: failed }, owner, at(8));
+  check(after.paymentOverdue && !after.noPlan, "eight days in, the webhook may still hold the tier (Stripe sends nothing that day), and the read says the grace is over");
+  const gone = usageFromBilling({ subscription_tier: null, trial_claims_used: 5, payment_failed_at: failed }, owner, at(9));
+  check(gone.noPlan && gone.paymentFailedAt === failed, "once past due ends the plan, the failure is still shown, so the way back is the card and not a second plan");
 }
 
 rmSync(outDir, { recursive: true, force: true });

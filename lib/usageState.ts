@@ -1,5 +1,6 @@
 import { TRIAL_CLAIM_LIMIT, TRIAL_DAYS, claimLimitForTier, planForTier } from "./plans";
 import { canManageBilling, type OrgRole } from "./teams";
+import { paymentGraceEndsAt } from "./billingTiers";
 
 /**
  * What an organization's plan, counter and trial add up to — the arithmetic half of `lib/usage.ts`,
@@ -41,6 +42,14 @@ export interface UsageState {
   canManageBilling: boolean;
   /** People the plan covers; null = no limit (no seat price has been chosen — see SEAT_PRICING). */
   seatLimit: number | null;
+
+  // ---- A card that failed (0013) — null/false on a database without it ----
+  /** When the card first failed for the plan's unpaid invoice; null when the plan is paid up. */
+  paymentFailedAt: string | null;
+  /** When the plan stops working unless the card is updated — PAYMENT_GRACE_DAYS after the failure. */
+  paymentGraceEndsAt: string | null;
+  /** The grace period has run out with the invoice still unpaid: generating is paused. */
+  paymentOverdue: boolean;
 }
 
 /**
@@ -67,6 +76,7 @@ export interface OrganizationBillingRow {
   trial_started_at?: string | null;
   trial_claims_used?: number | null;
   seat_limit?: number | null;
+  payment_failed_at?: string | null;
 }
 
 export function usageFromBilling(
@@ -91,6 +101,9 @@ export function usageFromBilling(
   const trialExpiredReason: "claims" | "time" | null = !noPlan ? null : claimsSpent ? "claims" : windowClosed ? "time" : null;
   const onTrial = noPlan && trialExpiredReason === null;
 
+  const paymentFailedAt = row?.payment_failed_at ?? null;
+  const graceEndsAt = paymentFailedAt ? paymentGraceEndsAt(paymentFailedAt) : null;
+
   return {
     tier,
     used,
@@ -109,5 +122,8 @@ export function usageFromBilling(
     role: membership.role,
     canManageBilling: membership.role === null || canManageBilling(membership.role),
     seatLimit: row?.seat_limit ?? null,
+    paymentFailedAt,
+    paymentGraceEndsAt: graceEndsAt,
+    paymentOverdue: graceEndsAt !== null && now > new Date(graceEndsAt).getTime(),
   };
 }

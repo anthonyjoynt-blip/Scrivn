@@ -15,6 +15,11 @@
  *      only through the service role?
  *   3. While the previous build is still live after 0011 runs, do its profile writes reach the
  *      organization (the cutover mirror), without ever touching a team?
+ *   4. A declined card (0013): is the first failure's time kept, the owner told once per invoice, the
+ *      failure cleared only by a payment that came after it — and all of it out of the browser's
+ *      reach?
+ *   5. A generation counted once (0013): does an id finished twice count once? (The route around it
+ *      is tested in test/billing/routes.mjs.)
  */
 import { build } from "esbuild";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -209,6 +214,75 @@ const count = (orgId, onTrial) => s.service(`select * from public.org_count_clai
   await s.sql(`update public.profiles set claims_used_this_period = 0, subscription_tier = null where id = $1`, [people.paid]);
   const after = await orgBilling(people.paid);
   check(after.claims_used_this_period === 11 && after.subscription_tier === "growth", "a stray write to the owner's old profile columns never moves a team's plan");
+}
+
+/* ── 4. A declined card (0013) ─────────────────────────────────────────────────────────────────── */
+
+{
+  const owner = await s.createUser({ email: "card@x.test", fullName: "Card Declined" });
+  const org = await orgOf(owner);
+  await s.sql(`update public.organizations set subscription_tier = 'growth', claims_used_this_period = 12, stripe_customer_id = 'cus_card' where id = $1`, [org]);
+  const failed = (invoice, at) => s.service(`select * from public.org_payment_failed($1, $2, $3)`, [org, invoice, at]);
+  const settled = (at) => s.service(`select public.org_payment_settled($1, $2) as cleared`, [org, at]);
+  const state = async () => (await s.sql(`select payment_failed_at, payment_failed_invoice, subscription_tier from public.organizations where id = $1`, [org]))[0];
+
+  const first = await failed("in_1", "2026-11-01T09:30:00Z");
+  check(first.error === null && iso(rows(first)[0]?.failed_since) === "2026-11-01T09:30:00.000Z" && rows(first)[0]?.first_notice === true, `the first failure is recorded, and is the one the owner hears about (got ${first.error?.message ?? JSON.stringify(rows(first))})`);
+  const retry = await failed("in_1", "2026-11-03T09:30:00Z");
+  check(iso(rows(retry)[0]?.failed_since) === "2026-11-01T09:30:00.000Z" && rows(retry)[0]?.first_notice === false, "Stripe's retry of the same invoice fails again: the grace still runs from the first, and nobody is emailed twice");
+  const twice = await failed("in_1", "2026-11-01T09:30:00Z");
+  check(rows(twice)[0]?.first_notice === false, "nor when Stripe delivers the same event twice");
+  const pastDue = await failed(null, "2026-10-31T23:00:00Z");
+  check(iso(rows(pastDue)[0]?.failed_since) === "2026-10-31T23:00:00.000Z" && rows(pastDue)[0]?.first_notice === false, "a past-due event with an earlier time (events arrive in any order) moves the start back, and is no notice on its own");
+  check((await state()).payment_failed_invoice === "in_1", "and leaves the invoice as it was");
+  const next = await failed("in_2", "2026-12-01T09:30:00Z");
+  check(rows(next)[0]?.first_notice === true && iso(rows(next)[0]?.failed_since) === "2026-10-31T23:00:00.000Z", "a different invoice is news, but the grace still runs from the first failure");
+
+  const u = usageFromBilling(asApi(await s.sql(`select subscription_tier, claims_used_this_period, payment_failed_at from public.organizations where id = $1`, [org]).then((r) => ({ ...r[0], payment_failed_at: iso(r[0].payment_failed_at) }))), { organizationId: org, role: "owner" }, Date.parse("2026-11-03T00:00:00Z"));
+  check(u.paymentFailedAt === "2026-10-31T23:00:00.000Z" && !u.paymentOverdue && !u.atLimit, "lib/usage.ts reads the failure from the organization, inside the grace");
+
+  const stale = await settled("2026-10-30T00:00:00Z");
+  check(rows(stale)[0]?.cleared === false && (await state()).payment_failed_at !== null, "an 'active' event from before the card failed does not clear the failure");
+  const paid = await settled("2026-11-04T10:00:00Z");
+  const after = await state();
+  check(rows(paid)[0]?.cleared === true && after.payment_failed_at === null && after.payment_failed_invoice === null && after.subscription_tier === "growth", "a payment after it clears both columns and nothing else");
+  check(rows(await settled("2026-11-05T00:00:00Z"))[0]?.cleared === false, "and with nothing failed there is nothing to clear");
+
+  for (const set of ["payment_failed_at = null", "payment_failed_invoice = null"]) {
+    const r = await s.as(owner, `update public.organizations set ${set} where id = $1`, [org]);
+    check(r.error?.code === "42501", `the owner cannot set ${set.split(" ")[0]} from the browser, so cannot end their own grace early or hide a failure (got ${r.error?.code ?? "ACCEPTED"})`);
+  }
+  const seen = await s.as(owner, `select payment_failed_at from public.organizations where id = $1`, [org]);
+  check(seen.error === null && rows(seen).length === 1, "but can read it, which is what the banner does");
+  for (const call of [`select * from public.org_payment_failed($1, 'in_x', now())`, `select public.org_payment_settled($1, now())`]) {
+    const r = await s.as(owner, call, [org]);
+    check(r.error !== null, `a signed-in person cannot call ${call.match(/org_payment_\w+/)[0]}`);
+    const a = await s.as(null, call, [org]);
+    check(a.error !== null, "nor can the anon key");
+  }
+  const nobody = await s.service(`select * from public.org_payment_failed('00000000-0000-0000-0000-000000000000', 'in_1', now())`);
+  check(nobody.error === null && rows(nobody).length === 0, "an organization that does not exist records nothing and returns no row");
+}
+
+/* ── 5. A generation counted once (0013) ───────────────────────────────────────────────────────── */
+
+{
+  const pm = await s.createUser({ email: "once@x.test" });
+  const org = await orgOf(pm);
+  const job = "0f0f0f0f-0000-4000-8000-000000000001";
+  const usedNow = async () => (await s.sql(`select trial_claims_used from public.organizations where id = $1`, [org]))[0].trial_claims_used;
+  const begin = async () => rows(await s.service(`select * from public.generation_job_begin($1, $2, $3)`, [job, pm, org]))[0];
+  const finish = (doc) => s.service(`select * from public.generation_job_finish($1, $2, true, $3::jsonb)`, [job, pm, JSON.stringify(doc)]);
+
+  check((await begin())?.outcome === "new", "a new id begins");
+  check((await begin())?.outcome === "running", "the same id again while it runs is running");
+  const first = await finish({ scopeDocument: "first" });
+  check(rows(first)[0]?.used_before === 0 && rows(first)[0]?.used_after === 1, "finishing it counts the claim");
+  // The answer is lost; the device sends the same id again.
+  const again = await begin();
+  check(again?.outcome === "done" && again?.saved?.scopeDocument === "first", "begun again, it is done, with the documents kept");
+  const second = await finish({ scopeDocument: "second" });
+  check(rows(second).length === 0 && (await usedNow()) === 1, "and finishing it a second time counts nothing: a lost answer plus a retry counts once");
 }
 
 await s.close();

@@ -4,8 +4,20 @@ import { getStripe } from "@/lib/stripe/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { cleanEnv } from "@/lib/env";
 import { scanPriceIds } from "@/lib/stripe/prices";
-import { SCAN_TIER, seatLimitFor } from "@/lib/plans";
-import { billingLookups, scanSubscriptionsToCancel, subscriptionEventApplies, type BillingLookup } from "@/lib/billingTiers";
+import { SCAN_PLAN, SCAN_TIER, isScanTier, planForTier, seatLimitFor } from "@/lib/plans";
+import {
+  WEBHOOK_EVENTS,
+  billingLookups,
+  paymentEventApplies,
+  paymentGraceEndsAt,
+  scanSubscriptionsToCancel,
+  subscriptionEventApplies,
+  withinPaymentGrace,
+  type BillingLookup,
+} from "@/lib/billingTiers";
+import { isBillingSchemaMissing } from "@/lib/usageState";
+import { sendEmail } from "@/lib/email/send";
+import { PaymentFailedEmail } from "@/emails/PaymentFailed";
 
 /**
  * The Stripe webhook — what makes a subscription real to this app rather than only to Stripe.
@@ -27,10 +39,15 @@ import { billingLookups, scanSubscriptionsToCancel, subscriptionEventApplies, ty
  * the owner can reach checkout (app/api/checkout), and the organization an event is about is found
  * by `billingLookups` — the organization id checkout sends, the person id it sent before 0011, or the
  * Stripe customer stored on the organization.
+ *
+ * A declined card (2026-10-14, 0013): `invoice.payment_failed` records the failure and emails the
+ * owner once per invoice; the subscription turning past due keeps its plan for PAYMENT_GRACE_DAYS
+ * from the first failure, instead of losing it on the spot; `invoice.paid` clears it. On a database
+ * without 0013 the plan goes at the first failure, as it did before.
  */
 
-/** Handled events. Renewals arrive as `customer.subscription.updated` with a later period end. */
-const HANDLED = new Set(["checkout.session.completed", "customer.subscription.updated", "customer.subscription.deleted"]);
+/** Handled events — `WEBHOOK_EVENTS` in lib/billingTiers.ts, which the go-live script prints. */
+const HANDLED = new Set<string>(WEBHOOK_EVENTS);
 
 export async function POST(request: Request) {
   const secret = cleanEnv("STRIPE_WEBHOOK_SECRET");
@@ -72,7 +89,13 @@ export async function POST(request: Request) {
         break;
       case "customer.subscription.updated":
       case "customer.subscription.deleted":
-        await handleSubscriptionChange(event.data.object, event.type === "customer.subscription.deleted");
+        await handleSubscriptionChange(event.data.object, event.type === "customer.subscription.deleted", eventTime(event));
+        break;
+      case "invoice.payment_failed":
+        await handlePaymentFailed(event.data.object, eventTime(event), stripe);
+        break;
+      case "invoice.paid":
+        await handleInvoicePaid(event.data.object, eventTime(event), stripe);
         break;
     }
   } catch (err) {
@@ -83,6 +106,11 @@ export async function POST(request: Request) {
   }
 
   return NextResponse.json({ received: true });
+}
+
+/** When Stripe says the event happened, which orders a failure against the payment that clears it. */
+function eventTime(event: Stripe.Event): string {
+  return new Date(event.created * 1000).toISOString();
 }
 
 /** Maps a Stripe Price ID back to one of our tiers. Env lookup, so a re-pointed price needs no code change. */
@@ -211,7 +239,7 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session, stripe:
   });
 }
 
-async function handleSubscriptionChange(subscription: Stripe.Subscription, deleted: boolean) {
+async function handleSubscriptionChange(subscription: Stripe.Subscription, deleted: boolean, at: string) {
   const customerId = typeof subscription.customer === "string" ? subscription.customer : subscription.customer?.id;
   if (!customerId) return;
 
@@ -226,14 +254,18 @@ async function handleSubscriptionChange(subscription: Stripe.Subscription, delet
 
   if (deleted) {
     // Cancelled: back to no plan. Usage is left as-is rather than zeroed — resetting it would hand
-    // a full fresh allowance to anyone who cancels and resubscribes.
+    // a full fresh allowance to anyone who cancels and resubscribes. Stripe also cancels after the
+    // last retry of a declined card; the failure goes with the plan it was about.
     await updateOrganization(admin, org.id, { subscription_tier: null, period_reset_at: null, seat_limit: null });
+    await settlePayment(admin, org.id, at);
     return;
   }
 
-  // A subscription that's past due, unpaid, or cancelled shouldn't keep its plan active.
+  // A subscription that's unpaid or cancelled shouldn't keep its plan active. Past due — a renewal
+  // the card did not pay, which Stripe is still retrying — keeps it through the grace period.
   const active = subscription.status === "active" || subscription.status === "trialing";
-  const tier = active ? eventTier : null;
+  const inGrace = subscription.status === "past_due" && eventTier !== null && (await planKeptWhilePastDue(admin, org.id, at));
+  const tier = active || inGrace ? eventTier : null;
   const newPeriodEnd = periodEndIso(subscription);
 
   // A renewal shows up here as a period end later than the one we stored — that, not a separate
@@ -248,4 +280,124 @@ async function handleSubscriptionChange(subscription: Stripe.Subscription, delet
     seat_limit: seatLimitFor(tier, quantityOf(subscription)),
     ...(isNewPeriod ? { claims_used_this_period: 0 } : {}),
   });
+
+  // Active again: whatever failed before this has been paid.
+  if (active) await settlePayment(admin, org.id, at);
+}
+
+/* ── A declined card (0013) ────────────────────────────────────────────────────────────────────── */
+
+/**
+ * The subscription an invoice bills, if it bills one. A one-off invoice is not about a plan.
+ *
+ * Events arrive in the API version of the endpoint they were sent to, which is fixed when the
+ * endpoint is registered; before 2025-03-31 the subscription sat on the invoice itself. Both shapes
+ * are read, as `periodEndIso` reads both shapes of the period end.
+ */
+function subscriptionOfInvoice(invoice: Stripe.Invoice): string | null {
+  const subscription = invoice.parent?.subscription_details?.subscription ?? (invoice as unknown as { subscription?: string | { id: string } | null }).subscription;
+  return typeof subscription === "string" ? subscription : (subscription?.id ?? null);
+}
+
+/**
+ * Records a failure through `org_payment_failed`, keeping the time of the first. Null on a database
+ * without 0013, where there is nowhere to keep it.
+ */
+async function recordPaymentFailure(
+  admin: ReturnType<typeof createAdminClient>,
+  organizationId: string,
+  invoiceId: string | null,
+  failedAt: string,
+): Promise<{ since: string; firstNotice: boolean } | null> {
+  const { data, error } = await admin.rpc("org_payment_failed", { org_id: organizationId, invoice_id: invoiceId, failed_at: failedAt });
+  if (error && isBillingSchemaMissing(error)) return null;
+  if (error) throw new Error(`could not record the failed payment: ${error.message}`);
+  const row = (Array.isArray(data) ? data[0] : data) as { failed_since?: string; first_notice?: boolean } | undefined;
+  if (!row?.failed_since) return null;
+  return { since: new Date(row.failed_since).toISOString(), firstNotice: row.first_notice === true };
+}
+
+/** Clears a failure from before `at` (`org_payment_settled`). Nothing to clear without 0013. */
+async function settlePayment(admin: ReturnType<typeof createAdminClient>, organizationId: string, at: string) {
+  const { error } = await admin.rpc("org_payment_settled", { org_id: organizationId, paid_at: at });
+  if (error && !isBillingSchemaMissing(error)) throw new Error(`could not clear the failed payment: ${error.message}`);
+}
+
+/**
+ * Whether a past-due subscription keeps its plan: yes for PAYMENT_GRACE_DAYS from the first failure.
+ * The failure is recorded here too, because Stripe does not promise that `invoice.payment_failed`
+ * arrives before the subscription turns past due. Without 0013, no: the plan goes, as before.
+ */
+async function planKeptWhilePastDue(admin: ReturnType<typeof createAdminClient>, organizationId: string, at: string): Promise<boolean> {
+  const failure = await recordPaymentFailure(admin, organizationId, null, at);
+  return failure !== null && withinPaymentGrace(failure.since, new Date(at).getTime());
+}
+
+async function handlePaymentFailed(invoice: Stripe.Invoice, at: string, stripe: Stripe) {
+  const subscriptionId = subscriptionOfInvoice(invoice);
+  const customerId = typeof invoice.customer === "string" ? invoice.customer : invoice.customer?.id;
+  if (!subscriptionId || !customerId) return;
+
+  const admin = createAdminClient();
+  const org = await findOrganization(admin, billingLookups({ customerId }));
+  if (!org) return;
+
+  const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+  const eventTier = tierForPriceId(subscription.items.data[0]?.price?.id);
+  if (!paymentEventApplies({ eventTier, storedTier: org.subscription_tier })) return;
+
+  const failure = await recordPaymentFailure(admin, org.id, invoice.id ?? null, at);
+  // Without 0013 the plan went the moment the subscription turned past due, as it always did, so
+  // there is no grace to tell anyone about: the in-app refusal says what to do.
+  if (!failure?.firstNotice) return;
+
+  const to = (await ownerEmail(admin, org.id)) ?? invoice.customer_email ?? null;
+  if (!to) {
+    console.error("[stripe webhook] a card was declined and the organization has nobody to tell:", org.id);
+    return;
+  }
+  const planName = planForTier(eventTier)?.name ?? (isScanTier(eventTier) ? SCAN_PLAN.name.replace(/^Scrivn /, "") : "Scrivn");
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://scrivn.ca";
+  // A failed send is logged by sendEmail, not thrown: the failure is recorded either way, and a
+  // retry of this event would find the invoice already noticed and send nothing.
+  await sendEmail({
+    to,
+    subject: "Your Scrivn card payment didn't go through",
+    react: PaymentFailedEmail({
+      planName,
+      amount: formatAmount(invoice.amount_due, invoice.currency),
+      graceEndDate: new Date(paymentGraceEndsAt(failure.since)).toLocaleDateString("en-CA", { month: "long", day: "numeric", year: "numeric", timeZone: "America/Toronto" }),
+      updateUrl: `${baseUrl}/billing`,
+    }),
+  });
+}
+
+async function handleInvoicePaid(invoice: Stripe.Invoice, at: string, stripe: Stripe) {
+  const subscriptionId = subscriptionOfInvoice(invoice);
+  const customerId = typeof invoice.customer === "string" ? invoice.customer : invoice.customer?.id;
+  if (!subscriptionId || !customerId) return;
+
+  const admin = createAdminClient();
+  const org = await findOrganization(admin, billingLookups({ customerId }));
+  if (!org) return;
+
+  const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+  const eventTier = tierForPriceId(subscription.items.data[0]?.price?.id);
+  if (!paymentEventApplies({ eventTier, storedTier: org.subscription_tier })) return;
+  await settlePayment(admin, org.id, at);
+}
+
+/** The organization owner's address: the one person who can update the card. */
+async function ownerEmail(admin: ReturnType<typeof createAdminClient>, organizationId: string): Promise<string | null> {
+  const { data: owner } = await admin.from("organization_members").select("user_id").eq("organization_id", organizationId).eq("role", "owner").maybeSingle();
+  const ownerId = typeof owner?.user_id === "string" ? owner.user_id : null;
+  if (!ownerId) return null;
+  const { data } = await admin.auth.admin.getUserById(ownerId);
+  return data?.user?.email ?? null;
+}
+
+/** "$44.07 CAD", from Stripe's cents. */
+function formatAmount(cents: number | null | undefined, currency: string | null | undefined): string | null {
+  if (typeof cents !== "number" || !currency) return null;
+  return `$${(cents / 100).toFixed(2)} ${currency.toUpperCase()}`;
 }

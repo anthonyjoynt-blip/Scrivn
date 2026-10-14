@@ -40,7 +40,8 @@
     "test:exterior:trace": "node test/exterior/trace.mjs",
     "test:sw": "node test/sw/run.mjs",
     "test:letterhead": "node test/letterhead/run.mjs",
-    "test:billing": "node test/billing/run.mjs && node test/billing/db.mjs",
+    "test:billing": "node test/billing/run.mjs && node test/billing/db.mjs && node test/billing/routes.mjs",
+    "test:billing:stripe": "node test/billing/stripe-e2e.mjs",
     "test:device": "node test/device/run.mjs",
     "test:device:rls": "node test/device/rls.mjs"
   },
