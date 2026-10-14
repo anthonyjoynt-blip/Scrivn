@@ -6,7 +6,7 @@ import { CLADDING_KINDS, CLADDING_LABEL, type ExteriorOpeningKind, type Exterior
 import { fillOutside, type PhotoPixels, squareFrame, type SquareFrame, squareUp } from "@/lib/exteriorPhoto";
 import { applyTrace, type SideTrace, type TraceProposals, type TraceRequest, type TraceResponse } from "@/lib/exteriorTrace";
 import { formatQuantity } from "@/lib/sketchQuantities";
-import { ElevationDrawing, type ElevationReach } from "./exteriorDrawings";
+import { ElevationDrawing, type ElevationReach, type ElevationView } from "./exteriorDrawings";
 
 /**
  * A side's elevation with its photo squared up behind it, and the AI trace of that photo
@@ -254,6 +254,7 @@ export function SideElevation({
   trace,
   onTrace,
   onUpdate,
+  editor,
 }: {
   side: ExteriorSide;
   rise: RoofRise | null;
@@ -264,6 +265,8 @@ export function SideElevation({
   trace: SideTrace | undefined;
   onTrace: (t: SideTrace | undefined) => void;
   onUpdate: (f: (side: ExteriorSide) => ExteriorSide) => void;
+  /** What is tapped and dragged to edit the side face-on: see ElevationDrawing. */
+  editor?: (view: ElevationView) => ReactNode;
 }) {
   const photos = side.photos ?? [];
   const photo = useSquaredPhoto(side);
@@ -348,6 +351,7 @@ export function SideElevation({
         overlay={trace && picks ? traceOverlay(trace.proposals, picks) : undefined}
         reach={reach}
         seeThrough={showPhoto}
+        editor={editor}
       />
       {caption}
       {photos.length > 0 && (

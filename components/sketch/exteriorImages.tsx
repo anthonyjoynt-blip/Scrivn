@@ -107,6 +107,8 @@ function roofSvg(exterior: Exterior): { svg: string; width: number; height: numb
     slopes: exterior.roof.slopes ?? null,
     edges: exterior.roof.edges ?? null,
     ridgeVents: exterior.roof.ridgeVents ?? [],
+    // A side only drawn, never taped, is about that long on the page as on the screen.
+    approx: (id: string) => exterior.sides.find((s) => s.id === id)?.lengthFrom === "drawn",
   };
   const planW = WIDTH - 80;
   const planH = Math.round(planW / aspect(markup(createElement(RoofPlanDrawing, props))));
@@ -138,7 +140,7 @@ function roofSvg(exterior: Exterior): { svg: string; width: number; height: numb
     `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${height}" viewBox="0 0 ${WIDTH} ${height}">`,
     `<rect width="${WIDTH}" height="${height}" fill="#ffffff"/>`,
     label(40, 44, "Roof plan", 30, 700),
-    label(40, 78, `${formatPitch(r.pitch)} · ${which} · ${formatQuantity(r.areaSquareFeet)} SF (${r.squares.toFixed(2)} SQ) · to scale, front at the bottom`, 20),
+    label(40, 78, `${formatPitch(r.pitch)}${r.pitchAssumed ? " (assumed)" : ""} · ${which} · ${formatQuantity(r.areaSquareFeet)} SF (${r.squares.toFixed(2)} SQ) · to scale, front at the bottom`, 20),
     `<g transform="translate(40 ${top})">${drawing}</g>`,
     legend,
     slopeList ? label(40, legendY + 40, `Slopes: ${slopeList}`, 18) : "",

@@ -3007,14 +3007,31 @@ button:disabled {
   overflow-y: auto;
   padding-right: 4px;
 }
-.exterior-tabs {
+/* The exterior is a form, not checkboxes with notes under them: its notes sit flush with what they describe. */
+.exterior .field-note {
+  margin-left: 0;
+}
+/* The plan, then each side round the house (2026-10-13). On a phone the row scrolls rather than wrapping into a wall of pills. */
+.exterior-strip {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
   gap: 10px;
 }
-.exterior-tabs .option-group {
+.exterior-strip-tabs {
+  flex: 1;
+  min-width: 0;
   flex-wrap: wrap;
+}
+.sketch-card-phone .exterior-strip-tabs {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  scrollbar-width: thin;
+}
+.sketch-card-phone .exterior-strip-tabs .option-btn {
+  flex: none;
+  white-space: nowrap;
+  padding: 8px 14px;
 }
 .exterior-pane {
   display: grid;
@@ -3288,4 +3305,242 @@ button:disabled {
 }
 .exterior-row .exterior-count {
   width: 3.5rem;
+}
+
+/* ---- the exterior by hand (2026-10-13): the outline drawn on the plan, the walk round, the roof's taps, a side face-on ---- */
+
+/* The plan to draw on: a finger's taps are corners, never a scroll; two fingers still zoom the page, as everywhere. */
+.exterior-draw {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.exterior-draw-svg {
+  touch-action: pinch-zoom;
+  cursor: crosshair;
+  max-height: 64dvh;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.exterior-draw-svg:focus-visible {
+  outline: 2px solid var(--color-navy);
+  outline-offset: 2px;
+}
+.exterior-draw-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.exterior-draw-bar .field-note {
+  margin: 0;
+}
+.exterior-start-ways {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px 24px;
+  align-items: start;
+}
+.exterior-start-way {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.exterior-start-way .exterior-subhead {
+  margin: 0;
+}
+.exterior-start-way .field-note {
+  margin: 0;
+}
+.exterior-start-way > .btn-secondary {
+  align-self: flex-start;
+}
+.exterior-walk,
+.exterior-redraw {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.exterior-walk .field-note,
+.exterior-redraw > .field-note {
+  margin: 0;
+}
+.exterior-walk > .btn-secondary {
+  align-self: flex-start;
+}
+/* The sides round the house, each a way to it face-on and its length to type. */
+.exterior-side-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.exterior-side-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+}
+.exterior-side-item .exterior-feet {
+  width: 6.5rem;
+}
+.exterior-side-open {
+  min-width: 7.5rem;
+  min-height: 36px;
+  padding: 6px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--color-navy-tint);
+  color: var(--color-navy);
+  font: inherit;
+  font-size: 0.88rem;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+.exterior-side-open:hover {
+  border-color: var(--color-navy);
+}
+.exterior-drawn {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--color-amber-dark);
+}
+/* A roof at a pitch nobody gave says so where the roof is. */
+.exterior-assumed {
+  margin: 0;
+  padding: 6px 10px;
+  border-left: 3px solid var(--color-amber);
+  background: #fff8ec;
+  font-size: 0.85rem;
+  color: var(--text);
+}
+.exterior-plan-hint {
+  margin: 0;
+}
+.exterior-plan-hint .btn-secondary {
+  padding: 2px 10px;
+  margin-left: 4px;
+}
+/* What a tap on the plan presses: a side's name, an end's Gable or Hip. */
+.exterior-pill {
+  cursor: pointer;
+}
+.exterior-pill:hover rect,
+.exterior-pill:focus-visible rect {
+  stroke-width: 3px;
+}
+.exterior-pill:focus {
+  outline: none;
+}
+.exterior-svg-placing .exterior-place-wall:hover line:first-child {
+  stroke-opacity: 0.9;
+}
+/* A side face-on: the sides either side, which side this is, and the drawing to edit it on. */
+.exterior-side-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.exterior-side-title {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+.exterior-side-title strong {
+  font-size: 1.05rem;
+  color: var(--color-navy);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.exterior-side-title .field-note {
+  margin: 0;
+}
+.exterior-cycle {
+  flex: none;
+  max-width: 34%;
+  min-height: 40px;
+  padding: 6px 12px;
+  white-space: nowrap;
+}
+.exterior-cycle-name {
+  display: inline-block;
+  max-width: 9rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+}
+.exterior-locator {
+  flex: none;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  cursor: pointer;
+  line-height: 0;
+}
+.exterior-locator:hover {
+  border-color: var(--color-navy);
+}
+.exterior-locator-svg {
+  width: 52px;
+  height: 52px;
+}
+/* The elevation scrolls the page up and down as ever; what is dragged on it, it keeps. */
+.exterior-svg-editing {
+  touch-action: pan-y pinch-zoom;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.exterior-handle,
+.exterior-opening-hit {
+  touch-action: none;
+  cursor: grab;
+}
+.exterior-handle:active,
+.exterior-opening-hit:active {
+  cursor: grabbing;
+}
+.exterior-wall-placing {
+  cursor: copy;
+}
+.exterior-chosen {
+  padding: 8px;
+  border: 1px solid #93c5fd;
+  border-radius: var(--radius);
+  background: #f5f9ff;
+}
+.exterior-picked {
+  outline: 2px solid #2563eb;
+}
+@media (max-width: 460px) {
+  .exterior-cycle-name {
+    max-width: 4.5rem;
+  }
+  .exterior-locator-svg {
+    width: 44px;
+    height: 44px;
+  }
+}
+/* A table's box with its own heading, shown where a phone hides the table's headings. */
+.exterior-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.exterior-cell-label {
+  display: none;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+.exterior-openings .exterior-cell select,
+.exterior-openings .exterior-cell .exterior-feet {
+  width: 100%;
+}
+@media (max-width: 460px) {
+  .exterior-cell-label {
+    display: block;
+  }
 }

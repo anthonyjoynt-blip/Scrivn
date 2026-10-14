@@ -11,7 +11,7 @@ import {
   type RoofRise,
   zFromGrade,
 } from "@/lib/exterior";
-import type { Pt, RoofLineKind, RoofPlan } from "@/lib/roof";
+import type { Pt, RoofLineKind, RoofPlan, RoofSection } from "@/lib/roof";
 import { facetLabels, type LabelBox, labelsOverlap, lineTotals, roofLineLabels, textWidthEm } from "@/lib/roofLabels";
 import { formatQuantity } from "@/lib/sketchQuantities";
 
@@ -91,6 +91,23 @@ export function elevationFontFeet(side: ExteriorSide, rise: RoofRise | null): nu
   return Math.max(0.5, Math.max(Math.max(1, e.maxX - e.minX), e.topZ - e.lowZ) * 0.03);
 }
 
+/** An elevation's frame: its viewBox in the drawing's space (x feet along, y MINUS feet up) and its lettering size. */
+export interface ElevationView {
+  vx: number;
+  vy: number;
+  vw: number;
+  vh: number;
+  fontFeet: number;
+}
+
+function elevationView(side: ExteriorSide, rise: RoofRise | null, reach?: ElevationReach, fontFeet?: number): ElevationView & { ext: ReturnType<typeof elevationExtent>; groundZ: number } {
+  const ext = elevationExtent(side, rise, reach);
+  const fs = fontFeet ?? elevationFontFeet(side, rise);
+  const padX = fs * 4.2;
+  const groundZ = ext.lowZ - fs * 4;
+  return { ext, groundZ, fontFeet: fs, vx: ext.minX - padX, vw: ext.maxX - ext.minX + 2 * padX, vy: -(ext.topZ + fs * 2.6), vh: ext.topZ + fs * 2.6 - groundZ };
+}
+
 const FACE_FILL = (kind: CladdingKind | "parging") => (kind === "parging" ? "#c9ccd1" : CLADDING_FILL[kind]);
 
 /**
@@ -99,7 +116,8 @@ const FACE_FILL = (kind: CladdingKind | "parging") => (kind === "parging" ? "#c9
  *
  * In the editor a side's photo can lie behind it (`backdrop`) and an AI trace over it (`overlay`),
  * both drawn in the drawing's own space - x feet along, y MINUS feet up - and `reach` widens the
- * drawing to hold them. `seeThrough` lets the photo show through the faces.
+ * drawing to hold them. `seeThrough` lets the photo show through the faces. `editor` draws what is
+ * dragged and tapped to edit the side face-on (2026-10-13), last, in the same space and frame.
  */
 export function ElevationDrawing({
   side,
@@ -110,6 +128,7 @@ export function ElevationDrawing({
   overlay,
   reach,
   seeThrough = false,
+  editor,
 }: {
   side: ExteriorSide;
   rise: RoofRise | null;
@@ -119,19 +138,15 @@ export function ElevationDrawing({
   overlay?: ReactNode;
   reach?: ElevationReach;
   seeThrough?: boolean;
+  editor?: (view: ElevationView) => ReactNode;
 }) {
   const { shape, faces, bandLines, grade, openings, fromShapes } = elevationFaces(side, rise);
   const L = Math.max(1, shape.lengthFeet);
   const eaveZ = shape.eaveZ;
-  const ext = elevationExtent(side, rise, reach);
+  const view = elevationView(side, rise, reach, fontFeet);
+  const { ext, groundZ, vx, vw, vy, vh } = view;
   const faceOpacity = seeThrough ? 0.18 : 1;
-  const fs = fontFeet ?? elevationFontFeet(side, rise);
-  const padX = fs * 4.2;
-  const groundZ = ext.lowZ - fs * 4;
-  const vx = ext.minX - padX;
-  const vw = ext.maxX - ext.minX + 2 * padX;
-  const vy = -(ext.topZ + fs * 2.6);
-  const vh = ext.topZ + fs * 2.6 - groundZ;
+  const fs = view.fontFeet;
   const Y = (z: number) => -z;
   const pts = (poly: Pt[]) => poly.map((p) => `${p.x},${Y(p.y)}`).join(" ");
   const stroke = { vectorEffect: "non-scaling-stroke" as const };
@@ -172,12 +187,12 @@ export function ElevationDrawing({
   const scaleFeet = L >= 30 ? 10 : 5;
   return (
     <svg
-      className="exterior-svg"
+      className={`exterior-svg${editor ? " exterior-svg-editing" : ""}`}
       xmlns="http://www.w3.org/2000/svg"
       viewBox={`${vx} ${vy} ${vw} ${vh}`}
       width={size?.width}
       height={size?.height}
-      role="img"
+      role={editor ? "group" : "img"}
       aria-label={`${side.name} elevation, to scale`}
     >
       <rect x={vx} y={vy} width={vw} height={vh} fill="#ffffff" />
@@ -248,6 +263,7 @@ export function ElevationDrawing({
       <line x1={0} x2={0} y1={Y(ext.lowZ - fs * 0.9)} y2={Y(ext.lowZ - fs * 1.9)} stroke="#374151" strokeWidth={1} {...stroke} />
       <line x1={L} x2={L} y1={Y(ext.lowZ - fs * 0.9)} y2={Y(ext.lowZ - fs * 1.9)} stroke="#374151" strokeWidth={1} {...stroke} />
       <text x={L / 2} y={Y(ext.lowZ - fs * 2.7)} fontSize={fs} textAnchor="middle" {...text}>
+        {side.lengthFrom === "drawn" ? "≈ " : ""}
         {formatFeetInches(shape.lengthFeet)}
       </text>
       <line x1={vx + fs} x2={vx + fs + scaleFeet} y1={Y(groundZ + fs * 0.8)} y2={Y(groundZ + fs * 0.8)} stroke={INK} strokeWidth={2} {...stroke} />
@@ -255,11 +271,39 @@ export function ElevationDrawing({
         {scaleFeet}&prime;
       </text>
       {overlay}
+      {editor?.({ vx, vy, vw, vh, fontFeet: fs })}
     </svg>
   );
 }
 
 export type RoofPick = "slope" | "edge" | "ridge";
+
+/** What a tap on the plan does: open a side and switch an end (2026-10-13), or pick slopes, eaves and rakes, or ridges. */
+export type RoofPlanMode = "shape" | "slopes" | "edges" | "ridges";
+
+/** The colour of an end's pill: a gable's its rakes', a hip's its hips'. */
+const END_INK: Record<"gable" | "hip", { stroke: string; fill: string }> = {
+  gable: { stroke: "#b45309", fill: "#fff7ed" },
+  hip: { stroke: "#6d28d9", fill: "#f5f3ff" },
+};
+const SIDE_PILL = { stroke: "#1b3a5c", fill: "#eef4fb" };
+
+/** A pill on the plan that a tap or Enter presses: an end to switch, a side to open. */
+function pillProps(label: string, press: () => void) {
+  return {
+    role: "button",
+    tabIndex: 0,
+    "aria-label": label,
+    className: "exterior-pick exterior-pill",
+    onClick: press,
+    onKeyDown: (e: { key: string; preventDefault: () => void }) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        press();
+      }
+    },
+  };
+}
 
 /**
  * The roof plan, to scale, front at the bottom: each slope lettered and shaded when it is being
@@ -267,6 +311,11 @@ export type RoofPick = "slope" | "edge" | "ridge";
  * vent marked green, and every line with its true length on it (`lib/roofLabels.ts`). A lower roof
  * is drawn first, so the house's overhang lies over it as it does seen from above. With `mode` and
  * `onPick`, a tap on a slope, an edge or a ridge picks it.
+ *
+ * In "shape" mode (2026-10-13) each side's name is a button that opens it face-on (`onSide`), and
+ * each end of the roof carries a pill saying Gable or Hip that switches it (`onEnd`). With `placing`,
+ * every wall is a target for what is being put on a side (a porch, a cross gable). A length only
+ * drawn, never typed, is shown as about that long (`approx`), here and on the documents alike.
  */
 export function RoofPlanDrawing({
   plan,
@@ -277,6 +326,11 @@ export function RoofPlanDrawing({
   ridgeVents = [],
   mode = null,
   onPick,
+  onSide,
+  onEnd,
+  placing = false,
+  approx,
+  fontScale = 1,
   size,
 }: {
   plan: RoofPlan;
@@ -285,8 +339,14 @@ export function RoofPlanDrawing({
   slopes?: string[] | null;
   edges?: string[] | null;
   ridgeVents?: string[];
-  mode?: "slopes" | "edges" | "ridges" | null;
+  mode?: RoofPlanMode | null;
   onPick?: (what: RoofPick, key: string) => void;
+  onSide?: (sideId: string) => void;
+  onEnd?: (sideId: string) => void;
+  placing?: boolean;
+  approx?: (sideId: string) => boolean;
+  /** Bigger lettering for a plan drawn small (a phone), where the drawing's own 3% is too fine to read or tap. */
+  fontScale?: number;
   size?: Size;
 }) {
   const corners = footprint.corners;
@@ -296,7 +356,7 @@ export function RoofPlanDrawing({
   const maxX = Math.max(...xs);
   const minY = Math.min(...ys);
   const maxY = Math.max(...ys);
-  const fs = Math.max(0.6, Math.max(maxX - minX, maxY - minY) * 0.03);
+  const fs = Math.max(0.6, Math.max(maxX - minX, maxY - minY) * 0.03) * fontScale;
   const pad = fs * 3.4;
   const Y = (y: number) => -y;
   const stroke = { vectorEffect: "non-scaling-stroke" as const };
@@ -306,11 +366,11 @@ export function RoofPlanDrawing({
   const edgeOn = (key: string) => edges === null || edges.includes(key);
   const pick = (what: RoofPick, key: string) => (onPick ? () => onPick(what, key) : undefined);
   const facetsDrawn = [...plan.facets].sort((p, q) => q.layer - p.layer);
+  const sidesOpen = (mode === "shape" || placing) && onSide !== undefined;
+  const endsSwitch = mode === "shape" && !placing && onEnd !== undefined;
 
-  // The lengths keep clear of the slopes' letters and the sides' names.
-  const roofBoxes: LabelBox[] = plan.outlineRects.map((r) => ({ x: (r.x0 + r.x1) / 2, y: (r.y0 + r.y1) / 2, angle: 0, width: r.x1 - r.x0, height: r.y1 - r.y0 }));
-  const names: LabelBox[] = [];
-  const sideLabels = footprint.sideIds.map((id, i) => {
+  /** Each wall: its ends, which way is out, along, and how far the roof reaches out past its middle. */
+  const walls = footprint.sideIds.map((id, i) => {
     const a = corners[i] as Pt;
     const b = corners[(i + 1) % n] as Pt;
     const len = Math.hypot(b.x - a.x, b.y - a.y) || 1;
@@ -328,12 +388,85 @@ export function RoofPlanDrawing({
       .sort((p, q) => p[0] - q[0]);
     let reach = 0;
     for (const [lo, hi] of spans) if (lo <= reach + 1e-6) reach = Math.max(reach, hi);
+    return { id, i, a, b, len, out, dir, reach };
+  });
+
+  /*
+    An end's pill stands just past the roof at that END - the section's, which on an L is not the
+    middle of the wall under it - beside the longest stretch of it that is the roof's edge: a main
+    roof's end that a wing runs on from shows only past the wing, and its pill goes there, not on
+    top of the wing's own. The side's name steps out past the pill.
+  */
+  const endAt = (sideId: string): { at: Pt; out: Pt } | null => {
+    for (const s of plan.sections) {
+      if (s.role !== "main" && s.role !== "wing") continue;
+      const free = (end: RoofSection["lo"]) => end !== "tie" && end !== "wall";
+      const lo = s.loSide === sideId && free(s.lo);
+      const hi = s.hiSide === sideId && free(s.hi);
+      if (!lo && !hi) continue;
+      // The end's edge: x = at (upright) or y = at, from `from` to `to` across, `out` the way past it.
+      const upright = s.axis === "x";
+      const at = upright ? (lo ? s.x0 : s.x1) : lo ? s.y0 : s.y1;
+      const from = upright ? s.y0 : s.x0;
+      const to = upright ? s.y1 : s.x1;
+      const out: Pt = upright ? { x: lo ? -1 : 1, y: 0 } : { x: 0, y: lo ? -1 : 1 };
+      const past = at + (upright ? out.x : out.y) * 1e-3;
+      const covered = (t: number) =>
+        plan.outlineRects.some((r) => (upright ? r.x0 < past && past < r.x1 && r.y0 < t && t < r.y1 : r.y0 < past && past < r.y1 && r.x0 < t && t < r.x1));
+      const cuts = [...new Set([from, to, ...plan.outlineRects.flatMap((r) => (upright ? [r.y0, r.y1] : [r.x0, r.x1])).filter((v) => v > from && v < to)])].sort((p, q) => p - q);
+      let best: [number, number] = [from, to];
+      let run: [number, number] | null = null;
+      let longest = 0;
+      for (let k = 0; k + 1 < cuts.length; k++) {
+        const a = cuts[k] as number;
+        const b = cuts[k + 1] as number;
+        if (covered((a + b) / 2)) {
+          run = null;
+          continue;
+        }
+        run = run && Math.abs(run[1] - a) < 1e-9 ? [run[0], b] : [a, b];
+        if (run[1] - run[0] > longest) {
+          longest = run[1] - run[0];
+          best = run;
+        }
+      }
+      const mid = (best[0] + best[1]) / 2;
+      return { at: upright ? { x: at, y: mid } : { x: mid, y: at }, out };
+    }
+    return null;
+  };
+  const endPills = endsSwitch
+    ? plan.ends.flatMap((end) => {
+        const e = endAt(end.sideId);
+        if (!e) return [];
+        const across = e.out.x !== 0 ? e.at.y : e.at.x;
+        // Past whatever of the roof stands out beyond the end there: a porch carried round it, say.
+        const reach = plan.outlineRects.reduce((most, r) => {
+          const over = e.out.x !== 0 ? r.y0 - 1e-6 <= across && across <= r.y1 + 1e-6 : r.x0 - 1e-6 <= across && across <= r.x1 + 1e-6;
+          if (!over) return most;
+          const far = e.out.x > 0 ? r.x1 - e.at.x : e.out.x < 0 ? e.at.x - r.x0 : e.out.y > 0 ? r.y1 - e.at.y : e.at.y - r.y0;
+          return Math.max(most, far);
+        }, 0);
+        const words = end.kind === "hip" ? "Hip" : "Gable";
+        const width = textWidthEm(words) * fs * 0.8 + fs * 1.1;
+        const height = fs * 1.35;
+        const o = reach + fs * 0.35 + (e.out.x !== 0 ? width / 2 : height / 2);
+        const box: LabelBox = { x: e.at.x + e.out.x * o, y: e.at.y + e.out.y * o, angle: 0, width, height };
+        return [{ sideId: end.sideId, kind: end.kind, words, box }];
+      })
+    : [];
+
+  // The lengths keep clear of the slopes' letters and the sides' names.
+  const roofBoxes: LabelBox[] = [...plan.outlineRects.map((r) => ({ x: (r.x0 + r.x1) / 2, y: (r.y0 + r.y1) / 2, angle: 0, width: r.x1 - r.x0, height: r.y1 - r.y0 })), ...endPills.map((p) => p.box)];
+  const names: LabelBox[] = [];
+  const sideLabels = walls.map(({ id, i, a, b, len, out, dir, reach }) => {
     const off = Math.max(pad * 0.62, reach + fs * 0.75);
     // A label runs along its wall, so one down a side wall reads up the page rather than across the roof.
     const across = Math.abs(b.y - a.y) > Math.abs(b.x - a.x);
-    const text = `${nameOf(id)} ${formatFeetInches(footprint.lengthsFeet[i] ?? len)}`;
-    const width = textWidthEm(text) * fs * 0.85;
-    const height = fs * 1.05;
+    const words = `${nameOf(id)} ${approx?.(id) ? "≈" : ""}${formatFeetInches(footprint.lengthsFeet[i] ?? len)}`;
+    // As a button it is a pill, a little bigger than its words.
+    const width = textWidthEm(words) * fs * 0.85 + (sidesOpen ? fs * 1.1 : 0);
+    const height = fs * (sidesOpen ? 1.45 : 1.05);
     const at = (o: number, s: number): LabelBox => ({
       x: (a.x + b.x) / 2 + out.x * o + dir.x * s,
       y: (a.y + b.y) / 2 + out.y * o + dir.y * s,
@@ -351,26 +484,27 @@ export function RoofPlanDrawing({
     // The first place clear of both; failing that, the one that covers least.
     const box = tries.reduce((best, t) => (hits(best) === 0 || hits(t) >= hits(best) ? best : t), tries[0] as LabelBox);
     names.push(box);
-    return { id, m: { x: box.x, y: box.y }, across, text };
+    return { id, box, across, words };
   });
   const facetTags = facetLabels(plan, fs);
-  const obstacles: LabelBox[] = [...facetTags.map((f) => f.box), ...names];
+  const obstacles: LabelBox[] = [...facetTags.map((f) => f.box), ...names, ...endPills.map((p) => p.box)];
   const labels = roofLineLabels(plan, fs * 0.62, obstacles);
-  // The frame takes in every name, one stepped further out than the margin included.
+  // The frame takes in every name and pill, one stepped further out than the margin included.
   const half = (b: LabelBox) => (b.angle === 0 ? { x: b.width / 2, y: b.height / 2 } : { x: b.height / 2, y: b.width / 2 });
-  const fx0 = Math.min(minX - pad, ...names.map((b) => b.x - half(b).x - fs * 0.3));
-  const fx1 = Math.max(maxX + pad, ...names.map((b) => b.x + half(b).x + fs * 0.3));
-  const fy0 = Math.min(minY - pad, ...names.map((b) => b.y - half(b).y - fs * 0.3));
-  const fy1 = Math.max(maxY + pad, ...names.map((b) => b.y + half(b).y + fs * 0.3));
+  const framed = [...names, ...endPills.map((p) => p.box)];
+  const fx0 = Math.min(minX - pad, ...framed.map((b) => b.x - half(b).x - fs * 0.3));
+  const fx1 = Math.max(maxX + pad, ...framed.map((b) => b.x + half(b).x + fs * 0.3));
+  const fy0 = Math.min(minY - pad, ...framed.map((b) => b.y - half(b).y - fs * 0.3));
+  const fy1 = Math.max(maxY + pad, ...framed.map((b) => b.y + half(b).y + fs * 0.3));
 
   return (
     <svg
-      className={`exterior-svg${mode ? ` exterior-svg-picking-${mode}` : ""}`}
+      className={`exterior-svg${mode ? ` exterior-svg-picking-${mode}` : ""}${placing ? " exterior-svg-placing" : ""}`}
       xmlns="http://www.w3.org/2000/svg"
       viewBox={`${fx0} ${Y(fy1)} ${fx1 - fx0} ${fy1 - fy0}`}
       width={size?.width}
       height={size?.height}
-      role="img"
+      role={mode ? "group" : "img"}
       aria-label="Roof plan, to scale"
     >
       <rect x={fx0} y={Y(fy1)} width={fx1 - fx0} height={fy1 - fy0} fill="#ffffff" />
@@ -428,6 +562,15 @@ export function RoofPlanDrawing({
               {...stroke}
             />
           ))}
+      {/* Putting a porch or cross gable on a side: every wall is a target, drawn as one. */}
+      {placing &&
+        onSide &&
+        walls.map((w) => (
+          <g key={`place-${w.id}`} className="exterior-pick exterior-place-wall" onClick={() => onSide(w.id)}>
+            <line x1={w.a.x} y1={Y(w.a.y)} x2={w.b.x} y2={Y(w.b.y)} stroke="#2563eb" strokeWidth={5} strokeOpacity={0.55} strokeLinecap="round" {...stroke} />
+            <line x1={w.a.x} y1={Y(w.a.y)} x2={w.b.x} y2={Y(w.b.y)} stroke="#000000" strokeOpacity={0} strokeWidth={26} {...stroke} />
+          </g>
+        ))}
       {labels.map((t) => {
         const muted = pickableEdge(t.kind) && !edgeOn(t.key);
         return (
@@ -451,11 +594,34 @@ export function RoofPlanDrawing({
           )}
         </g>
       ))}
-      {sideLabels.map(({ id, m, across, text: words }) => (
-        <text key={id} x={m.x} y={Y(m.y) + fs * 0.35} fontSize={fs * 0.85} textAnchor="middle" transform={across ? `rotate(-90 ${m.x} ${Y(m.y)})` : undefined} pointerEvents="none" {...text}>
-          {words}
-        </text>
-      ))}
+      {endPills.map((p) => {
+        const ink = END_INK[p.kind];
+        const name = nameOf(p.sideId);
+        return (
+          <g key={`end-${p.sideId}`} transform={`translate(${p.box.x} ${Y(p.box.y)})`} {...pillProps(`End over ${name}: ${p.words}. Press for a ${p.kind === "hip" ? "gable" : "hip"}`, () => onEnd?.(p.sideId))}>
+            <rect x={-p.box.width / 2 - fs * 0.6} y={-p.box.height / 2 - fs * 0.6} width={p.box.width + fs * 1.2} height={p.box.height + fs * 1.2} fill="#000000" fillOpacity={0} />
+            <rect x={-p.box.width / 2} y={-p.box.height / 2} width={p.box.width} height={p.box.height} rx={p.box.height / 2} fill={ink.fill} stroke={ink.stroke} strokeWidth={1.5} {...stroke} />
+            <text x={0} y={fs * 0.3} fontSize={fs * 0.8} fontWeight={700} textAnchor="middle" fill={ink.stroke} fontFamily={FONT}>
+              {p.words}
+            </text>
+          </g>
+        );
+      })}
+      {sideLabels.map(({ id, box, across, words }) =>
+        sidesOpen ? (
+          <g key={id} transform={`translate(${box.x} ${Y(box.y)})${across ? " rotate(-90)" : ""}`} {...pillProps(placing ? `Put it on ${nameOf(id)}` : `Open ${nameOf(id)} face-on`, () => onSide?.(id))}>
+            <rect x={-box.width / 2 - fs * 0.3} y={-box.height / 2 - fs * 0.45} width={box.width + fs * 0.6} height={box.height + fs * 0.9} fill="#000000" fillOpacity={0} />
+            <rect x={-box.width / 2} y={-box.height / 2} width={box.width} height={box.height} rx={box.height / 2} fill={SIDE_PILL.fill} stroke={SIDE_PILL.stroke} strokeWidth={1} {...stroke} />
+            <text x={0} y={fs * 0.3} fontSize={fs * 0.85} fontWeight={600} textAnchor="middle" fill={SIDE_PILL.stroke} fontFamily={FONT}>
+              {words}
+            </text>
+          </g>
+        ) : (
+          <text key={id} x={box.x} y={Y(box.y) + fs * 0.35} fontSize={fs * 0.85} textAnchor="middle" transform={across ? `rotate(-90 ${box.x} ${Y(box.y)})` : undefined} pointerEvents="none" {...text}>
+            {words}
+          </text>
+        ),
+      )}
     </svg>
   );
 }
