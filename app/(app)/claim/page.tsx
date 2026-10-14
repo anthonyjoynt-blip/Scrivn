@@ -1518,7 +1518,7 @@ export default function Home() {
           {persistence.status === "error" && "Could not save — no signal, and this browser is not keeping a copy. Keep this page open; it will try again on the next change."}
         </p>
       )}
-      {persistence.openedFromDevice !== null && persistence.status !== "saved" && (
+      {persistence.openedFromDevice !== null && (
         <p className="save-status">
           No signal — opened from this phone&rsquo;s copy, last changed {new Date(persistence.openedFromDevice).toLocaleString()}.
         </p>

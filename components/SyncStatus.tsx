@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { isRunning, runWaitingJobs } from "@/lib/aiJobs";
 import { syncAll } from "@/lib/claimSync";
-import { connection, onReconnect } from "@/lib/connectivity";
+import { connection, onReconnect, probe } from "@/lib/connectivity";
 import { pruneDeviceClaims } from "@/lib/deviceClaims";
 import { claimName, useDeviceWork } from "@/lib/useDeviceWork";
 
@@ -38,7 +38,14 @@ export function SyncStatus() {
         if (alive) setBusy(false);
       }
     };
-    void send();
+    /*
+      Ask once on load whether there is any signal at all. A page that has nothing to send makes no
+      request of its own, so without this it would not know it was offline until the estimator's
+      first change failed to save — and "Offline" is most useful before they start, not after.
+    */
+    void probe().then((reachable) => {
+      if (reachable) void send();
+    });
     void pruneDeviceClaims();
     const off = onReconnect(() => void send());
     // A backstop for a connection that is technically up and carrying nothing, where no event fires.

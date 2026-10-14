@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { syncAll } from "@/lib/claimSync";
 import { connection, netFetch } from "@/lib/connectivity";
@@ -55,6 +55,17 @@ export function PendingSaves({ keep }: { keep: { id: string; version: string }[]
     // `keep` is the list as rendered; a refresh renders a new one and remounts nothing, so compare by value.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [push, JSON.stringify(keep)]);
+
+  /*
+    Fewer held than a moment ago: something reached the server — sent from here, from the header when
+    the signal came back, or from another tab. A claim created by that is not in the list this page
+    rendered with, so ask the server for the list again.
+  */
+  const heldBefore = useRef(work.claims.length);
+  useEffect(() => {
+    if (work.claims.length < heldBefore.current && work.connection === "online") router.refresh();
+    heldBefore.current = work.claims.length;
+  }, [work.claims.length, work.connection, router]);
 
   const held = work.claims;
   if (held.length === 0) return null;

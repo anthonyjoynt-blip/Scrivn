@@ -399,7 +399,8 @@ export function useClaimPersistence({
 
   /*
     Keep the status true when somebody else sends this claim — the header on reconnect, another tab —
-    and send it here as soon as the signal is back.
+    and when the signal is back, bring the claim on screen into step: send it if it has changes, or
+    pick up the server's newer copy if it has none (the office may have worked on it meanwhile).
   */
   useEffect(() => {
     if (!enabled) return;
@@ -409,13 +410,36 @@ export function useClaimPersistence({
     });
     const offReconnect = onReconnect(() => {
       const id = claimIdRef.current;
-      if (id) void syncClaim(id).then((outcome) => settle(id, outcome));
+      if (!id) return;
+      void (async () => {
+        const record = await readDeviceClaim(id);
+        if (record && !record.dirty && record.created && JSON.stringify(stateRef.current) === lastWritten.current) {
+          try {
+            const res = await netFetch(`/api/claims/${id}`, { timeoutMs: 20_000 });
+            if (res.ok && claimIdRef.current === id) {
+              const { state: fresh, version } = (await res.json()) as { state: SavedClaimState; version?: string };
+              // Only if nothing was changed here while it was on the wire — then this is simply newer.
+              if (version && version !== record.version && JSON.stringify(stateRef.current) === lastWritten.current) {
+                putOnScreen(id, fresh);
+                await changeDeviceClaim(id, (r) => (r && !r.dirty ? { ...r, state: fresh, version, touchedAt: Date.now() } : undefined));
+              }
+            }
+          } catch {
+            return; // The signal went again; the next reconnect tries again.
+          }
+          setOpenedFromDevice(null);
+          return settle(id);
+        }
+        const outcome = await syncClaim(id);
+        if (outcome.kind !== "offline") setOpenedFromDevice(null);
+        await settle(id, outcome);
+      })();
     });
     return () => {
       offChange();
       offReconnect();
     };
-  }, [enabled, settle]);
+  }, [enabled, settle, putOnScreen]);
 
   // Save, after the edits stop.
   useEffect(() => {

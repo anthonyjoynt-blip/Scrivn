@@ -65,9 +65,10 @@ const TIMED_OUT = Symbol("timed out");
  *
  * Generous on purpose. A cached HTML document names the exact chunks of the build it came from, so
  * trimming one of those is what turns an offline boot into the offline page. Several builds' worth
- * of chunks fit well inside this.
+ * of chunks fit well inside this — including the ones loaded later, which the warm-up now fetches
+ * ahead of need (the sketch canvas, the 3D view): about 70 files a build.
  */
-const MAX_ASSETS = 240;
+const MAX_ASSETS = 400;
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
@@ -128,15 +129,38 @@ function worthKeeping(url) {
 /** The pages fetched ahead of need — see this file's note. Fixed here; the message cannot name others. */
 const WARM_PAGES = ["/claim", "/claims"];
 
-/** The build files a page names: its scripts, its styles, and the chunks in its React payload. */
-function assetPaths(html) {
+/**
+ * The build files a page or a chunk names.
+ *
+ * In a page: its scripts, its styles, and the chunks in its React payload. In a chunk: the chunks it
+ * loads LATER — `next/dynamic` and `import()` fetch their code from paths written into the chunk that
+ * asks for them, as "static/chunks/…" with no "/_next/" in front. That is where the sketch canvas
+ * comes from, and the 3D view: a page's own tags never name them, so a warm-up that read only the
+ * page cached a claim page whose sketch editor failed to open offline ("ChunkLoadError").
+ */
+function assetPaths(text) {
   const found = new Set();
-  for (const match of html.matchAll(/\/_next\/static\/[^"'\\\s<>)]+/g)) found.add(match[0]);
+  for (const match of text.matchAll(/(?:\/_next\/)?static\/(?:chunks|css|media)\/[^"'\\\s<>{}]+/g)) {
+    let path = match[0];
+    /*
+      A path may hold parentheses — a route group's chunk is named after it, "app_(app)_claim_page_…",
+      which is the claim page itself — but a stylesheet also closes one round it:
+      url(/_next/static/media/x.woff2). So trailing punctuation goes, and a ")" only when the path
+      has no "(" to match it.
+    */
+    for (;;) {
+      if (/[;,]$/.test(path)) path = path.slice(0, -1);
+      else if (path.endsWith(")") && (path.match(/\(/g) || []).length < (path.match(/\)/g) || []).length) path = path.slice(0, -1);
+      else break;
+    }
+    found.add(path.startsWith("/_next/") ? path : `/_next/${path}`);
+  }
   return [...found];
 }
 
 /**
- * Fetch the pages in `WARM_PAGES`, and every build file they name that is not already here.
+ * Fetch the pages in `WARM_PAGES`, and every build file they need that is not already here — what
+ * they name, what those files name in turn, and so on, up to the cache's own size.
  *
  * Stops at the first sign of no network — this is a background top-up, and the next one will finish
  * it. A page that comes back as a redirect (signed out) is not kept, for the reason given at the
@@ -145,6 +169,7 @@ function assetPaths(html) {
 async function warm() {
   const pages = await caches.open(PAGES);
   const assets = await caches.open(ASSETS);
+  const queue = [];
   for (const path of WARM_PAGES) {
     let response;
     try {
@@ -155,15 +180,26 @@ async function warm() {
     if (!response.ok || response.type !== "basic" || response.redirected) continue;
     const html = await response.clone().text();
     await pages.put(pageKey(new URL(path, self.location.origin).href), response);
-    for (const asset of assetPaths(html)) {
-      if (await assets.match(asset)) continue;
+    queue.push(...assetPaths(html));
+  }
+
+  // Breadth first, each file once: a page's own files before the ones they load later.
+  const seen = new Set();
+  while (queue.length > 0 && seen.size < MAX_ASSETS) {
+    const path = queue.shift();
+    if (seen.has(path)) continue;
+    seen.add(path);
+    let file = await assets.match(path);
+    if (!file) {
       try {
-        const file = await fetch(asset);
-        if (file.ok && file.type === "basic") await assets.put(asset, file);
+        file = await fetch(path);
       } catch {
         return;
       }
+      if (!file.ok || file.type !== "basic") continue;
+      await assets.put(path, file.clone());
     }
+    if (/\.(js|css)$/.test(path)) queue.push(...assetPaths(await file.text()));
   }
   await trim(assets, MAX_ASSETS);
 }

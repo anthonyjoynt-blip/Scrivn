@@ -275,11 +275,11 @@ await test("two builds' assets coexist, since a hashed URL means one exact file"
 await test("the asset cache is trimmed, oldest first", async (w) => {
   // Otherwise it grows by a build's worth of chunks on every deploy, for ever.
   await boot(w);
-  for (let i = 0; i < 250; i++) await w.fetchEvent(asset(w, `/_next/static/chunks/c-${i}.js`));
+  for (let i = 0; i < 410; i++) await w.fetchEvent(asset(w, `/_next/static/chunks/c-${i}.js`));
   const entries = await assetEntries(w);
-  equal(entries.length, 240, "cached assets after the cap");
+  equal(entries.length, 400, "cached assets after the cap");
   assert(!entries.includes("https://scrivn.ca/_next/static/chunks/c-0.js"), "expected the oldest to be evicted");
-  assert(entries.includes("https://scrivn.ca/_next/static/chunks/c-249.js"), "expected the newest to be kept");
+  assert(entries.includes("https://scrivn.ca/_next/static/chunks/c-409.js"), "expected the newest to be kept");
 });
 
 await test("a failed asset fetch is not cached as if it had worked", async (w) => {
@@ -416,6 +416,52 @@ await test("warming keeps the claim page and the list, and every build file they
   equal(page.body, pageHtml("claims"), "the list boots offline");
   const chunk = await w.fetchEvent(asset(w, "/_next/static/chunks/shared-7.js"));
   equal(chunk.body, "body of https://scrivn.ca/_next/static/chunks/shared-7.js", "and so do its chunks");
+});
+
+await test("warming follows a chunk to the chunks it loads later", async (w) => {
+  /*
+    Found in the browser: the sketch canvas is a `next/dynamic` import, so the page never names its
+    chunk — the page's own chunk does, as "static/chunks/…" in its async loader. Warmed from the page
+    alone, the claim opened offline and its sketch editor failed with a ChunkLoadError.
+  */
+  await boot(w);
+  const loader = `__turbopack_context__.v(() => Promise.all(["static/chunks/sketch-canvas.js"].map((c) => __turbopack_context__.l(c))))`;
+  w.network.handler = (url) => {
+    if (url.endsWith("/claim") || url.endsWith("/claims")) return new w.FakeResponse(`<script src="/_next/static/chunks/page.js"></script>`);
+    if (url.endsWith("/page.js")) return new w.FakeResponse(loader);
+    if (url.endsWith("/sketch-canvas.js")) return new w.FakeResponse(`"static/chunks/konva.js"`);
+    return new w.FakeResponse(`body of ${url}`);
+  };
+  await w.message({ type: "warm" });
+  const entries = await assetEntries(w);
+  for (const file of ["page.js", "sketch-canvas.js", "konva.js"]) {
+    assert(entries.includes(`https://scrivn.ca/_next/static/chunks/${file}`), `expected ${file} warmed, got ${entries}`);
+  }
+  w.network.handler = NO_NETWORK;
+  const chunk = await w.fetchEvent(asset(w, "/_next/static/chunks/sketch-canvas.js"));
+  equal(chunk.body, `"static/chunks/konva.js"`, "the lazily loaded chunk is there with no network");
+});
+
+await test("warming reads a route group's chunk name whole, and a stylesheet's font without its bracket", async (w) => {
+  /*
+    Found in the browser: the claim page's chunk is "app_(app)_claim_page_….js", and a pattern that
+    stopped at "(" fetched "app_(app" instead — so the claim page booted offline only if it had been
+    opened with signal since the last deploy. A stylesheet's font, meanwhile, is closed by url(…).
+  */
+  await boot(w);
+  w.network.handler = (url) => {
+    if (url.endsWith("/claim") || url.endsWith("/claims")) {
+      return new w.FakeResponse(`<script src="/_next/static/chunks/app_(app)_claim_page_tsx_0pasxuy._.js"></script><link rel="stylesheet" href="/_next/static/css/a.css">`);
+    }
+    if (url.endsWith("/a.css")) return new w.FakeResponse(`@font-face{src:url(/_next/static/media/f-1.woff2) format("woff2"),url(/_next/static/media/f-2.woff);}`);
+    return new w.FakeResponse(`body of ${url}`);
+  };
+  await w.message({ type: "warm" });
+  const entries = await assetEntries(w);
+  for (const file of ["chunks/app_(app)_claim_page_tsx_0pasxuy._.js", "media/f-1.woff2", "media/f-2.woff"]) {
+    assert(entries.includes(`https://scrivn.ca/_next/static/${file}`), `expected ${file} warmed, got ${entries}`);
+  }
+  assert(!entries.some((e) => e.endsWith("app_(app")), "no truncated chunk name");
 });
 
 await test("warming fetches only the build files that are missing", async (w) => {
