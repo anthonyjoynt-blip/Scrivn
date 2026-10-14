@@ -6,6 +6,7 @@ import { cleanEnv } from "@/lib/env";
 import { scanPriceIds } from "@/lib/stripe/prices";
 import { SCAN_PLAN, SCAN_TIER, isScanTier, planForTier, seatLimitFor } from "@/lib/plans";
 import {
+  WEBHOOK_EVENTS,
   billingLookups,
   paymentEventApplies,
   paymentGraceEndsAt,
@@ -45,12 +46,8 @@ import { PaymentFailedEmail } from "@/emails/PaymentFailed";
  * without 0013 the plan goes at the first failure, as it did before.
  */
 
-/**
- * Handled events: what the endpoint must be subscribed to (STRIPE.md §5, and printed by
- * scripts/stripe-go-live.mjs). Renewals arrive as `customer.subscription.updated` with a later
- * period end.
- */
-const HANDLED = new Set(["checkout.session.completed", "customer.subscription.updated", "customer.subscription.deleted", "invoice.payment_failed", "invoice.paid"]);
+/** Handled events — `WEBHOOK_EVENTS` in lib/billingTiers.ts, which the go-live script prints. */
+const HANDLED = new Set<string>(WEBHOOK_EVENTS);
 
 export async function POST(request: Request) {
   const secret = cleanEnv("STRIPE_WEBHOOK_SECRET");

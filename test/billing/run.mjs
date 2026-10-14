@@ -46,7 +46,7 @@ await build({
 const {
   subscriptionEventApplies, scanSubscriptionsToCancel, billingLookups, PLANS, SCAN_TIER, SCAN_PLAN, planForTier, claimLimitForTier, isScanTier, isScrivnTier,
   TRIAL_CLAIM_LIMIT, TRIAL_DAYS, SEAT_PRICING, SCAN_SEATS, seatLimitFor, scanTeamRefusal, checkoutQuantity, usageFromBilling, isBillingSchemaMissing,
-  PAYMENT_GRACE_DAYS, paymentEventApplies, paymentGraceEndsAt, withinPaymentGrace,
+  PAYMENT_GRACE_DAYS, paymentEventApplies, paymentGraceEndsAt, withinPaymentGrace, WEBHOOK_EVENTS,
 } = await import(pathToFileURL(bundlePath).href);
 
 let passed = 0;
@@ -234,6 +234,10 @@ check(SCAN_PLAN.features.includes("For one person"), "and the plan says so where
 /* ── A declined card: the grace period (0013) ──────────────────────────────────────────────────── */
 
 {
+  check(
+    JSON.stringify([...WEBHOOK_EVENTS].sort()) === JSON.stringify(["checkout.session.completed", "customer.subscription.deleted", "customer.subscription.updated", "invoice.paid", "invoice.payment_failed"]),
+    "the webhook acts on, and the go-live script asks Stripe for, the three plan events and the two invoice events",
+  );
   check(PAYMENT_GRACE_DAYS === 7, "the grace period is 7 days, matching Stripe's retries set to 1 week (STRIPE.md)");
   const failed = "2026-11-01T09:30:00.000Z";
   check(paymentGraceEndsAt(failed) === "2026-11-08T09:30:00.000Z", "and runs 7 days from the first failure");

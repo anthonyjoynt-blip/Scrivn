@@ -19,6 +19,7 @@
  *      documents — including when the first used the last claim, when the retry comes while the
  *      first is still running, and when the first failed. Without 0013, and before 0011, it counts
  *      as it always did.
+ *   5. Stripe Tax at checkout follows STRIPE_AUTOMATIC_TAX, off unless it is exactly "true".
  *
  * (The "signature verification failed" line in the output is the forged event being refused.)
  *
@@ -36,7 +37,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..", "..");
 
 const { mod: routes, cleanup } = await bundleRoutes(
-  `export { POST as webhook } from "@/app/api/webhooks/stripe/route"; export { POST as generate } from "@/app/api/generate/route";
+  `export { POST as webhook } from "@/app/api/webhooks/stripe/route"; export { POST as generate } from "@/app/api/generate/route"; export { POST as checkout } from "@/app/api/checkout/route";
    export { UsageBanner } from "@/components/UsageBanner"; export { emptyClaimInfo } from "@/lib/claimInfo"; export { emptyLoss, withDerivedFields } from "@/lib/types";`,
   "routes",
 );
@@ -360,6 +361,34 @@ const J = (n) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
     check(a.status === 200 && b.status === 200 && !b.body.repeated && (await read(db, org, who)) === 4, `${label}: a generation sent twice runs and counts twice, exactly as before (got ${a.status}/${b.status}, ${await read(db, org, who)})`);
     await db.close();
   }
+}
+
+/* ── 5. Stripe Tax at checkout ────────────────────────────────────────────────────────────────── */
+
+{
+  const db = await startSupabaseLocal();
+  for (const m of [...all.before, ...all.from]) await db.applyMigration(m);
+  const buyer = await db.createUser({ email: "buyer@x.test", fullName: "Buyer" });
+  const sessions = [];
+  const stripe = {
+    ...fakeStripe,
+    customers: { create: async () => ({ id: `cus_buyer_${sessions.length}` }) },
+    checkout: { sessions: { create: async (params) => (sessions.push(params), { url: "https://checkout.stripe.test/s" }) } },
+  };
+  globalThis.__scrivnTest = { local: db, emails, stripe, claude, userId: buyer, email: "buyer@x.test" };
+  process.env.BILLING_ENABLED = "true";
+  const buy = () => routes.checkout(new Request("http://localhost/api/checkout", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ tier: "starter" }) }));
+  for (const [value, on] of [[undefined, false], ["", false], ["yes", false], ["true", true]]) {
+    if (value === undefined) delete process.env.STRIPE_AUTOMATIC_TAX;
+    else process.env.STRIPE_AUTOMATIC_TAX = value;
+    const res = await buy();
+    const params = sessions.at(-1);
+    const taxed = params?.automatic_tax?.enabled === true && params?.customer_update?.address === "auto";
+    check(res.status === 200 && taxed === on && (on || params?.automatic_tax === undefined), `STRIPE_AUTOMATIC_TAX=${JSON.stringify(value)} ${on ? "turns Stripe Tax on, saving the address it taxes on" : "leaves it off"} (got ${res.status}, ${JSON.stringify(params?.automatic_tax)})`);
+  }
+  delete process.env.STRIPE_AUTOMATIC_TAX;
+  delete process.env.BILLING_ENABLED;
+  await db.close();
 }
 
 cleanup();

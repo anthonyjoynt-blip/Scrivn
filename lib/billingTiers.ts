@@ -11,6 +11,20 @@ import { PAYMENT_GRACE_DAYS, isScanTier, isScrivnTier } from "./plans";
  */
 
 /**
+ * The events the webhook acts on: what its endpoint must be subscribed to (STRIPE.md §5, printed by
+ * scripts/stripe-go-live.mjs). Any other event is acknowledged and ignored. Renewals arrive as
+ * `customer.subscription.updated` with a later period end; the two invoice events are a declined card
+ * and its payment (2026-10-14).
+ */
+export const WEBHOOK_EVENTS = [
+  "checkout.session.completed",
+  "customer.subscription.updated",
+  "customer.subscription.deleted",
+  "invoice.payment_failed",
+  "invoice.paid",
+] as const;
+
+/**
  * Whether an event about a subscription of `eventTier` may write the organization's tier, given what
  * it holds now (the profile's, before 0011 — the rule is the same). `eventTier` is the tier the
  * subscription's price maps to, whatever its status — null for a price this deployment doesn't know.

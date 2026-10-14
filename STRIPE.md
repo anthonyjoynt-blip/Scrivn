@@ -3,6 +3,43 @@
 The code is built. These are the steps that need doing in the Stripe and Supabase dashboards before
 it works end to end. Nothing here is optional — billing is inert until all of it is done.
 
+## Go-live day (added 2026-10-14)
+
+Everything below this section is how billing was set up and works. This is the list for the day it
+takes real money, in order. All of it is the owner's; none of it needs code.
+
+1. **Tax.** The accountant's answer first. Then, in **live** mode, Dashboard → Tax → Settings: the
+   head office address (the status turns `active`), and a registration for each province Scrivn is
+   registered in. Sandbox registrations do not carry over. See Known gaps.
+2. **Database.** Supabase SQL Editor, in order, each only if not yet run: `0011_org_billing.sql`,
+   `0012_teams.sql`, `0013_payment_grace_and_counted_once.sql`. Checkout and the webhook need 0011;
+   the failed-card grace and counting a generation once need 0013.
+3. **Products, prices and what to paste: one command.** Copy the live secret key (Dashboard, live
+   mode → Developers → API keys). Never put it in `.env.local`. From the repo folder, in PowerShell
+   (it asks for the key, so the key stays out of the shell's history):
+
+   ```powershell
+   $env:STRIPE_SECRET_KEY = Read-Host "Live secret key"; node scripts/stripe-go-live.mjs --live; Remove-Item Env:STRIPE_SECRET_KEY
+   ```
+
+   It makes the four products and five CAD prices at the amounts in `lib/plans.ts`, with the SaaS
+   tax code and exclusive tax (or reuses them if they exist: it is safe to run twice), checks Stripe
+   Tax, and prints the webhook to register and the lines for Vercel. It refuses a live key without
+   `--live`. Run without a key in the environment, it tries the same against the sandbox.
+4. **Webhook secret.** Register the endpoint exactly as printed (Developers → Webhooks → Add
+   endpoint: the URL, API version `2026-08-26.dahlia`, the five events) and reveal its signing secret.
+5. **Keys into Vercel**, Production: the lines it printed — `STRIPE_SECRET_KEY` (live),
+   `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` (`pk_live_`), `STRIPE_WEBHOOK_SECRET`, the five
+   `STRIPE_PRICE_*`, `STRIPE_AUTOMATIC_TAX=true` only if the tax check printed ok, and
+   `BILLING_ENABLED=true`. Paste values by hand rather than from a file a Windows tool saved: a
+   hidden byte-order mark in a `NEXT_PUBLIC_` value once broke sign-in. Then redeploy.
+6. **Retries.** Live mode, Billing → Revenue recovery → Retries: Smart Retries **within 1 week**, then
+   **cancel the subscription** (section 7: Scrivn's grace is 7 days to match).
+7. **One real purchase and refund.** Signed in on scrivn.ca as yourself, buy Starter with a real
+   card. Check that the Account page shows Starter, the receipt shows the tax you expect, and Manage
+   billing opens. Then in the Dashboard refund the payment and cancel the subscription immediately,
+   and check the Account page shows no plan again.
+
 ## 1. Supabase: run migration 0002
 
 **SQL Editor** → paste `supabase/migrations/0002_billing.sql` → Run.
@@ -116,6 +153,8 @@ Subscribe to exactly:
 Choose API version `2026-08-26.dahlia` for the endpoint, the version the installed SDK speaks
 (`lib/stripe/server.ts`). Events arrive in the endpoint's version; the webhook reads the older
 shapes too, but there is no reason to make it.
+
+`scripts/stripe-go-live.mjs` prints this list from the code (`WEBHOOK_EVENTS` in `lib/billingTiers.ts`).
 
 Stripe shows a signing secret for the endpoint — that's the production `STRIPE_WEBHOOK_SECRET`, and
 it is **not** the same as the `stripe listen` one. It goes in Vercel's environment variables along
@@ -231,16 +270,18 @@ sandbox; it deletes what it makes).
   | Default tax behavior | ✅ `exclusive` (tax added on top of the listed price) |
   | Tax settings `status` | ❌ `pending` — head office address not set |
   | Tax registrations | ❌ none |
-  | `automatic_tax` in `/api/checkout` | ❌ not enabled |
+  | `automatic_tax` in `/api/checkout` | ❌ off: `STRIPE_AUTOMATIC_TAX` unset (2026-10-14) |
 
   Any one of those last three alone means **$0 tax collected, silently, with no error** — which is
   why this needs an explicit check rather than an assumption that "Stripe handles it".
 
   **Before going live**, three things are needed: set the head office address (Dashboard → Tax →
   Settings) so status flips to `active`; record a registration for each jurisdiction actually
-  registered with; and add `automatic_tax: { enabled: true }` to the Checkout Session — which also
-  needs `customer_update: { address: 'auto' }`, because Checkout reuses a returning customer's saved
-  address otherwise and would compute tax against a stale one.
+  registered with; and turn on `automatic_tax` in the Checkout Session. Since 2026-10-14 that is a
+  setting, not a code change: `STRIPE_AUTOMATIC_TAX=true` in Vercel. With it the session also sets
+  `customer_update: { address: 'auto' }`, because Checkout reuses a returning customer's saved
+  address otherwise and would compute tax against a stale one. Turned on before the tax settings
+  are active, Stripe refuses to open the checkout; `scripts/stripe-go-live.mjs` says which it is.
 
   Two things worth remembering: **sandbox registrations do not carry over to live mode** and must be
   re-created there, and **under-collection cannot be corrected retroactively** in Stripe — real
