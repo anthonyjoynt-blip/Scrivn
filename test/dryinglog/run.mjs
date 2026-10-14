@@ -31,7 +31,7 @@ async function load() {
     entry,
     [
       `export * from "${lib("dryingLog.ts")}";`,
-      `export { SAVED_CLAIM_KEYS, emptySavedClaimState, parseSavedClaimState } from "${lib("claimState.ts")}";`,
+      `export { SAVED_CLAIM_KEYS, emptySavedClaimState, hasAnyContent, parseSavedClaimState } from "${lib("claimState.ts")}";`,
       `export { emptySketch, PIXELS_PER_FOOT, wallsOf } from "${lib("sketch.ts")}";`,
       `export { emptyMoistureMap, emptyRoomMoisture, setReferenceReading, defaultDryStandard } from "${lib("moisture.ts")}";`,
     ].join("\n"),
@@ -218,6 +218,16 @@ test("loading is idempotent and survives a trip through JSON", () => {
   const once = m.normalizeDryingLog(JSON.parse(JSON.stringify(started)));
   equal(m.normalizeDryingLog(once), once, "normalising twice");
   equal(once, started, "a normalised log equals the one that was saved");
+});
+
+// A claim is saved only once it has something in it (hasAnyContent), so an empty page opened by mistake does
+// not become a row. A drying job can start at the log before anybody types a name; without this the log
+// typed into a fresh claim was never saved, and lost on a reload (found 10-14 in the browser).
+test("a claim with only a started drying log is worth saving; one with an empty log is not", () => {
+  const empty = m.emptySavedClaimState();
+  assert(!m.hasAnyContent(empty), "an empty claim is not saved");
+  const started = m.startDryingLog({ sketch: m.emptySketch(), map: m.emptyMoistureMap(), now: "2026-10-14T09:00", by: "Sam" });
+  assert(m.hasAnyContent({ ...empty, dryingLog: started }), "Day 1 started is saved");
 });
 
 // claimSync fingerprints parseSavedClaimState, which runs this: parse(parse(x)) must equal parse(x) or a save

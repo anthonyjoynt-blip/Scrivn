@@ -213,7 +213,8 @@
 }
 .dlog-air-row {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  /* The third column is the photo button. */
+  grid-template-columns: 1fr 1fr auto;
   gap: 6px 10px;
 }
 .dlog-air-name {
@@ -293,6 +294,51 @@
   font-size: 0.82rem;
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
+}
+/* A photo of the meter's screen: the button sits beside the field, at the field's height, so a thumb
+   finds it where the number goes; what came of it reads underneath, the whole row wide. */
+.dlog-photo-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 42px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--color-navy);
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  align-self: flex-end;
+}
+.dlog-photo-btn:disabled {
+  opacity: 0.7;
+  cursor: progress;
+}
+.dlog-photo-msg {
+  /* After the last reading, which belongs beside the field. */
+  order: 1;
+  flex: 1 1 100%;
+  grid-column: 1 / -1;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+.dlog-photo-msg.problem {
+  color: #9a3a2c;
+}
+.dlog-air-photo {
+  display: contents;
+}
+.dlog-point-source {
+  display: grid;
+  gap: 2px;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+.dlog-point-warn {
+  color: #9a3a2c;
 }
 .dlog-trend-down {
   color: #1c5a4b;

@@ -35,6 +35,7 @@
     "test:psychro": "node test/psychro/run.mjs",
     "test:dryinglog": "node test/dryinglog/run.mjs",
     "test:dryinglog:pdf": "node test/dryinglog/pdf.mjs",
+    "test:meterphoto": "node test/dryinglog/meterPhoto.mjs",
     "test:exterior": "node test/exterior/run.mjs",
     "test:exterior:trace": "node test/exterior/trace.mjs",
     "test:sw": "node test/sw/run.mjs",

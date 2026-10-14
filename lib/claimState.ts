@@ -228,7 +228,9 @@ export function hasAnyContent(state: SavedClaimState): boolean {
     state.claim.jobNumber.trim() !== "" ||
     state.transcript.trim() !== "" ||
     state.extraction !== null ||
-    hasSketchContent(state.sketch)
+    hasSketchContent(state.sketch) ||
+    // A drying job can start at the log, before anybody types a name: Day 1 started is work to keep.
+    state.dryingLog.visits.length > 0
   );
 }
 

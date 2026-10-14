@@ -656,13 +656,51 @@ export function withoutPoint(log: DryingLog, pointId: string): DryingLog {
   };
 }
 
-/** A reading entered or cleared. An empty entry is removed, so "not read" and "read as nothing" are one state. */
+/**
+ * A reading typed or cleared. An empty entry is removed, so "not read" and "read as nothing" are one state.
+ * A number typed over one read from a photo is the tech's own: it is "typed" again, keeping the mode and
+ * scale the screen showed (a corrected digit does not change what the meter was set to).
+ */
 export function withReading(visit: DryingVisit, pointId: string, value: number | null): DryingVisit {
   const readings = { ...visit.readings };
+  const had = readings[pointId];
   if (value === null) delete readings[pointId];
-  else readings[pointId] = { ...readings[pointId], value, source: readings[pointId]?.source ?? "typed" };
+  else if (had && had.value === value) return visit;
+  else readings[pointId] = { ...had, value, source: "typed" };
   return { ...visit, readings };
 }
+
+/** A reading taken from a photo of the meter's screen (lib/meterPhoto.ts), replacing whatever was there. */
+export function withPhotoReading(
+  visit: DryingVisit,
+  pointId: string,
+  read: { value: number; mode?: PointReading["mode"]; scale?: string; meter?: string },
+): DryingVisit {
+  const reading: PointReading = { value: read.value, source: "photo" };
+  if (read.mode) reading.mode = read.mode;
+  if (read.scale) reading.scale = read.scale;
+  if (read.meter) reading.meter = read.meter;
+  return { ...visit, readings: { ...visit.readings, [pointId]: reading } };
+}
+
+/**
+ * The mode a reading was taken in, against the last reading at the same point, when both are known and
+ * differ: a pinless number and a pin number are on different scales, so the trend between them means
+ * nothing. Null when they match or either is unknown (a typed reading says no mode).
+ */
+export function modeChange(log: DryingLog, visit: DryingVisit, pointId: string): { was: NonNullable<PointReading["mode"]>; now: NonNullable<PointReading["mode"]> } | null {
+  const now = visit.readings[pointId];
+  if (!now?.mode || now.value === null) return null;
+  let was: PointReading | undefined;
+  for (const v of log.visits) {
+    if (v.id === visit.id) break;
+    const r = v.readings[pointId];
+    if (r && r.value !== null) was = r;
+  }
+  return was?.mode && was.mode !== now.mode ? { was: was.mode, now: now.mode } : null;
+}
+
+export const MODE_LABEL: Record<NonNullable<PointReading["mode"]>, string> = { pin: "pin", pinless: "pinless", rh: "RH probe" };
 
 /** A point of the tech's own, for something the map does not have. */
 export function newPoint(args: { label: string; material: MoistureMaterial; surface?: PointSurface }): DryingPoint {

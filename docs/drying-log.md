@@ -60,9 +60,50 @@ written once on day one and the log is not finished for days. Air table, reading
 table, then a second), who/meter/notes. Text stays inside the PDF standard fonts: no check marks, no
 less-than-or-equal signs. It is also offered by "Send documents" when the log has a visit.
 
+## A photo of the meter's screen (2026-10-14)
+
+A Photo button beside every reading and every air row. The phone's camera opens (`capture`), the photo
+is shrunk in the browser to 1280 px on its longest side (about 15-150 KB), sent once to
+`/api/drying/meter-photo`, read by one Claude call (`lib/meterPhoto.ts`, Opus 5.5 at low effort) and
+dropped: nothing stores it, so it is no proof of the reading. Keeping it waits for claim photo storage.
+
+| What | Where |
+| --- | --- |
+| Prompt, schema, the checks on the answer, the request check | `lib/meterPhoto.ts` |
+| The route (gated like the exterior trace, not counted, cost logged per call) | `app/api/drying/meter-photo/route.ts` |
+| The button, the shrinking, the no-signal message | `components/drying/MeterPhotoButton.tsx` |
+| `withPhotoReading`, `modeChange`, `MODE_LABEL` | `lib/dryingLog.ts` |
+| Tests | `npm run test:meterphoto` |
+
+The rules:
+
+- **A digit it cannot make out is no reading.** Glare, blur, a missing segment, or a decimal point it is
+  not sure of: nothing is filled in, and the reason is shown in words a tech can act on. "OL", "Hi",
+  "---" are not readings. A number no meter shows is refused, not clamped.
+- **It is never told the last reading,** so it cannot be nudged towards it.
+- **The number lands in the field, in front of the tech.** A number typed over it is "typed" again and
+  keeps the mode and scale the screen showed.
+- **A change of mode is called out.** A pinless reading after a pin one (both known) gets a warning and
+  no trend: the two are on different scales.
+- **Air:** temperature and RH from a thermo-hygrometer; Celsius becomes the stored deg F; a screen with no
+  unit takes the log's own unit and says so. Half an answer fills half the row.
+- **The visit's meter field** is filled from the photo only while it is empty.
+- **No signal:** the camera does not open; it says to type the number.
+
+Checked live 10-14 against six drawn screens (pin 14.2 on the wood scale, pinless 125, a hygrometer at
+72.4 F / 48%, OL, glare beside the number, glare over a digit): all six right on Opus 5.5, glare and OL
+refused; 2-5 s and about $0.01 a photo ($0.009-0.019). Haiku 5.5 gave the same six answers for about a
+third of the price, slower on two. Not yet tried on photos of real meters.
+
+## Saved from the first visit
+
+A claim is saved only once `hasAnyContent` says it has something in it. A drying job can start at the
+log before anybody types a name, so a started log counts (10-14; before, a log typed into a fresh claim
+was lost on a reload).
+
 ## Not in this version
 
-- A meter-screen photo (the reading record already has `source`, `mode`, `scale`, `meter` for it).
+- Keeping the meter photo with the reading, as proof (needs claim photo storage).
 - Bluetooth meters: needs a vendor agreement, so after launch (see the Bluetooth research note).
 - Taking readings in Scan (Android).
 - Merging two copies of a log by id.

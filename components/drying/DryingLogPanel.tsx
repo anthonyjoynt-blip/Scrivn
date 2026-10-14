@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import "./drying-log.css";
+import { MeterPhotoButton } from "./MeterPhotoButton";
 import { NumberField } from "./NumberField";
 import { BAND_COLOR, concernBand, MATERIAL_LABEL, MATERIAL_ORDER, setReferenceReading, type MoistureMap, type MoistureMaterial } from "@/lib/moisture";
 import type { Sketch } from "@/lib/sketch";
@@ -14,6 +15,8 @@ import {
   gppGap,
   localNow,
   logStatus,
+  modeChange,
+  MODE_LABEL,
   newPoint,
   newVisit,
   pointState,
@@ -31,6 +34,7 @@ import {
   trimNumber,
   withoutPoint,
   withoutVisit,
+  withPhotoReading,
   withPoint,
   withReading,
   withVisit,
@@ -117,9 +121,11 @@ export function DryingLogPanel({ log, onChange, sketch, moisture, onMoistureChan
             {log.visits.map((visit) => {
               const day = dayNumber(log, visit);
               const selected = !showingSummary && activeVisit?.id === visit.id;
+              // Two visits on one day (morning and evening) are both "Day 1": their times tell them apart.
+              const sameDay = visit.at !== "" && log.visits.some((v) => v.id !== visit.id && v.at.slice(0, 10) === visit.at.slice(0, 10));
               return (
                 <button key={visit.id} type="button" role="tab" aria-selected={selected} className="dlog-tab" onClick={() => setView(visit.id)}>
-                  {day === null ? "Visit" : `Day ${day}`} · {formatVisitDate(visit.at)}
+                  {day === null ? "Visit" : `Day ${day}`} · {sameDay ? formatVisitTime(visit.at) : formatVisitDate(visit.at)}
                 </button>
               );
             })}
@@ -466,7 +472,7 @@ function AirRow({
         </span>
       </div>
       <label className="dlog-field">
-        Temperature ({tempLabel(unit)})
+        Temp ({tempLabel(unit)})
         <NumberField
           allowNegative
           value={tempForDisplay(air.tempF, unit)}
@@ -476,7 +482,7 @@ function AirRow({
         />
       </label>
       <label className="dlog-field">
-        Humidity (% RH)
+        RH (%)
         <NumberField
           value={air.rh}
           onChange={(n) => onChange({ ...air, rh: n })}
@@ -484,6 +490,15 @@ function AirRow({
           ariaLabel={`${label} relative humidity`}
         />
       </label>
+      <div className="dlog-air-photo">
+        <MeterPhotoButton
+          kind="air"
+          tempUnit={unit}
+          label={`${label} air`}
+          // Half an answer fills half the row: a number the photo did not show is left as it was.
+          onRead={(r) => onChange({ tempF: r.tempF ?? air.tempF, rh: r.rh ?? air.rh })}
+        />
+      </div>
     </div>
   );
 }
@@ -510,9 +525,12 @@ function PointRow({
   const [confirmRemove, setConfirmRemove] = useState(false);
   const standard = standardFor(point, map);
   const value = readingValue(visit, point.id);
+  const reading = visit.readings[point.id];
+  const modeSwitch = modeChange(log, visit, point.id);
   const state = pointState(value, standard.value, log.goalMarginPercent);
   const last = previousReading(log, visit.id, point.id);
-  const change = trend(last?.value ?? null, value);
+  // A pin reading after a pinless one is on another scale: no trend between them, only the warning below.
+  const change = modeSwitch ? null : trend(last?.value ?? null, value);
   const lastDay = last ? dayNumber(log, last.visit) : null;
   // How warm an above-goal chip is comes from the moisture map's own bands, so the log and the map agree on "very
   // wet". But the map calls a reading within 5% of the way from dry to soaked "at dry standard" (grey), which can
@@ -552,6 +570,17 @@ function PointRow({
             ariaLabel={`${point.label} reading`}
           />
         </label>
+        <MeterPhotoButton
+          kind="moisture"
+          tempUnit={log.tempUnit}
+          label={point.label}
+          onRead={(r) => {
+            if (r.value === null) return;
+            const next = withPhotoReading(visit, point.id, { value: r.value, mode: r.mode, scale: r.scale, meter: r.meter });
+            // The meter field is the visit's; a photo that shows the model fills it only when nobody has.
+            onVisit(visit.meter.trim() || !r.meter ? next : { ...next, meter: r.meter });
+          }}
+        />
         {last && (
           <span className="dlog-prev">
             Last {trimNumber(last.value, 2)}
@@ -568,6 +597,22 @@ function PointRow({
           </span>
         )}
       </div>
+      {(reading?.source === "photo" || modeSwitch) && (
+        <div className="dlog-point-source">
+          {reading?.source === "photo" && (
+            <span>
+              Read from a photo of the meter
+              {reading.mode ? ` · ${MODE_LABEL[reading.mode]}` : ""}
+              {reading.scale ? ` · ${reading.scale} scale` : ""}
+            </span>
+          )}
+          {modeSwitch && (
+            <span className="dlog-point-warn">
+              Taken in {MODE_LABEL[modeSwitch.now]} mode; the last reading here was {MODE_LABEL[modeSwitch.was]}. Readings in different modes do not compare.
+            </span>
+          )}
+        </div>
+      )}
 
       {state === "dry" && !editing && (
         <div className="dlog-row-actions">
