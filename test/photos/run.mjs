@@ -258,6 +258,16 @@ await test("cleaning is the same answer run twice — the sync check runs it twi
   assert(!("extra" in once.items[2]), "unknown fields dropped");
 });
 
+await test("a Scan photo's spot on the plan is kept, and a photo with no spot keeps its room", () => {
+  const withSpot = mod.normalizeClaimPhotos({ items: [photo(1, { room: "bath", source: "scan", spot: { level: 0, x: 120.5, y: 48, heading: -90 } })] });
+  equal(withSpot.items[0].spot, { level: 0, x: 120.5, y: 48, heading: 270 }, "the spot, heading made 0-360");
+  equal(mod.normalizeClaimPhotos(JSON.parse(JSON.stringify(withSpot))), withSpot, "the same answer run twice");
+  equal(mod.movePhoto(withSpot, id(1), "kit", "Kitchen").items[0].spot, withSpot.items[0].spot, "moving its room keeps where it was taken");
+  const lost = mod.normalizeClaimPhotos({ items: [photo(2, { room: "bath", source: "scan", spot: { level: 0.5, x: "far" } })] });
+  equal([lost.items[0].room, "spot" in lost.items[0]], ["bath", false], "a spot that is no spot goes; the room stays");
+  assert(!("spot" in photosOf(photo(3)).items[0]), "a browser photo has none, and prints as before");
+});
+
 await test("a claim saved before photos existed opens with none, and fingerprints match after the round trip", () => {
   const old = mod.emptySavedClaimState();
   delete old.photos;

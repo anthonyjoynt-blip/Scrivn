@@ -72,6 +72,21 @@ export interface ClaimPhoto {
   source: PhotoSource;
   /** When this record last changed — what decides between two phones' copies of it. */
   editedAt: number;
+  /**
+   * Where on the plan it was taken, when the phone knew: a Scan photo (stage 4) carries the spot it
+   * was taken from. Absent from a photo taken in the browser, and from a Scan photo taken while the
+   * map was lost — which keeps its `room` all the same: the room is the filing, the spot only shows it.
+   * Kept now, before Scan sends any, so a build that does not draw spots does not clean them away.
+   */
+  spot?: PhotoSpot;
+}
+
+/** In the sketch's own world pixels (lib/sketch.ts), on one level; heading in degrees clockwise from the plan's up, or null. */
+export interface PhotoSpot {
+  level: number;
+  x: number;
+  y: number;
+  heading: number | null;
 }
 
 export interface PhotoDeletion {
@@ -116,6 +131,17 @@ function dimension(value: unknown): number {
   return n > 0 && n <= 20000 ? n : 0;
 }
 
+function cleanSpot(raw: unknown): PhotoSpot | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  const level = num(r.level, Number.NaN);
+  const x = num(r.x, Number.NaN);
+  const y = num(r.y, Number.NaN);
+  if (!Number.isInteger(level) || !Number.isFinite(x) || !Number.isFinite(y)) return null;
+  const h = num(r.heading, Number.NaN);
+  return { level, x, y, heading: Number.isFinite(h) ? ((h % 360) + 360) % 360 : null };
+}
+
 /** One record with every field present, in one key order — so two equal records print the same. */
 function cleanPhoto(raw: unknown): ClaimPhoto | null {
   if (!raw || typeof raw !== "object") return null;
@@ -124,6 +150,7 @@ function cleanPhoto(raw: unknown): ClaimPhoto | null {
   const takenAt = Math.max(0, num(r.takenAt, 0));
   const caption = str(r.caption, MAX_CAPTION_CHARS);
   const by = r.captionBy === "voice" || r.captionBy === "typed" ? r.captionBy : null;
+  const spot = cleanSpot(r.spot);
   return {
     id: r.id,
     room: str(r.room, 80),
@@ -135,6 +162,8 @@ function cleanPhoto(raw: unknown): ClaimPhoto | null {
     height: dimension(r.height),
     source: r.source === "gallery" || r.source === "scan" ? r.source : "camera",
     editedAt: Math.max(0, num(r.editedAt, takenAt)),
+    // Only when there is one, so a photo without a spot prints exactly as it did before spots existed.
+    ...(spot ? { spot } : {}),
   };
 }
 
