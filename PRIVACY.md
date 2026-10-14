@@ -58,6 +58,10 @@ When you choose Send to Scrivn team, Scan sends us that scan's measurements, the
 
 Scrivn Scan runs on Google Play Services for AR (ARCore), which is provided by Google LLC and governed by the Google Privacy Policy.
 
+**Working without a connection**
+
+So that Scrivn works with no signal, it keeps a copy of the claims you have opened recently, and of the latest ones on your claims list, in your browser's storage on your device, along with changes that have not reached our servers yet and AI steps waiting to run. Signing out removes those copies; changes that have not reached Scrivn yet stay on the device, out of sight of anyone else who signs in there, until you sign in again, so that they are not lost. Scrivn Scan likewise keeps a scan it could not send, with its photos, on the phone until it has been sent or you delete it.
+
 **Service providers**
 
 Your account, and your claims, photos and scans, are stored in Canada. To run Scrivn we also use the providers below, several of them in the United States, so information they handle (for example a claim's text during AI processing, or an email being sent) may be processed there:
@@ -90,3 +94,7 @@ Claims, photos and scans are kept until the company deletes them, or for 24 mont
   install id, note, contact; the sender's address only as a salted hash for the hourly limit), table
   `scan_reports` (0008, readable by the service role only). The 12-month deletion is a promise with no
   job behind it yet - delete old rows by hand until there is one.
+- **Working without a connection** (2026-10-13, offline mode): the device copies are IndexedDB
+  (`lib/deviceClaims.ts`, `lib/aiJobs.ts`); signing out sweeps the copies the server already has
+  (`forgetCopiedClaims` in `public/sw.js`) and keeps unsynced work, scoped to its owner by
+  `deviceUser`. Scan's waiting scans are its send queue (files in the app's private storage).

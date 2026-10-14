@@ -2748,6 +2748,209 @@ button:disabled {
   flex: 0 0 auto;
 }
 
+.pending-list {
+  flex: 1 1 100%;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.85rem;
+}
+
+.pending-list li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  padding: 4px 0;
+}
+
+.pending-list a {
+  font-weight: 600;
+  color: var(--color-navy);
+}
+
+.pending-list span {
+  color: var(--text-muted);
+}
+
+/* ---- offline mode (2026-10-13): the header's sync status, Claude steps waiting, clashes ---- */
+
+/* The right-hand end of the header: what is waiting to sync, then who is signed in. */
+.site-header-end {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+.sync-status {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+/*
+ * Quiet when it is only a count, plain when offline, and the one loud thing when there is a clash —
+ * that is the only state here that needs the estimator to do something.
+ */
+.sync-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--color-navy);
+  background: var(--color-navy-tint);
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.sync-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-navy);
+}
+
+.sync-pill-offline {
+  color: var(--text);
+  background: #f4f5f7;
+}
+
+.sync-pill-offline .sync-dot {
+  background: var(--text-muted);
+}
+
+.sync-pill-clash {
+  color: var(--danger-text);
+  background: var(--danger-bg);
+  border-color: var(--danger-border);
+}
+
+.sync-pill-clash .sync-dot {
+  background: var(--danger-text);
+}
+
+.sync-pill-waiting {
+  cursor: default;
+}
+
+.sync-panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  z-index: 50;
+  width: min(360px, calc(100vw - 32px));
+  padding: 12px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgba(18, 40, 65, 0.14);
+}
+
+.sync-panel-head {
+  margin: 0 0 8px;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: var(--text);
+}
+
+.sync-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.82rem;
+}
+
+.sync-list li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 7px 0;
+  border-top: 1px solid var(--border);
+}
+
+.sync-list a {
+  font-weight: 600;
+  color: var(--color-navy);
+}
+
+.sync-list span {
+  color: var(--text-muted);
+}
+
+.sync-list .sync-item-clash {
+  color: var(--danger-text);
+  font-weight: 600;
+}
+
+@media (max-width: 480px) {
+  .site-header-end {
+    gap: 10px;
+  }
+}
+
+/* A Claude step written down to run when the signal is back — information, so navy, not amber. */
+.waiting-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 12px;
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  background: var(--color-navy-tint);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+}
+
+.waiting-banner p {
+  flex: 1 1 260px;
+  margin: 0;
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.waiting-banner .spinner {
+  display: inline-block;
+  vertical-align: -3px;
+  margin-right: 4px;
+}
+
+.waiting-banner-failed {
+  background: var(--danger-bg);
+  border-color: var(--danger-border);
+}
+
+.waiting-banner-actions {
+  display: flex;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+/* Changed in two places: the one thing on the page that needs a decision. */
+.clash-banner {
+  margin: 0 0 16px;
+  padding: 14px 16px;
+  background: var(--danger-bg);
+  border: 1px solid var(--danger-border);
+  border-radius: var(--radius);
+}
+
+.clash-banner p {
+  margin: 0 0 8px;
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+.clash-banner-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 10px 0;
+}
+
 /* The signed-in footer — see app/(app)/layout.tsx for why the product side carries this at all. */
 .app-footer {
   max-width: var(--max-width);

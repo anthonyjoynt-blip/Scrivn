@@ -15,7 +15,8 @@ import {
   OPENING_LABEL,
   type SideQuantities,
 } from "@/lib/exterior";
-import { roofWithoutSides } from "@/lib/exteriorPlan";
+import { roofWithoutSides, withSideAfter } from "@/lib/exteriorPlan";
+import { newSketchId } from "@/lib/sketch";
 import type { SideTrace } from "@/lib/exteriorTrace";
 import { lf, sf } from "./exteriorFields";
 import { ExteriorStart, PlanPane } from "./ExteriorPlan";
@@ -140,6 +141,11 @@ export function ExteriorEditor({
           onUpdate={(f) => updateSide(current.id, f)}
           onChange={change}
           onRemove={() => removeSide(current.id)}
+          onInsertAfter={() => {
+            const id = newSketchId("side");
+            change((prev) => withSideAfter(prev, current.id, id));
+            setView(id);
+          }}
           onGo={setView}
           photoOpacity={photoOpacity}
           onPhotoOpacity={setPhotoOpacity}

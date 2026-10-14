@@ -21,6 +21,10 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadWorker } from "./fakeServiceWorker.mjs";
+import { installFakeIndexedDB } from "../pending/fakeIndexedDB.mjs";
+
+// The claims the device keeps (lib/deviceClaims.ts), which signing out sweeps — see `forgetCopiedClaims`.
+const idb = installFakeIndexedDB();
 
 const here = dirname(fileURLToPath(import.meta.url));
 const source = readFileSync(join(here, "..", "..", "public", "sw.js"), "utf8");
@@ -271,11 +275,11 @@ await test("two builds' assets coexist, since a hashed URL means one exact file"
 await test("the asset cache is trimmed, oldest first", async (w) => {
   // Otherwise it grows by a build's worth of chunks on every deploy, for ever.
   await boot(w);
-  for (let i = 0; i < 250; i++) await w.fetchEvent(asset(w, `/_next/static/chunks/c-${i}.js`));
+  for (let i = 0; i < 410; i++) await w.fetchEvent(asset(w, `/_next/static/chunks/c-${i}.js`));
   const entries = await assetEntries(w);
-  equal(entries.length, 240, "cached assets after the cap");
+  equal(entries.length, 400, "cached assets after the cap");
   assert(!entries.includes("https://scrivn.ca/_next/static/chunks/c-0.js"), "expected the oldest to be evicted");
-  assert(entries.includes("https://scrivn.ca/_next/static/chunks/c-249.js"), "expected the newest to be kept");
+  assert(entries.includes("https://scrivn.ca/_next/static/chunks/c-409.js"), "expected the newest to be kept");
 });
 
 await test("a failed asset fetch is not cached as if it had worked", async (w) => {
@@ -339,6 +343,157 @@ await test("signing out does not throw away the build assets", async (w) => {
   await w.fetchEvent(asset(w, "/_next/static/chunks/main-abc123.js"));
   await w.fetchEvent(new w.FakeRequest("/api/logout", { method: "POST" }));
   equal((await assetEntries(w)).length, 1, "cached assets after signing out");
+});
+
+await test("signing out removes the copies of claims, and keeps work the server has not got", async (w) => {
+  /*
+    Claims kept on the device for offline use (lib/deviceClaims.ts) carry a customer's name, address
+    and loss — the same reason the pages go. Unsynced work is the only copy there is: it stays, out of
+    sight of anyone else, until its owner signs in again.
+  */
+  idb.reset();
+  idb.seed("scrivn", 2, {
+    claims: {
+      keyPath: "id",
+      records: [
+        { id: "copy", dirty: false, clash: null },
+        { id: "unsynced", dirty: true, clash: null },
+        { id: "clash", dirty: true, clash: { state: null, version: null, at: 1 } },
+      ],
+    },
+    aiJobs: { keyPath: "key", records: [{ key: "unsynced:generate" }] },
+  });
+  await boot(w);
+  await w.fetchEvent(new w.FakeRequest("/api/logout", { method: "POST" }));
+  equal(idb.records("claims").map((r) => r.id).sort(), ["clash", "unsynced"], "claims left on the device");
+  equal(idb.records("aiJobs").length, 1, "a Claude step still waiting is work too");
+});
+
+await test("signing out on a device that never kept a claim creates no database", async (w) => {
+  idb.reset();
+  await boot(w);
+  await w.fetchEvent(new w.FakeRequest("/api/logout", { method: "POST" }));
+  assert(!idb.exists(), "expected no database to have been made just to be swept");
+});
+
+/* ── offline mode: what is kept as a page, and pages fetched ahead of need ────────────────────── */
+
+await test("a filtered list is not kept as THE list", async (w) => {
+  // A search in the office, and only that search's claims in the basement — shown as if it were all.
+  await boot(w);
+  await w.fetchEvent(navigation(w, "/claims?q=smith"));
+  assert(!(await pageEntries(w)).includes("https://scrivn.ca/claims"), "a search result should not be filed under /claims");
+  await w.fetchEvent(navigation(w, "/claims"));
+  assert((await pageEntries(w)).includes("https://scrivn.ca/claims"), "the plain list should be");
+});
+
+/** A page as Next sends it: scripts in tags, and chunk paths inside the inline React payload. */
+const pageHtml = (name) =>
+  `<html><link rel="stylesheet" href="/_next/static/css/app-1.css"><script src="/_next/static/chunks/${name}-page.js" async></script>` +
+  `<script>self.__next_f.push([1,"I:[\\"/_next/static/chunks/shared-7.js\\"]"])</script></html>`;
+
+await test("warming keeps the claim page and the list, and every build file they name", async (w) => {
+  await boot(w);
+  w.network.handler = (url) =>
+    url.endsWith("/claim") ? new w.FakeResponse(pageHtml("claim")) : url.endsWith("/claims") ? new w.FakeResponse(pageHtml("claims")) : new w.FakeResponse(`body of ${url}`);
+  await w.message({ type: "warm" });
+  const pages = await pageEntries(w);
+  assert(pages.includes("https://scrivn.ca/claim") && pages.includes("https://scrivn.ca/claims"), `expected both pages kept, got ${pages}`);
+  equal(
+    (await assetEntries(w)).sort(),
+    [
+      "https://scrivn.ca/_next/static/chunks/claim-page.js",
+      "https://scrivn.ca/_next/static/chunks/claims-page.js",
+      "https://scrivn.ca/_next/static/chunks/shared-7.js",
+      "https://scrivn.ca/_next/static/css/app-1.css",
+    ],
+    "build files kept",
+  );
+
+  // And then the claim page boots with no network at all.
+  w.network.handler = NO_NETWORK;
+  const page = await w.fetchEvent(navigation(w, "/claims"));
+  equal(page.body, pageHtml("claims"), "the list boots offline");
+  const chunk = await w.fetchEvent(asset(w, "/_next/static/chunks/shared-7.js"));
+  equal(chunk.body, "body of https://scrivn.ca/_next/static/chunks/shared-7.js", "and so do its chunks");
+});
+
+await test("warming follows a chunk to the chunks it loads later", async (w) => {
+  /*
+    Found in the browser: the sketch canvas is a `next/dynamic` import, so the page never names its
+    chunk — the page's own chunk does, as "static/chunks/…" in its async loader. Warmed from the page
+    alone, the claim opened offline and its sketch editor failed with a ChunkLoadError.
+  */
+  await boot(w);
+  const loader = `__turbopack_context__.v(() => Promise.all(["static/chunks/sketch-canvas.js"].map((c) => __turbopack_context__.l(c))))`;
+  w.network.handler = (url) => {
+    if (url.endsWith("/claim") || url.endsWith("/claims")) return new w.FakeResponse(`<script src="/_next/static/chunks/page.js"></script>`);
+    if (url.endsWith("/page.js")) return new w.FakeResponse(loader);
+    if (url.endsWith("/sketch-canvas.js")) return new w.FakeResponse(`"static/chunks/konva.js"`);
+    return new w.FakeResponse(`body of ${url}`);
+  };
+  await w.message({ type: "warm" });
+  const entries = await assetEntries(w);
+  for (const file of ["page.js", "sketch-canvas.js", "konva.js"]) {
+    assert(entries.includes(`https://scrivn.ca/_next/static/chunks/${file}`), `expected ${file} warmed, got ${entries}`);
+  }
+  w.network.handler = NO_NETWORK;
+  const chunk = await w.fetchEvent(asset(w, "/_next/static/chunks/sketch-canvas.js"));
+  equal(chunk.body, `"static/chunks/konva.js"`, "the lazily loaded chunk is there with no network");
+});
+
+await test("warming reads a route group's chunk name whole, and a stylesheet's font without its bracket", async (w) => {
+  /*
+    Found in the browser: the claim page's chunk is "app_(app)_claim_page_….js", and a pattern that
+    stopped at "(" fetched "app_(app" instead — so the claim page booted offline only if it had been
+    opened with signal since the last deploy. A stylesheet's font, meanwhile, is closed by url(…).
+  */
+  await boot(w);
+  w.network.handler = (url) => {
+    if (url.endsWith("/claim") || url.endsWith("/claims")) {
+      return new w.FakeResponse(`<script src="/_next/static/chunks/app_(app)_claim_page_tsx_0pasxuy._.js"></script><link rel="stylesheet" href="/_next/static/css/a.css">`);
+    }
+    if (url.endsWith("/a.css")) return new w.FakeResponse(`@font-face{src:url(/_next/static/media/f-1.woff2) format("woff2"),url(/_next/static/media/f-2.woff);}`);
+    return new w.FakeResponse(`body of ${url}`);
+  };
+  await w.message({ type: "warm" });
+  const entries = await assetEntries(w);
+  for (const file of ["chunks/app_(app)_claim_page_tsx_0pasxuy._.js", "media/f-1.woff2", "media/f-2.woff"]) {
+    assert(entries.includes(`https://scrivn.ca/_next/static/${file}`), `expected ${file} warmed, got ${entries}`);
+  }
+  assert(!entries.some((e) => e.endsWith("app_(app")), "no truncated chunk name");
+});
+
+await test("warming fetches only the build files that are missing", async (w) => {
+  await boot(w);
+  await w.fetchEvent(asset(w, "/_next/static/chunks/shared-7.js"));
+  w.network.handler = (url) => (url.endsWith("/claim") || url.endsWith("/claims") ? new w.FakeResponse(pageHtml("x")) : new w.FakeResponse(`body of ${url}`));
+  w.network.calls.length = 0;
+  await w.message({ type: "warm" });
+  assert(!w.network.calls.includes("https://scrivn.ca/_next/static/chunks/shared-7.js"), "a file already here is not fetched again");
+});
+
+await test("warming keeps no page that came back as a redirect", async (w) => {
+  // Signed out: /claims is the login form by the time fetch has followed the redirect.
+  await boot(w);
+  w.network.handler = () => new w.FakeResponse("the login form", { redirected: true, url: "https://scrivn.ca/login" });
+  await w.message({ type: "warm" });
+  equal(await pageEntries(w), ["https://scrivn.ca/offline"], "cached pages");
+});
+
+await test("warming with no network stops quietly", async (w) => {
+  await boot(w);
+  w.network.handler = NO_NETWORK;
+  await w.message({ type: "warm" });
+  equal(await pageEntries(w), ["https://scrivn.ca/offline"], "nothing new kept, nothing thrown");
+});
+
+await test("warming fetches only its own two pages, whatever the message says", async (w) => {
+  await boot(w);
+  w.network.calls.length = 0;
+  await w.message({ type: "warm", paths: ["/account", "https://evil.example/x"] });
+  const pagesAsked = w.network.calls.filter((u) => !u.includes("/_next/"));
+  equal(pagesAsked, ["https://scrivn.ca/claim", "https://scrivn.ca/claims"], "pages fetched");
 });
 
 /* ── report ───────────────────────────────────────────────────────────────────────────────────── */

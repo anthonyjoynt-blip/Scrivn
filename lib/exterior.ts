@@ -863,6 +863,20 @@ export interface Footprint {
   perimeterFeet: number;
 }
 
+/** Whether an outline's walls, each level or upright, cross or touch anywhere but at the corner two of them share. */
+function crossesItself(points: Pt[]): boolean {
+  const n = points.length;
+  const meet = (a: Pt, b: Pt, c: Pt, d: Pt) =>
+    Math.min(a.x, b.x) <= Math.max(c.x, d.x) + 1e-6 && Math.min(c.x, d.x) <= Math.max(a.x, b.x) + 1e-6 && Math.min(a.y, b.y) <= Math.max(c.y, d.y) + 1e-6 && Math.min(c.y, d.y) <= Math.max(a.y, b.y) + 1e-6;
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 2; j < n; j++) {
+      if (i === 0 && j === n - 1) continue;
+      if (meet(points[i] as Pt, points[(i + 1) % n] as Pt, points[j] as Pt, points[(j + 1) % n] as Pt)) return true;
+    }
+  }
+  return false;
+}
+
 /**
  * Walks the sides round with square corners: each outside corner a left turn, each inside one a
  * right turn (walking with the house on your left, as you do going to the right along the faces).
@@ -936,6 +950,8 @@ export function exteriorFootprint(exterior: Exterior): Footprint {
   });
   // Snap away float dust, so walls the roof treats as square are exactly square.
   const snapped = corners.map((p) => ({ x: Math.round(p.x * 1e6) / 1e6, y: Math.round(p.y * 1e6) / 1e6 }));
+  // Lengths that walk the outline across itself are no house: said, rather than built into a roof.
+  if (crossesItself(snapped)) return fail("The sides as typed cross over each other: check the lengths and the corners.");
   return {
     closes: true,
     reason: null,

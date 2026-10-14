@@ -220,6 +220,25 @@ test("loading is idempotent and survives a trip through JSON", () => {
   equal(once, started, "a normalised log equals the one that was saved");
 });
 
+// claimSync fingerprints parseSavedClaimState, which runs this: parse(parse(x)) must equal parse(x) or a save
+// whose answer was lost would look like a clash with itself — including for hand-damaged logs (ids invented,
+// text where numbers belong, visits out of order or undated).
+test("loading a damaged log twice gives what loading it once did", () => {
+  const damaged = {
+    goalMarginPercent: "12",
+    tempUnit: "kelvin",
+    points: [{ label: "No id" }, { id: "p", standard: "0.8", material: "marble", origin: "?" }, { id: "p" }],
+    visits: [
+      { at: "2026-10-15T09:00", readings: { p: { value: "3.2", mode: "x", scale: 5, source: "pigeon" } }, air: { outside: { tempF: "50", rh: 400 } } },
+      { id: "u", at: "never" },
+      { id: "e", at: "2026-10-13T08:00", equipment: { airMovers: "4", dehumidifiers: -1 }, notes: 7 },
+    ],
+  };
+  const once = m.normalizeDryingLog(JSON.parse(JSON.stringify(damaged)));
+  equal(m.normalizeDryingLog(JSON.parse(JSON.stringify(once))), once, "damaged log, twice");
+  equal(m.normalizeDryingLog(m.normalizeDryingLog(once)), once, "and three times");
+});
+
 test("optional reading fields are carried through, junk ones dropped", () => {
   const log = m.normalizeDryingLog({
     points: [{ id: "a" }],

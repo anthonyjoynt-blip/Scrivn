@@ -1,9 +1,9 @@
 # Who can sign up, and who can pay
 
-Scrivn is deployed and usable before it is a business. Two things are therefore held shut on
+Scrivn is deployed and usable before it is a business. Three things are therefore held shut on
 purpose, and this is the record of which switch does what.
 
-Both flags **fail closed**: they open only on the exact string `true`. A missing, empty or misspelt
+All three flags **fail closed**: they open only on the exact string `true`. A missing, empty or misspelt
 value leaves the door shut. That direction is deliberate — the cost of accidentally-closed is a
 confused tester, and the cost of accidentally-open is somebody's money or somebody's API bill.
 
@@ -52,3 +52,16 @@ With that off, `auth.signUp` fails for everyone regardless of the UI. Add tester
 A new account gets a **free trial of 5 claims over 30 days with no card**, and every claim spends
 Anthropic credit on extraction and generation. An open sign-up page on a public domain is therefore
 a live, uncapped cost, not just an empty user table.
+
+## Team accounts — `TEAMS_ENABLED`
+
+Off everywhere (built 2026-10-13, dormant). While off, the `/api/team` routes answer 404, the Team
+card on the Account page is not drawn, the invitation page is a 404, and no invitation email can be
+sent. Everyone is alone in their own organization, as they have been since migration 0004.
+
+Turning it on needs migrations `0011_org_billing.sql` and `0012_teams.sql` applied first, plus the
+other steps in `TEAMS.md`.
+
+It meets sign-up in one place: **an invited person needs an account.** While
+`NEXT_PUBLIC_SIGNUPS_OPEN` is off, make one for them in Supabase (Authentication → Users → Add user)
+with the address the invitation went to. They then open the link and sign in.

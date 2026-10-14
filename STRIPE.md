@@ -116,14 +116,55 @@ it is **not** the same as the `stripe listen` one. It goes in Vercel's environme
 with `STRIPE_SECRET_KEY`, the three price IDs and Scan's two, `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`,
 and `SUPABASE_SERVICE_ROLE_KEY`.
 
+## 6. The plan belongs to the organization (added 2026-10-13)
+
+Migration `0011_org_billing.sql` moves `stripe_customer_id`, `subscription_tier`, the claim counter
+and the free trial from `profiles` to `organizations`. Everyone today is an organization of one, so
+nobody's plan, counter or trial changes. When team accounts are switched on (`TEAMS.md`), everyone on
+a team shares one subscription and one claim allowance.
+
+- **Run 0011 in the SQL Editor**, then `0012_teams.sql`. 0011 copies each person's billing onto the
+  organization they own, once; running it again copies nothing. Until it has run, the app keeps
+  reading and counting the profile columns, as it did before (see "Until 0011 is applied" in
+  `lib/usage.ts`), so a deploy that gets ahead of the migration changes nothing anyone sees. A
+  trigger also carries the previous build's profile writes onto the organization, so the two can be
+  days apart.
+- **Only the owner buys.** Checkout and the billing portal refuse anyone but the organization's
+  owner. Alone, everyone is the owner of their own organization.
+- **How events find the organization.** Checkout sends the organization id as
+  `client_reference_id`, and a new Stripe customer carries `metadata.organization_id` (plus
+  `supabase_user_id`). Customers made before 0011 carry only `supabase_user_id`; the webhook finds
+  them by the customer id 0011 copied onto the organization. The order is `billingLookups` in
+  `lib/billingTiers.ts`.
+- **Seats: room for a price, no price.** `organizations.seat_limit` holds how many people the plan
+  covers; null means no limit, which is every organization today. `SEAT_PRICING` in `lib/plans.ts`
+  is `unlimited`, and has room for either "N seats included per tier" or "a price per seat" (the
+  subscription quantity). The webhook stores `seatLimitFor(...)` on every subscription event, and the
+  invite functions in 0012 refuse an invite past the limit. Choosing per-seat pricing also needs a
+  per-seat Stripe price, a way to change the quantity (the portal's quantity setting, or an "add
+  seats" route), and a decision about a team that is over its limit after the plan shrinks.
+- **Handing an organization over** (0012) makes the new owner the one who manages billing. The
+  Stripe customer's email stays the previous owner's until it is changed in the portal.
+
+### Teams and tax: may need custom invoicing
+
+A team account is one subscription billed to one address, and Stripe Tax charges the GST/HST/PST of
+that one address. A restoration company with crews in several provinces may need something one
+address cannot give it. Whether it does is a question for the accountant, alongside the tax work in
+Known gaps below. If it does, those companies come off Checkout and onto custom invoicing (Stripe
+Invoicing with the lines it needs, or invoices made by hand), with the plan set on their
+organization by hand or by an admin route. Nothing in 0011 or 0012 assumes Checkout beyond the
+subscription itself, so that stays open. The owner parked teams on 2026-09-13 with this in mind; on
+2026-10-13 they asked for the infrastructure only, with no price.
+
 ## How the pieces fit
 
 - **Checkout** (`/api/checkout`) takes a *tier name* from the browser and resolves the price
   server-side. The client never sends a price ID — if it did, anyone could check out against an
   arbitrary price.
-- **The webhook** is what actually grants a plan. The success page deliberately does not: it's a
-  plain URL anyone can visit, so treating arrival there as proof of payment would give away
-  subscriptions.
+- **The webhook** is what actually grants a plan, to the organization (0011). The success page
+  deliberately does not: it's a plain URL anyone can visit, so treating arrival there as proof of
+  payment would give away subscriptions.
 - **Renewals** arrive as `customer.subscription.updated` carrying a later period end. That
   comparison against the stored `period_reset_at` is what rolls the usage counter over — there's no
   separate scheduled job.

@@ -4,8 +4,8 @@ import { getStripe } from "@/lib/stripe/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { cleanEnv } from "@/lib/env";
 import { scanPriceIds } from "@/lib/stripe/prices";
-import { SCAN_TIER } from "@/lib/plans";
-import { scanSubscriptionsToCancel, subscriptionEventApplies } from "@/lib/billingTiers";
+import { SCAN_TIER, seatLimitFor } from "@/lib/plans";
+import { billingLookups, scanSubscriptionsToCancel, subscriptionEventApplies, type BillingLookup } from "@/lib/billingTiers";
 
 /**
  * The Stripe webhook — what makes a subscription real to this app rather than only to Stripe.
@@ -20,7 +20,13 @@ import { scanSubscriptionsToCancel, subscriptionEventApplies } from "@/lib/billi
  * page never learns about any of them, which is why this handler is required rather than optional.
  *
  * Writes go through the service-role client: there's no user session to satisfy RLS, and the
- * billing columns are intentionally not user-writable (see migration 0002).
+ * billing columns are intentionally not user-writable (see migrations 0002 and 0011).
+ *
+ * The plan belongs to the ORGANIZATION (0011_org_billing.sql): a team shares one subscription. Alone,
+ * a person's organization is theirs alone, so a purchase lands where it always effectively did. Only
+ * the owner can reach checkout (app/api/checkout), and the organization an event is about is found
+ * by `billingLookups` — the organization id checkout sends, the person id it sent before 0011, or the
+ * Stripe customer stored on the organization.
  */
 
 /** Handled events. Renewals arrive as `customer.subscription.updated` with a later period end. */
@@ -90,10 +96,46 @@ function tierForPriceId(priceId: string | null | undefined): string | null {
   return null;
 }
 
-/** The profile's tier now, by whichever key the event can reach it. */
-async function storedTier(admin: ReturnType<typeof createAdminClient>, match: Record<string, unknown>): Promise<string | null> {
-  const { data } = await admin.from("profiles").select("subscription_tier").match(match).maybeSingle();
-  return (data?.subscription_tier as string | null) ?? null;
+/** The organization an event is about, with what it holds now. */
+interface BillingTarget {
+  id: string;
+  subscription_tier: string | null;
+  period_reset_at: string | null;
+}
+
+/** The first organization the lookups reach, in their order — see `billingLookups`. */
+async function findOrganization(admin: ReturnType<typeof createAdminClient>, lookups: BillingLookup[]): Promise<BillingTarget | null> {
+  for (const lookup of lookups) {
+    let organizationId: string | null = null;
+    let column = "id";
+    if (lookup.by === "owner") {
+      const { data } = await admin.from("organization_members").select("organization_id").eq("user_id", lookup.value).eq("role", "owner").maybeSingle();
+      organizationId = (data?.organization_id as string | undefined) ?? null;
+      if (!organizationId) continue;
+    } else if (lookup.by === "customer") {
+      column = "stripe_customer_id";
+    }
+    const { data, error } = await admin
+      .from("organizations")
+      .select("id, subscription_tier, period_reset_at")
+      .eq(column, organizationId ?? lookup.value)
+      .maybeSingle();
+    // A failed read is not "no such organization": throw, so Stripe retries rather than the event being dropped.
+    if (error) throw new Error(`could not look up the organization: ${error.message}`);
+    if (data) return data as BillingTarget;
+  }
+  return null;
+}
+
+/** What one subscription item is bought in — the seat count, if seats are ever priced one by one. */
+function quantityOf(subscription: Stripe.Subscription): number | null {
+  return subscription.items?.data?.[0]?.quantity ?? null;
+}
+
+/** Writes to one organization, throwing on failure so the event is retried rather than lost. */
+async function updateOrganization(admin: ReturnType<typeof createAdminClient>, id: string, values: Record<string, unknown>) {
+  const { error } = await admin.from("organizations").update(values).eq("id", id);
+  if (error) throw new Error(`could not update the organization's plan: ${error.message}`);
 }
 
 /**
@@ -144,27 +186,28 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session, stripe:
   const customerId = typeof session.customer === "string" ? session.customer : session.customer?.id;
   const admin = createAdminClient();
 
-  // client_reference_id is the user id we set at checkout; customer id is the fallback path.
-  const userId = session.client_reference_id;
-  const match = userId ? { id: userId } : customerId ? { stripe_customer_id: customerId } : null;
-  if (!match) return;
+  // client_reference_id is the organization id checkout sets; customer id is the fallback path.
+  const org = await findOrganization(admin, billingLookups({ clientReferenceId: session.client_reference_id, customerId }));
+  if (!org) {
+    console.error("[stripe webhook] checkout completed for no organization this deployment knows — no tier assigned.");
+    return;
+  }
 
   // Scan bought by someone already on a Scrivn plan (the checkout route refuses it, so only a race
   // gets here): the Scrivn plan stays.
-  if (!subscriptionEventApplies({ eventTier: tier, storedTier: await storedTier(admin, match), deleted: false })) return;
+  if (!subscriptionEventApplies({ eventTier: tier, storedTier: org.subscription_tier, deleted: false })) return;
 
   if (customerId) await cancelScanOnceScrivnBought(stripe, customerId, tier, subscription.id);
 
-  await admin
-    .from("profiles")
-    .update({
-      subscription_tier: tier,
-      // A fresh subscription starts a fresh allowance.
-      claims_used_this_period: 0,
-      period_reset_at: periodEndIso(subscription),
-      ...(customerId ? { stripe_customer_id: customerId } : {}),
-    })
-    .match(match);
+  await updateOrganization(admin, org.id, {
+    subscription_tier: tier,
+    // A fresh subscription starts a fresh allowance.
+    claims_used_this_period: 0,
+    period_reset_at: periodEndIso(subscription),
+    // Null — no limit — until a seat price is chosen; see SEAT_PRICING in lib/plans.ts.
+    seat_limit: seatLimitFor(tier, quantityOf(subscription)),
+    ...(customerId ? { stripe_customer_id: customerId } : {}),
+  });
 }
 
 async function handleSubscriptionChange(subscription: Stripe.Subscription, deleted: boolean) {
@@ -172,16 +215,18 @@ async function handleSubscriptionChange(subscription: Stripe.Subscription, delet
   if (!customerId) return;
 
   const admin = createAdminClient();
+  const org = await findOrganization(admin, billingLookups({ customerId }));
+  if (!org) return;
 
-  // Not every subscription event is about the plan the profile holds: a Scan subscription a Scrivn
-  // plan replaced still sends its cancellation — see lib/billingTiers.ts.
+  // Not every subscription event is about the plan the organization holds: a Scan subscription a
+  // Scrivn plan replaced still sends its cancellation — see lib/billingTiers.ts.
   const eventTier = tierForPriceId(subscription.items.data[0]?.price?.id);
-  if (!subscriptionEventApplies({ eventTier, storedTier: await storedTier(admin, { stripe_customer_id: customerId }), deleted })) return;
+  if (!subscriptionEventApplies({ eventTier, storedTier: org.subscription_tier, deleted })) return;
 
   if (deleted) {
     // Cancelled: back to no plan. Usage is left as-is rather than zeroed — resetting it would hand
     // a full fresh allowance to anyone who cancels and resubscribes.
-    await admin.from("profiles").update({ subscription_tier: null, period_reset_at: null }).eq("stripe_customer_id", customerId);
+    await updateOrganization(admin, org.id, { subscription_tier: null, period_reset_at: null, seat_limit: null });
     return;
   }
 
@@ -190,24 +235,16 @@ async function handleSubscriptionChange(subscription: Stripe.Subscription, delet
   const tier = active ? eventTier : null;
   const newPeriodEnd = periodEndIso(subscription);
 
-  const { data: profile } = await admin
-    .from("profiles")
-    .select("period_reset_at")
-    .eq("stripe_customer_id", customerId)
-    .maybeSingle();
-
   // A renewal shows up here as a period end later than the one we stored — that, not a separate
   // event, is what rolls the usage counter over for the new period. Plan changes mid-period keep
   // their existing usage.
-  const storedEnd = (profile?.period_reset_at as string | null) ?? null;
+  const storedEnd = org.period_reset_at;
   const isNewPeriod = Boolean(newPeriodEnd && (!storedEnd || new Date(newPeriodEnd) > new Date(storedEnd)));
 
-  await admin
-    .from("profiles")
-    .update({
-      subscription_tier: tier,
-      period_reset_at: newPeriodEnd,
-      ...(isNewPeriod ? { claims_used_this_period: 0 } : {}),
-    })
-    .eq("stripe_customer_id", customerId);
+  await updateOrganization(admin, org.id, {
+    subscription_tier: tier,
+    period_reset_at: newPeriodEnd,
+    seat_limit: seatLimitFor(tier, quantityOf(subscription)),
+    ...(isNewPeriod ? { claims_used_this_period: 0 } : {}),
+  });
 }

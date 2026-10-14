@@ -2120,6 +2120,43 @@ test("the footprint from typed sides: on an L the front typed moves its own arm 
   assert(x.exteriorFootprint(e).misclosureFeet < 1e-9, "and it closes exactly");
 });
 
+test("the footprint from typed sides: a U's arm typed shorter moves only that arm, and nothing typed ever crosses the outline", () => {
+  // The review's U (10-13): the court at the rear, the right arm 40' out and the left 30'.
+  const u0 = x.exteriorFromOutline([P(0, 0), P(30, 0), P(30, 40), P(20, 40), P(20, 10), P(10, 10), P(10, 30), P(0, 30)]);
+  const id = (e, name) => byName(e, name).id;
+  // Right 40' -> 28': the right arm's back comes in past the left arm's, which stays where it is.
+  const a = x.withSideLength(u0, id(u0, "Right"), 28);
+  assert(lengthsOf(a) === "Front 30~, Right 28, Rear 10~, Left 2 18~, Rear 3 10~, Right 2 20~, Rear 2 10~, Left 30~", lengthsOf(a));
+  // Right -> 20': the arm's back stops 10' short of the court's floor, still an outline.
+  const b = x.withSideLength(u0, id(u0, "Right"), 20);
+  assert(lengthsOf(b) === "Front 30~, Right 20, Rear 10~, Left 2 10~, Rear 3 10~, Right 2 20~, Rear 2 10~, Left 30~", lengthsOf(b));
+  const fb = x.exteriorFootprint(b);
+  assert(fb.closes && fb.misclosureFeet < 1e-9, fb.reason);
+  near(fb.areaSquareFeet, 600, "30 x 10, the left arm 10 x 20 and the right 10 x 10");
+  // Right -> 5': no drawn side can take it without the outline crossing itself, so the 5' stands as typed and the plan says why.
+  const c = x.withSideLength(u0, id(u0, "Right"), 5);
+  assert(byName(c, "Right").lengthFeet === 5, "what was typed stands");
+  const fc = x.exteriorFootprint(c);
+  assert(fc.closes ? x.orthogonalRing(fc.corners) !== null : /cross over each other|shrink to nothing/.test(fc.reason), fc.reason ?? "closed");
+});
+
+test("a walk whose lengths take it across itself is no footprint, and says so", () => {
+  // A U whose court wall runs 45' down from the 40' rear: through the front wall. It closes exactly, and crosses.
+  const lengths = [30, 40, 10, 45, 10, 35, 10, 30];
+  const turns = ["outside", "outside", "outside", "inside", "inside", "outside", "outside", "outside"];
+  const e = exterior(lengths.map((l, k) => side({ id: `s${k}`, name: `S${k}`, lengthFeet: l, turn: turns[k] })));
+  const f = x.exteriorFootprint(e);
+  assert(!f.closes && /cross over each other/.test(f.reason), f.reason ?? "closed");
+  assert(x.exteriorQuantities(e).roof === null, "and no roof on it");
+});
+
+test("a side put in after another breaks the outline open until its corners are put right", () => {
+  const r = drawnRect();
+  const f = x.withSideAfter(r, r.sides[0].id);
+  assert(f.sides.length === 5 && f.sides[1].name === "Right 2" && f.sides[1].lengthFeet === 10, f.sides.map((s) => s.name).join());
+  assert(!x.exteriorFootprint(f).closes && /corners don't go round/.test(x.exteriorFootprint(f).reason), x.exteriorFootprint(f).reason);
+});
+
 test("a side's openings after a length change: measured from its left corner they stay, and the far side's keep their place on the wall", () => {
   let e = drawnRect();
   const id = (name) => byName(e, name).id;
@@ -2138,6 +2175,16 @@ test("a side's openings after a length change: measured from its left corner the
   near(byName(e, "Rear").openings[0].fromLeftFeet, 1, "the rear window stays put");
   e = x.withSideLength(e, id("Front"), 44);
   near(byName(e, "Rear").openings[0].fromLeftFeet, 9, "and stays put the other way: 9' in");
+  // The review's L: front windows at 22' and 30', the front typed 40' -> 20'. The arm past the notch (25') comes in 20';
+  // the window caught where the wall closes up is kept on what is left, so the two stay in order.
+  let l = drawnEll();
+  l.sides[0].openings = [win("a", 22), win("b", 30)];
+  l = x.withSideLength(l, l.sides[0].id, 20);
+  const [first, second] = byName(l, "Front").openings;
+  near(first.fromLeftFeet, 3.5, "the first pushed in with the wall");
+  near(second.fromLeftFeet, 10, "the second moved with its arm");
+  assert(first.fromLeftFeet < second.fromLeftFeet, "still in order");
+  assert(x.exteriorFootprint(l).closes, x.exteriorFootprint(l).reason);
 });
 
 test("the footprint from typed sides: the front typed, each next side by its corner and length, and the last one offered", () => {
@@ -2174,6 +2221,12 @@ test("going round a U side by side, the walk does not close on its own before it
   assert(!e.open, "closed at the start");
   assert(e.sides.map((s) => s.name).join() === "Front,Right,Rear,Left,Rear 2,Right 2,Rear 3,Left 2", e.sides.map((s) => s.name).join());
   near(x.exteriorFootprint(e).areaSquareFeet, 40 * 30 - 20 * 20, "the U's area");
+  // The review's walk: four sides 5'10" off the start with a 3' x 5' jog still to come. A tape's error closes by itself; that does not.
+  let j = x.startWalk(100);
+  j = x.withNextSide(j, "outside", 50);
+  j = x.withNextSide(j, "outside", 103);
+  j = x.withNextSide(j, "outside", 45);
+  assert(j.open, "still open: the jog is still to come");
 });
 
 test("the roof is there as soon as the outline closes, at an assumed 6/12 that is asked for until it is answered", () => {

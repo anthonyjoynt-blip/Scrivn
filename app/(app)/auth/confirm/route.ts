@@ -4,6 +4,7 @@ import type { NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendEmail } from "@/lib/email/send";
+import { isBillingSchemaMissing } from "@/lib/usageState";
 import { WelcomeEmail } from "@/emails/Welcome";
 
 /**
@@ -56,12 +57,28 @@ export async function GET(request: NextRequest) {
  * The column already defaults to now() at signup, so this is a correction rather than the only
  * write — which is why a failure here is survivable and deliberately swallowed: the worst outcome
  * is a trial measured from signup instead of confirmation, not a broken account. Uses the admin
- * client because trial columns are not user-writable (migration 0003).
+ * client because trial columns are not user-writable (migrations 0003 and 0011).
+ *
+ * The trial is the organization's (0011) — the one signup made for this person, which they own
+ * alone. Only that one: a confirmation opened by someone already on a team must not restart the
+ * team's window. On a database without 0011 the profile is written, as before.
  */
 async function startTrialWindow(userId: string | null): Promise<void> {
   if (!userId) return;
   try {
-    await createAdminClient().from("profiles").update({ trial_started_at: new Date().toISOString() }).eq("id", userId);
+    const admin = createAdminClient();
+    const now = new Date().toISOString();
+    const { data: membership } = await admin.from("organization_members").select("organization_id, role").eq("user_id", userId).limit(1).maybeSingle();
+    const organizationId = typeof membership?.organization_id === "string" ? membership.organization_id : null;
+    if (organizationId) {
+      if (membership?.role !== "owner") return;
+      const { count } = await admin.from("organization_members").select("user_id", { count: "exact", head: true }).eq("organization_id", organizationId);
+      if (count !== 1) return;
+      const { error } = await admin.from("organizations").update({ trial_started_at: now }).eq("id", organizationId);
+      if (!error) return;
+      if (!isBillingSchemaMissing(error)) throw new Error(error.message);
+    }
+    await admin.from("profiles").update({ trial_started_at: now }).eq("id", userId);
   } catch (err) {
     console.error("[auth/confirm] could not set trial start (confirmation still succeeded):", err);
   }

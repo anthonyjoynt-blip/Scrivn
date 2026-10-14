@@ -85,6 +85,12 @@ export default function HelpPage() {
         <p className="field-note">
           A claim is saved to your organisation, not to a device. Start one on a laptop and finish it on a phone.
         </p>
+        <p className="field-note">
+          <strong>No signal?</strong> Keep going. Claims you have opened on this device open without signal, and new ones
+          can be started. Everything is saved on the device and syncs on its own when the signal is back — the header says
+          Offline and how much is waiting. Reading the transcript and generating the documents wait for signal, then run by
+          themselves. If the same claim was changed somewhere else in the meantime, Scrivn keeps both and asks which you want.
+        </p>
       </section>
 
       <section className="card" id="sketch">

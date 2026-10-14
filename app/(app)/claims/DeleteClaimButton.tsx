@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { forgetDeviceClaim } from "@/lib/deviceClaims";
 
 /**
  * Deleting a claim, for real.
@@ -26,6 +27,8 @@ export function DeleteClaimButton({ id, name }: { id: string; name: string }) {
         const body = await res.json().catch(() => null);
         throw new Error(typeof body?.error === "string" ? body.error : `Delete failed (${res.status}).`);
       }
+      // And this device's copy, so a deleted claim cannot be reopened (or sent back) from here.
+      await forgetDeviceClaim(id);
       // Re-fetch the server component rather than removing the row locally, so what is on screen is
       // what the database actually holds — including if something else changed in the meantime.
       router.refresh();

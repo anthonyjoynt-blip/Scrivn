@@ -3,10 +3,13 @@ import { unstable_rethrow } from "next/navigation";
 import { LetterheadForm } from "@/components/LetterheadForm";
 import { PairedPhones } from "@/components/PairedPhones";
 import { ProfileForm } from "@/components/ProfileForm";
+import { TeamSection } from "@/components/TeamSection";
 import { loadProfile, type Profile } from "@/lib/profileRepo";
 import { NotSignedInError, currentRole } from "@/lib/claimsRepo";
 import { listDeviceTokens, type DeviceTokenItem } from "@/lib/deviceRepo";
 import { loadOrganizationLetterhead, type OrganizationLetterheadState } from "@/lib/organizationRepo";
+import { loadTeam, type TeamState } from "@/lib/teamRepo";
+import { isTeamsEnabled } from "@/lib/teamsGate";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
 import { getUsageState } from "@/lib/usage";
 import { SCAN_PLAN, TRIAL_CLAIM_LIMIT, TRIAL_DAYS, isScanTier, planForTier } from "@/lib/plans";
@@ -68,6 +71,23 @@ async function devicesCard(): Promise<{ devices: DeviceTokenItem[]; canRevokeAll
 }
 
 /**
+ * The Team card's data, or why there is none — the same three outcomes as the cards above, and a
+ * fourth that comes first: while TEAMS_ENABLED is off (lib/teamsGate.ts) there is no card at all and
+ * nothing is read, so the page is exactly what it was before team accounts were built.
+ */
+async function teamCard(): Promise<{ team: TeamState } | { error: string } | null> {
+  if (!isTeamsEnabled() || !isSupabaseConfigured()) return null;
+  try {
+    return { team: await loadTeam() };
+  } catch (err) {
+    unstable_rethrow(err);
+    if (err instanceof NotSignedInError) return null;
+    console.error("[account] team unavailable:", err);
+    return { error: "Your team isn’t available right now." };
+  }
+}
+
+/**
  * Account and subscription settings.
  *
  * Everything billing-related — card, invoices, plan changes, cancellation — is a single link out to
@@ -76,14 +96,20 @@ async function devicesCard(): Promise<{ devices: DeviceTokenItem[]; canRevokeAll
  * gain over a page Stripe already maintains and keeps PCI-compliant.
  */
 export default async function AccountPage({ searchParams }: { searchParams: Promise<{ portal?: string }> }) {
-  const [usage, letterhead, profile, devices] = await Promise.all([getUsageState(), letterheadCard(), profileCard(), devicesCard()]);
+  const [usage, letterhead, profile, devices, team] = await Promise.all([getUsageState(), letterheadCard(), profileCard(), devicesCard(), teamCard()]);
   const params = await searchParams;
   const plan = planForTier(usage?.tier);
+  /*
+    The plan is the organization's, and only its owner changes it (0011). Alone, everyone is the owner
+    of their own organization, so this is false for every account today and the card is as it was; on
+    a team, a member sees the plan and the counter but not the buttons that would refuse them.
+  */
+  const teammate = usage !== null && !usage.canManageBilling;
 
   return (
     <main>
       <h1>Account</h1>
-      <p className="subtitle">Your subscription, usage, details, letterhead and paired phones.</p>
+      <p className="subtitle">{team ? "Your subscription, team, usage, details, letterhead and paired phones." : "Your subscription, usage, details, letterhead and paired phones."}</p>
 
       {profile && (
         <div className="card">
@@ -94,6 +120,7 @@ export default async function AccountPage({ searchParams }: { searchParams: Prom
       )}
 
       {params.portal === "error" && <div className="error-banner">Couldn’t open the billing portal just now. Please try again in a moment.</div>}
+      {params.portal === "owner" && <div className="error-banner">Your organization’s billing is managed by its owner.</div>}
 
       <div className="card">
         <h2>Subscription</h2>
@@ -112,18 +139,24 @@ export default async function AccountPage({ searchParams }: { searchParams: Prom
                 </span>
               </div>
             )}
-            <div className="actions-row">
-              <Link href="/pricing" className="btn-secondary">
-                Scrivn plans
-              </Link>
-              <a href="/api/portal" className="btn-primary">
-                Manage billing
-              </a>
-            </div>
-            <p className="field-note">
-              Manage billing opens Stripe, where you can update your card, download invoices, or cancel. Every Scrivn plan includes Scan: choosing one ends this plan,
-              with what&rsquo;s left of it credited to your bill.
-            </p>
+            {teammate ? (
+              <OwnerManagesBilling />
+            ) : (
+              <>
+                <div className="actions-row">
+                  <Link href="/pricing" className="btn-secondary">
+                    Scrivn plans
+                  </Link>
+                  <a href="/api/portal" className="btn-primary">
+                    Manage billing
+                  </a>
+                </div>
+                <p className="field-note">
+                  Manage billing opens Stripe, where you can update your card, download invoices, or cancel. Every Scrivn plan includes Scan: choosing one ends this plan,
+                  with what&rsquo;s left of it credited to your bill.
+                </p>
+              </>
+            )}
           </>
         ) : plan && usage ? (
           <>
@@ -143,16 +176,22 @@ export default async function AccountPage({ searchParams }: { searchParams: Prom
                 <span className="account-value">{new Date(usage.periodResetAt).toLocaleDateString()}</span>
               </div>
             )}
-            <div className="actions-row">
-              <Link href="/pricing" className="btn-secondary">
-                Change plan
-              </Link>
-              {/* A plain link, not a form — /api/portal is a GET with no side effects on our data. */}
-              <a href="/api/portal" className="btn-primary">
-                Manage billing
-              </a>
-            </div>
-            <p className="field-note">Manage billing opens Stripe, where you can update your card, download invoices, or cancel.</p>
+            {teammate ? (
+              <OwnerManagesBilling />
+            ) : (
+              <>
+                <div className="actions-row">
+                  <Link href="/pricing" className="btn-secondary">
+                    Change plan
+                  </Link>
+                  {/* A plain link, not a form — /api/portal is a GET with no side effects on our data. */}
+                  <a href="/api/portal" className="btn-primary">
+                    Manage billing
+                  </a>
+                </div>
+                <p className="field-note">Manage billing opens Stripe, where you can update your card, download invoices, or cancel.</p>
+              </>
+            )}
           </>
         ) : usage?.onTrial ? (
           <>
@@ -175,11 +214,15 @@ export default async function AccountPage({ searchParams }: { searchParams: Prom
             <p className="field-note" style={{ marginTop: 16 }}>
               Your trial ends when you’ve used {TRIAL_CLAIM_LIMIT} claims or after {TRIAL_DAYS} days, whichever comes first. No card is needed until you choose a plan.
             </p>
-            <div className="actions-row">
-              <Link href="/pricing" className="btn-primary">
-                View plans
-              </Link>
-            </div>
+            {teammate ? (
+              <OwnerManagesBilling />
+            ) : (
+              <div className="actions-row">
+                <Link href="/pricing" className="btn-primary">
+                  View plans
+                </Link>
+              </div>
+            )}
           </>
         ) : (
           <>
@@ -190,14 +233,26 @@ export default async function AccountPage({ searchParams }: { searchParams: Prom
                   ? `You’ve used all ${TRIAL_CLAIM_LIMIT} claims in your free trial. Choose a plan to keep generating documents.`
                   : "You don’t have an active subscription. Choose a plan to start generating documents."}
             </p>
-            <div className="actions-row">
-              <Link href="/pricing" className="btn-primary">
-                View plans
-              </Link>
-            </div>
+            {teammate ? (
+              <OwnerManagesBilling />
+            ) : (
+              <div className="actions-row">
+                <Link href="/pricing" className="btn-primary">
+                  View plans
+                </Link>
+              </div>
+            )}
           </>
         )}
       </div>
+
+      {team && (
+        <div className="card">
+          <h2>Team</h2>
+          <p className="subtitle">The people who share this organization’s claims, letterhead and plan.</p>
+          {"error" in team ? <p className="field-note">{team.error}</p> : <TeamSection initial={team.team} />}
+        </div>
+      )}
 
       {letterhead && (
         <div className="card">
@@ -216,4 +271,9 @@ export default async function AccountPage({ searchParams }: { searchParams: Prom
       )}
     </main>
   );
+}
+
+/** What a teammate sees where the owner sees the billing buttons. Never rendered for an account on its own. */
+function OwnerManagesBilling() {
+  return <p className="field-note" style={{ marginTop: 16 }}>Your organization’s owner manages its plan and billing.</p>;
 }

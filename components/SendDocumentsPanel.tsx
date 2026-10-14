@@ -81,7 +81,17 @@ export function SendDocumentsPanel({ documents, senderName }: { documents: Senda
 
       setStatus("sent");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "The email couldn’t be sent.");
+      /*
+        Not queued for later, unlike the Claude steps: an email going out on its own hours afterwards,
+        to whoever was typed in a basement, is not something to do without the estimator pressing Send.
+      */
+      setError(
+        err instanceof TypeError
+          ? "No signal — the email was not sent. Send it again when you have signal."
+          : err instanceof Error
+            ? err.message
+            : "The email couldn’t be sent.",
+      );
       setStatus("idle");
     }
   }
