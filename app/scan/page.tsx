@@ -9,6 +9,7 @@ import { createClient } from "@/lib/supabase/server";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
 import { SCAN_PLAN } from "@/lib/plans";
 import { SCAN_GET_HREF, SCAN_GET_LABEL } from "@/lib/scanApp";
+import { ASSUMED_PITCH } from "@/lib/exterior";
 import "./scan.css";
 
 /**
@@ -156,6 +157,18 @@ export default async function ScanPage() {
               <h3>Your tape, kept</h3>
               <p>Any wall you measure by hand wins over the phone&rsquo;s reading, and the room fits itself to it.</p>
             </div>
+            <div className="sc-card">
+              <h3>Basement to upstairs</h3>
+              <p>Basement, main floor and upstairs in one scan, each level a plan of its own with its own page in the PDF.</p>
+            </div>
+            <div className="sc-card">
+              <h3>Wet walls and floors</h3>
+              <p>Mark the wet line on each wall and paint the wet floor as you go, with the meter readings and the drying equipment it calls for.</p>
+            </div>
+            <div className="sc-card">
+              <h3>The outside of the house</h3>
+              <p>Side by side round the house: each wall&rsquo;s length and heights, its siding or stucco, its windows and doors, and a photo of every side.</p>
+            </div>
           </div>
         </div>
       </section>
@@ -180,7 +193,8 @@ export default async function ScanPage() {
             <span className="sc-tag">Restoration</span>
             <h3>Straight into a claim</h3>
             <p>
-              Pair Scan with <Link href="/">Scrivn</Link> and the rooms land in the claim&rsquo;s sketch, ready for the scope and inspection report.
+              Sign Scan in to <Link href="/">Scrivn</Link> and the rooms, the moisture and the outside land in the claim&rsquo;s sketch, ready for the scope
+              and inspection report.
             </p>
           </div>
         </div>
@@ -214,6 +228,31 @@ export default async function ScanPage() {
             </p>
           </details>
           <details>
+            <summary>Is there an iPhone version?</summary>
+            <p>Not yet. Scan is Android first; an iPhone version is planned after.</p>
+          </details>
+          <details>
+            <summary>Does it need a signal?</summary>
+            <p>
+              No. Scan measures and makes the plan with no signal at all. A scan sent to Scrivn with no signal is kept on the phone and goes on its own when there is
+              signal.
+            </p>
+          </details>
+          <details>
+            <summary>Can it measure the outside of a house?</summary>
+            <p>
+              Yes, with Exterior sketch: each side in turn, its length and heights, its siding or stucco with the area, its windows and doors, and a photo. Scan measures
+              the walls, not the roof. The <Link href="/scan-guide#exterior">guide</Link> shows how.
+            </p>
+          </details>
+          <details>
+            <summary>Does it measure roofs?</summary>
+            <p>
+              Not from the phone. Sent to <Link href="/">Scrivn</Link>, the outside of the house becomes a roof estimate from its footprint and pitch — the pitch assumed
+              at {ASSUMED_PITCH}/12 until you give it the real one. It is not an aerial roof report.
+            </p>
+          </details>
+          <details>
             <summary>How accurate is it?</summary>
             <p>
               As good as the corners it can see. Tape one wall and Scan scales the whole room to it; good light and a clear view of each corner do the rest. The{" "}
@@ -222,13 +261,23 @@ export default async function ScanPage() {
           </details>
           <details>
             <summary>Can I use the plan in Xactimate?</summary>
-            <p>Yes, as an underlay: the JPG is drawn to scale for tracing, and the PDF prints to scale with a scale bar on the page.</p>
+            <p>
+              Yes, as an underlay: the JPG is drawn to scale for tracing, and the PDF prints to scale with a scale bar on the page. There is no ESX export yet.
+            </p>
+          </details>
+          <details>
+            <summary>How many free scans do I get?</summary>
+            <p>
+              Signed in to a Scrivn account with no plan, {SCAN_PLAN.freeScansPerMonth} a month; the Scan plan, or any Scrivn plan, is unlimited. A scan is one capture,
+              every room, level and side of it, counted once, the first time it is sent or shared as a plan. A phone with no account isn&rsquo;t counted. While Scan is in
+              testing, none are refused.
+            </p>
           </details>
           <details>
             <summary>Do I need an account?</summary>
             <p>
               Not to try it: install it and start measuring. Sign in to a Scrivn account (in the app, tap Account) to send scans into it; the same account buys the Scan
-              plan, here on scrivn.ca.
+              plan, here on scrivn.ca. Accounts are by invitation for now: if you&rsquo;ve been given one, sign in, or <Link href="/contact">ask us for one</Link>.
             </p>
           </details>
           <details>
@@ -240,8 +289,8 @@ export default async function ScanPage() {
           <details>
             <summary>Where do my scans go?</summary>
             <p>
-              They stay on your phone until you share a plan or send it to Scrivn. If a scan goes wrong you can choose to send it to us from the app, and we use it only
-              to fix the problem.
+              They stay on your phone until you share a plan or send it to Scrivn. Sent to Scrivn, your account and its claims, photos and scans are stored in Canada. If
+              a scan goes wrong you can choose to send it to us from the app, and we use it only to fix the problem.
             </p>
           </details>
         </div>
