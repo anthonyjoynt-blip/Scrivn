@@ -134,17 +134,24 @@ export function extractionRequest(state: SavedClaimState, source = state.transcr
  * which drives asbestosTestingRequired — see claimInfo.ts's applyClaimYearOfBuilding), a fresh set
  * of answers, the step — straight to Ready when the engine has nothing to ask — and which photo notes
  * it was made from (`scopedNotes`, as `extractionRequest` printed them when it was sent).
+ *
+ * And the equipment checks answered against the OLD tree are let go (`resolvedSuggestions`). An
+ * answer there adopted the sketch's count into a tree this one replaces; kept, it would stop the check
+ * being asked of the new tree, and the new tree's own count would stand with nobody told — the
+ * silent wrong number a second read of the transcript (or Update scope, 2026-10-14) would otherwise
+ * leave. The first read of a claim has none to let go.
  */
 export function withExtraction(
   state: SavedClaimState,
   extraction: WaterLossExtraction,
   scopedNotes?: string[],
-): Pick<SavedClaimState, "extraction" | "answers" | "step" | "photos"> {
+): Pick<SavedClaimState, "extraction" | "answers" | "step" | "photos" | "resolvedSuggestions"> {
   const extractionWithYear = applyClaimYearOfBuilding(state.claim, extraction);
-  const questions = nextQuestions(state.claim, extractionWithYear, equipmentSuggestionsFor(state.sketch, state.moisture, state.resolvedSuggestions));
+  const questions = nextQuestions(state.claim, extractionWithYear, equipmentSuggestionsFor(state.sketch, state.moisture, []));
   return {
     extraction: extractionWithYear,
     answers: {},
+    resolvedSuggestions: [],
     step: questions.length === 0 ? "ready" : "questions",
     photos: scopedNotes ? { ...state.photos, scopedNotes } : state.photos,
   };

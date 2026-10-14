@@ -261,6 +261,8 @@ export default function Home() {
   const [showPhotos, setShowPhotos] = useState<PhotosView>("closed");
   /** Said under the Initial Site Report when its photos could not all be put in it — no signal for some. */
   const [reportPhotosNote, setReportPhotosNote] = useState<string | null>(null);
+  /** Update scope asked for, and waiting on a second tap: it starts the follow-up questions over. */
+  const [confirmingScopeUpdate, setConfirmingScopeUpdate] = useState(false);
   /**
    * Equipment suggestions the PM has already answered, so they are never offered twice.
    *
@@ -945,6 +947,7 @@ export default function Home() {
     setPhotos(emptyClaimPhotos());
     setShowPhotos("closed");
     setReportPhotosNote(null);
+    setConfirmingScopeUpdate(false);
     setResolvedSuggestions([]);
     setShowSketch(false);
     setSketchOpensReadOnly(false);
@@ -1331,6 +1334,7 @@ export default function Home() {
     const next = withExtraction(pageState.current, result, scopedNotes);
     setExtraction(next.extraction);
     setAnswers(next.answers);
+    setResolvedSuggestions(next.resolvedSuggestions);
     setStep(next.step as Step);
     // Which photo notes this scope read — only that, so a caption typed while it ran is not undone.
     if (scopedNotes) setPhotos((p) => ({ ...p, scopedNotes }));
@@ -1385,6 +1389,7 @@ export default function Home() {
    */
   async function handleUpdateScope() {
     setError(null);
+    setConfirmingScopeUpdate(false);
     checkpoint();
     await waitForSignal(persistence.claimIdNow(), "extract");
   }
@@ -1657,13 +1662,36 @@ export default function Home() {
         if (!line || aiSteps.extract !== null || step === "extracting") return null;
         return (
           <div className="waiting-banner" role="status">
-            <p>
-              <strong>{line}</strong> Update scope reads the walkthrough and every photo note again, then asks only what it still needs to.
-            </p>
+            {confirmingScopeUpdate ? (
+              /*
+                A second tap, because it is not free of work: the scope is read again from scratch, so
+                the follow-up questions start over — the ones the walkthrough and the notes answer are
+                not asked, the rest are — and the documents are generated again after.
+              */
+              <p>
+                <strong>Read the walkthrough and every photo note again?</strong> The follow-up questions start over: what they
+                answer is not asked again, the rest is. Then generate the documents again.
+              </p>
+            ) : (
+              <p>
+                <strong>{line}</strong> Update scope reads the walkthrough and every photo note again.
+              </p>
+            )}
             <span className="waiting-banner-actions">
-              <button type="button" className="btn-secondary" onClick={() => void handleUpdateScope()}>
-                Update scope
-              </button>
+              {confirmingScopeUpdate ? (
+                <>
+                  <button type="button" className="btn-secondary" onClick={() => setConfirmingScopeUpdate(false)}>
+                    Not now
+                  </button>
+                  <button type="button" className="btn-primary" onClick={() => void handleUpdateScope()}>
+                    Update scope
+                  </button>
+                </>
+              ) : (
+                <button type="button" className="btn-secondary" onClick={() => setConfirmingScopeUpdate(true)}>
+                  Update scope
+                </button>
+              )}
             </span>
           </div>
         );

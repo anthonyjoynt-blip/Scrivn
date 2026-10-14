@@ -18,6 +18,7 @@ import { preparePhoto } from "@/lib/photoImage";
 import { pdfPhotosFor } from "@/lib/photoPdf";
 import { useDeviceWork } from "@/lib/useDeviceWork";
 import { exifJpeg } from "../exifFixture.mjs";
+import { DictateButton, appendDictation } from "@/components/DictateButton";
 
 type Result = { name: string; ok: boolean; detail?: string };
 const results: Result[] = [];
@@ -164,6 +165,9 @@ function Harness() {
     if (persistence.status === "saved" && state.photos.items.length > 0) void sendWaitingPhotos();
   }, [persistence.status, state.photos]);
   return (
+    <>
+      {/* The transcript's Dictate, mounted as on the claim page while the camera opens over it. */}
+      <DictateButton onText={(spoken) => setState((s) => ({ ...s, transcript: appendDictation(s.transcript, spoken) }))} />
     <PhotosSection
       photos={state.photos}
       onChange={(change) => setState((s) => ({ ...s, photos: change(s.photos) }))}
@@ -175,6 +179,7 @@ function Harness() {
       onViewChange={setView}
       onCheckpoint={() => setTimeout(() => void persistenceRef.current.saveNow(), 0)}
     />
+    </>
   );
 }
 
@@ -349,6 +354,20 @@ async function run() {
   check("its picture is drawn again for keeping, as a camera photo is", !!bitmap && bitmap.width === 1600 && (keptFile?.full?.size ?? 0) < withExif.length * 4, `${bitmap?.width}×${bitmap?.height}`);
   const keptHead = keptFile?.full ? new Uint8Array(await keptFile.full.slice(0, 64).arrayBuffer()) : new Uint8Array();
   check("with no EXIF left in it", !String.fromCharCode(...keptHead).includes("Exif"));
+
+  /* J — the transcript dictating when the camera opens: the caption takes the microphone, and its words stay out of the transcript. */
+  speech.push([], ["Window sill stained"]);
+  const transcriptBefore = h().state.transcript;
+  button("Dictate")!.click();
+  await until(() => button("Stop") !== undefined, "the transcript to be listening");
+  button("Take photos")!.click();
+  await until(() => !!document.querySelector(".pcam") && !(button("Take photo")?.disabled ?? true), "the camera, a fourth time");
+  button("Take photo")!.click();
+  await until(() => h().state.photos.items.some((p) => p.caption === "Window sill stained"), "the caption", 8000);
+  check("starting a caption stops the transcript's dictation rather than fighting it", button("Dictate") !== undefined && button("Stop") === undefined);
+  check("and the caption's words do not land in the transcript", h().state.transcript === transcriptBefore, JSON.stringify(h().state.transcript));
+  await until(() => !document.querySelector(".pcam-listening"), "quiet");
+  button("Done")!.click();
   root.unmount();
 }
 

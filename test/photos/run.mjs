@@ -487,6 +487,54 @@ await test("the phone's database grew a store for them, keeping the claims and C
   equal(db.records("claims").length, 1, "the claim still there");
 });
 
+await test("a photo deleted while its picture is on the wire stays deleted, on the phone and on Scrivn", async () => {
+  await claimOnBoth(claimState("Bell", { photos: photosOf(photo(1)) }));
+  await mod.keepPhotoFile(CLAIM, id(1), jpeg(2000), jpeg(100));
+  let deletedMidway = false;
+  server.override = (path, method, body, query) => {
+    if (method === "POST" && !query.includes("thumb") && !deletedMidway) {
+      deletedMidway = true;
+      // The estimator deletes the photo while the full picture is still going up.
+      return mod.forgetPhotoFile(CLAIM, id(1)).then(() => handle(path, method, body, query));
+    }
+    return null;
+  };
+  await mod.sendWaitingPhotos();
+  equal(db.records("photoFiles").map((f) => f.kind), ["delete"], "the deletion is kept, not undone by the upload finishing");
+  server.override = null;
+  await mod.sendWaitingPhotos();
+  equal([db.records("photoFiles").length, server.files.size], [0, 0], "and is made: nothing of it left on Scrivn or the phone");
+});
+
+await test("a picture whose claim never answers is set aside after a day, not tried for ever", async () => {
+  await mod.keepPhotoFile(CLAIM, id(1), jpeg(), jpeg());
+  equal(await mod.sendWaitingPhotos(), { sent: 0, waiting: 1 }, "a claim not on Scrivn: it waits");
+  equal(db.records("photoFiles")[0].refused, null, "not refused yet — the claim may be on its way");
+  const record = db.records("photoFiles")[0];
+  db.put("photoFiles", { ...record, addedAt: Date.now() - 25 * 60 * 60 * 1000 });
+  await mod.sendWaitingPhotos();
+  equal(db.records("photoFiles")[0].refused, "Its claim is not on Scrivn any more.", "a day on: refused, with the reason");
+  calls.length = 0;
+  await mod.sendWaitingPhotos();
+  equal(photoCalls(), [], "and not sent again on its own");
+  await mod.discardRefusedOf(CLAIM);
+  equal(db.records("photoFiles").length, 0, "the header can let it go");
+});
+
+await test("deletion marks stay bounded however many copies bring them back, and cleaning stays the same twice", () => {
+  const marks = Array.from({ length: 700 }, (_, i) => ({ id: id(1000 + i), at: T0 + i }));
+  const once = mod.normalizeClaimPhotos({ items: [photo(1)], deleted: marks });
+  equal(once.deleted.length, 600, "the newest 600");
+  assert(once.deleted.every((d) => d.at >= T0 + 100), "the oldest let go");
+  equal(mod.normalizeClaimPhotos(JSON.parse(JSON.stringify(once))), once, "and the same answer run again");
+});
+
+await test("a fresh read of the scope lets go of equipment answers given against the old one", () => {
+  const state = claimState("Bell", { resolvedSuggestions: ["bathroom::air movers"] });
+  const next = mod.withExtraction(state, mod.withDerivedFields({ loss: mod.emptyLoss(), rooms: [] }), []);
+  equal(next.resolvedSuggestions, [], "so the check is asked of the new tree, not skipped");
+});
+
 /* ── the email limit ──────────────────────────────────────────────────────────────────────────── */
 
 console.log("\n  Emailing");

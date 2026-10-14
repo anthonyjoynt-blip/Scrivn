@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { hasAnyContent, type SavedClaimState } from "./claimState";
 import { clashDifferences, stableStringify, syncAll, syncClaim, withPhotosMerged, type SyncOutcome } from "./claimSync";
 import { mergeClaimPhotos, type ClaimPhotos } from "./photos";
+import { forgetClaimPhotoFiles } from "./devicePhotos";
 import { connection, isNetworkFailure, netFetch, onReconnect } from "./connectivity";
 import {
   blankDeviceClaim,
@@ -375,6 +376,8 @@ export function useClaimPersistence({
             new one rather than quietly bringing the deleted one back.
           */
           await forgetDeviceClaim(id);
+          // Its pictures went with it on the server; any still waiting here have nowhere to go.
+          await forgetClaimPhotoFiles(id);
           claimIdRef.current = null;
           setClaimId(null);
           setStatus("idle");
@@ -526,7 +529,8 @@ export function useClaimPersistence({
             ? { ...r, state: withPhotosMerged(r.state, theirs.state), clash: null, version: theirs.version, created: theirs.state !== null, sent: [], dirty: true, refused: null }
             : undefined,
         );
-        const merged = await readDeviceClaim(id);
+        // And whatever the page took in the last moments before the choice, not yet written.
+        const merged = await changeDeviceClaim(id, (r) => (r ? { ...r, state: { ...r.state, photos: mergeClaimPhotos(r.state.photos, stateRef.current.photos) } } : undefined));
         if (merged) applyPhotosRef.current?.(merged.state.photos);
         setClash(null);
         setStatus("saving");
@@ -536,8 +540,9 @@ export function useClaimPersistence({
 
       if (keep === "theirs") {
         if (theirs.state === null) {
-          // Deleted there, and the PM agrees: gone from here too.
+          // Deleted there, and the PM agrees: gone from here too, its waiting pictures with it.
           await forgetDeviceClaim(id);
+          await forgetClaimPhotoFiles(id);
           window.location.assign("/claims");
           return;
         }
@@ -545,7 +550,8 @@ export function useClaimPersistence({
           Theirs, with this phone's photos merged in: a photo taken here is not part of the choice. When
           that adds nothing, the claim is exactly the server's and nothing needs sending.
         */
-        const kept = withPhotosMerged(theirs.state, record.state);
+        // Theirs, with this phone's photos — the device's copy and anything the page took since it.
+        const kept = withPhotosMerged(withPhotosMerged(theirs.state, record.state), stateRef.current);
         const same = stableStringify(kept.photos) === stableStringify(theirs.state.photos);
         putOnScreen(id, kept);
         await changeDeviceClaim(id, (r) =>

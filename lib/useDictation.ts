@@ -117,6 +117,14 @@ export interface Dictation {
   abort: () => Promise<void>;
 }
 
+/*
+  One microphone, one recognizer: Chrome runs one recognition per page, and starting a second aborts
+  the first — which, wanting to listen still, would start again and abort the second, back and forth.
+  So whoever starts takes the microphone from whoever had it (the camera's caption from the transcript's
+  Dictate, say), and the one that lost it stops wanting it.
+*/
+let holder: { id: symbol; release: () => void } | null = null;
+
 export function useDictation(options: DictationOptions): Dictation {
   const [supported, setSupported] = useState(false);
   const [status, setStatus] = useState<DictationStatus>("idle");
@@ -161,12 +169,16 @@ export function useDictation(options: DictationOptions): Dictation {
     }
   }, []);
 
+  const me = useRef(Symbol("dictation"));
+
   useEffect(() => {
     setSupported(recognitionClass() !== null);
+    const id = me.current;
     return () => {
       wanted.current = false;
       clearTimers();
       rec.current?.abort();
+      if (holder?.id === id) holder = null;
     };
   }, []);
 
@@ -270,6 +282,20 @@ export function useDictation(options: DictationOptions): Dictation {
   const start = useCallback(async () => {
     const Rec = recognitionClass();
     if (!Rec) return;
+    // Take the microphone — see `holder`.
+    if (holder && holder.id !== me.current) holder.release();
+    holder = {
+      id: me.current,
+      release: () => {
+        wanted.current = false;
+        aborting.current = true;
+        waitingWords.current = "";
+        clearTimers();
+        setInterim("");
+        if (rec.current) rec.current.abort();
+        else setStatus("idle");
+      },
+    };
     setNote(null);
     setNeedsSignal(false);
     setInterim("");

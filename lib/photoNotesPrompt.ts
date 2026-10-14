@@ -26,5 +26,5 @@ export function photoNotesSection(photoNotes: string | null | undefined): string
   return `\n\n${PHOTO_NOTES_RULE}\n\nPHOTO NOTES:\n${text}`;
 }
 
-/** The longest block a request may carry: 300 photos of full captions, with room to spare. */
-export const MAX_PHOTO_NOTES_CHARS = 120_000;
+/** The longest block a request may carry: 300 photos with captions at their 2,000-character limit, and their lines. */
+export const MAX_PHOTO_NOTES_CHARS = 700_000;

@@ -66,17 +66,54 @@ async function all(): Promise<PhotoFile[]> {
   return [...memory.values()];
 }
 
-async function put(file: PhotoFile): Promise<void> {
+/** Write one record. True when it is on the device for good; false when only this page holds it. */
+async function put(file: PhotoFile): Promise<boolean> {
   memory.set(file.id, file);
+  let durable = false;
   if (deviceStorageWorks()) {
     try {
       await transact<void>(PHOTO_FILES, "readwrite", (store) => void store.put(file));
       memory.delete(file.id);
+      durable = true;
     } catch {
       /* kept in memory for this page */
     }
   }
   deviceChanged();
+  return durable;
+}
+
+/**
+ * Read, change and write one record in a single transaction — the way lib/deviceClaims.ts changes a
+ * claim — so an upload finishing cannot write back a copy read before the photo was deleted, and undo
+ * the deletion. `change` returns the new record, null to remove it, or undefined to leave it.
+ */
+async function change(id: string, update: (current: PhotoFile | null) => PhotoFile | null | undefined): Promise<PhotoFile | null> {
+  if (deviceStorageWorks() && !memory.has(id)) {
+    try {
+      const result = await transact<PhotoFile | null>(PHOTO_FILES, "readwrite", (store, done) => {
+        const get = store.get(id);
+        get.onsuccess = () => {
+          const current = (get.result as PhotoFile | undefined) ?? null;
+          const next = update(current);
+          if (next === undefined) return done(current);
+          if (next === null) store.delete(id);
+          else store.put(next);
+          done(next);
+        };
+      });
+      deviceChanged();
+      return result;
+    } catch {
+      /* in memory below */
+    }
+  }
+  const next = update(memory.get(id) ?? null);
+  if (next === undefined) return memory.get(id) ?? null;
+  if (next === null) memory.delete(id);
+  else memory.set(id, next);
+  deviceChanged();
+  return next;
 }
 
 async function drop(id: string): Promise<void> {
@@ -106,10 +143,15 @@ export function askToKeepStorage(): void {
 
 /* ── For the camera and the panel ───────────────────────────────────────────────────────────────── */
 
-/** A photo just taken: kept here until it is uploaded. Resolves once it is safely written. */
-export async function keepPhotoFile(claimId: string, id: string, full: Blob, thumb: Blob): Promise<void> {
+/**
+ * A photo just taken: kept here until it is uploaded. Resolves once it is written — `durable: false`
+ * when the phone would not store it (storage full, a private window), so it lives only as long as the
+ * page and the camera must say so rather than let the technician believe it is safe.
+ */
+export async function keepPhotoFile(claimId: string, id: string, full: Blob, thumb: Blob): Promise<{ durable: boolean }> {
   askToKeepStorage();
-  await put({ id, claimId, user: deviceUser() ?? null, kind: "upload", full, thumb, addedAt: Date.now(), sent: { thumb: false, full: false }, refused: null });
+  const durable = await put({ id, claimId, user: deviceUser() ?? null, kind: "upload", full, thumb, addedAt: Date.now(), sent: { thumb: false, full: false }, refused: null });
+  return { durable };
 }
 
 /** The picture of a photo still on this phone, or null once uploaded (or taken on another phone). */
@@ -141,9 +183,13 @@ export async function forgetPhotoFile(claimId: string, id: string): Promise<void
 
 /** Try one Scrivn refused again. */
 export async function retryPhotoFile(id: string): Promise<void> {
-  const file = (await all()).find((f) => f.id === id);
-  if (file) await put({ ...file, refused: null });
+  await change(id, (cur) => (cur ? { ...cur, refused: null, addedAt: Date.now() } : undefined));
   void sendWaitingPhotos();
+}
+
+/** Let go of every picture of a claim that Scrivn refused — from the header, for a claim that may not open any more. */
+export async function discardRefusedOf(claimId: string): Promise<void> {
+  for (const f of await all()) if (f.claimId === claimId && f.refused) await drop(f.id);
 }
 
 /** A claim deleted: everything of it waiting here goes too — Scrivn has already removed its pictures. */
@@ -174,6 +220,17 @@ async function errorText(res: Response): Promise<string> {
 
 type Step = "done" | "wait-claim" | "stop" | "next";
 
+/**
+ * How long a picture is tried against a claim that is not there, or does not list it, before it is
+ * set aside as refused: past this it is not "the save is behind" any more but a claim deleted
+ * elsewhere, or a record that never saved — and retrying it every minute for ever helps nobody.
+ */
+const GIVE_UP_AFTER_MS = 24 * 60 * 60 * 1000;
+
+async function refuse(id: string, reason: string): Promise<void> {
+  await change(id, (cur) => (cur && cur.kind === "upload" ? { ...cur, refused: reason } : undefined));
+}
+
 /** Whether the claim still lists the photo — the device's copy of it is the only one to ask offline. */
 async function photoStillInClaim(claimId: string, id: string): Promise<boolean | null> {
   const record = await readDeviceClaim(claimId);
@@ -191,19 +248,24 @@ async function sendPart(file: PhotoFile, part: "thumb" | "full"): Promise<Step> 
       method: "POST",
       headers: { "content-type": "image/jpeg" },
       body: blob,
-      // A 2 MB picture on one bar takes a while; this only gives up on a dead line.
-      timeoutMs: 120_000,
+      // A 2 MB picture on one bar takes minutes; this only gives up on a dead line.
+      timeoutMs: part === "thumb" ? 60_000 : 300_000,
     });
   } catch (err) {
     if (isNetworkFailure(err)) return "stop";
     throw err;
   }
   if (res.ok) {
-    await put({ ...file, sent: { ...file.sent, [part]: true } });
-    return "done";
+    // Into the record as it is now: deleted while this was on the wire, it stays deleted.
+    const now = await change(file.id, (cur) => (cur && cur.kind === "upload" ? { ...cur, sent: { ...cur.sent, [part]: true } } : undefined));
+    return now?.kind === "upload" ? "done" : "next";
   }
   if (res.status === 401) return "stop";
-  if (res.status === 404) return "wait-claim";
+  const stale = Date.now() - file.addedAt > GIVE_UP_AFTER_MS;
+  if (res.status === 404) {
+    if (stale) await refuse(file.id, "Its claim is not on Scrivn any more.");
+    return "wait-claim";
+  }
   if (res.status === 409) {
     // The claim does not list this photo yet (its save is behind), or no longer does.
     const listed = await photoStillInClaim(file.claimId, file.id);
@@ -212,10 +274,11 @@ async function sendPart(file: PhotoFile, part: "thumb" | "full"): Promise<Step> 
       if (file.sent.thumb || file.sent.full) await forgetPhotoFile(file.claimId, file.id);
       return "next";
     }
+    if (stale) await refuse(file.id, "Its claim does not list this photo.");
     return "wait-claim";
   }
   if (res.status >= 400 && res.status < 500 && res.status !== 408 && res.status !== 429) {
-    await put({ ...file, refused: await errorText(res) });
+    await refuse(file.id, await errorText(res));
     return "next";
   }
   return "next";
@@ -281,10 +344,14 @@ export function sendWaitingPhotos(): Promise<PhotoSendSummary> {
         if (!file) break;
       }
       if (stop) break;
-      if (file && file.kind === "upload" && file.sent.thumb && file.sent.full) {
-        await drop(file.id);
-        sent += 1;
-      }
+      // Both parts there: let go of the phone's copy — unless it was deleted meanwhile, when the
+      // deletion still has to be made.
+      let uploaded = false;
+      await change(queued.id, (cur) => {
+        uploaded = !!cur && cur.kind === "upload" && cur.sent.thumb && cur.sent.full;
+        return uploaded ? null : undefined;
+      });
+      if (uploaded) sent += 1;
     }
     const waiting = (await waitingPhotoFiles()).length;
     return { sent, waiting };

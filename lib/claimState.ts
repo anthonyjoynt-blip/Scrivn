@@ -115,6 +115,7 @@ export const NOT_PERSISTED: Record<string, string> = {
   showDryingLog: "whether the drying log panel is open on this screen",
   showPhotos: "whether the photos panel or the camera is open on this screen",
   reportPhotosNote: "a message about the last report built, not a fact about the claim",
+  confirmingScopeUpdate: "a second tap waiting on this screen",
   markingQuestion: "a dialog that is open right now",
   sketchImages: "derived — re-rendered from sketch, moisture and sketchAttachments on load",
   saveCheckpoint: "a counter that asks for an immediate write; nothing about the claim itself",

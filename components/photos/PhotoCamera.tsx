@@ -65,7 +65,7 @@ export function PhotoCamera({
   room: string;
   onRoomChange: (room: string) => void;
   /** Keep the photo — its picture on the phone, its record in the claim. Resolves once it is safe. */
-  onTaken: (photo: TakenPhoto) => Promise<void>;
+  onTaken: (photo: TakenPhoto) => Promise<{ durable: boolean }>;
   onCaption: (id: string, caption: string, by: CaptionBy) => void;
   /** File a photo elsewhere — when its caption began with a room's name. */
   onMove: (id: string, room: string, roomName: string) => void;
@@ -279,7 +279,10 @@ export function PhotoCamera({
         source: "camera",
         editedAt: takenAt,
       };
-      await onTaken({ record, prepared });
+      const { durable } = await onTaken({ record, prepared });
+      if (!durable) {
+        setProblem("This phone would not store the photo — its storage may be full. It is kept while Scrivn stays open and uploads when there is signal; keep this page open until then.");
+      }
       kept.current.add(id);
       // What was said while it was being kept: the room first, then the words.
       const moved = movedEarly.current.get(id);

@@ -6,7 +6,7 @@ import { isRunning, runWaitingJobs } from "@/lib/aiJobs";
 import { syncAll } from "@/lib/claimSync";
 import { connection, onReconnect, probe } from "@/lib/connectivity";
 import { pruneDeviceClaims } from "@/lib/deviceClaims";
-import { sendWaitingPhotos } from "@/lib/devicePhotos";
+import { discardRefusedOf, sendWaitingPhotos } from "@/lib/devicePhotos";
 import { claimName, useDeviceWork } from "@/lib/useDeviceWork";
 
 /**
@@ -34,9 +34,10 @@ export function SyncStatus() {
       setBusy(true);
       try {
         await syncAll();
+        // Claude steps before pictures: a scope waiting for signal should not queue behind a hundred uploads.
+        await runWaitingJobs();
         // After the claims: Scrivn takes a photo's picture only once its claim lists it.
         await sendWaitingPhotos();
-        await runWaitingJobs();
       } finally {
         if (alive) setBusy(false);
       }
@@ -152,6 +153,12 @@ export function SyncStatus() {
                     {p.count} photo{p.count === 1 ? "" : "s"} waiting to upload
                     {p.refused > 0 ? ` — Scrivn would not take ${p.refused}; open the claim's photos to see why` : ""}
                   </span>
+                  {/* For a claim deleted elsewhere, which will not open: the pictures it refused can go from here. */}
+                  {p.refused > 0 && (
+                    <button type="button" className="link-button" onClick={() => void discardRefusedOf(p.claimId)}>
+                      Remove {p.refused === 1 ? "it" : "them"} from this phone
+                    </button>
+                  )}
                 </li>
               ))}
               {work.jobs.map((j) => (

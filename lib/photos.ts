@@ -42,6 +42,13 @@ export const MAX_CLAIM_PHOTOS = 300;
 export const MAX_CAPTION_CHARS = 2000;
 /** How long a deleted photo's mark is kept, so a phone that still has the photo does not bring it back. */
 export const DELETION_MARK_DAYS = 30;
+/**
+ * And how many, newest first. A mark let go by the phone that deleted the photo comes back from any
+ * copy that still holds it, so the time limit alone never shortens the list; this bound does, with
+ * no clock, so cleaning stays the same answer run twice. Twice the photo limit: far more deletions
+ * than any job sees before its copies are back in step.
+ */
+const MAX_DELETION_MARKS = 600;
 /** A hard bound on records in one payload, far past the limit above: two phones each at the limit fit. */
 const MAX_RECORDS = 1000;
 
@@ -164,7 +171,11 @@ export function normalizeClaimPhotos(value: unknown): ClaimPhotos {
   }
 
   const items = [...byId.values()].sort((a, b) => a.takenAt - b.takenAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)).slice(0, MAX_RECORDS);
-  const marks = [...deleted.entries()].map(([id, at]) => ({ id, at })).sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  const marks = [...deleted.entries()]
+    .map(([id, at]) => ({ id, at }))
+    .sort((a, b) => b.at - a.at || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+    .slice(0, MAX_DELETION_MARKS)
+    .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   const scopedNotes = Array.isArray(v.scopedNotes)
     ? [...new Set(v.scopedNotes.filter((s): s is string => typeof s === "string" && s.length > 0 && s.length <= 32))].sort()
     : null;

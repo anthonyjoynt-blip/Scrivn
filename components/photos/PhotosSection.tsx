@@ -77,11 +77,12 @@ export function PhotosSection({
     return newest ? photoRoomKey(newest, sketch) : (sketch.rooms[0]?.id ?? UNSORTED_ROOM);
   }, [picked, photos.items, sketch]);
 
-  async function taken({ record, prepared }: TakenPhoto) {
+  async function taken({ record, prepared }: TakenPhoto): Promise<{ durable: boolean }> {
     // The picture on the phone first: from here on it survives the tab closing, signal or not.
-    await keepPhotoFile(claimIdNow(), record.id, prepared.full, prepared.thumb);
+    const kept = await keepPhotoFile(claimIdNow(), record.id, prepared.full, prepared.thumb);
     onChange((p) => addPhoto(p, record));
     onCheckpoint();
+    return kept;
   }
 
   /**
@@ -92,6 +93,7 @@ export function PhotosSection({
   async function addFromGallery(files: File[], room: string) {
     const filedTo = photoRoomKey({ room }, sketch);
     let spaceLeft = MAX_CLAIM_PHOTOS - photos.items.length;
+    let notStored = 0;
     for (const file of files) {
       if (spaceLeft <= 0) throw new Error(`This claim has ${MAX_CLAIM_PHOTOS} photos, the most one claim can hold.`);
       const head = await file.slice(0, 256 * 1024).arrayBuffer();
@@ -111,8 +113,12 @@ export function PhotosSection({
         source: "gallery",
         editedAt: now,
       };
-      await taken({ record, prepared });
+      const kept = await taken({ record, prepared });
+      if (!kept.durable) notStored += 1;
       spaceLeft -= 1;
+    }
+    if (notStored > 0) {
+      throw new Error(`This phone would not store ${notStored === 1 ? "that photo" : `${notStored} of them`} — its storage may be full. ${notStored === 1 ? "It is" : "They are"} kept while Scrivn stays open and upload when there is signal.`);
     }
     if (connection() === "online") void sendWaitingPhotos();
   }
