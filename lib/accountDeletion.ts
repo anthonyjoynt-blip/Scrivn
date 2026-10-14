@@ -32,7 +32,7 @@ import { AccountDeletedEmail } from "@/emails/AccountDeleted";
  *      still running would go on charging a card nobody can reach. The Stripe customer is kept (Stripe
  *      keeps invoices for the tax record; PRIVACY.md says so). A team's plan is not touched;
  *   3. the database half (`account_close`, 0014);
- *   4. the photos and logo in storage, under each deleted organization's id;
+ *   4. the photos (scan photos and site photos) and logo in storage, under each deleted organization's id;
  *   5. the auth user — which a retry after any failure above reaches again, since steps 1-4 find
  *      nothing left to do the second time;
  *   6. an email saying it is done, to the address the account had.
@@ -172,7 +172,9 @@ export async function deleteAccount(userId: string, email: string | null, deps: 
   // 4. What storage holds for the organizations that went. Logged, not thrown: the rows that pointed
   // at these files are gone, so nobody can reach them, and a retry would find no plan to repeat this.
   for (const org of going) {
-    for (const bucket of [SCAN_PHOTO_BUCKET, "logos"]) {
+    // "claim-photos": the site photos (0015, lib/claimPhotos.ts), named here rather than imported so
+    // this file keeps out of the claim routes' imports.
+    for (const bucket of [SCAN_PHOTO_BUCKET, "claim-photos", "logos"]) {
       try {
         await removeFolder(admin, bucket, org.organization_id);
       } catch (err) {

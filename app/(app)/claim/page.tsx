@@ -82,6 +82,11 @@ import { SketchEditor } from "@/components/sketch/SketchEditor";
 import { type Sketch, emptySketch, hasSketchContent, knownRoomNames, levelsOf } from "@/lib/sketch";
 import { type MoistureMap, emptyMoistureMap, hasMoistureContent, pruneMoisture, roomMoistureSummary, withScanMoisture } from "@/lib/moisture";
 import { DryingLogSection } from "@/components/drying/DryingLogSection";
+import { PhotosSection, type PhotosView } from "@/components/photos/PhotosSection";
+import { type ClaimPhotos, emptyClaimPhotos } from "@/lib/photos";
+import { pdfPhotosFor, printablePhotoCount } from "@/lib/photoPdf";
+import { sendWaitingPhotos } from "@/lib/devicePhotos";
+import type { PdfPhoto } from "@/lib/pdf";
 import { type DryingLog, emptyDryingLog } from "@/lib/dryingLog";
 import { canPrintDryingLog, dryingLogPdfParams } from "@/lib/dryingLogPdf";
 import { SCAN_DROP, type PendingScan, adoptScan, convertScan, exteriorScanDecision, namedRooms, scanDecision, scanLevelName } from "@/lib/scanInbox";
@@ -248,6 +253,15 @@ export default function Home() {
   const [dryingLog, setDryingLog] = useState<DryingLog>(emptyDryingLog());
   const [showDryingLog, setShowDryingLog] = useState(false);
   /**
+   * Site photos' records — room, time, caption — beside the sketch and the drying log, and as
+   * optional as they are. The pictures are not claim state: they wait on the phone and live in
+   * storage (lib/devicePhotos.ts, lib/claimPhotos.ts). See `lib/photos.ts`.
+   */
+  const [photos, setPhotos] = useState<ClaimPhotos>(emptyClaimPhotos());
+  const [showPhotos, setShowPhotos] = useState<PhotosView>("closed");
+  /** Said under the Initial Site Report when its photos could not all be put in it — no signal for some. */
+  const [reportPhotosNote, setReportPhotosNote] = useState<string | null>(null);
+  /**
    * Equipment suggestions the PM has already answered, so they are never offered twice.
    *
    * Answers are cleared between rounds, and nothing in the extraction records that a suggestion was
@@ -318,12 +332,12 @@ export default function Home() {
     () => ({
       step, claim, transcript, extraction, answers, questionLog, documents,
       contentsApproach, contentsTM, bricABrac, dgigData, asbestos,
-      selectedTrades, workOrders, sketch, sketchAttachments, moisture, dryingLog, scopeMarks, resolvedSuggestions,
+      selectedTrades, workOrders, sketch, sketchAttachments, moisture, dryingLog, photos, scopeMarks, resolvedSuggestions,
     }),
     [
       step, claim, transcript, extraction, answers, questionLog, documents,
       contentsApproach, contentsTM, bricABrac, dgigData, asbestos,
-      selectedTrades, workOrders, sketch, sketchAttachments, moisture, dryingLog, scopeMarks, resolvedSuggestions,
+      selectedTrades, workOrders, sketch, sketchAttachments, moisture, dryingLog, photos, scopeMarks, resolvedSuggestions,
     ],
   );
 
@@ -357,6 +371,7 @@ export default function Home() {
     setSketchAttachments(loaded.sketchAttachments);
     setMoisture(loaded.moisture);
     setDryingLog(loaded.dryingLog);
+    setPhotos(loaded.photos);
     setScopeMarks(loaded.scopeMarks);
     setResolvedSuggestions(loaded.resolvedSuggestions);
   }, []);
@@ -396,6 +411,8 @@ export default function Home() {
   const persistence = useClaimPersistence({
     state: persistedState,
     apply: applyLoadedClaim,
+    // Photos another phone took on this claim, merged in on the device — see lib/claimSync.ts.
+    applyPhotos: setPhotos,
     /*
       Off only where there is nowhere to save to. In the dev fail-open — the two public Supabase
       variables blank, middleware waving requests through — claims save to the file
@@ -433,6 +450,15 @@ export default function Home() {
     // it would flush on every render instead of at the points that asked for it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [saveCheckpoint]);
+
+  /*
+    The pictures go once the claim's own save has landed: Scrivn stores a picture only for a photo its
+    claim lists (lib/claimPhotos.ts), so each save that reaches the server is the moment to send what
+    is waiting. The header sends them too, on reconnect and every minute (components/SyncStatus.tsx).
+  */
+  useEffect(() => {
+    if (persistence.status === "saved" && photos.items.length > 0) void sendWaitingPhotos();
+  }, [persistence.status, photos]);
 
   /* ── Scans from a paired phone ────────────────────────────────────────────────────────────────
      Off in the dev fail-open for the reason saving is, and held back while a claim is loading so a
@@ -874,6 +900,25 @@ export default function Home() {
   );
   const allAnswered = blockingQuestions.length === 0;
 
+  /**
+   * The Initial Site Report's photo pages, made when the report is downloaded or sent: its captioned
+   * photos, unless taken out (`photosLeftOut`). Photos that could not be had — on Scrivn, with no
+   * signal here — are left out and said so under the report.
+   */
+  async function inspectionReportPhotos(): Promise<PdfPhoto[]> {
+    if (sketchAttachments.photosLeftOut || printablePhotoCount(photos) === 0) {
+      setReportPhotosNote(null);
+      return [];
+    }
+    const made = await pdfPhotosFor(persistence.claimId, photos, sketch);
+    setReportPhotosNote(
+      made.missing === 0
+        ? null
+        : `${made.missing} photo${made.missing === 1 ? "" : "s"} could not be put in the report — they are on Scrivn and this phone has no signal. Try again with signal.`,
+    );
+    return made.photos;
+  }
+
   function reset() {
     setStep("intake");
     setClaim(profile ? { ...emptyClaimInfo(), pmName: profile.fullName, pmPhone: profile.phone } : emptyClaimInfo());
@@ -896,6 +941,10 @@ export default function Home() {
     setMoisture(emptyMoistureMap());
     setDryingLog(emptyDryingLog());
     setShowDryingLog(false);
+    // The photos' records go with the claim; their pictures stay with the claim they were taken on.
+    setPhotos(emptyClaimPhotos());
+    setShowPhotos("closed");
+    setReportPhotosNote(null);
     setResolvedSuggestions([]);
     setShowSketch(false);
     setSketchOpensReadOnly(false);
@@ -1671,6 +1720,21 @@ export default function Home() {
         />
       )}
 
+      {/* Photos, beside the sketch and the drying log: optional, and not a step either. */}
+      {!showSketch && (
+        <PhotosSection
+          photos={photos}
+          onChange={setPhotos}
+          sketch={sketch}
+          claimId={persistence.claimId}
+          claimIdNow={persistence.claimIdNow}
+          onServer={persistence.onServer}
+          view={showPhotos}
+          onViewChange={setShowPhotos}
+          onCheckpoint={checkpoint}
+        />
+      )}
+
       {step === "intake" && (
         <div className="card">
           <StepHeader step={step} label="Claim Info" />
@@ -2057,13 +2121,25 @@ export default function Home() {
                   target={{ kind: "inspectionReport" }}
                   onChange={setSketchAttachments}
                 />
+                {/* The captioned photos, two to a page at the back — on unless taken out, most often to email it. */}
+                {printablePhotoCount(photos) > 0 && (
+                  <button
+                    type="button"
+                    className={`option-btn${sketchAttachments.photosLeftOut ? "" : " selected"}`}
+                    aria-pressed={!sketchAttachments.photosLeftOut}
+                    onClick={() => setSketchAttachments((prev) => ({ ...prev, photosLeftOut: !prev.photosLeftOut || undefined }))}
+                    title="The captioned photos print at the back of the report, two to a page"
+                  >
+                    Photos ({printablePhotoCount(photos)})
+                  </button>
+                )}
                 <div className="document-actions">
                   <button className="btn-secondary" onClick={() => setIsEditingInspectionReport((v) => !v)}>
                     {isEditingInspectionReport ? "Save" : "Edit"}
                   </button>
                   <button
                     className="btn-secondary"
-                    onClick={() =>
+                    onClick={async () =>
                       downloadDocumentPdf({
                         docLabel: "Inspection Report",
                         bodyText: documents.inspectionReport ?? "",
@@ -2073,6 +2149,7 @@ export default function Home() {
                         documentTitle: "Initial Site Report",
                         jobInformation: buildJobInformationGroups(claim),
                         sketchImages: sketchPagesFor({ kind: "inspectionReport" }),
+                        photos: await inspectionReportPhotos(),
                       })
                     }
                   >
@@ -2080,6 +2157,7 @@ export default function Home() {
                   </button>
                 </div>
               </div>
+              {reportPhotosNote && <p className="field-note">{reportPhotosNote}</p>}
               <LetterheadBanner letterhead={letterhead} />
               <div className="document-paper">
                 <div className="document-title">Initial Site Report</div>
@@ -2210,6 +2288,7 @@ export default function Home() {
                         jobInformation: buildJobInformationGroups(claim),
                         sketchImages: sketchPagesFor({ kind: "inspectionReport" }),
                       },
+                      photos: inspectionReportPhotos,
                     } satisfies SendableDocument,
                   ]
                 : []),

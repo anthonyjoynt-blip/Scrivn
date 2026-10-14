@@ -16,6 +16,8 @@ import type { MoistureMap } from "./moisture";
 import { emptyMoistureMap } from "./moisture";
 import type { DryingLog } from "./dryingLog";
 import { emptyDryingLog, normalizeDryingLog } from "./dryingLog";
+import type { ClaimPhotos } from "./photos";
+import { emptyClaimPhotos, hasPhotos, normalizeClaimPhotos } from "./photos";
 import type { ScopeMarks } from "./scopeMarks";
 import type { SketchAttachments } from "./sketchAttachments";
 import { defaultSketchAttachments } from "./sketchAttachments";
@@ -81,6 +83,8 @@ export interface SavedClaimState {
   moisture: MoistureMap;
   /** Each visit's readings until the building is dry — see `lib/dryingLog.ts`. Beside the moisture map, not inside it. */
   dryingLog: DryingLog;
+  /** Site photos' records — room, time, caption — never the pictures. See `lib/photos.ts`. */
+  photos: ClaimPhotos;
   scopeMarks: ScopeMarks;
   resolvedSuggestions: string[];
 }
@@ -96,7 +100,7 @@ export interface SavedClaimState {
 export const SAVED_CLAIM_KEYS = [
   "step", "claim", "transcript", "extraction", "answers", "questionLog", "documents",
   "contentsApproach", "contentsTM", "bricABrac", "dgigData", "asbestos",
-  "selectedTrades", "workOrders", "sketch", "sketchAttachments", "moisture", "dryingLog", "scopeMarks",
+  "selectedTrades", "workOrders", "sketch", "sketchAttachments", "moisture", "dryingLog", "photos", "scopeMarks",
   "resolvedSuggestions",
 ] as const satisfies readonly (keyof SavedClaimState)[];
 
@@ -109,6 +113,8 @@ export const NOT_PERSISTED: Record<string, string> = {
   editingWorkOrders: "which panels are open on this screen",
   showSketch: "whether the sketch pane is open on this screen",
   showDryingLog: "whether the drying log panel is open on this screen",
+  showPhotos: "whether the photos panel or the camera is open on this screen",
+  reportPhotosNote: "a message about the last report built, not a fact about the claim",
   markingQuestion: "a dialog that is open right now",
   sketchImages: "derived — re-rendered from sketch, moisture and sketchAttachments on load",
   saveCheckpoint: "a counter that asks for an immediate write; nothing about the claim itself",
@@ -146,6 +152,7 @@ export function emptySavedClaimState(): SavedClaimState {
     sketchAttachments: defaultSketchAttachments(),
     moisture: emptyMoistureMap(),
     dryingLog: emptyDryingLog(),
+    photos: emptyClaimPhotos(),
     scopeMarks: {},
     resolvedSuggestions: [],
   };
@@ -187,6 +194,8 @@ export function parseSavedClaimState(payload: unknown): SavedClaimState {
   // The log is read as arrays and numbers all the way down, and a claim saved before it existed (or by a
   // build that held fewer of its fields) arrives without them: brought up to today's shape once, here.
   merged.dryingLog = normalizeDryingLog(merged.dryingLog);
+  // The photo records, one order and one shape — and the same answer run twice, which the sync check relies on.
+  merged.photos = normalizeClaimPhotos(merged.photos);
   return merged as unknown as SavedClaimState;
 }
 
@@ -230,7 +239,9 @@ export function hasAnyContent(state: SavedClaimState): boolean {
     state.extraction !== null ||
     hasSketchContent(state.sketch) ||
     // A drying job can start at the log, before anybody types a name: Day 1 started is work to keep.
-    state.dryingLog.visits.length > 0
+    state.dryingLog.visits.length > 0 ||
+    // And at the camera: a photo taken before anything is typed is the start of a claim.
+    hasPhotos(state.photos)
   );
 }
 

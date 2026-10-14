@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { type DocumentPdfParams, documentPdfBlob, pdfFileName } from "@/lib/pdf";
+import { type DocumentPdfParams, type PdfPhoto, documentPdfBlob, pdfFileName } from "@/lib/pdf";
+import { tooBigToEmail, type AttachmentSize } from "@/lib/emailSize";
 
 /**
  * "Send documents" — emails the finished claim documents as PDF attachments.
@@ -25,6 +26,11 @@ export type SendableDocument =
       /** Shown in the checklist. */
       label: string;
       pdf: DocumentPdfParams;
+      /**
+       * The document's photo pages, made when it is sent rather than with every keystroke here — each
+       * photo is fetched and made small for the PDF (lib/photoPdf.ts). The Initial Site Report's.
+       */
+      photos?: () => Promise<PdfPhoto[]>;
       file?: undefined;
     }
   | {
@@ -61,22 +67,31 @@ export function SendDocumentsPanel({ documents, senderName }: { documents: Senda
       form.set("jobNumber", heading?.jobNumber ?? "");
 
       let attached = 0;
+      const sizes: AttachmentSize[] = [];
       for (const doc of chosen) {
         if (doc.pdf) {
-          form.append("documents", documentPdfBlob(doc.pdf), pdfFileName(doc.pdf.jobNumber, doc.pdf.customerName, doc.pdf.docLabel));
+          const photos = doc.photos ? await doc.photos() : undefined;
+          const blob = documentPdfBlob(photos ? { ...doc.pdf, photos } : doc.pdf);
+          form.append("documents", blob, pdfFileName(doc.pdf.jobNumber, doc.pdf.customerName, doc.pdf.docLabel));
+          sizes.push({ label: doc.label, bytes: blob.size, photos: photos?.length || undefined });
           attached += 1;
           continue;
         }
         const built = await doc.file();
         if (built) {
           form.append("documents", built.blob, built.filename);
+          sizes.push({ label: doc.label, bytes: built.blob.size });
           attached += 1;
         }
       }
       if (attached === 0) throw new Error("There was nothing to attach.");
+      // Before sending, not after a bare refusal — see lib/emailSize.ts.
+      const tooBig = tooBigToEmail(sizes);
+      if (tooBig) throw new Error(tooBig);
 
       const res = await fetch("/api/send-documents", { method: "POST", body: form });
       const data = await res.json().catch(() => null);
+      if (res.status === 413) throw new Error("Those documents are too large to email together. Send them one at a time, or leave the report's photos out.");
       if (!res.ok) throw new Error(data?.error ?? "The email couldn’t be sent.");
 
       setStatus("sent");

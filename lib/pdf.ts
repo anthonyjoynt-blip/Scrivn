@@ -165,6 +165,21 @@ export interface DocumentPdfParams {
    * is drawn cell by cell, wraps inside its cell, and repeats its header row on a new page.
    */
   tables?: PdfTable[];
+  /**
+   * Site photos, two to a page, after everything else (2026-10-14) — the Initial Site Report's, and
+   * only the captioned ones (see lib/photoPdf.ts, which also makes them small enough to email).
+   */
+  photos?: PdfPhoto[];
+}
+
+export interface PdfPhoto {
+  /** A JPEG data URL, embedded as it is. */
+  dataUrl: string;
+  width: number;
+  height: number;
+  /** Under the photo: room, date and time — "Bathroom · Oct. 14, 2026, 10:42 a.m.". */
+  label: string;
+  caption: string;
 }
 
 export interface PdfTableColumn {
@@ -216,6 +231,77 @@ function drawSketchPages(doc: jsPDF, images: SketchPage[]) {
     const height = image.height * scale;
 
     doc.addImage(image.dataUrl, "PNG", PAGE_MARGIN + (maxWidth - width) / 2, top, width, height);
+  }
+}
+
+const PHOTO_LABEL_SIZE = 9.5;
+const PHOTO_CAPTION_SIZE = 10;
+const PHOTO_CAPTION_LINE = 12.5;
+const PHOTO_GAP = 18;
+/** A photo smaller than this to fit its caption on half a page gets the whole page instead. */
+const MIN_PHOTO_HEIGHT = 150;
+
+/**
+ * Appends the photo pages: two photos a page, each with its room, date and time and its caption
+ * underneath, in the order given (the caller groups them by room).
+ *
+ * The picture is left as it was taken — no stamp drawn on it (the owner's choice, 2026-10-14) — and
+ * the date and time are printed under it instead. A caption long enough to squeeze its photo below a
+ * readable size takes a page of its own rather than being cut short.
+ */
+function drawPhotoPages(doc: jsPDF, photos: PdfPhoto[]) {
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const contentWidth = pageWidth - PAGE_MARGIN * 2;
+  const top = PAGE_MARGIN + 22;
+  const usable = pageHeight - PAGE_MARGIN - top;
+  const half = (usable - PHOTO_GAP) / 2;
+
+  let slot = 2; // full: the next photo starts a page
+  const newPage = () => {
+    doc.addPage();
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(11);
+    doc.setTextColor(20, 20, 20);
+    doc.text("Site photos", PAGE_MARGIN, PAGE_MARGIN);
+    slot = 0;
+  };
+
+  for (const photo of photos) {
+    doc.setFont("times", "normal");
+    doc.setFontSize(PHOTO_CAPTION_SIZE);
+    let lines = photo.caption.trim() === "" ? [] : (doc.splitTextToSize(photo.caption.trim(), contentWidth) as string[]);
+    const textHeight = (lines: string[]) => 8 + PHOTO_LABEL_SIZE + 4 + lines.length * PHOTO_CAPTION_LINE;
+    const wholePage = half - textHeight(lines) < MIN_PHOTO_HEIGHT;
+    if (wholePage) {
+      // Even a page of its own has an end: past it the caption is cut, said so with an ellipsis.
+      const most = Math.floor((usable - MIN_PHOTO_HEIGHT - 8 - PHOTO_LABEL_SIZE - 4) / PHOTO_CAPTION_LINE);
+      if (lines.length > most) lines = [...lines.slice(0, Math.max(1, most - 1)), `${lines[Math.max(1, most - 1)] ?? ""}…`];
+    }
+
+    if (wholePage || slot >= 2) newPage();
+    const slotTop = slot === 0 ? top : top + half + PHOTO_GAP;
+    const slotHeight = wholePage ? usable : half;
+    const maxHeight = slotHeight - textHeight(lines);
+    const scale = Math.min(contentWidth / Math.max(1, photo.width), maxHeight / Math.max(1, photo.height));
+    const width = photo.width * scale;
+    const height = photo.height * scale;
+    doc.addImage(photo.dataUrl, "JPEG", PAGE_MARGIN + (contentWidth - width) / 2, slotTop, width, height);
+
+    let y = slotTop + height + 8 + PHOTO_LABEL_SIZE;
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(PHOTO_LABEL_SIZE);
+    doc.setTextColor(27, 58, 92);
+    doc.text(photo.label, PAGE_MARGIN, y);
+    y += 4;
+    doc.setFont("times", "normal");
+    doc.setFontSize(PHOTO_CAPTION_SIZE);
+    doc.setTextColor(20, 20, 20);
+    for (const line of lines) {
+      y += PHOTO_CAPTION_LINE;
+      doc.text(line, PAGE_MARGIN, y);
+    }
+    slot = wholePage ? 2 : slot + 1;
   }
 }
 
@@ -403,6 +489,9 @@ function renderDocumentPdf(params: DocumentPdfParams): jsPDF {
 
   // After every word of the document, so the plan never interrupts what it illustrates.
   if (params.sketchImages && params.sketchImages.length > 0) drawSketchPages(doc, params.sketchImages);
+
+  // The photos last: a photo log at the back of the report, after the plans that locate them.
+  if (params.photos && params.photos.length > 0) drawPhotoPages(doc, params.photos);
 
   return doc;
 }

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { waitingJobs, type ClaimJob, type TraceJob } from "./aiJobs";
 import { connection, onConnectionChange, type Connection } from "./connectivity";
 import { allDeviceClaims, deviceUser, isMine, onDeviceChange, type DeviceClaim } from "./deviceClaims";
+import { waitingPhotoFiles } from "./devicePhotos";
 
 /**
  * What this device is holding for the server, kept current — for the header and the Claims list.
@@ -22,6 +23,8 @@ export interface DeviceWork {
   signedOutWaiting: number;
   /** Names for the claims the jobs belong to, from the device's copies. */
   names: Record<string, string>;
+  /** Site photos' pictures waiting to upload, by claim — see lib/devicePhotos.ts. */
+  photos: { claimId: string; count: number; refused: number }[];
 }
 
 export function claimName(state: DeviceClaim["state"] | undefined): string {
@@ -40,23 +43,31 @@ export function useConnection(): Connection {
 
 export function useDeviceWork(): DeviceWork {
   const conn = useConnection();
-  const [work, setWork] = useState<Omit<DeviceWork, "connection">>({ claims: [], jobs: [], signedOutWaiting: 0, names: {} });
+  const [work, setWork] = useState<Omit<DeviceWork, "connection">>({ claims: [], jobs: [], signedOutWaiting: 0, names: {}, photos: [] });
 
   const refresh = useCallback(async () => {
     const user = deviceUser();
     const all = await allDeviceClaims();
     const owed = (r: DeviceClaim) => r.dirty || r.clash !== null;
     if (user === undefined) {
-      setWork({ claims: [], jobs: [], signedOutWaiting: all.filter(owed).length, names: {} });
+      setWork({ claims: [], jobs: [], signedOutWaiting: all.filter(owed).length, names: {}, photos: [] });
       return;
     }
     const mine = all.filter((r) => isMine(r, user));
     const names = Object.fromEntries(mine.map((r) => [r.id, claimName(r.state)]));
+    const byClaim = new Map<string, { claimId: string; count: number; refused: number }>();
+    for (const f of await waitingPhotoFiles()) {
+      const entry = byClaim.get(f.claimId) ?? { claimId: f.claimId, count: 0, refused: 0 };
+      entry.count += 1;
+      if (f.refused) entry.refused += 1;
+      byClaim.set(f.claimId, entry);
+    }
     setWork({
       claims: mine.filter(owed).sort((a, b) => a.changedAt - b.changedAt),
       jobs: await waitingJobs(),
       signedOutWaiting: 0,
       names,
+      photos: [...byClaim.values()],
     });
   }, []);
 

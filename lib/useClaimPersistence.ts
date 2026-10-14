@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { hasAnyContent, type SavedClaimState } from "./claimState";
-import { clashDifferences, syncAll, syncClaim, type SyncOutcome } from "./claimSync";
+import { clashDifferences, stableStringify, syncAll, syncClaim, withPhotosMerged, type SyncOutcome } from "./claimSync";
+import { mergeClaimPhotos, type ClaimPhotos } from "./photos";
 import { connection, isNetworkFailure, netFetch, onReconnect } from "./connectivity";
 import {
   blankDeviceClaim,
@@ -33,6 +34,13 @@ import {
  * Each save names the server version it was made from, so a phone that worked offline for a day
  * cannot silently overwrite what the office did to the claim in that day. When both changed, both
  * are kept and the PM is asked (`clash`, `resolveClash`).
+ *
+ * ── Photos from another phone ────────────────────────────────────────────────────────────────────
+ *
+ * The one part of a claim merged rather than asked about (see lib/claimSync.ts). A merge happens on
+ * the device's copy, so it is brought onto the screen here (`applyPhotos`), and every write folds the
+ * device's photos into the page's before it goes — a photo that arrived from the other phone a moment
+ * ago must not be saved away by a page that has not shown it yet.
  *
  * ── Why saving is debounced and not on every change ──────────────────────────────────────────────
  *
@@ -153,12 +161,15 @@ function copyOf(state: SavedClaimState): SavedClaimState {
 export function useClaimPersistence({
   state,
   apply,
+  applyPhotos,
   enabled,
 }: {
   /** The claim as it stands right now. Recomputed on every render; compared by value below. */
   state: SavedClaimState;
   /** Push a loaded claim back into the page's state. */
   apply: (loaded: SavedClaimState) => void;
+  /** Bring photos merged in from another phone onto the page — see the file's note. Given the merged set. */
+  applyPhotos?: (photos: ClaimPhotos) => void;
   /**
    * False while there is nowhere to save to — a production build with no Supabase project, where
    * there is nobody to save for and the page would only collect 401s. See `claimsCanSave`.
@@ -184,6 +195,8 @@ export function useClaimPersistence({
   */
   const stateRef = useRef(state);
   stateRef.current = state;
+  const applyPhotosRef = useRef(applyPhotos);
+  applyPhotosRef.current = applyPhotos;
   const claimIdRef = useRef<string | null>(null);
   /**
    * What was last written to the device, or put on screen from it — the baseline a change is
@@ -221,6 +234,15 @@ export function useClaimPersistence({
       const record = await readDeviceClaim(id);
       if (claimIdRef.current !== id || !record) return;
       reflect(record);
+      /*
+        Photos merged into the device's copy from another phone: onto the screen. Merged with what the
+        page holds rather than put over it, so a photo taken here a moment ago is not lost either.
+      */
+      const onPage = stateRef.current.photos;
+      if (onPage && record.state.photos && stableStringify(onPage) !== stableStringify(record.state.photos)) {
+        const merged = mergeClaimPhotos(onPage, record.state.photos);
+        if (stableStringify(merged) !== stableStringify(onPage)) applyPhotosRef.current?.(merged);
+      }
       setStatus((outcome && statusOf(outcome)) ?? statusOfRecord(record));
     },
     [reflect],
@@ -247,15 +269,26 @@ export function useClaimPersistence({
 
     // On the device first: from here on the work survives the tab closing, signal or not.
     const user = deviceUser() ?? null;
-    const record = await changeDeviceClaim(id, (r) => ({
-      ...(r ?? blankDeviceClaim(id!, current, user)),
-      state: current,
-      dirty: true,
-      // Changed, so a refusal of the previous state no longer stands: this one gets its own try.
-      refused: null,
-      changedAt: Date.now(),
-      touchedAt: Date.now(),
-    }));
+    let unchanged = false;
+    const record = await changeDeviceClaim(id, (r) => {
+      // Photos another phone added since this page last showed them stay — see the file's note.
+      const next = r ? withPhotosMerged(current, r.state) : current;
+      if (r && !r.dirty && !r.clash && r.created && stableStringify(next) === stableStringify(r.state)) {
+        // What the device already holds and the server already has: nothing to send.
+        unchanged = true;
+        return undefined;
+      }
+      return {
+        ...(r ?? blankDeviceClaim(id!, next, user)),
+        state: next,
+        dirty: true,
+        // Changed, so a refusal of the previous state no longer stands: this one gets its own try.
+        refused: null,
+        changedAt: Date.now(),
+        touchedAt: Date.now(),
+      };
+    });
+    if (unchanged) return settle(id);
     if (claimIdRef.current !== id) return;
     if (record?.clash) return settle(id);
 
@@ -487,10 +520,14 @@ export function useClaimPersistence({
 
       if (keep === "mine") {
         // Sent again from the server's version, so it lands — over theirs, as asked. A claim deleted
-        // there is created again under the same id.
+        // there is created again under the same id. Their photos come too (lib/claimSync.ts).
         await changeDeviceClaim(id, (r) =>
-          r ? { ...r, clash: null, version: theirs.version, created: theirs.state !== null, sent: [], dirty: true, refused: null } : undefined,
+          r
+            ? { ...r, state: withPhotosMerged(r.state, theirs.state), clash: null, version: theirs.version, created: theirs.state !== null, sent: [], dirty: true, refused: null }
+            : undefined,
         );
+        const merged = await readDeviceClaim(id);
+        if (merged) applyPhotosRef.current?.(merged.state.photos);
         setClash(null);
         setStatus("saving");
         await settle(id, await syncClaim(id));
@@ -504,24 +541,44 @@ export function useClaimPersistence({
           window.location.assign("/claims");
           return;
         }
-        putOnScreen(id, theirs.state);
+        /*
+          Theirs, with this phone's photos merged in: a photo taken here is not part of the choice. When
+          that adds nothing, the claim is exactly the server's and nothing needs sending.
+        */
+        const kept = withPhotosMerged(theirs.state, record.state);
+        const same = stableStringify(kept.photos) === stableStringify(theirs.state.photos);
+        putOnScreen(id, kept);
         await changeDeviceClaim(id, (r) =>
-          r ? { ...r, state: theirs.state!, version: theirs.version, created: true, dirty: false, clash: null, sent: [], refused: null } : undefined,
+          r ? { ...r, state: kept, version: theirs.version, created: true, dirty: !same, clash: null, sent: [], refused: null } : undefined,
         );
         setClash(null);
-        setStatus("saved");
+        if (same) {
+          setStatus("saved");
+          return;
+        }
+        setStatus("saving");
+        await settle(id, await syncClaim(id));
         return;
       }
 
-      // Both: the server's stays as it is, and this device's becomes a claim of its own, named so
-      // the two can be told apart on the list. The page carries on with this device's.
+      /*
+        Both: the server's stays as it is, and this device's becomes a claim of its own, named so the
+        two can be told apart on the list. The page carries on with this device's.
+
+        The photos stay with the claim they were taken on: every picture is stored under that claim's
+        id, and a copy pointing at another claim's pictures would lose them when either is deleted. So
+        the original keeps both phones' photos, and the copy starts with none.
+      */
       const copyId = newClaimId();
-      const mine = copyOf(record.state);
+      const mine = { ...copyOf(record.state), photos: { ...record.state.photos, items: [], deleted: [] } };
       await changeDeviceClaim(copyId, () => ({ ...blankDeviceClaim(copyId, mine, record.user), dirty: true }));
       if (theirs.state) {
+        const kept = withPhotosMerged(theirs.state, record.state);
+        const same = stableStringify(kept.photos) === stableStringify(theirs.state.photos);
         await changeDeviceClaim(id, (r) =>
-          r ? { ...r, state: theirs.state!, version: theirs.version, created: true, dirty: false, clash: null, sent: [], refused: null } : undefined,
+          r ? { ...r, state: kept, version: theirs.version, created: true, dirty: !same, clash: null, sent: [], refused: null } : undefined,
         );
+        if (!same) void syncClaim(id);
       } else {
         await forgetDeviceClaim(id);
       }

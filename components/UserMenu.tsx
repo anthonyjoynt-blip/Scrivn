@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
+import { SignOutButton } from "./SignOutButton";
 
 /**
  * The signed-in identity strip in the site header: who you are, and a way out.
@@ -11,7 +12,8 @@ import { isSupabaseConfigured } from "@/lib/supabase/env";
  * layout.
  *
  * The sign-out control is a real form POST rather than an onClick handler, so it works with no
- * client JavaScript and this file never has to become a Client Component.
+ * client JavaScript and this file never has to become a Client Component. It lives in a small client
+ * component of its own (`SignOutButton`) only so it can ask first when photos have not uploaded.
  */
 export async function UserMenu() {
   // This renders in the root layout, so it runs on every page — including in a local checkout with
@@ -45,11 +47,8 @@ export async function UserMenu() {
       <Link href="/account" className="user-menu-link">
         Account
       </Link>
-      <form action="/api/logout" method="post">
-        <button type="submit" className="user-menu-signout">
-          Sign out
-        </button>
-      </form>
+      {/* Asks first when photos taken here have not uploaded — see the component. */}
+      <SignOutButton />
     </div>
   );
 }

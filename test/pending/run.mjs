@@ -243,7 +243,7 @@ await test("the old save queue is carried over on the upgrade, every record stil
     },
   });
   const all = (await mod.allDeviceClaims()).sort((a, b) => a.changedAt - b.changedAt);
-  equal(db.shape(), { version: 2, stores: ["aiJobs", "claims"] }, "the old store should be gone and the new ones there");
+  equal(db.shape(), { version: 3, stores: ["aiJobs", "claims", "photoFiles"] }, "the old store should be gone and the new ones there");
   equal(all.length, 2, "both queued saves should come across");
   equal([all[0].id, all[0].created, all[0].dirty, all[0].version], [ID, true, true, null], "a saved claim's record keeps its id and is still owed");
   assert(/^[0-9a-f-]{36}$/.test(all[1].id) && !all[1].created && all[1].dirty, "a draft gets an id and is still to be created");

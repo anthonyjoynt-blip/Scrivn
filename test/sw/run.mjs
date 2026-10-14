@@ -352,7 +352,7 @@ await test("signing out removes the copies of claims, and keeps work the server 
     sight of anyone else, until its owner signs in again.
   */
   idb.reset();
-  idb.seed("scrivn", 2, {
+  idb.seed("scrivn", 3, {
     claims: {
       keyPath: "id",
       records: [
@@ -362,11 +362,14 @@ await test("signing out removes the copies of claims, and keeps work the server 
       ],
     },
     aiJobs: { keyPath: "key", records: [{ key: "unsynced:generate" }] },
+    // A photo taken on the claim the server already has: its picture has not uploaded yet (2026-10-14).
+    photoFiles: { keyPath: "id", records: [{ id: "photo-1", claimId: "copy", kind: "upload", sent: { thumb: false, full: false } }] },
   });
   await boot(w);
   await w.fetchEvent(new w.FakeRequest("/api/logout", { method: "POST" }));
   equal(idb.records("claims").map((r) => r.id).sort(), ["clash", "unsynced"], "claims left on the device");
   equal(idb.records("aiJobs").length, 1, "a Claude step still waiting is work too");
+  equal(idb.records("photoFiles").length, 1, "and so is a photo that has not uploaded, even on a claim whose copy went");
 });
 
 await test("signing out on a device that never kept a claim creates no database", async (w) => {

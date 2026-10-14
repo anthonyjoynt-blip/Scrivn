@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { deleteClaim, loadClaim, saveClaim } from "@/lib/claimsRepo";
 import { parseSavedClaimState } from "@/lib/claimState";
+import { claimFolders, removeClaimFolders } from "@/lib/claimPhotos";
 import { errorResponse } from "../route";
 
 /**
@@ -60,11 +61,18 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
   }
 }
 
+/**
+ * Deleting a claim deletes its pictures too: its site photos and its scans' walk photos (2026-10-14 —
+ * the scan photos were left in storage before). Where they are is read first, because the scans'
+ * rows go with the claim's, and with them the list of scan folders.
+ */
 export async function DELETE(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
+    const folders = await claimFolders(id);
     const deleted = await deleteClaim(id);
     if (!deleted) return NextResponse.json({ error: "Claim not found." }, { status: 404 });
+    if (folders) await removeClaimFolders(folders);
     return NextResponse.json({ ok: true });
   } catch (err) {
     return errorResponse(err);

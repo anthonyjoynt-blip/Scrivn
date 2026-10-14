@@ -40,9 +40,11 @@ import type { SavedClaimState } from "./claimState";
  */
 
 const DB_NAME = "scrivn";
-const DB_VERSION = 2;
+/** 3 since 2026-10-14: site photos waiting to upload (lib/devicePhotos.ts). */
+const DB_VERSION = 3;
 export const CLAIMS = "claims";
 export const AI_JOBS = "aiJobs";
+export const PHOTO_FILES = "photoFiles";
 /** The store `pendingSaves.ts` used, read once and removed by the upgrade to version 2. */
 const LEGACY = "pendingSaves";
 
@@ -102,6 +104,7 @@ export function openDeviceDb(): Promise<IDBDatabase> {
       const upgrade = request.transaction!;
       if (!db.objectStoreNames.contains(CLAIMS)) db.createObjectStore(CLAIMS, { keyPath: "id" });
       if (!db.objectStoreNames.contains(AI_JOBS)) db.createObjectStore(AI_JOBS, { keyPath: "key" });
+      if (!db.objectStoreNames.contains(PHOTO_FILES)) db.createObjectStore(PHOTO_FILES, { keyPath: "id" });
       /*
         Carry the old queue over, then remove it. Every record in it was work the server had not
         accepted, so each comes across dirty. Their saves predate versions, so they carry none and are
