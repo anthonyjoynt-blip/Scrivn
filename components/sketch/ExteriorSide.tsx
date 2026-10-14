@@ -77,6 +77,7 @@ export function SidePane({
   onUpdate,
   onChange,
   onRemove,
+  onInsertAfter,
   onGo,
   photoOpacity,
   onPhotoOpacity,
@@ -91,6 +92,8 @@ export function SidePane({
   onUpdate: (f: (side: ExteriorSide) => ExteriorSide) => void;
   onChange: (f: (exterior: Exterior) => Exterior) => void;
   onRemove: () => void;
+  /** Puts a new side in after this one, and opens it. */
+  onInsertAfter: () => void;
   /** Opens another side by its id, or the plan ("plan"). */
   onGo: (view: string) => void;
   photoOpacity: PhotoOpacity;
@@ -102,6 +105,7 @@ export function SidePane({
   const [selected, setSelected] = useState<string | null>(null);
   /** The side as a drag leaves it, until the drag ends and it is put on the side. */
   const [dragged, setDragged] = useState<ExteriorSide | null>(null);
+  const [confirmRemove, setConfirmRemove] = useState(false);
   const press = useRef<Press | null>(null);
   const apply = useRef<((s: ExteriorSide) => ExteriorSide) | null>(null);
 
@@ -233,6 +237,12 @@ export function SidePane({
     } else onUpdate(f);
     if (p.what === "opening" && p.id) setSelected(p.id);
   }
+  /** A touch the browser took back - a scroll or a pinch that began on the wall: nothing is placed, and a drag is let go. */
+  function cancel() {
+    press.current = null;
+    apply.current = null;
+    setDragged(null);
+  }
   function place(kind: ExteriorOpeningKind, x: number, z: number) {
     const size = DEFAULT_SIZE[kind];
     const opening: ExteriorOpening = { id: newSketchId("opening"), kind, widthFeet: size.w, heightFeet: size.h, sillFeet: 0, fromLeftFeet: 0 };
@@ -270,7 +280,7 @@ export function SidePane({
       handles.push(dot("length", L, shape.grade[1].y, "length", "Length: drag the right-hand corner", "#0f766e"));
     }
     return (
-      <g onPointerMove={move} onPointerUp={end} onPointerCancel={end}>
+      <g onPointerMove={move} onPointerUp={end} onPointerCancel={cancel}>
         <rect
           className={tool === "select" ? "exterior-wall-hit" : "exterior-wall-hit exterior-wall-placing"}
           x={view.vx}
@@ -418,15 +428,13 @@ export function SidePane({
                   : undefined
             }
           />
-          {!q.footprint.closes && (
-            <label className="exterior-field" htmlFor={id("turn")}>
-              <span className="exterior-field-label">Corner at its right end</span>
-              <select id={id("turn")} value={side.turn} disabled={readOnly} onChange={(e) => onUpdate((s) => ({ ...s, turn: e.target.value === "inside" ? "inside" : "outside" }))}>
-                <option value="outside">Outside corner</option>
-                <option value="inside">Inside corner (the inside of an L)</option>
-              </select>
-            </label>
-          )}
+          <label className="exterior-field" htmlFor={id("turn")}>
+            <span className="exterior-field-label">Corner at its right end</span>
+            <select id={id("turn")} value={side.turn} disabled={readOnly} onChange={(e) => onUpdate((s) => ({ ...s, turn: e.target.value === "inside" ? "inside" : "outside" }))}>
+              <option value="outside">Outside corner</option>
+              <option value="inside">Inside corner (the inside of an L)</option>
+            </select>
+          </label>
         </div>
 
         <h4 className="exterior-subhead">Eave</h4>
@@ -529,10 +537,31 @@ export function SidePane({
 
         <SideFigures sq={sq} />
 
-        {!readOnly && !q.footprint.closes && (
-          <button type="button" className="btn-secondary exterior-remove" onClick={onRemove}>
-            Remove this side
-          </button>
+        {!readOnly && (
+          <div className="exterior-rows">
+            <h4 className="exterior-subhead">The outline</h4>
+            {confirmRemove ? (
+              <div className="sketch-undo" role="alert">
+                <span>Remove {nameOf(side)}, with what is on it?</span>
+                <button type="button" className="btn-secondary" onClick={onRemove}>
+                  Remove
+                </button>
+                <button type="button" className="btn-secondary" onClick={() => setConfirmRemove(false)}>
+                  Keep
+                </button>
+              </div>
+            ) : (
+              <div className="exterior-row">
+                <button type="button" className="btn-secondary" onClick={onInsertAfter}>
+                  + Side after this one
+                </button>
+                <button type="button" className="btn-secondary" onClick={() => setConfirmRemove(true)}>
+                  Remove this side…
+                </button>
+              </div>
+            )}
+            <p className="field-note">For a corner the outline is missing, or one too many. Then put each side&rsquo;s length and corner right: the plan says what is left until it closes.</p>
+          </div>
         )}
       </div>
     </div>

@@ -313,8 +313,17 @@ export function closeWalk(exterior: Exterior): Exterior | null {
 }
 
 /**
+ * How far off the start a walk may end and still close by itself: what two tapes of the same wall
+ * disagree by, not a wall's worth. Within the offer's wider reach (`toleranceFeet`) it is asked - a
+ * jog of a few feet still to come must not be swallowed by a walk that closes itself.
+ */
+function closesItselfWithin(perimeter: number): number {
+  return Math.max(0.5, perimeter * 0.005);
+}
+
+/**
  * The next side round the house: the last one's corner (outside, a left turn; inside, a right one),
- * then the new side, named by the way it faces. Back within a tape's worth of the start with the
+ * then the new side, named by the way it faces. Back within a tape's error of the start with the
  * corners going round, the walk closes by itself.
  */
 export function withNextSide(exterior: Exterior, turn: SideTurn, lengthFeet: number): Exterior {
@@ -325,7 +334,22 @@ export function withNextSide(exterior: Exterior, turn: SideTurn, lengthFeet: num
   const side = newSide(nextFacingName(facingOf(d), sides.map((s) => s.name)), lengthFeet, last.eaveRightFeet ?? last.eaveLeftFeet ?? DEFAULT_EAVE_FEET);
   const next: Exterior = { ...exterior, open: true, sides: [...sides.slice(0, -1), { ...last, turn }, side] };
   const w = walkState(next);
-  return w.turnsClose && w.gapFeet <= w.toleranceFeet ? (closeWalk(next) ?? next) : next;
+  return w.turnsClose && w.gapFeet <= closesItselfWithin(w.perimeterFeet) ? (closeWalk(next) ?? next) : next;
+}
+
+/**
+ * A side put in after another (2026-10-13, the review): a corner the walk missed, a jog drawn as a
+ * straight wall. It comes in 10' long round an outside corner, named by the way it would face; the
+ * outline then needs its corners and lengths put right, and says so until they are.
+ */
+export function withSideAfter(exterior: Exterior, sideId: string, id?: string): Exterior {
+  const i = exterior.sides.findIndex((s) => s.id === sideId);
+  const at = exterior.sides[i];
+  if (!at) return exterior;
+  const d = afterTurn(sideChain(exterior.sides).dirs[i] as Pt, at.turn);
+  const made = newSide(nextFacingName(facingOf(d), exterior.sides.map((s) => s.name)), 10, at.eaveRightFeet ?? at.eaveLeftFeet ?? DEFAULT_EAVE_FEET);
+  const side = id ? { ...made, id } : made;
+  return { ...exterior, sides: [...exterior.sides.slice(0, i + 1), side, ...exterior.sides.slice(i + 1)] };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -369,89 +393,103 @@ function additionAlong(a: RoofAddition, before: number, length: number, shift: (
 /**
  * The exterior with one side's length typed (see the file header): the corner at its right-hand
  * end moves, and the drawn sides running its way across the line where the outline moves stretch
- * with it. Where one of those was typed or taped instead, the next place along the side where all of
- * them are drawn is tried; failing that, the drawn sides running its way share what is left over;
- * failing that, the typed length stands and the footprint shares the gap, as for any taped sides.
+ * with it. Where one of those was typed or taped instead, or the outline would cross itself, the
+ * next place along the side is tried; failing that, the drawn sides running its way share what is
+ * left over; failing that, the typed length stands and the footprint shares the gap, as for any
+ * taped sides. Whatever is kept must still be an outline: one that would cross itself is never
+ * offered in place of what was typed.
  */
 export function withSideLength(exterior: Exterior, sideId: string, feet: number): Exterior {
   const i = exterior.sides.findIndex((s) => s.id === sideId);
   const side = exterior.sides[i];
   if (!side || !(feet >= MIN_SIDE_FEET)) return exterior;
   const delta = feet - side.lengthFeet;
-  const lengths = exterior.sides.map((s, k) => (k === i ? feet : s.lengthFeet));
-  // How each side's features move: by the point along it, before its new length is applied.
-  const shifts: ((f: number) => number)[] = exterior.sides.map(() => () => 0);
+  const still = () => 0;
+  /** The exterior with these lengths, what stands along each side moved by its shift, and side i typed. */
+  const applied = (lengths: number[], shifts: ((f: number) => number)[]): Exterior => {
+    const sides = exterior.sides.map((s, k) => {
+      const length = lengths[k] as number;
+      if (k !== i && Math.abs(length - s.lengthFeet) < EPS) return s;
+      const moved = movedAlong(s, length, shifts[k] as (f: number) => number);
+      // Typed, it is a measurement now, and stands when another side is typed.
+      if (k === i) delete moved.lengthFrom;
+      return moved;
+    });
+    const additions = exterior.roof.additions?.map((a) => {
+      const k = exterior.sides.findIndex((s) => s.id === a.sideId);
+      const before = exterior.sides[k]?.lengthFeet;
+      const length = lengths[k];
+      return before === undefined || length === undefined || Math.abs(length - before) < EPS ? a : additionAlong(a, before, length, shifts[k] as (f: number) => number);
+    });
+    return { ...exterior, sides, roof: additions ? { ...exterior.roof, additions } : exterior.roof };
+  };
+  const typedAlone = applied(
+    exterior.sides.map((s, k) => (k === i ? feet : s.lengthFeet)),
+    exterior.sides.map(() => still),
+  );
 
   const footprint = Math.abs(delta) > EPS ? exteriorFootprint(exterior) : null;
-  if (footprint?.closes) {
-    const c = footprint.corners;
-    const n = c.length;
-    const dirOf = (k: number): Pt => {
-      const a = c[k] as Pt;
-      const b = c[(k + 1) % n] as Pt;
-      const len = Math.hypot(b.x - a.x, b.y - a.y) || 1;
-      return { x: (b.x - a.x) / len, y: (b.y - a.y) / len };
-    };
-    const u = dirOf(i);
-    const proj = (p: Pt) => dot(p, u);
-    const s0 = proj(c[i] as Pt);
-    const s1 = proj(c[(i + 1) % n] as Pt);
-    const breaks = [s0, ...[...new Set(c.map((p) => Math.round(proj(p) * 1e6) / 1e6))].filter((v) => v > s0 + EPS && v < s1 - EPS).sort((a, b) => a - b), s1];
-    const parallel = exterior.sides.map((_, k) => Math.abs(dot(dirOf(k), u)) > 0.5);
-    let done = false;
-    for (let k = breaks.length - 2; k >= 0 && !done; k--) {
-      const lo = breaks[k] as number;
-      const hi = breaks[k + 1] as number;
-      const mid = (lo + hi) / 2;
-      const crossing = exterior.sides.map((_, j) => {
-        if (!parallel[j]) return false;
+  if (!footprint?.closes) return typedAlone;
+  const c = footprint.corners;
+  const n = c.length;
+  const dirOf = (k: number): Pt => {
+    const a = c[k] as Pt;
+    const b = c[(k + 1) % n] as Pt;
+    const len = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+    return { x: (b.x - a.x) / len, y: (b.y - a.y) / len };
+  };
+  const u = dirOf(i);
+  const proj = (p: Pt) => dot(p, u);
+  const s0 = proj(c[i] as Pt);
+  const s1 = proj(c[(i + 1) % n] as Pt);
+  const breaks = [s0, ...[...new Set(c.map((p) => Math.round(proj(p) * 1e6) / 1e6))].filter((v) => v > s0 + EPS && v < s1 - EPS).sort((a, b) => a - b), s1];
+  const parallel = exterior.sides.map((_, k) => Math.abs(dot(dirOf(k), u)) > 0.5);
+  const sound = (next: Exterior) => exteriorFootprint(next).closes;
+
+  for (let k = breaks.length - 2; k >= 0; k--) {
+    const mid = ((breaks[k] as number) + (breaks[k + 1] as number)) / 2;
+    const others = exterior.sides
+      .map((_, j) => {
+        if (j === i || !parallel[j]) return -1;
         const a = proj(c[j] as Pt);
         const b = proj(c[(j + 1) % n] as Pt);
-        return Math.min(a, b) < mid && mid < Math.max(a, b);
-      });
-      const others = crossing.map((x, j) => (x && j !== i ? j : -1)).filter((j) => j >= 0);
-      const ok =
-        others.length > 0 &&
-        others.every((j) => exterior.sides[j]?.lengthFrom === "drawn") &&
-        (delta >= 0 || (others.every((j) => (lengths[j] as number) + delta >= MIN_SIDE_FEET) && -delta < hi - lo - EPS));
-      if (!ok) continue;
-      // Everything past the cut, just short of the end of this stretch, slides `delta` along the typed side.
-      const cut = hi - 1e-6;
-      for (const j of [i, ...others]) {
-        if (j !== i) lengths[j] = (lengths[j] as number) + delta;
-        const sigma = dot(dirOf(j), u);
-        const start = proj(c[j] as Pt);
-        const startPast = start > cut ? 1 : 0;
-        shifts[j] = (f: number) => delta * sigma * ((start + sigma * f > cut ? 1 : 0) - startPast);
-      }
-      done = true;
-    }
-    if (!done) {
-      // The drawn sides running this way take up what is left over, each by its length.
-      const drawn = exterior.sides.map((s, j) => (j !== i && parallel[j] && s.lengthFrom === "drawn" ? j : -1)).filter((j) => j >= 0);
-      const w = sideChain(exterior.sides).dirs;
-      const over = exterior.sides.reduce((s, _, j) => s + dot(w[j] as Pt, u) * (lengths[j] as number), 0);
-      const total = drawn.reduce((s, j) => s + (lengths[j] as number), 0);
-      const next = drawn.map((j) => (lengths[j] as number) - (over * dot(w[j] as Pt, u) * (lengths[j] as number)) / total);
-      if (drawn.length > 0 && total > 0 && next.every((v) => v >= MIN_SIDE_FEET)) drawn.forEach((j, k) => (lengths[j] = next[k] as number));
-    }
+        return Math.min(a, b) < mid && mid < Math.max(a, b) ? j : -1;
+      })
+      .filter((j) => j >= 0);
+    if (others.length === 0 || !others.every((j) => exterior.sides[j]?.lengthFrom === "drawn" && (exterior.sides[j]?.lengthFeet ?? 0) + delta >= MIN_SIDE_FEET)) continue;
+    // Everything past the cut, just short of the end of this stretch, slides `delta` along the typed side.
+    const cut = (breaks[k + 1] as number) - 1e-6;
+    // Where a point along the typed side's line ends up: past the cut it moves; short of it, where the
+    // outline closes up it is kept on what is left, so nothing along a wall changes order.
+    const moved = (p: number) => (p > cut ? p + delta : delta < 0 ? Math.min(p, cut + delta) : p);
+    const lengths = exterior.sides.map((s, j) => (j === i ? feet : others.includes(j) ? s.lengthFeet + delta : s.lengthFeet));
+    const shifts = exterior.sides.map((_, j) => {
+      if (j !== i && !others.includes(j)) return still;
+      const sigma = dot(dirOf(j), u);
+      const start = proj(c[j] as Pt);
+      const startAfter = start > cut ? start + delta : start;
+      return (f: number) => sigma * (moved(start + sigma * f) - startAfter) - f;
+    });
+    const next = applied(lengths, shifts);
+    if (sound(next)) return next;
   }
 
-  const sides = exterior.sides.map((s, k) => {
-    const length = lengths[k] as number;
-    if (k !== i && Math.abs(length - s.lengthFeet) < EPS) return s;
-    const moved = movedAlong(s, length, shifts[k] as (f: number) => number);
-    // Typed, it is a measurement now, and stands when another side is typed.
-    if (k === i) delete moved.lengthFrom;
-    return moved;
-  });
-  const additions = exterior.roof.additions?.map((a) => {
-    const k = exterior.sides.findIndex((s) => s.id === a.sideId);
-    const before = exterior.sides[k]?.lengthFeet;
-    const length = lengths[k];
-    return before === undefined || length === undefined || Math.abs(length - before) < EPS ? a : additionAlong(a, before, length, shifts[k] as (f: number) => number);
-  });
-  return { ...exterior, sides, roof: additions ? { ...exterior.roof, additions } : exterior.roof };
+  // The drawn sides running this way take up what is left over, each by its length.
+  const drawn = exterior.sides.map((s, j) => (j !== i && parallel[j] && s.lengthFrom === "drawn" ? j : -1)).filter((j) => j >= 0);
+  const w = sideChain(exterior.sides).dirs;
+  const lengths = exterior.sides.map((s, j) => (j === i ? feet : s.lengthFeet));
+  const over = exterior.sides.reduce((s, _, j) => s + dot(w[j] as Pt, u) * (lengths[j] as number), 0);
+  const total = drawn.reduce((s, j) => s + (lengths[j] as number), 0);
+  const shared = drawn.map((j) => (lengths[j] as number) - (over * dot(w[j] as Pt, u) * (lengths[j] as number)) / total);
+  if (drawn.length > 0 && total > 0 && shared.every((v) => v >= MIN_SIDE_FEET)) {
+    drawn.forEach((j, k) => (lengths[j] = shared[k] as number));
+    const next = applied(
+      lengths,
+      exterior.sides.map(() => still),
+    );
+    if (sound(next)) return next;
+  }
+  return typedAlone;
 }
 
 // ---------------------------------------------------------------------------------------------

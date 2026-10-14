@@ -176,8 +176,16 @@ export function FeetInput({
       defaultValue={shown}
       placeholder={placeholder}
       disabled={readOnly}
+      onInput={(e) => {
+        e.currentTarget.dataset.typed = "1";
+      }}
       onBlur={(e) => {
         const raw = e.target.value.trim();
+        const typed = e.target.dataset.typed === "1";
+        delete e.target.dataset.typed;
+        // Only what was typed is committed: the box shows a length to the inch, and passing through it must not round a
+        // length the phone measured, or the drawing gave, into one typed. The same length typed again does count: it says so.
+        if (!typed && raw === shown) return;
         if (raw === "") {
           if (nullable && value !== null) onCommit(null);
           else e.target.value = shown;
@@ -188,7 +196,7 @@ export function FeetInput({
           e.target.value = shown;
           return;
         }
-        if (value === null || Math.abs(feet - value) > 1e-9) onCommit(feet);
+        if (typed || value === null || Math.abs(feet - value) > 1e-9) onCommit(feet);
       }}
       onKeyDown={(e) => {
         if (e.key === "Enter") {

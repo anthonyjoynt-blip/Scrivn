@@ -195,8 +195,15 @@ export function ExteriorStart({ readOnly, onStart }: { readOnly: boolean; onStar
 
 /** The plan drawn on: 100' by 70' in feet, y up, with room under it for the street. */
 const DRAW_VIEW = { x0: -5, x1: 95, y0: -9, y1: 65 };
-/** How near the first corner a tap closes the outline, in screen pixels: a fingertip. */
+/**
+ * How near the first corner a tap closes the outline: a fingertip on screen, but never more than 3'
+ * of house - zoomed out on a phone a fingertip is 6', and a jog's corner that close to the first one
+ * is a corner, not a close. The Close button closes from anywhere.
+ */
 const CLOSE_PX = 22;
+const CLOSE_MAX_FEET = 3;
+/** A last corner this close to lining up with the first slides along its wall to line up as it closes: a tap's slip, not a jog. */
+const LINE_UP_FEET = 1.5;
 
 const segmentsMeet = (a: Pt, b: Pt, c: Pt, d: Pt) =>
   Math.min(a.x, b.x) <= Math.max(c.x, d.x) + 1e-9 && Math.min(c.x, d.x) <= Math.max(a.x, b.x) + 1e-9 && Math.min(a.y, b.y) <= Math.max(c.y, d.y) + 1e-9 && Math.min(c.y, d.y) <= Math.max(a.y, b.y) + 1e-9;
@@ -249,11 +256,11 @@ export function FootprintDraw({ onClose, guide, onCancel }: { onClose: (ring: Pt
   };
   const nearFirst = (raw: Pt) => {
     const first = draft[0];
-    return first !== undefined && draft.length >= 3 && Math.hypot(raw.x - first.x, raw.y - first.y) <= CLOSE_PX * feetPerPixel();
+    return first !== undefined && draft.length >= 3 && Math.hypot(raw.x - first.x, raw.y - first.y) <= Math.min(CLOSE_MAX_FEET, CLOSE_PX * feetPerPixel());
   };
 
   function close() {
-    const ring = closeOutline(draft, Math.max(1.5, CLOSE_PX * feetPerPixel()));
+    const ring = closeOutline(draft, LINE_UP_FEET);
     if (!ring) {
       setMessage("That outline would cross itself. Undo a corner, or start over.");
       return;
@@ -308,7 +315,7 @@ export function FootprintDraw({ onClose, guide, onCancel }: { onClose: (ring: Pt
   };
 
   // Where a tap at the pointer would land, and the outline a close there would make.
-  const closing = hover && nearFirst(hover) ? closeOutline(draft, Math.max(1.5, CLOSE_PX * feetPerPixel())) : null;
+  const closing = hover && nearFirst(hover) ? closeOutline(draft, LINE_UP_FEET) : null;
   const preview = hover && !closing ? snapOutlinePoint(hover, draft) : null;
   const shown = preview && draft.length > 0 ? [...draft, preview] : draft;
   const label = (a: Pt, b: Pt, key: string) => {
