@@ -165,7 +165,7 @@ export type GenerationStart = { state: "untracked" } | { state: "new"; id: strin
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** The signed-in person and their organization, from their own session. */
-async function sessionOrganization(): Promise<{ supabase: SupabaseClient; userId: string; email: string | null; organizationId: string | null } | null> {
+async function sessionOrganization(): Promise<{ userId: string; email: string | null; organizationId: string | null } | null> {
   const supabase = await createClient();
   const { data: claimsData } = await supabase.auth.getClaims();
   const userId = claimsData?.claims?.sub;
@@ -173,7 +173,7 @@ async function sessionOrganization(): Promise<{ supabase: SupabaseClient; userId
   const email = typeof claimsData?.claims?.email === "string" ? claimsData.claims.email : null;
   const { data: membership } = await withClockSkewRetry(() => supabase.from("organization_members").select("organization_id").eq("user_id", userId).limit(1).maybeSingle());
   const organizationId = typeof membership?.organization_id === "string" ? membership.organization_id : null;
-  return { supabase, userId, email, organizationId };
+  return { userId, email, organizationId };
 }
 
 /**
@@ -246,9 +246,9 @@ export async function incrementClaimUsage(job?: { id: string; documents: unknown
   // Trial claims are counted in their own column, so converting to a paid plan starts from zero
   // rather than inheriting whatever the trial used.
   const onTrial = planForTier(tier) === null;
-  const countOnce = () => admin.rpc("generation_job_finish", { job_id: job!.id, caller: userId, on_trial: onTrial, documents: job!.documents });
+  const countOnce = (j: { id: string; documents: unknown }) => admin.rpc("generation_job_finish", { job_id: j.id, caller: userId, on_trial: onTrial, documents: j.documents });
   const countAlways = () => admin.rpc("org_count_claim", { org_id: organizationId, on_trial: onTrial });
-  let { data: counted, error: countError } = job ? await countOnce() : await countAlways();
+  let { data: counted, error: countError } = job ? await countOnce(job) : await countAlways();
   if (job && countError && isBillingSchemaMissing(countError)) ({ data: counted, error: countError } = await countAlways());
   const count = embedded(counted as { used_before: number; used_after: number } | { used_before: number; used_after: number }[] | null);
   if (countError) {
