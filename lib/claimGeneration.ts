@@ -1,3 +1,4 @@
+import { carryAnswers, carriedSuggestions } from "./answerCarryOver";
 import { buildAsbestosScopeSection } from "./asbestosScope";
 import { hasAsbestosContent } from "./asbestos";
 import { buildBricABracScopeSection, type BricABracData } from "./bricABrac";
@@ -10,7 +11,7 @@ import { exteriorScopeLines } from "./exterior";
 import { type EquipmentSuggestions, normaliseRoomName, withoutResolvedSuggestions } from "./gapCheck";
 import { isDGIG } from "./insurers";
 import { roomMoistureSummary, type MoistureMap } from "./moisture";
-import { nextQuestions } from "./questionRound";
+import { nextQuestions, resolveRound } from "./questionRound";
 import { notePrints, noteTime, photoNotes, photoNotesText } from "./photos";
 import type { Sketch } from "./sketch";
 import { roomAreasForEstimate } from "./sketchQuantities";
@@ -135,11 +136,15 @@ export function extractionRequest(state: SavedClaimState, source = state.transcr
  * of answers, the step — straight to Ready when the engine has nothing to ask — and which photo notes
  * it was made from (`scopedNotes`, as `extractionRequest` printed them when it was sent).
  *
- * And the equipment checks answered against the OLD tree are let go (`resolvedSuggestions`). An
- * answer there adopted the sketch's count into a tree this one replaces; kept, it would stop the check
- * being asked of the new tree, and the new tree's own count would stand with nobody told — the
- * silent wrong number a second read of the transcript (or Update scope, 2026-10-14) would otherwise
- * leave. The first read of a claim has none to let go.
+ * A second read (Update scope, or an edited transcript read again) keeps the answers already given
+ * wherever the new tree has the same room and the same record and left the field empty — see
+ * lib/answerCarryOver.ts. The tree it carries from is the old one with the answers on screen folded
+ * in, so a round left half-answered is not lost either. Everything else is asked.
+ *
+ * The equipment checks answered against the old tree (`resolvedSuggestions`) stay only where the new
+ * tree's count is the count that was weighed — see `carriedSuggestions`. Anywhere else, kept, they
+ * would stop the check being asked of the new tree, and the new tree's own count would stand with
+ * nobody told. The first read of a claim has none to keep.
  */
 export function withExtraction(
   state: SavedClaimState,
@@ -147,11 +152,17 @@ export function withExtraction(
   scopedNotes?: string[],
 ): Pick<SavedClaimState, "extraction" | "answers" | "step" | "photos" | "resolvedSuggestions"> {
   const extractionWithYear = applyClaimYearOfBuilding(state.claim, extraction);
-  const questions = nextQuestions(state.claim, extractionWithYear, equipmentSuggestionsFor(state.sketch, state.moisture, []));
+  const suggestions = (resolved: string[]) => equipmentSuggestionsFor(state.sketch, state.moisture, resolved);
+  const answered = state.extraction
+    ? resolveRound(state.claim, state.extraction, state.answers ?? {}, suggestions(state.resolvedSuggestions ?? [])).extraction
+    : null;
+  const kept = answered ? carryAnswers(state.claim, answered, extractionWithYear, suggestions([])).extraction : extractionWithYear;
+  const resolvedSuggestions = answered ? carriedSuggestions(answered, kept, state.resolvedSuggestions ?? []) : [];
+  const questions = nextQuestions(state.claim, kept, suggestions(resolvedSuggestions));
   return {
-    extraction: extractionWithYear,
+    extraction: kept,
     answers: {},
-    resolvedSuggestions: [],
+    resolvedSuggestions,
     step: questions.length === 0 ? "ready" : "questions",
     photos: scopedNotes ? { ...state.photos, scopedNotes } : state.photos,
   };

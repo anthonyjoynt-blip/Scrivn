@@ -539,7 +539,7 @@ await test("deletion marks stay bounded however many copies bring them back, and
   equal(mod.normalizeClaimPhotos(JSON.parse(JSON.stringify(once))), once, "and the same answer run again");
 });
 
-await test("a fresh read of the scope lets go of equipment answers given against the old one", () => {
+await test("a fresh read of the scope lets go of equipment answers it cannot carry onto the new tree", () => {
   const state = claimState("Bell", { resolvedSuggestions: ["bathroom::air movers"] });
   const next = mod.withExtraction(state, mod.withDerivedFields({ loss: mod.emptyLoss(), rooms: [] }), []);
   equal(next.resolvedSuggestions, [], "so the check is asked of the new tree, not skipped");
