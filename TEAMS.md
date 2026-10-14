@@ -67,10 +67,21 @@ restoration PM works for one company at a time.
 
 ## Seats
 
-There's room for seat pricing, but no price yet. `organizations.seat_limit` holds how many people
-a plan covers. Null means no limit, which is every organization today. Invitations past the limit
-are refused. `SEAT_PRICING` in `lib/plans.ts` can become "N seats included per plan" or "a price per
-seat". See `STRIPE.md` §6.
+There's room for seat pricing, but no price yet for the Scrivn plans. `organizations.seat_limit`
+holds how many people a plan covers. Null means no limit, which is every organization on a Scrivn
+plan or the trial. Invitations past the limit are refused. `SEAT_PRICING` in `lib/plans.ts` can
+become "N seats included per plan" or "a price per seat". See `STRIPE.md` §6, and the owner's
+pricing doc ("Team accounts: what a seat costs"), which recommends unlimited.
+
+**The Scan plan covers one person** (owner, 2026-10-14: "one person per scan plan"). It has no claim
+allowance to grow with a team, so without a limit one C$19 plan would cover a whole crew's phones.
+`seatLimitFor` stores `SCAN_SEATS` (1) for it whatever `SEAT_PRICING` says, and 0011's copy gives a
+Scan plan bought earlier the same limit. So:
+
+- the owner of a Scan-only organization can't invite anyone: the Team section says the plan covers
+  one person and that a Scrivn plan covers the whole team, instead of offering the invite form;
+- checkout refuses the Scan plan to an organization that already has more than one person in it;
+- an invitation sent earlier (on the trial) can't be accepted once the Scan plan is bought.
 
 ## Turning teams on
 

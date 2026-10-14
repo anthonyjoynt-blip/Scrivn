@@ -42,7 +42,7 @@ await build({
 
 const {
   subscriptionEventApplies, scanSubscriptionsToCancel, billingLookups, PLANS, SCAN_TIER, SCAN_PLAN, planForTier, claimLimitForTier, isScanTier, isScrivnTier,
-  TRIAL_CLAIM_LIMIT, TRIAL_DAYS, SEAT_PRICING, seatLimitFor, checkoutQuantity, usageFromBilling, isBillingSchemaMissing,
+  TRIAL_CLAIM_LIMIT, TRIAL_DAYS, SEAT_PRICING, SCAN_SEATS, seatLimitFor, scanTeamRefusal, checkoutQuantity, usageFromBilling, isBillingSchemaMissing,
 } = await import(pathToFileURL(bundlePath).href);
 
 let passed = 0;
@@ -193,17 +193,25 @@ check(!isBillingSchemaMissing(null) && !isBillingSchemaMissing(undefined), "and 
 
 /* ── Seats: room for a price, no price ─────────────────────────────────────────────────────────── */
 
-check(SEAT_PRICING.kind === "unlimited", "no seat price is chosen (owner, 2026-10-13): seats are unlimited");
-check(["starter", "growth", "unlimited", "scan", null].every((t) => seatLimitFor(t, 3) === null), "so every organization's stored seat limit stays null — no limit");
+check(SEAT_PRICING.kind === "unlimited", "no seat price is chosen for the Scrivn plans (owner, 2026-10-13): seats are unlimited");
+check(["starter", "growth", "unlimited", null].every((t) => seatLimitFor(t, 3) === null), "so a Scrivn plan's or the trial's stored seat limit stays null — no limit");
 check(checkoutQuantity(7) === 1, "and checkout buys one of the price, however many people there are");
+// The Scan plan covers one person (owner, 2026-10-14): it has no claim allowance to grow with a team,
+// so without a limit one C$19 plan would cover a whole crew's phones.
+check(SCAN_SEATS === 1 && seatLimitFor("scan", 3) === 1 && seatLimitFor("scan", null) === 1, "the Scan plan stores a limit of one person, whatever the quantity");
+check(/one person/.test(scanTeamRefusal(4)) && /4/.test(scanTeamRefusal(4)) && /Scrivn plan/.test(scanTeamRefusal(4)), "a team refused the Scan plan is told why and what covers it");
+check(SCAN_PLAN.features.includes("For one person"), "and the plan says so where it is sold");
 {
   const included = { kind: "included", seats: { starter: 1, growth: 3, unlimited: 10 } };
   check(seatLimitFor("starter", 1, included) === 1 && seatLimitFor("growth", 1, included) === 3 && seatLimitFor("unlimited", 99, included) === 10, "'included' seats come from the tier, whatever the quantity");
-  check(seatLimitFor("scan", 1, included) === null && seatLimitFor(null, 1, included) === null, "an organization on the trial or on Scan alone has no seat limit");
+  check(seatLimitFor(null, 1, included) === null, "an organization on the trial has no seat limit");
   check(checkoutQuantity(7, included) === 1, "and still buys one of the price");
   const perSeat = { kind: "per_seat", minimum: 2 };
   check(seatLimitFor("growth", 5, perSeat) === 5 && seatLimitFor("growth", 1, perSeat) === 2 && seatLimitFor("growth", null, perSeat) === 2, "'per_seat' stores the quantity bought, never below the minimum");
   check(checkoutQuantity(7, perSeat) === 7 && checkoutQuantity(1, perSeat) === 2, "and checkout buys a seat for everyone already there, at least the minimum");
+  for (const pricing of [included, perSeat]) {
+    check(seatLimitFor("scan", 5, pricing) === 1, `whatever the Scrivn seat price ('${pricing.kind}'), the Scan plan still covers one person`);
+  }
 }
 
 /* ── How a Stripe event finds its organization ─────────────────────────────────────────────────── */

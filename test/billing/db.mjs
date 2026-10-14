@@ -101,10 +101,16 @@ for (const [who, id] of Object.entries(people)) {
   const org = await orgBilling(id);
   check(sameBilling(org, profileBefore[who]), `0011 copies ${who}'s plan, counter, trial and Stripe customer onto the organization they own (got ${JSON.stringify(org)})`);
   check(sameBilling(await profileBilling(id), profileBefore[who]), `and leaves ${who}'s profile columns as they were, for the build before`);
-  check(org.seat_limit === null, `${who}'s organization has no seat limit`);
+  // One person on the Scan plan (owner, 2026-10-14), no limit on anything else.
+  const scanAlone = profileBefore[who].subscription_tier === "scan";
+  check(org.seat_limit === (scanAlone ? 1 : null), `${who}'s organization ${scanAlone ? "covers one person, as a Scan plan does" : "has no seat limit"} (got ${org.seat_limit})`);
   const was = usageFromBilling(asApi(profileBefore[who]), { organizationId: null, role: "owner" }, now);
   const is = usageFromBilling(asApi(org), { organizationId: null, role: "owner" }, now);
-  check(JSON.stringify(was) === JSON.stringify(is), `lib/usage.ts gives ${who} the same allowance from the organization as from the profile (${is.noPlan ? (is.onTrial ? "trial" : `trial over: ${is.trialExpiredReason}`) : `${is.used} of ${is.limit}`})`);
+  // The seat limit is the one thing the organization adds (a profile has none); the allowance must not move.
+  const { seatLimit: _wasSeats, ...wasAllowance } = was;
+  const { seatLimit: isSeats, ...isAllowance } = is;
+  check(JSON.stringify(wasAllowance) === JSON.stringify(isAllowance), `lib/usage.ts gives ${who} the same allowance from the organization as from the profile (${is.noPlan ? (is.onTrial ? "trial" : `trial over: ${is.trialExpiredReason}`) : `${is.used} of ${is.limit}`})`);
+  check(isSeats === (scanAlone ? 1 : null), `and reads ${who}'s seat limit from the organization (got ${isSeats})`);
 }
 {
   const paid = usageFromBilling(asApi(await orgBilling(people.paid)), { organizationId: null, role: "owner" }, now);

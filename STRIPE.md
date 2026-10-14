@@ -136,8 +136,11 @@ a team shares one subscription and one claim allowance.
   `supabase_user_id`). Customers made before 0011 carry only `supabase_user_id`; the webhook finds
   them by the customer id 0011 copied onto the organization. The order is `billingLookups` in
   `lib/billingTiers.ts`.
+- **The Scan plan covers one person** (owner, 2026-10-14). `seatLimitFor` stores 1 for it
+  (`SCAN_SEATS`), and checkout refuses it to an organization of more than one person. See
+  `TEAMS.md`, "Seats".
 - **Seats: room for a price, no price.** `organizations.seat_limit` holds how many people the plan
-  covers; null means no limit, which is every organization today. `SEAT_PRICING` in `lib/plans.ts`
+  covers; null means no limit, which is every organization on a Scrivn plan or the trial today. `SEAT_PRICING` in `lib/plans.ts`
   is `unlimited`, and has room for either "N seats included per tier" or "a price per seat" (the
   subscription quantity). The webhook stores `seatLimitFor(...)` on every subscription event, and the
   invite functions in 0012 refuse an invite past the limit. Choosing per-seat pricing also needs a

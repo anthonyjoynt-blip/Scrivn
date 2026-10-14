@@ -28,7 +28,8 @@
 -- this has run in production for a while. Until then they are history, not truth.
 --
 -- SEATS — `seat_limit` is room for team pricing, not a price. Null means no limit, which is every
--- organization today: no seat price has been chosen (owner, 2026-10-13). When one is, the webhook
+-- organization on a Scrivn plan or the trial today: no seat price has been chosen (owner,
+-- 2026-10-13). The one limit set is the Scan plan's: one person (owner, 2026-10-14). The webhook
 -- writes the limit from the subscription (`seatLimitFor` in lib/plans.ts) and the invite functions in
 -- 0012_teams.sql refuse an invite past it. Nothing here decides between "N seats included per plan"
 -- and "a price per seat"; both fit this one column.
@@ -92,7 +93,11 @@ begin
       period_reset_at = p.period_reset_at,
       trial_started_at = p.trial_started_at,
       trial_claims_used = p.trial_claims_used,
-      trial_ending_email_sent_at = p.trial_ending_email_sent_at
+      trial_ending_email_sent_at = p.trial_ending_email_sent_at,
+      -- A Scan plan covers one person (owner, 2026-10-14; SCAN_SEATS in lib/plans.ts). The webhook
+      -- writes it on every subscription event from now on; this gives a Scan plan bought before
+      -- the same limit at once, rather than at its next renewal.
+      seat_limit = case when p.subscription_tier = 'scan' then 1 end
   from public.organization_members m
   join public.profiles p on p.id = m.user_id
   where m.organization_id = o.id
@@ -115,7 +120,7 @@ comment on column public.organizations.trial_claims_used is
 comment on column public.organizations.trial_ending_email_sent_at is
   'Guards the trial-ending email against repeat sends. Null = not yet sent.';
 comment on column public.organizations.seat_limit is
-  'How many people the subscription covers. Null = no limit (no seat price chosen yet). Written by the webhook; read by the invite functions in 0012.';
+  'How many people the subscription covers. Null = no limit (no seat price chosen yet for Scrivn plans); 1 on the Scan plan. Written by the webhook; read by the invite functions in 0012.';
 
 -- Constraints are added separately so a re-run does not fail on the ones that already exist.
 alter table public.organizations drop constraint if exists organizations_subscription_tier_check;

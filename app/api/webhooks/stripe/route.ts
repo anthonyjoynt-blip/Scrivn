@@ -204,7 +204,8 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session, stripe:
     // A fresh subscription starts a fresh allowance.
     claims_used_this_period: 0,
     period_reset_at: periodEndIso(subscription),
-    // Null — no limit — until a seat price is chosen; see SEAT_PRICING in lib/plans.ts.
+    // Null (no limit) on a Scrivn plan until a seat price is chosen, see SEAT_PRICING; one person on
+    // the Scan plan (SCAN_SEATS).
     seat_limit: seatLimitFor(tier, quantityOf(subscription)),
     ...(customerId ? { stripe_customer_id: customerId } : {}),
   });

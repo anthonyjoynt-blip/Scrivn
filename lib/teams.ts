@@ -104,7 +104,9 @@ export const TEAM_ERRORS: Record<string, { status: number; message: string }> = 
   P0002: { status: 404, message: "That invitation is no longer valid. Ask for a new one." },
   "22023": { status: 400, message: "That request wasn’t understood." },
   "23505": { status: 409, message: "That person is already on the team." },
-  P0402: { status: 409, message: "Every seat on the plan is taken. Free one, or add seats to the plan." },
+  // Plan-neutral on purpose: the Scan plan has one seat and no way to add any, so "add seats" would
+  // send its owner looking for a button that is not there.
+  P0402: { status: 409, message: "Every seat on the plan is taken. Free one, or move to a plan that covers more people." },
   P0429: { status: 429, message: `That’s ${INVITES_PER_DAY} invitations today. Try again tomorrow.` },
   P0410: { status: 409, message: "You’re on another team. Leave it from your Account page, then open this invitation again." },
   P0411: { status: 409, message: "You own an organization with other people in it. Make one of them the owner first." },

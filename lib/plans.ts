@@ -112,6 +112,7 @@ export const SCAN_PLAN = {
   /** The free tier, counted on the server once Scan signs in — about three a month (2026-10-01). */
   freeScansPerMonth: 3,
   features: [
+    "For one person",
     "Unlimited scans",
     "Floor plan PDF with room sizes",
     "To-scale JPG for tracing in Xactimate or any sketch tool",
@@ -167,8 +168,13 @@ export const TRIAL_WARNING_AT_CLAIMS = 4;
  * `checkoutQuantity(...)` — so choosing is a change here (and, for per-seat, a Stripe price), not to
  * the schema or the invite flow.
  *
- * An organization with no Scrivn plan — on the trial, or on Scan alone — has no seat limit in any of
- * these: its people share the five trial claims, so there is little to count.
+ * An organization on the trial has no seat limit in any of these: its people share the five trial
+ * claims, so there is little to count.
+ *
+ * The Scan plan is different, and decided (owner, 2026-10-14): "one person per scan plan". It has no
+ * claim allowance to grow with a team, so with no limit one C$19 plan would cover a whole crew's
+ * phones. Whatever the Scrivn plans do, a Scan-only organization covers `SCAN_SEATS` person: the
+ * invite functions then refuse anyone else, and checkout refuses the Scan plan to a team.
  */
 export type SeatPricing =
   | { kind: "unlimited" }
@@ -177,8 +183,17 @@ export type SeatPricing =
 
 export const SEAT_PRICING: SeatPricing = { kind: "unlimited" };
 
+/** People one Scan plan covers (owner, 2026-10-14). Not a seat price: it holds whatever SEAT_PRICING is. */
+export const SCAN_SEATS = 1;
+
+/** Why a team cannot buy the Scan plan, in words for the owner at checkout. */
+export function scanTeamRefusal(people: number): string {
+  return `The Scan plan covers one person, and your team has ${people}. A Scrivn plan covers the whole team and includes Scan.`;
+}
+
 /** The seat limit to store for an organization on `tier` with a subscription `quantity`; null = no limit. */
 export function seatLimitFor(tier: string | null | undefined, quantity: number | null | undefined, pricing: SeatPricing = SEAT_PRICING): number | null {
+  if (isScanTier(tier)) return SCAN_SEATS;
   const plan = planForTier(tier);
   if (!plan || pricing.kind === "unlimited") return null;
   if (pricing.kind === "included") return Math.max(1, pricing.seats[plan.tier]);

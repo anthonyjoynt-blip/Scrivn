@@ -5,6 +5,7 @@ import { currentMembership } from "./claimsRepo";
 import { appUrl, hashSecret, looksLikeDeviceToken, newDeviceToken } from "./deviceCodes";
 import { TEAM_INVITE_PATH } from "./teamsGate";
 import { isBillingSchemaMissing as isSchemaMissing } from "./usageState";
+import { isScanTier } from "./plans";
 import { canManageInvites, isInviteRole, isOrgRole, normaliseInviteEmail, teamErrorFor, type InviteRole, type InviteStatus, type OrgRole } from "./teams";
 
 /**
@@ -77,6 +78,8 @@ export interface TeamState {
   invites: TeamInvite[];
   /** People the plan covers; null = no limit. */
   seatLimit: number | null;
+  /** On the Scan plan alone, which covers one person (SCAN_SEATS): the section says so instead of offering invitations. */
+  scanOnly: boolean;
 }
 
 export interface InvitePreview {
@@ -122,7 +125,7 @@ export async function loadTeam(): Promise<TeamState> {
   const supabase = await createClient();
 
   const [orgResult, membersResult, invitesResult] = await Promise.all([
-    withClockSkewRetry(() => supabase.from("organizations").select("name, seat_limit").eq("id", organizationId).maybeSingle()),
+    withClockSkewRetry(() => supabase.from("organizations").select("name, seat_limit, subscription_tier").eq("id", organizationId).maybeSingle()),
     supabase.rpc("org_members"),
     canManageInvites(role)
       ? supabase
@@ -163,6 +166,7 @@ export async function loadTeam(): Promise<TeamState> {
     members,
     invites,
     seatLimit: (orgResult.data?.seat_limit as number | null | undefined) ?? null,
+    scanOnly: isScanTier(orgResult.data?.subscription_tier as string | null | undefined),
   };
 }
 

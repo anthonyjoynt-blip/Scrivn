@@ -4,7 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getStripe } from "@/lib/stripe/server";
 import { BILLING_DISABLED_MESSAGE, isBillingEnabled } from "@/lib/billingGate";
 import { priceIdForTier, scanPriceId } from "@/lib/stripe/prices";
-import { PLANS, SCAN_TIER, SEAT_PRICING, checkoutQuantity, isScanTier, isScrivnTier, type ScanInterval, type SubscriptionTier } from "@/lib/plans";
+import { PLANS, SCAN_SEATS, SCAN_TIER, SEAT_PRICING, checkoutQuantity, isScanTier, isScrivnTier, scanTeamRefusal, type ScanInterval, type SubscriptionTier } from "@/lib/plans";
 import { canManageBilling, isOrgRole } from "@/lib/teams";
 
 /** Random 8-letter suffix for `integration_identifier` — lets checkout flows be compared in the Stripe Dashboard. */
@@ -96,6 +96,14 @@ export async function POST(request: Request) {
     if (scan && isScanTier(currentTier)) {
       return NextResponse.json({ error: "You already have the Scan plan. Change or cancel it from your account." }, { status: 409 });
     }
+    // A Scan plan covers one person (SCAN_SEATS). Sold to a team it would start over its own limit,
+    // with nobody able to say who the one is; a team's plan is a Scrivn plan, which covers it.
+    if (scan) {
+      const people = await memberCount(admin, organizationId);
+      if (people > SCAN_SEATS) {
+        return NextResponse.json({ error: scanTeamRefusal(people) }, { status: 409 });
+      }
+    }
 
     let customerId = (org?.stripe_customer_id as string | null) ?? null;
 
@@ -147,7 +155,7 @@ export async function POST(request: Request) {
   }
 }
 
-/** How many people are in the organization — only asked when seats are priced one by one. */
+/** How many people are in the organization: asked when seats are priced one by one, and before a Scan plan. */
 async function memberCount(admin: ReturnType<typeof createAdminClient>, organizationId: string): Promise<number> {
   const { count } = await admin.from("organization_members").select("user_id", { count: "exact", head: true }).eq("organization_id", organizationId);
   return count ?? 1;

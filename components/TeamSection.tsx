@@ -132,7 +132,11 @@ export function TeamSection({ initial }: { initial: TeamState }) {
     <div className="paired-phones">
       <p className="field-note" style={{ margin: "0 0 16px" }}>
         {team.organizationName || "Your organization"} — you are {team.role === "owner" ? "the owner" : team.role === "admin" ? "an admin" : "a member"}.
-        {team.seatLimit !== null ? ` ${seatsUsed} of ${team.seatLimit} seats used, counting open invitations.` : ""}
+        {team.scanOnly
+          ? " The Scan plan covers one person. To bring others in, move to a Scrivn plan: it covers the whole team and includes Scan."
+          : team.seatLimit !== null
+            ? ` ${seatsUsed} of ${team.seatLimit} seats used, counting open invitations.`
+            : ""}
       </p>
 
       <ul className="paired-phones-list">
@@ -223,7 +227,8 @@ export function TeamSection({ initial }: { initial: TeamState }) {
         </>
       )}
 
-      {manages && (
+      {/* On the Scan plan an invitation could only be refused (one person, SCAN_SEATS): the sentence above says why instead. */}
+      {manages && !team.scanOnly && (
         <form className="letterhead-form" onSubmit={handleInvite} style={{ marginTop: 16 }}>
           <div className="auth-field">
             <label className="prompt" htmlFor="team-invite-email">
