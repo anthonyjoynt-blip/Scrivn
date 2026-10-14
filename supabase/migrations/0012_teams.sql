@@ -10,7 +10,8 @@
 -- by the /api/team routes, which answer 404 while TEAMS_ENABLED is off (lib/teamsGate.ts), and the
 -- Team section of the Account page is not rendered. For an organization of one — every organization
 -- today — the two policy changes here (who may delete a claim, who sees every claim on the phone)
--- give the same answers they gave before, because the one member is the owner.
+-- give the same answers they gave before, because the one member is the owner. So does the rule
+-- that who started a claim cannot be rewritten: the app never rewrites it.
 --
 -- See TEAMS.md for the rules in plain words and what turning teams on involves.
 --
@@ -231,7 +232,8 @@ grant execute on function public.is_org_admin(uuid) to authenticated;
 -- ---------------------------------------------------------------------------------------------
 -- 5. Claims: everyone in the organization still reads and edits every claim (0004). Deleting one —
 -- permanently, payload and all — is for whoever started it, or an owner or admin. Alone in an
--- organization you are its owner, so you may delete everything, as before.
+-- organization you are its owner, so you may delete everything, as before; and you are the one who
+-- started every claim you make, so the two creator rules below refuse you nothing.
 -- ---------------------------------------------------------------------------------------------
 
 drop policy if exists "Claims are deletable within the organization" on public.claims;
@@ -243,6 +245,43 @@ create policy "Claims are deletable by their creator or an admin"
     public.is_org_member(organization_id)
     and (created_by = (select auth.uid()) or public.is_org_admin(organization_id))
   );
+
+-- That rule is only as good as `created_by`, so who started a claim is not something a member can
+-- rewrite. Otherwise a member could set it to themselves on a colleague's claim — every member may
+-- update every claim (0004) — and then delete it. The app never changes it: lib/claimsRepo.ts
+-- inserts it as the session's person and its updates leave it out.
+--
+-- On insert: the caller, or nobody. (0004's policy, plus the creator test.)
+drop policy if exists "Claims are insertable within the organization" on public.claims;
+create policy "Claims are insertable within the organization"
+  on public.claims for insert
+  to authenticated
+  with check (
+    public.is_org_member(organization_id)
+    and (created_by is null or created_by = (select auth.uid()))
+  );
+
+-- On update: never to someone else. Clearing it stays possible, because that is what the foreign
+-- key's `on delete set null` does when an account is deleted, and that must not fail.
+create or replace function public.claims_keep_creator()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+begin
+  if new.created_by is not null and new.created_by is distinct from old.created_by then
+    raise exception 'who started a claim cannot be changed' using errcode = '42501';
+  end if;
+  return new;
+end;
+$$;
+
+revoke all on function public.claims_keep_creator() from public, anon, authenticated;
+
+drop trigger if exists claims_keep_creator on public.claims;
+create trigger claims_keep_creator
+  before update of created_by on public.claims
+  for each row execute function public.claims_keep_creator();
 
 -- ---------------------------------------------------------------------------------------------
 -- 6. Invites.

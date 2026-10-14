@@ -422,6 +422,8 @@ if (teamsProbe.error && ["PGRST202", "42883"].includes(teamsProbe.error.code)) {
       check((edited ?? []).length === 1, "and edits it");
       const { data: deleted } = await bob.client.from("claims").delete().eq("id", teamClaim).select("id");
       check((deleted ?? []).length === 0, "but cannot delete a claim B did not start");
+      const { error: reassignError } = await bob.client.from("claims").update({ created_by: bob.userId }).eq("id", teamClaim);
+      check(reassignError !== null, `nor make it B's by rewriting who started it (got ${reassignError ? "refused" : "ACCEPTED"})`);
       const { error: inviteError } = await bob.client.rpc("org_invite_create", { invite_email: "x@example.invalid", invite_role: "member", token_hash: sha("x") });
       check(inviteError?.code === "42501", `a member cannot invite (42501) (got ${inviteError?.code ?? "ACCEPTED"})`);
       const { error: roleError } = await bob.client.rpc("org_member_set_role", { member_id: alice.userId, new_role: "member" });

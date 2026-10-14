@@ -18,6 +18,9 @@ A team is an organization with more than one person in it.
 
 In short: admins manage members; only the owner manages admins and billing.
 
+Nobody can change who started a claim, so "delete the claims they started" can't be worked around
+by reassigning one.
+
 Everyone on a team shares **one plan and one claim allowance**. A claim any of them generates comes
 off the same counter. The usage emails (80%, cap reached, trial nearly over) go to the owner,
 because the owner is the one who can upgrade.
@@ -110,3 +113,7 @@ invitation page `/team/invite` (also reachable signed out), and invitation email
   details, and sharing them with a company should be a decision, not a side effect.
 - **No organization switcher.** One organization at a time, as above.
 - **No invite list for the invitee.** Someone who loses the email asks for a new invitation.
+- **Deleting the owner's account in Supabase leaves the team with no owner.** Nobody can manage
+  billing or admins until an owner is set by hand in the SQL Editor
+  (`update organization_members set role = 'owner' where …`). Hand the organization over before
+  deleting an owner's account.

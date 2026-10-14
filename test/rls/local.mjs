@@ -180,6 +180,13 @@ check(rows(await s.as(mel, `delete from public.claims where id = $1 returning id
   const mine = await newClaim(mel, acme, "mel-throwaway");
   check(rows(await s.as(mel, `delete from public.claims where id = $1 returning id`, [mine])).length === 1, "and can delete one she did");
 }
+refusedWith(await s.as(mel, `update public.claims set created_by = $2 where id = $1`, [claimOwen, mel]), "42501", "Mel cannot make herself the creator of the owner's claim (42501)");
+check(rows(await s.as(mel, `delete from public.claims where id = $1 returning id`, [claimOwen])).length === 0 && (await claimExists(claimOwen)), "so that cannot become a way to delete it");
+check(
+  (await s.as(mel, `insert into public.claims (organization_id, created_by, customer_name, payload) values ($1, $2, 'forged', '{}') returning id`, [acme, owen])).error !== null,
+  "nor start a claim in the owner's name",
+);
+check(rows(await s.as(mel, `update public.claims set created_by = $2, step = 'intake' where id = $1 returning id`, [claimMel, mel])).length === 1, "setting it to what it already is changes nothing and is allowed");
 refusedWith((await invite(mel, "friend@x.test")).res, "42501", "Mel cannot invite (42501)");
 check(rows(await s.as(mel, `select id from public.organization_invites`)).length === 0, "nor see the pending invites");
 refusedWith(await s.as(mel, `select public.org_member_set_role($1, 'member')`, [ada]), "42501", "nor change a role");
@@ -421,6 +428,26 @@ check(rows(await s.as(xan, `delete from public.claims where id = $1 returning id
   check(rows(await s.as(xan, `delete from public.claims where id = $1 returning id`, [theirs])).length === 1, "and one whose creator is gone, because he is the owner");
 }
 
+/* ── An account deleted ───────────────────────────────────────────────────────────────────────── */
+
+console.log("\n  An account deleted");
+{
+  const temp = await s.createUser({ email: "temp@acme.test", fullName: "Temp" });
+  const tempInvite = await invite(ada, "temp@acme.test");
+  check((await accept(temp, tempInvite.token)).error === null, "a temporary member joins Acme");
+  const tempClaim = await newClaim(temp, acme, "temp-claim");
+  let deleteError = null;
+  try {
+    await s.sql(`delete from auth.users where id = $1`, [temp]);
+  } catch (err) {
+    deleteError = err;
+  }
+  check(deleteError === null, `deleting their account works, though it clears who started their claims (got ${deleteError?.message ?? "ok"})`);
+  const left = (await s.sql(`select created_by from public.claims where id = $1`, [tempClaim]))[0];
+  check(left && left.created_by === null, "their claim stays with Acme, its creator now nobody");
+  check(rows(await s.as(ada, `delete from public.claims where id = $1 returning id`, [tempClaim])).length === 1, "and an admin can still delete it");
+}
+
 /* ── Who can call what ────────────────────────────────────────────────────────────────────────── */
 
 console.log("\n  Function grants");
@@ -440,6 +467,7 @@ const privileged = [
   ["org_return_home(uuid)", false, false],
   ["org_count_claim(uuid, boolean)", false, false],
   ["mirror_profile_billing()", false, false],
+  ["claims_keep_creator()", false, false],
 ];
 for (const [fn, anon, authed] of privileged) {
   const r = (await s.sql(`select has_function_privilege('anon', 'public.${fn}', 'execute') as a, has_function_privilege('authenticated', 'public.${fn}', 'execute') as b`))[0];
