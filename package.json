@@ -15,6 +15,7 @@
     "test:scope": "node test/scope/run.mjs",
     "test:pipeline": "node test/pipeline/run.mjs",
     "test:rls": "node test/rls/run.mjs",
+    "test:rls:local": "node test/rls/local.mjs",
     "build:icons": "node scripts/build-icons.mjs",
     "test:pending": "node test/pending/run.mjs",
     "test:pending:browser": "node test/pending/browser/run.mjs",
@@ -57,6 +58,7 @@
     "three": "^0.180.0"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "0.5.8",
     "@types/node": "latest",
     "@types/qrcode": "^1.5.6",
     "@types/react": "latest",
