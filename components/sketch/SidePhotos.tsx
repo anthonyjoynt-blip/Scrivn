@@ -255,6 +255,7 @@ export function SideElevation({
   onTrace,
   onUpdate,
   editor,
+  roofAssumed = false,
 }: {
   side: ExteriorSide;
   rise: RoofRise | null;
@@ -267,6 +268,8 @@ export function SideElevation({
   onUpdate: (f: (side: ExteriorSide) => ExteriorSide) => void;
   /** What is tapped and dragged to edit the side face-on: see ElevationDrawing. */
   editor?: (view: ElevationView) => ReactNode;
+  /** The roof's pitch is the assumed one: a gable it gives says so. */
+  roofAssumed?: boolean;
 }) {
   const photos = side.photos ?? [];
   const photo = useSquaredPhoto(side);
@@ -352,6 +355,7 @@ export function SideElevation({
         reach={reach}
         seeThrough={showPhoto}
         editor={editor}
+        roofAssumed={roofAssumed}
       />
       {caption}
       {photos.length > 0 && (

@@ -2083,6 +2083,9 @@ test("an outline drawn on the plan: its walls are the sides round to the right f
   const f = x.exteriorFootprint(e);
   assert(f.closes && f.misclosureFeet < 1e-9, f.reason);
   near(f.areaSquareFeet, 40 * 30 - 15 * 10, "the L's area");
+  // A U open to the rear: the arms' backs are the rear, the court's back after them; the court's sides after the house's.
+  const u = x.exteriorFromOutline([P(0, 0), P(60, 0), P(60, 40), P(45, 40), P(45, 15), P(15, 15), P(15, 40), P(0, 40)]);
+  assert(lengthsOf(u) === "Front 60~, Right 40~, Rear 15~, Left 2 25~, Rear 3 30~, Right 2 25~, Rear 2 15~, Left 40~", lengthsOf(u));
 });
 
 test("the footprint from typed sides: a drawn side's length typed moves its right-hand corner, the drawn side across follows, a typed one stands", () => {

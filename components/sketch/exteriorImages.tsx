@@ -158,14 +158,16 @@ function elevationsSvg(exterior: Exterior): { svg: string; width: number; height
   const cellW = Math.floor((WIDTH - 80 - gap * (columns - 1)) / columns);
   // One scale for the whole sheet, the longest side filling its cell, so the sides compare as they stand.
   const fontFeet = Math.max(...sides.map(({ side }) => elevationFontFeet(side, q.rises[side.id] ?? null)));
-  const boxes = sides.map(({ side }) => viewBox(markup(createElement(ElevationDrawing, { side, rise: q.rises[side.id] ?? null, fontFeet }))));
+  // A gable the roof gives at a pitch nobody gave says so on the page, as on the screen.
+  const roofAssumed = q.pitch.source === "assumed";
+  const boxes = sides.map(({ side }) => viewBox(markup(createElement(ElevationDrawing, { side, rise: q.rises[side.id] ?? null, fontFeet, roofAssumed }))));
   const scale = Math.min(...boxes.map((b) => cellW / b.width));
   const cells = sides.map(({ side, sq }, i) => {
     const rise = q.rises[side.id] ?? null;
     const box = boxes[i] as { width: number; height: number };
     const w = Math.round(box.width * scale);
     const h = Math.round(box.height * scale);
-    return { side, sq, h, drawing: markup(createElement(ElevationDrawing, { side, rise, fontFeet, size: { width: w, height: h } })) };
+    return { side, sq, h, drawing: markup(createElement(ElevationDrawing, { side, rise, fontFeet, roofAssumed, size: { width: w, height: h } })) };
   });
   let y = 70;
   const parts: string[] = [label(40, 44, "Elevations", 30, 700)];

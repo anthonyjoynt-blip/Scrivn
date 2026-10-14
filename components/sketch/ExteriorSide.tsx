@@ -361,6 +361,7 @@ export function SidePane({
           onTrace={onTrace}
           onUpdate={onUpdate}
           editor={editor}
+          roofAssumed={q.pitch.source === "assumed"}
           caption={
             <figcaption className="field-note">
               {nameOf(side)} elevation, to scale, seen from outside.

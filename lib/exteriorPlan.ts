@@ -165,7 +165,7 @@ export function closeOutline(draft: Pt[], snapFeet = 0): Pt[] | null {
  * right from the FRONT - the wall facing the street (the bottom of the plan) that stands nearest it,
  * the longest of those level with it - each as long as it was drawn and named by the way it faces.
  * Of the walls facing one way the outermost has the plain name - "Rear" is the back of the house,
- * not the back of a notch - and the rest are numbered round from the front.
+ * not the back of a notch - and the rest are numbered from the outside in.
  */
 export function exteriorFromOutline(drawn: Pt[], eaveFeet: number = DEFAULT_EAVE_FEET): Exterior | null {
   const ring = orthogonalRing(drawn);
@@ -194,11 +194,13 @@ export function exteriorFromOutline(drawn: Pt[], eaveFeet: number = DEFAULT_EAVE
     return { length, d, facing, out };
   });
   const names = walls.map((w, k) => {
-    const same = walls.map((v, j) => ({ v, j })).filter(({ v }) => v.facing === w.facing);
-    const outer = same.reduce((best, c) => (c.v.out > best.v.out + EPS || (Math.abs(c.v.out - best.v.out) <= EPS && c.v.length > best.v.length + EPS) ? c : best));
-    if (outer.j === k) return w.facing;
-    const rank = same.filter(({ j }) => j !== outer.j).findIndex(({ j }) => j === k);
-    return `${w.facing} ${rank + 2}`;
+    // Furthest out first, the longer of two level with each other, then round from the front.
+    const same = walls
+      .map((v, j) => ({ v, j }))
+      .filter(({ v }) => v.facing === w.facing)
+      .sort((p, q) => (Math.abs(q.v.out - p.v.out) > EPS ? q.v.out - p.v.out : Math.abs(q.v.length - p.v.length) > EPS ? q.v.length - p.v.length : p.j - q.j));
+    const rank = same.findIndex(({ j }) => j === k);
+    return rank === 0 ? w.facing : `${w.facing} ${rank + 1}`;
   });
   const sides = walls.map((w, k) => {
     const next = walls[(k + 1) % n] as (typeof walls)[number];

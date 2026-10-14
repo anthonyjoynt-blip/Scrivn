@@ -222,11 +222,13 @@ export function FootprintDraw({ onClose, guide, onCancel }: { onClose: (ring: Pt
   const svgRef = useRef<SVGSVGElement | null>(null);
   const press = useRef<{ x: number; y: number } | null>(null);
 
+  // The plan grows past 100' by 70' to hold the outline being redrawn, and any corner tapped near its edge: a long ranch fits.
   const view = (() => {
-    if (!guide || guide.length === 0) return DRAW_VIEW;
-    const xs = guide.map((p) => p.x);
-    const ys = guide.map((p) => p.y);
-    const m = Math.max(8, (Math.max(...xs) - Math.min(...xs)) * 0.15);
+    const pts = [...(guide ?? []), ...draft];
+    if (pts.length === 0) return DRAW_VIEW;
+    const xs = pts.map((p) => p.x);
+    const ys = pts.map((p) => p.y);
+    const m = 8;
     return { x0: Math.min(DRAW_VIEW.x0, Math.min(...xs) - m), x1: Math.max(DRAW_VIEW.x1, Math.max(...xs) + m), y0: Math.min(DRAW_VIEW.y0, Math.min(...ys) - m), y1: Math.max(DRAW_VIEW.y1, Math.max(...ys) + m) };
   })();
   const vw = view.x1 - view.x0;
@@ -543,7 +545,7 @@ function SidesList({ exterior, q, readOnly, showTurns, onOpenSide, onChange }: {
   const fp = q.footprint;
   return (
     <div className="exterior-rows">
-      <span className="exterior-row-label">Sides, round the house from the front</span>
+      <h4 className="exterior-subhead">Sides, round the house from the front</h4>
       <div className="exterior-side-list">
         {exterior.sides.map((s, i) => {
           const name = s.name.trim() || "Side";
@@ -812,7 +814,7 @@ export function PlanPane({
         )}
         {q.pitch.source === "assumed" && (
           <p className="exterior-assumed">
-            The roof is drawn at an assumed {formatPitch(plan.pitch)}. Type its pitch beside the plan, or measure a gable peak on a side.
+            The roof is drawn at an assumed {formatPitch(plan.pitch)} until its pitch is typed (under The roof) or a gable peak is measured on a side.
           </p>
         )}
         <RoofPlanDrawing

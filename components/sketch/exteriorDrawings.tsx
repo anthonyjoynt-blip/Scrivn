@@ -118,6 +118,7 @@ const FACE_FILL = (kind: CladdingKind | "parging") => (kind === "parging" ? "#c9
  * both drawn in the drawing's own space - x feet along, y MINUS feet up - and `reach` widens the
  * drawing to hold them. `seeThrough` lets the photo show through the faces. `editor` draws what is
  * dragged and tapped to edit the side face-on (2026-10-13), last, in the same space and frame.
+ * `roofAssumed`: the roof's pitch is the assumed one, so a gable the roof gives says so.
  */
 export function ElevationDrawing({
   side,
@@ -129,6 +130,7 @@ export function ElevationDrawing({
   reach,
   seeThrough = false,
   editor,
+  roofAssumed = false,
 }: {
   side: ExteriorSide;
   rise: RoofRise | null;
@@ -139,6 +141,7 @@ export function ElevationDrawing({
   reach?: ElevationReach;
   seeThrough?: boolean;
   editor?: (view: ElevationView) => ReactNode;
+  roofAssumed?: boolean;
 }) {
   const { shape, faces, bandLines, grade, openings, fromShapes } = elevationFaces(side, rise);
   const L = Math.max(1, shape.lengthFeet);
@@ -178,7 +181,7 @@ export function ElevationDrawing({
     labels.push(
       <text key="peak" x={peak.x} y={Y(peak.y) - fs * 0.6} fontSize={fs} textAnchor="middle" {...text}>
         {formatFeetInches(peak.y - zFromGrade(side, peak.x, 0))}
-        {peak.source === "roof" ? " (roof)" : ""}
+        {peak.source === "roof" ? (roofAssumed ? " (roof, pitch assumed)" : " (roof)") : ""}
       </text>,
     );
   }
