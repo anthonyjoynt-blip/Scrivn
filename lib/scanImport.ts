@@ -101,7 +101,8 @@
  *     "outline": [[-1.4, -4.06], ...],     // optional; (u, v) metres, clockwise with u right and v down
  *     "outline_openings": [                // optional; openings against the outline's edges
  *       { "edge": 3, "from_m": 0.0, "width_m": 1.295, "kind": "door",
- *         "sill_m": null, "head_m": null }
+ *         "sill_m": null, "head_m": null,
+ *         "door_type": "swing", "leaves": "single", "hinge": "start", "swing": "in" }   // optional, see below
  *     ],
  *     "cabinets": [                        // optional; runs of cabinets against the outline's edges
  *       { "edge": 2, "from_m": 1.0, "width_m": 1.8, "tier": "base", "depth_m": 0.61 }
@@ -125,6 +126,12 @@
  * `head_m` are heights off the floor and, for a window, become its sill and its height when they
  * are at least 0.3 m apart (closer than that is two taps at the same height, and the defaults are
  * used). An opening of zero or negative `width_m` — the same jamb tapped twice — is dropped.
+ *
+ * A door or closet door from the phone since 2026-10-14 says what kind of door it is, as set on the phone's Review (or the
+ * phone's default, which is the guess below): `door_type` swing|bifold|pocket|sliding, `leaves` single|double, `hinge`
+ * start|end — the jamb at `from_m`, or the one at `from_m + width_m` — and `swing` in|out of the room. Each is used when
+ * it is there and one of those words; a file without them, or with a word this build does not know, gets the guess: a
+ * closet door a bifold, any other door a swing, a pair from `DOUBLE_DOOR_MIN_FEET`, hinged at the start and opening in.
  *
  * A cabinet's `edge`, `from_m` and `width_m` mean what an opening's do; `tier` is one of the
  * sketch's three (`base`, `wall`, `full`) and `depth_m` is how far it stands off the wall (the phone
@@ -165,7 +172,9 @@ import {
   type CabinetSymbol,
   type CabinetTier,
   type ClosetDoorRef,
+  type DoorLeaves,
   type DoorSymbol,
+  type DoorType,
   type FixtureSymbol,
   type SketchRoom,
   type SketchSymbol,
@@ -249,7 +258,20 @@ export interface ScanOutlineOpening {
    * rather than offered. Absent for every other door and every file before it.
    */
   closet?: boolean;
+  /**
+   * What kind of door the phone says it is (2026-10-14): set on its Review, or the phone's default. Each absent from a
+   * file before then, and from an opening or a window; the import then guesses as it always has (`place`).
+   */
+  door_type?: Exclude<DoorType, "opening">;
+  leaves?: DoorLeaves;
+  /** The hinged jamb: "start" is the one at `from_m`, "end" the one at `from_m + width_m`, along the edge. */
+  hinge?: "start" | "end";
+  /** Into the room the door was tapped in, or out of it. */
+  swing?: "in" | "out";
 }
+
+/** The door types the phone writes (`ScanOutlineOpening.door_type`): Scrivn's own, less the cased opening. */
+const SCAN_DOOR_TYPES: readonly string[] = ["swing", "bifold", "pocket", "sliding"];
 
 /**
  * A run of cabinets tapped against the outline: on edge `edge`, `from_m` along it from the edge's
@@ -665,6 +687,23 @@ function toFeetInches(metres: number): number {
   return Math.round(metres * FEET_PER_METRE * 12) / 12;
 }
 
+/**
+ * The phone's hinge and swing (`ScanOutlineOpening.hinge`, `.swing`) as the sketch's two world-space mirrors on `wall`
+ * (see `doorOrientation`, which this inverts): the hinge at the wall's far jamb is a mirror along the wall, a swing out of
+ * the room a mirror across it, and which of X and Y each is depends on whether the wall runs across or down. `reversed` is
+ * the wall running the other way from the phone's edge (the ring was turned round to wind clockwise), when the phone's
+ * "start" jamb is the wall's far one. Neither said, no mirror: hinged at the start, opening in, as every import was.
+ */
+export function doorFlips(
+  wall: Pick<WallGeometry, "horizontal">,
+  reversed: boolean,
+  door: Pick<ScanOutlineOpening, "hinge" | "swing">,
+): { flipX: boolean; flipY: boolean } {
+  const hingeAtEnd = (door.hinge === "end") !== reversed;
+  const swingReversed = door.swing === "out";
+  return wall.horizontal ? { flipX: hingeAtEnd, flipY: swingReversed } : { flipX: swingReversed, flipY: hingeAtEnd };
+}
+
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
 }
@@ -779,6 +818,13 @@ export function parseScanRoom(input: unknown): { ok: true; scan: ScanRoom; notes
         sill_m: isFiniteNumber(op.sill_m) ? op.sill_m : null,
         head_m: isFiniteNumber(op.head_m) ? op.head_m : null,
         ...(op.closet === true ? { closet: true } : {}),
+        // The door's type (2026-10-14), each key kept only when it is a word the sketch knows: a misspelt one is guessed.
+        ...(typeof op.door_type === "string" && SCAN_DOOR_TYPES.includes(op.door_type)
+          ? { door_type: op.door_type as Exclude<DoorType, "opening"> }
+          : {}),
+        ...(op.leaves === "single" || op.leaves === "double" ? { leaves: op.leaves } : {}),
+        ...(op.hinge === "start" || op.hinge === "end" ? { hinge: op.hinge } : {}),
+        ...(op.swing === "in" || op.swing === "out" ? { swing: op.swing } : {}),
       });
     }
   }
@@ -1341,10 +1387,11 @@ export function scanToSketchRoom(scan: ScanRoom, at: { x: number; y: number }, l
    */
   const place = (
     kind: "door" | "closet_door" | "opening" | "window",
-    placed: { wall: WallGeometry; t: number },
+    placed: { wall: WallGeometry; t: number; reversed?: boolean },
     width_m: number,
     elevation: { sill_m: number | null; head_m: number | null },
     closet = false,
+    door: Pick<ScanOutlineOpening, "door_type" | "leaves" | "hinge" | "swing"> = {},
   ): void => {
     const widthFeet = toFeetInches(width_m);
     const base = {
@@ -1368,12 +1415,12 @@ export function scanToSketchRoom(scan: ScanRoom, at: { x: number; y: number }, l
         : {
             ...base,
             type: "door",
-            // A closet door comes in as a bifold, the commonest closet door; any door wide enough is a pair.
-            doorType: kind === "opening" ? "opening" : kind === "closet_door" ? "bifold" : "swing",
-            leaves: kind !== "opening" && widthFeet >= DOUBLE_DOOR_MIN_FEET ? "double" : "single",
+            // What the phone says it is (2026-10-14); without that, a closet door comes in as a bifold, the commonest
+            // closet door, and any door wide enough is a pair.
+            doorType: kind === "opening" ? "opening" : (door.door_type ?? (kind === "closet_door" ? "bifold" : "swing")),
+            leaves: kind === "opening" ? "single" : (door.leaves ?? (widthFeet >= DOUBLE_DOOR_MIN_FEET ? "double" : "single")),
             heightFeet: DEFAULT_DOOR_HEIGHT_FEET,
-            flipX: false,
-            flipY: false,
+            ...(kind === "opening" ? { flipX: false, flipY: false } : doorFlips(placed.wall, placed.reversed === true, door)),
           };
     symbols.push(moveSymbolAlongWall(symbol, room, placed.t * placed.wall.lengthPx));
     if (kind === "closet_door") {
@@ -1411,7 +1458,7 @@ export function scanToSketchRoom(scan: ScanRoom, at: { x: number; y: number }, l
    * metres the file was written in. If the ring had to be reversed to wind clockwise, that edge is
    * the wall that starts at vertex i+1 and runs the other way, so the fraction flips with it.
    */
-  const outlineEdge = (edge: number, centre_m: number): { wall: WallGeometry; t: number } | null => {
+  const outlineEdge = (edge: number, centre_m: number): { wall: WallGeometry; t: number; reversed: boolean } | null => {
     const n = ring.length;
     if (!Number.isInteger(edge) || edge < 0 || edge >= n) return null;
     const from = ring[edge] as Vertex;
@@ -1425,7 +1472,7 @@ export function scanToSketchRoom(scan: ScanRoom, at: { x: number; y: number }, l
     const reversed = vertices !== ring;
     const wall = walls.find((w) => w.id === (reversed ? to.id : from.id));
     if (wall === undefined || wall.lengthPx <= 0) return null;
-    return { wall, t: reversed ? 1 - t : t };
+    return { wall, t: reversed ? 1 - t : t, reversed };
   };
 
   // The walls the PM taped, by the edge each was typed on ([ScanRoom.taped_edges]).
@@ -1446,7 +1493,7 @@ export function scanToSketchRoom(scan: ScanRoom, at: { x: number; y: number }, l
       offOutline += 1;
       continue;
     }
-    place(kind, placed, opening.width_m, { sill_m: opening.sill_m, head_m: opening.head_m }, opening.closet === true);
+    place(kind, placed, opening.width_m, { sill_m: opening.sill_m, head_m: opening.head_m }, opening.closet === true, opening);
   }
 
   /**
