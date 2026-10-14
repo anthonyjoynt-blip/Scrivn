@@ -22,6 +22,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { EXTRACTABLE, DELIBERATELY_ASKED, fieldKeyFor } from "./extractable.mjs";
 import { checkResetClearsEveryState } from "./resetRule.mjs";
+import { checkCarryOver } from "./carryOver.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..", "..");
@@ -2776,6 +2777,10 @@ check(
 const contradictions = [...DELIBERATELY_ASKED.keys()].filter((k) => EXTRACTABLE.has(k));
 check(contradictions.length === 0, `no field is listed as both extractable and deliberately asked (got ${contradictions.join(", ")})`);
 
+
+/* ── Answers survive a second read of the walkthrough ──────────────────────────────────────────── */
+
+checkCarryOver({ mod, check, claim, room, extractionWith, runToCompletion });
 
 /* ── Starting a new claim leaves nothing of the old one ────────────────────────────────────────── */
 

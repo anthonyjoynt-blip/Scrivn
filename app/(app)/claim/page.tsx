@@ -1664,13 +1664,15 @@ export default function Home() {
           <div className="waiting-banner" role="status">
             {confirmingScopeUpdate ? (
               /*
-                A second tap, because it is not free of work: the scope is read again from scratch, so
-                the follow-up questions start over — the ones the walkthrough and the notes answer are
-                not asked, the rest are — and the documents are generated again after.
+                A second tap, because it is not free of work: the scope is read again from scratch and
+                the documents are generated again after. The follow-up answers already given are kept
+                where the new read has the same room and item (lib/answerCarryOver.ts), so what is
+                asked is what the notes added, or what cannot be matched for certain.
               */
               <p>
-                <strong>Read the walkthrough and every photo note again?</strong> The follow-up questions start over: what they
-                answer is not asked again, the rest is. Then generate the documents again.
+                <strong>Read the walkthrough and every photo note again?</strong> Answers you’ve already given are kept wherever
+                the room and item are the same; anything new, or that can’t be matched for certain, is asked. Then generate the
+                documents again.
               </p>
             ) : (
               <p>

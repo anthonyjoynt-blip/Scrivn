@@ -32,3 +32,6 @@ export { claimStatus, resumeStep, contentsOutstanding, emptySavedClaimState, CLA
 export { isClaimIdentityComplete, WATER_NOT_APPLICABLE, waterScaleLabel, isWaterNotApplicable, buildScopeDocumentHeaderLines } from "@/lib/claimInfo";
 export { contentsScopingNeeded, CONTENTS_TIMING_OPTIONS } from "@/lib/claimInfo";
 export { sketchMeasureFor } from "@/lib/gapCheck";
+// Answers kept across a second read of the walkthrough — see test/gapcheck/carryOver.mjs.
+export { carryAnswers, carriedSuggestions } from "@/lib/answerCarryOver";
+export { withExtraction } from "@/lib/claimGeneration";
