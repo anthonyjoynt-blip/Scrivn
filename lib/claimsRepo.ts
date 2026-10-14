@@ -3,6 +3,7 @@ import { createClient } from "./supabase/server";
 import { withClockSkewRetry } from "./supabase/clockSkew";
 import { CLAIM_STATUS_ORDER, claimSummary, parseSavedClaimState, type ClaimStatus, type SavedClaimState } from "./claimState";
 import { isOrgRole, seesWholeOrganization, type OrgRole } from "./teams";
+import { devClaims, devClaimsMode } from "./devClaimsStore";
 
 /**
  * Every read and write of a saved claim, in one place.
@@ -37,6 +38,8 @@ export interface ClaimListItem {
   step: string;
   status: string;
   updatedAt: string;
+  /** The claim's version — `updated_at` exactly as stored; see `StoredClaim`. */
+  version: string;
   createdAt: string;
   createdBy: string | null;
   /** True when this session's user started it — drives the "mine" filter and the list's own labelling. */
@@ -130,6 +133,7 @@ export async function currentRole(): Promise<OrgRole> {
 }
 
 export async function listClaims(options: ClaimListOptions = {}): Promise<ClaimListResult> {
+  if (devClaimsMode()) return devClaims.list(options);
   const supabase = await createClient();
   const userId = await currentUserId();
   const role = await currentRole();
@@ -202,6 +206,7 @@ export async function listClaims(options: ClaimListOptions = {}): Promise<ClaimL
       step: (row.step as string) ?? "intake",
       status: (row.status as string) ?? "intake",
       updatedAt: row.updated_at as string,
+      version: row.updated_at as string,
       createdAt: row.created_at as string,
       createdBy: (row.created_by as string | null) ?? null,
       mine: row.created_by === userId,
@@ -220,53 +225,124 @@ export async function listClaims(options: ClaimListOptions = {}): Promise<ClaimL
   return { scope, canSeeAll, claims };
 }
 
+/**
+ * A claim as stored, with the version it is at.
+ *
+ * The version is the row's `updated_at`, exactly as the database wrote it (2026-10-13, offline mode).
+ * The database sets it on every write — `claims_touch_updated_at` in 0004 — so it changes whenever
+ * the claim does and no caller can forget to move it on, which is all a version has to do. It is
+ * passed around as the database's own string and never parsed: a JavaScript Date keeps
+ * milliseconds and the column keeps microseconds, and a version that had been through one would
+ * never match again.
+ */
+export interface StoredClaim {
+  state: SavedClaimState;
+  version: string;
+}
+
 /** One claim's full state, or null when it does not exist OR belongs to another organization. */
-export async function loadClaim(id: string): Promise<SavedClaimState | null> {
+export async function loadClaim(id: string): Promise<StoredClaim | null> {
+  if (devClaimsMode()) return devClaims.load(id);
   const supabase = await createClient();
-  const { data, error } = await supabase.from("claims").select("payload").eq("id", id).maybeSingle();
+  const { data, error } = await supabase.from("claims").select("payload, updated_at").eq("id", id).maybeSingle();
   if (error) throw new Error(`Could not load claim: ${error.message}`);
   if (!data) return null;
-  return parseSavedClaimState(data.payload);
+  return { state: parseSavedClaimState(data.payload), version: data.updated_at as string };
+}
+
+/** A claim id chosen on the device that the server will not take. See `createClaim`. */
+export class ClaimIdTakenError extends Error {
+  constructor() {
+    super("That claim id cannot be used.");
+    this.name = "ClaimIdTakenError";
+  }
 }
 
 /**
- * Create a claim, returning its id.
+ * Create a claim, returning its id and version.
  *
  * `organization_id` comes from the session, never from the caller — see this file's doc comment.
+ *
+ * ── The id, when the device chose it ─────────────────────────────────────────────────────────────
+ *
+ * A claim started with no signal is given its id ON THE PHONE (a random UUID), because it has to be
+ * opened, reloaded and worked on for hours before the server hears of it. Sending that id here is
+ * what makes creating it safe to repeat: the request that creates a claim is exactly the one most
+ * likely to lose its answer on one bar, and with a server-chosen id the retry made a second claim.
+ * With the device's, the retry finds the first.
+ *
+ * So an id that already exists is answered with that row's version and `existed`, when the row is
+ * visible to this user — it is this device's own claim, created by an attempt whose answer never
+ * arrived. The caller then saves over it as an ordinary save. An id that exists but is NOT visible
+ * belongs to another organization (or is a guess); that is refused with the same error a bad id
+ * gets, so it says nothing about anyone else's claims.
  */
-export async function createClaim(state: SavedClaimState): Promise<string> {
+export async function createClaim(state: SavedClaimState, id?: string): Promise<{ id: string; version: string; existed: boolean }> {
+  if (devClaimsMode()) return devClaims.create(state, id);
   const supabase = await createClient();
   const organizationId = await currentOrganizationId();
   const userId = await currentUserId();
   const { data, error } = await supabase
     .from("claims")
-    .insert({ organization_id: organizationId, created_by: userId, ...claimSummary(state), payload: state })
-    .select("id")
+    .insert({ ...(id ? { id } : {}), organization_id: organizationId, created_by: userId, ...claimSummary(state), payload: state })
+    .select("id, updated_at")
     .single();
-  if (error) throw new Error(`Could not create claim: ${error.message}`);
-  return data.id as string;
+  if (error) {
+    // 23505: unique_violation — the id is already a row.
+    if (id && error.code === "23505") {
+      const { data: existing } = await supabase.from("claims").select("id, updated_at").eq("id", id).maybeSingle();
+      if (existing) return { id, version: existing.updated_at as string, existed: true };
+      throw new ClaimIdTakenError();
+    }
+    throw new Error(`Could not create claim: ${error.message}`);
+  }
+  return { id: data.id as string, version: data.updated_at as string, existed: false };
 }
+
+export type SaveResult =
+  | { ok: true; version: string }
+  /** No such claim, or one RLS hides — see the route's note on why the two are not told apart. */
+  | { ok: false; reason: "missing" }
+  /** The claim moved on since `base`; `current` is what it is now. */
+  | { ok: false; reason: "conflict"; current: StoredClaim };
 
 /**
  * Overwrite a claim.
  *
  * Whole-payload replacement rather than a patch. The state is one coherent object — an extraction
  * tree and the answers folded into it have to agree — and merging two partial saves from two devices
- * would produce a claim that never existed on either. Last write wins, which is the honest behaviour
- * for a tool one person uses at a time.
+ * would produce a claim that never existed on either.
  *
- * Returns false when nothing was updated, which is what RLS refusing the row looks like: the policy
- * makes another organization's claim invisible rather than raising, so an update matches zero rows.
+ * ── `base`: the version this save was made from ──────────────────────────────────────────────────
+ *
+ * Given, the write only lands if the claim is still at that version — one UPDATE with both
+ * conditions in its WHERE, so there is no gap between checking and writing for another save to slip
+ * into (Postgres re-checks the condition against the row a concurrent writer left). If it has moved
+ * on, nothing is written and the claim as it now stands comes back, so the device can keep both and
+ * ask. This is what stops a phone that worked offline for a day silently overwriting what the office
+ * did to the same claim in that day.
+ *
+ * Without `base` the write is unconditional, last write wins, as every save was before offline mode
+ * — kept for a browser still running the previous build, which sends none.
+ *
+ * Zero rows updated is also what RLS refusing the row looks like: the policy makes another
+ * organization's claim invisible rather than raising.
  */
-export async function saveClaim(id: string, state: SavedClaimState): Promise<boolean> {
+export async function saveClaim(id: string, state: SavedClaimState, base?: string): Promise<SaveResult> {
+  if (devClaimsMode()) return devClaims.save(id, state, base);
   const supabase = await createClient();
-  const { data, error } = await supabase
+  let update = supabase
     .from("claims")
     .update({ ...claimSummary(state), payload: state })
-    .eq("id", id)
-    .select("id");
+    .eq("id", id);
+  if (base) update = update.eq("updated_at", base);
+  const { data, error } = await update.select("updated_at");
   if (error) throw new Error(`Could not save claim: ${error.message}`);
-  return (data ?? []).length > 0;
+  const row = (data ?? [])[0];
+  if (row) return { ok: true, version: row.updated_at as string };
+  if (!base) return { ok: false, reason: "missing" };
+  const current = await loadClaim(id);
+  return current ? { ok: false, reason: "conflict", current } : { ok: false, reason: "missing" };
 }
 
 /**
@@ -280,6 +356,7 @@ export async function saveClaim(id: string, state: SavedClaimState): Promise<boo
  * Returns false when nothing was deleted, which again is what RLS refusing looks like.
  */
 export async function deleteClaim(id: string): Promise<boolean> {
+  if (devClaimsMode()) return devClaims.remove(id);
   const supabase = await createClient();
   const { data, error } = await supabase.from("claims").delete().eq("id", id).select("id");
   if (error) throw new Error(`Could not delete claim: ${error.message}`);

@@ -1,19 +1,24 @@
 /**
- * The offline save queue — what happens to work the server has not accepted.
+ * Claims on the device and how they reach the server — what offline mode stands on.
  *
  *   npm run test:pending
  *
- * This is the mechanism that stands between a PM scoping a job in a basement with no signal and
- * that job being gone. The failure modes it has to be right about are all silent ones:
+ * This is what stands between an estimator scoping a job in a basement with no signal and that job
+ * being gone, or quietly written over the top of what the office did meanwhile. Every way it can be
+ * wrong is silent:
  *
- *   * work queued and then never sent
- *   * work sent twice, so one job appears on the list as two half-filled claims
- *   * work dropped because a request came back non-200, whatever the reason
- *   * a record retried for ever against a claim that no longer exists, so the warning never clears
+ *   * work kept and then never sent, or sent twice so one job is two half-filled claims
+ *   * a save that landed with its answer lost, then reported as a clash with the estimator's own work
+ *   * a real clash written over without anyone being asked
+ *   * a refused save retried for ever, or dropped — it is the only copy there is
+ *   * one person's unsynced work sent from a shared phone while another is signed in
+ *   * a Claude step that waited for signal run twice, run against stale state, or counted early
+ *   * the old save queue's records lost on the upgrade to this one
  *
- * None of those announce themselves in the UI, which is why they are tested here rather than left
- * to be noticed. The real module runs — see fakeIndexedDB.mjs for why a fake store is the honest
- * choice under Node — with `fetch` scripted per test.
+ * The real modules run (lib/deviceClaims.ts, lib/claimSync.ts, lib/aiJobs.ts) against a fake
+ * IndexedDB (see fakeIndexedDB.mjs for why that is the honest choice under Node) and a scripted
+ * server that answers as the real routes do — versions, 409 with the claim as it stands, ids chosen
+ * on the device — and that can drop the line, or drop only the answer.
  */
 
 import { build } from "esbuild";
@@ -29,26 +34,131 @@ const outDir = mkdtempSync(join(tmpdir(), "pending-tests-"));
 const bundlePath = join(outDir, "bundle.mjs");
 
 await build({
-  entryPoints: [join(root, "lib", "pendingSaves.ts")],
+  entryPoints: [join(here, "entry.ts")],
   bundle: true,
   format: "esm",
-  platform: "neutral",
+  platform: "browser",
   outfile: bundlePath,
-  logLevel: "silent",
+  alias: { "@": root },
+  define: { "process.env.NODE_ENV": '"development"' },
+  logLevel: "error",
 });
 
-const store = installFakeIndexedDB();
+const db = installFakeIndexedDB();
+
+/* ── the page around the modules ──────────────────────────────────────────────────────────────── */
+
+// Who is signed in, as the header marker says — see `deviceUser`.
+let signedIn = "user-a";
+globalThis.document = {
+  querySelector: (selector) => (selector === "[data-scrivn-user]" && signedIn !== undefined ? { getAttribute: () => signedIn } : null),
+  visibilityState: "visible",
+  addEventListener() {},
+};
+
+/* ── the scripted server ──────────────────────────────────────────────────────────────────────── */
+
+const calls = [];
+const server = {
+  claims: new Map(),
+  /** "online", "offline" (nothing gets through), or "lose-answer" (the next request lands, its answer does not). */
+  mode: "online",
+  override: null,
+  extracts: [],
+  generations: [],
+  traces: [],
+  tick: 0,
+  version() {
+    this.tick += 1;
+    return `2026-10-13T12:00:00.${String(this.tick).padStart(6, "0")}+00:00`;
+  },
+};
+
+function respond(status, body) {
+  return { ok: status >= 200 && status < 300, status, json: async () => body };
+}
+
+/** Reverse every object's keys: jsonb does not keep key order, so a fingerprint must not depend on it. */
+function reorder(value) {
+  if (Array.isArray(value)) return value.map(reorder);
+  if (value && typeof value === "object") return Object.fromEntries(Object.keys(value).reverse().map((k) => [k, reorder(value[k])]));
+  return value;
+}
+
+/** What the real route stores for a sent state: parsed, through jsonb. */
+const stored = (state) => reorder(mod.parseSavedClaimState(JSON.parse(JSON.stringify(state))));
+
+function handle(path, method, body) {
+  if (path === "/api/claims" && method === "POST") {
+    const id = body.id;
+    const row = server.claims.get(id);
+    if (row) return respond(200, { id, version: row.version, existed: true });
+    const version = server.version();
+    server.claims.set(id, { state: stored(body.state), version });
+    return respond(200, { id, version, existed: false });
+  }
+  const one = /^\/api\/claims\/([^/]+)$/.exec(path);
+  if (one) {
+    const row = server.claims.get(one[1]);
+    if (method === "GET") return row ? respond(200, { state: row.state, version: row.version }) : respond(404, { error: "Claim not found." });
+    if (method === "PUT") {
+      if (!row) return respond(404, { error: "Claim not found." });
+      if (body.base && body.base !== row.version) return respond(409, { error: "Changed.", conflict: { state: row.state, version: row.version } });
+      row.state = stored(body.state);
+      row.version = server.version();
+      return respond(200, { ok: true, version: row.version });
+    }
+  }
+  if (path === "/api/extract") {
+    server.extracts.push(body);
+    return respond(200, { extraction: mod.withDerivedFields({ loss: mod.emptyLoss(), rooms: [] }), warnings: [] });
+  }
+  if (path === "/api/generate") {
+    server.generations.push(body);
+    return respond(200, { documents: { inspectionReport: "INSPECTION", scopeDocument: "SCOPE" } });
+  }
+  if (path === "/api/exterior/trace") {
+    server.traces.push(body);
+    return respond(200, { proposals: { shapes: [], openings: [], wallTop: null, offWall: [], checks: [], notes: "" }, model: "m", seconds: 1, usage: {}, costUsd: 0.05 });
+  }
+  if (path === "/manifest.webmanifest") return respond(200, {});
+  return respond(404, { error: "No such route." });
+}
+
+globalThis.fetch = async (url, init = {}) => {
+  const method = init.method ?? "GET";
+  const body = init.body ? JSON.parse(init.body) : null;
+  calls.push({ url, method, body });
+  if (server.mode === "offline") throw new TypeError("Failed to fetch");
+  const path = String(url).split("?")[0];
+  const overridden = server.override?.(path, method, body);
+  if (overridden instanceof Error) throw overridden;
+  if (overridden) return overridden;
+  const answer = handle(path, method, body);
+  if (server.mode === "lose-answer") {
+    server.mode = "online";
+    throw new TypeError("Failed to fetch");
+  }
+  return answer;
+};
+
 const mod = await import(pathToFileURL(bundlePath).href);
-const { queuePendingSave, pendingSaves, dropPendingSave, drainPendingSaves, drainInProgress, draftVerdict, newDraftKey } =
-  mod;
+
+/* ── harness ──────────────────────────────────────────────────────────────────────────────────── */
 
 let passed = 0;
 const failures = [];
 
 async function test(name, run) {
-  store.reset();
+  db.reset();
   calls.length = 0;
-  responder = () => ok({ id: "server-id" });
+  server.claims.clear();
+  server.mode = "online";
+  server.override = null;
+  server.extracts.length = 0;
+  server.generations.length = 0;
+  server.traces.length = 0;
+  signedIn = "user-a";
   try {
     await run();
     passed += 1;
@@ -67,218 +177,354 @@ function equal(actual, expected, message) {
   if (a !== e) throw new Error(`${message}\n      expected ${e}\n      actual   ${a}`);
 }
 
-/* ── the scripted network ─────────────────────────────────────────────────────────────────────── */
+const ID = "6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b";
+const ID2 = "7a2b3c4d-5e6f-4a70-8b81-92a3b4c5d6e7";
 
-const calls = [];
-let responder = () => ok({ id: "server-id" });
-
-function ok(body) {
-  return { ok: true, status: 200, json: async () => body };
+function claimState(name, extra = {}) {
+  const s = mod.emptySavedClaimState();
+  s.claim.customerName = name;
+  return { ...s, ...extra };
 }
 
-function status(code) {
-  return { ok: false, status: code, json: async () => ({ error: `HTTP ${code}` }) };
+/** A claim as the page writes it: changed on the device, owed to the server. */
+async function edit(id, state, { created = true, version = null, user = "user-a", changedAt = Date.now() } = {}) {
+  return mod.changeDeviceClaim(id, (r) => ({ ...(r ?? mod.blankDeviceClaim(id, state, user)), state, dirty: true, refused: null, created: r ? r.created : created, version: r ? r.version : version, changedAt }));
 }
 
-globalThis.fetch = async (url, init) => {
-  calls.push({ url, method: init?.method, body: JSON.parse(init?.body ?? "{}") });
-  const result = responder(calls.length, url, init);
-  if (result instanceof Error) throw result;
-  return result;
-};
-
-/** A claim state stub — the queue treats it as an opaque blob, so its shape does not matter here. */
-const stateFor = (name) => ({ customerName: name });
-
-async function queue(key, claimId, name, queuedAt = Date.now()) {
-  const done = await queuePendingSave({ key, claimId, state: stateFor(name), queuedAt });
-  assert(done, `queuePendingSave reported failure for ${key}`);
+/** A claim the server has, as the device last saw it. */
+async function onServerAndDevice(id, state) {
+  const version = server.version();
+  server.claims.set(id, { state: stored(state), version });
+  await mod.changeDeviceClaim(id, () => ({ ...mod.blankDeviceClaim(id, state, "user-a"), created: true, version }));
+  return version;
 }
 
-/* ── storing ──────────────────────────────────────────────────────────────────────────────────── */
+const record = (id) => mod.readDeviceClaim(id);
+const puts = () => calls.filter((c) => c.method === "PUT");
+const posts = () => calls.filter((c) => c.method === "POST" && c.url === "/api/claims");
+const settle = () => new Promise((r) => setTimeout(r, 30));
 
-await test("a queued save is written to the device", async () => {
-  await queue("claim-1", "claim-1", "Bell");
-  const held = await pendingSaves();
-  equal(held.length, 1, "expected exactly one queued record");
-  equal(held[0].state, stateFor("Bell"), "the queued record should hold the state it was given");
+/* ── fingerprints ─────────────────────────────────────────────────────────────────────────────── */
+
+await test("a state and the server's copy of it have the same fingerprint", async () => {
+  const state = claimState("Bell", { transcript: "Water in the basement." });
+  equal(mod.stateFingerprint(state), mod.stateFingerprint(stored(state)), "key order and the route's parsing must not change the fingerprint");
+  assert(mod.stateFingerprint(state) !== mod.stateFingerprint(claimState("Bell", { transcript: "Water upstairs." })), "different claims must differ");
 });
 
-await test("re-queuing a claim replaces it rather than adding a second copy", async () => {
-  // The case this protects: a save failing on every keystroke while there is no signal. An
-  // append-only queue would fill the device with near-identical copies of one claim.
-  await queue("claim-1", "claim-1", "Bell", 1);
-  await queue("claim-1", "claim-1", "Bell — second floor too", 2);
-  const held = await pendingSaves();
-  equal(held.length, 1, "expected one record per claim, not one per failure");
-  equal(held[0].state, stateFor("Bell — second floor too"), "the latest state should win");
+await test("what two copies disagree on is named in words", async () => {
+  // One claim, two copies — a blank claim seeds rooms with fresh ids, so build one from the other.
+  const mine = claimState("Bell", { transcript: "A" });
+  const theirs = { ...structuredClone(mine), transcript: "B", step: "ready" };
+  theirs.moisture = { ...theirs.moisture, readings: [{ id: "r1" }] };
+  equal(mod.clashDifferences(mine, theirs), ["the transcript", "the moisture map"], "the step alone is not a difference worth naming");
 });
 
-await test("queued saves come back oldest first", async () => {
-  await queue("b", "b", "second", 2000);
-  await queue("a", "a", "first", 1000);
-  await queue("c", "c", "third", 3000);
-  equal(
-    (await pendingSaves()).map((r) => r.key),
-    ["a", "b", "c"],
-    "a claim that has been waiting longest should be pushed first",
-  );
+/* ── the device store ─────────────────────────────────────────────────────────────────────────── */
+
+await test("the old save queue is carried over on the upgrade, every record still owed", async () => {
+  db.seed("scrivn", 1, {
+    pendingSaves: {
+      keyPath: "key",
+      records: [
+        { key: ID, claimId: ID, state: claimState("Bell"), queuedAt: 100 },
+        { key: "draft-x1", claimId: null, state: claimState("Draft"), queuedAt: 200 },
+      ],
+    },
+  });
+  const all = (await mod.allDeviceClaims()).sort((a, b) => a.changedAt - b.changedAt);
+  equal(db.shape(), { version: 2, stores: ["aiJobs", "claims"] }, "the old store should be gone and the new ones there");
+  equal(all.length, 2, "both queued saves should come across");
+  equal([all[0].id, all[0].created, all[0].dirty, all[0].version], [ID, true, true, null], "a saved claim's record keeps its id and is still owed");
+  assert(/^[0-9a-f-]{36}$/.test(all[1].id) && !all[1].created && all[1].dirty, "a draft gets an id and is still to be created");
+
+  await mod.syncAll();
+  const put = puts()[0];
+  assert(put && put.url === `/api/claims/${ID}` && put.body.base === undefined, "a record from before versions is sent as saves always were, with no base");
+  assert(posts().some((c) => c.body.id === all[1].id), "the draft is created under its new id");
 });
 
-await test("dropping a save removes it", async () => {
-  await queue("claim-1", "claim-1", "Bell");
-  await dropPendingSave("claim-1");
-  equal((await pendingSaves()).length, 0, "expected the record to be gone");
+await test("a change on a claim replaces its record rather than adding another", async () => {
+  await edit(ID, claimState("Bell"));
+  await edit(ID, claimState("Bell — upstairs too"));
+  const all = await mod.allDeviceClaims();
+  equal(all.length, 1, "one record per claim");
+  equal(all[0].state.claim.customerName, "Bell — upstairs too", "the latest state wins");
 });
 
-/* ── pushing ──────────────────────────────────────────────────────────────────────────────────── */
-
-await test("a record with a claim id is PUT to that claim and then cleared", async () => {
-  await queue("claim-1", "claim-1", "Bell");
-  const result = await drainPendingSaves();
-  equal(calls.length, 1, "expected exactly one request");
-  equal(calls[0].method, "PUT", "an existing claim should be updated, not created again");
-  equal(calls[0].url, "/api/claims/claim-1", "the request should address the claim by id");
-  equal(calls[0].body.state, stateFor("Bell"), "the queued state should be what is sent");
-  equal(result, { pushed: 1, remaining: 0 }, "expected the record to be reported pushed and gone");
-  equal((await pendingSaves()).length, 0, "an accepted record must not be sent again later");
+await test("old clean copies are pruned; work the server has not got never is", async () => {
+  for (let i = 0; i < 5; i++) {
+    const id = `00000000-0000-4000-8000-00000000000${i}`;
+    await mod.changeDeviceClaim(id, () => ({ ...mod.blankDeviceClaim(id, claimState(`C${i}`), "user-a"), created: true, version: "v", touchedAt: i }));
+  }
+  await edit(ID, claimState("Unsynced"), { changedAt: 0 });
+  await mod.changeDeviceClaim(ID, (r) => ({ ...r, touchedAt: -1 }));
+  await mod.pruneDeviceClaims(2);
+  const ids = (await mod.allDeviceClaims()).map((r) => r.id).sort();
+  equal(ids, ["00000000-0000-4000-8000-000000000003", "00000000-0000-4000-8000-000000000004", ID].sort(), "the two newest copies and the unsynced claim remain");
 });
 
-await test("a record with no claim id is POSTed and its new id handed back", async () => {
-  await queue("draft-x", null, "Bell");
-  const created = [];
-  await drainPendingSaves({ onCreated: (record, id) => created.push([record.key, id]) });
-  equal(calls[0].method, "POST", "a claim the server has never seen has to be created");
-  equal(calls[0].url, "/api/claims", "creation posts to the collection");
-  equal(created, [["draft-x", "server-id"]], "the caller must learn the id, or it will POST again");
-  equal((await pendingSaves()).length, 0, "expected the draft to be cleared once created");
+/* ── sending ──────────────────────────────────────────────────────────────────────────────────── */
+
+await test("a claim started on the device is created under its own id", async () => {
+  await edit(ID, claimState("Bell"), { created: false });
+  equal((await mod.syncClaim(ID)).kind, "synced", "it should go");
+  equal(posts().map((c) => c.body.id), [ID], "POSTed once, with the device's id");
+  const r = await record(ID);
+  assert(r.created && !r.dirty && r.version === server.claims.get(ID).version, "the device should now be in step with the server");
 });
 
-await test("everything held is pushed, not just the claim on screen", async () => {
-  await queue("claim-1", "claim-1", "Bell", 1);
-  await queue("claim-2", "claim-2", "Okafor", 2);
-  const result = await drainPendingSaves();
-  equal(calls.length, 2, "expected both claims to be sent");
-  equal(result.pushed, 2, "both should be reported pushed");
+await test("a create whose answer was lost is not a second claim", async () => {
+  await edit(ID, claimState("Bell"), { created: false });
+  server.mode = "lose-answer";
+  equal((await mod.syncClaim(ID)).kind, "offline", "the device cannot know it landed");
+  equal(server.claims.size, 1, "it did land");
+  await edit(ID, claimState("Bell — more"));
+  equal((await mod.syncClaim(ID)).kind, "synced", "the retry should go");
+  equal(server.claims.size, 1, "still one claim");
+  equal(server.claims.get(ID).state.claim.customerName, "Bell — more", "and it holds the latest");
 });
 
-/* ── what happens when the push fails ─────────────────────────────────────────────────────────── */
-
-await test("a claim the server says is gone is dropped, not retried for ever", async () => {
-  // Otherwise the "waiting to save" warning can never be cleared and the request repeats on every
-  // app open, neither of which brings the claim back.
-  await queue("claim-1", "claim-1", "Bell");
-  responder = () => status(404);
-  const result = await drainPendingSaves();
-  equal(result, { pushed: 0, remaining: 0 }, "expected the record to be dropped without counting as pushed");
+await test("an existing claim is saved from the version it was opened at", async () => {
+  const version = await onServerAndDevice(ID, claimState("Bell"));
+  await edit(ID, claimState("Bell — basement"));
+  await mod.syncClaim(ID);
+  equal(puts()[0].body.base, version, "the save names the version it was made from");
+  const r = await record(ID);
+  equal([r.dirty, r.version], [false, server.claims.get(ID).version], "and moves on to the new version");
 });
 
-await test("an expired session keeps the work queued", async () => {
-  // A 401 is recoverable — signing in again should not have cost the PM the claim.
-  await queue("claim-1", "claim-1", "Bell");
-  responder = () => status(401);
-  const result = await drainPendingSaves();
-  equal(result.remaining, 1, "a 401 must not throw work away");
+await test("with no signal the work stays on the device, owed", async () => {
+  await onServerAndDevice(ID, claimState("Bell"));
+  await edit(ID, claimState("Bell — offline"));
+  server.mode = "offline";
+  equal((await mod.syncClaim(ID)).kind, "offline", "no signal");
+  equal(mod.connection(), "offline", "and the app now knows it");
+  const r = await record(ID);
+  assert(r.dirty && r.sent.length === 1, "still owed, with what was sent written down");
+  server.mode = "online";
+  equal((await mod.syncClaim(ID)).kind, "synced", "it goes when the signal is back");
+  equal(mod.connection(), "online", "and the app knows that too");
 });
 
-await test("a server error keeps the work queued", async () => {
-  await queue("claim-1", "claim-1", "Bell");
-  responder = () => status(503);
-  equal((await drainPendingSaves()).remaining, 1, "a 5xx is worth trying again later");
+await test("a save that landed with its answer lost is not reported as a clash", async () => {
+  await onServerAndDevice(ID, claimState("Bell"));
+  await edit(ID, claimState("Bell — saved once"));
+  server.mode = "lose-answer";
+  await mod.syncClaim(ID);
+  equal((await mod.syncClaim(ID)).kind, "synced", "the server's copy is our own write: no clash");
+  const r = await record(ID);
+  assert(!r.clash && !r.dirty, "in step, nothing to choose");
 });
 
-await test("no network keeps the work and stops trying the rest", async () => {
-  await queue("claim-1", "claim-1", "Bell", 1);
-  await queue("claim-2", "claim-2", "Okafor", 2);
-  responder = () => new Error("Failed to fetch");
-  const result = await drainPendingSaves();
-  equal(calls.length, 1, "once one request fails for want of a network the rest will too");
-  equal(result.remaining, 2, "nothing should be lost");
+await test("…nor when more was changed after the lost answer", async () => {
+  await onServerAndDevice(ID, claimState("Bell"));
+  await edit(ID, claimState("Bell — first"));
+  server.mode = "lose-answer";
+  await mod.syncClaim(ID);
+  await edit(ID, claimState("Bell — second"));
+  equal((await mod.syncClaim(ID)).kind, "synced", "recognised as our own, then the newer state sent on top");
+  equal(server.claims.get(ID).state.claim.customerName, "Bell — second", "the server ends with the latest");
+  assert(!(await record(ID)).clash, "and no clash was raised");
 });
 
-await test("a claim already sent is not sent twice when a later one fails", async () => {
-  await queue("claim-1", "claim-1", "Bell", 1);
-  await queue("claim-2", "claim-2", "Okafor", 2);
-  responder = (n) => (n === 1 ? ok({}) : new Error("Failed to fetch"));
-  await drainPendingSaves();
-  equal(
-    (await pendingSaves()).map((r) => r.key),
-    ["claim-2"],
-    "the accepted claim should be cleared even though the pass ended badly",
-  );
+await test("a real clash keeps both copies and sends nothing over the other", async () => {
+  await onServerAndDevice(ID, claimState("Bell"));
+  // The office changes it while the phone is in the basement.
+  const office = claimState("Bell", { transcript: "Office notes." });
+  server.claims.set(ID, { state: stored(office), version: server.version() });
+  await edit(ID, claimState("Bell", { transcript: "Basement notes." }));
+  equal((await mod.syncClaim(ID)).kind, "clash", "refused, and recognised as somebody else's change");
+  equal(server.claims.get(ID).state.transcript, "Office notes.", "the office's copy is untouched");
+  const r = await record(ID);
+  equal([r.state.transcript, r.clash.state.transcript, r.dirty], ["Basement notes.", "Office notes.", true], "the device holds both");
+  calls.length = 0;
+  equal((await mod.syncClaim(ID)).kind, "clash", "and waits for a decision");
+  equal(puts().length, 0, "without sending again");
 });
 
-/* ── not sending the same claim twice ─────────────────────────────────────────────────────────── */
-
-await test("a record can be held back for a later pass", async () => {
-  await queue("draft-x", null, "Bell");
-  const result = await drainPendingSaves({ decide: () => "wait" });
-  equal(calls.length, 0, "a held-back record must not be sent");
-  equal(result.remaining, 1, "and must still be there afterwards");
+await test("a claim deleted on the server while changed here is kept and asked about", async () => {
+  await onServerAndDevice(ID, claimState("Bell"));
+  server.claims.delete(ID);
+  await edit(ID, claimState("Bell — changed"));
+  equal((await mod.syncClaim(ID)).kind, "clash", "kept, and asked");
+  equal((await record(ID)).clash.state, null, "with nothing on the other side");
 });
 
-await test("a record can be discarded without being sent", async () => {
-  await queue("draft-x", null, "Bell");
-  const result = await drainPendingSaves({ decide: () => "drop" });
-  equal(calls.length, 0, "a discarded record must not be sent");
-  equal(result.remaining, 0, "and must be gone");
+await test("a save the server refuses is kept, said why, and not retried until it changes", async () => {
+  await onServerAndDevice(ID, claimState("Bell"));
+  await edit(ID, claimState("Bell — too big"));
+  server.override = (path, method) => (method === "PUT" ? respond(413, { error: "Too large." }) : undefined);
+  equal(await mod.syncClaim(ID), { kind: "refused", message: "Too large." }, "refused with the reason");
+  calls.length = 0;
+  await mod.syncAll();
+  equal(puts().length, 0, "not retried for ever");
+  server.override = null;
+  await edit(ID, claimState("Bell — smaller"));
+  equal((await mod.syncClaim(ID)).kind, "synced", "a change gets its own try");
 });
 
-await test("two pushes at once make one pass, not two", async () => {
-  // `online` firing at the same moment as the interval tick is the real case. Two passes would
-  // POST the same queued draft twice and create the job twice.
-  await queue("draft-x", null, "Bell");
-  const both = await Promise.all([drainPendingSaves(), drainPendingSaves()]);
-  equal(calls.length, 1, "expected the second caller to join the first pass");
-  equal(both[0], both[1], "both callers should get the same result");
+await test("a lost session keeps the work and says so", async () => {
+  await onServerAndDevice(ID, claimState("Bell"));
+  await edit(ID, claimState("Bell — later"));
+  server.override = () => respond(401, { error: "Not signed in." });
+  equal((await mod.syncClaim(ID)).kind, "signed-out", "signed out");
+  assert((await record(ID)).dirty, "still owed");
 });
 
-await test("a caller can wait for a push that is already running", async () => {
-  await queue("claim-1", "claim-1", "Bell");
-  assert(drainInProgress() === null, "nothing should be in progress before a push starts");
-  const running = drainPendingSaves();
-  assert(drainInProgress() !== null, "a push in progress must be visible to a caller that has to wait for it");
-  await running;
-  assert(drainInProgress() === null, "and must clear once it has finished");
+await test("a server failure is tried again later", async () => {
+  await onServerAndDevice(ID, claimState("Bell"));
+  await edit(ID, claimState("Bell — later"));
+  server.override = () => respond(503, { error: "Down." });
+  equal((await mod.syncClaim(ID)).kind, "failed", "failed");
+  server.override = null;
+  equal((await mod.syncClaim(ID)).kind, "synced", "and goes next time");
 });
 
-/* ── the rules for the claim being edited right now ───────────────────────────────────────────── */
-
-const DRAFT = "draft-abc";
-
-await test("another claim's record is always sent", async () => {
-  equal(
-    draftVerdict({ recordKey: "claim-9", draftKey: DRAFT, claimId: null, saving: true }),
-    "send",
-    "the rules for the page's own draft must not touch anyone else's claim",
-  );
+await test("edits made while a save is on the wire are sent straight after it", async () => {
+  await onServerAndDevice(ID, claimState("Bell"));
+  await edit(ID, claimState("Bell — one"));
+  let first = true;
+  server.override = (path, method) => {
+    if (method !== "PUT" || !first) return undefined;
+    first = false;
+    // The page writes a newer state while this save is still out.
+    const r = db.records("claims").find((x) => x.id === ID);
+    db.put("claims", { ...r, state: claimState("Bell — two"), dirty: true });
+    return undefined;
+  };
+  equal((await mod.syncClaim(ID)).kind, "synced", "both go");
+  equal(puts().length, 2, "two saves");
+  equal(server.claims.get(ID).state.claim.customerName, "Bell — two", "the newer one last");
+  assert(!(await record(ID)).dirty, "and nothing is left owed");
 });
 
-await test("the page's own draft waits while its save is in flight", async () => {
-  // Both would POST the same work. The result would be one job on the list as two claims.
-  equal(
-    draftVerdict({ recordKey: DRAFT, draftKey: DRAFT, claimId: null, saving: true }),
-    "wait",
-    "expected the queue to defer to the save already going out",
-  );
+await test("two sends of one claim at once do not refuse each other", async () => {
+  await onServerAndDevice(ID, claimState("Bell"));
+  await edit(ID, claimState("Bell — once"));
+  const [a, b] = await Promise.all([mod.syncClaim(ID), mod.syncClaim(ID)]);
+  equal([a.kind, b.kind], ["synced", "synced"], "both report it synced");
+  equal(puts().length, 1, "one save");
 });
 
-await test("the page's own draft is sent when nothing else is saving it", async () => {
-  equal(draftVerdict({ recordKey: DRAFT, draftKey: DRAFT, claimId: null, saving: false }), "send", "expected it to go");
+await test("everything owed goes oldest first, and stops at the first sign of no signal", async () => {
+  await onServerAndDevice(ID, claimState("A"));
+  await onServerAndDevice(ID2, claimState("B"));
+  await edit(ID2, claimState("B — older"), { changedAt: 1 });
+  await edit(ID, claimState("A — newer"), { changedAt: 2 });
+  await mod.syncAll();
+  equal(puts().map((c) => c.url), [`/api/claims/${ID2}`, `/api/claims/${ID}`], "oldest change first");
+
+  await edit(ID2, claimState("B — offline"), { changedAt: 3 });
+  await edit(ID, claimState("A — offline"), { changedAt: 4 });
+  server.mode = "offline";
+  calls.length = 0;
+  const summary = await mod.syncAll();
+  equal([calls.length, summary.waiting], [1, 2], "one attempt, then it stops; both still waiting");
 });
 
-await test("a draft record is discarded once the page has a real claim id", async () => {
-  // Its work reached the server under that id. Sending it would create a second claim.
-  equal(
-    draftVerdict({ recordKey: DRAFT, draftKey: DRAFT, claimId: "claim-1", saving: false }),
-    "drop",
-    "expected a superseded draft record to be discarded rather than sent",
-  );
+await test("on a shared device, another person's work is neither sent nor shown", async () => {
+  await edit(ID, claimState("Someone else's"), { created: false, user: "user-b" });
+  await mod.syncAll();
+  equal(posts().length, 0, "not sent while user-a is signed in");
+  equal((await mod.syncClaim(ID)).kind, "none", "not theirs to send");
+  signedIn = "user-b";
+  await mod.syncAll();
+  equal(posts().length, 1, "sent once its owner signs in");
+  signedIn = undefined;
+  equal((await mod.syncClaim(ID)).kind, "none", "and nobody's while signed out");
 });
 
-await test("draft keys are unique per page", async () => {
-  const keys = new Set(Array.from({ length: 200 }, () => newDraftKey()));
-  equal(keys.size, 200, "two devices queuing a first save must not collide on one key");
+/* ── Claude steps that wait for signal ────────────────────────────────────────────────────────── */
+
+await test("a transcript read with no signal waits, and runs on the claim as it is then", async () => {
+  await onServerAndDevice(ID, claimState("Bell", { transcript: "First draft." }));
+  server.mode = "offline";
+  await mod.waitForSignal(ID, "extract");
+  await mod.runWaitingJobs();
+  equal(server.extracts.length, 0, "nothing reached the server");
+  equal((await mod.waitingJobs()).map((j) => j.kind), ["extract"], "it waits");
+
+  // More is dictated while waiting: the read must use it.
+  await edit(ID, claimState("Bell", { transcript: "First draft. And the hallway." }));
+  server.mode = "online";
+  await mod.runWaitingJobs();
+  await settle();
+  equal(server.extracts.map((b) => b.transcript), ["First draft. And the hallway."], "read once, from the latest transcript");
+  equal((await mod.waitingJobs()).length, 0, "and no longer waiting");
+  const r = await record(ID);
+  assert(r.state.extraction !== null, "the answer is in the claim on the device");
+  assert(server.claims.get(ID).state.extraction !== null, "and synced to the server");
+});
+
+await test("documents waiting for signal are not generated — or counted — until it is back", async () => {
+  const extraction = mod.withDerivedFields({ loss: mod.emptyLoss(), rooms: [] });
+  await onServerAndDevice(ID, claimState("Bell", { extraction, step: "ready" }));
+  server.mode = "offline";
+  await mod.waitForSignal(ID, "generate");
+  await mod.runWaitingJobs();
+  equal(server.generations.length, 0, "no generation reached the server, so none was counted (lib/usage.ts counts on success)");
+  server.mode = "online";
+  await mod.runWaitingJobs();
+  await settle();
+  equal(server.generations.length, 1, "generated once");
+  const r = await record(ID);
+  equal([r.state.documents?.scopeDocument, r.state.step], ["SCOPE", "results"], "the documents are on the claim, opened at the results");
+});
+
+await test("a step the server refuses waits for the estimator instead of looping", async () => {
+  const extraction = mod.withDerivedFields({ loss: mod.emptyLoss(), rooms: [] });
+  await onServerAndDevice(ID, claimState("Bell", { extraction }));
+  server.override = (path) => (path === "/api/generate" ? respond(402, { error: "Plan limit reached." }) : undefined);
+  await mod.waitForSignal(ID, "generate");
+  await mod.runWaitingJobs();
+  equal((await mod.waitingJobs())[0]?.error, "Plan limit reached.", "the reason is kept");
+  calls.length = 0;
+  await mod.runWaitingJobs();
+  equal(calls.filter((c) => c.url === "/api/generate").length, 0, "not tried again by itself");
+  server.override = null;
+  await mod.tryAgain(ID, "generate");
+  await mod.runWaitingJobs();
+  equal(server.generations.length, 1, "Try again runs it");
+});
+
+await test("a step for the claim on screen is handed to the page, not written behind its back", async () => {
+  await onServerAndDevice(ID, claimState("Bell", { transcript: "Device copy." }));
+  let got = null;
+  const off = mod.claimOnScreen(ID, {
+    state: () => claimState("Bell", { transcript: "What the page holds." }),
+    extracted: (extraction) => (got = extraction),
+    generated: () => {},
+  });
+  await mod.waitForSignal(ID, "extract");
+  await mod.runWaitingJobs();
+  off();
+  equal(server.extracts.map((b) => b.transcript), ["What the page holds."], "read from the page's state, which may be newer than the device's");
+  assert(got !== null, "the page was given the answer");
+  equal((await record(ID)).state.extraction, null, "and the device copy was left for the page's own save");
+});
+
+await test("a set-aside step does not run", async () => {
+  await onServerAndDevice(ID, claimState("Bell", { transcript: "Words." }));
+  server.mode = "offline";
+  await mod.waitForSignal(ID, "extract");
+  await mod.setAside(ID, "extract");
+  server.mode = "online";
+  await mod.runWaitingJobs();
+  equal(server.extracts.length, 0, "nothing sent");
+});
+
+await test("a trace waits for signal and its answer is kept until the side is on screen", async () => {
+  server.mode = "offline";
+  await mod.waitForSignalToTrace("side-1", { image: "abc", frame: {}, side: { name: "Front" } });
+  await mod.runWaitingJobs();
+  equal(server.traces.length, 0, "not traced with no signal");
+  server.mode = "online";
+  await mod.runWaitingJobs();
+  equal(server.traces.length, 1, "traced once the signal is back");
+  const taken = await mod.takeTrace("side-1");
+  assert(taken?.result?.proposals, "the answer is there to take");
+  equal(await mod.takeTrace("side-1"), null, "and only once");
 });
 
 /* ── report ───────────────────────────────────────────────────────────────────────────────────── */

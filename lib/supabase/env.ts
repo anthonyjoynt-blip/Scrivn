@@ -44,3 +44,12 @@ export function supabaseAnonKey(): string {
 export function isSupabaseConfigured(): boolean {
   return Boolean(clean(process.env.NEXT_PUBLIC_SUPABASE_URL) && clean(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY));
 }
+
+/**
+ * Whether a claim can be saved anywhere: to Supabase, or — in local development with no project —
+ * to the file `lib/devClaimsStore.ts` keeps in its place, so saving, reopening and offline can be run
+ * end to end without signing in. Never true in a production build without Supabase.
+ */
+export function claimsCanSave(): boolean {
+  return isSupabaseConfigured() || process.env.NODE_ENV !== "production";
+}

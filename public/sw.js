@@ -14,17 +14,26 @@
  * document, and that is served network-first — the cached copy is a fallback for when there is no
  * network at all, never a substitute for one.
  *
- * The point of it is the save queue in `lib/pendingSaves.ts`. That holds work when a save fails, but
- * only for somebody already inside the app when the signal went. A PM who opened Scrivn in a
- * basement got the offline page and could do nothing — the queue was ready and there was no way to
- * reach the form. Now the app boots: intake, transcript, sketch and moisture all run client-side,
- * and the queue takes the result.
+ * The point of it is offline mode (2026-10-13). Claims are kept on the device — their latest state
+ * and what is waiting to sync, in IndexedDB (`lib/deviceClaims.ts`) — and this worker is what lets
+ * the app boot with no signal to reach them: intake, transcript, sketch and moisture all run
+ * client-side, an existing claim opens from the device's copy, and anything changed is sent when the
+ * signal is back.
  *
- * ── What still cannot work offline ───────────────────────────────────────────────────────────────
+ * ── Pages warmed before they are needed ──────────────────────────────────────────────────────────
  *
- * Extraction and document generation are calls to Claude. Opening an EXISTING claim needs
- * `/api/claims/:id`. Both fail honestly rather than being faked from a cache — a worker that served
- * a cached answer to a POST would be worse than no worker at all.
+ * A page is cached when it is loaded as a document. Moving around inside the app is not that — a
+ * link click fetches a React payload instead — so somebody who only ever reached Claims by its link
+ * had no copy of it to boot from. The app therefore asks this worker (a `warm` message, see
+ * components/ServiceWorker.tsx) to fetch the claim page and the Claims list now and then while there
+ * is signal, along with every build file each of them names.
+ *
+ * ── What still cannot work offline, and is not faked ─────────────────────────────────────────────
+ *
+ * The API is never answered from a cache. Extraction and document generation are calls to Claude:
+ * with no signal the app writes them down and runs them when the signal is back (`lib/aiJobs.ts`),
+ * rather than this worker pretending to answer — a worker that served a cached answer to a POST
+ * would be worse than no worker at all.
  */
 
 /*
@@ -56,9 +65,11 @@ const TIMED_OUT = Symbol("timed out");
  *
  * Generous on purpose. A cached HTML document names the exact chunks of the build it came from, so
  * trimming one of those is what turns an offline boot into the offline page. Several builds' worth
- * of chunks fit well inside this.
+ * of chunks fit well inside this — including the ones loaded later, which the warm-up now fetches
+ * ahead of need (the sketch canvas, the 3D view). A whole production build was 64 files on
+ * 2026-10-13.
  */
-const MAX_ASSETS = 240;
+const MAX_ASSETS = 400;
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
@@ -104,6 +115,149 @@ async function trim(cache, max) {
   for (let i = 0; i < keys.length - max; i++) await cache.delete(keys[i]);
 }
 
+/**
+ * Whether a document is worth keeping as THE copy of its path.
+ *
+ * `/claim?id=…` is the same HTML for every id, which is why `pageKey` drops the query. `/claims?q=…`
+ * is not: it is the list FILTERED, and filed under `/claims` it would be shown offline as if it were
+ * every claim there is — a search for "Smith" in the office, and only Smith's claims in the basement.
+ * So a document with a query is kept only for the claim page.
+ */
+function worthKeeping(url) {
+  return url.search === "" || url.pathname === "/claim";
+}
+
+/** The pages fetched ahead of need — see this file's note. Fixed here; the message cannot name others. */
+const WARM_PAGES = ["/claim", "/claims"];
+
+/**
+ * The build files a page or a chunk names.
+ *
+ * In a page: its scripts, its styles, and the chunks in its React payload. In a chunk: the chunks it
+ * loads LATER — `next/dynamic` and `import()` fetch their code from paths written into the chunk that
+ * asks for them, as "static/chunks/…" with no "/_next/" in front. That is where the sketch canvas
+ * comes from, and the 3D view: a page's own tags never name them, so a warm-up that read only the
+ * page cached a claim page whose sketch editor failed to open offline ("ChunkLoadError").
+ */
+function assetPaths(text) {
+  const found = new Set();
+  for (const match of text.matchAll(/(?:\/_next\/)?static\/(?:chunks|css|media)\/[^"'\\\s<>{}]+/g)) {
+    let path = match[0];
+    /*
+      A path may hold parentheses — a route group's chunk is named after it, "app_(app)_claim_page_…",
+      which is the claim page itself — but a stylesheet also closes one round it:
+      url(/_next/static/media/x.woff2). So trailing punctuation goes, and a ")" only when the path
+      has no "(" to match it.
+    */
+    for (;;) {
+      if (/[;,]$/.test(path)) path = path.slice(0, -1);
+      else if (path.endsWith(")") && (path.match(/\(/g) || []).length < (path.match(/\)/g) || []).length) path = path.slice(0, -1);
+      else break;
+    }
+    found.add(path.startsWith("/_next/") ? path : `/_next/${path}`);
+  }
+  return [...found];
+}
+
+/**
+ * Fetch the pages in `WARM_PAGES`, and every build file they need that is not already here — what
+ * they name, what those files name in turn, and so on, up to the cache's own size.
+ *
+ * Stops at the first sign of no network — this is a background top-up, and the next one will finish
+ * it. A page that comes back as a redirect (signed out) is not kept, for the reason given at the
+ * navigation handler below.
+ */
+async function warm() {
+  const pages = await caches.open(PAGES);
+  const assets = await caches.open(ASSETS);
+  const queue = [];
+  for (const path of WARM_PAGES) {
+    let response;
+    try {
+      response = await fetch(new Request(path, { credentials: "same-origin", cache: "no-store" }));
+    } catch {
+      return;
+    }
+    if (!response.ok || response.type !== "basic" || response.redirected) continue;
+    const html = await response.clone().text();
+    await pages.put(pageKey(new URL(path, self.location.origin).href), response);
+    queue.push(...assetPaths(html));
+  }
+
+  // Breadth first, each file once: a page's own files before the ones they load later.
+  const seen = new Set();
+  while (queue.length > 0 && seen.size < MAX_ASSETS) {
+    const path = queue.shift();
+    if (seen.has(path)) continue;
+    seen.add(path);
+    let file = await assets.match(path);
+    if (!file) {
+      try {
+        file = await fetch(path);
+      } catch {
+        return;
+      }
+      if (!file.ok || file.type !== "basic") continue;
+      await assets.put(path, file.clone());
+    }
+    if (/\.(js|css)$/.test(path)) queue.push(...assetPaths(await file.text()));
+  }
+  await trim(assets, MAX_ASSETS);
+}
+
+self.addEventListener("message", (event) => {
+  if (event.data && event.data.type === "warm") event.waitUntil(warm());
+});
+
+/**
+ * Remove the claims this device holds only as COPIES — the ones the server already has — on
+ * signing out, for the reason the cached pages go (see the sign-out handler below): on a shared
+ * device the next person must not find them. Work that has not reached the server stays; it is the
+ * only copy there is, and it waits, invisible to anyone else, for its owner to sign in again.
+ *
+ * Never creates the database: if there is none, there is nothing to clear.
+ */
+function forgetCopiedClaims() {
+  return new Promise((resolve) => {
+    let request;
+    try {
+      request = indexedDB.open("scrivn");
+    } catch {
+      resolve();
+      return;
+    }
+    request.onupgradeneeded = () => request.transaction.abort();
+    request.onerror = () => resolve();
+    request.onblocked = () => resolve();
+    request.onsuccess = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains("claims")) {
+        db.close();
+        resolve();
+        return;
+      }
+      const tx = db.transaction("claims", "readwrite");
+      const store = tx.objectStore("claims");
+      const all = store.getAll();
+      all.onsuccess = () => {
+        for (const record of all.result || []) if (!record.dirty && !record.clash) store.delete(record.id);
+      };
+      tx.oncomplete = () => {
+        db.close();
+        resolve();
+      };
+      tx.onerror = () => {
+        db.close();
+        resolve();
+      };
+      tx.onabort = () => {
+        db.close();
+        resolve();
+      };
+    };
+  });
+}
+
 self.addEventListener("fetch", (event) => {
   const { request } = event;
   const url = new URL(request.url);
@@ -117,10 +271,11 @@ self.addEventListener("fetch", (event) => {
     sign-out is a plain form POST that runs no JavaScript, and because this still works when the
     sign-out itself cannot reach the server.
 
-    The request is not intercepted — it goes to the network as usual. Only the cache is dropped.
+    The request is not intercepted — it goes to the network as usual. Only the cache is dropped, and
+    the copies of claims the server already has (`forgetCopiedClaims`).
   */
   if (request.method === "POST" && url.pathname === "/api/logout") {
-    event.waitUntil(caches.delete(PAGES));
+    event.waitUntil(Promise.all([caches.delete(PAGES), forgetCopiedClaims()]));
     return;
   }
 
@@ -176,7 +331,7 @@ self.addEventListener("fetch", (event) => {
             while signed out arrives here as the LOGIN page's HTML — filing that under /claim would
             serve the login form offline for ever, to a user who is signed in.
           */
-          if (response.ok && response.type === "basic" && !response.redirected) {
+          if (response.ok && response.type === "basic" && !response.redirected && worthKeeping(url)) {
             const cache = await caches.open(PAGES);
             await cache.put(pageKey(request.url), response.clone());
           }
@@ -207,6 +362,6 @@ self.addEventListener("fetch", (event) => {
   /*
     Everything else — the API above all — is left entirely alone and behaves exactly as it would
     with no worker installed. Extraction, generation and every claim save must fail honestly when
-    there is no connection, so the app can say so and the queue can hold the work.
+    there is no connection, so the app can say so and hold the work on the device until there is.
   */
 });

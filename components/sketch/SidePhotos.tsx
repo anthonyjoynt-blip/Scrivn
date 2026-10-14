@@ -7,6 +7,13 @@ import { fillOutside, type PhotoPixels, squareFrame, type SquareFrame, squareUp 
 import { applyTrace, type SideTrace, type TraceProposals, type TraceRequest, type TraceResponse } from "@/lib/exteriorTrace";
 import { formatQuantity } from "@/lib/sketchQuantities";
 import { ElevationDrawing, type ElevationReach, type ElevationView } from "./exteriorDrawings";
+import { setTraceAside, useSideTrace, waitForSignalToTrace } from "@/lib/aiJobs";
+import { isNetworkFailure, netFetch } from "@/lib/connectivity";
+
+/** A browser's words for a fetch that got no answer — what squaring a photo says with no signal. */
+function isNetworkFailureMessage(message: string): boolean {
+  return /failed to fetch|networkerror|load failed|network request failed/i.test(message);
+}
 
 /**
  * A side's elevation with its photo squared up behind it, and the AI trace of that photo
@@ -303,12 +310,22 @@ export function SideElevation({
       : null;
   const reach = reachOf([photoReach, trace ? proposalsReach(trace.proposals) : null]);
 
+  /*
+    A trace asked for with no signal waits for it (lib/aiJobs.ts, 2026-10-13) and lands here when it
+    comes back — now, or the next time this side is on screen.
+  */
+  const waitingTrace = useSideTrace(side.id, (job) => {
+    if (job.result) onTrace({ ...job.result, at: new Date().toISOString() });
+    else if (job.error) setError(job.error);
+  });
+
   async function runTrace() {
     if (!squared) return;
     setBusy(true);
     setError(null);
+    let body: TraceRequest | null = null;
     try {
-      const body: TraceRequest = {
+      body = {
         image: await blobBase64(squared.blob),
         frame: squared.frame,
         side: {
@@ -320,7 +337,7 @@ export function SideElevation({
           rightEndInPhoto: photos.some((p) => p.inView?.rightEnd !== false),
         },
       };
-      const r = await fetch("/api/exterior/trace", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const r = await netFetch("/api/exterior/trace", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), timeoutMs: 330_000 });
       const answer = (await r.json().catch(() => ({}))) as Partial<TraceResponse> & { error?: string };
       if (!r.ok || !answer.proposals) {
         setError(answer.error ?? `The trace did not come back (${r.status}).`);
@@ -328,7 +345,8 @@ export function SideElevation({
       }
       onTrace({ ...(answer as TraceResponse), at: new Date().toISOString() });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "The trace did not come back.");
+      if (body && isNetworkFailure(err)) await waitForSignalToTrace(side.id, body);
+      else setError(err instanceof Error ? err.message : "The trace did not come back.");
     } finally {
       setBusy(false);
     }
@@ -373,16 +391,28 @@ export function SideElevation({
                   ))}
                 </div>
                 {!readOnly && (
-                  <button type="button" className="btn-secondary" disabled={!squared || busy} onClick={runTrace} title="One Claude call: the side's shapes, openings and wall top, for you to tick">
-                    {busy ? "Tracing…" : trace ? "AI trace again" : "AI trace"}
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    disabled={!squared || busy || waitingTrace.waiting}
+                    onClick={runTrace}
+                    title="One Claude call: the side's shapes, openings and wall top, for you to tick"
+                  >
+                    {busy || waitingTrace.running ? "Tracing…" : waitingTrace.waiting ? "Waiting for signal…" : trace ? "AI trace again" : "AI trace"}
+                  </button>
+                )}
+                {!readOnly && waitingTrace.waiting && !waitingTrace.running && (
+                  <button type="button" className="btn-secondary" onClick={() => void setTraceAside(side.id)}>
+                    Don&rsquo;t wait
                   </button>
                 )}
               </div>
               <p className="field-note">
                 {photo.state === "loading" ? "Squaring the photo up… " : ""}
-                {photo.state === "error" ? `${photo.message} ` : ""}
+                {photo.state === "error" ? (isNetworkFailureMessage(photo.message) ? "The photo is on Scrivn's server; it shows here when there is signal. " : `${photo.message} `) : ""}
                 {inViewLine(photos)}
                 {busy ? " Tracing takes 10–40 seconds." : ""}
+                {waitingTrace.waiting && !waitingTrace.running ? " No signal: the trace runs on its own when there is, and shows here." : ""}
               </p>
               {error && <p className="sketch-length-error">{error}</p>}
             </>

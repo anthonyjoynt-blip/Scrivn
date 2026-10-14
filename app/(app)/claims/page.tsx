@@ -65,6 +65,8 @@ export default async function ClaimsPage({
       <main className="page">
         <div className="card">
           <h1>Claims</h1>
+          {/* What this device holds still shows, and still opens, when the server cannot list. */}
+          <PendingSaves keep={[]} />
           <p className="field-note">Could not load your claims: {err instanceof Error ? err.message : "unexpected error"}</p>
         </div>
       </main>
@@ -89,7 +91,7 @@ export default async function ClaimsPage({
           about how the list is filtered — and below it a PM searching for the very claim being held
           would read "no claims match" first and stop there.
         */}
-        <PendingSaves />
+        <PendingSaves keep={claims.slice(0, 12).map((c) => ({ id: c.id, version: c.version }))} />
 
         <ClaimsControls search={search} sort={sort} scope={scope} canSeeAll={canSeeAll} />
 
