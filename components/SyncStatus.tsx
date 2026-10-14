@@ -69,7 +69,8 @@ export function SyncStatus() {
 
   const offline = work.connection === "offline";
   const clashes = work.claims.filter((c) => c.clash).length;
-  const count = work.claims.length + work.jobs.length;
+  // A trace that has come back is not waiting on anything but being looked at; it is listed, not counted.
+  const count = work.claims.length + work.jobs.filter((j) => !(j.kind === "trace" && j.result)).length;
 
   if (work.signedOutWaiting > 0) {
     return (
@@ -80,7 +81,7 @@ export function SyncStatus() {
       </div>
     );
   }
-  if (!offline && count === 0) return null;
+  if (!offline && count === 0 && work.jobs.length === 0) return null;
 
   const label = offline
     ? count > 0
@@ -88,9 +89,11 @@ export function SyncStatus() {
       : "Offline"
     : clashes > 0
       ? `${clashes} need${clashes === 1 ? "s" : ""} your choice`
-      : busy
-        ? `Syncing ${count}…`
-        : `${count} waiting to sync`;
+      : count === 0
+        ? "AI trace ready"
+        : busy
+          ? `Syncing ${count}…`
+          : `${count} waiting to sync`;
 
   return (
     <div className="sync-status" ref={box}>
@@ -110,7 +113,7 @@ export function SyncStatus() {
               ? "No signal. Everything below is saved on this device and goes to Scrivn on its own when the signal is back."
               : "Saved on this device and on its way to Scrivn."}
           </p>
-          {count === 0 ? (
+          {work.claims.length + work.jobs.length === 0 ? (
             <p className="field-note">Nothing is waiting. You can keep working — claims save on this device and sync later.</p>
           ) : (
             <ul className="sync-list">
