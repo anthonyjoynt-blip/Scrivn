@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { RoomChips } from "@/components/RoomChips";
 import { discardPhotoFile, forgetPhotoFile, retryPhotoFile } from "@/lib/devicePhotos";
 import { photoWhen } from "@/lib/photoPdf";
 import {
@@ -12,6 +13,7 @@ import {
   photoRoomOptions,
   photosByRoom,
   roomNameFor,
+  suggestedRoom,
   UNSORTED_ROOM,
   type ClaimPhoto,
   type ClaimPhotos,
@@ -37,6 +39,7 @@ export function PhotosPanel({
   sketch,
   onChange,
   onOpenCamera,
+  onGallery,
   onClose,
 }: {
   claimId: string | null;
@@ -45,6 +48,8 @@ export function PhotosPanel({
   sketch: Sketch;
   onChange: PhotosChange;
   onOpenCamera: () => void;
+  /** Photos from the phone's gallery, into Unsorted to be filed. */
+  onGallery: (files: File[]) => Promise<void>;
   onClose: () => void;
 }) {
   const { images, waiting } = usePhotoImages(claimId, onServer);
@@ -57,6 +62,8 @@ export function PhotosPanel({
   const printing = photos.items.filter(captioned).length;
   const [enlarged, setEnlarged] = useState<ClaimPhoto | null>(null);
   const refused = waiting.filter((f) => f.refused).length;
+  const gallery = useRef<HTMLInputElement>(null);
+  const [adding, setAdding] = useState<string | null>(null);
 
   return (
     <section className="photos" aria-label="Photos">
@@ -66,6 +73,25 @@ export function PhotosPanel({
           <button type="button" className="btn-primary" onClick={onOpenCamera}>
             Take photos
           </button>
+          <button type="button" className="btn-secondary" onClick={() => gallery.current?.click()} disabled={adding !== null}>
+            Add from gallery
+          </button>
+          <input
+            ref={gallery}
+            type="file"
+            accept="image/*"
+            multiple
+            hidden
+            onChange={(e) => {
+              const files = [...(e.target.files ?? [])];
+              e.target.value = "";
+              if (files.length === 0) return;
+              setAdding(`Adding ${files.length} photo${files.length === 1 ? "" : "s"}…`);
+              void onGallery(files)
+                .then(() => setAdding(null))
+                .catch((err) => setAdding(err instanceof Error ? err.message : "Those photos could not be added."));
+            }}
+          />
           <button type="button" className="btn-secondary" onClick={onClose}>
             Close
           </button>
@@ -84,12 +110,14 @@ export function PhotosPanel({
         )}
       </p>
 
+      {adding && <p className="field-note">{adding}</p>}
+
       {groups.map((group) => (
         <div className={`photos-room${group.key === UNSORTED_ROOM ? " photos-unsorted" : ""}`} key={group.key || "unsorted"}>
           <h3>
             {group.label} <span className="photos-room-count">{group.photos.length}</span>
           </h3>
-          {group.key === UNSORTED_ROOM && sketch.rooms.length > 0 && <p className="field-note">Not filed to a room yet. Pick each one&rsquo;s room below.</p>}
+          {group.key === UNSORTED_ROOM && sketch.rooms.length > 0 && <p className="field-note">Not filed to a room yet: one tap on a room files each one.</p>}
           <ul className="photos-grid">
             {group.photos.map((photo) => (
               <PhotoCard
@@ -105,6 +133,7 @@ export function PhotosPanel({
                   if (claimId) void forgetPhotoFile(claimId, photo.id);
                 }}
                 onEnlarge={() => setEnlarged(photo)}
+                filing={group.key === UNSORTED_ROOM && sketch.rooms.length > 0 ? { suggestion: suggestedRoom(photo, sketch) } : null}
               />
             ))}
           </ul>
@@ -137,6 +166,7 @@ function PhotoCard({
   onMove,
   onDelete,
   onEnlarge,
+  filing,
 }: {
   photo: ClaimPhoto;
   image: PhotoImage | null;
@@ -146,6 +176,8 @@ function PhotoCard({
   onMove: (room: string) => void;
   onDelete: () => void;
   onEnlarge: () => void;
+  /** An Unsorted photo, with the room it most likely belongs in — see `suggestedRoom`. */
+  filing: { suggestion: { value: string; label: string } | null } | null;
 }) {
   const [draft, setDraft] = useState(photo.caption);
   const [confirming, setConfirming] = useState(false);
@@ -173,6 +205,22 @@ function PhotoCard({
               Remove the picture
             </button>
           </p>
+        )}
+        {filing && (
+          <div className="photo-card-filing">
+            {filing.suggestion && (
+              <button type="button" className="btn-primary photo-card-suggest" onClick={() => onMove(filing.suggestion!.value)}>
+                File to {filing.suggestion.label}
+              </button>
+            )}
+            <RoomChips
+              className="photo-card-chips"
+              ariaLabel="File this photo to"
+              options={options.filter((o) => o.value !== UNSORTED_ROOM && o.value !== filing.suggestion?.value)}
+              value={roomKey}
+              onChange={onMove}
+            />
+          </div>
         )}
         <textarea
           className="photo-card-caption"

@@ -56,7 +56,7 @@ When you use the Dictate button, or speak a caption after taking a photo in Scri
 
 **Photos and location**
 
-Scrivn keeps no location (GPS) information from photos. Each photo taken or added in Scrivn is redrawn at a smaller size on your device before it is stored, which leaves out the location and the other details a camera writes into a photo file.
+Scrivn keeps no location (GPS) information from photos. Each photo taken or added in Scrivn is redrawn at a smaller size on your device before it is stored, which leaves out the location and the other details a camera writes into a photo file. When you add a photo from your phone's gallery, Scrivn reads only the date and time it was taken, to file it in order.
 
 **Scrivn Scan**
 
@@ -134,7 +134,8 @@ To protect accounts and limit abuse, Scrivn counts attempts to create an account
   or other EXIF data is stored. Pictures are in the private `claim-photos` bucket (0015), written only
   by the server (`lib/claimPhotos.ts`), readable by the organization's members; records (room, time,
   caption) ride in the claim (`lib/photos.ts`). Captions use the same browser speech recognition as
-  Dictate (`lib/useDictation.ts`). Deleting a claim removes its `claim-photos` folder and its scans'
+  Dictate (`lib/useDictation.ts`). A gallery photo's taken time is read from its EXIF
+  `DateTimeOriginal`/`OffsetTimeOriginal` and nothing else (`lib/exifTime.ts`). Deleting a claim removes its `claim-photos` folder and its scans'
   `scan-photos` folders (`removeClaimFolders`; the scan photos were left behind before this). Photos
   waiting to upload are the `photoFiles` store in IndexedDB (`lib/devicePhotos.ts`), not swept on
   sign-out.

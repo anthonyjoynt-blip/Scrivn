@@ -19,3 +19,4 @@ export { extractionUnscopedUserMessage } from "@/lib/extractionUnscoped";
 export { documentGenerationUserMessage } from "@/lib/documentGenerationPrompt";
 export { waitForSignal, runWaitingJobs, claimOnScreen } from "@/lib/aiJobs";
 export { emptyLoss, withDerivedFields } from "@/lib/types";
+export { exifTakenAt, parseExifDate } from "@/lib/exifTime";

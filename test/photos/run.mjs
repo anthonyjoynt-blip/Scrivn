@@ -661,6 +661,52 @@ await test("Update scope through the waiting queue: built when it runs, with the
   equal(got, mod.notePrints(mod.photoNotes(page.photos, notesSketch)), "and the page was told which notes it read");
 });
 
+/* ── quicker filing (stage 3) ─────────────────────────────────────────────────────────────────── */
+
+console.log("\n  Quicker filing");
+
+const { exifJpeg } = await import("./exifFixture.mjs");
+const houseSketch = sketch(room("bath", "Bathroom"), room("kit", "Kitchen"), room("b2", "Bedroom 2"), room("b3", "Bedroom 3"), room("blank", ""));
+const houseOptions = mod.photoRoomOptions(houseSketch);
+
+await test("say the room first: the first words file the photo, and come off the caption", () => {
+  const said = (text) => {
+    const r = mod.spokenRoom(text, houseOptions);
+    return r ? [r.value, r.rest] : null;
+  };
+  equal(said("Bathroom. Toilet base is soft"), ["bath", "Toilet base is soft"], "a name, a full stop");
+  equal(said("kitchen sink base is swollen"), ["kit", "Sink base is swollen"], "no punctuation, as Android gives it");
+  equal(said("Bedroom two closet carpet wet"), ["b2", "Closet carpet wet"], "number words are numbers");
+  equal(said("bedroom 3"), ["b3", ""], "the name alone files it and leaves no caption");
+  equal(said("Room five, ceiling stain"), ["blank", "Ceiling stain"], "an unnamed room answers to its chip");
+  equal(said("In the kitchen. Wet baseboard"), ["kit", "Wet baseboard"], "'in the' when the name ends the phrase");
+  equal(said("Outside, downspout disconnected"), [mod.EXTERIOR_ROOM, "Downspout disconnected"], "outside is Exterior");
+  equal(said("water came from the bathroom above"), null, "only the first words count");
+  equal(said("in the bathroom above the kitchen there's a leak"), null, "'in the' running on is about another room");
+  equal(said("bedroom carpet is wet"), null, "a name two rooms could be is no answer");
+  const twins = mod.photoRoomOptions(sketch(room("up", "Bedroom", 1), room("down", "Bedroom", -1)));
+  equal(mod.spokenRoom("Bedroom, window sill", twins), null, "nor is a name on two levels");
+});
+
+await test("an Unsorted photo is offered the room it most likely belongs in", () => {
+  const rescanned = sketch(room("new-kit-id", "Kitchen"), room("bath", "Bathroom"));
+  equal(mod.suggestedRoom(photo(1, { room: "old-kit-id", roomName: "Kitchen" }), rescanned)?.value, "new-kit-id", "the room it was in, by name, after a re-scan gave it a new id");
+  equal(mod.suggestedRoom(photo(2, { caption: "Wet carpet in the hallway by the bathroom" }), houseSketch)?.value, "bath", "the room its caption names");
+  equal(mod.suggestedRoom(photo(3, { caption: "Kitchen. Sink base" }), houseSketch)?.label, "Kitchen", "or begins with");
+  equal(mod.suggestedRoom(photo(4, { caption: "Ceiling stain" }), houseSketch), null, "nothing points anywhere: no suggestion");
+});
+
+await test("a gallery photo keeps the time the camera took it", () => {
+  const buf = (bytes) => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+  equal(mod.exifTakenAt(buf(exifJpeg("2026:10:14 09:15:30", "-06:00"))), Date.UTC(2026, 9, 14, 15, 15, 30), "with the zone the phone wrote");
+  equal(mod.exifTakenAt(buf(exifJpeg("2026:10:14 09:15:30", "-06:00", true))), Date.UTC(2026, 9, 14, 15, 15, 30), "big-endian too");
+  equal(mod.exifTakenAt(buf(exifJpeg("2026:10:14 09:15:30"))), new Date(2026, 9, 14, 9, 15, 30).getTime(), "no zone: the phone's own");
+  equal(mod.exifTakenAt(buf(new Uint8Array([0xff, 0xd8, 0xff, 0xdb, 0, 4, 0, 0, 0xff, 0xd9]))), null, "no EXIF: none");
+  equal(mod.exifTakenAt(buf(new Uint8Array([0x89, 0x50, 0x4e, 0x47]))), null, "not a JPEG: none");
+  equal(mod.exifTakenAt(buf(exifJpeg("0000:00:00 00:00:00"))), null, "a blank date is no date");
+  equal(mod.parseExifDate("2026:10:14 09:15:30", "+05:30"), Date.UTC(2026, 9, 14, 3, 45, 30), "a half-hour zone");
+});
+
 /* ── done ─────────────────────────────────────────────────────────────────────────────────────── */
 
 for (const f of failures) console.error(`  FAIL ${f}`);

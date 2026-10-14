@@ -1,4 +1,4 @@
-import { levelName, roomLevel, type Sketch } from "./sketch";
+import { levelName, roomLevel, type Sketch, type SketchRoom } from "./sketch";
 
 /**
  * Site photos with spoken captions (2026-10-14): what a claim holds about each photo, and the rules
@@ -404,3 +404,130 @@ export function notesSinceScopeLine(change: { added: number; removed: number }):
   return null;
 }
 
+
+/* ── Filing by voice, and suggesting a room (stage 3) ───────────────────────────────────────────── */
+
+const NUMBER_WORDS: Record<string, string> = {
+  one: "1", two: "2", three: "3", four: "4", five: "5", six: "6", seven: "7", eight: "8", nine: "9", ten: "10",
+  eleven: "11", twelve: "12", first: "1", second: "2", third: "3", fourth: "4",
+};
+
+/** Lower case, words only, number words as digits: "Bedroom Two." and "bedroom 2" read the same. */
+function spokenWords(text: string): string[] {
+  return text
+    .toLowerCase()
+    .replace(/[’']/g, "")
+    .split(/[^a-z0-9]+/)
+    .filter((w) => w !== "")
+    .map((w) => NUMBER_WORDS[w] ?? w);
+}
+
+function roomWords(label: string): string[] {
+  // "Bedroom (Upper floor)" answers to "bedroom" as well; the level part is for the chip.
+  return spokenWords(label.replace(/\s*\(.*\)\s*$/, ""));
+}
+
+/**
+ * "Say the room first": a caption that BEGINS with a room's name files the photo there, and the
+ * name comes off the caption — "Bathroom. Toilet base is soft" is a Bathroom photo of a soft toilet
+ * base. Only the first words count, so "water came from the bathroom above" never moves a photo.
+ *
+ * A leading "in the" is allowed only when the name then ends the phrase ("In the kitchen. Wet
+ * baseboard"), because "in the bathroom above…" said in the kitchen is about the room overhead.
+ * A name two rooms share is no answer: the chip stays where it is.
+ */
+export function spokenRoom(text: string, options: { value: string; label: string }[]): { value: string; label: string; rest: string } | null {
+  const said = spokenWords(text);
+  if (said.length === 0) return null;
+  const candidates: { value: string; label: string; words: string[] }[] = [];
+  for (const o of options) {
+    if (o.value === UNSORTED_ROOM) continue;
+    candidates.push({ value: o.value, label: o.label, words: roomWords(o.label) });
+    if (o.value === EXTERIOR_ROOM) candidates.push({ value: o.value, label: o.label, words: ["outside"] });
+  }
+
+  const matchAt = (offset: number) => {
+    let best: { value: string; label: string; words: string[] } | null = null;
+    let tied = false;
+    for (const c of candidates) {
+      if (c.words.length === 0 || c.words.length + offset > said.length) continue;
+      if (!c.words.every((w, i) => said[offset + i] === w)) continue;
+      // "Bedroom 2" said in full is not also "Bedroom"; a longer name that fits wins.
+      if (!best || c.words.length > best.words.length) {
+        best = c;
+        tied = false;
+      } else if (c.words.length === best.words.length && c.value !== best.value) tied = true;
+    }
+    return best && !tied ? best : null;
+  };
+
+  let offset = 0;
+  let found = matchAt(0);
+  if (!found && said[0] === "in") {
+    offset = said[1] === "the" ? 2 : 1;
+    const m = matchAt(offset);
+    // Only when the name is the whole phrase — see above.
+    if (m && sentenceEndsAfter(text, offset + m.words.length)) found = m;
+  }
+  if (!found) return null;
+  return { value: found.value, label: found.label, rest: restAfterWords(text, offset + found.words.length) };
+}
+
+/** The caption with its first `n` words taken off, and the punctuation that followed them. */
+function restAfterWords(text: string, n: number): string {
+  const re = /[a-z0-9’']+/gi;
+  let count = 0;
+  let end = 0;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) && count < n) {
+    count += 1;
+    end = m.index + m[0].length;
+  }
+  const rest = text.slice(end).replace(/^[\s.,:;!?-]+/, "");
+  return rest ? rest.charAt(0).toUpperCase() + rest.slice(1) : "";
+}
+
+function sentenceEndsAfter(text: string, n: number): boolean {
+  const re = /[a-z0-9’']+/gi;
+  let count = 0;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text))) {
+    count += 1;
+    if (count === n) {
+      const after = text.slice(m.index + m[0].length);
+      return after.trim() === "" || /^\s*[.,:;!?-]/.test(after);
+    }
+  }
+  return false;
+}
+
+/**
+ * A room to offer an Unsorted photo, for one-tap filing: the room it was filed to before, found by
+ * name (a re-scan renames nothing but gives rooms new ids), else the first room its caption names.
+ * Null when nothing points anywhere.
+ */
+export function suggestedRoom(photo: ClaimPhoto, sketch: Pick<Sketch, "rooms" | "levelNames">): { value: string; label: string } | null {
+  const options = photoRoomOptions(sketch).filter((o) => o.value !== UNSORTED_ROOM);
+  const remembered = photo.roomName.trim().toLowerCase();
+  if (remembered) {
+    const same = sketch.rooms.filter((r: SketchRoom) => r.name.trim().toLowerCase() === remembered);
+    if (same.length === 1) return options.find((o) => o.value === same[0]!.id) ?? null;
+    if (remembered === "exterior") return options.find((o) => o.value === EXTERIOR_ROOM) ?? null;
+  }
+  const first = spokenRoom(photo.caption, options);
+  if (first) return { value: first.value, label: first.label };
+  // Anywhere in the caption, the earliest mention: "wet carpet in the hallway by the bathroom" → Hallway.
+  const said = spokenWords(photo.caption);
+  let best: { value: string; label: string; at: number } | null = null;
+  for (const o of options) {
+    const words = roomWords(o.label);
+    if (words.length === 0) continue;
+    for (let i = 0; i + words.length <= said.length; i++) {
+      if (words.every((w, j) => said[i + j] === w)) {
+        if (!best || i < best.at) best = { value: o.value, label: o.label, at: i };
+        break;
+      }
+    }
+  }
+  return best ? { value: best.value, label: best.label } : null;
+}

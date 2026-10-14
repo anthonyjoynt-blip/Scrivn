@@ -5,7 +5,9 @@ import "./photos.css";
 import { onDeviceChange } from "@/lib/deviceClaims";
 import { keepPhotoFile, photoFilesOf, sendWaitingPhotos } from "@/lib/devicePhotos";
 import { connection } from "@/lib/connectivity";
-import { addPhoto, captionPhoto, photoRoomKey, UNSORTED_ROOM, type ClaimPhotos } from "@/lib/photos";
+import { exifTakenAt } from "@/lib/exifTime";
+import { preparePhoto } from "@/lib/photoImage";
+import { addPhoto, captionPhoto, MAX_CLAIM_PHOTOS, movePhoto, photoRoomKey, roomNameFor, UNSORTED_ROOM, type ClaimPhoto, type ClaimPhotos } from "@/lib/photos";
 import type { Sketch } from "@/lib/sketch";
 import { PhotoCamera, type TakenPhoto } from "./PhotoCamera";
 import { PhotosPanel, type PhotosChange } from "./PhotosPanel";
@@ -83,6 +85,39 @@ export function PhotosSection({
     onCheckpoint();
   }
 
+  /**
+   * Photos already on the phone, from its gallery (stage 3): each kept and filed like one just taken,
+   * with the time the camera took it (lib/exifTime.ts) rather than the time it was picked — and,
+   * failing that, the file's own date. No listening: several at once have nothing to caption them by.
+   */
+  async function addFromGallery(files: File[], room: string) {
+    const filedTo = photoRoomKey({ room }, sketch);
+    let spaceLeft = MAX_CLAIM_PHOTOS - photos.items.length;
+    for (const file of files) {
+      if (spaceLeft <= 0) throw new Error(`This claim has ${MAX_CLAIM_PHOTOS} photos, the most one claim can hold.`);
+      const head = await file.slice(0, 256 * 1024).arrayBuffer();
+      const takenAt = exifTakenAt(head) ?? (file.lastModified || Date.now());
+      const prepared = await preparePhoto(file);
+      const now = Date.now();
+      const id = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function" ? crypto.randomUUID() : `${now.toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+      const record: ClaimPhoto = {
+        id,
+        room: filedTo,
+        roomName: roomNameFor(filedTo, sketch),
+        takenAt,
+        caption: "",
+        captionBy: null,
+        width: prepared.width,
+        height: prepared.height,
+        source: "gallery",
+        editedAt: now,
+      };
+      await taken({ record, prepared });
+      spaceLeft -= 1;
+    }
+    if (connection() === "online") void sendWaitingPhotos();
+  }
+
   const count = photos.items.length;
 
   return (
@@ -95,6 +130,7 @@ export function PhotosSection({
           sketch={sketch}
           onChange={onChange}
           onOpenCamera={() => onViewChange("camera")}
+          onGallery={(files) => addFromGallery(files, UNSORTED_ROOM)}
           onClose={() => {
             onViewChange("closed");
             onCheckpoint();
@@ -123,6 +159,8 @@ export function PhotosSection({
           onRoomChange={setPicked}
           onTaken={taken}
           onCaption={(id, caption, by) => onChange((p) => captionPhoto(p, id, caption, by))}
+          onMove={(id, to, name) => onChange((p) => movePhoto(p, id, to, name))}
+          onGallery={addFromGallery}
           onDone={() => {
             onViewChange("panel");
             onCheckpoint();

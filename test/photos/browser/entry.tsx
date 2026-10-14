@@ -17,6 +17,7 @@ import { sendWaitingPhotos, waitingPhotoFiles } from "@/lib/devicePhotos";
 import { preparePhoto } from "@/lib/photoImage";
 import { pdfPhotosFor } from "@/lib/photoPdf";
 import { useDeviceWork } from "@/lib/useDeviceWork";
+import { exifJpeg } from "../exifFixture.mjs";
 
 type Result = { name: string; ok: boolean; detail?: string };
 const results: Result[] = [];
@@ -91,9 +92,10 @@ const paint = () => {
   ctx.fillText("vanity", 520, 600);
 };
 paint();
-const fakeStream = (scene as HTMLCanvasElement & { captureStream: (fps: number) => MediaStream }).captureStream(10);
 setInterval(paint, 100);
-Object.defineProperty(navigator, "mediaDevices", { value: { getUserMedia: async () => fakeStream }, configurable: true });
+// A fresh stream each time, as a real camera gives: the camera screen stops its tracks when it closes.
+const fakeStream = () => (scene as HTMLCanvasElement & { captureStream: (fps: number) => MediaStream }).captureStream(10);
+Object.defineProperty(navigator, "mediaDevices", { value: { getUserMedia: async () => fakeStream() }, configurable: true });
 
 /** What the scripted recognizer "hears", one script per photo: the first session after it is queued takes it. */
 const speech: string[][] = [["Baseboard wet", "Baseboard wet behind the vanity about four feet"]];
@@ -302,6 +304,51 @@ async function run() {
   check("words heard but never made final are still the caption", h().state.photos.items[1]?.caption === "Cabinet floor under the sink is swollen", h().state.photos.items[1]?.caption);
   check("and the photo is in the room the chip was changed to", h().state.photos.items[1]?.room === "kitchen", h().state.photos.items[1]?.room);
   button("Done")!.click();
+
+  /* H — say the room first: the first words file the photo, and the chip follows. */
+  speech.push(["Kitchen", "Kitchen under the sink the cabinet floor is swollen"]);
+  await until(() => !!button("Take photos"), "the panel");
+  button("Take photos")!.click();
+  await until(() => !!document.querySelector(".pcam") && !(button("Take photo")?.disabled ?? true), "the camera, a third time");
+  [...document.querySelectorAll(".pcam-chips button")].find((b) => b.textContent === "Bathroom")!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  await until(() => document.querySelector(".pcam-room")?.textContent === "Bathroom", "the Bathroom chip");
+  button("Take photo")!.click();
+  await until(() => h().state.photos.items.length === 3 && (h().state.photos.items[2]?.caption ?? "") !== "", "the third photo's caption");
+  const third = h().state.photos.items[2]!;
+  check("a caption beginning with a room's name files the photo there", third.room === "kitchen", third.room);
+  check("and the name comes off the caption", third.caption === "Under the sink the cabinet floor is swollen", third.caption);
+  check("the chip moves to that room for the next photo, and says it was by voice", (document.querySelector(".pcam-room")?.textContent ?? "").startsWith("Kitchen") && !!document.querySelector(".pcam-switched"), document.querySelector(".pcam-room")?.textContent ?? "");
+  await until(() => !document.querySelector(".pcam-listening"), "quiet");
+  button("Done")!.click();
+
+  /* I — from the gallery: the time the camera took it, filed with one tap. */
+  await until(() => !!document.querySelector(".photos input[type=file][multiple]"), "the panel's gallery button");
+  const frameBlob = await new Promise<Blob>((resolve) => scene.toBlob((b) => resolve(b!), "image/jpeg", 0.8));
+  const frameBytes = new Uint8Array(await frameBlob.arrayBuffer());
+  const exif = exifJpeg("2026:10:13 15:20:05", "-06:00");
+  // The EXIF segment spliced in after the picture's own start marker, as a camera would have written it.
+  const withExif = new Uint8Array([...exif.slice(0, exif.length - 2), ...frameBytes.slice(2)]);
+  const file = new File([withExif], "IMG_20261013_152005.jpg", { type: "image/jpeg", lastModified: Date.UTC(2026, 9, 14, 20, 0) });
+  const input = document.querySelector(".photos input[type=file][multiple]") as HTMLInputElement;
+  const dt = new DataTransfer();
+  dt.items.add(file);
+  input.files = dt.files;
+  input.dispatchEvent(new Event("change", { bubbles: true }));
+  await until(() => h().state.photos.items.some((p) => p.source === "gallery"), "the gallery photo");
+  const fromGallery = h().state.photos.items.find((p) => p.source === "gallery")!;
+  check("a gallery photo is kept with the time the camera took it, not when it was picked", fromGallery.takenAt === Date.UTC(2026, 9, 13, 21, 20, 5), new Date(fromGallery.takenAt).toISOString());
+  check("in the order taken: the day before, so first", h().state.photos.items[0]?.id === fromGallery.id);
+  check("and Unsorted, to be filed", fromGallery.room === "", fromGallery.room);
+  await until(() => !!document.querySelector(".photos-unsorted .photo-card-chips"), "the one-tap room chips");
+  [...document.querySelectorAll(".photos-unsorted .photo-card-chips button")].find((b) => b.textContent === "Bathroom")!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  await until(() => h().state.photos.items.find((p) => p.id === fromGallery.id)?.room === "bath", "the photo to be filed");
+  check("one tap on a room files it", h().state.photos.items.find((p) => p.id === fromGallery.id)?.room === "bath");
+  check("and Unsorted is empty again", !document.querySelector(".photos-unsorted"));
+  const keptFile = (await photoStore()).find((f) => f.id === fromGallery.id);
+  const bitmap = keptFile?.full ? await createImageBitmap(keptFile.full) : null;
+  check("its picture is drawn again for keeping, as a camera photo is", !!bitmap && bitmap.width === 1600 && (keptFile?.full?.size ?? 0) < withExif.length * 4, `${bitmap?.width}×${bitmap?.height}`);
+  const keptHead = keptFile?.full ? new Uint8Array(await keptFile.full.slice(0, 64).arrayBuffer()) : new Uint8Array();
+  check("with no EXIF left in it", !String.fromCharCode(...keptHead).includes("Exif"));
   root.unmount();
 }
 

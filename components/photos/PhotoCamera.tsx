@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { RoomChips } from "@/components/RoomChips";
 import { preparePhoto, type PreparedPhoto } from "@/lib/photoImage";
-import { MAX_CLAIM_PHOTOS, photoRoomOptions, roomNameFor, type CaptionBy, type ClaimPhoto } from "@/lib/photos";
+import { MAX_CLAIM_PHOTOS, photoRoomOptions, roomNameFor, spokenRoom, type CaptionBy, type ClaimPhoto } from "@/lib/photos";
 import type { Sketch } from "@/lib/sketch";
 import { appendDictation, useDictation } from "@/lib/useDictation";
 
@@ -16,6 +16,9 @@ import { appendDictation, useDictation } from "@/lib/useDictation";
  *     said appears under it as it is heard; about two seconds of quiet saves it as the caption.
  *     Saying nothing saves the photo with no caption. Taking the next photo saves what was heard.
  *   * Tap the words to fix them by typing.
+ *   * Say the room first — "Kitchen. Sink base is swollen" — and the photo is filed there and the chip
+ *     moves with it (2026-10-14, stage 3). Only the first words count (`spokenRoom`, lib/photos.ts).
+ *   * Gallery adds photos already on the phone, to the room picked, with the time they were taken.
  *
  * Nothing recorded but text: speech is the browser's own (lib/useDictation.ts), and Scrivn gets the
  * words. The photo is kept on the phone the moment it is taken (lib/devicePhotos.ts) and uploads on
@@ -52,6 +55,8 @@ export function PhotoCamera({
   onRoomChange,
   onTaken,
   onCaption,
+  onMove,
+  onGallery,
   onDone,
 }: {
   sketch: Sketch;
@@ -62,6 +67,10 @@ export function PhotoCamera({
   /** Keep the photo — its picture on the phone, its record in the claim. Resolves once it is safe. */
   onTaken: (photo: TakenPhoto) => Promise<void>;
   onCaption: (id: string, caption: string, by: CaptionBy) => void;
+  /** File a photo elsewhere — when its caption began with a room's name. */
+  onMove: (id: string, room: string, roomName: string) => void;
+  /** Photos picked from the phone's gallery, for the room picked. Resolves once they are kept. */
+  onGallery: (files: File[], room: string) => Promise<void>;
   onDone: () => void;
 }) {
   const options = useMemo(() => photoRoomOptions(sketch), [sketch]);
@@ -79,6 +88,14 @@ export function PhotoCamera({
   const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const fileInput = useRef<HTMLInputElement>(null);
+  const galleryInput = useRef<HTMLInputElement>(null);
+  /** The room a spoken caption just filed its photo to, shown for a moment under the room's name. */
+  const [switched, setSwitched] = useState<string | null>(null);
+  const switchedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Photos whose first words have been heard — only the first words can name the room. */
+  const firstWordsHeard = useRef(new Set<string>());
+  const sayRoom = useRef({ options, sketch, onMove, onRoomChange });
+  sayRoom.current = { options, sketch, onMove, onRoomChange };
 
   const listening = useRef<string | null>(null);
   const finals = useRef(new Map<string, string>());
@@ -90,9 +107,24 @@ export function PhotoCamera({
   const dictation = useDictation({
     endAfterQuietMs: QUIET_MS,
     giveUpAfterMs: NOTHING_SAID_MS,
-    onFinal: (text) => {
+    onFinal: (heard) => {
       const id = listening.current;
       if (!id) return;
+      let text = heard;
+      if (!firstWordsHeard.current.has(id)) {
+        firstWordsHeard.current.add(id);
+        // "Say the room first": a caption that begins with a room's name files the photo there.
+        const room = spokenRoom(heard, sayRoom.current.options);
+        if (room) {
+          sayRoom.current.onMove(id, room.value, roomNameFor(room.value, sayRoom.current.sketch));
+          sayRoom.current.onRoomChange(room.value);
+          setSwitched(room.label);
+          if (switchedTimer.current) clearTimeout(switchedTimer.current);
+          switchedTimer.current = setTimeout(() => setSwitched(null), 3000);
+          text = room.rest;
+          if (!text) return;
+        }
+      }
       const next = appendDictation(finals.current.get(id) ?? "", text);
       finals.current.set(id, next);
       setShotCaption(id, next);
@@ -272,6 +304,7 @@ export function PhotoCamera({
         <RoomChips className="pcam-chips" ariaLabel="Room for the next photo" options={options} value={room} onChange={onRoomChange} />
         <div className="pcam-room" aria-live="polite">
           {roomLabel}
+          {switched && <span className="pcam-switched">Filed by voice</span>}
         </div>
       </div>
 
@@ -287,6 +320,30 @@ export function PhotoCamera({
             )}
           </div>
         )}
+        <input
+          ref={galleryInput}
+          type="file"
+          accept="image/*"
+          multiple
+          hidden
+          onChange={(e) => {
+            const files = [...(e.target.files ?? [])];
+            e.target.value = "";
+            if (files.length === 0) return;
+            void (async () => {
+              setBusy(true);
+              setProblem(null);
+              try {
+                await finishListening();
+                await onGallery(files, room);
+              } catch (err) {
+                setProblem(err instanceof Error ? err.message : "Those photos could not be added.");
+              } finally {
+                setBusy(false);
+              }
+            })();
+          }}
+        />
         <input
           ref={fileInput}
           type="file"
@@ -332,8 +389,11 @@ export function PhotoCamera({
           </div>
         )}
         <div className="pcam-controls">
-          <span className="pcam-count">
-            {shots.length === 0 ? "" : `${shots.length} photo${shots.length === 1 ? "" : "s"}`}
+          <span className="pcam-left">
+            <button type="button" className="pcam-gallery" onClick={() => galleryInput.current?.click()} disabled={busy || full}>
+              Gallery
+            </button>
+            <span className="pcam-count">{shots.length === 0 ? "" : `${shots.length} photo${shots.length === 1 ? "" : "s"}`}</span>
           </span>
           <button
             type="button"
