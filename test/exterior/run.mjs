@@ -53,6 +53,7 @@ async function load() {
       `export * from "${lib("exteriorPhoto.ts")}";`,
       `export * from "${lib("exteriorTrace.ts")}";`,
       `export * from "${lib("exterior3d.ts")}";`,
+      `export * from "${lib("exteriorPlan.ts")}";`,
       `export { adoptScan, exteriorScanDecision, sketchFromScan } from "${lib("scanInbox.ts")}";`,
       `export { availableRenders, defaultSketchAttachments, pruneAttachments, withExteriorDefaults, toggleAttachment } from "${lib("sketchAttachments.ts")}";`,
     ].join("\n"),
@@ -2016,10 +2017,11 @@ test("3D: cladding as the elevation has it, openings in place, and what can't be
   assert(front.background === "vinyl", front.background);
   const o = front.openings[0];
   assert(o.kind === "window" && o.x0 === 5 && o.x1 === 9 && o.y0 === 3 && o.y1 === 6, JSON.stringify(o));
-  // No pitch (none typed, no gable measured): walls only, to their eaves.
+  // No pitch typed and no gable measured: the roof stands at the assumed 6/12, and says so (10-13).
   const walls = model3d(rect(40, 30));
-  assert(walls.roof === null && /No pitch yet/.test(walls.notes.join(" ")), walls.notes.join(" "));
-  near(topOf(wallNamed(walls, "Left")), 10, "the eave as measured");
+  assert(walls.roof !== null && /assumed 6\/12/.test(walls.notes.join(" ")), walls.notes.join(" "));
+  near(topOf(wallNamed(walls, "Left")), 17.5, "the gable end up to the assumed roof, as at a typed 6/12");
+  near(topOf(wallNamed(walls, "Front")), 10, "the eave as measured");
   const open = x.exteriorModel(exterior([ownersSide()]));
   assert(!open.ok && /every side of the house/.test(open.reason), open.ok ? "built" : open.reason);
 });
@@ -2039,6 +2041,178 @@ test("3D: the owner's own walk (14:53) stands up, the garage under its gable, th
   assert(m.walls.filter((w) => w.sideId === null).length === 2, "the wall over the garage and the strip over the deck");
   assert(m.walls.every((w) => w.sideId === null || w.background === "unclad"), "tapped as shapes: what no shape covers is left bare");
   assert(m.walls.filter((w) => w.sideId !== null).reduce((s, w) => s + w.openings.length, 0) === 20, "every opening the walk tapped");
+});
+
+console.log("\ndrawn on the plan, and walked round side by side (10-13)");
+
+const P = (px, py) => ({ x: px, y: py });
+const byName = (e, name) => e.sides.find((s) => s.name === name);
+/** "Front 40~": each side's length, ~ where it is only drawn. */
+const lengthsOf = (e) => e.sides.map((s) => `${s.name} ${Math.round(s.lengthFeet * 1000) / 1000}${s.lengthFrom === "drawn" ? "~" : ""}`).join(", ");
+const drawnRect = () => x.exteriorFromOutline([P(0, 0), P(40, 0), P(40, 30), P(0, 30)]);
+/** 40 x 30 with a 15 x 10 notch out of the rear right, tapped the other way round, from the rear left. */
+const drawnEll = () => x.exteriorFromOutline([P(0, 30), P(25, 30), P(25, 20), P(40, 20), P(40, 0), P(0, 0)], 9);
+
+test("drawing: each tap on the foot grid, square to the last wall; closing adds the corner the last wall turns at", () => {
+  // The first wall goes whichever way the tap mostly does; each one after it runs across the one before.
+  const a = x.snapOutlinePoint(P(10.4, 0.3), []);
+  assert(a.x === 10 && a.y === 0, JSON.stringify(a));
+  const b = x.snapOutlinePoint(P(30.2, 2.6), [P(0, 0)]);
+  assert(b.x === 30 && b.y === 0, JSON.stringify(b));
+  const c = x.snapOutlinePoint(P(37.7, 19.6), [P(0, 0), P(30, 0)]);
+  assert(c.x === 30 && c.y === 20, `an upright wall after a level one, wherever the tap: ${JSON.stringify(c)}`);
+  // Three corners close as a rectangle: the fourth is where the last wall turns to reach the first.
+  const r = x.closeOutline([P(0, 0), P(30, 0), P(30, 20)]);
+  assert(r && r.length === 4 && x.polygonArea(r) === 600, JSON.stringify(r));
+  // A last corner 2' short of lining up with the first slides along its wall to line up, within reach of the snap...
+  const snapped = x.closeOutline([P(0, 0), P(30, 0), P(30, 20), P(2, 20)], 3);
+  assert(snapped && x.polygonArea(snapped) === 600, JSON.stringify(snapped));
+  // ...and without it the left wall is where the last corner put it, the first corner then on a straight wall and taken out.
+  const asTapped = x.closeOutline([P(0, 0), P(30, 0), P(30, 20), P(2, 20)]);
+  assert(asTapped && asTapped.length === 4 && x.polygonArea(asTapped) === 560, JSON.stringify(asTapped));
+  assert(x.closeOutline([P(0, 0), P(20, 0), P(20, 10), P(10, 10), P(10, -10), P(0, -10)]) === null, "an outline that crosses itself is none");
+  assert(x.closeOutline([P(0, 0), P(20, 0)]) === null, "two corners are a wall, not a house");
+});
+
+test("an outline drawn on the plan: its walls are the sides round to the right from the front, named by the way they face", () => {
+  const e = drawnEll();
+  // The outermost wall facing each way has the plain name: "Rear" is the back of the house, "Rear 2" the back of the notch.
+  assert(lengthsOf(e) === "Front 40~, Right 20~, Rear 2 15~, Right 2 10~, Rear 25~, Left 30~", lengthsOf(e));
+  assert(e.sides.map((s) => s.turn).join() === "outside,outside,inside,outside,outside,outside", e.sides.map((s) => s.turn).join());
+  assert(e.sides.every((s) => s.eaveLeftFeet === 9 && s.eaveRightFeet === 9), "the eave given");
+  const f = x.exteriorFootprint(e);
+  assert(f.closes && f.misclosureFeet < 1e-9, f.reason);
+  near(f.areaSquareFeet, 40 * 30 - 15 * 10, "the L's area");
+});
+
+test("the footprint from typed sides: a drawn side's length typed moves its right-hand corner, the drawn side across follows, a typed one stands", () => {
+  let e = drawnRect();
+  const id = (name) => byName(e, name).id;
+  e = x.withSideLength(e, id("Front"), 44);
+  assert(lengthsOf(e) === "Front 44, Right 30~, Rear 44~, Left 30~", lengthsOf(e));
+  let f = x.exteriorFootprint(e);
+  assert(f.closes && f.misclosureFeet < 1e-9 && Math.abs(f.areaSquareFeet - 44 * 30) < 1e-6, `${f.areaSquareFeet}`);
+  e = x.withSideLength(e, id("Right"), 32);
+  assert(lengthsOf(e) === "Front 44, Right 32, Rear 44~, Left 32~", lengthsOf(e));
+  // The rear taped 6" short of the front: both kept as typed, and the footprint shares the 6" as it does any two tapes.
+  e = x.withSideLength(e, id("Rear"), 43.5);
+  assert(lengthsOf(e) === "Front 44, Right 32, Rear 43.5, Left 32~", lengthsOf(e));
+  f = x.exteriorFootprint(e);
+  near(f.misclosureFeet, 0.5, "the half foot the tapes miss by");
+  // 44 - 0.5 x 44/87.5 = 43.748571, and 43.5 + 0.5 x 43.5/87.5 the same.
+  near(f.lengthsFeet[0], 43.748571, "the front as the footprint uses it", 1e-5);
+  near(f.lengthsFeet[2], 43.748571, "the rear the same", 1e-5);
+});
+
+test("the footprint from typed sides: on an L the front typed moves its own arm out, and a rear typed after it takes up the notch", () => {
+  let e = drawnEll();
+  const id = (name) => byName(e, name).id;
+  // The line just short of the front's right end crosses the front and the back of the notch, not the rear.
+  e = x.withSideLength(e, id("Front"), 44);
+  assert(lengthsOf(e) === "Front 44, Right 20~, Rear 2 19~, Right 2 10~, Rear 25~, Left 30~", lengthsOf(e));
+  near(x.exteriorFootprint(e).areaSquareFeet, 1050 + 4 * 20, "the front arm 4' longer");
+  // The rear typed 27: across it is the front, typed, so the drawn back of the notch takes up the 2'.
+  e = x.withSideLength(e, id("Rear"), 27);
+  assert(lengthsOf(e) === "Front 44, Right 20~, Rear 2 17~, Right 2 10~, Rear 27, Left 30~", lengthsOf(e));
+  assert(x.exteriorFootprint(e).misclosureFeet < 1e-9, "and it closes exactly");
+});
+
+test("a side's openings after a length change: measured from its left corner they stay, and the far side's keep their place on the wall", () => {
+  let e = drawnRect();
+  const id = (name) => byName(e, name).id;
+  const win = (oid, from, w = 3) => ({ id: oid, kind: "window", widthFeet: w, heightFeet: 4, sillFeet: 3, fromLeftFeet: from });
+  e.sides[0].openings = [win("a", 10), win("b", 35)];
+  e.sides[0].gable = { peakFeet: 16, atFeet: 20 };
+  // The rear, seen from behind the house, starts at the plan's right: 5' in from its left corner is the plan's 31'-35'.
+  e.sides[2].openings = [win("c", 5, 4)];
+  e = x.withSideLength(e, id("Front"), 36);
+  const front = byName(e, "Front");
+  assert(front.openings[0].fromLeftFeet === 10, "the first window where it was taped");
+  near(front.openings[1].fromLeftFeet, 33, "the second brought back inside the shorter wall");
+  near(front.gable.atFeet, 20, "the peak where it was measured");
+  // The rear is 4' shorter at its left end (the plan's right): its window keeps its place, 1' in from that end now.
+  near(byName(e, "Rear").lengthFeet, 36, "the drawn rear follows");
+  near(byName(e, "Rear").openings[0].fromLeftFeet, 1, "the rear window stays put");
+  e = x.withSideLength(e, id("Front"), 44);
+  near(byName(e, "Rear").openings[0].fromLeftFeet, 9, "and stays put the other way: 9' in");
+});
+
+test("the footprint from typed sides: the front typed, each next side by its corner and length, and the last one offered", () => {
+  let e = x.startWalk(40);
+  assert(e.open && /Still going round/.test(x.exteriorFootprint(e).reason), x.exteriorFootprint(e).reason);
+  e = x.withNextSide(e, "outside", 30);
+  e = x.withNextSide(e, "outside", ft(39, 10));
+  assert(e.sides.map((s) => s.name).join() === "Front,Right,Rear" && e.open, e.sides.map((s) => s.name).join());
+  // From the rear's end the walk is 2" off the front's left corner across it and 30' short: one more side, round an outside corner.
+  const w = x.walkState(e);
+  assert(w.lastSide && w.lastSide.turn === "outside" && w.lastSide.name === "Left", JSON.stringify(w.lastSide));
+  near(w.lastSide.lengthFeet, 30, "the left side's length");
+  e = x.withNextSide(e, w.lastSide.turn, w.lastSide.lengthFeet);
+  assert(!e.open && e.sides.every((s) => s.turn === "outside"), "back at the start: closed by itself");
+  const f = x.exteriorFootprint(e);
+  assert(f.closes, f.reason);
+  // The 2" the rear is short is shared between front and rear, as for any taped rectangle: 40 - (2/12) x 40/79.833.
+  near(f.lengthsFeet[0], 40 - (2 / 12) * (40 / (40 + ft(39, 10))), "the front as used", 1e-6);
+  assert(e.sides.every((s) => s.lengthFrom === undefined), "every length typed");
+});
+
+test("going round a U side by side, the walk does not close on its own before it is back at the start", () => {
+  let e = x.startWalk(40);
+  e = x.withNextSide(e, "outside", 30);
+  e = x.withNextSide(e, "outside", 10);
+  e = x.withNextSide(e, "outside", 20);
+  // Four outside corners so far, as a rectangle has, but 31'8" from the start: still open.
+  assert(e.open && x.walkState(e).turnsClose, "the corners would go round, but the walk is nowhere near the start");
+  e = x.withNextSide(e, "inside", 20);
+  e = x.withNextSide(e, "inside", 20);
+  e = x.withNextSide(e, "outside", 10);
+  assert(e.open, "still open before the last side");
+  e = x.withNextSide(e, "outside", 30);
+  assert(!e.open, "closed at the start");
+  assert(e.sides.map((s) => s.name).join() === "Front,Right,Rear,Left,Rear 2,Right 2,Rear 3,Left 2", e.sides.map((s) => s.name).join());
+  near(x.exteriorFootprint(e).areaSquareFeet, 40 * 30 - 20 * 20, "the U's area");
+});
+
+test("the roof is there as soon as the outline closes, at an assumed 6/12 that is asked for until it is answered", () => {
+  const e = drawnRect();
+  e.scope = { roofing: true, sides: [e.sides[1].id], soffitFascia: false, eavestrough: false };
+  const q = x.exteriorQuantities(e);
+  assert(q.roof && q.pitch.source === "assumed" && q.roof.pitch === 6, `${q.pitch.source} ${q.roof?.pitch}`);
+  assert(q.roofing.pitchAssumed && q.roofing.toAnswer.roofing[0] === "the pitch (6/12 is assumed)", q.roofing.toAnswer.roofing.join(" | "));
+  const lines = x.exteriorScopeLines(e);
+  assert(/^Remove & replace roofing – material to confirm – 6\/12 \(assumed, to confirm\) – /.test(lines.roofing[0]), lines.roofing[0]);
+  // The Right side is a gable end: its gable is the roof's, so at the assumed pitch, and its line says so.
+  assert(/^Remove & replace stucco – Right – [\d.]+ SF – gables at the assumed 6\/12, to confirm$/.test(lines.siding[0]), lines.siding[0]);
+  e.roof.pitch = 5;
+  const typed = x.exteriorQuantities(e);
+  assert(typed.pitch.source === "typed" && !typed.roofing.pitchAssumed && !typed.roofing.toAnswer.roofing.some((t) => /pitch/.test(t)), "typed: nothing assumed");
+  assert(!/assumed/.test([...x.exteriorScopeLines(e).roofing, ...x.exteriorScopeLines(e).siding].join(" ")), "and no line says so");
+});
+
+test("roof end toggles: a tap on an end turns a gable to a hip and back; a porch or cross gable goes on a side with one tap", () => {
+  const e = drawnRect();
+  e.roof.pitch = 6;
+  const id = (name) => byName(e, name).id;
+  const nameOf = (sideId) => e.sides.find((s) => s.id === sideId)?.name;
+  const plan0 = x.exteriorQuantities(e).roof;
+  // The ridge runs along the 40' front, so the ends stand over Left and Right, both gables.
+  assert(plan0.ends.map((end) => `${nameOf(end.sideId)} ${end.kind}`).sort().join() === "Left gable,Right gable", JSON.stringify(plan0.ends));
+  assert(x.toggledEnd(plan0, id("Front")) === null, "the front is no end");
+  assert(x.toggledEnd(plan0, id("Left")) === "hip", "a gable taps to a hip");
+  e.roof = x.withRoofEnd(e.roof, id("Left"), "hip");
+  const plan1 = x.exteriorQuantities(e).roof;
+  assert(plan1.ends.find((end) => end.sideId === id("Left")).kind === "hip", "now a hip");
+  // The hip end's two rakes are gone and its two hips are there: 16'4" of run each at 6/12 is 16.333 x 1.5 = 24.5'.
+  near(plan1.totals.hip, 2 * 16.3333 * x.hipValleyFactor(6), "two hips", 1e-3);
+  near(plan0.totals.rake - plan1.totals.rake, plan0.totals.rake / 2, "half the rakes gone");
+  assert(x.toggledEnd(plan1, id("Left")) === "gable", "and a hip taps back to a gable");
+  e.roof = x.withAddition(e.roof, "porch", id("Front"), 40);
+  const a = e.roof.additions[0];
+  assert(a.kind === "porch" && a.sideId === id("Front") && a.fromFeet === 0 && a.toFeet === 40 && a.depthFeet === 6 && !a.lower, JSON.stringify(a));
+  const plan2 = x.exteriorQuantities(e).roof;
+  assert(plan2.planSquareFeet > plan1.planSquareFeet + 100 && !/left out/.test(plan2.note ?? ""), plan2.note ?? `${plan2.planSquareFeet}`);
+  e.roof = x.withAddition(e.roof, "gable", id("Front"), 40);
+  assert(e.roof.additions[1].kind === "gable" && e.roof.additions[1].fromFeet === 15 && e.roof.additions[1].toFeet === 25, JSON.stringify(e.roof.additions[1]));
 });
 
 console.log(`\n${passed.length} passed, ${failures.length} failed`);

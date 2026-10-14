@@ -41,6 +41,7 @@ import {
   type Exterior,
   exteriorFootprint,
   exteriorPitch,
+  formatPitch,
   type ExteriorOpeningKind,
   type ExteriorSide,
   type Footprint,
@@ -292,12 +293,14 @@ export function exteriorModel(exterior: Exterior): ExteriorModelResult {
   const footprint: Footprint = exteriorFootprint(exterior);
   if (!footprint.closes) return { ok: false, reason: footprint.reason ?? "The sides don't close into a footprint." };
   const notes: string[] = [];
-  const pitch = exteriorPitch(exterior).value;
+  const reading = exteriorPitch(exterior);
+  const pitch = reading.value;
   const input = pitch !== null ? roofInput(exterior, footprint, pitch) : null;
   const plan = input ? buildRoof(input) : null;
   // A measured gable gives a pitch, so with none there is no gable either.
   if (!input) notes.push("No pitch yet, so no roof: the walls stand to their eaves.");
   else if (plan?.shape === "other") notes.push("The roof isn't worked out for this outline, so only the walls are drawn.");
+  else if (reading.source === "assumed") notes.push(`The roof is at an assumed ${formatPitch(input.pitch)} until its pitch is typed or a gable is measured.`);
   const built = plan && plan.shape !== "other" ? plan : null;
   const r = (input?.pitch ?? 0) / 12;
   const ov = input?.eaveOverhangFeet ?? 0;

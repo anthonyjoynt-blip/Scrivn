@@ -356,7 +356,7 @@ export function parseScanExterior(input: unknown, meta: { scanId?: string | null
         : `${which}, but a file brings no photos: send the scan from the phone to see them here.`,
     );
   }
-  notes.push("Type the pitch, or check the one the gables give, and the overhangs, on Roof & footprint.");
+  notes.push("Type the pitch, or check the one the gables give, and the overhangs, on Plan & roof.");
 
   const roof = defaultRoof();
   /*

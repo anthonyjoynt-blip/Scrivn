@@ -101,6 +101,12 @@ export interface ExteriorSide {
   name: string;
   /** Cladding corner to cladding corner. */
   lengthFeet: number;
+  /**
+   * "drawn": read off the outline tapped on the plan, not taped (2026-10-13, lib/exteriorPlan.ts).
+   * A drawn side gives way when a length is typed - the outline stays closed round it - and is
+   * shown as about that long until its own length is typed. Absent: typed, or measured by the phone.
+   */
+  lengthFrom?: "drawn";
   /** The corner at this side's RIGHT end, facing it from outside: an outside corner, or an inside one (the inside of an L). */
   turn: SideTurn;
   /** Where the cladding starts: the top of the parging (the usual), or the grade itself. */
@@ -283,6 +289,11 @@ export interface ExteriorScope {
 export interface Exterior {
   /** In order round the house: each next side is to the RIGHT of the one before, as you face them from outside. */
   sides: ExteriorSide[];
+  /**
+   * Being typed in side by side round the house and not yet back at the start (2026-10-13): the last
+   * side's corner is not known until the next is added, so there is no footprint until it is closed.
+   */
+  open?: boolean;
   roof: ExteriorRoof;
   /** Optional so an exterior drawn before the scope existed loads; absent reads as nothing in scope. */
   scope?: ExteriorScope;
@@ -304,6 +315,12 @@ export interface Exterior {
 }
 
 export const DEFAULT_EAVE_FEET = 10;
+/**
+ * The pitch a roof is drawn at before one is typed or a gable is measured (2026-10-13): the owner
+ * could not find the roof while it waited for a pitch. Always said to be assumed, on the plan, the
+ * scope and the documents, and asked for until it is answered.
+ */
+export const ASSUMED_PITCH = 6;
 export const DEFAULT_PARGING_FEET = 8 / 12;
 export const DEFAULT_EAVE_OVERHANG_FEET = 16 / 12;
 export const DEFAULT_RAKE_OVERHANG_FEET = 12 / 12;
@@ -869,6 +886,7 @@ export function exteriorFootprint(exterior: Exterior): Footprint {
     areaSquareFeet: 0,
     perimeterFeet: 0,
   });
+  if (exterior.open) return fail("Still going round the house: add the next side, or close the outline.");
   if (sides.length < 4) return fail(`A footprint needs every side of the house: ${sides.length} of at least 4 so far.`);
   /*
     A walk the phone did not close can still add up to four corners by chance - six sides of a house
@@ -935,13 +953,17 @@ export function exteriorFootprint(exterior: Exterior): Footprint {
 // ---------------------------------------------------------------------------------------------
 
 export interface PitchReading {
+  /** Never null since 2026-10-13: with nothing typed or measured it is `ASSUMED_PITCH`. */
   value: number | null;
-  source: "typed" | "sides" | null;
+  source: "typed" | "sides" | "assumed" | null;
   /** Each side with a measured gable, and the pitch it gives. */
   fromSides: { sideId: string; name: string; pitch: number }[];
 }
 
-/** The pitch the roof is built at: as typed, else the mean of what the measured gables give. */
+/**
+ * The pitch the roof is built at: as typed, else the mean of what the measured gables give, else
+ * `ASSUMED_PITCH` - so the roof is there as soon as the footprint closes, said to be assumed.
+ */
 export function exteriorPitch(exterior: Exterior): PitchReading {
   const fromSides = exterior.sides
     .map((side) => ({ side, q: sideQuantities(side) }))
@@ -949,7 +971,7 @@ export function exteriorPitch(exterior: Exterior): PitchReading {
     .map(({ side, q }) => ({ sideId: side.id, name: side.name, pitch: q.pitchFromGable as number }));
   if (exterior.roof.pitch !== null && exterior.roof.pitch >= 0) return { value: exterior.roof.pitch, source: "typed", fromSides };
   if (fromSides.length > 0) return { value: fromSides.reduce((s, f) => s + f.pitch, 0) / fromSides.length, source: "sides", fromSides };
-  return { value: null, source: null, fromSides };
+  return { value: ASSUMED_PITCH, source: "assumed", fromSides };
 }
 
 export function roofInput(exterior: Exterior, footprint: Footprint, pitch: number): RoofInput {
@@ -992,6 +1014,8 @@ export interface SlopeQuantity {
 
 export interface RoofingQuantities {
   pitch: number;
+  /** Neither typed nor given by a measured gable: `ASSUMED_PITCH`, and asked for. */
+  pitchAssumed: boolean;
   pitchFactor: number;
   material: RoofMaterial | null;
   slopes: SlopeQuantity[];
@@ -1055,8 +1079,9 @@ function sideEave(side: ExteriorSide | undefined): number | null {
 }
 
 /** The roof as priced: the slopes chosen on the plan, the eaves and rakes chosen for the eavestrough, and the owner's list of questions. */
-export function roofingQuantities(exterior: Exterior, roof: RoofPlan): RoofingQuantities {
+export function roofingQuantities(exterior: Exterior, roof: RoofPlan, pitch: PitchReading = exteriorPitch(exterior)): RoofingQuantities {
   const R = exterior.roof;
+  const pitchAssumed = pitch.source === "assumed";
   const sideById = new Map(exterior.sides.map((s) => [s.id, s]));
   const slopeChosen = (key: string) => R.slopes == null || R.slopes.includes(key);
   const slopes: SlopeQuantity[] = roof.facets.map((f) => ({
@@ -1104,6 +1129,7 @@ export function roofingQuantities(exterior: Exterior, roof: RoofPlan): RoofingQu
   const material = R.material ?? null;
 
   const roofingQs: string[] = [];
+  if (pitchAssumed) roofingQs.push(`the pitch (${formatPitch(roof.pitch)} is assumed)`);
   if (material === null) roofingQs.push("the roofing material");
   if (R.dripEdge == null) roofingQs.push("drip edge, yes or no");
   if (R.underlayment == null) roofingQs.push("underlayment: synthetic, felt or none");
@@ -1117,6 +1143,7 @@ export function roofingQuantities(exterior: Exterior, roof: RoofPlan): RoofingQu
 
   return {
     pitch: roof.pitch,
+    pitchAssumed,
     pitchFactor: roof.pitchFactor,
     material,
     slopes,
@@ -1239,7 +1266,7 @@ export function exteriorQuantities(exterior: Exterior): ExteriorQuantities {
     else insideCornerFeet += height;
   });
 
-  const roofing: RoofingQuantities | null = roof ? roofingQuantities(exterior, roof) : null;
+  const roofing: RoofingQuantities | null = roof ? roofingQuantities(exterior, roof, pitch) : null;
 
   return {
     footprint,
@@ -1305,7 +1332,7 @@ export function exteriorScopeLines(exterior: Exterior | undefined): ExteriorScop
     const sq = `${r.squares.toFixed(2)} SQ`;
     const which = r.allSlopes ? "all slopes" : `slope${r.slopes.filter((s) => s.selected).length === 1 ? "" : "s"} ${r.slopes.filter((s) => s.selected).map((s) => s.label).join(", ")}`;
     const metal = r.material === "metal";
-    out.roofing.push(`Remove & replace roofing – ${r.material ? ROOF_MATERIAL_LABEL[r.material] : "material to confirm"} – ${formatPitch(r.pitch)} – ${sq} (${which})`);
+    out.roofing.push(`Remove & replace roofing – ${r.material ? ROOF_MATERIAL_LABEL[r.material] : "material to confirm"} – ${formatPitch(r.pitch)}${r.pitchAssumed ? " (assumed, to confirm)" : ""} – ${sq} (${which})`);
     if (r.steep) out.roofing.push(`Steep roof charge – ${r.steep} – ${sq}`);
     if (R.high === true) out.roofing.push(`High roof charge – two storeys or more – ${sq}`);
     if (r.ridgeFeet + r.hipFeet > 0) out.roofing.push(`Hip & ridge cap – ${num(r.ridgeFeet + r.hipFeet)} LF`);
@@ -1332,14 +1359,17 @@ export function exteriorScopeLines(exterior: Exterior | undefined): ExteriorScop
 
   const sides = q.sides.filter((s) => (scope?.sides ?? []).includes(s.sideId) && s.complete);
   if (sides.length > 0) {
-    const kinds = new Map<string, { label: string; kind: CladdingKind; gross: number; holes: number; net: number; names: string[] }>();
+    // A gable the roof gives at a pitch nobody measured is that pitch's guess: the line says so.
+    const guessed = (s: SideQuantities) => q.pitch.source === "assumed" && s.gableSource === "roof" && s.gableSquareFeet > 0.05;
+    const kinds = new Map<string, { label: string; kind: CladdingKind; gross: number; holes: number; net: number; names: string[]; guessed: boolean }>();
     for (const s of sides) {
       for (const b of s.bands) {
         const key = b.kind === "other" ? `other:${b.label.toLowerCase()}` : b.kind;
-        const k = kinds.get(key) ?? { label: b.label, kind: b.kind, gross: 0, holes: 0, net: 0, names: [] };
+        const k = kinds.get(key) ?? { label: b.label, kind: b.kind, gross: 0, holes: 0, net: 0, names: [], guessed: false };
         k.gross += b.grossSquareFeet;
         k.holes += b.openingSquareFeet;
         k.net += b.netSquareFeet;
+        k.guessed ||= guessed(s);
         if (!k.names.includes(s.name)) k.names.push(s.name);
         kinds.set(key, k);
       }
@@ -1348,7 +1378,8 @@ export function exteriorScopeLines(exterior: Exterior | undefined): ExteriorScop
     for (const k of kinds.values()) {
       if (k.net <= 0) continue;
       const holes = k.holes > 0.05 ? ` (${num(k.gross)} SF less ${num(k.holes)} SF of openings)` : "";
-      out.siding.push(`Remove & replace ${k.label.toLowerCase()} – ${k.names.join(", ")} – ${num(k.net)} SF${holes}`);
+      const gables = k.guessed ? ` – gables at the assumed ${formatPitch(q.pitch.value ?? ASSUMED_PITCH)}, to confirm` : "";
+      out.siding.push(`Remove & replace ${k.label.toLowerCase()} – ${k.names.join(", ")} – ${num(k.net)} SF${holes}${gables}`);
       if (SIDING_KINDS.includes(k.kind)) wrap += k.net;
     }
     if (wrap > 0) out.siding.push(`House wrap – ${num(wrap)} SF`);
