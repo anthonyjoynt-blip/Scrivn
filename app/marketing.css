@@ -699,7 +699,8 @@
   transition: max-height 0.2s ease;
 }
 .mk-faq-item.open .mk-faq-a {
-  max-height: 400px;
+  /* Room for the longest answer at phone width (366px at 375px wide, 2026-10-14) with larger text sizes on top. */
+  max-height: 800px;
   padding-bottom: 18px;
 }
 

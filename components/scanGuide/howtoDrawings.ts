@@ -1367,6 +1367,80 @@ export const HOWTO_DRAWINGS = {
         "strokeLinecap": "round"
       }
     ]
+  },
+  "wet": {
+    "viewBox": "0 0 160 120",
+    "paths": [
+      {
+        "d": "M40,100 L40,70 C58,62 70,76 86,68 S112,60 124,64 L124,100 Z",
+        "fill": "#2f7fbf",
+        "fillOpacity": 0.333
+      },
+      {
+        "d": "M16,100 L144,100",
+        "fill": "none",
+        "stroke": "#1b3a5c",
+        "strokeWidth": 2.5,
+        "strokeLinecap": "round"
+      },
+      {
+        "d": "M16,100 L16,20",
+        "fill": "none",
+        "stroke": "#1b3a5c",
+        "strokeWidth": 2.5,
+        "strokeLinecap": "round"
+      },
+      {
+        "d": "M144,100 L144,20",
+        "fill": "none",
+        "stroke": "#1b3a5c",
+        "strokeWidth": 2.5,
+        "strokeLinecap": "round"
+      },
+      {
+        "d": "M40,70 C58,62 70,76 86,68 S112,60 124,64",
+        "fill": "none",
+        "stroke": "#2f7fbf",
+        "strokeWidth": 2.0,
+        "strokeLinecap": "round"
+      },
+      {
+        "d": "M36.4,70 a3.6,3.6 0 1,0 7.2,0 a3.6,3.6 0 1,0 -7.2,0",
+        "fill": "#c97a0e"
+      },
+      {
+        "d": "M120.4,64 a3.6,3.6 0 1,0 7.2,0 a3.6,3.6 0 1,0 -7.2,0",
+        "fill": "#c97a0e"
+      },
+      {
+        "d": "M132.0,64.0 L132.0,69.0",
+        "fill": "none",
+        "stroke": "#5b6472",
+        "strokeWidth": 1.6,
+        "strokeLinecap": "round"
+      },
+      {
+        "d": "M132.0,73.0 L132.0,78.0",
+        "fill": "none",
+        "stroke": "#5b6472",
+        "strokeWidth": 1.6,
+        "strokeLinecap": "round"
+      },
+      {
+        "d": "M132.0,82.0 L132.0,87.0",
+        "fill": "none",
+        "stroke": "#5b6472",
+        "strokeWidth": 1.6,
+        "strokeLinecap": "round"
+      },
+      {
+        "d": "M132.0,91.0 L132.0,96.0",
+        "fill": "none",
+        "stroke": "#5b6472",
+        "strokeWidth": 1.6,
+        "strokeLinecap": "round"
+      }
+    ]
   }
 } satisfies Record<string, HowtoDrawing>;
 

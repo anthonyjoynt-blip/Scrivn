@@ -1,24 +1,46 @@
 import QRCode from "qrcode";
 import { MarketingShell } from "@/components/marketing/MarketingShell";
 import { appUrl } from "@/lib/deviceCodes";
-import { CaptureScreen, ClosetStep, DropAsk, HowtoArt, JoinRooms, ReportDialog, ReviewScreen, Ring, SpinDots } from "@/components/scanGuide/Figures";
+import {
+  AccountSheet,
+  CaptureScreen,
+  ClosetStep,
+  DoorSheet,
+  DropAsk,
+  ExteriorRound,
+  ExteriorSide,
+  HowtoArt,
+  JoinRooms,
+  MoistureRoom,
+  ReportDialog,
+  ReviewScreen,
+  Ring,
+  SpinDots,
+  SpinPlace,
+} from "@/components/scanGuide/Figures";
 import type { HowtoName } from "@/components/scanGuide/howtoDrawings";
 import "./scan-guide.css";
 
 /**
  * The tester guide for Scrivn Scan (2026-10-07): how to use it, tips from the walks so far, and how
  * to send us a scan that went wrong. Public and static - a tester reads it on the phone they scan
- * with, with no Scrivn account - and written for Scan as a product of its own: pairing with Scrivn
- * is one section near the end.
+ * with, with no Scrivn account - and written for Scan as a product of its own: Scrivn comes in near
+ * the end.
  *
  * Every button and line quoted here is the app's own word (res/values/strings.xml, Copy.kt,
- * Instructions.kt); when the app's wording changes, this page changes with it. The drawings in
- * public/scan-guide are the app's how-to pictures (scripts/howto-svgs.py); the screens are drawn in
+ * Instructions.kt, and for the outside of the house Exterior.kt and MainActivity's exterior lines);
+ * when the app's wording changes, this page changes with it. The drawings in public/scan-guide are
+ * the app's how-to pictures (scripts/howto-svgs.py); the screens are drawn in
  * components/scanGuide/Figures.tsx.
+ *
+ * Brought up to Scan 0.1.157 on 2026-10-14: the two chip rows, levels, moisture as you go, door
+ * types, the 360 step at the end, the Exterior sketch, the Account screen and free scans, and what
+ * happens with no signal. What Scrivn does with a scan is told in Scrivn's own Help.
  */
 export const metadata = {
   title: "Scrivn Scan — Tester Guide",
-  description: "How to measure rooms with Scrivn Scan, tips that make the numbers right, and how to send us a scan that went wrong.",
+  description:
+    "How to measure rooms and the outside of a house with Scrivn Scan, map moisture as you go, tips that make the numbers right, and how to send us a scan that went wrong.",
 };
 
 const SECTIONS = [
@@ -27,17 +49,35 @@ const SECTIONS = [
   ["ring", "The ring"],
   ["room", "Measure a room"],
   ["openings", "Doors, windows and openings"],
-  ["fixtures", "Cabinets, tubs and showers"],
+  ["fixtures", "Cabinets, tubs and appliances"],
   ["more", "Stairs, ceilings and the awkward bits"],
   ["rooms", "More than one room"],
+  ["levels", "More than one floor"],
+  ["moisture", "Moisture as you go"],
   ["drops", "When tracking drops"],
   ["review", "Review: check it, tape it"],
   ["spins", "360° photos"],
+  ["exterior", "The outside of the house"],
+  ["account", "Your account and free scans"],
   ["scrivn", "Sending to Scrivn (optional)"],
+  ["signal", "No signal"],
   ["tips", "Tips that make the numbers right"],
   ["report", "Send us a scan that went wrong"],
   ["known", "Rough edges we know about"],
 ] as const;
+
+type SectionId = (typeof SECTIONS)[number][0];
+
+/** A section's number, from its place in SECTIONS, so a new section never leaves a stale "see section 9". */
+function num(id: SectionId): number {
+  return SECTIONS.findIndex(([s]) => s === id) + 1;
+}
+
+/** A link to another section by its title. */
+function See({ id }: { id: SectionId }) {
+  const title = SECTIONS.find(([s]) => s === id)?.[1] ?? "";
+  return <a href={`#${id}`}>{title}</a>;
+}
 
 function B({ children }: { children: React.ReactNode }) {
   // A button or chip in the app, by its label.
@@ -49,12 +89,12 @@ function Q({ children }: { children: React.ReactNode }) {
   return <span className="sg-quote">{children}</span>;
 }
 
-function Section({ id, n, title, children }: { id: string; n: number; title: string; children: React.ReactNode }) {
+function Section({ id, title, children }: { id: SectionId; title: string; children: React.ReactNode }) {
   return (
     <section id={id} className="sg-section">
       <h2>
         <span className="sg-num" aria-hidden="true">
-          {n}
+          {num(id)}
         </span>
         {title}
       </h2>
@@ -86,8 +126,9 @@ export default async function ScanGuidePage() {
           <h1>Measure a room by tapping its corners</h1>
           <p>
             Scrivn Scan turns your Android phone into a measuring tool. Stand in the middle of a room, tap each corner, and it draws
-            the floor plan with every wall, door, window and cabinet on it. Thank you for testing it. This page shows how it works,
-            what gets the best numbers, and how to send us a scan that came out wrong. That last part is what helps us most.
+            the floor plan with every wall, door, window and cabinet on it. It maps wet walls and floors as you go, and it measures
+            the outside of the house side by side. Thank you for testing it. This page shows how it works, what gets the best numbers,
+            and how to send us a scan that came out wrong. That last part is what helps us most.
           </p>
         </header>
 
@@ -96,19 +137,26 @@ export default async function ScanGuidePage() {
             <h2>The short version</h2>
             <ol>
               <li>
-                Install the test version from <a href="/scan-download">scrivn.ca/scan-download</a> (section 1).
+                Install the test version from <a href="/scan-download">scrivn.ca/scan-download</a> (<See id="start" />).
               </li>
               <li>
                 Turn the room&apos;s lights on. Press <B>Start</B>, then hold the phone up and walk a few steps until the ring turns green.
               </li>
               <li>Stand near the middle of the room. Aim the ring at each corner, 6 to 8 ft away, and tap the screen. Go round the room.</li>
-              <li>Tap corner 1 again to close the room. Then tap each door, window and opening at its two sides.</li>
+              <li>
+                Tap corner 1 again to close the room. Then tap each door, window and opening at its two sides. Wet walls? <B>Wet line</B>{" "}
+                is on the first row now.
+              </li>
               <li>
                 Open the plan (the little map, top right). <strong>Tape at least one wall in every room</strong>, the longest, then tap
                 its length and type what your tape says. <B>Share</B> sends the plan as a PDF and a JPG, to scale.
               </li>
               <li>
                 Next room: <B>Add room</B>, tap its corners, tap the doorway you came through, then <B>More…</B> → <B>Join this room to another</B>.
+                Another floor: hold <B>Add room</B>.
+              </li>
+              <li>
+                Outside: <B>Start</B> → <B>Exterior sketch</B>, then each side in turn (<See id="exterior" />).
               </li>
               <li>
                 Anything wrong? On the plan, tap <B>Report a problem</B> and tell us. Did the room twice? Report after the second run;
@@ -127,7 +175,7 @@ export default async function ScanGuidePage() {
             </ol>
           </nav>
 
-          <Section id="start" n={1} title="Before you start">
+          <Section id="start" title="Before you start">
             <div className="sg-install">
               <div className="sg-qr" aria-hidden="true" dangerouslySetInnerHTML={{ __html: qr }} />
               <div>
@@ -155,7 +203,8 @@ export default async function ScanGuidePage() {
               <li>
                 <strong>Your phone.</strong> An Android phone that runs Google&apos;s ARCore with its depth camera feature. Most recent Samsung
                 Galaxy S and Google Pixel phones do. We test on a Galaxy S25 Ultra. If yours can&apos;t, the app says{" "}
-                <Q>This phone does not support the ARCore Depth API</Q>. Please tell us which phone it was.
+                <Q>This phone does not support the ARCore Depth API</Q>. Please tell us which phone it was. There is no iPhone version yet:
+                Android comes first.
               </li>
               <li>
                 <strong>First open.</strong> Allow the camera (it is how Scan measures) and let Android install or update{" "}
@@ -163,7 +212,11 @@ export default async function ScanGuidePage() {
               </li>
               <li>
                 <strong>No account needed.</strong> Scan works on its own: the plan is on the Review screen, and <B>Share</B> sends it as a
-                PDF and a JPG. Signing in to a Scrivn account, to send rooms into a claim, is optional (section 12).
+                PDF and a JPG. Signing in to a Scrivn account, to send rooms into a claim, is optional (<See id="account" />).
+              </li>
+              <li>
+                <strong>No signal needed to measure.</strong> Everything you tap stays on the phone. Only sending, signing in and reporting
+                need a connection (<See id="signal" />).
               </li>
               <li>
                 <strong>Lights on, phone charged.</strong> Dim rooms measure short (more on that in the tips), and the camera works hard. If
@@ -176,7 +229,7 @@ export default async function ScanGuidePage() {
             </ul>
           </Section>
 
-          <Section id="screen" n={2} title="The capture screen">
+          <Section id="screen" title="The capture screen">
             <div className="sg-split">
               <figure className="sg-fig sg-phonefig">
                 <CaptureScreen />
@@ -185,7 +238,8 @@ export default async function ScanGuidePage() {
               <ol className="sg-legend">
                 <li>
                   <B>Stop</B> finishes the capture. After it the bottom row reads <B>Start</B> · <B>Share</B> · <B>Send</B>. A long press
-                  on Share saves the capture&apos;s files for us; you won&apos;t need it.
+                  on Share saves the capture&apos;s files for us; you won&apos;t need it. When you&apos;re not capturing, <B>Account</B> sits
+                  in Stop&apos;s place.
                 </li>
                 <li>
                   <strong>The mini-map.</strong> Your plan so far, with you on it. Tap it (or swipe up) to open <strong>Review</strong>, the
@@ -200,18 +254,20 @@ export default async function ScanGuidePage() {
                   <Q>Corner 2 · wall 1: 12&apos;6&quot;</Q>. When in doubt, read the line.
                 </li>
                 <li>
-                  <strong>The chips.</strong> What your next tap is: <B>Corner</B>, <B>Door</B>, <B>Opening</B>, <B>Window</B>, and{" "}
-                  <B>More…</B> for everything else (closet doors, cabinets, tubs, stairs and the rest). The lit chip is green.
+                  <strong>The chips.</strong> What your next tap is. The first row: <B>Corner</B>, <B>Door</B>, <B>Opening</B>,{" "}
+                  <B>Window</B>, <B>Closet</B> (a closet door), and <B>Wet line</B> once the room is closed. The second row:{" "}
+                  <B>Cabinet ▾</B>, <B>Fixture ▾</B>, <B>Ceiling</B>, <B>Stairs</B> and <B>More…</B> for the rest. The lit chip is green.
                 </li>
                 <li>
-                  <B>Undo</B> takes back the last tap, so use it freely. <B>360°</B> takes a 360° photo (walk-through captures only).{" "}
-                  <B>?</B> explains the lit chip. <B>Add room</B> starts the next room in the same capture.
+                  <B>Undo</B> takes back the last tap, so use it freely. <B>?</B> explains the lit chip. <B>Add room</B> starts the next
+                  room in the same capture; hold it for another floor. Once a room is closed, <B>Moisture</B> joins this row, and on a
+                  walk-through capture <B>360°</B> too.
                 </li>
               </ol>
             </div>
           </Section>
 
-          <Section id="ring" n={3} title="The ring">
+          <Section id="ring" title="The ring">
             <p>The ring is the one thing to watch. Its colour tells you whether a tap will read:</p>
             <ul className="sg-rings">
               <li>
@@ -231,7 +287,9 @@ export default async function ScanGuidePage() {
               <li>
                 <Ring colour="red" hint="tracking…" />
                 <div>
-                  <strong>Red, &ldquo;tracking…&rdquo;.</strong> The phone has lost the room. Taps are ignored until it finds it again (section 9).
+                  <strong>Red, &ldquo;tracking…&rdquo;.</strong> The phone has lost the room. Taps are ignored until it finds it again (
+                  <See id="drops" />
+                  ).
                 </div>
               </li>
               <li>
@@ -243,13 +301,13 @@ export default async function ScanGuidePage() {
             </ul>
           </Section>
 
-          <Section id="room" n={4} title="Measure a room">
+          <Section id="room" title="Measure a room">
             <div className="sg-split">
               <div>
                 <ol className="sg-steps">
                   <li>
-                    Press <B>Start</B>. It asks what you are capturing: <B>Sketch only</B>, or <B>Sketch + walk-through</B> if you also
-                    want 360° photos of the rooms.
+                    Press <B>Start</B>. It asks what you are capturing: <B>Sketch only</B>, <B>Sketch + walk-through</B> if you also want
+                    360° photos of the rooms, or <B>Exterior sketch</B> for the outside of the house (<See id="exterior" />).
                   </li>
                   <li>
                     Hold the phone up and walk a few steps around the room, not on the spot, until the ring turns green. When you start a
@@ -265,7 +323,7 @@ export default async function ScanGuidePage() {
                   </li>
                   <li>
                     Back at the first corner, tap it again. That closes the room:{" "}
-                    <Q>Room closed · W × D · N corners — openings next, or Add room</Q>. The chip moves to <B>Door</B> for you.
+                    <Q>Room closed · W × D · N corners — openings or wet lines next, or Add room</Q>. The chip moves to <B>Door</B> for you.
                   </li>
                 </ol>
                 <p className="sg-note">
@@ -280,12 +338,12 @@ export default async function ScanGuidePage() {
             </div>
           </Section>
 
-          <Section id="openings" n={5} title="Doors, windows and openings">
+          <Section id="openings" title="Doors, windows and openings">
             <div className="sg-split">
               <div>
                 <ul className="sg-list">
                   <li>
-                    <B>Door</B>, <B>Opening</B> (a doorway with no door) and <B>Closet door</B> (on <B>More…</B>) are two taps:{" "}
+                    <B>Door</B>, <B>Opening</B> (a doorway with no door) and <B>Closet</B> (a closet door) are two taps:{" "}
                     <strong>its left jamb, then its right jamb</strong>. Keep the ring on the frame, not the gap. Aim a hand-width onto
                     the wall beside it. The line confirms the width: <Q>Door 1 · 2&apos;8&quot;</Q>.
                   </li>
@@ -295,8 +353,12 @@ export default async function ScanGuidePage() {
                   </li>
                   <li>The chip stays lit after an opening, so you can go straight on to the next one.</li>
                   <li>
-                    <strong>Closets:</strong> tap a closet&apos;s door with <B>Closet door</B>, not <B>Door</B>. Before Send, Scan asks
-                    about each closet door; see section 10.
+                    <strong>What kind of door:</strong> swing, bifold, pocket or sliding, and which way it opens, is set on Review by
+                    tapping the door&apos;s width (<See id="review" />).
+                  </li>
+                  <li>
+                    <strong>Closets:</strong> tap a closet&apos;s door with <B>Closet</B>, not <B>Door</B>. Before Send or Share, Scan asks
+                    about each closet door (<See id="review" />).
                   </li>
                 </ul>
               </div>
@@ -306,14 +368,14 @@ export default async function ScanGuidePage() {
             </div>
           </Section>
 
-          <Section id="fixtures" n={6} title="Cabinets, tubs and showers">
+          <Section id="fixtures" title="Cabinets, tubs and appliances">
             <div className="sg-split">
               <div>
                 <ul className="sg-list">
                   <li>
-                    On <B>More…</B>, pick <B>Cabinet – base</B>, <B>Cabinet – wall</B> or <B>Cabinet – full</B>. Each run is two taps,
-                    one at each end. Aim at the <strong>wall above it</strong> or at the <strong>face of the cabinet</strong>, whichever
-                    you can see.
+                    Press <B>Cabinet ▾</B> and pick <B>Base (lower)</B>, <B>Upper</B> or <B>Full height</B>. Each run is two taps, one at
+                    each end. Aim at the <strong>wall above it</strong> or at the <strong>face of the cabinet</strong>, whichever you can
+                    see.
                   </li>
                   <li>
                     At an inside corner, tap each run as far as you can see it and stop. The corner cabinet fills itself in. A gap wider
@@ -323,8 +385,8 @@ export default async function ScanGuidePage() {
                     A run out in the floor is an <strong>island</strong>. It asks for a third tap on its back edge, which gives its depth.
                   </li>
                   <li>
-                    <B>Tub</B> and <B>Shower</B> (also on <B>More…</B>) are tapped the same way: the wall above each end. A tub that nearly
-                    fills its alcove is stretched to fit it.
+                    <B>Fixture ▾</B> has <B>Tub</B>, <B>Shower</B>, <B>Fridge / freezer</B> and <B>Range</B>, each tapped the same way:
+                    at its two ends. A tub that nearly fills its alcove is stretched to fit it.
                   </li>
                 </ul>
               </div>
@@ -334,8 +396,11 @@ export default async function ScanGuidePage() {
             </div>
           </Section>
 
-          <Section id="more" n={7} title="Stairs, ceilings and the awkward bits">
-            <p>Everything here is on <B>More…</B>. Each has its own drawing in the app (tap <B>?</B> once it is lit).</p>
+          <Section id="more" title="Stairs, ceilings and the awkward bits">
+            <p>
+              <B>Stairs</B> and <B>Ceiling</B> are on the second row; the rest are on <B>More…</B>. Each has its own drawing in the app
+              (tap <B>?</B> once it is lit).
+            </p>
             <div className="sg-cards">
               <div className="sg-card">
                 <HowtoArt name="stairs" />
@@ -393,7 +458,7 @@ export default async function ScanGuidePage() {
             </p>
           </Section>
 
-          <Section id="rooms" n={8} title="More than one room">
+          <Section id="rooms" title="More than one room">
             <div className="sg-split">
               <div>
                 <ol className="sg-steps">
@@ -427,7 +492,93 @@ export default async function ScanGuidePage() {
             </div>
           </Section>
 
-          <Section id="drops" n={9} title="When tracking drops">
+          <Section id="levels" title="More than one floor">
+            <p>
+              A basement, a main floor and an upstairs go in one capture, a level each. <strong>Hold your finger on Add room</strong>:
+            </p>
+            <ul className="sg-list">
+              <li>
+                <B>New level above</B> or <B>New level below</B> starts a level. It asks for a name (<Q>e.g. Second floor</Q>,{" "}
+                <Q>e.g. Basement</Q>) and, the first time, the name of the level you are on now (<Q>e.g. Main floor</Q>). Press{" "}
+                <B>Start it</B>, go to that floor, and tap its first room as you would any room.
+              </li>
+              <li>
+                Each level is a plan of its own: its rooms are tapped fresh and joined to each other, not to the floor above or below. You
+                don&apos;t need to line the floors up at the stairs.
+              </li>
+              <li>
+                <B>Back to</B> a level returns to it; <B>Rename</B> changes a level&apos;s name. Review shows the rooms of the level you
+                are on.
+              </li>
+              <li>
+                <B>Share</B> makes a plan page for each level. <B>Send</B> sends each level into the claim as its own storey: it asks{" "}
+                <Q>Which storey is Main floor?</Q> for the level you started on, and places the others above or below it.
+              </li>
+            </ul>
+          </Section>
+
+          <Section id="moisture" title="Moisture as you go">
+            <div className="sg-split">
+              <div>
+                <p>
+                  Optional, for water jobs: the wet walls, floor and ceiling of each room, marked while you stand in it. Scrivn turns them
+                  into the claim&apos;s moisture map.
+                </p>
+                <h3 className="sg-h3">Wet walls: Wet line</h3>
+                <ol className="sg-steps">
+                  <li>
+                    Once a room is closed, <B>Wet line</B> appears at the end of the first row. Press it:{" "}
+                    <Q>Wet line · tap the top of the wet line at one end of a wet stretch</Q>.
+                  </li>
+                  <li>
+                    Aim the ring at the <strong>top of the wet line</strong>, as high as the meter finds it wet, at one end of the wet
+                    stretch, and tap. Then the same at its other end. Round a corner, tap one end on each wall.
+                  </li>
+                  <li>
+                    Scan lays it on that wall, in whichever room it is, and reads how high it is wet. A box asks what the wall is (
+                    <B>Drywall</B>, <B>Wood framing</B>, <B>Paneling</B> or <B>Concrete</B>), the <B>Meter reading (optional)</B>, and the
+                    height, which you can type over. <B>Undo last</B> there takes the line back.
+                  </li>
+                  <li>The chip stays lit for the next wet line.</li>
+                </ol>
+                <h3 className="sg-h3">Floors, ceilings and the job: Moisture</h3>
+                <p>
+                  <B>Moisture</B> on the bottom row swaps the chips for <B>Wet line</B>, <B>Floor</B>, <B>Ceiling</B>, <B>Setup</B> and{" "}
+                  <B>Done</B>.
+                </p>
+                <ul className="sg-list">
+                  <li>
+                    <B>Floor</B> and <B>Ceiling</B> open the plan to paint the current room:{" "}
+                    <Q>Paint the wet floor of Laundry with a finger - two fingers move the plan</Q>. Drag a finger where it is wet.{" "}
+                    <B>Whole room</B> fills it (then <B>Clear room</B> empties it), <B>Erase</B> then a drag takes paint off,{" "}
+                    <B>Undo last</B> takes back the last stroke, and <B>Done</B> goes back to the camera.
+                  </li>
+                  <li>
+                    <B>Setup</B> takes the <strong>dry reference</strong> (a reading of the same material where it did not get wet, one
+                    per material), the <strong>water class</strong>, which <strong>dehumidifiers</strong> you use (LGR or desiccant, and
+                    their size), and the room&apos;s wall insets over 18&quot;.
+                  </li>
+                  <li>
+                    <B>Done</B> goes back to the room chips. You can come back to Moisture whenever a room is closed.
+                  </li>
+                </ul>
+                <p>
+                  Review then draws the air movers and dehumidifiers the drying plan calls for, and says what they come to:{" "}
+                  <Q>Drying: 2 air movers · 1 LGR dehumidifier (medium) · Class 2</Q>. It is the same drying calculation Scrivn uses.
+                  Send carries the wet lines, readings, painted areas and setup into the claim.
+                </p>
+              </div>
+              <div className="sg-figs">
+                <figure className="sg-fig">
+                  <MoistureRoom />
+                  <figcaption>A room on Review: a wet line round a corner, the wet floor painted, and the equipment it calls for.</figcaption>
+                </figure>
+                <Drawing name="wet" caption="The app's own drawing: tap the top of the wet line at each end of the stretch." />
+              </div>
+            </div>
+          </Section>
+
+          <Section id="drops" title="When tracking drops">
             <div className="sg-split">
               <div>
                 <p>
@@ -467,7 +618,7 @@ export default async function ScanGuidePage() {
             </div>
           </Section>
 
-          <Section id="review" n={10} title="Review: check it, tape it">
+          <Section id="review" title="Review: check it, tape it">
             <div className="sg-split">
               <figure className="sg-fig sg-phonefig">
                 <ReviewScreen />
@@ -478,7 +629,9 @@ export default async function ScanGuidePage() {
                 <ul className="sg-list">
                   <li>
                     <strong>Best practice: tape at least one wall in every room.</strong> The longest one is best. It checks the
-                    phone&apos;s reading against a real measurement and sets the plan&apos;s scale. Two walls in a dim room.
+                    phone&apos;s reading against a real measurement and sets the plan&apos;s scale. Two walls in a dim room. Until a room
+                    has one, the line under the plan reminds you:{" "}
+                    <Q>Tape one wall for true sizes — tap its longest wall&apos;s length, type your tape, tick Scale the whole room</Q>.
                   </li>
                   <li>
                     <strong>Every length is a button.</strong> Tap it and type what your tape says (<Q>8&apos;3</Q>, <Q>99&quot;</Q> or{" "}
@@ -488,6 +641,13 @@ export default async function ScanGuidePage() {
                   <li>
                     <strong>Scale the whole room to this wall.</strong> Tick it when you type a tape length and every wall in the room
                     scales by the same amount. It suits a room that reads short all round (see the tips).
+                  </li>
+                  <li>
+                    <strong>Tap a door&apos;s width to say what kind of door it is</strong>: <B>Swing</B>, <B>Bifold</B>, <B>Pocket</B> or{" "}
+                    <B>Sliding</B>, <B>Single</B> or <B>Double</B>, and for a swing door <B>Opens in</B> or <B>Opens out</B> and{" "}
+                    <B>Hinge on the other side</B>. The tape for its width is in the same box. A door left alone goes over as a swing
+                    door, a closet door as a bifold, and anything 3&apos;6&quot; or wider as a pair. Setting it in one room sets the same
+                    doorway in the room next door.
                   </li>
                   <li>
                     <strong>Name the room and set its ceiling</strong> with the two buttons under the plan. Flat, sloped or vaulted.
@@ -508,11 +668,16 @@ export default async function ScanGuidePage() {
                     the JPG can be an underlay in Xactimate, set to scale off its 10 ft bar or any wall you taped.
                   </li>
                 </ul>
+                <figure className="sg-fig">
+                  <DoorSheet />
+                  <figcaption>A door&apos;s width tapped on Review: what kind of door, which way it opens, and its tape.</figcaption>
+                </figure>
                 <h3 className="sg-h3">The closets step</h3>
                 <p>
-                  When you press Send, Review shows each closet door in turn with a dashed <strong>Closet?</strong> box behind it. Tap the
-                  box if there&apos;s a closet there and it&apos;s drawn in; leave it if not. <B>Next closet</B> moves on and the last one
-                  reads <B>Send</B>. A closet bigger than the box? <B>Back</B>, then tap it as a room of its own and join it at its door.
+                  When you press Send or Share, Review shows each closet door in turn with a dashed <strong>Closet?</strong> box behind
+                  it. Tap the box if there&apos;s a closet there and it&apos;s drawn in; leave it if not. <B>Next closet</B> moves on and
+                  the last one reads <B>Send</B> (or <B>Share</B>). A closet bigger than the box? <B>Back</B>, then tap it as a room of its own and join it
+                  at its door.
                 </p>
                 <figure className="sg-fig">
                   <ClosetStep />
@@ -522,68 +687,267 @@ export default async function ScanGuidePage() {
             </div>
           </Section>
 
-          <Section id="spins" n={11} title="360° photos">
+          <Section id="spins" title="360° photos">
             <div className="sg-split">
               <div>
                 <p>
-                  Start with <B>Sketch + walk-through</B> to take 360° photos. Take them <strong>after the room is closed</strong>.
+                  Start with <B>Sketch + walk-through</B> to take 360° photos. They are a step of their own at the end, after the
+                  sketch and the moisture: the camera stops tracking the rooms while you take them, so do your tapping first.
                 </p>
                 <ol className="sg-steps">
                   <li>
-                    The mini-map shows amber rings where 360s are wanted (a dot turns green once done). Stand on one and press <B>360°</B>.
+                    Once a room is closed, <B>360°</B> is on the bottom row. Press it. Review opens, titled{" "}
+                    <Q>Tap where you&apos;re standing</Q>.
                   </li>
                   <li>
-                    Hold still while it sets up (<Q>360° – hold still a moment</Q>). The wide camera takes over the screen.
+                    Stand where you want the 360 and tap that spot on the plan. The wide camera takes over the screen; hold still while it
+                    sets up (<Q>360° – hold still a moment</Q>).
                   </li>
                   <li>
-                    Turn slowly on the spot. Hold the ring on the amber dot until its arc fills and it turns into a green tick. Then the next
-                    dot. There are 12 round the room at eye level, then 6 on the floor: tilt down when the line says so.
+                    Hold the phone at chest height and turn slowly on the spot. Hold the ring on the amber dot until its arc fills and it
+                    turns into a green tick. Then the next dot. There are 12 round the room at eye level, then 6 on the floor: tilt down
+                    when the line says so.
                   </li>
                   <li>
-                    It ends by itself after the 18th dot (or press <B>360°</B> again to stop early; half the dots or more is kept).
+                    After each 360 the plan comes back: walk to the next spot and tap where you are standing. Press <B>Done</B> when you
+                    have them all: <Q>360s done - 3 taken. Keep tapping, or Stop.</Q>
                   </li>
                 </ol>
                 <p className="sg-note">
-                  If it says <Q>Tap corner N again first – then the 360</Q>, the phone has to find the room before it can place the
-                  photo: tap that corner, then press <B>360°</B> again.
+                  The first time, a card explains the step. If the phone lost its bearing (the app was left and came back), the line says{" "}
+                  <Q>The phone lost its bearing - walk a few steps, then 360 again</Q>.
                 </p>
               </div>
+              <div className="sg-figs">
+                <figure className="sg-fig">
+                  <SpinPlace />
+                  <figcaption>The 360 step: tap the plan where you stand.</figcaption>
+                </figure>
+                <figure className="sg-fig">
+                  <SpinDots />
+                  <figcaption>Then turn on the spot; hold the ring on each amber dot until it fills.</figcaption>
+                </figure>
+              </div>
+            </div>
+          </Section>
+
+          <Section id="exterior" title="The outside of the house">
+            <p>
+              <B>Exterior sketch</B> measures the outside walls one side at a time: each side&apos;s length and heights, the cladding on
+              it (stucco, vinyl, brick and the rest) with its area, and its windows and doors. It draws the <strong>siding elevations
+              only</strong>: you don&apos;t tap the roof. Use it for siding and stucco work, or when Scrivn needs the house&apos;s
+              footprint to work out a roof. It is a capture of its own: the rooms inside are a separate capture.
+            </p>
+            <div className="sg-split">
+              <div>
+                <h3 className="sg-h3">Each side</h3>
+                <ol className="sg-steps">
+                  <li>
+                    Press <B>Start</B> → <B>Exterior sketch</B>. It asks <Q>What are you tapping?</Q>: pick the main cladding (
+                    <B>Stucco</B>, <B>Vinyl</B>, <B>Wood shake</B>, <B>EIFS</B>, <B>Wood</B>, <B>Fibre cement</B>, <B>Brick</B>,{" "}
+                    <B>Stone</B>, <B>Metal</B>) or <B>Parging</B>. The chips are now that material, <B>Window</B>, <B>Door</B> and{" "}
+                    <B>Photo</B>, and <B>Next side</B> takes Add room&apos;s place.
+                  </li>
+                  <li>
+                    Start at the front. Stand <strong>1 to 3 m (3 to 10 ft) from the wall</strong> and tap a{" "}
+                    <strong>bottom corner of the siding or stucco: at the top of the parging, not the ground</strong>. Then along the
+                    bottom to its next corner: the other end, or where the bottom steps. Those two fix the wall, so they are read by the
+                    depth camera and need you that close: <Q>Front: wall fixed, 34&apos;3&quot; between them.</Q>
+                  </li>
+                  <li>
+                    Step back until you can see the whole side. Aim at each corner of the material in turn: along the bottom where it
+                    steps, up the end, over the top (the eave, or a gable&apos;s peak), down the other end, and{" "}
+                    <strong>back to the first corner to close it</strong>: <Q>Stucco closed: 412 SF. Windows and doors, another material, or Next side.</Q>{" "}
+                    These taps are aimed at the wall the first two fixed, so the ring is green as soon as tracking is good.
+                  </li>
+                  <li>
+                    <strong>Another material:</strong> press the material chip again and pick it, the parging say, then tap round it the
+                    same way, down to the ground. A corner within about 6&quot; of one already tapped lands on it (
+                    <Q>on the corner already there</Q>), so the stucco&apos;s bottom and the parging&apos;s top are one line. Tap the main
+                    cladding first and an accent (a stone wainscot) after: where two shapes overlap, the one tapped later counts there.
+                  </li>
+                  <li>
+                    <B>Window</B>: two opposite corners of its <strong>opening in the siding or stucco, not the frame or the glass</strong>:
+                    bottom-left, then top-right. <Q>Window 1: 3&apos;0&quot; × 4&apos;6&quot;, sill 3&apos;2&quot;.</Q>
+                  </li>
+                  <li>
+                    <B>Door</B>: a bottom corner of its opening at the threshold, then the opposite top corner. Tap a garage door the same
+                    way; a door 7&frac12; ft wide or more goes to Scrivn as a garage door.
+                  </li>
+                  <li>
+                    <strong>A bottom that steps</strong> (the grade falls away, a walk-out): tap along the bottom as it runs, corner by
+                    corner. The first two fix the wall but needn&apos;t be its ends; the side&apos;s ends are its furthest bottom corners.
+                  </li>
+                  <li>
+                    <B>Photo</B>: step back until the whole side is on the screen, both ends, the bottom and the roof edge over it, hold
+                    still and press it. The first press shows how; press again to take it. Turn the phone on its side for a wide wall. A
+                    side too long or too tight for one photo takes two or three, each of a part. The line says what is out of frame:{" "}
+                    <Q>Photo 1 of Front kept · the whole side is in it</Q>. Where two roofs meet is worth a photo too.
+                  </li>
+                  <li>
+                    <B>Next side</B>, and walk round to it, either way round the house. If the side you are leaving has no photo, it reminds
+                    you once: <Q>No photo of Front yet · step back so all of it is in view and press Photo – or Next side again</Q>. Then
+                    the new side&apos;s two bottom corners: <Q>Next side – tap its two bottom corners, 1-3 m from the wall.</Q>
+                  </li>
+                </ol>
+              </div>
               <figure className="sg-fig">
-                <SpinDots />
-                <figcaption>Turn on the spot; hold the ring on each amber dot until it fills.</figcaption>
+                <ExteriorSide />
+                <figcaption>
+                  One side face-on: its two bottom corners first, then round the stucco to close it; a window and a door at two opposite
+                  corners of their openings.
+                </figcaption>
+              </figure>
+            </div>
+            <div className="sg-split">
+              <div>
+                <h3 className="sg-h3">Round the house</h3>
+                <ul className="sg-list">
+                  <li>
+                    Scan names the sides by which way they face: <strong>Front</strong>, then <strong>Right</strong>,{" "}
+                    <strong>Rear</strong> and <strong>Left</strong> (and <em>Front 2</em> for a second front-facing wall). Rename one on
+                    the plan.
+                  </li>
+                  <li>
+                    <strong>A hidden corner doesn&apos;t matter.</strong> Each side taps its own bottom corners, and the house corner is
+                    where two sides&apos; bottom lines cross. Behind a deck or a hedge, tap any point on the wall&apos;s bottom line
+                    within about 13 ft of the corner, a deck post on the line say.
+                  </li>
+                  <li>
+                    <strong>Closing the lap:</strong> there&apos;s no button. When the last side&apos;s bottom line meets the first
+                    side&apos;s, the footprint closes by itself.
+                  </li>
+                  <li>
+                    <strong>Check it on the plan</strong> (tap the mini-map): it shows one side at a time, face-on, with <B>‹</B>{" "}
+                    <B>›</B> to go round, its name to rename it, <B>Undo</B> and <B>Close</B>. Under it, the side&apos;s length, heights,
+                    areas, windows and doors, and the footprint: <Q>Footprint: 3 corners joined – go on round</Q> until it closes, then{" "}
+                    <Q>Footprint closed: 4 sides, 1640 SF</Q>.
+                  </li>
+                  <li>
+                    <strong>Tape one side</strong>, the longest you can run a tape along, corner to corner at the bottom. On the plan, tap
+                    that side&apos;s length and type it: <Q>Every length and height on every side scales to it.</Q> One tape scales the
+                    whole house.
+                  </li>
+                  <li>
+                    <strong>If tracking drops</strong> it asks for a bottom corner again: <Q>Tracking restarted – tap the Front&apos;s left
+                    bottom corner again (Undo skips it).</Q> Tap it where it was. If the map turned, it asks for the side&apos;s other
+                    bottom corner too, then <Q>Linked – go on.</Q>
+                  </li>
+                  <li>
+                    <B>Stop</B>, then <B>Send</B>: the exterior goes into a claim with its photos, no storey asked:{" "}
+                    <Q>Sent to Scrivn: the exterior (4 sides) as a new claim</Q>. <B>Share</B> makes plans of rooms only, so an exterior
+                    goes to Scrivn by Send.
+                  </li>
+                </ul>
+              </div>
+              <figure className="sg-fig">
+                <ExteriorRound />
+                <figcaption>Seen from above: each side&apos;s own two corners; the house corners are where the lines cross.</figcaption>
+              </figure>
+            </div>
+            <h3 className="sg-h3">What Scrivn does with it</h3>
+            <ul className="sg-list">
+              <li>
+                The exterior opens in the claim&apos;s sketch, in <strong>Exterior</strong>: the plan and roof first, then each side
+                face-on and to scale, with its cladding areas before and after openings, trim and corners.
+              </li>
+              <li>
+                <strong>The roof</strong> is built from the footprint. With no pitch typed, and no gable tapped up to its peak to give
+                one, it is drawn at an <strong>assumed 4/12</strong>, marked assumed on the plan, the scope and the documents until you
+                change it. Gable or hip at each end, porches, cross gables and lower roofs are set there, and every roof line has its
+                length. It is a roof estimate from the footprint and pitch, not an aerial roof report.
+              </li>
+              <li>
+                Each side&apos;s photo is squared up behind its elevation. <strong>AI trace</strong> reads the cladding, windows and
+                doors off it for you to tick and put on the side.
+              </li>
+              <li>There is a 3D view of the house, siding and roof.</li>
+              <li>
+                No Scan? The outside can be drawn by hand in Scrivn, side by side or corner by corner. Scrivn&apos;s Help shows how.
+              </li>
+            </ul>
+          </Section>
+
+          <Section id="account" title="Your account and free scans">
+            <div className="sg-split">
+              <div>
+                <p>
+                  <B>Account</B> is at the top left whenever you&apos;re not capturing. You don&apos;t need an account to measure or to
+                  share a plan.
+                </p>
+                <ul className="sg-list">
+                  <li>
+                    <strong>Not signed in</strong>, it offers <B>Sign in</B> (your Scrivn email and password), <B>Create an account</B>,{" "}
+                    <B>Pair with a code from Scrivn</B> and <B>Delete an account</B>.
+                  </li>
+                  <li>
+                    <strong>Accounts are by invitation for now.</strong> Create an account says <Q>Accounts are by invitation</Q> until
+                    Scrivn opens sign-up to everyone. If you&apos;ve been given an account, sign in; to ask for one, write to us at{" "}
+                    <a href="/contact">scrivn.ca/contact</a>.
+                  </li>
+                  <li>
+                    <strong>Signed in</strong>, it shows your name and company, your email, your scans this month, and{" "}
+                    <Q>Scans you send go into this account&apos;s claims in Scrivn.</Q> <B>Sign out</B> stops this phone sending to the
+                    account; scans already sent stay there.
+                  </li>
+                  <li>
+                    <B>Delete account</B> asks for your password. It deletes your sign-in and details and signs the phone out. If nobody
+                    else is in your company&apos;s account, its claims, scans and photos are deleted too, and any plan is cancelled. It
+                    can&apos;t be undone. Scan still works without an account afterwards. You can also delete it at{" "}
+                    <a href="/account/delete">scrivn.ca/account/delete</a>.
+                  </li>
+                </ul>
+                <h3 className="sg-h3">Free scans</h3>
+                <ul className="sg-list">
+                  <li>
+                    <strong>A scan is one capture</strong>: everything from Start to the next Start, all its rooms, levels and exterior.
+                  </li>
+                  <li>
+                    It counts <strong>once</strong>, the first time it leaves the phone: sent to Scrivn or shared as a plan. Sending it
+                    again, or sharing it after sending it, doesn&apos;t count again. A phone with no account isn&apos;t counted at all.
+                  </li>
+                  <li>
+                    A Scrivn account with no plan has <strong>3 a month</strong>. Any Scrivn plan, or the Scan plan, is unlimited.
+                  </li>
+                  <li>
+                    <strong>While Scan is in testing nothing is refused</strong>: scans are counted, and Account says{" "}
+                    <Q>Unlimited scans while Scrivn Scan is in testing (2 scans this month).</Q>
+                  </li>
+                </ul>
+              </div>
+              <figure className="sg-fig">
+                <AccountSheet />
+                <figcaption>Account, not signed in.</figcaption>
               </figure>
             </div>
           </Section>
 
-          <Section id="scrivn" n={12} title="Sending to Scrivn (optional)">
+          <Section id="scrivn" title="Sending to Scrivn (optional)">
             <div className="sg-split">
               <div>
                 <p>If you have a Scrivn account, Scan sends rooms straight into a claim.</p>
                 <ol className="sg-steps">
                   <li>
-                    <strong>Sign in once.</strong> Tap <B>Account</B> (top left, when you&apos;re not capturing) → <B>Sign in</B>, and use
-                    your Scrivn email and password. No account yet? <B>Create an account</B> there. Or pair instead: in Scrivn, open your
-                    Account page and press <strong>Pair a phone</strong>, then on the phone tap <B>Account</B> → <B>Pair with a code from
-                    Scrivn</B> → <B>Scan code</B> and point it at the QR code (or <B>Type code</B> for the eight letters).
+                    <strong>Sign in once.</strong> <B>Account</B> → <B>Sign in</B>, with your Scrivn email and password (
+                    <See id="account" />
+                    ). Or pair instead: in Scrivn, open your Account page and press <strong>Pair a phone</strong>, then on the phone tap{" "}
+                    <B>Account</B> → <B>Pair with a code from Scrivn</B> → <B>Scan code</B> and point it at the QR code (or{" "}
+                    <B>Type code</B> for the eight letters). Until then the Send button reads <B>Sign in</B>.
                   </li>
                   <li>
-                    After a capture, press <B>Stop</B>, then <B>Send</B>. Pick the claim (or <B>New claim</B>) and the storey. The rooms go
-                    over with their names, ceilings, doors, windows and cabinets, and with the walk&apos;s photos for a walk-through capture.
+                    After a capture, press <B>Stop</B>, then <B>Send</B>. Pick the claim (or <B>New claim</B>) and the storey.
+                  </li>
+                  <li>
+                    The rooms go over with their names, ceilings, doors (and their kind), windows, cabinets and fixtures; the wet lines,
+                    readings and painted floors and ceilings; every level as its own storey; the exterior and its side photos; and the
+                    walk&apos;s 360° photos for a walk-through capture.
                   </li>
                   <li>
                     <B>Open in Scrivn</B> takes you to the claim&apos;s sketch. Scrivn may offer to fill in closets and spaces between rooms
                     that weren&apos;t tapped.
                   </li>
                   <li>
-                    <strong>No signal?</strong> Send anyway: pick the claim from the list the phone last saw (or <B>New claim</B>). The scan
-                    and its photos are saved on the phone and go to Scrivn on their own when there is signal. Over the buttons it says
-                    &ldquo;1 scan waiting to send – it goes on its own when there is signal&rdquo;; tap that to see what is waiting, or{" "}
-                    <B>Send now</B>. Pressing Start or closing the app doesn&apos;t lose it.
-                  </li>
-                  <li>
-                    <strong>Your account</strong> is under <B>Account</B>: who you&apos;re signed in as, your scans this month,{" "}
-                    <B>Sign out</B> and <B>Delete account</B>. On the free plan a scan counts once, the first time it leaves the phone
-                    (sent, or shared as a plan); a Scrivn plan or the Scan plan has no limit.
+                    No signal? Send anyway: it waits on the phone and goes by itself (<See id="signal" />).
                   </li>
                 </ol>
               </div>
@@ -593,7 +957,58 @@ export default async function ScanGuidePage() {
             </div>
           </Section>
 
-          <Section id="tips" n={13} title="Tips that make the numbers right">
+          <Section id="signal" title="No signal">
+            <p>Basements and rural jobs often have one bar or none. Both apps keep working.</p>
+            <div className="sg-cards sg-cards-2">
+              <div className="sg-card">
+                <h3>In Scan</h3>
+                <ul className="sg-list">
+                  <li>
+                    <strong>Measuring needs no signal.</strong> Rooms, levels, moisture, the exterior, 360s, Review and the tape all work
+                    on the phone alone.
+                  </li>
+                  <li>
+                    <B>Share</B> works too. Signed in, it is counted when the signal is back.
+                  </li>
+                  <li>
+                    <B>Send</B> lists the claims the phone last saw (<Q>Send to which claim? (no signal – the list from …)</Q>), or{" "}
+                    <B>New claim</B>. Then:{" "}
+                    <Q>No signal – the scan and its photos are saved on this phone and go to Scrivn on their own when there is signal. Keep working, or close the app: it is not lost.</Q>
+                  </li>
+                  <li>
+                    Over the buttons it says <Q>1 scan waiting to send – it goes on its own when there is signal</Q>. Tap it to see what is
+                    waiting, or <B>Send now</B>. Pressing Start or closing the app doesn&apos;t lose it.
+                  </li>
+                  <li>
+                    Signing in, creating an account and <B>Report a problem</B> need a connection; a report that can&apos;t go offers{" "}
+                    <B>Try again</B>.
+                  </li>
+                </ul>
+              </div>
+              <div className="sg-card">
+                <h3>In Scrivn</h3>
+                <ul className="sg-list">
+                  <li>
+                    Claims you&apos;ve opened on the device open without signal, and new ones can be started. Everything saves on the
+                    device and syncs on its own when the signal is back. The header says <strong>Offline</strong> and how much is waiting.
+                  </li>
+                  <li>
+                    The sketch, the moisture map, the drying log and the exterior all work offline. Photos are kept on the device and
+                    upload by themselves.
+                  </li>
+                  <li>
+                    Reading the walkthrough, generating the documents and AI trace wait for signal, then run by themselves. Reading a
+                    meter&apos;s screen from a photo needs signal: type the number instead.
+                  </li>
+                  <li>
+                    If the same claim was changed somewhere else in the meantime, Scrivn keeps both and asks which you want.
+                  </li>
+                </ul>
+              </div>
+            </div>
+          </Section>
+
+          <Section id="tips" title="Tips that make the numbers right">
             <p>These come from walking real houses with the app. Each one fixed something we saw go wrong.</p>
             <div className="sg-tips">
               <div className="sg-tip">
@@ -659,10 +1074,24 @@ export default async function ScanGuidePage() {
                   A walk-in or anything bigger than the dashed box: tap it as its own room and join it at its closet door.
                 </p>
               </div>
+              <div className="sg-tip">
+                <h3>Outside: the opening, not the frame</h3>
+                <p>
+                  Windows tapped on the frame or the glass came in 4 to 6 in short. Aim at the corners of the opening in the stucco or
+                  siding.
+                </p>
+              </div>
+              <div className="sg-tip">
+                <h3>Outside: one photo and one tape</h3>
+                <p>
+                  Take a photo of every side with the whole side in it, and tape one side corner to corner. The tape sets the scale of
+                  every side, and the photos let Scrivn check and trace each one.
+                </p>
+              </div>
             </div>
           </Section>
 
-          <Section id="report" n={14} title="Send us a scan that went wrong">
+          <Section id="report" title="Send us a scan that went wrong">
             <div className="sg-split">
               <div>
                 <p>
@@ -688,8 +1117,8 @@ export default async function ScanGuidePage() {
                 </div>
                 <p className="sg-small">
                   What&apos;s sent: the scan&apos;s measurements, the app&apos;s recent log (this run and any others since the app was
-                  opened), your phone&apos;s model and Android version, and what you write. No photos. It works with or without a Scrivn account, but it needs an internet connection; if it
-                  can&apos;t send, it says so and offers <B>Try again</B>.
+                  opened), your phone&apos;s model and Android version, and what you write. No photos. It works with or without a Scrivn
+                  account, but it needs an internet connection; if it can&apos;t send, it says so and offers <B>Try again</B>.
                 </p>
                 <p className="sg-small">
                   Something that isn&apos;t about a scan (the app crashed, a button doesn&apos;t make sense)? Report it the same way; a note
@@ -703,7 +1132,7 @@ export default async function ScanGuidePage() {
             </div>
           </Section>
 
-          <Section id="known" n={15} title="Rough edges we know about">
+          <Section id="known" title="Rough edges we know about">
             <ul className="sg-list">
               <li>
                 <strong>Thin partition ends</strong> (<B>Wall end</B>) are hard to hit cleanly from across a room. If one won&apos;t
@@ -719,6 +1148,13 @@ export default async function ScanGuidePage() {
                 <strong>Stop finishes the capture.</strong> After it the chip bar and <B>More…</B> are gone, and <B>Start</B> begins a new,
                 empty capture. Look over Review before you press Stop; a missed doorway can still go on afterwards with a long press on
                 Review.
+              </li>
+              <li>
+                <strong>A wet line can&apos;t be changed after its box is closed.</strong> <B>Undo</B> it and tap it again.
+              </li>
+              <li>
+                <strong>The outside has no roof from Scan.</strong> Scan measures the siding; Scrivn draws the roof from the footprint at an
+                assumed pitch until you give it the real one. <B>Share</B> makes no plan of an exterior: send it to Scrivn.
               </li>
             </ul>
             <p>

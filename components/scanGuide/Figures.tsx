@@ -34,11 +34,37 @@ function Callout({ x, y, n }: { x: number; y: number; n: number }) {
   );
 }
 
-function Chip({ x, y, w, label, lit = false }: { x: number; y: number; w: number; label: string; lit?: boolean }) {
+function Chip({ x, y, w, label, lit = false, size = 10.5 }: { x: number; y: number; w: number; label: string; lit?: boolean; size?: number }) {
   return (
     <g>
       <rect x={x} y={y} width={w} height={26} rx={13} fill={lit ? GREEN : CHIP_OFF} />
-      <text x={x + w / 2} y={y + 17} textAnchor="middle" fontSize={10.5} fontWeight={600} fill={lit ? CHROME : PAPER}>
+      <text x={x + w / 2} y={y + 17} textAnchor="middle" fontSize={size} fontWeight={600} fill={lit ? CHROME : PAPER}>
+        {label}
+      </text>
+    </g>
+  );
+}
+
+/** A light dialog of the app's (LIGHT_DIALOG): a white card with its title. */
+function Dialog({ w, h, title, children }: { w: number; h: number; title: string; children: React.ReactNode }) {
+  return (
+    <svg viewBox={`0 0 ${w} ${h}`} aria-hidden="true" className="sg-svg">
+      <rect x={0} y={0} width={w} height={h} rx={12} fill="#cfd6de" />
+      <rect x={14} y={14} width={w - 28} height={h - 28} rx={12} fill={PAPER} />
+      <text x={32} y={46} fontSize={15} fontWeight={700} fill={INK}>
+        {title}
+      </text>
+      {children}
+    </svg>
+  );
+}
+
+/** A button on a light dialog or Review: navy when chosen, outlined when not. */
+function Btn({ x, y, w, label, on = false, h = 30 }: { x: number; y: number; w: number; label: string; on?: boolean; h?: number }) {
+  return (
+    <g>
+      <rect x={x} y={y} width={w} height={h} rx={8} fill={on ? NAVY : PAPER} stroke={NAVY} strokeWidth={1.2} />
+      <text x={x + w / 2} y={y + h / 2 + 4} textAnchor="middle" fontSize={11.5} fontWeight={on ? 700 : 400} fill={on ? PAPER : NAVY}>
         {label}
       </text>
     </g>
@@ -79,23 +105,27 @@ export function CaptureScreen() {
       <text x={150} y={400} textAnchor="middle" fontSize={12} fill={PAPER}>
         Corner 2 · wall 1: 12&apos;6&quot;
       </text>
-      {/* the chip bar */}
-      <rect x={20} y={440} width={260} height={130} fill="rgba(18,40,63,0.92)" />
-      <Chip x={28} y={452} w={48} label="Corner" lit />
-      <Chip x={80} y={452} w={36} label="Door" />
-      <Chip x={120} y={452} w={50} label="Opening" />
-      <Chip x={174} y={452} w={46} label="Window" />
-      <Chip x={224} y={452} w={48} label="More…" />
-      <Chip x={28} y={488} w={50} label="Undo" />
-      <Chip x={82} y={488} w={42} label="360°" />
-      <Chip x={128} y={488} w={30} label="?" />
-      <Chip x={162} y={488} w={74} label="Add room" />
+      {/* the chip bar: two rows of chips (since 0.1.128), then Undo · ? · Add room */}
+      <rect x={20} y={432} width={260} height={138} fill="rgba(18,40,63,0.92)" />
+      <Chip x={30} y={440} w={46} label="Corner" lit size={10} />
+      <Chip x={80} y={440} w={36} label="Door" size={10} />
+      <Chip x={120} y={440} w={50} label="Opening" size={10} />
+      <Chip x={174} y={440} w={46} label="Window" size={10} />
+      <Chip x={224} y={440} w={44} label="Closet" size={10} />
+      <Chip x={30} y={472} w={56} label="Cabinet ▾" size={10} />
+      <Chip x={90} y={472} w={52} label="Fixture ▾" size={10} />
+      <Chip x={146} y={472} w={42} label="Ceiling" size={10} />
+      <Chip x={192} y={472} w={36} label="Stairs" size={10} />
+      <Chip x={232} y={472} w={42} label="More…" size={10} />
+      <Chip x={30} y={510} w={48} label="Undo" />
+      <Chip x={135} y={510} w={30} label="?" />
+      <Chip x={198} y={510} w={72} label="Add room" />
       <Callout x={34} y={44} n={1} />
       <Callout x={196} y={44} n={2} />
       <Callout x={180} y={206} n={3} />
       <Callout x={34} y={380} n={4} />
-      <Callout x={22} y={452} n={5} />
-      <Callout x={22} y={500} n={6} />
+      <Callout x={24} y={440} n={5} />
+      <Callout x={24} y={522} n={6} />
     </svg>
   );
 }
@@ -251,7 +281,7 @@ export function ReportDialog() {
       <text x={34} y={50} fontSize={16} fontWeight={700} fill={INK}>
         Send to Scrivn team
       </text>
-      {["Sends this scan and the app's log of it to", "the Scrivn team so we can see what went", "wrong. No photos are sent."].map((line, i) => (
+      {["Sends this scan and the app's recent log –", "earlier runs too – to the Scrivn team so we", "can see what went wrong. No photos are sent."].map((line, i) => (
         <text key={line} x={34} y={78 + i * 17} fontSize={11.5} fill={MUTED}>
           {line}
         </text>
@@ -376,6 +406,263 @@ export function ClosetStep() {
         );
       })}
     </svg>
+  );
+}
+
+/** A numbered tap, as the guide marks the order of taps. */
+function TapMark({ x, y, label, colour = NAVY }: { x: number; y: number; label: string; colour?: string }) {
+  return (
+    <g>
+      <circle cx={x} cy={y} r={9} fill={colour} stroke={PAPER} strokeWidth={1.5} />
+      <text x={x} y={y + 3.8} textAnchor="middle" fontSize={10.5} fontWeight={700} fill={colour === AMBER ? NAVY_DARK : PAPER}>
+        {label}
+      </text>
+    </g>
+  );
+}
+
+/**
+ * One side of the house face-on, as Exterior sketch taps it (Exterior.kt): its two bottom corners first, at the top of
+ * the parging and read by depth from 1-3 m; then, aimed, round the stucco and back to the first corner to close it; the
+ * parging under it sharing its corners; a window and a door at two opposite corners of their openings. Under it, the
+ * exterior capture's row of chips. The roof edge is drawn but never tapped: Scan measures the siding only.
+ */
+export function ExteriorSide() {
+  return (
+    <svg viewBox="0 0 360 330" aria-hidden="true" className="sg-svg">
+      <rect x={0} y={0} width={360} height={330} rx={10} fill="#f7f9fb" />
+      <polyline points="22,106 180,36 338,106" fill="none" stroke={GREY} strokeWidth={3} strokeLinecap="round" strokeLinejoin="round" />
+      <polygon points="40,206 320,206 320,102 180,46 40,102" fill="#ece6da" stroke={NAVY} strokeWidth={2.5} strokeLinejoin="round" />
+      <polygon points="40,206 320,206 320,228 40,228" fill="#cbc5ba" stroke={NAVY} strokeWidth={2} />
+      <line x1={8} y1={228} x2={352} y2={228} stroke="#8d8577" strokeWidth={1.5} />
+      <text x={180} y={98} textAnchor="middle" fontSize={13} fontWeight={700} fill={MUTED}>
+        Stucco
+      </text>
+      <text x={300} y={221} textAnchor="end" fontSize={10.5} fontWeight={600} fill={INK}>
+        Parging
+      </text>
+      {/* a window and a door: their openings in the stucco */}
+      <rect x={72} y={118} width={56} height={56} fill="#dfe8f1" stroke={NAVY} strokeWidth={1.5} />
+      <rect x={226} y={128} width={40} height={78} fill="#e8eef4" stroke={NAVY} strokeWidth={1.5} />
+      <TapMark x={72} y={174} label="a" colour={AMBER} />
+      <TapMark x={128} y={118} label="b" colour={AMBER} />
+      <TapMark x={226} y={206} label="a" colour={AMBER} />
+      <TapMark x={266} y={128} label="b" colour={AMBER} />
+      {/* the stucco, round: 1 and 2 fix the wall, 3-5 are aimed, then 1 again closes it */}
+      <path d="M48,108 C70,150 70,170 48,196" fill="none" stroke={NAVY} strokeWidth={1.2} strokeDasharray="3 3" />
+      <TapMark x={40} y={206} label="1" />
+      <TapMark x={320} y={206} label="2" />
+      <TapMark x={320} y={102} label="3" />
+      <TapMark x={180} y={46} label="4" />
+      <TapMark x={40} y={102} label="5" />
+      <text x={14} y={250} fontSize={10.5} fill={INK}>
+        1, 2: bottom corners, 1–3 m away · 3–5: aimed, then 1 again to close
+      </text>
+      <text x={14} y={265} fontSize={10.5} fill={INK}>
+        a, b: two opposite corners of a window&apos;s or a door&apos;s opening
+      </text>
+      <rect x={0} y={276} width={360} height={54} rx={10} fill="rgba(18,40,63,0.92)" />
+      <Chip x={12} y={290} w={54} label="Stucco" lit />
+      <Chip x={70} y={290} w={50} label="Window" />
+      <Chip x={124} y={290} w={40} label="Door" />
+      <Chip x={168} y={290} w={46} label="Photo" />
+      <Chip x={276} y={290} w={72} label="Next side" />
+    </svg>
+  );
+}
+
+/**
+ * The lap round the house, seen from above with the front at the bottom (Exterior.footprint): each side taps its own
+ * two bottom corners, and a house corner is where two sides' bottom lines cross - so a deck that hides a corner does
+ * not matter, the rear's taps stop at the deck and the crossing still finds the corner.
+ */
+export function ExteriorRound() {
+  const stretch = (x1: number, y1: number, x2: number, y2: number) => (
+    <g>
+      <line x1={x1} y1={y1} x2={x2} y2={y2} stroke={NAVY} strokeWidth={5} strokeLinecap="round" />
+      <circle cx={x1} cy={y1} r={4.5} fill={NAVY} />
+      <circle cx={x2} cy={y2} r={4.5} fill={NAVY} />
+    </g>
+  );
+  return (
+    <svg viewBox="0 0 360 260" aria-hidden="true" className="sg-svg">
+      <rect x={0} y={0} width={360} height={260} rx={10} fill="#f7f9fb" />
+      {/* the deck at the rear right, hiding that corner */}
+      <rect x={196} y={20} width={84} height={42} fill="#efe4d0" stroke="#c9b48e" strokeWidth={1.5} />
+      <text x={238} y={36} textAnchor="middle" fontSize={10.5} fill={MUTED}>
+        deck
+      </text>
+      {/* where the lines are carried on to cross */}
+      <path d="M80,62 L280,62 L280,182 L80,182 Z" fill="none" stroke={AMBER} strokeWidth={1.5} strokeDasharray="4 4" />
+      {stretch(84, 182, 276, 182)}
+      {stretch(280, 178, 280, 70)}
+      {stretch(84, 62, 192, 62)}
+      {stretch(80, 66, 80, 178)}
+      {[
+        [80, 62],
+        [280, 62],
+        [280, 182],
+        [80, 182],
+      ].map(([x, y]) => (
+        <circle key={`${x},${y}`} cx={x} cy={y} r={6} fill="none" stroke={AMBER} strokeWidth={2.5} />
+      ))}
+      <text x={180} y={204} textAnchor="middle" fontSize={12} fontWeight={700} fill={NAVY}>
+        1 Front
+      </text>
+      <text x={290} y={126} fontSize={12} fontWeight={700} fill={NAVY}>
+        2 Right
+      </text>
+      <text x={138} y={52} textAnchor="middle" fontSize={12} fontWeight={700} fill={NAVY}>
+        3 Rear
+      </text>
+      <text x={70} y={126} textAnchor="end" fontSize={12} fontWeight={700} fill={NAVY}>
+        4 Left
+      </text>
+      <text x={180} y={128} textAnchor="middle" fontSize={11} fill={MUTED}>
+        seen from above
+      </text>
+      <line x1={14} y1={226} x2={34} y2={226} stroke={NAVY} strokeWidth={5} strokeLinecap="round" />
+      <text x={42} y={230} fontSize={10.5} fill={INK}>
+        each side&apos;s two bottom corners, as tapped
+      </text>
+      <circle cx={24} cy={245} r={5} fill="none" stroke={AMBER} strokeWidth={2.5} />
+      <text x={42} y={249} fontSize={10.5} fill={INK}>
+        a house corner: where two sides&apos; lines cross
+      </text>
+    </svg>
+  );
+}
+
+/** An air mover as the app draws it (SketchPlan.drawEquipment), simplified: the blower's round housing and its mouth. */
+function Mover({ x, y }: { x: number; y: number }) {
+  return (
+    <g>
+      <path d={`M${x + 6},${y - 4} L${x + 15},${y - 7} L${x + 15},${y + 7} L${x + 6},${y + 4} Z`} fill="#ea580c" stroke={PAPER} strokeWidth={1.2} />
+      <circle cx={x} cy={y} r={8} fill="#ea580c" stroke={PAPER} strokeWidth={1.5} />
+      <path d={`M${x - 3.5},${y} a3.5,3.5 0 1 1 3.5,3.5`} fill="none" stroke={PAPER} strokeWidth={1.4} strokeLinecap="round" />
+    </g>
+  );
+}
+
+/** A dehumidifier as the app draws it: a teal box with an upright white drop. */
+function Dehu({ x, y }: { x: number; y: number }) {
+  return (
+    <g>
+      <rect x={x - 10} y={y - 10} width={20} height={20} rx={3} fill="#0f766e" stroke={PAPER} strokeWidth={1.5} />
+      <path d={`M${x},${y - 6} C${x + 4},${y - 1} ${x + 5},${y + 1} ${x + 5},${y + 2} A5,5 0 0 1 ${x - 5},${y + 2} C${x - 5},${y + 1} ${x - 4},${y - 1} ${x},${y - 6} Z`} fill={PAPER} />
+    </g>
+  );
+}
+
+/**
+ * A room on Review with its moisture mapped (SketchPlan's colours): a wet line round a corner, tapped at its two ends,
+ * the wet floor painted, the equipment the drying plan puts in, and the drying line under the plan.
+ */
+export function MoistureRoom() {
+  return (
+    <svg viewBox="0 0 360 250" aria-hidden="true" className="sg-svg">
+      <rect x={0} y={0} width={360} height={250} rx={10} fill={PAPER} stroke="#e1e5ea" />
+      <rect x={34} y={120} width={118} height={62} fill="#3b82f6" fillOpacity={0.33} />
+      <rect x={30} y={24} width={196} height={162} fill="none" stroke={NAVY} strokeWidth={3} />
+      <polyline points="30,118 30,186 152,186" fill="none" stroke="#2563eb" strokeWidth={7} />
+      <circle cx={30} cy={118} r={5} fill={PAPER} stroke="#2563eb" strokeWidth={2.5} />
+      <circle cx={152} cy={186} r={5} fill={PAPER} stroke="#2563eb" strokeWidth={2.5} />
+      <text x={128} y={84} textAnchor="middle" fontSize={13} fontWeight={600} fill={MUTED}>
+        Laundry
+      </text>
+      <Mover x={66} y={146} />
+      <Mover x={118} y={146} />
+      <Dehu x={196} y={52} />
+      <line x1={248} y1={40} x2={270} y2={40} stroke="#2563eb" strokeWidth={7} />
+      <text x={278} y={44} fontSize={11} fill={INK}>
+        wet line
+      </text>
+      <rect x={248} y={64} width={22} height={14} fill="#3b82f6" fillOpacity={0.33} />
+      <text x={278} y={75} fontSize={11} fill={INK}>
+        wet floor
+      </text>
+      <Mover x={256} y={102} />
+      <text x={278} y={106} fontSize={11} fill={INK}>
+        air mover
+      </text>
+      <Dehu x={259} y={134} />
+      <text x={278} y={138} fontSize={11} fill={INK}>
+        dehumidifier
+      </text>
+      <text x={14} y={214} fontSize={10.5} fill={INK}>
+        Drying: 2 air movers · 1 LGR dehumidifier (medium) · Class 2
+      </text>
+      <text x={14} y={234} fontSize={10.5} fill={MUTED}>
+        The wet line&apos;s two taps: the top of the wet line at each end.
+      </text>
+    </svg>
+  );
+}
+
+/** The door sheet on Review (MainActivity.askDoor): a door's width tapped. A swing door shows which way it opens. */
+export function DoorSheet() {
+  return (
+    <Dialog w={300} h={318} title={`Door 1 – phone read 2'8"`}>
+      <Btn x={30} y={62} w={56} label="Swing" on />
+      <Btn x={90} y={62} w={56} label="Bifold" />
+      <Btn x={150} y={62} w={56} label="Pocket" />
+      <Btn x={210} y={62} w={60} label="Sliding" />
+      <Btn x={30} y={100} w={118} label="Single" on />
+      <Btn x={152} y={100} w={118} label="Double" />
+      <Btn x={30} y={138} w={118} label="Opens in" on />
+      <Btn x={152} y={138} w={118} label="Opens out" />
+      <Btn x={30} y={176} w={240} label="Hinge on the other side" />
+      <text x={32} y={230} fontSize={12} fill={INK}>
+        Tape:
+      </text>
+      <text x={32} y={254} fontSize={11.5} fill={GREY}>
+        8&apos;3, 99&quot; or 8.25
+      </text>
+      <line x1={30} y1={262} x2={270} y2={262} stroke={GREY} strokeWidth={1.5} />
+      <text x={262} y={290} textAnchor="end" fontSize={13} fontWeight={600} fill={NAVY}>
+        DONE
+      </text>
+    </Dialog>
+  );
+}
+
+/** The 360 step (MainActivity.askSpinPlace): Review asks where you stand; a tap on the plan begins the 360 there. */
+export function SpinPlace() {
+  return (
+    <svg viewBox="0 0 300 330" aria-hidden="true" className="sg-svg">
+      <rect x={0} y={0} width={300} height={330} rx={12} fill={PAPER} stroke="#e1e5ea" />
+      <text x={20} y={38} fontSize={16} fontWeight={700} fill={NAVY}>
+        Tap where you&apos;re standing
+      </text>
+      <polygon points="40,66 260,66 260,186 170,186 170,236 40,236" fill="#f2f5f8" stroke={NAVY} strokeWidth={3} />
+      <circle cx={130} cy={130} r={14} fill="none" stroke={GREEN} strokeWidth={3} />
+      <circle cx={130} cy={130} r={5} fill={GREEN} />
+      <text x={130} y={160} textAnchor="middle" fontSize={10.5} fill={INK}>
+        where you stand
+      </text>
+      {["360s · tap where you are standing, then turn", "as the dots ask. Done when you have them all."].map((line, i) => (
+        <text key={line} x={20} y={260 + i * 15} fontSize={11} fill={INK}>
+          {line}
+        </text>
+      ))}
+      <Btn x={180} y={288} w={100} h={28} label="Done" on />
+    </svg>
+  );
+}
+
+/** The Account sheet, signed out (AccountScreen.signedOut). */
+export function AccountSheet() {
+  return (
+    <Dialog w={300} h={240} title="Scrivn account: not signed in">
+      {["Sign in", "Create an account", "Pair with a code from Scrivn", "Delete an account"].map((row, i) => (
+        <text key={row} x={32} y={84 + i * 34} fontSize={13} fill={INK}>
+          {row}
+        </text>
+      ))}
+      <text x={262} y={212} textAnchor="end" fontSize={13} fontWeight={600} fill={NAVY}>
+        CLOSE
+      </text>
+    </Dialog>
   );
 }
 
