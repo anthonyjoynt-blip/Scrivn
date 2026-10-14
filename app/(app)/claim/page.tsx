@@ -5,7 +5,7 @@ import { type GapCheckQuestion, siblingQuestionIds } from "@/lib/questions";
 import { type AskedQuestion, formatQuestionLog, hasQuestionLog, recordRound } from "@/lib/questionLog";
 import { type SavedClaimState, resumeStep } from "@/lib/claimState";
 import { useClaimPersistence } from "@/lib/useClaimPersistence";
-import { type ClaimStep, claimOnScreen, setAside, tryAgain, useClaimSteps, waitForSignal } from "@/lib/aiJobs";
+import { type ClaimStep, claimOnScreen, newJobId, setAside, tryAgain, useClaimSteps, waitForSignal } from "@/lib/aiJobs";
 import { buildAsbestosSection, buildContentsSection, equipmentSuggestionsFor, generationRequest, withExtraction, withGeneratedDocuments } from "@/lib/claimGeneration";
 import { connection, isNetworkFailure, netFetch } from "@/lib/connectivity";
 import { ClashBanner } from "@/components/ClashBanner";
@@ -1292,15 +1292,18 @@ export default function Home() {
    * usable meanwhile — see lib/aiJobs.ts. It names the claim by id, which a claim started here is
    * given on the spot if its first save has not happened yet; the save is a checkpoint, so the
    * waiting step is never the only record of the claim.
+   *
+   * `jobId` is the id a generation was already sent under: its answer may only have been lost on the
+   * way back, so the retry must be the same request, which the server counts once (lib/aiJobs.ts).
    */
-  async function waitForSignalOrFail(kind: ClaimStep, err: unknown, onFailureStep: Step): Promise<void> {
+  async function waitForSignalOrFail(kind: ClaimStep, err: unknown, onFailureStep: Step, jobId?: string): Promise<void> {
     setStep(onFailureStep);
     if (!isNetworkFailure(err)) {
       setError(err instanceof Error ? err.message : kind === "extract" ? "Extraction failed unexpectedly." : "Document generation failed unexpectedly.");
       return;
     }
     checkpoint();
-    await waitForSignal(persistence.claimIdNow(), kind);
+    await waitForSignal(persistence.claimIdNow(), kind, jobId);
   }
 
   async function runExtraction(sourceText: string, onFailureStep: Step) {
@@ -1427,11 +1430,14 @@ export default function Home() {
     // Known to be offline: straight to waiting — nothing is sent, so nothing is counted.
     if (connection() === "offline") return waitForSignalOrFail("generate", new TypeError("offline"), from);
     setStep("generating");
+    // One id for this generation from its first send: if the answer is lost, the retry that waits for
+    // signal carries it too, and the server counts the claim once.
+    const jobId = newJobId();
     try {
-      const result = await postJson<{ documents: GeneratedDocuments }>("/api/generate", request);
+      const result = await postJson<{ documents: GeneratedDocuments }>("/api/generate", { ...request, jobId });
       generated(result.documents);
     } catch (err) {
-      await waitForSignalOrFail("generate", err, from);
+      await waitForSignalOrFail("generate", err, from, jobId);
     }
   }
 

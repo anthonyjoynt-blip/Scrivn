@@ -6,12 +6,17 @@ import { DOCUMENT_GENERATION_SYSTEM_PROMPT, SCOPE_ONLY_SYSTEM_PROMPT, documentGe
 import type { GeneratedDocuments, WaterLossExtraction } from "@/lib/types";
 import type { ClaimInfo } from "@/lib/claimInfo";
 import type { DGIGData } from "@/lib/dgig";
-import { checkUsageAllowed, incrementClaimUsage } from "@/lib/usage";
+import { beginGeneration, checkUsageAllowed, incrementClaimUsage, releaseGeneration } from "@/lib/usage";
 
 /**
  * Step 3 of the pipeline: the completed claim info + extraction tree (every gap-check question
  * already answered) in, the inspection report + scope document out — one Structured Outputs call,
  * matching the Android app's `ClaudeScopingClient.generateDocuments`.
+ *
+ * `jobId` (2026-10-14): the device's id for this generation, the same on every retry (lib/aiJobs.ts).
+ * A retry after a lost answer gets the documents already made, without a second Claude call or a
+ * second count; one that arrives while the first is still running is told to wait (409, `running`).
+ * See `beginGeneration` in lib/usage.ts. A request without one is generated and counted as before.
  */
 export async function POST(request: Request) {
   let body: unknown;
@@ -21,7 +26,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Request body must be JSON." }, { status: 400 });
   }
 
-  const { claim, extraction, transcript, contentsAssignmentNote, dgigData, roomAreas, exterior } = (body ?? {}) as {
+  const { claim, extraction, transcript, contentsAssignmentNote, dgigData, roomAreas, exterior, jobId } = (body ?? {}) as {
+    /** The device's id for this generation, kept for every retry. Optional: the pipeline harness sends none. */
+    jobId?: unknown;
     /** What the sketch knows about each room, keyed by normalised name — see lib/debris.ts. Optional: the pipeline harness sends none. */
     roomAreas?: RoomAreasByName;
     /** The exterior's ready-made scope lines — see lib/exterior.ts's `exteriorScopeLines`. Optional: absent means none. */
@@ -48,8 +55,18 @@ export async function POST(request: Request) {
   // Strings only, and not many: these are copied onto the document word for word.
   const exteriorLines = Array.isArray(exterior) ? exterior.filter((l): l is string => typeof l === "string" && l.length <= 300).slice(0, 40) : [];
 
+  // Before the gate: a repeat of the generation that used the last claim still gets its documents.
+  const start = await beginGeneration(jobId);
+  if (start.state === "done") {
+    return NextResponse.json({ documents: start.documents, usage: [], repeated: true });
+  }
+  if (start.state === "running") {
+    return NextResponse.json({ error: "These documents are still being generated from an earlier try.", running: true }, { status: 409 });
+  }
+
   const blocked = await checkUsageAllowed();
   if (blocked) {
+    await releaseGeneration(start);
     return NextResponse.json({ error: blocked.error }, { status: blocked.status });
   }
 
@@ -77,7 +94,7 @@ export async function POST(request: Request) {
     // documents they paid for, and an uncounted claim is a far better outcome than a 502 after the
     // expensive work already completed.
     try {
-      await incrementClaimUsage();
+      await incrementClaimUsage(start.state === "new" ? { id: start.id, documents: generated.output } : undefined);
     } catch (err) {
       console.error("[/api/generate] usage increment failed (documents still returned):", err);
     }
@@ -85,6 +102,7 @@ export async function POST(request: Request) {
     // See the extract route: counts travel with the result so a caller can see what a claim cost.
     return NextResponse.json({ documents: generated.output, usage: [{ call: "generate", ...generated.usage }] });
   } catch (err) {
+    await releaseGeneration(start);
     return errorResponse(err);
   }
 }

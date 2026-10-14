@@ -5,7 +5,7 @@ import type { SavedClaimState } from "./claimState";
 import { generationRequest, withExtraction, withGeneratedDocuments } from "./claimGeneration";
 import { syncClaim } from "./claimSync";
 import { connection, isNetworkFailure, netFetch } from "./connectivity";
-import { AI_JOBS, changeDeviceClaim, deviceChanged, deviceStorageWorks, deviceUser, onDeviceChange, readDeviceClaim, transact } from "./deviceClaims";
+import { AI_JOBS, changeDeviceClaim, deviceChanged, deviceStorageWorks, deviceUser, newClaimId, onDeviceChange, readDeviceClaim, transact } from "./deviceClaims";
 import type { TraceRequest, TraceResponse } from "./exteriorTrace";
 import type { GeneratedDocuments, WaterLossExtraction } from "./types";
 
@@ -29,6 +29,13 @@ import type { GeneratedDocuments, WaterLossExtraction } from "./types";
  * Nothing is counted while a step waits: a claim is counted by /api/generate when a generation
  * actually succeeds (lib/usage.ts), and a waiting step has not reached it.
  *
+ * Nor is anything counted twice (2026-10-14). A generation carries one id, `jobId`, from the moment
+ * it is first sent — by the page, or from here — to its last retry. The server counts each id once
+ * and answers a repeat with the documents it already made (`beginGeneration` in lib/usage.ts,
+ * 0013), so an answer lost on the way back, which leaves the step waiting and sends it again when
+ * the signal returns, costs nothing the second time. A repeat that arrives while the first is still
+ * being generated is told so (409, `running`) and simply waits for the next run.
+ *
  * ── Where the answer goes ────────────────────────────────────────────────────────────────────────
  *
  * If the claim is open, to the page (`onScreen`), which applies it exactly as if the call had
@@ -47,6 +54,11 @@ export interface ClaimJob {
   queuedAt: number;
   /** Why the server would not do it. The step then waits for the estimator — Try again, or set it aside. */
   error: string | null;
+  /**
+   * The generation's id, sent as `jobId`: the same on every retry, so the server counts it once. A
+   * step queued before ids existed is given one when it first runs.
+   */
+  id?: string;
 }
 
 export interface TraceJob {
@@ -140,10 +152,22 @@ export function claimOnScreen(claimId: string, page: ClaimOnScreen): () => void 
 
 /* ── Asking ─────────────────────────────────────────────────────────────────────────────────────── */
 
-/** Write a claim step down to run when there is signal, and try it now if there might be. */
-export async function waitForSignal(claimId: string, kind: ClaimStep): Promise<void> {
+/** A new generation's id — see "Usage" above. */
+export function newJobId(): string {
+  return newClaimId();
+}
+
+/**
+ * Write a claim step down to run when there is signal, and try it now if there might be.
+ *
+ * `id` is the id the page already sent this generation under, when its answer did not come back. A
+ * step already waiting keeps its own: it is still the same request, and the server may have run it.
+ */
+export async function waitForSignal(claimId: string, kind: ClaimStep, id?: string): Promise<void> {
   const user = deviceUser();
-  await putJob({ key: claimKey(claimId, kind), kind, claimId, user: user ?? null, queuedAt: Date.now(), error: null });
+  const key = claimKey(claimId, kind);
+  const waiting = (await allJobs()).find((j): j is ClaimJob => j.key === key && j.kind !== "trace");
+  await putJob({ key, kind, claimId, user: user ?? null, queuedAt: Date.now(), error: null, id: id ?? waiting?.id ?? newJobId() });
   if (connection() === "online") void runWaitingJobs();
 }
 
@@ -183,7 +207,7 @@ export function isRunning(key: string): boolean {
   return runningHere.has(key);
 }
 
-async function postStep(url: string, body: unknown): Promise<{ ok: true; data: unknown } | { ok: false; offline: boolean; message: string }> {
+async function postStep(url: string, body: unknown): Promise<{ ok: true; data: unknown } | { ok: false; offline: boolean; busy?: boolean; message: string }> {
   try {
     /*
       Longer than the server can take (Vercel stops a function at 300 s), so giving up here only ever
@@ -193,6 +217,8 @@ async function postStep(url: string, body: unknown): Promise<{ ok: true; data: u
     const data = (await res.json().catch(() => null)) as { error?: unknown } | null;
     // Signed out (the session lapsed while offline): keep waiting, as for no signal — signing in lets it run.
     if (res.status === 401) return { ok: false, offline: true, message: "Signed out." };
+    // The same generation is still being made from an earlier send: wait for it, as for no signal.
+    if (res.status === 409 && data && (data as { running?: unknown }).running === true) return { ok: false, offline: false, busy: true, message: "Still generating." };
     if (!res.ok) return { ok: false, offline: false, message: (data && typeof data.error === "string" && data.error) || `Request failed (${res.status})` };
     return { ok: true, data };
   } catch (err) {
@@ -215,9 +241,13 @@ async function runOne(job: AiJob): Promise<boolean> {
   return outcome as boolean;
 }
 
-async function runClaimStep(job: ClaimJob): Promise<boolean> {
+async function runClaimStep(waiting: ClaimJob): Promise<boolean> {
   // Re-read: another tab may have run it, or the estimator set it aside, since the list was taken.
-  if (!(await allJobs()).some((j) => j.key === job.key && !(j as ClaimJob).error)) return true;
+  const current = (await allJobs()).find((j): j is ClaimJob => j.key === waiting.key && j.kind !== "trace" && !j.error);
+  if (!current) return true;
+  // Its id is written down BEFORE it is sent, so that if the answer is lost the retry is the same request.
+  const job: ClaimJob = current.id ? current : { ...current, id: newJobId() };
+  if (!current.id) await putJob(job);
   const page = onScreen.get(job.claimId);
   const state = page?.state() ?? (await readDeviceClaim(job.claimId))?.state;
   if (!state) {
@@ -225,7 +255,8 @@ async function runClaimStep(job: ClaimJob): Promise<boolean> {
     return true;
   }
 
-  const body = job.kind === "extract" ? (state.transcript.trim() ? { transcript: state.transcript } : null) : generationRequest(state);
+  const request = job.kind === "extract" ? (state.transcript.trim() ? { transcript: state.transcript } : null) : generationRequest(state);
+  const body = request && job.kind === "generate" ? { ...request, jobId: job.id } : request;
   if (!body) {
     await putJob({ ...job, error: job.kind === "extract" ? "There is no transcript to read." : "There is nothing to generate from yet." });
     return true;
@@ -237,6 +268,7 @@ async function runClaimStep(job: ClaimJob): Promise<boolean> {
     const answer = await postStep(job.kind === "extract" ? "/api/extract" : "/api/generate", body);
     if (!answer.ok) {
       if (answer.offline) return false;
+      if (answer.busy) return true;
       await putJob({ ...job, error: answer.message });
       return true;
     }

@@ -18,6 +18,8 @@
  *   4. A declined card (0013): is the first failure's time kept, the owner told once per invoice, the
  *      failure cleared only by a payment that came after it — and all of it out of the browser's
  *      reach?
+ *   5. A generation counted once (0013): does an id finished twice count once? (The route around it
+ *      is tested in test/billing/routes.mjs.)
  */
 import { build } from "esbuild";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -260,6 +262,27 @@ const count = (orgId, onTrial) => s.service(`select * from public.org_count_clai
   }
   const nobody = await s.service(`select * from public.org_payment_failed('00000000-0000-0000-0000-000000000000', 'in_1', now())`);
   check(nobody.error === null && rows(nobody).length === 0, "an organization that does not exist records nothing and returns no row");
+}
+
+/* ── 5. A generation counted once (0013) ───────────────────────────────────────────────────────── */
+
+{
+  const pm = await s.createUser({ email: "once@x.test" });
+  const org = await orgOf(pm);
+  const job = "0f0f0f0f-0000-4000-8000-000000000001";
+  const usedNow = async () => (await s.sql(`select trial_claims_used from public.organizations where id = $1`, [org]))[0].trial_claims_used;
+  const begin = async () => rows(await s.service(`select * from public.generation_job_begin($1, $2, $3)`, [job, pm, org]))[0];
+  const finish = (doc) => s.service(`select * from public.generation_job_finish($1, $2, true, $3::jsonb)`, [job, pm, JSON.stringify(doc)]);
+
+  check((await begin())?.outcome === "new", "a new id begins");
+  check((await begin())?.outcome === "running", "the same id again while it runs is running");
+  const first = await finish({ scopeDocument: "first" });
+  check(rows(first)[0]?.used_before === 0 && rows(first)[0]?.used_after === 1, "finishing it counts the claim");
+  // The answer is lost; the device sends the same id again.
+  const again = await begin();
+  check(again?.outcome === "done" && again?.saved?.scopeDocument === "first", "begun again, it is done, with the documents kept");
+  const second = await finish({ scopeDocument: "second" });
+  check(rows(second).length === 0 && (await usedNow()) === 1, "and finishing it a second time counts nothing: a lost answer plus a retry counts once");
 }
 
 await s.close();

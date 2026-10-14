@@ -212,6 +212,10 @@ sandbox; it deletes what it makes).
   separate scheduled job.
 - **The cap** is checked in `/api/extract` and `/api/generate`, but only *counted* in `/api/generate`
   — one claim is one generation, and extraction is two calls in the same claim.
+- **One generation counts once** (0013, 2026-10-14). The device sends each generation with an id it
+  keeps for every retry (`lib/aiJobs.ts`). If the answer was lost on the way back and the same id
+  comes again, `/api/generate` sends the documents it already made, with no second Claude call and
+  no second count (`beginGeneration` in `lib/usage.ts`). Without 0013 it counts as before.
 
 ## Known gaps
 

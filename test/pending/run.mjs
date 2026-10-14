@@ -67,6 +67,9 @@ const server = {
   extracts: [],
   generations: [],
   traces: [],
+  /** Claims counted, and the documents each generation id was answered with — as lib/usage.ts keeps them (0013). */
+  counted: 0,
+  answered: new Map(),
   tick: 0,
   version() {
     this.tick += 1;
@@ -115,7 +118,12 @@ function handle(path, method, body) {
   }
   if (path === "/api/generate") {
     server.generations.push(body);
-    return respond(200, { documents: { inspectionReport: "INSPECTION", scopeDocument: "SCOPE" } });
+    // As the real route does (beginGeneration): an id already answered gets the same documents, uncounted.
+    if (body.jobId && server.answered.has(body.jobId)) return respond(200, { documents: server.answered.get(body.jobId), usage: [], repeated: true });
+    server.counted += 1;
+    const documents = { inspectionReport: "INSPECTION", scopeDocument: `SCOPE ${server.counted}` };
+    if (body.jobId) server.answered.set(body.jobId, documents);
+    return respond(200, { documents });
   }
   if (path === "/api/exterior/trace") {
     server.traces.push(body);
@@ -158,6 +166,8 @@ async function test(name, run) {
   server.extracts.length = 0;
   server.generations.length = 0;
   server.traces.length = 0;
+  server.counted = 0;
+  server.answered.clear();
   signedIn = "user-a";
   try {
     await run();
@@ -469,7 +479,52 @@ await test("documents waiting for signal are not generated — or counted — un
   await settle();
   equal(server.generations.length, 1, "generated once");
   const r = await record(ID);
-  equal([r.state.documents?.scopeDocument, r.state.step], ["SCOPE", "results"], "the documents are on the claim, opened at the results");
+  equal([r.state.documents?.scopeDocument, r.state.step], ["SCOPE 1", "results"], "the documents are on the claim, opened at the results");
+});
+
+await test("a generation whose answer is lost is sent again under the same id, and counted once", async () => {
+  const extraction = mod.withDerivedFields({ loss: mod.emptyLoss(), rooms: [] });
+  await onServerAndDevice(ID, claimState("Bell", { extraction, step: "ready" }));
+  await mod.waitForSignal(ID, "generate");
+  const id = (await mod.waitingJobs())[0]?.id;
+  assert(typeof id === "string" && id.length === 36, "the waiting generation has its id before it is sent");
+  // The server generates and counts; the answer never arrives.
+  server.mode = "lose-answer";
+  await mod.runWaitingJobs();
+  equal([server.generations.length, server.counted], [1, 1], "it reached the server, which counted it");
+  equal((await mod.waitingJobs()).map((j) => [j.kind, j.id, j.error]), [["generate", id, null]], "the device still has it waiting, under the same id");
+  // Signal back: sent again.
+  await mod.runWaitingJobs();
+  await settle();
+  equal(server.generations.map((b) => b.jobId), [id, id], "the retry carries the same id");
+  equal(server.counted, 1, "so the server counted the claim once");
+  equal((await record(ID)).state.documents?.scopeDocument, "SCOPE 1", "and the documents it made the first time are on the claim");
+  equal((await mod.waitingJobs()).length, 0, "nothing left waiting");
+});
+
+await test("a generation the page sent keeps its id when it has to wait", async () => {
+  await onServerAndDevice(ID, claimState("Bell", { extraction: mod.withDerivedFields({ loss: mod.emptyLoss(), rooms: [] }), step: "ready" }));
+  server.mode = "offline";
+  await mod.waitForSignal(ID, "generate", "11111111-2222-4333-8444-555555555555");
+  equal((await mod.waitingJobs())[0]?.id, "11111111-2222-4333-8444-555555555555", "the page's id is the one kept");
+  await mod.waitForSignal(ID, "generate");
+  equal((await mod.waitingJobs())[0]?.id, "11111111-2222-4333-8444-555555555555", "and asking again for a step already waiting keeps it");
+  await mod.setAside(ID, "generate");
+  await mod.waitForSignal(ID, "generate");
+  assert((await mod.waitingJobs())[0]?.id !== "11111111-2222-4333-8444-555555555555", "a new generation after one set aside is a new id");
+});
+
+await test("a retry that finds the first still running waits, rather than failing", async () => {
+  const extraction = mod.withDerivedFields({ loss: mod.emptyLoss(), rooms: [] });
+  await onServerAndDevice(ID, claimState("Bell", { extraction, step: "ready" }));
+  let busy = true;
+  server.override = (path) => (path === "/api/generate" && busy ? ((busy = false), respond(409, { error: "Still being generated.", running: true })) : undefined);
+  await mod.waitForSignal(ID, "generate");
+  await mod.runWaitingJobs();
+  equal((await mod.waitingJobs()).map((j) => j.error), [null], "still waiting, with no error for the estimator to deal with");
+  await mod.runWaitingJobs();
+  await settle();
+  equal([(await mod.waitingJobs()).length, server.counted], [0, 1], "the next run gets it");
 });
 
 await test("a step the server refuses waits for the estimator instead of looping", async () => {

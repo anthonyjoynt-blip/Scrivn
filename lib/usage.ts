@@ -26,6 +26,11 @@ export type { UsageState } from "./usageState";
  * cap (to fail early, before spending an expensive extraction on a claim that can't be finished)
  * but does not count.
  *
+ * And one generation is counted once, however often it is sent (2026-10-14, 0013). The device names
+ * each generation with an id it keeps for every retry (lib/aiJobs.ts); `beginGeneration` answers a
+ * repeat of a finished one with the documents already made, and `incrementClaimUsage` counts an id
+ * only the first time it finishes. Without 0013, or without an id, a generation is counted as before.
+ *
  * ── Whose allowance (0011_org_billing.sql) ───────────────────────────────────────────────────────
  *
  * The plan, the counter and the trial belong to the ORGANIZATION, reached through the signed-in
@@ -147,7 +152,68 @@ export async function checkUsageAllowed(): Promise<{ error: string; status: numb
 }
 
 /**
+ * Where a generation sent with an id stands (0013), before anything is spent on it:
+ *
+ *   "new"        run it; `incrementClaimUsage({ id, documents })` keeps the documents and counts it;
+ *   "done"       it was generated and counted already, and its answer lost on the way back: send
+ *                these documents again, with no Claude call and no count;
+ *   "running"    the same generation is being made right now, from an earlier send: say so (409);
+ *   "untracked"  no id, nobody signed in, or a database without 0013: run and count as before.
+ */
+export type GenerationStart = { state: "untracked" } | { state: "new"; id: string } | { state: "done"; documents: unknown } | { state: "running" };
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** The signed-in person and their organization, from their own session. */
+async function sessionOrganization(): Promise<{ supabase: SupabaseClient; userId: string; email: string | null; organizationId: string | null } | null> {
+  const supabase = await createClient();
+  const { data: claimsData } = await supabase.auth.getClaims();
+  const userId = claimsData?.claims?.sub;
+  if (typeof userId !== "string") return null;
+  const email = typeof claimsData?.claims?.email === "string" ? claimsData.claims.email : null;
+  const { data: membership } = await withClockSkewRetry(() => supabase.from("organization_members").select("organization_id").eq("user_id", userId).limit(1).maybeSingle());
+  const organizationId = typeof membership?.organization_id === "string" ? membership.organization_id : null;
+  return { supabase, userId, email, organizationId };
+}
+
+/**
+ * Looks a generation up by the id the device sent, and claims it if it is new — see
+ * `GenerationStart`. Called before the usage gate: a repeat of a generation that used the last claim
+ * must still get its documents, not a refusal for the claim it already paid for.
+ */
+export async function beginGeneration(id: unknown): Promise<GenerationStart> {
+  if (typeof id !== "string" || !UUID.test(id) || unauthenticatedDevMode()) return { state: "untracked" };
+  const session = await sessionOrganization();
+  if (!session?.organizationId) return { state: "untracked" };
+  const { data, error } = await createAdminClient().rpc("generation_job_begin", { job_id: id, caller: session.userId, org_id: session.organizationId });
+  if (error) {
+    // A generation is never refused for want of its bookkeeping: without 0013, or on any other
+    // failure, it runs and is counted as before.
+    if (!isBillingSchemaMissing(error)) console.error("[usage] could not look the generation up by its id:", error);
+    return { state: "untracked" };
+  }
+  const row = embedded(data as { outcome: string; saved: unknown } | { outcome: string; saved: unknown }[] | null);
+  if (row?.outcome === "done") return { state: "done", documents: row.saved };
+  if (row?.outcome === "running") return { state: "running" };
+  if (row?.outcome === "new") return { state: "new", id };
+  return { state: "untracked" };
+}
+
+/** Gives a generation's id back after it failed or was refused, so a retry can run. */
+export async function releaseGeneration(start: GenerationStart): Promise<void> {
+  if (start.state !== "new") return;
+  const session = await sessionOrganization();
+  if (!session) return;
+  const { error } = await createAdminClient().rpc("generation_job_release", { job_id: start.id, caller: session.userId });
+  // Not fatal: an id left running is taken over by a retry after six minutes (0013).
+  if (error) console.error("[usage] could not release a generation's id:", error);
+}
+
+/**
  * Counts one claim against the signed-in person's organization, after a generation succeeds.
+ *
+ * With `job` (a generation `beginGeneration` called "new"), its documents are kept and the claim is
+ * counted in one statement, and only if no other send of the same generation finished first.
  *
  * The organization comes from the person's own session, never from the request. The count itself
  * goes through `org_count_claim` with the service role, because the counters are deliberately not
@@ -159,17 +225,12 @@ export async function checkUsageAllowed(): Promise<{ error: string; status: numb
  * one person, likely for a team sharing one counter. Which counter is still decided here, from the
  * tier — the database only adds one and reports the before and after the emails key on.
  */
-export async function incrementClaimUsage(): Promise<void> {
+export async function incrementClaimUsage(job?: { id: string; documents: unknown }): Promise<void> {
   // Nothing to count against — see `unauthenticatedDevMode`. Never reached in production.
   if (unauthenticatedDevMode()) return;
-  const supabase = await createClient();
-  const { data: claimsData } = await supabase.auth.getClaims();
-  const userId = claimsData?.claims?.sub;
-  if (typeof userId !== "string") return;
-  const email = typeof claimsData?.claims?.email === "string" ? claimsData.claims.email : null;
-
-  const { data: membership } = await withClockSkewRetry(() => supabase.from("organization_members").select("organization_id").eq("user_id", userId).limit(1).maybeSingle());
-  const organizationId = typeof membership?.organization_id === "string" ? membership.organization_id : null;
+  const session = await sessionOrganization();
+  if (!session) return;
+  const { userId, email, organizationId } = session;
 
   const admin = createAdminClient();
   const { data: org, error } = organizationId
@@ -185,10 +246,19 @@ export async function incrementClaimUsage(): Promise<void> {
   // Trial claims are counted in their own column, so converting to a paid plan starts from zero
   // rather than inheriting whatever the trial used.
   const onTrial = planForTier(tier) === null;
-  const { data: counted, error: countError } = await admin.rpc("org_count_claim", { org_id: organizationId, on_trial: onTrial });
+  const countOnce = () => admin.rpc("generation_job_finish", { job_id: job!.id, caller: userId, on_trial: onTrial, documents: job!.documents });
+  const countAlways = () => admin.rpc("org_count_claim", { org_id: organizationId, on_trial: onTrial });
+  let { data: counted, error: countError } = job ? await countOnce() : await countAlways();
+  if (job && countError && isBillingSchemaMissing(countError)) ({ data: counted, error: countError } = await countAlways());
   const count = embedded(counted as { used_before: number; used_after: number } | { used_before: number; used_after: number }[] | null);
-  if (countError || !count) {
-    console.error("[usage] could not count a claim:", countError ?? "no row");
+  if (countError) {
+    console.error("[usage] could not count a claim:", countError);
+    return;
+  }
+  if (!count) {
+    // With an id, no row is the answer that another send of this generation finished first and was
+    // counted — nothing to count, and no emails to send again.
+    if (!job) console.error("[usage] could not count a claim: no row");
     return;
   }
 

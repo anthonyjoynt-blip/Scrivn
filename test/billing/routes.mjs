@@ -14,6 +14,11 @@
  *   2. On a database without 0013, does the webhook behave exactly as before: the plan goes at the
  *      first failure, and nothing errors?
  *   3. The banner and the email say it in words.
+ *   4. A generation is counted once (0013): app/api/generate/route.ts, sent twice under one id because
+ *      the first answer was lost, generates once, counts once and answers the retry with the same
+ *      documents — including when the first used the last claim, when the retry comes while the
+ *      first is still running, and when the first failed. Without 0013, and before 0011, it counts
+ *      as it always did.
  *
  * (The "signature verification failed" line in the output is the forged event being refused.)
  *
@@ -31,8 +36,9 @@ const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..", "..");
 
 const { mod: routes, cleanup } = await bundleRoutes(
-  `export { POST as webhook } from "@/app/api/webhooks/stripe/route"; export { UsageBanner } from "@/components/UsageBanner";`,
-  "webhook",
+  `export { POST as webhook } from "@/app/api/webhooks/stripe/route"; export { POST as generate } from "@/app/api/generate/route";
+   export { UsageBanner } from "@/components/UsageBanner"; export { emptyClaimInfo } from "@/lib/claimInfo"; export { emptyLoss, withDerivedFields } from "@/lib/types";`,
+  "routes",
 );
 
 let passed = 0;
@@ -234,6 +240,126 @@ await s.close();
   const banner = renderToStaticMarkup(await routes.UsageBanner());
   check(!/card payment/.test(banner), "and the banner reads the plan without the failure columns, showing no failure");
   await old.close();
+}
+
+/* ── 4. A generation is counted once ──────────────────────────────────────────────────────────── */
+
+let claudeCalls = 0;
+/** Claude, answering with a numbered document — or held until `release()`, or failing once. */
+let claudeGate = null;
+let claudeFails = false;
+const claude = async () => {
+  claudeCalls += 1;
+  const n = claudeCalls;
+  if (claudeGate) await claudeGate.promise;
+  if (claudeFails) {
+    claudeFails = false;
+    throw new Error("Claude did not answer");
+  }
+  return { output: { inspectionReport: `REPORT ${n}`, scopeDocument: `SCOPE ${n}` }, usage: { input_tokens: 1, output_tokens: 1 } };
+};
+const generationBody = (jobId) => ({ claim: routes.emptyClaimInfo(), extraction: routes.withDerivedFields({ loss: routes.emptyLoss(), rooms: [] }), transcript: "Water in the basement.", ...(jobId ? { jobId } : {}) });
+async function generate(jobId) {
+  const res = await routes.generate(new Request("http://localhost/api/generate", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(generationBody(jobId)) }));
+  return { status: res.status, body: await res.json() };
+}
+const J = (n) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+
+{
+  const db = await startSupabaseLocal();
+  for (const m of [...all.before, ...all.from]) await db.applyMigration(m);
+  const pm = await db.createUser({ email: "pm@x.test", fullName: "Project Manager" });
+  const pmOrg = (await db.sql(`select organization_id from public.organization_members where user_id = $1`, [pm]))[0].organization_id;
+  await db.sql(`update public.organizations set subscription_tier = 'growth', claims_used_this_period = 73, period_reset_at = '2099-01-01T00:00:00Z' where id = $1`, [pmOrg]);
+  const used = async () => (await db.sql(`select claims_used_this_period from public.organizations where id = $1`, [pmOrg]))[0].claims_used_this_period;
+  emails.length = 0;
+  globalThis.__scrivnTest = { local: db, emails, stripe: fakeStripe, claude, userId: pm, email: "pm@x.test" };
+
+  // The answer to the first send is lost on the way back: the device only knows it did not arrive.
+  const first = await generate(J(1));
+  check(first.status === 200 && first.body.documents?.scopeDocument === "SCOPE 1" && (await used()) === 74, `a generation runs and counts once (got ${first.status}, ${await used()})`);
+  const retry = await generate(J(1));
+  check(retry.status === 200 && retry.body.repeated === true && retry.body.documents?.scopeDocument === "SCOPE 1", `sent again under the same id, it gets the same documents back (got ${retry.status}, ${JSON.stringify(retry.body.documents)})`);
+  check(claudeCalls === 1 && (await used()) === 74, `without a second Claude call or a second count: a lost answer plus a retry counts once (calls ${claudeCalls}, used ${await used()})`);
+
+  // The last claim: the retry must not be refused for the claim it already used.
+  const last = await generate(J(2));
+  check(last.status === 200 && (await used()) === 75, "the generation that uses the last claim counts it");
+  const lastRetry = await generate(J(2));
+  check(lastRetry.status === 200 && lastRetry.body.documents?.scopeDocument === "SCOPE 2" && (await used()) === 75, `its retry still gets its documents at the cap, not a refusal (got ${lastRetry.status})`);
+  const over = await generate(J(3));
+  const kept = await db.sql(`select count(*)::int as n from public.generation_jobs where id = $1`, [J(3)]);
+  check(over.status === 402 && kept[0].n === 0, `a new generation past the cap is refused, and its id given back for when the plan allows it (got ${over.status}, rows ${kept[0].n})`);
+
+  // A retry while the first is still being generated.
+  await db.sql(`update public.organizations set claims_used_this_period = 10 where id = $1`, [pmOrg]);
+  let release;
+  claudeGate = { promise: new Promise((r) => (release = r)) };
+  const slow = generate(J(4));
+  await new Promise((r) => setTimeout(r, 50));
+  const meanwhile = await generate(J(4));
+  check(meanwhile.status === 409 && meanwhile.body.running === true, `a retry that arrives while the first is still running is told to wait (got ${meanwhile.status})`);
+  claudeGate = null;
+  release();
+  const slowDone = await slow;
+  check(slowDone.status === 200 && (await used()) === 11, "the first finishes and counts once");
+  const afterSlow = await generate(J(4));
+  check(afterSlow.body.repeated === true && afterSlow.body.documents?.scopeDocument === slowDone.body.documents?.scopeDocument && (await used()) === 11, "and the waiting retry then gets the same documents, uncounted");
+
+  // The first send fails: nothing counted, and the retry runs.
+  claudeFails = true;
+  const failed = await generate(J(5));
+  check(failed.status === 502 && (await used()) === 11, "a generation that fails counts nothing");
+  const callsBefore = claudeCalls;
+  const recovered = await generate(J(5));
+  check(recovered.status === 200 && !recovered.body.repeated && claudeCalls === callsBefore + 1 && (await used()) === 12, "and its retry is generated and counted once");
+
+  // A send that died without finishing (the function was stopped) is taken over after six minutes.
+  await db.sql(`insert into public.generation_jobs (user_id, id, organization_id, started_at) values ($1, $2, $3, now() - interval '10 minutes')`, [pm, J(6), pmOrg]);
+  const takeover = await generate(J(6));
+  check(takeover.status === 200 && !takeover.body.repeated && (await used()) === 13, "an id left running by a send that died is taken over and counted once");
+
+  // Ids are each person's own.
+  const other = await db.createUser({ email: "other@x.test" });
+  globalThis.__scrivnTest.userId = other;
+  globalThis.__scrivnTest.email = "other@x.test";
+  const theirs = await generate(J(1));
+  check(theirs.status === 200 && !theirs.body.repeated && theirs.body.documents?.scopeDocument !== "SCOPE 1", "someone else sending the same id gets their own generation, never another person's documents");
+  globalThis.__scrivnTest.userId = pm;
+  globalThis.__scrivnTest.email = "pm@x.test";
+
+  // Without an id (the pipeline harness, an old page): counted every time, as before.
+  await generate(null);
+  await generate(null);
+  check((await used()) === 15, "a generation sent without an id is counted every time, as before");
+
+  for (const call of [`select * from public.generation_job_begin($1, $2, $3)`, `select * from public.generation_job_finish($1, $2, false, '{}'::jsonb)`]) {
+    const params = call.includes("begin") ? [J(9), pm, pmOrg] : [J(1), pm];
+    const r = await db.as(pm, call, params);
+    check(r.error !== null, `a signed-in person cannot call ${call.match(/generation_job_\w+/)[0]} (it would let them count nothing)`);
+  }
+  const peek = await db.as(pm, `select * from public.generation_jobs`);
+  check(peek.error !== null || peek.data.length === 0, "nor read the table");
+  await db.close();
+}
+{
+  // A database without 0013, then one without 0011: the id is ignored and every generation counts.
+  for (const [label, migrations, read] of [
+    ["without 0013", all.before, async (d, org) => (await d.sql(`select claims_used_this_period as n from public.organizations where id = $1`, [org]))[0].n],
+    ["before 0011", splitMigrationsAt(root, "_org_billing.sql").before, async (d, _org, who) => (await d.sql(`select claims_used_this_period as n from public.profiles where id = $1`, [who]))[0].n],
+  ]) {
+    const db = await startSupabaseLocal();
+    for (const m of migrations) await db.applyMigration(m);
+    const who = await db.createUser({ email: `${label.replace(/\s/g, "")}@x.test` });
+    const org = (await db.sql(`select organization_id from public.organization_members where user_id = $1`, [who]))[0].organization_id;
+    const table = label === "before 0011" ? "profiles" : "organizations";
+    await db.sql(`update public.${table} set subscription_tier = 'starter', claims_used_this_period = 2, period_reset_at = '2099-01-01T00:00:00Z' where id = $1`, [table === "profiles" ? who : org]);
+    globalThis.__scrivnTest = { local: db, emails, stripe: fakeStripe, claude, userId: who, email: `${who}@x.test` };
+    const a = await generate(J(1));
+    const b = await generate(J(1));
+    check(a.status === 200 && b.status === 200 && !b.body.repeated && (await read(db, org, who)) === 4, `${label}: a generation sent twice runs and counts twice, exactly as before (got ${a.status}/${b.status}, ${await read(db, org, who)})`);
+    await db.close();
+  }
 }
 
 cleanup();
