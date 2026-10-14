@@ -9,12 +9,12 @@ import { AiSpendAlarmEmail } from "@/emails/AiSpendAlarm";
 
 /**
  * The AI spending alarm (b-guard): every Claude call's tokens, priced (lib/aiPricing.ts) and added to
- * the day's total (`ai_spend_add`, 0013); the call that takes the day past AI_SPEND_ALARM_USD emails
+ * the day's total (`ai_spend_add`, 0014); the call that takes the day past AI_SPEND_ALARM_USD emails
  * AI_SPEND_ALARM_EMAIL (CONTACT_EMAIL when that is unset), once that day.
  *
  * It watches; it does not stop anything. The hard stop is the Anthropic console's own spend limit,
  * which only the owner can set. Recording never fails a call: everything here is caught and logged,
- * and with no Supabase, no service key or no 0013 it does nothing.
+ * and with no Supabase, no service key or no 0014 it does nothing.
  */
 export async function recordAiSpend(model: string, usage: TokenUsage, now: Date = new Date()): Promise<void> {
   if (!isSupabaseConfigured() || !cleanEnv("SUPABASE_SERVICE_ROLE_KEY")) return;

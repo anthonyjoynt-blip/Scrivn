@@ -99,7 +99,7 @@ async function teamCard(): Promise<{ team: TeamState } | { error: string } | nul
 export default async function AccountPage({ searchParams }: { searchParams: Promise<{ portal?: string }> }) {
   const [usage, letterhead, profile, devices, team] = await Promise.all([getUsageState(), letterheadCard(), profileCard(), devicesCard(), teamCard()]);
   const params = await searchParams;
-  // Scrivn Scan's scans this month (0013): one sentence under Paired phones, or none if it can't be read.
+  // Scrivn Scan's scans this month (0014): one sentence under Paired phones, or none if it can't be read.
   const scans = usage?.organizationId
     ? await allowanceFor(usage.organizationId).catch((err) => {
         unstable_rethrow(err);

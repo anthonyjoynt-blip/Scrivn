@@ -1,6 +1,6 @@
 /**
  * Scrivn Scan standing on its own (2026-10-14): the free scans, the guards on new accounts and AI
- * spend, and deleting an account — the rules in TypeScript and the SQL in 0013_scan_accounts.sql,
+ * spend, and deleting an account — the rules in TypeScript and the SQL in 0014_scan_accounts.sql,
  * against every migration in a Postgres in memory (test/db/supabaseLocal.mjs). No Supabase, no Stripe.
  *
  *   npm run test:scanaccounts

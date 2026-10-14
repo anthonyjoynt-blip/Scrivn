@@ -108,13 +108,13 @@ To protect accounts and limit abuse, Scrivn counts attempts to create an account
   install id, note, contact; the sender's address only as a salted hash for the hourly limit), table
   `scan_reports` (0008, readable by the service role only). The 12-month deletion is a promise with no
   job behind it yet - delete old rows by hand until there is one.
-- **Scan accounts, the free scans, deleting and the guards** (2026-10-14, migration 0013): signing in
+- **Scan accounts, the free scans, deleting and the guards** (2026-10-14, migration 0014): signing in
   from the phone is `app/api/device/signin` (the password is checked with Supabase from the server,
   `lib/passwordSignIn.ts`, and the phone keeps the device token, `PairingStore.kt`); creating an
   account, in Scan or on the website, is `lib/signup.ts` (name, email, password; Scrivn sends the
   confirmation email through Resend). The free-scan count is `scan_uses` (capture id, time, user,
   phone, sent or saved; `lib/scanAllowance.ts`). Deleting is `lib/accountDeletion.ts` with
-  `account_close` (0013), reached from `AccountScreen.kt` and `app/(app)/account/delete`. The guards
+  `account_close` (0014), reached from `AccountScreen.kt` and `app/(app)/account/delete`. The guards
   are `request_limits` (salted hashes of address and email, swept after two days,
   `lib/requestGuard.ts`) and `trial_emails` (salted hash of the normalised email, kept after deletion);
   `ai_spend_days` holds token counts and dollars per day only. The Play Data safety form must say:

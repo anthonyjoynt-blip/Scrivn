@@ -1,7 +1,8 @@
 -- Scrivn Scan on its own: free scans counted here, deleting an account, and the guards on new
 -- accounts and on AI spend (2026-10-14).
 --
--- Run in the Supabase SQL Editor after 0012_teams.sql. Safe to run twice. Every object here is new
+-- Run in the Supabase SQL Editor after 0013_payment_grace_and_counted_once.sql (it needs 0011 and 0012;
+-- it does not depend on 0013, which was written alongside it). Safe to run twice. Every object here is new
 -- and nothing reads it until the build that ships with it is deployed, so the two may be applied in
 -- either order; until this has run, that build counts no scans and refuses none (lib/scanAllowance.ts),
 -- and its guards let everything through (lib/requestGuard.ts) — which is what production does today.
@@ -49,7 +50,7 @@ begin
     select 1 from information_schema.columns
     where table_schema = 'public' and table_name = 'organizations' and column_name = 'personal_for'
   ) then
-    raise exception '0013_scan_accounts.sql needs 0011_org_billing.sql and 0012_teams.sql applied first.';
+    raise exception '0014_scan_accounts.sql needs 0011_org_billing.sql and 0012_teams.sql applied first.';
   end if;
 end;
 $$;

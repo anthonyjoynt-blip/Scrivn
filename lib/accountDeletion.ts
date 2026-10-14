@@ -26,12 +26,12 @@ import { AccountDeletedEmail } from "@/emails/AccountDeleted";
  * In this order, so that a failure part way leaves nothing billing and nothing half-deleted that a
  * retry would not finish:
  *
- *   1. what would go (`account_deletion_plan`, 0013) — refused here for an owner of a team;
+ *   1. what would go (`account_deletion_plan`, 0014) — refused here for an owner of a team;
  *   2. the Stripe subscriptions of each organization that goes, cancelled now, without a refund of
  *      the period already paid: a failure stops everything, because an account deleted with its plan
  *      still running would go on charging a card nobody can reach. The Stripe customer is kept (Stripe
  *      keeps invoices for the tax record; PRIVACY.md says so). A team's plan is not touched;
- *   3. the database half (`account_close`, 0013);
+ *   3. the database half (`account_close`, 0014);
  *   4. the photos and logo in storage, under each deleted organization's id;
  *   5. the auth user — which a retry after any failure above reaches again, since steps 1-4 find
  *      nothing left to do the second time;

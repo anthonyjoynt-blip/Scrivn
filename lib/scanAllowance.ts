@@ -8,10 +8,10 @@ import { freeLimitFor, freeTierEnforced, monthStartOf, scanAllowance, type ScanA
  *
  * Called by the phone's routes after the device token has been resolved, so the organization comes
  * from the token and never from the request. The reads and the count use the service role: the plan
- * and the counter are not the phone's to touch (0011, 0013), and the token has already been checked
+ * and the counter are not the phone's to touch (0011, 0014), and the token has already been checked
  * by a definer function.
  *
- * Until 0013 is applied there is nothing to count in: every scan is allowed and nothing is recorded,
+ * Until 0014 is applied there is nothing to count in: every scan is allowed and nothing is recorded,
  * which is today's behaviour. Until 0011 is applied the plan cannot be read from the organization, and
  * the same holds.
  */
@@ -49,7 +49,7 @@ export async function allowanceFor(organizationId: string, now: Date = new Date(
     .eq("organization_id", organizationId)
     .gte("used_at", monthStart.toISOString());
   if (error && !isBillingSchemaMissing(error)) throw new Error(`could not count scans: ${error.message}`);
-  // No 0011 or no 0013: nothing is counted or refused, and the sentence says so.
+  // No 0011 or no 0014: nothing is counted or refused, and the sentence says so.
   const counting = tier !== undefined && !error;
   return scanAllowance({ tier: tier ?? null, used: count ?? 0, enforced: enforced && counting, monthStart });
 }

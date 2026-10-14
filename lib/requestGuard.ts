@@ -6,7 +6,7 @@ import { guardHash, guardLimits, retryWords, type GuardLimits } from "./guardRul
 
 /**
  * The counted half of the guards (the rules and numbers are lib/guardRules.ts): one call per
- * attempt, through `request_limit_hit` (0013_scan_accounts.sql), which counts it in its window and
+ * attempt, through `request_limit_hit` (0014_scan_accounts.sql), which counts it in its window and
  * says whether it is within the limit. Durable and shared between serverless instances, unlike the
  * contact form's in-memory throttle, because these guard accounts and money rather than an inbox.
  *

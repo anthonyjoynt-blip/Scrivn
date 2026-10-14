@@ -56,7 +56,7 @@ Counted per organization, per calendar month (UTC). Any plan, Scrivn's or Scan's
 `lib/accountDeletion.ts`, from the phone (`POST /api/device/account/delete`, bearer + password) or the
 web (`POST /api/account/delete`, session + password). In order: the plan of every organization that
 goes is cancelled in Stripe (no refund of the period paid; if Stripe can't be reached nothing is
-deleted); then `account_close` (0013); then the photos and logo in storage; then the auth user; then a
+deleted); then `account_close` (0014); then the photos and logo in storage; then the auth user; then a
 "your account has been deleted" email.
 
 - Alone in their organization: the organization goes with everything in it (claims, scans, photos,
@@ -83,7 +83,7 @@ deleted); then `account_close` (0013); then the photos and logo in storage; then
 
 ## Migration
 
-`supabase/migrations/0013_scan_accounts.sql` — written, **not applied**. Needs 0011 and 0012 first.
+`supabase/migrations/0014_scan_accounts.sql` — written, **not applied**. Apply after 0013_payment_grace_and_counted_once.sql; it needs 0011 and 0012.
 Until it's applied, everything degrades to today: nothing counted or refused, guards let everything
 through, deletion answers "email privacy@scrivn.ca", phone sign-in works (it uses 0006's functions).
 

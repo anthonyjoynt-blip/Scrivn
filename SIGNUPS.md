@@ -52,7 +52,7 @@ scrivn.ca and check the confirmation email arrives and its link signs you in.
 
 ### The guard (b-guard)
 
-Counted in the database (`request_limit_hit`, 0013), shared by every serverless instance, numbers
+Counted in the database (`request_limit_hit`, 0014), shared by every serverless instance, numbers
 from the environment (a value that isn't a whole number keeps the default):
 
 | Variable | Limits | Default |
@@ -74,7 +74,7 @@ per million in / out) and added to the day's total (`ai_spend_days`). The call t
 `AI_SPEND_TIMEZONE`'s (America/Edmonton by default). It is an estimate that only watches. **The hard
 stop is the Anthropic console's own spend limit (Settings → Limits), which only the owner can set.**
 
-The guards fail open if the database can't answer (0013 not applied, Supabase down): they are a brake,
+The guards fail open if the database can't answer (0014 not applied, Supabase down): they are a brake,
 and Supabase's own per-address limits stand behind them.
 
 ### Why this matters more than it looks

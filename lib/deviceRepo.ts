@@ -160,7 +160,7 @@ export interface ReceivedScan {
   url: string;
   roomCount: number;
   notes: string[];
-  /** The organization's scans after this one (0013): what the phone shows on its account screen. */
+  /** The organization's scans after this one (0014): what the phone shows on its account screen. */
   allowance: ScanAllowance;
 }
 
@@ -461,7 +461,7 @@ export async function signInDevice(email: string, password: string, deviceName: 
 }
 
 /**
- * Sign out, from the phone (0013, `device_token_revoke_self`): the token revokes itself, so it stops
+ * Sign out, from the phone (0014, `device_token_revoke_self`): the token revokes itself, so it stops
  * working on Scrivn as well as being forgotten on the phone. False when it was already revoked or
  * never existed — the phone forgets it either way.
  */
@@ -567,7 +567,7 @@ export async function receiveScan(token: string, input: ReceiveScanInput): Promi
   const receivedAt = new Date().toISOString();
 
   /*
-    THE FREE SCANS (0013, sa-free): counted once a capture is known to draw and before it is stored.
+    THE FREE SCANS (0014, sa-free): counted once a capture is known to draw and before it is stored.
     A capture counted before — sent again, sent to another claim, or shared as a plan first — passes
     without counting, so a retry after a lost answer never costs a second scan; one over the free
     limit is refused with the sentence that names scrivn.ca/scan.

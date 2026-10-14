@@ -12,7 +12,7 @@ import { SCAN_PLAN, isScanTier, isScrivnTier } from "./plans";
  * sent to Scrivn or saved as a plan with Share, and never again: sending it twice, to another claim,
  * or sharing it after sending it costs nothing more. Its levels and its exterior travel under the one
  * id, so they are one scan. A walk that never leaves the phone is not counted. The count is the
- * organization's (the plan is, 0011), per calendar month in UTC. See 0013_scan_accounts.sql.
+ * organization's (the plan is, 0011), per calendar month in UTC. See 0014_scan_accounts.sql.
  *
  * ── Who is limited ───────────────────────────────────────────────────────────────────────────────
  *
