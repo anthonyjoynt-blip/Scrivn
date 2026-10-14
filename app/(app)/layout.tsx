@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { UserMenu } from "@/components/UserMenu";
+import { SyncStatus } from "@/components/SyncStatus";
 import { UsageBanner } from "@/components/UsageBanner";
 import { PRIVACY_POLICY_URL, TERMS_URL } from "@/lib/legal";
 
@@ -25,8 +26,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           <Link href="/claim" className="wordmark">
             Scrivn
           </Link>
-          {/* Renders nothing when signed out — see components/UserMenu.tsx. */}
-          <UserMenu />
+          <div className="site-header-end">
+            {/* Offline, and what is waiting to sync — nothing at all when online and all synced. */}
+            <SyncStatus />
+            {/* Renders nothing when signed out — see components/UserMenu.tsx. */}
+            <UserMenu />
+          </div>
         </div>
       </header>
       {/* Renders only at 80%+ of the plan limit — see components/UsageBanner.tsx. */}

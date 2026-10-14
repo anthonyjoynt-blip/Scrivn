@@ -5,13 +5,17 @@ import { type GapCheckQuestion, siblingQuestionIds } from "@/lib/questions";
 import { type AskedQuestion, formatQuestionLog, hasQuestionLog, recordRound } from "@/lib/questionLog";
 import { type SavedClaimState, resumeStep } from "@/lib/claimState";
 import { useClaimPersistence } from "@/lib/useClaimPersistence";
+import { type ClaimStep, claimOnScreen, setAside, tryAgain, useClaimSteps, waitForSignal } from "@/lib/aiJobs";
+import { buildAsbestosSection, buildContentsSection, equipmentSuggestionsFor, generationRequest, withExtraction, withGeneratedDocuments } from "@/lib/claimGeneration";
+import { connection, isNetworkFailure, netFetch } from "@/lib/connectivity";
+import { ClashBanner } from "@/components/ClashBanner";
 import { useLetterhead } from "@/lib/useLetterhead";
 import type { RoomAreasByName } from "@/lib/debris";
 import { roomAreasForEstimate } from "@/lib/sketchQuantities";
 import { exteriorScopeLines } from "@/lib/exterior";
 import { useProfile } from "@/lib/useProfile";
-import { isSupabaseConfigured } from "@/lib/supabase/env";
-import { resolveRound, nextQuestions } from "@/lib/questionRound";
+import { claimsCanSave, isSupabaseConfigured } from "@/lib/supabase/env";
+import { resolveRound } from "@/lib/questionRound";
 import type { GeneratedDocuments, WaterLossExtraction } from "@/lib/types";
 import { evaluate, applyAnswer, isContentsSizeQuestion, isEmergencyOnlyQuestion, isEquipmentPresenceQuestion, isRepairOnlyQuestion, isWaterExtractionQuestion } from "@/lib/gapCheck";
 import { emptyLoss, withDerivedFields } from "@/lib/types";
@@ -44,8 +48,7 @@ import { JobInformationSection } from "@/components/JobInformationSection";
 import { LetterheadBanner } from "@/components/LetterheadBanner";
 import { ContentsForm } from "@/components/ContentsForm";
 import { AsbestosForm } from "@/components/AsbestosForm";
-import { type AsbestosScope, emptyAsbestosScope, hasAsbestosContent } from "@/lib/asbestos";
-import { buildAsbestosScopeSection } from "@/lib/asbestosScope";
+import { type AsbestosScope, emptyAsbestosScope } from "@/lib/asbestos";
 import { BricABracForm } from "@/components/BricABracForm";
 import { claimFileName, downloadDocumentPdf } from "@/lib/pdf";
 import { buildJobInformationGroups } from "@/lib/jobInformation";
@@ -53,14 +56,12 @@ import {
   type ContentsTM,
   type DisposalType,
   buildContentsOnlyScopeDocument,
-  buildContentsScopeSection,
   emptyContentsTM,
 } from "@/lib/contentsTM";
 import {
   type BricABracData,
   type ContentSize,
   buildBricABracOnlyScopeDocument,
-  buildBricABracScopeSection,
   emptyBricABracData,
   emptyBricABracRoom,
   newRoomId,
@@ -84,7 +85,6 @@ import { SCAN_DROP, type PendingScan, adoptScan, convertScan, exteriorScanDecisi
 import { isExteriorOnlyScan } from "@/lib/exteriorImport";
 import { useScanInbox } from "@/lib/useScanInbox";
 import { ScanInboxMessage, ScanInboxNotice, scanAdoptedMessage } from "@/components/sketch/ScanInboxNotice";
-import { DEFAULT_EQUIPMENT_SETTINGS, claimEquipment } from "@/lib/equipment";
 import {
   type AttachmentTarget,
   type SketchAttachments,
@@ -108,7 +108,6 @@ import {
   equipmentSuggestionKey,
   normaliseRoomName,
   sketchMeasureFor,
-  withoutResolvedSuggestions,
 } from "@/lib/gapCheck";
 import { type SendableDocument, SendDocumentsPanel } from "@/components/SendDocumentsPanel";
 import Link from "next/link";
@@ -118,31 +117,14 @@ type Step = "intake" | "transcript" | "extracting" | "questions" | "ready" | "dg
 /** Two alternate ways to fill in the same "Contents" section (see contentsTM.ts / bricABrac.ts's doc comments) — a claim picks one, not both. */
 type ContentsApproach = "TM" | "BRIC_A_BRAC";
 
-/** Dispatches to whichever approach is active — every call site that needs the Contents section text goes through this one place. */
-function buildContentsSection(approach: ContentsApproach, contentsTM: ContentsTM, bricABrac: BricABracData): string {
-  return approach === "TM" ? buildContentsScopeSection(contentsTM) : buildBricABracScopeSection(bricABrac);
-}
+/*
+  The Contents section and the generation request are built in lib/claimGeneration.ts (2026-10-13):
+  a generation that waits for signal builds its request when it runs, from the claim as it is then,
+  and both routes must build the same document.
+*/
 
 function buildContentsOnlyDocument(approach: ContentsApproach, claim: ClaimInfo, contentsTM: ContentsTM, bricABrac: BricABracData): string {
   return approach === "TM" ? buildContentsOnlyScopeDocument(claim, contentsTM) : buildBricABracOnlyScopeDocument(claim, bricABrac);
-}
-
-/**
- * The inspection report's CONTENTS line when Contents is selected alongside structural scope (see
- * claimInfo.ts's `hasSeparateContents`) — see documentGenerationPrompt.ts's
- * documentGenerationUserMessage doc comment for why this has to be computed here and sent as
- * authoritative claim context rather than left for the model to infer: the transcript deliberately
- * says nothing about contents in that case (see the transcript step's own guidance), so there's
- * nothing to infer from. Null otherwise — there's no separate contents assignment to note. T&M has
- * no non-restorable/cleaning concept of its own, so the "processing" clause only ever applies under
- * the bric-a-brac approach.
- */
-function buildContentsAssignmentNote(claim: ClaimInfo, contentsApproach: ContentsApproach, bricABrac: BricABracData): string | null {
-  if (!hasSeparateContents(claim)) return null;
-  const isProcessing = contentsApproach === "BRIC_A_BRAC" && (Number.parseFloat(bricABrac.nonRestorableCount) > 0 || bricABrac.cleaning.isCleaningContent);
-  return isProcessing
-    ? "A separate contents assignment is required to pack out and pack back the contents, including processing of non-restorable and/or cleaned items."
-    : "A separate contents assignment is required to pack out and pack back the contents.";
 }
 
 const STEP_NUMBER: Record<Step, number> = {
@@ -195,10 +177,16 @@ function groupQuestions(questions: GapCheckQuestion[]): { title: string; questio
 
 
 async function postJson<T>(url: string, body: unknown): Promise<T> {
-  const res = await fetch(url, {
+  /*
+    Through `netFetch`, so a call that cannot get through tells the rest of the app the signal has
+    gone. Its time limit is past anything the server can take (Vercel stops a function at 300 s):
+    it only ever gives up on a dead connection, never on a slow answer that would then run twice.
+  */
+  const res = await netFetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
+    timeoutMs: 330_000,
   });
   const data = await res.json().catch(() => null);
   if (!res.ok) {
@@ -270,39 +258,11 @@ export default function Home() {
    * never constructed rather than merely never matching. A claim without moisture mapping goes
    * through gap-check exactly as it did before this existed.
    */
-  const equipmentSuggestions = useMemo<EquipmentSuggestions | undefined>(() => {
-    const result = claimEquipment(sketch, moisture, DEFAULT_EQUIPMENT_SETTINGS);
-    if (result.rooms.length === 0) return undefined;
-
-    const byRoom: EquipmentSuggestions = {};
-    for (const room of result.rooms) {
-      const sketchRoom = sketch.rooms.find((r) => r.id === room.roomId);
-      const measured = sketchRoom ? roomMoistureSummary(sketchRoom, moisture) : null;
-      byRoom[normaliseRoomName(room.roomName)] = {
-        // Keyed by the same free-text type strings extraction uses — see `EquipmentRecord.type`.
-        equipment: { "air movers": room.airMovers.units, dehumidifiers: room.dehumidifiers.units },
-        floorSquareFeet: measured && measured.affectedFloorSquareFeet > 0 ? measured.affectedFloorSquareFeet : null,
-        // The affected wall RUN, which is what a cut length is measured in — not the area.
-        wallRunFeet: measured
-          ? measured.readings.reduce((sum, r) => sum + (r.affectedLengthFeet ?? 0), 0) || null
-          : null,
-        ceilingSquareFeet: measured && measured.affectedCeilingSquareFeet > 0 ? measured.affectedCeilingSquareFeet : null,
-        /*
-          Nesting, carried through to gap-check so a closet drawn inside a bedroom stops being asked
-          the bedroom's questions over again. Normalised to the same key space as `byRoom` above so
-          it can be looked up directly; null for a room standing on its own, and null too if the
-          parent has somehow gone from the sketch, which correctly makes this a top-level room again.
-        */
-        parentRoomKey: (() => {
-          const parentId = sketchRoom?.parentRoomId ?? null;
-          if (parentId === null) return null;
-          const parent = sketch.rooms.find((r) => r.id === parentId);
-          return parent ? normaliseRoomName(parent.name ?? "") : null;
-        })(),
-      };
-    }
-    return withoutResolvedSuggestions(byRoom, resolvedSuggestions);
-  }, [sketch, moisture, resolvedSuggestions]);
+  // Built in lib/claimGeneration.ts, where a transcript read while the claim was off screen uses it too.
+  const equipmentSuggestions = useMemo<EquipmentSuggestions | undefined>(
+    () => equipmentSuggestionsFor(sketch, moisture, resolvedSuggestions),
+    [sketch, moisture, resolvedSuggestions],
+  );
   /**
    * Asbestos abatement — phase 1 of the Remediation loss type.
    *
@@ -430,13 +390,33 @@ export default function Home() {
     state: persistedState,
     apply: applyLoadedClaim,
     /*
-      Off in the dev fail-open, where there is nobody to save for. `isSupabaseConfigured` is the
-      client-side half of the same test `lib/usage.ts` makes on the server — with the two public
-      variables blank, middleware waves requests through and there is no session for a claim to
-      belong to, so saving would only collect 401s.
+      Off only where there is nowhere to save to. In the dev fail-open — the two public Supabase
+      variables blank, middleware waving requests through — claims save to the file
+      lib/devClaimsStore.ts keeps in the database's place, so the whole save/offline path runs
+      locally without signing in. See `claimsCanSave`.
     */
-    enabled: isSupabaseConfigured(),
+    enabled: claimsCanSave(),
   });
+
+  /*
+    The Claude steps that wait for signal (lib/aiJobs.ts). While this claim is on screen, an answer
+    that arrives for it comes here and is applied exactly as a direct answer is; the step reads the
+    claim as the page holds it, which may be newer than the device's copy by a debounce.
+  */
+  const aiSteps = useClaimSteps(persistence.claimId);
+  const pageState = useRef(persistedState);
+  pageState.current = persistedState;
+  const applyExtracted = useRef<(extraction: WaterLossExtraction, warnings: string[]) => void>(() => {});
+  const applyGenerated = useRef<(documents: GeneratedDocuments) => void>(() => {});
+  useEffect(() => {
+    const id = persistence.claimId;
+    if (!id) return;
+    return claimOnScreen(id, {
+      state: () => pageState.current,
+      extracted: (extraction, warnings) => applyExtracted.current(extraction, warnings),
+      generated: (documents) => applyGenerated.current(documents),
+    });
+  }, [persistence.claimId]);
 
   useEffect(() => {
     // Zero is the initial value, not a checkpoint — writing on mount would save a blank claim.
@@ -451,7 +431,8 @@ export default function Home() {
      Off in the dev fail-open for the reason saving is, and held back while a claim is loading so a
      scan is never applied to the blank state the loaded claim is about to replace. The rule for what
      happens to one is `scanDecision` in lib/scanInbox.ts; this is only the wiring. */
-  const scanInbox = useScanInbox({ claimId: persistence.claimId, enabled: isSupabaseConfigured() && !persistence.loading });
+  // Only once the server has the claim: a claim started offline has an id before it has a row for scans to land in.
+  const scanInbox = useScanInbox({ claimId: persistence.onServer ? persistence.claimId : null, enabled: isSupabaseConfigured() && !persistence.loading });
   const pendingScan = scanInbox.pending[0] ?? null;
   /**
    * What this page did with each scan, by id, so no scan is applied twice. The server is told
@@ -1280,24 +1261,50 @@ export default function Home() {
    * `onFailureStep` is where to land the user back on if the call fails, since the two callers came
    * from different steps.
    */
+  /**
+   * An extraction's answer, put on the claim — from a call made here, or one that waited for signal
+   * and has just run (lib/aiJobs.ts). The year of building goes onto the tree and the step follows
+   * from what is left to ask: see `withExtraction`.
+   */
+  function extracted(result: WaterLossExtraction, warnings: string[]) {
+    // A pass that did not run is a claim missing what that pass carries — say so, rather than
+    // letting the questions step look complete. See the route for what each pass carries.
+    setExtractionWarnings(warnings);
+    const next = withExtraction(pageState.current, result);
+    setExtraction(next.extraction);
+    setAnswers(next.answers);
+    setStep(next.step as Step);
+    checkpoint();
+  }
+  applyExtracted.current = extracted;
+
+  /**
+   * With no signal, the step is written down to run when the signal is back, and the claim stays
+   * usable meanwhile — see lib/aiJobs.ts. It names the claim by id, which a claim started here is
+   * given on the spot if its first save has not happened yet; the save is a checkpoint, so the
+   * waiting step is never the only record of the claim.
+   */
+  async function waitForSignalOrFail(kind: ClaimStep, err: unknown, onFailureStep: Step): Promise<void> {
+    setStep(onFailureStep);
+    if (!isNetworkFailure(err)) {
+      setError(err instanceof Error ? err.message : kind === "extract" ? "Extraction failed unexpectedly." : "Document generation failed unexpectedly.");
+      return;
+    }
+    checkpoint();
+    await waitForSignal(persistence.claimIdNow(), kind);
+  }
+
   async function runExtraction(sourceText: string, onFailureStep: Step) {
     setError(null);
+    setExtractionWarnings([]);
+    // Known to be offline: straight to waiting, rather than a spinner that can only fail.
+    if (connection() === "offline") return waitForSignalOrFail("extract", new TypeError("offline"), onFailureStep);
     setStep("extracting");
     try {
       const result = await postJson<{ extraction: WaterLossExtraction; warnings?: string[] }>("/api/extract", { transcript: sourceText });
-      // A pass that did not run is a claim missing what that pass carries — say so, rather than
-      // letting the questions step look complete. See the route for what each pass carries.
-      setExtractionWarnings(result.warnings ?? []);
-      // yearOfBuilding is the one intake field that also has to reach extraction.loss (drives
-      // asbestosTestingRequired) — see claimInfo.ts's applyClaimYearOfBuilding doc comment.
-      const extractionWithYear = applyClaimYearOfBuilding(claim, result.extraction);
-      const questions = nextQuestions(claim, extractionWithYear, equipmentSuggestions);
-      setExtraction(extractionWithYear);
-      setAnswers({});
-      setStep(questions.length === 0 ? "ready" : "questions");
+      extracted(result.extraction, result.warnings ?? []);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Extraction failed unexpectedly.");
-      setStep(onFailureStep);
+      await waitForSignalOrFail("extract", err, onFailureStep);
     }
   }
 
@@ -1387,61 +1394,35 @@ export default function Home() {
   }
 
   /**
-   * The abatement section, or "" when the form is empty.
-   *
-   * The sample count is READ from the claim's existing asbestos field rather than re-asked in the
-   * form — see `AsbestosScopeContext`. One building fact, one place to record it.
+   * Generated documents, put on the claim — from a call made here or one that waited for signal.
+   * What is built here rather than by Claude (the Contents and asbestos sections) is appended in
+   * `withGeneratedDocuments`.
    */
-  function buildAsbestosSection(): string {
-    if (!hasAsbestosContent(asbestos)) return "";
-    const room = asbestos.sketchRoomId ? (sketch.rooms.find((r) => r.id === asbestos.sketchRoomId) ?? null) : null;
-    return buildAsbestosScopeSection(asbestos, {
-      sampleCount: extraction?.loss.asbestosSampleCount ?? null,
-      sketchRoom: room,
-      roomName: room?.name.trim() || null,
-    });
+  function generated(result: GeneratedDocuments) {
+    const next = withGeneratedDocuments(pageState.current, result);
+    setDocuments(next.documents);
+    setStep(next.step as Step);
+    checkpoint();
   }
+  applyGenerated.current = generated;
 
   async function handleGenerateDocuments() {
-    if (!extraction) return;
+    const request = generationRequest(persistedState);
+    if (!request) return;
     setError(null);
+    // Return to whichever step actually triggered this call: "contents" when Contents is selected
+    // alongside structural scope (always the last stop before generating), else "ready" directly —
+    // a DGIG claim's Emergency form already happened earlier in the flow, so "ready" is correct
+    // for it too.
+    const from: Step = hasSeparateContents(claim) ? "contents" : "ready";
+    // Known to be offline: straight to waiting — nothing is sent, so nothing is counted.
+    if (connection() === "offline") return waitForSignalOrFail("generate", new TypeError("offline"), from);
     setStep("generating");
     try {
-      const contentsAssignmentNote = buildContentsAssignmentNote(claim, contentsApproach, bricABrac);
-      // Only sent once the DGIG form actually has content in it — see dgig.ts's hasDGIGContent doc
-      // comment for why an empty form falls back to the standard derivation instead of an empty
-      // Emergency/Repair section.
-      const dgigPayload = isDGIG(claim.insurer) && hasDGIGContent(dgigData) ? dgigData : null;
-      const result = await postJson<{ documents: GeneratedDocuments }>("/api/generate", { claim, extraction, transcript, contentsAssignmentNote, dgigData: dgigPayload, roomAreas, exterior: [...exteriorLines.roofing, ...exteriorLines.siding] });
-      const documents = result.documents;
-      // Contents alongside structural scope: Claude generates the structural Emergency/Repair scope
-      // only (see documentGenerationPrompt.ts's SCOPE_PHASE_RULES) — the Contents section is
-      // appended here, client-side, same reasoning as a Contents-only claim never calling Claude at all.
-      if (hasSeparateContents(claim)) {
-        const contentsSection = buildContentsSection(contentsApproach, contentsTM, bricABrac);
-        if (contentsSection) {
-          documents.scopeDocument = `${documents.scopeDocument}\n\n${contentsSection}`;
-        }
-      }
-      // Asbestos abatement, appended the same way and for the same reason — it is calculated
-      // from the form rather than generated, so it goes on after the model's structural scope
-      // instead of being asked of it.
-      const asbestosSection = buildAsbestosSection();
-      if (asbestosSection) {
-        documents.scopeDocument = `${documents.scopeDocument}
-
-${asbestosSection}`;
-      }
-      setDocuments(documents);
-      setStep("results");
-      checkpoint();
+      const result = await postJson<{ documents: GeneratedDocuments }>("/api/generate", request);
+      generated(result.documents);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Document generation failed unexpectedly.");
-      // Return to whichever step actually triggered this call: "contents" when Contents is selected
-      // alongside structural scope (always the last stop before generating), else "ready" directly —
-      // a DGIG claim's Emergency form already happened earlier in the flow, so "ready" is correct
-      // for it too.
-      setStep(hasSeparateContents(claim) ? "contents" : "ready");
+      await waitForSignalOrFail("generate", err, from);
     }
   }
 
@@ -1465,7 +1446,7 @@ ${asbestosSection}`;
       const contents = buildContentsSection(contentsApproach, contentsTM, bricABrac);
       if (contents) parts.push(contents);
     }
-    const asbestos = buildAsbestosSection();
+    const asbestos = buildAsbestosSection(persistedState);
     if (asbestos) parts.push(asbestos);
     setDocuments({ scopeDocument: parts.join("\n\n") });
     setStep("results");
@@ -1513,35 +1494,79 @@ ${asbestosSection}`;
         offer a retry button — the next edit retries on its own, and a button implying otherwise
         would suggest the work is lost until it is pressed.
 
-        Three outcomes, not two, and the difference between the last two is the whole point of the
-        offline queue. "Saved" means the server has it, so another device can open it. "Held on this
-        device" means it is safe but only HERE — closing the tab is fine, switching phones is not.
-        Saying "Saved" for both would be the more comforting message and the wrong one: it would send
-        somebody to another device for work that never left this one.
+        The outcomes are not equal, and the difference between "Saved" and "saved on this phone" is
+        the whole point of offline mode. "Saved" means the server has it, so another device can open
+        it. "On this phone" means it is safe but only HERE — closing the tab is fine, switching phones
+        is not. Saying "Saved" for both would be the more comforting message and the wrong one: it
+        would send somebody to another device for work that never left this one. What else this
+        device is holding is in the header (components/SyncStatus.tsx).
       */}
-      {persistence.status !== "idle" && (
+      {persistence.status !== "idle" && persistence.status !== "clash" && (
         <p
-          className={`save-status${persistence.status === "error" ? " save-status-error" : ""}${
-            persistence.status === "pending" ? " save-status-pending" : ""
+          className={`save-status${persistence.status === "error" || persistence.status === "refused" ? " save-status-error" : ""}${
+            persistence.status === "pending" || persistence.status === "signed-out" ? " save-status-pending" : ""
           }`}
         >
           {persistence.status === "saving" && "Saving…"}
           {persistence.status === "saved" && "Saved — you can pick this up on another device from Claims."}
           {persistence.status === "pending" &&
-            "No connection — saved on this device. It will finish saving on its own when you have signal; keep working."}
-          {persistence.status === "error" && "Could not save. Your work is still on screen; the next change will try again."}
-          {/*
-            THIS claim is safe but another one is not, which is the quietly dangerous case: the line
-            above says "Saved", and somebody reading it closes the laptop believing everything is.
-            Only shown alongside "Saved" — when this claim is itself held, the message above already
-            says the device is holding work and a second sentence about it would only muddle it.
-          */}
-          {persistence.status === "saved" && persistence.pendingCount > 0 && (
-            <> {persistence.pendingCount} other claim{persistence.pendingCount === 1 ? " is" : "s are"} still waiting to
-            save from this device — see Claims.</>
-          )}
+            "Saved on this phone, not yet synced — no signal. It syncs on its own when there is signal; keep working."}
+          {persistence.status === "signed-out" &&
+            "Saved on this phone, not yet synced — you have been signed out. Sign in again and it syncs on its own."}
+          {persistence.status === "refused" &&
+            `Saved on this phone, but Scrivn would not take it: ${persistence.refusedReason ?? "no reason given"}. It will try again when the claim next changes.`}
+          {persistence.status === "error" && "Could not save — no signal, and this browser is not keeping a copy. Keep this page open; it will try again on the next change."}
         </p>
       )}
+      {persistence.openedFromDevice !== null && persistence.status !== "saved" && (
+        <p className="save-status">
+          No signal — opened from this phone&rsquo;s copy, last changed {new Date(persistence.openedFromDevice).toLocaleString()}.
+        </p>
+      )}
+      {persistence.clash && (
+        <ClashBanner clash={persistence.clash} onKeep={(keep) => void persistence.resolveClash(keep)} />
+      )}
+      {/*
+        A Claude step written down to run when the signal is back — said once, here, whichever step
+        the claim is on, so it is never mistaken for a step that has failed or is still spinning.
+      */}
+      {(["extract", "generate"] as const).map((kind) => {
+        const s = aiSteps[kind];
+        if (!s) return null;
+        const what = kind === "extract" ? "read the transcript into a scope" : "generate the documents";
+        return (
+          <div key={kind} className={`waiting-banner${s.error ? " waiting-banner-failed" : ""}`} role="status">
+            <p>
+              {s.error ? (
+                <>
+                  <strong>Could not {what}:</strong> {s.error}
+                </>
+              ) : s.running ? (
+                <>
+                  <span className="spinner" /> <strong>Signal is back — {kind === "extract" ? "reading the transcript" : "generating the documents"} with Claude…</strong>
+                </>
+              ) : (
+                <>
+                  <strong>Waiting for signal to {what}.</strong> It runs on its own as soon as there is signal — nothing is
+                  counted until it does. Keep working: the sketch, the moisture map and everything else save on this phone.
+                </>
+              )}
+            </p>
+            {!s.running && (
+              <span className="waiting-banner-actions">
+                {s.error && (
+                  <button type="button" className="btn-secondary" onClick={() => persistence.claimId && void tryAgain(persistence.claimId, kind)}>
+                    Try again
+                  </button>
+                )}
+                <button type="button" className="btn-secondary" onClick={() => persistence.claimId && void setAside(persistence.claimId, kind)}>
+                  {s.error ? "Dismiss" : "Don’t wait"}
+                </button>
+              </span>
+            )}
+          </div>
+        );
+      })}
 
       {/*
         A scan from the phone that needs an answer, or the receipt for one that did not. With the
@@ -1668,7 +1693,7 @@ ${asbestosSection}`;
             <button className="btn-secondary" onClick={() => setStep("intake")}>
               Back
             </button>
-            <button className="btn-primary" onClick={handleContinueFromDGIGForm}>
+            <button className="btn-primary" onClick={handleContinueFromDGIGForm} disabled={aiSteps.extract !== null}>
               Continue
             </button>
           </div>
@@ -1709,7 +1734,7 @@ ${asbestosSection}`;
             <button className="btn-secondary" onClick={() => setStep("intake")} disabled={step === "extracting"}>
               Back
             </button>
-            <button className="btn-primary" onClick={handleGenerate} disabled={step === "extracting" || transcript.trim() === ""}>
+            <button className="btn-primary" onClick={handleGenerate} disabled={step === "extracting" || transcript.trim() === "" || aiSteps.extract !== null}>
               Generate
             </button>
           </div>
@@ -1862,7 +1887,7 @@ ${asbestosSection}`;
                 <span className="spinner" /> Generating documents with Claude…
               </div>
             )}
-            <button className="btn-primary" onClick={handleContinueFromReady} disabled={step === "generating"}>
+            <button className="btn-primary" onClick={handleContinueFromReady} disabled={step === "generating" || aiSteps.generate !== null}>
               {hasSeparateContents(claim) || hasRemediation(claim) ? "Continue" : "Generate Documents"}
             </button>
           </div>
@@ -1895,7 +1920,7 @@ ${asbestosSection}`;
             <button className="btn-secondary" onClick={reset}>
               Start Over
             </button>
-            <button className="btn-primary" onClick={handleRemediationContinue}>
+            <button className="btn-primary" onClick={handleRemediationContinue} disabled={aiSteps.generate !== null}>
               {hasStructuralScope(claim) ? "Generate Documents" : "Generate Scope Document"}
             </button>
           </div>
@@ -1972,7 +1997,7 @@ ${asbestosSection}`;
             <button className="btn-secondary" onClick={reset}>
               Start Over
             </button>
-            <button className="btn-primary" onClick={handleContentsContinue}>
+            <button className="btn-primary" onClick={handleContentsContinue} disabled={aiSteps.generate !== null}>
               {hasRemediation(claim)
                 ? "Continue"
                 : hasStructuralScope(claim)
