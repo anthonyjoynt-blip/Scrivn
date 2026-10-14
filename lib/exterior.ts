@@ -318,9 +318,10 @@ export const DEFAULT_EAVE_FEET = 10;
 /**
  * The pitch a roof is drawn at before one is typed or a gable is measured (2026-10-13): the owner
  * could not find the roof while it waited for a pitch. Always said to be assumed, on the plan, the
- * scope and the documents, and asked for until it is answered.
+ * scope and the documents, and asked for until it is answered. 4/12 since 2026-10-14, the owner's
+ * call: closer to the houses he works on (his own reads 4-5/12) than the 6/12 it started at.
  */
-export const ASSUMED_PITCH = 6;
+export const ASSUMED_PITCH = 4;
 export const DEFAULT_PARGING_FEET = 8 / 12;
 export const DEFAULT_EAVE_OVERHANG_FEET = 16 / 12;
 export const DEFAULT_RAKE_OVERHANG_FEET = 12 / 12;

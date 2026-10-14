@@ -95,7 +95,7 @@ Cladding kinds are Scan's list: `stucco`, `vinyl`, `wood_shake`, `eifs`, `wood`,
   - Scan no longer captures a roofline, so `roofline` is `[]`;
   - `pitch_12` and `peak` still come from a gable's shape when a side has one;
   - the roof comes from the estimator in Scrivn (footprint, overhangs, pitch). The roof from Scan is off the table for now.
-  - Since 2026-10-13, a walk with no gable measured comes in with its roof drawn at an assumed 6/12, said to be assumed on the plan, the scope and the documents until the estimator types the pitch. The import lands on the same Plan & roof and face-on side screens as an exterior drawn by hand.
+  - Since 2026-10-13, a walk with no gable measured comes in with its roof drawn at an assumed 4/12 (6/12 until 2026-10-14), said to be assumed on the plan, the scope and the documents until the estimator types the pitch. The import lands on the same Plan & roof and face-on side screens as an exterior drawn by hand.
 
 ## The sides' photos (Scan 0.1.151, 2026-10-12)
 

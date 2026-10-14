@@ -2017,10 +2017,10 @@ test("3D: cladding as the elevation has it, openings in place, and what can't be
   assert(front.background === "vinyl", front.background);
   const o = front.openings[0];
   assert(o.kind === "window" && o.x0 === 5 && o.x1 === 9 && o.y0 === 3 && o.y1 === 6, JSON.stringify(o));
-  // No pitch typed and no gable measured: the roof stands at the assumed 6/12, and says so (10-13).
+  // No pitch typed and no gable measured: the roof stands at the assumed 4/12, and says so (10-13; 4/12 since 10-14).
   const walls = model3d(rect(40, 30));
-  assert(walls.roof !== null && /assumed 6\/12/.test(walls.notes.join(" ")), walls.notes.join(" "));
-  near(topOf(wallNamed(walls, "Left")), 17.5, "the gable end up to the assumed roof, as at a typed 6/12");
+  assert(walls.roof !== null && /assumed 4\/12/.test(walls.notes.join(" ")), walls.notes.join(" "));
+  near(topOf(wallNamed(walls, "Left")), 15, "the gable end up to the assumed roof, as at a typed 4/12");
   near(topOf(wallNamed(walls, "Front")), 10, "the eave as measured");
   const open = x.exteriorModel(exterior([ownersSide()]));
   assert(!open.ok && /every side of the house/.test(open.reason), open.ok ? "built" : open.reason);
@@ -2229,16 +2229,16 @@ test("going round a U side by side, the walk does not close on its own before it
   assert(j.open, "still open: the jog is still to come");
 });
 
-test("the roof is there as soon as the outline closes, at an assumed 6/12 that is asked for until it is answered", () => {
+test("the roof is there as soon as the outline closes, at an assumed 4/12 that is asked for until it is answered", () => {
   const e = drawnRect();
   e.scope = { roofing: true, sides: [e.sides[1].id], soffitFascia: false, eavestrough: false };
   const q = x.exteriorQuantities(e);
-  assert(q.roof && q.pitch.source === "assumed" && q.roof.pitch === 6, `${q.pitch.source} ${q.roof?.pitch}`);
-  assert(q.roofing.pitchAssumed && q.roofing.toAnswer.roofing[0] === "the pitch (6/12 is assumed)", q.roofing.toAnswer.roofing.join(" | "));
+  assert(q.roof && q.pitch.source === "assumed" && q.roof.pitch === 4, `${q.pitch.source} ${q.roof?.pitch}`);
+  assert(q.roofing.pitchAssumed && q.roofing.toAnswer.roofing[0] === "the pitch (4/12 is assumed)", q.roofing.toAnswer.roofing.join(" | "));
   const lines = x.exteriorScopeLines(e);
-  assert(/^Remove & replace roofing – material to confirm – 6\/12 \(assumed, to confirm\) – /.test(lines.roofing[0]), lines.roofing[0]);
+  assert(/^Remove & replace roofing – material to confirm – 4\/12 \(assumed, to confirm\) – /.test(lines.roofing[0]), lines.roofing[0]);
   // The Right side is a gable end: its gable is the roof's, so at the assumed pitch, and its line says so.
-  assert(/^Remove & replace stucco – Right – [\d.]+ SF – gables at the assumed 6\/12, to confirm$/.test(lines.siding[0]), lines.siding[0]);
+  assert(/^Remove & replace stucco – Right – [\d.]+ SF – gables at the assumed 4\/12, to confirm$/.test(lines.siding[0]), lines.siding[0]);
   e.roof.pitch = 5;
   const typed = x.exteriorQuantities(e);
   assert(typed.pitch.source === "typed" && !typed.roofing.pitchAssumed && !typed.roofing.toAnswer.roofing.some((t) => /pitch/.test(t)), "typed: nothing assumed");
