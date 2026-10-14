@@ -46,6 +46,8 @@ export type { UsageState } from "./usageState";
 
 /** The organization's billing columns, as `getUsageState` reads them. */
 const ORG_BILLING_COLUMNS = "subscription_tier, claims_used_this_period, period_reset_at, trial_started_at, trial_claims_used, seat_limit";
+/** The same with a failed card's state (0013). Without 0013 the read above is used, as before it. */
+const ORG_BILLING_AND_PAYMENT_COLUMNS = `${ORG_BILLING_COLUMNS}, payment_failed_at`;
 
 /**
  * Development with no Supabase project standing — the same state `middleware.ts` fails open on.
@@ -87,9 +89,11 @@ export async function getUsageState(): Promise<UsageState | null> {
 
   // One round trip: the membership, and through it the organization's plan — both under the person's
   // own session, so RLS hands back their own organization's row and no other (0004).
-  const { data, error } = await withClockSkewRetry(() =>
-    supabase.from("organization_members").select(`organization_id, role, organizations (${ORG_BILLING_COLUMNS})`).eq("user_id", userId).limit(1).maybeSingle(),
-  );
+  const read = (columns: string) =>
+    withClockSkewRetry(() => supabase.from("organization_members").select(`organization_id, role, organizations (${columns})`).eq("user_id", userId).limit(1).maybeSingle());
+  let { data, error } = await read(ORG_BILLING_AND_PAYMENT_COLUMNS);
+  // 0011 applied and 0013 not: the plan as the build before read it, with no failed card to show.
+  if (error && isBillingSchemaMissing(error)) ({ data, error } = await read(ORG_BILLING_COLUMNS));
   if (error && isBillingSchemaMissing(error)) return legacyProfileUsage(supabase, userId);
 
   const row = data as { organization_id?: unknown; role?: unknown; organizations?: OrganizationBillingRow | OrganizationBillingRow[] | null } | null;
@@ -98,6 +102,13 @@ export async function getUsageState(): Promise<UsageState | null> {
 
 /** The message shown when an action is refused — plain about what happened and both ways out. */
 export function blockedMessage(usage: UsageState): string {
+  // A declined card first: it is the true reason, and choosing a new plan would be the wrong fix —
+  // the plan is still theirs once the card is.
+  if (usage.paymentFailedAt && (usage.paymentOverdue || usage.noPlan)) {
+    return usage.canManageBilling
+      ? "Your card payment didn’t go through, so generating new documents is paused. Update your card under Manage billing on your Account page, and it starts again as soon as the payment is taken."
+      : "Your organization’s card payment didn’t go through, so generating new documents is paused until its owner updates the card.";
+  }
   if (usage.noPlan) {
     // The two trial endings need different wording: one is "you've used them all", the other is
     // "time ran out" — telling someone with 3 unused claims that they're out of claims would be
@@ -128,7 +139,10 @@ export async function checkUsageAllowed(): Promise<{ error: string; status: numb
   // An active trial is a legitimate way to generate — `noPlan` alone no longer means blocked, which
   // it did before the trial existed.
   if (usage.onTrial) return null;
-  if (usage.noPlan || usage.atLimit) return { error: blockedMessage(usage), status: 402 };
+  // A plan whose card failed works through the grace period (PAYMENT_GRACE_DAYS), then pauses. The
+  // webhook may still hold the tier — Stripe sends nothing on the day the grace ends — so the date
+  // is checked here, where it is read.
+  if (usage.noPlan || usage.atLimit || usage.paymentOverdue) return { error: blockedMessage(usage), status: 402 };
   return null;
 }
 

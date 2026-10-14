@@ -153,6 +153,16 @@ export const TRIAL_DAYS = 30;
 export const TRIAL_WARNING_AT_CLAIMS = 4;
 
 /**
+ * Days a plan keeps working after its card is declined (2026-10-14), counted from the first failure.
+ *
+ * Matches the retry window Stripe is set to in the Dashboard — Smart Retries "within 1 week", then
+ * cancel the subscription (STRIPE.md, "A card that fails"). Change the two together: a grace shorter
+ * than the retries pauses people Stripe is still trying to charge, and a longer one keeps working a
+ * plan Stripe has already cancelled (the cancellation still ends it, so that only wastes the days).
+ */
+export const PAYMENT_GRACE_DAYS = 7;
+
+/**
  * Seats: how many people one organization's plan covers. NOT DECIDED.
  *
  * The owner, 2026-10-13, wants team accounts in place for later, not priced now; the seat price is

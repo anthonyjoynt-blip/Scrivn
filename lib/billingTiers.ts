@@ -1,4 +1,4 @@
-import { isScanTier, isScrivnTier } from "./plans";
+import { PAYMENT_GRACE_DAYS, isScanTier, isScrivnTier } from "./plans";
 
 /**
  * The webhook's rules for a customer who can hold two subscriptions at once.
@@ -30,6 +30,32 @@ export function subscriptionEventApplies({
   // A cancelled subscription takes away only the plan it gave.
   if (deleted && eventTier && storedTier && eventTier !== storedTier) return false;
   return true;
+}
+
+/**
+ * Whether a payment on a subscription of `eventTier` — failed or paid — is about the plan the
+ * organization holds (2026-10-14). The same rule as above: a Scan subscription's invoice never
+ * touches a Scrivn plan, which already covers Scan. A price this deployment doesn't know is about no
+ * plan of ours.
+ */
+export function paymentEventApplies({ eventTier, storedTier }: { eventTier: string | null; storedTier: string | null }): boolean {
+  return eventTier !== null && subscriptionEventApplies({ eventTier, storedTier, deleted: false });
+}
+
+/** When the grace period for a failure first seen at `failedAt` runs out — PAYMENT_GRACE_DAYS later. */
+export function paymentGraceEndsAt(failedAt: string): string {
+  return new Date(new Date(failedAt).getTime() + PAYMENT_GRACE_DAYS * 86_400_000).toISOString();
+}
+
+/**
+ * Whether a plan whose card first failed at `failedAt` still works at `now`.
+ *
+ * Stripe marks the subscription past due on the first declined renewal; inside this window the
+ * webhook keeps the plan, and lib/usage.ts lets it generate. After it, both treat past due as no
+ * plan — what they did on the first failure before (2026-10-14).
+ */
+export function withinPaymentGrace(failedAt: string, now: number): boolean {
+  return now <= new Date(paymentGraceEndsAt(failedAt)).getTime();
 }
 
 /**

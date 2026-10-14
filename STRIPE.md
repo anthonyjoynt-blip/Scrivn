@@ -110,6 +110,12 @@ Subscribe to exactly:
 - `checkout.session.completed`
 - `customer.subscription.updated`
 - `customer.subscription.deleted`
+- `invoice.payment_failed` (added 2026-10-14, see §7)
+- `invoice.paid` (added 2026-10-14, see §7)
+
+Choose API version `2026-08-26.dahlia` for the endpoint, the version the installed SDK speaks
+(`lib/stripe/server.ts`). Events arrive in the endpoint's version; the webhook reads the older
+shapes too, but there is no reason to make it.
 
 Stripe shows a signing secret for the endpoint — that's the production `STRIPE_WEBHOOK_SECRET`, and
 it is **not** the same as the `stripe listen` one. It goes in Vercel's environment variables along
@@ -160,6 +166,39 @@ organization by hand or by an admin route. Nothing in 0011 or 0012 assumes Check
 subscription itself, so that stays open. The owner parked teams on 2026-09-13 with this in mind; on
 2026-10-13 they asked for the infrastructure only, with no price.
 
+## 7. A card that fails (added 2026-10-14)
+
+Before this, the first declined renewal took the plan away on the spot: Stripe marks the
+subscription `past_due` at once, and the webhook read that as "no plan". Nobody was told why.
+
+Now (`app/api/webhooks/stripe/route.ts`, migration `0013_payment_grace_and_counted_once.sql`):
+
+- **The owner is emailed** (`emails/PaymentFailed.tsx`) once per unpaid invoice — not once per
+  retry — with the amount, the date Scrivn would stop, and an **Update your card** link. The link is
+  `/billing`, which signs them in if needed and opens Stripe's billing portal.
+- **The plan keeps working for 7 days** from the first failure: `PAYMENT_GRACE_DAYS` in
+  `lib/plans.ts`. Every page shows a banner with the date (`components/UsageBanner.tsx`).
+- **After 7 days generating pauses** (`checkUsageAllowed` in `lib/usage.ts` checks the date itself,
+  because Stripe sends nothing that day), and the banner says so. A past-due subscription event after
+  the grace takes the plan away, as before.
+- **A payment that goes through clears it all** (`invoice.paid`, or the subscription active again).
+  An event from before the failure never clears it: Stripe delivers events in any order.
+- **When Stripe gives up** it cancels the subscription (setting below), which ends the plan as any
+  cancellation does.
+
+**The Stripe setting that must match** (live mode, and the sandbox if you test there): Dashboard →
+**Billing → Revenue recovery → Retries**. Set Smart Retries to retry **within 1 week**, and **if all
+retries for a payment fail: Cancel the subscription**. The grace period is meant to cover exactly
+Stripe's retries; if one changes, change the other (`PAYMENT_GRACE_DAYS`).
+
+**Needs migration 0013** (after 0011 and 0012). Without it nothing breaks, and the webhook behaves as
+it did before: the plan goes at the first failure and nobody is emailed.
+
+Tested: `npm run test:billing` (the webhook fed signed events against every migration, with and
+without 0013) and `npm run test:billing:stripe`, which declines a real renewal in TEST mode on a
+Stripe test clock through `stripe listen` and pays it again (needs the Stripe CLI logged in to the
+sandbox; it deletes what it makes).
+
 ## How the pieces fit
 
 - **Checkout** (`/api/checkout`) takes a *tier name* from the browser and resolves the price
@@ -176,10 +215,6 @@ subscription itself, so that stays open. The owner parked teams on 2026-09-13 wi
 
 ## Known gaps
 
-- **`invoice.payment_failed` is not handled.** A subscription whose renewal payment fails eventually
-  becomes `past_due` and then `canceled`, both of which arrive as `customer.subscription.updated`
-  and are handled — so access does get revoked, just at Stripe's dunning pace rather than on the
-  first failed charge. Add that event if you want to react sooner (e.g. an email).
 - **Contents-only claims bypass the counter entirely.** They're generated client-side with no API
   call (by design, see `lib/contentsTM.ts`), so they neither check nor increment usage. Currently
   free and unlimited on every plan.
