@@ -479,3 +479,7 @@
   padding: 6px 12px;
   font-size: 0.82rem;
 }
+.pcam-thumb-wait {
+  display: block;
+  background: rgba(255, 255, 255, 0.12);
+}

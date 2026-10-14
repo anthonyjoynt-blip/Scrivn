@@ -78,7 +78,6 @@ export function PhotosSection({
   }, [picked, photos.items, sketch]);
 
   async function taken({ record, prepared }: TakenPhoto) {
-    setPicked(record.room);
     // The picture on the phone first: from here on it survives the tab closing, signal or not.
     await keepPhotoFile(claimIdNow(), record.id, prepared.full, prepared.thumb);
     onChange((p) => addPhoto(p, record));

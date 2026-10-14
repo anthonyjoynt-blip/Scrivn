@@ -99,6 +99,14 @@ export function PhotoCamera({
 
   const listening = useRef<string | null>(null);
   const finals = useRef(new Map<string, string>());
+  /*
+    Listening starts at the shutter, before the photo has been made smaller and kept — that takes a
+    moment on a phone, and the technician is already talking. Words and a spoken room that arrive
+    before the record exists wait here and are applied the moment it is kept.
+  */
+  const kept = useRef(new Set<string>());
+  const movedEarly = useRef(new Map<string, { room: string; roomName: string }>());
+  const typed = useRef(new Set<string>());
   const onCaptionRef = useRef(onCaption);
   onCaptionRef.current = onCaption;
 
@@ -116,7 +124,9 @@ export function PhotoCamera({
         // "Say the room first": a caption that begins with a room's name files the photo there.
         const room = spokenRoom(heard, sayRoom.current.options);
         if (room) {
-          sayRoom.current.onMove(id, room.value, roomNameFor(room.value, sayRoom.current.sketch));
+          const roomName = roomNameFor(room.value, sayRoom.current.sketch);
+          if (kept.current.has(id)) sayRoom.current.onMove(id, room.value, roomName);
+          else movedEarly.current.set(id, { room: room.value, roomName });
           sayRoom.current.onRoomChange(room.value);
           setSwitched(room.label);
           if (switchedTimer.current) clearTimeout(switchedTimer.current);
@@ -128,7 +138,7 @@ export function PhotoCamera({
       const next = appendDictation(finals.current.get(id) ?? "", text);
       finals.current.set(id, next);
       setShotCaption(id, next);
-      onCaptionRef.current(id, next, "voice");
+      if (kept.current.has(id)) onCaptionRef.current(id, next, "voice");
     },
     onEnd: () => {
       listening.current = null;
@@ -147,7 +157,7 @@ export function PhotoCamera({
       const next = appendDictation(finals.current.get(id) ?? "", heard);
       finals.current.set(id, next);
       setShotCaption(id, next);
-      onCaptionRef.current(id, next, "voice");
+      if (kept.current.has(id)) onCaptionRef.current(id, next, "voice");
     }
     listening.current = null;
     setListeningFor(null);
@@ -234,21 +244,33 @@ export function PhotoCamera({
     return canvas;
   }
 
-  /** One photo kept and filed, then listened to for its caption. */
+  /** One photo kept and filed, and listened to for its caption from the moment of the shutter. */
   async function keep(source: () => Promise<Blob | HTMLCanvasElement>) {
     if (busy || full) return;
     setBusy(true);
     setProblem(null);
     const takenAt = Date.now();
+    const id = newPhotoId();
+    const filedTo = room;
+    // The chip stays where it is for the next photo — unless the caption names another room.
+    onRoomChange(filedTo);
+    // A caption being typed is kept, not lost to the next photo.
+    if (editing) saveTyping();
+    await finishListening();
+    // The thumbnail's place and the Listening bar at once; the picture fills in when it is ready.
+    setShots((prev) => [...prev, { id, thumb: "", caption: "" }]);
+    if (dictation.supported) {
+      finals.current.set(id, "");
+      listening.current = id;
+      setListeningFor(id);
+      void dictation.start();
+    }
     try {
-      await finishListening();
-      setEditing(null);
       const prepared = await preparePhoto(await source());
-      const id = newPhotoId();
       const record: ClaimPhoto = {
         id,
-        room,
-        roomName: roomNameFor(room, sketch),
+        room: filedTo,
+        roomName: roomNameFor(filedTo, sketch),
         takenAt,
         caption: "",
         captionBy: null,
@@ -258,16 +280,25 @@ export function PhotoCamera({
         editedAt: takenAt,
       };
       await onTaken({ record, prepared });
+      kept.current.add(id);
+      // What was said while it was being kept: the room first, then the words.
+      const moved = movedEarly.current.get(id);
+      if (moved) {
+        movedEarly.current.delete(id);
+        onMove(id, moved.room, moved.roomName);
+      }
+      const said = finals.current.get(id);
+      if (said) onCaption(id, said, typed.current.has(id) ? "typed" : "voice");
       const thumb = URL.createObjectURL(prepared.thumb);
       thumbs.current.push(thumb);
-      setShots((prev) => [...prev, { id, thumb, caption: "" }]);
-      if (dictation.supported) {
-        finals.current.set(id, "");
-        listening.current = id;
-        setListeningFor(id);
-        void dictation.start();
-      }
+      setShots((prev) => prev.map((s) => (s.id === id ? { ...s, thumb } : s)));
     } catch (err) {
+      if (listening.current === id) {
+        listening.current = null;
+        setListeningFor(null);
+        await dictation.abort();
+      }
+      setShots((prev) => prev.filter((s) => s.id !== id));
       setProblem(err instanceof Error ? err.message : "The photo could not be kept.");
     } finally {
       setBusy(false);
@@ -284,7 +315,8 @@ export function PhotoCamera({
     if (!editing) return;
     finals.current.set(editing, draft);
     setShotCaption(editing, draft);
-    onCaption(editing, draft, "typed");
+    typed.current.add(editing);
+    if (kept.current.has(editing)) onCaption(editing, draft, "typed");
     setEditing(null);
   }
 
@@ -362,7 +394,7 @@ export function PhotoCamera({
         {(problem || full) && <p className="pcam-problem">{full ? `This claim has ${MAX_CLAIM_PHOTOS} photos, the most one claim can hold.` : problem}</p>}
         {last && (
           <div className="pcam-last">
-            <img src={last.thumb} alt="" className="pcam-thumb" />
+            {last.thumb ? <img src={last.thumb} alt="" className="pcam-thumb" /> : <span className="pcam-thumb pcam-thumb-wait" aria-label="Keeping the photo" />}
             <div className="pcam-words">
               {editing === last.id ? (
                 <div className="pcam-edit">
