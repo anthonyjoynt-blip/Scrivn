@@ -28,8 +28,10 @@ export interface Plan {
   /**
    * The tier's bullet list on the pricing page. Copy comes from the approved pricing mockup
    * (design-reference/scrivn-pricing-mockup.html), with one deletion: Growth listed "Multiple team
-   * members, one account", which isn't built — `profiles` is one row per auth user and there is no
-   * shared-account structure. See the ACCURACY notes in app/faq/page.tsx for the matching change.
+   * members, one account". The structure for that now exists (0011_org_billing.sql puts the plan on
+   * the organization, 0012_teams.sql adds members and invites) but is switched off until teams
+   * launch — TEAMS.md — so nobody can use it yet, and the line stays out until then. See the
+   * ACCURACY notes in app/faq/page.tsx for the matching change.
    */
   features: string[];
   /**
@@ -91,7 +93,8 @@ export function planForTier(tier: string | null | undefined): Plan | null {
  * and that keeps Google's cut out of it. Every Scrivn plan includes Scan, so this is only ever bought
  * by someone without one (the checkout route refuses it otherwise).
  *
- * Stored in `profiles.subscription_tier` like the Scrivn tiers (migration 0009 widens the check),
+ * Stored in the subscription column like the Scrivn tiers (0009 widened the check on profiles; since
+ * 0011 the column is `organizations.subscription_tier`, which allows the same four),
  * but it is not one of them: no claims, no `Plan`, kept out of `PLANS` so the three-tier pricing row
  * and the claim caps never see it. What it unlocks is on the phone — unlimited scans against the
  * free tier's few a month — and lands with Scan's own sign-in.
@@ -147,3 +150,44 @@ export const TRIAL_CLAIM_LIMIT = 5;
 export const TRIAL_DAYS = 30;
 /** Trial claims used at which the "trial nearly over" email fires — 4 of 5, leaving one in hand. */
 export const TRIAL_WARNING_AT_CLAIMS = 4;
+
+/**
+ * Seats: how many people one organization's plan covers. NOT DECIDED.
+ *
+ * The owner, 2026-10-13, wants team accounts in place for later, not priced now; the seat price is
+ * one of the two decisions left (the other is invoicing companies in several provinces — STRIPE.md).
+ * So this leaves room for either answer without a migration:
+ *
+ *   - "included": each Scrivn tier covers a fixed number of people (Starter 1, Growth 3, ...);
+ *   - "per_seat": the subscription's quantity is the seat count, at a per-seat Stripe price.
+ *
+ * Today it is "unlimited", which is also what every organization holds (`organizations.seat_limit`
+ * null, 0011). The webhook stores `seatLimitFor(...)` on every subscription event, the invite
+ * functions in 0012_teams.sql refuse an invite past it, and checkout asks Stripe for
+ * `checkoutQuantity(...)` — so choosing is a change here (and, for per-seat, a Stripe price), not to
+ * the schema or the invite flow.
+ *
+ * An organization with no Scrivn plan — on the trial, or on Scan alone — has no seat limit in any of
+ * these: its people share the five trial claims, so there is little to count.
+ */
+export type SeatPricing =
+  | { kind: "unlimited" }
+  | { kind: "included"; seats: Record<SubscriptionTier, number> }
+  | { kind: "per_seat"; minimum: number };
+
+export const SEAT_PRICING: SeatPricing = { kind: "unlimited" };
+
+/** The seat limit to store for an organization on `tier` with a subscription `quantity`; null = no limit. */
+export function seatLimitFor(tier: string | null | undefined, quantity: number | null | undefined, pricing: SeatPricing = SEAT_PRICING): number | null {
+  const plan = planForTier(tier);
+  if (!plan || pricing.kind === "unlimited") return null;
+  if (pricing.kind === "included") return Math.max(1, pricing.seats[plan.tier]);
+  const bought = typeof quantity === "number" && Number.isFinite(quantity) ? Math.floor(quantity) : 0;
+  return Math.max(1, pricing.minimum, bought);
+}
+
+/** How many of the plan's price to put in a checkout: one, unless seats are priced one by one. */
+export function checkoutQuantity(memberCount: number, pricing: SeatPricing = SEAT_PRICING): number {
+  if (pricing.kind !== "per_seat") return 1;
+  return Math.max(1, pricing.minimum, Math.floor(memberCount));
+}

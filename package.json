@@ -15,6 +15,8 @@
     "test:scope": "node test/scope/run.mjs",
     "test:pipeline": "node test/pipeline/run.mjs",
     "test:rls": "node test/rls/run.mjs",
+    "test:rls:local": "node test/rls/local.mjs",
+    "test:teams": "node test/teams/run.mjs",
     "build:icons": "node scripts/build-icons.mjs",
     "test:pending": "node test/pending/run.mjs",
     "test:pending:browser": "node test/pending/browser/run.mjs",
@@ -34,7 +36,7 @@
     "test:exterior:trace": "node test/exterior/trace.mjs",
     "test:sw": "node test/sw/run.mjs",
     "test:letterhead": "node test/letterhead/run.mjs",
-    "test:billing": "node test/billing/run.mjs",
+    "test:billing": "node test/billing/run.mjs && node test/billing/db.mjs",
     "test:device": "node test/device/run.mjs",
     "test:device:rls": "node test/device/rls.mjs"
   },
@@ -57,6 +59,7 @@
     "three": "^0.180.0"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "0.5.8",
     "@types/node": "latest",
     "@types/qrcode": "^1.5.6",
     "@types/react": "latest",

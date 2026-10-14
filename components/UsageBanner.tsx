@@ -30,14 +30,14 @@ export async function UsageBanner() {
           <strong>
             Free trial — {usage.trialClaimsUsed} of {TRIAL_CLAIM_LIMIT} claims used.
           </strong>{" "}
-          {usage.remaining} remaining{endsAt ? `, trial ends ${endsAt}` : ""}. <Link href="/pricing">See plans</Link>
+          {usage.remaining} remaining{endsAt ? `, trial ends ${endsAt}` : ""}. <PlanLink canBuy={usage.canManageBilling}>See plans</PlanLink>
         </div>
       );
     }
     return (
       <div className="usage-banner usage-banner-blocked" role="status">
         <strong>{usage.trialExpiredReason === "time" ? "Your free trial has ended." : `You've used all ${TRIAL_CLAIM_LIMIT} trial claims.`}</strong>{" "}
-        Choose a plan to keep generating documents. <Link href="/pricing">See plans</Link>
+        Choose a plan to keep generating documents. <PlanLink canBuy={usage.canManageBilling}>See plans</PlanLink>
       </div>
     );
   }
@@ -53,7 +53,13 @@ export async function UsageBanner() {
     return (
       <div className="usage-banner usage-banner-blocked" role="status">
         <strong>You’ve used all {usage.limit} claims in your plan for this period.</strong>{" "}
-        {resets ? `Your limit resets on ${resets}.` : ""} To keep going now, <Link href="/pricing">upgrade your plan</Link>.
+        {resets ? `Your limit resets on ${resets}.` : ""} {usage.canManageBilling ? (
+          <>
+            To keep going now, <Link href="/pricing">upgrade your plan</Link>.
+          </>
+        ) : (
+          OWNER_MANAGES_PLAN
+        )}
       </div>
     );
   }
@@ -63,7 +69,18 @@ export async function UsageBanner() {
       <strong>
         {usage.used} of {usage.limit} claims used this period.
       </strong>{" "}
-      {usage.remaining} remaining{resets ? `, resetting ${resets}` : ""}. <Link href="/pricing">See plans</Link>
+      {usage.remaining} remaining{resets ? `, resetting ${resets}` : ""}. <PlanLink canBuy={usage.canManageBilling}>See plans</PlanLink>
     </div>
   );
+}
+
+const OWNER_MANAGES_PLAN = "Your organization’s owner manages the plan.";
+
+/**
+ * Where the banner points: the pricing page, for whoever can buy. A teammate cannot (only the owner
+ * changes the plan, 0011), so they are told who can instead of being sent to a button that refuses
+ * them. Alone, everyone is their organization's owner and always gets the link.
+ */
+function PlanLink({ canBuy, children }: { canBuy: boolean; children: React.ReactNode }) {
+  return canBuy ? <Link href="/pricing">{children}</Link> : <>{OWNER_MANAGES_PLAN}</>;
 }

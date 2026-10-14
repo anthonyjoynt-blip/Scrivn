@@ -2,6 +2,7 @@ import "server-only";
 import { createClient } from "./supabase/server";
 import { withClockSkewRetry } from "./supabase/clockSkew";
 import { CLAIM_STATUS_ORDER, claimSummary, parseSavedClaimState, type ClaimStatus, type SavedClaimState } from "./claimState";
+import { isOrgRole, seesWholeOrganization, type OrgRole } from "./teams";
 
 /**
  * Every read and write of a saved claim, in one place.
@@ -54,7 +55,7 @@ export interface ClaimListOptions {
 
 export interface ClaimListResult {
   claims: ClaimListItem[];
-  /** What was actually applied — `scope` may be forced back to "mine" for a non-owner. */
+  /** What was actually applied — `scope` may be forced back to "mine" for a member. */
   scope: ClaimScope;
   /** Whether this user may switch to the whole organization at all. */
   canSeeAll: boolean;
@@ -95,38 +96,44 @@ async function currentUserId(): Promise<string> {
 }
 
 /**
- * The organization this session belongs to.
+ * The organization this session belongs to, and the role they hold in it.
  *
- * `.limit(1)` and take the first: a user has exactly one organization today, and when teams arrive
- * this becomes "the one they have selected". Throwing on none is deliberate — every account gets an
- * organization at signup and the 0004 backfill covered the ones that predate it, so no organization
- * means something is wrong that silently saving nowhere would hide.
+ * `.limit(1)` and take the first: a person belongs to exactly one organization at a time — a unique
+ * index holds it since 0012_teams.sql, and a person joining a team leaves their own (TEAMS.md).
+ * Throwing on none is deliberate — every account gets an organization at signup and the 0004
+ * backfill covered the ones that predate it, so no organization means something is wrong that
+ * silently saving nowhere would hide.
  */
-export async function currentOrganizationId(): Promise<string> {
+export async function currentMembership(): Promise<{ userId: string; organizationId: string; role: OrgRole }> {
   const supabase = await createClient();
   const userId = await currentUserId();
   // The first query of most requests, so the one that meets a just-refreshed token — see clockSkew.ts.
-  const { data, error } = await withClockSkewRetry(() => supabase.from("organization_members").select("organization_id").eq("user_id", userId).limit(1));
+  const { data, error } = await withClockSkewRetry(() => supabase.from("organization_members").select("organization_id, role").eq("user_id", userId).limit(1));
   if (error) throw new Error(`Could not read organization membership: ${error.message}`);
   const first = data?.[0];
   if (!first) throw new NoOrganizationError();
-  return first.organization_id as string;
+  return { userId, organizationId: first.organization_id as string, role: isOrgRole(first.role) ? first.role : "member" };
 }
 
-/** This session's role in their organization. 'owner' may view the whole organization's claims. */
-export async function currentRole(): Promise<"owner" | "member"> {
+export async function currentOrganizationId(): Promise<string> {
+  return (await currentMembership()).organizationId;
+}
+
+/** This session's role in their organization. Owner and admins may view the whole organization's claims. */
+export async function currentRole(): Promise<OrgRole> {
   const supabase = await createClient();
   const userId = await currentUserId();
   const { data, error } = await withClockSkewRetry(() => supabase.from("organization_members").select("role").eq("user_id", userId).limit(1));
   if (error) throw new Error(`Could not read organization role: ${error.message}`);
-  return (data?.[0]?.role as "owner" | "member") ?? "member";
+  const role = data?.[0]?.role;
+  return isOrgRole(role) ? role : "member";
 }
 
 export async function listClaims(options: ClaimListOptions = {}): Promise<ClaimListResult> {
   const supabase = await createClient();
   const userId = await currentUserId();
   const role = await currentRole();
-  const canSeeAll = role === "owner";
+  const canSeeAll = seesWholeOrganization(role);
 
   /*
     A member asking for "all" gets "mine" instead, rather than an error.

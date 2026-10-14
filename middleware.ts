@@ -1,5 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextRequest, NextResponse } from "next/server";
+import { TEAM_INVITE_PATH, isTeamsEnabled } from "@/lib/teamsGate";
 
 /**
  * Runs in front of every request this app serves (see `config.matcher` at the bottom), pages and
@@ -179,7 +180,17 @@ export async function middleware(request: NextRequest) {
     and listing phones — and is driven by a signed-in person, so it stays behind the cookie check
     with everything else. The `/` after `device` is what keeps the two apart.
   */
-  if (PUBLIC_ROUTES.has(pathname) || PUBLIC_PAGES.has(pathname) || isInstallAsset(pathname) || pathname.startsWith("/api/device/")) {
+  /*
+    The team invitation page (app/(app)/team/invite) is opened from an email, often before signing in,
+    and must say who invited whom before it asks anyone to sign in — so it is public, but ONLY while
+    TEAMS_ENABLED is on (lib/teamsGate.ts). While teams are dormant it is not in any list here, and a
+    signed-out visitor is sent to the login form exactly as for any other path. The page reads nothing
+    of anyone's account until they are signed in, and the token in its link is the only thing it
+    looks up.
+  */
+  const openInvitePage = pathname === TEAM_INVITE_PATH && isTeamsEnabled();
+
+  if (PUBLIC_ROUTES.has(pathname) || PUBLIC_PAGES.has(pathname) || isInstallAsset(pathname) || pathname.startsWith("/api/device/") || openInvitePage) {
     return supabaseResponse;
   }
 

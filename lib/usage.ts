@@ -1,13 +1,18 @@
 import "server-only";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "./supabase/server";
 import { createAdminClient } from "./supabase/admin";
 import { withClockSkewRetry } from "./supabase/clockSkew";
 import { isSupabaseConfigured } from "./supabase/env";
-import { TRIAL_CLAIM_LIMIT, TRIAL_DAYS, TRIAL_WARNING_AT_CLAIMS, USAGE_WARNING_THRESHOLD, claimLimitForTier, planForTier } from "./plans";
+import { TRIAL_CLAIM_LIMIT, TRIAL_DAYS, TRIAL_WARNING_AT_CLAIMS, USAGE_WARNING_THRESHOLD, planForTier } from "./plans";
+import { isOrgRole, type OrgRole } from "./teams";
+import { isBillingSchemaMissing, usageFromBilling, type OrganizationBillingRow, type UsageState } from "./usageState";
 import { sendEmail } from "./email/send";
 import { UsageWarningEmail } from "@/emails/UsageWarning";
 import { UsageCapReachedEmail } from "@/emails/UsageCapReached";
 import { TrialEndingEmail } from "@/emails/TrialEnding";
+
+export type { UsageState } from "./usageState";
 
 /**
  * Hard-cap usage enforcement.
@@ -20,26 +25,27 @@ import { TrialEndingEmail } from "@/emails/TrialEnding";
  * are two calls in the same claim, so only `/api/generate` increments; `/api/extract` checks the
  * cap (to fail early, before spending an expensive extraction on a claim that can't be finished)
  * but does not count.
+ *
+ * ── Whose allowance (0011_org_billing.sql) ───────────────────────────────────────────────────────
+ *
+ * The plan, the counter and the trial belong to the ORGANIZATION, reached through the signed-in
+ * person's membership. Alone, that is their own organization of one and every number is what it
+ * always was; on a team, everyone draws on one allowance and the owner gets the emails, because the
+ * owner is the one who can upgrade. The arithmetic is `usageFromBilling` (usageState.ts), moved
+ * there unchanged from this file.
+ *
+ * ── Until 0011 is applied ────────────────────────────────────────────────────────────────────────
+ *
+ * Migrations are applied by hand and any deploy of main ships this file, so for a while it may run
+ * against a database without the organization columns. Then it reads and counts the PROFILE, exactly
+ * as the build before it did (the `legacyProfile*` functions below), and a deploy that gets ahead
+ * of the migration changes nothing anyone sees. Only a "that column or function does not exist"
+ * error takes that path (`isBillingSchemaMissing`); any other failure is handled as it always was.
+ * The profile path goes with the profile columns, in the migration that drops them.
  */
 
-export interface UsageState {
-  tier: string | null;
-  used: number;
-  limit: number;
-  periodResetAt: string | null;
-  /** True when the user has no paid plan — they're on the trial, or the trial is spent. */
-  noPlan: boolean;
-  atLimit: boolean;
-  remaining: number;
-
-  // ---- Trial (only meaningful while noPlan is true; a subscription supersedes it entirely) ----
-  /** On an active free trial right now — claims left AND still inside the 30-day window. */
-  onTrial: boolean;
-  trialClaimsUsed: number;
-  trialEndsAt: string | null;
-  /** Why the trial stopped working, for a message that says the true reason rather than a generic one. */
-  trialExpiredReason: "claims" | "time" | null;
-}
+/** The organization's billing columns, as `getUsageState` reads them. */
+const ORG_BILLING_COLUMNS = "subscription_tier, claims_used_this_period, period_reset_at, trial_started_at, trial_claims_used, seat_limit";
 
 /**
  * Development with no Supabase project standing — the same state `middleware.ts` fails open on.
@@ -58,7 +64,20 @@ function unauthenticatedDevMode(): boolean {
   return process.env.NODE_ENV !== "production" && !isSupabaseConfigured();
 }
 
-/** Reads the signed-in user's usage state. Returns null when nobody is signed in. */
+/** PostgREST embeds a to-one relation as an object; typed loosely, it can arrive as a one-row array. */
+function embedded<T>(value: T | T[] | null | undefined): T | null {
+  if (Array.isArray(value)) return value[0] ?? null;
+  return value ?? null;
+}
+
+function membershipOf(row: { organization_id?: unknown; role?: unknown } | null | undefined): { organizationId: string | null; role: OrgRole | null } {
+  return {
+    organizationId: typeof row?.organization_id === "string" ? row.organization_id : null,
+    role: isOrgRole(row?.role) ? row.role : null,
+  };
+}
+
+/** Reads the usage state of the signed-in person's organization. Returns null when nobody is signed in. */
 export async function getUsageState(): Promise<UsageState | null> {
   if (unauthenticatedDevMode()) return null;
   const supabase = await createClient();
@@ -66,46 +85,15 @@ export async function getUsageState(): Promise<UsageState | null> {
   const userId = claimsData?.claims?.sub;
   if (typeof userId !== "string") return null;
 
-  const { data: profile } = await withClockSkewRetry(() =>
-    supabase
-      .from("profiles")
-      .select("subscription_tier, claims_used_this_period, period_reset_at, trial_started_at, trial_claims_used")
-      .eq("id", userId)
-      .maybeSingle(),
+  // One round trip: the membership, and through it the organization's plan — both under the person's
+  // own session, so RLS hands back their own organization's row and no other (0004).
+  const { data, error } = await withClockSkewRetry(() =>
+    supabase.from("organization_members").select(`organization_id, role, organizations (${ORG_BILLING_COLUMNS})`).eq("user_id", userId).limit(1).maybeSingle(),
   );
+  if (error && isBillingSchemaMissing(error)) return legacyProfileUsage(supabase, userId);
 
-  const tier = (profile?.subscription_tier as string | null) ?? null;
-  const used = (profile?.claims_used_this_period as number | null) ?? 0;
-  const limit = claimLimitForTier(tier);
-  const noPlan = planForTier(tier) === null;
-
-  const trialClaimsUsed = (profile?.trial_claims_used as number | null) ?? 0;
-  const trialStartedAt = (profile?.trial_started_at as string | null) ?? null;
-  const trialEndsAt = trialStartedAt ? new Date(new Date(trialStartedAt).getTime() + TRIAL_DAYS * 86_400_000).toISOString() : null;
-
-  // Whichever runs out first ends the trial. Claims are checked before time so that someone who
-  // used all five on day one is told *that*, rather than being told to wait for a window that has
-  // weeks left and won't help them.
-  const claimsSpent = trialClaimsUsed >= TRIAL_CLAIM_LIMIT;
-  const windowClosed = trialEndsAt !== null && Date.now() > new Date(trialEndsAt).getTime();
-  const trialExpiredReason: "claims" | "time" | null = !noPlan ? null : claimsSpent ? "claims" : windowClosed ? "time" : null;
-  const onTrial = noPlan && trialExpiredReason === null;
-
-  return {
-    tier,
-    used,
-    limit,
-    periodResetAt: (profile?.period_reset_at as string | null) ?? null,
-    noPlan,
-    // On trial, "the limit" is the trial allowance — so the banner and account page can render one
-    // set of numbers without every caller re-deriving which mode the user is in.
-    atLimit: noPlan ? !onTrial : limit > 0 && used >= limit,
-    remaining: noPlan ? Math.max(0, TRIAL_CLAIM_LIMIT - trialClaimsUsed) : Math.max(0, limit - used),
-    onTrial,
-    trialClaimsUsed,
-    trialEndsAt,
-    trialExpiredReason,
-  };
+  const row = data as { organization_id?: unknown; role?: unknown; organizations?: OrganizationBillingRow | OrganizationBillingRow[] | null } | null;
+  return usageFromBilling(embedded(row?.organizations), membershipOf(row));
 }
 
 /** The message shown when an action is refused — plain about what happened and both ways out. */
@@ -145,17 +133,17 @@ export async function checkUsageAllowed(): Promise<{ error: string; status: numb
 }
 
 /**
- * Counts one claim against the signed-in user's period, after a generation succeeds.
+ * Counts one claim against the signed-in person's organization, after a generation succeeds.
  *
- * Uses the admin client because `claims_used_this_period` is deliberately not user-writable (see
- * migration 0002) — if users could write it, they could reset their own counter from the browser.
+ * The organization comes from the person's own session, never from the request. The count itself
+ * goes through `org_count_claim` with the service role, because the counters are deliberately not
+ * user-writable (0011, as 0002 did for profiles) — if users could write them, they could reset their
+ * own counter from the browser.
  *
- * Increments via a read-then-write rather than an atomic SQL expression, which is a real (if
- * small) race: two generations finishing in the same instant could both read the same value and
- * write used+1 once. The consequence is one uncounted claim, capped by how many requests one user
- * can have genuinely in flight at once — acceptable for a hard cap whose purpose is preventing
- * sustained overuse, not exact accounting. If this ever needs to be exact, replace it with a
- * Postgres function called via `rpc` so the increment happens in one statement.
+ * The increment is one SQL statement. It used to be a read and then a write here, which two
+ * generations finishing in the same instant could both read as 4 and both write as 5; harmless for
+ * one person, likely for a team sharing one counter. Which counter is still decided here, from the
+ * tier — the database only adds one and reports the before and after the emails key on.
  */
 export async function incrementClaimUsage(): Promise<void> {
   // Nothing to count against — see `unauthenticatedDevMode`. Never reached in production.
@@ -166,51 +154,69 @@ export async function incrementClaimUsage(): Promise<void> {
   if (typeof userId !== "string") return;
   const email = typeof claimsData?.claims?.email === "string" ? claimsData.claims.email : null;
 
+  const { data: membership } = await withClockSkewRetry(() => supabase.from("organization_members").select("organization_id").eq("user_id", userId).limit(1).maybeSingle());
+  const organizationId = typeof membership?.organization_id === "string" ? membership.organization_id : null;
+
   const admin = createAdminClient();
-  const { data: profile } = await admin
-    .from("profiles")
-    .select("claims_used_this_period, subscription_tier, period_reset_at, trial_claims_used, trial_started_at, trial_ending_email_sent_at, full_name")
-    .eq("id", userId)
-    .maybeSingle();
-
-  const tier = (profile?.subscription_tier as string | null) ?? null;
-  const onTrial = planForTier(tier) === null;
-
-  // Trial claims are counted in their own column, so converting to a paid plan starts from zero
-  // rather than inheriting whatever the trial used.
-  if (onTrial) {
-    const previousTrial = (profile?.trial_claims_used as number | null) ?? 0;
-    const nextTrial = previousTrial + 1;
-    await admin.from("profiles").update({ trial_claims_used: nextTrial }).eq("id", userId);
-
-    if (email) {
-      await sendTrialNotifications({
-        userId,
-        email,
-        previous: previousTrial,
-        next: nextTrial,
-        trialStartedAt: (profile?.trial_started_at as string | null) ?? null,
-        alreadySent: (profile?.trial_ending_email_sent_at as string | null) !== null,
-      });
-    }
+  const { data: org, error } = organizationId
+    ? await admin.from("organizations").select("subscription_tier, period_reset_at, trial_started_at, trial_ending_email_sent_at").eq("id", organizationId).maybeSingle()
+    : { data: null, error: null };
+  if (error && isBillingSchemaMissing(error)) return legacyProfileIncrement(admin, userId, email);
+  if (!organizationId || error || !org) {
+    console.error("[usage] no organization to count this claim against:", error ?? userId);
     return;
   }
 
-  const previous = (profile?.claims_used_this_period as number | null) ?? 0;
-  const next = previous + 1;
-  await admin.from("profiles").update({ claims_used_this_period: next }).eq("id", userId);
+  const tier = (org.subscription_tier as string | null) ?? null;
+  // Trial claims are counted in their own column, so converting to a paid plan starts from zero
+  // rather than inheriting whatever the trial used.
+  const onTrial = planForTier(tier) === null;
+  const { data: counted, error: countError } = await admin.rpc("org_count_claim", { org_id: organizationId, on_trial: onTrial });
+  const count = embedded(counted as { used_before: number; used_after: number } | { used_before: number; used_after: number }[] | null);
+  if (countError || !count) {
+    console.error("[usage] could not count a claim:", countError ?? "no row");
+    return;
+  }
 
   // Notifications hang off this one place, so there's exactly one definition of "how much has been
   // used" — the cap check and the emails can't disagree about it.
-  if (email) {
-    await sendUsageNotifications({
-      email,
-      previous,
-      next,
-      tier: (profile?.subscription_tier as string | null) ?? null,
-      periodResetAt: (profile?.period_reset_at as string | null) ?? null,
+  const contact = await billingContactEmail(admin, organizationId, userId, email);
+  if (!contact) return;
+
+  if (onTrial) {
+    await sendTrialNotifications({
+      email: contact,
+      previous: count.used_before,
+      next: count.used_after,
+      trialStartedAt: (org.trial_started_at as string | null) ?? null,
+      alreadySent: (org.trial_ending_email_sent_at as string | null) !== null,
+      markSent: async () => {
+        await admin.from("organizations").update({ trial_ending_email_sent_at: new Date().toISOString() }).eq("id", organizationId);
+      },
     });
+    return;
   }
+
+  await sendUsageNotifications({
+    email: contact,
+    previous: count.used_before,
+    next: count.used_after,
+    tier,
+    periodResetAt: (org.period_reset_at as string | null) ?? null,
+  });
+}
+
+/**
+ * Who hears about the allowance: the organization's owner, because the owner is who can upgrade.
+ * Alone, that is the person who just generated, whose address is already in hand — so for everyone
+ * today the emails go exactly where they always went, and nothing is looked up.
+ */
+async function billingContactEmail(admin: SupabaseClient, organizationId: string, userId: string, sessionEmail: string | null): Promise<string | null> {
+  const { data: owner } = await admin.from("organization_members").select("user_id").eq("organization_id", organizationId).eq("role", "owner").maybeSingle();
+  const ownerId = typeof owner?.user_id === "string" ? owner.user_id : null;
+  if (!ownerId || ownerId === userId) return sessionEmail;
+  const { data } = await admin.auth.admin.getUserById(ownerId);
+  return data?.user?.email ?? null;
 }
 
 /**
@@ -263,7 +269,8 @@ async function sendUsageNotifications(params: { email: string; previous: number;
  * Guarded by a stored timestamp rather than crossing-detection alone. The usage emails can rely on
  * a crossing because their counter resets every billing period, so a missed or duplicated send
  * self-corrects. A trial counter never resets — it only ever counts up to 5 and then stops — so a
- * flag is the only thing that keeps this to one send.
+ * flag is the only thing that keeps this to one send. `markSent` stamps it wherever the trial lives
+ * (the organization; the profile on a database without 0011).
  *
  * KNOWN GAP — the time half of "whichever comes first" is not implemented. The spec also wanted
  * this email when the 30-day window is closing with claims still unused. That can't be triggered
@@ -271,18 +278,18 @@ async function sendUsageNotifications(params: { email: string; previous: number;
  * "your trial expires in 3 days" email is reaching someone who *hasn't* been using it. Firing it
  * opportunistically on their next visit would deliver it precisely to the people who don't need it.
  *
- * It needs a scheduled job — a Vercel Cron hitting a route that finds profiles where the window is
- * nearly closed, trial claims remain, and trial_ending_email_sent_at is null, then calls
+ * It needs a scheduled job — a Vercel Cron hitting a route that finds organizations where the window
+ * is nearly closed, trial claims remain, and trial_ending_email_sent_at is null, then calls
  * `sendTrialEndingEmail` below. The email template and the send function are both ready for it; only
  * the scheduler is missing.
  */
 async function sendTrialNotifications(params: {
-  userId: string;
   email: string;
   previous: number;
   next: number;
   trialStartedAt: string | null;
   alreadySent: boolean;
+  markSent: () => Promise<void>;
 }): Promise<void> {
   if (params.alreadySent) return;
   if (!(params.previous < TRIAL_WARNING_AT_CLAIMS && params.next >= TRIAL_WARNING_AT_CLAIMS)) return;
@@ -292,9 +299,7 @@ async function sendTrialNotifications(params: {
     : null;
 
   const sent = await sendTrialEndingEmail({ email: params.email, generationsUsed: params.next, daysRemaining });
-  if (sent) {
-    await createAdminClient().from("profiles").update({ trial_ending_email_sent_at: new Date().toISOString() }).eq("id", params.userId);
-  }
+  if (sent) await params.markSent();
 }
 
 /**
@@ -314,4 +319,47 @@ export async function sendTrialEndingEmail(params: { email: string; generationsU
       pricingUrl: `${baseUrl}/pricing`,
     }),
   })).ok;
+}
+
+/* ── On a database without 0011 — see "Until 0011 is applied" at the top ─────────────────────── */
+
+/** The previous build's read: the person's own profile columns. The role still comes from the membership (0004). */
+async function legacyProfileUsage(supabase: SupabaseClient, userId: string): Promise<UsageState> {
+  const [{ data: membership }, { data: profile }] = await Promise.all([
+    supabase.from("organization_members").select("organization_id, role").eq("user_id", userId).limit(1).maybeSingle(),
+    supabase.from("profiles").select("subscription_tier, claims_used_this_period, period_reset_at, trial_started_at, trial_claims_used").eq("id", userId).maybeSingle(),
+  ]);
+  return usageFromBilling(profile as OrganizationBillingRow | null, membershipOf(membership));
+}
+
+/** The previous build's count: a read and a write on the person's own profile, emails to them. */
+async function legacyProfileIncrement(admin: SupabaseClient, userId: string, email: string | null): Promise<void> {
+  const { data: profile } = await admin
+    .from("profiles")
+    .select("claims_used_this_period, subscription_tier, period_reset_at, trial_claims_used, trial_started_at, trial_ending_email_sent_at")
+    .eq("id", userId)
+    .maybeSingle();
+
+  const tier = (profile?.subscription_tier as string | null) ?? null;
+  if (planForTier(tier) === null) {
+    const previous = (profile?.trial_claims_used as number | null) ?? 0;
+    await admin.from("profiles").update({ trial_claims_used: previous + 1 }).eq("id", userId);
+    if (email) {
+      await sendTrialNotifications({
+        email,
+        previous,
+        next: previous + 1,
+        trialStartedAt: (profile?.trial_started_at as string | null) ?? null,
+        alreadySent: (profile?.trial_ending_email_sent_at as string | null) !== null,
+        markSent: async () => {
+          await admin.from("profiles").update({ trial_ending_email_sent_at: new Date().toISOString() }).eq("id", userId);
+        },
+      });
+    }
+    return;
+  }
+
+  const previous = (profile?.claims_used_this_period as number | null) ?? 0;
+  await admin.from("profiles").update({ claims_used_this_period: previous + 1 }).eq("id", userId);
+  if (email) await sendUsageNotifications({ email, previous, next: previous + 1, tier, periodResetAt: (profile?.period_reset_at as string | null) ?? null });
 }
