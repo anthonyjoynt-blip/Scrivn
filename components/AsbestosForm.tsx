@@ -1,6 +1,8 @@
 "use client";
 
 import type { Sketch, SketchRoom } from "@/lib/sketch";
+import { roomLabels } from "@/lib/photos";
+import { RoomChips } from "@/components/RoomChips";
 import { SURFACE_LABEL, SURFACES, type Surface, containedLabel, surfaceLabel } from "@/lib/containment";
 import {
   type AsbestosScope,
@@ -189,27 +191,12 @@ export function AsbestosForm({
       {sketchRooms.length > 0 && (
         <div className="question">
           <label className="prompt">Use a room from the sketch?</label>
-          <div className="option-group" role="group" aria-label="Sketch room">
-            <button
-              type="button"
-              className={`option-btn${scope.sketchRoomId === null ? " selected" : ""}`}
-              aria-pressed={scope.sketchRoomId === null}
-              onClick={() => set("sketchRoomId", null)}
-            >
-              Type the dimensions
-            </button>
-            {sketchRooms.map((room, i) => (
-              <button
-                key={room.id}
-                type="button"
-                className={`option-btn${scope.sketchRoomId === room.id ? " selected" : ""}`}
-                aria-pressed={scope.sketchRoomId === room.id}
-                onClick={() => set("sketchRoomId", room.id)}
-              >
-                {room.name.trim() || `Room ${i + 1}`}
-              </button>
-            ))}
-          </div>
+          <RoomChips
+            ariaLabel="Sketch room"
+            options={[{ value: null, label: "Type the dimensions" }, ...(sketch ? [...roomLabels(sketch)].map(([value, label]) => ({ value, label })) : [])]}
+            value={scope.sketchRoomId}
+            onChange={(id) => set("sketchRoomId", id)}
+          />
           <p className="field-note">Optional. A sketch is measured rather than remembered, but plenty of abated spaces never get drawn.</p>
         </div>
       )}

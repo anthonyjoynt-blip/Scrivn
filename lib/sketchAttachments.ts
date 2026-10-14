@@ -86,6 +86,12 @@ export interface SketchAttachments {
    * stays unticked rather than coming back with the next drawing. Absent until there is an exterior.
    */
   exteriorDefaulted?: boolean;
+  /**
+   * True when the estimator has taken the site photos out of the Initial Site Report — to email it
+   * under the size limit, most often. Absent means the captioned photos print there (2026-10-14: the
+   * Initial Site Report only, by the owner's choice; the other documents never carry photos).
+   */
+  photosLeftOut?: boolean;
 }
 
 /**
@@ -207,5 +213,6 @@ export function pruneAttachments(selection: SketchAttachments, available: Sketch
     scopeDocument: keep(selection.scopeDocument),
     workOrders,
     ...(selection.exteriorDefaulted ? { exteriorDefaulted: true } : {}),
+    ...(selection.photosLeftOut ? { photosLeftOut: true } : {}),
   };
 }

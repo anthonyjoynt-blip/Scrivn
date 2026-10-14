@@ -6,7 +6,7 @@ import { type AskedQuestion, formatQuestionLog, hasQuestionLog, recordRound } fr
 import { type SavedClaimState, resumeStep } from "@/lib/claimState";
 import { useClaimPersistence } from "@/lib/useClaimPersistence";
 import { type ClaimStep, claimOnScreen, newJobId, setAside, tryAgain, useClaimSteps, waitForSignal } from "@/lib/aiJobs";
-import { buildAsbestosSection, buildContentsSection, equipmentSuggestionsFor, generationRequest, withExtraction, withGeneratedDocuments } from "@/lib/claimGeneration";
+import { buildAsbestosSection, buildContentsSection, equipmentSuggestionsFor, extractionRequest, generationRequest, withExtraction, withGeneratedDocuments } from "@/lib/claimGeneration";
 import { connection, isNetworkFailure, netFetch } from "@/lib/connectivity";
 import { ClashBanner } from "@/components/ClashBanner";
 import { useLetterhead } from "@/lib/useLetterhead";
@@ -82,6 +82,11 @@ import { SketchEditor } from "@/components/sketch/SketchEditor";
 import { type Sketch, emptySketch, hasSketchContent, knownRoomNames, levelsOf } from "@/lib/sketch";
 import { type MoistureMap, emptyMoistureMap, hasMoistureContent, pruneMoisture, roomMoistureSummary, withScanMoisture } from "@/lib/moisture";
 import { DryingLogSection } from "@/components/drying/DryingLogSection";
+import { PhotosSection, type PhotosView } from "@/components/photos/PhotosSection";
+import { type ClaimPhotos, emptyClaimPhotos, notesSinceScope, notesSinceScopeLine } from "@/lib/photos";
+import { pdfPhotosFor, printablePhotoCount } from "@/lib/photoPdf";
+import { sendWaitingPhotos } from "@/lib/devicePhotos";
+import type { PdfPhoto } from "@/lib/pdf";
 import { type DryingLog, emptyDryingLog } from "@/lib/dryingLog";
 import { canPrintDryingLog, dryingLogPdfParams } from "@/lib/dryingLogPdf";
 import { SCAN_DROP, type PendingScan, adoptScan, convertScan, exteriorScanDecision, namedRooms, scanDecision, scanLevelName } from "@/lib/scanInbox";
@@ -248,6 +253,17 @@ export default function Home() {
   const [dryingLog, setDryingLog] = useState<DryingLog>(emptyDryingLog());
   const [showDryingLog, setShowDryingLog] = useState(false);
   /**
+   * Site photos' records — room, time, caption — beside the sketch and the drying log, and as
+   * optional as they are. The pictures are not claim state: they wait on the phone and live in
+   * storage (lib/devicePhotos.ts, lib/claimPhotos.ts). See `lib/photos.ts`.
+   */
+  const [photos, setPhotos] = useState<ClaimPhotos>(emptyClaimPhotos());
+  const [showPhotos, setShowPhotos] = useState<PhotosView>("closed");
+  /** Said under the Initial Site Report when its photos could not all be put in it — no signal for some. */
+  const [reportPhotosNote, setReportPhotosNote] = useState<string | null>(null);
+  /** Update scope asked for, and waiting on a second tap: it starts the follow-up questions over. */
+  const [confirmingScopeUpdate, setConfirmingScopeUpdate] = useState(false);
+  /**
    * Equipment suggestions the PM has already answered, so they are never offered twice.
    *
    * Answers are cleared between rounds, and nothing in the extraction records that a suggestion was
@@ -318,12 +334,12 @@ export default function Home() {
     () => ({
       step, claim, transcript, extraction, answers, questionLog, documents,
       contentsApproach, contentsTM, bricABrac, dgigData, asbestos,
-      selectedTrades, workOrders, sketch, sketchAttachments, moisture, dryingLog, scopeMarks, resolvedSuggestions,
+      selectedTrades, workOrders, sketch, sketchAttachments, moisture, dryingLog, photos, scopeMarks, resolvedSuggestions,
     }),
     [
       step, claim, transcript, extraction, answers, questionLog, documents,
       contentsApproach, contentsTM, bricABrac, dgigData, asbestos,
-      selectedTrades, workOrders, sketch, sketchAttachments, moisture, dryingLog, scopeMarks, resolvedSuggestions,
+      selectedTrades, workOrders, sketch, sketchAttachments, moisture, dryingLog, photos, scopeMarks, resolvedSuggestions,
     ],
   );
 
@@ -357,6 +373,7 @@ export default function Home() {
     setSketchAttachments(loaded.sketchAttachments);
     setMoisture(loaded.moisture);
     setDryingLog(loaded.dryingLog);
+    setPhotos(loaded.photos);
     setScopeMarks(loaded.scopeMarks);
     setResolvedSuggestions(loaded.resolvedSuggestions);
   }, []);
@@ -396,6 +413,8 @@ export default function Home() {
   const persistence = useClaimPersistence({
     state: persistedState,
     apply: applyLoadedClaim,
+    // Photos another phone took on this claim, merged in on the device — see lib/claimSync.ts.
+    applyPhotos: setPhotos,
     /*
       Off only where there is nowhere to save to. In the dev fail-open — the two public Supabase
       variables blank, middleware waving requests through — claims save to the file
@@ -413,14 +432,14 @@ export default function Home() {
   const aiSteps = useClaimSteps(persistence.claimId);
   const pageState = useRef(persistedState);
   pageState.current = persistedState;
-  const applyExtracted = useRef<(extraction: WaterLossExtraction, warnings: string[]) => void>(() => {});
+  const applyExtracted = useRef<(extraction: WaterLossExtraction, warnings: string[], scopedNotes?: string[]) => void>(() => {});
   const applyGenerated = useRef<(documents: GeneratedDocuments) => void>(() => {});
   useEffect(() => {
     const id = persistence.claimId;
     if (!id) return;
     return claimOnScreen(id, {
       state: () => pageState.current,
-      extracted: (extraction, warnings) => applyExtracted.current(extraction, warnings),
+      extracted: (extraction, warnings, scopedNotes) => applyExtracted.current(extraction, warnings, scopedNotes),
       generated: (documents) => applyGenerated.current(documents),
     });
   }, [persistence.claimId]);
@@ -433,6 +452,15 @@ export default function Home() {
     // it would flush on every render instead of at the points that asked for it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [saveCheckpoint]);
+
+  /*
+    The pictures go once the claim's own save has landed: Scrivn stores a picture only for a photo its
+    claim lists (lib/claimPhotos.ts), so each save that reaches the server is the moment to send what
+    is waiting. The header sends them too, on reconnect and every minute (components/SyncStatus.tsx).
+  */
+  useEffect(() => {
+    if (persistence.status === "saved" && photos.items.length > 0) void sendWaitingPhotos();
+  }, [persistence.status, photos]);
 
   /* ── Scans from a paired phone ────────────────────────────────────────────────────────────────
      Off in the dev fail-open for the reason saving is, and held back while a claim is loading so a
@@ -874,6 +902,25 @@ export default function Home() {
   );
   const allAnswered = blockingQuestions.length === 0;
 
+  /**
+   * The Initial Site Report's photo pages, made when the report is downloaded or sent: its captioned
+   * photos, unless taken out (`photosLeftOut`). Photos that could not be had — on Scrivn, with no
+   * signal here — are left out and said so under the report.
+   */
+  async function inspectionReportPhotos(): Promise<PdfPhoto[]> {
+    if (sketchAttachments.photosLeftOut || printablePhotoCount(photos) === 0) {
+      setReportPhotosNote(null);
+      return [];
+    }
+    const made = await pdfPhotosFor(persistence.claimId, photos, sketch);
+    setReportPhotosNote(
+      made.missing === 0
+        ? null
+        : `${made.missing} photo${made.missing === 1 ? "" : "s"} could not be put in the report — they are on Scrivn and this phone has no signal. Try again with signal.`,
+    );
+    return made.photos;
+  }
+
   function reset() {
     setStep("intake");
     setClaim(profile ? { ...emptyClaimInfo(), pmName: profile.fullName, pmPhone: profile.phone } : emptyClaimInfo());
@@ -896,6 +943,11 @@ export default function Home() {
     setMoisture(emptyMoistureMap());
     setDryingLog(emptyDryingLog());
     setShowDryingLog(false);
+    // The photos' records go with the claim; their pictures stay with the claim they were taken on.
+    setPhotos(emptyClaimPhotos());
+    setShowPhotos("closed");
+    setReportPhotosNote(null);
+    setConfirmingScopeUpdate(false);
     setResolvedSuggestions([]);
     setShowSketch(false);
     setSketchOpensReadOnly(false);
@@ -1275,14 +1327,17 @@ export default function Home() {
    * and has just run (lib/aiJobs.ts). The year of building goes onto the tree and the step follows
    * from what is left to ask: see `withExtraction`.
    */
-  function extracted(result: WaterLossExtraction, warnings: string[]) {
+  function extracted(result: WaterLossExtraction, warnings: string[], scopedNotes?: string[]) {
     // A pass that did not run is a claim missing what that pass carries — say so, rather than
     // letting the questions step look complete. See the route for what each pass carries.
     setExtractionWarnings(warnings);
-    const next = withExtraction(pageState.current, result);
+    const next = withExtraction(pageState.current, result, scopedNotes);
     setExtraction(next.extraction);
     setAnswers(next.answers);
+    setResolvedSuggestions(next.resolvedSuggestions);
     setStep(next.step as Step);
+    // Which photo notes this scope read — only that, so a caption typed while it ran is not undone.
+    if (scopedNotes) setPhotos((p) => ({ ...p, scopedNotes }));
     checkpoint();
   }
   applyExtracted.current = extracted;
@@ -1312,9 +1367,11 @@ export default function Home() {
     // Known to be offline: straight to waiting, rather than a spinner that can only fail.
     if (connection() === "offline") return waitForSignalOrFail("extract", new TypeError("offline"), onFailureStep);
     setStep("extracting");
+    // The photo notes beside it, built now from the photos as they are — see `extractionRequest`.
+    const request = extractionRequest(pageState.current, sourceText) ?? { body: { transcript: sourceText }, scopedNotes: [] };
     try {
-      const result = await postJson<{ extraction: WaterLossExtraction; warnings?: string[] }>("/api/extract", { transcript: sourceText });
-      extracted(result.extraction, result.warnings ?? []);
+      const result = await postJson<{ extraction: WaterLossExtraction; warnings?: string[] }>("/api/extract", request.body);
+      extracted(result.extraction, result.warnings ?? [], request.scopedNotes);
     } catch (err) {
       await waitForSignalOrFail("extract", err, onFailureStep);
     }
@@ -1322,6 +1379,19 @@ export default function Home() {
 
   function handleGenerate() {
     runExtraction(transcript, "transcript");
+  }
+
+  /**
+   * Photo notes added, edited or moved since the scope was made: read the walkthrough and every
+   * photo note again. Through the queue the offline steps use (lib/aiJobs.ts), so with no signal it
+   * waits and runs when the signal is back, built from the claim as it is then. Saved first, so the
+   * waiting step is never the only record of the claim.
+   */
+  async function handleUpdateScope() {
+    setError(null);
+    setConfirmingScopeUpdate(false);
+    checkpoint();
+    await waitForSignal(persistence.claimIdNow(), "extract");
   }
 
   /**
@@ -1558,7 +1628,7 @@ export default function Home() {
                 </>
               ) : s.running ? (
                 <>
-                  <span className="spinner" /> <strong>Signal is back — {kind === "extract" ? "reading the transcript" : "generating the documents"} with Claude…</strong>
+                  <span className="spinner" /> <strong>{kind === "extract" ? "Reading the transcript" : "Generating the documents"} with Claude…</strong>
                 </>
               ) : (
                 <>
@@ -1582,6 +1652,50 @@ export default function Home() {
           </div>
         );
       })}
+
+      {/*
+        Photo notes the scope has not read: a caption added, edited or moved since the scope was made
+        (lib/photos.ts, `notesSinceScope`). Said once, here, whichever step the claim is on.
+      */}
+      {(() => {
+        const line = extraction ? notesSinceScopeLine(notesSinceScope(photos, sketch, true)) : null;
+        if (!line || aiSteps.extract !== null || step === "extracting") return null;
+        return (
+          <div className="waiting-banner" role="status">
+            {confirmingScopeUpdate ? (
+              /*
+                A second tap, because it is not free of work: the scope is read again from scratch, so
+                the follow-up questions start over — the ones the walkthrough and the notes answer are
+                not asked, the rest are — and the documents are generated again after.
+              */
+              <p>
+                <strong>Read the walkthrough and every photo note again?</strong> The follow-up questions start over: what they
+                answer is not asked again, the rest is. Then generate the documents again.
+              </p>
+            ) : (
+              <p>
+                <strong>{line}</strong> Update scope reads the walkthrough and every photo note again.
+              </p>
+            )}
+            <span className="waiting-banner-actions">
+              {confirmingScopeUpdate ? (
+                <>
+                  <button type="button" className="btn-secondary" onClick={() => setConfirmingScopeUpdate(false)}>
+                    Not now
+                  </button>
+                  <button type="button" className="btn-primary" onClick={() => void handleUpdateScope()}>
+                    Update scope
+                  </button>
+                </>
+              ) : (
+                <button type="button" className="btn-secondary" onClick={() => setConfirmingScopeUpdate(true)}>
+                  Update scope
+                </button>
+              )}
+            </span>
+          </div>
+        );
+      })()}
 
       {/*
         A scan from the phone that needs an answer, or the receipt for one that did not. With the
@@ -1667,6 +1781,21 @@ export default function Home() {
           customerName={claim.customerName}
           jobInformation={buildJobInformationGroups(claim)}
           letterhead={letterhead}
+          onCheckpoint={checkpoint}
+        />
+      )}
+
+      {/* Photos, beside the sketch and the drying log: optional, and not a step either. */}
+      {!showSketch && (
+        <PhotosSection
+          photos={photos}
+          onChange={setPhotos}
+          sketch={sketch}
+          claimId={persistence.claimId}
+          claimIdNow={persistence.claimIdNow}
+          onServer={persistence.onServer}
+          view={showPhotos}
+          onViewChange={setShowPhotos}
           onCheckpoint={checkpoint}
         />
       )}
@@ -2057,13 +2186,25 @@ export default function Home() {
                   target={{ kind: "inspectionReport" }}
                   onChange={setSketchAttachments}
                 />
+                {/* The captioned photos, two to a page at the back — on unless taken out, most often to email it. */}
+                {printablePhotoCount(photos) > 0 && (
+                  <button
+                    type="button"
+                    className={`option-btn${sketchAttachments.photosLeftOut ? "" : " selected"}`}
+                    aria-pressed={!sketchAttachments.photosLeftOut}
+                    onClick={() => setSketchAttachments((prev) => ({ ...prev, photosLeftOut: !prev.photosLeftOut || undefined }))}
+                    title="The captioned photos print at the back of the report, two to a page"
+                  >
+                    Photos ({printablePhotoCount(photos)})
+                  </button>
+                )}
                 <div className="document-actions">
                   <button className="btn-secondary" onClick={() => setIsEditingInspectionReport((v) => !v)}>
                     {isEditingInspectionReport ? "Save" : "Edit"}
                   </button>
                   <button
                     className="btn-secondary"
-                    onClick={() =>
+                    onClick={async () =>
                       downloadDocumentPdf({
                         docLabel: "Inspection Report",
                         bodyText: documents.inspectionReport ?? "",
@@ -2073,6 +2214,7 @@ export default function Home() {
                         documentTitle: "Initial Site Report",
                         jobInformation: buildJobInformationGroups(claim),
                         sketchImages: sketchPagesFor({ kind: "inspectionReport" }),
+                        photos: await inspectionReportPhotos(),
                       })
                     }
                   >
@@ -2080,6 +2222,7 @@ export default function Home() {
                   </button>
                 </div>
               </div>
+              {reportPhotosNote && <p className="field-note">{reportPhotosNote}</p>}
               <LetterheadBanner letterhead={letterhead} />
               <div className="document-paper">
                 <div className="document-title">Initial Site Report</div>
@@ -2210,6 +2353,7 @@ export default function Home() {
                         jobInformation: buildJobInformationGroups(claim),
                         sketchImages: sketchPagesFor({ kind: "inspectionReport" }),
                       },
+                      photos: inspectionReportPhotos,
                     } satisfies SendableDocument,
                   ]
                 : []),

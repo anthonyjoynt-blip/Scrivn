@@ -1,4 +1,5 @@
 import type { WaterLossExtraction } from "./types";
+import { photoNotesSection } from "./photoNotesPrompt";
 import { disposalLines, type DisposalLines } from "./debris";
 import type { ClaimInfo, ScopePhase } from "./claimInfo";
 import { lossTypeLabel } from "./claimInfo";
@@ -954,6 +955,8 @@ export function documentGenerationUserMessage(
   disposal: DisposalLines = disposalLines(completedExtraction, {}),
   /** The exterior's ready-made scope lines, in order — see lib/exterior.ts's `exteriorScopeLines`. Empty when nothing outside is in scope. */
   exterior: string[] = [],
+  /** What was said under the site photos, built fresh for this run — see lib/photoNotesPrompt.ts. Empty when no photo has a caption. */
+  photoNotes = "",
 ): string {
   // claimNumber/address/pmName/dateOfLoss/yearOfBuilding/dateTimeInspected are deliberately NOT
   // sent here — they only ever fed the JOB INFORMATION section, which this call no longer
@@ -1025,7 +1028,7 @@ ${JSON.stringify(completedExtraction)}
 
 ORIGINAL TRANSCRIPT (supplementary detail — specifics the PM stated that the structured data above
 has no dedicated field for, e.g. a disposal container type or size):
-${transcript}`;
+${transcript}${photoNotesSection(photoNotes)}`;
   }
 
   return `Generate both documents from this data.
@@ -1051,5 +1054,5 @@ ${JSON.stringify(completedExtraction)}
 ORIGINAL TRANSCRIPT (supplementary detail for CAUSE OF LOSS, plus the only source for CONTENTS'
 prose — that's the one section left with no dedicated field in the structured data above, aside
 from also drawing on rooms[].contents where present):
-${transcript}`;
+${transcript}${photoNotesSection(photoNotes)}`;
 }

@@ -46,7 +46,11 @@
     "test:device:rls": "node test/device/rls.mjs",
     "test:scanaccounts": "node test/scanaccounts/run.mjs",
     "test:e2e:scan": "node test/e2e/scanAccounts.mjs",
-    "supabase:fake": "node test/e2e/fakeSupabase.mjs"
+    "supabase:fake": "node test/e2e/fakeSupabase.mjs",
+    "test:photos": "node test/photos/run.mjs",
+    "test:photos:browser": "node test/photos/browser/run.mjs",
+    "test:photos:routes": "node test/photos/routes.mjs",
+    "test:photos:live": "node test/photos/notesLive.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "latest",

@@ -6,6 +6,7 @@ import { isRunning, runWaitingJobs } from "@/lib/aiJobs";
 import { syncAll } from "@/lib/claimSync";
 import { connection, onReconnect, probe } from "@/lib/connectivity";
 import { pruneDeviceClaims } from "@/lib/deviceClaims";
+import { discardRefusedOf, sendWaitingPhotos } from "@/lib/devicePhotos";
 import { claimName, useDeviceWork } from "@/lib/useDeviceWork";
 
 /**
@@ -33,7 +34,10 @@ export function SyncStatus() {
       setBusy(true);
       try {
         await syncAll();
+        // Claude steps before pictures: a scope waiting for signal should not queue behind a hundred uploads.
         await runWaitingJobs();
+        // After the claims: Scrivn takes a photo's picture only once its claim lists it.
+        await sendWaitingPhotos();
       } finally {
         if (alive) setBusy(false);
       }
@@ -71,6 +75,9 @@ export function SyncStatus() {
   const clashes = work.claims.filter((c) => c.clash).length;
   // A trace that has come back is not waiting on anything but being looked at; it is listed, not counted.
   const count = work.claims.length + work.jobs.filter((j) => !(j.kind === "trace" && j.result)).length;
+  // Photos counted on their own: "12 waiting" for twelve photos and no claim would read as twelve claims.
+  const photoCount = work.photos.reduce((sum, p) => sum + p.count, 0);
+  const photosLabel = photoCount > 0 ? `${photoCount} photo${photoCount === 1 ? "" : "s"}` : "";
 
   if (work.signedOutWaiting > 0) {
     return (
@@ -81,19 +88,23 @@ export function SyncStatus() {
       </div>
     );
   }
-  if (!offline && count === 0 && work.jobs.length === 0) return null;
+  if (!offline && count === 0 && work.jobs.length === 0 && photoCount === 0) return null;
 
   const label = offline
-    ? count > 0
-      ? `Offline · ${count} waiting`
+    ? count > 0 || photoCount > 0
+      ? `Offline · ${[count > 0 ? `${count} waiting` : "", photosLabel].filter(Boolean).join(" · ")}${count === 0 ? " waiting" : ""}`
       : "Offline"
     : clashes > 0
       ? `${clashes} need${clashes === 1 ? "s" : ""} your choice`
-      : count === 0
-        ? "AI trace ready"
-        : busy
-          ? `Syncing ${count}…`
-          : `${count} waiting to sync`;
+      : count === 0 && photoCount > 0
+        ? busy
+          ? `Uploading ${photosLabel}…`
+          : `${photosLabel} waiting to upload`
+        : count === 0
+          ? "AI trace ready"
+          : busy
+            ? `Syncing ${count}…`
+            : `${count} waiting to sync${photoCount > 0 ? ` · ${photosLabel}` : ""}`;
 
   return (
     <div className="sync-status" ref={box}>
@@ -113,7 +124,7 @@ export function SyncStatus() {
               ? "No signal. Everything below is saved on this device and goes to Scrivn on its own when the signal is back."
               : "Saved on this device and on its way to Scrivn."}
           </p>
-          {work.claims.length + work.jobs.length === 0 ? (
+          {work.claims.length + work.jobs.length + work.photos.length === 0 ? (
             <p className="field-note">Nothing is waiting. You can keep working — claims save on this device and sync later.</p>
           ) : (
             <ul className="sync-list">
@@ -131,6 +142,23 @@ export function SyncStatus() {
                         ? `Scrivn would not take it: ${c.refused}`
                         : "Saved on this phone, not yet synced"}
                   </span>
+                </li>
+              ))}
+              {work.photos.map((p) => (
+                <li key={`photos-${p.claimId}`}>
+                  <Link href={`/claim?id=${p.claimId}`} onClick={() => setOpen(false)}>
+                    {work.names[p.claimId] ?? "A claim"}
+                  </Link>
+                  <span className={p.refused > 0 ? "sync-item-clash" : undefined}>
+                    {p.count} photo{p.count === 1 ? "" : "s"} waiting to upload
+                    {p.refused > 0 ? ` — Scrivn would not take ${p.refused}; open the claim's photos to see why` : ""}
+                  </span>
+                  {/* For a claim deleted elsewhere, which will not open: the pictures it refused can go from here. */}
+                  {p.refused > 0 && (
+                    <button type="button" className="link-button" onClick={() => void discardRefusedOf(p.claimId)}>
+                      Remove {p.refused === 1 ? "it" : "them"} from this phone
+                    </button>
+                  )}
                 </li>
               ))}
               {work.jobs.map((j) => (

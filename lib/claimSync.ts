@@ -3,6 +3,7 @@
 import { parseSavedClaimState, SAVED_CLAIM_KEYS, type SavedClaimState } from "./claimState";
 import { netFetch, isNetworkFailure } from "./connectivity";
 import { allDeviceClaims, changeDeviceClaim, deviceUser, isMine, readDeviceClaim, type DeviceClaim } from "./deviceClaims";
+import { mergeClaimPhotos } from "./photos";
 
 /**
  * Sending what this device holds to the server, without overwriting what somebody else did
@@ -24,6 +25,14 @@ import { allDeviceClaims, changeDeviceClaim, deviceUser, isMine, readDeviceClaim
  * else changed this" would be false and would ask them to choose between two copies of their own
  * work. So every state is fingerprinted before it is sent (`sent`), and a refusal whose server copy
  * is one of them is recognised as ours: the device moves on to that version and carries on.
+ *
+ * ── Photos are merged, not asked about ───────────────────────────────────────────────────────────
+ *
+ * Two technicians photographing one job is ordinary, and each phone's save adds records to the same
+ * list. A clash whose only difference is the photos is not a choice anybody could make well — both
+ * sets are wanted — so it is settled here without asking: the two lists merged by id (lib/photos.ts),
+ * sent again from the server's version. Where something else differs too, the estimator is asked as
+ * before, and the photos are merged whichever copy they keep (`withPhotosMerged`).
  *
  * ── One send per claim at a time ─────────────────────────────────────────────────────────────────
  *
@@ -89,6 +98,7 @@ const PART: Partial<Record<keyof SavedClaimState, string>> = {
   sketchAttachments: "what each document carries",
   moisture: "the moisture map",
   dryingLog: "the drying log",
+  photos: "the photos",
   scopeMarks: "the markings on the sketch",
   resolvedSuggestions: "the equipment answers",
   // `step` is left out: which screen each copy was last on is not a difference in the claim.
@@ -113,6 +123,23 @@ export function clashDifferences(mine: SavedClaimState, theirs: SavedClaimState 
     if (!out.includes(label)) out.push(label);
   }
   return out;
+}
+
+/** True when two copies differ in their photos and in nothing else that counts — see the file's note. */
+export function onlyPhotosDiffer(mine: SavedClaimState, theirs: SavedClaimState | null): boolean {
+  if (!theirs) return false;
+  const differs = clashDifferences(mine, theirs);
+  return differs.length > 0 && differs.every((d) => d === PART.photos);
+}
+
+/**
+ * `keep` with the other copy's photos merged in. Whichever copy of a clashed claim the estimator keeps,
+ * no photo either phone took is lost and none either deleted comes back; the kept copy's scope
+ * decides which photo notes the scope was made from.
+ */
+export function withPhotosMerged(keep: SavedClaimState, other: SavedClaimState | null): SavedClaimState {
+  if (!other) return keep;
+  return { ...keep, photos: mergeClaimPhotos(keep.photos, other.photos) };
 }
 
 /* ── Locks ──────────────────────────────────────────────────────────────────────────────────────── */
@@ -238,6 +265,15 @@ async function sendOnce(record: DeviceClaim): Promise<SyncOutcome | "again"> {
         return { ...r, version: theirs.version!, dirty: more, sent: [] };
       });
       return more ? "again" : { kind: "synced" };
+    }
+    if (onlyPhotosDiffer(record.state, theirs.state)) {
+      /*
+        Another phone added or changed photos, and nothing else differs: merged and sent again from
+        the server's version, without a question. Into the record as it is NOW, which may have moved
+        on since this send began — those changes are this device's own and go with it.
+      */
+      await changeDeviceClaim(record.id, (r) => (r ? { ...r, state: withPhotosMerged(r.state, theirs.state!), version: theirs.version!, dirty: true, sent: [] } : undefined));
+      return "again";
     }
     await changeDeviceClaim(record.id, (r) => (r ? { ...r, clash: { state: theirs.state!, version: theirs.version!, at: Date.now() } } : undefined));
     return { kind: "clash" };

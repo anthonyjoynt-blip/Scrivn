@@ -448,6 +448,44 @@ console.log("\n  An account deleted");
   check(rows(await s.as(ada, `delete from public.claims where id = $1 returning id`, [tempClaim])).length === 1, "and an admin can still delete it");
 }
 
+/* ── Claim photos (0015) ──────────────────────────────────────────────────────────────────────── */
+
+console.log("\n  Claim photos");
+{
+  const bucket = (await s.sql(`select public, file_size_limit, allowed_mime_types from storage.buckets where id = 'claim-photos'`))[0];
+  check(bucket && bucket.public === false && Number(bucket.file_size_limit) === 2097152 && JSON.stringify(bucket.allowed_mime_types) === '["image/jpeg"]', "the claim-photos bucket is private, 2 MB, JPEG only");
+
+  const path = `${acme}/${claimOwen}/00000000-0000-4000-8000-000000000001.jpg`;
+  const thumb = `${acme}/${claimOwen}/00000000-0000-4000-8000-000000000001.thumb.jpg`;
+  const insert = (asUser, name) => s.as(asUser, `insert into storage.objects (bucket_id, name) values ('claim-photos', $1) returning id`, [name], { rollback: true });
+  // Ada owns Acme by now; Owen handed it over and left, and Mel was removed (above).
+  check((await insert(ada, path)).error !== null, "a member cannot write a photo into the bucket with their own key — only the server can");
+  check((await insert(xan, path)).error !== null, "nor can another organization's");
+  check((await insert(null, path)).error !== null, "nor the anon key");
+  check((await s.service(`insert into storage.objects (bucket_id, name) values ('claim-photos', $1), ('claim-photos', $2)`, [path, thumb])).error === null, "the service role stores both parts");
+
+  const visible = async (asUser) => rows(await s.as(asUser, `select name from storage.objects where bucket_id = 'claim-photos' order by name`)).map((r) => r.name);
+  check(JSON.stringify(await visible(ada)) === JSON.stringify([path, thumb].sort()), "the claim's organization reads them");
+  const pia = await s.createUser({ email: "pia@acme.test", fullName: "Pia Photographer" });
+  const piaInvite = await invite(ada, "pia@acme.test");
+  check((await accept(pia, piaInvite.token)).error === null && (await visible(pia)).length === 2, "every member of it does, a new one included, not only whoever took them");
+  check((await visible(mel)).length === 0, "and a member who was removed from it reads none");
+  check((await visible(owen)).length === 0, "someone who has left the organization reads none of them");
+  check((await visible(xan)).length === 0, "another organization reads none of them");
+  check((await visible(null)).length === 0, "and the anon key none");
+  check(
+    rows(await s.as(xan, `select name from storage.objects where bucket_id = 'claim-photos' and name like $1`, [`${acme}/%`])).length === 0,
+    "not even by naming Acme's folder",
+  );
+
+  const removed = await s.as(ada, `delete from storage.objects where bucket_id = 'claim-photos' returning name`, [], { rollback: true });
+  check(rows(removed).length === 0, `a member cannot delete them with their own key — deletes go through the server (got ${removed.error?.message ?? rows(removed).length})`);
+  const moved = await s.as(ada, `update storage.objects set name = $1 where bucket_id = 'claim-photos' returning name`, [`${other}/x.jpg`], { rollback: true });
+  check(rows(moved).length === 0, "nor rename one into another organization's folder");
+  const stray = await s.service(`insert into storage.objects (bucket_id, name) values ('claim-photos', 'not-a-uuid/x/y.jpg') returning id`);
+  check(stray.error === null && (await visible(ada)).length === 2, "a picture in a folder that is no organization is nobody's");
+}
+
 /* ── Who can call what ────────────────────────────────────────────────────────────────────────── */
 
 console.log("\n  Function grants");
@@ -509,6 +547,37 @@ console.log("\n  Re-running the new migrations");
 }
 
 await s.close();
+
+/* ── 0015 on what production has ────────────────────────────────────────────────────────── */
+
+/*
+  Production has 0001-0010; 0011-0014 (teams, billing, Scan accounts) are written but not applied. So
+  the photo bucket must stand on 0004 and 0005 alone: pasted straight after 0010, it has to work the same.
+*/
+console.log("\n  Claim photos on what production has");
+{
+  const p = await startSupabaseLocal();
+  const without = migrationFiles(root).filter((m) => Number(m.name.slice(0, 4)) <= 10 || m.name.endsWith("_claim_photos.sql"));
+  let applied = true;
+  for (const m of without) {
+    try {
+      await p.applyMigration(m);
+    } catch (err) {
+      applied = false;
+      console.log(`    ${err.message}`);
+    }
+  }
+  check(applied && without.some((m) => m.name.endsWith("_claim_photos.sql")), `the photo migration applies straight after 0010, with 0011-0014 left out (${without.length} migrations)`);
+  const a = await p.createUser({ email: "a@one.test", companyName: "One" });
+  const b = await p.createUser({ email: "b@two.test", companyName: "Two" });
+  const orgOf = async (u) => (await p.sql(`select organization_id from public.organization_members where user_id = $1`, [u]))[0]?.organization_id;
+  const name = `${await orgOf(a)}/22222222-2222-4222-8222-222222222222/00000000-0000-4000-8000-000000000009.jpg`;
+  check((await p.service(`insert into storage.objects (bucket_id, name) values ('claim-photos', $1)`, [name])).error === null, "the server stores a photo");
+  const reads = async (u) => (await p.as(u, `select name from storage.objects where bucket_id = 'claim-photos'`)).data?.length ?? 0;
+  check((await reads(a)) === 1 && (await reads(b)) === 0, "its organization reads it, another does not");
+  check((await p.as(a, `insert into storage.objects (bucket_id, name) values ('claim-photos', $1)`, [name.replace("9.jpg", "8.jpg")], { rollback: true })).error !== null, "and nobody writes with their own key");
+  await p.close();
+}
 
 console.log(`\n  ${passed} passed, ${failures.length} failed\n`);
 if (failures.length > 0) {

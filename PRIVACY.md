@@ -14,7 +14,9 @@ TermsFeed. The policy is only as accurate as this file.
 
 Written 2026-10-01 against the code as it stood then; accounts in Scrivn Scan, the free-scan count,
 deleting an account and the sign-up guards added 2026-10-14 (paste the Scrivn Scan, Service providers,
-Deleting your account, and Security sections into TermsFeed again).
+Deleting your account, and Security sections into TermsFeed again). Site photos with spoken captions
+added 2026-10-14 (paste Information about your customers, AI processing, Dictation, Photos and
+location, Working without a connection, and Keeping and deleting claim data again).
 
 ## Generator answers (Canada, October 2026)
 
@@ -42,15 +44,19 @@ Claim data is kept 24 months after an account closes, and the Supabase project i
 
 **Information about your customers**
 
-Scrivn is used by restoration companies to document property-damage claims. When a company's staff create a claim, they may enter information about the property owner or occupant and the loss, including: name, property address, phone number, insurer and claim number; dates and cause of loss; a dictated walkthrough; sketches, measurements and moisture readings; and photographs, including 360° images, of the property. Scrivn processes this information on behalf of the company that entered it, only to provide the Service to that company: producing scope documents and inspection reports, storing the claim, and sending documents where the company directs. We do not sell it or use it for advertising. A customer with questions about their claim should contact the restoration company handling it, and we will help that company respond.
+Scrivn is used by restoration companies to document property-damage claims. When a company's staff create a claim, they may enter information about the property owner or occupant and the loss, including: name, property address, phone number, insurer and claim number; dates and cause of loss; a dictated walkthrough; sketches, measurements and moisture readings; and photographs of the property, including 360° images and site photos with the caption, the time and the room recorded with each. Scrivn processes this information on behalf of the company that entered it, only to provide the Service to that company: producing scope documents and inspection reports, storing the claim, and sending documents where the company directs. We do not sell it or use it for advertising. A customer with questions about their claim should contact the restoration company handling it, and we will help that company respond.
 
 **AI processing**
 
-To turn a walkthrough into a scope document and inspection report, Scrivn sends the claim's text (the dictation, claim details and answers to follow-up questions) to Anthropic, PBC, which provides the Claude AI model. When a user chooses AI trace on a side of the house in the exterior sketch, Scrivn also sends Anthropic that side's photo from Scrivn Scan, squared up to the wall, so that Claude can trace the wall's cladding, windows and doors for the user to confirm. When a user chooses Photo beside a reading in the drying log, Scrivn sends Anthropic that photo of the meter's screen, reduced in size, so that Claude can read the number for the user to check; Scrivn does not store that photo. Anthropic processes this information only to return the result and, under its commercial terms, does not use it to train its models. No other photos are sent for AI processing.
+To turn a walkthrough into a scope document and inspection report, Scrivn sends the claim's text (the dictation, the captions of its site photos with each photo's room and time, claim details and answers to follow-up questions) to Anthropic, PBC, which provides the Claude AI model. The site photos themselves are not sent. When a user chooses AI trace on a side of the house in the exterior sketch, Scrivn also sends Anthropic that side's photo from Scrivn Scan, squared up to the wall, so that Claude can trace the wall's cladding, windows and doors for the user to confirm. When a user chooses Photo beside a reading in the drying log, Scrivn sends Anthropic that photo of the meter's screen, reduced in size, so that Claude can read the number for the user to check; Scrivn does not store that photo. Anthropic processes this information only to return the result and, under its commercial terms, does not use it to train its models. No other photos are sent for AI processing.
 
 **Dictation**
 
-When you use the Dictate button, your speech is turned into text by your phone or browser's built-in speech recognition (on Android, Google's). Scrivn receives only the text. It never receives or stores audio.
+When you use the Dictate button, or speak a caption after taking a photo in Scrivn, your speech is turned into text by your phone or browser's built-in speech recognition (on Android, Google's). Scrivn receives only the text. It never receives or stores audio.
+
+**Photos and location**
+
+Scrivn keeps no location (GPS) information from photos. Each photo taken or added in Scrivn is redrawn at a smaller size on your device before it is stored, which leaves out the location and the other details a camera writes into a photo file. When you add a photo from your phone's gallery, Scrivn reads only the date and time it was taken, to file it in order.
 
 **Scrivn Scan**
 
@@ -64,7 +70,7 @@ Scrivn Scan runs on Google Play Services for AR (ARCore), which is provided by G
 
 **Working without a connection**
 
-So that Scrivn works with no signal, it keeps a copy of the claims you have opened recently, and of the latest ones on your claims list, in your browser's storage on your device, along with changes that have not reached our servers yet and AI steps waiting to run. Signing out removes those copies; changes that have not reached Scrivn yet stay on the device, out of sight of anyone else who signs in there, until you sign in again, so that they are not lost. Scrivn Scan likewise keeps a scan it could not send, with its photos, on the phone until it has been sent or you delete it.
+So that Scrivn works with no signal, it keeps a copy of the claims you have opened recently, and of the latest ones on your claims list, in your browser's storage on your device, along with changes that have not reached our servers yet, photos that have not uploaded yet, and AI steps waiting to run. Signing out removes those copies; changes and photos that have not reached Scrivn yet stay on the device, out of sight of anyone else who signs in there, until you sign in again, so that they are not lost. Scrivn Scan likewise keeps a scan it could not send, with its photos, on the phone until it has been sent or you delete it.
 
 **Service providers**
 
@@ -78,7 +84,7 @@ Your account, and your claims, photos and scans, are stored in Canada. To run Sc
 
 **Keeping and deleting claim data**
 
-Claims, photos and scans are kept until the company deletes them, or for 24 months after the company's account closes. Claims can be deleted in the app.
+Claims, photos and scans are kept until the company deletes them, or for 24 months after the company's account closes. Claims and photos can be deleted in the app; deleting a claim deletes its photos and scans with it.
 
 **Deleting your account**
 
@@ -100,7 +106,9 @@ To protect accounts and limit abuse, Scrivn counts attempts to create an account
   `/api/extract` and `/api/generate`, no images; since 2026-10-12 a side's squared-up exterior photo
   goes to `/api/exterior/trace` when the user presses AI trace, `lib/exteriorTrace.ts`; since 2026-10-14
   a photo of a meter's screen, shrunk to 1280 px in the browser, goes to `/api/drying/meter-photo` when
-  the user presses Photo in the drying log, `lib/meterPhoto.ts`, and is kept nowhere). Resend: `lib/email/send.ts`, used by sign-in
+  the user presses Photo in the drying log, `lib/meterPhoto.ts`, and is kept nowhere; since 2026-10-14
+  the site photos' captions, as text with each one's room and time, go to `/api/extract` and
+  `/api/generate` beside the transcript, `lib/photoNotesPrompt.ts` — never the pictures). Resend: `lib/email/send.ts`, used by sign-in
   confirmation, the contact form and Send documents. Dictation: `components/DictateButton.tsx` (browser
   speech recognition, no audio leaves the device to Scrivn). Scan permissions: the
   ARCapturePrototype manifest (CAMERA and INTERNET only). Phone revoke: `components/PairedPhones.tsx`.
@@ -121,6 +129,16 @@ To protect accounts and limit abuse, Scrivn counts attempts to create an account
   email address, name and purchase history collected (account management, and app functionality for
   purchases), user IDs and app interactions (the scan count) collected for app functionality, data
   deletion available in the app and at scrivn.ca/account/delete — see SCAN_ACCOUNTS.md.
+- **Site photos** (2026-10-14): the camera and the Photos panel are `components/photos/*`; a photo is
+  redrawn to about 2,000 px on a canvas before it is kept (`lib/photoImage.ts`), which is why no GPS
+  or other EXIF data is stored. Pictures are in the private `claim-photos` bucket (0015), written only
+  by the server (`lib/claimPhotos.ts`), readable by the organization's members; records (room, time,
+  caption) ride in the claim (`lib/photos.ts`). Captions use the same browser speech recognition as
+  Dictate (`lib/useDictation.ts`). A gallery photo's taken time is read from its EXIF
+  `DateTimeOriginal`/`OffsetTimeOriginal` and nothing else (`lib/exifTime.ts`). Deleting a claim removes its `claim-photos` folder and its scans'
+  `scan-photos` folders (`removeClaimFolders`; the scan photos were left behind before this). Photos
+  waiting to upload are the `photoFiles` store in IndexedDB (`lib/devicePhotos.ts`), not swept on
+  sign-out.
 - **Working without a connection** (2026-10-13, offline mode): the device copies are IndexedDB
   (`lib/deviceClaims.ts`, `lib/aiJobs.ts`); signing out sweeps the copies the server already has
   (`forgetCopiedClaims` in `public/sw.js`) and keeps unsynced work, scoped to its owner by

@@ -1,4 +1,5 @@
 import type { WaterLossExtraction } from "./types";
+import { photoNotesSection } from "./photoNotesPrompt";
 
 /**
  * Step 1b: the detail pass.
@@ -239,7 +240,7 @@ WHAT EACH FIELD MEANS:
  * The per-room record counts, written out so the model has an explicit target to match rather than
  * inferring the shape from the transcript a second time.
  */
-export function extractionDetailUserMessage(transcript: string, extraction: WaterLossExtraction): string {
+export function extractionDetailUserMessage(transcript: string, extraction: WaterLossExtraction, photoNotes?: string): string {
   const rooms = extraction.rooms
     .map((room, i) => {
       const counts = [
@@ -260,5 +261,5 @@ ${rooms}
 
 Transcript:
 
-${transcript}`;
+${transcript}${photoNotesSection(photoNotes)}`;
 }
