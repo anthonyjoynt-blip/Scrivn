@@ -62,7 +62,9 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   const { version, text } = await buildEngine();
   const target = join(outDir, FILE);
   if (check) {
-    const same = existsSync(target) && readFileSync(target, "utf8").replace(/^\/\*[^\n]*\*\/\n/, "") === text.replace(/^\/\*[^\n]*\*\/\n/, "");
+    // Line endings as git checks the file out (autocrlf) are no difference.
+    const body = (t) => t.replace(/\r\n/g, "\n").replace(/^\/\*[^\n]*\*\/\n/, "");
+    const same = existsSync(target) && body(readFileSync(target, "utf8")) === body(text);
     console.log(same ? `Scan's engine is this build (${version}).` : `Scan's engine is not this build: run node scripts/build-scan-engine.mjs.`);
     process.exit(same ? 0 : 1);
   }

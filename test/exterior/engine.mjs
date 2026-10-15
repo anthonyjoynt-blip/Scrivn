@@ -173,7 +173,8 @@ await test("Scan's assets hold this build of the engine (else: node scripts/buil
     console.log("    (Scan is not beside this checkout: not compared)");
     return;
   }
-  const strip = (t) => t.replace(/^\/\*[^\n]*\*\/\n/, "");
+  // Line endings as git checks the file out (autocrlf) are no difference.
+  const strip = (t) => t.replace(/\r\n/g, "\n").replace(/^\/\*[^\n]*\*\/\n/, "");
   if (strip(readFileSync(asset, "utf8")) !== strip(engine.text)) console.log("    NOTE: Scan's copy is an older build of the engine. Rebuild it before building Scan.");
 });
 
