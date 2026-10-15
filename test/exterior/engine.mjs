@@ -350,15 +350,59 @@ await test("the roof with the photos' reads: the phone's and Scrivn's import of 
 // The walls off the photos: two bottom corners and a photo per side (2026-10-15, option 1)
 // ---------------------------------------------------------------------------------------------
 
-/** The walk with its photographed sides cut back to what option 1 taps: the two bottom corners, and the photo. */
-const cornersOnly = (() => {
+/**
+ * The walk with its photographed sides cut back to what option 1 taps: the two bottom corners, and the photo - written as Scan
+ * writes such a side (ExteriorFinishTest pins it): one open shape of the side's material along its bottom, the eaves at the
+ * bottom's height. [bare]: the same with no shape and no eave at all, as an older or hand-made file might have it.
+ */
+function cutToCorners(bare) {
   const c = JSON.parse(capture);
   for (const side of c.sides) {
     if (!answers[String(side.index)]) continue;
-    Object.assign(side, { cladding: null, eave_left_m: null, eave_right_m: null, peak: null, pitch_12: null, shapes: [], roofline: [], openings: [], areas: [], gross_sf: 0, net_sf: 0, opening_trim_m: 0 });
+    const material = side.cladding ?? "stucco";
+    const along = [
+      { material, label: material[0].toUpperCase() + material.slice(1), polygon: [[0, side.bottom_left_m], [side.length_m, side.bottom_right_m]], area_m2: 0, openings_m2: 0, net_m2: 0, closed: false },
+    ];
+    Object.assign(side, {
+      eave_left_m: bare ? null : side.bottom_left_m,
+      eave_right_m: bare ? null : side.bottom_right_m,
+      peak: null,
+      pitch_12: null,
+      shapes: bare ? [] : along,
+      roofline: [],
+      openings: [],
+      areas: [],
+      gross_sf: 0,
+      net_sf: 0,
+      opening_trim_m: 0,
+    });
   }
   return JSON.stringify(c);
-})();
+}
+const cornersOnly = cutToCorners(false);
+
+await test("a side of its two bottom corners alone, as Scan writes it, has no height: no shape, no eave, not counted; a shape begun up the wall is a height", () => {
+  const { exterior, q, notes } = (() => {
+    const r = x.parseScanExterior(JSON.parse(cornersOnly), { scanId: null });
+    return { exterior: r.exterior, q: x.exteriorQuantities(r.exterior), notes: r.notes };
+  })();
+  for (const a of Object.values(answers)) {
+    const side = exterior.sides.find((x2) => x2.name === a.side);
+    assert(side.eaveLeftFeet === null && side.eaveRightFeet === null && (side.shapes ?? []).length === 0, `${a.side}: no height`);
+    assert(!q.sides.find((x2) => x2.name === a.side).complete, `${a.side}: not counted`);
+  }
+  assert(notes.some((n) => n.startsWith("No eave was tapped on Left, Front 3, Rear, Left 5")), notes.join(" | "));
+  assert(!notes.some((n) => /left open|uneven|differ/i.test(n) && /Left 5|Front 3/.test(n)), notes.join(" | "));
+  // The bare form reads the same.
+  const bare = x.parseScanExterior(JSON.parse(cutToCorners(true)), { scanId: null }).exterior;
+  assert(Math.abs(x.exteriorQuantities(bare).totals.netSquareFeet - q.totals.netSquareFeet) < 1e-6, "the same, bare");
+  // Begun up the wall - a third corner 1 m over the bottom, left open - is a height tapped: kept as it is.
+  const begun = JSON.parse(cornersOnly);
+  const s5 = begun.sides.find((s) => s.index === 11);
+  s5.shapes[0].polygon.push([s5.length_m, s5.bottom_right_m + 1]);
+  const kept = x.parseScanExterior(begun, { scanId: null }).exterior.sides.find((s) => s.name === "Left 5");
+  assert((kept.shapes ?? []).length === 1 && kept.eaveLeftFeet !== null, "a shape begun up the wall is kept");
+});
 
 let cornersFinish = { format: "scrivn-finish/1" };
 const ftIn = (feet) => {
@@ -368,6 +412,8 @@ const ftIn = (feet) => {
 
 await test("with no signal, a side tapped as its corners alone has no height, is not counted, and the phone says so", async () => {
   const s = JSON.parse(await P.run("summary", { capture: cornersOnly, finish: null }));
+  // Scan's ExteriorFinishTest reads these answers too.
+  if (process.env.SCRIVN_CORNERS_SUMMARY_OUT) writeFileSync(process.env.SCRIVN_CORNERS_SUMMARY_OUT, JSON.stringify(s, null, 1));
   const names = Object.values(answers).map((a) => a.side);
   for (const n of names) assert(s.uncounted.includes(n), `${n} not counted`);
   assert(s.sides.filter((x2) => names.includes(x2.name)).every((x2) => x2.toRead && !x2.walls.complete && x2.walls.words.startsWith("only its corners")), JSON.stringify(s.sides.map((x2) => x2.walls.words)));
@@ -381,6 +427,7 @@ await test("corners and a photo: Finish reads each side whole - cladding, window
     cornersFinish = await x.take(cornersOnly, cornersFinish, Number(index), answerFor(Number(index), request), squared, host, "2026-10-15T16:00:00.000Z");
   }
   const s = JSON.parse(await P.run("summary", { capture: cornersOnly, finish: cornersFinish }));
+  if (process.env.SCRIVN_WALLS_SUMMARY_OUT) writeFileSync(process.env.SCRIVN_WALLS_SUMMARY_OUT, JSON.stringify(s, null, 1));
   const { q, exterior } = scrivnOf(cornersOnly, cornersFinish);
   sameRoof(s, q, "corners and photos");
   assert(s.uncounted.length === 0, `every side counted: ${s.uncounted.join(", ")}`);

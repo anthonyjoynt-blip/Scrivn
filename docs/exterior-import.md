@@ -62,7 +62,7 @@ Ticking what is in scope doesn't count as a change.
 | `name` | `name` |
 | `length_m` | `lengthFeet` |
 | `bottom_left_m`, `bottom_right_m` | `baseLeftFeet`, `baseRightFeet` with base `"parging"`. Both about 0 means base `"grade"`. |
-| `eave_left_m`, `eave_right_m` | `/1`: both set to the mean of the two taps (one eave line read twice); a difference over 1 in is named in the notes. `/2`: kept as they are, since they are worked out from the shapes and a stepped gable really has two. Null (and no shapes) keeps the side but gives it no area until an eave is typed. |
+| `eave_left_m`, `eave_right_m` | `/1`: both set to the mean of the two taps (one eave line read twice); a difference over 1 in is named in the notes. `/2`: kept as they are, since they are worked out from the shapes and a stepped gable really has two. Null (and no shapes) keeps the side but gives it no area until an eave is typed. A side tapped as its two bottom corners alone (option 1, 2026-10-15) comes as one open shape along its bottom with its eaves there; nothing within 0.15 m of the bottom is a height, so it is read as no shape and no eave: not counted until an eave is typed or Finish reads its photo. |
 | `peak` `{along_m, height_m}` | `gable {atFeet, peakFeet}`, only when the peak stands at least 0.3 m over both eaves and `pitch_12` is not under 1.5/12. These are Scan's own rules since `def1456`, kept so older files read the same. |
 | `peak.from_m`, `peak.to_m` (optional) | `gable.fromFeet`, `gable.toFeet`: a gable over part of the wall. Scan doesn't send them; read when present. |
 | `pitch_12` | `pitchMeasured`: believed over the pitch Scrivn would work out from the peak. A value under 1.5/12 is not a gable's pitch and is dropped. |

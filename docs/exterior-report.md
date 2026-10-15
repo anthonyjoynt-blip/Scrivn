@@ -53,6 +53,7 @@ The owner chose "option 1": the walk is two bottom-corner taps per side and the 
   - an opening only where no tapped opening overlaps it by a third of the smaller;
   - the wall top only on a side with no eave tapped.
   Each read part is marked `from: "photo"`.
+- **A side of its corners alone.** Scan writes it as one open shape along the bottom, its eaves at the bottom. Scrivn's import reads that as no shape and no eave (`CORNERS_ONLY_RISE_M`), so the read walls go on it.
 - **Squaring a side with no height.** The squared photo reaches 9 m over the side's bottom (`UNMEASURED_ABOVE_M`), so the wall top and roof are in the picture to be read.
 - **On the phone:** Review's **Walls** button lists every photographed side with its walls in words and its elevation as Scrivn draws it. Each side is kept or set aside, or all at once. Set aside, a side's walls are only what was tapped; the roof read stays.
 - **No signal, no read:** a side with only its corners has no height. It is not counted, and Review and the report say so by name: "No eave was tapped on Left: put it in, or read the side's photo (Finish exterior on the phone), to count that side."
@@ -111,7 +112,7 @@ US Letter. Each drawing is at the largest standard architectural scale that fits
 
 ## Tests
 
-`npm run test:exterior:engine` (23 checks, no paid call):
+`npm run test:exterior:engine` (24 checks, no paid call):
 
 - **The script itself.** It runs the very script Scan carries in a bare context (no DOM, no Node), on the owner's 14:53 walk with four of his 10-12 photos laid on their sides as Scan lays a side photo (`test/exterior/fixtures/finish-1453`).
   - The trace's answers are Claude's own, recorded on 10-14 by the roof-from-photos session's paid run, and replayed in whatever frame the photo is squared to.
