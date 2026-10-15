@@ -26,7 +26,7 @@
  */
 
 import { formatFeetInches, newSketchId } from "./sketch";
-import { buildRoof, type GutterRun, gutterRuns, polygonArea, type Pt, type RoofAddition, type RoofEndKind, type RoofInput, type RoofLineKind, type RoofPlan, roofRiseAlongWall } from "./roof";
+import { buildRoof, type GutterRun, gutterRuns, pitchFactor, polygonArea, type Pt, type RoofAddition, type RoofEndKind, type RoofInput, type RoofLineKind, type RoofPlan, roofRiseAlongWall } from "./roof";
 
 export type CladdingKind = "stucco" | "vinyl" | "wood_shake" | "eifs" | "wood" | "fibre_cement" | "brick" | "stone" | "metal" | "other";
 
@@ -221,6 +221,63 @@ export const ROOF_VENT_LABEL: Record<RoofVentKind, string> = {
 export type ChimneySize = "none" | "small" | "medium" | "large";
 export type Underlayment = "synthetic" | "felt" | "none";
 
+/**
+ * The roof's totals as the estimator types them (2026-10-14): off a roof report the homeowner
+ * hands over, a measure by hand, or a roof the drawing can't make - a dormer, a turret, a curved
+ * roof. Each one typed replaces the drawing's for the scope lines, the quantities and the documents;
+ * a box left blank keeps the drawing's. With no outline drawn at all, the typed totals are the roof.
+ *
+ * The area is kept in square feet (typed as squares or SF), the rest in feet along the roof. Drip
+ * edge, starter and ice & water follow the eaves, rakes and valleys - typed or drawn - unless they
+ * are typed themselves.
+ */
+export const ROOF_TOTAL_KEYS = ["squareFeet", "ridge", "hip", "valley", "eave", "rake", "step", "headwall", "dripEdge", "starter", "iceWater"] as const;
+export type RoofTotalKey = (typeof ROOF_TOTAL_KEYS)[number];
+export type TypedRoofTotals = Partial<Record<RoofTotalKey, number | null>>;
+/** Where a total came from: typed, read off the drawing, or a sum of one of each. */
+export type TotalSource = "estimator" | "drawing" | "both";
+
+export const ROOF_TOTAL_LABEL: Record<RoofTotalKey, string> = {
+  squareFeet: "Roof area",
+  ridge: "Ridge",
+  hip: "Hips",
+  valley: "Valleys",
+  eave: "Eaves",
+  rake: "Rakes",
+  step: "Step flashing",
+  headwall: "Headwall flashing",
+  dripEdge: "Drip edge",
+  starter: "Starter",
+  iceWater: "Ice & water",
+};
+
+/** A typed total, or null where the box was left blank. */
+export function typedTotal(roof: ExteriorRoof, key: RoofTotalKey): number | null {
+  const v = roof.typed?.[key];
+  return typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : null;
+}
+
+export function hasTypedTotals(roof: ExteriorRoof): boolean {
+  return ROOF_TOTAL_KEYS.some((k) => typedTotal(roof, k) !== null);
+}
+
+/** "from the estimator", "from the drawing", or both: what a line says its number came from. */
+export function sourceWords(source: TotalSource): string {
+  return source === "estimator" ? "from the estimator" : source === "drawing" ? "from the drawing" : "from the estimator and the drawing";
+}
+
+function mixSources(sources: TotalSource[]): TotalSource {
+  if (sources.length > 0 && sources.every((s) => s === "estimator")) return "estimator";
+  if (sources.every((s) => s === "drawing")) return "drawing";
+  return "both";
+}
+
+/** Where a sum came from: the parts that add anything to it (a hip roof's rakes add nothing to its drip edge). */
+export function sourceOfParts(...parts: [number, TotalSource][]): TotalSource {
+  const adding = parts.filter(([v]) => v > 1e-9);
+  return mixSources((adding.length > 0 ? adding : parts).map(([, s]) => s));
+}
+
 export interface ExteriorRoof {
   /** Rise in 12 as typed; null takes it from the sides' measured gables. */
   pitch: number | null;
@@ -275,6 +332,8 @@ export interface ExteriorRoof {
   /** The downspouts' total length, typed; null or absent = each side's eave height + 15%. */
   downspoutFeet?: number | null;
   soffitMaterial?: "metal" | "wood" | null;
+  /** Totals typed over the drawing's, or in place of one (`TypedRoofTotals`). Absent: all from the drawing. */
+  typed?: TypedRoofTotals;
 }
 
 /** Which of the measured parts the scope prices - see `exteriorScopeLines`. */
@@ -1080,6 +1139,16 @@ export interface RoofingQuantities {
   fasciaFeet: number;
   /** What is still to be answered before each part can be priced: never taken as a no. */
   toAnswer: { roofing: string[]; eavestrough: string[]; soffitFascia: string[] };
+  /** A roof drawn over a closed outline to read from; false for totals typed with no outline. */
+  drawn: boolean;
+  /** Anything typed over the drawing: the lines then say where each number came from. */
+  typed: boolean;
+  /** Where each total came from. */
+  from: Record<RoofTotalKey, TotalSource>;
+  /** Where the eavestrough's, soffit's and fascia's eaves and rakes came from: typed only when every eave and rake is chosen. */
+  edgesFrom: { eave: TotalSource; rake: TotalSource };
+  /** The drawing's own figure for each total, for the boxes to show beside the typed one; null with no drawing. */
+  drawing: Record<RoofTotalKey, number> | null;
 }
 
 function steepBand(pitch: number): string | null {
@@ -1095,13 +1164,19 @@ function sideEave(side: ExteriorSide | undefined): number | null {
   return (side.eaveLeftFeet + (side.eaveRightFeet ?? side.eaveLeftFeet)) / 2;
 }
 
-/** The roof as priced: the slopes chosen on the plan, the eaves and rakes chosen for the eavestrough, and the owner's list of questions. */
-export function roofingQuantities(exterior: Exterior, roof: RoofPlan, pitch: PitchReading = exteriorPitch(exterior)): RoofingQuantities {
+/**
+ * The roof as priced: the slopes chosen on the plan, the eaves and rakes chosen for the eavestrough,
+ * and the owner's list of questions - with any total the estimator typed in place of the drawing's
+ * (`ExteriorRoof.typed`). With no drawing (`roof` null) the typed totals are all there is.
+ */
+export function roofingQuantities(exterior: Exterior, roof: RoofPlan | null, pitch: PitchReading = exteriorPitch(exterior)): RoofingQuantities {
   const R = exterior.roof;
   const pitchAssumed = pitch.source === "assumed";
+  const roofPitch = roof?.pitch ?? pitch.value ?? ASSUMED_PITCH;
   const sideById = new Map(exterior.sides.map((s) => [s.id, s]));
   const slopeChosen = (key: string) => R.slopes == null || R.slopes.includes(key);
-  const slopes: SlopeQuantity[] = roof.facets.map((f) => ({
+  const facets = roof?.facets ?? [];
+  const slopes: SlopeQuantity[] = facets.map((f) => ({
     key: f.key,
     label: f.label,
     faces: (f.sideId !== null ? sideById.get(f.sideId)?.name.trim() : "") || "",
@@ -1109,24 +1184,67 @@ export function roofingQuantities(exterior: Exterior, roof: RoofPlan, pitch: Pit
     areaSquareFeet: f.areaSquareFeet,
     selected: slopeChosen(f.key),
   }));
-  const noSlopes = roof.facets.length === 0;
+  const noSlopes = facets.length === 0;
   const allSlopes = noSlopes || slopes.every((s) => s.selected);
-  const areaSquareFeet = noSlopes ? roof.areaSquareFeet : slopes.filter((s) => s.selected).reduce((sum, s) => sum + s.areaSquareFeet, 0);
-  const touches = (facets: string[]) => noSlopes || facets.some(slopeChosen);
+  const touches = (keys: string[]) => noSlopes || keys.some(slopeChosen);
   const t: Record<RoofLineKind, number> = { ridge: 0, hip: 0, valley: 0, eave: 0, rake: 0, headwall: 0, step: 0 };
-  for (const l of roof.lines) if (touches(l.facets)) t[l.kind] += l.feet;
-  const ridgeVentFeet = roof.lines.filter((l) => l.kind === "ridge" && (R.ridgeVents ?? []).includes(l.key)).reduce((s, l) => s + l.feet, 0);
+  for (const l of roof?.lines ?? []) if (touches(l.facets)) t[l.kind] += l.feet;
+  const ridgeVentFeet = (roof?.lines ?? []).filter((l) => l.kind === "ridge" && (R.ridgeVents ?? []).includes(l.key)).reduce((s, l) => s + l.feet, 0);
 
-  // The eavestrough, soffit and fascia run along the eaves and rakes chosen, slopes or no slopes.
+  // Each total: typed, else the drawing's; drip edge, starter and ice & water follow what they are made of unless typed.
+  const drawing: Record<RoofTotalKey, number> | null = roof
+    ? {
+        squareFeet: noSlopes ? roof.areaSquareFeet : slopes.filter((s) => s.selected).reduce((sum, s) => sum + s.areaSquareFeet, 0),
+        ridge: t.ridge,
+        hip: t.hip,
+        valley: t.valley,
+        eave: t.eave,
+        rake: t.rake,
+        step: t.step,
+        headwall: t.headwall,
+        dripEdge: t.eave + t.rake,
+        starter: t.eave,
+        iceWater: t.eave + t.valley,
+      }
+    : null;
+  const value = {} as Record<RoofTotalKey, number>;
+  const from = {} as Record<RoofTotalKey, TotalSource>;
+  for (const k of ["squareFeet", "ridge", "hip", "valley", "eave", "rake", "step", "headwall"] as const) {
+    const typed = typedTotal(R, k);
+    value[k] = typed ?? drawing?.[k] ?? 0;
+    from[k] = typed !== null ? "estimator" : "drawing";
+  }
+  const madeOf = (k: "dripEdge" | "starter" | "iceWater", parts: RoofTotalKey[]) => {
+    const typed = typedTotal(R, k);
+    value[k] = typed ?? parts.reduce((s, p) => s + value[p], 0);
+    from[k] = typed !== null ? "estimator" : sourceOfParts(...parts.map((p): [number, TotalSource] => [value[p], from[p]]));
+  };
+  madeOf("dripEdge", ["eave", "rake"]);
+  madeOf("starter", ["eave"]);
+  madeOf("iceWater", ["eave", "valley"]);
+
+  // The eavestrough, soffit and fascia run along the eaves and rakes chosen, slopes or no slopes - or, with
+  // every one chosen, along the eaves and rakes typed.
   const chosenEdges = R.edges ?? null;
   const edgeChosen = (key: string) => chosenEdges === null || chosenEdges.includes(key);
   // Flashing takes no eavestrough, soffit or fascia, so it is never one to choose.
-  const allEdges = roof.edges.filter((e) => e.kind === "eave" || e.kind === "rake").every((e) => edgeChosen(e.key));
-  const runs = gutterRuns(roof, chosenEdges);
-  const gutterFeet = runs.reduce((s, r) => s + r.feet, 0);
+  const allEdges = (roof?.edges ?? []).filter((e) => e.kind === "eave" || e.kind === "rake").every((e) => edgeChosen(e.key));
+  const typedEave = allEdges ? typedTotal(R, "eave") : null;
+  const typedRake = allEdges ? typedTotal(R, "rake") : null;
+  const runs = roof ? gutterRuns(roof, chosenEdges) : [];
+  const drawnGutter = runs.reduce((s, r) => s + r.feet, 0);
+  const gutterFeet = typedEave ?? drawnGutter;
   const counted = R.downspouts === null;
-  const downspouts = counted ? runs.reduce((s, r) => s + Math.max(1, Math.ceil(r.feet / FEET_PER_DOWNSPOUT - 1e-9)), 0) : Math.max(0, Math.round(R.downspouts as number));
-  // Each run down from its own eave: the eave height of the side under it, by length.
+  // Counted run by run on the drawing, each run scaled to the eaves typed; with no drawing, on the typed eaves alone.
+  const scale = typedEave !== null && drawnGutter > 0 ? typedEave / drawnGutter : 1;
+  const byRule =
+    runs.length > 0
+      ? runs.reduce((s, r) => s + Math.max(1, Math.ceil((r.feet * scale) / FEET_PER_DOWNSPOUT - 1e-9)), 0)
+      : gutterFeet > 0
+        ? Math.max(1, Math.ceil(gutterFeet / FEET_PER_DOWNSPOUT - 1e-9))
+        : 0;
+  const downspouts = counted ? byRule : Math.max(0, Math.round(R.downspouts as number));
+  // Each run down from its own eave: the eave height of the side under it, by length; with no runs, the sides' own.
   let heightFeet = 0;
   let heightOver = 0;
   for (const run of runs) {
@@ -1137,16 +1255,25 @@ export function roofingQuantities(exterior: Exterior, roof: RoofPlan, pitch: Pit
       heightOver += e.planFeet;
     }
   }
+  if (heightOver === 0) {
+    for (const s of exterior.sides) {
+      const h = sideEave(s);
+      if (h === null) continue;
+      heightFeet += h;
+      heightOver += 1;
+    }
+  }
   const eaveHeight = heightOver > 0 ? heightFeet / heightOver : null;
   const typedFeet = R.downspoutFeet != null && R.downspoutFeet >= 0;
   const downspoutFeet = typedFeet ? (R.downspoutFeet as number) : eaveHeight === null ? null : downspouts * eaveHeight * DOWNSPOUT_ALLOWANCE;
 
-  const soffitEave = roof.edges.filter((e) => e.kind === "eave" && edgeChosen(e.key)).reduce((s, e) => s + e.planFeet, 0);
-  const soffitRake = roof.edges.filter((e) => e.kind === "rake" && edgeChosen(e.key)).reduce((s, e) => s + e.feet, 0);
+  const soffitEave = typedEave ?? (roof?.edges ?? []).filter((e) => e.kind === "eave" && edgeChosen(e.key)).reduce((s, e) => s + e.planFeet, 0);
+  const soffitRake = typedRake ?? (roof?.edges ?? []).filter((e) => e.kind === "rake" && edgeChosen(e.key)).reduce((s, e) => s + e.feet, 0);
   const material = R.material ?? null;
 
   const roofingQs: string[] = [];
-  if (pitchAssumed) roofingQs.push(`the pitch (${formatPitch(roof.pitch)} is assumed)`);
+  if (!roof && typedTotal(R, "squareFeet") === null) roofingQs.push("the roof's squares (type them, or draw the outline)");
+  if (pitchAssumed) roofingQs.push(`the pitch (${formatPitch(roofPitch)} is assumed)`);
   if (material === null) roofingQs.push("the roofing material");
   if (R.dripEdge == null) roofingQs.push("drip edge, yes or no");
   if (R.underlayment == null) roofingQs.push("underlayment: synthetic, felt or none");
@@ -1156,30 +1283,30 @@ export function roofingQuantities(exterior: Exterior, roof: RoofPlan, pitch: Pit
   if (R.chimney == null) roofingQs.push("chimney flashing: none, small, medium or large");
   if (R.vents === undefined) roofingQs.push("how many roof vents (0 if none)");
   if (R.pipeJacks === undefined) roofingQs.push("how many pipe jacks (0 if none)");
-  if (R.ridgeVents === undefined && roof.lines.some((l) => l.kind === "ridge")) roofingQs.push("ridge vent: which ridges, or none");
+  if (R.ridgeVents === undefined && (roof?.lines ?? []).some((l) => l.kind === "ridge")) roofingQs.push("ridge vent: which ridges, or none");
 
   return {
-    pitch: roof.pitch,
+    pitch: roofPitch,
     pitchAssumed,
-    pitchFactor: roof.pitchFactor,
+    pitchFactor: roof?.pitchFactor ?? pitchFactor(roofPitch),
     material,
     slopes,
     allSlopes,
-    areaSquareFeet,
-    squares: areaSquareFeet / 100,
-    ridgeFeet: t.ridge,
-    hipFeet: t.hip,
-    valleyFeet: t.valley,
-    headwallFeet: t.headwall,
-    stepFeet: t.step,
-    eaveFeet: t.eave,
-    rakeFeet: t.rake,
-    dripEdgeFeet: t.eave + t.rake,
-    starterFeet: t.eave,
-    iceWaterFeet: t.eave + t.valley,
-    closureFeet: t.eave + 2 * t.ridge,
+    areaSquareFeet: value.squareFeet,
+    squares: value.squareFeet / 100,
+    ridgeFeet: value.ridge,
+    hipFeet: value.hip,
+    valleyFeet: value.valley,
+    headwallFeet: value.headwall,
+    stepFeet: value.step,
+    eaveFeet: value.eave,
+    rakeFeet: value.rake,
+    dripEdgeFeet: value.dripEdge,
+    starterFeet: value.starter,
+    iceWaterFeet: value.iceWater,
+    closureFeet: value.eave + 2 * value.ridge,
     ridgeVentFeet,
-    steep: steepBand(roof.pitch),
+    steep: steepBand(roofPitch),
     allEdges,
     gutter: {
       feet: gutterFeet,
@@ -1206,6 +1333,11 @@ export function roofingQuantities(exterior: Exterior, roof: RoofPlan, pitch: Pit
       eavestrough: R.leafGuard == null ? ["leaf guard, yes or no"] : [],
       soffitFascia: R.soffitMaterial == null ? ["soffit and fascia: metal or wood"] : [],
     },
+    drawn: roof !== null,
+    typed: hasTypedTotals(R),
+    from,
+    edgesFrom: { eave: typedEave !== null ? "estimator" : "drawing", rake: typedRake !== null ? "estimator" : "drawing" },
+    drawing,
   };
 }
 
@@ -1214,6 +1346,7 @@ export interface ExteriorQuantities {
   pitch: PitchReading;
   /** Null until the sides close and there is a pitch. */
   roof: RoofPlan | null;
+  /** Null with neither a roof drawn nor any total typed. */
   roofing: RoofingQuantities | null;
   sides: SideQuantities[];
   /** The roof's gable over each side, where the roof gives one - what each elevation draws. */
@@ -1283,7 +1416,8 @@ export function exteriorQuantities(exterior: Exterior): ExteriorQuantities {
     else insideCornerFeet += height;
   });
 
-  const roofing: RoofingQuantities | null = roof ? roofingQuantities(exterior, roof, pitch) : null;
+  // Typed totals price a roof with no outline drawn, or one the drawing can't make.
+  const roofing: RoofingQuantities | null = roof || hasTypedTotals(exterior.roof) ? roofingQuantities(exterior, roof, pitch) : null;
 
   return {
     footprint,
@@ -1346,32 +1480,38 @@ export function exteriorScopeLines(exterior: Exterior | undefined): ExteriorScop
   const R = exterior.roof;
 
   if (scope?.roofing && r) {
-    const sq = `${r.squares.toFixed(2)} SQ`;
-    const which = r.allSlopes ? "all slopes" : `slope${r.slopes.filter((s) => s.selected).length === 1 ? "" : "s"} ${r.slopes.filter((s) => s.selected).map((s) => s.label).join(", ")}`;
+    // Once anything is typed over the drawing, every measured line says where its number came from.
+    const from = (s: TotalSource) => (r.typed ? ` – ${sourceWords(s)}` : "");
+    const sqKnown = r.drawn || r.from.squareFeet === "estimator";
+    const sq = sqKnown ? `${r.squares.toFixed(2)} SQ` : "squares to confirm";
+    const sqFrom = sqKnown ? from(r.from.squareFeet) : "";
+    const chosen = r.slopes.filter((s) => s.selected);
+    // Typed squares are the roof being done, whatever is picked on the drawing.
+    const which = r.from.squareFeet === "estimator" || !r.drawn ? "" : ` (${r.allSlopes ? "all slopes" : `slope${chosen.length === 1 ? "" : "s"} ${chosen.map((s) => s.label).join(", ")}`})`;
     const metal = r.material === "metal";
-    out.roofing.push(`Remove & replace roofing – ${r.material ? ROOF_MATERIAL_LABEL[r.material] : "material to confirm"} – ${formatPitch(r.pitch)}${r.pitchAssumed ? " (assumed, to confirm)" : ""} – ${sq} (${which})`);
-    if (r.steep) out.roofing.push(`Steep roof charge – ${r.steep} – ${sq}`);
-    if (R.high === true) out.roofing.push(`High roof charge – two storeys or more – ${sq}`);
-    if (r.ridgeFeet + r.hipFeet > 0) out.roofing.push(`Hip & ridge cap – ${num(r.ridgeFeet + r.hipFeet)} LF`);
-    if (metal) out.roofing.push(`Closure strips – ${num(r.closureFeet)} LF (eaves + 2 × ridge)`);
-    else if (r.starterFeet > 0) out.roofing.push(`Starter – ${num(r.starterFeet)} LF (eaves)`);
-    if (R.dripEdge === true) out.roofing.push(`Drip edge – ${num(r.dripEdgeFeet)} LF (eaves + rakes) – photos required`);
-    out.roofing.push(`${metal ? "High-temperature ice & water barrier" : "Ice & water barrier"} – ${num(r.iceWaterFeet)} LF (eaves + valleys)`);
-    if (R.underlayment === "synthetic" || R.underlayment === "felt") out.roofing.push(`Underlayment – ${R.underlayment} – ${sq} – photos required`);
-    if (r.valleyFeet > 0) out.roofing.push(`Valleys – ${num(r.valleyFeet)} LF`);
-    if (r.stepFeet > 0) out.roofing.push(`Step flashing – ${num(r.stepFeet)} LF (a lower roof's slopes against the wall)`);
-    if (r.headwallFeet > 0) out.roofing.push(`Headwall flashing – ${num(r.headwallFeet)} LF (a lower roof's top against the wall)`);
+    out.roofing.push(`Remove & replace roofing – ${r.material ? ROOF_MATERIAL_LABEL[r.material] : "material to confirm"} – ${formatPitch(r.pitch)}${r.pitchAssumed ? " (assumed, to confirm)" : ""} – ${sq}${which}${sqFrom}`);
+    if (r.steep) out.roofing.push(`Steep roof charge – ${r.steep} – ${sq}${sqFrom}`);
+    if (R.high === true) out.roofing.push(`High roof charge – two storeys or more – ${sq}${sqFrom}`);
+    if (r.ridgeFeet + r.hipFeet > 0) out.roofing.push(`Hip & ridge cap – ${num(r.ridgeFeet + r.hipFeet)} LF${from(sourceOfParts([r.ridgeFeet, r.from.ridge], [r.hipFeet, r.from.hip]))}`);
+    if (metal) out.roofing.push(`Closure strips – ${num(r.closureFeet)} LF (eaves + 2 × ridge)${from(sourceOfParts([r.eaveFeet, r.from.eave], [r.ridgeFeet, r.from.ridge]))}`);
+    else if (r.starterFeet > 0) out.roofing.push(`Starter – ${num(r.starterFeet)} LF (eaves)${from(r.from.starter)}`);
+    if (R.dripEdge === true) out.roofing.push(`Drip edge – ${num(r.dripEdgeFeet)} LF (eaves + rakes)${from(r.from.dripEdge)} – photos required`);
+    if (r.drawn || r.iceWaterFeet > 0) out.roofing.push(`${metal ? "High-temperature ice & water barrier" : "Ice & water barrier"} – ${num(r.iceWaterFeet)} LF (eaves + valleys)${from(r.from.iceWater)}`);
+    if (R.underlayment === "synthetic" || R.underlayment === "felt") out.roofing.push(`Underlayment – ${R.underlayment} – ${sq}${sqFrom} – photos required`);
+    if (r.valleyFeet > 0) out.roofing.push(`Valleys – ${num(r.valleyFeet)} LF${from(r.from.valley)}`);
+    if (r.stepFeet > 0) out.roofing.push(`Step flashing – ${num(r.stepFeet)} LF (a lower roof's slopes against the wall)${from(r.from.step)}`);
+    if (r.headwallFeet > 0) out.roofing.push(`Headwall flashing – ${num(r.headwallFeet)} LF (a lower roof's top against the wall)${from(r.from.headwall)}`);
     for (const kind of Object.keys(ROOF_VENT_LABEL) as RoofVentKind[]) {
       const n = Math.round(R.vents?.[kind] ?? 0);
       if (n > 0) out.roofing.push(`${ROOF_VENT_LABEL[kind]} – ${n}`);
     }
-    if (r.ridgeVentFeet > 0) out.roofing.push(`Ridge vent – ${num(r.ridgeVentFeet)} LF`);
+    if (r.ridgeVentFeet > 0) out.roofing.push(`Ridge vent – ${num(r.ridgeVentFeet)} LF${from("drawing")}`);
     if ((R.pipeJacks?.four ?? 0) > 0) out.roofing.push(`Pipe jack – 4" – ${Math.round(R.pipeJacks?.four ?? 0)}`);
     if ((R.pipeJacks?.six ?? 0) > 0) out.roofing.push(`Pipe jack – 6" – ${Math.round(R.pipeJacks?.six ?? 0)}`);
     if (R.chimney && R.chimney !== "none") out.roofing.push(`Chimney flashing – ${R.chimney}`);
-    if (R.handload === true) out.roofing.push(`Handload roofing materials – ${sq}`);
-    if (R.disposalHandload === true) out.roofing.push(`Handload debris to disposal – ${sq}`);
-    if (metal) out.roofing.push(`Disposal – metal roofing – ${sq}`);
+    if (R.handload === true) out.roofing.push(`Handload roofing materials – ${sq}${sqFrom}`);
+    if (R.disposalHandload === true) out.roofing.push(`Handload debris to disposal – ${sq}${sqFrom}`);
+    if (metal) out.roofing.push(`Disposal – metal roofing – ${sq}${sqFrom}`);
   }
 
   const sides = q.sides.filter((s) => (scope?.sides ?? []).includes(s.sideId) && s.complete);
@@ -1412,19 +1552,23 @@ export function exteriorScopeLines(exterior: Exterior | undefined): ExteriorScop
     }
   }
 
+  // Typed eaves and rakes carry on to what runs along them: said, as on the roofing lines.
+  const edgeFrom = (s: TotalSource) => (r?.typed ? ` – ${sourceWords(s)}` : "");
   if (scope?.soffitFascia && r) {
     const material = R.soffitMaterial ?? "material to confirm";
     if (r.soffit.eaveFeet > 0) {
-      out.siding.push(`Remove & replace soffit – ${material} – ${num(r.soffit.eaveFeet)} LF at ${formatFeetInches(R.eaveOverhangFeet)} overhang (${num(r.soffit.eaveSquareFeet)} SF) – eaves`);
+      out.siding.push(`Remove & replace soffit – ${material} – ${num(r.soffit.eaveFeet)} LF at ${formatFeetInches(R.eaveOverhangFeet)} overhang (${num(r.soffit.eaveSquareFeet)} SF) – eaves${edgeFrom(r.edgesFrom.eave)}`);
     }
     if (r.soffit.rakeFeet > 0) {
-      out.siding.push(`Remove & replace soffit – ${material} – ${num(r.soffit.rakeFeet)} LF at ${formatFeetInches(R.rakeOverhangFeet)} overhang (${num(r.soffit.rakeSquareFeet)} SF) – rakes`);
+      out.siding.push(`Remove & replace soffit – ${material} – ${num(r.soffit.rakeFeet)} LF at ${formatFeetInches(R.rakeOverhangFeet)} overhang (${num(r.soffit.rakeSquareFeet)} SF) – rakes${edgeFrom(r.edgesFrom.rake)}`);
     }
-    if (r.fasciaFeet > 0) out.siding.push(`Remove & replace fascia – ${material} – ${num(r.fasciaFeet)} LF (eaves + rakes)`);
+    if (r.fasciaFeet > 0) {
+      out.siding.push(`Remove & replace fascia – ${material} – ${num(r.fasciaFeet)} LF (eaves + rakes)${edgeFrom(sourceOfParts([r.soffit.eaveFeet, r.edgesFrom.eave], [r.soffit.rakeFeet, r.edgesFrom.rake]))}`);
+    }
   }
   if (scope?.eavestrough && r && r.gutter.feet > 0) {
     const g = r.gutter;
-    out.siding.push(`Remove & replace eavestrough – ${num(g.feet)} LF`);
+    out.siding.push(`Remove & replace eavestrough – ${num(g.feet)} LF${edgeFrom(r.edgesFrom.eave)}`);
     if (R.leafGuard === true) out.siding.push(`Leaf guard – ${num(g.feet)} LF`);
     if (g.endCaps > 0) out.siding.push(`End caps – ${g.endCaps}`);
     if (g.outsideMitres + g.insideMitres > 0) out.siding.push(`Mitres – ${g.outsideMitres + g.insideMitres} (${g.outsideMitres} outside, ${g.insideMitres} inside)`);

@@ -5,6 +5,7 @@ import { formatFeetInches, parseFeetInches } from "@/lib/sketch";
 import {
   DEFAULT_EAVE_FEET,
   DEFAULT_ELBOWS_PER_DOWNSPOUT,
+  defaultRoof,
   type Exterior,
   type ExteriorQuantities,
   type ExteriorRoof,
@@ -16,8 +17,10 @@ import {
   ROOF_VENT_LABEL,
   type RoofingQuantities,
   type RoofMaterial,
+  type RoofTotalKey,
   type RoofVentKind,
   type SideTurn,
+  sourceWords,
 } from "@/lib/exterior";
 import {
   type AdditionKind,
@@ -40,6 +43,7 @@ import type { Pt, RoofAddition, RoofPlan } from "@/lib/roof";
 import { textWidthEm } from "@/lib/roofLabels";
 import { pickableEdge, type RoofPick, RoofLegend, RoofPlanDrawing, type RoofPlanMode } from "./exteriorDrawings";
 import { Cell, Choice, FeetField, FeetInput, lf, listOf, NumberField, sf, YesNo } from "./exteriorFields";
+import { RoofTotalsPanel } from "./RoofTotals";
 
 /**
  * The exterior's plan (2026-10-13): the house from above, its footprint and the roof over it, on one
@@ -181,6 +185,13 @@ export function ExteriorStart({ readOnly, onStart }: { readOnly: boolean; onStar
               </button>
             </>
           )}
+        </div>
+        <div className="exterior-start-way">
+          <h4 className="exterior-subhead">Or type the roof&rsquo;s totals</h4>
+          <p className="field-note">From a roof report, or measured by hand, with no outline drawn: the squares, the pitch and the lengths. The outline can be drawn after.</p>
+          <button type="button" className="btn-secondary" onClick={() => onStart({ sides: [], roof: { ...defaultRoof(), typed: {} } })}>
+            Type the roof&rsquo;s totals
+          </button>
         </div>
         <FeetField id="ext-start-eave" label="Eave height, from grade" value={eave} onCommit={setEave} note="Every side starts at this; change any side after." />
       </div>
@@ -653,7 +664,13 @@ export function PlanPane({
       {!readOnly &&
         (confirm ? (
           <div className="sketch-undo" role="alert">
-            <span>{confirm === "redraw" ? `Draw the outline again? Its ${exterior.sides.length} sides go, with what is on them; the roof's answers stay.` : `Remove all ${exterior.sides.length} sides and the roof?`}</span>
+            <span>
+              {confirm === "redraw"
+                ? `Draw the outline again? Its ${exterior.sides.length} sides go, with what is on them; the roof's answers stay.`
+                : exterior.sides.length > 0
+                  ? `Remove all ${exterior.sides.length} sides and the roof?`
+                  : "Remove the roof's totals and answers?"}
+            </span>
             <button
               type="button"
               className="btn-secondary"
@@ -671,9 +688,11 @@ export function PlanPane({
           </div>
         ) : (
           <div className="exterior-row">
-            <button type="button" className="btn-secondary exterior-remove" onClick={() => setConfirm("redraw")}>
-              Draw the outline again…
-            </button>
+            {exterior.sides.length > 0 && (
+              <button type="button" className="btn-secondary exterior-remove" onClick={() => setConfirm("redraw")}>
+                Draw the outline again…
+              </button>
+            )}
             <button type="button" className="btn-secondary exterior-remove" onClick={() => setConfirm("remove")}>
               Remove the exterior…
             </button>
@@ -707,6 +726,36 @@ export function PlanPane({
     );
   }
 
+  const totals = (showPitch: boolean) => <RoofTotalsPanel roof={roof} r={r} pitch={q.pitch} showPitch={showPitch} readOnly={readOnly} onUpdate={updateRoof} />;
+
+  // Only the roof's totals, typed: nothing to draw on until an outline is drawn.
+  if (exterior.sides.length === 0) {
+    return (
+      <div className="exterior-pane">
+        <div className="exterior-fields">
+          {totals(true)}
+          <RoofingFields roof={roof} r={r} readOnly={readOnly} onUpdate={updateRoof} />
+          {r && <RoofFigures r={r} />}
+          {ending}
+        </div>
+        {!readOnly && (
+          <figure className="exterior-figure">
+            <h4 className="exterior-subhead">Draw the outline too</h4>
+            <p className="field-note">For the siding, and a roof plan on the documents: tap the corners of the house. What is typed stays, over the drawing&rsquo;s.</p>
+            <FootprintDraw
+              onClose={(ring) =>
+                onChange((e) => {
+                  const fresh = exteriorFromOutline(ring, DEFAULT_EAVE_FEET);
+                  return fresh ? { ...e, sides: fresh.sides } : e;
+                })
+              }
+            />
+          </figure>
+        )}
+      </div>
+    );
+  }
+
   if (!fp.closes || !plan) {
     const nextLength = lengthOf(next.text);
     return (
@@ -718,6 +767,13 @@ export function PlanPane({
         <div className="exterior-fields">
           {!readOnly && <WalkBuilder exterior={exterior} next={next} onNext={setNext} onChange={onChange} />}
           <SidesList exterior={exterior} q={q} readOnly={readOnly} showTurns={!exterior.open} onOpenSide={onOpenSide} onChange={onChange} />
+          {totals(true)}
+          {r && (
+            <>
+              <RoofingFields roof={roof} r={r} readOnly={readOnly} onUpdate={updateRoof} />
+              <RoofFigures r={r} />
+            </>
+          )}
           {ending}
         </div>
       </div>
@@ -876,6 +932,7 @@ export function PlanPane({
       <div className="exterior-fields">
         <SidesList exterior={exterior} q={q} readOnly={readOnly} showTurns={false} onOpenSide={onOpenSide} onChange={onChange} />
         <RoofShapeFields exterior={exterior} q={q} plan={plan} readOnly={readOnly} nameOf={nameOf} sideFeet={sideFeet} placing={placing} onPlace={setPlacing} onUpdate={updateRoof} />
+        {totals(false)}
         <RoofingFields roof={roof} r={r} readOnly={readOnly} onUpdate={updateRoof} />
         {r && <RoofFigures r={r} />}
         {ending}
@@ -1275,20 +1332,24 @@ function RoofingFields({ roof, r, readOnly, onUpdate }: { roof: ExteriorRoof; r:
 function RoofFigures({ r }: { r: RoofingQuantities }) {
   const g = r.gutter;
   const chosen = r.slopes.filter((s) => s.selected);
+  // With anything typed over a drawing, each total says where it came from, as the scope lines do.
+  const from = (key: RoofTotalKey) => (r.typed && r.drawn ? `, ${sourceWords(r.from[key])}` : "");
   const rows: [string, string][] = [
     ["Pitch", `${formatPitch(r.pitch)}${r.pitchAssumed ? " assumed" : ""} (factor ${r.pitchFactor.toFixed(3)})${r.steep ? `, steep ${r.steep}` : ""}`],
-    ["Slopes being roofed", r.slopes.length === 0 ? "the whole roof" : r.allSlopes ? `all: ${r.slopes.map((s) => s.label).join(", ")}` : chosen.map((s) => s.label).join(", ") || "none"],
-    ["Roof area", `${sf(r.areaSquareFeet)} (${r.squares.toFixed(2)} SQ, no waste)`],
-    ["Ridge", lf(r.ridgeFeet)],
-    ["Hips", lf(r.hipFeet)],
-    ["Valleys", lf(r.valleyFeet)],
-    ...(r.stepFeet > 0 ? [["Step flashing", lf(r.stepFeet)] as [string, string]] : []),
-    ...(r.headwallFeet > 0 ? [["Headwall flashing", lf(r.headwallFeet)] as [string, string]] : []),
-    ["Eaves", lf(r.eaveFeet)],
-    ["Rakes", lf(r.rakeFeet)],
-    ["Drip edge (eaves + rakes)", lf(r.dripEdgeFeet)],
-    r.material === "metal" ? ["Closure strips (eaves + 2 × ridge)", lf(r.closureFeet)] : ["Starter (eaves)", lf(r.starterFeet)],
-    ["Ice & water (eaves + valleys)", lf(r.iceWaterFeet)],
+    ...(r.drawn
+      ? [["Slopes being roofed", r.slopes.length === 0 ? "the whole roof" : r.allSlopes ? `all: ${r.slopes.map((s) => s.label).join(", ")}` : chosen.map((s) => s.label).join(", ") || "none"] as [string, string]]
+      : []),
+    ["Roof area", `${sf(r.areaSquareFeet)} (${r.squares.toFixed(2)} SQ, no waste${from("squareFeet")})`],
+    ["Ridge", lf(r.ridgeFeet) + from("ridge")],
+    ["Hips", lf(r.hipFeet) + from("hip")],
+    ["Valleys", lf(r.valleyFeet) + from("valley")],
+    ...(r.stepFeet > 0 ? [["Step flashing", lf(r.stepFeet) + from("step")] as [string, string]] : []),
+    ...(r.headwallFeet > 0 ? [["Headwall flashing", lf(r.headwallFeet) + from("headwall")] as [string, string]] : []),
+    ["Eaves", lf(r.eaveFeet) + from("eave")],
+    ["Rakes", lf(r.rakeFeet) + from("rake")],
+    ["Drip edge (eaves + rakes)", lf(r.dripEdgeFeet) + from("dripEdge")],
+    r.material === "metal" ? ["Closure strips (eaves + 2 × ridge)", lf(r.closureFeet)] : ["Starter (eaves)", lf(r.starterFeet) + from("starter")],
+    ["Ice & water (eaves + valleys)", lf(r.iceWaterFeet) + from("iceWater")],
     ["Ridge vent", lf(r.ridgeVentFeet)],
     ["Eavestrough", `${lf(g.feet)} in ${g.runs.length} run${g.runs.length === 1 ? "" : "s"}`],
     ["End caps", String(g.endCaps)],

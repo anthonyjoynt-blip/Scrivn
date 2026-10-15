@@ -226,7 +226,7 @@ function ExteriorScopePicker({
         {tick("Soffit & fascia", scope.soffitFascia, noRoof, () => onChange((s) => ({ ...s, soffitFascia: !s.soffitFascia })), "soffit", ask?.soffitFascia)}
         {tick("Eavestrough & downspouts", scope.eavestrough, noRoof, () => onChange((s) => ({ ...s, eavestrough: !s.eavestrough })), "trough", ask?.eavestrough)}
       </div>
-      {noRoof && <p className="field-note">Roofing, soffit, fascia and eavestrough need the roof: the outline closed round the house.</p>}
+      {noRoof && <p className="field-note">Roofing, soffit, fascia and eavestrough need the roof: the outline closed round the house, or its totals typed on the plan.</p>}
       {all.length > 0 && <pre className="document-text exterior-lines">{all.map((l) => `- ${l}`).join("\n")}</pre>}
     </div>
   );
@@ -236,76 +236,84 @@ function ExteriorTotals({ exterior, q }: { exterior: Exterior; q: ExteriorQuanti
   const incomplete = q.sides.filter((s) => !s.complete);
   const r = q.roofing;
   const fixtures = exterior.sides.flatMap((side) => (side.fixtures ?? []).filter((f) => f.count > 0).map((f) => `${fixtureLine(f)} (${side.name.trim() || "Side"}) × ${f.count}`));
+  // Only the roof's totals typed: no sides, so nothing of the walls to count.
+  const walls = exterior.sides.length > 0;
   return (
     <div className="sketch-quantities exterior-totals">
       <h3>Exterior quantities</h3>
       {incomplete.length > 0 && <p className="field-note">Not counted until an eave is put in: {incomplete.map((s) => s.name || "Side").join(", ")}.</p>}
-      <div className="sketch-qty-scroll">
-        <table className="sketch-qty-table">
-          <thead>
-            <tr>
-              <th scope="col">Cladding</th>
-              <th scope="col">Gross</th>
-              <th scope="col">Openings</th>
-              <th scope="col">Net</th>
-            </tr>
-          </thead>
-          <tbody>
-            {q.cladding.map((c) => (
-              <tr key={c.key}>
-                <th scope="row">{c.label}</th>
-                <td>{sf(c.grossSquareFeet)}</td>
-                <td>{sf(c.openingSquareFeet)}</td>
-                <td>{sf(c.netSquareFeet)}</td>
-              </tr>
-            ))}
-            {q.cladding.length > 1 && (
+      {walls && (
+        <div className="sketch-qty-scroll">
+          <table className="sketch-qty-table">
+            <thead>
               <tr>
-                <th scope="row">All cladding</th>
-                <td>{sf(q.totals.grossSquareFeet)}</td>
-                <td>{sf(q.totals.openingSquareFeet)}</td>
-                <td>{sf(q.totals.netSquareFeet)}</td>
+                <th scope="col">Cladding</th>
+                <th scope="col">Gross</th>
+                <th scope="col">Openings</th>
+                <th scope="col">Net</th>
               </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {q.cladding.map((c) => (
+                <tr key={c.key}>
+                  <th scope="row">{c.label}</th>
+                  <td>{sf(c.grossSquareFeet)}</td>
+                  <td>{sf(c.openingSquareFeet)}</td>
+                  <td>{sf(c.netSquareFeet)}</td>
+                </tr>
+              ))}
+              {q.cladding.length > 1 && (
+                <tr>
+                  <th scope="row">All cladding</th>
+                  <td>{sf(q.totals.grossSquareFeet)}</td>
+                  <td>{sf(q.totals.openingSquareFeet)}</td>
+                  <td>{sf(q.totals.netSquareFeet)}</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
       <table className="sketch-qty-table exterior-table">
         <tbody>
-          <tr>
-            <th scope="row">Gables (in the above)</th>
-            <td>
-              {sf(q.totals.gableSquareFeet)}
-              {q.pitch.source === "assumed" && q.sides.some((s) => s.gableSource === "roof") ? ", the roof's at its assumed pitch" : ""}
-            </td>
-          </tr>
-          <tr>
-            <th scope="row">House wrap (net cladding)</th>
-            <td>{sf(q.totals.netSquareFeet)}</td>
-          </tr>
-          <tr>
-            <th scope="row">Openings</th>
-            <td>{q.openings.length === 0 ? "none" : q.openings.map((o) => `${o.count} × ${OPENING_LABEL[o.kind].toLowerCase()} ${formatOpeningSize(o.widthFeet, o.heightFeet)}`).join("; ")}</td>
-          </tr>
-          <tr>
-            <th scope="row">Trim round openings</th>
-            <td>{lf(q.totals.openingTrimFeet)}</td>
-          </tr>
-          <tr>
-            <th scope="row">Outside corners</th>
-            <td>{lf(q.totals.outsideCornerFeet)}</td>
-          </tr>
-          {q.totals.insideCornerFeet > 0 && (
-            <tr>
-              <th scope="row">Inside corners</th>
-              <td>{lf(q.totals.insideCornerFeet)}</td>
-            </tr>
-          )}
-          {fixtures.length > 0 && (
-            <tr>
-              <th scope="row">On the walls</th>
-              <td>{fixtures.join("; ")}</td>
-            </tr>
+          {walls && (
+            <>
+              <tr>
+                <th scope="row">Gables (in the above)</th>
+                <td>
+                  {sf(q.totals.gableSquareFeet)}
+                  {q.pitch.source === "assumed" && q.sides.some((s) => s.gableSource === "roof") ? ", the roof's at its assumed pitch" : ""}
+                </td>
+              </tr>
+              <tr>
+                <th scope="row">House wrap (net cladding)</th>
+                <td>{sf(q.totals.netSquareFeet)}</td>
+              </tr>
+              <tr>
+                <th scope="row">Openings</th>
+                <td>{q.openings.length === 0 ? "none" : q.openings.map((o) => `${o.count} × ${OPENING_LABEL[o.kind].toLowerCase()} ${formatOpeningSize(o.widthFeet, o.heightFeet)}`).join("; ")}</td>
+              </tr>
+              <tr>
+                <th scope="row">Trim round openings</th>
+                <td>{lf(q.totals.openingTrimFeet)}</td>
+              </tr>
+              <tr>
+                <th scope="row">Outside corners</th>
+                <td>{lf(q.totals.outsideCornerFeet)}</td>
+              </tr>
+              {q.totals.insideCornerFeet > 0 && (
+                <tr>
+                  <th scope="row">Inside corners</th>
+                  <td>{lf(q.totals.insideCornerFeet)}</td>
+                </tr>
+              )}
+              {fixtures.length > 0 && (
+                <tr>
+                  <th scope="row">On the walls</th>
+                  <td>{fixtures.join("; ")}</td>
+                </tr>
+              )}
+            </>
           )}
           {r && (
             <>
@@ -334,7 +342,8 @@ function ExteriorTotals({ exterior, q }: { exterior: Exterior; q: ExteriorQuanti
       </table>
       <p className="field-note">
         Cladding is net of openings and takes in the gables, measured or from the roof. The roof&rsquo;s area is the plan inside the drip line times the pitch factor, for the slopes being
-        roofed; its lines are read off the roof the footprint, overhangs and pitch make. Squares are real: waste is the estimator&rsquo;s to add.
+        roofed; its lines are read off the roof the footprint, overhangs and pitch make, except a total typed on the plan, which replaces the drawing&rsquo;s. Squares are real: waste is
+        the estimator&rsquo;s to add.
       </p>
     </div>
   );

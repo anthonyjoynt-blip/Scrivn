@@ -3,7 +3,7 @@
 import { createElement } from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
-import { type Exterior, exteriorQuantities, formatPitch } from "@/lib/exterior";
+import { type Exterior, exteriorQuantities, formatPitch, ROOF_TOTAL_KEYS, ROOF_TOTAL_LABEL } from "@/lib/exterior";
 import { formatQuantity } from "@/lib/sketchQuantities";
 import { lineTotals, textWidthEm } from "@/lib/roofLabels";
 import { ElevationDrawing, elevationFontFeet, LINE_STYLE, RoofPlanDrawing } from "./exteriorDrawings";
@@ -135,15 +135,29 @@ function roofSvg(exterior: Exterior): { svg: string; width: number; height: numb
   }
   const legend = legendParts.join("");
   const slopeList = r.slopes.map((s) => `${s.label} ${Math.round(s.areaSquareFeet)} SF${s.faces ? ` (${s.faces})` : ""}${s.selected ? "" : ", not roofed"}`).join(" · ");
-  const height = legendY + (slopeList ? 64 : 30);
+  // Totals typed over the drawing's: said on the page, as on the scope's lines, since the drawing's own are what is drawn.
+  const typed = ROOF_TOTAL_KEYS.filter((k) => r.from[k] === "estimator").map((k) =>
+    k === "squareFeet" ? `${r.squares.toFixed(2)} SQ` : `${ROOF_TOTAL_LABEL[k].toLowerCase()} ${formatQuantity(k === "dripEdge" ? r.dripEdgeFeet : k === "starter" ? r.starterFeet : k === "iceWater" ? r.iceWaterFeet : r[`${k}Feet` as "ridgeFeet"])} LF`,
+  );
+  const typedNote = typed.length > 0 ? `From the estimator, over the drawing: ${typed.join(" · ")}. The lengths drawn are the drawing's own.` : "";
+  // Wrapped to the page: about 120 characters a line at 18 px.
+  const typedLines: string[] = [];
+  for (const word of typedNote.split(" ").filter(Boolean)) {
+    const last = typedLines[typedLines.length - 1];
+    if (last !== undefined && last.length + word.length < 120) typedLines[typedLines.length - 1] = `${last} ${word}`;
+    else typedLines.push(word);
+  }
+  const typedTop = legendY + (slopeList ? 72 : 40);
+  const height = typedLines.length > 0 ? typedTop + (typedLines.length - 1) * 26 + 24 : legendY + (slopeList ? 64 : 30);
   const svg = [
     `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${height}" viewBox="0 0 ${WIDTH} ${height}">`,
     `<rect width="${WIDTH}" height="${height}" fill="#ffffff"/>`,
     label(40, 44, "Roof plan", 30, 700),
-    label(40, 78, `${formatPitch(r.pitch)}${r.pitchAssumed ? " (assumed)" : ""} · ${which} · ${formatQuantity(r.areaSquareFeet)} SF (${r.squares.toFixed(2)} SQ) · to scale, front at the bottom`, 20),
+    label(40, 78, `${formatPitch(r.pitch)}${r.pitchAssumed ? " (assumed)" : ""} · ${which} · ${formatQuantity(r.areaSquareFeet)} SF (${r.squares.toFixed(2)} SQ${r.from.squareFeet === "estimator" ? ", from the estimator" : ""}) · to scale, front at the bottom`, 20),
     `<g transform="translate(40 ${top})">${drawing}</g>`,
     legend,
     slopeList ? label(40, legendY + 40, `Slopes: ${slopeList}`, 18) : "",
+    ...typedLines.map((line, i) => label(40, typedTop + i * 26, line, 18)),
     `</svg>`,
   ].join("");
   return { svg, width: WIDTH, height };

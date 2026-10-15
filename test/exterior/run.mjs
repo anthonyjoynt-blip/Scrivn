@@ -2271,5 +2271,142 @@ test("roof end toggles: a tap on an end turns a gable to a hip and back; a porch
   assert(e.roof.additions[1].kind === "gable" && e.roof.additions[1].fromFeet === 15 && e.roof.additions[1].toFeet === 25, JSON.stringify(e.roof.additions[1]));
 });
 
+console.log("\ntyped roof totals (10-14)");
+
+/** The 40 x 30 gable at 6/12 worked by hand above: 15.34 SQ, ridge 42, eaves 84, rakes 2 x 32.666667 x 1.118034 = 73.045, no hips or valleys. */
+const RAKES_40X30 = 2 * 32.666667 * 1.118034;
+
+test("a typed total replaces the drawing's; a blank box keeps it", () => {
+  const e = rect(40, 30, { pitch: 6, typed: { ridge: 45, hip: null } });
+  const r = x.exteriorQuantities(e).roofing;
+  near(r.ridgeFeet, 45, "ridge as typed");
+  assert(r.from.ridge === "estimator" && r.typed, "and said to be typed");
+  near(r.hipFeet, 0, "a blank hip box keeps the drawing's none");
+  assert(r.from.hip === "drawing" && r.from.squareFeet === "drawing", "the rest from the drawing");
+  near(r.areaSquareFeet, 1533.9426, "area the drawing's");
+  near(r.drawing.ridge, 42, "the drawing's own ridge kept beside it");
+  // Cleared, it is the drawing's again.
+  e.roof.typed = { ridge: null };
+  const back = x.exteriorQuantities(e).roofing;
+  near(back.ridgeFeet, 42, "cleared: the drawing's 42'");
+  assert(!back.typed, "nothing typed");
+});
+
+test("drip edge, starter and ice & water follow the eaves, rakes and valleys - typed or drawn - unless typed themselves", () => {
+  const e = rect(40, 30, { pitch: 6, typed: { eave: 90 } });
+  let r = x.exteriorQuantities(e).roofing;
+  near(r.eaveFeet, 90, "eaves typed");
+  near(r.starterFeet, 90, "starter is the typed eaves");
+  assert(r.from.starter === "estimator", `starter from ${r.from.starter}`);
+  near(r.dripEdgeFeet, 90 + RAKES_40X30, "drip edge: typed eaves + drawn rakes");
+  assert(r.from.dripEdge === "both", `drip edge from ${r.from.dripEdge}`);
+  // No valleys on a gable roof: ice & water is the typed eaves alone, and says so.
+  near(r.iceWaterFeet, 90, "ice & water: eaves + no valleys");
+  assert(r.from.iceWater === "estimator", `ice & water from ${r.from.iceWater}`);
+  e.roof.typed = { eave: 90, dripEdge: 170, starter: 88, iceWater: 100 };
+  r = x.exteriorQuantities(e).roofing;
+  near(r.dripEdgeFeet, 170, "drip edge typed stands over eaves + rakes");
+  near(r.starterFeet, 88, "starter typed");
+  near(r.iceWaterFeet, 100, "ice & water typed");
+  near(r.closureFeet, 90 + 2 * 42, "closure strips: typed eaves + 2 x drawn ridge");
+});
+
+test("typed squares are the roof being done, whatever slopes are picked", () => {
+  const e = rect(40, 30, { pitch: 6 });
+  const facets = x.exteriorQuantities(e).roof.facets;
+  e.roof.slopes = [facets[0].key];
+  near(x.exteriorQuantities(e).roofing.areaSquareFeet, 1533.9426 / 2, "one slope of two picked: half");
+  e.roof.typed = { squareFeet: 2000 };
+  const r = x.exteriorQuantities(e).roofing;
+  near(r.areaSquareFeet, 2000, "typed area");
+  near(r.squares, 20, "20 squares");
+  e.scope = { roofing: true, sides: [], soffitFascia: false, eavestrough: false };
+  const first = x.exteriorScopeLines(e).roofing[0];
+  assert(first === "Remove & replace roofing – material to confirm – 6/12 – 20.00 SQ – from the estimator", first);
+});
+
+test("every measured line says where its number came from once anything is typed; nothing typed, the lines are as they were", () => {
+  const scope = { roofing: true, sides: [], soffitFascia: true, eavestrough: true };
+  const plain = rect(40, 30, { pitch: 6, dripEdge: true });
+  plain.scope = scope;
+  const before = x.exteriorScopeLines(plain);
+  assert(!/from the (estimator|drawing)/.test([...before.roofing, ...before.siding].join(" ")), "untouched: no source words");
+  const e = rect(40, 30, { pitch: 6, dripEdge: true, typed: { ridge: 45, eave: 90 } });
+  e.scope = scope;
+  const { roofing, siding } = x.exteriorScopeLines(e);
+  const has = (list, line) => assert(list.includes(line), `missing "${line}" in:\n      ${list.join("\n      ")}`);
+  has(roofing, "Remove & replace roofing – material to confirm – 6/12 – 15.34 SQ (all slopes) – from the drawing");
+  has(roofing, "Hip & ridge cap – 45.0 LF – from the estimator");
+  has(roofing, "Starter – 90.0 LF (eaves) – from the estimator");
+  has(roofing, `Drip edge – ${(90 + RAKES_40X30).toFixed(1)} LF (eaves + rakes) – from the estimator and the drawing – photos required`);
+  has(roofing, "Ice & water barrier – 90.0 LF (eaves + valleys) – from the estimator");
+  // Every eave and rake is chosen, so the eavestrough and soffit run along the typed eaves; the rakes are the drawing's.
+  has(siding, "Remove & replace eavestrough – 90.0 LF – from the estimator");
+  has(siding, `Remove & replace soffit – material to confirm – 90.0 LF at 1'4" overhang (120.0 SF) – eaves – from the estimator`);
+  has(siding, `Remove & replace soffit – material to confirm – ${RAKES_40X30.toFixed(1)} LF at 1' overhang (${RAKES_40X30.toFixed(1)} SF) – rakes – from the drawing`);
+  has(siding, `Remove & replace fascia – material to confirm – ${(90 + RAKES_40X30).toFixed(1)} LF (eaves + rakes) – from the estimator and the drawing`);
+  // Two runs of 42' drawn, scaled to 90' typed: 45' each, two downspouts each.
+  has(siding, "Remove & replace downspouts – 4 – 46.0 LF (eave height + 15%)");
+});
+
+test("the eavestrough keeps to the eaves picked on the plan: typed eaves stand only when every eave and rake is chosen", () => {
+  const e = rect(40, 30, { pitch: 6, typed: { eave: 150 } });
+  const all = x.exteriorQuantities(e).roofing;
+  near(all.gutter.feet, 150, "every edge chosen: the typed eaves");
+  // Two runs of 42' scaled to 75' each: three downspouts each.
+  assert(all.gutter.downspouts === 6, `downspouts ${all.gutter.downspouts}`);
+  const plan = x.exteriorQuantities(e).roof;
+  e.roof.edges = [plan.edges.find((g) => g.kind === "eave").key];
+  const one = x.exteriorQuantities(e).roofing;
+  near(one.gutter.feet, 42, "one eave picked: that eave as drawn");
+  assert(one.edgesFrom.eave === "drawing", "and said to be the drawing's");
+  near(one.eaveFeet, 150, "the roofing's eaves are still the typed ones");
+});
+
+test("no outline at all: the typed totals are the roof, and scope it", () => {
+  const e = {
+    sides: [],
+    roof: { ...x.defaultRoof(), pitch: 7, typed: { squareFeet: 2430, ridge: 38, hip: 52, valley: 18, eave: 120, rake: 30 } },
+    scope: { roofing: true, sides: [], soffitFascia: true, eavestrough: true },
+  };
+  const q = x.exteriorQuantities(e);
+  assert(q.roof === null && q.roofing !== null && !q.roofing.drawn, "no roof drawn, and roofing priced");
+  const { roofing, siding } = x.exteriorScopeLines(e);
+  const has = (list, line) => assert(list.includes(line), `missing "${line}" in:\n      ${list.join("\n      ")}`);
+  has(roofing, "Remove & replace roofing – material to confirm – 7/12 – 24.30 SQ – from the estimator");
+  has(roofing, "Steep roof charge – 7/12 to 9/12 – 24.30 SQ – from the estimator");
+  has(roofing, "Hip & ridge cap – 90.0 LF – from the estimator");
+  has(roofing, "Starter – 120.0 LF (eaves) – from the estimator");
+  has(roofing, "Ice & water barrier – 138.0 LF (eaves + valleys) – from the estimator");
+  has(roofing, "Valleys – 18.0 LF – from the estimator");
+  assert(!roofing.some((l) => /Ridge vent|Step flashing|Headwall/.test(l)), "nothing that was not typed");
+  has(siding, "Remove & replace eavestrough – 120.0 LF – from the estimator");
+  // 120' with no runs drawn: one downspout per 35', so four; no sides, so no eave height to size them by.
+  has(siding, "Remove & replace downspouts – 4");
+  has(siding, `Remove & replace soffit – material to confirm – 120.0 LF at 1'4" overhang (160.0 SF) – eaves – from the estimator`);
+  has(siding, "Remove & replace fascia – material to confirm – 150.0 LF (eaves + rakes) – from the estimator");
+  assert(!q.roofing.toAnswer.roofing.some((t) => /squares/.test(t)), "the squares are given");
+  assert(!q.roofing.toAnswer.roofing.some((t) => /pitch/.test(t)), "and the pitch typed");
+  // Squares not typed: asked for, and the line says so rather than pricing nothing.
+  delete e.roof.typed.squareFeet;
+  const r2 = x.exteriorQuantities(e).roofing;
+  assert(r2.toAnswer.roofing[0] === "the roof's squares (type them, or draw the outline)", r2.toAnswer.roofing.join("; "));
+  assert(x.exteriorScopeLines(e).roofing[0] === "Remove & replace roofing – material to confirm – 7/12 – squares to confirm", x.exteriorScopeLines(e).roofing[0]);
+  // Nothing typed and nothing drawn: no roof to tick.
+  e.roof.typed = {};
+  assert(x.exteriorQuantities(e).roofing === null, "no totals, no roofing");
+});
+
+test("a walk still going round can be scoped from typed totals while its outline waits", () => {
+  const e = x.startWalk(40, 10);
+  assert(x.exteriorQuantities(e).roofing === null, "open walk, nothing typed: no roof");
+  e.roof.typed = { squareFeet: 1800 };
+  const r = x.exteriorQuantities(e).roofing;
+  assert(r !== null && !r.drawn && Math.abs(r.squares - 18) < 1e-9, "18 typed squares");
+  // Its downspouts take the sides' own eave: 1 x 10' x 1.15.
+  e.roof.typed.eave = 30;
+  near(x.exteriorQuantities(e).roofing.gutter.downspoutFeet, 11.5, "downspout length off the walk's eave");
+});
+
 console.log(`\n${passed.length} passed, ${failures.length} failed`);
 if (failures.length > 0) process.exit(1);
