@@ -21,10 +21,13 @@ import {
   type ExteriorOpeningKind,
   type ExteriorShape,
   type ExteriorSide,
+  type SidePhoto,
+  type SideRoofRead,
 } from "./exterior";
 import type { CallUsage } from "./anthropic";
 import { frameAlongM, frameUpM, frameX, frameY, OUTSIDE_PHOTO_GREY, type SquareFrame } from "./exteriorPhoto";
 import { polygonArea, type Pt } from "./roof";
+import { type CameraAt, gableSlopes, type Gray, type ProposedRoof, readRoof, readRoofLines, ROOF_EDGE_ENDS, ROOF_OVER_WALL, type RoofLines, type RoofWire, snapRoof } from "./roofPhotoRead";
 import { formatFeetInches, newSketchId } from "./sketch";
 
 const FEET_PER_METRE = 1 / 0.3048;
@@ -34,6 +37,12 @@ export const TRACE_MATERIALS = ["stucco", "vinyl", "wood_shake", "eifs", "wood",
 const OPENING_KINDS = ["window", "door", "patio_door", "garage_door"] as const;
 
 const POINT = { type: "array", items: { type: "number" } };
+const ROOF_END = {
+  type: "object",
+  properties: { kind: { type: "string", enum: [...ROOF_EDGE_ENDS] }, point: POINT },
+  required: ["kind", "point"],
+  additionalProperties: false,
+};
 export const TRACE_SCHEMA: Record<string, unknown> = {
   type: "object",
   properties: {
@@ -77,18 +86,34 @@ export const TRACE_SCHEMA: Record<string, unknown> = {
         additionalProperties: false,
       },
     },
+    // The roof's edge over the wall (2026-10-15, lib/roofPhotoRead.ts): what it does, the fascia's lines and where it ends.
+    roof: {
+      type: "object",
+      properties: {
+        over_wall: { type: "string", enum: [...ROOF_OVER_WALL] },
+        rake_left: { type: "array", items: POINT },
+        rake_right: { type: "array", items: POINT },
+        eave_line: { type: "array", items: POINT },
+        left_end: ROOF_END,
+        right_end: ROOF_END,
+        notes: { type: "string" },
+      },
+      required: ["over_wall", "rake_left", "rake_right", "eave_line", "left_end", "right_end", "notes"],
+      additionalProperties: false,
+    },
     notes: { type: "string" },
   },
-  required: ["materials", "openings", "wall_top", "off_wall", "notes"],
+  required: ["materials", "openings", "wall_top", "off_wall", "roof", "notes"],
   additionalProperties: false,
 };
 
-/** What the call answers, in the squared image's pixels. */
+/** What the call answers, in the squared image's pixels. `roof` is absent from an answer given before 2026-10-15. */
 export interface TraceWire {
   materials: { material: string; polygon: number[][]; partly_hidden_by: string }[];
   openings: { kind: string; left: number; right: number; top: number; bottom: number; measured_to: string; partly_hidden_by: string }[];
   wall_top: number[][];
   off_wall: { what: string; box: number[] }[];
+  roof?: RoofWire;
   notes: string;
 }
 
@@ -129,7 +154,13 @@ Trace, in pixels:
 2. openings: every window, door, patio door and garage door on this wall. A window or door: to the outer edge of its trim, or of its frame where it has no trim; say which. A garage door: the door itself - the panels that move, from their bottom edge to their top edge and side to side - never the trim, jamb or stucco surround framing it; its measured_to is "door_itself".
 3. wall_top: the line where the wall's cladding meets the soffit, left to right, including any gable peak, as a polyline.
 4. off_wall: everything in front of the wall that hides part of it, as boxes [x0, y0, x1, y1].
-5. notes: anything that makes this wall hard to trace, and anything you are unsure of.`;
+5. roof: the roof's edge over this wall. The fascia and the soffit stand out in front of the wall, so they show larger than the wall and set off from it: trace them where they show in this image, and the code works out how far out they stand.
+   - over_wall: "gable" if the wall rises to a peak under the roof; "hip_end" if the wall's top is level and the roof above it slopes up and back, with a hip rising from each end; "eave" if the wall's top is level and the roof slopes up and back to a ridge along the wall; "none" if no roof edge is over this wall; "unclear" if you can't tell.
+   - rake_left, rake_right: on a gable, the bottom edge of the fascia (the rake board) along each slope, where the soffit under the rake meets it - from the foot of the rake up to the peak on the left, from the peak down to its foot on the right, with a point every metre or so. Not the line where the soffit meets the wall (that is wall_top), not the shingles. [] when there is no gable.
+   - eave_line: the bottom edge of the fascia along an eave over this wall, left to right; where an eavestrough hides it, the trough's bottom edge. [] when there is none.
+   - left_end, right_end: where the roof's edge ends, past each end of the wall: point is the outermost bottom corner of the fascia there, where the rake board itself ends - past the wall's corner by the eave overhang, often 1 to 2 ft, and further out still in this image since the fascia stands out from the wall; never the wall's own corner, never where an eave's return running back along the house meets it, never the eavestrough's end cap or a downspout. kind: "rake_foot" where a rake comes down to an eave that runs back from it; "hip_corner" where the eave turns the corner; "eave_into_rake" where this wall's eave ends under the next wall's rake; "runs_on" where the roof carries on past the end, over a porch, a deck or another roof; "against_wall" where it stops against a wall; "hidden" where something in front hides it; "out_of_photo" where it is outside the photo. point is [] when hidden or out of the photo.
+   - notes: anything about the roof's edge you are unsure of.
+6. notes: anything that makes this wall hard to trace, and anything you are unsure of.`;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -175,9 +206,14 @@ export interface TraceProposals {
   openings: ProposedOpening[];
   wallTop: ProposedWallTop | null;
   offWall: { what: string; x0: number; x1: number; y0: number; y1: number }[];
+  /**
+   * The roof read off the photo (2026-10-15, lib/roofPhotoRead.ts): its pitch, overhangs and what it
+   * does over the side. Absent from a trace made before it; null when the photo says nothing of the roof.
+   */
+  roof?: ProposedRoof | null;
   /** What the trace was unsure of, in its words. */
   notes: string;
-  /** The test's own checks: both slopes of a gable alike, an eave level end to end. */
+  /** The test's own checks: an eave level end to end. A gable's two slopes are the roof's (`roof.checks`). */
   checks: string[];
 }
 
@@ -219,8 +255,10 @@ function heightAt(line: Pt[], x: number): number | null {
  * The trace's pixels as proposals in the side's frame: feet along from its left end, feet up from
  * the one level its heights are from. A polygon of fewer than three corners, an opening with no
  * size, a box with no area, is dropped; anything left is the estimator's to tick or not.
+ * [cameraAt] is where the phone stood for each point of the image (lib/roofPhotoRead.ts): without
+ * it the roof's pitch is still read, its overhangs are not.
  */
-export function traceProposals(wire: TraceWire, frame: SquareFrame, lengthFeet: number): TraceProposals {
+export function traceProposals(wire: TraceWire, frame: SquareFrame, lengthFeet: number, cameraAt: CameraAt | null = null): TraceProposals {
   const shapes: ProposedShape[] = [];
   (wire.materials ?? []).forEach((m, i) => {
     const polygon = (m.polygon ?? []).map((p) => point(frame, p)).filter((p): p is Pt => p !== null);
@@ -270,29 +308,22 @@ export function traceProposals(wire: TraceWire, frame: SquareFrame, lengthFeet: 
     checks.push(`${below.length === 1 ? `A ${below[0]} lies` : `${below.length} openings lie`} below the side's level, where the phone's heights start, so ${below.length === 1 ? "it is" : "they are"} left out: put ${below.length === 1 ? "it" : "them"} in by hand if ${below.length === 1 ? "it is" : "they are"} to be priced.`);
   }
   let wallTop: ProposedWallTop | null = null;
+  let peakIndex = -1;
   if (line.length >= 2) {
     const eaveLeftFeet = heightAt(line, 0);
     const eaveRightFeet = heightAt(line, lengthFeet);
     // A peak stands 0.3 m over both ends of the line, between the side's ends - Scan's own rule.
     const ends = Math.max((line[0] as Pt).y, (line[line.length - 1] as Pt).y);
-    let at = -1;
     line.forEach((p, i) => {
-      if (i > 0 && i < line.length - 1 && p.x > 0 && p.x < lengthFeet && p.y >= ends + 0.3 * FEET_PER_METRE && (at < 0 || p.y > (line[at] as Pt).y)) at = i;
+      if (i > 0 && i < line.length - 1 && p.x > 0 && p.x < lengthFeet && p.y >= ends + 0.3 * FEET_PER_METRE && (peakIndex < 0 || p.y > (line[peakIndex] as Pt).y)) peakIndex = i;
     });
     let peak: ProposedWallTop["peak"] = null;
     let slopes: ProposedWallTop["slopes"] = null;
-    if (at > 0) {
-      const p = line[at] as Pt;
-      const before = line[at - 1] as Pt;
-      const after = line[at + 1] as Pt;
+    if (peakIndex > 0) {
+      const p = line[peakIndex] as Pt;
       peak = { atFeet: p.x, peakFeet: p.y };
-      slopes = [((p.y - before.y) / Math.max(1e-6, p.x - before.x)) * 12, ((p.y - after.y) / Math.max(1e-6, after.x - p.x)) * 12];
-      const [l, r] = slopes;
-      checks.push(
-        Math.abs(l - r) > 0.5
-          ? `The gable's two slopes read ${l.toFixed(1)} and ${r.toFixed(1)} on 12. A gable's are usually alike: check the peak, and the photo, before using it.`
-          : `Both slopes of the gable read ${((l + r) / 2).toFixed(1)} on 12.`,
-      );
+      // Each slope over its whole run, peak to eave corner (lib/roofPhotoRead.ts); the roof read says whether they agree.
+      slopes = gableSlopes(line, peakIndex);
     } else if (eaveLeftFeet !== null && eaveRightFeet !== null && Math.abs(eaveLeftFeet - eaveRightFeet) > 4 / 12) {
       checks.push(
         `The wall top reads ${formatFeetInches(Math.abs(eaveLeftFeet - eaveRightFeet))} higher at the ${eaveLeftFeet > eaveRightFeet ? "left" : "right"} end. An eave is level, so either the wall steps or the photo leans: check it.`,
@@ -300,6 +331,7 @@ export function traceProposals(wire: TraceWire, frame: SquareFrame, lengthFeet: 
     }
     wallTop = { line, eaveLeftFeet, eaveRightFeet, peak, slopes };
   }
+  const roof = readRoof(wire.roof, frame, lengthFeet / FEET_PER_METRE, wallTop && peakIndex > 0 ? { line, peakIndex } : null, cameraAt);
 
   const offWall = (wire.off_wall ?? []).flatMap((b) => {
     const [x0, y0, x1, y1] = (b.box ?? []) as number[];
@@ -310,7 +342,57 @@ export function traceProposals(wire: TraceWire, frame: SquareFrame, lengthFeet: 
     return [{ what: String(b.what ?? "").trim() || "something", x0: a.x, x1: c.x, y0: a.y, y1: c.y }];
   });
 
-  return { shapes, openings, wallTop, offWall, notes: (wire.notes ?? "").trim(), checks };
+  return { shapes, openings, wallTop, offWall, roof, notes: (wire.notes ?? "").trim(), checks };
+}
+
+/** The roof's reads ticked (true) or not (false); one the trace did not read is left out. */
+export interface RoofPicks {
+  pitch?: boolean;
+  rake?: boolean;
+  eave?: boolean;
+  over?: boolean;
+}
+
+/**
+ * A trace's wall top and roof lines set on the squared photo's own edges, and the roof read again off
+ * them (2026-10-15, lib/roofPhotoRead.ts `snapRoof`): Claude puts those lines within 5-25 px of the
+ * edges in a 2400 px image, and the rake overhang is the gap between two of them. The editor does it,
+ * having the picture; [g] is the squared image Claude was sent. A trace whose wall top has no peak,
+ * or whose lines the photo doesn't show, comes back as it was.
+ */
+export function snapTrace(p: TraceProposals, frame: SquareFrame, g: Gray, lengthFeet: number, cameraAt: CameraAt | null): TraceProposals {
+  const roof = p.roof;
+  const top = p.wallTop;
+  if (!roof || !top?.peak || roof.snapped) return p;
+  const peakIndex = top.line.findIndex((q) => q.x === top.peak?.atFeet && q.y === top.peak?.peakFeet);
+  if (peakIndex <= 0) return p;
+  const seen = (q: Pt) => ({ alongM: q.x / FEET_PER_METRE, upM: q.y / FEET_PER_METRE });
+  const traced: RoofLines = {
+    said: roof.said,
+    rakeLeft: roof.lines.rakeLeft.map(seen),
+    rakeRight: roof.lines.rakeRight.map(seen),
+    eave: roof.lines.eave.map(seen),
+    leftEnd: { kind: roof.ends.left, point: roof.lines.leftEnd ? seen(roof.lines.leftEnd) : null },
+    rightEnd: { kind: roof.ends.right, point: roof.lines.rightEnd ? seen(roof.lines.rightEnd) : null },
+    notes: roof.notes,
+  };
+  const s = snapRoof(g, frame, { line: top.line, peakIndex }, traced, cameraAt);
+  if (!s) return p;
+  const line = s.wallTop.line;
+  const apex = line[s.wallTop.peakIndex] as Pt;
+  // A snapped run that turns by more than 1/2 in 12 has caught some other line (a soffit seen edge-on, a fascia): as traced.
+  const was = gableSlopes(top.line, peakIndex);
+  const now = gableSlopes(line, s.wallTop.peakIndex);
+  if (!was || !now || Math.abs(was[0] - now[0]) > 0.5 || Math.abs(was[1] - now[1]) > 0.5) return p;
+  const wallTop: ProposedWallTop = {
+    line,
+    eaveLeftFeet: heightAt(line, 0),
+    eaveRightFeet: heightAt(line, lengthFeet),
+    peak: { atFeet: apex.x, peakFeet: apex.y },
+    slopes: gableSlopes(line, s.wallTop.peakIndex),
+  };
+  const snapped = { wallTopInches: s.movedInches.wallTop, fasciaInches: s.movedInches.fascia };
+  return { ...p, wallTop, roof: readRoofLines(s.lines, lengthFeet / FEET_PER_METRE, s.wallTop, cameraAt, snapped, traced) };
 }
 
 /** Which proposals the estimator ticked, with any material or kind they changed. */
@@ -318,14 +400,29 @@ export interface TracePicks {
   shapes: { key: string; kind: CladdingKind | "parging" }[];
   openings: { key: string; kind: ExteriorOpeningKind }[];
   wallTop: boolean;
+  /** The roof's reads (2026-10-15). Absent: the roof is left as it was. */
+  roof?: RoofPicks;
+}
+
+/** What starts ticked: every read that holds together - a pitch whose slopes agree on a whole pitch, an overhang read alike both ways. */
+export function roofPicksAtFirst(roof: ProposedRoof | null | undefined): RoofPicks {
+  if (!roof) return {};
+  const picks: RoofPicks = {};
+  if (roof.pitch) picks.pitch = roof.pitch.agree && roof.pitch.onWhole !== false;
+  if (roof.rakeOverhang) picks.rake = roof.rakeOverhang.agree;
+  if (roof.eaveOverhang) picks.eave = roof.eaveOverhang.agree;
+  if (roof.over) picks.over = true;
+  return picks;
 }
 
 /**
  * The ticked proposals onto the side. Ticked shapes replace the side's shapes, and ticked openings
  * its openings - each only when any are ticked, so a side whose phone taps are kept loses nothing.
- * The wall top sets the eaves over each end it reaches, and the peak and pitch when it has one.
+ * The wall top sets the eaves over each end it reaches, and the peak when it has one. The roof's
+ * reads go on the side as `roofRead`, ticked or not: a read set aside is kept as set aside (null), so
+ * the gable it came from gives no pitch either (lib/exterior.ts, `exteriorPitch`).
  */
-export function applyTrace(side: ExteriorSide, proposals: TraceProposals, picks: TracePicks): ExteriorSide {
+export function applyTrace(side: ExteriorSide, proposals: TraceProposals, picks: TracePicks, at: string = new Date().toISOString()): ExteriorSide {
   const next: ExteriorSide = { ...side };
   if (picks.shapes.length > 0) {
     next.shapes = picks.shapes.flatMap(({ key, kind }) => {
@@ -350,8 +447,24 @@ export function applyTrace(side: ExteriorSide, proposals: TraceProposals, picks:
     if (top.eaveRightFeet !== null) next.eaveRightFeet = top.eaveRightFeet;
     if (top.peak) {
       next.gable = { peakFeet: top.peak.peakFeet, atFeet: top.peak.atFeet };
-      if (top.slopes) next.pitchMeasured = (top.slopes[0] + top.slopes[1]) / 2;
+      // A trace from before the roof was read: its pitch came with the wall top.
+      if (proposals.roof === undefined && top.slopes) next.pitchMeasured = (top.slopes[0] + top.slopes[1]) / 2;
     }
+  }
+  const roof = proposals.roof;
+  const rp = picks.roof;
+  if (roof && rp && Object.keys(rp).length > 0) {
+    const read: SideRoofRead = { at };
+    if (roof.pitch && rp.pitch !== undefined) {
+      read.pitch = rp.pitch ? roof.pitch.value : null;
+      read.slopes = roof.pitch.slopes;
+      // The pitch this side gives is the photo's, or none: a gable set aside must not give one off its peak.
+      next.pitchMeasured = rp.pitch ? roof.pitch.value : null;
+    }
+    if (roof.rakeOverhang && rp.rake !== undefined) read.rakeOverhangFeet = rp.rake ? roof.rakeOverhang.feet : null;
+    if (roof.eaveOverhang && rp.eave !== undefined) read.eaveOverhangFeet = rp.eave ? roof.eaveOverhang.feet : null;
+    if (roof.over && rp.over !== undefined) read.over = rp.over ? roof.over : null;
+    next.roofRead = read;
   }
   return next;
 }
@@ -378,6 +491,11 @@ export interface TraceRequest {
   image: string;
   frame: SquareFrame;
   side: TraceSide;
+  /**
+   * The photos the image was squared from, in that order: where each phone stood is what the roof's
+   * overhangs are read through (2026-10-15). Absent from an older editor: the pitch is still read.
+   */
+  photos?: Pick<SidePhoto, "toPhoto" | "camera">[];
 }
 
 export interface TraceResponse {

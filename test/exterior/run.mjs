@@ -52,6 +52,7 @@ async function load() {
       `export * from "${lib("exteriorImport.ts")}";`,
       `export * from "${lib("exteriorPhoto.ts")}";`,
       `export * from "${lib("exteriorTrace.ts")}";`,
+      `export * from "${lib("roofPhotoRead.ts")}";`,
       `export * from "${lib("exterior3d.ts")}";`,
       `export * from "${lib("exteriorPlan.ts")}";`,
       `export { adoptScan, exteriorScanDecision, sketchFromScan } from "${lib("scanInbox.ts")}";`,
@@ -1723,12 +1724,14 @@ test("the wall top gives the eaves, the peak and both slopes - and says when the
   near(p.wallTop.eaveRightFeet, 3 * M, "right eave", 1e-9);
   near(p.wallTop.peak.peakFeet, 4.5 * M, "peak", 1e-9);
   near(p.wallTop.peak.atFeet, 4 * M, "at", 1e-9);
-  // 1.5 m over 4 m: 4.5 in 12 each way.
+  // 1.5 m over 4 m: 4.5 in 12 each way. Whether they agree is the roof read's to say (10-15).
   near(p.wallTop.slopes[0], 4.5, "left slope", 1e-9);
   near(p.wallTop.slopes[1], 4.5, "right slope", 1e-9);
-  assert(p.checks.some((c) => /Both slopes of the gable read 4\.5 on 12/.test(c)), p.checks.join(" | "));
+  // 4.5 is no whole pitch: said, and not ticked to start with.
+  assert(p.roof.checks.some((c) => /slopes read 4\.5 and 4\.5 on 12, 4\.5 between them: .*between 4\/12 and 5\/12/.test(c)), p.roof.checks.join(" | "));
+  assert(p.roof.pitch.agree && !p.roof.pitch.onWhole && x.roofPicksAtFirst(p.roof).pitch === false, JSON.stringify(p.roof.pitch));
   const lopsided = x.traceProposals({ ...wire, wall_top: [[100, 300], [500, 150], [900, 260]] }, traceFrame, 8 * M);
-  assert(lopsided.checks.some((c) => /two slopes read 4\.5 and 3\.3 on 12/.test(c)), lopsided.checks.join(" | "));
+  assert(lopsided.roof.checks.some((c) => /two slopes read 4\.5 and 3\.3 on 12/.test(c)), lopsided.roof.checks.join(" | "));
   const leaning = x.traceProposals({ ...wire, wall_top: [[100, 300], [900, 280]] }, traceFrame, 8 * M);
   assert(leaning.wallTop.peak === null && leaning.checks.some((c) => /wall top reads 0'8" higher at the right end/.test(c)), leaning.checks.join(" | "));
 });
@@ -1740,12 +1743,15 @@ test("ticked proposals go on the side; what is not ticked stays as the phone tap
     shapes: p.shapes.map((s) => ({ key: s.key, kind: s.kind })),
     openings: [{ key: p.openings[0].key, kind: "window" }, { key: p.openings[1].key, kind: "garage" }],
     wallTop: true,
+    // The pitch is its own tick since 10-15 (4.5 starts unticked: no whole pitch), ticked here.
+    roof: { ...x.roofPicksAtFirst(p.roof), pitch: true },
   });
   assert(all.shapes.length === 2 && all.shapes.every((s) => s.closed && s.id), "the two shapes, closed");
   assert(all.openings.length === 2 && all.openings[1].kind === "garage", "two openings");
   near(all.eaveLeftFeet, 3 * M, "eave", 1e-9);
   near(all.gable.peakFeet, 4.5 * M, "peak", 1e-9);
   near(all.pitchMeasured, 4.5, "the pitch from the slopes", 1e-9);
+  assert(all.roofRead.pitch === 4.5 && Math.abs(all.roofRead.slopes[0] - 4.5) < 1e-9 && Math.abs(all.roofRead.slopes[1] - 4.5) < 1e-9, JSON.stringify(all.roofRead));
   assert(all.photos === side.photos, "the photos stay with the side");
   const q = x.sideQuantities(all);
   // 26 m2 of stucco less the window (1 x 0.9) and the garage door's stucco part (2.7 x 2.6 m from 0.5 m up).
@@ -1764,6 +1770,344 @@ test("the call is told the frame in its own pixels, and priced at Opus 5.5's rat
   assert(/never the trim, jamb or stucco surround/.test(msg), "the garage door rule from the owner's test");
   // 6,000 in at $4 and 1,500 out at $20 a million.
   near(x.traceCostUsd({ inputTokens: 6000, outputTokens: 1500, cacheCreationTokens: 0, cacheReadTokens: 0 }), 0.054, "cost", 1e-12);
+  assert(/rake_left, rake_right: on a gable, the bottom edge of the fascia/.test(msg) && /never the eavestrough's end cap/.test(msg), "the roof's edge asked for, fascia not trough");
+});
+
+console.log("\nthe roof read off a photo (10-15)");
+
+/**
+ * Where a point standing [out] m in front of the wall shows on the wall's plane in [cam]'s photo: through
+ * the pinhole into the picture, and back onto the wall through to_photo - the squared image's own sum,
+ * not the swelling the code undoes.
+ */
+function seenOnWall(cam, a, u, out) {
+  const { fx, cx, cy } = cam.photo.camera;
+  const right = [Math.cos(cam.yaw), -Math.sin(cam.yaw), 0];
+  const fwd = [Math.sin(cam.yaw) * Math.cos(cam.pitch), Math.cos(cam.yaw) * Math.cos(cam.pitch), Math.sin(cam.pitch)];
+  const down = [fwd[1] * right[2] - fwd[2] * right[1], fwd[2] * right[0] - fwd[0] * right[2], fwd[0] * right[1] - fwd[1] * right[0]];
+  const dot = (p, q) => p[0] * q[0] + p[1] * q[1] + p[2] * q[2];
+  const p = [a - cam.at[0], -out - cam.at[1], u - cam.at[2]];
+  const z = dot(fwd, p);
+  const px = (fx * dot(right, p)) / z + cx;
+  const py = (fx * dot(down, p)) / z + cy;
+  const w = x.photoToElevation(cam.photo, px, py);
+  return { alongM: w.alongM, upM: w.upM };
+}
+const phone = (o) => ({ ...camera(o), at: o.at, yaw: o.yaw ?? 0, pitch: o.pitch ?? 0 });
+
+/** The owner's gable, as measured: 24'4" wide, eaves 3 m, 5/12 to a peak in the middle; rakes 22" out, eaves 24". */
+const G = { L: 7.417, eave: 3.0, pitch: 5, rake: 0.5588, eaveOut: 0.6096 };
+G.peakAt = G.L / 2;
+G.peak = G.eave + (G.peakAt * G.pitch) / 12;
+/** The wall top (soffit meets wall) at a along, carried on past the corners. */
+const gTop = (a) => G.peak - (Math.abs(a - G.peakAt) * G.pitch) / 12;
+const roofFrame = { alongMinM: -3, alongMaxM: 10.5, upMinM: -0.6, upMaxM: 7, ppm: 150, width: 2025, height: 1140 };
+const px = (p) => [x.frameX(roofFrame, p.alongM), x.frameY(roofFrame, p.upM)];
+
+/** What a perfect trace of the gable answers, seen through [cams] as the squared image shows it: each point from the photo the image takes it from. */
+function gableWire(cams, { lopsided = 0 } = {}) {
+  const photos = cams.map((c) => c.photo);
+  /** Every place the squared image shows a point: through each phone, kept where the image is that phone's. */
+  const shown = (a, u, out) =>
+    cams.flatMap((c, k) => {
+      const s = seenOnWall(c, a, u, out);
+      return x.photoIndexAt(photos, s.alongM, s.upM) === k ? [s] : [];
+    });
+  const rake = (from, to) => {
+    const pts = [];
+    for (let i = 0; i <= 8; i++) {
+      const a = from + ((to - from) * i) / 8;
+      pts.push(...shown(a, gTop(a), G.rake));
+    }
+    return pts.sort((p, q) => p.alongM - q.alongM).map(px);
+  };
+  const foot = (a) => shown(a, gTop(a), G.rake)[0];
+  return {
+    materials: [],
+    openings: [],
+    wall_top: [
+      [x.frameX(roofFrame, 0), x.frameY(roofFrame, G.eave)],
+      [x.frameX(roofFrame, G.peakAt), x.frameY(roofFrame, G.peak)],
+      [x.frameX(roofFrame, G.L), x.frameY(roofFrame, G.eave - lopsided)],
+    ],
+    off_wall: [],
+    roof: {
+      over_wall: "gable",
+      rake_left: rake(-G.eaveOut, G.peakAt),
+      rake_right: rake(G.peakAt, G.L + G.eaveOut),
+      eave_line: [],
+      left_end: { kind: "rake_foot", point: px(foot(-G.eaveOut)) },
+      right_end: { kind: "rake_foot", point: px(foot(G.L + G.eaveOut)) },
+      notes: "",
+    },
+    notes: "",
+  };
+}
+
+test("where the phone stood comes back out of to_photo: Scan's two fixture photos, and a tape-scaled one", () => {
+  const side = x.parseScanExterior(fixture("scan-exterior-v2-photos.json"), { scanId: "s" }).exterior.sides[0];
+  // Scan sent each photo's position: (4, -5, 1.5) square-on, and (4, -7, 1.6) tipped up; the wall is the plane y = 0.
+  const [a, b] = side.photos.map((p) => x.wallCamera(p));
+  near(a.alongM, 4, "square-on: along", 1e-6);
+  near(a.upM, 1.5, "up", 1e-6);
+  near(a.distanceM, 5, "out", 1e-6);
+  near(b.alongM, 4, "tipped up: along", 1e-3);
+  near(b.upM, 1.6, "up", 1e-3);
+  near(b.distanceM, 7, "out", 1e-3);
+  // Not a camera's matrix: the fixture's broken photo has none.
+  assert(x.wallCamera({ toPhoto: [1, 0, 0, 0, 2, 0, 0, 0, 1], camera: { width: 10, height: 10, fx: 5, fy: 5, cx: 5, cy: 5 } }) === null, "a stretched matrix is no camera");
+  // A taped side: the elevation is 1.1 x the phone's metres, and so is where the phone stood.
+  const c = phone({ at: [2.6, -6.5, 1.5], yaw: 0.05, pitch: 0.15, width: 1920, height: 1080, f: 1100 });
+  const s = 1.1;
+  const taped = { ...c.photo, toPhoto: [...c.photo.toPhoto] };
+  for (const r of [0, 3, 6]) {
+    taped.toPhoto[r] /= s;
+    taped.toPhoto[r + 1] /= s;
+  }
+  const t = x.wallCamera(taped);
+  near(t.alongM, 2.6 * s, "taped: along", 1e-6);
+  near(t.upM, 1.5 * s, "up", 1e-6);
+  near(t.distanceM, 6.5 * s, "out", 1e-6);
+});
+
+test("which photo the squared image shows at a point is the one squareUp read there", () => {
+  const left = camera({ at: [1.5, -3, 1.6], width: 300, height: 300, f: 200 });
+  const right = camera({ at: [4.5, -3, 1.6], width: 300, height: 300, f: 200 });
+  const frame = { alongMinM: -3, alongMaxM: 9, upMinM: 0, upMaxM: 4, ppm: 25, width: 300, height: 100 };
+  // Each painted its own colour: the squared image says which it read at every pixel.
+  const flat = (rgb) => ({ data: new Uint8Array(300 * 300 * 3).map((_, i) => rgb[i % 3]), width: 300, height: 300, channels: 3 });
+  const rgba = x.squareUp([{ photo: left.photo, pixels: flat([250, 0, 0]) }, { photo: right.photo, pixels: flat([0, 0, 250]) }], frame);
+  let checked = 0;
+  for (let j = 2; j < frame.height; j += 7) {
+    for (let i = 2; i < frame.width; i += 7) {
+      const o = (j * frame.width + i) * 4;
+      const k = x.photoIndexAt([left.photo, right.photo], x.frameAlongM(frame, i + 0.5), x.frameUpM(frame, j + 0.5));
+      const want = rgba[o + 3] === 0 ? -1 : rgba[o] > 128 ? 0 : 1;
+      assert(k === want, `pixel ${i},${j}: image read ${want}, photoIndexAt says ${k}`);
+      checked++;
+    }
+  }
+  assert(checked > 500, `${checked} pixels`);
+});
+
+test("a gable's slopes over their whole run; a pitch framed to the whole one within 1/4", () => {
+  // Points on the way up and a level stretch past the eave corner (the wall top running on over a wing).
+  const line = [{ x: -3, y: 10 }, { x: 0, y: 10 }, { x: 4, y: 11.667 }, { x: 8, y: 13.333 }, { x: 12, y: 15 }, { x: 18, y: 12.5 }, { x: 24, y: 10 }];
+  const [l, r] = x.gableSlopes(line, 4);
+  near(l, 5, "left: 5 ft over 12, not the level bit", 1e-3);
+  near(r, 5, "right", 1e-3);
+  assert(x.gableSlopes(line, 0) === null && x.gableSlopes(line, 6) === null, "a peak at an end is no gable");
+  assert(x.framedPitch(5.08) === 5 && x.framedPitch(4.8) === 5 && x.framedPitch(4.6) === 4.6 && x.framedPitch(4.5) === 4.5, "framed");
+});
+
+test("the owner's gable square-on: 5/12, the rakes 22\" out and the eaves 24\", read back to the inch", () => {
+  const cam = phone({ at: [2.6, -6.5, 1.5], yaw: 0.05, pitch: 0.15, width: 1920, height: 1080, f: 1100 });
+  const w = gableWire([cam]);
+  const p = x.traceProposals(w, roofFrame, G.L * M, x.camerasAt([cam.photo]));
+  const r = p.roof;
+  assert(r.over === "gable", r.over);
+  near(r.pitch.slopes[0], 5, "left slope", 0.02);
+  near(r.pitch.slopes[1], 5, "right slope", 0.02);
+  assert(r.pitch.value === 5 && r.pitch.agree, JSON.stringify(r.pitch));
+  // The fascia keeps the slope however far out it is.
+  near(r.pitch.fascia[0], 5, "the fascia's left slope", 0.05);
+  near(r.pitch.fascia[1], 5, "and right", 0.05);
+  near(r.rakeOverhang.feet / M, G.rake, "rake overhang, metres", 0.004);
+  assert(r.rakeOverhang.agree, "both rakes alike");
+  near(r.eaveOverhang.left / M, G.eaveOut, "eave overhang at the left foot", 0.004);
+  near(r.eaveOverhang.right / M, G.eaveOut, "and the right", 0.004);
+  assert(r.eaveOverhang.from === "rake_foot" && r.eaveOverhang.agree, JSON.stringify(r.eaveOverhang));
+  // Read as if the fascia were on the wall, the rake would be nothing: the swelling is what is measured.
+  const flat = x.traceProposals(w, roofFrame, G.L * M, () => ({ alongM: 0, upM: 0, distanceM: 1e9 }));
+  assert(flat.roof.rakeOverhang === null || flat.roof.rakeOverhang.feet < 0.05, "no phone, no swelling");
+  // Without where the phone stood, only the pitch.
+  const blind = x.traceProposals(w, roofFrame, G.L * M);
+  assert(blind.roof.pitch.value === 5 && blind.roof.rakeOverhang === null && blind.roof.eaveOverhang === null, "the pitch alone");
+  assert(blind.roof.checks.some((c) => /phone stood .* isn't known/.test(c)), blind.roof.checks.join(" | "));
+});
+
+test("the gable from two photos side by side: each fascia point read through the phone it came from", () => {
+  const left = phone({ at: [1.2, -4.5, 1.5], yaw: -0.05, pitch: 0.3, width: 1080, height: 1440, f: 800 });
+  const right = phone({ at: [6.3, -4.5, 1.5], yaw: 0.05, pitch: 0.3, width: 1080, height: 1440, f: 800 });
+  const w = gableWire([left, right]);
+  const r = x.traceProposals(w, roofFrame, G.L * M, x.camerasAt([left.photo, right.photo])).roof;
+  near(r.rakeOverhang.feet / M, G.rake, "rake overhang", 0.004);
+  near(r.eaveOverhang.feet / M, G.eaveOut, "eave overhang", 0.004);
+  // Read all through the left phone, the right rake's points would be read wrong.
+  const one = x.traceProposals(w, roofFrame, G.L * M, x.camerasAt([left.photo])).roof;
+  assert(one.rakeOverhang === null || Math.abs(one.rakeOverhang.perSlope[1] / M - G.rake) > 0.02 || one.rakeOverhang.perSlope[1] === null, JSON.stringify(one.rakeOverhang));
+});
+
+test("a photo from the corner: the eave end at 45 degrees, the rake read off the same photo", () => {
+  // Standing past the right end, 4 m out and 3 m past, turned back to the corner: the corner shot the card asks for.
+  const corner = phone({ at: [G.L + 3, -4, 1.5], yaw: -0.65, pitch: 0.25, width: 1920, height: 1080, f: 1000 });
+  const w = gableWire([corner]);
+  const r = x.traceProposals(w, roofFrame, G.L * M, x.camerasAt([corner.photo])).roof;
+  near(r.rakeOverhang.feet / M, G.rake, "rake overhang", 0.006);
+  near(r.eaveOverhang.right / M, G.eaveOut, "eave overhang at the corner photographed", 0.006);
+});
+
+test("slopes that disagree are flagged and not ticked; a trace calling a peaked wall an eave is not believed", () => {
+  const cam = phone({ at: [2.6, -6.5, 1.5], yaw: 0.05, pitch: 0.15, width: 1920, height: 1080, f: 1100 });
+  // The right eave corner 0.35 m low: the right slope reads steeper.
+  const p = x.traceProposals(gableWire([cam], { lopsided: 0.35 }), roofFrame, G.L * M, x.camerasAt([cam.photo]));
+  assert(!p.roof.pitch.agree && p.roof.checks.some((c) => /two slopes read 5\.0 and 6\.1 on 12/.test(c)), p.roof.checks.join(" | "));
+  assert(x.roofPicksAtFirst(p.roof).pitch === false, "not ticked");
+  // The fascia, traced true, says the same: the wall top's right corner is the line that is off.
+  assert(p.roof.checks.some((c) => /fascia reads 5\.0 and 5\.0 on 12 against the wall top's 5\.0 and 6\.1/.test(c)), p.roof.checks.join(" | "));
+  const eave = gableWire([cam]);
+  eave.roof.over_wall = "eave";
+  const q = x.traceProposals(eave, roofFrame, G.L * M, x.camerasAt([cam.photo]));
+  assert(q.roof.over === null && q.roof.pitch === null && q.roof.checks.some((c) => /calls the roof over this side an eave, but the wall top it drew rises to a peak/.test(c)), q.roof.checks.join(" | "));
+});
+
+test("a rake's foot traced on the wall's own corner reads no eave, and is flagged, not ticked", () => {
+  const cam = phone({ at: [2.6, -6.5, 1.5], yaw: 0.05, pitch: 0.15, width: 1920, height: 1080, f: 1100 });
+  const w = gableWire([cam]);
+  // Both feet where the fascia's line crosses the wall's corners, as a trace mistaking the corner for the foot would put them.
+  w.roof.left_end.point = px(seenOnWall(cam, 0, gTop(0), G.rake));
+  w.roof.right_end.point = px(seenOnWall(cam, G.L, gTop(G.L), G.rake));
+  const r = x.traceProposals(w, roofFrame, G.L * M, x.camerasAt([cam.photo])).roof;
+  assert(r.eaveOverhang.feet < 0.05 && !r.eaveOverhang.agree && x.roofPicksAtFirst(r).eave === false, JSON.stringify(r.eaveOverhang));
+  assert(r.checks.some((c) => /under 4" past the wall/.test(c)), r.checks.join(" | "));
+});
+
+test("a hip's corner: as far past the wall as out from it - unless seen down its diagonal", () => {
+  const L = 10;
+  const o = 0.5;
+  for (const at of [7, 9, L + 1, 3]) {
+    const cam = phone({ at: [at, -6, 1.5], width: 4000, height: 3000, f: 1500 });
+    const seen = seenOnWall(cam, L + o, 3, o);
+    const r = x.eaveAtHipCorner(x.wallCamera(cam.photo), seen, "right", L);
+    near(r.outM, o, `the right corner from ${at} m along`, 1e-6);
+    const s2 = seenOnWall(cam, -o, 3, o);
+    near(x.eaveAtHipCorner(x.wallCamera(cam.photo), s2, "left", L).outM, o, `the left corner from ${at} m along`, 1e-6);
+  }
+  // From the corner's diagonal (6 m out, 6 m past the end) every overhang shows in one place.
+  const diag = phone({ at: [L + 6, -6, 1.5], yaw: -0.6, width: 4000, height: 3000, f: 1500 });
+  const r = x.eaveAtHipCorner(x.wallCamera(diag.photo), seenOnWall(diag, L + o, 3, o), "right", L);
+  assert(r.gain > x.HIP_CORNER_GAIN_MAX, `gain ${r.gain}`);
+});
+
+test("two slopes seen from one side tell the rake overhang from how far the fascia hangs below the soffit", () => {
+  // The phone 2.3 m right of the peak: the left slope's fascia stands 2.9 m higher above it than the right's.
+  const cam = phone({ at: [6.0, -5.4, 1.0], yaw: 0.05, pitch: 0.2, width: 3000, height: 2000, f: 1100 });
+  const wc = x.wallCamera(cam.photo);
+  const hang = 0.04;
+  /** The fascia's bottom edge: the wall top carried out to the rake and lowered by the hang, seen through the phone. */
+  const edge = (from, to) => Array.from({ length: 7 }, (_, i) => from + ((to - from) * i) / 6).map((a) => seenOnWall(cam, a, gTop(a) - hang, G.rake));
+  const at = { alongM: G.peakAt, upM: G.peak };
+  const slopes = [
+    { at, slope: G.pitch / 12, points: edge(0.2, G.peakAt - 0.4) },
+    { at, slope: -G.pitch / 12, points: edge(G.peakAt + 0.4, G.L - 0.2) },
+  ];
+  const both = x.rakeFromSlopes(slopes, () => wc, true);
+  near(both.outM, G.rake, "the rake overhang", 1e-6);
+  near(both.hangM, hang, "the hang", 1e-6);
+  // Each slope alone, taking the fascia as level with the soffit, reads short - by more on the slope nearer the phone's height.
+  assert(both.perSlope[0] < G.rake - 0.02 && both.perSlope[1] < both.perSlope[0] - 0.02, both.perSlope.join());
+  // Not asked to (lines Claude drew, not set on the photo), it takes the fascia as level.
+  const level = x.rakeFromSlopes(slopes, () => wc, false);
+  assert(level.hangM === null && Math.abs(level.outM - (both.perSlope[0] + both.perSlope[1]) / 2) < 1e-9, JSON.stringify(level));
+  // From the middle of the gable the two slopes see the hang alike, and can't tell it apart.
+  const mid = phone({ at: [G.peakAt, -5.4, 1.0], pitch: 0.2, width: 3000, height: 2000, f: 1100 });
+  const edgeMid = (from, to) => Array.from({ length: 7 }, (_, i) => from + ((to - from) * i) / 6).map((a) => seenOnWall(mid, a, gTop(a) - hang, G.rake));
+  const centred = x.rakeFromSlopes(
+    [
+      { at, slope: G.pitch / 12, points: edgeMid(0.2, G.peakAt - 0.4) },
+      { at, slope: -G.pitch / 12, points: edgeMid(G.peakAt + 0.4, G.L - 0.2) },
+    ],
+    () => x.wallCamera(mid.photo),
+    true,
+  );
+  assert(centred.hangM === null, "from the middle, no hang read");
+});
+
+test("the eave at a rake's foot leans on the rake read less the nearer the phone stood to that foot", () => {
+  const cam = phone({ at: [G.L + 0.2, -6, 1.4], yaw: 0, pitch: 0.2, width: 4000, height: 3000, f: 1500 });
+  const wc = x.wallCamera(cam.photo);
+  const footL = seenOnWall(cam, -G.eaveOut, G.eave - 0.2, G.rake);
+  const footR = seenOnWall(cam, G.L + G.eaveOut, G.eave - 0.2, G.rake);
+  near(x.eaveAtRakeFoot(wc, footL, G.rake, "left", G.L), G.eaveOut, "left, the rake right", 1e-9);
+  near(x.eaveAtRakeFoot(wc, footR, G.rake, "right", G.L), G.eaveOut, "right", 1e-9);
+  // With the rake read 2" long, the far foot reads ~2" out; the near one barely moves.
+  const off = 2 * 0.0254;
+  const farMoves = Math.abs(x.eaveAtRakeFoot(wc, footL, G.rake + off, "left", G.L) - G.eaveOut);
+  const nearMoves = Math.abs(x.eaveAtRakeFoot(wc, footR, G.rake + off, "right", G.L) - G.eaveOut);
+  assert(farMoves > 0.04 && nearMoves < 0.005 && farMoves > 10 * nearMoves, `${farMoves} ${nearMoves}`);
+  near(x.rakeFootGain(wc, footL), farMoves / off, "the gain says so", 0.02);
+});
+
+/**
+ * The owner's gable as the squared image shows it from [cam]: stucco up to the wall top, the soffit's
+ * underside over it, the fascia's white face [hang] below the soffit out at the rake, sky past it -
+ * each squared pixel's ray followed out from the wall, as the photo would show it.
+ */
+function renderGable(cam, frame, hang, fasciaM = 0.2) {
+  const wc = x.wallCamera(cam.photo);
+  const data = new Float32Array(frame.width * frame.height);
+  const grain = (i, j, amp) => amp * ((((i * 73856093) ^ (j * 19349663)) >>> 0) / 4294967295 - 0.5);
+  for (let j = 0; j < frame.height; j++) {
+    for (let i = 0; i < frame.width; i++) {
+      const p = { alongM: x.frameAlongM(frame, i + 0.5), upM: x.frameUpM(frame, j + 0.5) };
+      // Where this pixel's ray is at the fascia's face, and how high that is over the soffit there.
+      const f = x.unswell(wc, p, G.rake);
+      const overSoffit = f.upM - gTop(f.alongM);
+      let v;
+      if (f.alongM >= -G.eaveOut && f.alongM <= G.L + G.eaveOut && overSoffit >= -hang && overSoffit <= -hang + fasciaM) v = 225 + grain(i, j, 6);
+      else if (overSoffit > -hang) v = 160 + grain(i, j, 4);
+      else if (p.upM < gTop(p.alongM)) v = 60 + grain(i, j, 24);
+      else v = 95 + grain(i, j, 8);
+      data[j * frame.width + i] = v;
+    }
+  }
+  return { data, width: frame.width, height: frame.height };
+}
+
+test("Claude's roof lines set on the photo's own edges: the wall top and the fascia it drew 6-12 px off, read back to the inch", () => {
+  const cam = phone({ at: [6.0, -5.4, 1.0], yaw: -0.1, pitch: 0.2, width: 4000, height: 2400, f: 1100 });
+  const hang = 0.035;
+  const g = renderGable(cam, roofFrame, hang);
+  // A trace as Claude gives it: the wall top a little low and leaning, the fascia drawn on its face.
+  const w = gableWire([cam]);
+  const lean = (pts, dy0, dy1) => pts.map((p, i) => [p[0], p[1] + dy0 + ((dy1 - dy0) * i) / Math.max(1, pts.length - 1)]);
+  w.wall_top = lean(w.wall_top, 9, 4);
+  const fascia = (pts) => pts.map((p) => [p[0], p[1] + x.frameY(roofFrame, 0) - x.frameY(roofFrame, -hang) - 12]);
+  w.roof.rake_left = fascia(gableWire([cam]).roof.rake_left);
+  w.roof.rake_right = fascia(gableWire([cam]).roof.rake_right);
+  const raw = x.traceProposals(w, roofFrame, G.L * M, x.camerasAt([cam.photo]));
+  const s = x.snapTrace(raw, roofFrame, g, G.L * M, x.camerasAt([cam.photo]));
+  const r = s.roof;
+  assert(r.snapped && r.snapped.wallTopInches > 0.2 && r.snapped.fasciaInches > 1, JSON.stringify(r.snapped));
+  assert(r.pitch.value === 5 && Math.abs(r.pitch.slopes[0] - 5) < 0.05 && Math.abs(r.pitch.slopes[1] - 5) < 0.05, JSON.stringify(r.pitch));
+  near(s.wallTop.peak.peakFeet / M, G.peak, "the peak, snapped", 0.012);
+  near(r.rakeOverhang.feet / M, G.rake, "the rake overhang", 0.0127);
+  near(r.rakeOverhang.hangFeet / M, hang, "the hang", 0.0127);
+  near(r.eaveOverhang.feet / M, G.eaveOut, "the eave overhang", 0.0254);
+  assert(r.checks[0].startsWith("The lines were set on the photo's own edges"), r.checks[0]);
+  // As Claude drew them, the same lines read the rake inches out.
+  assert(Math.abs(raw.roof.rakeOverhang.feet / M - G.rake) > 0.04, `${raw.roof.rakeOverhang.feet / M}`);
+  // Snapping again does nothing more; a photo with no edges leaves the trace as it was.
+  assert(x.snapTrace(s, roofFrame, g, G.L * M, x.camerasAt([cam.photo])) === s, "once");
+  const blank = { data: new Float32Array(roofFrame.width * roofFrame.height).fill(128), width: roofFrame.width, height: roofFrame.height };
+  assert(x.snapTrace(raw, roofFrame, blank, G.L * M, x.camerasAt([cam.photo])) === raw, "no edges, as traced");
+});
+
+test("ticked roof reads go on the side as the photo's; one set aside is kept as set aside, and the gable then gives no pitch", () => {
+  const cam = phone({ at: [2.6, -6.5, 1.5], yaw: 0.05, pitch: 0.15, width: 1920, height: 1080, f: 1100 });
+  const p = x.traceProposals(gableWire([cam]), roofFrame, G.L * M, x.camerasAt([cam.photo]));
+  const base = side({ lengthFeet: G.L * M });
+  const yes = x.applyTrace(base, p, { shapes: [], openings: [], wallTop: true, roof: x.roofPicksAtFirst(p.roof) }, "2026-10-15T00:00:00Z");
+  assert(yes.roofRead.at === "2026-10-15T00:00:00Z" && yes.roofRead.pitch === 5 && yes.roofRead.over === "gable", JSON.stringify(yes.roofRead));
+  near(yes.roofRead.rakeOverhangFeet / M, G.rake, "rake", 0.004);
+  near(yes.roofRead.eaveOverhangFeet / M, G.eaveOut, "eave", 0.004);
+  assert(yes.pitchMeasured === 5, "the side's pitch is the photo's");
+  const no = x.applyTrace(base, p, { shapes: [], openings: [], wallTop: true, roof: { pitch: false, rake: true, eave: false, over: true } });
+  assert(no.roofRead.pitch === null && no.roofRead.eaveOverhangFeet === null && no.roofRead.rakeOverhangFeet > 0, JSON.stringify(no.roofRead));
+  assert(no.pitchMeasured === null, "set aside: no pitch from this side");
+  // Nothing of the roof ticked or unticked: the roof read is left as it was.
+  const none = x.applyTrace({ ...base, roofRead: yes.roofRead }, p, { shapes: [], openings: [], wallTop: false });
+  assert(none.roofRead === yes.roofRead, "left alone");
 });
 
 console.log("\nthe house in 3D (10-13)");
@@ -2779,6 +3123,117 @@ test("3D: the bump-out's lean-to meets the upper rear wall along a level line", 
   const b = u.outline.slice(0, u.bottomPoints);
   // 10 deep at 6/12: 5' over the floor line, all along the 16' it is against.
   near(Math.max(...b.map((p) => p.y)), 10 + 5, "the lean-to's top on the wall");
+});
+
+console.log("\nthe roof from the photos: typed, then photos, then assumed (10-15)");
+
+/** A roof read ticked off a side's photo. */
+const photoRead = (pitch, over = "gable", more = {}) => ({ at: "2026-10-15T00:00:00Z", pitch, ...(pitch === null || pitch === undefined ? {} : { slopes: [pitch, pitch] }), over, ...more });
+/** [e] with [read] on the side [id]. */
+const withRead = (e, id, read) => ({ ...e, sides: e.sides.map((s) => (s.id === id ? { ...s, roofRead: read } : s)) });
+const allScope = { roofing: true, sides: [], soffitFascia: true, eavestrough: false };
+
+test("a gable's photo fills the pitch and the overhangs, and the scope says they are from photos", () => {
+  // 40 x 30, its ridge along the 40: the left side is a gable end. Nothing typed.
+  const e = { ...withRead(rect(40, 30), "left", photoRead(5, "gable", { rakeOverhangFeet: 22 / 12, eaveOverhangFeet: 2 })), scope: allScope };
+  const q = roofOf(e);
+  assert(q.pitch.source === "photos" && q.pitch.value === 5 && q.pitch.fromPhotos[0].name === "Left", JSON.stringify(q.pitch));
+  assert(q.roofing.pitchFromPhotos && q.roofing.overhangs.rake.source === "photos" && q.roofing.overhangs.eave.source === "photos", "from photos");
+  // The same roof as typed: 5/12, 2' eaves, 1'10" rakes.
+  const typed = roofOf(rect(40, 30, { pitch: 5, eaveOverhangFeet: 2, rakeOverhangFeet: 22 / 12 }));
+  near(q.roofing.squares, typed.roofing.squares, "the same squares as typed");
+  near(q.roofing.rakeFeet, typed.roofing.rakeFeet, "and rakes");
+  near(q.roofing.soffit.rakeSquareFeet, typed.roofing.soffit.rakeSquareFeet, "soffit at the photo's rake overhang");
+  const lines = x.exteriorScopeLines(e);
+  assert(/– 5\/12 \(from photos\) –/.test(lines.roofing[0]), lines.roofing[0]);
+  assert(lines.siding.some((l) => /at 2' overhang \(from photos\).*eaves/.test(l)) && lines.siding.some((l) => /at 1'10" overhang \(from photos\).*rakes/.test(l)), lines.siding.join(" | "));
+  // As typed, nothing is said: as it always was.
+  const typedLines = x.exteriorScopeLines({ ...rect(40, 30, { pitch: 5, eaveOverhangFeet: 2, rakeOverhangFeet: 22 / 12 }), scope: allScope });
+  assert(!typedLines.roofing[0].includes("from photos") && !typedLines.siding.some((l) => l.includes("from photos")), typedLines.roofing[0]);
+});
+
+test("what is typed wins over the photos; the photos over the phone's roofline and the defaults", () => {
+  const base = withRead(rect(40, 30), "left", photoRead(5, "gable", { rakeOverhangFeet: 22 / 12, eaveOverhangFeet: 2 }));
+  // The pitch typed: 6/12, and the plan says the photo read otherwise.
+  const pitched = { ...base, roof: { ...base.roof, pitch: 6 } };
+  assert(x.exteriorPitch(pitched).source === "typed" && x.exteriorPitch(pitched).value === 6, "typed pitch");
+  assert(x.photoNotes(pitched).some((n) => /typed at 6\/12, and that is used; the photos read 5\/12 \(Left\)/.test(n)), x.photoNotes(pitched).join(" | "));
+  // An overhang typed (said so) wins; so does one off the default from before 10-15, said nothing.
+  const typedRake = { ...base, roof: { ...base.roof, rakeOverhangFeet: 1.5, overhangSource: { rake: "typed" } } };
+  const r1 = x.resolvedOverhang(typedRake, "rake");
+  assert(r1.source === "typed" && r1.feet === 1.5, JSON.stringify(r1));
+  const legacy = { ...base, roof: { ...base.roof, rakeOverhangFeet: 1.5 } };
+  assert(x.resolvedOverhang(legacy, "rake").source === "typed", "off the default and unsaid: typed");
+  // The phone's roofline gives way to the photos, and stands where there are none.
+  const scanned = { ...base, roof: { ...base.roof, rakeOverhangFeet: 0.5, overhangSource: { rake: "scan" } } };
+  near(x.resolvedOverhang(scanned, "rake").feet, 22 / 12, "photos over the phone");
+  const scanOnly = { ...rect(40, 30), roof: { ...rect(40, 30).roof, rakeOverhangFeet: 0.5, overhangSource: { rake: "scan" } } };
+  const r2 = x.resolvedOverhang(scanOnly, "rake");
+  assert(r2.source === "scan" && r2.feet === 0.5, JSON.stringify(r2));
+  assert(x.exteriorScopeLines({ ...scanOnly, scope: allScope }).siding.some((l) => /at 0'6" overhang \(read by the phone\)/.test(l)), "said as the phone's");
+  // Nothing anywhere: the defaults, unsaid.
+  const plain = x.resolvedOverhang(rect(40, 30), "eave");
+  assert(plain.source === "default" && plain.feet === x.DEFAULT_EAVE_OVERHANG_FEET, JSON.stringify(plain));
+  // An Import of Scan's roofline marks its overhangs the phone's.
+  const imported = x.parseScanExterior(fixture("scan-exterior-v2-photos.json"), { scanId: "s" }).exterior;
+  // (This file's roofline has a peak on every side: rakes only.)
+  assert(imported.roof.overhangSource?.rake === "scan" && imported.roof.overhangSource?.eave === undefined, JSON.stringify(imported.roof.overhangSource));
+});
+
+test("a gable's photo set aside gives no pitch - not even off the gable's own peak", () => {
+  // The left gable measured by hand: up 7'6" over a half-span of 15', 6/12.
+  const measured = { ...rect(40, 30), sides: rect(40, 30).sides.map((s) => (s.id === "left" ? { ...s, gable: { peakFeet: 17.5, atFeet: 15 } } : s)) };
+  assert(x.exteriorPitch(measured).source === "sides" && Math.abs(x.exteriorPitch(measured).value - 6) < 1e-9, "the measured gable's 6/12");
+  // Its photo read 5/12, ticked: the photo's, not both.
+  const ticked = withRead(measured, "left", photoRead(5));
+  assert(x.exteriorPitch(ticked).source === "photos" && x.exteriorPitch(ticked).value === 5 && x.exteriorPitch(ticked).fromSides.length === 0, JSON.stringify(x.exteriorPitch(ticked)));
+  // Set aside: nothing from that side at all - assumed.
+  const aside = withRead(measured, "left", photoRead(null));
+  assert(x.exteriorPitch(aside).source === "assumed" && x.exteriorPitch(aside).value === x.ASSUMED_PITCH, JSON.stringify(x.exteriorPitch(aside)));
+});
+
+test("gable or hip at an end of the roof: the photo of that side, unless tapped on the plan", () => {
+  const e = withRead(withRead(rect(40, 30, { pitch: 6 }), "left", photoRead(undefined, "hip")), "right", photoRead(undefined, "eave"));
+  const plan = roofOf(e).roof;
+  assert(plan.ends.find((end) => end.sideId === "left").kind === "hip" && plan.ends.find((end) => end.sideId === "right").kind === "hip", JSON.stringify(plan.ends));
+  assert([...x.endsFromPhotos(e)].sort().join() === "left,right", "both from the photos");
+  // Tapped: the plan's word.
+  const tapped = { ...e, roof: { ...e.roof, ends: { left: "gable" } } };
+  assert(roofOf(tapped).roof.ends.find((end) => end.sideId === "left").kind === "gable", "tapped back to a gable");
+  assert([...x.endsFromPhotos(tapped)].join() === "right", "only the right from the photo now");
+});
+
+test("the garage's gable photo fills the garage's own pitch; the house's gable, the house's", () => {
+  // houseAndGarage: the main roof's gable ends are over left and right, the garage wing's over its front.
+  // (The helper types 12/12 unless told: nothing typed here.)
+  const e = { ...withRead(withRead(houseAndGarage({ pitch: null }), "left", photoRead(6)), "garageFront", photoRead(4)), scope: allScope };
+  const q = roofOf(e);
+  assert(q.pitch.source === "photos" && q.pitch.value === 6, JSON.stringify(q.pitch));
+  const wing = q.roof.sections.find((s) => s.key === "wing:garageFront");
+  assert(wing && wing.pitch === 4, JSON.stringify(wing && { key: wing.key, pitch: wing.pitch }));
+  // The same roof as typed part by part.
+  const typed = roofOf(houseAndGarage({ pitch: 6, sectionPitches: { "wing:garageFront": 4 } }));
+  near(q.roofing.squares, typed.roofing.squares, "the same squares as typed");
+  near(q.roofing.valleyFeet, typed.roofing.valleyFeet, "the same valleys");
+  const line = x.exteriorScopeLines(e).roofing[0];
+  assert(/6\/12 \(from photos\) on [\d.]+ SQ, 4\/12 \(from photos\) on [\d.]+ SQ/.test(line), line);
+  // The roof's pitch typed: every part's not set apart, the garage's photo too - and said.
+  const typedRoof = { ...e, roof: { ...e.roof, pitch: 5 } };
+  assert(roofOf(typedRoof).roof.sections.every((s) => s.pitch === 5), "typed over every part");
+  assert(x.photoNotes(typedRoof).some((n) => /photos read 6\/12 \(left\), 4\/12 \(garageFront\)/.test(n)), x.photoNotes(typedRoof).join(" | "));
+  // The garage's own pitch typed: that, over its photo.
+  const typedPart = { ...e, roof: { ...e.roof, sectionPitches: { "wing:garageFront": 3 } } };
+  assert(roofOf(typedPart).roof.sections.find((s) => s.key === "wing:garageFront").pitch === 3, "the part's typed pitch");
+});
+
+test("a gable photo off a side the roof has no gable end over: used for the main roof, and said", () => {
+  const e = withRead(rect(40, 30), "front", photoRead(5));
+  assert(x.photoPitches(e).unplaced.length === 1 && x.exteriorPitch(e).value === 5, JSON.stringify(x.photoPitches(e)));
+  assert(x.photoNotes(e).some((n) => /5\/12 \(Front\): the photo shows a gable, but the roof is drawn with no gable end over that side/.test(n)), x.photoNotes(e).join(" | "));
+  // Two photos of one roof that disagree are said; two overhang reads apart, likewise.
+  const two = withRead(withRead(rect(40, 30), "left", photoRead(5, "gable", { eaveOverhangFeet: 2 })), "right", photoRead(6, "gable", { eaveOverhangFeet: 1.5 }));
+  const notes = x.photoNotes(two);
+  assert(notes.some((n) => /gables' photos read 6\/12 \(Right\), 5\/12 \(Left\)/.test(n)) && notes.some((n) => /eave overhang 1'6" \(Right\), 2' \(Left\); the roof is drawn at 1'9"/.test(n)), notes.join(" | "));
 });
 
 console.log(`\n${passed.length} passed, ${failures.length} failed`);

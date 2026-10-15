@@ -4,7 +4,9 @@ import { type KeyboardEvent, type PointerEvent, useEffect, useRef, useState } fr
 import { formatFeetInches, parseFeetInches } from "@/lib/sketch";
 import {
   DEFAULT_EAVE_FEET,
+  DEFAULT_EAVE_OVERHANG_FEET,
   DEFAULT_ELBOWS_PER_DOWNSPOUT,
+  DEFAULT_RAKE_OVERHANG_FEET,
   defaultRoof,
   type Exterior,
   type ExteriorQuantities,
@@ -12,7 +14,11 @@ import {
   FEET_PER_DOWNSPOUT,
   formatPitch,
   lShapeExterior,
+  photoNotes,
+  photoPitches,
+  photoSectionPitches,
   rectangleExterior,
+  resolvedOverhang,
   ROOF_MATERIAL_LABEL,
   ROOF_VENT_LABEL,
   type RoofingQuantities,
@@ -645,17 +651,28 @@ function SectionPitch({ exterior, plan, sectionKey, readOnly, nameOf, onUpdate }
   if (!section) return null;
   const main = sectionKey === "main";
   const own = main ? exterior.roof.pitch : (exterior.roof.sectionPitches?.[sectionKey] ?? null);
+  // Its own gable's photo, when one was read and nothing typed is set over it (2026-10-15).
+  const photo = main ? undefined : photoSectionPitches(exterior)[sectionKey];
+  const photoSides = main ? [] : (photoPitches(exterior).sections[sectionKey] ?? []);
   return (
     <div className="exterior-chosen exterior-section-pitch">
       <NumberField
         id="ext-section-pitch"
         label={`${sectionName(sectionKey, exterior, nameOf)}: pitch (rise in 12)`}
         value={own}
-        placeholder={`${Math.round(section.pitch * 100) / 100}${main ? "" : " as the roof"}`}
+        placeholder={`${Math.round(section.pitch * 100) / 100}${main ? "" : photo !== undefined ? " from photos" : " as the roof"}`}
         readOnly={readOnly}
         max={24}
         onCommit={(v) => onUpdate((x) => withSectionPitch(x, sectionKey, v))}
-        note={main ? "The roof's own pitch: every other part takes it unless given its own." : own === null ? `Blank: ${formatPitch(section.pitch)}, the same as the roof it is part of.` : `Its own pitch. Clear it to go back to the roof's.`}
+        note={
+          main
+            ? "The roof's own pitch: every other part takes it unless given its own."
+            : own !== null
+              ? `Its own pitch. Clear it to go back to ${photo !== undefined ? "its gable's photo" : "the roof's"}.`
+              : photo !== undefined
+                ? `Blank: ${formatPitch(photo)}, read off its gable's photo (${photoSides.map((r) => r.name).join(", ")}).`
+                : `Blank: ${formatPitch(section.pitch)}, the same as the roof it is part of.`
+        }
       />
     </div>
   );
@@ -972,7 +989,7 @@ export function PlanPane({
         )}
         {q.pitch.source === "assumed" && (
           <p className="exterior-assumed">
-            The roof is drawn at an assumed {formatPitch(plan.pitch)} until its pitch is typed (under The roof) or a gable peak is measured on a side.
+            The roof is drawn at an assumed {formatPitch(plan.pitch)} until its pitch is typed (under The roof), read off a gable&apos;s photo (AI trace, on the side) or a gable peak is measured on a side.
           </p>
         )}
         <RoofPlanDrawing
@@ -1081,21 +1098,58 @@ function RoofShapeFields({
           id="ext-pitch"
           label="Pitch (rise in 12)"
           value={roof.pitch}
-          placeholder={q.pitch.source !== "typed" && q.pitch.value !== null ? `${Math.round(q.pitch.value * 100) / 100}${q.pitch.source === "assumed" ? " assumed" : ""}` : ""}
+          placeholder={
+            q.pitch.source !== "typed" && q.pitch.value !== null
+              ? `${Math.round(q.pitch.value * 100) / 100}${q.pitch.source === "assumed" ? " assumed" : q.pitch.source === "photos" ? " from photos" : ""}`
+              : ""
+          }
           readOnly={readOnly}
           max={24}
           onCommit={(v) => onUpdate((x) => ({ ...x, pitch: v }))}
           note={
-            q.pitch.fromSides.length > 0
-              ? `Measured gables give ${q.pitch.fromSides.map((f) => `${formatPitch(f.pitch)} (${f.name})`).join(", ")}.${roof.pitch === null ? " Left blank, the roof uses that." : ""}`
-              : roof.pitch === null
-                ? `Nothing typed or measured, so the roof is at an assumed ${formatPitch(q.pitch.value ?? 0)}.`
-                : undefined
+            q.pitch.fromPhotos.length > 0
+              ? `Read off the gables' photos: ${q.pitch.fromPhotos.map((f) => `${formatPitch(f.value)} (${f.name})`).join(", ")}.${roof.pitch === null ? " Left blank, the roof uses that." : ""}`
+              : q.pitch.fromSides.length > 0
+                ? `Measured gables give ${q.pitch.fromSides.map((f) => `${formatPitch(f.pitch)} (${f.name})`).join(", ")}.${roof.pitch === null ? " Left blank, the roof uses that." : ""}`
+                : roof.pitch === null
+                  ? `Nothing typed or measured, so the roof is at an assumed ${formatPitch(q.pitch.value ?? 0)}.`
+                  : undefined
           }
         />
-        <FeetField id="ext-eave-oh" label="Eave overhang" value={roof.eaveOverhangFeet} readOnly={readOnly} allowZero onCommit={(v) => v !== null && onUpdate((x) => ({ ...x, eaveOverhangFeet: v }))} />
-        <FeetField id="ext-rake-oh" label="Rake overhang" value={roof.rakeOverhangFeet} readOnly={readOnly} allowZero onCommit={(v) => v !== null && onUpdate((x) => ({ ...x, rakeOverhangFeet: v }))} />
+        {(["eave", "rake"] as const).map((which) => {
+          // Typed, it is shown; else it is blank and says what the roof is drawn at, and where that came from (2026-10-15).
+          const o = resolvedOverhang(exterior, which);
+          const from = o.source === "photos" ? `from photos` : o.source === "scan" ? "read by the phone" : "default";
+          return (
+            <FeetField
+              key={which}
+              id={`ext-${which}-oh`}
+              label={which === "eave" ? "Eave overhang" : "Rake overhang"}
+              value={o.source === "typed" ? o.feet : null}
+              placeholder={o.source === "typed" ? "" : `${formatFeetInches(o.feet)} ${from}`}
+              readOnly={readOnly}
+              allowZero
+              nullable
+              note={o.source === "photos" ? `Read off ${o.reads.map((r) => `${formatFeetInches(r.value)} (${r.name})`).join(", ")}.` : undefined}
+              onCommit={(v) =>
+                onUpdate((x) => {
+                  const source = { ...x.overhangSource };
+                  // Cleared: not typed any more - the photos', the phone's or the default again.
+                  if (v === null) delete source[which];
+                  else source[which] = "typed";
+                  const feet = v ?? (which === "eave" ? DEFAULT_EAVE_OVERHANG_FEET : DEFAULT_RAKE_OVERHANG_FEET);
+                  return which === "eave" ? { ...x, eaveOverhangFeet: feet, overhangSource: source } : { ...x, rakeOverhangFeet: feet, overhangSource: source };
+                })
+              }
+            />
+          );
+        })}
       </div>
+      {photoNotes(exterior).map((n) => (
+        <p key={n} className="field-note">
+          {n}
+        </p>
+      ))}
       {(plan.shape === "rectangle" || plan.shape === "wings") && (
         <label className="exterior-field" htmlFor="ext-ridge">
           <span className="exterior-field-label">{plan.shape === "rectangle" ? "Ridge runs" : "Main roof"}</span>
@@ -1581,8 +1635,8 @@ function RoofFigures({ r }: { r: RoofingQuantities }) {
     [
       "Pitch",
       r.byPitch.length > 1
-        ? `${r.byPitch.map((b) => `${formatPitch(b.pitch)}${b.assumed ? " assumed" : ""} on ${b.squares.toFixed(2)} SQ`).join(", ")}${r.steepBands.length > 0 ? `; steep ${r.steepBands.map((b) => `${b.band} on ${b.squares.toFixed(2)} SQ`).join(", ")}` : ""}`
-        : `${formatPitch(r.pitch)}${r.pitchAssumed ? " assumed" : ""} (factor ${r.pitchFactor.toFixed(3)})${r.steep ? `, steep ${r.steep}` : ""}`,
+        ? `${r.byPitch.map((b) => `${formatPitch(b.pitch)}${b.assumed ? " assumed" : b.fromPhotos ? " from photos" : ""} on ${b.squares.toFixed(2)} SQ`).join(", ")}${r.steepBands.length > 0 ? `; steep ${r.steepBands.map((b) => `${b.band} on ${b.squares.toFixed(2)} SQ`).join(", ")}` : ""}`
+        : `${formatPitch(r.pitch)}${r.pitchAssumed ? " assumed" : r.pitchFromPhotos ? " from photos" : ""} (factor ${r.pitchFactor.toFixed(3)})${r.steep ? `, steep ${r.steep}` : ""}`,
     ],
     ...(r.drawn
       ? [["Slopes being roofed", r.slopes.length === 0 ? "the whole roof" : r.allSlopes ? `all: ${r.slopes.map((s) => s.label).join(", ")}` : chosen.map((s) => s.label).join(", ") || "none"] as [string, string]]

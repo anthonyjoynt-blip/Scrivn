@@ -2,9 +2,10 @@
 
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { formatFeetInches } from "@/lib/sketch";
-import { CLADDING_KINDS, CLADDING_LABEL, type ExteriorOpeningKind, type ExteriorShape, type ExteriorSide, formatOpeningSize, OPENING_LABEL, type RoofRise, type SidePhoto } from "@/lib/exterior";
+import { CLADDING_KINDS, CLADDING_LABEL, type ExteriorOpeningKind, type ExteriorShape, type ExteriorSide, formatOpeningSize, formatPitch, OPENING_LABEL, type RoofRise, type SidePhoto } from "@/lib/exterior";
 import { fillOutside, type PhotoPixels, squareFrame, type SquareFrame, squareUp } from "@/lib/exteriorPhoto";
-import { applyTrace, type SideTrace, type TraceProposals, type TraceRequest, type TraceResponse } from "@/lib/exteriorTrace";
+import { applyTrace, type RoofPicks, roofPicksAtFirst, type SideTrace, snapTrace, type TraceProposals, type TraceRequest, type TraceResponse } from "@/lib/exteriorTrace";
+import { camerasAt, grayOf, type ProposedRoof } from "@/lib/roofPhotoRead";
 import { formatQuantity } from "@/lib/sketchQuantities";
 import { ElevationDrawing, type ElevationReach, type ElevationView } from "./exteriorDrawings";
 import { setTraceAside, useSideTrace, waitForSignalToTrace } from "@/lib/aiJobs";
@@ -63,8 +64,8 @@ interface Squared {
   frame: SquareFrame;
   url: string;
   blob: Blob;
-  /** How many of the side's photos were found and laid in. */
-  used: number;
+  /** The side's photos that were found and laid in, in the order the image was made from them: the trace reads the roof through where each phone stood. */
+  used: SidePhoto[];
 }
 
 /** Squared images by what they were squared from; a side visited again is not squared again. */
@@ -85,7 +86,7 @@ async function squareSide(photos: SidePhoto[], frame: SquareFrame): Promise<Squa
 }
 
 /** A side's photos fetched and squared into [frame]: clear where none of them shows the wall. */
-async function squaredPixels(photos: SidePhoto[], frame: SquareFrame): Promise<{ rgba: Uint8ClampedArray; used: number }> {
+async function squaredPixels(photos: SidePhoto[], frame: SquareFrame): Promise<{ rgba: Uint8ClampedArray; used: SidePhoto[] }> {
   const sources: { photo: SidePhoto; pixels: PhotoPixels }[] = [];
   for (const photo of photos) {
     if (!photo.scanId) continue;
@@ -99,7 +100,7 @@ async function squaredPixels(photos: SidePhoto[], frame: SquareFrame): Promise<{
     sources.push({ photo, pixels });
   }
   if (sources.length === 0) throw new Error("The photo has not reached Scrivn yet: the phone sends it after the scan. Try again in a minute.");
-  return { rgba: squareUp(sources, frame), used: sources.length };
+  return { rgba: squareUp(sources, frame), used: sources.map((s) => s.photo) };
 }
 
 /** Squared images for the 3D view, by what they were squared from. */
@@ -182,6 +183,29 @@ function inViewLine(photos: SidePhoto[]): string {
   return `${n} of this side; the ${list.length === 1 ? list[0] : `${list.slice(0, -1).join(", ")} and ${list[list.length - 1]}`} ${list.length === 1 ? "is" : "are"} out of ${photos.length === 1 ? "it" : "them"}.`;
 }
 
+/**
+ * A trace's roof lines set on the squared photo's own edges (lib/exteriorTrace.ts `snapTrace`): the
+ * image Claude was sent, decoded again, and where each of the side's phones stood. Any failure leaves
+ * the trace as Claude gave it.
+ */
+async function snapped(answer: TraceResponse, squared: Squared, lengthFeet: number): Promise<TraceResponse> {
+  try {
+    const bitmap = await createImageBitmap(squared.blob);
+    const canvas = document.createElement("canvas");
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return answer;
+    ctx.drawImage(bitmap, 0, 0);
+    bitmap.close();
+    const { data, width, height } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const g = grayOf({ data, width, height, channels: 4 });
+    return { ...answer, proposals: snapTrace(answer.proposals, squared.frame, g, lengthFeet, camerasAt(squared.used)) };
+  } catch {
+    return answer;
+  }
+}
+
 function blobBase64(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -191,13 +215,20 @@ function blobBase64(blob: Blob): Promise<string> {
   });
 }
 
-type Picks = { shapes: Record<string, { on: boolean; kind: ExteriorShape["kind"] }>; openings: Record<string, { on: boolean; kind: ExteriorOpeningKind }>; wallTop: boolean };
+type Picks = {
+  shapes: Record<string, { on: boolean; kind: ExteriorShape["kind"] }>;
+  openings: Record<string, { on: boolean; kind: ExteriorOpeningKind }>;
+  wallTop: boolean;
+  /** The roof's reads (2026-10-15): each that holds together starts ticked, one flagged starts not. */
+  roof: RoofPicks;
+};
 
 function allPicked(p: TraceProposals): Picks {
   return {
     shapes: Object.fromEntries(p.shapes.map((s) => [s.key, { on: true, kind: s.kind }])),
     openings: Object.fromEntries(p.openings.map((o) => [o.key, { on: true, kind: o.kind }])),
     wallTop: p.wallTop !== null,
+    roof: roofPicksAtFirst(p.roof),
   };
 }
 
@@ -234,6 +265,25 @@ function traceOverlay(p: TraceProposals, picks: Picks): ReactNode {
         />
       ))}
       {p.wallTop && <polyline points={pts(p.wallTop.line)} fill="none" stroke="#155e75" strokeWidth={picks.wallTop ? 2.5 : 1} strokeDasharray="8 4" {...stroke} />}
+      {p.roof && roofOverlay(p.roof)}
+    </g>
+  );
+}
+
+const ROOF_EDGE = "#c2410c";
+
+/** The roof's edge as the trace drew it - where it shows, bigger than the wall, since it stands out from it - and where it ends. */
+function roofOverlay(r: ProposedRoof): ReactNode {
+  const pts = (poly: { x: number; y: number }[]) => poly.map((q) => `${q.x},${-q.y}`).join(" ");
+  const stroke = { vectorEffect: "non-scaling-stroke" as const };
+  return (
+    <g>
+      {[r.lines.rakeLeft, r.lines.rakeRight, r.lines.eave]
+        .filter((l) => l.length > 1)
+        .map((l, i) => (
+          <polyline key={`edge-${i}`} points={pts(l)} fill="none" stroke={ROOF_EDGE} strokeWidth={1.8} strokeDasharray="3 3" {...stroke} />
+        ))}
+      {[r.lines.leftEnd, r.lines.rightEnd].map((e, i) => (e ? <circle key={`end-${i}`} cx={e.x} cy={-e.y} r={0.35} fill="none" stroke={ROOF_EDGE} strokeWidth={1.8} {...stroke} /> : null))}
     </g>
   );
 }
@@ -245,8 +295,9 @@ function reachOf(boxes: (ElevationReach | null)[]): ElevationReach | undefined {
 }
 
 function proposalsReach(p: TraceProposals): ElevationReach | null {
-  const xs = [...p.shapes.flatMap((s) => s.polygon.map((q) => q.x)), ...p.openings.flatMap((o) => [o.fromLeftFeet, o.fromLeftFeet + o.widthFeet]), ...(p.wallTop?.line.map((q) => q.x) ?? [])];
-  const ys = [...p.shapes.flatMap((s) => s.polygon.map((q) => q.y)), ...p.openings.map((o) => o.sillFeet + o.heightFeet), ...(p.wallTop?.line.map((q) => q.y) ?? [])];
+  const edge = p.roof ? [...p.roof.lines.rakeLeft, ...p.roof.lines.rakeRight, ...p.roof.lines.eave] : [];
+  const xs = [...p.shapes.flatMap((s) => s.polygon.map((q) => q.x)), ...p.openings.flatMap((o) => [o.fromLeftFeet, o.fromLeftFeet + o.widthFeet]), ...(p.wallTop?.line.map((q) => q.x) ?? []), ...edge.map((q) => q.x)];
+  const ys = [...p.shapes.flatMap((s) => s.polygon.map((q) => q.y)), ...p.openings.map((o) => o.sillFeet + o.heightFeet), ...(p.wallTop?.line.map((q) => q.y) ?? []), ...edge.map((q) => q.y)];
   if (xs.length === 0) return null;
   return { minX: Math.min(...xs), maxX: Math.max(...xs), minZ: Math.min(...ys), maxZ: Math.max(...ys) };
 }
@@ -318,7 +369,9 @@ export function SideElevation({
     comes back — now, or the next time this side is on screen.
   */
   const waitingTrace = useSideTrace(side.id, (job) => {
-    if (job.result) onTrace({ ...job.result, at: new Date().toISOString() });
+    const result = job.result;
+    // Its roof lines set on the photo's edges, when the photo is squared by now; as Claude gave them if not.
+    if (result) void (squared ? snapped(result, squared, side.lengthFeet) : Promise.resolve(result)).then((r) => onTrace({ ...r, at: new Date().toISOString() }));
     else if (job.error) setError(job.error);
   });
 
@@ -339,6 +392,7 @@ export function SideElevation({
           leftEndInPhoto: photos.some((p) => p.inView?.leftEnd !== false),
           rightEndInPhoto: photos.some((p) => p.inView?.rightEnd !== false),
         },
+        photos: squared.used.map((p) => ({ toPhoto: p.toPhoto, camera: p.camera })),
       };
       const r = await netFetch("/api/exterior/trace", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), timeoutMs: 330_000 });
       const answer = (await r.json().catch(() => ({}))) as Partial<TraceResponse> & { error?: string };
@@ -346,7 +400,7 @@ export function SideElevation({
         setError(answer.error ?? `The trace did not come back (${r.status}).`);
         return;
       }
-      onTrace({ ...(answer as TraceResponse), at: new Date().toISOString() });
+      onTrace({ ...(await snapped(answer as TraceResponse, squared, side.lengthFeet)), at: new Date().toISOString() });
     } catch (err) {
       if (body && isNetworkFailure(err)) await waitForSignalToTrace(side.id, body);
       else setError(err instanceof Error ? err.message : "The trace did not come back.");
@@ -361,6 +415,7 @@ export function SideElevation({
       shapes: trace.proposals.shapes.filter((s) => picks.shapes[s.key]?.on).map((s) => ({ key: s.key, kind: picks.shapes[s.key]?.kind ?? s.kind })),
       openings: trace.proposals.openings.filter((o) => picks.openings[o.key]?.on).map((o) => ({ key: o.key, kind: picks.openings[o.key]?.kind ?? o.kind })),
       wallTop: picks.wallTop,
+      roof: picks.roof,
     };
     onUpdate((s) => applyTrace(s, trace.proposals, chosen));
     onTrace(undefined);
@@ -400,7 +455,7 @@ export function SideElevation({
                     className="btn-secondary"
                     disabled={!squared || busy || waitingTrace.waiting}
                     onClick={runTrace}
-                    title="One Claude call: the side's shapes, openings and wall top, for you to tick"
+                    title="One Claude call: the side's shapes, openings, wall top and roof edge, for you to tick"
                   >
                     {busy || waitingTrace.running ? "Tracing…" : waitingTrace.waiting ? "Waiting for signal…" : trace ? "AI trace again" : "AI trace"}
                   </button>
@@ -424,15 +479,100 @@ export function SideElevation({
         </div>
       )}
       {trace && picks && !readOnly && <TracePanel trace={trace} picks={picks} onPicks={setPicks} onUse={use} onDiscard={() => onTrace(undefined)} />}
+      {!trace && <RoofReadLine side={side} readOnly={readOnly} onUpdate={onUpdate} />}
     </>
   );
 }
 
-function TracePanel({ trace, picks, onPicks, onUse, onDiscard }: { trace: SideTrace; picks: Picks; onPicks: (p: Picks) => void; onUse: () => void; onDiscard: () => void }) {
+/** The roof as ticked off this side's photo (2026-10-15), with a way to set it aside later. Nothing when none is ticked. */
+function RoofReadLine({ side, readOnly, onUpdate }: { side: ExteriorSide; readOnly: boolean; onUpdate: (f: (side: ExteriorSide) => ExteriorSide) => void }) {
+  const r = side.roofRead;
+  if (!r) return null;
+  const parts = [
+    typeof r.pitch === "number" ? `pitch ${formatPitch(r.pitch)}` : null,
+    typeof r.rakeOverhangFeet === "number" ? `rake overhang ${formatFeetInches(r.rakeOverhangFeet)}` : null,
+    typeof r.eaveOverhangFeet === "number" ? `eave overhang ${formatFeetInches(r.eaveOverhangFeet)}` : null,
+    r.over ? OVER_LABEL[r.over] : null,
+  ].filter((p): p is string => p !== null);
+  if (parts.length === 0) return null;
+  // Set aside: each read kept as set aside (null), so the gable gives no pitch off its peak either - as unticking it does.
+  const setAside = () =>
+    onUpdate((s) => {
+      const read = s.roofRead;
+      if (!read) return s;
+      const next = { ...read };
+      if (next.pitch !== undefined) next.pitch = null;
+      if (next.rakeOverhangFeet !== undefined) next.rakeOverhangFeet = null;
+      if (next.eaveOverhangFeet !== undefined) next.eaveOverhangFeet = null;
+      if (next.over !== undefined) next.over = null;
+      return { ...s, roofRead: next, pitchMeasured: read.pitch !== undefined ? null : s.pitchMeasured };
+    });
+  return (
+    <div className="exterior-photo-controls">
+      <p className="field-note">Read off this side&apos;s photo for the roof: {parts.join(", ")}.</p>
+      {!readOnly && (
+        <button type="button" className="btn-secondary" onClick={setAside}>
+          Set the roof read aside
+        </button>
+      )}
+    </div>
+  );
+}
+
+const OVER_LABEL = { gable: "a gable end", hip: "a hip end", eave: "an eave along it" } as const;
+
+/** The roof's reads off the photo, each with its own tick (2026-10-15, lib/roofPhotoRead.ts). */
+function RoofReads({ roof, picks, onPicks }: { roof: ProposedRoof; picks: RoofPicks; onPicks: (p: RoofPicks) => void }) {
+  const row = (key: keyof RoofPicks, label: string, note: string) => (
+    <div className="exterior-row" key={key}>
+      <input type="checkbox" aria-label={`Use the ${label.toLowerCase()} read off the photo`} checked={picks[key] === true} onChange={() => onPicks({ ...picks, [key]: picks[key] !== true })} />
+      <span className="exterior-row-label">{label}</span>
+      <span className="exterior-row-note">{note}</span>
+    </div>
+  );
+  const ft = (v: number | null) => (v === null ? "–" : formatFeetInches(v));
+  const { pitch, rakeOverhang: rake, eaveOverhang: eave } = roof;
+  // Claude's own fascia line, a second look - until the lines are set on the photo's edges, where it is parallel by then.
+  const fascia = pitch?.fascia && !roof.snapped ? `; the fascia ${pitch.fascia.map((s) => (s === null ? "–" : s.toFixed(1))).join(" and ")}` : "";
+  const any = roof.over || pitch || rake || eave;
+  return (
+    <>
+      <h4 className="exterior-subhead">The roof, off the photo</h4>
+      {any && (
+        <div className="exterior-rows">
+          {roof.over && row("over", "Roof over it", OVER_LABEL[roof.over])}
+          {pitch && row("pitch", "Pitch", `${formatPitch(pitch.value)} – the slopes read ${pitch.slopes[0].toFixed(1)} and ${pitch.slopes[1].toFixed(1)} on 12${fascia}`)}
+          {rake &&
+            row(
+              "rake",
+              "Rake overhang",
+              rake.hangFeet !== null
+                ? `${formatFeetInches(rake.feet)} – out to the fascia's face, read off both slopes together; the fascia hangs ${Math.round(rake.hangFeet * 12)}" below the soffit`
+                : `${formatFeetInches(rake.feet)} – ${ft(rake.perSlope[0])} and ${ft(rake.perSlope[1])} on the two slopes, the fascia taken as level with the soffit`,
+            )}
+          {eave &&
+            row(
+              "eave",
+              "Eave overhang",
+              `${formatFeetInches(eave.feet)} – ${ft(eave.left)} at the left end, ${ft(eave.right)} at the right, ${eave.from === "rake_foot" ? "where the rakes come down" : "at the hip's corners"}`,
+            )}
+        </div>
+      )}
+      {roof.checks.map((c) => (
+        <p key={c} className="field-note">
+          {c}
+        </p>
+      ))}
+      {roof.notes && <p className="field-note">On the roof, the trace says: {roof.notes}</p>}
+    </>
+  );
+}
+
+function TracePanel({ trace, picks, onPicks, onUse, onDiscard }:{ trace: SideTrace; picks: Picks; onPicks: (p: Picks) => void; onUse: () => void; onDiscard: () => void }) {
   const p = trace.proposals;
   const sf = (v: number) => `${formatQuantity(v)} SF`;
   const top = p.wallTop;
-  const anything = Object.values(picks.shapes).some((s) => s.on) || Object.values(picks.openings).some((o) => o.on) || picks.wallTop;
+  const anything = Object.values(picks.shapes).some((s) => s.on) || Object.values(picks.openings).some((o) => o.on) || picks.wallTop || Object.keys(picks.roof).length > 0;
   const topLine = top
     ? [
         top.eaveLeftFeet !== null ? `${formatFeetInches(top.eaveLeftFeet)} at the left end` : null,
@@ -503,7 +643,11 @@ function TracePanel({ trace, picks, onPicks, onUse, onDiscard }: { trace: SideTr
       ))}
       {p.offWall.length > 0 && <p className="field-note">In front of the wall, not traced (orange): {p.offWall.map((b) => b.what).join("; ")}.</p>}
       {p.notes && <p className="field-note">The trace&apos;s own notes: {p.notes}</p>}
-      <p className="field-note">Ticked shapes replace the side&apos;s shapes, and ticked openings its openings; the wall top sets the eaves, and the peak and pitch when it has one.</p>
+      {p.roof && <RoofReads roof={p.roof} picks={picks.roof} onPicks={(roof) => onPicks({ ...picks, roof })} />}
+      <p className="field-note">
+        Ticked shapes replace the side&apos;s shapes, and ticked openings its openings; the wall top sets the eaves, and the peak when it has one. Ticked roof reads fill the roof as &ldquo;from
+        photos&rdquo;: anything typed on the roof wins over them, and they win over what is assumed.
+      </p>
       <div className="exterior-photo-controls">
         <button type="button" className="btn-primary" disabled={!anything} onClick={onUse}>
           Put the ticked ones on this side

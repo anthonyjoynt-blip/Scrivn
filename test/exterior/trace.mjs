@@ -15,6 +15,9 @@
  *   * the eaves at each end and the gable's peak within 2", and both slopes alike
  *   * stucco and parging as shapes, the stucco's area within 3%
  *   * the AC unit standing in front of the wall boxed as such, not traced as wall
+ *   * the roof (2026-10-15): a gable whose fascia stands 0.55 m out and hangs 1" below the soffit,
+ *     the eave returning 0.5 m past each corner - read, once the editor has set the lines on the
+ *     photo's edges (snapTrace), as 5/12, the rake overhang within 1" and the eave within 1.5"
  *
  * SCRIVN_BASE_URL points it at another server; SCRIVN_TRACE_SAVE=<folder> keeps the photo, the
  * squared image and the answer for a look.
@@ -37,7 +40,16 @@ async function load() {
   const outDir = mkdtempSync(join(tmpdir(), "exterior-trace-"));
   const entry = join(outDir, "entry.ts");
   const outfile = join(outDir, "entry.mjs");
-  writeFileSync(entry, [`export * from "${lib("exteriorImport.ts")}";`, `export * from "${lib("exteriorPhoto.ts")}";`, `export * from "${lib("exterior.ts")}";`].join("\n"));
+  writeFileSync(
+    entry,
+    [
+      `export * from "${lib("exteriorImport.ts")}";`,
+      `export * from "${lib("exteriorPhoto.ts")}";`,
+      `export * from "${lib("exterior.ts")}";`,
+      `export { snapTrace } from "${lib("exteriorTrace.ts")}";`,
+      `export { camerasAt, grayOf } from "${lib("roofPhotoRead.ts")}";`,
+    ].join("\n"),
+  );
   await build({ entryPoints: [entry], bundle: true, format: "esm", platform: "node", outfile, alias: { "@": root }, logLevel: "silent" });
   const mod = await import(pathToFileURL(outfile).href);
   rmSync(outDir, { recursive: true, force: true });
@@ -59,6 +71,8 @@ const WINDOW = { a0: 1.3, a1: 2.5, u0: 1.0, u1: 2.4, trim: 0.08 };
 const DOOR = { a0: 5.6, a1: 6.6, u0: PARGING, u1: 2.55, trim: 0.07 };
 /** In front of the wall: 0.15 to 0.85 m out from it. */
 const AC = { a0: 6.9, a1: 7.7, out0: 0.15, out1: 0.85, u1: 0.85 };
+/** The roof's edge, in 3D: the rake 0.55 m out, the eave 0.5 m past each corner, the fascia 0.18 m deep and hanging 1" below the soffit. */
+const ROOF = { rake: 0.55, eave: 0.5, fascia: 0.18, hang: 0.0254, depth: 12 };
 
 /** The wall top over x: the eave at both ends, rising to the peak; the rakes run on past the ends. */
 function wallTop(a) {
@@ -85,11 +99,7 @@ const SKY = [150, 190, 232];
 /** The colour of the wall's plane at (a, u). */
 function wallColour(a, u) {
   const top = wallTop(a);
-  if (a < -0.45 || a > L + 0.45) return SKY;
-  if (u > top + 0.55) return SKY;
-  if (u > top + 0.38) return [58, 58, 64]; // the shingles' edge
-  if (u > top) return u > top + 0.3 ? [245, 245, 242] : [232, 232, 228]; // fascia and soffit
-  if (a < 0 || a > L) return SKY;
+  if (u > top || a < 0 || a > L) return SKY;
   const inside = (r, m = 0) => a >= r.a0 + m && a <= r.a1 - m && u >= r.u0 + (r === DOOR ? 0 : m) && u <= r.u1 - m;
   if (inside(WINDOW)) {
     if (!inside(WINDOW, WINDOW.trim)) return [246, 246, 246];
@@ -112,7 +122,8 @@ function wallColour(a, u) {
 // The phone: 7.5 m out, off to the left of the middle, turned right and tipped up
 // ---------------------------------------------------------------------------------------------
 
-const CAM = { at: [3.0, -7.5, 1.6], yaw: 0.22, pitch: 0.17, width: 1920, height: 1080, f: 1250 };
+// Off to the left of the peak, so the two rakes stand differently high above it and tell the fascia's hang from its overhang.
+const CAM = { at: [1.6, -7.5, 1.6], yaw: 0.33, pitch: 0.17, width: 1920, height: 1080, f: 1250 };
 const fwd = [Math.sin(CAM.yaw) * Math.cos(CAM.pitch), Math.cos(CAM.yaw) * Math.cos(CAM.pitch), Math.sin(CAM.pitch)];
 const right = [Math.cos(CAM.yaw), -Math.sin(CAM.yaw), 0];
 const down = [fwd[1] * right[2] - fwd[2] * right[1], fwd[2] * right[0] - fwd[0] * right[2], fwd[0] * right[1] - fwd[1] * right[0]];
@@ -132,7 +143,52 @@ function toPhoto() {
   return H.map((v) => v / H[8]);
 }
 
-/** The photo: each pixel's ray meets the AC unit, the ground or the wall's plane, whichever is nearest. */
+/**
+ * Where a ray from [C] along [d] meets the roof's edge, nearest first: the rake's fascia face, the
+ * soffit under the rake, and past each corner the eave's fascia and soffit running back along the
+ * house. Null when it meets none of them.
+ */
+function roofHit(C, d) {
+  const s = (PEAK.up - EAVE) / PEAK.along;
+  const at = (t) => [C[0] + t * d[0], C[1] + t * d[1], C[2] + t * d[2]];
+  const hits = [];
+  // The rake's fascia: the face out at the rake, from below the soffit by the hang to the fascia's depth above that.
+  if (Math.abs(d[1]) > 1e-12) {
+    const t = (-ROOF.rake - C[1]) / d[1];
+    const [a, , u] = at(t);
+    const bottom = wallTop(a) - ROOF.hang;
+    if (t > 0 && a >= -ROOF.eave && a <= L + ROOF.eave && u >= bottom && u <= bottom + ROOF.fascia) hits.push({ t, colour: [240, 240, 236] });
+  }
+  // The soffit under each rake: level going out, at the wall top's height.
+  for (const [k, side] of [
+    [s, -1],
+    [-s, 1],
+  ]) {
+    // u = EAVE + s a (left) or u = PEAK.up - s (a - PEAK.along) (right): u - k a = c.
+    const c = k > 0 ? EAVE : PEAK.up + s * PEAK.along;
+    const den = d[2] - k * d[0];
+    if (Math.abs(den) < 1e-12) continue;
+    const t = (c + k * C[0] - C[2]) / den;
+    const [a, y] = at(t);
+    const onSide = side < 0 ? a >= -ROOF.eave && a <= PEAK.along : a >= PEAK.along && a <= L + ROOF.eave;
+    if (t > 0 && onSide && y >= -ROOF.rake && y <= 0) hits.push({ t, colour: [196, 198, 196] });
+  }
+  // Past each corner: the eave's fascia face and its soffit, running back from the rake along the house.
+  for (const x of [-ROOF.eave, L + ROOF.eave]) {
+    if (Math.abs(d[0]) < 1e-12) continue;
+    const t = (x - C[0]) / d[0];
+    const [, y, u] = at(t);
+    if (t > 0 && y >= -ROOF.rake && y <= ROOF.depth && u >= EAVE - ROOF.hang && u <= EAVE - ROOF.hang + ROOF.fascia) hits.push({ t, colour: [240, 240, 236] });
+  }
+  if (Math.abs(d[2]) > 1e-12) {
+    const t = (EAVE - C[2]) / d[2];
+    const [a, y] = at(t);
+    if (t > 0 && y >= -ROOF.rake && y <= ROOF.depth && ((a >= -ROOF.eave && a <= 0) || (a >= L && a <= L + ROOF.eave))) hits.push({ t, colour: [196, 198, 196] });
+  }
+  return hits.sort((p, q) => p.t - q.t)[0] ?? null;
+}
+
+/** The photo: each pixel's ray meets the AC unit, the ground, the roof's edge or the wall, whichever is nearest. */
 function shoot() {
   const { width: W, height: H } = CAM;
   const data = Buffer.alloc(W * H * 3);
@@ -144,8 +200,16 @@ function shoot() {
       let best = Infinity;
       const tw = d[1] > 0 ? -C[1] / d[1] : Infinity;
       if (tw < best) {
-        best = tw;
-        colour = wallColour(C[0] + tw * d[0], C[2] + tw * d[2]);
+        const c = wallColour(C[0] + tw * d[0], C[2] + tw * d[2]);
+        if (c !== SKY) {
+          best = tw;
+          colour = c;
+        }
+      }
+      const roof = roofHit(C, d);
+      if (roof && roof.t < best) {
+        best = roof.t;
+        colour = roof.colour;
       }
       const tg = d[2] < 0 ? -C[2] / d[2] : Infinity;
       if (tg < best) {
@@ -249,6 +313,8 @@ const body = {
   image: squared.toString("base64"),
   frame,
   side: { name: side.name, lengthM: side.lengthFeet / M, bottomLeftM: side.baseLeftFeet / M, bottomRightM: side.baseRightFeet / M, leftEndInPhoto: true, rightEndInPhoto: true },
+  // As the editor sends it: the photos the image was squared from, for where the phone stood.
+  photos: side.photos.map((ph) => ({ toPhoto: ph.toPhoto, camera: ph.camera })),
 };
 let response;
 try {
@@ -308,6 +374,30 @@ check(p.shapes.some((s) => s.kind === "parging"), "the parging traced as parging
 check(p.offWall.some((b) => /\b(ac|a\/c|air|condens|hvac|unit)\b/i.test(b.what)), `the AC unit in front of the wall: ${p.offWall.map((b) => b.what).join("; ") || "nothing boxed"}`);
 if (p.checks.length) console.log(`  checks: ${p.checks.join(" ")}`);
 if (p.notes) console.log(`  its notes: ${p.notes}`);
+
+// The roof: as the route reads it, and as the editor reads it once the lines are set on the photo's edges.
+const ftIn = (feet) => (feet === null || feet === undefined ? "-" : `${(feet * 12).toFixed(1)}"`);
+const roofLine = (r) =>
+  r
+    ? `${r.over ?? "?"}; pitch ${r.pitch ? `${r.pitch.value}/12 (${r.pitch.slopes.map((v) => v.toFixed(2)).join(", ")})` : "-"}; rake ${ftIn(r.rakeOverhang?.feet)}${r.rakeOverhang?.hangFeet != null ? ` (hang ${ftIn(r.rakeOverhang.hangFeet)})` : ""}; eave ${ftIn(r.eaveOverhang?.feet)}; ends ${r.ends.left} / ${r.ends.right}`
+    : "none";
+console.log(`  roof, as traced: ${roofLine(p.roof)}`);
+const g = x.grayOf({ ...(await sharp(squared).raw().toBuffer({ resolveWithObject: true }).then(({ data, info }) => ({ data, width: info.width, height: info.height, channels: info.channels }))) });
+const snapped = x.snapTrace(p, frame, g, side.lengthFeet, x.camerasAt(side.photos)).roof;
+console.log(`  roof, set on the photo's edges: ${roofLine(snapped)}`);
+if (snapped?.checks.length) console.log(`  roof checks: ${snapped.checks.join(" ")}`);
+if (snapped?.notes) console.log(`  its roof notes: ${snapped.notes}`);
+const pitch12 = ((PEAK.up - EAVE) / PEAK.along) * 12;
+check(snapped?.over === "gable", `the roof over the side: a gable (${snapped?.over})`);
+check(snapped?.snapped !== null && snapped?.snapped !== undefined, "the lines set on the photo's own edges");
+check(snapped?.pitch?.value === Math.round(pitch12) && snapped.pitch.slopes.every((v) => Math.abs(v - pitch12) <= 0.15), `pitch ${pitch12.toFixed(1)}/12, each slope within 0.15: ${snapped?.pitch?.slopes.map((v) => v.toFixed(2)).join(", ")}`);
+const rakeOff = snapped?.rakeOverhang ? inches(snapped.rakeOverhang.feet / M - ROOF.rake) : NaN;
+check(Math.abs(rakeOff) <= 1, `the rake overhang within 1": ${rakeOff >= 0 ? "+" : ""}${rakeOff.toFixed(1)}"`);
+// The eave at the rakes' feet: within 1.5", or - where Claude puts a foot off it - flagged and left unticked, never ticked wrong.
+const eaveOff = snapped?.eaveOverhang ? inches(snapped.eaveOverhang.feet / M - ROOF.eave) : NaN;
+const eaveRight = Math.abs(eaveOff) <= 1.5;
+const eaveFlagged = snapped?.eaveOverhang ? !snapped.eaveOverhang.agree : false;
+check(eaveRight || eaveFlagged, `the eave overhang within 1.5", or flagged: ${eaveOff >= 0 ? "+" : ""}${eaveOff.toFixed(1)}"${eaveFlagged ? " (flagged, not ticked)" : ""}`);
 
 console.log(`\n${failures.length === 0 ? "all held" : `${failures.length} did not hold`}`);
 if (failures.length > 0) process.exit(1);

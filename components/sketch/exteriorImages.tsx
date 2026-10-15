@@ -154,7 +154,7 @@ function roofSvg(exterior: Exterior): { svg: string; width: number; height: numb
     `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${height}" viewBox="0 0 ${WIDTH} ${height}">`,
     `<rect width="${WIDTH}" height="${height}" fill="#ffffff"/>`,
     label(40, 44, "Roof plan", 30, 700),
-    label(40, 78, `${r.byPitch.length > 1 ? r.byPitch.map((b) => `${formatPitch(b.pitch)}${b.assumed ? " (assumed)" : ""}`).join(" and ") : `${formatPitch(r.pitch)}${r.pitchAssumed ? " (assumed)" : ""}`} · ${which} · ${formatQuantity(r.areaSquareFeet)} SF (${r.squares.toFixed(2)} SQ${r.from.squareFeet === "estimator" ? ", from the estimator" : ""}) · to scale, front at the bottom`, 20),
+    label(40, 78, `${r.byPitch.length > 1 ? r.byPitch.map((b) => `${formatPitch(b.pitch)}${b.assumed ? " (assumed)" : b.fromPhotos ? " (from photos)" : ""}`).join(" and ") : `${formatPitch(r.pitch)}${r.pitchAssumed ? " (assumed)" : r.pitchFromPhotos ? " (from photos)" : ""}`} · ${which} · ${formatQuantity(r.areaSquareFeet)} SF (${r.squares.toFixed(2)} SQ${r.from.squareFeet === "estimator" ? ", from the estimator" : ""}) · to scale, front at the bottom`, 20),
     `<g transform="translate(40 ${top})">${drawing}</g>`,
     legend,
     slopeList ? label(40, legendY + 40, `Slopes: ${slopeList}`, 18) : "",

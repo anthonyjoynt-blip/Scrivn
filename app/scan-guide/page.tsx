@@ -785,6 +785,14 @@ export default async function ScanGuidePage() {
                     <Q>Photo 1 of Front kept · the whole side is in it</Q>. Where two roofs meet is worth a photo too.
                   </li>
                   <li>
+                    <strong>On a gable end</strong>, take one photo facing the wall straight on, from two or three steps to one side of
+                    the peak, the peak and both slopes of the roof edge in view: Scrivn reads the roof&apos;s pitch and how far the rake
+                    stands out from it. Then, once for the
+                    house, at a corner where the roof edge ends plainly (not over a porch, a deck or a lower roof), step out past the corner
+                    and take one more from the gable side at about 45&deg;, the end of the roof edge near the middle of the screen: that
+                    gives the eave overhang. The first photo of a gable shows a card that says so.
+                  </li>
+                  <li>
                     <B>Next side</B>, and walk round to it, either way round the house. If the side you are leaving has no photo, it reminds
                     you once: <Q>No photo of Front yet · step back so all of it is in view and press Photo – or Next side again</Q>. Then
                     the new side&apos;s two bottom corners: <Q>Next side – tap its two bottom corners, 1-3 m from the wall.</Q>
@@ -852,14 +860,16 @@ export default async function ScanGuidePage() {
                 face-on and to scale, with its cladding areas before and after openings, trim and corners.
               </li>
               <li>
-                <strong>The roof</strong> is built from the footprint. With no pitch typed, and no gable tapped up to its peak to give
-                one, it is drawn at an <strong>assumed 4/12</strong>, marked assumed on the plan, the scope and the documents until you
-                change it. Gable or hip at each end, porches, cross gables and lower roofs are set there, and every roof line has its
+                <strong>The roof</strong> is built from the footprint. With no pitch typed, read off a gable&apos;s photo or tapped up
+                to a gable&apos;s peak, it is drawn at an <strong>assumed 4/12</strong>, marked assumed on the plan, the scope and the
+                documents until you change it. Gable or hip at each end, porches, cross gables and lower roofs are set there, and every roof line has its
                 length. It is a roof estimate from the footprint and pitch, not an aerial roof report.
               </li>
               <li>
                 Each side&apos;s photo is squared up behind its elevation. <strong>AI trace</strong> reads the cladding, windows and
-                doors off it for you to tick and put on the side.
+                doors off it for you to tick and put on the side, and the roof&apos;s edge: a gable&apos;s pitch from its two slopes,
+                how far the rake and the eave stand out, and whether the roof is a gable or a hip there. Each is its own tick; what you
+                tick fills the roof <strong>from photos</strong>, and anything you type wins over it.
               </li>
               <li>There is a 3D view of the house, siding and roof.</li>
               <li>
