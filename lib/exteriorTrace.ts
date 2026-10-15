@@ -400,11 +400,11 @@ export interface TracePicks {
   roof?: RoofPicks;
 }
 
-/** What starts ticked: every read that holds together - a pitch whose slopes agree, an overhang read alike both ways. */
+/** What starts ticked: every read that holds together - a pitch whose slopes agree on a whole pitch, an overhang read alike both ways. */
 export function roofPicksAtFirst(roof: ProposedRoof | null | undefined): RoofPicks {
   if (!roof) return {};
   const picks: RoofPicks = {};
-  if (roof.pitch) picks.pitch = roof.pitch.agree;
+  if (roof.pitch) picks.pitch = roof.pitch.agree && roof.pitch.onWhole !== false;
   if (roof.rakeOverhang) picks.rake = roof.rakeOverhang.agree;
   if (roof.eaveOverhang) picks.eave = roof.eaveOverhang.agree;
   if (roof.over) picks.over = true;

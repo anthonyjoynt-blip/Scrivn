@@ -190,6 +190,8 @@ export function gableSlopes(line: readonly Pt[], peak: number): [number, number]
   return gableRuns(line, peak)?.slopes ?? null;
 }
 
+const formatTenth = (v: number) => (Math.round(v * 10) / 10).toString();
+
 /** A pitch as a roof is framed: the whole one within 1/4, else to a tenth. */
 export function framedPitch(pitch: number): number {
   const whole = Math.round(pitch);
@@ -535,8 +537,10 @@ export interface ProposedRoof {
     slopes: [number, number];
     /** The same two slopes off the fascia as Claude traced it, a second look; null where it was not traced. */
     fascia: [number | null, number | null] | null;
-    /** Both slopes within 1/2 in 12 of each other: ticked to start with. */
+    /** Both slopes within 1/2 in 12 of each other. */
     agree: boolean;
+    /** Within 1/4 of a whole pitch, as roofs are framed. With `agree`, ticked to start with. */
+    onWhole: boolean;
   } | null;
   rakeOverhang: {
     feet: number;
@@ -638,9 +642,14 @@ export function readRoofLines(lines: RoofLines, lengthM: number, wallTop: WallTo
     const fl = fasciaSlope(traced.rakeLeft, 1);
     const fr = fasciaSlope(traced.rakeRight, -1);
     const agree = Math.abs(l - r) <= SLOPES_AGREE_IN_12;
-    pitch = { value: framedPitch(read), read, slopes: [l, r], fascia: fl === null && fr === null ? null : [fl, fr], agree };
-    if (agree) checks.push(`Both slopes of the gable read ${l.toFixed(1)} and ${r.toFixed(1)} on 12: ${pitch.value}/12.`);
-    else {
+    const onWhole = Math.abs(read - Math.round(read)) <= WHOLE_PITCH_WITHIN;
+    pitch = { value: framedPitch(read), read, slopes: [l, r], fascia: fl === null && fr === null ? null : [fl, fr], agree, onWhole };
+    if (agree && onWhole) checks.push(`Both slopes of the gable read ${l.toFixed(1)} and ${r.toFixed(1)} on 12: ${pitch.value}/12.`);
+    else if (agree) {
+      checks.push(
+        `The gable's slopes read ${l.toFixed(1)} and ${r.toFixed(1)} on 12, ${read.toFixed(1)} between them: roofs are framed to whole pitches, and this falls between ${Math.floor(read)}/12 and ${Math.ceil(read)}/12, so one slope is likely off. Check the photo, or type the pitch; tick it only if this roof really is ${formatTenth(read)}/12.`,
+      );
+    } else {
       checks.push(
         `The gable's two slopes read ${l.toFixed(1)} and ${r.toFixed(1)} on 12. A gable's are alike, so the photo is off square or the peak is misplaced: take the gable again, straight out from the middle of the wall, or tick the pitch only if this roof's slopes really differ.`,
       );

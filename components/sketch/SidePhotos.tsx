@@ -451,7 +451,7 @@ export function SideElevation({
                     className="btn-secondary"
                     disabled={!squared || busy || waitingTrace.waiting}
                     onClick={runTrace}
-                    title="One Claude call: the side's shapes, openings and wall top, for you to tick"
+                    title="One Claude call: the side's shapes, openings, wall top and roof edge, for you to tick"
                   >
                     {busy || waitingTrace.running ? "Tracing…" : waitingTrace.waiting ? "Waiting for signal…" : trace ? "AI trace again" : "AI trace"}
                   </button>
@@ -475,7 +475,43 @@ export function SideElevation({
         </div>
       )}
       {trace && picks && !readOnly && <TracePanel trace={trace} picks={picks} onPicks={setPicks} onUse={use} onDiscard={() => onTrace(undefined)} />}
+      {!trace && <RoofReadLine side={side} readOnly={readOnly} onUpdate={onUpdate} />}
     </>
+  );
+}
+
+/** The roof as ticked off this side's photo (2026-10-15), with a way to set it aside later. Nothing when none is ticked. */
+function RoofReadLine({ side, readOnly, onUpdate }: { side: ExteriorSide; readOnly: boolean; onUpdate: (f: (side: ExteriorSide) => ExteriorSide) => void }) {
+  const r = side.roofRead;
+  if (!r) return null;
+  const parts = [
+    typeof r.pitch === "number" ? `pitch ${formatPitch(r.pitch)}` : null,
+    typeof r.rakeOverhangFeet === "number" ? `rake overhang ${formatFeetInches(r.rakeOverhangFeet)}` : null,
+    typeof r.eaveOverhangFeet === "number" ? `eave overhang ${formatFeetInches(r.eaveOverhangFeet)}` : null,
+    r.over ? OVER_LABEL[r.over] : null,
+  ].filter((p): p is string => p !== null);
+  if (parts.length === 0) return null;
+  // Set aside: each read kept as set aside (null), so the gable gives no pitch off its peak either - as unticking it does.
+  const setAside = () =>
+    onUpdate((s) => {
+      const read = s.roofRead;
+      if (!read) return s;
+      const next = { ...read };
+      if (next.pitch !== undefined) next.pitch = null;
+      if (next.rakeOverhangFeet !== undefined) next.rakeOverhangFeet = null;
+      if (next.eaveOverhangFeet !== undefined) next.eaveOverhangFeet = null;
+      if (next.over !== undefined) next.over = null;
+      return { ...s, roofRead: next, pitchMeasured: read.pitch !== undefined ? null : s.pitchMeasured };
+    });
+  return (
+    <div className="exterior-photo-controls">
+      <p className="field-note">Read off this side&apos;s photo for the roof: {parts.join(", ")}.</p>
+      {!readOnly && (
+        <button type="button" className="btn-secondary" onClick={setAside}>
+          Set the roof read aside
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -492,7 +528,8 @@ function RoofReads({ roof, picks, onPicks }: { roof: ProposedRoof; picks: RoofPi
   );
   const ft = (v: number | null) => (v === null ? "–" : formatFeetInches(v));
   const { pitch, rakeOverhang: rake, eaveOverhang: eave } = roof;
-  const fascia = pitch?.fascia ? `; the fascia ${pitch.fascia.map((s) => (s === null ? "–" : s.toFixed(1))).join(" and ")}` : "";
+  // Claude's own fascia line, a second look - until the lines are set on the photo's edges, where it is parallel by then.
+  const fascia = pitch?.fascia && !roof.snapped ? `; the fascia ${pitch.fascia.map((s) => (s === null ? "–" : s.toFixed(1))).join(" and ")}` : "";
   const any = roof.over || pitch || rake || eave;
   return (
     <>

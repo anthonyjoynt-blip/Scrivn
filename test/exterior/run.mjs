@@ -1727,7 +1727,9 @@ test("the wall top gives the eaves, the peak and both slopes - and says when the
   // 1.5 m over 4 m: 4.5 in 12 each way. Whether they agree is the roof read's to say (10-15).
   near(p.wallTop.slopes[0], 4.5, "left slope", 1e-9);
   near(p.wallTop.slopes[1], 4.5, "right slope", 1e-9);
-  assert(p.roof.checks.some((c) => /Both slopes of the gable read 4\.5 and 4\.5 on 12: 4\.5\/12/.test(c)), p.roof.checks.join(" | "));
+  // 4.5 is no whole pitch: said, and not ticked to start with.
+  assert(p.roof.checks.some((c) => /slopes read 4\.5 and 4\.5 on 12, 4\.5 between them: .*between 4\/12 and 5\/12/.test(c)), p.roof.checks.join(" | "));
+  assert(p.roof.pitch.agree && !p.roof.pitch.onWhole && x.roofPicksAtFirst(p.roof).pitch === false, JSON.stringify(p.roof.pitch));
   const lopsided = x.traceProposals({ ...wire, wall_top: [[100, 300], [500, 150], [900, 260]] }, traceFrame, 8 * M);
   assert(lopsided.roof.checks.some((c) => /two slopes read 4\.5 and 3\.3 on 12/.test(c)), lopsided.roof.checks.join(" | "));
   const leaning = x.traceProposals({ ...wire, wall_top: [[100, 300], [900, 280]] }, traceFrame, 8 * M);
@@ -1741,8 +1743,8 @@ test("ticked proposals go on the side; what is not ticked stays as the phone tap
     shapes: p.shapes.map((s) => ({ key: s.key, kind: s.kind })),
     openings: [{ key: p.openings[0].key, kind: "window" }, { key: p.openings[1].key, kind: "garage" }],
     wallTop: true,
-    // The pitch is its own tick since 10-15: the slopes agree, so it starts ticked.
-    roof: x.roofPicksAtFirst(p.roof),
+    // The pitch is its own tick since 10-15 (4.5 starts unticked: no whole pitch), ticked here.
+    roof: { ...x.roofPicksAtFirst(p.roof), pitch: true },
   });
   assert(all.shapes.length === 2 && all.shapes.every((s) => s.closed && s.id), "the two shapes, closed");
   assert(all.openings.length === 2 && all.openings[1].kind === "garage", "two openings");
