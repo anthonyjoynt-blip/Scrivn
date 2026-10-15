@@ -25,11 +25,17 @@ const scanAssets = resolve(root, "..", "ARCapturePrototype", "android", "app", "
 const outDir = outArg >= 0 ? resolve(args[outArg + 1]) : scanAssets;
 const FILE = "scrivn-exterior.js";
 
-/** The commit the engine is built from, and whether the tree has changes past it. */
+/** What the engine is built from: lib, the drawings and the packages' versions. */
+const SOURCES = "lib components/sketch/exteriorDrawings.tsx package-lock.json";
+
+/**
+ * The last commit that changed what the engine is built from, and whether the tree has changes past it: the same name for
+ * the same engine, whatever else is committed after it.
+ */
 function commit() {
   try {
-    const sha = execSync("git rev-parse --short HEAD", { cwd: root }).toString().trim();
-    const dirty = execSync("git status --porcelain -- lib components/sketch/exteriorDrawings.tsx", { cwd: root }).toString().trim() !== "";
+    const sha = execSync(`git log -1 --format=%h -- ${SOURCES}`, { cwd: root }).toString().trim();
+    const dirty = execSync(`git status --porcelain -- ${SOURCES}`, { cwd: root }).toString().trim() !== "";
     return `${sha}${dirty ? "+" : ""}`;
   } catch {
     return "unknown";
