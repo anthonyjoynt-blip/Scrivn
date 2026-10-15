@@ -49,10 +49,10 @@ Ticking what is in scope doesn't count as a change.
 | `corners[]` | `outside: false` makes an inside corner. It belongs to side `from` when walking right, side `to` when walking left. Missing means outside. |
 | `walk` | ring order (above) |
 | `closed` | when false, there's a note, and no footprint or roof is built until the estimator works on the sides: six sides of a house with some missed can add up to four corners by chance |
-| `scale` | a note when it isn't 1 (already applied by Scan) |
+| `scale`, `taped` | `exterior.scale` (lib/exteriorScale.ts): the sizes are from the tape on side `taped.side` (`taped.metres`), the phone's own read of it being the tape over `scale` (already applied by Scan); from the phone's own measure when there is no tape. The editor says which, and flags the two more than 3% apart. |
 | `capture_id` | kept on `exterior.source` |
 | `roof` (optional) | `pitch_in_12` (or `pitch_12`), `eave_overhang_m`, `rake_overhang_m`; these win over the roofline's overhangs |
-| `footprint`, `footprint_xy`, `links`, `taps`, `frame`, `taped` | not read. Scrivn rebuilds the footprint from `length_m` and the corner flags, squared to 90°, and shares any closing gap over the sides by length. |
+| `footprint`, `footprint_xy`, `links`, `taps`, `frame` | not read. Scrivn rebuilds the footprint from `length_m` and the corner flags, squared to 90°, and shares any closing gap over the sides by length. |
 
 ## A side
 

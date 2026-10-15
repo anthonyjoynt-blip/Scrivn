@@ -27,6 +27,7 @@ import {
   type Exterior,
   type ExteriorOpening,
   type ExteriorOpeningKind,
+  type ExteriorScale,
   type ExteriorShape,
   type ExteriorSide,
   type SidePhoto,
@@ -167,6 +168,8 @@ export function parseScanExterior(input: unknown, meta: { scanId?: string | null
   }
 
   const sides: ExteriorSide[] = [];
+  /** Each side's id by Scan's index for it: what its tape names. */
+  const idByIndex = new Map<number, string>();
   const unmeasured: string[] = [];
   const disagree: string[] = [];
   const uneven: string[] = [];
@@ -315,6 +318,7 @@ export function parseScanExterior(input: unknown, meta: { scanId?: string | null
       ...(photos.length > 0 ? { photos } : {}),
     };
     sides.push(side);
+    idByIndex.set(num(raw.index) ?? i, side.id);
     const covered = sideQuantities(side).bands.reduce((sum, b) => sum + (b.overlapSquareFeet ?? 0), 0);
     if (covered > 1) overlapping.push(`${name} (${Math.round(covered)} SF)`);
 
@@ -336,8 +340,22 @@ export function parseScanExterior(input: unknown, meta: { scanId?: string | null
 
   const closed = part.closed === true;
   notes.push(`Exterior imported: ${sides.length} side${sides.length === 1 ? "" : "s"} measured on the phone${closed ? "" : ", but the walk did not go all the way round, so there is no footprint or roof until the rest are put in"}.`);
-  const scale = num(part.scale);
-  if (scale !== null && Math.abs(scale - 1) > 0.0005) notes.push(`Scaled to a tape by the phone (x${scale.toFixed(3)}).`);
+  /*
+    The tape (2026-10-15, lib/exteriorScale.ts): Scan has already scaled every length and height by
+    it, so the sizes arrive FROM the tape, and the phone's own read of the side is the tape over the
+    scale. The editor says so, and flags the two more than 3% apart.
+  */
+  const rawScale = num(part.scale);
+  const factor = rawScale !== null && rawScale > 0.5 && rawScale < 2 ? rawScale : 1;
+  const taped = isObject(part.taped) ? part.taped : null;
+  const tapedId = taped ? idByIndex.get(num(taped.side) ?? -1) : undefined;
+  const tapedM = taped ? num(taped.metres) : null;
+  const scale: ExteriorScale =
+    tapedId !== undefined && tapedM !== null && tapedM > 0
+      ? { from: "tape", factor, tape: { sideId: tapedId, feet: tapedM * FEET_PER_METRE, phoneFeet: (tapedM / factor) * FEET_PER_METRE, by: "scan" } }
+      : Math.abs(factor - 1) > 0.0005
+        ? { from: "tape", factor }
+        : { from: "phone", factor: 1 };
   if (unmeasured.length > 0) notes.push(`No eave was tapped on ${unmeasured.join(", ")}: put it in to count that side.`);
   if (uneven.length > 0) notes.push(`The two eave taps differ on ${uneven.join(", ")}; the eave is level, so the two are averaged.`);
   if (open.length > 0) notes.push(`A shape left open is drawn but not counted: ${open.join(", ")}.`);
@@ -427,7 +445,7 @@ export function parseScanExterior(input: unknown, meta: { scanId?: string | null
   const captureId = typeof part.capture_id === "string" ? part.capture_id : isObject(outer) && typeof outer.capture_id === "string" ? outer.capture_id : null;
   return {
     ok: true,
-    exterior: { sides, roof, source: { kind: "scan", captureId, scanId: meta.scanId ?? null, receivedAt: meta.receivedAt ?? null, notes, ...(closed ? {} : { walkClosed: false }) } },
+    exterior: { sides, roof, scale, source: { kind: "scan", captureId, scanId: meta.scanId ?? null, receivedAt: meta.receivedAt ?? null, notes, ...(closed ? {} : { walkClosed: false }) } },
     notes,
   };
 }

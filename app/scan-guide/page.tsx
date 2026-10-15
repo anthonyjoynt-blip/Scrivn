@@ -782,7 +782,13 @@ export default async function ScanGuidePage() {
                     <B>Photo</B>: step back until the whole side is on the screen, both ends, the bottom and the roof edge over it, hold
                     still and press it. The first press shows how; press again to take it. Turn the phone on its side for a wide wall. A
                     side too long or too tight for one photo takes two or three, each of a part. The line says what is out of frame:{" "}
-                    <Q>Photo 1 of Front kept · the whole side is in it</Q>. Where two roofs meet is worth a photo too.
+                    <Q>Photo 1 of Front kept · the whole side is in it</Q>, and what to retake:{" "}
+                    <Q>the ends of the roof edge are cut off – step back a little</Q>. Where two roofs meet is worth a photo too.
+                  </li>
+                  <li>
+                    <strong>Long-press Photo</strong> for the list of photos the house still needs, ticked off as they come in: every
+                    side whole, each gable square-on, one eave corner, each outside corner where a hip may be, and a tape or a door for
+                    the sizes.
                   </li>
                   <li>
                     <strong>On a gable end</strong>, take one photo facing the wall straight on, from two or three steps to one side of
@@ -793,8 +799,8 @@ export default async function ScanGuidePage() {
                     gives the eave overhang. The first photo of a gable shows a card that says so.
                   </li>
                   <li>
-                    <B>Next side</B>, and walk round to it, either way round the house. If the side you are leaving has no photo, it reminds
-                    you once: <Q>No photo of Front yet · step back so all of it is in view and press Photo – or Next side again</Q>. Then
+                    <B>Next side</B>, and walk round to it, either way round the house. If the side you are leaving is missing a photo, it
+                    reminds you once, with what is missing: <Q>No photo of Front yet · step back so all of it is in view and press Photo – or Next side again</Q>. Then
                     the new side&apos;s two bottom corners: <Q>Next side – tap its two bottom corners, 1-3 m from the wall.</Q>
                   </li>
                 </ol>
@@ -834,7 +840,8 @@ export default async function ScanGuidePage() {
                   <li>
                     <strong>Tape one side</strong>, the longest you can run a tape along, corner to corner at the bottom. On the plan, tap
                     that side&apos;s length and type it: <Q>Every length and height on every side scales to it.</Q> One tape scales the
-                    whole house.
+                    whole house. The plan says where the sizes come from, the phone&apos;s own measure or the tape, and says so when
+                    the tape is more than 3% from the phone: check the tape, and that side&apos;s two bottom corners.
                   </li>
                   <li>
                     <strong>If tracking drops</strong> it asks for a bottom corner again: <Q>Tracking restarted – tap the Front&apos;s left
@@ -842,7 +849,8 @@ export default async function ScanGuidePage() {
                     bottom corner too, then <Q>Linked – go on.</Q>
                   </li>
                   <li>
-                    <B>Stop</B>, then <B>Send</B>: the exterior goes into a claim with its photos, no storey asked:{" "}
+                    <B>Stop</B>, then <B>Send</B>. With photos still missing, Stop says which, once: <B>Take them</B> or{" "}
+                    <B>Stop anyway</B>. The exterior goes into a claim with its photos, no storey asked:{" "}
                     <Q>Sent to Scrivn: the exterior (4 sides) as a new claim</Q>. <B>Share</B> makes plans of rooms only, so an exterior
                     goes to Scrivn by Send.
                   </li>
@@ -870,6 +878,11 @@ export default async function ScanGuidePage() {
                 doors off it for you to tick and put on the side, and the roof&apos;s edge: a gable&apos;s pitch from its two slopes,
                 how far the rake and the eave stand out, and whether the roof is a gable or a hip there. Each is its own tick; what you
                 tick fills the roof <strong>from photos</strong>, and anything you type wins over it.
+              </li>
+              <li>
+                <strong>Sizes</strong>, on Plan &amp; roof, says what the sizes are from: the phone&apos;s own measure, the tape, or a
+                garage door or door of a standard size that AI trace found (tick it there as a check). Two of them more than 3% apart
+                are flagged, and a tap takes the sizes from another; a tape can be typed there too.
               </li>
               <li>There is a 3D view of the house, siding and roof.</li>
               <li>

@@ -70,9 +70,11 @@ export const TRACE_SCHEMA: Record<string, unknown> = {
           top: { type: "number" },
           bottom: { type: "number" },
           measured_to: { type: "string", enum: ["outer_trim", "frame", "door_itself"] },
+          // A door's leaf, the slab that swings (2026-10-15): a door of a standard size is a check on the house's sizes (lib/exteriorScale.ts).
+          leaf: POINT,
           partly_hidden_by: { type: "string" },
         },
-        required: ["kind", "left", "right", "top", "bottom", "measured_to", "partly_hidden_by"],
+        required: ["kind", "left", "right", "top", "bottom", "measured_to", "leaf", "partly_hidden_by"],
         additionalProperties: false,
       },
     },
@@ -107,10 +109,10 @@ export const TRACE_SCHEMA: Record<string, unknown> = {
   additionalProperties: false,
 };
 
-/** What the call answers, in the squared image's pixels. `roof` is absent from an answer given before 2026-10-15. */
+/** What the call answers, in the squared image's pixels. `roof` and a door's `leaf` are absent from an answer given before 2026-10-15. */
 export interface TraceWire {
   materials: { material: string; polygon: number[][]; partly_hidden_by: string }[];
-  openings: { kind: string; left: number; right: number; top: number; bottom: number; measured_to: string; partly_hidden_by: string }[];
+  openings: { kind: string; left: number; right: number; top: number; bottom: number; measured_to: string; leaf?: number[]; partly_hidden_by: string }[];
   wall_top: number[][];
   off_wall: { what: string; box: number[] }[];
   roof?: RoofWire;
@@ -151,7 +153,7 @@ Scale: ${frame.ppm.toFixed(1)} pixels per metre, the same across and up.
 
 Trace, in pixels:
 1. materials: each cladding material on this wall as a closed polygon (corners in order, not repeating the first). Include parging (the cement coat over the foundation) down to the ground. If a material runs on past the wall's ends (over a covered deck, up a gable), follow it. Say what hides any part of it, or "" when nothing does.
-2. openings: every window, door, patio door and garage door on this wall. A window or door: to the outer edge of its trim, or of its frame where it has no trim; say which. A garage door: the door itself - the panels that move, from their bottom edge to their top edge and side to side - never the trim, jamb or stucco surround framing it; its measured_to is "door_itself".
+2. openings: every window, door, patio door and garage door on this wall. A window or door: to the outer edge of its trim, or of its frame where it has no trim; say which. A garage door: the door itself - the panels that move, from their bottom edge to their top edge and side to side - never the trim, jamb or stucco surround framing it; its measured_to is "door_itself". For a door (not a patio door or a garage door) also give leaf: the door leaf itself - the slab that swings, from its hinge edge to its latch edge and from its bottom edge to its top edge, inside the frame and its stops, sidelights left out - as [x0, y0, x1, y1]; [] for every other opening, and for a door whose leaf you cannot see whole.
 3. wall_top: the line where the wall's cladding meets the soffit, left to right, including any gable peak, as a polyline.
 4. off_wall: everything in front of the wall that hides part of it, as boxes [x0, y0, x1, y1].
 5. roof: the roof's edge over this wall. The fascia and the soffit stand out in front of the wall, so they show larger than the wall and set off from it: trace them where they show in this image, and the code works out how far out they stand.
@@ -189,6 +191,21 @@ export interface ProposedOpening {
   heightFeet: number;
   measuredTo: string;
   hiddenBy: string;
+  /**
+   * The opening whole as traced, in the side's feet, before it is cut at the side's ends and level
+   * (2026-10-15): a garage door's size check reads this. Absent from a trace made before then.
+   */
+  box?: FeetBox;
+  /** A door's leaf, the slab that swings, as traced: its size check. Null for any other opening; absent from a trace made before 2026-10-15. */
+  leaf?: FeetBox | null;
+}
+
+/** A box on the side, feet along from its left end and up from its level. */
+export interface FeetBox {
+  x0: number;
+  x1: number;
+  y0: number;
+  y1: number;
 }
 
 export interface ProposedWallTop {
@@ -234,6 +251,13 @@ function openingKind(kind: string): ExteriorOpeningKind {
   return kind === "garage_door" ? "garage" : kind === "door" || kind === "patio_door" ? "door" : "window";
 }
 
+/** [box] when it lies inside [outer], give or take 3": a door's leaf inside the door. Null otherwise. */
+function insideOf(box: FeetBox | null, outer: FeetBox): FeetBox | null {
+  const grace = 3 / 12;
+  if (!box) return null;
+  return box.x0 >= outer.x0 - grace && box.x1 <= outer.x1 + grace && box.y0 >= outer.y0 - grace && box.y1 <= outer.y1 + grace ? box : null;
+}
+
 /** The line's height at x, where it reaches x (a few inches' grace at its ends). */
 function heightAt(line: Pt[], x: number): number | null {
   if (line.length === 0) return null;
@@ -270,13 +294,22 @@ export function traceProposals(wire: TraceWire, frame: SquareFrame, lengthFeet: 
 
   const openings: ProposedOpening[] = [];
   const below: string[] = [];
+  /** A box [x0, y0, x1, y1] in pixels as feet on the side, or null when it is not one: [] for a leaf not given. */
+  const feetBox = (left: unknown, top: unknown, right: unknown, bottom: unknown): FeetBox | null => {
+    if (![left, top, right, bottom].every((v) => typeof v === "number" && Number.isFinite(v))) return null;
+    const [l, t, r, b] = [left, top, right, bottom] as number[] as [number, number, number, number];
+    const box = {
+      x0: frameAlongM(frame, Math.min(l, r)) * FEET_PER_METRE,
+      x1: frameAlongM(frame, Math.max(l, r)) * FEET_PER_METRE,
+      y0: frameUpM(frame, Math.max(t, b)) * FEET_PER_METRE,
+      y1: frameUpM(frame, Math.min(t, b)) * FEET_PER_METRE,
+    };
+    return box.x1 - box.x0 < 1 / 12 || box.y1 - box.y0 < 1 / 12 ? null : box;
+  };
   (wire.openings ?? []).forEach((o, i) => {
-    if (![o.left, o.right, o.top, o.bottom].every((v) => typeof v === "number" && Number.isFinite(v))) return;
-    const x0 = frameAlongM(frame, Math.min(o.left, o.right)) * FEET_PER_METRE;
-    const x1 = frameAlongM(frame, Math.max(o.left, o.right)) * FEET_PER_METRE;
-    const y0 = frameUpM(frame, Math.max(o.top, o.bottom)) * FEET_PER_METRE;
-    const y1 = frameUpM(frame, Math.min(o.top, o.bottom)) * FEET_PER_METRE;
-    if (x1 - x0 < 1 / 12 || y1 - y0 < 1 / 12) return;
+    const box = feetBox(o.left, o.top, o.right, o.bottom);
+    if (!box) return;
+    const { x0, x1, y0, y1 } = box;
     // As Scan's own openings are read in (lib/exteriorImport.ts): from the left end, from the level, neither below zero.
     const fromLeftFeet = Math.max(0, x0);
     const widthFeet = x1 - fromLeftFeet;
@@ -296,6 +329,9 @@ export function traceProposals(wire: TraceWire, frame: SquareFrame, lengthFeet: 
       heightFeet: y1 - sillFeet,
       measuredTo: String(o.measured_to).replace(/_/g, " "),
       hiddenBy: (o.partly_hidden_by ?? "").trim(),
+      box,
+      // Only a door's, and only one inside the door as traced (a few inches' grace): anything else is not its leaf.
+      leaf: o.kind === "door" && Array.isArray(o.leaf) && o.leaf.length === 4 ? insideOf(feetBox(o.leaf[0], o.leaf[1], o.leaf[2], o.leaf[3]), box) : null,
     });
   });
 
@@ -496,6 +532,11 @@ export interface TraceRequest {
    * overhangs are read through (2026-10-15). Absent from an older editor: the pitch is still read.
    */
   photos?: Pick<SidePhoto, "toPhoto" | "camera">[];
+  /**
+   * The house's scale when the trace was asked for (lib/exteriorScale.ts): a trace that waited for a
+   * signal while the house was scaled again is in the old sizes, and is set aside. The route ignores it.
+   */
+  scaleAt?: number;
 }
 
 export interface TraceResponse {
@@ -509,4 +550,6 @@ export interface TraceResponse {
 /** A trace kept against a side until it is used or set aside. */
 export interface SideTrace extends TraceResponse {
   at: string;
+  /** The house's scale it was traced at (2026-10-15): one traced before the house was scaled again is in the old sizes. */
+  scaleAt?: number;
 }

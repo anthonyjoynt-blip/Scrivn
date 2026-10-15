@@ -5,6 +5,7 @@ import { formatFeetInches } from "@/lib/sketch";
 import { CLADDING_KINDS, CLADDING_LABEL, type ExteriorOpeningKind, type ExteriorShape, type ExteriorSide, formatOpeningSize, formatPitch, OPENING_LABEL, type RoofRise, type SidePhoto } from "@/lib/exterior";
 import { fillOutside, type PhotoPixels, squareFrame, type SquareFrame, squareUp } from "@/lib/exteriorPhoto";
 import { applyTrace, type RoofPicks, roofPicksAtFirst, type SideTrace, snapTrace, type TraceProposals, type TraceRequest, type TraceResponse } from "@/lib/exteriorTrace";
+import { type DoorCandidate, doorCandidates, doorLabel, withSizeDoors } from "@/lib/exteriorScale";
 import { camerasAt, grayOf, type ProposedRoof } from "@/lib/roofPhotoRead";
 import { formatQuantity } from "@/lib/sketchQuantities";
 import { ElevationDrawing, type ElevationReach, type ElevationView } from "./exteriorDrawings";
@@ -221,14 +222,17 @@ type Picks = {
   wallTop: boolean;
   /** The roof's reads (2026-10-15): each that holds together starts ticked, one flagged starts not. */
   roof: RoofPicks;
+  /** Doors kept as size checks (2026-10-15, lib/exteriorScale.ts), each with the size it is taken for: an index into its matches. */
+  doors: Record<string, { on: boolean; size: number }>;
 };
 
-function allPicked(p: TraceProposals): Picks {
+function allPicked(p: TraceProposals, doors: DoorCandidate[]): Picks {
   return {
     shapes: Object.fromEntries(p.shapes.map((s) => [s.key, { on: true, kind: s.kind }])),
     openings: Object.fromEntries(p.openings.map((o) => [o.key, { on: true, kind: o.kind }])),
     wallTop: p.wallTop !== null,
     roof: roofPicksAtFirst(p.roof),
+    doors: Object.fromEntries(doors.map((d) => [d.key, { on: true, size: 0 }])),
   };
 }
 
@@ -264,6 +268,10 @@ function traceOverlay(p: TraceProposals, picks: Picks): ReactNode {
           {...stroke}
         />
       ))}
+      {/* A door's leaf, the slab that swings: what its size check reads (2026-10-15). */}
+      {p.openings.map((o) =>
+        o.leaf ? <rect key={`leaf-${o.key}`} x={o.leaf.x0} y={-o.leaf.y1} width={o.leaf.x1 - o.leaf.x0} height={o.leaf.y1 - o.leaf.y0} fill="none" stroke={TRACE} strokeWidth={1} strokeDasharray="2 3" {...stroke} /> : null,
+      )}
       {p.wallTop && <polyline points={pts(p.wallTop.line)} fill="none" stroke="#155e75" strokeWidth={picks.wallTop ? 2.5 : 1} strokeDasharray="8 4" {...stroke} />}
       {p.roof && roofOverlay(p.roof)}
     </g>
@@ -315,6 +323,7 @@ export function SideElevation({
   onUpdate,
   editor,
   roofAssumed = false,
+  scaleFactor = null,
 }: {
   side: ExteriorSide;
   rise: RoofRise | null;
@@ -331,16 +340,26 @@ export function SideElevation({
   editor?: (view: ElevationView) => ReactNode;
   /** The roof's pitch is the assumed one: a gable it gives says so. */
   roofAssumed?: boolean;
+  /** The house's sizes over the phone's own measure (lib/exteriorScale.ts); null for an exterior not scanned, which has no size checks. */
+  scaleFactor?: number | null;
 }) {
   const photos = side.photos ?? [];
   const photo = useSquaredPhoto(side);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [picks, setPicks] = useState<Picks | null>(trace ? allPicked(trace.proposals) : null);
-  const [pickedFor, setPickedFor] = useState(trace?.at);
-  if (trace?.at !== pickedFor) {
-    setPickedFor(trace?.at);
-    setPicks(trace ? allPicked(trace.proposals) : null);
+  /*
+    A trace made before the house's sizes were taken from something else is in the old sizes (and
+    its photo is squared up differently now): set aside, with a word, rather than put on the side.
+  */
+  const stale = trace?.scaleAt !== undefined && scaleFactor !== null && Math.abs(trace.scaleAt - scaleFactor) > 1e-9;
+  const live = stale ? undefined : trace;
+  // The doors on it that can check the sizes, read back to the phone's own measure.
+  const doors = useMemo(() => (live && scaleFactor !== null ? doorCandidates(live.proposals.openings, live.scaleAt ?? scaleFactor) : []), [live, scaleFactor]);
+  const [picks, setPicks] = useState<Picks | null>(live ? allPicked(live.proposals, doors) : null);
+  const [pickedFor, setPickedFor] = useState(live?.at);
+  if (live?.at !== pickedFor) {
+    setPickedFor(live?.at);
+    setPicks(live ? allPicked(live.proposals, doors) : null);
   }
 
   const squared = photo.state === "ready" ? photo.squared : null;
@@ -362,7 +381,7 @@ export function SideElevation({
     showPhoto && f
       ? { minX: f.alongMinM * FEET_PER_METRE, maxX: f.alongMaxM * FEET_PER_METRE, minZ: f.upMinM * FEET_PER_METRE, maxZ: f.upMaxM * FEET_PER_METRE }
       : null;
-  const reach = reachOf([photoReach, trace ? proposalsReach(trace.proposals) : null]);
+  const reach = reachOf([photoReach, live ? proposalsReach(live.proposals) : null]);
 
   /*
     A trace asked for with no signal waits for it (lib/aiJobs.ts, 2026-10-13) and lands here when it
@@ -371,7 +390,7 @@ export function SideElevation({
   const waitingTrace = useSideTrace(side.id, (job) => {
     const result = job.result;
     // Its roof lines set on the photo's edges, when the photo is squared by now; as Claude gave them if not.
-    if (result) void (squared ? snapped(result, squared, side.lengthFeet) : Promise.resolve(result)).then((r) => onTrace({ ...r, at: new Date().toISOString() }));
+    if (result) void (squared ? snapped(result, squared, side.lengthFeet) : Promise.resolve(result)).then((r) => onTrace({ ...r, at: new Date().toISOString(), scaleAt: job.request.scaleAt }));
     else if (job.error) setError(job.error);
   });
 
@@ -393,6 +412,7 @@ export function SideElevation({
           rightEndInPhoto: photos.some((p) => p.inView?.rightEnd !== false),
         },
         photos: squared.used.map((p) => ({ toPhoto: p.toPhoto, camera: p.camera })),
+        ...(scaleFactor !== null ? { scaleAt: scaleFactor } : {}),
       };
       const r = await netFetch("/api/exterior/trace", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), timeoutMs: 330_000 });
       const answer = (await r.json().catch(() => ({}))) as Partial<TraceResponse> & { error?: string };
@@ -400,7 +420,7 @@ export function SideElevation({
         setError(answer.error ?? `The trace did not come back (${r.status}).`);
         return;
       }
-      onTrace({ ...(await snapped(answer as TraceResponse, squared, side.lengthFeet)), at: new Date().toISOString() });
+      onTrace({ ...(await snapped(answer as TraceResponse, squared, side.lengthFeet)), at: new Date().toISOString(), ...(scaleFactor !== null ? { scaleAt: scaleFactor } : {}) });
     } catch (err) {
       if (body && isNetworkFailure(err)) await waitForSignalToTrace(side.id, body);
       else setError(err instanceof Error ? err.message : "The trace did not come back.");
@@ -410,14 +430,20 @@ export function SideElevation({
   }
 
   function use() {
-    if (!trace || !picks) return;
+    if (!live || !picks) return;
     const chosen = {
-      shapes: trace.proposals.shapes.filter((s) => picks.shapes[s.key]?.on).map((s) => ({ key: s.key, kind: picks.shapes[s.key]?.kind ?? s.kind })),
-      openings: trace.proposals.openings.filter((o) => picks.openings[o.key]?.on).map((o) => ({ key: o.key, kind: picks.openings[o.key]?.kind ?? o.kind })),
+      shapes: live.proposals.shapes.filter((s) => picks.shapes[s.key]?.on).map((s) => ({ key: s.key, kind: picks.shapes[s.key]?.kind ?? s.kind })),
+      openings: live.proposals.openings.filter((o) => picks.openings[o.key]?.on).map((o) => ({ key: o.key, kind: picks.openings[o.key]?.kind ?? o.kind })),
       wallTop: picks.wallTop,
       roof: picks.roof,
     };
-    onUpdate((s) => applyTrace(s, trace.proposals, chosen));
+    // Each door ticked, at the size picked for it: a check on the house's sizes, kept on the side.
+    const kept = doors.flatMap((d) => {
+      const pick = picks.doors[d.key];
+      const m = pick?.on ? d.matches[pick.size] : undefined;
+      return m ? [{ kind: d.kind, widthFeet: m.size.widthFeet, heightFeet: m.size.heightFeet, phone: d.phone }] : [];
+    });
+    onUpdate((s) => withSizeDoors(applyTrace(s, live.proposals, chosen), kept));
     onTrace(undefined);
   }
 
@@ -428,7 +454,7 @@ export function SideElevation({
         rise={rise}
         base={base}
         backdrop={backdrop}
-        overlay={trace && picks ? traceOverlay(trace.proposals, picks) : undefined}
+        overlay={live && picks ? traceOverlay(live.proposals, picks) : undefined}
         reach={reach}
         seeThrough={showPhoto}
         editor={editor}
@@ -478,8 +504,16 @@ export function SideElevation({
           )}
         </div>
       )}
-      {trace && picks && !readOnly && <TracePanel trace={trace} picks={picks} onPicks={setPicks} onUse={use} onDiscard={() => onTrace(undefined)} />}
-      {!trace && <RoofReadLine side={side} readOnly={readOnly} onUpdate={onUpdate} />}
+      {stale && !readOnly && (
+        <div className="exterior-photo-controls">
+          <p className="field-note">This side was traced before the house&rsquo;s sizes were taken from something else, so the trace is in the old sizes: trace it again.</p>
+          <button type="button" className="btn-secondary" onClick={() => onTrace(undefined)}>
+            Set the trace aside
+          </button>
+        </div>
+      )}
+      {live && picks && !readOnly && <TracePanel trace={live} picks={picks} doors={doors} onPicks={setPicks} onUse={use} onDiscard={() => onTrace(undefined)} />}
+      {!live && <RoofReadLine side={side} readOnly={readOnly} onUpdate={onUpdate} />}
     </>
   );
 }
@@ -568,11 +602,56 @@ function RoofReads({ roof, picks, onPicks }: { roof: ProposedRoof; picks: RoofPi
   );
 }
 
-function TracePanel({ trace, picks, onPicks, onUse, onDiscard }:{ trace: SideTrace; picks: Picks; onPicks: (p: Picks) => void; onUse: () => void; onDiscard: () => void }) {
+/**
+ * The doors on the photo that can check the house's sizes (2026-10-15, lib/exteriorScale.ts): each
+ * ticked one is kept on the side at the size picked for it, and Plan & roof compares it with the
+ * phone's own measure and any tape.
+ */
+function SizeChecks({ doors, scaleAt, picks, onPicks }: { doors: DoorCandidate[]; scaleAt: number; picks: Picks["doors"]; onPicks: (p: Picks["doors"]) => void }) {
+  // A garage door to the inch; a door's leaf to the tenth, since an inch is 3% of it.
+  const size = (d: DoorCandidate) =>
+    d.kind === "garage"
+      ? formatOpeningSize(d.phone.widthFeet * scaleAt, d.phone.heightFeet * scaleAt)
+      : `${(d.phone.widthFeet * scaleAt * 12).toFixed(1)}" × ${(d.phone.heightFeet * scaleAt * 12).toFixed(1)}"`;
+  return (
+    <>
+      <h4 className="exterior-subhead">A check on the sizes</h4>
+      <div className="exterior-rows">
+        {doors.map((d, i) => {
+          const pick = picks[d.key] ?? { on: false, size: 0 };
+          const m = d.matches[pick.size] ?? d.matches[0];
+          const off = m ? scaleAt / m.factor - 1 : 0;
+          return (
+            <div className="exterior-row" key={d.key}>
+              <input type="checkbox" aria-label={`Keep door ${i + 1} as a check on the sizes`} checked={pick.on} onChange={() => onPicks({ ...picks, [d.key]: { ...pick, on: !pick.on } })} />
+              <select aria-label={`Door ${i + 1}: the size it is`} value={pick.size} onChange={(e) => onPicks({ ...picks, [d.key]: { on: true, size: Number(e.target.value) } })}>
+                {d.matches.map((mm, k) => (
+                  <option key={k} value={k}>
+                    {doorLabel(d.kind, mm.size)}
+                  </option>
+                ))}
+              </select>
+              <span className="exterior-row-note">
+                {d.kind === "garage" ? "the door itself" : "its leaf"} reads {size(d)} as the house is sized now, {Math.abs(off) < 0.0005 ? "the same" : `${(Math.abs(off) * 100).toFixed(1)}% ${off < 0 ? "small" : "large"}`}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+      <p className="field-note">
+        A door ticked is kept as a check on the house&rsquo;s sizes, at the size picked: Plan &amp; roof says how far it is from the phone&rsquo;s own measure and any tape, and can take
+        the sizes from it. A garage door is the better check: a door&rsquo;s leaf is small, and stands back in its frame.
+      </p>
+    </>
+  );
+}
+
+function TracePanel({ trace, picks, doors, onPicks, onUse, onDiscard }: { trace: SideTrace; picks: Picks; doors: DoorCandidate[]; onPicks: (p: Picks) => void; onUse: () => void; onDiscard: () => void }) {
   const p = trace.proposals;
   const sf = (v: number) => `${formatQuantity(v)} SF`;
   const top = p.wallTop;
-  const anything = Object.values(picks.shapes).some((s) => s.on) || Object.values(picks.openings).some((o) => o.on) || picks.wallTop || Object.keys(picks.roof).length > 0;
+  const anything =
+    Object.values(picks.shapes).some((s) => s.on) || Object.values(picks.openings).some((o) => o.on) || picks.wallTop || Object.keys(picks.roof).length > 0 || Object.values(picks.doors).some((d) => d.on);
   const topLine = top
     ? [
         top.eaveLeftFeet !== null ? `${formatFeetInches(top.eaveLeftFeet)} at the left end` : null,
@@ -644,6 +723,7 @@ function TracePanel({ trace, picks, onPicks, onUse, onDiscard }:{ trace: SideTra
       {p.offWall.length > 0 && <p className="field-note">In front of the wall, not traced (orange): {p.offWall.map((b) => b.what).join("; ")}.</p>}
       {p.notes && <p className="field-note">The trace&apos;s own notes: {p.notes}</p>}
       {p.roof && <RoofReads roof={p.roof} picks={picks.roof} onPicks={(roof) => onPicks({ ...picks, roof })} />}
+      {doors.length > 0 && <SizeChecks doors={doors} scaleAt={trace.scaleAt ?? 1} picks={picks.doors} onPicks={(d) => onPicks({ ...picks, doors: d })} />}
       <p className="field-note">
         Ticked shapes replace the side&apos;s shapes, and ticked openings its openings; the wall top sets the eaves, and the peak when it has one. Ticked roof reads fill the roof as &ldquo;from
         photos&rdquo;: anything typed on the roof wins over them, and they win over what is assumed.

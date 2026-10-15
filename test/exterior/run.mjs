@@ -55,6 +55,7 @@ async function load() {
       `export * from "${lib("roofPhotoRead.ts")}";`,
       `export * from "${lib("exterior3d.ts")}";`,
       `export * from "${lib("exteriorPlan.ts")}";`,
+      `export * from "${lib("exteriorScale.ts")}";`,
       `export { adoptScan, exteriorScanDecision, sketchFromScan } from "${lib("scanInbox.ts")}";`,
       `export { availableRenders, defaultSketchAttachments, pruneAttachments, withExteriorDefaults, toggleAttachment } from "${lib("sketchAttachments.ts")}";`,
     ].join("\n"),
@@ -3234,6 +3235,219 @@ test("a gable photo off a side the roof has no gable end over: used for the main
   const two = withRead(withRead(rect(40, 30), "left", photoRead(5, "gable", { eaveOverhangFeet: 2 })), "right", photoRead(6, "gable", { eaveOverhangFeet: 1.5 }));
   const notes = x.photoNotes(two);
   assert(notes.some((n) => /gables' photos read 6\/12 \(Right\), 5\/12 \(Left\)/.test(n)) && notes.some((n) => /eave overhang 1'6" \(Right\), 2' \(Left\); the roof is drawn at 1'9"/.test(n)), notes.join(" | "));
+});
+
+console.log("\nthe sizes: what they are from (2026-10-15, lib/exteriorScale.ts)");
+
+test("Scan's tape comes in as what the sizes are from, the phone's own read of that side beside it; no tape, the phone's own measure", () => {
+  // The Right taped at 8 m on the phone, which had read it 4.5% short: Scan has scaled every length by 1.045 already.
+  const raw = { ...fixture("scan-exterior-sample.json"), scale: 1.045, taped: { side: 1, metres: 8 } };
+  const r = x.parseScanExterior(raw);
+  assert(r.ok, r.error);
+  const e = r.exterior;
+  const s = e.scale;
+  assert(s.from === "tape" && s.factor === 1.045 && s.tape.sideId === e.sides[1].id && s.tape.by === "scan", JSON.stringify(s));
+  near(s.tape.feet, 8 * M, "the tape, as Scan has it", 1e-9);
+  near(s.tape.phoneFeet, (8 / 1.045) * M, "and the phone's own read of that side", 1e-9);
+  assert(!r.notes.some((n) => /Scaled to a tape/.test(n)), "no note for it: the sizes line says it");
+  // 8 m is 26'2.96": 26'3".
+  assert(x.sizesLine(e) === `Sizes from the tape on the Right (26'3"), +4.5% on the phone's own measure.`, x.sizesLine(e));
+  const flags = x.scaleFlags(e);
+  assert(flags.length === 1 && /^The phone's own measure and the tape on the Right \(26'3"\) are 4\.5% apart: check the tape; if it holds, the phone read this house off, and the sizes stay from the tape\.$/.test(flags[0].text), flags.map((f) => f.text).join(" | "));
+  // From the phone's own measure, the same two say to take the sizes from the tape.
+  const fromPhone = x.scaleFlags(x.withScaleFrom(e, { from: "phone" }));
+  assert(fromPhone.length === 1 && /: check the tape; if it holds, take the sizes from it\.$/.test(fromPhone[0].text), fromPhone.map((f) => f.text).join(" | "));
+  // A tape within 3% of the phone is nothing to flag.
+  const close = x.parseScanExterior({ ...raw, scale: 1.022 }).exterior;
+  assert(x.scaleFlags(close).length === 0 && /, \+2\.2% on the phone's own measure\.$/.test(x.sizesLine(close)), x.sizesLine(close));
+  const plain = x.parseScanExterior(fixture("scan-exterior-sample.json")).exterior;
+  assert(plain.scale.from === "phone" && plain.scale.factor === 1 && x.sizesLine(plain) === "Sizes from the phone's own measure." && x.scaleFlags(plain).length === 0, JSON.stringify(plain.scale));
+  assert(x.sizesFrom(plain) === "the phone's own measure (Scrivn Scan)", x.sizesFrom(plain));
+});
+
+test("an exterior read before 2026-10-15 kept its tape in a note: read from it; one drawn by hand has no scale at all", () => {
+  const old = { ...rect(40, 30), source: { kind: "scan", captureId: null, scanId: null, receivedAt: null, notes: ["Exterior imported: 4 sides measured on the phone.", "Scaled to a tape by the phone (x1.023)."] } };
+  const s = x.scaleOf(old);
+  assert(s.from === "tape" && s.factor === 1.023 && s.tape === undefined, JSON.stringify(s));
+  assert(x.isOldTapeNote(old.source.notes[1]) && !x.isOldTapeNote(old.source.notes[0]), "the old note is known, to be left off the screen");
+  assert(x.sizesLine(old) === "Sizes from the tape typed on the phone, +2.3% on the phone's own measure.", x.sizesLine(old));
+  // Back to the phone's own measure: every length over 1.023.
+  near(x.withScaleFrom(old, { from: "phone" }).sides[0].lengthFeet, 40 / 1.023, "the Front as the phone read it", 1e-9);
+  const hand = rect(40, 30);
+  assert(x.scaleOf(hand) === null && x.sizesLine(hand) === null && x.scaleRefs(hand).length === 0 && x.scaleFlags(hand).length === 0, "drawn by hand: the estimator's own sizes");
+  assert(x.withScaleFrom(hand, { from: "phone" }) === hand && x.rescaleExterior(hand, 1.1).scale === undefined, "nothing to take them from");
+});
+
+test("a tape typed here scales every length and height once; the phone's own measure puts them back, and the tape stays to take again", () => {
+  const e0 = x.parseScanExterior(fixture("scan-exterior-sample.json")).exterior;
+  const q0 = x.exteriorQuantities(e0);
+  // The Front is 10 m by the phone, 10.25 m by the tape.
+  const k = 1.025;
+  const e1 = x.withScaleFrom(e0, { from: "tape", sideId: e0.sides[0].id, feet: 10.25 * M });
+  assert(e1.scale.from === "tape" && e1.scale.tape.by === "scrivn" && e1.scale.tape.sideId === e0.sides[0].id, JSON.stringify(e1.scale));
+  near(e1.scale.factor, k, "the tape over the phone's read", 1e-12);
+  near(e1.sides[0].lengthFeet, 10.25 * M, "the Front, as taped", 1e-9);
+  near(e1.sides[1].lengthFeet, e0.sides[1].lengthFeet * k, "the Right with it", 1e-9);
+  near(e1.sides[1].eaveLeftFeet, e0.sides[1].eaveLeftFeet * k, "and its eave", 1e-9);
+  const q1 = x.exteriorQuantities(e1);
+  near(q1.footprint.areaSquareFeet, q0.footprint.areaSquareFeet * k * k, "the footprint by k squared", 1e-4);
+  near(q1.totals.netSquareFeet, q0.totals.netSquareFeet * k * k, "the cladding by k squared", 1e-4);
+  near(q1.pitch.value, q0.pitch.value, "a pitch is a ratio: the same", 1e-9);
+  assert(x.scaleFlags(e1).length === 0 && x.sizesLine(e1) === `Sizes from the tape on the Front (33'8"), +2.5% on the phone's own measure.`, x.sizesLine(e1));
+  const e2 = x.withScaleFrom(e1, { from: "phone" });
+  for (let i = 0; i < 4; i++) near(e2.sides[i].lengthFeet, e0.sides[i].lengthFeet, `side ${i + 1} back as the phone read it`, 1e-9);
+  assert(e2.scale.from === "phone" && e2.scale.factor === 1 && e2.scale.tape && x.scaleRefs(e2).map((r) => r.kind).join() === "phone,tape", JSON.stringify(e2.scale));
+  near(x.withScaleFrom(e2, { from: "tape" }).sides[1].lengthFeet, e1.sides[1].lengthFeet, "to the tape again, by itself", 1e-9);
+  // Not a side of the house, or no length: nothing changes.
+  assert(x.withScaleFrom(e0, { from: "tape", sideId: "nowhere", feet: 30 }) === e0 && x.withScaleFrom(e0, { from: "tape", sideId: e0.sides[0].id, feet: 0 }) === e0, "nothing to scale to");
+});
+
+test("scaling the house: every length the phone measured and the photos laid on them; what was typed stays", () => {
+  const cam = oblique();
+  const base = side({
+    id: "front",
+    name: "Front",
+    lengthFeet: 8 * M,
+    gable: { peakFeet: 5 * M, atFeet: 4 * M, fromFeet: 1 * M, toFeet: 7 * M },
+    bands: [{ id: "b1", kind: "stone", top: 1 * M }, { id: "b2", kind: "stucco", top: "eave" }, { id: "b3", kind: "vinyl", top: null }],
+    openings: [{ id: "w", kind: "window", widthFeet: 1 * M, heightFeet: 1.2 * M, sillFeet: 1 * M, fromLeftFeet: 2 * M }],
+    shapes: [{ id: "sh", kind: "stucco", closed: true, polygon: [{ x: 0, y: 0 }, { x: 8 * M, y: 0 }, { x: 8 * M, y: 3 * M }, { x: 0, y: 3 * M }] }],
+    roofline: [{ alongFeet: -0.5 * M, upFeet: 3 * M, outFeet: 0.5 * M }, { alongFeet: 4 * M, upFeet: 5 * M, outFeet: null }],
+    roofRead: { at: "t", pitch: 6, slopes: [6, 6], rakeOverhangFeet: 1.5, eaveOverhangFeet: null, over: "gable" },
+    pitchMeasured: 6,
+    photos: [{ ...cam.photo, inView: { fromM: 1, toM: 6, leftEnd: false, rightEnd: false, top: true } }],
+    sizeDoors: [{ id: "d", kind: "garage", widthFeet: 16, heightFeet: 7, phone: { widthFeet: 15.5, heightFeet: 6.8, middleFeet: 12 } }],
+  });
+  const e0 = {
+    ...exterior([base], { pitch: 6, eaveOverhangFeet: 1.25, rakeOverhangFeet: 2, overhangSource: { eave: "scan", rake: "typed" }, additions: [{ id: "p", kind: "porch", sideId: "front", fromFeet: 2, toFeet: 10, depthFeet: 6 }], typed: { ridge: 40 } }),
+    upper: { sides: [side({ id: "up", lengthFeet: 20 })], at: { sideId: "front", dx: 2, dy: 3 } },
+    source: { kind: "scan", captureId: null, scanId: "s", receivedAt: null, notes: [] },
+    scale: { from: "phone", factor: 1 },
+  };
+  const k = 1.05;
+  const e = x.rescaleExterior(e0, k);
+  const s = e.sides[0];
+  near(s.lengthFeet, 8 * M * k, "the length", 1e-9);
+  near(s.eaveLeftFeet, 10 * k, "the eave", 1e-9);
+  near(s.baseRightFeet, ft(0, 8) * k, "the parging", 1e-9);
+  near(s.gable.peakFeet, 5 * M * k, "the peak", 1e-9);
+  near(s.gable.toFeet, 7 * M * k, "where the gable stops", 1e-9);
+  near(s.bands[0].top, 1 * M * k, "a band line", 1e-9);
+  assert(s.bands[1].top === "eave" && s.bands[2].top === null, "the eave and all the way up are no lengths");
+  near(s.openings[0].fromLeftFeet, 2 * M * k, "the window, from the left", 1e-9);
+  near(s.openings[0].heightFeet, 1.2 * M * k, "and its height", 1e-9);
+  near(s.shapes[0].polygon[2].y, 3 * M * k, "a shape's corner", 1e-9);
+  near(s.roofline[0].alongFeet, -0.5 * M * k, "the roofline", 1e-9);
+  near(s.roofline[0].outFeet, 0.5 * M * k, "and how far out it stands", 1e-9);
+  assert(s.roofline[1].outFeet === null, "one aimed onto the face still has none");
+  near(s.roofRead.rakeOverhangFeet, 1.5 * k, "the photo's rake overhang", 1e-9);
+  assert(s.roofRead.eaveOverhangFeet === null && s.roofRead.pitch === 6 && s.pitchMeasured === 6, "a read set aside stays aside, and a pitch is a ratio");
+  assert(s.sizeDoors === base.sizeDoors, "a door's are the phone's own and the door's: the same however the house is scaled");
+  // A wall point k times as far along shows in the photo where the old one did; the phone stands k times as far off.
+  for (const [a, u] of [[0, 0], [2, 1], [5.5, 3.7]]) {
+    const was = x.projectToPhoto(base.photos[0], a, u);
+    const now = x.projectToPhoto(s.photos[0], a * k, u * k);
+    near(now.x, was.x, `x of (${a}, ${u})`, 1e-6);
+    near(now.y, was.y, `y of (${a}, ${u})`, 1e-6);
+  }
+  near(s.photos[0].inView.toM, 6 * k, "what is in view", 1e-9);
+  near(x.wallCamera(s.photos[0]).distanceM, x.wallCamera(base.photos[0]).distanceM * k, "the phone's distance", 1e-6);
+  near(e.roof.eaveOverhangFeet, 1.25 * k, "the phone's eave overhang", 1e-9);
+  assert(e.roof.rakeOverhangFeet === 2 && e.roof.typed.ridge === 40 && e.roof.pitch === 6, "the typed rake, totals and pitch as typed");
+  near(e.roof.additions[0].toFeet, 10 * k, "the porch along its side", 1e-9);
+  near(e.roof.additions[0].depthFeet, 6 * k, "and out", 1e-9);
+  near(e.upper.sides[0].lengthFeet, 20 * k, "the upper floor", 1e-9);
+  near(e.upper.at.dx, 2 * k, "and where it stands", 1e-9);
+  near(e.scale.factor, k, "the factor goes with it", 1e-12);
+  assert(e.scale.from === "phone", "what it is from does not change");
+  // A default overhang is nobody's measure: it stays.
+  assert(x.rescaleExterior({ ...e0, roof: x.defaultRoof() }, k).roof.eaveOverhangFeet === x.DEFAULT_EAVE_OVERHANG_FEET, "the default stays");
+});
+
+test("a garage door or a door's leaf is matched to the sizes doors are sold in, the likeliest first", () => {
+  const [best] = x.standardMatches("garage", ft(15, 6), ft(6, 10));
+  assert(best.size.widthFeet === 16 && best.size.heightFeet === 7, JSON.stringify(best));
+  near(best.factor, 23 / (15.5 + ft(6, 10)), "width and height together", 1e-12);
+  // 17' x 7'6" by the phone: a 16' x 7' read 6% large, or an 18' x 8' 6% small - whichever the house's scale makes likelier.
+  const order = (near1) => x.standardMatches("garage", 17, 7.5, near1).map((m) => `${m.size.widthFeet}x${m.size.heightFeet}`).join();
+  assert(order(1) === "18x8,16x7" && order(0.95) === "16x7,18x8", `${order(1)} | ${order(0.95)}`);
+  // 8'6" x 7': its width says 9', its height 7' as read - no door is that.
+  assert(x.standardMatches("garage", 8.5, 7).length === 0, JSON.stringify(x.standardMatches("garage", 8.5, 7)));
+  const [leaf] = x.standardMatches("door", 35.4 / 12, 79.5 / 12);
+  assert(leaf.size.widthFeet === 3 && Math.abs(leaf.size.heightFeet - 80 / 12) < 1e-12, JSON.stringify(leaf));
+  assert(x.doorLabel("garage", { widthFeet: 16, heightFeet: 7 }) === "16' × 7' garage door" && x.doorLabel("door", leaf.size) === `36" × 80" door`, "said as sold");
+});
+
+test("the trace's doors become size checks: a garage door to the door itself, kept whole; a door by its leaf", () => {
+  // At 100 px a metre, level at y = 600: a 16' x 7' garage door (4.877 x 2.134 m) whose foot is 0.1 m under the side's
+  // level, and a door 1.0 x 2.1 m round its trim with a 36" x 80" leaf (0.9144 x 2.032 m) in it.
+  const g = { kind: "garage_door", left: 150, right: 637.7, top: 396.6, bottom: 610, measured_to: "door_itself", leaf: [], partly_hidden_by: "" };
+  const d = { kind: "door", left: 700, right: 800, top: 390, bottom: 600, measured_to: "outer_trim", leaf: [704.28, 396.8, 795.72, 600], partly_hidden_by: "" };
+  const p = x.traceProposals({ ...wire, openings: [g, d, { ...d, kind: "window" }, { ...d, left: 820, right: 900, leaf: [700, 380, 800, 600] }] }, traceFrame, 10 * M);
+  const [garage, door, win, stray] = p.openings;
+  near(garage.heightFeet, 2.034 * M, "the garage door cut at the side's level", 1e-6);
+  near(garage.box.y1 - garage.box.y0, 2.134 * M, "but kept whole as traced", 1e-6);
+  near(door.leaf.x1 - door.leaf.x0, 0.9144 * M, "the leaf", 1e-6);
+  assert(win.leaf === null && stray.leaf === null && garage.leaf === null, "a leaf only in a door, and only inside it");
+  // The house already 5% over the phone: read back to the phone's own measure, they match it.
+  const c = x.doorCandidates(p.openings, 1.05);
+  assert(c.map((q) => q.kind).join() === "garage,door", c.map((q) => q.kind).join());
+  near(c[0].phone.widthFeet, 4.877 * M / 1.05, "the garage door by the phone", 1e-9);
+  // Its left edge at 150 px is 0.5 m along (the frame starts 1 m left of the side), its right 5.377 m.
+  near(c[0].phone.middleFeet, ((0.5 + 5.377) / 2) * M / 1.05, "and where it is", 1e-9);
+  assert(c[0].matches[0].size.widthFeet === 16 && c[1].matches[0].size.widthFeet === 3, JSON.stringify(c.map((q) => q.matches[0])));
+  near(c[0].matches[0].factor, 1.05, "a factor of 1.05: the house as it is", 1e-3);
+  // A garage door read to its trim says nothing of its size; a trace from before 10-15 has no box or leaf.
+  assert(x.doorCandidates([{ ...garage, measuredTo: "outer trim" }], 1).length === 0, "trim is no size");
+  assert(x.doorCandidates([{ ...door, leaf: undefined }, { ...garage, box: undefined }], 1).length === 0, "an old trace has none");
+});
+
+test("the trace asks for a door's leaf; an answer from before it still reads", () => {
+  const items = x.TRACE_SCHEMA.properties.openings.items;
+  assert(items.required.includes("leaf") && items.properties.leaf.type === "array", JSON.stringify(items.required));
+  const message = x.traceUserMessage(traceFrame, { name: "Front", lengthM: 8, bottomLeftM: 0, bottomRightM: 0, leftEndInPhoto: true, rightEndInPhoto: true });
+  assert(/also give leaf: the door leaf itself - the slab that swings/.test(message), "said in the message");
+  const p = x.traceProposals(wire, traceFrame, 8 * M);
+  assert(p.openings.every((o) => o.leaf === null && o.box), "no leaf; each opening's box kept");
+});
+
+test("a door kept again where it was takes the old one's place and keeps its id; elsewhere it is one more", () => {
+  const d = (middleFeet, w = 16) => ({ kind: "garage", widthFeet: w, heightFeet: 7, phone: { widthFeet: 15.6, heightFeet: 6.8, middleFeet } });
+  const s1 = x.withSizeDoors(side({ id: "front" }), [d(10)]);
+  const id = s1.sizeDoors[0].id;
+  const s2 = x.withSizeDoors(s1, [d(10.4, 18)]);
+  assert(s2.sizeDoors.length === 1 && s2.sizeDoors[0].id === id && s2.sizeDoors[0].widthFeet === 18, JSON.stringify(s2.sizeDoors));
+  const s3 = x.withSizeDoors(s2, [d(25)]);
+  assert(s3.sizeDoors.length === 2 && s3.sizeDoors[1].id !== id, JSON.stringify(s3.sizeDoors));
+  assert(x.withSizeDoors(s3, []) === s3, "none kept: the side as it was");
+});
+
+test("sizes from a door: references more than 3% apart are flagged each with what to check, and the door in use stays", () => {
+  const e0 = x.parseScanExterior(fixture("scan-exterior-sample.json")).exterior;
+  // A 16' x 7' garage door on the Front the phone read 15'1" x 6'7": 23 over 21'8", 6.15% small.
+  const door = { kind: "garage", widthFeet: 16, heightFeet: 7, phone: { widthFeet: ft(15, 1), heightFeet: ft(6, 7), middleFeet: 15 } };
+  const withDoor = { ...e0, sides: e0.sides.map((s, i) => (i === 0 ? x.withSizeDoors(s, [door]) : s)) };
+  const id = withDoor.sides[0].sizeDoors[0].id;
+  const k = 23 / (ft(15, 1) + ft(6, 7));
+  const flags = x.scaleFlags(withDoor);
+  assert(flags.length === 1 && /^The phone's own measure and the 16' × 7' garage door on the Front are 6\.2% apart: check the door's size/.test(flags[0].text), flags.map((f) => f.text).join(" | "));
+  const e1 = x.withScaleFrom(withDoor, { from: "door", doorId: id });
+  near(e1.scale.factor, k, "the door's factor", 1e-12);
+  near(e1.sides[0].lengthFeet, e0.sides[0].lengthFeet * k, "the Front by it", 1e-9);
+  assert(x.sizesLine(e1) === "Sizes from the 16' × 7' garage door on the Front, +6.2% on the phone's own measure.", x.sizesLine(e1));
+  assert(x.sizesFrom(e1) === "the 16' × 7' garage door on the Front" && x.currentRef(e1).doorId === id, x.sizesFrom(e1));
+  // The door the sizes are from stays; once they are from the phone again it can go.
+  assert(x.withoutSizeDoor(e1, id) === e1, "kept while in use");
+  const e2 = x.withoutSizeDoor(x.withScaleFrom(e1, { from: "phone" }), id);
+  assert(e2.sides[0].sizeDoors === undefined && x.scaleRefs(e2).length === 1, JSON.stringify(e2.sides[0].sizeDoors));
+  // The Right taped 1% over the phone: phone and tape agree, the door is 6.2% from one and 5.1% from the other.
+  const taped = x.withScaleFrom(e1, { from: "tape", sideId: e1.sides[1].id, feet: e0.sides[1].lengthFeet * 1.01 });
+  near(taped.sides[1].lengthFeet, e0.sides[1].lengthFeet * 1.01, "the Right, as taped", 1e-9);
+  const texts = x.scaleFlags(taped).map((f) => f.text);
+  assert(texts.length === 2 && texts.some((t) => /^The tape on the Right \([^)]+\) and the 16' × 7' garage door on the Front are 5\.1% apart: check the tape, and the door's size\.$/.test(t)), texts.join(" | "));
+  // A door gone that the sizes were from (a side's doors replaced): the sizes stay, and say so.
+  const gone = { ...e1, sides: e1.sides.map((s, i) => (i === 0 ? { ...s, sizeDoors: undefined } : s)) };
+  assert(x.currentRef(gone) === null && x.sizesLine(gone) === "Sizes from a door no longer kept, +6.2% on the phone's own measure.", x.sizesLine(gone));
 });
 
 console.log(`\n${passed.length} passed, ${failures.length} failed`);
