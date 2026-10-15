@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { createStructuredMessage, ScopingApiError } from "@/lib/anthropic";
 import { MAX_SQUARED_PX, type SquareFrame } from "@/lib/exteriorPhoto";
-import { TRACE_PRICE_PER_MILLION, TRACE_SCHEMA, TRACE_SYSTEM_PROMPT, traceCostUsd, traceProposals, type TraceResponse, type TraceSide, traceUserMessage, type TraceWire } from "@/lib/exteriorTrace";
+import { TRACE_PRICE_PER_MILLION, TRACE_SCHEMA, TRACE_SYSTEM_PROMPT, traceCostUsd, traceProposals, type TraceRequest, type TraceResponse, type TraceSide, traceUserMessage, type TraceWire } from "@/lib/exteriorTrace";
+import { camerasAt } from "@/lib/roofPhotoRead";
 import { checkUsageAllowed } from "@/lib/usage";
 
 /**
@@ -39,6 +40,22 @@ function readFrame(raw: unknown): SquareFrame | null {
   return Object.values(frame).every((v) => v !== null) ? (frame as SquareFrame) : null;
 }
 
+/** The photos the image was squared from: each a 3x3 and its camera, finite. Null when absent or not that. */
+function readPhotos(raw: unknown): TraceRequest["photos"] | null {
+  if (!Array.isArray(raw) || raw.length === 0 || raw.length > 8) return null;
+  const photos: NonNullable<TraceRequest["photos"]> = [];
+  for (const p of raw) {
+    if (typeof p !== "object" || p === null) return null;
+    const { toPhoto, camera } = p as { toPhoto?: unknown; camera?: Record<string, unknown> };
+    if (!Array.isArray(toPhoto) || toPhoto.length !== 9 || !toPhoto.every((v) => typeof v === "number" && Number.isFinite(v))) return null;
+    if (typeof camera !== "object" || camera === null) return null;
+    const c = { width: finite(camera.width, 1, 20000), height: finite(camera.height, 1, 20000), fx: finite(camera.fx, 1, 1e6), fy: finite(camera.fy, 1, 1e6), cx: finite(camera.cx, -1e5, 1e5), cy: finite(camera.cy, -1e5, 1e5) };
+    if (Object.values(c).some((v) => v === null)) return null;
+    photos.push({ toPhoto: toPhoto as number[], camera: c as NonNullable<TraceRequest["photos"]>[number]["camera"] });
+  }
+  return photos;
+}
+
 function readSide(raw: unknown): TraceSide | null {
   if (typeof raw !== "object" || raw === null) return null;
   const s = raw as Record<string, unknown>;
@@ -60,6 +77,8 @@ export async function POST(request: Request) {
   const image = typeof body?.image === "string" ? body.image.replace(/^data:image\/jpeg;base64,/, "") : "";
   const frame = readFrame(body?.frame);
   const side = readSide(body?.side);
+  // Where each phone stood, for the roof's overhangs; without it the pitch is still read.
+  const photos = readPhotos(body?.photos);
   if (!image || image.length > MAX_IMAGE_BASE64 || !image.startsWith("/9j/")) {
     return NextResponse.json({ error: "Send the squared photo as a JPEG under 3 MB." }, { status: 400 });
   }
@@ -97,7 +116,7 @@ export async function POST(request: Request) {
         priced: `${TRACE_PRICE_PER_MILLION.model} at $${TRACE_PRICE_PER_MILLION.input}/$${TRACE_PRICE_PER_MILLION.output} per million`,
       }),
     );
-    const answer: TraceResponse = { proposals: traceProposals(result.output, frame, side.lengthM / 0.3048), model, seconds, usage: result.usage, costUsd };
+    const answer: TraceResponse = { proposals: traceProposals(result.output, frame, side.lengthM / 0.3048, photos ? camerasAt(photos) : null), model, seconds, usage: result.usage, costUsd };
     return NextResponse.json(answer);
   } catch (err) {
     const message = err instanceof ScopingApiError ? err.message : "The trace failed unexpectedly.";

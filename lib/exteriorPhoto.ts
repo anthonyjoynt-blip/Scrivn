@@ -232,6 +232,35 @@ export function squareUp(sources: { photo: SidePhoto; pixels: PhotoPixels }[], f
   return out;
 }
 
+/**
+ * Which of [photos] the squared image shows at (along, up) of the elevation: the one that has the point
+ * nearest its middle, as `squareUp` picks - the same sum, kept beside it. -1 when none has it. A roof
+ * edge stands out from the wall, so where it shows depends on where the phone stood: this says which
+ * phone (2026-10-15, lib/roofPhotoRead.ts).
+ */
+export function photoIndexAt(photos: readonly Pick<SidePhoto, "toPhoto" | "camera">[], alongM: number, upM: number): number {
+  let best = -1;
+  let bestScore = Infinity;
+  for (let k = 0; k < photos.length; k++) {
+    const photo = photos[k] as Pick<SidePhoto, "toPhoto" | "camera">;
+    const h = photo.toPhoto as number[];
+    const w = (h[6] as number) * alongM + (h[7] as number) * upM + (h[8] as number);
+    if (!(w > 1e-9)) continue;
+    const x = ((h[0] as number) * alongM + (h[1] as number) * upM + (h[2] as number)) / w;
+    const y = ((h[3] as number) * alongM + (h[4] as number) * upM + (h[5] as number)) / w;
+    const { width: cw, height: ch } = photo.camera;
+    if (x < 0 || y < 0 || x >= cw || y >= ch) continue;
+    const dx = (x - cw / 2) / cw;
+    const dy = (y - ch / 2) / ch;
+    const score = dx * dx + dy * dy;
+    if (score < bestScore) {
+      bestScore = score;
+      best = k;
+    }
+  }
+  return best;
+}
+
 /** Bilinear, at pixel-centre coordinates (u, v), clamped to the edge. */
 function sample(p: PhotoPixels, u: number, v: number, out: Uint8ClampedArray, o: number): void {
   const x0 = Math.max(0, Math.min(p.width - 1, Math.floor(u)));

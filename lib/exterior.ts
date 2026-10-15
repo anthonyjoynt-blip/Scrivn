@@ -139,8 +139,30 @@ export interface ExteriorSide {
   roofline?: RooflinePoint[];
   /** The pitch the phone worked out from this side, rise in 12. Believed over the gable's own when both are there. */
   pitchMeasured?: number | null;
+  /**
+   * The roof as the AI trace read it off this side's photo, as the estimator ticked it (2026-10-15,
+   * lib/roofPhotoRead.ts): it fills the roof "from photos", under anything typed and over anything assumed.
+   */
+  roofRead?: SideRoofRead;
   /** The phone's photos of this side (Scan 0.1.151), each with what lays it on the elevation - see lib/exteriorPhoto.ts. */
   photos?: SidePhoto[];
+}
+
+/**
+ * The roof read off a side's photo, as ticked: a number is a read the estimator ticked, null one they
+ * set aside (kept, so a gable set aside gives no pitch off its peak either), absent one not read.
+ */
+export interface SideRoofRead {
+  /** When it was put on the side. */
+  at: string;
+  /** Rise in 12, as a roof is framed: the whole pitch within 1/4 (lib/roofPhotoRead.ts, `framedPitch`). */
+  pitch?: number | null;
+  /** The gable's two slopes as read, for the record. */
+  slopes?: [number, number];
+  rakeOverhangFeet?: number | null;
+  eaveOverhangFeet?: number | null;
+  /** What the roof does over this side: a gable end, a hip end, an eave along it. */
+  over?: "gable" | "hip" | "eave" | null;
 }
 
 /**
