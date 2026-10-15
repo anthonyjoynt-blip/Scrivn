@@ -1506,7 +1506,7 @@ function UpperFloorFields({
           <p className="exterior-assumed">
             {listOf(tall.map((t) => t.name))} {tall.length === 1 ? "reads its" : "read their"} eave {TALL_SIDE_FEET}&prime; or more: measured up to the upper floor&rsquo;s eave, as one tall side.
             Split at the floor line, {tall.length === 1 ? "its" : "each one’s"} eave goes down to it, and what is above - the cladding, the windows over the line, the gable, the roof read off
-            it - goes onto the upper side over it.
+            it - goes onto the upper side over it. Its photos show both storeys, so each side gets them, laid on its own wall.
           </p>
           {!readOnly && (
             <>

@@ -72,6 +72,35 @@ export function photoToElevation(photo: Pick<SidePhoto, "toPhoto">, px: number, 
   return { alongM: q.x / q.w, upM: q.y / q.w };
 }
 
+/**
+ * A side's photo laid on a part of that side (2026-10-15: a tall side split at the floor line, the
+ * upper storey's part): the same picture, its `to_photo` taking the part's own frame - along from
+ * `alongFeet` on the side, up from `upFeet` - so every wall point is still seen at the very pixel it
+ * was. What of the part's bottom is in view is the side's, cut to the part; its top is the side's.
+ */
+export function photoOnPart(photo: SidePhoto, alongFeet: number, upFeet: number, lengthFeet: number, sideFeet: number): SidePhoto {
+  const a = alongFeet / FEET_PER_METRE;
+  const u = upFeet / FEET_PER_METRE;
+  const len = lengthFeet / FEET_PER_METRE;
+  const h = photo.toPhoto;
+  const at = (i: number) => h[i] as number;
+  // (along, up) on the part is (along + a, up + u) on the side: the side's matrix times that shift.
+  const toPhoto = [at(0), at(1), at(0) * a + at(1) * u + at(2), at(3), at(4), at(3) * a + at(4) * u + at(5), at(6), at(7), at(6) * a + at(7) * u + at(8)];
+  const v = photo.inView;
+  const reaches = (x: number) => v !== null && v.fromM <= x + 0.05 && v.toM >= x - 0.05;
+  const inView = v
+    ? {
+        fromM: Math.min(len, Math.max(0, v.fromM - a)),
+        toM: Math.min(len, Math.max(0, v.toM - a)),
+        // The part's end on the side's own end is in view as that end is; elsewhere, where the side's bottom in view reaches it.
+        leftEnd: Math.abs(alongFeet) < 1e-6 ? v.leftEnd : reaches(a),
+        rightEnd: Math.abs(alongFeet + lengthFeet - sideFeet) < 1e-6 ? v.rightEnd : reaches(a + len),
+        top: v.top,
+      }
+    : null;
+  return { ...photo, toPhoto, inView };
+}
+
 /** The squared image: which part of the elevation it holds, and at how many pixels a metre - the same across and up. */
 export interface SquareFrame {
   alongMinM: number;

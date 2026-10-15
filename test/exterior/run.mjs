@@ -3566,6 +3566,154 @@ test("a gable photo off a side the roof has no gable end over: used for the main
   assert(notes.some((n) => /gables' photos read 6\/12 \(Right\), 5\/12 \(Left\)/.test(n)) && notes.some((n) => /eave overhang 1'6" \(Right\), 2' \(Left\); the roof is drawn at 1'9"/.test(n)), notes.join(" | "));
 });
 
+console.log("\ntwo storeys from the photos (10-15): each read on the roof it shows");
+
+/** The two-storey box and its garage (main 52 x 24, upper 30 x 24 over its left), nothing typed: the roof from the photos. */
+const fromPhotos = () => twoStorey(box4(52, 24), ubox(30, 24), undefined, { pitch: null });
+const F8 = Math.sqrt(1 + (8 / 12) ** 2);
+
+test("an upper side's gable photo is the house roof's pitch; the main floor's walls under the upper floor give none of their own", () => {
+  // The upper left is a gable end of the house's roof, 8/12 on its photo: the roof over the upper floor is 8/12,
+  // and the garage, with no photo of its own, is at the roof's pitch too - 720 and 528 SF of plan, × F8.
+  const e = fromPhotos();
+  e.upper.sides[3].roofRead = photoRead(8);
+  const pp = x.photoPitches(e);
+  assert(pp.main.map((r) => r.sideId).join() === "uLeft" && pp.unplaced.length === 0, JSON.stringify(pp));
+  const q = roofOf(e);
+  assert(q.pitch.value === 8 && q.pitch.source === "photos", JSON.stringify(q.pitch));
+  assert(q.roof.sections.every((s) => s.pitch === 8), q.roof.sections.map((s) => `${s.key} ${s.pitch}`).join(", "));
+  near(q.roofing.areaSquareFeet, (720 + 528) * F8, "every slope at 8/12");
+  // A tall main side's photo, before it is split, shows the same gable from the ground: no part of the roof has
+  // a gable end over the main left (it is under the upper floor), so it goes to the house's roof, and is said.
+  const tall = fromPhotos();
+  tall.sides[3].roofRead = photoRead(8);
+  const tp = x.photoPitches(tall);
+  assert(tp.unplaced.map((r) => r.sideId).join() === "left" && roofOf(tall).pitch.value === 8, JSON.stringify(tp));
+});
+
+test("a garage's or bump-out's gable photo on a main side is that lower roof's own pitch", () => {
+  // The garage's gable end is over the main right: 4/12 on its photo, its own pitch; the house stays at its
+  // gable photo's 8/12. The roofing line has each: 720 × F8 = 865.3 SF (8.65 SQ), 528 × F4 = 556.6 SF (5.57 SQ).
+  const e = fromPhotos();
+  e.upper.sides[3].roofRead = photoRead(8);
+  e.sides[1].roofRead = photoRead(4);
+  assert(JSON.stringify(x.photoSectionPitches(e)) === '{"wing:right":4}', JSON.stringify(x.photoSectionPitches(e)));
+  const q = roofOf(e);
+  const garage = q.roof.sections.find((s) => s.key === "wing:right");
+  assert(garage.floor === "main" && garage.pitch === 4, `${garage.floor} ${garage.pitch}`);
+  assert(q.roof.sections.filter((s) => s.floor === "upper").every((s) => s.pitch === 8), "the house's roof at 8/12");
+  e.scope = { roofing: true, sides: [], soffitFascia: false, eavestrough: false };
+  const line = x.exteriorScopeLines(e).roofing[0];
+  assert(line.includes("8/12 (from photos) on 8.65 SQ, 4/12 (from photos) on 5.57 SQ"), line);
+  // The bump-out on the back of the other two-storey: its gable end over its rear, 5/12 on its photo.
+  const b = boxAndBumpOut({ pitch: null });
+  b.sides.find((s) => s.id === "bumpRear").roofRead = photoRead(5);
+  const bq = roofOf(b);
+  assert(bq.roof.sections.find((s) => s.key === "wing:bumpRear").pitch === 5, "the bump-out at its photo's pitch");
+});
+
+test("overhangs read off the photos reach the lower roofs as well as the house's", () => {
+  // A 2' eave and an 18" rake read off the upper left's photo: the house's roof 2' out over its eaves and 18" past
+  // its gable ends, the garage's 2' out over its front and rear and 18" past its gable at the right.
+  // Nothing typed for them either: the defaults, which the photos' reads go over.
+  const defaults = { eaveOverhangFeet: x.DEFAULT_EAVE_OVERHANG_FEET, rakeOverhangFeet: x.DEFAULT_RAKE_OVERHANG_FEET };
+  const e = twoStorey(box4(52, 24), ubox(30, 24), undefined, { pitch: null, ...defaults });
+  e.upper.sides[3].roofRead = photoRead(8, "gable", { eaveOverhangFeet: 2, rakeOverhangFeet: 1.5 });
+  const q = roofOf(e);
+  assert(q.roofing.overhangs.eave.source === "photos" && q.roofing.overhangs.rake.source === "photos", "from the photos");
+  const house = q.roof.sections.find((s) => s.floor === "upper");
+  const garage = q.roof.sections.find((s) => s.key === "wing:right");
+  assert(house.x0 === -1.5 && house.x1 === 31.5 && house.y0 === -2 && house.y1 === 26, JSON.stringify([house.x0, house.x1, house.y0, house.y1]));
+  assert(garage.x0 === 30 && garage.x1 === 53.5 && garage.y0 === -2 && garage.y1 === 26, JSON.stringify([garage.x0, garage.x1, garage.y0, garage.y1]));
+  // And a lean-to wrapping the upper floor's corner: 2' past the main floor's rear and right walls.
+  const w = wrapped({ pitch: null, ...defaults });
+  w.upper.sides[3].roofRead = photoRead(6, "gable", { eaveOverhangFeet: 2, rakeOverhangFeet: 1.5 });
+  const low = lowerOf(roofOf(w)).sections;
+  assert(Math.max(...low.map((s) => s.y1)) === 34 && Math.max(...low.map((s) => s.x1)) === 40, JSON.stringify(low.map((s) => [s.x1, s.y1])));
+});
+
+/** A 30 x 24 two-storey box taped as tall sides, 19' to the upper eave, a gable on the left and right; the upper floor drawn over it all. */
+function tallBox() {
+  const e = exterior(
+    ["Front", "Right", "Rear", "Left"].map((name, i) => side({ id: name.toLowerCase(), name, lengthFeet: i % 2 ? 24 : 30, base: "grade", eaveLeftFeet: 19, eaveRightFeet: 19, ...(i % 2 ? { gable: { peakFeet: 25, atFeet: 12 } } : {}) })),
+    { pitch: null },
+  );
+  const fp = x.exteriorFootprint(e);
+  e.upper = x.upperFromOutline(fp.corners, fp);
+  return e;
+}
+
+test("a tall side split at the floor line: its photos go onto both storeys, each laid on its own wall; the roof read goes up", () => {
+  // The left side's photo, from 10 m out and 1.6 m up, tilted up to take in both storeys and the gable; and one
+  // aimed at the foot of the wall, which shows nothing over the floor line. The roof read off it: 8/12.
+  const e = tallBox();
+  const left = e.sides[3];
+  const up = camera({ at: [3.66, -10, 1.6], pitch: 0.35, width: 1200, height: 1600, f: 1000 });
+  const low = camera({ at: [3.66, -10, 1.2], pitch: -0.5, width: 1200, height: 1600, f: 3000 });
+  left.photos = [{ ...up.photo, inView: { fromM: 0, toM: 24 * 0.3048, leftEnd: true, rightEnd: true, top: true } }, { ...low.photo, n: 901 }];
+  left.roofRead = photoRead(8);
+  left.roofline = [
+    { alongFeet: 0, upFeet: 19, outFeet: 1 },
+    { alongFeet: 12, upFeet: 25, outFeet: 1 },
+    { alongFeet: 24, upFeet: 19, outFeet: 1 },
+  ];
+  // Before the split the read is off a main side under the upper floor: it goes to the house's roof unplaced.
+  assert(x.photoPitches(e).unplaced.length === 1, "unplaced before");
+  const s = x.splitTallSides(e, 10);
+  const main = s.sides[3];
+  const upper = s.upper.sides.find((v) => v.name === "Upper left");
+  // Both photos stay with the main left, at the ground; the one that shows the upper storey goes up as well.
+  assert(main.photos.map((p) => p.n).join() === "900,901", main.photos.map((p) => p.n).join());
+  assert(upper.photos.map((p) => p.n).join() === "900", (upper.photos ?? []).map((p) => p.n).join());
+  // Laid on the upper side's frame - up from the floor line, 10' = 3.048 m - every wall point is seen at the pixel
+  // it was: 2 m along and 1 m up the upper wall is 2 m along and 4.048 m up the tall one.
+  for (const [a, u] of [
+    [2, 1],
+    [6, 2.5],
+    [0.5, 0.1],
+  ]) {
+    const got = x.projectToPhoto(upper.photos[0], a, u);
+    const want = up.see(a, u + 3.048);
+    near(got.x, want.x, `pixel x at ${a}, ${u}`, 1e-6);
+    near(got.y, want.y, `pixel y at ${a}, ${u}`, 1e-6);
+  }
+  assert(JSON.stringify(upper.photos[0].inView) === JSON.stringify(left.photos[0].inView), "the whole side's view: its ends and top");
+  // The roof read goes with the roof, onto the upper left: the house's gable end, so the photo's pitch is the house roof's.
+  assert(upper.roofRead?.pitch === 8 && main.roofRead === undefined, "the read on the upper left");
+  const pp = x.photoPitches(s);
+  assert(pp.main.map((r) => r.sideId).join() === upper.id && pp.unplaced.length === 0, JSON.stringify(pp));
+  assert(roofOf(s).pitch.value === 8, "the house's roof at 8/12");
+  // 3D: the upper wall carries the photo.
+  assert(model3d(s).walls.find((w) => w.sideId === upper.id).photos.length === 1, "on the upper wall in 3D");
+});
+
+test("split under two upper sides, the roof read goes onto the one its peak is over", () => {
+  // Main 40 x 24, tall; the upper floor a U with a 10' notch in the middle of its front, so two upper sides stand
+  // on the main front: 0-15 and 25-40. The roofline peaks at 32' along (a cross gable): the read goes to 25-40.
+  const e = exterior(
+    ["Front", "Right", "Rear", "Left"].map((name, i) => side({ id: name.toLowerCase(), name, lengthFeet: i % 2 ? 24 : 40, base: "grade", eaveLeftFeet: 19, eaveRightFeet: 19 })),
+    { pitch: null },
+  );
+  const fp = x.exteriorFootprint(e);
+  e.upper = x.upperFromOutline([P(0, 0), P(15, 0), P(15, 6), P(25, 6), P(25, 0), P(40, 0), P(40, 24), P(0, 24)], fp);
+  e.sides[0].roofRead = photoRead(10);
+  e.sides[0].roofline = [
+    { alongFeet: 0, upFeet: 19, outFeet: 1 },
+    { alongFeet: 29, upFeet: 19, outFeet: 1 },
+    { alongFeet: 32, upFeet: 21.5, outFeet: 1 },
+    { alongFeet: 35, upFeet: 19, outFeet: 1 },
+    { alongFeet: 40, upFeet: 19, outFeet: 1 },
+  ];
+  const t = x.tallSides(e).find((v) => v.sideId === "front");
+  assert(t.over.map((o) => o.fromFeet).join() === "0,25", JSON.stringify(t.over));
+  const s = x.splitTallSides(e, 10);
+  const right = s.upper.sides.find((v) => v.id === t.over[1].sideId);
+  const left = s.upper.sides.find((v) => v.id === t.over[0].sideId);
+  assert(right.roofRead?.pitch === 10 && !left.roofRead, `${right.name}: ${JSON.stringify(right.roofRead)}`);
+  // The roofline is shared out by where each point is: 29-35 on the one at 25-40, from its own left corner.
+  assert(right.roofline.map((p) => `${p.alongFeet}@${p.upFeet}`).join() === "4@9,7@11.5,10@9,15@9", right.roofline.map((p) => `${p.alongFeet}@${p.upFeet}`).join());
+});
+
 console.log("\nthe sizes: what they are from (2026-10-15, lib/exteriorScale.ts)");
 
 test("Scan's tape comes in as what the sizes are from, the phone's own read of that side beside it; no tape, the phone's own measure", () => {
