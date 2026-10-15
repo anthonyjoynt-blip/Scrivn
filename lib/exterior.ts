@@ -42,6 +42,7 @@ import {
   type RoofPlan,
   roofRiseAlongWall,
   type RoofBreak,
+  upperOverhang,
 } from "./roof";
 import { PIECE_LENGTH_KEYS, pieceCount, type PieceFigures, pieceFigures, ROOF_PIECE_LABEL, type RoofPiece } from "./roofPieces";
 
@@ -718,7 +719,8 @@ function clipLevels(poly: Pt[], lo: number, hi: number): Pt[] {
   return out;
 }
 
-function clipRect(poly: Pt[], x0: number, x1: number, y0: number, y1: number): Pt[] {
+/** The part of a polygon inside a box: on a side's elevation, between two places along it and two levels. */
+export function clipRect(poly: Pt[], x0: number, x1: number, y0: number, y1: number): Pt[] {
   return clipLevels(clipHalf(clipHalf(poly, -1, 0, -x0), 1, 0, x1), y0, y1);
 }
 
@@ -1937,6 +1939,8 @@ export interface ExteriorQuantities {
   footprint: Footprint;
   /** The upper floor's outline on the main floor's plan; null for one storey. */
   upperFootprint: Footprint | null;
+  /** The upper floor's underside where it stands out past the main floor's walls (a cantilever): floor soffit, plan square feet. */
+  floorSoffitSquareFeet: number;
   pitch: PitchReading;
   /** Null until the sides close and there is a pitch. */
   roof: RoofPlan | null;
@@ -1967,9 +1971,12 @@ export function exteriorQuantities(exterior: Exterior): ExteriorQuantities {
   let roof: RoofPlan | null = null;
   const rises: Record<string, RoofRise> = {};
   const bases: Record<string, RoofRise> = {};
+  let floorSoffitSquareFeet = 0;
   if (footprint.closes && pitch.value !== null) {
     const input = roofInput(exterior, footprint, pitch.value);
     roof = buildRoof(input);
+    // Stood out past the main floor's walls no further than a cantilever, the upper floor has an underside to clad.
+    if (input.upper && roof.sections.some((s) => s.floor === "upper")) floorSoffitSquareFeet = upperOverhang(input).squareFeet;
     if (roof.shape !== "other") {
       const n = footprint.corners.length;
       footprint.sideIds.forEach((id, i) => {
@@ -2039,6 +2046,7 @@ export function exteriorQuantities(exterior: Exterior): ExteriorQuantities {
   return {
     footprint,
     upperFootprint: upper,
+    floorSoffitSquareFeet,
     pitch,
     roof,
     roofing,
@@ -2310,6 +2318,10 @@ export function exteriorScopeLines(exterior: Exterior | undefined): ExteriorScop
     if (r.fasciaFeet > 0) {
       out.siding.push(`Remove & replace fascia – ${material} – ${num(r.fasciaFeet)} LF (eaves + rakes)${edgeFrom(sourceOfParts([r.soffit.eaveFeet, r.edgesFrom.eave], [r.soffit.rakeFeet, r.edgesFrom.rake]))}`);
     }
+  }
+  // A cantilevered upper floor's underside is soffit too, by its area off the drawing (2026-10-15).
+  if (scope?.soffitFascia && q.floorSoffitSquareFeet > 0.05) {
+    out.siding.push(`Remove & replace soffit – ${R.soffitMaterial ?? "material to confirm"} – ${num(q.floorSoffitSquareFeet)} SF – floor overhang (the upper floor's underside past the main floor's walls)`);
   }
   if (scope?.eavestrough && r && r.gutter.feet > 0) {
     const g = r.gutter;

@@ -48,6 +48,17 @@
  * TENT (its ridge running out from the wall, gable or hip at the far end: a garage, a bump-out),
  * the strip's shape choosing unless said (`RoofInput.lowerRoofKinds`).
  *
+ * Lean-tos that meet round a corner of the upper floor are ONE roof (2026-10-15, `stripJoins`): round
+ * an outside corner both run on over the square of main floor past it and the lower of their two
+ * slopes is the roof there - a hip from the main floor's corner in to the upper floor's; round an
+ * inside corner they overlap and the higher is - a valley from the main floor's inside corner in to
+ * the upper floor's. Hipped all the way round, the roof has a second drip line, against the upper
+ * floor's walls. A notch of main floor filling an inside corner of the upper floor, deeper than a
+ * strip either way, is one roof rising to both walls, hipped from its outside corner.
+ *
+ * The upper floor may stand out past the main floor's walls by a cantilever's 2' (`UPPER_CANTILEVER_FEET`):
+ * the house's roof is over it as drawn, and its underside is soffit (`upperOverhang`).
+ *
  * ── Gambrel and mansard (2026-10-15) ───────────────────────────────────────────────────────────
  * A section can carry a second, flatter pitch above a break (`RoofInput.sectionBreaks`): a gambrel
  * with gable ends, a mansard with hip ends. Each of its planes gets a twin at the upper pitch, offset
@@ -1621,15 +1632,19 @@ function endsAgainst(g: Grid, w: Wing, upper: Set<number>): { lo: boolean; hi: b
     : { lo: all(range(b.i0, b.i1).map((i) => at(i, b.j0 - 1))), hi: all(range(b.i0, b.i1).map((i) => at(i, b.j1))) };
 }
 
+/** What each end of a lean-to runs on past its wall: a rake's overhang, none where it stands against the upper floor. */
+function rakeEnds(input: RoofInput, against: { lo: boolean; hi: boolean }): { lo: number; hi: number } {
+  return { lo: against.lo ? 0 : input.rakeOverhangFeet, hi: against.hi ? 0 : input.rakeOverhangFeet };
+}
+
 /**
  * A lean-to against the upper floor's wall: one slope rising from its eave - one overhang out past
- * its far wall - to the wall at `w.at`, its two ends rakes, without an overhang where an end stands
- * against the upper floor too.
+ * its far wall - to the wall at `w.at`, its two ends running on past its walls by `ends` (a rake's
+ * overhang, none against the upper floor, an eave's round a hipped corner).
  */
-function leanTo(input: RoofInput, w: Wing, key: string, pitch: number, free: string | null, against: { lo: boolean; hi: boolean }): RoofSection {
+function leanTo(input: RoofInput, w: Wing, key: string, pitch: number, free: string | null, ends: { lo: number; hi: number }): RoofSection {
   const oe = input.eaveOverhangFeet;
-  const lo = against.lo ? 0 : input.rakeOverhangFeet;
-  const hi = against.hi ? 0 : input.rakeOverhangFeet;
+  const { lo, hi } = ends;
   const W = w.wall;
   const k = pitch / 12;
   let rect: Rect;
@@ -1664,6 +1679,180 @@ function leanTo(input: RoofInput, w: Wing, key: string, pitch: number, free: str
   };
 }
 
+/** A strip of the main floor along one stretch of the upper floor's wall, as far out as it goes the whole way along. */
+interface Strip {
+  /** The upper floor's wall it stands against: corners[edge] -> corners[edge + 1]. */
+  edge: number;
+  box: CellBox;
+  /** Feet out from the wall, and along it. */
+  depth: number;
+  run: number;
+  /** Whether it runs all the way to the wall's first corner, and to its last. */
+  atStart: boolean;
+  atEnd: boolean;
+  /** The wall's way along (counter-clockwise round the upper floor), and out of it. */
+  d: Pt;
+  n: Pt;
+  /** The main floor's side under its eave. */
+  free: string | null;
+  kind: LowerRoofKind;
+  /** Its kind as the estimator said it, not by its shape. */
+  said: boolean;
+}
+
+/** How two strips meet at a corner of the upper floor: hipped round an outside one, in a valley at an inside one, or one roof filling an inside one. */
+interface StripJoin {
+  /** The strip on the wall into the corner, and the one on the wall out of it (`Strip` by its place). */
+  into: number;
+  outOf: number;
+  how: "hip" | "valley" | "filled";
+  /** Past an outside corner: the square of main floor both run on over to the hip. */
+  square: CellBox | null;
+}
+
+/** Every strip a piece of the main floor makes along the upper floor's walls. */
+function stripsOf(input: RoofInput, g: Grid, piece: Set<number>, up: { corners: Pt[]; sideIds: string[] }): Strip[] {
+  const nx = g.xs.length - 1;
+  const ny = g.ys.length - 1;
+  const ix = (v: number) => g.xs.findIndex((x) => Math.abs(x - v) < 1e-6);
+  const iy = (v: number) => g.ys.findIndex((y) => Math.abs(y - v) < 1e-6);
+  const has = (i: number, j: number) => i >= 0 && j >= 0 && i < nx && j < ny && piece.has(i * ny + j);
+  const out: Strip[] = [];
+  const m = up.corners.length;
+  for (let e = 0; e < m; e++) {
+    const p = up.corners[e] as Pt;
+    const q = up.corners[(e + 1) % m] as Pt;
+    const len = Math.hypot(q.x - p.x, q.y - p.y);
+    if (len < 1e-9) continue;
+    const d = { x: (q.x - p.x) / len, y: (q.y - p.y) / len };
+    // Out of a counter-clockwise outline is to the right.
+    const n = { x: d.y, y: -d.x };
+    const level = Math.abs(d.y) < 0.5;
+    const lines = level ? g.xs : g.ys;
+    const a0 = level ? ix(Math.min(p.x, q.x)) : iy(Math.min(p.y, q.y));
+    const a1 = level ? ix(Math.max(p.x, q.x)) : iy(Math.max(p.y, q.y));
+    const wallAt = level ? iy(p.y) : ix(p.x);
+    if (a0 < 0 || a1 < 0 || wallAt < 0) continue;
+    const step = level ? Math.sign(n.y) : Math.sign(n.x);
+    // The k-th row (or column) of cells out from the wall, at a place along it.
+    const first = step > 0 ? wallAt : wallAt - 1;
+    const at = (a: number, k: number) => (level ? has(a, first + step * k) : has(first + step * k, a));
+    for (let a = a0; a < a1; ) {
+      if (!at(a, 0)) {
+        a += 1;
+        continue;
+      }
+      let b = a;
+      while (b < a1 && at(b, 0)) b += 1;
+      let K = 1;
+      const across = Array.from({ length: b - a }, (_, k) => a + k);
+      while (across.every((c) => at(c, K))) K += 1;
+      const lo = Math.min(first, first + step * (K - 1));
+      const hi = Math.max(first, first + step * (K - 1)) + 1;
+      const box: CellBox = level ? { i0: a, i1: b, j0: lo, j1: hi } : { i0: lo, i1: hi, j0: a, j1: b };
+      const r = feetOf(g, box);
+      const s0 = lines[a] as number;
+      const s1 = lines[b] as number;
+      const forward = (level ? d.x : d.y) > 0;
+      const far = level ? (step > 0 ? r.y1 : r.y0) : step > 0 ? r.x1 : r.x0;
+      const free = sideOn(input, !level, far, s0, s1);
+      const depth = level ? r.y1 - r.y0 : r.x1 - r.x0;
+      const said = free !== null ? input.lowerRoofKinds?.[free] : undefined;
+      out.push({
+        edge: e,
+        box,
+        depth,
+        run: s1 - s0,
+        atStart: Math.abs((forward ? s0 : s1) - (level ? p.x : p.y)) < 1e-6,
+        atEnd: Math.abs((forward ? s1 : s0) - (level ? q.x : q.y)) < 1e-6,
+        d,
+        n,
+        free,
+        kind: said ?? (depth < (s1 - s0) / 2 ? "leanto" : "tent"),
+        said: said !== undefined,
+      });
+      a = b;
+    }
+  }
+  return out;
+}
+
+/**
+ * Where strips round the upper floor meet as ONE roof (2026-10-15): lean-tos round an outside corner
+ * of the upper floor, over the square of main floor past it, hipped from the main floor's corner in to
+ * the upper floor's; lean-tos round an inside corner, in a valley from the main floor's inside corner
+ * in to the upper floor's; and a notch of main floor filling an inside corner, deeper than a strip
+ * either way, one roof rising to both walls (a hip from its outside corner) rather than a ridge
+ * running out along one wall with a slope down into the other.
+ */
+function stripJoins(g: Grid, piece: Set<number>, up: { corners: Pt[] }, strips: Strip[]): StripJoin[] {
+  const ix = (v: number) => g.xs.findIndex((x) => Math.abs(x - v) < 1e-6);
+  const iy = (v: number) => g.ys.findIndex((y) => Math.abs(y - v) < 1e-6);
+  const ny = g.ys.length - 1;
+  const same = (a: CellBox, b: CellBox) => a.i0 === b.i0 && a.i1 === b.i1 && a.j0 === b.j0 && a.j1 === b.j1;
+  const m = up.corners.length;
+  // Where they could meet, by the shape alone.
+  const could: StripJoin[] = [];
+  for (let c = 0; c < m; c++) {
+    const into = strips.findIndex((s) => s.edge === (c - 1 + m) % m && s.atEnd);
+    const outOf = strips.findIndex((s) => s.edge === c && s.atStart);
+    const A = strips[into];
+    const B = strips[outOf];
+    if (!A || !B) continue;
+    const C = up.corners[c] as Pt;
+    // The square at the corner: out of the one wall as far as its strip goes, and out of the other as far as its.
+    const far = { x: C.x + A.n.x * A.depth + B.n.x * B.depth, y: C.y + A.n.y * A.depth + B.n.y * B.depth };
+    const i0 = ix(Math.min(C.x, far.x));
+    const i1 = ix(Math.max(C.x, far.x));
+    const j0 = iy(Math.min(C.y, far.y));
+    const j1 = iy(Math.max(C.y, far.y));
+    if (i0 < 0 || i1 < 0 || j0 < 0 || j1 < 0) continue;
+    const square: CellBox = { i0, i1, j0, j1 };
+    if (!isReflex(up.corners, c)) {
+      let all = true;
+      for (let i = i0; i < i1 && all; i++) for (let j = j0; j < j1 && all; j++) all = piece.has(i * ny + j);
+      if (all) could.push({ into, outOf, how: "hip", square });
+    } else if (same(A.box, B.box)) could.push({ into, outOf, how: "filled", square: null });
+    else if (A.run > B.depth + 1e-6 && B.run > A.depth + 1e-6) could.push({ into, outOf, how: "valley", square: null });
+  }
+  // A strip hipped round a corner runs on over the square there: a lean-to by its shape with that run, a short one between two corners included.
+  const extra = strips.map(() => 0);
+  for (const j of could) {
+    if (j.how !== "hip") continue;
+    extra[j.into] = (extra[j.into] as number) + (strips[j.outOf] as Strip).depth;
+    extra[j.outOf] = (extra[j.outOf] as number) + (strips[j.into] as Strip).depth;
+  }
+  const leanTo = (i: number) => {
+    const s = strips[i] as Strip;
+    return s.said ? s.kind === "leanto" : s.depth < (s.run + (extra[i] as number)) / 2;
+  };
+  return could.filter((j) => {
+    const A = strips[j.into] as Strip;
+    const B = strips[j.outOf] as Strip;
+    // Filling the corner, deeper than a strip either way: no slope of a ridge running out along one wall should fall into the other.
+    if (j.how === "filled") return A.kind === "tent" && B.kind === "tent" && !A.said && !B.said;
+    return leanTo(j.into) && leanTo(j.outOf);
+  });
+}
+
+/** A strip as a wing standing against the upper floor, its box run on over the squares it is hipped round. */
+function stripWing(g: Grid, s: Strip, squares: CellBox[]): Wing {
+  const box = [s.box, ...squares].reduce((u, b) => ({ i0: Math.min(u.i0, b.i0), i1: Math.max(u.i1, b.i1), j0: Math.min(u.j0, b.j0), j1: Math.max(u.j1, b.j1) }));
+  const wall = feetOf(g, box);
+  const level = Math.abs(s.d.y) < 0.5;
+  const outward = level ? s.n.y > 0 : s.n.x > 0;
+  return {
+    box,
+    wall,
+    axis: level ? "y" : "x",
+    parent: -1,
+    root: outward ? "lo" : "hi",
+    at: level ? (outward ? wall.y0 : wall.y1) : outward ? wall.x0 : wall.x1,
+    onEnd: false,
+    wider: false,
+  };
+}
+
 /** An outline's walls as lines a drip line can stand against. */
 function wallsOf(corners: Pt[]): WallEdge[] {
   return corners.map((p, i) => {
@@ -1673,10 +1862,62 @@ function wallsOf(corners: Pt[]): WallEdge[] {
 }
 
 /**
+ * How far an upper floor may stand out past the main floor's walls (2026-10-15): a floor's joists
+ * carried out over the wall below - a cantilever, 2' as a rule - with a tape's slop on top.
+ */
+export const UPPER_CANTILEVER_FEET = 2.5;
+
+/** One grid of both floors' lines: the main floor's cells (any deck the roof carries over filled in), and the upper floor's. */
+function floorsGrid(input: RoofInput, up: { corners: Pt[] }): { g: Grid; upper: Set<number> } {
+  const filled = roofNotches(input).filter((k) => k.covered);
+  const xs = [...new Set([...input.corners, ...up.corners].map((p) => round6(p.x)))].sort((a, b) => a - b);
+  const ys = [...new Set([...input.corners, ...up.corners].map((p) => round6(p.y)))].sort((a, b) => a - b);
+  const cell: boolean[] = [];
+  const upper = new Set<number>();
+  for (let i = 0; i + 1 < xs.length; i++) {
+    for (let j = 0; j + 1 < ys.length; j++) {
+      const cx = ((xs[i] as number) + (xs[i + 1] as number)) / 2;
+      const cy = ((ys[j] as number) + (ys[j + 1] as number)) / 2;
+      cell.push(insidePolygon(input.corners, cx, cy) || filled.some((k) => inside(k, cx, cy)));
+      if (insidePolygon(up.corners, cx, cy)) upper.add(cell.length - 1);
+    }
+  }
+  return { g: { xs, ys, cell }, upper };
+}
+
+/**
+ * Where the upper floor stands out past the main floor's walls - a cantilever, its underside soffit -
+ * as rectangles of plan, and how far the furthest of them stands out. None for one storey.
+ */
+export function upperOverhang(input: RoofInput): { rects: Rect[]; squareFeet: number; furthestFeet: number } {
+  if (!input.upper) return { rects: [], squareFeet: 0, furthestFeet: 0 };
+  const { g, upper } = floorsGrid(input, input.upper);
+  const ny = g.ys.length - 1;
+  const box = (k: number): Rect => feetOf(g, { i0: Math.floor(k / ny), i1: Math.floor(k / ny) + 1, j0: k % ny, j1: (k % ny) + 1 });
+  const main = g.cell.flatMap((on, k) => (on ? [box(k)] : []));
+  // How far a point stands out from the main floor, square to its walls: the further of across and along.
+  const out = (p: Pt) => Math.min(...main.map((r) => Math.max(r.x0 - p.x, p.x - r.x1, r.y0 - p.y, p.y - r.y1, 0)));
+  const rects = [...upper].filter((k) => !g.cell[k]).map(box);
+  const furthestFeet = Math.max(
+    0,
+    ...rects.flatMap((r) =>
+      [
+        { x: r.x0, y: r.y0 },
+        { x: r.x1, y: r.y0 },
+        { x: r.x0, y: r.y1 },
+        { x: r.x1, y: r.y1 },
+      ].map(out),
+    ),
+  );
+  return { rects, squareFeet: rects.reduce((s, r) => s + (r.x1 - r.x0) * (r.y1 - r.y0), 0), furthestFeet };
+}
+
+/**
  * A two-storey house's roof (see the file's head): the house's roof over the upper floor, built as any
  * outline's, and the main floor outside it taken apart into roofs set lower against the upper floor's
- * walls. An upper floor that runs past the main floor's walls, or a main floor that won't come apart
- * round it, is said, and the roof worked out over the main floor alone.
+ * walls. An upper floor may stand out past the main floor's walls by `UPPER_CANTILEVER_FEET` (its
+ * underside soffit, `upperOverhang`); one further out, or a main floor that won't come apart round it,
+ * is said, and the roof worked out over the main floor alone.
  */
 function twoStoreySections(input: RoofInput, up: { corners: Pt[]; sideIds: string[] }): BuiltSections | null {
   const nameOf = (id: string) => input.sideNames?.[id] || "that side";
@@ -1692,23 +1933,10 @@ function twoStoreySections(input: RoofInput, up: { corners: Pt[]; sideIds: strin
   if (!top) return single("The upper floor's outline doesn't come apart into a main roof and wings, so the roof is worked out over the main floor alone.");
   for (const s of top.sections) s.floor = "upper";
 
-  // One grid of both floors' lines; the main floor with any deck the roof carries over filled in.
-  const filled = roofNotches(input).filter((k) => k.covered);
-  const xs = [...new Set([...input.corners, ...up.corners].map((p) => round6(p.x)))].sort((a, b) => a - b);
-  const ys = [...new Set([...input.corners, ...up.corners].map((p) => round6(p.y)))].sort((a, b) => a - b);
-  const cell: boolean[] = [];
-  const upper = new Set<number>();
-  for (let i = 0; i + 1 < xs.length; i++) {
-    for (let j = 0; j + 1 < ys.length; j++) {
-      const cx = ((xs[i] as number) + (xs[i + 1] as number)) / 2;
-      const cy = ((ys[j] as number) + (ys[j + 1] as number)) / 2;
-      cell.push(insidePolygon(input.corners, cx, cy) || filled.some((k) => inside(k, cx, cy)));
-      if (insidePolygon(up.corners, cx, cy)) upper.add(cell.length - 1);
-    }
-  }
-  const g: Grid = { xs, ys, cell };
-  if ([...upper].some((k) => !cell[k])) {
-    return single("The upper floor runs past the main floor's walls, so the roof is worked out over the main floor alone: draw the upper floor inside the main floor's outline.");
+  const { g, upper } = floorsGrid(input, up);
+  const { cell } = g;
+  if (upperOverhang(input).furthestFeet > UPPER_CANTILEVER_FEET + 1e-6) {
+    return single("The upper floor runs past the main floor's walls by more than a cantilever's 2', so the roof is worked out over the main floor alone: draw the upper floor over the main floor's outline.");
   }
   const rest = new Set<number>();
   cell.forEach((on, k) => {
@@ -1717,6 +1945,9 @@ function twoStoreySections(input: RoofInput, up: { corners: Pt[]; sideIds: strin
 
   // Each part of the main floor round the upper floor: on a lower roof it touches - so a roof round a corner is one roof - or against the upper floor.
   const plan: Wing[] = [];
+  /** The plan's strips that are one roof round a corner of the upper floor: which roof, its ends, and the strips it is hipped to. */
+  const inRing = new Map<number, { ring: number; ends: { lo: number; hi: number }; hippedTo: number[]; kind: LowerRoofKind }>();
+  let rings = 0;
   const place = (piece: Set<number>): boolean => {
     let found: Wing | null = null;
     for (let p = 0; p < plan.length && !found; p++) if (touches(g, piece, (plan[p] as Wing).box)) found = wingOn(g, piece, plan[p] as Wing, p);
@@ -1727,7 +1958,39 @@ function twoStoreySections(input: RoofInput, up: { corners: Pt[]; sideIds: strin
     return piecesOf(g, new Set([...piece].filter((c) => !inBox(g, w.box, c)))).every(place);
   };
   for (const piece of piecesOf(g, rest)) {
-    if (!place(piece)) return single("The main floor round the upper floor doesn't come apart into roofs against its walls, so the roof is worked out over the main floor alone.");
+    // Strips that meet round a corner of the upper floor first, each such run of them one roof; what is left as before.
+    const strips = stripsOf(input, g, piece, up);
+    const joins = stripJoins(g, piece, up, strips);
+    const group = strips.map((_, i) => i);
+    const find = (i: number): number => (group[i] === i ? i : (group[i] = find(group[i] as number)));
+    for (const j of joins) group[find(j.into)] = find(j.outOf);
+    const members = [...new Set(joins.flatMap((j) => [j.into, j.outOf]))].sort((a, b) => a - b);
+    const ringOf = new Map<number, number>();
+    const at = new Map<number, number>();
+    for (const i of members) {
+      const s = strips[i] as Strip;
+      const root = find(i);
+      if (!ringOf.has(root)) ringOf.set(root, rings++);
+      const hips = joins.filter((j) => j.how === "hip" && (j.into === i || j.outOf === i));
+      const w = stripWing(g, s, hips.map((j) => j.square as CellBox));
+      // Each end along the wall: an eave's overhang round a hipped corner; else none against the upper floor, a rake's at the main floor's wall.
+      const rake = rakeEnds(input, endsAgainst(g, w, upper));
+      const hippedAt = (end: "start" | "end") => hips.some((j) => (end === "end" ? j.into === i : j.outOf === i));
+      const forward = (Math.abs(s.d.y) < 0.5 ? s.d.x : s.d.y) > 0;
+      const lo = hippedAt(forward ? "start" : "end") ? input.eaveOverhangFeet : rake.lo;
+      const hi = hippedAt(forward ? "end" : "start") ? input.eaveOverhangFeet : rake.hi;
+      at.set(i, plan.push(w) - 1);
+      inRing.set(at.get(i) as number, { ring: ringOf.get(root) as number, ends: { lo, hi }, hippedTo: [], kind: "leanto" });
+    }
+    for (const j of joins) {
+      if (j.how === "valley") continue;
+      inRing.get(at.get(j.into) as number)?.hippedTo.push(at.get(j.outOf) as number);
+      inRing.get(at.get(j.outOf) as number)?.hippedTo.push(at.get(j.into) as number);
+    }
+    const left = new Set([...piece].filter((c) => !members.some((i) => inBox(g, (plan[at.get(i) as number] as Wing).box, c))));
+    for (const bit of piecesOf(g, left)) {
+      if (!place(bit)) return single("The main floor round the upper floor doesn't come apart into roofs against its walls, so the roof is worked out over the main floor alone.");
+    }
   }
 
   const oe = input.eaveOverhangFeet;
@@ -1737,6 +2000,7 @@ function twoStoreySections(input: RoofInput, up: { corners: Pt[]; sideIds: strin
   const upperWalls = wallsOf(up.corners);
   const own: RoofSection[] = [];
   let layer = 1 + Math.max(...sections.map((x) => x.layer));
+  const ringLayer = new Map<number, number>();
   plan.forEach((w, k) => {
     const join = (end: "tie" | "wall"): RoofSection => {
       const tieAt = end === "wall" ? w.at : w.root === "lo" ? w.at + oe : w.at - oe;
@@ -1746,12 +2010,25 @@ function twoStoreySections(input: RoofInput, up: { corners: Pt[]; sideIds: strin
     const free = w.root === "lo" ? s.hiSide : s.loSide;
     const key = `wing:${free ?? `lower${k}`}`;
     const pitch = pitchFor(input, key);
-    if (w.parent < 0) {
+    const ring = inRing.get(k);
+    if (ring) {
+      // One of the lean-tos that are one roof: its own slope, and the slopes it is hipped to - the lower of them is the roof.
+      s = leanTo(input, w, key, pitch, free, ring.ends);
+      if (!ringLayer.has(ring.ring)) ringLayer.set(ring.ring, layer++);
+      s.layer = ringLayer.get(ring.ring) as number;
+      for (const p of ring.hippedTo) {
+        const other = own[p];
+        if (!other) continue;
+        s.planes = [...(s.planes ?? []), (other.planes ?? [])[0] as Plane];
+        other.planes = [...(other.planes ?? []), (s.planes ?? [])[0] as Plane];
+      }
+      if (free !== null) lowerRoofs.push({ sideId: free, kind: ring.kind, key });
+    } else if (w.parent < 0) {
       // Its own roof, stopping at the upper floor's wall: a strip along the wall a lean-to, anything deeper a ridge running out.
       const deep = w.axis === "x" ? w.wall.x1 - w.wall.x0 : w.wall.y1 - w.wall.y0;
       const wide = w.axis === "x" ? w.wall.y1 - w.wall.y0 : w.wall.x1 - w.wall.x0;
       const kind: LowerRoofKind = (free !== null ? input.lowerRoofKinds?.[free] : undefined) ?? (deep < wide / 2 ? "leanto" : "tent");
-      s = kind === "tent" ? withPitch(s, key, pitch) : leanTo(input, w, key, pitch, free, endsAgainst(g, w, upper));
+      s = kind === "tent" ? withPitch(s, key, pitch) : leanTo(input, w, key, pitch, free, rakeEnds(input, endsAgainst(g, w, upper)));
       s.layer = layer++;
       if (free !== null) lowerRoofs.push({ sideId: free, kind, key });
     } else {
@@ -2375,6 +2652,39 @@ function boundaryLoop(edges: [Pt, Pt][]): Pt[] {
   return signed < 0 ? loop.reverse() : loop;
 }
 
+/**
+ * Every loop of a roof's outline, each in order round it with the roof on its left: its outside
+ * counter-clockwise, and a hole in it - a lower roof all the way round the upper floor (2026-10-15) -
+ * clockwise, its drip line against the upper floor's walls.
+ */
+function boundaryLoops(edges: [Pt, Pt][], covered: (x: number, y: number) => boolean): Pt[][] {
+  const same = (p: Pt, q: Pt) => Math.abs(p.x - q.x) < 1e-6 && Math.abs(p.y - q.y) < 1e-6;
+  const used = new Set<number>();
+  const out: Pt[][] = [];
+  for (let start = 0; start < edges.length; start++) {
+    if (used.has(start)) continue;
+    used.add(start);
+    const first = edges[start] as [Pt, Pt];
+    const loop: Pt[] = [first[0]];
+    let cur = first[1];
+    for (let guard = 0; guard < edges.length && !same(cur, first[0]); guard++) {
+      loop.push(cur);
+      const j = edges.findIndex((e, k) => !used.has(k) && (same(e[0], cur) || same(e[1], cur)));
+      if (j < 0) break;
+      used.add(j);
+      const e = edges[j] as [Pt, Pt];
+      cur = same(e[0], cur) ? e[1] : e[0];
+    }
+    if (loop.length < 3) continue;
+    const a = loop[0] as Pt;
+    const b = loop[1] as Pt;
+    const len = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+    const left = { x: (a.x + b.x) / 2 - ((b.y - a.y) / len) * 1e-4, y: (a.y + b.y) / 2 + ((b.x - a.x) / len) * 1e-4 };
+    out.push(covered(left.x, left.y) ? loop : loop.reverse());
+  }
+  return out;
+}
+
 /** The side a piece of drip line runs along: the nearest wall parallel to it, inside it, beside it. */
 function sideAlong(input: RoofInput, a: Pt, b: Pt): string | null {
   const len = Math.hypot(b.x - a.x, b.y - a.y);
@@ -2675,7 +2985,9 @@ export function buildRoof(input: RoofInput): RoofPlan {
   // Ridges, hips and valleys: every pair of planes, kept only where the surface really folds, cut where the slopes beside them change.
   const creases: RoofLine[] = [];
   const pieces: Omit<RoofEdge, "key">[] = [];
-  roofs.forEach(({ layer, own, surface, outline, box }, loop) => {
+  // Each drip line its own: one a roof, but for a lower roof all the way round the upper floor, which has two.
+  let loop = 0;
+  roofs.forEach(({ layer, own, surface, outline, box }) => {
     const mine = facets.filter((f) => f.layer === layer);
     if (pitched) {
       for (let i = 0; i < surface.planes.length; i++) {
@@ -2698,7 +3010,9 @@ export function buildRoof(input: RoofInput): RoofPlan {
     }
     // A roof over the upper floor runs along its sides; one over the main floor along the main floor's, flashed against the upper floor's walls.
     const onUpper = upperInput !== null && own.some((s) => s.floor === "upper");
-    pieces.push(...dripPieces(surface, mine, onUpper ? (upperInput as RoofInput) : input, boundaryLoop(outline.edges), own.flatMap((s) => s.wallEdges), loop, layer, upperInput ?? input));
+    for (const ring of boundaryLoops(outline.edges, (x, y) => surface.covered(x, y))) {
+      pieces.push(...dripPieces(surface, mine, onUpper ? (upperInput as RoofInput) : input, ring, own.flatMap((s) => s.wallEdges), loop++, layer, upperInput ?? input));
+    }
   });
   const merged = mergeCollinear(creases);
   const used = new Map<string, number>();

@@ -60,7 +60,7 @@ import {
   upperFootprint,
 } from "./exterior";
 import { pieceCount } from "./roofPieces";
-import { buildRoof, eaveAboveDrip, polygonArea, type Pt, roofBaseAlongWall, roofHeightAt, type RoofInput, type RoofPlan, roofRiseAlongWall, type RoofSection } from "./roof";
+import { buildRoof, eaveAboveDrip, polygonArea, type Pt, roofBaseAlongWall, roofHeightAt, type RoofInput, type RoofPlan, roofRiseAlongWall, type RoofSection, upperOverhang } from "./roof";
 
 export type V3 = [number, number, number];
 
@@ -137,7 +137,7 @@ export interface ExteriorModel3D {
   roof: Roof3D | null;
   /** Under a porch roof and at a covered deck's open corner: each from the ground to the roof. */
   posts: { x: number; z: number; y0: number; y1: number }[];
-  /** Flat ceilings under the roof a covered deck is under, triangles. */
+  /** Flat ceilings under the roof a covered deck is under, and under an upper floor standing out past the main floor's walls: triangles. */
   ceilings: number[];
   ground: Ground3D;
   /** Each roof's eave height in the view, by layer: 0 the house's. */
@@ -569,6 +569,18 @@ export function exteriorModel(exterior: Exterior): ExteriorModelResult {
         const inX = p.x === k.x0 ? 1 : -1;
         const inY = p.y === k.y0 ? 1 : -1;
         posts.push({ x: p.x + inX * POST_SIZE_FEET, z: -(p.y + inY * POST_SIZE_FEET), y0: NaN, y1: h });
+      }
+    }
+    // An upper floor standing out past the main floor's walls: its underside, a flat soffit at the floor line.
+    if (twoStorey) {
+      for (const k of upperOverhang(input).rects) {
+        const c = [
+          { x: k.x0, y: k.y0 },
+          { x: k.x1, y: k.y0 },
+          { x: k.x1, y: k.y1 },
+          { x: k.x0, y: k.y1 },
+        ];
+        ceilings.push(...at3(c[0] as Pt, floorV), ...at3(c[2] as Pt, floorV), ...at3(c[1] as Pt, floorV), ...at3(c[0] as Pt, floorV), ...at3(c[3] as Pt, floorV), ...at3(c[2] as Pt, floorV));
       }
     }
     // Porch roofs: posts along the eave, a foot in.

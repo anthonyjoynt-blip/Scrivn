@@ -29,6 +29,7 @@ import {
   type RoofVentKind,
   type SideTurn,
   sourceWords,
+  UPPER_STOREY_FEET,
 } from "@/lib/exterior";
 import {
   type AdditionKind,
@@ -39,7 +40,10 @@ import {
   roofWithoutSides,
   sideChain,
   snapOutlinePoint,
+  splitTallSides,
   startWalk,
+  TALL_SIDE_FEET,
+  tallSides,
   toggledEnd,
   upperFromOutline,
   walkState,
@@ -832,7 +836,7 @@ export function PlanPane({
       <div className="exterior-redraw">
         <p className="field-note">
           Tap the upper floor&rsquo;s corners over the main floor (faint), going round it, and close it on its first corner. Within a foot of one of the main floor&rsquo;s walls a corner goes
-          on it, so a wall flush with the one below is flush.
+          on it, so a wall flush with the one below is flush. It may stand out past them up to 2&prime;, a cantilever: its underside is soffit.
         </p>
         <div className="exterior-row">
           <button
@@ -899,7 +903,7 @@ export function PlanPane({
         <div className="exterior-fields">
           {totals(true)}
           <RoofingFields roof={roof} r={r} readOnly={readOnly} onUpdate={updateRoof} />
-          {r && <RoofFigures r={r} />}
+          {r && <RoofFigures r={r} floorSoffitSquareFeet={q.floorSoffitSquareFeet} />}
           {ending}
         </div>
         {!readOnly && (
@@ -936,7 +940,7 @@ export function PlanPane({
           {r && (
             <>
               <RoofingFields roof={roof} r={r} readOnly={readOnly} onUpdate={updateRoof} />
-              <RoofFigures r={r} />
+              <RoofFigures r={r} floorSoffitSquareFeet={q.floorSoffitSquareFeet} />
             </>
           )}
           {ending}
@@ -1123,7 +1127,7 @@ export function PlanPane({
         />
         {totals(false)}
         <RoofingFields roof={roof} r={r} readOnly={readOnly} onUpdate={updateRoof} />
-        {r && <RoofFigures r={r} />}
+        {r && <RoofFigures r={r} floorSoffitSquareFeet={q.floorSoffitSquareFeet} />}
         {ending}
       </div>
     </div>
@@ -1412,9 +1416,6 @@ function RoofAdditions({
   );
 }
 
-/** The longest a main-floor side's eave usually reads: past it, it was likely taped to the upper floor's eave. */
-const ONE_STOREY_EAVE_FEET = 14;
-
 /**
  * A two-storey house's upper floor (2026-10-14): drawn over the plan, its sides listed to type and
  * open face-on, and each lower roof round it a lean-to or a ridge out from the wall.
@@ -1441,6 +1442,8 @@ function UpperFloorFields({
   onUpdate: (f: (roof: ExteriorRoof) => ExteriorRoof) => void;
 }) {
   const [confirm, setConfirm] = useState<"redraw" | "remove" | null>(null);
+  /** The floor line typed for splitting tall sides; null until typed, a storey under their eave shown. */
+  const [floorLine, setFloorLine] = useState<number | null>(null);
   const up = exterior.upper;
   if (!up) {
     return (
@@ -1459,8 +1462,15 @@ function UpperFloorFields({
     );
   }
   const ufp = q.upperFootprint;
-  // A main-floor side taped to the upper floor's eave would count the upper floor twice now it has its own sides.
-  const tall = exterior.sides.filter((s) => (s.eaveLeftFeet ?? 0) >= ONE_STOREY_EAVE_FEET).map((s) => s.name.trim() || "Side");
+  // A main-floor side taped to the upper floor's eave would count the upper floor twice now it has its own sides: split at the floor line, one tap.
+  const tall = tallSides(exterior);
+  const lone = exterior.sides
+    .filter((s) => Math.max(s.eaveLeftFeet ?? 0, s.eaveRightFeet ?? 0) >= TALL_SIDE_FEET && !tall.some((t) => t.sideId === s.id))
+    .map((s) => s.name.trim() || "Side");
+  // A floor line to start from: a storey under the tall sides' eave.
+  const eaves = tall.map((t) => t.eaveFeet).sort((a, b) => a - b);
+  const guess = eaves.length > 0 ? Math.max(7, (eaves[Math.floor((eaves.length - 1) / 2)] as number) - UPPER_STOREY_FEET) : null;
+  const floor = floorLine ?? guess;
   return (
     <div className="exterior-rows">
       <h4 className="exterior-subhead">Upper floor</h4>
@@ -1484,10 +1494,34 @@ function UpperFloorFields({
         })}
       </div>
       <p className="field-note">Its sides stand on the main floor&rsquo;s walls, or on the roof against them: their heights are from the floor line, the top of the main floor&rsquo;s walls.</p>
+      {q.floorSoffitSquareFeet > 0.05 && (
+        <p className="field-note">It stands out past the main floor&rsquo;s walls, a cantilever: {sf(q.floorSoffitSquareFeet)} of floor soffit under it, priced with the soffit.</p>
+      )}
       {tall.length > 0 && (
+        <>
+          <p className="exterior-assumed">
+            {listOf(tall.map((t) => t.name))} {tall.length === 1 ? "reads its" : "read their"} eave {TALL_SIDE_FEET}&prime; or more: measured up to the upper floor&rsquo;s eave, as one tall side.
+            Split at the floor line, {tall.length === 1 ? "its" : "each one’s"} eave goes down to it, and what is above - the cladding, the windows over the line, the gable, the roof read off
+            it - goes onto the upper side over it.
+          </p>
+          {!readOnly && (
+            <>
+              <div className="exterior-grid">
+                <FeetField id="ext-floor-line" label="Floor line, from grade" value={floor} onCommit={setFloorLine} note="The top of the main floor's walls, once for every side." />
+              </div>
+              <div className="exterior-row">
+                <button type="button" className="btn-secondary" disabled={!floor} onClick={() => floor && onChange((e) => splitTallSides(e, floor))}>
+                  Split {tall.length === 1 ? "it" : `all ${tall.length}`} at the floor line
+                </button>
+              </div>
+            </>
+          )}
+        </>
+      )}
+      {lone.length > 0 && (
         <p className="exterior-assumed">
-          {listOf(tall)} {tall.length === 1 ? "reads its" : "read their"} eave {ONE_STOREY_EAVE_FEET}&prime; or more. The main floor&rsquo;s sides now stop at the floor line: if that was the upper
-          floor&rsquo;s eave, put in the main floor&rsquo;s.
+          {listOf(lone)} {lone.length === 1 ? "reads its" : "read their"} eave {TALL_SIDE_FEET}&prime; or more, with no upper side flush over {lone.length === 1 ? "it" : "them"}. The main
+          floor&rsquo;s sides stop at the floor line: if that was the upper floor&rsquo;s eave, put in the main floor&rsquo;s.
         </p>
       )}
       {plan.lowerRoofs.map((l) => (
@@ -1689,7 +1723,7 @@ function RoofingFields({ roof, r, readOnly, onUpdate }: { roof: ExteriorRoof; r:
   );
 }
 
-function RoofFigures({ r }: { r: RoofingQuantities }) {
+function RoofFigures({ r, floorSoffitSquareFeet }: { r: RoofingQuantities; floorSoffitSquareFeet: number }) {
   const g = r.gutter;
   const chosen = r.slopes.filter((s) => s.selected);
   // With anything typed over a drawing, each total says where it came from, as the scope lines do; the
@@ -1729,6 +1763,7 @@ function RoofFigures({ r }: { r: RoofingQuantities }) {
     ["Downspouts", `${g.downspouts}${g.downspoutFeet !== null ? `, ${lf(g.downspoutFeet)}${g.downspoutFeetTyped ? "" : " (eave height + 15%)"}` : ""}`],
     ["Soffit, eaves", `${lf(r.soffit.eaveFeet)} (${sf(r.soffit.eaveSquareFeet)})`],
     ["Soffit, rakes", `${lf(r.soffit.rakeFeet)} (${sf(r.soffit.rakeSquareFeet)})`],
+    ...(floorSoffitSquareFeet > 0.05 ? [["Soffit, floor overhang", `${sf(floorSoffitSquareFeet)} (the upper floor's underside past the main walls)`] as [string, string]] : []),
     ["Fascia", lf(r.fasciaFeet)],
   ];
   return (

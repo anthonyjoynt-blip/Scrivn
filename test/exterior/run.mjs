@@ -26,6 +26,10 @@
  *   * roof pieces on top of the drawing (10-15, lib/roofPieces.ts): gable and shed dormers, round and
  *     many-sided turrets, a barrel, a flat roof, each worked in closed form; and a gambrel and a
  *     mansard as a second pitch above a break (lib/roof.ts)
+ *   * two storeys (10-14, 10-15): the house's roof over the upper floor and lower roofs round it -
+ *     lean-tos hipped round its outside corners and in a valley at an inside one, all the way round
+ *     with two drip lines - the upper floor kept flush when a main length is typed, tall sides split
+ *     at the floor line, and a cantilever's floor soffit
  */
 
 import { build } from "esbuild";
@@ -3130,6 +3134,325 @@ test("3D: the bump-out's lean-to meets the upper rear wall along a level line", 
   const b = u.outline.slice(0, u.bottomPoints);
   // 10 deep at 6/12: 5' over the floor line, all along the 16' it is against.
   near(Math.max(...b.map((p) => p.y)), 10 + 5, "the lean-to's top on the wall");
+});
+
+console.log("\ntwo storeys, more of them right: wrap-arounds, lengths retyped, tall sides split, cantilevers (10-15)");
+
+/** A main floor of [list] (walked, no overhangs) under an upper floor of [ups] set at [at], 6/12. */
+function twoStorey(list, ups, at, roof = {}) {
+  const e = walked(list, { pitch: 6, ...roof });
+  e.upper = upperOf(ups, at);
+  return e;
+}
+const box4 = (w, d, pre = "") => [
+  [`${pre}front`, w, "outside"],
+  [`${pre}right`, d, "outside"],
+  [`${pre}rear`, w, "outside"],
+  [`${pre}left`, d, "outside"],
+];
+const R5 = Math.sqrt(5);
+const sideQ = (q, id) => q.sides.find((s) => s.sideId === id);
+/** Main 38 x 32 under an upper floor 30 x 24 at its front left: the main floor's rear and right strips round the upper floor's rear right corner. */
+/** An upper floor's four sides, uFront round to uLeft. */
+const ubox = (w, d) => box4(w, d).map(([id, l, t]) => [`u${id.charAt(0).toUpperCase()}${id.slice(1)}`, l, t]);
+const wrapped = (roof) => twoStorey(box4(38, 32), ubox(30, 24), undefined, roof);
+/** The lower roofs: their sections, and their lines by kind. */
+const lowerOf = (q) => ({ sections: q.roof.sections.filter((s) => s.floor === "main"), lines: (kind) => q.roof.lines.filter((l) => l.layer > 0 && l.kind === kind) });
+/** The worst gap between a wall's top and the roof's underside just inside it, from u0 to u1 along it. */
+function gapAlong(m, sideId, u0, u1) {
+  const w = m.walls.find((v) => v.sideId === sideId);
+  let worst = 0;
+  for (let k = 0; k < 20; k++) {
+    const u = u0 + ((k + 0.37) / 20) * (u1 - u0);
+    const top = wallTopAt(w, u);
+    const hs = undersides(m, planOf(w, u, 0.01));
+    worst = Math.max(worst, hs.length === 0 ? Infinity : Math.min(...hs.map((h) => Math.abs(h - top))));
+  }
+  return worst;
+}
+/** The worst gap between an upper wall's foot, where it stands on a lower roof, and that roof's underside just outside it. */
+function footGap(m, sideId) {
+  const w = m.walls.find((v) => v.sideId === sideId);
+  const foot = w.outline.slice(0, w.bottomPoints);
+  let worst = 0;
+  for (let k = 0; k < 20; k++) {
+    const u = ((k + 0.37) / 20) * w.length;
+    const i = foot.findIndex((p, j) => j + 1 < foot.length && u >= p.x - 1e-9 && u <= foot[j + 1].x + 1e-9);
+    const p = foot[i];
+    const q = foot[i + 1];
+    const y = p.y + ((q.y - p.y) * (u - p.x)) / (q.x - p.x || 1);
+    const hs = undersides(m, planOf(w, u, -0.01));
+    worst = Math.max(worst, hs.length === 0 ? Infinity : Math.min(...hs.map((h) => Math.abs(h - y))));
+  }
+  return worst;
+}
+
+test("lean-tos round the upper floor's outside corner are one roof, hipped at the corner and flashed along both walls", () => {
+  // The owner's repro (10-14): main 38 x 32, upper 30 x 24 at its front left, 6/12, no overhangs. Before: three
+  // roofs, one forced lower. Now the rear strip (8 deep, 30 along) and the right one (8 out, 24 along) are lean-tos
+  // run on over the 8 x 8 square past the corner, the lower of the two the roof: a hip from the main floor's
+  // corner (38,32) in to the upper floor's (30,24), 8√2 across and 4' up - √(128 + 16) = 12.
+  const q = roofOf(wrapped());
+  const low = lowerOf(q);
+  assert(q.roof.note === null, q.roof.note);
+  assert(new Set(low.sections.map((s) => s.layer)).size === 1, `${new Set(low.sections.map((s) => s.layer)).size} lower roofs`);
+  assert(q.roof.lowerRoofs.map((l) => `${l.sideId}:${l.kind}`).join() === "right:leanto,rear:leanto", JSON.stringify(q.roof.lowerRoofs));
+  near(sum(low.lines("hip")), 12, "one hip at the corner");
+  near(sum(low.lines("valley")) + sum(low.lines("step")) + sum(low.lines("ridge")), 0, "no valley, step flashing or ridge");
+  // Both tops level against the upper walls at 8 x 1/2 = 4': headwall all along both.
+  near(q.roofing.headwallFeet, 24 + 30, "headwall along the upper right and rear");
+  near(q.roofing.eaveFeet, 30 + 30 + 32 + 38, "eaves: the house's two, the lean-tos' right and rear");
+  // Each lean-to's open end a rake, 8 run and 4 up; the house's four, 12 run and 6 up.
+  near(q.roofing.rakeFeet, 2 * 4 * R5 + 4 * 6 * R5, "rakes");
+  near(q.roofing.areaSquareFeet, (38 * 32) * F6, "area: the main floor's plan, every slope 6/12");
+  // The upper right and rear stand on the lean-to's top, 4' over the floor line all along.
+  for (const id of ["uRight", "uRear"]) near(Math.min(...q.bases[id].map((b) => b.rise)), 4, `${id} on the lean-to`, 1e-3);
+  // The main floor's front and left carry the lean-tos' end triangles (8 across, 4 up), nothing more.
+  near(gableOf(q, "front"), 16, "the right lean-to's end over the front");
+  near(gableOf(q, "left"), 16, "the rear lean-to's end over the left");
+  // With 1' overhangs it is still one roof, its hip from the drip line's corner: 9√2 across, 4'6" up - 13'6".
+  const oh = roofOf(wrapped({ eaveOverhangFeet: 1, rakeOverhangFeet: 1 }));
+  assert(oh.roof.note === null && new Set(lowerOf(oh).sections.map((s) => s.layer)).size === 1, oh.roof.note ?? "two lower roofs");
+  near(sum(lowerOf(oh).lines("hip")), 13.5, "the hip with overhangs");
+});
+
+test("lean-tos round three sides and all the way round: hipped at every corner, two drip lines when they close round", () => {
+  // Main 40 x 32, upper 30 x 24 5' in from each side, flush at the front: strips 5 wide either side and 8 deep behind.
+  // The hips run in from the main floor's corners at 45°: from (40,32) they reach the upper rear wall at (32,24), so
+  // 3' of the right lean-to's slope runs up that wall from 2'6" to 4' - step flashing, √(9 + 2.25) - either side.
+  const three = roofOf(twoStorey(box4(40, 32), ubox(30, 24), { sideId: "front", dx: 5, dy: 0 }));
+  const low3 = lowerOf(three);
+  assert(three.roof.note === null && new Set(low3.sections.map((s) => s.layer)).size === 1, three.roof.note ?? "more than one lower roof");
+  near(sum(low3.lines("hip")), 2 * 12, "two hips");
+  near(three.roofing.stepFeet, 2 * Math.hypot(3, 1.5), "step flashing where a side lean-to runs up the rear wall");
+  near(three.roofing.headwallFeet, 24 + 24 + 24, "headwall: both upper sides at 2'6\", the rear's middle 24' at 4'");
+  near(three.roofing.eaveFeet, 60 + 32 + 40 + 32, "eaves");
+  near(three.roofing.rakeFeet, 2 * Math.hypot(5, 2.5) + 4 * Math.hypot(12, 6), "the side lean-tos' front ends, and the house's four rakes");
+  // Main 38 x 30, upper 30 x 22 4' in all round: four lean-tos hipped at four corners, √(32 + 4) = 6 each, and
+  // headwall all round the upper floor - the roof's second drip line, against its walls.
+  const ring = roofOf(twoStorey(box4(38, 30), ubox(30, 22), { sideId: "front", dx: 4, dy: 4 }));
+  const lowR = lowerOf(ring);
+  assert(ring.roof.note === null && new Set(lowR.sections.map((s) => s.layer)).size === 1, ring.roof.note ?? "more than one lower roof");
+  near(sum(lowR.lines("hip")), 4 * 6, "four hips");
+  near(ring.roofing.headwallFeet, 2 * 30 + 2 * 22, "headwall all round the upper floor");
+  near(sum(lowR.lines("rake")), 0, "no rakes: hipped all round");
+  near(sum(lowR.lines("eave")), 2 * 38 + 2 * 30, "eaves all round the main floor");
+  assert(new Set(ring.roof.edges.filter((e) => e.layer > 0).map((e) => e.loop)).size === 2, "two drip lines: the main floor's and the upper floor's");
+  for (const id of ["uFront", "uRight", "uRear", "uLeft"]) near(Math.min(...ring.bases[id].map((b) => b.rise)), 2, `${id} on the lean-to, 4 x 1/2 up`, 1e-3);
+});
+
+test("round the upper floor's inside corner the lean-tos meet in a valley; a notch filling it is one roof rising to both walls", () => {
+  // Main L (0,0)-(48,0)-(48,18)-(28,18)-(28,38)-(0,38) round an upper L (0,0)-(40,0)-(40,10)-(20,10)-(20,30)-(0,30):
+  // an 8' strip all round its right and back. The short strip up the upper right (10 along, 8 out) is a lean-to run on
+  // over the corner square. Hipped at (48,18) and (28,38), each 12; at the upper floor's inside corner (20,10) the
+  // two strips meet in a valley out to the main floor's inside corner (28,18): 8√2 across, 4' down - 12.
+  const e = twoStorey(
+    [
+      ["front", 48, "outside"],
+      ["right", 18, "outside"],
+      ["rightRear", 20, "inside"],
+      ["inside", 20, "outside"],
+      ["rear", 28, "outside"],
+      ["left", 38, "outside"],
+    ],
+    [
+      ["uFront", 40, "outside"],
+      ["uRight", 10, "outside"],
+      ["uRightRear", 20, "inside"],
+      ["uInside", 20, "outside"],
+      ["uRear", 20, "outside"],
+      ["uLeft", 30, "outside"],
+    ],
+  );
+  const q = roofOf(e);
+  const low = lowerOf(q);
+  assert(q.roof.note === null && new Set(low.sections.map((s) => s.layer)).size === 1, q.roof.note ?? "more than one lower roof");
+  assert(q.roof.lowerRoofs.every((l) => l.kind === "leanto") && q.roof.lowerRoofs.length === 4, JSON.stringify(q.roof.lowerRoofs));
+  near(sum(low.lines("valley")), 12, "the valley at the inside corner");
+  near(sum(low.lines("hip")), 24, "a hip at each outside corner");
+  near(q.roofing.headwallFeet, 20 + 20 + 10 + 20, "headwall along every upper wall it meets");
+  near(q.roofing.stepFeet, 0, "no step flashing");
+  // Main 40 x 30 under an upper L leaving its rear right 20 x 20: deeper than a strip either way, so no ridge running
+  // out along one wall with a slope down into the other. One roof rising from the rear and right eaves to both walls:
+  // a hip from (40,30) to (20,10), 20√2 across and 10' up - 30; each slope up its wall from 0 to 10, step flashing.
+  const f = roofOf(
+    twoStorey(box4(40, 30), [
+      ["uFront", 40, "outside"],
+      ["uRight", 10, "outside"],
+      ["uRightRear", 20, "inside"],
+      ["uInside", 20, "outside"],
+      ["uRear", 20, "outside"],
+      ["uLeft", 30, "outside"],
+    ]),
+  );
+  const lowF = lowerOf(f);
+  assert(f.roof.note === null && new Set(lowF.sections.map((s) => s.layer)).size === 1, f.roof.note ?? "more than one lower roof");
+  near(sum(lowF.lines("hip")), 30, "one hip from the corner in");
+  near(sum(lowF.lines("ridge")), 0, "no ridge");
+  near(f.roofing.stepFeet, 2 * Math.hypot(20, 10), "step flashing up both walls");
+  // Said to be a ridge running out from the wall, it is that, as before.
+  const tent = roofOf(twoStorey(box4(40, 30), [["uFront", 40, "outside"], ["uRight", 10, "outside"], ["uRightRear", 20, "inside"], ["uInside", 20, "outside"], ["uRear", 20, "outside"], ["uLeft", 30, "outside"]], undefined, { lowerRoofs: { rear: "tent" } }));
+  assert(sum(lowerOf(tent).lines("ridge")) > 0, "a ridge when said");
+});
+
+test("3D: the wrap-arounds stand up - walls under their eaves and rakes, the upper walls on the lean-tos' tops", () => {
+  // The repro: the main front and left run on up as the upper floor's except past it, where they carry the lean-tos' ends.
+  const { m } = soundRoof(wrapped({ eaveOverhangFeet: 1, rakeOverhangFeet: 1 }), "wrap-around", ["front", "left"]);
+  assert(gapAlong(m, "front", 30.2, 38) < 0.02, "the main front under the right lean-to's end");
+  assert(gapAlong(m, "left", 0, 7.8) < 0.02, "the main left under the rear lean-to's end");
+  for (const id of ["uRight", "uRear"]) assert(footGap(m, id) < 0.02, `${id}'s foot on the lean-to`);
+  near(m.eaves[0], 10 + 9, "the house's eave");
+  // All the way round: every main wall is under the lean-tos' eaves, and every upper wall stands on them.
+  const ring = twoStorey(box4(38, 30), ubox(30, 22), { sideId: "front", dx: 4, dy: 4 }, { eaveOverhangFeet: 1, rakeOverhangFeet: 1 });
+  const r = soundRoof(ring, "all the way round").m;
+  for (const id of ["uFront", "uRight", "uRear", "uLeft"]) assert(footGap(r, id) < 0.02, `${id}'s foot on the lean-to`);
+});
+
+test("a main-floor length typed moves the upper floor's walls flush with it: its sides stretch, a typed one stands", () => {
+  // Drawn: main 40 x 30, an upper floor 30 x 24 flush at the front and right, set by the main floor's front-left corner.
+  const main = x.exteriorFromOutline([P(0, 0), P(40, 0), P(40, 30), P(0, 30)]);
+  const up = x.upperFromOutline([P(10, 0), P(40, 0), P(40, 24), P(10, 24)], x.exteriorFootprint(main));
+  up.sides[0].openings = [{ id: "w", kind: "window", widthFeet: 3, heightFeet: 4, sillFeet: 3, fromLeftFeet: 5 }];
+  const e = { ...main, upper: up };
+  const corners = (ex) => x.upperFootprint(ex, x.exteriorFootprint(ex)).corners.map((c) => `${c.x},${c.y}`).join(" ");
+  // The front typed 44: the right wall moves out 4, the upper floor's right with it; its front and rear 34, its left where it was.
+  const wider = x.withSideLength(e, byName(e, "Front").id, 44);
+  assert(corners(wider) === "10,0 44,0 44,24 10,24", corners(wider));
+  assert(wider.upper.sides.map((s) => s.lengthFeet).join() === "34,24,34,24", wider.upper.sides.map((s) => s.lengthFeet).join());
+  assert(wider.upper.sides[0].openings[0].fromLeftFeet === 5, "the window keeps its place from the left corner, which did not move");
+  // Still flush: no strip of lower roof down the right.
+  assert(!roofOf(wider).roof.sections.some((s) => s.floor === "main" && s.x0 > 40), "no roof between the walls");
+  // The right typed 34: the rear moves back, and the upper floor - 24 deep, its rear on no line - stays.
+  const deeper = x.withSideLength(wider, byName(wider, "Right").id, 34);
+  assert(corners(deeper) === "10,0 44,0 44,24 10,24", corners(deeper));
+  // Over the whole main floor, its rear follows the rear.
+  const whole = { ...main, upper: x.upperFromOutline(x.exteriorFootprint(main).corners, x.exteriorFootprint(main)) };
+  const back = x.withSideLength(whole, byName(whole, "Right").id, 34);
+  assert(corners(back) === "0,0 40,0 40,34 0,34", corners(back));
+  // An upper side typed is a measurement: the front typed 46 leaves the upper floor 34 wide, 2' short of the right wall.
+  const typed = x.withUpperSideLength(wider, wider.upper.sides[0].id, 34);
+  const off = x.withSideLength(typed, byName(typed, "Front").id, 46);
+  assert(corners(off) === "10,0 44,0 44,24 10,24", corners(off));
+});
+
+test("tall sides split at the floor line: the eave down to it, what is above onto the upper side, nothing counted twice", () => {
+  // A 30 x 24 two-storey box taped as tall sides: 19' to the upper eave, the right on a lot falling 1' to the back
+  // (19' and 20'), the gables measured on the right and left 6' up (6/12), stone to 3' and vinyl over it on the front,
+  // a door and an upstairs window (sill 13'). The upper floor drawn over the whole main floor.
+  const e = exterior(
+    [
+      side({ baseLeftFeet: 0.5, baseRightFeet: 0.5, id: "front", name: "Front", eaveLeftFeet: 19, eaveRightFeet: 19, bands: [{ id: "st", kind: "stone", top: 3 }, { id: "v", kind: "vinyl", top: null }], openings: [{ id: "door", kind: "door", widthFeet: 3, heightFeet: 7, sillFeet: 0.5, fromLeftFeet: 5 }, { id: "up", kind: "window", widthFeet: 4, heightFeet: 4, sillFeet: 13, fromLeftFeet: 10 }] }),
+      side({ baseLeftFeet: 0.5, baseRightFeet: 0.5, id: "right", name: "Right", lengthFeet: 24, eaveLeftFeet: 19, eaveRightFeet: 20, gable: { peakFeet: 25.5, atFeet: 12 } }),
+      side({ baseLeftFeet: 0.5, baseRightFeet: 0.5, id: "rear", name: "Rear", eaveLeftFeet: 19, eaveRightFeet: 19 }),
+      side({ baseLeftFeet: 0.5, baseRightFeet: 0.5, id: "left", name: "Left", lengthFeet: 24, eaveLeftFeet: 19, eaveRightFeet: 19, gable: { peakFeet: 25, atFeet: 12 } }),
+    ],
+    { pitch: null },
+  );
+  const tallOnly = x.exteriorQuantities(e);
+  const fp = x.exteriorFootprint(e);
+  e.upper = x.upperFromOutline(fp.corners, fp);
+  const tall = x.tallSides(e);
+  assert(tall.map((t) => t.name).join() === "Front,Right,Rear,Left", tall.map((t) => t.name).join());
+  // Before the split the tall sides and the upper ones both count the upper storey.
+  assert(x.exteriorQuantities(e).totals.grossSquareFeet > tallOnly.totals.grossSquareFeet + 900, "counted twice before");
+  const s = x.splitTallSides(e, 10);
+  const named = (n) => [...s.sides, ...s.upper.sides].find((v) => v.name === n);
+  // The floor line 10' up: the front's eave there, the upper front's 9' above it, the window on it 3' up, the door below.
+  assert(named("Front").eaveLeftFeet === 10 && named("Upper front").eaveLeftFeet === 9, `${named("Front").eaveLeftFeet} / ${named("Upper front").eaveLeftFeet}`);
+  assert(named("Front").openings.map((o) => o.id).join() === "door", "the door stays");
+  const w = named("Upper front").openings.find((o) => o.id === "up");
+  assert(w && w.fromLeftFeet === 10 && w.sillFeet === 3, JSON.stringify(w));
+  assert(named("Front").bands.map((b) => `${b.kind}:${b.top}`).join() === "stone:3,vinyl:null" && named("Upper front").bands.map((b) => `${b.kind}:${b.top}`).join() === "vinyl:null", "the stone below, vinyl on both");
+  // On the falling lot the floor line is level: 9'6" and 10'6" over the ground at the right's two corners, the
+  // upper right 9'6" over it, and the gable's peak (25' on the side's frame) 15'6".
+  assert(named("Right").eaveLeftFeet === 9.5 && named("Right").eaveRightFeet === 10.5, `${named("Right").eaveLeftFeet} / ${named("Right").eaveRightFeet}`);
+  near(named("Upper right").eaveLeftFeet, 9.5, "the upper right's eave");
+  near(named("Upper right").gable.peakFeet, 15.5, "its gable, from the floor line");
+  assert(named("Right").gable === null, "no gable left on the main right");
+  const q = x.exteriorQuantities(s);
+  // Nothing counted twice, nothing lost: the cladding is the tall sides' own, 2,154 SF - main 285 + 228 + 285 + 228
+  // and upper 270 + (228 + 72) + 270 + (216 + 72) - less the door and the window.
+  near(q.totals.grossSquareFeet, tallOnly.totals.grossSquareFeet, "the same cladding as the tall sides");
+  near(q.totals.grossSquareFeet, 2154, "worked by hand");
+  near(q.totals.netSquareFeet, tallOnly.totals.netSquareFeet, "less the same openings");
+  near(q.pitch.value, 6, "the pitch off the gables, now the upper sides'");
+  assert(x.tallSides(s).length === 0, "none tall now");
+  // 3D: the main walls to the floor line at 10', the house's eave 9' over it.
+  const m = model3d(s);
+  near(m.eaves[-1], 10, "the floor line");
+  near(m.eaves[0], 19, "the house's eave");
+});
+
+test("a tall side the phone walked splits its shapes at the floor line; parging and photos stay below", () => {
+  // One level, a 30' front tapped as stucco from the parging's top (6") to 18'6" and the parging under it, a photo
+  // and a door kept for sizes. Split at 10': stucco 30 x 9'6" below, 30 x 8'6" on the upper front - the same 540 SF.
+  const e = rect(30, 24, { pitch: 6 }, 18.5);
+  const f = e.sides[0];
+  Object.assign(f, {
+    heightsFrom: "level",
+    shapes: [
+      { id: "p", kind: "parging", closed: true, polygon: [P(0, 0), P(30, 0), P(30, 0.5), P(0, 0.5)] },
+      { id: "s", kind: "stucco", closed: true, polygon: [P(0, 0.5), P(30, 0.5), P(30, 18.5), P(0, 18.5)] },
+    ],
+    roofline: [{ alongFeet: 0, upFeet: 18.5, outFeet: 1 }, { alongFeet: 30, upFeet: 18.5, outFeet: 1 }],
+    pitchMeasured: 6,
+    photos: [{ n: 900, scanId: null, camera: { width: 4, height: 3, fx: 1, fy: 1, cx: 2, cy: 1.5 }, toPhoto: [1, 0, 0, 0, 1, 0, 0, 0, 1], inView: null }],
+  });
+  const fp = x.exteriorFootprint(e);
+  e.upper = x.upperFromOutline(fp.corners, fp);
+  const before = sideQ(x.exteriorQuantities(e), "front").grossSquareFeet;
+  near(before, 540, "the tall front: 30 x 18'");
+  const s = x.splitTallSides(e, 10);
+  const front = s.sides[0];
+  const upFront = s.upper.sides[0];
+  near(front.shapes.filter((v) => v.kind === "stucco").reduce((a, v) => a + x.polygonArea(v.polygon), 0), 30 * 9.5, "the main front's stucco");
+  near(upFront.shapes.reduce((a, v) => a + x.polygonArea(v.polygon), 0), 30 * 8.5, "the upper front's");
+  assert(front.shapes.some((v) => v.kind === "parging") && !upFront.shapes.some((v) => v.kind === "parging"), "the parging stays below");
+  assert(front.photos.length === 1 && !upFront.photos, "the photo stays with the ground");
+  assert(upFront.roofline.every((p) => p.upFeet === 8.5) && !front.roofline?.length, "the roofline goes up");
+  assert(upFront.pitchMeasured === 6 && front.pitchMeasured === undefined, "the phone's pitch is the roof's, over the upper floor");
+  const q = x.exteriorQuantities(s);
+  near(sideQ(q, "front").grossSquareFeet + sideQ(q, upFront.id).grossSquareFeet, 540, "the same 540 SF");
+});
+
+test("an upper floor standing out 2' past the main floor's walls: built, its underside soffit; further out, said", () => {
+  // The two-storey box and garage, its upper floor 30 x 26 standing 2' out over the front: the house's roof over
+  // that, the garage's as before, and 30 x 2 = 60 SF of floor soffit.
+  const e = boxAndGarage();
+  e.upper = upperOf(
+    [
+      ["uFront", 30, "outside"],
+      ["uRight", 26, "outside"],
+      ["uRear", 30, "outside"],
+      ["uLeft", 26, "outside"],
+    ],
+    { sideId: "front", dx: 0, dy: -2 },
+  );
+  const q = roofOf(e);
+  assert(q.roof.note === null, q.roof.note);
+  near(q.roof.facets.filter((f) => f.layer === 0).reduce((s, f) => s + f.planSquareFeet, 0), 30 * 26, "the house's roof over the upper floor as drawn");
+  assert(q.roof.lowerRoofs.map((l) => `${l.sideId}:${l.kind}`).join() === "right:tent", JSON.stringify(q.roof.lowerRoofs));
+  near(q.floorSoffitSquareFeet, 60, "the floor overhang's underside");
+  // On the siding lines with the soffit, and only then.
+  e.roof.soffitMaterial = "metal";
+  e.scope = { roofing: false, sides: [], soffitFascia: true, eavestrough: false };
+  const lines = x.exteriorScopeLines(e).siding;
+  assert(lines.includes("Remove & replace soffit – metal – 60.0 SF – floor overhang (the upper floor's underside past the main floor's walls)"), lines.join(" | "));
+  e.scope = { ...e.scope, soffitFascia: false };
+  assert(!x.exteriorScopeLines(e).siding.some((l) => /floor overhang/.test(l)), "not unless the soffit is ticked");
+  // 3D: it stands up, and the underside is a ceiling at the floor line, 60 SF of it.
+  const { m } = soundRoof(e, "a cantilever", ["front", "rear", "left"]);
+  const ys = m.ceilings.filter((_, i) => i % 3 === 1);
+  assert(ys.length > 0 && ys.every((y) => Math.abs(y - 10) < 1e-9), "at the floor line");
+  let area = 0;
+  for (let i = 0; i < m.ceilings.length; i += 9) area += Math.abs((m.ceilings[i + 3] - m.ceilings[i]) * (m.ceilings[i + 8] - m.ceilings[i + 2]) - (m.ceilings[i + 6] - m.ceilings[i]) * (m.ceilings[i + 5] - m.ceilings[i + 2])) / 2;
+  near(area, 60, "the soffit's area");
+  // 3' out is more than a cantilever: said, and the roof is the main floor's alone, as before.
+  e.upper.at = { sideId: "front", dx: 0, dy: -3 };
+  e.upper.sides[1].lengthFeet = 27;
+  e.upper.sides[3].lengthFeet = 27;
+  const far = roofOf(e);
+  assert(/runs past the main floor's walls/.test(far.roof.note ?? "") && far.floorSoffitSquareFeet === 0, far.roof.note ?? "no note");
 });
 
 console.log("\nthe roof from the photos: typed, then photos, then assumed (10-15)");

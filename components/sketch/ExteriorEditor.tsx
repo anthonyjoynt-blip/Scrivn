@@ -362,7 +362,8 @@ function ExteriorTotals({ exterior, q }: { exterior: Exterior; q: ExteriorQuanti
               <tr>
                 <th scope="row">Soffit / fascia</th>
                 <td>
-                  {sf(r.soffit.eaveSquareFeet + r.soffit.rakeSquareFeet)} / {lf(r.fasciaFeet)}
+                  {sf(r.soffit.eaveSquareFeet + r.soffit.rakeSquareFeet + q.floorSoffitSquareFeet)} / {lf(r.fasciaFeet)}
+                  {q.floorSoffitSquareFeet > 0.05 ? `, ${sf(q.floorSoffitSquareFeet)} of it under the upper floor's overhang` : ""}
                 </td>
               </tr>
             </>
