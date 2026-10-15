@@ -533,6 +533,73 @@ export function ExteriorRound() {
   );
 }
 
+/** An end's pill on Scrivn's roof plan (exteriorDrawings END_INK): a gable in its rakes' colour, a hip in its hips'. */
+function EndPill({ x, y, kind }: { x: number; y: number; kind: "gable" | "hip" }) {
+  const ink = kind === "hip" ? { stroke: "#6d28d9", fill: "#f5f3ff" } : { stroke: "#b45309", fill: "#fff7ed" };
+  const label = kind === "hip" ? "Hip" : "Gable";
+  const w = kind === "hip" ? 30 : 42;
+  return (
+    <g>
+      <rect x={x - w / 2} y={y - 10} width={w} height={20} rx={10} fill={ink.fill} stroke={ink.stroke} strokeWidth={1.5} />
+      <text x={x} y={y + 4} textAnchor="middle" fontSize={10.5} fontWeight={700} fill={ink.stroke}>
+        {label}
+      </text>
+    </g>
+  );
+}
+
+/**
+ * The Roof screen after Finish exterior (RoofReview, roof_overlay): Scrivn's roof plan with Gable or Hip at each end, the
+ * lines under it (ExteriorFinish.lines, worded as the engine words them), then Finish · Pitch · Ends and Accept · Close.
+ * Finish is greyed, as the app greys it, once every photographed side has been read. The line colours are the roof plan's
+ * (exteriorDrawings LINE_STYLE).
+ */
+export function RoofScreen() {
+  const lines = [
+    "11.5 SQ · pitch 5/12 (from photos)",
+    "Pitch: 5/12, read off the gable photos of Left",
+    "Overhangs: eave 1'11\" (from photos) ·",
+    "rake 2'2\" (from photos)",
+    "Ends: Left gable (photo) · Right hip",
+    "Ridge 24'2\" · Hip 40'2\" · Eave 104' · Rake 30'1\"",
+    "Left: a gable end, pitch 5/12 (slopes 5.0 …",
+    "Front: eave overhang 1'11\"",
+    "Assumed: Downspouts: 5, one for each 35' …",
+  ];
+  return (
+    <svg viewBox="0 0 300 600" aria-hidden="true" className="sg-svg sg-phone">
+      <rect x={8} y={8} width={284} height={584} rx={38} fill={NAVY_DARK} />
+      <rect x={20} y={30} width={260} height={540} rx={26} fill={PAPER} />
+      <text x={36} y={70} fontSize={19} fontWeight={700} fill={NAVY}>
+        Roof
+      </text>
+      {/* the roof plan: a gable over Left, a hip over Right */}
+      <rect x={80} y={100} width={150} height={110} fill="#f2f5f8" />
+      <line x1={80} y1={100} x2={230} y2={100} stroke="#1a1d23" strokeWidth={2} />
+      <line x1={80} y1={210} x2={230} y2={210} stroke="#1a1d23" strokeWidth={2} />
+      <line x1={230} y1={100} x2={230} y2={210} stroke="#1a1d23" strokeWidth={2} />
+      <line x1={80} y1={100} x2={80} y2={210} stroke="#b45309" strokeWidth={2.5} />
+      <line x1={80} y1={155} x2={175} y2={155} stroke="#b91c1c" strokeWidth={3} />
+      <line x1={175} y1={155} x2={230} y2={100} stroke="#6d28d9" strokeWidth={2.5} />
+      <line x1={175} y1={155} x2={230} y2={210} stroke="#6d28d9" strokeWidth={2.5} />
+      <EndPill x={52} y={155} kind="gable" />
+      <EndPill x={256} y={155} kind="hip" />
+      {lines.map((line, i) => (
+        <text key={line} x={34} y={262 + i * 17} fontSize={10} fill={INK}>
+          {line}
+        </text>
+      ))}
+      <g opacity={0.4}>
+        <Btn x={34} y={470} w={70} h={32} label="Finish" />
+      </g>
+      <Btn x={113} y={470} w={70} h={32} label="Pitch" />
+      <Btn x={192} y={470} w={70} h={32} label="Ends" />
+      <Btn x={34} y={514} w={110} h={34} label="Accept" />
+      <Btn x={156} y={514} w={110} h={34} label="Close" on />
+    </svg>
+  );
+}
+
 /** An air mover as the app draws it (SketchPlan.drawEquipment), simplified: the blower's round housing and its mouth. */
 function Mover({ x, y }: { x: number; y: number }) {
   return (
