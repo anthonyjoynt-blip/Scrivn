@@ -48,7 +48,11 @@ import {
 } from "./exterior";
 import { polygonArea, type Pt, type RoofAddition, type RoofBreak, type RoofEndKind, type RoofPlan } from "./roof";
 import type { RoofPiece, RoofPieceKind } from "./roofPieces";
+import { photoCoverageM, photoOnPart } from "./exteriorPhoto";
 import { newSketchId } from "./sketch";
+
+/** A foot in metres: a side's photos are laid on it in metres. */
+const FOOT_M = 0.3048;
 
 /** No side is shorter than this: half a foot. */
 export const MIN_SIDE_FEET = 0.5;
@@ -326,8 +330,11 @@ export function tallSides(exterior: Exterior): TallSide[] {
  * fall of the ground between its corners (one level - a side the phone walked - both at it), and what
  * is above it goes onto the upper side over it, measured from the floor line: the cladding above (its
  * bands, or the phone's shapes cut at the line), the openings whose middle is over the line, the gable
- * as measured, the roofline, and the roof read off the side - the roof is the upper floor's now. The
- * photos, fixtures and doors kept for sizes stay on the main side, at the ground.
+ * as measured, the roofline, and the roof read off the side - the roof is the upper floor's now - onto
+ * the upper side its peak is over. Its photos show both storeys: each stays on the main side, and goes
+ * onto the upper side too, laid on that side's own frame (`photoOnPart`), where it shows anything over
+ * the line - so the upper side's elevation and any trace of it see the photo. Fixtures and doors kept
+ * for sizes stay on the main side, at the ground.
  */
 export function splitTallSides(exterior: Exterior, floorFeet: number): Exterior {
   const up = exterior.upper;
@@ -353,8 +360,12 @@ export function splitTallSides(exterior: Exterior, floorFeet: number): Exterior 
     let shapes = S.shapes;
     let roofline = S.roofline;
     let gable = S.gable;
-    // The upper side that gets what goes with the whole side - its pitch, the roof read off it: the one over most of it.
+    // The upper side that gets what goes with the roof over the whole side - its pitch, the roof read off it: the one the roof's peak
+    // is over (the roofline's highest point, else the gable's), else the one over most of it.
     const most = [...t.over].sort((p, q) => Math.min(L, q.fromFeet + q.lengthFeet) - Math.max(0, q.fromFeet) - (Math.min(L, p.fromFeet + p.lengthFeet) - Math.max(0, p.fromFeet)))[0];
+    const top = (S.roofline ?? []).reduce<{ alongFeet: number; upFeet: number } | null>((b, p) => (!b || p.upFeet > b.upFeet ? p : b), null);
+    const peakAt = top && top.upFeet > Fz ? top.alongFeet : S.gable ? S.gable.atFeet : null;
+    const roofOver = (peakAt === null ? undefined : t.over.find((o) => peakAt >= o.fromFeet - EPS && peakAt <= o.fromFeet + o.lengthFeet + EPS)) ?? most;
     for (const o of t.over) {
       const U = uppers.get(o.sideId);
       if (!U) continue;
@@ -378,6 +389,13 @@ export function splitTallSides(exterior: Exterior, floorFeet: number): Exterior 
       const points = (roofline ?? []).filter((p) => within(p.alongFeet) && p.upFeet > Fz);
       roofline = roofline?.filter((p) => !points.includes(p));
       const takesGable = gable !== null && within(gable.atFeet);
+      // Each photo that shows this upper side above the floor line, laid on its frame.
+      const photos = (S.photos ?? [])
+        .filter((p) => {
+          const c = photoCoverageM(p);
+          return c !== null && c.upMax > Fz * FOOT_M && c.alongMax > lo * FOOT_M && c.alongMin < hi * FOOT_M;
+        })
+        .map((p) => photoOnPart(p, lo, Fz, o.lengthFeet, L));
       const next: ExteriorSide = {
         ...U,
         eaveLeftFeet: eaveZ(Math.max(0, lo)) - Fz,
@@ -393,6 +411,7 @@ export function splitTallSides(exterior: Exterior, floorFeet: number): Exterior 
         ],
         ...(above.length > 0 ? { shapes: [...(U.shapes ?? []), ...above] } : {}),
         ...(points.length > 0 ? { roofline: [...(U.roofline ?? []), ...points.map((p) => ({ ...p, alongFeet: p.alongFeet - lo, upFeet: p.upFeet - Fz }))] } : {}),
+        ...(photos.length > 0 ? { photos: [...(U.photos ?? []), ...photos] } : {}),
       };
       if (takesGable && gable) {
         const clampTo = (v: number) => Math.min(o.lengthFeet, Math.max(0, v - lo));
@@ -404,7 +423,7 @@ export function splitTallSides(exterior: Exterior, floorFeet: number): Exterior 
         };
         gable = null;
       }
-      if (o === most) {
+      if (o === roofOver) {
         if (S.pitchMeasured != null) next.pitchMeasured = S.pitchMeasured;
         if (S.roofRead) next.roofRead = S.roofRead;
       }
@@ -436,7 +455,7 @@ export function splitTallSides(exterior: Exterior, floorFeet: number): Exterior 
       ...(shapes ? { shapes } : {}),
       ...(roofline ? { roofline } : {}),
     };
-    if (most) {
+    if (roofOver) {
       delete split.pitchMeasured;
       delete split.roofRead;
     }
