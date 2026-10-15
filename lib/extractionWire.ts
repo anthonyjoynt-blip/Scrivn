@@ -234,11 +234,16 @@ export interface DoorRecordWire {
   action: string;
 }
 
-function doorToDomain(w: DoorRecordWire): DoorRecord {
+export function doorToDomain(w: DoorRecordWire): DoorRecord {
   return {
     location: w.location,
     action: w.action as DetachOrReplaceAction,
-    slabOnly: null,
+    /*
+      A detach & reset is the slab (owner, 2026-10-15): "if we say detach and reset we almost always mean
+      the slab ... you wouldn't detach and reset the full unit generally." So it is not asked - asking
+      it once per door read as needless. A full unit is the rare case, edited on the scope if it comes.
+    */
+    slabOnly: w.action === "DETACH_AND_RESET" ? true : null,
     doorType: null,
     // All detail-pass fields — call 1 records only that a door is being worked on, and its action.
     doorStyle: null,

@@ -467,6 +467,9 @@ function roomWords(label: string): string[] {
   return spokenWords(label.replace(/\s*\(.*\)\s*$/, ""));
 }
 
+/** Words that, after "exterior" or "outside", make it a description of a wall rather than the Exterior chip. */
+const EXTERIOR_PARTS = new Set(["wall", "walls", "door", "doors", "window", "windows", "corner", "corners", "side", "sides"]);
+
 /**
  * "Say the room first": a caption that BEGINS with a room's name files the photo there, and the
  * name comes off the caption — "Bathroom. Toilet base is soft" is a Bathroom photo of a soft toilet
@@ -510,6 +513,13 @@ export function spokenRoom(text: string, options: { value: string; label: string
     if (m && sentenceEndsAfter(text, offset + m.words.length)) found = m;
   }
   if (!found) return null;
+  /*
+    "Exterior wall" (or "outside wall") describes a wall seen from inside, not the outside of the house
+    (owner, 2026-10-15: "Exterior wall drywall and baseboard affected", said in the office, went to
+    Exterior and lost "Exterior" from its caption). So Exterior followed by a part of a wall is no
+    room: the chip stays where it is and the caption is kept whole.
+  */
+  if (found.value === EXTERIOR_ROOM && EXTERIOR_PARTS.has(said[offset + found.words.length] ?? "")) return null;
   return { value: found.value, label: found.label, rest: restAfterWords(text, offset + found.words.length) };
 }
 

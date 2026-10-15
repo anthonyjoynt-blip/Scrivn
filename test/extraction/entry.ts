@@ -1,8 +1,8 @@
 export { mergeDetail, needsDetailPass } from "@/lib/extractionDetailWire";
 export { extractionDetailUserMessage } from "@/lib/extractionDetailPrompt";
 export { withDerivedFields } from "@/lib/types";
-export { normalizeStoredExtraction } from "@/lib/extractionWire";
-export { mergeUnscoped, needsUnscopedPass, capturedSummary, extractionUnscopedUserMessage } from "@/lib/extractionUnscoped";
+export { normalizeStoredExtraction, doorToDomain } from "@/lib/extractionWire";
+export { mergeUnscoped, needsUnscopedPass, capturedSummary, extractionUnscopedUserMessage, phaseNamedIn } from "@/lib/extractionUnscoped";
 export { mergeSupplement, needsSupplementPass, extractionSupplementUserMessage } from "@/lib/extractionSupplement";
 export { parseSavedClaimState } from "@/lib/claimState";
 export { buildJobInformationGroups } from "@/lib/jobInformation";

@@ -1,4 +1,4 @@
-import type { Room, UnscopedItem, WaterLossExtraction } from "./types";
+import type { Room, UnscopedDisposition, UnscopedItem, WaterLossExtraction } from "./types";
 import { photoNotesSection } from "./photoNotesPrompt";
 import { APPLIANCE_LABEL, DOOR_STYLE_LABEL, SUBFLOOR_LABEL, TRIM_KIND_LABEL, WINDOW_COVERING_LABEL, isInjectionEquipment } from "./types";
 
@@ -146,10 +146,25 @@ export function mergeUnscoped(extraction: WaterLossExtraction, wire: ExtractionU
     ...extraction,
     rooms: extraction.rooms.map((room, i) => {
       if (room.unscoped.length > 0) return room;
-      const items: UnscopedItem[] = tidy(wire.rooms[i]?.unscoped).map((description) => ({ description, disposition: null }));
+      const items: UnscopedItem[] = tidy(wire.rooms[i]?.unscoped).map((description) => ({ description, disposition: phaseNamedIn(description) }));
       return items.length === 0 ? room : { ...room, unscoped: items };
     }),
   };
+}
+
+/**
+ * The phase an item's own words name, so it is placed rather than asked about (owner, 2026-10-15:
+ * "Install the new floor on the repair" was asked "which phase does it belong in?" - "its in the
+ * question that it belongs in the repair so strange it asked"). Null when the words name no phase,
+ * or both, and then the PM is asked as before.
+ */
+export function phaseNamedIn(description: string): UnscopedDisposition | null {
+  const t = description.toLowerCase();
+  const repair = /\b(repairs?|rebuild|reconstruction)\b/.test(t);
+  const emergency = /\b(emergency|mitigation)\b/.test(t);
+  if (repair && !emergency) return "REPAIR";
+  if (emergency && !repair) return "EMERGENCY";
+  return null;
 }
 
 /** Nothing to compare against for a claim with no rooms. */

@@ -36,7 +36,7 @@ await build({
   logLevel: "error",
 });
 
-const { mergeDetail, needsDetailPass, extractionDetailUserMessage, normalizeStoredExtraction, mergeUnscoped, needsUnscopedPass, capturedSummary, extractionUnscopedUserMessage, mergeSupplement, needsSupplementPass, extractionSupplementUserMessage, parseSavedClaimState, buildJobInformationGroups } = await import(pathToFileURL(bundlePath).href);
+const { mergeDetail, needsDetailPass, extractionDetailUserMessage, normalizeStoredExtraction, mergeUnscoped, needsUnscopedPass, capturedSummary, extractionUnscopedUserMessage, mergeSupplement, needsSupplementPass, extractionSupplementUserMessage, parseSavedClaimState, buildJobInformationGroups, doorToDomain, phaseNamedIn } = await import(pathToFileURL(bundlePath).href);
 
 let passed = 0;
 const failures = [];
@@ -404,6 +404,21 @@ check(heard.unscoped.length === 2, `both items arrive (got ${heard.unscoped.leng
 check(heard.unscoped[0]?.description === "Remove tub-surround tile and the soaked backer board behind it", "in the PM's words, untouched");
 check(heard.unscoped[1]?.description === "replace two outlets on the wet wall", "including their case — the app does not rewrite these");
 check(heard.unscoped.every((u) => u.disposition === null), "and every one arrives undecided, so the gap-check asks the PM about each");
+
+// The owner's office claim, 10-15: "Install the new floor on the repair" was asked which phase it belongs in.
+const phased = mergeUnscoped(tree([UNSCOPED_ROOM]), sweep([
+  "Install the new floor on the repair",
+  "Run a second dehumidifier during mitigation",
+  "Patch the drywall for the emergency and repaint on the repair",
+])).rooms[0];
+check(phased.unscoped[0]?.disposition === "REPAIR", `an item whose own words say "on the repair" is placed there, not asked (got ${phased.unscoped[0]?.disposition})`);
+check(phased.unscoped[1]?.disposition === "EMERGENCY", `"during mitigation" places it in the emergency phase (got ${phased.unscoped[1]?.disposition})`);
+check(phased.unscoped[2]?.disposition === null, "an item naming both phases is still asked");
+check(phaseNamedIn("replace two outlets on the wet wall") === null, "'replace' is not 'repair': no phase named, so it is asked");
+
+// "If we say detach and reset we almost always mean the slab" (owner, 10-15): not asked once per door.
+check(doorToDomain({ location: "office", action: "DETACH_AND_RESET" }).slabOnly === true, "a door detached & reset is the slab, so the slab question is never asked");
+check(doorToDomain({ location: "office", action: "REMOVE_AND_REPLACE" }).slabOnly === null, "a replaced door is unchanged");
 
 const untidy = mergeUnscoped(tree([UNSCOPED_ROOM]), sweep(["  Remove   tile ", "", "   ", "Remove tile", "Replace outlets", 42])).rooms[0];
 check(untidy.unscoped.length === 2, `blanks, non-strings and duplicates are dropped — the same job twice is the same job on the document twice (got ${untidy.unscoped.map((u) => u.description).join(" | ")})`);

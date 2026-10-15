@@ -739,6 +739,10 @@ await test("say the room first: the first words file the photo, and come off the
   equal(said("Room five, ceiling stain"), ["blank", "Ceiling stain"], "an unnamed room answers to its chip");
   equal(said("In the kitchen. Wet baseboard"), ["kit", "Wet baseboard"], "'in the' when the name ends the phrase");
   equal(said("Outside, downspout disconnected"), [mod.EXTERIOR_ROOM, "Downspout disconnected"], "outside is Exterior");
+  // The owner's office photo, 10-15: an exterior wall is a wall seen from inside, not the Exterior chip.
+  equal(said("Exterior wall drywall and baseboard affected"), null, "'exterior wall' is a wall, not the outside");
+  equal(said("outside wall wet at the floor"), null, "nor is 'outside wall'");
+  equal(said("Exterior. Fascia board rotted"), [mod.EXTERIOR_ROOM, "Fascia board rotted"], "but 'Exterior.' on its own still is");
   equal(said("water came from the bathroom above"), null, "only the first words count");
   equal(said("in the bathroom above the kitchen there's a leak"), null, "'in the' running on is about another room");
   equal(said("bedroom carpet is wet"), null, "a name two rooms could be is no answer");
