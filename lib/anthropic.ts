@@ -63,7 +63,22 @@ function cacheableSystem(system: string): Anthropic.TextBlockParam[] | string {
 
 let client: Anthropic | undefined;
 
+/**
+ * Paid calls only where customers are (2026-10-15). The owner's prepaid API balance ran out from
+ * development - sessions testing traces, the pipeline and photo reads with the key in .env.local -
+ * while the live app had spent nothing. Off Vercel, a call needs SCRIVN_ALLOW_PAID_API=yes, set for
+ * one run with the owner's say-so; tests use recorded answers instead.
+ */
+function paidCallsAllowed(): boolean {
+  return process.env.VERCEL === "1" || cleanEnv("SCRIVN_ALLOW_PAID_API")?.toLowerCase() === "yes";
+}
+
 function getClient(): Anthropic {
+  if (!paidCallsAllowed()) {
+    throw new ScopingApiError(
+      "Paid AI calls are off on this computer, so development cannot spend the API balance. To make one, set SCRIVN_ALLOW_PAID_API=yes for that run, with the owner's OK.",
+    );
+  }
   if (!cleanEnv("ANTHROPIC_API_KEY")) {
     throw new ScopingApiError(
       "ANTHROPIC_API_KEY is not set. Copy .env.local.example to .env.local and fill in your API key, then restart `npm run dev`.",
