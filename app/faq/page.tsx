@@ -15,7 +15,8 @@ import { FaqAccordion, type FaqEntry } from "@/components/marketing/FaqAccordion
  *
  * The Scrivn Scan section (2026-10-14) is not from the mockup: the questions a tester or a buyer
  * asks about the phone app, each answered from the code — offline mode (lib/deviceClaims.ts, Scan's
- * SendQueue), the exterior (Scan's Exterior.kt, lib/exterior.ts's ASSUMED_PITCH), the free scans
+ * SendQueue), the exterior (Scan's Exterior.kt, lib/exterior.ts's ASSUMED_PITCH; Finish exterior and
+ * the exterior report since 2026-10-15, docs/exterior-report.md), the free scans
  * (lib/scanAllowanceRules.ts), deleting (lib/accountDeletion.ts) — and where the data lives word for
  * word from PRIVACY.md. Keep them true when any of those change.
  */
@@ -70,14 +71,15 @@ const SCAN: FaqEntry[] = [
     a: (
       <>
         Yes. Scrivn Scan&rsquo;s Exterior sketch measures the outside one side at a time: each wall&rsquo;s length and heights, the cladding on
-        it with its area, and its windows and doors, with a photo of each side. Scan measures the siding, not the roof. In Scrivn you can also
-        draw the outside by hand from a few taped lengths. The <Link href="/scan-guide#exterior">Scrivn Scan guide</Link> shows how.
+        it with its area, and its windows and doors, with a photo of each side. You tap the walls, not the roof: Finish exterior reads the roof
+        off the photos, and Share makes the exterior report. In Scrivn you can also draw the outside by hand from a few taped lengths. The{" "}
+        <Link href="/scan-guide#exterior">Scrivn Scan guide</Link> shows how.
       </>
     ),
   },
   {
     q: "Does Scrivn make roof reports?",
-    a: `It makes a roof estimate, not an aerial roof report. From the house's footprint and the pitch, Scrivn works out the roof area in squares (no waste added), the ridge, hips, valleys, eaves, rakes and flashing, and the eavestrough. Nothing is measured from satellite or drone images. Until you type the pitch or measure a gable, the roof is drawn at an assumed ${ASSUMED_PITCH}/12, and it says so on the scope and the documents.`,
+    a: `It makes a roof estimate, not an aerial roof report. From the house's footprint and the pitch, Scrivn works out the roof area in squares (no waste added), the ridge, hips, valleys, eaves, rakes and flashing, and the eavestrough. Nothing is measured from satellite or drone images. The pitch, the overhangs and gable or hip at each end are read off the side photos (AI trace in Scrivn, or Finish exterior in Scrivn Scan), or typed. Until something gives the pitch, the roof is drawn at an assumed ${ASSUMED_PITCH}/12, and it says so on the scope and the documents. If you have a roof measurement report, upload it on the exterior sketch and Scrivn reads its totals for you to accept. The exterior report, a PDF from the claim or from Scrivn Scan's Share, has every elevation, the roof plan, the side photos and every measurement.`,
   },
   {
     q: "Can Scrivn export an ESX file for Xactimate?",
@@ -86,7 +88,7 @@ const SCAN: FaqEntry[] = [
   {
     // lib/scanAllowanceRules.ts: counted per capture, once, when it first leaves the phone; refused only once BILLING_ENABLED.
     q: "How many free scans do I get?",
-    a: `With a Scrivn account and no plan, ${SCAN_PLAN.freeScansPerMonth} scans a month; any Scrivn plan, or the Scan plan, has unlimited scans. A scan is one capture — all its rooms, levels and exterior — counted once, the first time it's sent to Scrivn or shared as a plan. A phone with no account isn't counted. While Scrivn Scan is in testing, scans are counted but none are refused.`,
+    a: `With a Scrivn account and no plan, ${SCAN_PLAN.freeScansPerMonth} scans a month; any Scrivn plan, or the Scan plan, has unlimited scans. A scan is one capture — all its rooms, levels and exterior — counted once, the first time it's sent to Scrivn, shared, or its roof read off the photos. A phone with no account isn't counted. While Scrivn Scan is in testing, scans are counted but none are refused.`,
   },
 ];
 
@@ -101,11 +103,11 @@ const DATA: FaqEntry[] = [
     // 2026) and kept on the device for offline use since offline mode (October 2026), so that answer
     // became the false one. Every fact below is in PRIVACY.md: stored in Canada, the claim's text and
     // its photo captions sent to Anthropic (possibly processed in the US, not used for training), the
-    // photos themselves not sent except a side photo on AI trace and a meter photo read in the drying
-    // log, the device copies cleared at sign-out once they have reached Scrivn, and the 24 months
-    // after an account closes.
+    // photos themselves not sent except a side photo on AI trace or Finish exterior, a meter photo read
+    // in the drying log and an uploaded roof measurement report, the device copies cleared at sign-out
+    // once they have reached Scrivn, and the 24 months after an account closes.
     q: "What happens to the claim information I paste in?",
-    a: "It's saved to your company's Scrivn account, stored in Canada, so you can come back to any claim. To write your documents, the claim's text, with your photos' captions, is sent to the AI model (Anthropic's Claude), which may process it in the United States and doesn't use it for training. The photos themselves aren't sent, except a side of the house when you press AI trace and a meter's screen when you read it in the drying log. It's never sold. So Scrivn works with no signal, the claims you've opened recently are also kept on your device; signing out clears them once they've reached Scrivn. Claims are kept until you delete them, or for 24 months after your account closes.",
+    a: "It's saved to your company's Scrivn account, stored in Canada, so you can come back to any claim. To write your documents, the claim's text, with your photos' captions, is sent to the AI model (Anthropic's Claude), which may process it in the United States and doesn't use it for training. The photos themselves aren't sent, except a side of the house when you press AI trace or Finish exterior, and a meter's screen when you read it in the drying log. A roof measurement report you upload is sent too, so its numbers can be read. It's never sold. So Scrivn works with no signal, the claims you've opened recently are also kept on your device; signing out clears them once they've reached Scrivn. Claims are kept until you delete them, or for 24 months after your account closes.",
   },
   {
     // PRIVACY.md, Service providers, Scrivn Scan and Keeping and deleting claim data, said plainly.
@@ -114,7 +116,8 @@ const DATA: FaqEntry[] = [
       <>
         Your account, and your claims, photos and scans, are stored in Canada. Some of the providers Scrivn uses are in the United States, so
         information they handle — for example a claim&rsquo;s text during AI processing, or an email being sent — may be processed there.
-        Scrivn Scan sends measurements and photos to Scrivn only when you send a scan to a claim; until then they stay on your phone. Claims,
+        Scrivn Scan sends measurements and photos to Scrivn only when you send a scan to a claim; until then they stay on your phone. The one
+        exception is Finish exterior, which sends each side&rsquo;s photo to read the roof and doesn&rsquo;t keep it. Claims,
         photos and scans are kept until your company deletes them, or for 24 months after its account closes. The details are in our{" "}
         <a href={PRIVACY_POLICY_URL} target="_blank" rel="noopener noreferrer">
           privacy policy

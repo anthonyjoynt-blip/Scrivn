@@ -167,7 +167,10 @@ export default async function ScanPage() {
             </div>
             <div className="sc-card">
               <h3>The outside of the house</h3>
-              <p>Side by side round the house: each wall&rsquo;s length and heights, its siding or stucco, its windows and doors, and a photo of every side.</p>
+              <p>
+                Side by side round the house: each wall&rsquo;s length and heights, its siding or stucco, its windows and doors, and a photo of every side. The
+                roof is read off the photos, and the exterior report puts it all in one PDF.
+              </p>
             </div>
           </div>
         </div>
@@ -241,15 +244,18 @@ export default async function ScanPage() {
           <details>
             <summary>Can it measure the outside of a house?</summary>
             <p>
-              Yes, with Exterior sketch: each side in turn, its length and heights, its siding or stucco with the area, its windows and doors, and a photo. Scan measures
-              the walls, not the roof. The <Link href="/scan-guide#exterior">guide</Link> shows how.
+              Yes, with Exterior sketch: each side in turn, its length and heights, its siding or stucco with the area, its windows and doors, and a photo. You tap the
+              walls, not the roof: the roof is read off the photos. Share makes the exterior report, a PDF of every elevation to scale, the roof plan, the photos and
+              every measurement. The <Link href="/scan-guide#exterior">guide</Link> shows how.
             </p>
           </details>
           <details>
             <summary>Does it measure roofs?</summary>
             <p>
-              Not from the phone. Sent to <Link href="/">Scrivn</Link>, the outside of the house becomes a roof estimate from its footprint and pitch — the pitch assumed
-              at {ASSUMED_PITCH}/12 until you give it the real one. It is not an aerial roof report.
+              From your photos. After an Exterior sketch, Finish exterior sends each side&rsquo;s photo to <Link href="/">Scrivn</Link>, which reads the pitch, the
+              overhangs, and gable or hip at each end. The phone then shows the roof plan, with every line&rsquo;s length and the squares, to accept or change. It
+              needs signal and a Scrivn account; until something gives the pitch, it is assumed at {ASSUMED_PITCH}/12, and you can type it. It is a roof estimate from
+              the footprint and pitch, not an aerial roof report.
             </p>
           </details>
           <details>
@@ -269,7 +275,8 @@ export default async function ScanPage() {
             <summary>How many free scans do I get?</summary>
             <p>
               Signed in to a Scrivn account with no plan, {SCAN_PLAN.freeScansPerMonth} a month; the Scan plan, or any Scrivn plan, is unlimited. A scan is one capture,
-              every room, level and side of it, counted once, the first time it is sent or shared as a plan. A phone with no account isn&rsquo;t counted. While Scan is in
+              every room, level and side of it, counted once, the first time it is sent, shared, or its roof read off the photos. A phone with no account isn&rsquo;t
+              counted. While Scan is in
               testing, none are refused.
             </p>
           </details>
@@ -289,7 +296,8 @@ export default async function ScanPage() {
           <details>
             <summary>Where do my scans go?</summary>
             <p>
-              They stay on your phone until you share a plan or send it to Scrivn. Sent to Scrivn, your account and its claims, photos and scans are stored in Canada. If
+              They stay on your phone until you share a plan or send it to Scrivn. Finish exterior sends each side&rsquo;s photo to Scrivn to read the roof, and the
+              photo isn&rsquo;t kept. Sent to Scrivn, your account and its claims, photos and scans are stored in Canada. If
               a scan goes wrong you can choose to send it to us from the app, and we use it only to fix the problem.
             </p>
           </details>
