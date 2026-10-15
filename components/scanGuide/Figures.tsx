@@ -568,18 +568,25 @@ export function PhotoRouteScreen() {
       {/* the ring, green on tracking alone while a photo is the step */}
       <circle cx={150} cy={214} r={20} fill="none" stroke={GREEN} strokeWidth={4.5} />
       {/* the card */}
-      <rect x={30} y={346} width={240} height={120} rx={16} fill="rgba(11,13,16,0.82)" />
-      <text x={44} y={366} fontSize={10} fontWeight={700} fill={GREEN}>
+      <rect x={30} y={300} width={240} height={166} rx={16} fill="rgba(11,13,16,0.82)" />
+      <text x={44} y={320} fontSize={10} fontWeight={700} fill={GREEN}>
         Side 1 of the house
       </text>
       {["Step back until the whole wall", "and the roof edge are on screen,", "then press Photo"].map((t, i) => (
-        <text key={t} x={44} y={388 + i * 18} fontSize={14} fontWeight={700} fill={PAPER}>
+        <text key={t} x={44} y={342 + i * 18} fontSize={14} fontWeight={700} fill={PAPER}>
           {t}
         </text>
       ))}
-      <text x={44} y={452} fontSize={10} fill="#c9d1d9">
-        Turn the phone on its side for a wide wall.
-      </text>
+      {[
+        "A porch roof in front? Step back until the",
+        "main roof edge shows above the porch roof.",
+        "Can't fit the whole wall? Take it in pieces",
+        "along the wall, overlapping a few feet.",
+      ].map((t, i) => (
+        <text key={t} x={44} y={408 + i * 13} fontSize={9.5} fill="#c9d1d9">
+          {t}
+        </text>
+      ))}
       {/* the chip bar: Photo and Add by hand, then Undo · ? · Next side */}
       <rect x={20} y={476} width={260} height={94} fill="rgba(18,40,63,0.92)" />
       <Chip x={30} y={486} w={116} label="Photo" lit />
