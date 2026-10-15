@@ -44,7 +44,7 @@ import {
   type RoofBreak,
   upperOverhang,
 } from "./roof";
-import { PIECE_LENGTH_KEYS, pieceCount, type PieceFigures, pieceFigures, ROOF_PIECE_LABEL, type RoofPiece } from "./roofPieces";
+import { PIECE_LENGTH_KEYS, pieceCount, pieceCounts, type PieceFigures, pieceFigures, pieceFromPhotos, ROOF_PIECE_LABEL, type RoofPiece } from "./roofPieces";
 
 export type CladdingKind = "stucco" | "vinyl" | "wood_shake" | "eifs" | "wood" | "fibre_cement" | "brick" | "stone" | "metal" | "other";
 
@@ -202,6 +202,13 @@ export interface SideRoofRead {
   eaveOverhangFeet?: number | null;
   /** What the roof does over this side: a gable end, a hip end, an eave along it. */
   over?: "gable" | "hip" | "eave" | null;
+  /**
+   * A gambrel's or mansard's break, read off this side's photo (2026-10-15, a slot: nothing reads it
+   * yet): the flatter pitch above it and its height above the eave. `pitch` is then the one below.
+   * It fills the break of the part with this gable end, under one typed (`ExteriorRoof.sectionBreaks`).
+   */
+  upperPitch?: number | null;
+  breakFeet?: number | null;
 }
 
 /**
@@ -1334,10 +1341,12 @@ export interface PhotoReads {
   rakeOverhangs: PhotoRead<number>[];
   eaveOverhangs: PhotoRead<number>[];
   ends: PhotoRead<"gable" | "hip" | "eave">[];
+  /** A gambrel's or mansard's break, where a side's photo gives both its numbers. */
+  breaks: PhotoRead<RoofBreak>[];
 }
 
 export function photoReads(exterior: Exterior): PhotoReads {
-  const out: PhotoReads = { pitches: [], rakeOverhangs: [], eaveOverhangs: [], ends: [] };
+  const out: PhotoReads = { pitches: [], rakeOverhangs: [], eaveOverhangs: [], ends: [], breaks: [] };
   for (const side of allSides(exterior)) {
     const r = side.roofRead;
     if (!r) continue;
@@ -1346,6 +1355,9 @@ export function photoReads(exterior: Exterior): PhotoReads {
     if (typeof r.rakeOverhangFeet === "number" && Number.isFinite(r.rakeOverhangFeet)) out.rakeOverhangs.push({ ...at, value: r.rakeOverhangFeet });
     if (typeof r.eaveOverhangFeet === "number" && Number.isFinite(r.eaveOverhangFeet)) out.eaveOverhangs.push({ ...at, value: r.eaveOverhangFeet });
     if (r.over) out.ends.push({ ...at, value: r.over });
+    if (typeof r.upperPitch === "number" && Number.isFinite(r.upperPitch) && typeof r.breakFeet === "number" && Number.isFinite(r.breakFeet) && r.breakFeet > 0) {
+      out.breaks.push({ ...at, value: { upperPitch: Math.max(0, r.upperPitch), breakFeet: r.breakFeet } });
+    }
   }
   return out;
 }
@@ -1408,6 +1420,8 @@ export interface PhotoPitches {
   sections: Record<string, PhotoRead<number>[]>;
   /** Off sides that are no gable end of the roof as drawn: taken for the main roof, and said. */
   unplaced: PhotoRead<number>[];
+  /** A gambrel's or mansard's break off a gable's photo, by the key of the part it is the gable of: "main" for the main roof and for one on no gable end. */
+  breaks: Record<string, PhotoRead<RoofBreak>[]>;
 }
 
 const photoPitchCache = new WeakMap<Exterior, { roof: ExteriorRoof; sides: ExteriorSide[]; upper: UpperFloor | undefined; got: PhotoPitches }>();
@@ -1420,18 +1434,27 @@ const photoPitchCache = new WeakMap<Exterior, { roof: ExteriorRoof; sides: Exter
 export function photoPitches(exterior: Exterior): PhotoPitches {
   const cached = photoPitchCache.get(exterior);
   if (cached && cached.roof === exterior.roof && cached.sides === exterior.sides && cached.upper === exterior.upper) return cached.got;
-  const reads = photoReads(exterior).pitches;
-  const out: PhotoPitches = { main: [], sections: {}, unplaced: [] };
-  if (reads.length > 0) {
+  const { pitches: reads, breaks } = photoReads(exterior);
+  const out: PhotoPitches = { main: [], sections: {}, unplaced: [], breaks: {} };
+  if (reads.length > 0 || breaks.length > 0) {
     const footprint = exteriorFootprint(exterior);
-    const plan = footprint.closes ? buildRoof(roofInputBase(exterior, footprint, exterior.roof.pitch ?? meanOf(reads.map((r) => r.value)))) : null;
+    const plan = footprint.closes ? buildRoof(roofInputBase(exterior, footprint, exterior.roof.pitch ?? (reads.length > 0 ? meanOf(reads.map((r) => r.value)) : ASSUMED_PITCH))) : null;
+    const keyOf = (sideId: string): string | null => {
+      const cross = (exterior.roof.additions ?? []).find((a) => a.kind === "gable" && a.sideId === sideId);
+      const section = plan?.sections.find((s) => (s.loSide === sideId && s.lo === "gable") || (s.hiSide === sideId && s.hi === "gable"));
+      return cross ? cross.id : (section?.key ?? null);
+    };
     for (const r of reads) {
-      const cross = (exterior.roof.additions ?? []).find((a) => a.kind === "gable" && a.sideId === r.sideId);
-      const section = plan?.sections.find((s) => (s.loSide === r.sideId && s.lo === "gable") || (s.hiSide === r.sideId && s.hi === "gable"));
-      const key = cross ? cross.id : (section?.key ?? null);
+      const key = keyOf(r.sideId);
       if (key === null) out.unplaced.push(r);
       else if (key === "main") out.main.push(r);
       else (out.sections[key] ??= []).push(r);
+    }
+    // A break is a tent's: off a cross gable's photo it has nowhere to go; off no gable end, the main roof's, as a pitch is.
+    for (const r of breaks) {
+      const key = keyOf(r.sideId) ?? "main";
+      if ((exterior.roof.additions ?? []).some((a) => a.id === key)) continue;
+      (out.breaks[key] ??= []).push(r);
     }
   }
   photoPitchCache.set(exterior, { roof: exterior.roof, sides: exterior.sides, upper: exterior.upper, got: out });
@@ -1447,6 +1470,21 @@ export function photoSectionPitches(exterior: Exterior): Record<string, number> 
   const typed = exterior.roof.sectionPitches ?? {};
   const out: Record<string, number> = {};
   for (const [key, reads] of Object.entries(photoPitches(exterior).sections)) if (!(key in typed)) out[key] = meanOf(reads.map((r) => r.value));
+  return out;
+}
+
+/**
+ * The gambrel and mansard breaks the photos give, by the key of the part each is of (2026-10-15) - the
+ * second pitch's order is the first's: typed for that part (`ExteriorRoof.sectionBreaks`), else its
+ * gable's photo, else none (a break is never assumed). Several photos of one part: their mean.
+ */
+export function photoSectionBreaks(exterior: Exterior): Record<string, RoofBreak> {
+  const typed = exterior.roof.sectionBreaks ?? {};
+  const out: Record<string, RoofBreak> = {};
+  for (const [key, reads] of Object.entries(photoPitches(exterior).breaks)) {
+    if (key in typed || reads.length === 0) continue;
+    out[key] = { upperPitch: meanOf(reads.map((r) => r.value.upperPitch)), breakFeet: meanOf(reads.map((r) => r.value.breakFeet)) };
+  }
   return out;
 }
 
@@ -1539,11 +1577,14 @@ function roofInputBase(exterior: Exterior, footprint: Footprint, pitch: number):
   };
 }
 
-/** The roof's input: the overhangs and ends as typed, else read off the photos; each part's pitch as typed, else its gable photo's. */
+/** The roof's input: the overhangs and ends as typed, else read off the photos; each part's pitch, and any break, as typed, else its gable photo's. */
 export function roofInput(exterior: Exterior, footprint: Footprint, pitch: number): RoofInput {
   const base = roofInputBase(exterior, footprint, pitch);
   const fromPhotos = photoSectionPitches(exterior);
-  return Object.keys(fromPhotos).length > 0 ? { ...base, sectionPitches: { ...fromPhotos, ...base.sectionPitches } } : base;
+  const withPitches = Object.keys(fromPhotos).length > 0 ? { ...base, sectionPitches: { ...fromPhotos, ...base.sectionPitches } } : base;
+  // A gambrel's or mansard's break the same way: typed, else its gable's photo.
+  const breaksFromPhotos = photoSectionBreaks(exterior);
+  return Object.keys(breaksFromPhotos).length > 0 ? { ...withPitches, sectionBreaks: { ...breaksFromPhotos, ...(base.sectionBreaks ?? {}) } } : withPitches;
 }
 
 export interface CladdingTotal {
@@ -1613,8 +1654,13 @@ export interface RoofingQuantities {
    * what they add to each total - nothing to one that is typed, which stands for them too.
    */
   pieces: {
+    /** The ones that count: typed, or proposed off the photos and ticked. */
     list: { piece: RoofPiece; figures: PieceFigures }[];
+    /** Proposed off the photos and not ticked: counted nowhere until they are. */
+    offered: { piece: RoofPiece; figures: PieceFigures }[];
     added: Record<RoofTotalKey, number>;
+    /** Of `added`, what came from pieces off the photos. */
+    addedFromPhotos: Record<RoofTotalKey, number>;
     /** Dormers' cheeks and faces, gross. */
     sidingSquareFeet: number;
   };
@@ -1686,7 +1732,7 @@ export function roofingQuantities(exterior: Exterior, roof: RoofPlan | null, pit
   const pitchFromPhotos = pitch.source === "photos";
   const roofPitch = roof?.pitch ?? pitch.value ?? ASSUMED_PITCH;
   // The pitches the photos gave: the main roof's, and each part's whose own was read off its gable.
-  const photoPitchValues = [...(pitchFromPhotos ? [roofPitch] : []), ...Object.values(photoSectionPitches(exterior))];
+  const photoPitchValues = [...(pitchFromPhotos ? [roofPitch] : []), ...Object.values(photoSectionPitches(exterior)), ...Object.values(photoSectionBreaks(exterior)).map((b) => b.upperPitch)];
   const overhangs = { eave: resolvedOverhang(exterior, "eave"), rake: resolvedOverhang(exterior, "rake") };
   const sideById = new Map(exterior.sides.map((s) => [s.id, s]));
   const slopeChosen = (key: string) => R.slopes == null || R.slopes.includes(key);
@@ -1724,13 +1770,21 @@ export function roofingQuantities(exterior: Exterior, roof: RoofPlan | null, pit
       }
     : null;
   // The pieces on top of the drawing, each worked out on its own (lib/roofPieces.ts), and what they come to together.
-  const pieceList = (R.pieces ?? []).map((piece) => ({ piece, figures: pieceFigures(piece, roofPitch) }));
-  const pieceSum: Record<RoofTotalKey, number> = { squareFeet: 0, ridge: 0, hip: 0, valley: 0, eave: 0, rake: 0, step: 0, headwall: 0, dripEdge: 0, starter: 0, iceWater: 0 };
-  for (const { figures } of pieceList) {
-    pieceSum.squareFeet += figures.squareFeet;
-    for (const k of PIECE_LENGTH_KEYS) pieceSum[k] += figures.lengths[k];
-    pieceSum.dripEdge += figures.dripEdgeFeet;
-  }
+  const pieceList = (R.pieces ?? []).filter(pieceCounts).map((piece) => ({ piece, figures: pieceFigures(piece, roofPitch) }));
+  // Proposed off the photos and not yet ticked: offered beside the plan, counted nowhere.
+  const offered = (R.pieces ?? []).filter((piece) => !pieceCounts(piece)).map((piece) => ({ piece, figures: pieceFigures(piece, roofPitch) }));
+  const sumOf = (list: { figures: PieceFigures }[]) => {
+    const sum: Record<RoofTotalKey, number> = { squareFeet: 0, ridge: 0, hip: 0, valley: 0, eave: 0, rake: 0, step: 0, headwall: 0, dripEdge: 0, starter: 0, iceWater: 0 };
+    for (const { figures } of list) {
+      sum.squareFeet += figures.squareFeet;
+      for (const k of PIECE_LENGTH_KEYS) sum[k] += figures.lengths[k];
+      sum.dripEdge += figures.dripEdgeFeet;
+    }
+    return sum;
+  };
+  const pieceSum = sumOf(pieceList);
+  // The part of it off the photos (ticked proposals), for the lines to say so.
+  const photoSum = sumOf(pieceList.filter((x) => pieceFromPhotos(x.piece)));
   // With no drawing, a total the pieces give is the estimator's own numbers worked out.
   const piecesFrom: TotalSource = roof ? "drawing" : "estimator";
 
@@ -1738,9 +1792,11 @@ export function roofingQuantities(exterior: Exterior, roof: RoofPlan | null, pit
   const value = {} as Record<RoofTotalKey, number>;
   const from = {} as Record<RoofTotalKey, TotalSource>;
   const added = {} as Record<RoofTotalKey, number>;
+  const addedFromPhotos = {} as Record<RoofTotalKey, number>;
   for (const k of ["squareFeet", "ridge", "hip", "valley", "eave", "rake", "step", "headwall"] as const) {
     const typed = typedTotal(R, k);
     added[k] = typed === null ? pieceSum[k] : 0;
+    addedFromPhotos[k] = typed === null ? photoSum[k] : 0;
     value[k] = typed ?? (drawing?.[k] ?? 0) + added[k];
     from[k] = typed !== null ? typedSource(R, k) : added[k] !== 0 ? piecesFrom : "drawing";
   }
@@ -1749,6 +1805,7 @@ export function roofingQuantities(exterior: Exterior, roof: RoofPlan | null, pit
     // A flat piece's edge said to be a drip edge alone is drip edge of its own, not an eave.
     const own = pieceSum[k];
     added[k] = typed === null ? parts.reduce((s, p) => s + added[p], 0) + own : 0;
+    addedFromPhotos[k] = typed === null ? parts.reduce((s, p) => s + addedFromPhotos[p], 0) + photoSum[k] : 0;
     value[k] = typed ?? parts.reduce((s, p) => s + value[p], 0) + own;
     from[k] = typed !== null ? typedSource(R, k) : sourceOfParts(...parts.map((p): [number, TotalSource] => [value[p], from[p]]), ...(own > 0 ? [[own, piecesFrom] as [number, TotalSource]] : []));
   };
@@ -1896,7 +1953,7 @@ export function roofingQuantities(exterior: Exterior, roof: RoofPlan | null, pit
     steep: steepBands[0]?.band ?? null,
     byPitch,
     curved: curvedArea * share > 1e-9 ? { areaSquareFeet: curvedArea * share, squares: (curvedArea * share) / 100 } : null,
-    pieces: { list: pieceList, added, sidingSquareFeet: pieceList.reduce((s, x) => s + x.figures.sidingSquareFeet, 0) },
+    pieces: { list: pieceList, offered, added, addedFromPhotos, sidingSquareFeet: pieceList.reduce((s, x) => s + x.figures.sidingSquareFeet, 0) },
     steepBands,
     high,
     allEdges,
@@ -2217,9 +2274,16 @@ export function exteriorScopeLines(exterior: Exterior | undefined): ExteriorScop
     // What the added roof pieces (lib/roofPieces.ts) put into a line's number, said in its brackets; nothing when they put in nothing.
     const P = r.pieces.added;
     const paren = (...parts: string[]) => (parts.some(Boolean) ? ` (${parts.filter(Boolean).join("; ")})` : "");
-    const ofPieces = (add: number, total: number, unit = "LF") => (Math.abs(add) < 0.05 ? "" : Math.abs(total - add) < 0.05 ? "from added pieces" : `incl. ${num(add)} ${unit} from added pieces`);
+    const ofPieces = (add: number, total: number, photos = 0, unit = "LF") => {
+      if (Math.abs(add) < 0.05) return "";
+      // Off the photos, all of it or some: said, as the photos' pitches and overhangs are.
+      const whose = Math.abs(add - photos) < 0.05 ? "added pieces from photos" : "added pieces";
+      const some = Math.abs(photos) >= 0.05 && Math.abs(add - photos) >= 0.05 ? `, ${num(photos)} ${unit} of it from photos` : "";
+      return `${Math.abs(total - add) < 0.05 ? "from" : `incl. ${num(add)} ${unit} from`} ${whose}${some}`;
+    };
+    const PP = r.pieces.addedFromPhotos;
     // Typed squares are the roof being done, whatever is picked on the drawing.
-    const withPieces = Math.abs(P.squareFeet) > 0.05 ? ", with added pieces" : "";
+    const withPieces = Math.abs(P.squareFeet) > 0.05 ? (Math.abs(P.squareFeet - r.pieces.addedFromPhotos.squareFeet) < 0.05 ? ", with added pieces from photos" : ", with added pieces") : "";
     const which = r.from.squareFeet !== "drawing" || !r.drawn ? "" : ` (${r.allSlopes ? "all slopes" : `slope${chosen.length === 1 ? "" : "s"} ${chosen.map((s) => s.label).join(", ")}`}${withPieces})`;
     const metal = r.material === "metal";
     // One pitch, said once; several, each with the squares at it, and a curved piece's apart.
@@ -2240,17 +2304,17 @@ export function exteriorScopeLines(exterior: Exterior | undefined): ExteriorScop
     for (const band of r.steepBands) out.roofing.push(`Steep roof charge – ${band.band} – ${(r.byPitch.length > 1 || r.curved) && sqKnown ? `${band.squares.toFixed(2)} SQ` : sq}${sqFrom()}`);
     if (r.high?.automatic) out.roofing.push(`High roof charge – two storeys or more – ${sqKnown ? `${r.high.squares.toFixed(2)} SQ` : sq} (the roof over the upper floor)${sqFrom()}`);
     else if (r.high) out.roofing.push(`High roof charge – two storeys or more – ${sq}${sqFrom()}`);
-    if (r.ridgeFeet + r.hipFeet > 0) out.roofing.push(`Hip & ridge cap – ${num(r.ridgeFeet + r.hipFeet)} LF${paren(ofPieces(P.ridge + P.hip, r.ridgeFeet + r.hipFeet))}${from(sourceOfParts([r.ridgeFeet, r.from.ridge], [r.hipFeet, r.from.hip]))}`);
-    if (metal) out.roofing.push(`Closure strips – ${num(r.closureFeet)} LF${paren("eaves + 2 × ridge", ofPieces(P.eave + 2 * P.ridge, r.closureFeet))}${from(sourceOfParts([r.eaveFeet, r.from.eave], [r.ridgeFeet, r.from.ridge]))}`);
-    else if (r.starterFeet > 0) out.roofing.push(`Starter – ${num(r.starterFeet)} LF${paren("eaves", ofPieces(P.starter, r.starterFeet))}${from(r.from.starter)}`);
-    if (R.dripEdge === true) out.roofing.push(`Drip edge – ${num(r.dripEdgeFeet)} LF${paren("eaves + rakes", ofPieces(P.dripEdge, r.dripEdgeFeet))}${from(r.from.dripEdge)} – photos required`);
-    if (r.drawn || r.iceWaterFeet > 0) out.roofing.push(`${metal ? "High-temperature ice & water barrier" : "Ice & water barrier"} – ${num(r.iceWaterFeet)} LF${paren("eaves + valleys", ofPieces(P.iceWater, r.iceWaterFeet))}${from(r.from.iceWater)}`);
+    if (r.ridgeFeet + r.hipFeet > 0) out.roofing.push(`Hip & ridge cap – ${num(r.ridgeFeet + r.hipFeet)} LF${paren(ofPieces(P.ridge + P.hip, r.ridgeFeet + r.hipFeet, PP.ridge + PP.hip))}${from(sourceOfParts([r.ridgeFeet, r.from.ridge], [r.hipFeet, r.from.hip]))}`);
+    if (metal) out.roofing.push(`Closure strips – ${num(r.closureFeet)} LF${paren("eaves + 2 × ridge", ofPieces(P.eave + 2 * P.ridge, r.closureFeet, PP.eave + 2 * PP.ridge))}${from(sourceOfParts([r.eaveFeet, r.from.eave], [r.ridgeFeet, r.from.ridge]))}`);
+    else if (r.starterFeet > 0) out.roofing.push(`Starter – ${num(r.starterFeet)} LF${paren("eaves", ofPieces(P.starter, r.starterFeet, PP.starter))}${from(r.from.starter)}`);
+    if (R.dripEdge === true) out.roofing.push(`Drip edge – ${num(r.dripEdgeFeet)} LF${paren("eaves + rakes", ofPieces(P.dripEdge, r.dripEdgeFeet, PP.dripEdge))}${from(r.from.dripEdge)} – photos required`);
+    if (r.drawn || r.iceWaterFeet > 0) out.roofing.push(`${metal ? "High-temperature ice & water barrier" : "Ice & water barrier"} – ${num(r.iceWaterFeet)} LF${paren("eaves + valleys", ofPieces(P.iceWater, r.iceWaterFeet, PP.iceWater))}${from(r.from.iceWater)}`);
     if (R.underlayment === "synthetic" || R.underlayment === "felt") out.roofing.push(`Underlayment – ${R.underlayment} – ${sq}${sqFrom()} – photos required`);
-    if (r.valleyFeet > 0) out.roofing.push(`Valleys – ${num(r.valleyFeet)} LF${paren(ofPieces(P.valley, r.valleyFeet))}${from(r.from.valley)}`);
+    if (r.valleyFeet > 0) out.roofing.push(`Valleys – ${num(r.valleyFeet)} LF${paren(ofPieces(P.valley, r.valleyFeet, PP.valley))}${from(r.from.valley)}`);
     // Flashing against a wall: a lower roof's on the drawing, and a dormer's cheeks, face and top among the pieces.
     const drawnToo = (add: number, total: number) => Math.abs(total - add) >= 0.05;
-    if (r.stepFeet > 0) out.roofing.push(`Step flashing – ${num(r.stepFeet)} LF${paren(drawnToo(P.step, r.stepFeet) ? "a lower roof's slopes against the wall" : "", ofPieces(P.step, r.stepFeet))}${from(r.from.step)}`);
-    if (r.headwallFeet > 0) out.roofing.push(`Headwall flashing – ${num(r.headwallFeet)} LF${paren(drawnToo(P.headwall, r.headwallFeet) ? "a lower roof's top against the wall" : "", ofPieces(P.headwall, r.headwallFeet))}${from(r.from.headwall)}`);
+    if (r.stepFeet > 0) out.roofing.push(`Step flashing – ${num(r.stepFeet)} LF${paren(drawnToo(P.step, r.stepFeet) ? "a lower roof's slopes against the wall" : "", ofPieces(P.step, r.stepFeet, PP.step))}${from(r.from.step)}`);
+    if (r.headwallFeet > 0) out.roofing.push(`Headwall flashing – ${num(r.headwallFeet)} LF${paren(drawnToo(P.headwall, r.headwallFeet) ? "a lower roof's top against the wall" : "", ofPieces(P.headwall, r.headwallFeet, PP.headwall))}${from(r.from.headwall)}`);
     for (const kind of Object.keys(ROOF_VENT_LABEL) as RoofVentKind[]) {
       const n = Math.round(R.vents?.[kind] ?? 0);
       if (n > 0) out.roofing.push(`${ROOF_VENT_LABEL[kind]} – ${n}`);
@@ -2347,7 +2411,8 @@ export function pieceWords(piece: RoofPiece): string {
 /**
  * A roof piece as the scope and the documents name it: what it is, its sizes, and what it adds to
  * the roof's area - "2 × gable dormer, 8' wide, 6' out, 12/12 on a 6/12 slope (+23.7 SF net of the
- * slope it covers)". Its lengths are in the roof's own lines.
+ * slope it covers each)", then "(from photos)" for one proposed off the photos and ticked. Its
+ * lengths are in the roof's own lines.
  */
 export function pieceLine(piece: RoofPiece, figures: PieceFigures, roofPitch: number): string {
   const n = pieceCount(piece);
@@ -2387,7 +2452,8 @@ export function pieceLine(piece: RoofPiece, figures: PieceFigures, roofPitch: nu
       break;
     }
   }
-  return `${n > 1 ? `${n} × ` : ""}${what}`;
+  // Proposed off the photos and ticked: said, as the photos' pitches and overhangs are.
+  return `${n > 1 ? `${n} × ` : ""}${what}${pieceFromPhotos(piece) ? sourceNote("photos") : ""}`;
 }
 
 /** "4/12", or "4.1/12" when it is not a whole number. */

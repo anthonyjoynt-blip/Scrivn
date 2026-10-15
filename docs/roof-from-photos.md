@@ -186,3 +186,10 @@ The test claim's roof ("Exterior test – roof from photos") was rebuilt from Sc
 - **A lower roof or wing** with no gable photo of its own, and any hip end's pitch.
 - **Anything the footprint model can't see**: roof objects, chimneys, and the exact roof over porches.
 - **The roof's totals** whenever the drawing is off: they win over everything.
+
+## Slots waiting for a photo read (10-15)
+
+Built as data and maths only; nothing reads them off a photo yet. Each follows the order above: typed, then photos, then assumed.
+
+- **A gambrel's or mansard's break.** `SideRoofRead.upperPitch` and `breakFeet` on a gable's side (its `pitch` is then the one below the break). `photoSectionBreaks` puts them on the part whose gable it is, under a break typed in Pitch mode (`ExteriorRoof.sectionBreaks`). A break is never assumed.
+- **Roof pieces** (dormers, turrets; lib/roofPieces.ts). A piece with `source: "photos"` is a proposal: it counts only once the estimator ticks it (`taken`), and its lines then say "(from photos)". Changing one of its numbers makes it the estimator's (`editedPiece`).
