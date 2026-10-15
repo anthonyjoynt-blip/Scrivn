@@ -33,12 +33,15 @@ import {
   snapOutlinePoint,
   startWalk,
   toggledEnd,
+  upperFromOutline,
   walkState,
   withAddition,
   withNextSide,
   withRoofEnd,
   withSectionPitch,
   withSideLength,
+  withoutUpper,
+  withUpperSideLength,
 } from "@/lib/exteriorPlan";
 import type { Pt, RoofAddition, RoofPlan } from "@/lib/roof";
 import { textWidthEm } from "@/lib/roofLabels";
@@ -234,7 +237,7 @@ function crossesDraft(draft: Pt[], p: Pt): boolean {
  * corner closes it (`closeOutline`). Drawn as SVG in plan feet, front at the bottom, as the roof plan
  * is. `guide` is an outline to draw over, faint: the one being redrawn.
  */
-export function FootprintDraw({ onClose, guide, onCancel }: { onClose: (ring: Pt[]) => void; guide?: Pt[]; onCancel?: () => void }) {
+export function FootprintDraw({ onClose, guide, onCancel, snapTo }: { onClose: (ring: Pt[]) => void; guide?: Pt[]; onCancel?: () => void; snapTo?: { xs: number[]; ys: number[] } }) {
   const [draft, setDraft] = useState<Pt[]>([]);
   const [hover, setHover] = useState<Pt | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -287,7 +290,7 @@ export function FootprintDraw({ onClose, guide, onCancel }: { onClose: (ring: Pt
       close();
       return;
     }
-    const p = snapOutlinePoint(raw, draft);
+    const p = snapOutlinePoint(raw, draft, 1, snapTo);
     const last = draft[draft.length - 1];
     if (last && Math.hypot(p.x - last.x, p.y - last.y) < 0.5) return;
     if (crossesDraft(draft, p)) {
@@ -328,7 +331,7 @@ export function FootprintDraw({ onClose, guide, onCancel }: { onClose: (ring: Pt
 
   // Where a tap at the pointer would land, and the outline a close there would make.
   const closing = hover && nearFirst(hover) ? closeOutline(draft, LINE_UP_FEET) : null;
-  const preview = hover && !closing ? snapOutlinePoint(hover, draft) : null;
+  const preview = hover && !closing ? snapOutlinePoint(hover, draft, 1, snapTo) : null;
   const shown = preview && draft.length > 0 ? [...draft, preview] : draft;
   const label = (a: Pt, b: Pt, key: string) => {
     const len = Math.hypot(b.x - a.x, b.y - a.y);
@@ -677,6 +680,8 @@ export function PlanPane({
   const [placing, setPlacing] = useState<AdditionKind | null>(null);
   /** In Pitch mode, the section tapped. */
   const [sectionKey, setSectionKey] = useState<string | null>(null);
+  /** Drawing a two-storey house's upper floor over the plan. */
+  const [drawingUpper, setDrawingUpper] = useState(false);
   const [redrawing, setRedrawing] = useState(false);
   const [confirm, setConfirm] = useState<"redraw" | "remove" | null>(null);
   const [next, setNext] = useState<{ turn: SideTurn; text: string }>({ turn: "outside", text: "" });
@@ -743,6 +748,44 @@ export function PlanPane({
         ))}
     </>
   );
+
+  // The upper floor traced over the main floor's outline: a corner within a foot of one of its walls goes on it.
+  if (drawingUpper && fp.closes) {
+    const put = (ring: Pt[]) =>
+      onChange((e) => {
+        const up = upperFromOutline(ring, fp);
+        return up ? { ...withoutUpper(e), upper: up } : e;
+      });
+    return (
+      <div className="exterior-redraw">
+        <p className="field-note">
+          Tap the upper floor&rsquo;s corners over the main floor (faint), going round it, and close it on its first corner. Within a foot of one of the main floor&rsquo;s walls a corner goes
+          on it, so a wall flush with the one below is flush.
+        </p>
+        <div className="exterior-row">
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={() => {
+              setDrawingUpper(false);
+              put(fp.corners);
+            }}
+          >
+            Over the whole main floor
+          </button>
+        </div>
+        <FootprintDraw
+          guide={fp.corners}
+          snapTo={{ xs: fp.corners.map((c) => c.x), ys: fp.corners.map((c) => c.y) }}
+          onCancel={() => setDrawingUpper(false)}
+          onClose={(ring) => {
+            setDrawingUpper(false);
+            put(ring);
+          }}
+        />
+      </div>
+    );
+  }
 
   if (redrawing) {
     return (
@@ -960,9 +1003,10 @@ export function PlanPane({
           approx={(id) => exterior.sides.find((s) => s.id === id)?.lengthFrom === "drawn"}
           fontScale={narrow ? 1.45 : 1}
           section={mode === "pitch" ? sectionKey : null}
+          upper={q.upperFootprint?.closes ? q.upperFootprint.corners : null}
         />
         {mode === "pitch" && sectionKey && <SectionPitch exterior={exterior} plan={plan} sectionKey={sectionKey} readOnly={readOnly} nameOf={nameOf} onUpdate={updateRoof} />}
-        <RoofLegend plan={plan} ridgeVent={(roof.ridgeVents ?? []).length > 0} />
+        <RoofLegend plan={plan} ridgeVent={(roof.ridgeVents ?? []).length > 0} upper={q.upperFootprint?.closes === true} />
         {hint && (
           <p className="field-note exterior-plan-hint">
             {hint}
@@ -986,6 +1030,17 @@ export function PlanPane({
       <div className="exterior-fields">
         <SidesList exterior={exterior} q={q} readOnly={readOnly} showTurns={false} onOpenSide={onOpenSide} onChange={onChange} />
         <RoofShapeFields exterior={exterior} q={q} plan={plan} readOnly={readOnly} nameOf={nameOf} sideFeet={sideFeet} placing={placing} onPlace={setPlacing} onUpdate={updateRoof} />
+        <UpperFloorFields
+          exterior={exterior}
+          q={q}
+          plan={plan}
+          readOnly={readOnly}
+          nameOf={nameOf}
+          onOpenSide={onOpenSide}
+          onChange={onChange}
+          onDraw={() => setDrawingUpper(true)}
+          onUpdate={updateRoof}
+        />
         {totals(false)}
         <RoofingFields roof={roof} r={r} readOnly={readOnly} onUpdate={updateRoof} />
         {r && <RoofFigures r={r} />}
@@ -1240,6 +1295,136 @@ function RoofAdditions({
   );
 }
 
+/** The longest a main-floor side's eave usually reads: past it, it was likely taped to the upper floor's eave. */
+const ONE_STOREY_EAVE_FEET = 14;
+
+/**
+ * A two-storey house's upper floor (2026-10-14): drawn over the plan, its sides listed to type and
+ * open face-on, and each lower roof round it a lean-to or a ridge out from the wall.
+ */
+function UpperFloorFields({
+  exterior,
+  q,
+  plan,
+  readOnly,
+  nameOf,
+  onOpenSide,
+  onChange,
+  onDraw,
+  onUpdate,
+}: {
+  exterior: Exterior;
+  q: ExteriorQuantities;
+  plan: RoofPlan;
+  readOnly: boolean;
+  nameOf: (id: string) => string;
+  onOpenSide: (id: string) => void;
+  onChange: Change;
+  onDraw: () => void;
+  onUpdate: (f: (roof: ExteriorRoof) => ExteriorRoof) => void;
+}) {
+  const [confirm, setConfirm] = useState<"redraw" | "remove" | null>(null);
+  const up = exterior.upper;
+  if (!up) {
+    return (
+      <div className="exterior-rows">
+        <h4 className="exterior-subhead">Upper floor</h4>
+        <p className="field-note">
+          Two storeys? Draw the upper floor over the plan. The house&rsquo;s roof goes over it; the main floor outside it gets a roof of its own against its walls, and the high-roof charge
+          follows.
+        </p>
+        {!readOnly && (
+          <button type="button" className="btn-secondary" onClick={onDraw}>
+            + Upper floor (two storeys)
+          </button>
+        )}
+      </div>
+    );
+  }
+  const ufp = q.upperFootprint;
+  // A main-floor side taped to the upper floor's eave would count the upper floor twice now it has its own sides.
+  const tall = exterior.sides.filter((s) => (s.eaveLeftFeet ?? 0) >= ONE_STOREY_EAVE_FEET).map((s) => s.name.trim() || "Side");
+  return (
+    <div className="exterior-rows">
+      <h4 className="exterior-subhead">Upper floor</h4>
+      {ufp && !ufp.closes && <p className="sketch-length-error">{ufp.reason}</p>}
+      <div className="exterior-side-list">
+        {up.sides.map((s) => {
+          const name = s.name.trim() || "Side";
+          return (
+            <div className="exterior-side-item" key={s.id}>
+              <button type="button" className="exterior-side-open" onClick={() => onOpenSide(s.id)} title={`See ${name} face-on`}>
+                {name} <span aria-hidden="true">›</span>
+              </button>
+              <FeetInput label={`${name}: length`} value={s.lengthFeet} readOnly={readOnly} onCommit={(v) => v !== null && onChange((e) => withUpperSideLength(e, s.id, v))} />
+              {s.lengthFrom === "drawn" && (
+                <span className="exterior-drawn" title="As long as it was drawn: type its length as taped">
+                  drawn
+                </span>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      <p className="field-note">Its sides stand on the main floor&rsquo;s walls, or on the roof against them: their heights are from the floor line, the top of the main floor&rsquo;s walls.</p>
+      {tall.length > 0 && (
+        <p className="exterior-assumed">
+          {listOf(tall)} {tall.length === 1 ? "reads its" : "read their"} eave {ONE_STOREY_EAVE_FEET}&prime; or more. The main floor&rsquo;s sides now stop at the floor line: if that was the upper
+          floor&rsquo;s eave, put in the main floor&rsquo;s.
+        </p>
+      )}
+      {plan.lowerRoofs.map((l) => (
+        <Choice
+          key={`lower-${l.sideId}`}
+          label={`The roof out to ${nameOf(l.sideId)}`}
+          value={l.kind}
+          readOnly={readOnly}
+          options={[
+            ["leanto", "One slope up to the wall"],
+            ["tent", "Ridge out from the wall"],
+          ]}
+          onChange={(kind) => onUpdate((x) => ({ ...x, lowerRoofs: { ...(x.lowerRoofs ?? {}), [l.sideId]: kind } }))}
+        />
+      ))}
+      {plan.lowerRoofs.length > 0 && (
+        <p className="field-note">
+          The main floor round the upper floor: a lean-to rises to the wall, with headwall flashing along its top; a ridge running out from the wall (a garage, a bump-out) meets it with step
+          flashing up its slopes.
+        </p>
+      )}
+      {!readOnly &&
+        (confirm ? (
+          <div className="sketch-undo" role="alert">
+            <span>{confirm === "redraw" ? "Draw the upper floor again? Its sides go, with what is on them." : "Remove the upper floor and its sides?"}</span>
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() => {
+                if (confirm === "redraw") onDraw();
+                else onChange((e) => withoutUpper(e));
+                setConfirm(null);
+              }}
+            >
+              {confirm === "redraw" ? "Draw again" : "Remove"}
+            </button>
+            <button type="button" className="btn-secondary" onClick={() => setConfirm(null)}>
+              Keep
+            </button>
+          </div>
+        ) : (
+          <div className="exterior-row">
+            <button type="button" className="btn-secondary exterior-remove" onClick={() => setConfirm("redraw")}>
+              Draw the upper floor again…
+            </button>
+            <button type="button" className="btn-secondary exterior-remove" onClick={() => setConfirm("remove")}>
+              Remove the upper floor…
+            </button>
+          </div>
+        ))}
+    </div>
+  );
+}
+
 /** The owner's list (10-12): what a roof, its eavestrough and its soffit are priced from, each a question until answered. */
 function RoofingFields({ roof, r, readOnly, onUpdate }: { roof: ExteriorRoof; r: RoofingQuantities | null; readOnly: boolean; onUpdate: (f: (roof: ExteriorRoof) => ExteriorRoof) => void }) {
   return (
@@ -1265,7 +1450,11 @@ function RoofingFields({ roof, r, readOnly, onUpdate }: { roof: ExteriorRoof; r:
         ]}
         onChange={(underlayment) => onUpdate((x) => ({ ...x, underlayment }))}
       />
-      <YesNo label="Two storeys or higher (high roof)" value={roof.high ?? null} readOnly={readOnly} onChange={(high) => onUpdate((x) => ({ ...x, high }))} />
+      {r?.high?.automatic ? (
+        <p className="field-note">High roof charge: on the roof over the upper floor, {r.high.squares.toFixed(2)} SQ, from the upper floor drawn.</p>
+      ) : (
+        <YesNo label="Two storeys or higher (high roof)" value={roof.high ?? null} readOnly={readOnly} onChange={(high) => onUpdate((x) => ({ ...x, high }))} />
+      )}
       <YesNo label="Handload materials" hint="More than 30 ft from the front of the driveway, or the loading truck can't reach." value={roof.handload ?? null} readOnly={readOnly} onChange={(handload) => onUpdate((x) => ({ ...x, handload }))} />
       <YesNo label="Handload to disposal" hint="Nowhere to put a bin on the driveway: an alley, or otherwise." value={roof.disposalHandload ?? null} readOnly={readOnly} onChange={(disposalHandload) => onUpdate((x) => ({ ...x, disposalHandload }))} />
       <Choice

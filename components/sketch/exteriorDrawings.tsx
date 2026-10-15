@@ -65,8 +65,8 @@ type Size = { width: number; height: number };
 export type ElevationReach = { minX: number; maxX: number; minZ: number; maxZ: number };
 
 /** How far an elevation reaches: the wall, its faces, its roofline and its openings - a strip of stucco over a deck runs past the wall. */
-function elevationExtent(side: ExteriorSide, rise: RoofRise | null, reach?: ElevationReach) {
-  const { shape, faces, openings } = elevationFaces(side, rise);
+function elevationExtent(side: ExteriorSide, rise: RoofRise | null, reach?: ElevationReach, base: RoofRise | null = null) {
+  const { shape, faces, openings } = elevationFaces(side, rise, base);
   const L = Math.max(1, shape.lengthFeet);
   const roofline = side.roofline ?? [];
   const xs = [0, L, ...faces.flatMap((f) => f.poly.map((p) => p.x)), ...roofline.map((r) => r.alongFeet), ...(reach ? [reach.minX, reach.maxX] : [])];
@@ -88,8 +88,8 @@ function elevationExtent(side: ExteriorSide, rise: RoofRise | null, reach?: Elev
 }
 
 /** The lettering size an elevation picks for itself, in feet: 3% of its larger dimension. */
-export function elevationFontFeet(side: ExteriorSide, rise: RoofRise | null): number {
-  const e = elevationExtent(side, rise);
+export function elevationFontFeet(side: ExteriorSide, rise: RoofRise | null, base: RoofRise | null = null): number {
+  const e = elevationExtent(side, rise, undefined, base);
   return Math.max(0.5, Math.max(Math.max(1, e.maxX - e.minX), e.topZ - e.lowZ) * 0.03);
 }
 
@@ -102,9 +102,9 @@ export interface ElevationView {
   fontFeet: number;
 }
 
-function elevationView(side: ExteriorSide, rise: RoofRise | null, reach?: ElevationReach, fontFeet?: number): ElevationView & { ext: ReturnType<typeof elevationExtent>; groundZ: number } {
-  const ext = elevationExtent(side, rise, reach);
-  const fs = fontFeet ?? elevationFontFeet(side, rise);
+function elevationView(side: ExteriorSide, rise: RoofRise | null, reach?: ElevationReach, fontFeet?: number, base: RoofRise | null = null): ElevationView & { ext: ReturnType<typeof elevationExtent>; groundZ: number } {
+  const ext = elevationExtent(side, rise, reach, base);
+  const fs = fontFeet ?? elevationFontFeet(side, rise, base);
   const padX = fs * 4.2;
   const groundZ = ext.lowZ - fs * 4;
   return { ext, groundZ, fontFeet: fs, vx: ext.minX - padX, vw: ext.maxX - ext.minX + 2 * padX, vy: -(ext.topZ + fs * 2.6), vh: ext.topZ + fs * 2.6 - groundZ };
@@ -120,11 +120,14 @@ const FACE_FILL = (kind: CladdingKind | "parging") => (kind === "parging" ? "#c9
  * both drawn in the drawing's own space - x feet along, y MINUS feet up - and `reach` widens the
  * drawing to hold them. `seeThrough` lets the photo show through the faces. `editor` draws what is
  * dragged and tapped to edit the side face-on (2026-10-13), last, in the same space and frame.
- * `roofAssumed`: the roof's pitch is the assumed one, so a gable the roof gives says so.
+ * `roofAssumed`: the roof's pitch is the assumed one, so a gable the roof gives says so. `base`: an
+ * upper-floor side (2026-10-14) stands on it - the floor line, and any lower roof against it - drawn
+ * as the roof and wall below in grey, where a side on the ground has the ground.
  */
 export function ElevationDrawing({
   side,
   rise,
+  base = null,
   size,
   fontFeet,
   backdrop,
@@ -144,11 +147,14 @@ export function ElevationDrawing({
   seeThrough?: boolean;
   editor?: (view: ElevationView) => ReactNode;
   roofAssumed?: boolean;
+  base?: RoofRise | null;
 }) {
-  const { shape, faces, bandLines, grade, openings, fromShapes } = elevationFaces(side, rise);
+  const { shape, faces, bandLines, grade, openings, fromShapes } = elevationFaces(side, rise, base);
   const L = Math.max(1, shape.lengthFeet);
   const eaveZ = shape.eaveZ;
-  const view = elevationView(side, rise, reach, fontFeet);
+  const view = elevationView(side, rise, reach, fontFeet, base);
+  // An upper-floor side stands on the main floor and its lower roofs, not on the ground.
+  const upper = shape.bottomLine !== undefined || base !== null;
   const { ext, groundZ, vx, vw, vy, vh } = view;
   const faceOpacity = seeThrough ? 0.18 : 1;
   const fs = view.fontFeet;
@@ -202,7 +208,7 @@ export function ElevationDrawing({
     >
       <rect x={vx} y={vy} width={vw} height={vh} fill="#ffffff" />
       {backdrop}
-      <polygon points={pts([...ground, { x: vx + vw, y: groundZ }, { x: vx, y: groundZ }])} fill="#efe7da" fillOpacity={seeThrough ? 0.25 : 1} />
+      <polygon points={pts([...ground, { x: vx + vw, y: groundZ }, { x: vx, y: groundZ }])} fill={upper ? "#e5e7eb" : "#efe7da"} fillOpacity={seeThrough ? 0.25 : 1} />
       {!fromShapes && side.base === "parging" && (
         <polygon points={pts([shape.grade[0], shape.grade[1], shape.bottom[1], shape.bottom[0]])} fill="#c9ccd1" fillOpacity={faceOpacity} stroke="#8a9099" strokeWidth={1} {...stroke} />
       )}
@@ -255,7 +261,7 @@ export function ElevationDrawing({
           </text>
         </g>
       ))}
-      <polyline points={pts(ground)} fill="none" stroke="#7c5a3a" strokeWidth={2} {...stroke} />
+      <polyline points={pts(ground)} fill="none" stroke={upper ? "#4b5563" : "#7c5a3a"} strokeWidth={2} {...stroke} />
       {/* Where the wall stands, when the cladding runs past it. */}
       {fromShapes && (ext.minX < -1e-6 || ext.maxX > L + 1e-6) && (
         <>
@@ -340,6 +346,7 @@ export function RoofPlanDrawing({
   approx,
   fontScale = 1,
   section = null,
+  upper = null,
   size,
 }: {
   plan: RoofPlan;
@@ -358,6 +365,8 @@ export function RoofPlanDrawing({
   fontScale?: number;
   /** In "pitch" mode, the section picked (`RoofSection.key`): its slopes shaded. */
   section?: string | null;
+  /** A two-storey house's upper floor, drawn over the main floor's walls. */
+  upper?: Pt[] | null;
   size?: Size;
 }) {
   const corners = footprint.corners;
@@ -535,6 +544,7 @@ export function RoofPlanDrawing({
         );
       })}
       <polygon points={corners.map((p) => `${p.x},${Y(p.y)}`).join(" ")} fill="none" stroke="#6b7280" strokeWidth={1} strokeDasharray="4 3" pointerEvents="none" {...stroke} />
+      {upper && upper.length > 2 && <polygon points={upper.map((p) => `${p.x},${Y(p.y)}`).join(" ")} fill="none" stroke="#1b3a5c" strokeWidth={1.6} strokeDasharray="9 4" pointerEvents="none" {...stroke} />}
       {plan.lines.map((l) => {
         const s = LINE_STYLE[l.kind];
         const off = pickableEdge(l.kind) && !edgeOn(l.key);
@@ -643,7 +653,7 @@ export function RoofPlanDrawing({
 }
 
 /** The legend: each kind of line with its total along the whole roof as drawn. */
-export function RoofLegend({ plan, ridgeVent }: { plan: RoofPlan; ridgeVent: boolean }) {
+export function RoofLegend({ plan, ridgeVent, upper = false }: { plan: RoofPlan; ridgeVent: boolean; upper?: boolean }) {
   const totals = lineTotals(plan);
   const swatch = (color: string, width: number, dash?: string, opacity = 1) => (
     <svg width="22" height="10" aria-hidden="true">
@@ -668,6 +678,12 @@ export function RoofLegend({ plan, ridgeVent }: { plan: RoofPlan; ridgeVent: boo
         {swatch("#6b7280", 1, "4 3")}
         Walls
       </span>
+      {upper && (
+        <span className="exterior-legend-item">
+          {swatch("#1b3a5c", 1.6, "9 4")}
+          Upper floor walls
+        </span>
+      )}
       <span className="exterior-legend-item">
         <svg width="14" height="10" aria-hidden="true">
           <rect width="14" height="10" fill={CHOSEN_FILL} />

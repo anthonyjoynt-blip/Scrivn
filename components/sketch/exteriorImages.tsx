@@ -3,7 +3,7 @@
 import { createElement } from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
-import { type Exterior, exteriorQuantities, formatPitch, ROOF_TOTAL_KEYS, ROOF_TOTAL_LABEL } from "@/lib/exterior";
+import { allSides, type Exterior, exteriorQuantities, formatPitch, ROOF_TOTAL_KEYS, ROOF_TOTAL_LABEL } from "@/lib/exterior";
 import { formatQuantity } from "@/lib/sketchQuantities";
 import { lineTotals, textWidthEm } from "@/lib/roofLabels";
 import { ElevationDrawing, elevationFontFeet, LINE_STYLE, RoofPlanDrawing } from "./exteriorDrawings";
@@ -99,10 +99,11 @@ function roofSvg(exterior: Exterior): { svg: string; width: number; height: numb
   const plan = q.roof;
   const r = q.roofing;
   if (!plan || !r || !q.footprint.closes) return null;
-  const nameOf = (id: string) => exterior.sides.find((s) => s.id === id)?.name.trim() || "Side";
+  const nameOf = (id: string) => allSides(exterior).find((s) => s.id === id)?.name.trim() || "Side";
   const props = {
     plan,
     footprint: q.footprint,
+    upper: q.upperFootprint?.closes ? q.upperFootprint.corners : null,
     nameOf,
     slopes: exterior.roof.slopes ?? null,
     edges: exterior.roof.edges ?? null,
@@ -165,23 +166,26 @@ function roofSvg(exterior: Exterior): { svg: string; width: number; height: numb
 
 function elevationsSvg(exterior: Exterior): { svg: string; width: number; height: number } | null {
   const q = exteriorQuantities(exterior);
-  const sides = exterior.sides.map((side, i) => ({ side, sq: q.sides[i] })).filter((s) => s.sq?.complete);
+  // Every side, the upper floor's after the main floor's, each standing on what it stands on.
+  const sides = allSides(exterior)
+    .map((side, i) => ({ side, sq: q.sides[i] }))
+    .filter((s) => s.sq?.complete);
   if (sides.length === 0) return null;
   const columns = sides.length === 1 ? 1 : 2;
   const gap = 40;
   const cellW = Math.floor((WIDTH - 80 - gap * (columns - 1)) / columns);
   // One scale for the whole sheet, the longest side filling its cell, so the sides compare as they stand.
-  const fontFeet = Math.max(...sides.map(({ side }) => elevationFontFeet(side, q.rises[side.id] ?? null)));
+  const fontFeet = Math.max(...sides.map(({ side }) => elevationFontFeet(side, q.rises[side.id] ?? null, q.bases[side.id] ?? null)));
   // A gable the roof gives at a pitch nobody gave says so on the page, as on the screen.
   const roofAssumed = q.pitch.source === "assumed";
-  const boxes = sides.map(({ side }) => viewBox(markup(createElement(ElevationDrawing, { side, rise: q.rises[side.id] ?? null, fontFeet, roofAssumed }))));
+  const boxes = sides.map(({ side }) => viewBox(markup(createElement(ElevationDrawing, { side, rise: q.rises[side.id] ?? null, base: q.bases[side.id] ?? null, fontFeet, roofAssumed }))));
   const scale = Math.min(...boxes.map((b) => cellW / b.width));
   const cells = sides.map(({ side, sq }, i) => {
     const rise = q.rises[side.id] ?? null;
     const box = boxes[i] as { width: number; height: number };
     const w = Math.round(box.width * scale);
     const h = Math.round(box.height * scale);
-    return { side, sq, h, drawing: markup(createElement(ElevationDrawing, { side, rise, fontFeet, roofAssumed, size: { width: w, height: h } })) };
+    return { side, sq, h, drawing: markup(createElement(ElevationDrawing, { side, rise, base: q.bases[side.id] ?? null, fontFeet, roofAssumed, size: { width: w, height: h } })) };
   });
   let y = 70;
   const parts: string[] = [label(40, 44, "Elevations", 30, 700)];

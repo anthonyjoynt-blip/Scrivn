@@ -1776,7 +1776,7 @@ function model3d(e) {
 }
 /** A wall's top at u along it. */
 function wallTopAt(w, u) {
-  const top = w.outline.slice(2).reverse();
+  const top = w.outline.slice(w.bottomPoints ?? 2).reverse();
   for (let k = 0; k + 1 < top.length; k++) {
     const p = top[k];
     const q = top[k + 1];
@@ -2561,6 +2561,224 @@ test("3D: the house and its 4/12 garage, and the 12/12 cross gable, stand on the
   const { m } = soundRoof(rect(40, 30, { pitch: 6, additions: [{ id: "cg", kind: "gable", sideId: "front", fromFeet: 15, toFeet: 25 }], sectionPitches: { cg: 12 } }), "12/12 cross gable on 6/12", ["front"]);
   const ys = m.roof.gables.filter((_, i) => i % 3 === 1);
   near(Math.max(...ys) - Math.min(...ys), 5, "its face 5' high");
+});
+
+console.log("\ntwo storeys: an upper floor over the main floor (10-14)");
+
+/** An upper floor walked as its sides, [id, length, the corner at its end] each, 9' from the floor line to its eave, its first corner at `at`. */
+function upperOf(list, at = { sideId: "front", dx: 0, dy: 0 }) {
+  return { sides: list.map(([id, lengthFeet, turn]) => side({ id, name: id, lengthFeet, turn: turn ?? "outside", base: "grade", eaveLeftFeet: 9, eaveRightFeet: 9 })), at };
+}
+const upperBox = (w, d, at) =>
+  upperOf(
+    [
+      ["uFront", w],
+      ["uRight", d],
+      ["uRear", w],
+      ["uLeft", d],
+    ],
+    at,
+  );
+
+/** A two-storey house 30 x 24 with a one-storey garage 22 x 24 at its right, flush front and back: the main floor 52 x 24, the upper 30 x 24 over the left. */
+function boxAndGarage(roof = {}) {
+  const e = walked(
+    [
+      ["front", 52, "outside"],
+      ["right", 24, "outside"],
+      ["rear", 52, "outside"],
+      ["left", 24, "outside"],
+    ],
+    { pitch: 6, ...roof },
+  );
+  e.upper = upperBox(30, 24);
+  return e;
+}
+
+/** A two-storey house 30 x 24 with a one-storey bump-out 16 wide and 10 deep on the middle of its back. */
+function boxAndBumpOut(roof = {}) {
+  const e = walked(
+    [
+      ["front", 30, "outside"],
+      ["right", 24, "outside"],
+      ["rearRight", 7, "inside"],
+      ["bumpRight", 10, "outside"],
+      ["bumpRear", 16, "outside"],
+      ["bumpLeft", 10, "inside"],
+      ["rearLeft", 7, "outside"],
+      ["left", 24, "outside"],
+    ],
+    { pitch: 6, ...roof },
+  );
+  e.upper = upperBox(30, 24);
+  return e;
+}
+
+test("a two-storey box with a one-storey garage: the house's roof over the upper floor, the garage's lower, stopping at its wall", () => {
+  const q = roofOf(boxAndGarage());
+  const plan = q.roof;
+  const r = q.roofing;
+  assert(plan.note === null, plan.note);
+  const upper = plan.sections.filter((s) => s.floor === "upper");
+  const lower = plan.sections.filter((s) => s.floor === "main");
+  assert(upper.length === 1 && upper[0].layer === 0, `${upper.length} upper sections`);
+  assert(lower.length === 1 && lower[0].layer === 1, `${lower.length} lower sections`);
+  // The garage, 22 out from the wall and 24 along it, is deeper than a strip: its ridge runs out from the wall.
+  assert(plan.lowerRoofs.length === 1 && plan.lowerRoofs[0].sideId === "right" && plan.lowerRoofs[0].kind === "tent", JSON.stringify(plan.lowerRoofs));
+  // The house: 30 x 24 at 6/12, its ridge along the 30, 6' up. The garage: 22 x 24, its ridge 22 out from the wall, 6' up.
+  near(r.ridgeFeet, 30 + 22, "two ridges");
+  near(r.rakeFeet, 2 * 24 * F6 + 24 * F6, "the house's two gable ends and the garage's one");
+  near(r.eaveFeet, 30 + 30 + 22 + 22, "eaves");
+  // The garage's two slopes up the house's right wall: 12 run, 6 up each.
+  near(r.stepFeet, 2 * Math.hypot(12, 6), "step flashing");
+  near(r.valleyFeet + r.hipFeet + r.headwallFeet, 0, "no valleys, hips or headwall");
+  near(r.areaSquareFeet, (720 + 528) * F6, "area");
+  // The high-roof charge is the upper floor's roof's by itself, and nothing asks for it.
+  assert(r.high && r.high.automatic, JSON.stringify(r.high));
+  near(r.high.squares, (720 * F6) / 100, "high roof squares");
+  assert(!r.toAnswer.roofing.some((t) => /two storeys/.test(t)), "not asked");
+  // The main floor's sides stop at its eave: its left wall under the upper floor carries no gable; its right one the garage's.
+  assert(!q.rises.left && !q.rises.front, "no gable on a main-floor wall under the upper floor");
+  near(gableOf(q, "right"), (24 * 6) / 2, "the garage's gable on the right");
+  near(gableOf(q, "uLeft"), (24 * 6) / 2, "the house's gable on the upper floor's left");
+  // The upper right wall stands on the garage roof: its 9' wall and 6' gable, less the garage roof's 6' triangle.
+  const uRight = q.sides.find((s) => s.sideId === "uRight");
+  assert(q.bases.uRight && !q.bases.uFront, "the upper right stands on the garage roof; the upper front on the floor line");
+  near(uRight.grossSquareFeet, 24 * 9 + (24 * 6) / 2 - (24 * 6) / 2, "the upper right's cladding");
+  near(q.sides.find((s) => s.sideId === "uFront").grossSquareFeet, 30 * 9, "the upper front: 30 x 9");
+  near(q.sides.find((s) => s.sideId === "front").grossSquareFeet, 52 * 10, "the main front: one storey");
+  // The scope: the high charge said to be the upper floor's roof's.
+  const e = boxAndGarage();
+  e.scope = { roofing: true, sides: [], soffitFascia: false, eavestrough: false };
+  assert(x.exteriorScopeLines(e).roofing.includes(`High roof charge – two storeys or more – ${((720 * F6) / 100).toFixed(2)} SQ (the roof over the upper floor)`), x.exteriorScopeLines(e).roofing.join(" | "));
+});
+
+test("a two-storey with a one-storey bump-out on the back: its own roof against the back wall, as a gable or as a lean-to", () => {
+  const tent = roofOf(boxAndBumpOut());
+  assert(tent.roof.note === null, tent.roof.note);
+  // 10 out and 16 along: deeper than half its width, so a ridge running out from the wall, 8 x 1/2 = 4' up.
+  assert(tent.roof.lowerRoofs.map((l) => `${l.sideId}:${l.kind}`).join() === "bumpRear:tent", JSON.stringify(tent.roof.lowerRoofs));
+  near(tent.roofing.ridgeFeet, 30 + 10, "the house's ridge and the bump-out's");
+  near(tent.roofing.stepFeet, 2 * Math.hypot(8, 4), "its slopes flashed up the back wall");
+  near(tent.roofing.rakeFeet, 2 * 24 * F6 + 16 * F6, "rakes");
+  near(tent.roofing.eaveFeet, 60 + 20, "eaves: the house's front and back, the bump-out's two sides");
+  near(tent.roofing.areaSquareFeet, (720 + 160) * F6, "area");
+  // The upper rear stands on it: 0 either side, 4' at its ridge.
+  near(Math.max(...tent.bases.uRear.map((b) => b.rise)), 4, "the bump-out's ridge on the upper rear wall");
+  near(tent.sides.find((s) => s.sideId === "uRear").grossSquareFeet, 30 * 9 - (16 * 4) / 2, "the upper rear less the bump-out roof's triangle");
+  assert(!tent.rises.rearLeft && !tent.rises.rearRight, "the main floor's rear either side is under the upper floor: no gable");
+  near(gableOf(tent, "bumpRear"), (16 * 4) / 2, "the bump-out's gable end");
+
+  const lean = roofOf(boxAndBumpOut({ lowerRoofs: { bumpRear: "leanto" } }));
+  assert(lean.roof.lowerRoofs[0].kind === "leanto", "said to be a lean-to");
+  // One slope from its eave at the back up 10 to the wall: 5' up; level against the wall, so headwall flashing.
+  near(lean.roofing.headwallFeet, 16, "headwall along the back wall");
+  near(lean.roofing.stepFeet, 0, "no step flashing");
+  near(lean.roofing.ridgeFeet, 30, "only the house's ridge");
+  near(lean.roofing.rakeFeet, 2 * 24 * F6 + 2 * Math.hypot(10, 5), "its two ends are rakes");
+  near(lean.roofing.eaveFeet, 60 + 16, "its eave at the back");
+  near(lean.roofing.areaSquareFeet, (720 + 160) * F6, "the same area");
+  near(lean.sides.find((s) => s.sideId === "uRear").grossSquareFeet, 30 * 9 - 16 * 5, "the upper rear less the lean-to's 5' along 16'");
+});
+
+test("two storeys with overhangs: the upper floor's eaves overhang the lower roofs, and a strip along a wall is a lean-to by itself", () => {
+  // A main floor 30 x 32 under an upper floor 30 x 24 at its front: the 8' strip at the back is a lean-to.
+  const e = walked(
+    [
+      ["front", 30, "outside"],
+      ["right", 32, "outside"],
+      ["rear", 30, "outside"],
+      ["left", 32, "outside"],
+    ],
+    { pitch: 6, eaveOverhangFeet: 1, rakeOverhangFeet: 1 },
+  );
+  e.upper = upperBox(30, 24);
+  const q = roofOf(e);
+  assert(q.roof.lowerRoofs.map((l) => `${l.sideId}:${l.kind}`).join() === "rear:leanto", JSON.stringify(q.roof.lowerRoofs));
+  // The lean-to: 8 deep plus its 1' eave, 30 along plus a 1' rake each end, rising to the wall.
+  const lower = q.roof.facets.filter((f) => f.layer > 0);
+  near(lower.reduce((s, f) => s + f.planSquareFeet, 0), 9 * 32, "the lean-to's plan");
+  // Against the wall along its 30'; its top past the house's corners, under the eave above, is no flashing.
+  near(q.roof.totals.headwall, 30, "headwall along the wall");
+  // The house's roof: 32 x 26 with its overhangs, at layer 0, over the lean-to's top.
+  near(q.roof.facets.filter((f) => f.layer === 0).reduce((s, f) => s + f.planSquareFeet, 0), 32 * 26, "the upper floor's roof");
+  // The upper rear stands on the lean-to: 8 x 1/2 = 4' above the floor line all along.
+  near(Math.min(...q.bases.uRear.map((b) => b.rise)), 4, "the lean-to's top at the wall");
+});
+
+test("the upper floor is put on the main floor's plan: from a corner, its walls on the main floor's within a foot", () => {
+  const e = boxAndGarage();
+  // Drawn 6" short of the main floor's walls, and 6" in from the corner: snapped onto them.
+  e.upper = upperOf(
+    [
+      ["uFront", 29.5, "outside"],
+      ["uRight", 23.5, "outside"],
+      ["uRear", 29.5, "outside"],
+      ["uLeft", 23.5, "outside"],
+    ],
+    { sideId: "front", dx: 0.5, dy: 0.5 },
+  );
+  const fp = x.upperFootprint(e, x.exteriorFootprint(e));
+  assert(fp.closes, fp.reason);
+  const xs = [...new Set(fp.corners.map((c) => c.x))].sort((a, b) => a - b);
+  const ys = [...new Set(fp.corners.map((c) => c.y))].sort((a, b) => a - b);
+  assert(xs.join() === "0,30" && ys.join() === "0,24", `${xs} / ${ys}`);
+  // Set 4' in from the main floor's walls, it stays where it is drawn: a floor set back, its roof lower all round.
+  e.upper = upperOf(
+    [
+      ["uFront", 20, "outside"],
+      ["uRight", 16, "outside"],
+      ["uRear", 20, "outside"],
+      ["uLeft", 16, "outside"],
+    ],
+    { sideId: "front", dx: 4, dy: 4 },
+  );
+  const back = x.upperFootprint(e, x.exteriorFootprint(e));
+  assert(back.corners[0].x === 4 && back.corners[0].y === 4, JSON.stringify(back.corners[0]));
+  const q = roofOf(e);
+  assert(!/runs past|doesn't come apart/.test(q.roof.note ?? "") && q.roof.sections.some((s) => s.floor === "main"), q.roof.note);
+  // Running past the main floor's walls, it is said, and the roof is the main floor's alone.
+  e.upper = upperBox(60, 24);
+  const past = roofOf(e).roof;
+  assert(/runs past the main floor's walls/.test(past.note ?? ""), past.note ?? "no note");
+});
+
+test("one storey stays as it was: no upper floor, no high charge unless answered", () => {
+  const q = roofOf(rect(40, 30, { pitch: 6 }));
+  assert(q.upperFootprint === null && Object.keys(q.bases).length === 0, "no upper floor");
+  assert(q.roofing.high === null && q.roofing.toAnswer.roofing.includes("two storeys or higher, yes or no"), "asked");
+  const yes = roofOf(rect(40, 30, { pitch: 6, high: true })).roofing;
+  assert(yes.high && !yes.high.automatic && Math.abs(yes.high.squares - yes.squares) < 1e-9, JSON.stringify(yes.high));
+});
+
+test("3D: a two-storey box and its garage stand up - main walls to the floor line, the upper walls on it and on the garage roof", () => {
+  const e = boxAndGarage({ eaveOverhangFeet: ft(1, 4), rakeOverhangFeet: 1 });
+  // The main floor's front, rear and left run on up as the upper floor's: checked below rather than against a roof.
+  const { m } = soundRoof(e, "two storeys and a garage", ["front", "rear", "left"]);
+  const wall = (id) => m.walls.find((w) => w.sideId === id);
+  const bottomOf = (w) => w.outline.slice(0, w.bottomPoints ?? 2);
+  near(m.eaves[0], 10 + 9, "the house's eave: the floor line and the upper sides' 9'");
+  near(wallTopAt(wall("left"), 12), 10, "the main left wall stands to the floor line");
+  near(wallTopAt(wall("front"), 10), 10, "so does the main front under the upper floor");
+  near(Math.min(...bottomOf(wall("uLeft")).map((p) => p.y)), 10, "the upper left stands on it");
+  // The upper right stands on the garage roof: 6' over the floor line at the garage's ridge, on the floor line at its eaves.
+  const b = bottomOf(wall("uRight"));
+  near(Math.max(...b.map((p) => p.y)), 10 + 6, "on the garage roof's ridge");
+  near(Math.min(...b.map((p) => p.y)), 10, "and its eaves");
+  // And that roof's underside meets it there.
+  const u = wall("uRight");
+  const mid = b.reduce((best, p) => (p.y > best.y ? p : best), b[0]);
+  const hs = undersides(m, planOf(u, mid.x, -0.01));
+  assert(hs.some((h) => Math.abs(h - mid.y) < 0.02), `the garage roof at the wall: ${hs.map((h) => h.toFixed(3)).join(" / ")}, the wall's foot ${mid.y.toFixed(3)}`);
+});
+
+test("3D: the bump-out's lean-to meets the upper rear wall along a level line", () => {
+  const e = boxAndBumpOut({ lowerRoofs: { bumpRear: "leanto" } });
+  const { m } = soundRoof(e, "two storeys and a lean-to", ["front", "right", "left", "rearLeft", "rearRight"]);
+  const u = m.walls.find((w) => w.sideId === "uRear");
+  const b = u.outline.slice(0, u.bottomPoints);
+  // 10 deep at 6/12: 5' over the floor line, all along the 16' it is against.
+  near(Math.max(...b.map((p) => p.y)), 10 + 5, "the lean-to's top on the wall");
 });
 
 console.log(`\n${passed.length} passed, ${failures.length} failed`);
