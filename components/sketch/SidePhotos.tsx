@@ -305,6 +305,7 @@ function proposalsReach(p: TraceProposals): ElevationReach | null {
 export function SideElevation({
   side,
   rise,
+  base = null,
   caption,
   readOnly,
   opacity,
@@ -317,6 +318,8 @@ export function SideElevation({
 }: {
   side: ExteriorSide;
   rise: RoofRise | null;
+  /** An upper-floor side: what it stands on. */
+  base?: RoofRise | null;
   caption: ReactNode;
   readOnly: boolean;
   opacity: PhotoOpacity;
@@ -423,6 +426,7 @@ export function SideElevation({
       <ElevationDrawing
         side={side}
         rise={rise}
+        base={base}
         backdrop={backdrop}
         overlay={trace && picks ? traceOverlay(trace.proposals, picks) : undefined}
         reach={reach}

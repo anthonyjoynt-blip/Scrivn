@@ -838,8 +838,9 @@ Notes on the scope document — tone and format matter as much as content here:
   ("we'll need a 30-yard bin"), keep the computed line and append " — PM called for {what they
   said}" to it, so both the estimate and the PM's call are on the page.
 - EXTERIOR LINES ARE COMPUTED, NOT WRITTEN BY YOU. CLAIM CONTEXT carries "exterior": a list of
-  ready-made lines measured off the claim's exterior sketch — roofing squares and its edge lines,
-  cladding by elevation, soffit, fascia, eavestrough — for exactly the parts the estimator put in
+  ready-made lines measured off the claim's exterior sketch, or typed by the estimator (a line
+  then ends saying which) — roofing squares and its edge lines, cladding by elevation, soffit,
+  fascia, eavestrough — for exactly the parts the estimator put in
   scope, or an empty list. When it has lines, write an "Exterior" heading in the Repair section,
   after the rooms and before General, with one bullet per line, EXACTLY as given and in the order
   given — never recompute, round, merge, reword or drop one, and never add exterior work of your

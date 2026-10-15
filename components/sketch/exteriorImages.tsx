@@ -3,7 +3,7 @@
 import { createElement } from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
-import { type Exterior, exteriorQuantities, formatPitch } from "@/lib/exterior";
+import { allSides, type Exterior, exteriorQuantities, formatPitch, ROOF_TOTAL_KEYS, ROOF_TOTAL_LABEL } from "@/lib/exterior";
 import { formatQuantity } from "@/lib/sketchQuantities";
 import { lineTotals, textWidthEm } from "@/lib/roofLabels";
 import { ElevationDrawing, elevationFontFeet, LINE_STYLE, RoofPlanDrawing } from "./exteriorDrawings";
@@ -99,10 +99,11 @@ function roofSvg(exterior: Exterior): { svg: string; width: number; height: numb
   const plan = q.roof;
   const r = q.roofing;
   if (!plan || !r || !q.footprint.closes) return null;
-  const nameOf = (id: string) => exterior.sides.find((s) => s.id === id)?.name.trim() || "Side";
+  const nameOf = (id: string) => allSides(exterior).find((s) => s.id === id)?.name.trim() || "Side";
   const props = {
     plan,
     footprint: q.footprint,
+    upper: q.upperFootprint?.closes ? q.upperFootprint.corners : null,
     nameOf,
     slopes: exterior.roof.slopes ?? null,
     edges: exterior.roof.edges ?? null,
@@ -135,15 +136,29 @@ function roofSvg(exterior: Exterior): { svg: string; width: number; height: numb
   }
   const legend = legendParts.join("");
   const slopeList = r.slopes.map((s) => `${s.label} ${Math.round(s.areaSquareFeet)} SF${s.faces ? ` (${s.faces})` : ""}${s.selected ? "" : ", not roofed"}`).join(" · ");
-  const height = legendY + (slopeList ? 64 : 30);
+  // Totals typed over the drawing's: said on the page, as on the scope's lines, since the drawing's own are what is drawn.
+  const typed = ROOF_TOTAL_KEYS.filter((k) => r.from[k] === "estimator").map((k) =>
+    k === "squareFeet" ? `${r.squares.toFixed(2)} SQ` : `${ROOF_TOTAL_LABEL[k].toLowerCase()} ${formatQuantity(k === "dripEdge" ? r.dripEdgeFeet : k === "starter" ? r.starterFeet : k === "iceWater" ? r.iceWaterFeet : r[`${k}Feet` as "ridgeFeet"])} LF`,
+  );
+  const typedNote = typed.length > 0 ? `From the estimator, over the drawing: ${typed.join(" · ")}. The lengths drawn are the drawing's own.` : "";
+  // Wrapped to the page: about 120 characters a line at 18 px.
+  const typedLines: string[] = [];
+  for (const word of typedNote.split(" ").filter(Boolean)) {
+    const last = typedLines[typedLines.length - 1];
+    if (last !== undefined && last.length + word.length < 120) typedLines[typedLines.length - 1] = `${last} ${word}`;
+    else typedLines.push(word);
+  }
+  const typedTop = legendY + (slopeList ? 72 : 40);
+  const height = typedLines.length > 0 ? typedTop + (typedLines.length - 1) * 26 + 24 : legendY + (slopeList ? 64 : 30);
   const svg = [
     `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${height}" viewBox="0 0 ${WIDTH} ${height}">`,
     `<rect width="${WIDTH}" height="${height}" fill="#ffffff"/>`,
     label(40, 44, "Roof plan", 30, 700),
-    label(40, 78, `${formatPitch(r.pitch)}${r.pitchAssumed ? " (assumed)" : ""} · ${which} · ${formatQuantity(r.areaSquareFeet)} SF (${r.squares.toFixed(2)} SQ) · to scale, front at the bottom`, 20),
+    label(40, 78, `${r.byPitch.length > 1 ? r.byPitch.map((b) => `${formatPitch(b.pitch)}${b.assumed ? " (assumed)" : ""}`).join(" and ") : `${formatPitch(r.pitch)}${r.pitchAssumed ? " (assumed)" : ""}`} · ${which} · ${formatQuantity(r.areaSquareFeet)} SF (${r.squares.toFixed(2)} SQ${r.from.squareFeet === "estimator" ? ", from the estimator" : ""}) · to scale, front at the bottom`, 20),
     `<g transform="translate(40 ${top})">${drawing}</g>`,
     legend,
     slopeList ? label(40, legendY + 40, `Slopes: ${slopeList}`, 18) : "",
+    ...typedLines.map((line, i) => label(40, typedTop + i * 26, line, 18)),
     `</svg>`,
   ].join("");
   return { svg, width: WIDTH, height };
@@ -151,23 +166,26 @@ function roofSvg(exterior: Exterior): { svg: string; width: number; height: numb
 
 function elevationsSvg(exterior: Exterior): { svg: string; width: number; height: number } | null {
   const q = exteriorQuantities(exterior);
-  const sides = exterior.sides.map((side, i) => ({ side, sq: q.sides[i] })).filter((s) => s.sq?.complete);
+  // Every side, the upper floor's after the main floor's, each standing on what it stands on.
+  const sides = allSides(exterior)
+    .map((side, i) => ({ side, sq: q.sides[i] }))
+    .filter((s) => s.sq?.complete);
   if (sides.length === 0) return null;
   const columns = sides.length === 1 ? 1 : 2;
   const gap = 40;
   const cellW = Math.floor((WIDTH - 80 - gap * (columns - 1)) / columns);
   // One scale for the whole sheet, the longest side filling its cell, so the sides compare as they stand.
-  const fontFeet = Math.max(...sides.map(({ side }) => elevationFontFeet(side, q.rises[side.id] ?? null)));
+  const fontFeet = Math.max(...sides.map(({ side }) => elevationFontFeet(side, q.rises[side.id] ?? null, q.bases[side.id] ?? null)));
   // A gable the roof gives at a pitch nobody gave says so on the page, as on the screen.
   const roofAssumed = q.pitch.source === "assumed";
-  const boxes = sides.map(({ side }) => viewBox(markup(createElement(ElevationDrawing, { side, rise: q.rises[side.id] ?? null, fontFeet, roofAssumed }))));
+  const boxes = sides.map(({ side }) => viewBox(markup(createElement(ElevationDrawing, { side, rise: q.rises[side.id] ?? null, base: q.bases[side.id] ?? null, fontFeet, roofAssumed }))));
   const scale = Math.min(...boxes.map((b) => cellW / b.width));
   const cells = sides.map(({ side, sq }, i) => {
     const rise = q.rises[side.id] ?? null;
     const box = boxes[i] as { width: number; height: number };
     const w = Math.round(box.width * scale);
     const h = Math.round(box.height * scale);
-    return { side, sq, h, drawing: markup(createElement(ElevationDrawing, { side, rise, fontFeet, roofAssumed, size: { width: w, height: h } })) };
+    return { side, sq, h, drawing: markup(createElement(ElevationDrawing, { side, rise, base: q.bases[side.id] ?? null, fontFeet, roofAssumed, size: { width: w, height: h } })) };
   });
   let y = 70;
   const parts: string[] = [label(40, 44, "Elevations", 30, 700)];

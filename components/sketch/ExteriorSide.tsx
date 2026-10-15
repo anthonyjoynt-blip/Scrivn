@@ -16,6 +16,7 @@ import {
   type ExteriorQuantities,
   type ExteriorShape,
   type ExteriorSide,
+  type Footprint,
   formatPitch,
   OPENING_LABEL,
   openingRect,
@@ -25,7 +26,7 @@ import {
   type SideQuantities,
   zFromGrade,
 } from "@/lib/exterior";
-import { MIN_SIDE_FEET, sideChain, withSideLength } from "@/lib/exteriorPlan";
+import { MIN_SIDE_FEET, sideChain, withSideLength, withUpperSideLength } from "@/lib/exteriorPlan";
 import type { SideTrace } from "@/lib/exteriorTrace";
 import type { Pt } from "@/lib/roof";
 import type { ElevationView } from "./exteriorDrawings";
@@ -68,10 +69,19 @@ type Press = {
   id?: string;
 };
 
+/** The sides a side is one of, round its own floor: the main floor's, or a two-storey house's upper floor's. */
+export interface SideLoop {
+  sides: ExteriorSide[];
+  footprint: Footprint | null;
+  upper: boolean;
+}
+
 export function SidePane({
   exterior,
   side,
   index,
+  qIndex,
+  loop,
   q,
   readOnly,
   onUpdate,
@@ -86,7 +96,11 @@ export function SidePane({
 }: {
   exterior: Exterior;
   side: ExteriorSide;
+  /** Its place round its own floor. */
   index: number;
+  /** Its place in `q.sides`: the main floor's, then the upper floor's. */
+  qIndex: number;
+  loop: SideLoop;
   q: ExteriorQuantities;
   readOnly: boolean;
   onUpdate: (f: (side: ExteriorSide) => ExteriorSide) => void;
@@ -109,15 +123,18 @@ export function SidePane({
   const press = useRef<Press | null>(null);
   const apply = useRef<((s: ExteriorSide) => ExteriorSide) | null>(null);
 
-  const sq = q.sides[index] as SideQuantities;
+  const sq = q.sides[qIndex] as SideQuantities;
   const rise = q.rises[side.id] ?? null;
-  const used = q.footprint.closes ? q.footprint.lengthsFeet[index] : undefined;
+  const base = q.bases[side.id] ?? null;
+  const used = loop.footprint?.closes ? loop.footprint.lengthsFeet[index] : undefined;
+  // A length typed moves this floor's own outline.
+  const typedLength = (x: Exterior, feet: number) => (loop.upper ? withUpperSideLength(x, side.id, feet) : withSideLength(x, side.id, feet));
   const id = (name: string) => `ext-${side.id}-${name}`;
   const fall = side.eaveLeftFeet != null && side.eaveRightFeet != null ? side.eaveRightFeet - side.eaveLeftFeet : 0;
   const roofPeak = rise && rise.length > 0 ? Math.max(...rise.map((r) => r.rise)) : 0;
-  const n = exterior.sides.length;
-  const before = exterior.sides[(index - 1 + n) % n] as ExteriorSide;
-  const after = exterior.sides[(index + 1) % n] as ExteriorSide;
+  const n = loop.sides.length;
+  const before = loop.sides[(index - 1 + n) % n] as ExteriorSide;
+  const after = loop.sides[(index + 1) % n] as ExteriorSide;
   const nameOf = (s: ExteriorSide) => s.name.trim() || "Side";
   const shown = dragged ?? side;
   const fromShapes = (side.shapes ?? []).length > 0;
@@ -233,7 +250,7 @@ export function SidePane({
     if (!f || readOnly) return;
     if (p.what === "length") {
       const L = f(side).lengthFeet;
-      onChange((x) => withSideLength(x, side.id, L));
+      onChange((x) => typedLength(x, L));
     } else onUpdate(f);
     if (p.what === "opening" && p.id) setSelected(p.id);
   }
@@ -335,11 +352,12 @@ export function SidePane({
             </button>
           )}
           <button type="button" className="exterior-locator" onClick={() => onGo("plan")} title="Back to the plan" aria-label="Back to the plan">
-            <SideLocator exterior={exterior} q={q} index={index} />
+            <SideLocator exterior={exterior} q={q} index={index} loop={loop} />
           </button>
           <div className="exterior-side-title">
             <strong>{nameOf(side)}</strong>
             <span className="field-note">
+              {loop.upper ? "Upper floor, " : ""}
               {index + 1} of {n}, face-on
             </span>
           </div>
@@ -364,6 +382,7 @@ export function SidePane({
         <SideElevation
           side={shown}
           rise={rise}
+          base={base}
           readOnly={readOnly}
           opacity={photoOpacity}
           onOpacity={onPhotoOpacity}
@@ -419,7 +438,7 @@ export function SidePane({
             label="Length, corner to corner"
             value={side.lengthFeet}
             readOnly={readOnly}
-            onCommit={(v) => v !== null && onChange((x) => withSideLength(x, side.id, v))}
+            onCommit={(v) => v !== null && onChange((x) => typedLength(x, v))}
             note={
               side.lengthFrom === "drawn"
                 ? "As drawn on the plan: type it as taped."
@@ -443,20 +462,32 @@ export function SidePane({
           <FeetField id={id("eaveR")} label="At the right corner" value={side.eaveRightFeet} readOnly={readOnly} nullable onCommit={(v) => onUpdate((s) => ({ ...s, eaveRightFeet: v, eaveLeftFeet: s.eaveLeftFeet ?? v }))} />
         </div>
         <p className="field-note">
-          {side.heightsFrom === "level"
-            ? "The soffit line at each corner, from the phone's one ground level for this side."
-            : `The soffit line, from the grade at each corner.${Math.abs(fall) > 1 / 96 ? ` The eave is level, so the grade ${fall > 0 ? "falls" : "rises"} ${formatFeetInches(Math.abs(fall))} from left to right.` : ""}`}
+          {loop.upper
+            ? "The soffit line at each corner, from the floor line: the top of the main floor's walls, their eave."
+            : side.heightsFrom === "level"
+              ? "The soffit line at each corner, from the phone's one ground level for this side."
+              : `The soffit line, from the grade at each corner.${Math.abs(fall) > 1 / 96 ? ` The eave is level, so the grade ${fall > 0 ? "falls" : "rises"} ${formatFeetInches(Math.abs(fall))} from left to right.` : ""}`}
         </p>
 
-        <h4 className="exterior-subhead">Cladding starts at</h4>
-        <div className="option-group" role="group" aria-label="Base line">
-          {(["parging", "grade"] as const).map((base) => (
-            <button key={base} type="button" className={`option-btn${side.base === base ? " selected" : ""}`} aria-pressed={side.base === base} disabled={readOnly} onClick={() => onUpdate((s) => ({ ...s, base }))}>
-              {base === "parging" ? "Top of the parging" : "Grade"}
-            </button>
-          ))}
-        </div>
-        {side.base === "parging" && (
+        {loop.upper ? (
+          <p className="field-note">
+            {base
+              ? "It stands on the main floor's wall below it, and on the lower roof against it where one meets it: its cladding starts there."
+              : "It stands on the main floor's wall below it: its cladding starts at the floor line."}
+          </p>
+        ) : (
+          <>
+            <h4 className="exterior-subhead">Cladding starts at</h4>
+            <div className="option-group" role="group" aria-label="Base line">
+              {(["parging", "grade"] as const).map((base) => (
+                <button key={base} type="button" className={`option-btn${side.base === base ? " selected" : ""}`} aria-pressed={side.base === base} disabled={readOnly} onClick={() => onUpdate((s) => ({ ...s, base }))}>
+                  {base === "parging" ? "Top of the parging" : "Grade"}
+                </button>
+              ))}
+            </div>
+          </>
+        )}
+        {!loop.upper && side.base === "parging" && (
           <div className="exterior-grid">
             <FeetField id={id("baseL")} label="Parging at the left corner" value={side.baseLeftFeet} readOnly={readOnly} allowZero onCommit={(v) => v !== null && onUpdate((s) => ({ ...s, baseLeftFeet: v }))} />
             <FeetField id={id("baseR")} label="At the right corner" value={side.baseRightFeet} readOnly={readOnly} allowZero onCommit={(v) => v !== null && onUpdate((s) => ({ ...s, baseRightFeet: v }))} />
@@ -469,7 +500,7 @@ export function SidePane({
             <div className="exterior-grid">
               <FeetField
                 id={id("peak")}
-                label="Peak, from the grade under it"
+                label={loop.upper ? "Peak, from the floor line" : "Peak, from the grade under it"}
                 value={side.gable.peakFeet}
                 readOnly={readOnly}
                 onCommit={(v) => v !== null && onUpdate((s) => (s.gable ? { ...s, gable: { ...s.gable, peakFeet: v } } : s))}
@@ -497,7 +528,7 @@ export function SidePane({
           <>
             <p className="field-note">
               {roofPeak > 0
-                ? `None measured. The roof puts a gable here, ${formatFeetInches(roofPeak)} above the eave at ${formatPitch(q.pitch.value ?? 0)}${q.pitch.source === "assumed" ? " (assumed)" : ""}, and it is counted in the cladding. Drag its peak, or measure it, to use yours instead.`
+                ? `None measured. The roof puts a gable here, ${formatFeetInches(roofPeak)} above the eave${(q.roofing?.byPitch.length ?? 1) > 1 ? " at the pitch of the roof over it" : ` at ${formatPitch(q.pitch.value ?? 0)}`}${q.pitch.source === "assumed" ? " (assumed)" : ""}, and it is counted in the cladding. Drag its peak, or measure it, to use yours instead.`
                 : "None: the roof meets this side at its eave."}
             </p>
             {!readOnly && (
@@ -572,12 +603,14 @@ export function SidePane({
  * The house from above, small, with this side drawn bold and a mark outside it where you stand to see
  * it face-on: which side this is, at a glance, when going round twelve of them.
  */
-function SideLocator({ exterior, q, index }: { exterior: Exterior; q: ExteriorQuantities; index: number }) {
-  const closed = q.footprint.closes;
-  const pts: Pt[] = closed ? q.footprint.corners : sideChain(exterior.sides).points;
+function SideLocator({ exterior, q, index, loop }: { exterior: Exterior; q: ExteriorQuantities; index: number; loop: SideLoop }) {
+  // An upper-floor side: the main floor drawn faint under the upper floor's outline.
+  const closed = loop.upper ? loop.footprint?.closes === true : q.footprint.closes;
+  const pts: Pt[] = loop.upper ? (closed ? (loop.footprint as Footprint).corners : []) : closed ? q.footprint.corners : sideChain(exterior.sides).points;
   if (pts.length < 2) return null;
-  const xs = pts.map((p) => p.x);
-  const ys = pts.map((p) => p.y);
+  const framed = loop.upper && q.footprint.closes ? [...pts, ...q.footprint.corners] : pts;
+  const xs = framed.map((p) => p.x);
+  const ys = framed.map((p) => p.y);
   const size = Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys), 1);
   const pad = size * 0.2;
   const a = pts[index] as Pt;
@@ -589,6 +622,7 @@ function SideLocator({ exterior, q, index }: { exterior: Exterior; q: ExteriorQu
   const stroke = { vectorEffect: "non-scaling-stroke" as const };
   return (
     <svg className="exterior-locator-svg" viewBox={`${Math.min(...xs) - pad} ${Y(Math.max(...ys) + pad)} ${Math.max(...xs) - Math.min(...xs) + 2 * pad} ${Math.max(...ys) - Math.min(...ys) + 2 * pad}`} aria-hidden="true">
+      {loop.upper && q.footprint.closes && <polygon points={q.footprint.corners.map((p) => `${p.x},${Y(p.y)}`).join(" ")} fill="#f5f6f8" stroke="#c4cad3" strokeWidth={1} {...stroke} />}
       {closed ? (
         <polygon points={pts.map((p) => `${p.x},${Y(p.y)}`).join(" ")} fill="#eef1f5" stroke="#9aa4b2" strokeWidth={1.5} {...stroke} />
       ) : (

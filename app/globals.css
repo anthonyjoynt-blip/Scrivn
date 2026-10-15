@@ -3478,7 +3478,8 @@ button:disabled {
 .exterior-pick {
   cursor: pointer;
 }
-.exterior-svg-picking-slopes .exterior-pick:hover polygon {
+.exterior-svg-picking-slopes .exterior-pick:hover polygon,
+.exterior-svg-picking-pitch .exterior-pick:hover polygon {
   fill-opacity: 0.75;
 }
 .exterior-choice {
@@ -3618,6 +3619,16 @@ button:disabled {
 }
 .exterior-plan-hint {
   margin: 0;
+}
+/* Roof totals typed by the estimator (2026-10-14): a typed box stands out from one showing the drawing's. */
+.roof-total-unit {
+  font-weight: 400;
+  color: var(--text-muted);
+}
+.exterior-feet.roof-total-typed {
+  border-color: var(--color-navy);
+  background: var(--color-navy-tint);
+  font-weight: 600;
 }
 .exterior-plan-hint .btn-secondary {
   padding: 2px 10px;
