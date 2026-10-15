@@ -50,7 +50,7 @@ import {
   roofInput,
   type SidePhoto,
 } from "./exterior";
-import { buildRoof, polygonArea, type Pt, roofHeightAt, type RoofInput, type RoofPlan, roofRiseAlongWall, type RoofSection } from "./roof";
+import { buildRoof, eaveAboveDrip, polygonArea, type Pt, roofHeightAt, type RoofInput, type RoofPlan, roofRiseAlongWall, type RoofSection } from "./roof";
 
 export type V3 = [number, number, number];
 
@@ -158,28 +158,33 @@ function layerAtWall(sections: RoofSection[], p: Pt): number {
   return 0;
 }
 
-/** A side's pieces along its wall, each under one roof: (t0, t1) fractions along, the layer, and the rise at each end. */
+/**
+ * A side's pieces along its wall, each under one roof: (t0, t1) fractions along, the layer, the rise
+ * at each end, and how far that stretch's eave stands above its roof's drip line - one overhang at
+ * the pitch of the section over it, which a lower-pitched wing tied in has lower than the house.
+ */
 interface Stretch {
   t0: number;
   t1: number;
   layer: number;
   r0: number;
   r1: number;
+  eave: number | null;
 }
 
 function stretchesOf(input: RoofInput | null, plan: RoofPlan | null, a: Pt, b: Pt): Stretch[] {
   const mid = (t: number): Pt => ({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t });
-  if (!input || !plan || plan.shape === "other") return [{ t0: 0, t1: 1, layer: 0, r0: 0, r1: 0 }];
+  if (!input || !plan || plan.shape === "other") return [{ t0: 0, t1: 1, layer: 0, r0: 0, r1: 0, eave: null }];
   const rise = roofRiseAlongWall(input, a, b);
-  if (rise.length < 2) return [{ t0: 0, t1: 1, layer: layerAtWall(plan.sections, mid(0.5)), r0: 0, r1: 0 }];
+  if (rise.length < 2) return [{ t0: 0, t1: 1, layer: layerAtWall(plan.sections, mid(0.5)), r0: 0, r1: 0, eave: null }];
   const out: Stretch[] = [];
   for (let k = 0; k + 1 < rise.length; k++) {
-    const p = rise[k] as { t: number; rise: number };
-    const q = rise[k + 1] as { t: number; rise: number };
+    const p = rise[k] as { t: number; rise: number; eave: number };
+    const q = rise[k + 1] as { t: number; rise: number; eave: number };
     if (q.t - p.t < 1e-9) continue;
-    out.push({ t0: p.t, t1: q.t, layer: layerAtWall(plan.sections, mid((p.t + q.t) / 2)), r0: p.rise, r1: q.rise });
+    out.push({ t0: p.t, t1: q.t, layer: layerAtWall(plan.sections, mid((p.t + q.t) / 2)), r0: p.rise, r1: q.rise, eave: q.eave });
   }
-  return out.length > 0 ? out : [{ t0: 0, t1: 1, layer: layerAtWall(plan.sections, mid(0.5)), r0: 0, r1: 0 }];
+  return out.length > 0 ? out : [{ t0: 0, t1: 1, layer: layerAtWall(plan.sections, mid(0.5)), r0: 0, r1: 0, eave: null }];
 }
 
 /** A side's two eave readings, as the roof sits on them: see the doc above. Null with no eave measured. */
@@ -199,7 +204,7 @@ function eaveReadings(side: ExteriorSide, sameRoof: boolean): [number, number] |
  * out at about 0. A lower porch roof, which no side stands under, meets the wall
  * [LEAN_TO_BELOW_EAVE_FEET] under the house's eave.
  */
-function eaveLevels(sides: { side: ExteriorSide; stretches: Stretch[] }[], plan: RoofPlan | null, overhang: number, rise: number): Record<number, number> {
+function eaveLevels(sides: { side: ExteriorSide; stretches: Stretch[] }[], plan: RoofPlan | null, overhang: number): Record<number, number> {
   const readings = new Map<number, number[]>();
   for (const { side, stretches } of sides) {
     const first = stretches[0] as Stretch;
@@ -218,12 +223,12 @@ function eaveLevels(sides: { side: ExteriorSide; stretches: Stretch[] }[], plan:
       out[layer] = own;
       continue;
     }
-    // A lean-to: its one slope rises to the wall, `depth` of run from its drip line - see `withAdditions`.
+    // A lean-to: its one slope rises to the wall, `top` feet above its drip line - see `withAdditions`.
     const porch = plan?.sections.find((s) => s.layer === layer && s.role === "porch" && s.planes?.length === 1);
     const plane = porch?.planes?.[0];
-    if (porch && plane) {
-      const depth = Math.max(...[porch.x0, porch.x1].flatMap((x) => [porch.y0, porch.y1].map((y) => plane.a * x + plane.b * y + plane.c)));
-      out[layer] = e0 - LEAN_TO_BELOW_EAVE_FEET - (depth - overhang) * rise;
+    if (porch && plane && plan) {
+      const top = Math.max(...[porch.x0, porch.x1].flatMap((x) => [porch.y0, porch.y1].map((y) => plane.a * x + plane.b * y + plane.c)));
+      out[layer] = e0 - LEAN_TO_BELOW_EAVE_FEET - (top - eaveAboveDrip(plan, layer, overhang));
     } else out[layer] = e0;
   }
   return out;
@@ -281,7 +286,7 @@ function onSegment(p: Pt, a: Pt, b: Pt): number | null {
   return off < 1e-6 ? t : null;
 }
 
-/** A plane height = a·x + b·y + c, in feet of run. */
+/** A plane height = a·x + b·y + c, in feet of rise above its roof's drip line. */
 type PlanePt = { a: number; b: number; c: number };
 const planeZ = (p: PlanePt, q: Pt) => p.a * q.x + p.b * q.y + p.c;
 
@@ -302,7 +307,6 @@ export function exteriorModel(exterior: Exterior): ExteriorModelResult {
   else if (plan?.shape === "other") notes.push("The roof isn't worked out for this outline, so only the walls are drawn.");
   else if (reading.source === "assumed") notes.push(`The roof is at an assumed ${formatPitch(input.pitch)} until its pitch is typed or a gable is measured.`);
   const built = plan && plan.shape !== "other" ? plan : null;
-  const r = (input?.pitch ?? 0) / 12;
   const ov = input?.eaveOverhangFeet ?? 0;
   const n = footprint.corners.length;
   const byId = new Map(exterior.sides.map((s) => [s.id, s]));
@@ -313,8 +317,10 @@ export function exteriorModel(exterior: Exterior): ExteriorModelResult {
     const b = footprint.corners[(i + 1) % n] as Pt;
     return { side, a, b, stretches: stretchesOf(input, built, a, b) };
   });
-  const eaves = eaveLevels(sides, built, ov, r);
+  const eaves = eaveLevels(sides, built, ov);
   const eaveOf = (layer: number) => eaves[layer] ?? (eaves[0] as number);
+  // Each roof's drip line in the view: its eave less the eave's height above the drip line.
+  const dripOf = (layer: number) => eaveOf(layer) - (built ? eaveAboveDrip(built, layer, ov) : 0);
   if (built?.sections.some((s) => s.role === "porch" && s.layer > 0)) notes.push("A lower porch roof's height isn't measured: it is drawn meeting the wall 1'6\" under the eave.");
 
   // ---- Each side: where its ground is, how high it stands, its cladding -------------------------
@@ -335,7 +341,8 @@ export function exteriorModel(exterior: Exterior): ExteriorModelResult {
     if (built) {
       top = [];
       for (const s of stretches) {
-        const e = eaveOf(s.layer);
+        // The stretch's own eave over its roof's drip line: a tied-in wing at a lower pitch has it a little lower.
+        const e = s.eave === null ? eaveOf(s.layer) : dripOf(s.layer) + s.eave;
         top.push({ x: s.t0 * L, y: e + s.r0 }, { x: s.t1 * L, y: e + s.r1 });
       }
     } else {
@@ -390,8 +397,8 @@ export function exteriorModel(exterior: Exterior): ExteriorModelResult {
   const posts: ExteriorModel3D["posts"] = [];
   const ceilings: number[] = [];
   if (built && input) {
-    const underAt = (layer: number, z: number) => eaveOf(layer) + (z - ov) * r;
-    roof = roofModel(built, underAt, eaveOf, ov, r, input.rakeOverhangFeet);
+    const underAt = (layer: number, z: number) => dripOf(layer) + z;
+    roof = roofModel(built, underAt, dripOf, input.rakeOverhangFeet);
     // The house's wall over each lower roof that stops at it (the garage's): from that roof up to the one above.
     const cladding = mainCladding(walls);
     for (const s of built.sections) {
@@ -627,9 +634,9 @@ function distanceToOutline(corners: Pt[], p: Pt): number {
 function cellsOf(plan: RoofPlan): { layer: number; facet: string; label: string; poly: Pt[]; plane: PlanePt }[] {
   const out: { layer: number; facet: string; label: string; poly: Pt[]; plane: PlanePt }[] = [];
   for (const f of plan.facets) {
-    // Water runs off along `facing`, so the plane rises against it.
-    const a = -f.facing.x;
-    const b = -f.facing.y;
+    // Water runs off along `facing`, so the plane rises against it, at its own pitch.
+    const a = (-f.facing.x * f.pitch) / 12;
+    const b = (-f.facing.y * f.pitch) / 12;
     for (const cell of f.cells) {
       if (cell.length < 3) continue;
       const m = cell.reduce((s, p) => ({ x: s.x + p.x / cell.length, y: s.y + p.y / cell.length }), { x: 0, y: 0 });
@@ -700,7 +707,7 @@ function insideConvex(poly: Pt[], p: Pt): boolean {
  * line, the faces of siding a roof brings (a cross gable's front; a step where one part of a roof
  * stands over another), and its lines and letters.
  */
-function roofModel(plan: RoofPlan, underAt: (layer: number, z: number) => number, eaveOf: (layer: number) => number, ov: number, r: number, rake: number): Roof3D {
+function roofModel(plan: RoofPlan, underAt: (layer: number, z: number) => number, dripOf: (layer: number) => number, rake: number): Roof3D {
   const T = ROOF_THICKNESS_FEET;
   const cells = cellsOf(plan);
   const top: number[] = [];
@@ -739,7 +746,7 @@ function roofModel(plan: RoofPlan, underAt: (layer: number, z: number) => number
   // The fascia: the slab's edge round each eave and rake (flashing stands against a wall, and has none).
   for (const e of plan.edges) {
     if (e.kind !== "eave" && e.kind !== "rake") continue;
-    const base = eaveOf(e.layer) - ov * r;
+    const base = dripOf(e.layer);
     const a0 = at3(e.a, base + e.za);
     const b0 = at3(e.b, base + e.zb);
     const a1 = at3(e.a, base + e.za + T);
@@ -812,7 +819,7 @@ function roofModel(plan: RoofPlan, underAt: (layer: number, z: number) => number
   const lines: Roof3D["lines"] = [];
   for (const l of plan.lines) {
     if (l.kind !== "ridge" && l.kind !== "hip" && l.kind !== "valley") continue;
-    const base = eaveOf(l.layer) - ov * r + T + 0.04;
+    const base = dripOf(l.layer) + T + 0.04;
     lines.push({ kind: l.kind, a: at3(l.a, base + l.za), b: at3(l.b, base + l.zb) });
   }
   const labels: Roof3D["labels"] = [];
@@ -823,7 +830,8 @@ function roofModel(plan: RoofPlan, underAt: (layer: number, z: number) => number
     const m = piece.reduce((s, p) => ({ x: s.x + p.x / piece.length, y: s.y + p.y / piece.length }), { x: 0, y: 0 });
     const z = roofHeightAt(plan, f.layer, m.x, m.y);
     if (z === null) continue;
-    // The plane rises against `facing`: up, and tipped toward the way water runs off.
+    // The plane rises against `facing` at its own pitch: up, and tipped toward the way water runs off.
+    const r = f.pitch / 12;
     const len = Math.hypot(f.facing.x * r, 1, f.facing.y * r);
     labels.push({ text: f.label, at: at3(m, underAt(f.layer, z) + T + 0.3), normal: [(f.facing.x * r) / len, 1 / len, (-f.facing.y * r) / len] });
   }

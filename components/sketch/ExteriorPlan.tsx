@@ -37,6 +37,7 @@ import {
   withAddition,
   withNextSide,
   withRoofEnd,
+  withSectionPitch,
   withSideLength,
 } from "@/lib/exteriorPlan";
 import type { Pt, RoofAddition, RoofPlan } from "@/lib/roof";
@@ -617,6 +618,46 @@ const ADDITION_LABEL: Record<AdditionKind, string> = {
 const PLACING_WORDS: Record<AdditionKind, string> = { porch: "porch roof", leanto: "lean-to porch", gable: "cross gable" };
 const additionKind = (a: RoofAddition): AdditionKind => (a.kind === "gable" ? "gable" : a.lower ? "leanto" : "porch");
 
+/** A section of the roof as the estimator calls it, by its key (`RoofSection.key`). */
+export function sectionName(key: string, exterior: Exterior, nameOf: (id: string) => string): string {
+  if (key === "main") return "The main roof";
+  const wing = /^wing:(.+)$/.exec(key)?.[1];
+  if (wing !== undefined) return `The roof out to ${nameOf(wing)}`;
+  const over = /^over-(.+)$/.exec(key)?.[1];
+  if (over !== undefined) return `The gable over the roof out to ${nameOf(over)}`;
+  const add = (exterior.roof.additions ?? []).find((a) => a.id === key);
+  if (add) {
+    const words = PLACING_WORDS[additionKind(add)];
+    return `The ${words} on ${nameOf(add.sideId)}`;
+  }
+  return "This part of the roof";
+}
+
+/**
+ * The section picked in Pitch mode, its pitch typed: blank is the roof's own (a porch or cross
+ * gable's, the slope's it comes off). The main roof's pitch is the roof's.
+ */
+function SectionPitch({ exterior, plan, sectionKey, readOnly, nameOf, onUpdate }: { exterior: Exterior; plan: RoofPlan; sectionKey: string; readOnly: boolean; nameOf: (id: string) => string; onUpdate: (f: (roof: ExteriorRoof) => ExteriorRoof) => void }) {
+  const section = plan.sections.find((s) => s.key === sectionKey);
+  if (!section) return null;
+  const main = sectionKey === "main";
+  const own = main ? exterior.roof.pitch : (exterior.roof.sectionPitches?.[sectionKey] ?? null);
+  return (
+    <div className="exterior-chosen exterior-section-pitch">
+      <NumberField
+        id="ext-section-pitch"
+        label={`${sectionName(sectionKey, exterior, nameOf)}: pitch (rise in 12)`}
+        value={own}
+        placeholder={`${Math.round(section.pitch * 100) / 100}${main ? "" : " as the roof"}`}
+        readOnly={readOnly}
+        max={24}
+        onCommit={(v) => onUpdate((x) => withSectionPitch(x, sectionKey, v))}
+        note={main ? "The roof's own pitch: every other part takes it unless given its own." : own === null ? `Blank: ${formatPitch(section.pitch)}, the same as the roof it is part of.` : `Its own pitch. Clear it to go back to the roof's.`}
+      />
+    </div>
+  );
+}
+
 export function PlanPane({
   exterior,
   q,
@@ -634,6 +675,8 @@ export function PlanPane({
 }) {
   const [mode, setMode] = useState<RoofPlanMode>("shape");
   const [placing, setPlacing] = useState<AdditionKind | null>(null);
+  /** In Pitch mode, the section tapped. */
+  const [sectionKey, setSectionKey] = useState<string | null>(null);
   const [redrawing, setRedrawing] = useState(false);
   const [confirm, setConfirm] = useState<"redraw" | "remove" | null>(null);
   const [next, setNext] = useState<{ turn: SideTurn; text: string }>({ turn: "outside", text: "" });
@@ -791,7 +834,8 @@ export function PlanPane({
     if (readOnly || !plan) return;
     const facetKeys = plan.facets.map((f) => f.key);
     const edgeKeys = plan.edges.filter((e) => pickableEdge(e.kind)).map((e) => e.key);
-    if (what === "slope") updateRoof((x) => ({ ...x, slopes: toggleIn(x.slopes, facetKeys, key) }));
+    if (what === "section") setSectionKey(key);
+    else if (what === "slope") updateRoof((x) => ({ ...x, slopes: toggleIn(x.slopes, facetKeys, key) }));
     else if (what === "edge") updateRoof((x) => ({ ...x, edges: toggleIn(x.edges, edgeKeys, key) }));
     else
       updateRoof((x) => {
@@ -800,11 +844,18 @@ export function PlanPane({
       });
   }
   const chosenSlopes = r ? r.slopes.filter((s) => s.selected) : [];
+  // Each section's pitch, for the Pitch mode's hint: one pitch, or each part with its own.
+  const pitched = plan.sections.filter((s) => s.role !== "porch" || s.planes?.length);
+  const pitchList = [...new Map(pitched.map((s) => [s.key, s])).values()]
+    .filter((s) => s.key !== "")
+    .map((s) => `${sectionName(s.key, exterior, nameOf)} ${formatPitch(s.pitch)}`);
   const hint = placing
     ? `Tap the side the ${PLACING_WORDS[placing]} goes on.`
     : mode === "shape"
       ? `Tap a side's name to see it face-on${plan.ends.length > 0 ? `, or Gable or Hip at an end of the roof to switch it` : ""}.`
-      : !r
+      : mode === "pitch"
+        ? `Tap a slope to set the pitch of its part of the roof. ${pitchList.join("; ")}.`
+        : !r
         ? ""
         : mode === "slopes"
           ? r.slopes.length === 0
@@ -829,6 +880,7 @@ export function PlanPane({
               {(
                 [
                   ["shape", "Roof shape"],
+                  ["pitch", "Pitch"],
                   ["slopes", "Slopes to roof"],
                   ["edges", "Eaves & rakes"],
                   ["ridges", "Ridge vent"],
@@ -907,7 +959,9 @@ export function PlanPane({
           placing={placing !== null}
           approx={(id) => exterior.sides.find((s) => s.id === id)?.lengthFrom === "drawn"}
           fontScale={narrow ? 1.45 : 1}
+          section={mode === "pitch" ? sectionKey : null}
         />
+        {mode === "pitch" && sectionKey && <SectionPitch exterior={exterior} plan={plan} sectionKey={sectionKey} readOnly={readOnly} nameOf={nameOf} onUpdate={updateRoof} />}
         <RoofLegend plan={plan} ridgeVent={(roof.ridgeVents ?? []).length > 0} />
         {hint && (
           <p className="field-note exterior-plan-hint">
@@ -1335,7 +1389,12 @@ function RoofFigures({ r }: { r: RoofingQuantities }) {
   // With anything typed over a drawing, each total says where it came from, as the scope lines do.
   const from = (key: RoofTotalKey) => (r.typed && r.drawn ? `, ${sourceWords(r.from[key])}` : "");
   const rows: [string, string][] = [
-    ["Pitch", `${formatPitch(r.pitch)}${r.pitchAssumed ? " assumed" : ""} (factor ${r.pitchFactor.toFixed(3)})${r.steep ? `, steep ${r.steep}` : ""}`],
+    [
+      "Pitch",
+      r.byPitch.length > 1
+        ? `${r.byPitch.map((b) => `${formatPitch(b.pitch)}${b.assumed ? " assumed" : ""} on ${b.squares.toFixed(2)} SQ`).join(", ")}${r.steepBands.length > 0 ? `; steep ${r.steepBands.map((b) => `${b.band} on ${b.squares.toFixed(2)} SQ`).join(", ")}` : ""}`
+        : `${formatPitch(r.pitch)}${r.pitchAssumed ? " assumed" : ""} (factor ${r.pitchFactor.toFixed(3)})${r.steep ? `, steep ${r.steep}` : ""}`,
+    ],
     ...(r.drawn
       ? [["Slopes being roofed", r.slopes.length === 0 ? "the whole roof" : r.allSlopes ? `all: ${r.slopes.map((s) => s.label).join(", ")}` : chosen.map((s) => s.label).join(", ") || "none"] as [string, string]]
       : []),

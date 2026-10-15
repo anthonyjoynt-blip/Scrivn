@@ -2408,5 +2408,160 @@ test("a walk still going round can be scoped from typed totals while its outline
   near(x.exteriorQuantities(e).roofing.gutter.downspoutFeet, 11.5, "downspout length off the walk's eave");
 });
 
+console.log("\na pitch per section (10-14)");
+
+/**
+ * A 40 x 30 house (ridge along the 40) with a 20 x 20 garage out of its front at the right, flush
+ * with the right wall: an L, no overhangs. Walked from the garage's front: [garage front 20, right
+ * 50, rear 40, left 30, the house's front 20 to the inside corner, the garage's left 20].
+ */
+const houseAndGarage = (roof = {}) =>
+  walked(
+    [
+      ["garageFront", 20, "outside"],
+      ["right", 50, "outside"],
+      ["rear", 40, "outside"],
+      ["left", 30, "outside"],
+      ["front", 20, "inside"],
+      ["garageLeft", 20, "outside"],
+    ],
+    roof,
+  );
+const F6 = Math.sqrt(1 + 0.25);
+const F4 = Math.sqrt(1 + 1 / 9);
+const F3 = Math.sqrt(1 + 1 / 16);
+
+test("a 6/12 house with a 4/12 garage tied in: its ridge runs further in, its valleys are not 45°, each slope at its own pitch", () => {
+  const e = houseAndGarage({ pitch: 6, sectionPitches: { "wing:garageFront": 4 } });
+  const q = roofOf(e);
+  const plan = q.roof;
+  const r = q.roofing;
+  const wing = plan.sections.find((s) => s.role === "wing");
+  assert(wing.key === "wing:garageFront" && wing.pitch === 4 && wing.layer === 0, `${wing.key} ${wing.pitch} layer ${wing.layer}`);
+  // The garage's ridge, 10 x 1/3 = 3'4" up, meets the house's 6/12 front slope 3'4" / (6/12) = 6'8" in from its eave.
+  const garageRidge = linesOf(plan, "ridge").find((l) => Math.abs(l.a.x - l.b.x) < 1e-9);
+  near(garageRidge.feet, 20 + 20 / 3, "the garage's ridge: 20 over the garage and 6'8\" on into the house's slope");
+  near(r.ridgeFeet, 40 + 20 + 20 / 3, "ridges: the house's 40 and the garage's");
+  // Each valley from an inside corner of the drip line to the ridge's end: 10 across, 6'8" in, 3'4" up.
+  const valleys = linesOf(plan, "valley");
+  assert(valleys.length === 2, `${valleys.length} valleys`);
+  for (const v of valleys) {
+    near(Math.hypot(v.b.x - v.a.x, v.b.y - v.a.y), Math.hypot(10, 20 / 3), "a valley's run in plan: not the 45° of one pitch");
+    near(v.feet, 10 * Math.sqrt(14 / 9), "a valley: 10 x sqrt(1 + (2/3)^2 + (1/3)^2)");
+  }
+  near(r.hipFeet, 0, "no hips");
+  // Rakes: the house's two gable ends 30 across at 6/12, the garage's front 20 across at 4/12.
+  near(r.rakeFeet, 2 * 30 * F6 + 20 * F4, "rakes");
+  near(r.eaveFeet, 20 + 40 + 20 + 20, "eaves: the house's front left of the garage, its rear, the garage's two sides");
+  // The house's 1200 less the 20 x 6'8" triangle the garage's slopes take, at 6/12; the garage's 400 and that triangle at 4/12.
+  const triangle = (20 * (20 / 3)) / 2;
+  near(r.areaSquareFeet, (1200 - triangle) * F6 + (400 + triangle) * F4, "area, each slope at its own factor");
+  const pitches = plan.facets.map((f) => `${f.sideId}:${f.pitch}`).sort();
+  assert(pitches.join() === "front:6,garageLeft:4,rear:6,right:4", pitches.join());
+  assert(r.byPitch.length === 2 && r.byPitch[0].pitch === 6 && r.byPitch[1].pitch === 4, JSON.stringify(r.byPitch));
+  near(r.byPitch[0].areaSquareFeet, (1200 - triangle) * F6, "the 6/12 squares");
+  near(r.byPitch[1].areaSquareFeet, (400 + triangle) * F4, "the 4/12 squares");
+  e.scope = { roofing: true, sides: [], soffitFascia: false, eavestrough: false };
+  const first = x.exteriorScopeLines(e).roofing[0];
+  const sq6 = (((1200 - triangle) * F6) / 100).toFixed(2);
+  const sq4 = (((400 + triangle) * F4) / 100).toFixed(2);
+  assert(first === `Remove & replace roofing – material to confirm – 6/12 on ${sq6} SQ, 4/12 on ${sq4} SQ – ${r.squares.toFixed(2)} SQ (all slopes)`, first);
+  // The garage's front gable climbs at its own 4/12: 10 across, 3'4" up, 33.3 SF.
+  near(gableOf(q, "garageFront"), (20 * (10 / 3)) / 2, "the garage's gable at 4/12");
+  near(gableOf(q, "left"), (30 * 7.5) / 2, "the house's at 6/12");
+});
+
+test("the same house and garage at one pitch is the roof it always was", () => {
+  const one = roofOf(houseAndGarage({ pitch: 6 })).roofing;
+  const said = roofOf(houseAndGarage({ pitch: 6, sectionPitches: { "wing:garageFront": 6 } })).roofing;
+  near(one.areaSquareFeet, 1600 * F6, "1600 SF of plan at 6/12");
+  near(said.areaSquareFeet, one.areaSquareFeet, "the garage said to be the roof's pitch changes nothing");
+  near(one.valleyFeet, 2 * 10 * x.hipValleyFactor(6), "45° valleys at one pitch");
+  assert(one.byPitch.length === 1, "one pitch");
+});
+
+test("a garage steeper than the house would carry its ridge over the house's: it is built lower, stopping at the wall", () => {
+  // 20 wide at 12/12 is 10' up; the house's 30 at 6/12 is 7'6".
+  const plan = roofOf(houseAndGarage({ pitch: 6, sectionPitches: { "wing:garageFront": 12 } })).roof;
+  const wing = plan.sections.find((s) => s.role === "wing");
+  assert(wing.layer === 1 && plan.wings[0].lower && plan.wings[0].forced, `layer ${wing.layer}, ${JSON.stringify(plan.wings)}`);
+  assert(/would stand over the main roof's ridge/.test(plan.note ?? ""), plan.note ?? "no note");
+  near(plan.totals.valley, 0, "no valleys: flashing instead");
+  // Its two slopes up the house's wall: 10 run, 10 up each.
+  near(plan.totals.step, 2 * 10 * Math.SQRT2, "step flashing up the garage's 12/12 slopes");
+});
+
+test("a 12/12 cross gable on a 6/12 roof: twice as deep into the slope, valleys at their true lengths", () => {
+  const e = rect(40, 30, { pitch: 6, eaveOverhangFeet: 0, rakeOverhangFeet: 0, additions: [{ id: "cg", kind: "gable", sideId: "front", fromFeet: 15, toFeet: 25 }], sectionPitches: { cg: 12 } });
+  const q = roofOf(e);
+  const plan = q.roof;
+  const r = q.roofing;
+  assert(plan.note === null, plan.note);
+  const gable = plan.sections.find((s) => s.role === "gable");
+  assert(gable.key === "cg" && gable.pitch === 12, `${gable.key} ${gable.pitch}`);
+  // Half its width (5) up at 12/12 is 5'; the 6/12 slope is 5' up 10' in. Its ridge runs those 10'.
+  near(r.ridgeFeet, 40 + 10, "the house's ridge and the cross gable's");
+  const valleys = linesOf(plan, "valley");
+  assert(valleys.length === 2, `${valleys.length} valleys`);
+  for (const v of valleys) {
+    near(Math.hypot(v.b.x - v.a.x, v.b.y - v.a.y), Math.hypot(5, 10), "a valley's run: 5 across, 10 in");
+    near(v.feet, 5 * Math.sqrt(6), "a valley: 5 x sqrt(1 + 4 + 1)");
+  }
+  // The gable's face: 5 across and 5 up each side.
+  near(r.rakeFeet, 2 * 30 * F6 + 2 * 5 * Math.SQRT2, "the house's rakes and the cross gable's");
+  near(r.eaveFeet, 30 + 40, "eaves either side of it and the rear");
+  // It takes two triangles of 5 x 10 / 2 from the front slope, at 12/12.
+  near(r.areaSquareFeet, 1150 * F6 + 50 * Math.SQRT2, "area");
+  assert(r.byPitch.map((b) => b.pitch).join() === "12,6", JSON.stringify(r.byPitch));
+  e.scope = { roofing: true, sides: [], soffitFascia: false, eavestrough: false };
+  const lines = x.exteriorScopeLines(e).roofing;
+  assert(lines.includes(`Steep roof charge – 10/12 to 12/12 – ${((50 * Math.SQRT2) / 100).toFixed(2)} SQ`), lines.join(" | "));
+  // At the roof's 6/12 it would be as before: 5 in, 45° valleys of 5 x 1.5.
+  const same = roofOf(rect(40, 30, { pitch: 6, eaveOverhangFeet: 0, rakeOverhangFeet: 0, additions: [{ id: "cg", kind: "gable", sideId: "front", fromFeet: 15, toFeet: 25 }] })).roofing;
+  near(same.valleyFeet, 2 * 5 * 1.5, "one pitch: two valleys of 7'6\"");
+  near(same.areaSquareFeet, 1200 * F6, "one pitch: no more roof");
+});
+
+test("a lean-to at its own 3/12, and a porch breaking flatter off the slope above - no crease counted where it breaks", () => {
+  const leanto = roofOf(rect(40, 30, { pitch: 6, eaveOverhangFeet: 0, rakeOverhangFeet: 0, additions: [{ id: "lt", kind: "porch", sideId: "front", fromFeet: 0, toFeet: 40, depthFeet: 8, lower: true }], sectionPitches: { lt: 3 } })).roof;
+  const lower = leanto.facets.find((f) => f.layer === 1);
+  assert(lower.pitch === 3, `${lower.pitch}`);
+  near(lower.areaSquareFeet, 320 * F3, "8 x 40 at 3/12");
+  near(leanto.totals.headwall, 40, "headwall along the wall");
+  // Its ends: 8 run, 2 up.
+  near(leanto.edges.filter((g) => g.layer === 1 && g.kind === "rake").reduce((s, g) => s + g.feet, 0), 2 * Math.hypot(8, 2), "the lean-to's rakes at 3/12");
+  const porch = (pitch) =>
+    roofOf(rect(40, 30, { pitch: 6, eaveOverhangFeet: 1, rakeOverhangFeet: 0, additions: [{ id: "p", kind: "porch", sideId: "front", fromFeet: 0, toFeet: 40, depthFeet: 8 }], sectionPitches: pitch === null ? {} : { p: pitch } }));
+  const carried = porch(null).roof;
+  assert(carried.facets.length === 2, `at the slope's pitch the porch is that slope: ${carried.facets.length} slopes`);
+  const broken = porch(3);
+  assert(broken.roof.facets.length === 3, `broken flatter it is a slope of its own: ${broken.roof.facets.length}`);
+  near(broken.roof.totals.valley + broken.roof.totals.hip, 0, "no valley or hip where the pitch changes");
+  // The house 40 x 32 at 6/12, the porch 40 x 7 past the drip line at 3/12; its ends 7 run and 1'9" down.
+  near(broken.roofing.areaSquareFeet, 1280 * F6 + 280 * F3, "area");
+  near(broken.roof.totals.rake, 2 * 32 * F6 + 2 * Math.hypot(7, 1.75), "rakes");
+});
+
+test("a tap on a section sets its pitch; the roof's own is the main's, and a blank goes back to it", () => {
+  let roof = x.defaultRoof();
+  roof = x.withSectionPitch(roof, "wing:g", 4);
+  assert(roof.sectionPitches["wing:g"] === 4, JSON.stringify(roof.sectionPitches));
+  roof = x.withSectionPitch(roof, "main", 7);
+  assert(roof.pitch === 7 && roof.sectionPitches.main === undefined, "the main's is the roof's pitch");
+  roof = x.withSectionPitch(roof, "wing:g", null);
+  assert(roof.sectionPitches["wing:g"] === undefined, "cleared");
+  // A side taken away takes its wing's pitch with it.
+  roof = x.withSectionPitch(roof, "wing:g", 4);
+  assert(x.roofWithoutSides(roof, (id) => id === "g").sectionPitches["wing:g"] === undefined, "gone with its side");
+});
+
+test("3D: the house and its 4/12 garage, and the 12/12 cross gable, stand on their walls with no crack between slopes", () => {
+  soundRoof(houseAndGarage({ pitch: 6, eaveOverhangFeet: ft(1, 4), rakeOverhangFeet: 1, sectionPitches: { "wing:garageFront": 4 } }), "6/12 house, 4/12 garage");
+  // The cross gable's face closes the front wall under it, as at one pitch: 10 across, 5' up at 12/12.
+  const { m } = soundRoof(rect(40, 30, { pitch: 6, additions: [{ id: "cg", kind: "gable", sideId: "front", fromFeet: 15, toFeet: 25 }], sectionPitches: { cg: 12 } }), "12/12 cross gable on 6/12", ["front"]);
+  const ys = m.roof.gables.filter((_, i) => i % 3 === 1);
+  near(Math.max(...ys) - Math.min(...ys), 5, "its face 5' high");
+});
+
 console.log(`\n${passed.length} passed, ${failures.length} failed`);
 if (failures.length > 0) process.exit(1);

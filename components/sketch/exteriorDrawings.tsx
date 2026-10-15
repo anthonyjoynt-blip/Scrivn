@@ -53,6 +53,8 @@ export const pickableEdge = (k: RoofLineKind) => k === "eave" || k === "rake";
 const RIDGE_VENT = "#15803d";
 const CHOSEN_FILL = "#d3e4f6";
 const LEFT_FILL = "#f1f1f1";
+/** The section picked to set its pitch. */
+const SECTION_FILL = "#fde68a";
 const FONT = "system-ui, -apple-system, Segoe UI, sans-serif";
 const INK = "#1a1d23";
 
@@ -279,10 +281,13 @@ export function ElevationDrawing({
   );
 }
 
-export type RoofPick = "slope" | "edge" | "ridge";
+export type RoofPick = "slope" | "edge" | "ridge" | "section";
 
-/** What a tap on the plan does: open a side and switch an end (2026-10-13), or pick slopes, eaves and rakes, or ridges. */
-export type RoofPlanMode = "shape" | "slopes" | "edges" | "ridges";
+/**
+ * What a tap on the plan does: open a side and switch an end (2026-10-13), pick slopes, eaves and
+ * rakes, or ridges, or pick a section to set its own pitch (2026-10-14).
+ */
+export type RoofPlanMode = "shape" | "slopes" | "edges" | "ridges" | "pitch";
 
 /** The colour of an end's pill: a gable's its rakes', a hip's its hips'. */
 const END_INK: Record<"gable" | "hip", { stroke: string; fill: string }> = {
@@ -334,6 +339,7 @@ export function RoofPlanDrawing({
   placing = false,
   approx,
   fontScale = 1,
+  section = null,
   size,
 }: {
   plan: RoofPlan;
@@ -350,6 +356,8 @@ export function RoofPlanDrawing({
   approx?: (sideId: string) => boolean;
   /** Bigger lettering for a plan drawn small (a phone), where the drawing's own 3% is too fine to read or tap. */
   fontScale?: number;
+  /** In "pitch" mode, the section picked (`RoofSection.key`): its slopes shaded. */
+  section?: string | null;
   size?: Size;
 }) {
   const corners = footprint.corners;
@@ -514,13 +522,18 @@ export function RoofPlanDrawing({
       {plan.facets.length === 0 && plan.shape !== "other" &&
         plan.outlineRects.map((r, i) => <rect key={i} x={r.x0} y={Y(r.y1)} width={r.x1 - r.x0} height={r.y1 - r.y0} fill={CHOSEN_FILL} />)}
       {plan.shape === "other" && <polygon points={plan.edges.map((l) => `${l.a.x},${Y(l.a.y)}`).join(" ")} fill={CHOSEN_FILL} />}
-      {facetsDrawn.map((f) => (
-        <g key={f.key} onClick={mode === "slopes" ? pick("slope", f.key) : undefined} className={mode === "slopes" ? "exterior-pick" : undefined}>
-          {f.cells.map((cell, i) => (
-            <polygon key={i} points={cell.map((p) => `${p.x},${Y(p.y)}`).join(" ")} fill={slopeOn(f.key) ? CHOSEN_FILL : LEFT_FILL} stroke={slopeOn(f.key) ? CHOSEN_FILL : LEFT_FILL} strokeWidth={0.5} {...stroke} />
-          ))}
-        </g>
-      ))}
+      {facetsDrawn.map((f) => {
+        // Picking a section's pitch: every slope is a target, and the picked section's are shaded.
+        const fill = mode === "pitch" ? (section !== null && (f.section ?? "main") === section ? SECTION_FILL : CHOSEN_FILL) : slopeOn(f.key) ? CHOSEN_FILL : LEFT_FILL;
+        const onClick = mode === "slopes" ? pick("slope", f.key) : mode === "pitch" ? pick("section", f.section ?? "main") : undefined;
+        return (
+          <g key={f.key} onClick={onClick} className={onClick ? "exterior-pick" : undefined}>
+            {f.cells.map((cell, i) => (
+              <polygon key={i} points={cell.map((p) => `${p.x},${Y(p.y)}`).join(" ")} fill={fill} stroke={fill} strokeWidth={0.5} {...stroke} />
+            ))}
+          </g>
+        );
+      })}
       <polygon points={corners.map((p) => `${p.x},${Y(p.y)}`).join(" ")} fill="none" stroke="#6b7280" strokeWidth={1} strokeDasharray="4 3" pointerEvents="none" {...stroke} />
       {plan.lines.map((l) => {
         const s = LINE_STYLE[l.kind];

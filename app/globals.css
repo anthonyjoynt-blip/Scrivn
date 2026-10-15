@@ -3478,7 +3478,8 @@ button:disabled {
 .exterior-pick {
   cursor: pointer;
 }
-.exterior-svg-picking-slopes .exterior-pick:hover polygon {
+.exterior-svg-picking-slopes .exterior-pick:hover polygon,
+.exterior-svg-picking-pitch .exterior-pick:hover polygon {
   fill-opacity: 0.75;
 }
 .exterior-choice {

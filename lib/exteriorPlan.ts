@@ -506,6 +506,18 @@ export function withRoofEnd(roof: ExteriorRoof, sideId: string, kind: RoofEndKin
   return { ...roof, ends: { ...roof.ends, [sideId]: kind } };
 }
 
+/**
+ * A section's own pitch, from a tap on it on the plan (2026-10-14). The main roof's is the roof's own
+ * pitch; null puts a section back to the roof's (a porch or cross gable: the slope's it comes off).
+ */
+export function withSectionPitch(roof: ExteriorRoof, key: string, pitch: number | null): ExteriorRoof {
+  if (key === "main") return { ...roof, pitch };
+  const sectionPitches = { ...(roof.sectionPitches ?? {}) };
+  if (pitch === null) delete sectionPitches[key];
+  else sectionPitches[key] = pitch;
+  return { ...roof, sectionPitches };
+}
+
 export type AdditionKind = "porch" | "leanto" | "gable";
 
 /**
@@ -526,11 +538,19 @@ export function withAddition(roof: ExteriorRoof, kind: AdditionKind, sideId: str
 /** Everything the roof says about the sides, let go of sides that are no longer there. */
 export function roofWithoutSides(roof: ExteriorRoof, gone: (id: string) => boolean): ExteriorRoof {
   const ends = Object.fromEntries(Object.entries(roof.ends).filter(([id]) => !gone(id)));
+  const additions = roof.additions?.filter((a) => !gone(a.sideId));
+  // A section's own pitch goes with its side: a wing's and a gable over one by the side, a porch's by the porch.
+  const kept = (key: string) => {
+    const side = /^(?:wing:|over-)(.+)$/.exec(key)?.[1];
+    if (side !== undefined) return !gone(side);
+    return key === "main" || (additions ?? []).some((a) => a.id === key) || !(roof.additions ?? []).some((a) => a.id === key);
+  };
   return {
     ...roof,
     ends,
     ridgeAlong: roof.ridgeAlong !== null && gone(roof.ridgeAlong) ? null : roof.ridgeAlong,
-    additions: roof.additions?.filter((a) => !gone(a.sideId)),
+    ...(roof.sectionPitches ? { sectionPitches: Object.fromEntries(Object.entries(roof.sectionPitches).filter(([key]) => kept(key))) } : {}),
+    additions,
     lowerWings: roof.lowerWings?.filter((w) => !gone(w)),
     wingGables: roof.wingGables?.filter((w) => !gone(w)),
     coveredNotches: roof.coveredNotches?.filter((w) => !gone(w)),

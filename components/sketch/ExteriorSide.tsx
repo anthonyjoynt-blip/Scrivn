@@ -497,7 +497,7 @@ export function SidePane({
           <>
             <p className="field-note">
               {roofPeak > 0
-                ? `None measured. The roof puts a gable here, ${formatFeetInches(roofPeak)} above the eave at ${formatPitch(q.pitch.value ?? 0)}${q.pitch.source === "assumed" ? " (assumed)" : ""}, and it is counted in the cladding. Drag its peak, or measure it, to use yours instead.`
+                ? `None measured. The roof puts a gable here, ${formatFeetInches(roofPeak)} above the eave${(q.roofing?.byPitch.length ?? 1) > 1 ? " at the pitch of the roof over it" : ` at ${formatPitch(q.pitch.value ?? 0)}`}${q.pitch.source === "assumed" ? " (assumed)" : ""}, and it is counted in the cladding. Drag its peak, or measure it, to use yours instead.`
                 : "None: the roof meets this side at its eave."}
             </p>
             {!readOnly && (

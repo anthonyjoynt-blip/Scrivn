@@ -279,8 +279,14 @@ export function sourceOfParts(...parts: [number, TotalSource][]): TotalSource {
 }
 
 export interface ExteriorRoof {
-  /** Rise in 12 as typed; null takes it from the sides' measured gables. */
+  /** Rise in 12 as typed; null takes it from the sides' measured gables. The main roof's, and every section's not set apart. */
   pitch: number | null;
+  /**
+   * A section's own pitch, by its key (`RoofSection.key`), set with a tap on it on the plan
+   * (2026-10-14): a 4/12 garage on a 6/12 house, a 12/12 cross gable. Absent: the roof's pitch (a
+   * porch or cross gable: the slope's it comes off).
+   */
+  sectionPitches?: Record<string, number>;
   eaveOverhangFeet: number;
   rakeOverhangFeet: number;
   /** A rectangle's ridge runs parallel to this side; null = along the longer walls. */
@@ -1059,6 +1065,7 @@ export function roofInput(exterior: Exterior, footprint: Footprint, pitch: numbe
     rakeOverhangFeet: Math.max(0, exterior.roof.rakeOverhangFeet),
     ridgeAlong: exterior.roof.ridgeAlong,
     ends: exterior.roof.ends,
+    sectionPitches: exterior.roof.sectionPitches ?? {},
     additions: exterior.roof.additions ?? [],
     lowerWings: exterior.roof.lowerWings ?? [],
     wingGables: exterior.roof.wingGables ?? [],
@@ -1081,6 +1088,8 @@ export interface CladdingTotal {
 export interface SlopeQuantity {
   key: string;
   label: string;
+  /** Its own pitch, rise in 12. */
+  pitch: number;
   /** The side it drains toward, by name. */
   faces: string;
   planSquareFeet: number;
@@ -1116,8 +1125,15 @@ export interface RoofingQuantities {
   /** Metal: foam closure at the eaves and on both sides of the ridge. */
   closureFeet: number;
   ridgeVentFeet: number;
-  /** "7/12 to 9/12" and up: the steep charge on the chosen slopes. */
+  /** "7/12 to 9/12" and up: the steepest band the chosen slopes are in, for the steep charge. */
   steep: string | null;
+  /**
+   * The squares being roofed by pitch, steepest first - one entry for a roof of one pitch. A typed
+   * area is shared out as the drawing's slopes are; with no drawing, all of it at the roof's pitch.
+   */
+  byPitch: { pitch: number; areaSquareFeet: number; squares: number; assumed: boolean }[];
+  /** The steep charge band by band, on the squares of the slopes in each. */
+  steepBands: { band: string; squares: number }[];
   /** Every eave and rake chosen for the eavestrough, soffit and fascia. */
   allEdges: boolean;
   gutter: {
@@ -1179,6 +1195,7 @@ export function roofingQuantities(exterior: Exterior, roof: RoofPlan | null, pit
   const slopes: SlopeQuantity[] = facets.map((f) => ({
     key: f.key,
     label: f.label,
+    pitch: f.pitch,
     faces: (f.sideId !== null ? sideById.get(f.sideId)?.name.trim() : "") || "",
     planSquareFeet: f.planSquareFeet,
     areaSquareFeet: f.areaSquareFeet,
@@ -1285,6 +1302,26 @@ export function roofingQuantities(exterior: Exterior, roof: RoofPlan | null, pit
   if (R.pipeJacks === undefined) roofingQs.push("how many pipe jacks (0 if none)");
   if (R.ridgeVents === undefined && (roof?.lines ?? []).some((l) => l.kind === "ridge")) roofingQs.push("ridge vent: which ridges, or none");
 
+  // The squares by pitch: the chosen slopes' own, shared out to a typed area as the drawing has them.
+  const pitchArea = new Map<number, number>();
+  const chosenSlopes = noSlopes ? [] : slopes.filter((s) => s.selected);
+  if (chosenSlopes.length === 0) pitchArea.set(roofPitch, value.squareFeet);
+  else for (const s of chosenSlopes) pitchArea.set(Math.round(s.pitch * 100) / 100, (pitchArea.get(Math.round(s.pitch * 100) / 100) ?? 0) + s.areaSquareFeet);
+  const drawnArea = [...pitchArea.values()].reduce((a, b) => a + b, 0);
+  const share = drawnArea > 0 ? value.squareFeet / drawnArea : 0;
+  const byPitch = [...pitchArea.entries()]
+    .map(([p, a]) => ({ pitch: p, areaSquareFeet: a * share, squares: (a * share) / 100, assumed: pitchAssumed && Math.abs(p - roofPitch) < 1e-6 }))
+    .filter((b) => b.areaSquareFeet > 1e-9 || pitchArea.size === 1)
+    .sort((a, b) => b.pitch - a.pitch);
+  const steepBands: { band: string; squares: number }[] = [];
+  for (const b of byPitch) {
+    const band = steepBand(b.pitch);
+    if (!band) continue;
+    const at = steepBands.find((s) => s.band === band);
+    if (at) at.squares += b.squares;
+    else steepBands.push({ band, squares: b.squares });
+  }
+
   return {
     pitch: roofPitch,
     pitchAssumed,
@@ -1306,7 +1343,9 @@ export function roofingQuantities(exterior: Exterior, roof: RoofPlan | null, pit
     iceWaterFeet: value.iceWater,
     closureFeet: value.eave + 2 * value.ridge,
     ridgeVentFeet,
-    steep: steepBand(roofPitch),
+    steep: steepBands[0]?.band ?? null,
+    byPitch,
+    steepBands,
     allEdges,
     gutter: {
       feet: gutterFeet,
@@ -1489,8 +1528,14 @@ export function exteriorScopeLines(exterior: Exterior | undefined): ExteriorScop
     // Typed squares are the roof being done, whatever is picked on the drawing.
     const which = r.from.squareFeet === "estimator" || !r.drawn ? "" : ` (${r.allSlopes ? "all slopes" : `slope${chosen.length === 1 ? "" : "s"} ${chosen.map((s) => s.label).join(", ")}`})`;
     const metal = r.material === "metal";
-    out.roofing.push(`Remove & replace roofing – ${r.material ? ROOF_MATERIAL_LABEL[r.material] : "material to confirm"} – ${formatPitch(r.pitch)}${r.pitchAssumed ? " (assumed, to confirm)" : ""} – ${sq}${which}${sqFrom}`);
-    if (r.steep) out.roofing.push(`Steep roof charge – ${r.steep} – ${sq}${sqFrom}`);
+    // One pitch, said once; several, each with the squares at it.
+    const pitches =
+      r.byPitch.length > 1
+        ? r.byPitch.map((b) => `${formatPitch(b.pitch)}${b.assumed ? " (assumed, to confirm)" : ""} on ${b.squares.toFixed(2)} SQ`).join(", ")
+        : `${formatPitch(r.byPitch[0]?.pitch ?? r.pitch)}${r.pitchAssumed ? " (assumed, to confirm)" : ""}`;
+    out.roofing.push(`Remove & replace roofing – ${r.material ? ROOF_MATERIAL_LABEL[r.material] : "material to confirm"} – ${pitches} – ${sq}${which}${sqFrom}`);
+    // Steep is charged on the squares at a steep pitch: all of them on a roof of one pitch.
+    for (const band of r.steepBands) out.roofing.push(`Steep roof charge – ${band.band} – ${r.byPitch.length > 1 && sqKnown ? `${band.squares.toFixed(2)} SQ` : sq}${sqFrom}`);
     if (R.high === true) out.roofing.push(`High roof charge – two storeys or more – ${sq}${sqFrom}`);
     if (r.ridgeFeet + r.hipFeet > 0) out.roofing.push(`Hip & ridge cap – ${num(r.ridgeFeet + r.hipFeet)} LF${from(sourceOfParts([r.ridgeFeet, r.from.ridge], [r.hipFeet, r.from.hip]))}`);
     if (metal) out.roofing.push(`Closure strips – ${num(r.closureFeet)} LF (eaves + 2 × ridge)${from(sourceOfParts([r.eaveFeet, r.from.eave], [r.ridgeFeet, r.from.ridge]))}`);

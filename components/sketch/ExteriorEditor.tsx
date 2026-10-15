@@ -320,7 +320,7 @@ function ExteriorTotals({ exterior, q }: { exterior: Exterior; q: ExteriorQuanti
               <tr>
                 <th scope="row">Roofing</th>
                 <td>
-                  {r.squares.toFixed(2)} SQ ({sf(r.areaSquareFeet)} at {formatPitch(r.pitch)}
+                  {r.squares.toFixed(2)} SQ ({sf(r.areaSquareFeet)} at {r.byPitch.length > 1 ? r.byPitch.map((b) => formatPitch(b.pitch)).join(" and ") : formatPitch(r.pitch)}
                   {r.pitchAssumed ? ", assumed" : ""}){r.allSlopes ? "" : `, slopes ${r.slopes.filter((s) => s.selected).map((s) => s.label).join(", ")}`}
                 </td>
               </tr>
