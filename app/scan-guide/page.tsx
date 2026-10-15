@@ -763,14 +763,16 @@ export default async function ScanGuidePage() {
                 </p>
                 <ol className="sg-steps">
                   <li>
-                    <Q>Tap the bottom-left corner of this wall</Q>, standing 1 to 3 m (3 to 10 ft) back. Then{" "}
-                    <Q>Now the bottom-right corner</Q>. Those two fix the wall: <Q>Front: 34&apos;3&quot; between the corners</Q>.
+                    <Q>Tap the bottom-left corner of this wall</Q>, standing 1 to 3 m (3 to 10 ft) back: the wall&apos;s own corner,
+                    where the siding meets the floor, not the posts or the deck edge. Then <Q>Now the bottom-right corner</Q>. Those
+                    two fix the wall: <Q>Front: 34&apos;3&quot; between the corners</Q>.
                   </li>
                   <li>
-                    <Q>Step back until the whole wall and the roof edge are on screen, then press Photo</Q>. <B>Photo</B> is lit. A
-                    photo that cuts an end or the top off, or is taken too far off square, asks again: <Q>Take the photo again</Q>,
-                    with what is missing. A long wall can take two or three photos, a part each. A tap on the screen here takes
-                    nothing: <Q>Press Photo to take it</Q>.
+                    <Q>Step back until the whole wall and the roof edge are on screen, then press Photo</Q>. <B>Photo</B> is lit. Each
+                    photo&apos;s line says what the side&apos;s photos together still miss:{" "}
+                    <Q>Photo 1 of Front kept · still missing: the right end</Q>, and the card asks for it:{" "}
+                    <Q>Still missing: the right end</Q>. Once they cover the wall: <Q>Photo 2 of Front kept · the whole wall is in</Q>.
+                    A tap on the screen here takes nothing: <Q>Press Photo to take it</Q>.
                   </li>
                   <li>
                     <Q>Does this wall go up to a peak?</Q> <B>Yes, a peak</B> or <B>No</B>. On a gable end, if no photo was square
@@ -793,6 +795,18 @@ export default async function ScanGuidePage() {
                     <Q>Done: Send takes it to Scrivn</Q>.
                   </li>
                 </ol>
+                <p className="sg-note">
+                  <strong>A covered deck or porch?</strong> Tap the wall&apos;s own corners behind it, where the siding meets the
+                  deck floor. For the photo, step back until the main roof edge shows above the porch roof. If the porch roof still
+                  hides the wall top, Finish names the side as not counted: set its height in Scrivn&apos;s sketch. The porch roof
+                  itself isn&apos;t read off the photos yet: add porch roofs in Scrivn&apos;s roof plan.
+                </p>
+                <p className="sg-note">
+                  <strong>A side too tight for one photo</strong> (the neighbour&apos;s house close by)? Take it in pieces along the
+                  wall, overlapping a few feet: <Q>Can&apos;t fit the whole wall? Take it in pieces along the wall, overlapping a few feet.</Q>{" "}
+                  The line keeps saying which end, the top or the middle is still missing until the pieces cover it; Scrivn joins
+                  them. If you can only see it at a steep angle, the card offers <B>Add by hand</B> for its windows and doors.
+                </p>
                 <p className="sg-note">
                   <strong>Something a photo can&apos;t see?</strong> A window behind a bush, say: <B>Add by hand</B> →{" "}
                   <B>Window</B>, <B>Door</B> or <B>Material</B>, tapped as below. What you tap wins over the photo. A material
