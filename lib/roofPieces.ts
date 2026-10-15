@@ -8,6 +8,14 @@
  * by the estimator (`ExteriorRoof.typed`) still replaces the drawing's AND the pieces' alike: a roof
  * report already counts its dormers, so adding them again would count them twice.
  *
+ * ── Where a piece came from (2026-10-15) ───────────────────────────────────────────────────────
+ * The owner's route for a roof is the side photos (docs/roof-from-photos.md), so a piece is a slot
+ * the photos can fill: typed by the estimator (`source` absent or "typed"), or proposed off the
+ * photos ("photos") for the estimator to tick (`taken`). A proposal counts nothing until ticked -
+ * never applied by itself, as a roof report's totals are not - and once ticked its lines say "(from
+ * photos)". A number of it changed by hand makes it the estimator's (`editedPiece`). Nothing reads
+ * pieces off photos yet: this is the slot.
+ *
  * ── The pieces ─────────────────────────────────────────────────────────────────────────────────
  * Lengths in feet, pitches rise in 12; m is the slope a dormer sits on (the roof's unless said).
  * Measured to the walls: an overhang is not added, so take it in if it is wanted.
@@ -57,6 +65,10 @@ export interface RoofPiece {
   kind: RoofPieceKind;
   /** An Other piece: what it is ("bay roof"). */
   label?: string;
+  /** Typed by the estimator (absent), or proposed off the side photos for the estimator to tick. */
+  source?: "typed" | "photos";
+  /** A proposal off the photos ticked by the estimator: only then does it count. */
+  taken?: boolean;
   /** How many alike: two dormers the same size. Absent: one. */
   count?: number;
   /** A dormer: across its face. */
@@ -108,6 +120,24 @@ const factor = (k: number) => Math.sqrt(1 + k * k);
 
 function zero(): PieceFigures {
   return { missing: [], areas: [], squareFeet: 0, lengths: { ridge: 0, hip: 0, valley: 0, eave: 0, rake: 0, step: 0, headwall: 0 }, dripEdgeFeet: 0, apronFeet: 0, sidingSquareFeet: 0 };
+}
+
+/** Whether a piece counts: typed, or proposed off the photos and ticked. */
+export function pieceCounts(piece: RoofPiece): boolean {
+  return piece.source !== "photos" || piece.taken === true;
+}
+
+/** Off the photos, as the lines say it. */
+export function pieceFromPhotos(piece: RoofPiece): boolean {
+  return piece.source === "photos";
+}
+
+/** A piece with a number changed by hand: the estimator's from then on, whatever proposed it. */
+export function editedPiece(piece: RoofPiece, change: Partial<RoofPiece>): RoofPiece {
+  const out: RoofPiece = { ...piece, ...change };
+  delete out.source;
+  delete out.taken;
+  return out;
 }
 
 /** How many alike: a whole number, at least one. */

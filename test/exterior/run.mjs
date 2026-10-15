@@ -4252,5 +4252,67 @@ test("3D: a gambrel and a mansard stand on their walls with no crack, the gable 
   soundRoof(houseAndGarage({ pitch: 24, sectionBreaks: { main: { upperPitch: 6, breakFeet: 8 }, "wing:garageFront": { upperPitch: 6, breakFeet: 8 } } }), "gambrel house and garage", [], 0.03);
 });
 
+console.log("\nroof pieces and breaks as slots the photos fill (10-15)");
+
+test("a dormer proposed off the photos counts once ticked, says so on its lines, and is the estimator's once a number is changed", () => {
+  const dormer = { id: "d1", kind: "gableDormer", widthFeet: 8, projectionFeet: 6, pitch: 12 };
+  const scope = { roofing: true, sides: [], soffitFascia: false, eavestrough: false };
+  const base = roofOf(rect(40, 30, { pitch: 6 })).roofing;
+  const offered = rect(40, 30, { pitch: 6, pieces: [{ ...dormer, source: "photos" }] });
+  offered.scope = scope;
+  const r0 = roofOf(offered).roofing;
+  near(r0.areaSquareFeet, base.areaSquareFeet, "not ticked: nothing added");
+  assert(r0.pieces.list.length === 0 && r0.pieces.offered.length === 1 && r0.valleyFeet === 0, "offered, counted nowhere");
+  assert(!/added pieces|Added roof pieces/.test(x.exteriorScopeLines(offered).roofing.join(" ")), "no words for it on the scope");
+  assert(!x.exteriorModel(offered).model.notes.some((n) => /Roof pieces/.test(n)), "nor in 3D");
+  const taken = rect(40, 30, { pitch: 6, pieces: [{ ...dormer, source: "photos", taken: true }] });
+  taken.scope = scope;
+  const lines = x.exteriorScopeLines(taken).roofing;
+  const has = (line) => assert(lines.includes(line), `missing "${line}" in:\n      ${lines.join("\n      ")}`);
+  assert(lines[0].endsWith("(all slopes, with added pieces from photos)"), lines[0]);
+  has("Added roof pieces – gable dormer, 8' wide, 6' out, 12/12 on a 6/12 slope (+23.7 SF net of the slope it covers) (from photos) – added to the drawing's totals");
+  has("Hip & ridge cap – 56.0 LF (incl. 14.0 LF from added pieces from photos)");
+  has(`Valleys – ${(8 * Math.sqrt(6)).toFixed(1)} LF (from added pieces from photos)`);
+  // A typed turret beside it: the photos' share of a line said apart.
+  const both = rect(40, 30, { pitch: 6, pieces: [{ ...dormer, source: "photos", taken: true }, { id: "t", kind: "roundTurret", diameterFeet: 12, pitch: 24 }] });
+  both.scope = scope;
+  const starter = x.exteriorScopeLines(both).roofing.find((l) => l.startsWith("Starter"));
+  assert(starter === `Starter – ${(84 + 12 + 12 * Math.PI).toFixed(1)} LF (eaves; incl. ${(12 + 12 * Math.PI).toFixed(1)} LF from added pieces, 12.0 LF of it from photos)`, starter);
+  // A number changed by hand: the estimator's from then on.
+  const edited = x.editedPiece({ ...dormer, source: "photos", taken: true }, { widthFeet: 9 });
+  assert(edited.widthFeet === 9 && edited.source === undefined && edited.taken === undefined && x.pieceCounts(edited) && !x.pieceFromPhotos(edited), JSON.stringify(edited));
+  assert(x.pieceCounts(dormer) && !x.pieceCounts({ ...dormer, source: "photos" }), "typed counts; a proposal waits");
+});
+
+test("a gambrel's break off its gable's photo fills its part, under one typed; the pitch below it is typed, photos, assumed as ever", () => {
+  const read = photoRead(24, "gable", { upperPitch: 6, breakFeet: 8 });
+  const e = withRead(rect(40, 30, { pitch: null, eaveOverhangFeet: 0, rakeOverhangFeet: 0 }), "left", read);
+  const q = roofOf(e);
+  assert(q.pitch.source === "photos" && q.pitch.value === 24, `the pitch below from the photo: ${q.pitch.source} ${q.pitch.value}`);
+  assert(q.roof.sections[0].break && q.roof.sections[0].break.pitch === 6, "the break from the photo");
+  near(q.roofing.areaSquareFeet, 2 * 40 * 4 * SQRT5 + 2 * 40 * 11 * F6, "the gambrel worked by hand above");
+  assert(q.roofing.byPitch.every((b) => b.fromPhotos), JSON.stringify(q.roofing.byPitch));
+  // A break typed in Pitch mode stands over the photo's.
+  e.roof = { ...e.roof, sectionBreaks: { main: { upperPitch: 4, breakFeet: 8 } } };
+  near(roofOf(e).roofing.areaSquareFeet, 2 * 40 * 4 * SQRT5 + 2 * 40 * 11 * F4, "the typed 4/12 above the break");
+  assert(x.photoSectionBreaks(e).main === undefined, "the photo's set aside under it");
+  // The pitch below typed over the photo's, the photo's break still in: 8' up at 20/12 is 4'9.6" in.
+  e.roof = { ...e.roof, sectionBreaks: undefined, pitch: 20 };
+  const k = 20 / 12;
+  near(roofOf(e).roofing.areaSquareFeet, 2 * 40 * 4.8 * Math.sqrt(1 + k * k) + 2 * 40 * (15 - 4.8) * F6, "typed 20/12 below, the photo's 6/12 above");
+  // No photo and nothing typed: the assumed pitch, and no break - a break is never assumed.
+  const plain = roofOf(rect(40, 30, { pitch: null }));
+  assert(plain.pitch.source === "assumed" && plain.roof.sections.every((s) => !s.break), "assumed, unbent");
+});
+
+test("a wing's gable photo with a break fills the wing's own: the house typed, the garage off its photo, tied in as one gambrel", () => {
+  const brk = { upperPitch: 6, breakFeet: 8 };
+  const e = withRead(houseAndGarage({ pitch: 24, sectionBreaks: { main: brk } }), "garageFront", photoRead(24, "gable", brk));
+  assert(x.photoSectionBreaks(e)["wing:garageFront"]?.upperPitch === 6, JSON.stringify(x.photoSectionBreaks(e)));
+  const q = roofOf(e);
+  assert(q.roof.note === null && q.roof.sections.every((s) => s.break), q.roof.note);
+  near(q.roofing.valleyFeet, 2 * (Math.sqrt(96) + Math.sqrt(72 + 9)), "the two bent valleys worked by hand above");
+});
+
 console.log(`\n${passed.length} passed, ${failures.length} failed`);
 if (failures.length > 0) process.exit(1);

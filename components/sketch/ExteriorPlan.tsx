@@ -17,6 +17,7 @@ import {
   photoNotes,
   photoPitches,
   photoRoofCheck,
+  photoSectionBreaks,
   photoSectionPitches,
   pieceLine,
   rectangleExterior,
@@ -691,23 +692,26 @@ function SectionPitch({ exterior, plan, sectionKey, readOnly, nameOf, onUpdate }
 /**
  * A gambrel or mansard (2026-10-15): the picked part's pitch is the steep one below the break, and a
  * second, flatter one above it - 0 for a mansard's flat top. Gable ends make it a gambrel, hip ends a
- * mansard. The maths is lib/roof.ts (`withBreaks`).
+ * mansard. Typed first, else its gable's photo, as the pitch below it is. The maths is lib/roof.ts (`withBreaks`).
  */
 function SectionBreak({ exterior, plan, sectionKey, readOnly, onUpdate }: { exterior: Exterior; plan: RoofPlan; sectionKey: string; readOnly: boolean; onUpdate: (f: (roof: ExteriorRoof) => ExteriorRoof) => void }) {
   const section = plan.sections.find((s) => s.key === sectionKey);
   if (!section) return null;
   const said = exterior.roof.sectionBreaks?.[sectionKey] ?? null;
+  // Not typed: its gable's photo, when one read a break (lib/exterior.ts `photoSectionBreaks`).
+  const photo = said === null ? (photoSectionBreaks(exterior)[sectionKey] ?? null) : null;
+  const brk = said ?? photo;
   const ridge = (section.axis === "x" ? section.y1 - section.y0 : section.x1 - section.x0) / 2;
   const why =
-    said === null
+    brk === null
       ? "Blank: one pitch from eave to ridge. For a gambrel (gable ends) or a mansard (hip ends), type the flatter pitch above the break and the break's height."
       : section.break
-        ? `${formatPitch(section.pitch)} up to the break, ${formatPitch(section.break.pitch)} above it. Clear the upper pitch for one pitch.`
-        : !(said.breakFeet > 0)
+        ? `${formatPitch(section.pitch)} up to the break, ${formatPitch(section.break.pitch)} above it${photo ? `, ${formatFeetInches(photo.breakFeet)} over the eave, from photos. Type a pitch to set your own.` : ". Clear the upper pitch for one pitch."}`
+        : !(brk.breakFeet > 0)
           ? "Type the break's height above the eave."
-          : !(said.upperPitch < section.pitch)
-            ? `The pitch above the break has to be flatter than the ${formatPitch(section.pitch)} below it.`
-            : said.breakFeet + exterior.roof.eaveOverhangFeet * (section.pitch / 12) >= ridge * (section.pitch / 12)
+          : !(brk.upperPitch < section.pitch)
+            ? `The pitch above the break${photo ? " the photos read" : ""} has to be flatter than the ${formatPitch(section.pitch)} below it.`
+            : brk.breakFeet + resolvedOverhang(exterior, "eave").feet * (section.pitch / 12) >= ridge * (section.pitch / 12)
               ? "That break is as high as the ridge would be, so there is none: check its height."
               : "The break is left out: the note under the plan says why.";
   return (
@@ -716,10 +720,10 @@ function SectionBreak({ exterior, plan, sectionKey, readOnly, onUpdate }: { exte
         id="ext-section-upper"
         label="Pitch above a break (gambrel, mansard)"
         value={said?.upperPitch ?? null}
-        placeholder="none"
+        placeholder={photo ? `${Math.round(photo.upperPitch * 100) / 100} from photos` : "none"}
         readOnly={readOnly}
         max={24}
-        onCommit={(v) => onUpdate((x) => withSectionBreak(x, sectionKey, v === null ? null : { upperPitch: v, breakFeet: x.sectionBreaks?.[sectionKey]?.breakFeet ?? 0 }))}
+        onCommit={(v) => onUpdate((x) => withSectionBreak(x, sectionKey, v === null ? null : { upperPitch: v, breakFeet: x.sectionBreaks?.[sectionKey]?.breakFeet ?? photo?.breakFeet ?? 0 }))}
         note={why}
       />
       {said !== null && (

@@ -59,7 +59,7 @@ import {
   UPPER_STOREY_FEET,
   upperFootprint,
 } from "./exterior";
-import { pieceCount } from "./roofPieces";
+import { pieceCount, pieceCounts } from "./roofPieces";
 import { buildRoof, eaveAboveDrip, polygonArea, type Pt, roofBaseAlongWall, roofHeightAt, type RoofInput, type RoofPlan, roofRiseAlongWall, type RoofSection, upperOverhang } from "./roof";
 
 export type V3 = [number, number, number];
@@ -363,8 +363,8 @@ export function exteriorModel(exterior: Exterior): ExteriorModelResult {
   // Each roof's drip line in the view: its eave less the eave's height above the drip line. The floor line has no roof.
   const dripOf = (layer: number) => (layer === FLOOR_LINE ? eaveOf(layer) : eaveOf(layer) - (built ? eaveAboveDrip(built, layer, ov) : 0));
   if (built?.sections.some((s) => s.role === "porch" && s.layer > 0)) notes.push("A lower porch roof's height isn't measured: it is drawn meeting the wall 1'6\" under the eave.");
-  // Roof pieces (lib/roofPieces.ts) are quantities with no place on the plan: said, not drawn.
-  const pieces = exterior.roof.pieces ?? [];
+  // Roof pieces (lib/roofPieces.ts) are quantities with no place on the plan: said, not drawn. A proposal off the photos not ticked is no piece yet.
+  const pieces = (exterior.roof.pieces ?? []).filter(pieceCounts);
   if (pieces.length > 0) {
     const names = pieces.map((p) => `${pieceCount(p) > 1 ? `${pieceCount(p)} × ` : ""}${pieceWords(p).toLowerCase()}`);
     notes.push(`Roof pieces not drawn: ${names.join(", ")}. Their quantities are in the roof's totals.`);

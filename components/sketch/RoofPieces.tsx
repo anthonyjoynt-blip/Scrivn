@@ -3,7 +3,7 @@
 import type { ReactNode } from "react";
 import { type ExteriorRoof, formatPitch, pieceWords } from "@/lib/exterior";
 import { newRoofPiece } from "@/lib/exteriorPlan";
-import { type PieceFigures, pieceFigures, type PieceLengthKey, ROOF_PIECE_KINDS, ROOF_PIECE_LABEL, type RoofPiece, type RoofPieceKind } from "@/lib/roofPieces";
+import { editedPiece, pieceCounts, type PieceFigures, pieceFigures, pieceFromPhotos, type PieceLengthKey, ROOF_PIECE_KINDS, ROOF_PIECE_LABEL, type RoofPiece, type RoofPieceKind } from "@/lib/roofPieces";
 import { formatQuantity } from "@/lib/sketchQuantities";
 import { Choice, FeetField, NumberField } from "./exteriorFields";
 
@@ -12,7 +12,8 @@ import { Choice, FeetField, NumberField } from "./exteriorFields";
  * roof - put on top of it, so one dormer no longer means typing the whole roof. Each piece's
  * quantities ADD to the drawing's; a total typed in the roof totals still stands for the drawing and
  * the pieces alike, as a roof report already counts its dormers. A piece put on with nothing typed
- * counts nothing and is asked for. The maths is lib/roofPieces.ts.
+ * counts nothing and is asked for. One proposed off the photos counts once ticked, and a number of
+ * it changed makes it the estimator's. The maths is lib/roofPieces.ts.
  */
 
 type Update = (f: (roof: ExteriorRoof) => ExteriorRoof) => void;
@@ -41,12 +42,13 @@ function figuresWords(piece: RoofPiece, f: PieceFigures): string {
 
 function PieceCard({ piece, index, roofPitch, readOnly, onSet, onRemove }: { piece: RoofPiece; index: number; roofPitch: number; readOnly: boolean; onSet: (f: (p: RoofPiece) => RoofPiece) => void; onRemove: () => void }) {
   const id = (what: string) => `roof-piece-${piece.id}-${what}`;
+  const edit = (change: Partial<RoofPiece>) => onSet((p) => editedPiece(p, change));
   const name = `${pieceWords(piece)} ${index + 1}`;
   const feet = (what: string, label: string, key: keyof RoofPiece, note?: string) => (
-    <FeetField id={id(what)} label={label} value={(piece[key] as number | null | undefined) ?? null} readOnly={readOnly} nullable note={note} onCommit={(v) => onSet((p) => ({ ...p, [key]: v }))} />
+    <FeetField id={id(what)} label={label} value={(piece[key] as number | null | undefined) ?? null} readOnly={readOnly} nullable note={note} onCommit={(v) => edit({ [key]: v })} />
   );
   const number = (what: string, label: string, key: keyof RoofPiece, opts: { integer?: boolean; max?: number; placeholder?: string; note?: string } = {}) => (
-    <NumberField id={id(what)} label={label} value={(piece[key] as number | null | undefined) ?? null} readOnly={readOnly} {...opts} onCommit={(v) => onSet((p) => ({ ...p, [key]: v }))} />
+    <NumberField id={id(what)} label={label} value={(piece[key] as number | null | undefined) ?? null} readOnly={readOnly} {...opts} onCommit={(v) => edit({ [key]: v })} />
   );
   const pitch = (label = "Its pitch (rise in 12)") => number("pitch", label, "pitch", { max: 48 });
   const f = pieceFigures(piece, roofPitch);
@@ -102,7 +104,7 @@ function PieceCard({ piece, index, roofPitch, readOnly, onSet, onRemove }: { pie
               ["eave", "Eave"],
               ["dripEdge", "Drip edge only"],
             ]}
-            onChange={(v) => onSet((p) => ({ ...p, perimeterAs: v }))}
+            onChange={(v) => edit({ perimeterAs: v })}
           />
         </>
       );
@@ -125,7 +127,7 @@ function PieceCard({ piece, index, roofPitch, readOnly, onSet, onRemove }: { pie
               disabled={readOnly}
               onBlur={(e) => {
                 const label = e.target.value.trim();
-                if (label !== (piece.label ?? "")) onSet((p) => ({ ...p, label: label || undefined }));
+                if (label !== (piece.label ?? "")) edit({ label: label || undefined });
               }}
             />
           </div>
@@ -139,7 +141,7 @@ function PieceCard({ piece, index, roofPitch, readOnly, onSet, onRemove }: { pie
               value={piece.lengths?.[k] ?? null}
               readOnly={readOnly}
               nullable
-              onCommit={(v) => onSet((p) => ({ ...p, lengths: { ...(p.lengths ?? {}), [k]: v } }))}
+              onCommit={(v) => edit({ lengths: { ...(piece.lengths ?? {}), [k]: v } })}
             />
           ))}
         </>
@@ -167,9 +169,14 @@ function PieceCard({ piece, index, roofPitch, readOnly, onSet, onRemove }: { pie
               e.target.value = String(piece.count ?? 1);
               return;
             }
-            if (n !== (piece.count ?? 1)) onSet((p) => ({ ...p, count: n }));
+            if (n !== (piece.count ?? 1)) edit({ count: n });
           }}
         />
+        {pieceFromPhotos(piece) && (
+          <label className="exterior-row-note">
+            <input type="checkbox" checked={piece.taken === true} disabled={readOnly} onChange={(e) => onSet((p) => ({ ...p, taken: e.target.checked }))} /> From photos: count it
+          </label>
+        )}
         {!readOnly && (
           <button type="button" className="btn-secondary exterior-row-x" aria-label={`Remove ${name}`} onClick={onRemove}>
             ×
@@ -177,8 +184,12 @@ function PieceCard({ piece, index, roofPitch, readOnly, onSet, onRemove }: { pie
         )}
       </div>
       <div className="exterior-grid">{fields}</div>
-      <p className={f.missing.length > 0 ? "exterior-assumed" : "field-note"}>
-        {f.missing.length > 0 ? `Counts nothing until it has ${f.missing.length === 1 ? f.missing[0] : `${f.missing.slice(0, -1).join(", ")} and ${f.missing[f.missing.length - 1]}`}.` : `Adds ${figuresWords(piece, f)}.`}
+      <p className={f.missing.length > 0 || !pieceCounts(piece) ? "exterior-assumed" : "field-note"}>
+        {f.missing.length > 0
+          ? `Counts nothing until it has ${f.missing.length === 1 ? f.missing[0] : `${f.missing.slice(0, -1).join(", ")} and ${f.missing[f.missing.length - 1]}`}.`
+          : pieceCounts(piece)
+            ? `Adds ${figuresWords(piece, f)}${pieceFromPhotos(piece) ? ", from photos" : ""}.`
+            : `Read off the photos: it would add ${figuresWords(piece, f)}. It counts once ticked; change a number and it is yours.`}
       </p>
     </div>
   );
