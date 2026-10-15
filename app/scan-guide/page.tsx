@@ -15,6 +15,7 @@ import {
   ReportDialog,
   ReviewScreen,
   Ring,
+  RoofScreen,
   SpinDots,
   SpinPlace,
 } from "@/components/scanGuide/Figures";
@@ -36,6 +37,9 @@ import "./scan-guide.css";
  * Brought up to Scan 0.1.157 on 2026-10-14: the two chip rows, levels, moisture as you go, door
  * types, the 360 step at the end, the Exterior sketch, the Account screen and free scans, and what
  * happens with no signal. What Scrivn does with a scan is told in Scrivn's own Help.
+ *
+ * Finish exterior added on 2026-10-15 (Scan 0.1.169, RoofReview.kt, ExteriorFinish.kt): the roof read off the side photos,
+ * the Roof screen, and the exterior report that Share makes on an exterior capture (docs/exterior-report.md).
  */
 export const metadata = {
   title: "Scrivn Scan — Tester Guide",
@@ -156,7 +160,8 @@ export default async function ScanGuidePage() {
                 Another floor: hold <B>Add room</B>.
               </li>
               <li>
-                Outside: <B>Start</B> → <B>Exterior sketch</B>, then each side in turn (<See id="exterior" />).
+                Outside: <B>Start</B> → <B>Exterior sketch</B>, then each side in turn, with a photo of each. After <B>Stop</B>,{" "}
+                <B>Finish exterior</B> reads the roof off the photos, and <B>Share</B> makes the exterior report (<See id="exterior" />).
               </li>
               <li>
                 Anything wrong? On the plan, tap <B>Report a problem</B> and tell us. Did the room twice? Report after the second run;
@@ -734,9 +739,9 @@ export default async function ScanGuidePage() {
           <Section id="exterior" title="The outside of the house">
             <p>
               <B>Exterior sketch</B> measures the outside walls one side at a time: each side&apos;s length and heights, the cladding on
-              it (stucco, vinyl, brick and the rest) with its area, and its windows and doors. It draws the <strong>siding elevations
-              only</strong>: you don&apos;t tap the roof. Use it for siding and stucco work, or when Scrivn needs the house&apos;s
-              footprint to work out a roof. It is a capture of its own: the rooms inside are a separate capture.
+              it (stucco, vinyl, brick and the rest) with its area, and its windows and doors. <strong>You don&apos;t tap the
+              roof</strong>: at the end, <B>Finish exterior</B> reads it off the side photos, and <B>Share</B> makes a report of the
+              whole outside. It is a capture of its own: the rooms inside are a separate capture.
             </p>
             <div className="sg-split">
               <div>
@@ -833,8 +838,9 @@ export default async function ScanGuidePage() {
                   </li>
                   <li>
                     <strong>Check it on the plan</strong> (tap the mini-map): it shows one side at a time, face-on, with <B>‹</B>{" "}
-                    <B>›</B> to go round, its name to rename it, <B>Undo</B> and <B>Close</B>. Under it, the side&apos;s length, heights,
-                    areas, windows and doors, and the footprint: <Q>Footprint: 3 corners joined – go on round</Q> until it closes, then{" "}
+                    <B>›</B> to go round, its name to rename it, <B>Undo last</B>, <B>Roof</B> (below) and <B>Close</B>. Under it, the
+                    side&apos;s length, heights, areas, windows and doors, and the footprint:{" "}
+                    <Q>Footprint: 3 corners joined – go on round</Q> until it closes, then{" "}
                     <Q>Footprint closed: 4 sides, 1640 SF</Q>.
                   </li>
                   <li>
@@ -849,10 +855,8 @@ export default async function ScanGuidePage() {
                     bottom corner too, then <Q>Linked – go on.</Q>
                   </li>
                   <li>
-                    <B>Stop</B>, then <B>Send</B>. With photos still missing, Stop says which, once: <B>Take them</B> or{" "}
-                    <B>Stop anyway</B>. The exterior goes into a claim with its photos, no storey asked:{" "}
-                    <Q>Sent to Scrivn: the exterior (4 sides) as a new claim</Q>. <B>Share</B> makes plans of rooms only, so an exterior
-                    goes to Scrivn by Send.
+                    <B>Stop</B> when you are round. With photos still missing, Stop says which, once: <B>Take them</B> or{" "}
+                    <B>Stop anyway</B>.
                   </li>
                 </ul>
               </div>
@@ -861,6 +865,69 @@ export default async function ScanGuidePage() {
                 <figcaption>Seen from above: each side&apos;s own two corners; the house corners are where the lines cross.</figcaption>
               </figure>
             </div>
+            <div className="sg-split">
+              <div>
+                <h3 className="sg-h3">Finish exterior: the roof</h3>
+                <ol className="sg-steps">
+                  <li>
+                    After <B>Stop</B>, an exterior with side photos asks once: <Q>Finish the exterior</Q>. <B>Finish exterior</B> sends each
+                    side&apos;s photos to Scrivn, which reads the roof off them: a gable&apos;s pitch, how far the eave and the rake stand
+                    out, and gable or hip at that end. It takes about half a minute a side:{" "}
+                    <Q>Reading the roof off the photos – 2 of 4 sides done. About half a minute a side.</Q>
+                  </li>
+                  <li>
+                    It needs <strong>signal and your Scrivn account</strong> (<See id="account" />). It counts as this capture&apos;s scan:
+                    sending or sharing it afterwards doesn&apos;t count again.
+                  </li>
+                  <li>
+                    Then the <strong>Roof</strong> screen opens: Scrivn&apos;s roof plan, to scale, with <strong>Gable</strong> or{" "}
+                    <strong>Hip</strong> at each end. Under it, in words: the squares, the pitch and where it came from (from photos,
+                    typed, from the gables the phone measured, or assumed), the overhangs and where they came from, the ends, each roof
+                    line&apos;s length, what each side&apos;s photo said, what is assumed, and anything to <Q>Check</Q>.
+                  </li>
+                  <li>
+                    <B>Accept</B> when it looks right: the title reads <Q>Roof · accepted</Q>. <B>Pitch</B> types the pitch as the rise in 12
+                    (<Q>5</Q> or <Q>5/12</Q>): <Q>A pitch typed wins over the photos.</Q> <B>Use the photos</B> in the same box takes it
+                    off again. <B>Ends</B> lists each end of the roof: tap one to switch it between gable and hip. A change after Accept
+                    takes the acceptance back.
+                  </li>
+                  <li>
+                    <B>Later</B> is fine. <B>Roof</B> on the plan shows the roof any time, during the walk too, and its <B>Finish</B>, after
+                    Stop, reads any side not read yet. A side is read once, and again only if it is photographed again or the tape
+                    changes.
+                  </li>
+                </ol>
+                <p className="sg-note">
+                  <strong>No signal, or not signed in?</strong> It says so, and the roof stays as it is:{" "}
+                  <Q>No signal: the roof stays as it is (4/12 assumed where nothing measured it). Press Finish again when there is signal.</Q>{" "}
+                  Pitch, Ends, Accept and the report still work.
+                </p>
+              </div>
+              <figure className="sg-fig sg-phonefig">
+                <RoofScreen />
+                <figcaption>The Roof screen: Scrivn&apos;s roof plan, where its sizes came from, and what you can change.</figcaption>
+              </figure>
+            </div>
+            <h3 className="sg-h3">The exterior report, and Send</h3>
+            <ul className="sg-list">
+              <li>
+                <B>Share</B> on an exterior capture makes the <strong>exterior report</strong>:{" "}
+                <Q>A PDF of the outside of the house: every elevation to scale, the footprint and roof plan, the side photos, and every measurement in tables</Q>.
+                Add a job name or address if you like. It is saved to <em>Download/Scrivn Scan</em> and the share sheet opens. No
+                signal needed.
+              </li>
+              <li>
+                In it: a cover with the house in a few lines, where every number came from, what is assumed and what to check; the
+                footprint with every wall; the roof plan with every line&apos;s length and each slope&apos;s pitch and area; each side
+                face-on with every dimension under it; the side photos, two to a page, with what was read off each; and tables of the
+                walls, openings, roof lines, squares, soffit, fascia, eavestrough, corners and trim. The roof is the one on the Roof
+                screen. Each drawing has its scale and a 10 ft bar, and prints to scale at 100%.
+              </li>
+              <li>
+                <B>Send</B> puts the exterior into a claim with its photos and the roof as you left it, no storey asked:{" "}
+                <Q>Sent to Scrivn: the exterior (4 sides) as a new claim</Q>. No photo is read twice.
+              </li>
+            </ul>
             <h3 className="sg-h3">What Scrivn does with it</h3>
             <ul className="sg-list">
               <li>
@@ -871,7 +938,8 @@ export default async function ScanGuidePage() {
                 <strong>The roof</strong> is built from the footprint. With no pitch typed, read off a gable&apos;s photo or tapped up
                 to a gable&apos;s peak, it is drawn at an <strong>assumed 4/12</strong>, marked assumed on the plan, the scope and the
                 documents until you change it. Gable or hip at each end, porches, cross gables and lower roofs are set there, and every roof line has its
-                length. It is a roof estimate from the footprint and pitch, not an aerial roof report.
+                length. It is a roof estimate from the footprint and pitch, not an aerial roof report. A roof finished on the phone
+                comes in as the Roof screen showed it.
               </li>
               <li>
                 Each side&apos;s photo is squared up behind its elevation. <strong>AI trace</strong> reads the cladding, windows and
@@ -885,6 +953,9 @@ export default async function ScanGuidePage() {
                 are flagged, and a tap takes the sizes from another; a tape can be typed there too.
               </li>
               <li>There is a 3D view of the house, siding and roof.</li>
+              <li>
+                The claim makes the same exterior report: <strong>Exterior report (PDF)</strong>, beside the drying log.
+              </li>
               <li>
                 No Scan? The outside can be drawn by hand in Scrivn, side by side or corner by corner. Scrivn&apos;s Help shows how.
               </li>
@@ -926,8 +997,9 @@ export default async function ScanGuidePage() {
                     <strong>A scan is one capture</strong>: everything from Start to the next Start, all its rooms, levels and exterior.
                   </li>
                   <li>
-                    It counts <strong>once</strong>, the first time it leaves the phone: sent to Scrivn or shared as a plan. Sending it
-                    again, or sharing it after sending it, doesn&apos;t count again. A phone with no account isn&apos;t counted at all.
+                    It counts <strong>once</strong>, the first time it leaves the phone: sent to Scrivn, shared, or its photos read by{" "}
+                    <B>Finish exterior</B>. Sending it again, or sharing it after sending it, doesn&apos;t count again. A phone with no
+                    account isn&apos;t counted at all.
                   </li>
                   <li>
                     A Scrivn account with no plan has <strong>3 a month</strong>. Any Scrivn plan, or the Scan plan, is unlimited.
@@ -962,8 +1034,8 @@ export default async function ScanGuidePage() {
                   </li>
                   <li>
                     The rooms go over with their names, ceilings, doors (and their kind), windows, cabinets and fixtures; the wet lines,
-                    readings and painted floors and ceilings; every level as its own storey; the exterior and its side photos; and the
-                    walk&apos;s 360° photos for a walk-through capture.
+                    readings and painted floors and ceilings; every level as its own storey; the exterior, its side photos and its roof;
+                    and the walk&apos;s 360° photos for a walk-through capture.
                   </li>
                   <li>
                     <B>Open in Scrivn</B> takes you to the claim&apos;s sketch. Scrivn may offer to fill in closets and spaces between rooms
@@ -991,7 +1063,11 @@ export default async function ScanGuidePage() {
                     on the phone alone.
                   </li>
                   <li>
-                    <B>Share</B> works too. Signed in, it is counted when the signal is back.
+                    <B>Share</B> works too, the exterior report included. Signed in, it is counted when the signal is back.
+                  </li>
+                  <li>
+                    <B>Finish exterior</B> needs signal to read the photos. Without it the roof stays as it is (4/12 assumed where nothing
+                    measured it); press <B>Finish</B> on the Roof screen when the signal is back.
                   </li>
                   <li>
                     <B>Send</B> lists the claims the phone last saw (<Q>Send to which claim? (no signal – the list from …)</Q>), or{" "}
@@ -1108,7 +1184,7 @@ export default async function ScanGuidePage() {
                 <h3>Outside: one photo and one tape</h3>
                 <p>
                   Take a photo of every side with the whole side in it, and tape one side corner to corner. The tape sets the scale of
-                  every side, and the photos let Scrivn check and trace each one.
+                  every side, and the photos let Scrivn check each one and read the roof.
                 </p>
               </div>
             </div>
@@ -1176,8 +1252,10 @@ export default async function ScanGuidePage() {
                 <strong>A wet line can&apos;t be changed after its box is closed.</strong> <B>Undo</B> it and tap it again.
               </li>
               <li>
-                <strong>The outside has no roof from Scan.</strong> Scan measures the siding; Scrivn draws the roof from the footprint at an
-                assumed pitch until you give it the real one. <B>Share</B> makes no plan of an exterior: send it to Scrivn.
+                <strong>Finish exterior is new.</strong> If its roof is off, tell us the side and what the pitch or overhang really is.
+                The phone can&apos;t set aside one photo&apos;s read: when two disagree (two eave overhangs far apart, say), the Roof
+                screen says so under <Q>Check</Q> and draws the roof between them. Set the odd one aside, or type the overhang, in
+                Scrivn.
               </li>
             </ul>
             <p>
