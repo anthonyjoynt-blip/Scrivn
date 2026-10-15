@@ -785,8 +785,9 @@ export default async function ScanGuidePage() {
                     <Q>Photo 1 of Front kept · the whole side is in it</Q>. Where two roofs meet is worth a photo too.
                   </li>
                   <li>
-                    <strong>On a gable end</strong>, take one photo straight out from the middle of the wall, the peak and both slopes of
-                    the roof edge in view: Scrivn reads the roof&apos;s pitch and how far the rake stands out from it. Then, once for the
+                    <strong>On a gable end</strong>, take one photo facing the wall straight on, from two or three steps to one side of
+                    the peak, the peak and both slopes of the roof edge in view: Scrivn reads the roof&apos;s pitch and how far the rake
+                    stands out from it. Then, once for the
                     house, at a corner where the roof edge ends plainly (not over a porch, a deck or a lower roof), step out past the corner
                     and take one more from the gable side at about 45&deg;, the end of the roof edge near the middle of the screen: that
                     gives the eave overhang. The first photo of a gable shows a card that says so.
