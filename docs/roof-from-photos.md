@@ -10,7 +10,7 @@ The AI trace of a side's photo is one Claude call, as before. Besides the claddi
 - where the roof edge ends at each end of the wall;
 - whether the roof there is a gable, a hip end or an eave.
 
-That adds about 300-600 tokens out, or $0.01. The four calls on the owner's photos cost $0.061-0.086 each.
+That adds about 300-600 tokens out, or $0.01. The calls on the owner's photos and the painted test wall cost $0.059-0.086 each.
 
 Scrivn works out four reads:
 - **Pitch.** It comes from the gable's two slopes, each read over its whole run. Two slopes more than 1/2 in 12 apart are flagged and start unticked. So is a read more than 1/4 from a whole pitch, because roofs are framed to whole pitches.
@@ -36,7 +36,8 @@ On the owner's west gable this put both lines within 1 px of the 10-12 hand mark
   3. the main roof's gable photo;
   4. a gable measured by the phone;
   5. the assumed 4/12.
-- **Overhangs and gable/hip ends:** typed, then photos, then the default.
+- **Overhangs:** typed, then the photos (between them, flagged when they disagree by more than 3"), then Scan's roofline, then the default. Clearing a typed overhang on the plan goes back to the photos.
+- **Gable or hip at each end:** a tap on the plan, then the photo of that side, then a gable.
 - **The scope** says where each number came from.
 
 ## The photos
@@ -114,7 +115,7 @@ The only hand figure so far is the owner's pitch: **5/12**.
 
 | Where | Read |
 |---|---|
-| Rear bump-out, both rake feet | **23.3" / 23.3"** |
+| Rear bump-out, both rake feet | **23.3" / 23.3"**; read again: 22.7" / 23.0" |
 | Garage, left foot | 35.4", **not a plain end** |
 | West gable | **not read**, rightly: the roof runs on over the porch and the deck at both ends |
 
@@ -138,14 +139,35 @@ Four of four right:
 
 ### Squares and lines
 
-The test claim's roof ("Exterior test – roof from photos") was rebuilt from Scan's 14:53 file.
+The test claim's roof ("Exterior test – roof from photos") was rebuilt from Scan's 14:53 file, three ways:
+- **Scan's tapped gables only:** 5.06/12, with the default 16" / 12" overhangs.
+- **As typed 10-13:** 5/12, eave 24", rake 22".
+- **From photos:** the reads ticked on the west gable and the rear bump-out, nothing typed, so they fill the roof as Scrivn now does:
+  - 5/12;
+  - eave 22.9";
+  - rake 26.4", the mean of 25.6" (the west gable on this walk's scale) and 27.1".
 
 | Roof | Squares | Ridge | Hip | Valley | Eave | Rake |
 |---|---|---|---|---|---|---|
-| As typed 10-13 (5/12, eave 24", rake 22") | 33.71 | 117'1" | 34'2" | 117'0" | 123'10" | 178'3" |
-| With the photo reads (5/12, eave 23.3", rake 26") | 34.02 (+0.9%) | 118'3" | 34'1" | 117'1" | 125'10" | 178'1" |
+| Scan's tapped gables only, default overhangs | 31.70 | 113'1" | 33'3" | 111'9" | 121'2" | 171'9" |
+| As typed 10-13 | 33.71 | 117'1" | 34'2" | 117'0" | 123'10" | 178'3" |
+| From photos | 34.05 (+1.0%) | 118'6" | 34'0" | 116'10" | 126'6" | 177'9" |
 
-The owner's Xactimate sketch is still to compare against.
+- The default overhangs undercount this roof by 2 squares (6%). Reading the overhangs matters more than the last tenth of the pitch.
+- The owner's Xactimate sketch is still to compare against.
+
+### Repeatability
+
+- **Rear bump-out**, read twice in independent calls (the second after the foot wording in the prompt changed):
+  - pitch 5.08 / 5.08 and 5.08 / 5.09;
+  - rake 27.1" and 27.1", hang 1.8" both times;
+  - eave 23.3" and 22.9".
+  - Snapping makes the lines the photo's, so they repeat.
+- **Painted test wall** (`test:exterior:trace`), three runs:
+  - pitch exact;
+  - rake +0.0" each time, hang 1.0" (truth 1.0").
+  - The eave read 19.6", then 0" / 14" on one end each (flagged, not ticked), then 19.4" (truth 19.7").
+  - Claude had put one foot where the eave's return crosses the wall. The prompt now says where the foot is, and an end under 4" past the wall is flagged.
 
 ## What is good enough for a customer
 
