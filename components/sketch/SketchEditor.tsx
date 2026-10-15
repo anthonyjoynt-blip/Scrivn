@@ -316,7 +316,13 @@ export function SketchEditor({
     because nothing about it is a room - see `lib/exterior.ts`. The plan's tools, levels and panels
     all stand aside while it is up.
   */
-  const [mode, setMode] = useState<"sketch" | "moisture" | "exterior">("sketch");
+  /*
+    An outside-only claim opens on its outside (2026-10-15): the owner opened the exterior test claims,
+    landed on the empty rooms view and took the sketches for gone.
+  */
+  const [mode, setMode] = useState<"sketch" | "moisture" | "exterior">(() =>
+    sketch.exterior && sketch.rooms.length === 0 ? "exterior" : "sketch",
+  );
   // The 3D view is a window over the editor, not a mode of it: nothing drawn changes while it is open.
   const [show3d, setShow3d] = useState(false);
   const [moistureTool, setMoistureTool] = useState<MoistureTool>("read");
