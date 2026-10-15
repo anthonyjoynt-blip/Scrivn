@@ -44,7 +44,8 @@ export function notPersisted(claimStateSource) {
  * so the saved list and the applied list have to match, not merely overlap.
  */
 export function appliedSetters(source) {
-  const fn = /const applyLoadedClaim = useCallback\(\(loaded: SavedClaimState\) => \{([\s\S]*?)\n  \}, \[\]\);/.exec(source);
+  // `raw` since 2026-10-15: the state is run through parseSavedClaimState first, as `loaded`.
+  const fn = /const applyLoadedClaim = useCallback\(\((?:loaded|raw): SavedClaimState\) => \{([\s\S]*?)\n  \}, \[\]\);/.exec(source);
   if (!fn) return null;
   return [...fn[1].matchAll(/(set\w+)\(/g)].map((m) => m[1]);
 }
