@@ -2,15 +2,27 @@
  * The AI trace end to end, on a wall whose every measure is known - lib/exteriorPhoto.ts,
  * lib/exteriorTrace.ts and POST /api/exterior/trace.
  *
- *   npm run dev            (with ANTHROPIC_API_KEY, signed in or on the dev fail-open - see test/pipeline)
  *   npm run test:exterior:trace
  *
- * THREE REAL CLAUDE CALLS, about $0.06-0.09 each (SCRIVN_TRACE_SCENES=gable,dormer,storeys picks
- * which). Nothing here is mocked: the wall is painted and
- * photographed through a phone camera standing off to one side and tipped up, the camera's
- * `to_photo` is built the way Scan builds it, the side is read through `parseScanExterior` as a
- * phone's send would be, the photo is squared up by the code the editor runs and posted to the
- * route the editor posts to. What comes back is held to the painted wall:
+ * ON CLAUDE'S RECORDED ANSWERS: no call, no server, no key (2026-10-15 - the owner's API balance ran
+ * out on development calls, so tests spend none of it). The wall is painted and photographed
+ * through a phone camera standing off to one side and tipped up, the camera's `to_photo` is built
+ * the way Scan builds it, the side is read through `parseScanExterior` as a phone's send would be,
+ * and the photo is squared up by the code the editor runs. Then Claude's answer for that very
+ * squared image, recorded from a real call (fixtures/trace-recorded-<scene>.json), is read as the
+ * route reads it (`traceProposals`, where each phone stood out of `to_photo`) and set on the photo's
+ * edges as the editor does (`snapTrace`). A recording made of a squared image other than the one the
+ * scene makes now - the scene or the squaring changed - fails, asking for it to be recorded again.
+ *
+ * Live, against a running dev server and the route itself - three real calls, about $0.06-0.09
+ * each, ONLY with the owner's OK:
+ *
+ *   SCRIVN_ALLOW_PAID_API=yes npm run dev        (the server's guard, lib/anthropic.ts)
+ *   SCRIVN_TRACE_LIVE=1 npm run test:exterior:trace
+ *
+ * and with SCRIVN_TRACE_RECORD=1 each answer becomes its scene's recording: recovered from the
+ * route's proposals (test/exterior/traceRecord.mjs) and kept only when it reads back to them exactly.
+ * SCRIVN_TRACE_SCENES=gable,dormer,storeys picks the scenes. What comes back is held to the painted wall:
  *
  *   * the window and the door, each edge within 1.5" (the owner's test: within 1/2" on his house)
  *   * the door's leaf (2026-10-15) inside its trim, each edge within 1.5", and taken for a 34" x 80"
@@ -29,16 +41,17 @@
  *       - an eave side with the upper floor set back 1.8 m behind a 4/12 lean-to: read as an upper
  *         floor set back behind a lean-to, the roof over the side an eave, and no dormer
  *
- * SCRIVN_BASE_URL points it at another server; SCRIVN_TRACE_SAVE=<folder> keeps the photo, the
- * squared image and the answer for a look; SCRIVN_TRACE_DRY=1 paints and squares them, and sends nothing.
+ * SCRIVN_BASE_URL points a live run at another server; SCRIVN_TRACE_SAVE=<folder> keeps the photo, the
+ * squared image and the answer for a look; SCRIVN_TRACE_DRY=1 paints and squares them, and reads nothing.
  */
 
 import { build } from "esbuild";
 import sharp from "sharp";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { proposalsDiffer, wireFromProposals } from "./traceRecord.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..", "..");
@@ -46,6 +59,10 @@ const lib = (name) => join(root, "lib", name).replace(/\\/g, "/");
 const BASE = process.env.SCRIVN_BASE_URL ?? "http://localhost:3000";
 const SAVE = process.env.SCRIVN_TRACE_SAVE ?? "";
 const DRY = process.env.SCRIVN_TRACE_DRY === "1";
+const LIVE = process.env.SCRIVN_TRACE_LIVE === "1";
+const RECORD = LIVE && process.env.SCRIVN_TRACE_RECORD === "1";
+/** A scene's recorded answer. */
+const recordingOf = (name) => join(here, "fixtures", `trace-recorded-${name}.json`);
 
 async function load() {
   const outDir = mkdtempSync(join(tmpdir(), "exterior-trace-"));
@@ -57,7 +74,7 @@ async function load() {
       `export * from "${lib("exteriorImport.ts")}";`,
       `export * from "${lib("exteriorPhoto.ts")}";`,
       `export * from "${lib("exterior.ts")}";`,
-      `export { snapTrace } from "${lib("exteriorTrace.ts")}";`,
+      `export { snapTrace, traceProposals } from "${lib("exteriorTrace.ts")}";`,
       `export { camerasAt, grayOf } from "${lib("roofPhotoRead.ts")}";`,
       `export { doorCandidates, doorLabel } from "${lib("exteriorScale.ts")}";`,
       `export { resolvePhotoPiece } from "${lib("roofPhotoShapes.ts")}";`,
@@ -333,8 +350,21 @@ async function postTrace(name, sideJson, raw, cam) {
     // As the editor sends it: the photos the image was squared from, for where the phone stood.
     photos: side.photos.map((ph) => ({ toPhoto: ph.toPhoto, camera: ph.camera })),
   };
-  // SCRIVN_TRACE_DRY=1: painted, squared and saved, not sent - no call made.
+  // SCRIVN_TRACE_DRY=1: painted, squared and saved, not read - no call made.
   if (DRY) return null;
+  if (!LIVE) {
+    // Claude's recorded answer for this squared image, read as the route reads it: where each phone stood out of to_photo.
+    const rec = JSON.parse(readFileSync(recordingOf(name), "utf8"));
+    const moved = proposalsDiffer(rec.frame, frame, "frame");
+    if (moved) {
+      console.error(`\nThe ${name} scene no longer squares to the image its answer was recorded for (${moved}). Record it again - a live run with SCRIVN_TRACE_RECORD=1, with the owner's OK.`);
+      process.exit(1);
+    }
+    const p = JSON.parse(JSON.stringify(x.traceProposals(rec.wire, frame, side.lengthFeet, x.camerasAt(side.photos))));
+    if (SAVE) writeFileSync(saveAs("answer.json"), JSON.stringify({ frame, proposals: p, recorded: rec.recordedAt }, null, 1));
+    console.log(`  Claude's answer recorded ${rec.recordedAt} (${rec.model}, ${rec.usage.inputTokens} in / ${rec.usage.outputTokens} out, $${rec.costUsd.toFixed(3)} then), read as the route reads it - no call`);
+    return { side, frame, squared, answer: null, p };
+  }
   let response;
   try {
     response = await fetch(`${BASE}/api/exterior/trace`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -350,7 +380,30 @@ async function postTrace(name, sideJson, raw, cam) {
   if (SAVE) writeFileSync(saveAs("answer.json"), JSON.stringify({ frame, ...answer }, null, 1));
   spent += answer.costUsd;
   console.log(`  ${answer.model}: ${answer.seconds} s, ${answer.usage.inputTokens} in / ${answer.usage.outputTokens} out, $${answer.costUsd.toFixed(3)}`);
+  if (RECORD) record(name, frame, side, answer);
   return { side, frame, squared, answer, p: answer.proposals };
+}
+
+/**
+ * A live answer kept as its scene's recording: Claude's answer recovered from the route's proposals,
+ * and kept only when it reads back to them exactly (test/exterior/traceRecord.mjs).
+ */
+function record(name, frame, side, answer) {
+  let wire;
+  try {
+    wire = wireFromProposals(answer.proposals, frame, x);
+  } catch (err) {
+    console.error(`  not recorded: ${err.message}`);
+    return;
+  }
+  const off = proposalsDiffer(x.traceProposals(wire, frame, side.lengthFeet, x.camerasAt(side.photos)), answer.proposals);
+  if (off) {
+    console.error(`  not recorded: the answer does not read back to what the route gave (${off})`);
+    return;
+  }
+  const keep = { scene: name, recordedAt: new Date().toISOString().slice(0, 10), model: answer.model, usage: answer.usage, costUsd: answer.costUsd, frame, wire };
+  writeFileSync(recordingOf(name), `${JSON.stringify(keep, null, 1)}\n`);
+  console.log(`  recorded as fixtures/trace-recorded-${name}.json`);
 }
 
 /** The roof's shapes as the trace read them, in a line. */
@@ -786,6 +839,6 @@ if (SCENES.includes("gable")) await gableScene();
 if (SCENES.includes("dormer")) await dormerScene();
 if (SCENES.includes("storeys")) await storeysScene();
 
-console.log(`\n${SCENES.join(", ")}: $${spent.toFixed(3)} in all`);
+console.log(`\n${SCENES.join(", ")}: ${LIVE ? `$${spent.toFixed(3)} in all` : "Claude's recorded answers, no call made"}`);
 console.log(`${failures.length === 0 ? "all held" : `${failures.length} did not hold`}`);
 if (failures.length > 0) process.exit(1);

@@ -1,0 +1,150 @@
+{
+ "scene": "dormer",
+ "recordedAt": "2026-10-15",
+ "model": "claude-opus-5-5",
+ "usage": {
+  "inputTokens": 6209,
+  "outputTokens": 1763,
+  "cacheCreationTokens": 2463,
+  "cacheReadTokens": 0
+ },
+ "costUsd": 0.072411,
+ "frame": {
+  "alongMinM": -1.127168648585212,
+  "alongMaxM": 12.5,
+  "upMinM": -0.4594353694609844,
+  "upMaxM": 6.9,
+  "ppm": 176.11875671980994,
+  "width": 2400,
+  "height": 1296
+ },
+ "wire": {
+  "materials": [
+   {
+    "material": "stucco",
+    "polygon": [
+     [
+      204,
+      705
+     ],
+     [
+      1959.7,
+      705
+     ],
+     [
+      1959.7,
+      1136
+     ],
+     [
+      287,
+      1136
+     ]
+    ],
+    "partly_hidden_by": "Left end runs into the grey out-of-photo area; the stucco stops at its slanted edge, so the wall's true left corner (x=198.5) is not visible."
+   },
+   {
+    "material": "parging",
+    "polygon": [
+     [
+      287,
+      1136
+     ],
+     [
+      1959.7,
+      1136
+     ],
+     [
+      1959.7,
+      1215
+     ],
+     [
+      302,
+      1215
+     ]
+    ],
+    "partly_hidden_by": "Left end runs into the grey out-of-photo area and is cut by its slanted edge."
+   }
+  ],
+  "openings": [
+   {
+    "kind": "window",
+    "left": 410,
+    "right": 621,
+    "top": 810,
+    "bottom": 1039,
+    "measured_to": "outer_trim",
+    "leaf": [],
+    "partly_hidden_by": ""
+   }
+  ],
+  "wall_top": [
+   [
+    204,
+    705
+   ],
+   [
+    1959.7,
+    705
+   ]
+  ],
+  "off_wall": [],
+  "notes": "The left part of the wall is cut by the slanted grey out-of-photo area. At the wall top it reaches about x=204, past the stated corner at 198.5; at the ground it reaches about x=302. The stucco and parging polygons stop at that edge. The stucco/parging joint is at about y=1136, and the ground is at y=1215.",
+  "roof": {
+   "over_wall": "eave",
+   "rake_left": [],
+   "rake_right": [],
+   "eave_line": [
+    [
+     196,
+     690
+    ],
+    [
+     1000,
+     690
+    ],
+    [
+     2065,
+     690
+    ]
+   ],
+   "left_end": {
+    "kind": "out_of_photo",
+    "point": []
+   },
+   "right_end": {
+    "kind": "hip_corner",
+    "point": [
+     2065,
+     690
+    ]
+   },
+   "notes": "Long side of a hip roof: the ridge runs parallel to the wall at about y=315, from x 528 to 1695, with hips down to each end. The fascia band runs from about y=652 to 690, with the soffit showing below it down to the wall top at y=705. The left end of the fascia runs into the grey out-of-photo area. No eavestrough is visible."
+  },
+  "roof_shapes": {
+   "pieces": [
+    {
+     "kind": "gable_dormer",
+     "outline": [
+      906,
+      326,
+      1088,
+      140,
+      1275,
+      326
+     ],
+     "foot": [
+      906,
+      503,
+      1275,
+      503
+     ],
+     "sides": 0
+    }
+   ],
+   "upper_floor": "none",
+   "floor_line": [],
+   "lower_roof": "none",
+   "notes": "One gable dormer with vinyl siding, centred over the wall, with its own window at about x 1030-1151, y 341-449. That window is not on this wall plane, so it is not listed under openings. The dormer's rake fascia runs from about (870,352) up to its peak at (1088,100) and down to (1308,352)."
+  }
+ }
+}
