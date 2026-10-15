@@ -533,6 +533,64 @@ export function ExteriorRound() {
   );
 }
 
+/**
+ * The photo route's capture screen (Scan 2026-10-15, GuidedExterior.kt): a wall with its two bottom corners tapped, and the
+ * card over the chip bar with the next step - which side, the step in big words, the small print - then Photo (lit, a photo
+ * is the step) and Add by hand, and Undo · ? · Next side. The words are the app's own.
+ */
+export function PhotoRouteScreen() {
+  return (
+    <svg viewBox="0 0 300 600" aria-hidden="true" className="sg-svg sg-phone">
+      <defs>
+        <linearGradient id="sg-sky" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="#cfe0ee" />
+          <stop offset="1" stopColor="#eef3f7" />
+        </linearGradient>
+      </defs>
+      <rect x={8} y={8} width={284} height={584} rx={38} fill={NAVY_DARK} />
+      <rect x={20} y={30} width={260} height={540} rx={26} fill="url(#sg-sky)" />
+      {/* the wall the camera sees: a gable, a window, a door, the ground */}
+      <polygon points="40,150 150,92 260,150" fill="#8d7f6c" />
+      <polygon points="52,150 248,150 248,286 52,286" fill="#ece6da" stroke="#b9ad9b" strokeWidth={1} />
+      <rect x={76} y={176} width={44} height={42} fill="#dfe8f1" stroke="#8d8577" strokeWidth={1.2} />
+      <rect x={186} y={214} width={30} height={72} fill="#e8eef4" stroke="#8d8577" strokeWidth={1.2} />
+      <rect x={20} y={286} width={260} height={50} fill="#9fb08a" />
+      {/* its two bottom corners, tapped */}
+      <circle cx={52} cy={286} r={6} fill={GREEN} stroke={PAPER} strokeWidth={2} />
+      <circle cx={248} cy={286} r={6} fill={GREEN} stroke={PAPER} strokeWidth={2} />
+      {/* Stop, the mini-map */}
+      <rect x={32} y={44} width={58} height={30} rx={15} fill="rgba(18,40,63,0.85)" />
+      <text x={61} y={64} textAnchor="middle" fontSize={12} fontWeight={600} fill={PAPER}>
+        Stop
+      </text>
+      <rect x={196} y={44} width={70} height={70} rx={8} fill={PAPER} stroke={NAVY} strokeWidth={1} />
+      <line x1={210} y1={96} x2={252} y2={96} stroke={NAVY} strokeWidth={2.4} strokeLinecap="round" />
+      {/* the ring, green on tracking alone while a photo is the step */}
+      <circle cx={150} cy={214} r={20} fill="none" stroke={GREEN} strokeWidth={4.5} />
+      {/* the card */}
+      <rect x={30} y={346} width={240} height={120} rx={16} fill="rgba(11,13,16,0.82)" />
+      <text x={44} y={366} fontSize={10} fontWeight={700} fill={GREEN}>
+        Side 1 of the house
+      </text>
+      {["Step back until the whole wall", "and the roof edge are on screen,", "then press Photo"].map((t, i) => (
+        <text key={t} x={44} y={388 + i * 18} fontSize={14} fontWeight={700} fill={PAPER}>
+          {t}
+        </text>
+      ))}
+      <text x={44} y={452} fontSize={10} fill="#c9d1d9">
+        Turn the phone on its side for a wide wall.
+      </text>
+      {/* the chip bar: Photo and Add by hand, then Undo · ? · Next side */}
+      <rect x={20} y={476} width={260} height={94} fill="rgba(18,40,63,0.92)" />
+      <Chip x={30} y={486} w={116} label="Photo" lit />
+      <Chip x={154} y={486} w={116} label="Add by hand" />
+      <Chip x={30} y={524} w={48} label="Undo" />
+      <Chip x={135} y={524} w={30} label="?" />
+      <Chip x={198} y={524} w={72} label="Next side" />
+    </svg>
+  );
+}
+
 /** An end's pill on Scrivn's roof plan (exteriorDrawings END_INK): a gable in its rakes' colour, a hip in its hips'. */
 function EndPill({ x, y, kind }: { x: number; y: number; kind: "gable" | "hip" }) {
   const ink = kind === "hip" ? { stroke: "#6d28d9", fill: "#f5f3ff" } : { stroke: "#b45309", fill: "#fff7ed" };

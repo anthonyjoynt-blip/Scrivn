@@ -13,6 +13,7 @@ import {
   JoinRooms,
   MoistureRoom,
   ReportDialog,
+  PhotoRouteScreen,
   ReviewScreen,
   Ring,
   RoofScreen,
@@ -40,6 +41,10 @@ import "./scan-guide.css";
  *
  * Finish exterior added on 2026-10-15 (Scan 0.1.169, RoofReview.kt, ExteriorFinish.kt): the roof read off the side photos,
  * the Roof screen, and the exterior report that Share makes on an exterior capture (docs/exterior-report.md).
+ *
+ * The photo route added later on 2026-10-15 (Scan GuidedExterior.kt): Exterior sketch asks "Photos (recommended)" or "Tap it
+ * yourself", and on the photo route a card over the chip bar says each step - two corners and a photo a side, Finish, Walls,
+ * Accept. The card's words are quoted here as GuidedExterior.prompt has them.
  */
 export const metadata = {
   title: "Scrivn Scan — Tester Guide",
@@ -160,8 +165,9 @@ export default async function ScanGuidePage() {
                 Another floor: hold <B>Add room</B>.
               </li>
               <li>
-                Outside: <B>Start</B> → <B>Exterior sketch</B>, then each side in turn, with a photo of each. After <B>Stop</B>,{" "}
-                <B>Finish exterior</B> reads the roof off the photos, and <B>Share</B> makes the exterior report (<See id="exterior" />).
+                Outside: <B>Start</B> → <B>Exterior sketch</B> → <B>Photos (recommended)</B>. A card at the bottom says each step: two
+                corners and a photo a side, round the house. After <B>Stop</B>, <B>Finish exterior</B> reads the walls and the roof off
+                the photos, and <B>Share</B> makes the exterior report (<See id="exterior" />).
               </li>
               <li>
                 Anything wrong? On the plan, tap <B>Report a problem</B> and tell us. Did the room twice? Report after the second run;
@@ -743,12 +749,69 @@ export default async function ScanGuidePage() {
               roof</strong>: at the end, <B>Finish exterior</B> reads it off the side photos, and <B>Share</B> makes a report of the
               whole outside. It is a capture of its own: the rooms inside are a separate capture.
             </p>
+            <p>
+              <B>Start</B> → <B>Exterior sketch</B> asks how: <B>Photos (recommended): tap two corners and take a photo per side</B>,
+              or <B>Tap it yourself: draw each material</B>. The one you picked last is ticked.
+            </p>
             <div className="sg-split">
               <div>
-                <h3 className="sg-h3">Each side</h3>
+                <h3 className="sg-h3">From photos: the card says each step</h3>
+                <p>
+                  The first time, a card shows the route in three lines. Then a card over the chips says what to do next, in big
+                  words, with the side you are on (<Q>Side 2 of the house</Q>). It follows what you have done: Undo takes it back a
+                  step, and a step already done is never shown. The material list never comes up: the photo gives the siding.
+                </p>
                 <ol className="sg-steps">
                   <li>
-                    Press <B>Start</B> → <B>Exterior sketch</B>. It asks <Q>What are you tapping?</Q>: pick the main cladding (
+                    <Q>Tap the bottom-left corner of this wall</Q>, standing 1 to 3 m (3 to 10 ft) back. Then{" "}
+                    <Q>Now the bottom-right corner</Q>. Those two fix the wall: <Q>Front: 34&apos;3&quot; between the corners</Q>.
+                  </li>
+                  <li>
+                    <Q>Step back until the whole wall and the roof edge are on screen, then press Photo</Q>. <B>Photo</B> is lit. A
+                    photo that cuts an end or the top off, or is taken too far off square, asks again: <Q>Take the photo again</Q>,
+                    with what is missing. A long wall can take two or three photos, a part each. A tap on the screen here takes
+                    nothing: <Q>Press Photo to take it</Q>.
+                  </li>
+                  <li>
+                    <Q>Does this wall go up to a peak?</Q> <B>Yes, a peak</B> or <B>No</B>. On a gable end, if no photo was square
+                    to it: <Q>This end has a peak: take one photo straight on</Q>, two or three steps to one side of the peak.
+                  </li>
+                  <li>
+                    Once for the house, on the first gable: <Q>Take one photo of a plain roof corner from about 45°</Q>. Step out
+                    past an end of the wall where the roof edge ends plainly, not over a porch or a lower roof. Next side skips it.
+                  </li>
+                  <li>
+                    <Q>Next side: walk round the corner</Q>. Press <B>Next side</B>, or just tap the new wall&apos;s bottom-left
+                    corner: that starts the next side.
+                  </li>
+                  <li>
+                    When the walls meet all the way round: <Q>Back at the start? Press Stop</Q>.
+                  </li>
+                  <li>
+                    After <B>Stop</B>: <Q>Press Finish exterior</Q>. Then, on the Roof screen, the button to press is filled and the
+                    line over it says why: <B>Finish</B>, then <B>Walls</B>, then <B>Accept</B> (below). Then{" "}
+                    <Q>Done: Send takes it to Scrivn</Q>.
+                  </li>
+                </ol>
+                <p className="sg-note">
+                  <strong>Something a photo can&apos;t see?</strong> A window behind a bush, say: <B>Add by hand</B> →{" "}
+                  <B>Window</B>, <B>Door</B> or <B>Material</B>, tapped as below. What you tap wins over the photo. A material
+                  tapped by hand means that wall&apos;s siding is all tapped: the photo&apos;s siding isn&apos;t used there.{" "}
+                  <B>Cancel</B> on the card takes it back. If tracking drops, the card says so and asks for a corner again,
+                  then carries on where it was.
+                </p>
+              </div>
+              <figure className="sg-fig sg-phonefig">
+                <PhotoRouteScreen />
+                <figcaption>The photo route: the wall&apos;s two corners tapped, and the card with the next step.</figcaption>
+              </figure>
+            </div>
+            <div className="sg-split">
+              <div>
+                <h3 className="sg-h3">Tap it yourself: each side</h3>
+                <ol className="sg-steps">
+                  <li>
+                    Press <B>Start</B> → <B>Exterior sketch</B> → <B>Tap it yourself</B>. It asks <Q>What are you tapping?</Q>: pick the main cladding (
                     <B>Stucco</B>, <B>Vinyl</B>, <B>Wood shake</B>, <B>EIFS</B>, <B>Wood</B>, <B>Fibre cement</B>, <B>Brick</B>,{" "}
                     <B>Stone</B>, <B>Metal</B>) or <B>Parging</B>. The chips are now that material, <B>Window</B>, <B>Door</B> and{" "}
                     <B>Photo</B>, and <B>Next side</B> takes Add room&apos;s place.
@@ -890,6 +953,12 @@ export default async function ScanGuidePage() {
                     (<Q>5</Q> or <Q>5/12</Q>): <Q>A pitch typed wins over the photos.</Q> <B>Use the photos</B> in the same box takes it
                     off again. <B>Ends</B> lists each end of the roof: tap one to switch it between gable and hip. A change after Accept
                     takes the acceptance back.
+                  </li>
+                  <li>
+                    <B>Walls</B> lists each photographed side with its walls read off the photo, in words and drawn: the siding,
+                    windows, doors, garage doors and the wall top, wherever nothing was tapped. What you tapped wins. Untick{" "}
+                    <B>Keep the walls read off its photo</B> to keep only a side&apos;s taps, or <B>Keep all</B> /{" "}
+                    <B>Set all aside</B>. A side with only its two corners and nothing read is not counted, and the screen says which.
                   </li>
                   <li>
                     <B>Later</B> is fine. <B>Roof</B> on the plan shows the roof any time, during the walk too, and its <B>Finish</B>, after
