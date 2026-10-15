@@ -364,6 +364,55 @@ export function checkCarryOver({ mod, check, claim, room, extractionWith, runToC
     check(removed.material === finished.extraction.rooms[0].baseboard[0].material, "carry-over: but the baseboard's material, the same either way, is");
   }
 
+  /* ── A room's baseboard, answered once for all its records ─────────────────────────────────── */
+
+  /*
+    Material, height and shoe mold are asked once per room however many baseboard records it has
+    (lib/gapCheck.ts's `baseboardQuestionRecords`). No record pairs with another when there are two —
+    baseboard says nothing about itself — so these are carried from the room, or the room's one
+    answer would be asked again on every re-read.
+  */
+  {
+    const torn = (o = {}) => baseboard({ action: "REMOVE_AND_REPLACE", disposition: "REMOVE_AND_DISPOSE", ...o });
+    const reset = (o = {}) => baseboard({ action: "DETACH_AND_RESET", disposition: "SALVAGE_DRY", ...o });
+    const office = (records) => extractionWith([room("Office", { walls: [wall({ insulationAffected: false, cutHeight: "TWO_FOOT", cutRunFt: 12 })], baseboard: records })]);
+
+    const answered = runToCompletion(claim, office([torn(), reset()]), (q) =>
+      q.id.endsWith(":material") ? "Flat MDF" : q.id.endsWith(":heightIn") ? "3.5" : q.id.endsWith(":shoeMold") ? "Yes" : undefined,
+    );
+    const was = answered.extraction.rooms[0].baseboard;
+    check(was.every((b) => b.material === "MDF" && b.shoeMold === true) && was[0].heightIn === 3.5, "carry-over: the office's two baseboards were answered once for the room");
+
+    // The same read again: nothing about the baseboard is asked, and both records have the room's answers.
+    const again = carry(answered.claim, answered.extraction, office([torn(), reset()])).extraction;
+    const againAsked = ids(answered.claim, again).filter((id) => id.includes(":baseboard:"));
+    check(againAsked.length === 0, `carry-over: the room's one baseboard answer survives a re-read (asked again: ${againAsked.join(", ")})`);
+    const d = difference(again.rooms[0].baseboard, was);
+    check(d === null, `carry-over: and both records come back exactly as answered (${d})`);
+
+    // A re-read that hears a third run of baseboard: it is the room's baseboard, so it takes the room's material.
+    const third = carry(answered.claim, answered.extraction, office([torn(), reset(), reset()])).extraction.rooms[0].baseboard;
+    check(third[2].material === "MDF" && third[2].mdfProfile === "FLAT" && third[2].shoeMold === true, `carry-over: a third record the re-read found takes the room's answers (got ${JSON.stringify(third[2])})`);
+
+    // A material the new read states is never overwritten by the room's old answer.
+    const stated = carry(answered.claim, answered.extraction, office([torn({ material: "SOLID_WOOD" }), reset()])).extraction.rooms[0].baseboard;
+    check(stated[0].material === "SOLID_WOOD" && stated[1].material === "MDF", `carry-over: a stated material stands, the other record takes the room's (got ${stated[0].material}, ${stated[1].material})`);
+
+    // The shoe mold answer belonged to a shoe coming off; a finish-only coat is a different question.
+    const finishing = carry(answered.claim, answered.extraction, office([baseboard({ action: "FINISH_ONLY" }), reset()])).extraction.rooms[0].baseboard;
+    check(finishing[0].shoeMold === null && finishing[1].shoeMold === true, "carry-over: the room's shoe mold coming off is not carried as a final coat");
+
+    // Two old records that said different things: asked again, not chosen between.
+    const twoHeights = runToCompletion(claim, office([torn({ material: "MDF" }), torn({ material: "SOLID_WOOD" })]), (q) =>
+      q.id === "room:0:baseboard:0:heightIn" ? "3" : q.id === "room:0:baseboard:1:heightIn" ? "5" : undefined,
+    );
+    check(twoHeights.extraction.rooms[0].baseboard.map((b) => b.heightIn).join() === "3,5", "carry-over: an MDF and a solid wood run were given their own heights");
+    const sameKinds = carry(twoHeights.claim, twoHeights.extraction, office([torn({ material: "MDF" }), torn({ material: "SOLID_WOOD" })])).extraction.rooms[0].baseboard;
+    check(sameKinds.map((b) => b.heightIn).join() === "3,5", `carry-over: read again with their materials, each keeps its own height (got ${sameKinds.map((b) => b.heightIn).join()})`);
+    const unsaidKinds = carry(twoHeights.claim, twoHeights.extraction, office([torn(), torn()])).extraction.rooms[0].baseboard;
+    check(unsaidKinds.every((b) => b.heightIn === null && b.material === null), "carry-over: read again without them, which height was whose is not knowable, so both are asked");
+  }
+
   /* ── Equipment ─────────────────────────────────────────────────────────────────────────────── */
 
   {

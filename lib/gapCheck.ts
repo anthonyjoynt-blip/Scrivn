@@ -329,7 +329,7 @@ export function evaluate(raw: WaterLossExtraction, suggestions?: EquipmentSugges
 
     // ---- Where floor meets wall ----
     questions.push(...baseboardCompletenessQuestions(roomIndex, room));
-    room.baseboard.forEach((b, i) => questions.push(...baseboardRecordQuestions(roomIndex, room.roomName, i, b)));
+    questions.push(...baseboardQuestions(roomIndex, room));
 
     // ---- Walls, and what is fixed to them ----
     room.walls.forEach((w, i) => questions.push(...wallQuestions(roomIndex, room.roomName, i, w, derived)));
@@ -966,22 +966,13 @@ function baseboardRecordQuestions(roomIndex: number, roomName: string, i: number
   */
   if (b.action === "FINISH_ONLY") {
     const finishing: GapCheckQuestion[] = [];
-    if (b.material === null)
-      finishing.push({
-        id: `${base}:material`, roomName, prompt: "What material is the baseboard?",
-        kind: { type: "choice", options: ["Solid wood", "Flat MDF", "MDF with profile", "Vinyl/PVC composite"] },
-      });
+    if (b.material === null) finishing.push(baseboardSpecQuestion(`${base}:material`, roomName, b, "material", null));
     /*
       The shoe gets its own coat or it does not, and both are ordinary. Asked in the finishing sense
       rather than the removal sense — nothing is coming off here, so "coming off with it" would be
-      the wrong question about the right field.
+      the wrong question about the right field. See `baseboardPrompt`.
     */
-    if (b.shoeMold === null)
-      finishing.push({
-        id: `${base}:shoeMold`, roomName,
-        prompt: "Does the shoe mold need its final coat too?",
-        kind: { type: "yesNo" },
-      });
+    if (b.shoeMold === null) finishing.push(baseboardSpecQuestion(`${base}:shoeMold`, roomName, b, "shoeMold", null));
     return finishing;
   }
 
@@ -994,28 +985,217 @@ function baseboardRecordQuestions(roomIndex: number, roomName: string, i: number
     quarter round either way. That is the case the whole field exists for: the shoe used to be
     dropped in silence, and it is a separate line with its own linear footage.
   */
-  if (b.shoeMold === null)
-    q.push({
-      id: `${base}:shoeMold`,
-      roomName,
-      prompt: "Is there shoe mold or quarter round coming off with this baseboard?",
-      kind: { type: "yesNo" },
-    });
+  if (b.shoeMold === null) q.push(baseboardSpecQuestion(`${base}:shoeMold`, roomName, b, "shoeMold", null));
   // Material and MDF's flat-vs-profile are one combined choice (round 6) — used to be two
   // sequential questions; folding the profile options directly into the material choice removes a
   // follow-up round without losing any information (see applyBaseboardAnswer's "material" case for
   // how one answer sets both material and mdfProfile at once).
-  if (b.material === null)
-    q.push({
-      id: `${base}:material`, roomName, prompt: "What material is the baseboard?",
-      kind: { type: "choice", options: ["Solid wood", "Flat MDF", "MDF with profile", "Vinyl/PVC composite"] },
-    });
+  if (b.material === null) q.push(baseboardSpecQuestion(`${base}:material`, roomName, b, "material", null));
   if (b.action === "REMOVE_AND_REPLACE") {
-    if (b.heightIn === null) q.push({ id: `${base}:heightIn`, roomName, prompt: "What height is the baseboard, in inches?", kind: { type: "decimal" } });
-    if (b.phase === null && b.phaseUncertain)
-      q.push({ id: `${base}:phase`, roomName, prompt: "For the baseboard, is this emergency work, repair, or both?", kind: { type: "choice", options: ["Emergency", "Repair", "Both"] } });
+    if (b.heightIn === null) q.push(baseboardSpecQuestion(`${base}:heightIn`, roomName, b, "heightIn", null));
+    const phase = baseboardPhaseQuestion(base, roomName, b);
+    if (phase) q.push(phase);
   }
   return q;
+}
+
+function baseboardPhaseQuestion(base: string, roomName: string, b: BaseboardRecord): GapCheckQuestion | null {
+  if (b.action !== "REMOVE_AND_REPLACE" || b.phase !== null || !b.phaseUncertain) return null;
+  return { id: `${base}:phase`, roomName, prompt: "For the baseboard, is this emergency work, repair, or both?", kind: { type: "choice", options: ["Emergency", "Repair", "Both"] } };
+}
+
+// ---- Baseboard facts a room's records share (2026-10-15) --------------------------------------
+
+/*
+  What the baseboard is made of, how tall the new one is, and whether shoe mold comes off with it are
+  facts about the room's baseboard, not about one record of it.
+
+  Extraction splits a room's baseboard by what happens to it — "tear out the affected baseboards on
+  the exterior wall" is one record, "detach and reset the remaining baseboards" another — and the
+  questions used to follow the records. The owner's office claim asked "What material is the
+  baseboard?" and the shoe mold question twice each, word for word, in one room: "unnecessary" and
+  "awkward". So each of these is asked once for the records that share it, and the answer lands on
+  every one of them.
+
+  Still asked record by record: the action, which is what tells the records apart in the first place,
+  and the phase. And a record whose material is already known keeps it — the room's question covers
+  only the records still without one.
+*/
+
+/** The baseboard facts asked once for the room, in the order they are asked — see `baseboardQuestions`. */
+const SHARED_BASEBOARD_FIELDS = ["shoeMold", "heightIn", "material"] as const;
+export type SharedBaseboardField = (typeof SHARED_BASEBOARD_FIELDS)[number];
+
+export function isSharedBaseboardField(field: string): field is SharedBaseboardField {
+  return (SHARED_BASEBOARD_FIELDS as readonly string[]).includes(field);
+}
+
+/**
+ * What a question about `field` means for this record, whether or not it is answered — null when the
+ * record is never asked it.
+ *
+ * Shoe mold means two things: coming off with the baseboard (replaced, or detached and reset), and its
+ * own final coat on a finish-only visit. An answer to one is not an answer to the other, so the two
+ * are never asked together. Height is a spec for new baseboard, so only a replacement has one; a
+ * shoe-mold-only job has no baseboard material to ask about.
+ */
+export function baseboardFieldSense(b: BaseboardRecord, field: SharedBaseboardField): string | null {
+  switch (field) {
+    case "material":
+      return b.action !== null && b.action !== "SHOE_MOLD_ONLY" ? "material" : null;
+    case "heightIn":
+      return b.action === "REMOVE_AND_REPLACE" ? "height" : null;
+    case "shoeMold":
+      if (b.action === "REMOVE_AND_REPLACE" || b.action === "DETACH_AND_RESET") return "removal";
+      return b.action === "FINISH_ONLY" ? "finish" : null;
+  }
+}
+
+/** The records in the room asked `field` in the same sense as `b`, answered or not. */
+function sameSenseRecords(room: Room, b: BaseboardRecord, field: SharedBaseboardField): BaseboardRecord[] {
+  const sense = baseboardFieldSense(b, field);
+  return sense === null ? [] : room.baseboard.filter((r) => baseboardFieldSense(r, field) === sense);
+}
+
+/**
+ * Which records one question about `field` covers: the record at `index` and every other one in the
+ * room still waiting on the same fact, in record order. Empty when the record is not asked it at all.
+ *
+ * The question is asked by the first of them and its answer is applied to all of them, so this is
+ * what both sides call — the engine to decide what to ask, `applyAnswer` to decide where it goes.
+ *
+ * Held to one record while any of the room's baseboards has no action yet. The action decides which
+ * facts a record is asked, and a question whose set of records moved when a neighbour's action was
+ * answered would change id under the PM's answer; `baseboardQuestions` holds the shared questions
+ * back until every action is known instead.
+ *
+ * Records known to be different baseboard — an MDF run and a solid wood one — do not share a height or
+ * a shoe mold answer; each material is asked on its own. That is decided only once every record it
+ * would cover has a material: the room's own material question is not answered yet while one is
+ * missing, and the room is then asked as one.
+ */
+export function baseboardQuestionRecords(room: Room, index: number, field: SharedBaseboardField): number[] {
+  const b = room.baseboard[index];
+  if (!b || baseboardFieldSense(b, field) === null || b[field] !== null) return [];
+  if (room.baseboard.some((r) => r.action === null)) return [index];
+  const sense = baseboardFieldSense(b, field);
+  let covers = room.baseboard.map((_, i) => i).filter((i) => {
+    const r = room.baseboard[i]!;
+    return baseboardFieldSense(r, field) === sense && r[field] === null;
+  });
+  if (field !== "material" && covers.every((i) => room.baseboard[i]!.material !== null)) {
+    covers = covers.filter((i) => room.baseboard[i]!.material === b.material);
+  }
+  return covers;
+}
+
+/**
+ * A room's baseboard questions: the action record by record, then each shared fact once.
+ *
+ * One record asks exactly what it always has. With several, a record still missing its action is asked
+ * that alone, and the rest wait for it — see `baseboardQuestionRecords`; on screen they follow the
+ * moment it is answered.
+ *
+ * Shoe mold and height come before the material on purpose. Answers are applied in this order, and a
+ * material answer can be what shows two records to be different baseboard: applied first, it would
+ * split a height the PM had just given for the whole room back into one per record.
+ */
+function baseboardQuestions(roomIndex: number, room: Room): GapCheckQuestion[] {
+  const records = room.baseboard;
+  const perRecord = (b: BaseboardRecord, i: number) => baseboardRecordQuestions(roomIndex, room.roomName, i, b);
+  if (records.length < 2) return records.flatMap(perRecord);
+  if (records.some((b) => b.action === null)) return records.flatMap((b, i) => (b.action === null ? perRecord(b, i) : []));
+
+  const q: GapCheckQuestion[] = [];
+  for (const field of SHARED_BASEBOARD_FIELDS) {
+    records.forEach((b, i) => {
+      const covers = baseboardQuestionRecords(room, i, field);
+      // Not asked, or asked already with an earlier record.
+      if (covers[0] !== i) return;
+      q.push(baseboardSpecQuestion(`room:${roomIndex}:baseboard:${i}:${field}`, room.roomName, b, field, sharedSubject(room, b, field, covers)));
+    });
+  }
+  records.forEach((b, i) => {
+    const phase = baseboardPhaseQuestion(`room:${roomIndex}:baseboard:${i}`, room.roomName, b);
+    if (phase) q.push(phase);
+  });
+  return q;
+}
+
+const BASEBOARD_MATERIAL_OPTIONS = ["Solid wood", "Flat MDF", "MDF with profile", "Vinyl/PVC composite"];
+
+const BASEBOARD_MATERIAL_WORD: Record<BaseboardMaterial, string> = {
+  SOLID_WOOD: "solid wood",
+  MDF: "MDF",
+  VINYL_PVC_COMPOSITE: "vinyl/PVC",
+};
+
+/** Who a shared question is about, as the prompt names them. Null is the one record of a room that has one. */
+interface BaseboardSubject {
+  words: string;
+  plural: boolean;
+}
+
+/**
+ * Names what a room's question covers, so the PM can tell which baseboard it is about.
+ *
+ * "This baseboard" said twice in one room is the awkwardness being fixed: two identical prompts with
+ * nothing to tell them apart. A question covering several records says "the baseboards in this room";
+ * one covering what is left after a record already answered says "the other"; and records known to
+ * be different materials are named by it.
+ */
+function sharedSubject(room: Room, b: BaseboardRecord, field: SharedBaseboardField, covers: number[]): BaseboardSubject | null {
+  const plural = covers.length > 1;
+  const s = plural ? "s" : "";
+  const where = field === "heightIn" ? "being replaced" : "in this room";
+  const alike = sameSenseRecords(room, b, field);
+  const waiting = alike.filter((r) => r[field] === null);
+  const materials = new Set(waiting.map((r) => r.material));
+  if (field !== "material" && !materials.has(null) && materials.size > 1 && b.material !== null) {
+    return { words: `the ${BASEBOARD_MATERIAL_WORD[b.material]} baseboard${s}`, plural };
+  }
+  if (alike.some((r) => r[field] !== null)) return { words: `the other baseboard${s} ${where}`, plural };
+  return plural ? { words: `the baseboards ${where}`, plural } : null;
+}
+
+/** One baseboard spec question. The single-record wording is the one every room with one baseboard has always seen. */
+function baseboardSpecQuestion(
+  id: string,
+  roomName: string,
+  b: BaseboardRecord,
+  field: SharedBaseboardField,
+  subject: BaseboardSubject | null,
+): GapCheckQuestion {
+  const is = subject?.plural ? "are" : "is";
+  switch (field) {
+    case "material":
+      return {
+        id, roomName,
+        prompt: subject ? `What material ${is} ${subject.words}?` : "What material is the baseboard?",
+        kind: { type: "choice", options: BASEBOARD_MATERIAL_OPTIONS },
+      };
+    case "heightIn":
+      return {
+        id, roomName,
+        prompt: subject ? `What height ${is} ${subject.words}, in inches?` : "What height is the baseboard, in inches?",
+        kind: { type: "decimal" },
+      };
+    case "shoeMold":
+      if (b.action === "FINISH_ONLY") {
+        return {
+          id, roomName,
+          prompt: subject ? `Does the shoe mold on ${subject.words} need its final coat too?` : "Does the shoe mold need its final coat too?",
+          kind: { type: "yesNo" },
+        };
+      }
+      return {
+        id, roomName,
+        prompt: subject
+          ? `Is there shoe mold or quarter round coming off with ${subject.words}?`
+          : "Is there shoe mold or quarter round coming off with this baseboard?",
+        kind: { type: "yesNo" },
+      };
+  }
 }
 
 // ---- Walls --------------------------------------------------------------------------------------
@@ -2150,7 +2330,22 @@ export function applyAnswer(extraction: WaterLossExtraction, questionId: string,
     return updateFlooring(extraction, roomIndex(parts), Number(parts[3]), (f) => applyFlooringAnswer(f, parts[4]!, answer));
   }
   if (parts.length >= 5 && parts[0] === "room" && parts[2] === "baseboard") {
-    return updateBaseboard(extraction, roomIndex(parts), Number(parts[3]), (b) => applyBaseboardAnswer(b, parts[4]!, answer));
+    const index = Number(parts[3]);
+    const field = parts[4]!;
+    /*
+      A fact the room's baseboards share was asked once, by the first record waiting on it, and lands
+      on every record that question covered — see `baseboardQuestionRecords`. A record that already
+      had its own answer was never one of them, so it is not overwritten.
+    */
+    const room = extraction.rooms[roomIndex(parts)];
+    const covers = room && isSharedBaseboardField(field) ? baseboardQuestionRecords(room, index, field) : [];
+    if (covers.length > 1) {
+      return updateRoom(extraction, roomIndex(parts), (r) => ({
+        ...r,
+        baseboard: r.baseboard.map((b, i) => (covers.includes(i) ? applyBaseboardAnswer(b, field, answer) : b)),
+      }));
+    }
+    return updateBaseboard(extraction, roomIndex(parts), index, (b) => applyBaseboardAnswer(b, field, answer));
   }
   if (parts.length >= 5 && parts[0] === "room" && parts[2] === "wall") {
     return updateWall(extraction, roomIndex(parts), Number(parts[3]), (w) => applyWallAnswer(w, parts[4]!, answer));
