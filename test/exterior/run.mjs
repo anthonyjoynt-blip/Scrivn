@@ -3114,5 +3114,116 @@ test("3D: the bump-out's lean-to meets the upper rear wall along a level line", 
   near(Math.max(...b.map((p) => p.y)), 10 + 5, "the lean-to's top on the wall");
 });
 
+console.log("\nthe roof from the photos: typed, then photos, then assumed (10-15)");
+
+/** A roof read ticked off a side's photo. */
+const photoRead = (pitch, over = "gable", more = {}) => ({ at: "2026-10-15T00:00:00Z", pitch, ...(pitch === null || pitch === undefined ? {} : { slopes: [pitch, pitch] }), over, ...more });
+/** [e] with [read] on the side [id]. */
+const withRead = (e, id, read) => ({ ...e, sides: e.sides.map((s) => (s.id === id ? { ...s, roofRead: read } : s)) });
+const allScope = { roofing: true, sides: [], soffitFascia: true, eavestrough: false };
+
+test("a gable's photo fills the pitch and the overhangs, and the scope says they are from photos", () => {
+  // 40 x 30, its ridge along the 40: the left side is a gable end. Nothing typed.
+  const e = { ...withRead(rect(40, 30), "left", photoRead(5, "gable", { rakeOverhangFeet: 22 / 12, eaveOverhangFeet: 2 })), scope: allScope };
+  const q = roofOf(e);
+  assert(q.pitch.source === "photos" && q.pitch.value === 5 && q.pitch.fromPhotos[0].name === "Left", JSON.stringify(q.pitch));
+  assert(q.roofing.pitchFromPhotos && q.roofing.overhangs.rake.source === "photos" && q.roofing.overhangs.eave.source === "photos", "from photos");
+  // The same roof as typed: 5/12, 2' eaves, 1'10" rakes.
+  const typed = roofOf(rect(40, 30, { pitch: 5, eaveOverhangFeet: 2, rakeOverhangFeet: 22 / 12 }));
+  near(q.roofing.squares, typed.roofing.squares, "the same squares as typed");
+  near(q.roofing.rakeFeet, typed.roofing.rakeFeet, "and rakes");
+  near(q.roofing.soffit.rakeSquareFeet, typed.roofing.soffit.rakeSquareFeet, "soffit at the photo's rake overhang");
+  const lines = x.exteriorScopeLines(e);
+  assert(/– 5\/12 \(from photos\) –/.test(lines.roofing[0]), lines.roofing[0]);
+  assert(lines.siding.some((l) => /at 2' overhang \(from photos\).*eaves/.test(l)) && lines.siding.some((l) => /at 1'10" overhang \(from photos\).*rakes/.test(l)), lines.siding.join(" | "));
+  // As typed, nothing is said: as it always was.
+  const typedLines = x.exteriorScopeLines({ ...rect(40, 30, { pitch: 5, eaveOverhangFeet: 2, rakeOverhangFeet: 22 / 12 }), scope: allScope });
+  assert(!typedLines.roofing[0].includes("from photos") && !typedLines.siding.some((l) => l.includes("from photos")), typedLines.roofing[0]);
+});
+
+test("what is typed wins over the photos; the photos over the phone's roofline and the defaults", () => {
+  const base = withRead(rect(40, 30), "left", photoRead(5, "gable", { rakeOverhangFeet: 22 / 12, eaveOverhangFeet: 2 }));
+  // The pitch typed: 6/12, and the plan says the photo read otherwise.
+  const pitched = { ...base, roof: { ...base.roof, pitch: 6 } };
+  assert(x.exteriorPitch(pitched).source === "typed" && x.exteriorPitch(pitched).value === 6, "typed pitch");
+  assert(x.photoNotes(pitched).some((n) => /typed at 6\/12, and that is used; the photos read 5\/12 \(Left\)/.test(n)), x.photoNotes(pitched).join(" | "));
+  // An overhang typed (said so) wins; so does one off the default from before 10-15, said nothing.
+  const typedRake = { ...base, roof: { ...base.roof, rakeOverhangFeet: 1.5, overhangSource: { rake: "typed" } } };
+  const r1 = x.resolvedOverhang(typedRake, "rake");
+  assert(r1.source === "typed" && r1.feet === 1.5, JSON.stringify(r1));
+  const legacy = { ...base, roof: { ...base.roof, rakeOverhangFeet: 1.5 } };
+  assert(x.resolvedOverhang(legacy, "rake").source === "typed", "off the default and unsaid: typed");
+  // The phone's roofline gives way to the photos, and stands where there are none.
+  const scanned = { ...base, roof: { ...base.roof, rakeOverhangFeet: 0.5, overhangSource: { rake: "scan" } } };
+  near(x.resolvedOverhang(scanned, "rake").feet, 22 / 12, "photos over the phone");
+  const scanOnly = { ...rect(40, 30), roof: { ...rect(40, 30).roof, rakeOverhangFeet: 0.5, overhangSource: { rake: "scan" } } };
+  const r2 = x.resolvedOverhang(scanOnly, "rake");
+  assert(r2.source === "scan" && r2.feet === 0.5, JSON.stringify(r2));
+  assert(x.exteriorScopeLines({ ...scanOnly, scope: allScope }).siding.some((l) => /at 0'6" overhang \(read by the phone\)/.test(l)), "said as the phone's");
+  // Nothing anywhere: the defaults, unsaid.
+  const plain = x.resolvedOverhang(rect(40, 30), "eave");
+  assert(plain.source === "default" && plain.feet === x.DEFAULT_EAVE_OVERHANG_FEET, JSON.stringify(plain));
+  // An Import of Scan's roofline marks its overhangs the phone's.
+  const imported = x.parseScanExterior(fixture("scan-exterior-v2-photos.json"), { scanId: "s" }).exterior;
+  // (This file's roofline has a peak on every side: rakes only.)
+  assert(imported.roof.overhangSource?.rake === "scan" && imported.roof.overhangSource?.eave === undefined, JSON.stringify(imported.roof.overhangSource));
+});
+
+test("a gable's photo set aside gives no pitch - not even off the gable's own peak", () => {
+  // The left gable measured by hand: up 7'6" over a half-span of 15', 6/12.
+  const measured = { ...rect(40, 30), sides: rect(40, 30).sides.map((s) => (s.id === "left" ? { ...s, gable: { peakFeet: 17.5, atFeet: 15 } } : s)) };
+  assert(x.exteriorPitch(measured).source === "sides" && Math.abs(x.exteriorPitch(measured).value - 6) < 1e-9, "the measured gable's 6/12");
+  // Its photo read 5/12, ticked: the photo's, not both.
+  const ticked = withRead(measured, "left", photoRead(5));
+  assert(x.exteriorPitch(ticked).source === "photos" && x.exteriorPitch(ticked).value === 5 && x.exteriorPitch(ticked).fromSides.length === 0, JSON.stringify(x.exteriorPitch(ticked)));
+  // Set aside: nothing from that side at all - assumed.
+  const aside = withRead(measured, "left", photoRead(null));
+  assert(x.exteriorPitch(aside).source === "assumed" && x.exteriorPitch(aside).value === x.ASSUMED_PITCH, JSON.stringify(x.exteriorPitch(aside)));
+});
+
+test("gable or hip at an end of the roof: the photo of that side, unless tapped on the plan", () => {
+  const e = withRead(withRead(rect(40, 30, { pitch: 6 }), "left", photoRead(undefined, "hip")), "right", photoRead(undefined, "eave"));
+  const plan = roofOf(e).roof;
+  assert(plan.ends.find((end) => end.sideId === "left").kind === "hip" && plan.ends.find((end) => end.sideId === "right").kind === "hip", JSON.stringify(plan.ends));
+  assert([...x.endsFromPhotos(e)].sort().join() === "left,right", "both from the photos");
+  // Tapped: the plan's word.
+  const tapped = { ...e, roof: { ...e.roof, ends: { left: "gable" } } };
+  assert(roofOf(tapped).roof.ends.find((end) => end.sideId === "left").kind === "gable", "tapped back to a gable");
+  assert([...x.endsFromPhotos(tapped)].join() === "right", "only the right from the photo now");
+});
+
+test("the garage's gable photo fills the garage's own pitch; the house's gable, the house's", () => {
+  // houseAndGarage: the main roof's gable ends are over left and right, the garage wing's over its front.
+  // (The helper types 12/12 unless told: nothing typed here.)
+  const e = { ...withRead(withRead(houseAndGarage({ pitch: null }), "left", photoRead(6)), "garageFront", photoRead(4)), scope: allScope };
+  const q = roofOf(e);
+  assert(q.pitch.source === "photos" && q.pitch.value === 6, JSON.stringify(q.pitch));
+  const wing = q.roof.sections.find((s) => s.key === "wing:garageFront");
+  assert(wing && wing.pitch === 4, JSON.stringify(wing && { key: wing.key, pitch: wing.pitch }));
+  // The same roof as typed part by part.
+  const typed = roofOf(houseAndGarage({ pitch: 6, sectionPitches: { "wing:garageFront": 4 } }));
+  near(q.roofing.squares, typed.roofing.squares, "the same squares as typed");
+  near(q.roofing.valleyFeet, typed.roofing.valleyFeet, "the same valleys");
+  const line = x.exteriorScopeLines(e).roofing[0];
+  assert(/6\/12 \(from photos\) on [\d.]+ SQ, 4\/12 \(from photos\) on [\d.]+ SQ/.test(line), line);
+  // The roof's pitch typed: every part's not set apart, the garage's photo too - and said.
+  const typedRoof = { ...e, roof: { ...e.roof, pitch: 5 } };
+  assert(roofOf(typedRoof).roof.sections.every((s) => s.pitch === 5), "typed over every part");
+  assert(x.photoNotes(typedRoof).some((n) => /photos read 6\/12 \(left\), 4\/12 \(garageFront\)/.test(n)), x.photoNotes(typedRoof).join(" | "));
+  // The garage's own pitch typed: that, over its photo.
+  const typedPart = { ...e, roof: { ...e.roof, sectionPitches: { "wing:garageFront": 3 } } };
+  assert(roofOf(typedPart).roof.sections.find((s) => s.key === "wing:garageFront").pitch === 3, "the part's typed pitch");
+});
+
+test("a gable photo off a side the roof has no gable end over: used for the main roof, and said", () => {
+  const e = withRead(rect(40, 30), "front", photoRead(5));
+  assert(x.photoPitches(e).unplaced.length === 1 && x.exteriorPitch(e).value === 5, JSON.stringify(x.photoPitches(e)));
+  assert(x.photoNotes(e).some((n) => /5\/12 \(Front\): the photo shows a gable, but the roof is drawn with no gable end over that side/.test(n)), x.photoNotes(e).join(" | "));
+  // Two photos of one roof that disagree are said; two overhang reads apart, likewise.
+  const two = withRead(withRead(rect(40, 30), "left", photoRead(5, "gable", { eaveOverhangFeet: 2 })), "right", photoRead(6, "gable", { eaveOverhangFeet: 1.5 }));
+  const notes = x.photoNotes(two);
+  assert(notes.some((n) => /gables' photos read 6\/12 \(Right\), 5\/12 \(Left\)/.test(n)) && notes.some((n) => /eave overhang 1'6" \(Right\), 2' \(Left\); the roof is drawn at 1'9"/.test(n)), notes.join(" | "));
+});
+
 console.log(`\n${passed.length} passed, ${failures.length} failed`);
 if (failures.length > 0) process.exit(1);

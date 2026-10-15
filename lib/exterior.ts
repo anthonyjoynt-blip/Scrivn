@@ -329,7 +329,7 @@ export interface ExteriorRoof {
   /**
    * Where each overhang came from when it is not the default (2026-10-15): typed on the plan, or read
    * by the phone off Scan's roofline. Absent from an exterior saved before then: a value off the
-   * default is taken as typed. The photos fill an overhang not typed (lib/roofFromPhotos.ts).
+   * default is taken as typed. The photos fill an overhang not typed (`resolvedOverhang`).
    */
   overhangSource?: { eave?: "typed" | "scan"; rake?: "typed" | "scan" };
   /** A rectangle's ridge runs parallel to this side; null = along the longer walls. */
@@ -1137,42 +1137,232 @@ export function upperFootprint(exterior: Exterior, main: Footprint): Footprint |
 }
 
 // ---------------------------------------------------------------------------------------------
+// The roof from the side photos (2026-10-15)
+// ---------------------------------------------------------------------------------------------
+
+/*
+  What the estimator ticked off each side's photo (`ExteriorSide.roofRead`, lib/roofPhotoRead.ts),
+  gathered into the roof's own numbers. The owner's rule: what is typed always wins, and the photos
+  win over anything assumed.
+    * PITCH, part by part: typed for that part, or for the roof; else the photo of that part's own
+      gable; else the photo of the main roof's gable; else a gable measured on the phone or by hand;
+      else `ASSUMED_PITCH`.
+    * OVERHANGS: typed; else the photos' reads, between them; else the phone's roofline; else the default.
+    * GABLE OR HIP at each end of the roof: typed (a tap on the plan); else that side's photo; else a gable.
+  A read set aside counts for nothing, and a gable whose photo pitch was set aside gives none off its peak.
+*/
+
+/** Where a number the roof is built with came from. */
+export type RoofSource = "typed" | "photos" | "scan" | "default";
+
+/** One side's ticked read, by name for the notes. */
+export interface PhotoRead<T> {
+  sideId: string;
+  name: string;
+  value: T;
+}
+
+/** Every read ticked off the sides' photos, by kind. */
+export interface PhotoReads {
+  pitches: PhotoRead<number>[];
+  rakeOverhangs: PhotoRead<number>[];
+  eaveOverhangs: PhotoRead<number>[];
+  ends: PhotoRead<"gable" | "hip" | "eave">[];
+}
+
+export function photoReads(exterior: Exterior): PhotoReads {
+  const out: PhotoReads = { pitches: [], rakeOverhangs: [], eaveOverhangs: [], ends: [] };
+  for (const side of allSides(exterior)) {
+    const r = side.roofRead;
+    if (!r) continue;
+    const at = { sideId: side.id, name: side.name.trim() || "Side" };
+    if (typeof r.pitch === "number" && Number.isFinite(r.pitch)) out.pitches.push({ ...at, value: r.pitch });
+    if (typeof r.rakeOverhangFeet === "number" && Number.isFinite(r.rakeOverhangFeet)) out.rakeOverhangs.push({ ...at, value: r.rakeOverhangFeet });
+    if (typeof r.eaveOverhangFeet === "number" && Number.isFinite(r.eaveOverhangFeet)) out.eaveOverhangs.push({ ...at, value: r.eaveOverhangFeet });
+    if (r.over) out.ends.push({ ...at, value: r.over });
+  }
+  return out;
+}
+
+const meanOf = (vs: number[]) => vs.reduce((s, v) => s + v, 0) / vs.length;
+
+/** An overhang as the roof is built with it, and where it came from. */
+export interface ResolvedOverhang {
+  feet: number;
+  source: RoofSource;
+  /** The photos' reads of it: what it was taken from, or what a typed value is set over. */
+  reads: PhotoRead<number>[];
+  /** How far apart the photos' reads are when more than 3": they are said to disagree. */
+  spread: number | null;
+}
+
+/** Photo reads of one overhang further apart than this (3") are said to disagree. */
+const PHOTO_OVERHANGS_AGREE_FEET = 3 / 12;
+
+/**
+ * An overhang's value and where it came from. Typed: said so (`overhangSource`), or - an exterior from
+ * before 2026-10-15 - off the default. Scan's roofline read ("scan") is under the photos.
+ */
+export function resolvedOverhang(exterior: Exterior, which: "eave" | "rake"): ResolvedOverhang {
+  const roof = exterior.roof;
+  const stored = which === "eave" ? roof.eaveOverhangFeet : roof.rakeOverhangFeet;
+  const fallback = which === "eave" ? DEFAULT_EAVE_OVERHANG_FEET : DEFAULT_RAKE_OVERHANG_FEET;
+  const said = roof.overhangSource?.[which];
+  const reads = photoReads(exterior)[which === "eave" ? "eaveOverhangs" : "rakeOverhangs"];
+  const values = reads.map((r) => r.value);
+  const apart = values.length > 1 ? Math.max(...values) - Math.min(...values) : 0;
+  const spread = apart > PHOTO_OVERHANGS_AGREE_FEET ? apart : null;
+  if (said === "typed" || (said === undefined && Math.abs(stored - fallback) > 1e-6)) return { feet: Math.max(0, stored), source: "typed", reads, spread };
+  if (reads.length > 0) return { feet: meanOf(values), source: "photos", reads, spread };
+  if (said === "scan") return { feet: Math.max(0, stored), source: "scan", reads, spread: null };
+  return { feet: fallback, source: "default", reads, spread: null };
+}
+
+/**
+ * Each end of the roof by the side it stands over: typed (a tap on the plan) over the photos, which
+ * say gable, or hip - a level wall top with the roof sloping up from it is a hip end wherever the
+ * roof has an end over that side. The roof passes over any side that is no end of it.
+ */
+export function resolvedEnds(exterior: Exterior): Record<string, RoofEndKind> {
+  const fromPhotos: Record<string, RoofEndKind> = {};
+  for (const r of photoReads(exterior).ends) fromPhotos[r.sideId] = r.value === "gable" ? "gable" : "hip";
+  return { ...fromPhotos, ...exterior.roof.ends };
+}
+
+/** The sides whose end of the roof the photos set: read off the photo, not typed. */
+export function endsFromPhotos(exterior: Exterior): Set<string> {
+  return new Set(photoReads(exterior).ends.filter((r) => !(r.sideId in exterior.roof.ends)).map((r) => r.sideId));
+}
+
+/** The gable photos' pitches, each on the part of the roof whose gable it is. */
+export interface PhotoPitches {
+  /** The main roof's own gables'. */
+  main: PhotoRead<number>[];
+  /** Every other part's, by its key (`RoofSection.key`): a wing, a cross gable. */
+  sections: Record<string, PhotoRead<number>[]>;
+  /** Off sides that are no gable end of the roof as drawn: taken for the main roof, and said. */
+  unplaced: PhotoRead<number>[];
+}
+
+const photoPitchCache = new WeakMap<Exterior, PhotoPitches>();
+
+/**
+ * Which part of the roof each gable photo is of: the part with a gable end over that side (built
+ * once at any pitch: which part stands over which side is all that is wanted), or the cross gable
+ * on it. Kept against the exterior, which is never changed in place.
+ */
+export function photoPitches(exterior: Exterior): PhotoPitches {
+  const cached = photoPitchCache.get(exterior);
+  if (cached) return cached;
+  const reads = photoReads(exterior).pitches;
+  const out: PhotoPitches = { main: [], sections: {}, unplaced: [] };
+  if (reads.length > 0) {
+    const footprint = exteriorFootprint(exterior);
+    const plan = footprint.closes ? buildRoof(roofInputBase(exterior, footprint, exterior.roof.pitch ?? meanOf(reads.map((r) => r.value)))) : null;
+    for (const r of reads) {
+      const cross = (exterior.roof.additions ?? []).find((a) => a.kind === "gable" && a.sideId === r.sideId);
+      const section = plan?.sections.find((s) => (s.loSide === r.sideId && s.lo === "gable") || (s.hiSide === r.sideId && s.hi === "gable"));
+      const key = cross ? cross.id : (section?.key ?? null);
+      if (key === null) out.unplaced.push(r);
+      else if (key === "main") out.main.push(r);
+      else (out.sections[key] ??= []).push(r);
+    }
+  }
+  photoPitchCache.set(exterior, out);
+  return out;
+}
+
+/**
+ * The parts' pitches the photos give, by key - none of them for the main roof, nor while the roof's
+ * pitch is typed (it is every part's not set apart), nor where a part's own is typed.
+ */
+export function photoSectionPitches(exterior: Exterior): Record<string, number> {
+  if (exterior.roof.pitch !== null && exterior.roof.pitch >= 0) return {};
+  const typed = exterior.roof.sectionPitches ?? {};
+  const out: Record<string, number> = {};
+  for (const [key, reads] of Object.entries(photoPitches(exterior).sections)) if (!(key in typed)) out[key] = meanOf(reads.map((r) => r.value));
+  return out;
+}
+
+/** Where a number came from, after it on the scope: nothing when typed or the default, as always. */
+export function sourceNote(source: RoofSource): string {
+  return source === "photos" ? " (from photos)" : source === "scan" ? " (read by the phone)" : "";
+}
+
+/** What the plan says of the photos' reads: where they disagree, and where something typed is set over them. */
+export function photoNotes(exterior: Exterior): string[] {
+  const notes: string[] = [];
+  const list = (rs: PhotoRead<number>[], f: (v: number) => string) => rs.map((r) => `${f(r.value)} (${r.name})`).join(", ");
+  const pp = photoPitches(exterior);
+  const main = pp.main.length > 0 ? pp.main : pp.unplaced;
+  if (main.length > 1 && Math.max(...main.map((r) => r.value)) - Math.min(...main.map((r) => r.value)) > 0.5) {
+    notes.push(`The gables' photos read ${list(main, formatPitch)}: if they are one roof, check them, or give each part its own pitch (Pitch, on the plan).`);
+  }
+  if (pp.unplaced.length > 0) {
+    notes.push(`${list(pp.unplaced, formatPitch)}: the photo shows a gable, but the roof is drawn with no gable end over ${pp.unplaced.length === 1 ? "that side" : "those sides"}. Check the ridge's direction, or the gable or hip at each end.`);
+  }
+  const typedPitch = exterior.roof.pitch !== null && exterior.roof.pitch >= 0 ? exterior.roof.pitch : null;
+  if (typedPitch !== null) {
+    const all = [...pp.main, ...pp.unplaced, ...Object.values(pp.sections).flat()];
+    const off = all.filter((r) => Math.abs(r.value - typedPitch) > 0.25);
+    if (off.length > 0) notes.push(`The pitch is typed at ${formatPitch(typedPitch)}, and that is used; the photos read ${list(off, formatPitch)}. Give a part its own pitch on the plan to use its photo's.`);
+  }
+  for (const which of ["eave", "rake"] as const) {
+    const o = resolvedOverhang(exterior, which);
+    if (o.source === "photos" && o.spread !== null) notes.push(`The photos read the ${which} overhang ${list(o.reads, formatFeetInches)}; the roof is drawn at ${formatFeetInches(o.feet)} between them. Set aside the read that is off, on its side, or type it.`);
+    if (o.source === "typed" && o.reads.length > 0 && Math.abs(meanOf(o.reads.map((r) => r.value)) - o.feet) > PHOTO_OVERHANGS_AGREE_FEET) {
+      notes.push(`The ${which} overhang is typed at ${formatFeetInches(o.feet)}; the photos read ${list(o.reads, formatFeetInches)}.`);
+    }
+  }
+  return notes;
+}
+
+// ---------------------------------------------------------------------------------------------
 // Pitch, roof and everything together
 // ---------------------------------------------------------------------------------------------
 
 export interface PitchReading {
   /** Never null since 2026-10-13: with nothing typed or measured it is `ASSUMED_PITCH`. */
   value: number | null;
-  source: "typed" | "sides" | "assumed" | null;
-  /** Each side with a measured gable, and the pitch it gives. */
+  source: "typed" | "photos" | "sides" | "assumed" | null;
+  /** Each side with a gable measured on the phone or by hand, and the pitch it gives - not one read off its photo. */
   fromSides: { sideId: string; name: string; pitch: number }[];
+  /** The gable photos the main roof's pitch is read off (2026-10-15). */
+  fromPhotos: PhotoRead<number>[];
 }
 
 /**
- * The pitch the roof is built at: as typed, else the mean of what the measured gables give, else
- * `ASSUMED_PITCH` - so the roof is there as soon as the footprint closes, said to be assumed.
+ * The pitch the main roof is built at: as typed, else the photos of its gables, else the mean of what
+ * the measured gables give, else `ASSUMED_PITCH` - so the roof is there as soon as the footprint
+ * closes, said to be assumed. A side whose photo was read for the roof gives its pitch as a photo, or
+ * - set aside - none at all.
  */
 export function exteriorPitch(exterior: Exterior): PitchReading {
   const fromSides = allSides(exterior)
+    .filter((side) => side.roofRead?.pitch === undefined)
     .map((side) => ({ side, q: sideQuantities(side) }))
     .filter(({ q }) => q.pitchFromGable !== null)
     .map(({ side, q }) => ({ sideId: side.id, name: side.name, pitch: q.pitchFromGable as number }));
-  if (exterior.roof.pitch !== null && exterior.roof.pitch >= 0) return { value: exterior.roof.pitch, source: "typed", fromSides };
-  if (fromSides.length > 0) return { value: fromSides.reduce((s, f) => s + f.pitch, 0) / fromSides.length, source: "sides", fromSides };
-  return { value: ASSUMED_PITCH, source: "assumed", fromSides };
+  const pp = photoPitches(exterior);
+  const fromPhotos = pp.main.length > 0 ? pp.main : pp.unplaced;
+  if (exterior.roof.pitch !== null && exterior.roof.pitch >= 0) return { value: exterior.roof.pitch, source: "typed", fromSides, fromPhotos };
+  if (fromPhotos.length > 0) return { value: meanOf(fromPhotos.map((r) => r.value)), source: "photos", fromSides, fromPhotos };
+  if (fromSides.length > 0) return { value: fromSides.reduce((s, f) => s + f.pitch, 0) / fromSides.length, source: "sides", fromSides, fromPhotos };
+  return { value: ASSUMED_PITCH, source: "assumed", fromSides, fromPhotos };
 }
 
-export function roofInput(exterior: Exterior, footprint: Footprint, pitch: number): RoofInput {
+/** The roof's input with everything but the photos' part pitches: what tells which part is over which side. */
+function roofInputBase(exterior: Exterior, footprint: Footprint, pitch: number): RoofInput {
   const upper = upperFootprint(exterior, footprint);
   return {
     ...(upper?.closes ? { upper: { corners: upper.corners, sideIds: upper.sideIds }, lowerRoofKinds: exterior.roof.lowerRoofs ?? {} } : {}),
     corners: footprint.corners,
     sideIds: footprint.sideIds,
     pitch,
-    eaveOverhangFeet: Math.max(0, exterior.roof.eaveOverhangFeet),
-    rakeOverhangFeet: Math.max(0, exterior.roof.rakeOverhangFeet),
+    eaveOverhangFeet: resolvedOverhang(exterior, "eave").feet,
+    rakeOverhangFeet: resolvedOverhang(exterior, "rake").feet,
     ridgeAlong: exterior.roof.ridgeAlong,
-    ends: exterior.roof.ends,
+    ends: resolvedEnds(exterior),
     sectionPitches: exterior.roof.sectionPitches ?? {},
     additions: exterior.roof.additions ?? [],
     lowerWings: exterior.roof.lowerWings ?? [],
@@ -1180,6 +1370,13 @@ export function roofInput(exterior: Exterior, footprint: Footprint, pitch: numbe
     coveredNotches: exterior.roof.coveredNotches ?? [],
     sideNames: Object.fromEntries(allSides(exterior).map((s) => [s.id, s.name.trim() || "Side"])),
   };
+}
+
+/** The roof's input: the overhangs and ends as typed, else read off the photos; each part's pitch as typed, else its gable photo's. */
+export function roofInput(exterior: Exterior, footprint: Footprint, pitch: number): RoofInput {
+  const base = roofInputBase(exterior, footprint, pitch);
+  const fromPhotos = photoSectionPitches(exterior);
+  return Object.keys(fromPhotos).length > 0 ? { ...base, sectionPitches: { ...fromPhotos, ...base.sectionPitches } } : base;
 }
 
 export interface CladdingTotal {
@@ -1209,6 +1406,8 @@ export interface RoofingQuantities {
   pitch: number;
   /** Neither typed nor given by a measured gable: `ASSUMED_PITCH`, and asked for. */
   pitchAssumed: boolean;
+  /** The main roof's pitch read off its gables' photos (2026-10-15): said on the scope. */
+  pitchFromPhotos: boolean;
   pitchFactor: number;
   material: RoofMaterial | null;
   slopes: SlopeQuantity[];
@@ -1239,7 +1438,7 @@ export interface RoofingQuantities {
    * The squares being roofed by pitch, steepest first - one entry for a roof of one pitch. A typed
    * area is shared out as the drawing's slopes are; with no drawing, all of it at the roof's pitch.
    */
-  byPitch: { pitch: number; areaSquareFeet: number; squares: number; assumed: boolean }[];
+  byPitch: { pitch: number; areaSquareFeet: number; squares: number; assumed: boolean; fromPhotos: boolean }[];
   /** The steep charge band by band, on the squares of the slopes in each. */
   steepBands: { band: string; squares: number }[];
   /**
@@ -1265,6 +1464,8 @@ export interface RoofingQuantities {
     elbows: number;
   };
   soffit: { eaveFeet: number; rakeFeet: number; eaveSquareFeet: number; rakeSquareFeet: number };
+  /** The overhangs the soffit is priced at, and where each came from (2026-10-15). */
+  overhangs: { eave: ResolvedOverhang; rake: ResolvedOverhang };
   fasciaFeet: number;
   /** What is still to be answered before each part can be priced: never taken as a no. */
   toAnswer: { roofing: string[]; eavestrough: string[]; soffitFascia: string[] };
@@ -1301,7 +1502,11 @@ function sideEave(side: ExteriorSide | undefined): number | null {
 export function roofingQuantities(exterior: Exterior, roof: RoofPlan | null, pitch: PitchReading = exteriorPitch(exterior)): RoofingQuantities {
   const R = exterior.roof;
   const pitchAssumed = pitch.source === "assumed";
+  const pitchFromPhotos = pitch.source === "photos";
   const roofPitch = roof?.pitch ?? pitch.value ?? ASSUMED_PITCH;
+  // The pitches the photos gave: the main roof's, and each part's whose own was read off its gable.
+  const photoPitchValues = [...(pitchFromPhotos ? [roofPitch] : []), ...Object.values(photoSectionPitches(exterior))];
+  const overhangs = { eave: resolvedOverhang(exterior, "eave"), rake: resolvedOverhang(exterior, "rake") };
   const sideById = new Map(exterior.sides.map((s) => [s.id, s]));
   const slopeChosen = (key: string) => R.slopes == null || R.slopes.includes(key);
   const facets = roof?.facets ?? [];
@@ -1426,7 +1631,13 @@ export function roofingQuantities(exterior: Exterior, roof: RoofPlan | null, pit
   const drawnArea = [...pitchArea.values()].reduce((a, b) => a + b, 0);
   const share = drawnArea > 0 ? value.squareFeet / drawnArea : 0;
   const byPitch = [...pitchArea.entries()]
-    .map(([p, a]) => ({ pitch: p, areaSquareFeet: a * share, squares: (a * share) / 100, assumed: pitchAssumed && Math.abs(p - roofPitch) < 1e-6 }))
+    .map(([p, a]) => ({
+      pitch: p,
+      areaSquareFeet: a * share,
+      squares: (a * share) / 100,
+      assumed: pitchAssumed && Math.abs(p - roofPitch) < 1e-6,
+      fromPhotos: photoPitchValues.some((v) => Math.abs(p - Math.round(v * 100) / 100) < 1e-6),
+    }))
     .filter((b) => b.areaSquareFeet > 1e-9 || pitchArea.size === 1)
     .sort((a, b) => b.pitch - a.pitch);
   const upperArea = noSlopes ? 0 : chosenSlopes.filter((x) => facets.find((f) => f.key === x.key && (f.section === null ? f.layer === 0 : upperKeys.has(f.section)))).reduce((a, x) => a + x.areaSquareFeet, 0);
@@ -1443,6 +1654,7 @@ export function roofingQuantities(exterior: Exterior, roof: RoofPlan | null, pit
   return {
     pitch: roofPitch,
     pitchAssumed,
+    pitchFromPhotos,
     pitchFactor: roof?.pitchFactor ?? pitchFactor(roofPitch),
     material,
     slopes,
@@ -1482,9 +1694,10 @@ export function roofingQuantities(exterior: Exterior, roof: RoofPlan | null, pit
     soffit: {
       eaveFeet: soffitEave,
       rakeFeet: soffitRake,
-      eaveSquareFeet: soffitEave * Math.max(0, R.eaveOverhangFeet),
-      rakeSquareFeet: soffitRake * Math.max(0, R.rakeOverhangFeet),
+      eaveSquareFeet: soffitEave * Math.max(0, overhangs.eave.feet),
+      rakeSquareFeet: soffitRake * Math.max(0, overhangs.rake.feet),
     },
+    overhangs,
     fasciaFeet: soffitEave + soffitRake,
     toAnswer: {
       roofing: roofingQs,
@@ -1675,10 +1888,12 @@ export function exteriorScopeLines(exterior: Exterior | undefined): ExteriorScop
     const which = r.from.squareFeet === "estimator" || !r.drawn ? "" : ` (${r.allSlopes ? "all slopes" : `slope${chosen.length === 1 ? "" : "s"} ${chosen.map((s) => s.label).join(", ")}`})`;
     const metal = r.material === "metal";
     // One pitch, said once; several, each with the squares at it.
+    // Where a pitch came from when it wasn't typed: assumed, or read off a gable's photo (2026-10-15).
+    const pitchFrom = (assumed: boolean, photos: boolean) => (assumed ? " (assumed, to confirm)" : photos ? sourceNote("photos") : "");
     const pitches =
       r.byPitch.length > 1
-        ? r.byPitch.map((b) => `${formatPitch(b.pitch)}${b.assumed ? " (assumed, to confirm)" : ""} on ${b.squares.toFixed(2)} SQ`).join(", ")
-        : `${formatPitch(r.byPitch[0]?.pitch ?? r.pitch)}${r.pitchAssumed ? " (assumed, to confirm)" : ""}`;
+        ? r.byPitch.map((b) => `${formatPitch(b.pitch)}${pitchFrom(b.assumed, b.fromPhotos)} on ${b.squares.toFixed(2)} SQ`).join(", ")
+        : `${formatPitch(r.byPitch[0]?.pitch ?? r.pitch)}${pitchFrom(r.pitchAssumed, r.byPitch[0]?.fromPhotos ?? r.pitchFromPhotos)}`;
     out.roofing.push(`Remove & replace roofing – ${r.material ? ROOF_MATERIAL_LABEL[r.material] : "material to confirm"} – ${pitches} – ${sq}${which}${sqFrom}`);
     // Steep is charged on the squares at a steep pitch: all of them on a roof of one pitch.
     for (const band of r.steepBands) out.roofing.push(`Steep roof charge – ${band.band} – ${r.byPitch.length > 1 && sqKnown ? `${band.squares.toFixed(2)} SQ` : sq}${sqFrom}`);
@@ -1749,10 +1964,10 @@ export function exteriorScopeLines(exterior: Exterior | undefined): ExteriorScop
   if (scope?.soffitFascia && r) {
     const material = R.soffitMaterial ?? "material to confirm";
     if (r.soffit.eaveFeet > 0) {
-      out.siding.push(`Remove & replace soffit – ${material} – ${num(r.soffit.eaveFeet)} LF at ${formatFeetInches(R.eaveOverhangFeet)} overhang (${num(r.soffit.eaveSquareFeet)} SF) – eaves${edgeFrom(r.edgesFrom.eave)}`);
+      out.siding.push(`Remove & replace soffit – ${material} – ${num(r.soffit.eaveFeet)} LF at ${formatFeetInches(r.overhangs.eave.feet)} overhang${sourceNote(r.overhangs.eave.source)} (${num(r.soffit.eaveSquareFeet)} SF) – eaves${edgeFrom(r.edgesFrom.eave)}`);
     }
     if (r.soffit.rakeFeet > 0) {
-      out.siding.push(`Remove & replace soffit – ${material} – ${num(r.soffit.rakeFeet)} LF at ${formatFeetInches(R.rakeOverhangFeet)} overhang (${num(r.soffit.rakeSquareFeet)} SF) – rakes${edgeFrom(r.edgesFrom.rake)}`);
+      out.siding.push(`Remove & replace soffit – ${material} – ${num(r.soffit.rakeFeet)} LF at ${formatFeetInches(r.overhangs.rake.feet)} overhang${sourceNote(r.overhangs.rake.source)} (${num(r.soffit.rakeSquareFeet)} SF) – rakes${edgeFrom(r.edgesFrom.rake)}`);
     }
     if (r.fasciaFeet > 0) {
       out.siding.push(`Remove & replace fascia – ${material} – ${num(r.fasciaFeet)} LF (eaves + rakes)${edgeFrom(sourceOfParts([r.soffit.eaveFeet, r.edgesFrom.eave], [r.soffit.rakeFeet, r.edgesFrom.rake]))}`);
