@@ -616,6 +616,11 @@ export interface Exterior {
     edited?: boolean;
     /** False when the phone's walk did not go all the way round: its sides are not yet a footprint. */
     walkClosed?: boolean;
+    /**
+     * Finish exterior on the phone (2026-10-15, lib/exteriorFinish.ts): when the roof was read off the
+     * photos there, when the estimator accepted it, and the Scrivn build the phone ran.
+     */
+    finish?: { at: string | null; acceptedAt: string | null; engine: string | null };
   };
 }
 
@@ -2410,7 +2415,7 @@ export function reportPitchFlags(report: RoofReport, check: PhotoRoofCheck | nul
 // ---------------------------------------------------------------------------------------------
 
 /** Siding that goes on over a wrap and is trimmed round its openings; stucco, EIFS, brick and stone are not. */
-const SIDING_KINDS: CladdingKind[] = ["vinyl", "wood_shake", "wood", "fibre_cement", "metal"];
+export const SIDING_KINDS: CladdingKind[] = ["vinyl", "wood_shake", "wood", "fibre_cement", "metal"];
 
 export interface ExteriorScopeLines {
   /** For the roofer. */

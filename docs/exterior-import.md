@@ -52,6 +52,7 @@ Ticking what is in scope doesn't count as a change.
 | `scale`, `taped` | `exterior.scale` (lib/exteriorScale.ts): the sizes are from the tape on side `taped.side` (`taped.metres`), the phone's own read of it being the tape over `scale` (already applied by Scan); from the phone's own measure when there is no tape. The editor says which, and flags the two more than 3% apart. |
 | `capture_id` | kept on `exterior.source` |
 | `roof` (optional) | `pitch_in_12` (or `pitch_12`), `eave_overhang_m`, `rake_overhang_m`; these win over the roofline's overhangs |
+| `finish` (optional, Scan 2026-10-15) | Finish exterior on the phone (`lib/exteriorFinish.ts`, docs/exterior-report.md): each side's roof read off its photos (`sides`, by Scan's side index, put on only while the side still has the photos it was read from), the pitch typed (`pitch`) and the ends switched (`ends`) on the phone, and when the estimator accepted it (`acceptedAt`). They land as `side.roofRead`, `roof.pitch` and `roof.ends`, as if read and typed in the editor, so the claim's roof is the one the phone showed and no photo is traced twice. |
 | `footprint`, `footprint_xy`, `links`, `taps`, `frame` | not read. Scrivn rebuilds the footprint from `length_m` and the corner flags, squared to 90°, and shares any closing gap over the sides by length. |
 
 ## A side

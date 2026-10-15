@@ -1,0 +1,772 @@
+{
+ "4": {
+  "side": "Front 3",
+  "photo": "garage_front",
+  "frame": {
+   "alongMinM": -3.7416439779460413,
+   "alongMaxM": 5.034593902276778,
+   "upMinM": 0.009926511058762688,
+   "upMaxM": 5.253728644491898,
+   "ppm": 273.4656959798663,
+   "width": 2400,
+   "height": 1434
+  },
+  "wire": {
+   "materials": [
+    {
+     "material": "stucco",
+     "polygon": [
+      [
+       1023,
+       370
+      ],
+      [
+       1565,
+       172
+      ],
+      [
+       2000,
+       352
+      ],
+      [
+       2111,
+       392
+      ],
+      [
+       2111,
+       1359
+      ],
+      [
+       1023,
+       1344
+      ]
+     ],
+     "partly_hidden_by": "left stucco column and its small porch roof at the left end, right porch roof over the top-right corner, wall lights, blue hand-drawn annotation"
+    }
+   ],
+   "openings": [
+    {
+     "kind": "garage_door",
+     "left": 1143,
+     "right": 1950,
+     "top": 640,
+     "bottom": 1354,
+     "measured_to": "door_itself",
+     "partly_hidden_by": "blue hand-drawn '9'' measurement annotation drawn over lower panels"
+    }
+   ],
+   "wall_top": [
+    [
+     1023,
+     370
+    ],
+    [
+     1565,
+     172
+    ],
+    [
+     2000,
+     352
+    ],
+    [
+     2111,
+     392
+    ]
+   ],
+   "off_wall": [
+    {
+     "what": "left stucco column",
+     "box": [
+      896,
+      490,
+      1030,
+      1325
+     ]
+    },
+    {
+     "what": "left small porch roof / soffit",
+     "box": [
+      725,
+      405,
+      1182,
+      505
+     ]
+    },
+    {
+     "what": "right stucco column",
+     "box": [
+      2115,
+      480,
+      2262,
+      1335
+     ]
+    },
+    {
+     "what": "right small porch roof / soffit",
+     "box": [
+      1998,
+      350,
+      2400,
+      492
+     ]
+    },
+    {
+     "what": "left wall light",
+     "box": [
+      1020,
+      648,
+      1064,
+      738
+     ]
+    },
+    {
+     "what": "right wall light",
+     "box": [
+      2082,
+      638,
+      2150,
+      728
+     ]
+    },
+    {
+     "what": "blue hand-drawn annotation",
+     "box": [
+      1118,
+      985,
+      1993,
+      1315
+     ]
+    }
+   ],
+   "roof": {
+    "over_wall": "gable",
+    "rake_left": [
+     [
+      785,
+      418
+     ],
+     [
+      1000,
+      340
+     ],
+     [
+      1250,
+      250
+     ],
+     [
+      1500,
+      158
+     ],
+     [
+      1662,
+      98
+     ]
+    ],
+    "rake_right": [
+     [
+      1662,
+      98
+     ],
+     [
+      1900,
+      190
+     ],
+     [
+      2150,
+      290
+     ],
+     [
+      2398,
+      382
+     ]
+    ],
+    "eave_line": [],
+    "left_end": {
+     "kind": "rake_foot",
+     "point": [
+      785,
+      418
+     ]
+    },
+    "right_end": {
+     "kind": "out_of_photo",
+     "point": []
+    },
+    "notes": "Left rake soffit is seen almost edge-on, so its fascia bottom edge is close to the wall-top line; right rake soffit shows wide. Right rake foot runs to the image edge at x=2400. Left rake foot sits behind/over the small porch roof; corner estimated."
+   },
+   "notes": "Wall-top line left of about x=1180 is partly hidden by the small porch roof and column, and right of x=2000 by the right porch roof; those segments are extrapolated along the gable slope. White textured stucco surround around the garage door is traced as part of the stucco. A thin concrete foundation strip shows near the bottom at both ends (about 1-3 cm), not traced separately. Blue drawing over the door is an annotation, not part of the house."
+  },
+  "model": "claude-opus-5-5",
+  "usage": {
+   "inputTokens": 7655,
+   "outputTokens": 2459,
+   "cacheCreationTokens": 0,
+   "cacheReadTokens": 0
+  },
+  "costUsd": 0.0798,
+  "recorded": "2026-10-14, the roof-from-photos session's paid run on the owner's 10-12 photo",
+  "scale": {
+   "k": 1.0702729122222951,
+   "offUpM": 0.311,
+   "photoScale": "the owner's 9'0\" tape on the right garage door"
+  },
+  "camera": {
+   "alongM": -1.8968151676802694,
+   "upM": 1.773607869933332,
+   "distanceM": 7.567499339243742
+  }
+ },
+ "6": {
+  "side": "Rear",
+  "photo": "rear_bumpout",
+  "frame": {
+   "alongMinM": -2.2578324999999997,
+   "alongMaxM": 8.2031675,
+   "upMinM": -0.6058237499999999,
+   "upMaxM": 7.858868749999999,
+   "ppm": 229.42357327215373,
+   "width": 2400,
+   "height": 1942
+  },
+  "wire": {
+   "materials": [
+    {
+     "material": "stucco",
+     "polygon": [
+      [
+       518,
+       728
+      ],
+      [
+       1312,
+       385
+      ],
+      [
+       2118,
+       735
+      ],
+      [
+       2118,
+       1785
+      ],
+      [
+       518,
+       1785
+      ]
+     ],
+     "partly_hidden_by": "downspouts at both ends, ornamental grasses, round shrub, garden hose and reel, wires, landscape light"
+    }
+   ],
+   "openings": [
+    {
+     "kind": "window",
+     "left": 547,
+     "right": 990,
+     "top": 772,
+     "bottom": 1168,
+     "measured_to": "outer_trim",
+     "partly_hidden_by": ""
+    },
+    {
+     "kind": "window",
+     "left": 1296,
+     "right": 1798,
+     "top": 777,
+     "bottom": 1096,
+     "measured_to": "outer_trim",
+     "partly_hidden_by": ""
+    },
+    {
+     "kind": "window",
+     "left": 834,
+     "right": 1342,
+     "top": 1495,
+     "bottom": 1787,
+     "measured_to": "outer_trim",
+     "partly_hidden_by": ""
+    }
+   ],
+   "wall_top": [
+    [
+     518,
+     728
+    ],
+    [
+     1312,
+     385
+    ],
+    [
+     2118,
+     735
+    ]
+   ],
+   "off_wall": [
+    {
+     "what": "left downspout",
+     "box": [
+      495,
+      780,
+      518,
+      1700
+     ]
+    },
+    {
+     "what": "right downspout and elbow",
+     "box": [
+      2038,
+      760,
+      2280,
+      1690
+     ]
+    },
+    {
+     "what": "ornamental grass left",
+     "box": [
+      400,
+      1530,
+      720,
+      1840
+     ]
+    },
+    {
+     "what": "round shrub",
+     "box": [
+      1385,
+      1635,
+      1615,
+      1800
+     ]
+    },
+    {
+     "what": "ornamental grass right",
+     "box": [
+      1720,
+      1520,
+      1960,
+      1840
+     ]
+    },
+    {
+     "what": "garden hose and reel",
+     "box": [
+      1990,
+      1370,
+      2220,
+      1625
+     ]
+    },
+    {
+     "what": "hanging wires",
+     "box": [
+      2045,
+      1045,
+      2110,
+      1150
+     ]
+    },
+    {
+     "what": "landscape light",
+     "box": [
+      1960,
+      1710,
+      1990,
+      1790
+     ]
+    },
+    {
+     "what": "fallen downspout extension",
+     "box": [
+      210,
+      1715,
+      500,
+      1875
+     ]
+    }
+   ],
+   "roof": {
+    "over_wall": "gable",
+    "rake_left": [
+     [
+      228,
+      725
+     ],
+     [
+      450,
+      633
+     ],
+     [
+      680,
+      538
+     ],
+     [
+      910,
+      443
+     ],
+     [
+      1130,
+      352
+     ],
+     [
+      1230,
+      310
+     ]
+    ],
+    "rake_right": [
+     [
+      1230,
+      310
+     ],
+     [
+      1450,
+      401
+     ],
+     [
+      1680,
+      495
+     ],
+     [
+      1910,
+      590
+     ],
+     [
+      2140,
+      684
+     ],
+     [
+      2250,
+      730
+     ]
+    ],
+    "eave_line": [],
+    "left_end": {
+     "kind": "rake_foot",
+     "point": [
+      228,
+      725
+     ]
+    },
+    "right_end": {
+     "kind": "rake_foot",
+     "point": [
+      2250,
+      730
+     ]
+    },
+    "notes": "Rake fascia bottom edge estimated along the white board; eave return boxes at both feet. Feet points approximate at the outer bottom fascia corners above the return boxes."
+   },
+   "notes": "Right end: below about y=1490 a beige textured surface appears between x~2065 and 2118, likely the setback adjacent wall/foundation seen past the corner; stucco traced to the phone's right end at 2118. Small parging strip at the base not distinguishable from stucco, so stucco taken to the ground at y=1785. Basement window trim bottom sits at grade."
+  },
+  "model": "claude-opus-5-5",
+  "usage": {
+   "inputTokens": 8027,
+   "outputTokens": 2478,
+   "cacheCreationTokens": 0,
+   "cacheReadTokens": 0
+  },
+  "costUsd": 0.081668,
+  "recorded": "2026-10-14, the roof-from-photos session's paid run on the owner's 10-12 photo",
+  "scale": {
+   "k": 1,
+   "offUpM": 0.0785,
+   "photoScale": "Scan 14:53 side 6 length 6.974 m between its corners (right corner by the downspout, estimated)"
+  },
+  "camera": {
+   "alongM": 7.671399434929732,
+   "upM": 1.526276307843913,
+   "distanceM": 8.949548357755434
+  }
+ },
+ "11": {
+  "side": "Left 5",
+  "photo": "west_gable",
+  "frame": {
+   "alongMinM": -3.9538357826614536,
+   "alongMaxM": 11.092705945800187,
+   "upMinM": -0.6793689384746745,
+   "upMaxM": 7.77804139139814,
+   "ppm": 159.50509049266938,
+   "width": 2400,
+   "height": 1349
+  },
+  "wire": {
+   "materials": [
+    {
+     "material": "stucco",
+     "polygon": [
+      [
+       170,
+       568
+      ],
+      [
+       1100,
+       175
+      ],
+      [
+       1930,
+       515
+      ],
+      [
+       1930,
+       1120
+      ],
+      [
+       635,
+       1120
+      ],
+      [
+       630,
+       625
+      ],
+      [
+       225,
+       620
+      ],
+      [
+       170,
+       600
+      ]
+     ],
+     "partly_hidden_by": "AC unit, chain-link fence, electric meter, front porch column at right end"
+    },
+    {
+     "material": "parging",
+     "polygon": [
+      [
+       637,
+       1120
+      ],
+      [
+       1930,
+       1120
+      ],
+      [
+       1930,
+       1262
+      ],
+      [
+       1200,
+       1256
+      ],
+      [
+       637,
+       1245
+      ]
+     ],
+     "partly_hidden_by": "chain-link fence, AC unit, bicycles, gas meter and piping, electrical boxes, dog"
+    }
+   ],
+   "openings": [
+    {
+     "kind": "window",
+     "left": 737,
+     "right": 843,
+     "top": 642,
+     "bottom": 897,
+     "measured_to": "outer_trim",
+     "partly_hidden_by": ""
+    },
+    {
+     "kind": "window",
+     "left": 783,
+     "right": 1041,
+     "top": 1137,
+     "bottom": 1240,
+     "measured_to": "outer_trim",
+     "partly_hidden_by": "chain-link fence"
+    }
+   ],
+   "wall_top": [
+    [
+     170,
+     568
+    ],
+    [
+     630.7,
+     374
+    ],
+    [
+     1100,
+     175
+    ],
+    [
+     1930,
+     515
+    ]
+   ],
+   "off_wall": [
+    {
+     "what": "chain-link fence",
+     "box": [
+      0,
+      1030,
+      2230,
+      1349
+     ]
+    },
+    {
+     "what": "AC unit",
+     "box": [
+      1104,
+      978,
+      1280,
+      1200
+     ]
+    },
+    {
+     "what": "bicycles",
+     "box": [
+      1210,
+      1130,
+      1580,
+      1330
+     ]
+    },
+    {
+     "what": "dog",
+     "box": [
+      1680,
+      1235,
+      1910,
+      1349
+     ]
+    },
+    {
+     "what": "electric meter and conduit",
+     "box": [
+      1788,
+      945,
+      1828,
+      1100
+     ]
+    },
+    {
+     "what": "gas meter and piping",
+     "box": [
+      1575,
+      1110,
+      1665,
+      1270
+     ]
+    },
+    {
+     "what": "electrical boxes and conduits",
+     "box": [
+      1725,
+      1065,
+      1870,
+      1245
+     ]
+    },
+    {
+     "what": "front porch column",
+     "box": [
+      1890,
+      610,
+      1960,
+      1020
+     ]
+    }
+   ],
+   "roof": {
+    "over_wall": "gable",
+    "rake_left": [
+     [
+      0,
+      490
+     ],
+     [
+      175,
+      421
+     ],
+     [
+      350,
+      351
+     ],
+     [
+      525,
+      282
+     ],
+     [
+      700,
+      213
+     ],
+     [
+      875,
+      143
+     ],
+     [
+      1040,
+      78
+     ]
+    ],
+    "rake_right": [
+     [
+      1040,
+      78
+     ],
+     [
+      1215,
+      150
+     ],
+     [
+      1390,
+      222
+     ],
+     [
+      1565,
+      294
+     ],
+     [
+      1740,
+      366
+     ],
+     [
+      1915,
+      438
+     ],
+     [
+      2090,
+      511
+     ],
+     [
+      2248,
+      576
+     ]
+    ],
+    "eave_line": [],
+    "left_end": {
+     "kind": "out_of_photo",
+     "point": []
+    },
+    "right_end": {
+     "kind": "rake_foot",
+     "point": [
+      2248,
+      576
+     ]
+    },
+    "notes": "Left rake continues past the photo's left edge over the covered back deck. Right rake runs past the wall's end over the front porch to its foot near x=2248. Fascia bottom edge estimated along the white rake board; peak fascia bottom approx y=78."
+   },
+   "notes": "Stucco gable continues left of the wall end above the covered deck ceiling; the porch ceiling/beam boundary there is approximate. Parging bottom (ground line) is approximate and obscured by the fence, bikes and debris. Wall-top at right end estimated near y=515 where soffit meets the wall at x=1930. Wall vent near (1617-1656, 585-618) is on the wall and not traced as an opening."
+  },
+  "model": "claude-opus-5-5",
+  "usage": {
+   "inputTokens": 7391,
+   "outputTokens": 2843,
+   "cacheCreationTokens": 0,
+   "cacheReadTokens": 0
+  },
+  "costUsd": 0.086424,
+  "recorded": "2026-10-14, the roof-from-photos session's paid run on the owner's 10-12 photo",
+  "scale": {
+   "k": 1.0982877174059593,
+   "offUpM": 0.749,
+   "photoScale": "Scan 13:25's 7.417 m for the wall (Scan 14:53 read 8.146 m: x1.098)"
+  },
+  "camera": {
+   "alongM": 7.525376313493498,
+   "upM": 1.8485984237085074,
+   "distanceM": 5.9044213708382935
+  }
+ }
+}

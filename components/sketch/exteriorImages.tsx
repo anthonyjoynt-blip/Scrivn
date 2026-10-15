@@ -43,8 +43,8 @@ export function exteriorRenders(exterior: Exterior | undefined): ExteriorRender[
   return out;
 }
 
-/** A React element as SVG markup, rendered off screen. */
-function markup(element: ReturnType<typeof createElement>): string {
+/** A React element as SVG markup, rendered off screen (the exterior report draws from it too, lib/exteriorReportPdf.ts). */
+export function markup(element: ReturnType<typeof createElement>): string {
   const container = document.createElement("div");
   const root = createRoot(container);
   flushSync(() => root.render(element));

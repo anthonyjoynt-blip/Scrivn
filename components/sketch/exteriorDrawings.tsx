@@ -693,3 +693,78 @@ export function RoofLegend({ plan, ridgeVent, upper = false }: { plan: RoofPlan;
     </div>
   );
 }
+
+/**
+ * The footprint alone, to scale, front at the bottom (2026-10-15, the exterior report): the walls as
+ * the house's outline, each with its name and length outside it - placed as the roof plan places
+ * them, stepping out or along to keep clear of each other round a corner of short sides - and the
+ * upper floor's outline over it on a two-storey house. A length only drawn reads "≈".
+ */
+export function FootprintDrawing({
+  footprint,
+  nameOf,
+  approx,
+  upper = null,
+  size,
+  fontFeet,
+}: {
+  footprint: Footprint;
+  nameOf: (id: string) => string;
+  approx?: (sideId: string) => boolean;
+  upper?: Pt[] | null;
+  size?: Size;
+  /** The lettering, feet: a page drawn to a fixed scale sets it; left out, 3% of the house. */
+  fontFeet?: number;
+}) {
+  const corners = footprint.corners;
+  const n = corners.length;
+  const xs = corners.map((p) => p.x);
+  const ys = corners.map((p) => p.y);
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  const minY = Math.min(...ys);
+  const maxY = Math.max(...ys);
+  const fs = fontFeet ?? Math.max(0.6, Math.max(maxX - minX, maxY - minY) * 0.03);
+  const Y = (y: number) => -y;
+  const stroke = { vectorEffect: "non-scaling-stroke" as const };
+  const names: LabelBox[] = [];
+  const area: LabelBox = { x: (minX + maxX) / 2, y: (minY + maxY) / 2, angle: 0, width: maxX - minX, height: maxY - minY };
+  const labels = footprint.sideIds.map((id, i) => {
+    const a = corners[i] as Pt;
+    const b = corners[(i + 1) % n] as Pt;
+    const len = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+    const out = { x: (b.y - a.y) / len, y: -(b.x - a.x) / len };
+    const dir = { x: (b.x - a.x) / len, y: (b.y - a.y) / len };
+    const across = Math.abs(b.y - a.y) > Math.abs(b.x - a.x);
+    const words = `${nameOf(id)} ${approx?.(id) ? "≈" : ""}${formatFeetInches(footprint.lengthsFeet[i] ?? len)}`;
+    const width = textWidthEm(words) * fs * 0.85;
+    const height = fs * 1.05;
+    const at = (o: number, s: number): LabelBox => ({ x: (a.x + b.x) / 2 + out.x * o + dir.x * s, y: (a.y + b.y) / 2 + out.y * o + dir.y * s, angle: across ? 90 : 0, width, height });
+    const tries = [0, 1, 2, 3].flatMap((k) => [0, 0.25, -0.25, 0.5, -0.5].map((s) => at(fs * 1.1 + height / 2 + k * height * 1.1, s * width)));
+    const hits = (t: LabelBox) => names.filter((q) => labelsOverlap(t, q, fs * 0.2)).length + (labelsOverlap(t, area) ? 0.5 : 0);
+    const box = tries.reduce((best, t) => (hits(best) === 0 || hits(t) >= hits(best) ? best : t), tries[0] as LabelBox);
+    names.push(box);
+    return { id, box, across, words };
+  });
+  const half = (b: LabelBox) => (b.angle === 0 ? { x: b.width / 2, y: b.height / 2 } : { x: b.height / 2, y: b.width / 2 });
+  const pad = fs * 1.5;
+  const fx0 = Math.min(minX - pad, ...names.map((b) => b.x - half(b).x - fs * 0.3));
+  const fx1 = Math.max(maxX + pad, ...names.map((b) => b.x + half(b).x + fs * 0.3));
+  const fy0 = Math.min(minY - pad, ...names.map((b) => b.y - half(b).y - fs * 0.3));
+  const fy1 = Math.max(maxY + pad, ...names.map((b) => b.y + half(b).y + fs * 0.3));
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox={`${fx0} ${Y(fy1)} ${fx1 - fx0} ${fy1 - fy0}`} width={size?.width} height={size?.height} role="img" aria-label="Footprint, to scale">
+      <rect x={fx0} y={Y(fy1)} width={fx1 - fx0} height={fy1 - fy0} fill="#ffffff" />
+      <polygon points={corners.map((p) => `${p.x},${Y(p.y)}`).join(" ")} fill="#f4efe4" stroke={INK} strokeWidth={2} strokeLinejoin="round" {...stroke} />
+      {upper && upper.length > 2 && <polygon points={upper.map((p) => `${p.x},${Y(p.y)}`).join(" ")} fill="none" stroke="#1b3a5c" strokeWidth={1.6} strokeDasharray="9 4" {...stroke} />}
+      <text x={(minX + maxX) / 2} y={Y((minY + maxY) / 2) + fs * 0.35} fontSize={fs} textAnchor="middle" fill="#5b6472" fontFamily={FONT}>
+        {`${Math.round(footprint.areaSquareFeet).toLocaleString("en-US")} SF`}
+      </text>
+      {labels.map(({ id, box, across, words }) => (
+        <text key={id} x={box.x} y={Y(box.y) + fs * 0.35} fontSize={fs * 0.85} textAnchor="middle" transform={across ? `rotate(-90 ${box.x} ${Y(box.y)})` : undefined} fill={INK} fontFamily={FONT}>
+          {words}
+        </text>
+      ))}
+    </svg>
+  );
+}

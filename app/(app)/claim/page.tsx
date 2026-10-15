@@ -105,6 +105,8 @@ import {
   withExteriorDefaults,
 } from "@/lib/sketchAttachments";
 import { exteriorRenders } from "@/components/sketch/exteriorImages";
+import { exteriorReportFile, hasExteriorReport } from "@/components/sketch/exteriorReportDoc";
+import { ExteriorReportSection } from "@/components/ExteriorReportSection";
 import { type SketchImage, dataUrlToBlob, downloadDataUrl, renderSketchImages, renderSketchJpeg } from "@/components/sketch/renderSketchImage";
 import { surfaceThumbnails } from "@/lib/surfaceThumbnails";
 import { SketchAttachmentToggle } from "@/components/sketch/SketchAttachmentPicker";
@@ -1794,6 +1796,11 @@ export default function Home() {
         />
       )}
 
+      {/* The exterior report (2026-10-15), beside the drying log for the same reason: there whenever the outside is measured. */}
+      {!showSketch && hasExteriorReport(sketch.exterior) && (
+        <ExteriorReportSection exterior={sketch.exterior} title={claim.address || claim.customerName} jobNumber={claim.jobNumber} customerName={claim.customerName} letterhead={letterhead} />
+      )}
+
       {/* Photos, beside the sketch and the drying log: optional, and not a step either. */}
       {!showSketch && (
         <PhotosSection
@@ -2389,6 +2396,15 @@ export default function Home() {
                         letterhead,
                         jobInformation: buildJobInformationGroups(claim),
                       }),
+                    } satisfies SendableDocument,
+                  ]
+                : []),
+              /* The exterior report, made when it is sent: the same report as its Download, photos and all. */
+              ...(hasExteriorReport(sketch.exterior)
+                ? [
+                    {
+                      label: "Exterior Report",
+                      file: () => exteriorReportFile({ exterior: sketch.exterior as NonNullable<typeof sketch.exterior>, title: claim.address || claim.customerName, jobNumber: claim.jobNumber, customerName: claim.customerName, letterhead }),
                     } satisfies SendableDocument,
                   ]
                 : []),
