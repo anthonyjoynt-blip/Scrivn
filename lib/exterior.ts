@@ -98,6 +98,8 @@ export interface ExteriorOpening {
   sillFeet: number;
   /** From the side's left corner to the opening's left edge. */
   fromLeftFeet: number;
+  /** Read off the side's photo by Finish exterior on the phone (2026-10-15, lib/exteriorFinish.ts), not tapped. */
+  from?: "photo";
 }
 
 /** A gable as measured: the peak, and where along the wall it is. */
@@ -167,6 +169,8 @@ export interface ExteriorSide {
   photos?: SidePhoto[];
   /** Doors of a standard size on its photo, kept off its AI trace as checks on the house's sizes (2026-10-15, lib/exteriorScale.ts). */
   sizeDoors?: SizeDoor[];
+  /** The eaves (and the peak) read off the side's photo by Finish exterior, where none was tapped (2026-10-15, lib/exteriorFinish.ts). */
+  wallTopFrom?: "photo";
 }
 
 /**
@@ -254,6 +258,8 @@ export interface ExteriorShape {
   closed: boolean;
   /** Its corners in tap order, in the side's frame: feet along from the left end, feet up. */
   polygon: Pt[];
+  /** Read off the side's photo by Finish exterior on the phone (2026-10-15, lib/exteriorFinish.ts), not tapped. */
+  from?: "photo";
 }
 
 export interface RooflinePoint {

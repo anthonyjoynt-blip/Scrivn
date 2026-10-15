@@ -11,8 +11,15 @@
  * the answer's lines set on the photo's edges (`snapTrace`), and the reads that hold together ticked
  * as the editor ticks them first (`roofPicksAtFirst`, `shapePicksAtFirst`).
  *
- * Only the roof is taken: the side's shapes, openings and wall top stay the phone's own taps. The
- * estimator who wants the trace's cladding and openings too opens the side in Scrivn.
+ * The same call reads the side's WALLS too (2026-10-15, the owner's option 1: "two bottom-corner taps per
+ * side, the side's photo, then Finish"): its cladding as shapes, its windows, doors and garage doors, and its
+ * wall top - the eaves and a gable's peak. They are kept as the side's `walls` and put on where the phone
+ * has nothing of its own, as typed beats photos beats assumed:
+ *   - shapes: the read ones only on a side with no shape tapped;
+ *   - openings: each read one that no tapped opening already covers;
+ *   - wall top: only where no eave was tapped (a side tapped as corners alone has none).
+ * Each is marked `from: "photo"` (the side `wallTopFrom`), so the report and the scope can say so; the
+ * estimator keeps or sets aside a side's walls on the phone (`taken`).
  *
  *   "finish": {
  *     "format": "scrivn-finish/1", "engine": "<Scrivn build>", "at": "<when Finish last ran>",
@@ -27,16 +34,25 @@
  * to the file's as they are put on (`scaledRoofRead`; a pitch is a ratio and stays).
  */
 
-import { allSides, type Exterior, type ExteriorRoof, type ExteriorSide, formatPitch, type SidePhoto, type SideRoofRead } from "./exterior";
+import { allSides, CLADDING_KINDS, type CladdingKind, type Exterior, type ExteriorOpening, type ExteriorOpeningKind, type ExteriorRoof, type ExteriorSide, formatPitch, type SidePhoto, type SideRoofRead } from "./exterior";
 import type { SquareFrame } from "./exteriorPhoto";
 import { applyTrace, type TracePicks, type TraceProposals, type TraceRequest, roofPicksAtFirst, shapePicksAtFirst } from "./exteriorTrace";
-import type { RoofEndKind } from "./roof";
+import type { Pt, RoofEndKind } from "./roof";
 import { PHOTO_PIECE_LABEL, scaledRoofRead, UPPER_SHOWN_WORDS } from "./roofPhotoShapes";
-import { formatFeetInches } from "./sketch";
+import { formatFeetInches, newSketchId } from "./sketch";
 
 export const FINISH_FORMAT = "scrivn-finish/1";
 
 const FEET_PER_METRE = 1 / 0.3048;
+
+/** A side's walls as its photo was read: in the side's own feet, as the trace proposed them (lib/exteriorTrace.ts). */
+export interface FinishWalls {
+  /** Kept, unless the estimator set them aside on the phone. */
+  taken: boolean;
+  shapes: { kind: CladdingKind | "parging"; label?: string; polygon: Pt[] }[];
+  openings: { kind: ExteriorOpeningKind; widthFeet: number; heightFeet: number; sillFeet: number; fromLeftFeet: number }[];
+  wallTop: { eaveLeftFeet: number | null; eaveRightFeet: number | null; peak: { atFeet: number; peakFeet: number } | null } | null;
+}
 
 /** One side's roof read, as Finish made it on the phone. */
 export interface FinishSide {
@@ -50,6 +66,8 @@ export interface FinishSide {
   roofRead: SideRoofRead;
   /** What it read, in words, for the phone's Review and the report. */
   said: string[];
+  /** The side's walls off the same photo (2026-10-15): put on where nothing was tapped. Absent from a read made before then. */
+  walls?: FinishWalls;
   /** The call: which model, and what it cost. */
   model?: string;
   costUsd?: number;
@@ -96,6 +114,37 @@ function readOf(raw: unknown): SideRoofRead | null {
   return read;
 }
 
+const pts = (v: unknown): Pt[] =>
+  Array.isArray(v) ? v.filter(isObject).map((p) => ({ x: num(p.x), y: num(p.y) })).filter((p): p is Pt => p.x !== null && p.y !== null && Math.abs(p.x) < 700 && Math.abs(p.y) < 200) : [];
+
+/** A side's walls as the phone wrote them, checked: what is not a shape, an opening or a wall top is left out. */
+function wallsOf(raw: unknown): FinishWalls | undefined {
+  if (!isObject(raw)) return undefined;
+  const kinds = [...CLADDING_KINDS, "parging"] as string[];
+  const shapes = (Array.isArray(raw.shapes) ? raw.shapes : [])
+    .filter(isObject)
+    .map((s) => ({ kind: (kinds.includes(String(s.kind)) ? s.kind : "other") as CladdingKind | "parging", ...(str(s.label) ? { label: str(s.label) as string } : {}), polygon: pts(s.polygon) }))
+    .filter((s) => s.polygon.length >= 3);
+  const openings = (Array.isArray(raw.openings) ? raw.openings : [])
+    .filter(isObject)
+    .map((o) => ({
+      kind: (o.kind === "door" || o.kind === "garage" ? o.kind : "window") as ExteriorOpeningKind,
+      widthFeet: num(o.widthFeet) ?? 0,
+      heightFeet: num(o.heightFeet) ?? 0,
+      sillFeet: Math.max(0, num(o.sillFeet) ?? 0),
+      fromLeftFeet: num(o.fromLeftFeet) ?? 0,
+    }))
+    .filter((o) => o.widthFeet > 0.2 && o.widthFeet < 60 && o.heightFeet > 0.2 && o.heightFeet < 40);
+  const t = isObject(raw.wallTop) ? raw.wallTop : null;
+  const height = (v: unknown) => {
+    const n = num(v);
+    return n !== null && n > 0 && n < 120 ? n : null;
+  };
+  const peak = t && isObject(t.peak) && height(t.peak.peakFeet) !== null && num(t.peak.atFeet) !== null ? { atFeet: num(t.peak.atFeet) as number, peakFeet: height(t.peak.peakFeet) as number } : null;
+  const wallTop = t ? { eaveLeftFeet: height(t.eaveLeftFeet), eaveRightFeet: height(t.eaveRightFeet), peak } : null;
+  return { taken: raw.taken !== false, shapes, openings, wallTop: wallTop && (wallTop.eaveLeftFeet !== null || wallTop.eaveRightFeet !== null || wallTop.peak) ? wallTop : null };
+}
+
 /** The `finish` block as Scan wrote it, or null when there is none or it is not one. */
 export function readScanFinish(raw: unknown): ScanFinish | null {
   if (!isObject(raw) || raw.format !== FINISH_FORMAT) return null;
@@ -125,6 +174,7 @@ export function readScanFinish(raw: unknown): ScanFinish | null {
         scaleAt: scaleAt !== null && scaleAt > 0.5 && scaleAt < 2 ? scaleAt : 1,
         roofRead,
         said: Array.isArray(v.said) ? v.said.filter((s): s is string => typeof s === "string").slice(0, 12) : [],
+        ...(wallsOf(v.walls) ? { walls: wallsOf(v.walls) as FinishWalls } : {}),
         ...(str(v.model) ? { model: str(v.model) as string } : {}),
         ...(num(v.costUsd) !== null ? { costUsd: num(v.costUsd) as number } : {}),
       };
@@ -149,6 +199,7 @@ export function applyScanFinish(
 ): { sides: ExteriorSide[]; roof: ExteriorRoof; notes: string[] } {
   const notes: string[] = [];
   const reads = new Map<string, SideRoofRead>();
+  const walls = new Map<string, FinishWalls>();
   for (const [k, fs] of Object.entries(finish.sides ?? {})) {
     const id = idByIndex.get(Number(k));
     if (!id) continue;
@@ -158,8 +209,13 @@ export function applyScanFinish(
     if (fs.photos.length === 0 || !fs.photos.every((n) => has.has(n))) continue;
     const k2 = fs.scaleAt > 0 ? scaleNow / fs.scaleAt : 1;
     reads.set(id, Math.abs(k2 - 1) > 1e-6 ? scaledRoofRead(scaleOverhangs(fs.roofRead, k2), k2) : fs.roofRead);
+    if (fs.walls?.taken) walls.set(id, Math.abs(k2 - 1) > 1e-6 ? scaledWalls(fs.walls, k2) : fs.walls);
   }
-  const nextSides = sides.map((s) => (reads.has(s.id) ? { ...s, roofRead: reads.get(s.id) as SideRoofRead } : s));
+  const nextSides = sides.map((s) => {
+    const withRead = reads.has(s.id) ? { ...s, roofRead: reads.get(s.id) as SideRoofRead } : s;
+    const w = walls.get(s.id);
+    return w ? withWalls(withRead, w) : withRead;
+  });
   const nextRoof: ExteriorRoof = { ...roof };
   if (finish.pitch != null) nextRoof.pitch = finish.pitch;
   if (finish.ends) {
@@ -172,11 +228,54 @@ export function applyScanFinish(
   }
   const named = (ids: string[]) => ids.map((id) => nextSides.find((s) => s.id === id)?.name ?? "a side");
   if (reads.size > 0) notes.push(`The roof was read off the photos of ${listWords(named([...reads.keys()]))} on the phone (Finish exterior).`);
+  const walled = nextSides.filter((s) => walls.has(s.id) && (s.wallTopFrom === "photo" || (s.shapes ?? []).some((x) => x.from === "photo") || s.openings.some((o) => o.from === "photo")));
+  if (walled.length > 0) notes.push(`Walls read off the photos where nothing was tapped (cladding, windows, doors, wall top): ${listWords(walled.map((s) => s.name))}. Each is marked from photo.`);
   if (finish.pitch != null) notes.push(`The pitch was typed on the phone: ${formatPitch(finish.pitch)}.`);
   if (finish.ends && Object.keys(finish.ends).length > 0) {
     notes.push(`Roof ends set on the phone: ${Object.entries(finish.ends).map(([k, kind]) => `${named([idByIndex.get(Number(k)) ?? ""])[0]} ${kind}`).join(", ")}.`);
   }
   return { sides: nextSides, roof: nextRoof, notes };
+}
+
+/** Two openings the same one: their boxes share more than a third of the smaller's area. */
+function sameOpening(a: Pick<ExteriorOpening, "fromLeftFeet" | "widthFeet" | "sillFeet" | "heightFeet">, b: Pick<ExteriorOpening, "fromLeftFeet" | "widthFeet" | "sillFeet" | "heightFeet">): boolean {
+  const w = Math.min(a.fromLeftFeet + a.widthFeet, b.fromLeftFeet + b.widthFeet) - Math.max(a.fromLeftFeet, b.fromLeftFeet);
+  const h = Math.min(a.sillFeet + a.heightFeet, b.sillFeet + b.heightFeet) - Math.max(a.sillFeet, b.sillFeet);
+  if (w <= 0 || h <= 0) return false;
+  return w * h > Math.min(a.widthFeet * a.heightFeet, b.widthFeet * b.heightFeet) / 3;
+}
+
+/**
+ * A side's walls off its photo put on where the phone has nothing of its own: its shapes when none was
+ * tapped, each opening no tapped one covers, its wall top when no eave was tapped. What it put on is
+ * marked from photo.
+ */
+export function withWalls(side: ExteriorSide, w: FinishWalls): ExteriorSide {
+  const next: ExteriorSide = { ...side };
+  if ((side.shapes ?? []).length === 0 && w.shapes.length > 0) {
+    next.shapes = w.shapes.map((s) => ({ id: newSketchId("shape"), kind: s.kind, ...(s.label ? { label: s.label } : {}), closed: true, polygon: s.polygon.map((p) => ({ ...p })), from: "photo" as const }));
+  }
+  const added = w.openings.filter((o) => !side.openings.some((t) => sameOpening(t, o))).map((o) => ({ id: newSketchId("opening"), ...o, from: "photo" as const }));
+  if (added.length > 0) next.openings = [...side.openings, ...added];
+  const t = w.wallTop;
+  if (t && side.eaveLeftFeet == null && side.eaveRightFeet == null && (t.eaveLeftFeet !== null || t.eaveRightFeet !== null)) {
+    next.eaveLeftFeet = t.eaveLeftFeet ?? t.eaveRightFeet;
+    next.eaveRightFeet = t.eaveRightFeet ?? t.eaveLeftFeet;
+    if (!side.gable && t.peak) next.gable = { peakFeet: t.peak.peakFeet, atFeet: t.peak.atFeet };
+    next.wallTopFrom = "photo";
+  }
+  return next;
+}
+
+/** A side's walls with every length times [k], as the side is scaled. */
+function scaledWalls(w: FinishWalls, k: number): FinishWalls {
+  const sc = (v: number | null) => (v === null ? null : v * k);
+  return {
+    taken: w.taken,
+    shapes: w.shapes.map((s) => ({ ...s, polygon: s.polygon.map((p) => ({ x: p.x * k, y: p.y * k })) })),
+    openings: w.openings.map((o) => ({ ...o, widthFeet: o.widthFeet * k, heightFeet: o.heightFeet * k, sillFeet: o.sillFeet * k, fromLeftFeet: o.fromLeftFeet * k })),
+    wallTop: w.wallTop ? { eaveLeftFeet: sc(w.wallTop.eaveLeftFeet), eaveRightFeet: sc(w.wallTop.eaveRightFeet), peak: w.wallTop.peak ? { atFeet: w.wallTop.peak.atFeet * k, peakFeet: w.wallTop.peak.peakFeet * k } : null } : null,
+  };
 }
 
 /** The overhangs are lengths too: scaled with the side, as the photos' pieces are. */
@@ -234,8 +333,19 @@ export function finishSideFrom(side: ExteriorSide, proposals: TraceProposals, ph
     scaleAt,
     roofRead,
     said: readWords(proposals, roofRead),
+    walls: wallsFrom(proposals),
     ...(call?.model ? { model: call.model } : {}),
     ...(call?.costUsd !== undefined ? { costUsd: call.costUsd } : {}),
+  };
+}
+
+/** The trace's cladding, openings and wall top as a side's walls: every one, as the editor ticks them first. */
+export function wallsFrom(p: TraceProposals): FinishWalls {
+  return {
+    taken: true,
+    shapes: p.shapes.map((s) => ({ kind: s.kind, ...(s.label ? { label: s.label } : {}), polygon: s.polygon.map((q) => ({ x: q.x, y: q.y })) })),
+    openings: p.openings.map((o) => ({ kind: o.kind, widthFeet: o.widthFeet, heightFeet: o.heightFeet, sillFeet: o.sillFeet, fromLeftFeet: o.fromLeftFeet })),
+    wallTop: p.wallTop ? { eaveLeftFeet: p.wallTop.eaveLeftFeet, eaveRightFeet: p.wallTop.eaveRightFeet, peak: p.wallTop.peak ? { ...p.wallTop.peak } : null } : null,
   };
 }
 

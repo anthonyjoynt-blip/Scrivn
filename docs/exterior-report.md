@@ -2,7 +2,7 @@
 
 The owner, looking at Scan's exterior: "so what about the roof from photos? and really that should be able to complete the exteriors as well and generate a pdf with all elevations, roof sketch, photos, all measurements listed".
 
-- **On the phone:** Finish exterior reads the roof off the side photos and shows it on Review, to accept or change. Share makes the exterior report.
+- **On the phone:** Finish exterior reads the roof off the side photos and shows it on Review, to accept or change. It also fills in each photographed side's walls where nothing was tapped (below, "The walls off the photos"). Share makes the exterior report.
 - **On scrivn.ca:** the claim has the same report, Exterior report (PDF), beside the drying log, and in Send documents.
 - **The two agree because they are the same code.** `test:exterior:engine` proves it on the owner's own walk.
 
@@ -32,7 +32,7 @@ The owner, looking at Scan's exterior: "so what about the roof from photos? and 
    - Its photos are squared up exactly as the editor squares them: same frame, same pixels, 2,400 px on the long edge.
    - They are sent to the trace, three sides at a time.
    - The answer's lines are set on the photo's own edges (`snapTrace`), and the reads that hold together are ticked as the editor ticks them first (`roofPicksAtFirst`, `shapePicksAtFirst`).
-   - Only the roof is taken. The side's shapes, openings and wall top stay the phone's own taps.
+   - The roof is taken, and the side's walls from the same answer: put on only where nothing was tapped (below).
 3. **A side is read once.** It is read again only when it is photographed again or the tape changes (`sidesToRead`). A dropped signal loses only the side in hand.
 4. **The roof screen** shows:
    - Scrivn's roof plan, with each end's Gable or Hip;
@@ -42,6 +42,34 @@ The owner, looking at Scan's exterior: "so what about the roof from photos? and 
    - **Accept**, **Pitch** (typed wins over the photos) and **Ends** (switch an end) write into the Finish block. A change after Accept takes the acceptance back.
 5. **No account, or no signal:** it says so in a line, and the roof stays as it is. Where nothing measured it, the pitch is assumed 4/12. It can still be edited, and Finish can be pressed again later.
 6. **Send** carries the Finish block in the exterior file. The claim's roof is the one the phone showed, with no photo traced twice.
+
+## The walls off the photos (2026-10-15, option 1)
+
+The owner chose "option 1": the walk is two bottom-corner taps per side and the side's photo (with the gables and the eave corner in it), then Finish.
+
+- **What is read.** The same trace call that reads the roof reads the side's materials as shapes, its windows, doors and garage doors, and its wall top (both eaves, and the peak of a gable). No second call.
+- **What is tapped wins.** A read part goes on only where nothing was tapped (`withWalls` in `lib/exteriorFinish.ts`):
+  - the materials only on a side with no shapes tapped;
+  - an opening only where no tapped opening overlaps it by a third of the smaller;
+  - the wall top only on a side with no eave tapped.
+  Each read part is marked `from: "photo"`.
+- **Squaring a side with no height.** The squared photo reaches 9 m over the side's bottom (`UNMEASURED_ABOVE_M`), so the wall top and roof are in the picture to be read.
+- **On the phone:** Review's **Walls** button lists every photographed side with its walls in words and its elevation as Scrivn draws it. Each side is kept or set aside, or all at once. Set aside, a side's walls are only what was tapped; the roof read stays.
+- **No signal, no read:** a side with only its corners has no height. It is not counted, and Review and the report say so by name: "No eave was tapped on Left: put it in, or read the side's photo (Finish exterior on the phone), to count that side."
+- **The report** says which parts came off a photo: a "From" column in the walls and openings tables (photo, tapped, entered), "(from photo)" on the elevation's lines, how many SF of the cladding were read off photos on the cover, a line in where the numbers came from, and what was read off each photo under it.
+
+### Read against tapped, on the 14:53 walk
+
+The four photographed sides cut back to their two bottom corners, read off the photos (the recorded answers of 10-14, no paid call), against the same sides as tapped:
+
+| Side | Eaves, tapped / read | Peak, tapped / read | Net SF, tapped / read | Openings |
+|---|---|---|---|---|
+| Left | 2'8" & 7'8" / 9'1" & 9'1" (+77", +18") | none | 176 / 202 (+26) | 1 window, read 4'1"×4'5" for a tapped 2'0"×2'3" |
+| Front 3 | 8'10" & 9'4" / 12'10" & 12'6" (+47", +38") | 12'3" / 15'2" (+35") | 60 / 86 (+26) | the garage door, 9'8"×8'7" read for 8'10"×7'8" |
+| Rear | 13'5" & 14'6" / 15'6" & 15'5" (+25", +11") | 18'4" / 20'4" (+24") | 295 / 303 (+8) | 3 windows, read at their outer trim |
+| Left 5 | 11'6" & 12'0" / 17'8" & 15'0" (+75", +36") | 18'10" / 21'11" (+37") | 351 / 458 (+107) | 2 windows |
+
+House: 2,075 SF net tapped, 2,241 SF with the four read. Every side and every opening is there, one for one. The heights are the photos', which match the owner's hand marks of 10-12 on the same photos to 2" (Left 5's corners and peak, `test:exterior:engine`). So the differences are where the phone's height taps landed (low, on these sides) and the photos' scale (taken from the 14:53 walk's length; the garage side reads about 7% long). Openings read at their outer trim, not the glass.
 
 Precedence is Scrivn's, unchanged (docs/roof-from-photos.md). A part's pitch comes, in order, from:
 1. typed;
@@ -83,9 +111,9 @@ US Letter. Each drawing is at the largest standard architectural scale that fits
 
 ## Tests
 
-`npm run test:exterior:engine` (17 checks, no paid call):
+`npm run test:exterior:engine` (23 checks, no paid call):
 
-- **The script itself.** It runs the very script Scan carries in a bare context (no DOM, no Node), on the owner's 14:53 walk with three of his 10-12 photos laid on their sides as Scan lays a side photo (`test/exterior/fixtures/finish-1453`).
+- **The script itself.** It runs the very script Scan carries in a bare context (no DOM, no Node), on the owner's 14:53 walk with four of his 10-12 photos laid on their sides as Scan lays a side photo (`test/exterior/fixtures/finish-1453`).
   - The trace's answers are Claude's own, recorded on 10-14 by the roof-from-photos session's paid run, and replayed in whatever frame the photo is squared to.
 - **Phone against Scrivn.** The phone's summary must equal Scrivn's import of the same file and Finish:
   - with nothing typed;
@@ -94,6 +122,7 @@ US Letter. Each drawing is at the largest standard architectural scale that fits
 - **The reads, against the roof-from-photos session's own snapped reads of 10-15:**
   - Left 5 and Rear: 5/12, with rakes 25.6" and 27.1" and an eave of 22.9", each within 1.5".
   - The garage's doubtful 4.6 is set aside.
-- **The report.** Its numbers are the quantities', and what is assumed says so. The PDF from the phone's engine and Scrivn's own PDF of the claim are byte for byte the same, apart from jsPDF's timestamp.
-- **Outputs:** `SCRIVN_REPORT_OUT=<file.pdf>` keeps the owner's walk's report. `SCRIVN_SUMMARY_OUT` writes the summary Scan's `ExteriorFinishTest` reads.
+- **The walls off the photos.** The walk with its four photographed sides cut back to their corners: with no signal they are not counted and the phone says so; read, they are whole, every part marked from photo, and the phone's sides are Scrivn's import's. The differences against the taps are printed. Left 5's heights match the 10-12 hand marks to 2". Set aside, a side is its corners again. On the walk as tapped, nothing of the photos' walls goes on.
+- **The report.** Its numbers are the quantities', and what is assumed says so. The corners-and-photos walk's report says "photo" in its tables. The PDF from the phone's engine and Scrivn's own PDF of the claim are byte for byte the same, apart from jsPDF's timestamp.
+- **Outputs:** `SCRIVN_REPORT_OUT=<file.pdf>` keeps the owner's walk's report, `SCRIVN_WALLS_REPORT_OUT=<file.pdf>` the corners-and-photos walk's. `SCRIVN_SUMMARY_OUT` writes the summary Scan's `ExteriorFinishTest` reads.
 - **Checked by hand on 2026-10-15:** the same script in Chromium, with a real canvas doing the squaring and drawing, gave the same reads to a hundredth of an inch, the same 34.14 SQ, and the roof plan picture Review shows.

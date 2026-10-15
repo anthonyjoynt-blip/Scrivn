@@ -358,7 +358,8 @@ export function parseScanExterior(input: unknown, meta: { scanId?: string | null
       : Math.abs(factor - 1) > 0.0005
         ? { from: "tape", factor }
         : { from: "phone", factor: 1 };
-  if (unmeasured.length > 0) notes.push(`No eave was tapped on ${unmeasured.join(", ")}: put it in to count that side.`);
+  // Said after the phone's Finish is put on, below: a side tapped as its corners alone has its eave off its photo then.
+  const unmeasuredAt = notes.length;
   if (uneven.length > 0) notes.push(`The two eave taps differ on ${uneven.join(", ")}; the eave is level, so the two are averaged.`);
   if (open.length > 0) notes.push(`A shape left open is drawn but not counted: ${open.join(", ")}.`);
   if (overlapping.length > 0) notes.push(`Shapes overlap on ${overlapping.join(", ")}: each overlap is counted once, as the shape tapped later.`);
@@ -457,6 +458,11 @@ export function parseScanExterior(input: unknown, meta: { scanId?: string | null
     finishedRoof = done.roof;
     notes.push(...done.notes);
   }
+  const stillUnmeasured = unmeasured.filter((name) => {
+    const s = finishedSides.find((x) => x.name === name);
+    return !s || (s.eaveLeftFeet == null && (s.shapes ?? []).length === 0);
+  });
+  if (stillUnmeasured.length > 0) notes.splice(unmeasuredAt, 0, `No eave was tapped on ${stillUnmeasured.join(", ")}: put it in, or read the side's photo (Finish exterior on the phone), to count that side.`);
 
   const outer = asObject(input);
   const captureId = typeof part.capture_id === "string" ? part.capture_id : isObject(outer) && typeof outer.capture_id === "string" ? outer.capture_id : null;

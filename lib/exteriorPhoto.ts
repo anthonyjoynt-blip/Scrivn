@@ -29,6 +29,12 @@ export const MAX_SQUARED_PX = 2400;
 const MARGIN_ALONG_M = 2.5;
 const MARGIN_BELOW_M = 0.6;
 const MARGIN_ABOVE_M = 4;
+/**
+ * Over a side the phone has no height for - tapped as its two bottom corners alone, for Finish exterior to
+ * read its walls off the photo (2026-10-15) - the squared photo reaches this far above its bottom: two
+ * storeys and the roof over them.
+ */
+const UNMEASURED_ABOVE_M = 9;
 
 /** A 3x3, row by row. */
 export type Mat3 = readonly number[];
@@ -192,7 +198,8 @@ export function squareFrame(side: ExteriorSide, photos: SidePhoto[], maxPx: numb
   alongMin = Math.max(alongMin, e.alongMin - MARGIN_ALONG_M);
   alongMax = Math.min(alongMax, e.alongMax + MARGIN_ALONG_M);
   upMin = Math.max(upMin, e.upMin - MARGIN_BELOW_M);
-  upMax = Math.min(upMax, e.upMax + MARGIN_ABOVE_M);
+  const measured = side.eaveLeftFeet != null || side.eaveRightFeet != null || side.gable !== null || (side.shapes ?? []).length > 0;
+  upMax = Math.min(upMax, measured ? e.upMax + MARGIN_ABOVE_M : e.upMax + UNMEASURED_ABOVE_M);
   if (!(alongMax - alongMin > 0.05 && upMax - upMin > 0.05)) return null;
   const ppm = maxPx / Math.max(alongMax - alongMin, upMax - upMin);
   return {

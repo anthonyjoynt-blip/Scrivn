@@ -1,4 +1,220 @@
 {
+ "1": {
+  "side": "Left",
+  "photo": "garage_wing_side",
+  "frame": {
+   "alongMinM": -0.9101041200573969,
+   "alongMaxM": 8.554978728539531,
+   "upMinM": -0.46134772809387653,
+   "upMaxM": 3.2694724280614125,
+   "ppm": 253.56354914059395,
+   "width": 2400,
+   "height": 946
+  },
+  "wire": {
+   "materials": [
+    {
+     "material": "stucco",
+     "polygon": [
+      [
+       230.8,
+       128
+      ],
+      [
+       2108.9,
+       124
+      ],
+      [
+       2108.9,
+       823.7
+      ],
+      [
+       230.8,
+       830.8
+      ]
+     ],
+     "partly_hidden_by": "porch column at left end, porch railing, stair railing and steps, blue recycling bin, grey garbage bin, downspout at right end"
+    },
+    {
+     "material": "parging",
+     "polygon": [
+      [
+       230.8,
+       830.8
+      ],
+      [
+       2108.9,
+       823.7
+      ],
+      [
+       2108.9,
+       860
+      ],
+      [
+       230.8,
+       864
+      ]
+     ],
+     "partly_hidden_by": "steps, blue recycling bin and grey garbage bin hide the left part (visible only from about x=1000 to the right end)"
+    }
+   ],
+   "openings": [
+    {
+     "kind": "window",
+     "left": 1526,
+     "right": 1843,
+     "top": 275,
+     "bottom": 617,
+     "measured_to": "outer_trim",
+     "partly_hidden_by": ""
+    }
+   ],
+   "wall_top": [
+    [
+     230.8,
+     128
+    ],
+    [
+     2108.9,
+     124
+    ]
+   ],
+   "off_wall": [
+    {
+     "what": "porch column (stucco-clad)",
+     "box": [
+      58,
+      0,
+      243,
+      540
+     ]
+    },
+    {
+     "what": "porch guard railing",
+     "box": [
+      240,
+      350,
+      487,
+      595
+     ]
+    },
+    {
+     "what": "stair handrail and balusters",
+     "box": [
+      0,
+      328,
+      302,
+      946
+     ]
+    },
+    {
+     "what": "porch deck and steps",
+     "box": [
+      0,
+      540,
+      345,
+      946
+     ]
+    },
+    {
+     "what": "blue recycling bin",
+     "box": [
+      305,
+      573,
+      712,
+      928
+     ]
+    },
+    {
+     "what": "grey garbage bin",
+     "box": [
+      638,
+      570,
+      1017,
+      932
+     ]
+    },
+    {
+     "what": "downspout",
+     "box": [
+      2088,
+      62,
+      2132,
+      823
+     ]
+    },
+    {
+     "what": "porch column at right end",
+     "box": [
+      2110,
+      130,
+      2200,
+      830
+     ]
+    },
+    {
+     "what": "string light wire",
+     "box": [
+      270,
+      20,
+      410,
+      150
+     ]
+    }
+   ],
+   "roof": {
+    "over_wall": "eave",
+    "rake_left": [],
+    "rake_right": [],
+    "eave_line": [
+     [
+      243,
+      86
+     ],
+     [
+      1200,
+      87
+     ],
+     [
+      2182,
+      90
+     ]
+    ],
+    "left_end": {
+     "kind": "hidden",
+     "point": []
+    },
+    "right_end": {
+     "kind": "runs_on",
+     "point": [
+      2182,
+      90
+     ]
+    },
+    "notes": "Eave line traced along the bottom of the eavestrough/fascia. At the left the eave disappears behind the porch column; at the right the roof appears to continue past the wall end over the porch toward the edge of the photo, so the right end point is approximate."
+   },
+   "notes": "Left wall end is behind the porch column and stairs; bottom-left of the wall is hidden by bins and steps so the stucco/parging line there is assumed from the phone corners. Parging band visible only from about x=1000 rightward, about 35 px tall down to the concrete slab. Window measured to outer stucco trim, excluding the decorative keystone that rises to about y=249."
+  },
+  "model": "claude-opus-5-5",
+  "usage": {
+   "inputTokens": 6105,
+   "outputTokens": 1835,
+   "cacheCreationTokens": 0,
+   "cacheReadTokens": 0
+  },
+  "costUsd": 0.06112,
+  "recorded": "2026-10-14, the roof-from-photos session's paid run on the owner's 10-12 photo",
+  "scale": {
+   "k": 0.9101041200573969,
+   "offUpM": 0.007,
+   "photoScale": "the eave height at the right-hand (garage) end, stucco bottom to soffit, is 3.005 m (9'10\"), carried over from the garage front"
+  },
+  "camera": {
+   "alongM": 6.714575705149041,
+   "upM": 1.4387698885666456,
+   "distanceM": 4.950336544617676
+  }
+ },
  "4": {
   "side": "Front 3",
   "photo": "garage_front",

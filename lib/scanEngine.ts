@@ -1,5 +1,5 @@
 import { createElement, type ReactElement } from "react";
-import { FootprintDrawing, RoofPlanDrawing } from "@/components/sketch/exteriorDrawings";
+import { ElevationDrawing, FootprintDrawing, RoofPlanDrawing } from "@/components/sketch/exteriorDrawings";
 import { allSides, endsFromPhotos, type Exterior, exteriorQuantities, formatPitch, type SidePhoto } from "./exterior";
 import { finishSideFrom, FINISH_FORMAT, readScanFinish, type ScanFinish, sidesToRead, traceRequestFor } from "./exteriorFinish";
 import { parseScanExterior, scanExteriorPart } from "./exteriorImport";
@@ -86,7 +86,23 @@ export interface EngineSummary {
   closes: boolean;
   reason: string | null;
   /** Each side with photos, by Scan's index, and whether Finish still has to read it. */
-  sides: { index: number; name: string; photos: number[]; toRead: boolean; said: string[] }[];
+  sides: {
+    index: number;
+    name: string;
+    photos: number[];
+    toRead: boolean;
+    said: string[];
+    /**
+     * Its walls (2026-10-15, option 1): whether its photo's walls were read, kept or set aside, what of
+     * them went on (only where nothing was tapped), and the side's walls in words. `complete`: every
+     * height is known, so it is counted.
+     */
+    walls: { read: boolean; taken: boolean; fromPhoto: { shapes: boolean; openings: number; wallTop: boolean }; words: string; complete: boolean };
+    /** The side's elevation as Scrivn draws it, a PNG data URL: what the estimator keeps or sets aside. Null with no way to draw it. */
+    elevation: string | null;
+  }[];
+  /** Sides with no height at all - their corners alone, no photo read - which are not counted: said by name. */
+  uncounted: string[];
   roof: {
     pitch: number;
     pitchText: string;
@@ -121,9 +137,34 @@ export async function summary(capture: CaptureInput, finishRaw: unknown, host: E
   const indexOf = (id: string) => scanIndex[id] ?? -1;
   const photosOf = (s: (typeof every)[number]) => (s.photos ?? []).map((p) => p.n);
   const want = new Set(sidesToRead(every.map((s) => ({ index: indexOf(s.id), name: s.name, photos: photosOf(s) })), finish, scale).map((s) => s.index));
-  const sides = every
-    .filter((s) => photosOf(s).length > 0)
-    .map((s) => ({ index: indexOf(s.id), name: s.name, photos: photosOf(s), toRead: want.has(indexOf(s.id)), said: finish.sides?.[String(indexOf(s.id))]?.said ?? [] }));
+  const sides: EngineSummary["sides"] = [];
+  for (const s of every.filter((x) => photosOf(x).length > 0)) {
+    const index = indexOf(s.id);
+    const read = finish.sides?.[String(index)];
+    const sq = q.sides.find((x) => x.sideId === s.id);
+    const fromPhoto = { shapes: (s.shapes ?? []).some((x) => x.from === "photo"), openings: s.openings.filter((o) => o.from === "photo").length, wallTop: s.wallTopFrom === "photo" };
+    const anyPhoto = fromPhoto.shapes || fromPhoto.openings > 0 || fromPhoto.wallTop;
+    const cladding = sq ? sq.bands.map((b) => `${b.label.toLowerCase()} ${Math.round(b.netSquareFeet)} SF net`).join(", ") : "";
+    const count = (k: string) => s.openings.filter((o) => o.kind === k).length;
+    const openings = [count("window") ? `${count("window")} window${count("window") === 1 ? "" : "s"}` : "", count("door") ? `${count("door")} door${count("door") === 1 ? "" : "s"}` : "", count("garage") ? `${count("garage")} garage door${count("garage") === 1 ? "" : "s"}` : ""].filter(Boolean).join(", ");
+    const heights = s.eaveLeftFeet != null ? `eave ${formatFeetInches(s.eaveLeftFeet)}${s.eaveRightFeet != null && Math.abs(s.eaveRightFeet - s.eaveLeftFeet) > 1 / 24 ? `/${formatFeetInches(s.eaveRightFeet)}` : ""}${s.gable ? `, peak ${formatFeetInches(s.gable.peakFeet)}` : ""}` : "";
+    const what = [cladding, openings, heights].filter(Boolean).join(" · ");
+    const words = !sq?.complete
+      ? read?.walls && !read.walls.taken
+        ? "walls set aside: only its corners were tapped, so it is not counted"
+        : "only its corners: Finish reads its walls off the photo"
+      : anyPhoto
+        ? `walls from photo: ${what}`
+        : read?.walls && !read.walls.taken
+          ? `walls set aside, as tapped: ${what}`
+          : `walls as tapped: ${what}`;
+    let elevation: string | null = null;
+    if (host?.rasterize && sq?.complete) {
+      elevation = await rasterizeFitted(host, host.svgOf(createElement(ElevationDrawing, { side: s, rise: q.rises[s.id] ?? null, base: q.bases[s.id] ?? null, roofAssumed: q.pitch.source === "assumed", size: { width: PLAN_PX, height: PLAN_PX } })));
+    }
+    sides.push({ index, name: s.name, photos: photosOf(s), toRead: want.has(index), said: read?.said ?? [], walls: { read: !!read?.walls, taken: read?.walls?.taken !== false, fromPhoto, words, complete: !!sq?.complete }, elevation });
+  }
+  const uncounted = every.filter((s) => !q.sides.find((x) => x.sideId === s.id)?.complete).map((s) => s.name);
   const r = q.roofing;
   const plan = q.roof;
   let roof: EngineSummary["roof"] = null;
@@ -178,6 +219,7 @@ export async function summary(capture: CaptureInput, finishRaw: unknown, host: E
     notes: report?.notes ?? [],
     plan: planPng,
     footprint: footprintPng,
+    uncounted,
   };
 }
 
