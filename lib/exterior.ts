@@ -41,7 +41,9 @@ import {
   type RoofLineKind,
   type RoofPlan,
   roofRiseAlongWall,
+  type RoofBreak,
 } from "./roof";
+import { PIECE_LENGTH_KEYS, pieceCount, type PieceFigures, pieceFigures, ROOF_PIECE_LABEL, type RoofPiece } from "./roofPieces";
 
 export type CladdingKind = "stucco" | "vinyl" | "wood_shake" | "eifs" | "wood" | "fibre_cement" | "brick" | "stone" | "metal" | "other";
 
@@ -288,6 +290,12 @@ export type Underlayment = "synthetic" | "felt" | "none";
  * The area is kept in square feet (typed as squares or SF), the rest in feet along the roof. Drip
  * edge, starter and ice & water follow the eaves, rakes and valleys - typed or drawn - unless they
  * are typed themselves.
+ *
+ * Roof PIECES (2026-10-15, `ExteriorRoof.pieces`, lib/roofPieces.ts) are the other way round: a
+ * dormer, a turret, a curved or flat roof put on top of the drawing, its quantities ADDED to the
+ * drawing's. The rule between the two: a typed total replaces the drawing's and the pieces' alike,
+ * because a roof report already counts its dormers - so a total typed off one is never added to.
+ * A total left blank is the drawing's plus the pieces'.
  */
 export const ROOF_TOTAL_KEYS = ["squareFeet", "ridge", "hip", "valley", "eave", "rake", "step", "headwall", "dripEdge", "starter", "iceWater"] as const;
 export type RoofTotalKey = (typeof ROOF_TOTAL_KEYS)[number];
@@ -510,6 +518,13 @@ export interface ExteriorRoof {
   typedFrom?: Partial<Record<RoofTotalKey, "report">>;
   /** The roof report read, and what it offers (`RoofReport`). */
   report?: RoofReport;
+  /**
+   * What the drawing can't make, added on top of it (2026-10-15): dormers, turrets, a curved or flat
+   * roof (lib/roofPieces.ts). Each one's quantities add to the drawing's; a typed total stands for both.
+   */
+  pieces?: RoofPiece[];
+  /** A gambrel or mansard: a section's second, flatter pitch above a break, by its key (lib/roof.ts `RoofBreak`). */
+  sectionBreaks?: Record<string, RoofBreak>;
   /**
    * Two storeys: each lower roof over the main floor against the upper floor, by the side its free
    * end stands over - a lean-to, or a ridge running out from the wall. Absent: by its shape.
@@ -1513,6 +1528,7 @@ function roofInputBase(exterior: Exterior, footprint: Footprint, pitch: number):
     ridgeAlong: exterior.roof.ridgeAlong,
     ends: resolvedEnds(exterior),
     sectionPitches: exterior.roof.sectionPitches ?? {},
+    ...(exterior.roof.sectionBreaks ? { sectionBreaks: exterior.roof.sectionBreaks } : {}),
     additions: exterior.roof.additions ?? [],
     lowerWings: exterior.roof.lowerWings ?? [],
     wingGables: exterior.roof.wingGables ?? [],
@@ -1588,6 +1604,18 @@ export interface RoofingQuantities {
    * area is shared out as the drawing's slopes are; with no drawing, all of it at the roof's pitch.
    */
   byPitch: { pitch: number; areaSquareFeet: number; squares: number; assumed: boolean; fromPhotos: boolean }[];
+  /** The squares on a curved roof piece, which has no one pitch (and so no steep charge); null with none. */
+  curved: { areaSquareFeet: number; squares: number } | null;
+  /**
+   * The roof pieces on top of the drawing (2026-10-15, lib/roofPieces.ts): each with its figures, and
+   * what they add to each total - nothing to one that is typed, which stands for them too.
+   */
+  pieces: {
+    list: { piece: RoofPiece; figures: PieceFigures }[];
+    added: Record<RoofTotalKey, number>;
+    /** Dormers' cheeks and faces, gross. */
+    sidingSquareFeet: number;
+  };
   /** The steep charge band by band, on the squares of the slopes in each. */
   steepBands: { band: string; squares: number }[];
   /**
@@ -1693,17 +1721,34 @@ export function roofingQuantities(exterior: Exterior, roof: RoofPlan | null, pit
         iceWater: t.eave + t.valley,
       }
     : null;
+  // The pieces on top of the drawing, each worked out on its own (lib/roofPieces.ts), and what they come to together.
+  const pieceList = (R.pieces ?? []).map((piece) => ({ piece, figures: pieceFigures(piece, roofPitch) }));
+  const pieceSum: Record<RoofTotalKey, number> = { squareFeet: 0, ridge: 0, hip: 0, valley: 0, eave: 0, rake: 0, step: 0, headwall: 0, dripEdge: 0, starter: 0, iceWater: 0 };
+  for (const { figures } of pieceList) {
+    pieceSum.squareFeet += figures.squareFeet;
+    for (const k of PIECE_LENGTH_KEYS) pieceSum[k] += figures.lengths[k];
+    pieceSum.dripEdge += figures.dripEdgeFeet;
+  }
+  // With no drawing, a total the pieces give is the estimator's own numbers worked out.
+  const piecesFrom: TotalSource = roof ? "drawing" : "estimator";
+
+  // A total typed stands for the drawing and the pieces alike (a roof report counts its dormers); blank, it is the two added.
   const value = {} as Record<RoofTotalKey, number>;
   const from = {} as Record<RoofTotalKey, TotalSource>;
+  const added = {} as Record<RoofTotalKey, number>;
   for (const k of ["squareFeet", "ridge", "hip", "valley", "eave", "rake", "step", "headwall"] as const) {
     const typed = typedTotal(R, k);
-    value[k] = typed ?? drawing?.[k] ?? 0;
-    from[k] = typed !== null ? typedSource(R, k) : "drawing";
+    added[k] = typed === null ? pieceSum[k] : 0;
+    value[k] = typed ?? (drawing?.[k] ?? 0) + added[k];
+    from[k] = typed !== null ? typedSource(R, k) : added[k] !== 0 ? piecesFrom : "drawing";
   }
   const madeOf = (k: "dripEdge" | "starter" | "iceWater", parts: RoofTotalKey[]) => {
     const typed = typedTotal(R, k);
-    value[k] = typed ?? parts.reduce((s, p) => s + value[p], 0);
-    from[k] = typed !== null ? typedSource(R, k) : sourceOfParts(...parts.map((p): [number, TotalSource] => [value[p], from[p]]));
+    // A flat piece's edge said to be a drip edge alone is drip edge of its own, not an eave.
+    const own = pieceSum[k];
+    added[k] = typed === null ? parts.reduce((s, p) => s + added[p], 0) + own : 0;
+    value[k] = typed ?? parts.reduce((s, p) => s + value[p], 0) + own;
+    from[k] = typed !== null ? typedSource(R, k) : sourceOfParts(...parts.map((p): [number, TotalSource] => [value[p], from[p]]), ...(own > 0 ? [[own, piecesFrom] as [number, TotalSource]] : []));
   };
   madeOf("dripEdge", ["eave", "rake"]);
   madeOf("starter", ["eave"]);
@@ -1773,16 +1818,35 @@ export function roofingQuantities(exterior: Exterior, roof: RoofPlan | null, pit
   if (R.vents === undefined) roofingQs.push("how many roof vents (0 if none)");
   if (R.pipeJacks === undefined) roofingQs.push("how many pipe jacks (0 if none)");
   if (R.ridgeVents === undefined && (roof?.lines ?? []).some((l) => l.kind === "ridge")) roofingQs.push("ridge vent: which ridges, or none");
+  // A piece put on and not yet given its numbers is asked for, never quietly counted as nothing.
+  for (const { piece, figures } of pieceList) {
+    const m = figures.missing;
+    if (m.length > 0) roofingQs.push(`the ${pieceWords(piece).toLowerCase()}: ${m.length === 1 ? m[0] : `${m.slice(0, -1).join(", ")} and ${m[m.length - 1]}`}`);
+  }
 
-  // The squares by pitch: the chosen slopes' own, shared out to a typed area as the drawing has them.
-  // With no outline, the roof report's areas by pitch where the estimator took them (2026-10-15).
+  // The squares by pitch: the chosen slopes' own and the pieces', shared out to a typed area as the drawing and pieces have them.
+  // With no outline, the roof report's areas by pitch where the estimator took them (2026-10-15): those count its dormers already.
   const pitchArea = new Map<number, number>();
+  const addAt = (p: number, a: number) => {
+    const key = [...pitchArea.keys()].find((k) => Math.abs(k - p) < 0.005) ?? Math.round(p * 100) / 100;
+    pitchArea.set(key, (pitchArea.get(key) ?? 0) + a);
+  };
   const chosenSlopes = noSlopes ? [] : slopes.filter((s) => s.selected);
   const reportPitches = !roof && R.report?.pitchesTaken ? R.report.pitches.filter((p) => p.squareFeet !== null && p.squareFeet > 0) : [];
+  // The pieces go by their own pitches beside a drawing or a typed area; with neither, the squares are still to be given.
+  const byPieces = (roof !== null || typedTotal(R, "squareFeet") !== null) && reportPitches.length === 0;
   if (chosenSlopes.length === 0 && reportPitches.length > 0) for (const p of reportPitches) pitchArea.set(p.pitch, (pitchArea.get(p.pitch) ?? 0) + (p.squareFeet as number));
-  else if (chosenSlopes.length === 0) pitchArea.set(roofPitch, value.squareFeet);
-  else for (const s of chosenSlopes) pitchArea.set(Math.round(s.pitch * 100) / 100, (pitchArea.get(Math.round(s.pitch * 100) / 100) ?? 0) + s.areaSquareFeet);
-  const drawnArea = [...pitchArea.values()].reduce((a, b) => a + b, 0);
+  // With no slopes to go by, the rest of the area is at the roof's pitch: a typed area already counts the pieces.
+  else if (chosenSlopes.length === 0) pitchArea.set(roofPitch, Math.max(0, value.squareFeet - (byPieces ? pieceSum.squareFeet : 0)));
+  else for (const s of chosenSlopes) addAt(s.pitch, s.areaSquareFeet);
+  let curvedArea = 0;
+  for (const { figures } of byPieces ? pieceList : []) {
+    for (const a of figures.areas) {
+      if (a.pitch === null) curvedArea += a.squareFeet;
+      else addAt(a.pitch, a.squareFeet);
+    }
+  }
+  const drawnArea = [...pitchArea.values()].reduce((a, b) => a + b, 0) + curvedArea;
   const share = drawnArea > 0 ? value.squareFeet / drawnArea : 0;
   const byPitch = [...pitchArea.entries()]
     .map(([p, a]) => ({
@@ -1829,6 +1893,8 @@ export function roofingQuantities(exterior: Exterior, roof: RoofPlan | null, pit
     ridgeVentFeet,
     steep: steepBands[0]?.band ?? null,
     byPitch,
+    curved: curvedArea * share > 1e-9 ? { areaSquareFeet: curvedArea * share, squares: (curvedArea * share) / 100 } : null,
+    pieces: { list: pieceList, added, sidingSquareFeet: pieceList.reduce((s, x) => s + x.figures.sidingSquareFeet, 0) },
     steepBands,
     high,
     allEdges,
@@ -1967,8 +2033,8 @@ export function exteriorQuantities(exterior: Exterior): ExteriorQuantities {
     });
   }
 
-  // Typed totals price a roof with no outline drawn, or one the drawing can't make.
-  const roofing: RoofingQuantities | null = roof || hasTypedTotals(exterior.roof) ? roofingQuantities(exterior, roof, pitch) : null;
+  // Typed totals and roof pieces price a roof with no outline drawn, or one the drawing can't make.
+  const roofing: RoofingQuantities | null = roof || hasTypedTotals(exterior.roof) || (exterior.roof.pieces ?? []).length > 0 ? roofingQuantities(exterior, roof, pitch) : null;
 
   return {
     footprint,
@@ -2135,34 +2201,48 @@ export function exteriorScopeLines(exterior: Exterior | undefined): ExteriorScop
     // Once anything is typed over the drawing, every measured line says where its number came from;
     // the roof report is named (maker, date) the first time, and is "the roof report" after.
     const from = reportNamer(r);
-    const sqKnown = r.drawn || r.from.squareFeet !== "drawing";
+    // With no drawing, the squares are known only once typed or taken off a report: roof pieces alone are not the roof.
+    const sqKnown = r.drawn || typedTotal(R, "squareFeet") !== null;
     const sq = sqKnown ? `${r.squares.toFixed(2)} SQ` : "squares to confirm";
     const sqFrom = () => (sqKnown ? from(r.from.squareFeet) : "");
     const chosen = r.slopes.filter((s) => s.selected);
+    // What the added roof pieces (lib/roofPieces.ts) put into a line's number, said in its brackets; nothing when they put in nothing.
+    const P = r.pieces.added;
+    const paren = (...parts: string[]) => (parts.some(Boolean) ? ` (${parts.filter(Boolean).join("; ")})` : "");
+    const ofPieces = (add: number, total: number, unit = "LF") => (Math.abs(add) < 0.05 ? "" : Math.abs(total - add) < 0.05 ? "from added pieces" : `incl. ${num(add)} ${unit} from added pieces`);
     // Typed squares are the roof being done, whatever is picked on the drawing.
-    const which = r.from.squareFeet !== "drawing" || !r.drawn ? "" : ` (${r.allSlopes ? "all slopes" : `slope${chosen.length === 1 ? "" : "s"} ${chosen.map((s) => s.label).join(", ")}`})`;
+    const withPieces = Math.abs(P.squareFeet) > 0.05 ? ", with added pieces" : "";
+    const which = r.from.squareFeet !== "drawing" || !r.drawn ? "" : ` (${r.allSlopes ? "all slopes" : `slope${chosen.length === 1 ? "" : "s"} ${chosen.map((s) => s.label).join(", ")}`}${withPieces})`;
     const metal = r.material === "metal";
-    // One pitch, said once; several, each with the squares at it.
+    // One pitch, said once; several, each with the squares at it, and a curved piece's apart.
     // Where a pitch came from when it wasn't typed: assumed, or read off a gable's photo (2026-10-15).
     const pitchFrom = (assumed: boolean, photos: boolean) => (assumed ? " (assumed, to confirm)" : photos ? sourceNote("photos") : "");
     const pitches =
-      r.byPitch.length > 1
-        ? r.byPitch.map((b) => `${formatPitch(b.pitch)}${pitchFrom(b.assumed, b.fromPhotos)} on ${b.squares.toFixed(2)} SQ`).join(", ")
+      r.byPitch.length > 1 || r.curved
+        ? [...r.byPitch.map((b) => `${formatPitch(b.pitch)}${pitchFrom(b.assumed, b.fromPhotos)} on ${b.squares.toFixed(2)} SQ`), ...(r.curved ? [`curved on ${r.curved.squares.toFixed(2)} SQ`] : [])].join(", ")
         : `${formatPitch(r.byPitch[0]?.pitch ?? r.pitch)}${pitchFrom(r.pitchAssumed, r.byPitch[0]?.fromPhotos ?? r.pitchFromPhotos)}`;
     out.roofing.push(`Remove & replace roofing – ${r.material ? ROOF_MATERIAL_LABEL[r.material] : "material to confirm"} – ${pitches} – ${sq}${which}${sqFrom()}`);
+    // The pieces themselves, named once: their quantities are in the lines.
+    const ready = r.pieces.list.filter((x) => x.figures.missing.length === 0);
+    if (ready.length > 0) {
+      const over = r.typed ? " – added to the drawing's totals, not to those typed" : r.drawn ? " – added to the drawing's totals" : "";
+      out.roofing.push(`Added roof pieces – ${ready.map((x) => pieceLine(x.piece, x.figures, r.pitch)).join("; ")}${over}`);
+    }
     // Steep is charged on the squares at a steep pitch: all of them on a roof of one pitch.
-    for (const band of r.steepBands) out.roofing.push(`Steep roof charge – ${band.band} – ${r.byPitch.length > 1 && sqKnown ? `${band.squares.toFixed(2)} SQ` : sq}${sqFrom()}`);
+    for (const band of r.steepBands) out.roofing.push(`Steep roof charge – ${band.band} – ${(r.byPitch.length > 1 || r.curved) && sqKnown ? `${band.squares.toFixed(2)} SQ` : sq}${sqFrom()}`);
     if (r.high?.automatic) out.roofing.push(`High roof charge – two storeys or more – ${sqKnown ? `${r.high.squares.toFixed(2)} SQ` : sq} (the roof over the upper floor)${sqFrom()}`);
     else if (r.high) out.roofing.push(`High roof charge – two storeys or more – ${sq}${sqFrom()}`);
-    if (r.ridgeFeet + r.hipFeet > 0) out.roofing.push(`Hip & ridge cap – ${num(r.ridgeFeet + r.hipFeet)} LF${from(sourceOfParts([r.ridgeFeet, r.from.ridge], [r.hipFeet, r.from.hip]))}`);
-    if (metal) out.roofing.push(`Closure strips – ${num(r.closureFeet)} LF (eaves + 2 × ridge)${from(sourceOfParts([r.eaveFeet, r.from.eave], [r.ridgeFeet, r.from.ridge]))}`);
-    else if (r.starterFeet > 0) out.roofing.push(`Starter – ${num(r.starterFeet)} LF (eaves)${from(r.from.starter)}`);
-    if (R.dripEdge === true) out.roofing.push(`Drip edge – ${num(r.dripEdgeFeet)} LF (eaves + rakes)${from(r.from.dripEdge)} – photos required`);
-    if (r.drawn || r.iceWaterFeet > 0) out.roofing.push(`${metal ? "High-temperature ice & water barrier" : "Ice & water barrier"} – ${num(r.iceWaterFeet)} LF (eaves + valleys)${from(r.from.iceWater)}`);
+    if (r.ridgeFeet + r.hipFeet > 0) out.roofing.push(`Hip & ridge cap – ${num(r.ridgeFeet + r.hipFeet)} LF${paren(ofPieces(P.ridge + P.hip, r.ridgeFeet + r.hipFeet))}${from(sourceOfParts([r.ridgeFeet, r.from.ridge], [r.hipFeet, r.from.hip]))}`);
+    if (metal) out.roofing.push(`Closure strips – ${num(r.closureFeet)} LF${paren("eaves + 2 × ridge", ofPieces(P.eave + 2 * P.ridge, r.closureFeet))}${from(sourceOfParts([r.eaveFeet, r.from.eave], [r.ridgeFeet, r.from.ridge]))}`);
+    else if (r.starterFeet > 0) out.roofing.push(`Starter – ${num(r.starterFeet)} LF${paren("eaves", ofPieces(P.starter, r.starterFeet))}${from(r.from.starter)}`);
+    if (R.dripEdge === true) out.roofing.push(`Drip edge – ${num(r.dripEdgeFeet)} LF${paren("eaves + rakes", ofPieces(P.dripEdge, r.dripEdgeFeet))}${from(r.from.dripEdge)} – photos required`);
+    if (r.drawn || r.iceWaterFeet > 0) out.roofing.push(`${metal ? "High-temperature ice & water barrier" : "Ice & water barrier"} – ${num(r.iceWaterFeet)} LF${paren("eaves + valleys", ofPieces(P.iceWater, r.iceWaterFeet))}${from(r.from.iceWater)}`);
     if (R.underlayment === "synthetic" || R.underlayment === "felt") out.roofing.push(`Underlayment – ${R.underlayment} – ${sq}${sqFrom()} – photos required`);
-    if (r.valleyFeet > 0) out.roofing.push(`Valleys – ${num(r.valleyFeet)} LF${from(r.from.valley)}`);
-    if (r.stepFeet > 0) out.roofing.push(`Step flashing – ${num(r.stepFeet)} LF (a lower roof's slopes against the wall)${from(r.from.step)}`);
-    if (r.headwallFeet > 0) out.roofing.push(`Headwall flashing – ${num(r.headwallFeet)} LF (a lower roof's top against the wall)${from(r.from.headwall)}`);
+    if (r.valleyFeet > 0) out.roofing.push(`Valleys – ${num(r.valleyFeet)} LF${paren(ofPieces(P.valley, r.valleyFeet))}${from(r.from.valley)}`);
+    // Flashing against a wall: a lower roof's on the drawing, and a dormer's cheeks, face and top among the pieces.
+    const drawnToo = (add: number, total: number) => Math.abs(total - add) >= 0.05;
+    if (r.stepFeet > 0) out.roofing.push(`Step flashing – ${num(r.stepFeet)} LF${paren(drawnToo(P.step, r.stepFeet) ? "a lower roof's slopes against the wall" : "", ofPieces(P.step, r.stepFeet))}${from(r.from.step)}`);
+    if (r.headwallFeet > 0) out.roofing.push(`Headwall flashing – ${num(r.headwallFeet)} LF${paren(drawnToo(P.headwall, r.headwallFeet) ? "a lower roof's top against the wall" : "", ofPieces(P.headwall, r.headwallFeet))}${from(r.from.headwall)}`);
     for (const kind of Object.keys(ROOF_VENT_LABEL) as RoofVentKind[]) {
       const n = Math.round(R.vents?.[kind] ?? 0);
       if (n > 0) out.roofing.push(`${ROOF_VENT_LABEL[kind]} – ${n}`);
@@ -2206,6 +2286,9 @@ export function exteriorScopeLines(exterior: Exterior | undefined): ExteriorScop
       .filter((s) => s.bands.some((b) => SIDING_KINDS.includes(b.kind) && b.netSquareFeet > 0))
       .reduce((sum, s) => sum + s.openingTrimFeet, 0);
     if (sidedTrim > 0) out.siding.push(`Trim & J-channel round openings – ${num(sidedTrim)} LF`);
+    // The dormers' own walls go with the siding: no side's elevation has them.
+    const dormers = r?.pieces.sidingSquareFeet ?? 0;
+    if (dormers > 0.05) out.siding.push(`Remove & replace siding – dormer cheeks & faces – ${num(dormers)} SF (added pieces, openings not taken off)`);
   }
   // What is on the walls goes on whether or not the cladding is: a vent can be replaced on its own.
   for (const side of allSides(exterior)) {
@@ -2242,6 +2325,57 @@ export function exteriorScopeLines(exterior: Exterior | undefined): ExteriorScop
     }
   }
   return out;
+}
+
+/** A roof piece by its kind, or by the name an Other piece is given. */
+export function pieceWords(piece: RoofPiece): string {
+  return piece.kind === "other" ? piece.label?.trim() || "Other roof piece" : ROOF_PIECE_LABEL[piece.kind];
+}
+
+/**
+ * A roof piece as the scope and the documents name it: what it is, its sizes, and what it adds to
+ * the roof's area - "2 × gable dormer, 8' wide, 6' out, 12/12 on a 6/12 slope (+23.7 SF net of the
+ * slope it covers)". Its lengths are in the roof's own lines.
+ */
+export function pieceLine(piece: RoofPiece, figures: PieceFigures, roofPitch: number): string {
+  const n = pieceCount(piece);
+  const ft = (v: number | null | undefined) => formatFeetInches(v ?? 0);
+  const num = (v: number) => (Math.round(v * 10) / 10).toFixed(1);
+  const signed = (v: number) => `${v < 0 ? "-" : "+"}${num(Math.abs(v))} SF`;
+  const pitch = formatPitch(piece.pitch ?? 0);
+  // Sizes and areas are each one's: several alike are said once.
+  const per = figures.squareFeet / n;
+  const each = n > 1 ? " each" : "";
+  let what: string;
+  switch (piece.kind) {
+    case "gableDormer":
+    case "shedDormer": {
+      const on = typeof piece.onPitch === "number" && piece.onPitch >= 0 ? piece.onPitch : roofPitch;
+      what = `${piece.kind === "gableDormer" ? "gable" : "shed"} dormer, ${ft(piece.widthFeet)} wide, ${ft(piece.projectionFeet)} out, ${pitch} on a ${formatPitch(on)} slope (${signed(per)} net of the slope it covers${each})`;
+      break;
+    }
+    case "roundTurret":
+      what = `round turret, ${ft(piece.diameterFeet)} across, ${pitch} (${num(per)} SF${each})`;
+      break;
+    case "polygonTurret":
+      what = `${Math.round(piece.sideCount ?? 0)}-sided turret, ${ft(piece.sideFeet)} a side, ${pitch} (${num(per)} SF${each})`;
+      break;
+    case "barrel":
+      what = `curved roof, ${ft(piece.spanFeet)} span, ${ft(piece.lengthFeet)} long, ${ft(piece.riseFeet)} rise (${num(per)} SF${each})`;
+      break;
+    case "flat": {
+      const edge = piece.perimeterFeet && piece.perimeterFeet > 0 ? `, ${num(piece.perimeterFeet)} LF of ${piece.perimeterAs === "dripEdge" ? "drip edge" : "eave"} round it` : "";
+      what = `flat roof, ${num(per)} SF${edge}${each}`;
+      break;
+    }
+    case "other": {
+      const at = typeof piece.pitch === "number" && piece.pitch >= 0 ? piece.pitch : roofPitch;
+      const lengths = PIECE_LENGTH_KEYS.filter((k) => figures.lengths[k] > 0).map((k) => `${ROOF_TOTAL_LABEL[k].toLowerCase()} ${num(figures.lengths[k] / n)} LF`);
+      what = `${[`${pieceWords(piece).toLowerCase()}${per > 0 ? `, ${num(per)} SF at ${formatPitch(at)}` : ""}`, ...lengths].join(", ")}${each}`;
+      break;
+    }
+  }
+  return `${n > 1 ? `${n} × ` : ""}${what}`;
 }
 
 /** "4/12", or "4.1/12" when it is not a whole number. */

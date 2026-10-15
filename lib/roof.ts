@@ -48,6 +48,17 @@
  * TENT (its ridge running out from the wall, gable or hip at the far end: a garage, a bump-out),
  * the strip's shape choosing unless said (`RoofInput.lowerRoofKinds`).
  *
+ * ── Gambrel and mansard (2026-10-15) ───────────────────────────────────────────────────────────
+ * A section can carry a second, flatter pitch above a break (`RoofInput.sectionBreaks`): a gambrel
+ * with gable ends, a mansard with hip ends. Each of its planes gets a twin at the upper pitch, offset
+ * to cross it at the break's height, and the section being the LOWEST of its planes, the steep one
+ * is the roof below the break and the flat one above it - the profile falls out with nothing else
+ * changed. The break line is two planes facing the same way, so it counts as nothing, as a porch
+ * breaking flatter off a slope does; hips and rakes are read off the bent surface as any are. A
+ * mansard's flat top is an upper pitch of 0. A wing tied into a section with a break runs in until
+ * its ridge meets the bent slope; a tie that would leave a step drops the breaks on that roof, and
+ * says so. Porches and cross gables on a bent slope are not worked out for it.
+ *
  * Rectangles and L-shapes are built as they always were. Any other outline (a T, a U, the owner's
  * twelve corners, 2026-10-13) is taken apart into a MAIN roof and WINGS: the main is a rectangle of
  * the outline, every part left over a wing standing on it (or on another wing), its ridge running
@@ -158,6 +169,11 @@ export interface RoofSection {
   wall: Rect | null;
   /** A porch's or cross gable's own planes, instead of a tent's. */
   planes?: RoofPlane[];
+  /**
+   * A gambrel's or mansard's break (2026-10-15): above `at` feet of rise over the drip line, every
+   * plane of the tent gives way to its twin at the upper `pitch` (rise in 12; 0 a mansard's flat top).
+   */
+  break?: { pitch: number; at: number };
   /** Where its drip line stands against a wall. */
   wallEdges: WallEdge[];
   /**
@@ -290,6 +306,18 @@ export interface RoofInput {
   upper?: { corners: Pt[]; sideIds: string[] };
   /** A lower roof over the main floor against the upper floor's wall, by the side its free end stands over: lean-to or tent. */
   lowerRoofKinds?: Record<string, LowerRoofKind>;
+  /** A gambrel or mansard: a section's second pitch above a break, by its key (`RoofSection.key`). */
+  sectionBreaks?: Record<string, RoofBreak>;
+}
+
+/**
+ * A second pitch above a break, on a section (2026-10-15): the section's own pitch is the steep lower
+ * one, `upperPitch` the flatter one above (0 for a mansard's flat top), and the break stands
+ * `breakFeet` above the eave - the top of the wall, where a gable's height is measured from.
+ */
+export interface RoofBreak {
+  upperPitch: number;
+  breakFeet: number;
 }
 
 /** A wing as built, by the side its free end stands over. */
@@ -397,7 +425,83 @@ function sectionPlanes(s: RoofSection): Plane[] {
     if (s.lo === "hip") planes.push(sloped(0, 1, -s.y0, k, s.loSide, s.key));
     if (s.hi === "hip") planes.push(sloped(0, -1, s.y1, k, s.hiSide, s.key));
   }
+  // A gambrel or mansard: each plane's twin at the upper pitch, level with it at the break, after all the steep ones.
+  const brk = s.break;
+  if (brk && k > 0) {
+    const r = brk.pitch / 12 / k;
+    for (const p of [...planes]) planes.push({ ...p, a: p.a * r, b: p.b * r, c: p.c * r + brk.at * (1 - r) });
+  }
   return planes;
+}
+
+/** Height above the drip line a section's slope reaches `run` feet in from its eave's drip line: bent at a break. */
+function riseAt(s: RoofSection, run: number): number {
+  const k = s.pitch / 12;
+  const brk = s.break;
+  if (!brk || run * k <= brk.at) return run * k;
+  return brk.at + (brk.pitch / 12) * (run - brk.at / k);
+}
+
+/** How far in from its drip line a section's slope reaches a height: never, past a flat top. */
+function runTo(s: RoofSection, rise: number): number {
+  const k = s.pitch / 12;
+  if (k <= 0) return Infinity;
+  const brk = s.break;
+  if (!brk || rise <= brk.at) return rise / k;
+  const k2 = brk.pitch / 12;
+  return k2 > 0 ? brk.at / k + (rise - brk.at) / k2 : Infinity;
+}
+
+/**
+ * The breaks said for the sections (gambrel, mansard), and each tie end into or out of a bent
+ * section carried on until its ridge meets the slope it runs into. A break that is no break - an
+ * upper pitch not flatter than the lower, or a height at or over where the ridge would be - is left
+ * off; a roof a break would leave a step in has its breaks dropped, with a note.
+ */
+function withBreaks(input: RoofInput, built: BuiltSections): void {
+  const said = input.sectionBreaks ?? {};
+  if (Object.keys(said).length === 0) return;
+  const oe = input.eaveOverhangFeet;
+  const nameOf = (id: string) => input.sideNames?.[id] || "that side";
+  const halfSpan = (s: RoofSection) => (s.axis === "x" ? s.y1 - s.y0 : s.x1 - s.x0) / 2;
+  const bent = built.sections.filter((s) => {
+    const b = said[s.key];
+    if (s.planes || !b || !(s.pitch > 0)) return false;
+    const upper = Math.max(0, b.upperPitch);
+    const at = b.breakFeet + oe * (s.pitch / 12);
+    if (!(b.breakFeet > 0) || !(upper < s.pitch) || at >= halfSpan(s) * (s.pitch / 12) - 1e-9) return false;
+    s.break = { pitch: upper, at };
+    return true;
+  });
+  if (bent.length === 0) return;
+  const layers = new Set(bent.map((s) => s.layer));
+  for (const layer of layers) {
+    const own = built.sections.filter((s) => s.layer === layer);
+    const kept = own.map((s) => ({ s, lo: s.reachLo, hi: s.reachHi }));
+    let ok = true;
+    for (const s of own) {
+      for (const end of ["lo", "hi"] as const) {
+        if (s[end] !== "tie") continue;
+        // The section it ties into: just past its tie end, at the middle of its span.
+        const mid = s.axis === "x" ? (s.y0 + s.y1) / 2 : (s.x0 + s.x1) / 2;
+        const edge = s.axis === "x" ? (end === "lo" ? s.x0 - 1e-3 : s.x1 + 1e-3) : end === "lo" ? s.y0 - 1e-3 : s.y1 + 1e-3;
+        const parent = own.find((p) => p !== s && (s.axis === "x" ? inside(p, edge, mid) : inside(p, mid, edge)));
+        if (!parent || (!s.break && !parent.break)) continue;
+        const reach = runTo(parent, riseAt(s, halfSpan(s)));
+        if (!Number.isFinite(reach) || reach > halfSpan(parent) + 1e-9) ok = false;
+        else if (end === "lo") s.reachLo = reach;
+        else s.reachHi = reach;
+      }
+    }
+    if (ok && seamless(own)) continue;
+    for (const k of kept) {
+      k.s.reachLo = k.lo;
+      k.s.reachHi = k.hi;
+      delete k.s.break;
+    }
+    const names = bent.filter((s) => s.layer === layer).map((s) => (s.key === "main" ? "the main roof" : /^wing:(.+)$/.test(s.key) ? `the roof out to ${nameOf(s.key.slice(5))}` : "a part of the roof"));
+    built.notes.push(`The second pitch on ${names.join(" and ")} is left out: a part tied into it would leave a step. Give the parts that meet the same break, or set one lower.`);
+  }
 }
 
 /** A section's pitch by its key: the roof's for the main and for anything not said. */
@@ -762,13 +866,15 @@ const builtFor = new WeakMap<RoofInput, BuiltSections | null>();
 /**
  * The sections over a footprint: one for a rectangle, a main and a wing for an L, a main and its
  * wings for any other outline that comes apart that way (`wingsRoof`), and null for one that
- * doesn't. A notch the roof is said to carry over is filled in first. Worked out once per input:
+ * doesn't. A notch the roof is said to carry over is filled in first, and any gambrel or mansard
+ * break put on last (`withBreaks`). Worked out once per input:
  * the plan and every side's gable read the same sections.
  */
 export function roofSections(input: RoofInput): BuiltSections | null {
   const known = builtFor.get(input);
   if (known !== undefined) return known;
   const out = sectionsOf(input);
+  if (out) withBreaks(input, out);
   builtFor.set(input, out);
   return out;
 }

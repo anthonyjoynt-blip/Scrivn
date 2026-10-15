@@ -3,7 +3,7 @@
 import { createElement } from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
-import { allSides, type Exterior, exteriorQuantities, formatPitch, ROOF_TOTAL_KEYS, ROOF_TOTAL_LABEL, type RoofTotalKey, sourceWords } from "@/lib/exterior";
+import { allSides, type Exterior, exteriorQuantities, formatPitch, pieceLine, ROOF_TOTAL_KEYS, ROOF_TOTAL_LABEL, type RoofTotalKey, sourceWords } from "@/lib/exterior";
 import { sizesFrom } from "@/lib/exteriorScale";
 import { formatQuantity } from "@/lib/sketchQuantities";
 import { lineTotals, textWidthEm } from "@/lib/roofLabels";
@@ -148,12 +148,21 @@ function roofSvg(exterior: Exterior): { svg: string; width: number; height: numb
     typed.length > 0 ? `From the estimator, over the drawing: ${typed.join(" · ")}.` : "",
   ].filter(Boolean);
   const typedNote = over.length > 0 ? `${over.join(" ")} The lengths drawn are the drawing's own.` : "";
+  // The roof pieces put on top of the drawing (lib/roofPieces.ts): not drawn, so named, with what the area above counts of them.
+  const ready = r.pieces.list.filter((x) => x.figures.missing.length === 0);
+  const piecesNote =
+    ready.length > 0
+      ? `Added roof pieces, not drawn: ${ready.map((x) => pieceLine(x.piece, x.figures, r.pitch)).join("; ")}. Their lengths are in the scope's totals, not the lines drawn${over.length > 0 ? "; a total typed counts them already" : ""}.`
+      : "";
   // Wrapped to the page: about 120 characters a line at 18 px.
   const typedLines: string[] = [];
-  for (const word of typedNote.split(" ").filter(Boolean)) {
-    const last = typedLines[typedLines.length - 1];
-    if (last !== undefined && last.length + word.length < 120) typedLines[typedLines.length - 1] = `${last} ${word}`;
-    else typedLines.push(word);
+  for (const note of [typedNote, piecesNote]) {
+    const start = typedLines.length;
+    for (const word of note.split(" ").filter(Boolean)) {
+      const last = typedLines[typedLines.length - 1];
+      if (typedLines.length > start && last !== undefined && last.length + word.length < 120) typedLines[typedLines.length - 1] = `${last} ${word}`;
+      else typedLines.push(word);
+    }
   }
   // What the sizes are from (2026-10-15, lib/exteriorScale.ts), for a house the phone measured: the last line.
   const from = sizesFrom(exterior);
@@ -164,7 +173,7 @@ function roofSvg(exterior: Exterior): { svg: string; width: number; height: numb
     `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${height}" viewBox="0 0 ${WIDTH} ${height}">`,
     `<rect width="${WIDTH}" height="${height}" fill="#ffffff"/>`,
     label(40, 44, "Roof plan", 30, 700),
-    label(40, 78, `${r.byPitch.length > 1 ? r.byPitch.map((b) => `${formatPitch(b.pitch)}${b.assumed ? " (assumed)" : b.fromPhotos ? " (from photos)" : ""}`).join(" and ") : `${formatPitch(r.pitch)}${r.pitchAssumed ? " (assumed)" : r.pitchFromPhotos ? " (from photos)" : ""}`} · ${which} · ${formatQuantity(r.areaSquareFeet)} SF (${r.squares.toFixed(2)} SQ${r.from.squareFeet !== "drawing" ? `, ${sourceWords(r.from.squareFeet)}` : ""}) · to scale, front at the bottom`, 20),
+    label(40, 78, `${r.byPitch.length > 1 || r.curved ? [...r.byPitch.map((b) => `${formatPitch(b.pitch)}${b.assumed ? " (assumed)" : b.fromPhotos ? " (from photos)" : ""}`), ...(r.curved ? ["curved"] : [])].join(" and ") : `${formatPitch(r.pitch)}${r.pitchAssumed ? " (assumed)" : r.pitchFromPhotos ? " (from photos)" : ""}`} · ${which} · ${formatQuantity(r.areaSquareFeet)} SF (${r.squares.toFixed(2)} SQ${r.from.squareFeet !== "drawing" ? `, ${sourceWords(r.from.squareFeet)}` : ""}) · to scale, front at the bottom`, 20),
     `<g transform="translate(40 ${top})">${drawing}</g>`,
     legend,
     slopeList ? label(40, legendY + 40, `Slopes: ${slopeList}`, 18) : "",

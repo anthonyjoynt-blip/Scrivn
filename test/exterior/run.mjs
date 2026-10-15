@@ -23,6 +23,9 @@
  *   * the house in 3D (10-13, lib/exterior3d.ts): every wall's top on the roof's underside, the roof's
  *     top over its whole plan with no crack between slopes, the fascia all round, the garage's roof
  *     under the house's gable with siding between, posts, the deck, and the heights on a sloping lot
+ *   * roof pieces on top of the drawing (10-15, lib/roofPieces.ts): gable and shed dormers, round and
+ *     many-sided turrets, a barrel, a flat roof, each worked in closed form; and a gambrel and a
+ *     mansard as a second pitch above a break (lib/roof.ts)
  */
 
 import { build } from "esbuild";
@@ -44,6 +47,7 @@ async function load() {
     [
       `export * from "${lib("exterior.ts")}";`,
       `export * from "${lib("roof.ts")}";`,
+      `export * from "${lib("roofPieces.ts")}";`,
       `export * from "${lib("roofLabels.ts")}";`,
       `export { formatFeetInches } from "${lib("sketch.ts")}";`,
       `export { availableTrades, buildWorkOrders } from "${lib("workOrders.ts")}";`,
@@ -2222,11 +2226,12 @@ function stepFeet(model) {
  * where a step's face stands (one roof's top on each side of it), its edge closed by the fascia - a
  * band of the slab's thickness over each eave and rake's plan length.
  */
-function soundRoof(e, what, skip = []) {
+/** `gapTol`: the walls are read 0.01' in, so a roof steeper than 12/12 rises more than 0.01 there. */
+function soundRoof(e, what, skip = [], gapTol = 0.02) {
   const m = model3d(e);
   const q = x.exteriorQuantities(e);
   const gap = worstGap(m, skip);
-  assert(gap.worst < 0.02, `${what}: a gap between wall and roof - ${gap.where}`);
+  assert(gap.worst < gapTol, `${what}: a gap between wall and roof - ${gap.where}`);
   const cover = topCover(m);
   near(cover.area, q.roof.planSquareFeet, `${what}: the roof's top over its whole plan`, 1e-3);
   near(cover.open, q.roof.edges.reduce((s, e) => s + e.planFeet, 0) + 2 * stepFeet(m), `${what}: open only along its drip lines and steps (no cracks between slopes)`, 1e-3);
@@ -3674,6 +3679,254 @@ test("the scope says both: (from photos) for what the photos read, and the roof 
   // Read but nothing taken: the photos' words only, no report.
   const untaken = x.exteriorScopeLines(photosAndReport());
   assert(/5\/12 \(from photos\)/.test(untaken.roofing[0]) && !/roof report/.test([...untaken.roofing, ...untaken.siding].join(" ")), untaken.roofing[0]);
+});
+
+console.log("\nroof pieces on top of the drawing, and a second pitch above a break (10-15)");
+
+const SQRT5 = Math.sqrt(5);
+
+test("a gable dormer 8' wide and 6' out at 12/12 on a 6/12 slope, worked by hand", () => {
+  const f = x.pieceFigures({ id: "d", kind: "gableDormer", widthFeet: 8, projectionFeet: 6, pitch: 12 }, 6);
+  assert(f.missing.length === 0, f.missing.join());
+  // m = 1/2, d = 1: its eaves stand mD = 3' over the slope at the face, its ridge runs dW/2m = 8' on past them.
+  // In plan it covers DW + dW²/4m = 48 + 32 = 80 SF: 80·√2 of its own, less 80·√1.25 of the 6/12 it covers.
+  near(f.areas[0].squareFeet, 80 * Math.SQRT2, "its own roof at 12/12");
+  near(f.areas[1].squareFeet, -80 * F6, "less the slope it covers, at 6/12");
+  assert(f.areas[0].pitch === 12 && f.areas[1].pitch === 6, JSON.stringify(f.areas));
+  near(f.squareFeet, 80 * (Math.SQRT2 - F6), "net: +23.69 SF");
+  near(f.lengths.ridge, 6 + 8, "ridge: the 6' projection and 8' on into the slope");
+  // Each valley (W/2)·√(1 + (d/m)² + d²) = 4·√(1 + 4 + 1).
+  near(f.lengths.valley, 2 * 4 * Math.sqrt(6), "two valleys");
+  near(f.lengths.eave, 12, "two eaves along its cheeks, 6' each");
+  near(f.lengths.rake, 2 * 4 * Math.SQRT2, "two rakes: 4 across and 4 up");
+  near(f.lengths.step, 2 * 6 * F6, "step flashing: 6' of run up each cheek, at 6/12");
+  near(f.apronFeet, 8, "apron across its face");
+  near(f.lengths.headwall, 8, "counted with the headwall flashing");
+  // Cheeks mD²/2 = 9 SF each; the face 8 x 3 under its eaves and the 8 x 4 / 2 gable over them.
+  near(f.sidingSquareFeet, 18 + 24 + 16, "cheeks and face, gross");
+  const two = x.pieceFigures({ id: "d", kind: "gableDormer", widthFeet: 8, projectionFeet: 6, pitch: 12, count: 2 }, 6);
+  near(two.squareFeet, 2 * f.squareFeet, "two alike: twice the area");
+  near(two.lengths.valley, 2 * f.lengths.valley, "and twice the valleys");
+});
+
+test("a dormer's valleys are a cross gable's at a different pitch: the 12/12 cross gable on 6/12 in lib/roof.ts gives the same", () => {
+  // 10' wide: the cross gable test above has its valleys 5·√6 each, its ridge 10' into the slope, and 50 SF of plan at 12/12 for 6/12.
+  const f = x.pieceFigures({ id: "d", kind: "gableDormer", widthFeet: 10, projectionFeet: 4, pitch: 12, onPitch: 6 }, 9);
+  const e = rect(40, 30, { pitch: 6, eaveOverhangFeet: 0, rakeOverhangFeet: 0, additions: [{ id: "cg", kind: "gable", sideId: "front", fromFeet: 15, toFeet: 25 }], sectionPitches: { cg: 12 } });
+  const r = roofOf(e).roofing;
+  near(f.lengths.valley, r.valleyFeet, "the same valleys");
+  near(f.lengths.ridge - 4, r.ridgeFeet - 40, "the same ridge past the face");
+  // The cross gable's change in area is the dormer's net less its projection's strip, 4 x 10 at 12/12 for 6/12.
+  near(f.squareFeet - 40 * (Math.SQRT2 - F6), r.areaSquareFeet - 1200 * F6, "the same change in area");
+});
+
+test("a shed dormer 12' wide and 8' out at 3/12 on a 10/12 slope, worked by hand", () => {
+  const f = x.pieceFigures({ id: "s", kind: "shedDormer", widthFeet: 12, projectionFeet: 8, pitch: 3, onPitch: 10 }, 6);
+  const m = 10 / 12;
+  const s = 3 / 12;
+  // 96 SF of plan: at 3/12 its own, less the 10/12 it covers - less roof than was there.
+  near(f.squareFeet, 96 * (Math.sqrt(1 + s * s) - Math.sqrt(1 + m * m)), "net area, below nothing");
+  assert(f.squareFeet < 0, "a shed dormer flatter than its slope takes roof away");
+  near(f.lengths.headwall, 12 + 12, "its top against the slope and its apron, 12' each");
+  near(f.apronFeet, 12, "the apron");
+  near(f.lengths.step, 2 * 8 * Math.sqrt(1 + m * m), "step flashing up both cheeks");
+  near(f.lengths.eave, 12, "one eave across its front");
+  near(f.lengths.rake, 2 * 8 * Math.sqrt(1 + s * s), "two rakes along its cheeks");
+  assert(f.lengths.valley === 0 && f.lengths.ridge === 0, "no valleys or ridge");
+  // Its face stands D(m - s) = 4'8": cheeks (m - s)D²/2 each, the face 12 x 4'8".
+  near(f.sidingSquareFeet, (m - s) * 64 + 12 * 8 * (m - s), "cheeks and face");
+  const steep = x.pieceFigures({ id: "s", kind: "shedDormer", widthFeet: 12, projectionFeet: 8, pitch: 12, onPitch: 10 }, 6);
+  assert(steep.missing.join() === "a pitch flatter than the slope it is on" && steep.squareFeet === 0, steep.missing.join());
+});
+
+test("turrets, a barrel, a flat roof and an Other piece, worked by hand", () => {
+  // A cone 12' across at 24/12: r = 6, slant 6·√5, area π·6·6√5.
+  const cone = x.pieceFigures({ id: "t", kind: "roundTurret", diameterFeet: 12, pitch: 24 }, 6);
+  near(cone.squareFeet, Math.PI * 6 * 6 * SQRT5, "cone");
+  near(cone.lengths.eave, 12 * Math.PI, "its eave, the circle");
+  // Eight sides of 5' at 18/12: inradius 5 / 2tan(22.5°) = 6.0355, circumradius 5 / 2sin(22.5°) = 6.5328.
+  const oct = x.pieceFigures({ id: "o", kind: "polygonTurret", sideCount: 8, sideFeet: 5, pitch: 18 }, 6);
+  const ri = 5 / (2 * Math.tan(Math.PI / 8));
+  const R = 5 / (2 * Math.sin(Math.PI / 8));
+  near(ri, 6.03553, "inradius");
+  near(oct.squareFeet, (8 * 5 * ri * Math.sqrt(1 + 1.5 * 1.5)) / 2, "eight triangles up the slant height");
+  near(oct.lengths.hip, 8 * Math.hypot(R, ri * 1.5), "eight hips, corner to top");
+  near(oct.lengths.eave, 40, "eaves round it");
+  // A four-sided one is a hip roof on a square: its hips are a hip roof's, run x √(2 + k²).
+  const four = x.pieceFigures({ id: "q", kind: "polygonTurret", sideCount: 4, sideFeet: 10, pitch: 6 }, 6);
+  near(four.lengths.hip, 4 * 5 * x.hipValleyFactor(6), "a square's hips");
+  near(four.squareFeet, 100 * F6, "and its area, plan x factor");
+  // An arc of span 12 and rise 3: radius (36 + 9) / 6 = 7.5, half-angle asin(6 / 7.5), arc 15·asin(0.8).
+  const barrel = x.pieceFigures({ id: "b", kind: "barrel", spanFeet: 12, lengthFeet: 20, riseFeet: 3 }, 6);
+  const arc = 15 * Math.asin(0.8);
+  near(barrel.squareFeet, arc * 20, "the arc times its length");
+  assert(barrel.areas[0].pitch === null, "curved: no one pitch");
+  near(barrel.lengths.eave, 40, "two eaves");
+  near(barrel.lengths.rake, 2 * arc, "the two arcs as rakes");
+  const half = x.pieceFigures({ id: "b", kind: "barrel", spanFeet: 12, lengthFeet: 1, riseFeet: 6 }, 6);
+  near(half.squareFeet, 6 * Math.PI, "a half-round: π·r per foot");
+  const flat = x.pieceFigures({ id: "f", kind: "flat", squareFeet: 120, perimeterFeet: 44, perimeterAs: "eave" }, 6);
+  assert(flat.areas[0].pitch === 0 && flat.lengths.eave === 44 && flat.dripEdgeFeet === 0, JSON.stringify(flat));
+  const dripOnly = x.pieceFigures({ id: "f", kind: "flat", squareFeet: 120, perimeterFeet: 44, perimeterAs: "dripEdge" }, 6);
+  assert(dripOnly.lengths.eave === 0 && dripOnly.dripEdgeFeet === 44, JSON.stringify(dripOnly));
+  const other = x.pieceFigures({ id: "x", kind: "other", squareFeet: 60, lengths: { valley: 7, step: 3 } }, 5);
+  assert(other.areas[0].pitch === 5 && other.lengths.valley === 7 && other.lengths.step === 3, "at the roof's pitch, its lengths as typed");
+  const blank = x.pieceFigures({ id: "g", kind: "gableDormer", widthFeet: 8 }, 6);
+  assert(blank.missing.join() === "its projection,its pitch" && blank.squareFeet === 0 && blank.lengths.valley === 0, blank.missing.join());
+});
+
+test("a dormer on the drawing: its quantities add to the drawing's, and the lines say what came from it", () => {
+  const dormer = { id: "d1", kind: "gableDormer", widthFeet: 8, projectionFeet: 6, pitch: 12 };
+  const base = roofOf(rect(40, 30, { pitch: 6 })).roofing;
+  const e = rect(40, 30, { pitch: 6, dripEdge: true, pieces: [dormer] });
+  e.scope = { roofing: true, sides: ["front"], soffitFascia: false, eavestrough: false };
+  const r = roofOf(e).roofing;
+  const own = 80 * Math.SQRT2;
+  const hole = 80 * F6;
+  near(r.areaSquareFeet, base.areaSquareFeet + own - hole, "area: the drawing's and the dormer's net");
+  near(r.ridgeFeet, 42 + 14, "ridge");
+  near(r.valleyFeet, 8 * Math.sqrt(6), "valleys: the dormer's alone");
+  near(r.eaveFeet, 84 + 12, "eaves");
+  near(r.starterFeet, 96, "starter follows the eaves, the dormer's in them");
+  near(r.iceWaterFeet, 96 + 8 * Math.sqrt(6), "ice & water: eaves + valleys");
+  assert(r.pieces.added.valley > 0 && r.from.valley === "drawing", "worked out, not typed");
+  assert(r.byPitch.map((b) => b.pitch).join() === "12,6", JSON.stringify(r.byPitch));
+  const { roofing, siding } = x.exteriorScopeLines(e);
+  const has = (list, line) => assert(list.includes(line), `missing "${line}" in:\n      ${list.join("\n      ")}`);
+  has(roofing, `Remove & replace roofing – material to confirm – 12/12 on ${(own / 100).toFixed(2)} SQ, 6/12 on ${((base.areaSquareFeet - hole) / 100).toFixed(2)} SQ – ${((base.areaSquareFeet + own - hole) / 100).toFixed(2)} SQ (all slopes, with added pieces)`);
+  has(roofing, "Added roof pieces – gable dormer, 8' wide, 6' out, 12/12 on a 6/12 slope (+23.7 SF net of the slope it covers) – added to the drawing's totals");
+  has(roofing, `Steep roof charge – 10/12 to 12/12 – ${(own / 100).toFixed(2)} SQ`);
+  has(roofing, "Hip & ridge cap – 56.0 LF (incl. 14.0 LF from added pieces)");
+  has(roofing, "Starter – 96.0 LF (eaves; incl. 12.0 LF from added pieces)");
+  has(roofing, `Drip edge – ${(96 + RAKES_40X30 + 8 * Math.SQRT2).toFixed(1)} LF (eaves + rakes; incl. ${(12 + 8 * Math.SQRT2).toFixed(1)} LF from added pieces) – photos required`);
+  has(roofing, `Ice & water barrier – ${(96 + 8 * Math.sqrt(6)).toFixed(1)} LF (eaves + valleys; incl. ${(12 + 8 * Math.sqrt(6)).toFixed(1)} LF from added pieces)`);
+  has(roofing, `Valleys – ${(8 * Math.sqrt(6)).toFixed(1)} LF (from added pieces)`);
+  has(roofing, `Step flashing – ${(12 * F6).toFixed(1)} LF (from added pieces)`);
+  has(roofing, "Headwall flashing – 8.0 LF (from added pieces)");
+  has(siding, "Remove & replace siding – dormer cheeks & faces – 58.0 SF (added pieces, openings not taken off)");
+  // Nothing put on: the lines are as they always were.
+  const plain = rect(40, 30, { pitch: 6, dripEdge: true });
+  plain.scope = e.scope;
+  assert(!/added pieces|Added roof pieces/.test(x.exteriorScopeLines(plain).roofing.join(" ")), "no pieces, no words for them");
+});
+
+test("a typed total stands for the drawing and the pieces alike; a blank one is the two added", () => {
+  const dormer = { id: "d1", kind: "gableDormer", widthFeet: 8, projectionFeet: 6, pitch: 12 };
+  const e = rect(40, 30, { pitch: 6, pieces: [dormer], typed: { valley: 25, squareFeet: 2000 } });
+  e.scope = { roofing: true, sides: [], soffitFascia: false, eavestrough: false };
+  const r = roofOf(e).roofing;
+  near(r.valleyFeet, 25, "the typed valleys, the dormer's not added");
+  near(r.pieces.added.valley, 0, "nothing added to a typed total");
+  near(r.areaSquareFeet, 2000, "the typed area");
+  near(r.ridgeFeet, 56, "ridge left blank: the drawing's and the dormer's");
+  // The typed area shared out by pitch as the drawing and the dormer have them.
+  const total = roofOf(rect(40, 30, { pitch: 6, pieces: [dormer] })).roofing.areaSquareFeet;
+  near(r.byPitch.find((b) => b.pitch === 12).areaSquareFeet, (80 * Math.SQRT2 * 2000) / total, "12/12's share");
+  const lines = x.exteriorScopeLines(e).roofing;
+  const has = (line) => assert(lines.includes(line), `missing "${line}" in:\n      ${lines.join("\n      ")}`);
+  has("Valleys – 25.0 LF – from the estimator");
+  has("Hip & ridge cap – 56.0 LF (incl. 14.0 LF from added pieces) – from the drawing");
+  has("Added roof pieces – gable dormer, 8' wide, 6' out, 12/12 on a 6/12 slope (+23.7 SF net of the slope it covers) – added to the drawing's totals, not to those typed");
+  assert(lines[0].endsWith("– 20.00 SQ – from the estimator"), lines[0]);
+});
+
+test("a piece with its numbers missing is asked for and counts nothing; a curved piece is its own band", () => {
+  const e = rect(40, 30, { pitch: 6, pieces: [{ id: "g", kind: "gableDormer", widthFeet: 8 }] });
+  const r = roofOf(e).roofing;
+  assert(r.toAnswer.roofing.includes("the gable dormer: its projection and its pitch"), r.toAnswer.roofing.join("; "));
+  near(r.areaSquareFeet, roofOf(rect(40, 30, { pitch: 6 })).roofing.areaSquareFeet, "nothing added");
+  const b = rect(40, 30, { pitch: 6, pieces: [{ id: "b", kind: "barrel", spanFeet: 12, lengthFeet: 20, riseFeet: 3 }] });
+  b.scope = { roofing: true, sides: [], soffitFascia: false, eavestrough: false };
+  const rb = roofOf(b).roofing;
+  const arc = 15 * Math.asin(0.8) * 20;
+  near(rb.curved.areaSquareFeet, arc, "curved squares apart");
+  assert(rb.steepBands.length === 0, "no steep charge for a curve");
+  const first = x.exteriorScopeLines(b).roofing[0];
+  assert(first === `Remove & replace roofing – material to confirm – 6/12 on 15.34 SQ, curved on ${(arc / 100).toFixed(2)} SQ – ${((1533.9426 + arc) / 100).toFixed(2)} SQ (all slopes, with added pieces)`, first);
+});
+
+test("roof pieces with no outline: listed and asked for squares; the 3D view says they are not drawn", () => {
+  const e = { sides: [], roof: { ...x.defaultRoof(), pitch: 6, pieces: [{ id: "t", kind: "roundTurret", diameterFeet: 12, pitch: 24 }] }, scope: { roofing: true, sides: [], soffitFascia: false, eavestrough: false } };
+  const r = x.exteriorQuantities(e).roofing;
+  assert(r !== null && !r.drawn, "roofing, with no drawing");
+  near(r.eaveFeet, 12 * Math.PI, "its eaves are the roof's so far");
+  const lines = x.exteriorScopeLines(e).roofing;
+  assert(lines[0] === "Remove & replace roofing – material to confirm – 6/12 – squares to confirm", lines[0]);
+  assert(lines[1] === `Added roof pieces – round turret, 12' across, 24/12 (${(Math.PI * 36 * SQRT5).toFixed(1)} SF)`, lines[1]);
+  const d = rect(40, 30, { pitch: 6, pieces: [{ id: "a", kind: "gableDormer", count: 2, widthFeet: 8, projectionFeet: 6, pitch: 12 }, { id: "t", kind: "roundTurret" }] });
+  const model = x.exteriorModel(d);
+  assert(model.ok && model.model.notes.includes("Roof pieces not drawn: 2 × gable dormer, round turret. Their quantities are in the roof's totals."), JSON.stringify(model.ok && model.model.notes));
+});
+
+test("a gambrel: 24/12 up to a break 8' over the eave, 6/12 above it, gable ends - the break counts nothing", () => {
+  const e = rect(40, 30, { pitch: 24, eaveOverhangFeet: 0, rakeOverhangFeet: 0, sectionBreaks: { main: { upperPitch: 6, breakFeet: 8 } } });
+  const q = roofOf(e);
+  const plan = q.roof;
+  const r = q.roofing;
+  assert(plan.note === null && plan.sections[0].break && plan.sections[0].break.pitch === 6, plan.note);
+  // 8' up at 24/12 is 4' in; the 11' left to the ridge at 6/12 rises 5'6": the ridge 13'6" up.
+  near(r.areaSquareFeet, 2 * 40 * 4 * SQRT5 + 2 * 40 * 11 * F6, "area: 4' strips at 24/12, 11' at 6/12, each side");
+  assert(r.slopes.length === 4, `${r.slopes.length} slopes`);
+  assert(r.byPitch.map((b) => b.pitch).join() === "24,6", JSON.stringify(r.byPitch));
+  near(r.ridgeFeet, 40, "one ridge");
+  near(r.eaveFeet, 80, "eaves");
+  near(r.hipFeet + r.valleyFeet, 0, "no hips or valleys: the break is no line");
+  // Each gable end: 4 in and 8 up, then 11 in and 5'6" up, both ways.
+  near(r.rakeFeet, 2 * 2 * (Math.hypot(4, 8) + Math.hypot(11, 5.5)), "rakes, bent at the break");
+  // The gable end's siding follows the bent roof.
+  const left = q.rises.left;
+  assert(left.some((p) => Math.abs(p.t - 4 / 30) < 1e-6 && Math.abs(p.rise - 8) < 1e-6) && left.some((p) => Math.abs(p.t - 0.5) < 1e-6 && Math.abs(p.rise - 13.5) < 1e-6), JSON.stringify(left));
+  e.scope = { roofing: true, sides: [], soffitFascia: false, eavestrough: false };
+  const lines = x.exteriorScopeLines(e).roofing;
+  assert(lines.includes(`Steep roof charge – over 12/12 – ${((2 * 40 * 4 * SQRT5) / 100).toFixed(2)} SQ`), lines.join(" | "));
+});
+
+test("a mansard: hip ends, a flat top or a 4/12 one above the break", () => {
+  const flatTop = roofOf(rect(40, 30, { pitch: 24, ends: { left: "hip", right: "hip" }, eaveOverhangFeet: 0, rakeOverhangFeet: 0, sectionBreaks: { main: { upperPitch: 0, breakFeet: 8 } } })).roofing;
+  // The steep band 4' in all round: 1200 - 32 x 22 of plan at 24/12, the 704 SF top flat.
+  near(flatTop.areaSquareFeet, 496 * SQRT5 + 704, "area");
+  // Four hips, 4' in each way and 8' up: √(32 + 64).
+  near(flatTop.hipFeet, 4 * Math.sqrt(96), "four hips to the top's corners");
+  near(flatTop.ridgeFeet + flatTop.valleyFeet + flatTop.rakeFeet, 0, "no ridge, valleys or rakes: the top's edge is no line");
+  near(flatTop.eaveFeet, 140, "eaves all round");
+  assert(flatTop.byPitch.map((b) => b.pitch).join() === "24,0", JSON.stringify(flatTop.byPitch));
+  const pitched = roofOf(rect(40, 30, { pitch: 24, ends: { left: "hip", right: "hip" }, eaveOverhangFeet: 0, rakeOverhangFeet: 0, sectionBreaks: { main: { upperPitch: 4, breakFeet: 8 } } })).roofing;
+  // Above the break a 32 x 22 hip roof at 4/12: its ridge 32 - 22 = 10, its hips 11 of run each x √(2 + 1/9).
+  near(pitched.ridgeFeet, 10, "the top's ridge");
+  near(pitched.hipFeet, 4 * Math.sqrt(96) + 4 * 11 * x.hipValleyFactor(4), "the steep hips and the top's");
+  near(pitched.areaSquareFeet, 496 * SQRT5 + 704 * F4, "area");
+});
+
+test("a break that is no break is left off; a wing tied into a gambrel needs the same break, or the break goes and says why", () => {
+  const plain = roofOf(rect(40, 30, { pitch: 6 })).roofing;
+  for (const brk of [
+    { upperPitch: 8, breakFeet: 3 },
+    { upperPitch: 3, breakFeet: 0 },
+    { upperPitch: 3, breakFeet: 20 },
+  ]) {
+    const q = roofOf(rect(40, 30, { pitch: 6, sectionBreaks: { main: brk } }));
+    assert(!q.roof.sections[0].break, JSON.stringify(brk));
+    near(q.roofing.areaSquareFeet, plain.areaSquareFeet, `as plain: ${JSON.stringify(brk)}`);
+  }
+  // The 40 x 30 house and its 20 x 20 garage, both 24/12; the house a gambrel, 8' to its break.
+  const brk = { upperPitch: 6, breakFeet: 8 };
+  const one = roofOf(houseAndGarage({ pitch: 24, sectionBreaks: { main: brk } })).roof;
+  assert(/^The second pitch on the main roof is left out: a part tied into it would leave a step/.test(one.note ?? ""), one.note);
+  assert(one.sections.every((s) => !s.break), "no break kept");
+  // Both bent alike: the garage's ridge 8 + 6/2 = 11' up meets the house's slope 4 + 3 x 2 = 10' in, its own half-span.
+  const both = roofOf(houseAndGarage({ pitch: 24, sectionBreaks: { main: brk, "wing:garageFront": brk } }));
+  assert(both.roof.note === null && both.roof.sections.every((s) => s.break), both.roof.note);
+  // Two 45° valleys, each bent at the break: 4 in each way and 8 up, then 6 and 3.
+  near(both.roofing.valleyFeet, 2 * (Math.sqrt(96) + Math.sqrt(72 + 9)), "valleys");
+});
+
+test("3D: a gambrel and a mansard stand on their walls with no crack, the gable end bent with the roof", () => {
+  // Default 16" eaves at 24/12 put the drip line 2'8" under the eave; the ridge 13'6" over the eave with 0 overhangs.
+  const { m } = soundRoof(rect(40, 30, { pitch: 24, eaveOverhangFeet: 0, rakeOverhangFeet: 0, sectionBreaks: { main: { upperPitch: 6, breakFeet: 8 } } }), "gambrel", [], 0.03);
+  near(topOf(wallNamed(m, "Left")), 10 + 13.5, "the gable end's peak");
+  near(wallTopAt(wallNamed(m, "Left"), 4), 10 + 8, "the gable end's top at the break, 4' in");
+  soundRoof(rect(40, 30, { pitch: 24, ends: { left: "hip", right: "hip" }, sectionBreaks: { main: { upperPitch: 0, breakFeet: 8 } } }), "mansard, flat top", [], 0.03);
+  soundRoof(houseAndGarage({ pitch: 24, sectionBreaks: { main: { upperPitch: 6, breakFeet: 8 }, "wing:garageFront": { upperPitch: 6, breakFeet: 8 } } }), "gambrel house and garage", [], 0.03);
 });
 
 console.log(`\n${passed.length} passed, ${failures.length} failed`);
