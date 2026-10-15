@@ -3630,6 +3630,29 @@ button:disabled {
   background: var(--color-navy-tint);
   font-weight: 600;
 }
+/* Roof pieces on top of the drawing (2026-10-15): one card each, and the list to add one from. */
+.roof-piece {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+}
+.roof-piece > p {
+  margin: 0;
+}
+.roof-piece-add {
+  align-self: flex-start;
+  max-width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  font: inherit;
+  font-size: 0.9rem;
+  background: var(--surface);
+  color: var(--text);
+}
 .exterior-plan-hint .btn-secondary {
   padding: 2px 10px;
   margin-left: 4px;

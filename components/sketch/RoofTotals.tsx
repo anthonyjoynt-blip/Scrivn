@@ -282,7 +282,8 @@ export function RoofTotalsPanel({
   const placeholderOf = (key: Exclude<RoofTotalKey, "squareFeet">): string => {
     if (!r || (!drawing && !MADE_OF[key])) return "";
     const made = MADE_OF[key];
-    return `${formatQuantity(FEET_OF[key](r))} ${made ? `(${made})` : "drawn"}`;
+    // A roof piece's share is in it until the box is typed (lib/roofPieces.ts).
+    return `${formatQuantity(FEET_OF[key](r))} ${made ? `(${made})` : Math.abs(r.pieces.added[key]) > 0.005 ? (drawing ? "drawn + pieces" : "pieces") : "drawn"}`;
   };
   const named = (keys: RoofTotalKey[]) => keys.map((k) => ROOF_TOTAL_LABEL[k].toLowerCase());
   const typedKeys = ROOF_TOTAL_KEYS.filter((k) => typedTotal(roof, k) !== null);
@@ -349,7 +350,7 @@ export function RoofTotalsPanel({
         {report
           ? "Take each of the report's totals you want, box by box: it is said to be from the roof report. A box left blank keeps the drawing's, shown in grey."
           : drawing
-            ? "Each total typed replaces the drawing's on the scope and the documents, which say it came from you. A box left blank keeps the drawing's, shown in grey."
+            ? "Each total typed replaces the drawing's, and any roof piece's below, on the scope and the documents, which say it came from you. A box left blank keeps the drawing's, shown in grey."
             : "No outline is drawn, so these totals are the roof. Type what the roof report says, or what you measured: a box left blank is not counted."}
       </p>
       <div className="exterior-grid">

@@ -42,7 +42,8 @@ import {
   UPPER_STOREY_FEET,
   type UpperFloor,
 } from "./exterior";
-import type { Pt, RoofAddition, RoofEndKind, RoofPlan } from "./roof";
+import type { Pt, RoofAddition, RoofBreak, RoofEndKind, RoofPlan } from "./roof";
+import type { RoofPiece, RoofPieceKind } from "./roofPieces";
 import { newSketchId } from "./sketch";
 
 /** No side is shorter than this: half a foot. */
@@ -573,6 +574,22 @@ export function withSectionPitch(roof: ExteriorRoof, key: string, pitch: number 
   return { ...roof, sectionPitches };
 }
 
+/**
+ * A section's second pitch above a break (gambrel, mansard), or none (null). A height not yet typed
+ * is kept as 0, which builds no break until it is (lib/roof.ts `withBreaks`).
+ */
+export function withSectionBreak(roof: ExteriorRoof, key: string, brk: RoofBreak | null): ExteriorRoof {
+  const sectionBreaks = { ...(roof.sectionBreaks ?? {}) };
+  if (brk === null) delete sectionBreaks[key];
+  else sectionBreaks[key] = brk;
+  return { ...roof, sectionBreaks };
+}
+
+/** A roof piece of a kind, put on with nothing typed: it counts nothing, and is asked for, until its numbers are in. */
+export function newRoofPiece(kind: RoofPieceKind): RoofPiece {
+  return { id: newSketchId("piece"), kind, count: 1, ...(kind === "flat" ? { perimeterAs: "eave" as const } : {}) };
+}
+
 export type AdditionKind = "porch" | "leanto" | "gable";
 
 /**
@@ -605,6 +622,7 @@ export function roofWithoutSides(roof: ExteriorRoof, gone: (id: string) => boole
     ends,
     ridgeAlong: roof.ridgeAlong !== null && gone(roof.ridgeAlong) ? null : roof.ridgeAlong,
     ...(roof.sectionPitches ? { sectionPitches: Object.fromEntries(Object.entries(roof.sectionPitches).filter(([key]) => kept(key))) } : {}),
+    ...(roof.sectionBreaks ? { sectionBreaks: Object.fromEntries(Object.entries(roof.sectionBreaks).filter(([key]) => kept(key))) } : {}),
     additions,
     lowerWings: roof.lowerWings?.filter((w) => !gone(w)),
     wingGables: roof.wingGables?.filter((w) => !gone(w)),

@@ -18,6 +18,7 @@ import {
   photoPitches,
   photoRoofCheck,
   photoSectionPitches,
+  pieceLine,
   rectangleExterior,
   resolvedOverhang,
   ROOF_MATERIAL_LABEL,
@@ -45,6 +46,7 @@ import {
   withAddition,
   withNextSide,
   withRoofEnd,
+  withSectionBreak,
   withSectionPitch,
   withSideLength,
   withoutUpper,
@@ -55,6 +57,7 @@ import { textWidthEm } from "@/lib/roofLabels";
 import { pickableEdge, type RoofPick, RoofLegend, RoofPlanDrawing, type RoofPlanMode } from "./exteriorDrawings";
 import { Cell, Choice, FeetField, FeetInput, lf, listOf, NumberField, sf, YesNo } from "./exteriorFields";
 import { ExteriorSizes } from "./ExteriorSizes";
+import { RoofPiecesPanel } from "./RoofPieces";
 import { RoofTotalsPanel } from "./RoofTotals";
 
 /**
@@ -664,7 +667,7 @@ function SectionPitch({ exterior, plan, sectionKey, readOnly, nameOf, onUpdate }
         value={own}
         placeholder={`${Math.round(section.pitch * 100) / 100}${main ? "" : photo !== undefined ? " from photos" : " as the roof"}`}
         readOnly={readOnly}
-        max={24}
+        max={48}
         onCommit={(v) => onUpdate((x) => withSectionPitch(x, sectionKey, v))}
         note={
           main
@@ -676,6 +679,54 @@ function SectionPitch({ exterior, plan, sectionKey, readOnly, nameOf, onUpdate }
                 : `Blank: ${formatPitch(section.pitch)}, the same as the roof it is part of.`
         }
       />
+      {!section.planes && <SectionBreak exterior={exterior} plan={plan} sectionKey={sectionKey} readOnly={readOnly} onUpdate={onUpdate} />}
+    </div>
+  );
+}
+
+/**
+ * A gambrel or mansard (2026-10-15): the picked part's pitch is the steep one below the break, and a
+ * second, flatter one above it - 0 for a mansard's flat top. Gable ends make it a gambrel, hip ends a
+ * mansard. The maths is lib/roof.ts (`withBreaks`).
+ */
+function SectionBreak({ exterior, plan, sectionKey, readOnly, onUpdate }: { exterior: Exterior; plan: RoofPlan; sectionKey: string; readOnly: boolean; onUpdate: (f: (roof: ExteriorRoof) => ExteriorRoof) => void }) {
+  const section = plan.sections.find((s) => s.key === sectionKey);
+  if (!section) return null;
+  const said = exterior.roof.sectionBreaks?.[sectionKey] ?? null;
+  const ridge = (section.axis === "x" ? section.y1 - section.y0 : section.x1 - section.x0) / 2;
+  const why =
+    said === null
+      ? "Blank: one pitch from eave to ridge. For a gambrel (gable ends) or a mansard (hip ends), type the flatter pitch above the break and the break's height."
+      : section.break
+        ? `${formatPitch(section.pitch)} up to the break, ${formatPitch(section.break.pitch)} above it. Clear the upper pitch for one pitch.`
+        : !(said.breakFeet > 0)
+          ? "Type the break's height above the eave."
+          : !(said.upperPitch < section.pitch)
+            ? `The pitch above the break has to be flatter than the ${formatPitch(section.pitch)} below it.`
+            : said.breakFeet + exterior.roof.eaveOverhangFeet * (section.pitch / 12) >= ridge * (section.pitch / 12)
+              ? "That break is as high as the ridge would be, so there is none: check its height."
+              : "The break is left out: the note under the plan says why.";
+  return (
+    <div className="exterior-grid">
+      <NumberField
+        id="ext-section-upper"
+        label="Pitch above a break (gambrel, mansard)"
+        value={said?.upperPitch ?? null}
+        placeholder="none"
+        readOnly={readOnly}
+        max={24}
+        onCommit={(v) => onUpdate((x) => withSectionBreak(x, sectionKey, v === null ? null : { upperPitch: v, breakFeet: x.sectionBreaks?.[sectionKey]?.breakFeet ?? 0 }))}
+        note={why}
+      />
+      {said !== null && (
+        <FeetField
+          id="ext-section-break"
+          label="Break, its height above the eave"
+          value={said.breakFeet > 0 ? said.breakFeet : null}
+          readOnly={readOnly}
+          onCommit={(v) => v !== null && onUpdate((x) => withSectionBreak(x, sectionKey, { upperPitch: x.sectionBreaks?.[sectionKey]?.upperPitch ?? 0, breakFeet: v }))}
+        />
+      )}
     </div>
   );
 }
@@ -833,7 +884,13 @@ export function PlanPane({
     );
   }
 
-  const totals = (showPitch: boolean) => <RoofTotalsPanel roof={roof} r={r} pitch={q.pitch} showPitch={showPitch} photoCheck={photoCheck} readOnly={readOnly} onUpdate={updateRoof} />;
+  // The totals typed by the estimator, and the pieces the drawing can't make put on top of it (lib/roofPieces.ts).
+  const totals = (showPitch: boolean) => (
+    <>
+      <RoofTotalsPanel roof={roof} r={r} pitch={q.pitch} showPitch={showPitch} photoCheck={photoCheck} readOnly={readOnly} onUpdate={updateRoof} />
+      <RoofPiecesPanel roof={roof} roofPitch={r?.pitch ?? q.pitch.value ?? 0} readOnly={readOnly} onUpdate={updateRoof} />
+    </>
+  );
 
   // Only the roof's totals, typed: nothing to draw on until an outline is drawn.
   if (exterior.sides.length === 0) {
@@ -1636,19 +1693,21 @@ function RoofFigures({ r }: { r: RoofingQuantities }) {
   const g = r.gutter;
   const chosen = r.slopes.filter((s) => s.selected);
   // With anything typed over a drawing, each total says where it came from, as the scope lines do; the
-  // roof report anything was taken from is named once, above them (2026-10-15).
-  const from = (key: RoofTotalKey) => (r.typed && r.drawn ? `, ${sourceWords(r.from[key])}` : "");
+  // roof report anything was taken from is named once, above them (2026-10-15); and what the added pieces put in it.
+  const from = (key: RoofTotalKey) => (r.typed && r.drawn ? `, ${sourceWords(r.from[key])}` : "") + (Math.abs(r.pieces.added[key]) > 0.005 ? `, incl. ${key === "squareFeet" ? sf(r.pieces.added[key]) : lf(r.pieces.added[key])} from added pieces` : "");
+  const pieces = r.pieces.list.filter((x) => x.figures.missing.length === 0);
   const rows: [string, string][] = [
     ...(r.report ? [["Roof report", `${r.report.label ?? "no maker or date given"} (${r.report.fileName})`] as [string, string]] : []),
     [
       "Pitch",
-      r.byPitch.length > 1
-        ? `${r.byPitch.map((b) => `${formatPitch(b.pitch)}${b.assumed ? " assumed" : b.fromPhotos ? " from photos" : ""} on ${b.squares.toFixed(2)} SQ`).join(", ")}${r.steepBands.length > 0 ? `; steep ${r.steepBands.map((b) => `${b.band} on ${b.squares.toFixed(2)} SQ`).join(", ")}` : ""}`
+      r.byPitch.length > 1 || r.curved
+        ? `${[...r.byPitch.map((b) => `${formatPitch(b.pitch)}${b.assumed ? " assumed" : b.fromPhotos ? " from photos" : ""} on ${b.squares.toFixed(2)} SQ`), ...(r.curved ? [`curved on ${r.curved.squares.toFixed(2)} SQ`] : [])].join(", ")}${r.steepBands.length > 0 ? `; steep ${r.steepBands.map((b) => `${b.band} on ${b.squares.toFixed(2)} SQ`).join(", ")}` : ""}`
         : `${formatPitch(r.pitch)}${r.pitchAssumed ? " assumed" : r.pitchFromPhotos ? " from photos" : ""} (factor ${r.pitchFactor.toFixed(3)})${r.steep ? `, steep ${r.steep}` : ""}`,
     ],
     ...(r.drawn
       ? [["Slopes being roofed", r.slopes.length === 0 ? "the whole roof" : r.allSlopes ? `all: ${r.slopes.map((s) => s.label).join(", ")}` : chosen.map((s) => s.label).join(", ") || "none"] as [string, string]]
       : []),
+    ...(pieces.length > 0 ? [["Added roof pieces", pieces.map((x) => pieceLine(x.piece, x.figures, r.pitch)).join("; ")] as [string, string]] : []),
     ["Roof area", `${sf(r.areaSquareFeet)} (${r.squares.toFixed(2)} SQ, no waste${from("squareFeet")})`],
     ["Ridge", lf(r.ridgeFeet) + from("ridge")],
     ["Hips", lf(r.hipFeet) + from("hip")],
@@ -1660,6 +1719,7 @@ function RoofFigures({ r }: { r: RoofingQuantities }) {
     ["Drip edge (eaves + rakes)", lf(r.dripEdgeFeet) + from("dripEdge")],
     r.material === "metal" ? ["Closure strips (eaves + 2 × ridge)", lf(r.closureFeet)] : ["Starter (eaves)", lf(r.starterFeet) + from("starter")],
     ["Ice & water (eaves + valleys)", lf(r.iceWaterFeet) + from("iceWater")],
+    ...(r.pieces.sidingSquareFeet > 0.005 ? [["Dormer siding (cheeks & faces)", `${sf(r.pieces.sidingSquareFeet)}, gross`] as [string, string]] : []),
     ["Ridge vent", lf(r.ridgeVentFeet)],
     ["Eavestrough", `${lf(g.feet)} in ${g.runs.length} run${g.runs.length === 1 ? "" : "s"}`],
     ["End caps", String(g.endCaps)],
