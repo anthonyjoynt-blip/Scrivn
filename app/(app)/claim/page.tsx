@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { type GapCheckQuestion, siblingQuestionIds } from "@/lib/questions";
 import { type AskedQuestion, formatQuestionLog, hasQuestionLog, recordRound } from "@/lib/questionLog";
-import { type SavedClaimState, resumeStep } from "@/lib/claimState";
+import { type SavedClaimState, parseSavedClaimState, resumeStep } from "@/lib/claimState";
 import { useClaimPersistence } from "@/lib/useClaimPersistence";
 import { type ClaimStep, claimOnScreen, newJobId, setAside, tryAgain, useClaimSteps, waitForSignal } from "@/lib/aiJobs";
 import { buildAsbestosSection, buildContentsSection, equipmentSuggestionsFor, extractionRequest, generationRequest, withExtraction, withGeneratedDocuments } from "@/lib/claimGeneration";
@@ -349,7 +349,14 @@ export default function Home() {
     Every setter, in the same order the interface lists them, so a field added there and missed here
     is visible as an obviously shorter function rather than as a field that silently loads blank.
   */
-  const applyLoadedClaim = useCallback((loaded: SavedClaimState) => {
+  const applyLoadedClaim = useCallback((raw: SavedClaimState) => {
+    /*
+      Filled in before anything is read (2026-10-15). A copy this device kept for offline use may have
+      been saved by an older build and lack parts added since: a copy from before the drying log had
+      none, the page read its visits from undefined and crashed ("This page couldn't load"). The
+      server's copy is filled in on the way out; the device's was not. Safe to run twice.
+    */
+    const loaded = parseSavedClaimState(raw);
     /*
       `resumeStep`, not `loaded.step`. A claim saved mid-request carries a step describing a request
       that died with the tab — reopening into "extracting" or "generating" is a spinner that never
