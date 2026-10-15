@@ -10,8 +10,8 @@ import type { JobInfoGroup } from "./jobInformation";
  * one-click naming (unlike relying on the print dialog's "Save as PDF" filename suggestion).
  */
 
-const PAGE_MARGIN = 54; // 0.75in in points
-const LETTERHEAD_HEIGHT = 64;
+export const PAGE_MARGIN = 54; // 0.75in in points
+export const LETTERHEAD_HEIGHT = 64;
 const JOB_INFO_COLUMNS = 3;
 
 /**
@@ -104,7 +104,7 @@ const LOGO_GAP = 16;
  * the primary the owner chose, so a pale banner — the natural choice for a logo drawn on a white
  * ground — stays legible through the same code path as the navy default.
  */
-function drawLetterhead(doc: jsPDF, letterhead: Letterhead, pageWidth: number) {
+export function drawLetterhead(doc: jsPDF, letterhead: Letterhead, pageWidth: number) {
   doc.setFillColor(...letterhead.primaryColor);
   doc.rect(0, 0, pageWidth, LETTERHEAD_HEIGHT, "F");
   doc.setFillColor(...letterhead.accentColor);
@@ -249,7 +249,7 @@ const MIN_PHOTO_HEIGHT = 150;
  * the date and time are printed under it instead. A caption long enough to squeeze its photo below a
  * readable size takes a page of its own rather than being cut short.
  */
-function drawPhotoPages(doc: jsPDF, photos: PdfPhoto[]) {
+export function drawPhotoPages(doc: jsPDF, photos: PdfPhoto[], heading = "Site photos") {
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
   const contentWidth = pageWidth - PAGE_MARGIN * 2;
@@ -263,7 +263,7 @@ function drawPhotoPages(doc: jsPDF, photos: PdfPhoto[]) {
     doc.setFont("helvetica", "bold");
     doc.setFontSize(11);
     doc.setTextColor(20, 20, 20);
-    doc.text("Site photos", PAGE_MARGIN, PAGE_MARGIN);
+    doc.text(heading, PAGE_MARGIN, PAGE_MARGIN);
     slot = 0;
   };
 
@@ -326,7 +326,7 @@ function wrapCell(doc: jsPDF, text: string, width: number): string[] {
  * of a page over nothing is the thing that makes a printed log look unfinished. When a table runs on
  * to another page its header row is drawn again.
  */
-function drawTables(doc: jsPDF, tables: PdfTable[], startY: number, contentWidth: number, bottomLimit: number): number {
+export function drawTables(doc: jsPDF, tables: PdfTable[], startY: number, contentWidth: number, bottomLimit: number): number {
   let y = startY + 6;
 
   for (const table of tables) {

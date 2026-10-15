@@ -33,6 +33,7 @@ import {
   type SidePhoto,
   sideQuantities,
 } from "./exterior";
+import { applyScanFinish, readScanFinish } from "./exteriorFinish";
 
 export const EXTERIOR_FORMAT = "arcapture-exterior/1";
 /**
@@ -143,7 +144,8 @@ function sidePhotos(raw: unknown, scanId: string | null): SidePhoto[] {
   return photos;
 }
 
-export type ExteriorImportResult = { ok: true; exterior: Exterior; notes: string[] } | { ok: false; error: string };
+/** `scanIndex`: each side's index in Scan's file, by the id Scrivn gave it - what the phone names a side by (lib/exteriorFinish.ts). */
+export type ExteriorImportResult = { ok: true; exterior: Exterior; notes: string[]; scanIndex: Record<string, number> } | { ok: false; error: string };
 
 /** Scan's exterior, read into the claim's exterior model. */
 export function parseScanExterior(input: unknown, meta: { scanId?: string | null; receivedAt?: string | null } = {}): ExteriorImportResult {
@@ -441,12 +443,41 @@ export function parseScanExterior(input: unknown, meta: { scanId?: string | null
     }
   }
 
+  /*
+    Finish exterior on the phone (2026-10-15, lib/exteriorFinish.ts): the roof read off the side photos
+    there, and the pitch and ends the estimator set there, put on as the phone had them - so the claim's
+    roof is the one the phone showed, and no photo is traced twice.
+  */
+  const finish = readScanFinish(part.finish);
+  let finishedSides = sides;
+  let finishedRoof = roof;
+  if (finish) {
+    const done = applyScanFinish(sides, roof, finish, idByIndex, factor);
+    finishedSides = done.sides;
+    finishedRoof = done.roof;
+    notes.push(...done.notes);
+  }
+
   const outer = asObject(input);
   const captureId = typeof part.capture_id === "string" ? part.capture_id : isObject(outer) && typeof outer.capture_id === "string" ? outer.capture_id : null;
   return {
     ok: true,
-    exterior: { sides, roof, scale, source: { kind: "scan", captureId, scanId: meta.scanId ?? null, receivedAt: meta.receivedAt ?? null, notes, ...(closed ? {} : { walkClosed: false }) } },
+    exterior: {
+      sides: finishedSides,
+      roof: finishedRoof,
+      scale,
+      source: {
+        kind: "scan",
+        captureId,
+        scanId: meta.scanId ?? null,
+        receivedAt: meta.receivedAt ?? null,
+        notes,
+        ...(closed ? {} : { walkClosed: false }),
+        ...(finish ? { finish: { at: finish.at ?? null, acceptedAt: finish.acceptedAt ?? null, engine: finish.engine ?? null } } : {}),
+      },
+    },
     notes,
+    scanIndex: Object.fromEntries([...idByIndex.entries()].map(([index, id]) => [id, index])),
   };
 }
 

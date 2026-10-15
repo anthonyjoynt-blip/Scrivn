@@ -11,6 +11,7 @@ import { LOWER_ROOF_WORDS, PHOTO_PIECE_LABEL, type PhotoPiece, type ProposedPiec
 import { formatQuantity } from "@/lib/sketchQuantities";
 import { ElevationDrawing, type ElevationReach, type ElevationView } from "./exteriorDrawings";
 import { setTraceAside, useSideTrace, waitForSignalToTrace } from "@/lib/aiJobs";
+import { traceRequestFor } from "@/lib/exteriorFinish";
 import { isNetworkFailure, netFetch } from "@/lib/connectivity";
 
 /** A browser's words for a fetch that got no answer — what squaring a photo says with no signal. */
@@ -421,20 +422,8 @@ export function SideElevation({
     setError(null);
     let body: TraceRequest | null = null;
     try {
-      body = {
-        image: await blobBase64(squared.blob),
-        frame: squared.frame,
-        side: {
-          name: side.name,
-          lengthM: side.lengthFeet / FEET_PER_METRE,
-          bottomLeftM: side.baseLeftFeet / FEET_PER_METRE,
-          bottomRightM: side.baseRightFeet / FEET_PER_METRE,
-          leftEndInPhoto: photos.some((p) => p.inView?.leftEnd !== false),
-          rightEndInPhoto: photos.some((p) => p.inView?.rightEnd !== false),
-        },
-        photos: squared.used.map((p) => ({ toPhoto: p.toPhoto, camera: p.camera })),
-        ...(scaleFactor !== null ? { scaleAt: scaleFactor } : {}),
-      };
+      // The same request the phone's Finish exterior makes (lib/exteriorFinish.ts).
+      body = traceRequestFor(side, squared.frame, squared.used, await blobBase64(squared.blob), scaleFactor);
       const r = await netFetch("/api/exterior/trace", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), timeoutMs: 330_000 });
       const answer = (await r.json().catch(() => ({}))) as Partial<TraceResponse> & { error?: string };
       if (!r.ok || !answer.proposals) {
