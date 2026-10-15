@@ -161,6 +161,27 @@ export interface ExteriorSide {
   roofRead?: SideRoofRead;
   /** The phone's photos of this side (Scan 0.1.151), each with what lays it on the elevation - see lib/exteriorPhoto.ts. */
   photos?: SidePhoto[];
+  /** Doors of a standard size on its photo, kept off its AI trace as checks on the house's sizes (2026-10-15, lib/exteriorScale.ts). */
+  sizeDoors?: SizeDoor[];
+}
+
+/**
+ * A garage door or a door of a size doors are sold in, found by the AI trace on a side's photo and
+ * kept as a check on the house's sizes (2026-10-15, lib/exteriorScale.ts): the size it is taken to
+ * be, and what the phone measured it at.
+ */
+export interface SizeDoor {
+  id: string;
+  /** A garage door, read to the door itself; or a door, read by its leaf - the slab that swings. */
+  kind: "garage" | "door";
+  /** The size it is taken to be. */
+  widthFeet: number;
+  heightFeet: number;
+  /**
+   * As the phone measured it: the trace's read with the house's scale at the time taken off, so it
+   * holds however the house is scaled after. `middleFeet` is where it is, from the side's left end.
+   */
+  phone: { widthFeet: number; heightFeet: number; middleFeet: number };
 }
 
 /**
@@ -432,6 +453,11 @@ export interface Exterior {
   /** Optional so an exterior drawn before the scope existed loads; absent reads as nothing in scope. */
   scope?: ExteriorScope;
   /**
+   * What a scanned exterior's sizes are from (2026-10-15, lib/exteriorScale.ts): the phone's own
+   * measure, a tape, or a door of a standard size. Absent: see `scaleOf`.
+   */
+  scale?: ExteriorScale;
+  /**
    * Where it came from when the phone measured it - see `lib/exteriorImport.ts`. `edited` is set by the
    * first change to a measurement in Scrivn; from then on it is the estimator's, and a later scan asks
    * before replacing it. Ticking what is in scope is not a change to what was measured.
@@ -446,6 +472,23 @@ export interface Exterior {
     /** False when the phone's walk did not go all the way round: its sides are not yet a footprint. */
     walkClosed?: boolean;
   };
+}
+
+/**
+ * What the sizes of a scanned exterior are from (2026-10-15, lib/exteriorScale.ts). Every length and
+ * height is the phone's own measure times `factor`; `from` says which reference that factor is.
+ */
+export interface ExteriorScale {
+  from: "phone" | "tape" | "door";
+  /** The sizes over the phone's own measure: 1 from the phone. */
+  factor: number;
+  /**
+   * The tape kept, whichever the sizes are from: the side taped, its length on the tape, and what the
+   * phone read it. Absent with "tape" from a Scan file of before 2026-10-15, which noted only the factor.
+   */
+  tape?: { sideId: string; feet: number; phoneFeet: number; by: "scan" | "scrivn" };
+  /** With "door": the door the sizes are from (`SizeDoor.id`). */
+  doorId?: string;
 }
 
 export const DEFAULT_EAVE_FEET = 10;

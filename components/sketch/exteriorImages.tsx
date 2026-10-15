@@ -4,6 +4,7 @@ import { createElement } from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { allSides, type Exterior, exteriorQuantities, formatPitch, ROOF_TOTAL_KEYS, ROOF_TOTAL_LABEL } from "@/lib/exterior";
+import { sizesFrom } from "@/lib/exteriorScale";
 import { formatQuantity } from "@/lib/sketchQuantities";
 import { lineTotals, textWidthEm } from "@/lib/roofLabels";
 import { ElevationDrawing, elevationFontFeet, LINE_STYLE, RoofPlanDrawing } from "./exteriorDrawings";
@@ -148,6 +149,9 @@ function roofSvg(exterior: Exterior): { svg: string; width: number; height: numb
     if (last !== undefined && last.length + word.length < 120) typedLines[typedLines.length - 1] = `${last} ${word}`;
     else typedLines.push(word);
   }
+  // What the sizes are from (2026-10-15, lib/exteriorScale.ts), for a house the phone measured: the last line.
+  const from = sizesFrom(exterior);
+  if (from) typedLines.push(`Sizes from ${from}.`);
   const typedTop = legendY + (slopeList ? 72 : 40);
   const height = typedLines.length > 0 ? typedTop + (typedLines.length - 1) * 26 + 24 : legendY + (slopeList ? 64 : 30);
   const svg = [
@@ -187,8 +191,10 @@ function elevationsSvg(exterior: Exterior): { svg: string; width: number; height
     const h = Math.round(box.height * scale);
     return { side, sq, h, drawing: markup(createElement(ElevationDrawing, { side, rise, base: q.bases[side.id] ?? null, fontFeet, roofAssumed, size: { width: w, height: h } })) };
   });
-  let y = 70;
-  const parts: string[] = [label(40, 44, "Elevations", 30, 700)];
+  // What the sizes are from (2026-10-15, lib/exteriorScale.ts), for a house the phone measured: under the title.
+  const from = sizesFrom(exterior);
+  let y = from ? 96 : 70;
+  const parts: string[] = [label(40, 44, "Elevations", 30, 700), from ? label(40, 78, `Sizes from ${from}.`, 20) : ""];
   for (let i = 0; i < cells.length; i += columns) {
     const row = cells.slice(i, i + columns);
     const rowH = Math.max(...row.map((c) => c.h));

@@ -12,6 +12,8 @@
  * route the editor posts to. What comes back is held to the painted wall:
  *
  *   * the window and the door, each edge within 1.5" (the owner's test: within 1/2" on his house)
+ *   * the door's leaf (2026-10-15) inside its trim, each edge within 1.5", and taken for a 34" x 80"
+ *     door: a check on the house's sizes (lib/exteriorScale.ts)
  *   * the eaves at each end and the gable's peak within 2", and both slopes alike
  *   * stucco and parging as shapes, the stucco's area within 3%
  *   * the AC unit standing in front of the wall boxed as such, not traced as wall
@@ -48,6 +50,7 @@ async function load() {
       `export * from "${lib("exterior.ts")}";`,
       `export { snapTrace } from "${lib("exteriorTrace.ts")}";`,
       `export { camerasAt, grayOf } from "${lib("roofPhotoRead.ts")}";`,
+      `export { doorCandidates, doorLabel } from "${lib("exteriorScale.ts")}";`,
     ].join("\n"),
   );
   await build({ entryPoints: [entry], bundle: true, format: "esm", platform: "node", outfile, alias: { "@": root }, logLevel: "silent" });
@@ -354,6 +357,17 @@ for (const [name, r, kind] of [
   check(off.every(([, d]) => Math.abs(d) <= 1.5), `the ${name}, each edge within 1.5": ${off.map(([e, d]) => `${e} ${d >= 0 ? "+" : ""}${d.toFixed(1)}"`).join(", ")}`);
 }
 check(p.openings.length === 2, `two openings, no more (${p.openings.map((o) => o.traced).join(", ")})`);
+// The door's leaf (2026-10-15): the painted door inside its trim - no trim along the bottom - is 0.86 x 2.03 m, a 34" x 80" leaf.
+const LEAF = { a0: DOOR.a0 + DOOR.trim, a1: DOOR.a1 - DOOR.trim, u0: DOOR.u0, u1: DOOR.u1 - DOOR.trim };
+const door = p.openings.find((q) => q.kind === "door");
+if (door?.leaf) {
+  const off = edges({ fromLeftFeet: door.leaf.x0, widthFeet: door.leaf.x1 - door.leaf.x0, sillFeet: door.leaf.y0, heightFeet: door.leaf.y1 - door.leaf.y0 }, LEAF);
+  check(off.every(([, d]) => Math.abs(d) <= 1.5), `the door's leaf, each edge within 1.5": ${off.map(([e, d]) => `${e} ${d >= 0 ? "+" : ""}${d.toFixed(1)}"`).join(", ")}`);
+  const [c] = x.doorCandidates(p.openings, 1);
+  check(c?.kind === "door" && c.matches[0]?.size.widthFeet === 34 / 12, `a check on the sizes: ${c ? `${x.doorLabel(c.kind, c.matches[0].size)}, the phone ${((c.matches[0].factor - 1) * 100).toFixed(1)}% off it` : "none"}`);
+} else {
+  check(false, "the door's leaf is traced");
+}
 const top = p.wallTop;
 if (top) {
   const eL = top.eaveLeftFeet === null ? NaN : inches(top.eaveLeftFeet / M - EAVE);

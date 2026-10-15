@@ -17,6 +17,7 @@ import {
   type SideQuantities,
 } from "@/lib/exterior";
 import { roofWithoutSides, withSideAfter } from "@/lib/exteriorPlan";
+import { isOldTapeNote, scaleFlags, sizesLine } from "@/lib/exteriorScale";
 import { newSketchId } from "@/lib/sketch";
 import type { SideTrace } from "@/lib/exteriorTrace";
 import { lf, sf } from "./exteriorFields";
@@ -141,7 +142,13 @@ export function ExteriorEditor({
 
       {exterior.source && (
         <p className="field-note exterior-source">
-          Measured with Scrivn Scan{exterior.source.edited ? ", and changed here since" : ""}. {exterior.source.notes.join(" ")}
+          Measured with Scrivn Scan{exterior.source.edited ? ", and changed here since" : ""}. {exterior.source.notes.filter((n) => !isOldTapeNote(n)).join(" ")} {sizesLine(exterior)}
+        </p>
+      )}
+      {/* Two of the sizes' references more than 3% apart (2026-10-15): said wherever the house is, the detail on the plan. */}
+      {exterior.source && scaleFlags(exterior).length > 0 && (
+        <p className="exterior-assumed">
+          {scaleFlags(exterior).length === 1 ? "Two" : "Some"} of the things the sizes can be taken from are more than 3% apart: see Sizes, on Plan &amp; roof.
         </p>
       )}
 

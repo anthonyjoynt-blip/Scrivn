@@ -53,6 +53,7 @@ import type { Pt, RoofAddition, RoofPlan } from "@/lib/roof";
 import { textWidthEm } from "@/lib/roofLabels";
 import { pickableEdge, type RoofPick, RoofLegend, RoofPlanDrawing, type RoofPlanMode } from "./exteriorDrawings";
 import { Cell, Choice, FeetField, FeetInput, lf, listOf, NumberField, sf, YesNo } from "./exteriorFields";
+import { ExteriorSizes } from "./ExteriorSizes";
 import { RoofTotalsPanel } from "./RoofTotals";
 
 /**
@@ -870,6 +871,7 @@ export function PlanPane({
         <div className="exterior-fields">
           {!readOnly && <WalkBuilder exterior={exterior} next={next} onNext={setNext} onChange={onChange} />}
           <SidesList exterior={exterior} q={q} readOnly={readOnly} showTurns={!exterior.open} onOpenSide={onOpenSide} onChange={onChange} />
+          <ExteriorSizes exterior={exterior} readOnly={readOnly} onChange={onChange} />
           {totals(true)}
           {r && (
             <>
@@ -1046,6 +1048,7 @@ export function PlanPane({
 
       <div className="exterior-fields">
         <SidesList exterior={exterior} q={q} readOnly={readOnly} showTurns={false} onOpenSide={onOpenSide} onChange={onChange} />
+        <ExteriorSizes exterior={exterior} readOnly={readOnly} onChange={onChange} />
         <RoofShapeFields exterior={exterior} q={q} plan={plan} readOnly={readOnly} nameOf={nameOf} sideFeet={sideFeet} placing={placing} onPlace={setPlacing} onUpdate={updateRoof} />
         <UpperFloorFields
           exterior={exterior}

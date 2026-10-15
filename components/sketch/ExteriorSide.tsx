@@ -27,6 +27,7 @@ import {
   zFromGrade,
 } from "@/lib/exterior";
 import { MIN_SIDE_FEET, sideChain, withSideLength, withUpperSideLength } from "@/lib/exteriorPlan";
+import { scaleOf } from "@/lib/exteriorScale";
 import type { SideTrace } from "@/lib/exteriorTrace";
 import type { Pt } from "@/lib/roof";
 import type { ElevationView } from "./exteriorDrawings";
@@ -391,6 +392,7 @@ export function SidePane({
           onUpdate={onUpdate}
           editor={editor}
           roofAssumed={q.pitch.source === "assumed"}
+          scaleFactor={scaleOf(exterior)?.factor ?? null}
           caption={
             <figcaption className="field-note">
               {nameOf(side)} elevation, to scale, seen from outside.
