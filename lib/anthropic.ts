@@ -116,16 +116,20 @@ export async function createStructuredMessage<T>(params: {
    * Base64, no data: prefix.
    */
   images?: { mediaType: "image/jpeg" | "image/png"; data: string }[];
+  /** PDFs sent before the text (2026-10-15, a roof report on the exterior's plan). Base64, no data: prefix. */
+  documents?: { mediaType: "application/pdf"; data: string }[];
   /** How hard it thinks. Left out, the model's own default - `medium` on Opus 5.5. */
   effort?: "low" | "medium" | "high" | "xhigh" | "max";
 }): Promise<StructuredResult<T>> {
   const anthropic = getClient();
-  const content: Anthropic.ContentBlockParam[] | string = params.images?.length
-    ? [
-        ...params.images.map((image): Anthropic.ImageBlockParam => ({ type: "image", source: { type: "base64", media_type: image.mediaType, data: image.data } })),
-        { type: "text", text: params.userMessage },
-      ]
-    : params.userMessage;
+  const content: Anthropic.ContentBlockParam[] | string =
+    params.images?.length || params.documents?.length
+      ? [
+          ...(params.documents ?? []).map((doc): Anthropic.DocumentBlockParam => ({ type: "document", source: { type: "base64", media_type: doc.mediaType, data: doc.data } })),
+          ...(params.images ?? []).map((image): Anthropic.ImageBlockParam => ({ type: "image", source: { type: "base64", media_type: image.mediaType, data: image.data } })),
+          { type: "text", text: params.userMessage },
+        ]
+      : params.userMessage;
 
   let response;
   try {

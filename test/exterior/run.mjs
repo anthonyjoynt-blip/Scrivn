@@ -56,6 +56,7 @@ async function load() {
       `export * from "${lib("exterior3d.ts")}";`,
       `export * from "${lib("exteriorPlan.ts")}";`,
       `export * from "${lib("exteriorScale.ts")}";`,
+      `export * from "${lib("roofReport.ts")}";`,
       `export { adoptScan, exteriorScanDecision, sketchFromScan } from "${lib("scanInbox.ts")}";`,
       `export { availableRenders, defaultSketchAttachments, pruneAttachments, withExteriorDefaults, toggleAttachment } from "${lib("sketchAttachments.ts")}";`,
     ].join("\n"),
@@ -3448,6 +3449,155 @@ test("sizes from a door: references more than 3% apart are flagged each with wha
   // A door gone that the sizes were from (a side's doors replaced): the sizes stay, and say so.
   const gone = { ...e1, sides: e1.sides.map((s, i) => (i === 0 ? { ...s, sizeDoors: undefined } : s)) };
   assert(x.currentRef(gone) === null && x.sizesLine(gone) === "Sizes from a door no longer kept, +6.2% on the phone's own measure.", x.sizesLine(gone));
+});
+
+console.log("\na roof report read (10-15)");
+
+/**
+ * What the model answers for an EagleView report of the 40 x 30 gable at 6/12 worked by hand above
+ * (15.34 SQ, ridge 42, eaves 84, rakes 73.045): the measured area a little more than the drawing's,
+ * no starter given, and ice & water given only in square feet.
+ */
+const EAGLEVIEW_WIRE = {
+  is_roof_report: true,
+  vendor: "EagleView",
+  report_date: "2026-09-30",
+  address: "12 Elm St NW, Calgary AB",
+  area_square_feet: 1612,
+  ridge_feet: 44,
+  hip_feet: 0,
+  valley_feet: 0,
+  eave_feet: 84.5,
+  rake_feet: 73.4,
+  step_flashing_feet: 0,
+  headwall_flashing_feet: 0,
+  drip_edge_feet: 157.9,
+  starter_feet: -1,
+  ice_water_feet: -1,
+  predominant_pitch: 6,
+  pitches: [{ pitch: 6, square_feet: 1612, percent: 100 }],
+  notes: ["Ice & water was given as 840 SF, not as a length.", "  "],
+};
+const readAt = "2026-10-15T12:00:00.000Z";
+
+test("the model's answer becomes the report's totals: what it gave, in range, and nothing it didn't", () => {
+  const { report, problem } = x.roofReportFromWire(EAGLEVIEW_WIRE, "12 Elm - EagleView.pdf", readAt);
+  assert(problem === null, problem);
+  assert(report.vendor === "EagleView" && report.date === "2026-09-30" && report.address === "12 Elm St NW, Calgary AB", JSON.stringify(report));
+  assert(report.fileName === "12 Elm - EagleView.pdf" && report.readAt === readAt, "the file and when");
+  const want = { squareFeet: 1612, ridge: 44, hip: 0, valley: 0, eave: 84.5, rake: 73.4, step: 0, headwall: 0, dripEdge: 157.9 };
+  assert(JSON.stringify(report.totals) === JSON.stringify(want), JSON.stringify(report.totals));
+  // -1 is "not in the report": no starter or ice & water to offer, rather than a zero to take.
+  assert(!("starter" in report.totals) && !("iceWater" in report.totals), "the sentinels are left out");
+  assert(report.pitch === 6 && report.pitches.length === 1 && report.pitches[0].squareFeet === 1612, JSON.stringify(report.pitches));
+  assert(report.notes.length === 1 && /840 SF/.test(report.notes[0]), "blank notes dropped");
+  // Misreads and loose words: a date that is not one, a length no roof has, a pitch past 24, no vendor.
+  const loose = x.roofReportFromWire({ ...EAGLEVIEW_WIRE, vendor: " ", report_date: "Sept 30, 2026", ridge_feet: 99999, predominant_pitch: 40, pitches: [] }, "r.pdf", readAt).report;
+  assert(loose.vendor === null && loose.date === null && loose.totals.ridge === undefined && loose.pitch === null, JSON.stringify(loose));
+  assert(x.reportLabel(report) === "EagleView, 2026-09-30" && x.reportLabel(loose) === null, x.reportLabel(report));
+  // Not a roof report at all: nothing to offer, and what it is.
+  const invoice = x.roofReportFromWire({ ...EAGLEVIEW_WIRE, is_roof_report: false, notes: ["This is an invoice for gutter cleaning."] }, "inv.pdf", readAt);
+  assert(invoice.report === null && invoice.problem === "This is an invoice for gutter cleaning.", JSON.stringify(invoice));
+  // The schema keeps to the sentinels: every field required, no union types.
+  const s = x.ROOF_REPORT_SCHEMA;
+  assert(s.required.length === Object.keys(s.properties).length && !JSON.stringify(s).includes("null"), "strict and union-free");
+});
+
+/** The 40 x 30 gable with the report read and the totals named taken off it, the rest as given. */
+function withReport(roof, taken, extra = {}) {
+  const { report } = x.roofReportFromWire(EAGLEVIEW_WIRE, "12 Elm - EagleView.pdf", readAt);
+  const e = rect(40, 30, { pitch: 6, dripEdge: true, ...roof, report });
+  e.roof.typed = { ...Object.fromEntries(taken.map((k) => [k, report.totals[k]])), ...extra };
+  e.roof.typedFrom = Object.fromEntries(taken.map((k) => [k, "report"]));
+  e.scope = { roofing: true, sides: [], soffitFascia: true, eavestrough: true };
+  return e;
+}
+
+test("totals taken off the report say so on the scope lines; mixed with the estimator's or the drawing's, both are named", () => {
+  const e = withReport({}, ["squareFeet", "ridge", "eave"], { rake: 75 });
+  const r = x.exteriorQuantities(e).roofing;
+  assert(r.from.squareFeet === "report" && r.from.ridge === "report" && r.from.rake === "estimator" && r.from.hip === "drawing", JSON.stringify(r.from));
+  assert(r.from.dripEdge === "report+estimator" && r.from.starter === "report" && r.from.iceWater === "report", JSON.stringify(r.from));
+  assert(r.report.label === "EagleView, 2026-09-30" && r.report.fileName === "12 Elm - EagleView.pdf", JSON.stringify(r.report));
+  const { roofing, siding } = x.exteriorScopeLines(e);
+  const has = (list, line) => assert(list.includes(line), `missing "${line}" in:\n      ${list.join("\n      ")}`);
+  has(roofing, "Remove & replace roofing – material to confirm – 6/12 – 16.12 SQ – from the roof report");
+  has(roofing, "Hip & ridge cap – 44.0 LF – from the roof report");
+  has(roofing, "Starter – 84.5 LF (eaves) – from the roof report");
+  has(roofing, "Drip edge – 159.5 LF (eaves + rakes) – from the roof report and the estimator – photos required");
+  // No valleys on a gable roof: the ice & water is the report's eaves alone.
+  has(roofing, "Ice & water barrier – 84.5 LF (eaves + valleys) – from the roof report");
+  has(siding, "Remove & replace eavestrough – 84.5 LF – from the roof report");
+  has(siding, `Remove & replace fascia – material to confirm – 159.5 LF (eaves + rakes) – from the roof report and the estimator`);
+  assert(![...roofing, ...siding].some((l) => /from the estimator$/.test(l) && /84\.5|44\.0|16\.12/.test(l)), "nothing taken is said to be the estimator's");
+  // The rakes left to the drawing: the drip edge is the report's and the drawing's.
+  const d = withReport({}, ["eave"]);
+  assert(x.exteriorQuantities(d).roofing.from.dripEdge === "report+drawing", x.exteriorQuantities(d).roofing.from.dripEdge);
+  has(x.exteriorScopeLines(d).roofing, `Drip edge – ${(84.5 + RAKES_40X30).toFixed(1)} LF (eaves + rakes) – from the roof report and the drawing – photos required`);
+  // The words, and the report named where the documents name it.
+  assert(x.sourceWords("report") === "from the roof report", x.sourceWords("report"));
+  assert(x.sourceWords("report", "EagleView, 2026-09-30") === "from the roof report (EagleView, 2026-09-30)", x.sourceWords("report", "EagleView, 2026-09-30"));
+  assert(x.sourceOfParts([1, "report"], [1, "estimator"], [1, "drawing"]) === "all" && x.sourceWords("all") === "from the roof report, the estimator and the drawing", "all three");
+  assert(x.sourceOfParts([1, "estimator"], [1, "drawing"]) === "both" && x.sourceWords("both") === "from the estimator and the drawing", "the old mix is unchanged");
+  // Read but nothing taken: the lines are the drawing's, untouched, with no source words.
+  const untaken = withReport({}, []);
+  assert(!/from the/.test(x.exteriorScopeLines(untaken).roofing.join(" ")) && x.exteriorQuantities(untaken).roofing.report === null, "a report read is not a report taken");
+});
+
+test("a total further from the drawing's than the drawing could be is flagged: squares past 5%, lengths past 10%", () => {
+  const drawn = x.exteriorQuantities(rect(40, 30, { pitch: 6 })).roofing.drawing;
+  near(drawn.squareFeet, 1533.9426, "the drawing's area");
+  // The report's 1612 SF is 5.09% over the drawing's 1533.94.
+  assert(x.totalDisagreement("squareFeet", 1612, drawn.squareFeet) === "5.1% more than the drawing's 15.34 SQ.", x.totalDisagreement("squareFeet", 1612, drawn.squareFeet));
+  assert(x.totalDisagreement("squareFeet", 1610, drawn.squareFeet) === null, "4.96%: within");
+  assert(x.totalDisagreement("squareFeet", 1300, drawn.squareFeet) === "15.3% less than the drawing's 15.34 SQ.", x.totalDisagreement("squareFeet", 1300, drawn.squareFeet));
+  // Ridge 42 drawn: 44 is 4.8% over, 46.2 exactly 10%, 46.3 is 10.2% and 37.7 is 10.2% under.
+  assert(x.totalDisagreement("ridge", 44, drawn.ridge) === null && x.totalDisagreement("ridge", 46.2, drawn.ridge) === null, "within 10%");
+  assert(x.totalDisagreement("ridge", 46.3, drawn.ridge) === "10.2% more than the drawing's 42.0 LF.", x.totalDisagreement("ridge", 46.3, drawn.ridge));
+  assert(x.totalDisagreement("ridge", 37.7, drawn.ridge) === "10.2% less than the drawing's 42.0 LF.", x.totalDisagreement("ridge", 37.7, drawn.ridge));
+  assert(x.totalDisagreement("ridge", 84, drawn.ridge) === "100% more than the drawing's 42.0 LF.", "far apart, whole percent");
+  // Valleys on a report for a roof drawn with none; none on both is no disagreement.
+  assert(x.totalDisagreement("valley", 18, drawn.valley) === "The drawing has none." && x.totalDisagreement("valley", 0, drawn.valley) === null, "valleys");
+  // Drip edge is checked against the drawing's eaves + rakes, typed by hand or taken alike.
+  near(drawn.dripEdge, 84 + RAKES_40X30, "drawing's drip edge");
+  assert(x.totalDisagreement("dripEdge", 157.9, drawn.dripEdge) === null, "157.9 against 157.0: within");
+});
+
+test("a report with no pitch: its totals still offered, the roof keeps its own pitch, and the table stands in when it has areas", () => {
+  const none = x.roofReportFromWire({ ...EAGLEVIEW_WIRE, predominant_pitch: -1, pitches: [] }, "r.pdf", readAt);
+  assert(none.problem === null && none.report.pitch === null && none.report.pitches.length === 0, JSON.stringify(none));
+  assert(none.report.totals.squareFeet === 1612, "the totals are there all the same");
+  // Taken onto a roof with no outline and no pitch typed: the roof is at the assumed pitch, asked for.
+  const e = { sides: [], roof: { ...x.defaultRoof(), report: none.report, typed: { squareFeet: 1612 }, typedFrom: { squareFeet: "report" } }, scope: { roofing: true, sides: [], soffitFascia: false, eavestrough: false } };
+  const r = x.exteriorQuantities(e).roofing;
+  assert(r.pitchAssumed && r.pitch === x.ASSUMED_PITCH && r.toAnswer.roofing.some((t) => /pitch/.test(t)), r.toAnswer.roofing.join("; "));
+  const first = x.exteriorScopeLines(e).roofing[0];
+  assert(first === "Remove & replace roofing – material to confirm – 4/12 (assumed, to confirm) – 16.12 SQ – from the roof report", first);
+  // No pitch stated but a table of areas: the pitch with the most area; a table with no areas tells nothing.
+  const table = x.roofReportFromWire({ ...EAGLEVIEW_WIRE, predominant_pitch: -1, pitches: [{ pitch: 4, square_feet: 600, percent: 25 }, { pitch: 8, square_feet: 1800, percent: 75 }, { pitch: 8, square_feet: 1800, percent: 75 }] }, "r.pdf", readAt).report;
+  assert(table.pitch === 8 && table.pitches.map((p) => p.pitch).join() === "8,4", JSON.stringify(table.pitches));
+  const bare = x.roofReportFromWire({ ...EAGLEVIEW_WIRE, predominant_pitch: -1, pitches: [{ pitch: 4, square_feet: -1, percent: -1 }, { pitch: 8, square_feet: -1, percent: -1 }] }, "r.pdf", readAt).report;
+  assert(bare.pitch === null && bare.pitches.length === 2, JSON.stringify(bare));
+  // Nothing to take at all: said.
+  const empty = x.roofReportFromWire({ ...EAGLEVIEW_WIRE, ...Object.fromEntries(Object.values(x.REPORT_LENGTH_FIELDS).map((f) => [f, -1])), area_square_feet: -1, predominant_pitch: -1, pitches: [] }, "r.pdf", readAt);
+  assert(empty.problem === "No roof totals or pitch were found in this report.", empty.problem);
+});
+
+test("with no outline, the report's areas by pitch, taken, price the squares at each pitch and the steep charge on its own", () => {
+  const { report } = x.roofReportFromWire({ ...EAGLEVIEW_WIRE, area_square_feet: 2400, predominant_pitch: 8, pitches: [{ pitch: 8, square_feet: 1800, percent: 75 }, { pitch: 4, square_feet: 600, percent: 25 }] }, "r.pdf", readAt);
+  const e = { sides: [], roof: { ...x.defaultRoof(), pitch: 8, report, typed: { squareFeet: 2400 }, typedFrom: { squareFeet: "report" } }, scope: { roofing: true, sides: [], soffitFascia: false, eavestrough: false } };
+  // Not taken: one pitch on all of it, and steep on all of it.
+  assert(x.exteriorScopeLines(e).roofing.includes("Steep roof charge – 7/12 to 9/12 – 24.00 SQ – from the roof report"), x.exteriorScopeLines(e).roofing.join(" | "));
+  e.roof.report = { ...report, pitchesTaken: true };
+  const r = x.exteriorQuantities(e).roofing;
+  assert(r.byPitch.map((b) => `${b.pitch}:${b.squares.toFixed(2)}`).join() === "8:18.00,4:6.00", JSON.stringify(r.byPitch));
+  const lines = x.exteriorScopeLines(e).roofing;
+  assert(lines[0] === "Remove & replace roofing – material to confirm – 8/12 on 18.00 SQ, 4/12 on 6.00 SQ – 24.00 SQ – from the roof report", lines[0]);
+  assert(lines.includes("Steep roof charge – 7/12 to 9/12 – 18.00 SQ – from the roof report"), lines.join(" | "));
+  // A drawn roof has its own pitches: the table is not used there.
+  const drawnRoof = withReport({}, ["squareFeet"]);
+  drawnRoof.roof.report = { ...drawnRoof.roof.report, pitches: report.pitches, pitchesTaken: true };
+  assert(x.exteriorQuantities(drawnRoof).roofing.byPitch.length === 1, "the drawing's one pitch");
 });
 
 console.log(`\n${passed.length} passed, ${failures.length} failed`);

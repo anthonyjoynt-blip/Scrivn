@@ -3634,6 +3634,58 @@ button:disabled {
   padding: 2px 10px;
   margin-left: 4px;
 }
+/* A roof report read (2026-10-15): which report, then its figure under each box to take or set aside. */
+.roof-report {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.roof-report .exterior-subhead {
+  margin: 0;
+}
+.roof-report-name {
+  margin: 0;
+  font-size: 0.9rem;
+  overflow-wrap: anywhere;
+}
+.roof-report-notes {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 0.85rem;
+}
+.roof-report .btn-secondary,
+.roof-totals .exterior-row .btn-secondary {
+  padding: 6px 12px;
+}
+.roof-total-offer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  font-size: 0.85rem;
+}
+.roof-total-offer-actions {
+  display: flex;
+  gap: 6px;
+}
+.roof-total-offer .btn-secondary {
+  padding: 2px 10px;
+  font-size: 0.8rem;
+}
+/* A total further from the drawing's than the drawing could be: one of the two is wrong. */
+.roof-total-flag {
+  display: block;
+  margin: 0;
+  padding: 2px 8px;
+  border-left: 3px solid var(--color-amber);
+  background: #fff8ec;
+  font-size: 0.8rem;
+  color: var(--text);
+}
 /* What a tap on the plan presses: a side's name, an end's Gable or Hip. */
 .exterior-pill {
   cursor: pointer;
