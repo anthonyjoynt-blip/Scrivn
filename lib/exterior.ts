@@ -1244,16 +1244,16 @@ export interface PhotoPitches {
   unplaced: PhotoRead<number>[];
 }
 
-const photoPitchCache = new WeakMap<Exterior, PhotoPitches>();
+const photoPitchCache = new WeakMap<Exterior, { roof: ExteriorRoof; sides: ExteriorSide[]; upper: UpperFloor | undefined; got: PhotoPitches }>();
 
 /**
  * Which part of the roof each gable photo is of: the part with a gable end over that side (built
  * once at any pitch: which part stands over which side is all that is wanted), or the cross gable
- * on it. Kept against the exterior, which is never changed in place.
+ * on it. Kept against the exterior and its roof, sides and upper floor as they were.
  */
 export function photoPitches(exterior: Exterior): PhotoPitches {
   const cached = photoPitchCache.get(exterior);
-  if (cached) return cached;
+  if (cached && cached.roof === exterior.roof && cached.sides === exterior.sides && cached.upper === exterior.upper) return cached.got;
   const reads = photoReads(exterior).pitches;
   const out: PhotoPitches = { main: [], sections: {}, unplaced: [] };
   if (reads.length > 0) {
@@ -1268,7 +1268,7 @@ export function photoPitches(exterior: Exterior): PhotoPitches {
       else (out.sections[key] ??= []).push(r);
     }
   }
-  photoPitchCache.set(exterior, out);
+  photoPitchCache.set(exterior, { roof: exterior.roof, sides: exterior.sides, upper: exterior.upper, got: out });
   return out;
 }
 
