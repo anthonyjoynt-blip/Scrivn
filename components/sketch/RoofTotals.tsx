@@ -189,7 +189,7 @@ export function RoofTotalsPanel({
             id="roof-total-pitch"
             label="Pitch (rise in 12)"
             value={roof.pitch}
-            placeholder={pitch.source !== "typed" && pitch.value !== null ? `${Math.round(pitch.value * 100) / 100}${pitch.source === "assumed" ? " assumed" : ""}` : ""}
+            placeholder={pitch.source !== "typed" && pitch.value !== null ? `${Math.round(pitch.value * 100) / 100}${pitch.source === "assumed" ? " assumed" : pitch.source === "photos" ? " from photos" : ""}` : ""}
             readOnly={readOnly}
             max={24}
             onCommit={(v) => onUpdate((x) => ({ ...x, pitch: v }))}
