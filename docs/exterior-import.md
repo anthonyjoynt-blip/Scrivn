@@ -119,7 +119,9 @@ Scan's Photo chip takes a still per side with ARCore's pose. The JPEG goes to `P
   - Each call is logged as one line: tokens, seconds and its cost at Opus 5.5's $4 / $20 per million.
 - **Tests:**
   - `npm run test:exterior` reads the photos (`scan-exterior-v2-photos.json`, with Scan's own square-on numbers). It checks `to_photo` and its inverse against an independent pinhole camera, and squares an oblique photo of a painted window back to the pixel.
-  - `npm run test:exterior:trace` runs one real call (about $0.05) against a running dev server. A painted wall, photographed off to one side and tipped up, comes back within 1.5" an edge.
+  - `npm run test:exterior:trace` paints a wall (and, since 10-15, an eave side with a dormer and an upper floor behind a lean-to), photographs it off to one side and tipped up, squares it, and reads Claude's answer for that image as the route does. It comes back within 1.5" an edge.
+    - Since 2026-10-15 it runs on Claude's answers recorded from real calls (`test/exterior/fixtures/trace-recorded-*.json`): no call, no server, no key. The owner's API balance ran out on development calls.
+    - `SCRIVN_TRACE_LIVE=1` runs it against a dev server and the route itself, about $0.06-0.09 a scene, only with the owner's OK; the server needs `SCRIVN_ALLOW_PAID_API=yes`. With `SCRIVN_TRACE_RECORD=1` each answer becomes its scene's recording, kept only when it reads back exactly (`test/exterior/traceRecord.mjs`).
 - **Measured on 2026-10-12:**
   - **Painted wall:** every edge within 0.2"; 13 s, $0.047.
   - **The owner's west gable,** re-photographed obliquely from its squared photo of the 10-12 test: the tall window within 0.6" of the hand marks, the peak within 0.3"; 25 s, $0.063.

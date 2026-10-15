@@ -99,6 +99,8 @@ function near(actual, expected, what, tol = 1e-3) {
 }
 
 const x = await load();
+/** Claude's answer recovered from the route's proposals: what test:exterior:trace records (2026-10-15). */
+const rec = await import(pathToFileURL(join(here, "traceRecord.mjs")).href);
 const ft = (feet, inches = 0) => feet + inches / 12;
 
 /** A side with everything set, so each case states only what it is about. */
@@ -4776,6 +4778,34 @@ test("a dormer's read scales with its side, and goes onto the upper side with th
   assert(!split.sides.find((v) => v.id === "front").roofRead && up.roofRead.pieces.length === 1, "onto the upper front");
   near(up.roofRead.pieces[0].seen.apronFeet, pp.seen.apronFeet - 10, "its heights from the floor line", 1e-9);
   near(up.roofRead.pieces[0].camera.upFeet, pp.camera.upFeet - 10, "and the phone's", 1e-9);
+});
+
+test("a trace's answer recovered from the route's proposals reads back to them: what test:exterior:trace records and replays", () => {
+  // The route sends proposals, not Claude's answer; test/exterior/traceRecord.mjs puts each pixel back through the frame.
+  for (const [what, answer, frame, lengthFeet, at] of [
+    ["the dormer's eave side", dormerWire(dormerCam()), dormerFrame, DORMER.L * M, x.camerasAt([dormerCam().photo])],
+    ["a shed dormer with its foot hidden", dormerWire(dormerCam(), { kind: "shed", apron: false, storeys: { upper_floor: "set_back", lower_roof: "lean_to", notes: "a note" } }), dormerFrame, DORMER.L * M, x.camerasAt([dormerCam().photo])],
+    ["the owner's gable", gableWire([phone({ at: [2.6, -6.5, 1.5], yaw: 0.05, pitch: 0.15, width: 1920, height: 1080, f: 1100 })]), roofFrame, G.L * M, null],
+    ["the painted wall's materials, openings and boxes", wire, traceFrame, 8 * M, null],
+  ]) {
+    const p = x.traceProposals(answer, frame, lengthFeet, at);
+    const back = rec.wireFromProposals(p, frame, x);
+    const off = rec.proposalsDiffer(x.traceProposals(back, frame, lengthFeet, at), p);
+    assert(off === null, `${what}: ${off}`);
+  }
+  // What a proposal does not keep is refused, not made up: a turret's wall edges, a floor line's ends.
+  const cam = dormerCam();
+  const turret = { kind: "round_turret", outline: [dpx(cam, 1, 4), dpx(cam, 2.5, 5.5), dpx(cam, 4, 4)].flat(), foot: [dpx(cam, 1, 4), dpx(cam, 4, 4)].flat(), sides: 0 };
+  const withTurret = x.traceProposals(dormerWire(cam, { pieces: [turret] }), dormerFrame, DORMER.L * M, x.camerasAt([cam.photo]));
+  let threw = "";
+  try {
+    rec.wireFromProposals(withTurret, dormerFrame, x);
+  } catch (err) {
+    threw = err.message;
+  }
+  assert(/turret keeps no wall edges/.test(threw), threw || "did not throw");
+  // A difference past a millionth is found, and where.
+  assert(/proposals\.roof\.pitch\.read/.test(rec.proposalsDiffer({ roof: { pitch: { read: 5 } } }, { roof: { pitch: { read: 5.001 } } }) ?? ""), "found");
 });
 
 test("the call is asked for the roof's shapes in the same one call: dormers, turrets, what stands over the wall", () => {

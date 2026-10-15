@@ -1,0 +1,140 @@
+{
+ "scene": "storeys",
+ "recordedAt": "2026-10-15",
+ "model": "claude-opus-5-5",
+ "usage": {
+  "inputTokens": 5951,
+  "outputTokens": 1255,
+  "cacheCreationTokens": 0,
+  "cacheReadTokens": 2463
+ },
+ "costUsd": 0.0493966,
+ "frame": {
+  "alongMinM": -2.3631872527465676,
+  "alongMaxM": 12.363187252746567,
+  "upMinM": -0.6,
+  "upMaxM": 6.9,
+  "ppm": 162.97290274023442,
+  "width": 2400,
+  "height": 1222
+ },
+ "wire": {
+  "materials": [
+   {
+    "material": "stucco",
+    "polygon": [
+     [
+      385.1,
+      652
+     ],
+     [
+      2014.9,
+      652
+     ],
+     [
+      2014.9,
+      1051
+     ],
+     [
+      385.1,
+      1051
+     ]
+    ],
+    "partly_hidden_by": ""
+   },
+   {
+    "material": "parging",
+    "polygon": [
+     [
+      385.1,
+      1051
+     ],
+     [
+      2014.9,
+      1051
+     ],
+     [
+      2014.9,
+      1124.5
+     ],
+     [
+      385.1,
+      1124.5
+     ]
+    ],
+    "partly_hidden_by": ""
+   }
+  ],
+  "openings": [
+   {
+    "kind": "window",
+    "left": 580,
+    "right": 776,
+    "top": 749,
+    "bottom": 961,
+    "measured_to": "outer_trim",
+    "leaf": [],
+    "partly_hidden_by": ""
+   },
+   {
+    "kind": "window",
+    "left": 1525,
+    "right": 1722,
+    "top": 749,
+    "bottom": 961,
+    "measured_to": "outer_trim",
+    "leaf": [],
+    "partly_hidden_by": ""
+   }
+  ],
+  "wall_top": [
+   [
+    385.1,
+    652
+   ],
+   [
+    2014.9,
+    652
+   ]
+  ],
+  "off_wall": [],
+  "notes": "Only the lower storey (stucco over parged foundation) lies in the measured wall plane. The upper storey's vinyl siding and its two windows (about x 801-960 and 1439-1598, y 331-504) are on a set-back wall shown at the wrong scale and are excluded. Stucco-to-parging line at about y=1051. Nothing in front of the wall hides it.",
+  "roof": {
+   "over_wall": "eave",
+   "rake_left": [],
+   "rake_right": [],
+   "eave_line": [
+    [
+     285,
+     640
+    ],
+    [
+     2115,
+     640
+    ]
+   ],
+   "left_end": {
+    "kind": "hip_corner",
+    "point": [
+     285,
+     640
+    ]
+   },
+   "right_end": {
+    "kind": "hip_corner",
+    "point": [
+     2115,
+     640
+    ]
+   },
+   "notes": "Fascia bottom edge is level at about y=640; soffit shows below it to the wall at y=652. Shingle surface narrows toward the top at both ends, suggesting the eave turns the corner (hip-type ends)."
+  },
+  "roof_shapes": {
+   "pieces": [],
+   "upper_floor": "set_back",
+   "floor_line": [],
+   "lower_roof": "lean_to",
+   "notes": "A beige vinyl-sided upper storey (about x 535-1866, y 238-565) with two windows stands back above a low roof running along this wall's eave; it is a separate wall plane set back from this one and is not traced as part of this wall. Its own flat/low roof fascia is at about y 181-238."
+  }
+ }
+}

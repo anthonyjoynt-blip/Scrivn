@@ -227,7 +227,7 @@ It reached 1.5 m, which cut a dormer's face, or an upper wall set back behind a 
 
 ### The call's schema is at its limit
 
-The schema is compiled into a grammar, and the API refuses one past a size: "The compiled grammar is too large". Dormers, turrets and storeys as objects of their own with enums came back refused, and so did a note on each piece. What fits: one `roof_shapes` object, its words plain strings, its points flat runs of numbers `[x1, y1, x2, y2, ...]`, one note. **Anything more for the trace needs room made in the schema first.** A text-only call with 16 tokens out tells whether a schema compiles, for under a cent.
+The schema is compiled into a grammar, and the API refuses one past a size: "The compiled grammar is too large". Dormers, turrets and storeys as objects of their own with enums came back refused, and so did a note on each piece. What fits: one `roof_shapes` object, its words plain strings, its points flat runs of numbers `[x1, y1, x2, y2, ...]`, one note. **Anything more for the trace needs room made in the schema first.** A text-only call with 16 tokens out tells whether a schema compiles, for under a cent - a paid call all the same, so only with the owner's OK.
 
 ### Cost
 
@@ -246,7 +246,7 @@ So a side stays at about $0.05-0.09. The difference between runs is the thinking
 
 ### First results
 
-- **Painted eave side, gable dormer 2.4 m wide, 1.4 m projection, 12/12, its face 1.1 m back on a 10/12 slope** (`test:exterior:trace`): read as one gable dormer, 12/12 (slopes 12.26 and 11.94). Set back +0.02 m; width +0.3"; projection −0.5". No upper floor.
+- **Painted eave side, gable dormer 2.4 m wide, 1.4 m projection, 12/12, its face 1.1 m back on a 10/12 slope** (`test:exterior:trace`, whose recorded answers are these calls'): read as one gable dormer, 12/12 (slopes 12.26 and 11.94). Set back +0.02 m; width +0.3"; projection −0.5". No upper floor.
 - **Painted upper floor set back 1.8 m behind a 4/12 lean-to**: set back, behind a lean-to, the roof over the side an eave; no dormer.
 - **Painted gable wall**: every read as before; no dormer, turret or upper floor.
 - **The owner's photos** (no dormers, turrets or upper floor on his house):
