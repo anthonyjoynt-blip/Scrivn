@@ -29,6 +29,8 @@
  */
 
 import {
+  bandRanges,
+  clipRect,
   DEFAULT_EAVE_FEET,
   defaultRoof,
   type Exterior,
@@ -40,9 +42,11 @@ import {
   type SideTurn,
   UPPER_SNAP_FEET,
   UPPER_STOREY_FEET,
+  upperFootprint,
   type UpperFloor,
+  zFromGrade,
 } from "./exterior";
-import type { Pt, RoofAddition, RoofBreak, RoofEndKind, RoofPlan } from "./roof";
+import { polygonArea, type Pt, type RoofAddition, type RoofBreak, type RoofEndKind, type RoofPlan } from "./roof";
 import type { RoofPiece, RoofPieceKind } from "./roofPieces";
 import { newSketchId } from "./sketch";
 
@@ -266,6 +270,181 @@ export function withoutUpper(exterior: Exterior): Exterior {
   return out;
 }
 
+/**
+ * A main-floor side whose eave reads this high or more was likely measured up to the upper floor's
+ * eave - a two-storey wall as one tall side, as Scrivn Scan walks a two-storey house.
+ */
+export const TALL_SIDE_FEET = 14;
+
+/** A tall main-floor side, and the upper sides over it: each by where its left corner is along the main side. */
+export interface TallSide {
+  sideId: string;
+  name: string;
+  /** Its eave as read, the higher corner. */
+  eaveFeet: number;
+  over: { sideId: string; fromFeet: number; lengthFeet: number }[];
+}
+
+/**
+ * The main-floor sides an upper floor stands on that read as tall sides (`TALL_SIDE_FEET`): each with
+ * the upper sides flush over it - on its wall's line, facing its way - which take what is above the
+ * floor line when it is split (`splitTallSides`).
+ */
+export function tallSides(exterior: Exterior): TallSide[] {
+  if (!exterior.upper) return [];
+  const main = exteriorFootprint(exterior);
+  const up = upperFootprint(exterior, main);
+  if (!main.closes || !up?.closes) return [];
+  const n = main.corners.length;
+  const m = up.corners.length;
+  const out: TallSide[] = [];
+  exterior.sides.forEach((side, i) => {
+    const eave = Math.max(side.eaveLeftFeet ?? 0, side.eaveRightFeet ?? side.eaveLeftFeet ?? 0);
+    if (eave < TALL_SIDE_FEET) return;
+    const a = main.corners[i] as Pt;
+    const b = main.corners[(i + 1) % n] as Pt;
+    const L = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+    const d = { x: (b.x - a.x) / L, y: (b.y - a.y) / L };
+    const over: TallSide["over"] = [];
+    up.sideIds.forEach((id, j) => {
+      const p = up.corners[j] as Pt;
+      const q = up.corners[(j + 1) % m] as Pt;
+      const len = Math.hypot(q.x - p.x, q.y - p.y);
+      // The same way along, on the same line, and overlapping it.
+      if (len < EPS || dot({ x: (q.x - p.x) / len, y: (q.y - p.y) / len }, d) < 1 - 1e-6 || Math.abs(cross(d, { x: p.x - a.x, y: p.y - a.y })) > 1e-4) return;
+      const from = dot({ x: p.x - a.x, y: p.y - a.y }, d);
+      if (Math.min(L, from + len) - Math.max(0, from) > 0.01) over.push({ sideId: id, fromFeet: from, lengthFeet: len });
+    });
+    if (over.length > 0) out.push({ sideId: side.id, name: side.name.trim() || "Side", eaveFeet: eave, over });
+  });
+  return out;
+}
+
+/**
+ * Tall sides split at the floor line (2026-10-15), with one height said once: the floor line, the top
+ * of the main floor's walls, this far above the grade. Each tall side's eave is set to it, keeping the
+ * fall of the ground between its corners (one level - a side the phone walked - both at it), and what
+ * is above it goes onto the upper side over it, measured from the floor line: the cladding above (its
+ * bands, or the phone's shapes cut at the line), the openings whose middle is over the line, the gable
+ * as measured, the roofline, and the roof read off the side - the roof is the upper floor's now. The
+ * photos, fixtures and doors kept for sizes stay on the main side, at the ground.
+ */
+export function splitTallSides(exterior: Exterior, floorFeet: number): Exterior {
+  const up = exterior.upper;
+  const tall = tallSides(exterior);
+  if (!up || tall.length === 0 || !(floorFeet > 0)) return exterior;
+  const uppers = new Map(up.sides.map((s) => [s.id, s]));
+  const mains = new Map(exterior.sides.map((s) => [s.id, s]));
+  for (const t of tall) {
+    const S = mains.get(t.sideId) as ExteriorSide;
+    const level = S.heightsFrom === "level";
+    const L = Math.max(S.lengthFeet, EPS);
+    const eL = S.eaveLeftFeet ?? floorFeet;
+    const eR = S.eaveRightFeet ?? eL;
+    // The floor line on the side's own frame (z = 0 at the ground under its left corner, or the one level): where its eave goes.
+    const newLeft = level ? floorFeet : floorFeet - (eR - eL) / 2;
+    const newRight = level ? floorFeet : floorFeet + (eR - eL) / 2;
+    const Fz = newLeft;
+    // The old eave line along it: level on a taped side, as read at each end on one the phone walked.
+    const eaveZ = (x: number) => (level ? eL + ((eR - eL) * x) / L : eL);
+    if (eaveZ(0) <= Fz + EPS && eaveZ(L) <= Fz + EPS) continue;
+    const ranges = bandRanges(S, eL);
+    let openings = S.openings;
+    let shapes = S.shapes;
+    let roofline = S.roofline;
+    let gable = S.gable;
+    // The upper side that gets what goes with the whole side - its pitch, the roof read off it: the one over most of it.
+    const most = [...t.over].sort((p, q) => Math.min(L, q.fromFeet + q.lengthFeet) - Math.max(0, q.fromFeet) - (Math.min(L, p.fromFeet + p.lengthFeet) - Math.max(0, p.fromFeet)))[0];
+    for (const o of t.over) {
+      const U = uppers.get(o.sideId);
+      if (!U) continue;
+      const lo = o.fromFeet;
+      const hi = o.fromFeet + o.lengthFeet;
+      const within = (x: number) => x >= lo - EPS && x <= hi + EPS;
+      // A point of the main side's frame on the upper side's: along from its left corner, up from the floor line.
+      const toUpper = (p: Pt): Pt => ({ x: p.x - lo, y: p.y - Fz });
+      const moving = openings.filter((w) => {
+        const mid = w.fromLeftFeet + w.widthFeet / 2;
+        return within(mid) && zFromGrade(S, mid, w.sillFeet) + w.heightFeet / 2 > Fz;
+      });
+      openings = openings.filter((w) => !moving.includes(w));
+      const bands = ranges
+        .filter((r) => r.hi > Fz + EPS)
+        .map((r, k, list) => ({ ...r.band, id: newSketchId("band"), top: k === list.length - 1 ? null : r.band.top === "eave" ? ("eave" as const) : r.hi - Fz }));
+      const above = (shapes ?? [])
+        .filter((s) => s.kind !== "parging" && s.closed)
+        .map((s) => ({ ...s, id: newSketchId("shape"), polygon: clipRect(s.polygon, lo, hi, Fz, Infinity).map(toUpper) }))
+        .filter((s) => s.polygon.length >= 3 && polygonArea(s.polygon) > 1e-6);
+      const points = (roofline ?? []).filter((p) => within(p.alongFeet) && p.upFeet > Fz);
+      roofline = roofline?.filter((p) => !points.includes(p));
+      const takesGable = gable !== null && within(gable.atFeet);
+      const next: ExteriorSide = {
+        ...U,
+        eaveLeftFeet: eaveZ(Math.max(0, lo)) - Fz,
+        eaveRightFeet: eaveZ(Math.min(L, hi)) - Fz,
+        ...(level ? { heightsFrom: "level" as const } : {}),
+        bands: bands.length > 0 ? bands : U.bands,
+        openings: [
+          ...U.openings,
+          ...moving.map((w) => {
+            const mid = w.fromLeftFeet + w.widthFeet / 2;
+            return { ...w, fromLeftFeet: w.fromLeftFeet - lo, sillFeet: Math.max(0, zFromGrade(S, mid, w.sillFeet) - Fz) };
+          }),
+        ],
+        ...(above.length > 0 ? { shapes: [...(U.shapes ?? []), ...above] } : {}),
+        ...(points.length > 0 ? { roofline: [...(U.roofline ?? []), ...points.map((p) => ({ ...p, alongFeet: p.alongFeet - lo, upFeet: p.upFeet - Fz }))] } : {}),
+      };
+      if (takesGable && gable) {
+        const clampTo = (v: number) => Math.min(o.lengthFeet, Math.max(0, v - lo));
+        next.gable = {
+          peakFeet: zFromGrade(S, gable.atFeet, gable.peakFeet) - Fz,
+          atFeet: clampTo(gable.atFeet),
+          ...(gable.fromFeet !== undefined ? { fromFeet: clampTo(gable.fromFeet) } : {}),
+          ...(gable.toFeet !== undefined ? { toFeet: clampTo(gable.toFeet) } : {}),
+        };
+        gable = null;
+      }
+      if (o === most) {
+        if (S.pitchMeasured != null) next.pitchMeasured = S.pitchMeasured;
+        if (S.roofRead) next.roofRead = S.roofRead;
+      }
+      uppers.set(o.sideId, next);
+    }
+    // What is left on the main side: below the floor line under the upper floor, all of it past it (a garage's gable, say) - a shape cut where the upper floor starts and stops.
+    const cuts = [...new Set([-Infinity, ...t.over.flatMap((o) => [o.fromFeet, o.fromFeet + o.lengthFeet]), Infinity])].sort((p, q) => p - q);
+    const underUpper = (x0: number, x1: number) => t.over.some((o) => (x0 + x1) / 2 > o.fromFeet && (x0 + x1) / 2 < o.fromFeet + o.lengthFeet);
+    shapes = shapes?.flatMap((s) => {
+      if (s.kind === "parging" || !s.closed) return [s];
+      const pieces = cuts
+        .slice(0, -1)
+        .map((x0, k) => {
+          const x1 = cuts[k + 1] as number;
+          const mid = Number.isFinite(x0) && Number.isFinite(x1) ? [x0, x1] : Number.isFinite(x0) ? [x0, x0 + 1] : [x1 - 1, x1];
+          return clipRect(s.polygon, x0, x1, -Infinity, underUpper(mid[0] as number, mid[1] as number) ? Fz : Infinity);
+        })
+        .filter((poly) => poly.length >= 3 && polygonArea(poly) > 1e-6);
+      return pieces.map((polygon, k) => ({ ...s, id: k === 0 ? s.id : newSketchId("shape"), polygon }));
+    });
+    const kept = ranges.filter((r) => r.lo < Fz - EPS);
+    const split: ExteriorSide = {
+      ...S,
+      eaveLeftFeet: newLeft,
+      eaveRightFeet: newRight,
+      gable,
+      openings,
+      bands: (kept.length > 0 ? kept : ranges.slice(0, 1)).map((r, k, list) => ({ ...r.band, top: k === list.length - 1 ? null : r.band.top })),
+      ...(shapes ? { shapes } : {}),
+      ...(roofline ? { roofline } : {}),
+    };
+    if (most) {
+      delete split.pitchMeasured;
+      delete split.roofRead;
+    }
+    mains.set(S.id, split);
+  }
+  return { ...exterior, sides: exterior.sides.map((s) => mains.get(s.id) ?? s), upper: { ...up, sides: up.sides.map((s) => uppers.get(s.id) ?? s) } };
+}
+
 // ---------------------------------------------------------------------------------------------
 // Side by side round the house
 // ---------------------------------------------------------------------------------------------
@@ -456,6 +635,86 @@ function additionAlong(a: RoofAddition, before: number, length: number, shift: (
  * offered in place of what was typed.
  */
 export function withSideLength(exterior: Exterior, sideId: string, feet: number): Exterior {
+  return withUpperFollowing(exterior, mainSideLength(exterior, sideId, feet));
+}
+
+/**
+ * The upper floor kept on the main floor's walls once a main-floor length is typed (2026-10-15): each
+ * of its walls on a line of the main floor's walls moves with that line, so a wall flush with the one
+ * below stays flush, and its sides across stretch to meet it; a wall on no line keeps its place from
+ * the corner the upper floor is set by (`UpperFloor.at`). An upper side typed or taped keeps its
+ * length, as a main-floor side does: a line that would stretch it leaves the upper floor as it was.
+ */
+function withUpperFollowing(before: Exterior, after: Exterior): Exterior {
+  const up = before.upper;
+  if (!up || after === before) return after;
+  const was = exteriorFootprint(before);
+  const now = exteriorFootprint(after);
+  const placed = upperFootprint(before, was);
+  const k = was.sideIds.indexOf(up.at.sideId);
+  if (!was.closes || !now.closes || !placed?.closes || k < 0 || was.corners.length !== now.corners.length) return after;
+  const U = placed.corners;
+  const m = U.length;
+  const n = was.corners.length;
+  const anchor = { x: (now.corners[k] as Pt).x - (was.corners[k] as Pt).x, y: (now.corners[k] as Pt).y - (was.corners[k] as Pt).y };
+  // Each upper wall's line: the main floor's wall it is flush with, moved as that wall moved; else moved with the anchor corner.
+  const moved = U.map((p) => ({ ...p }));
+  for (let j = 0; j < m; j++) {
+    const a = U[j] as Pt;
+    const b = U[(j + 1) % m] as Pt;
+    const upright = Math.abs(a.x - b.x) < EPS;
+    const at = upright ? a.x : a.y;
+    const lo = upright ? Math.min(a.y, b.y) : Math.min(a.x, b.x);
+    const hi = upright ? Math.max(a.y, b.y) : Math.max(a.x, b.x);
+    let best = -1;
+    let bestScore = -Infinity;
+    for (let w = 0; w < n; w++) {
+      const p = was.corners[w] as Pt;
+      const q = was.corners[(w + 1) % n] as Pt;
+      if (upright ? Math.abs(p.x - q.x) > EPS || Math.abs(p.x - at) > EPS : Math.abs(p.y - q.y) > EPS || Math.abs(p.y - at) > EPS) continue;
+      const wlo = upright ? Math.min(p.y, q.y) : Math.min(p.x, q.x);
+      const whi = upright ? Math.max(p.y, q.y) : Math.max(p.x, q.x);
+      // The one it runs along most; failing any, the nearest along the line.
+      const score = Math.min(hi, whi) - Math.max(lo, wlo);
+      if (score > bestScore) [best, bestScore] = [w, score];
+    }
+    const to = best >= 0 ? (upright ? (now.corners[best] as Pt).x : (now.corners[best] as Pt).y) : at + (upright ? anchor.x : anchor.y);
+    for (const c of [j, (j + 1) % m]) {
+      if (upright) (moved[c] as Pt).x = to;
+      else (moved[c] as Pt).y = to;
+    }
+  }
+  if (moved.every((p, j) => Math.abs(p.x - (U[j] as Pt).x) < EPS && Math.abs(p.y - (U[j] as Pt).y) < EPS)) return after;
+  const lengths = moved.map((p, j) => Math.hypot((moved[(j + 1) % m] as Pt).x - p.x, (moved[(j + 1) % m] as Pt).y - p.y));
+  if (lengths.some((l) => l < MIN_SIDE_FEET)) return after;
+  // How far each side's left corner moved along it: what stands along it keeps its place on the wall.
+  const startShift = U.map((a, j) => {
+    const b = U[(j + 1) % m] as Pt;
+    const len = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+    return (((moved[j] as Pt).x - a.x) * (b.x - a.x) + ((moved[j] as Pt).y - a.y) * (b.y - a.y)) / len;
+  });
+  const sides = up.sides.map((s, j) => {
+    const length = lengths[j] as number;
+    if (Math.abs(length - s.lengthFeet) < EPS) return s;
+    return movedAlong(s, length, () => -(startShift[j] as number));
+  });
+  // A side typed or taped is a measurement: not stretched to follow a line.
+  if (sides.some((s, j) => s !== up.sides[j] && up.sides[j]?.lengthFrom !== "drawn")) return after;
+  const additions = after.roof.additions?.map((a) => {
+    const j = up.sides.findIndex((s) => s.id === a.sideId);
+    const side = up.sides[j];
+    return side && sides[j] !== side ? additionAlong(a, side.lengthFeet, lengths[j] as number, () => -(startShift[j] as number)) : a;
+  });
+  const origin = now.corners[k] as Pt;
+  const first = moved[0] as Pt;
+  return {
+    ...after,
+    roof: additions ? { ...after.roof, additions } : after.roof,
+    upper: { ...up, sides, at: { sideId: up.at.sideId, dx: first.x - origin.x, dy: first.y - origin.y } },
+  };
+}
+
+function mainSideLength(exterior: Exterior, sideId: string, feet: number): Exterior {
   const i = exterior.sides.findIndex((s) => s.id === sideId);
   const side = exterior.sides[i];
   if (!side || !(feet >= MIN_SIDE_FEET)) return exterior;
