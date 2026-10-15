@@ -3521,7 +3521,8 @@ test("totals taken off the report say so on the scope lines; mixed with the esti
   assert(r.report.label === "EagleView, 2026-09-30" && r.report.fileName === "12 Elm - EagleView.pdf", JSON.stringify(r.report));
   const { roofing, siding } = x.exteriorScopeLines(e);
   const has = (list, line) => assert(list.includes(line), `missing "${line}" in:\n      ${list.join("\n      ")}`);
-  has(roofing, "Remove & replace roofing – material to confirm – 6/12 – 16.12 SQ – from the roof report");
+  // The report named the first time each list says it, maker and date; "the roof report" after.
+  has(roofing, "Remove & replace roofing – material to confirm – 6/12 – 16.12 SQ – from the roof report (EagleView, 2026-09-30)");
   has(roofing, "Hip & ridge cap – 44.0 LF – from the roof report");
   has(roofing, "Starter – 84.5 LF (eaves) – from the roof report");
   has(roofing, "Drip edge – 159.5 LF (eaves + rakes) – from the roof report and the estimator – photos required");
@@ -3572,7 +3573,7 @@ test("a report with no pitch: its totals still offered, the roof keeps its own p
   const r = x.exteriorQuantities(e).roofing;
   assert(r.pitchAssumed && r.pitch === x.ASSUMED_PITCH && r.toAnswer.roofing.some((t) => /pitch/.test(t)), r.toAnswer.roofing.join("; "));
   const first = x.exteriorScopeLines(e).roofing[0];
-  assert(first === "Remove & replace roofing – material to confirm – 4/12 (assumed, to confirm) – 16.12 SQ – from the roof report", first);
+  assert(first === "Remove & replace roofing – material to confirm – 4/12 (assumed, to confirm) – 16.12 SQ – from the roof report (EagleView, 2026-09-30)", first);
   // No pitch stated but a table of areas: the pitch with the most area; a table with no areas tells nothing.
   const table = x.roofReportFromWire({ ...EAGLEVIEW_WIRE, predominant_pitch: -1, pitches: [{ pitch: 4, square_feet: 600, percent: 25 }, { pitch: 8, square_feet: 1800, percent: 75 }, { pitch: 8, square_feet: 1800, percent: 75 }] }, "r.pdf", readAt).report;
   assert(table.pitch === 8 && table.pitches.map((p) => p.pitch).join() === "8,4", JSON.stringify(table.pitches));
@@ -3592,12 +3593,87 @@ test("with no outline, the report's areas by pitch, taken, price the squares at 
   const r = x.exteriorQuantities(e).roofing;
   assert(r.byPitch.map((b) => `${b.pitch}:${b.squares.toFixed(2)}`).join() === "8:18.00,4:6.00", JSON.stringify(r.byPitch));
   const lines = x.exteriorScopeLines(e).roofing;
-  assert(lines[0] === "Remove & replace roofing – material to confirm – 8/12 on 18.00 SQ, 4/12 on 6.00 SQ – 24.00 SQ – from the roof report", lines[0]);
+  assert(lines[0] === "Remove & replace roofing – material to confirm – 8/12 on 18.00 SQ, 4/12 on 6.00 SQ – 24.00 SQ – from the roof report (EagleView, 2026-09-30)", lines[0]);
   assert(lines.includes("Steep roof charge – 7/12 to 9/12 – 18.00 SQ – from the roof report"), lines.join(" | "));
   // A drawn roof has its own pitches: the table is not used there.
   const drawnRoof = withReport({}, ["squareFeet"]);
   drawnRoof.roof.report = { ...drawnRoof.roof.report, pitches: report.pitches, pitchesTaken: true };
   assert(x.exteriorQuantities(drawnRoof).roofing.byPitch.length === 1, "the drawing's one pitch");
+});
+
+console.log("\nthe roof report against the photos: the photos lead, the report checks (10-15)");
+
+/** The 40 x 30 with its left gable's photo ticked - 5/12, 2' eaves, 1'10" rakes - and the EagleView report read. */
+function photosAndReport(roof = {}, taken = [], wire = EAGLEVIEW_WIRE) {
+  const { report } = x.roofReportFromWire(wire, "12 Elm - EagleView.pdf", readAt);
+  const e = withRead(rect(40, 30, { dripEdge: true, ...roof, report }), "left", photoRead(5, "gable", { rakeOverhangFeet: 22 / 12, eaveOverhangFeet: 2 }));
+  e.roof.typed = Object.fromEntries(taken.map((k) => [k, report.totals[k]]));
+  e.roof.typedFrom = Object.fromEntries(taken.map((k) => [k, "report"]));
+  e.scope = { roofing: true, sides: [], soffitFascia: true, eavestrough: true };
+  return e;
+}
+
+test("what the photos read is the report's check: nothing typed over them, the drawing is the photos' roof", () => {
+  assert(x.photoRoofCheck(rect(40, 30)) === null && x.reportPitchFlags(x.roofReportFromWire(EAGLEVIEW_WIRE, "r.pdf", readAt).report, null).length === 0, "no reads, no check");
+  const e = photosAndReport();
+  const check = x.photoRoofCheck(e);
+  assert(check.mainPitch.value === 5 && check.mainPitch.reads[0].name === "Left" && check.sectionPitches.length === 0, JSON.stringify(check.mainPitch));
+  near(check.overhangs.eave, 2, "eave overhang read");
+  near(check.overhangs.rake, 22 / 12, "rake overhang read");
+  assert(check.sameAsDrawing, "nothing typed: the drawing is built on the photos");
+  assert(check.words === `5/12 (Left), eave overhang 2', rake overhang 1'10"`, check.words);
+  // The photos' roof by hand: (40 + 2 x 1'10") x (30 + 2 x 2') = 43.667 x 34 = 1484.67 SF of plan, x 13/12 at 5/12 = 1608.39 SF.
+  near(check.totals.squareFeet, (40 + 44 / 12) * 34 * (13 / 12), "the photos' squares");
+  // The report's 6/12 is a pitch from the photos' 5/12: said, with where each came from.
+  const flags = x.reportPitchFlags(e.roof.report, check);
+  assert(flags.length === 1 && flags[0] === "The photos read 5/12 (Left); the report has 6/12.", flags.join(" | "));
+  // Within half a pitch they agree.
+  const close = x.roofReportFromWire({ ...EAGLEVIEW_WIRE, predominant_pitch: 5.5 }, "r.pdf", readAt).report;
+  assert(x.reportPitchFlags(close, check).length === 0, "5.5 against 5: agree");
+  // A part's own gable photo is looked for among every pitch the report lists.
+  const withWing = { ...check, sectionPitches: [{ key: "wing:front", value: 9, reads: [{ sideId: "g", name: "Garage left", value: 9 }] }] };
+  assert(x.reportPitchFlags(close, withWing).includes("The photos read 9/12 (Garage left); the report lists no pitch near it."), x.reportPitchFlags(close, withWing).join(" | "));
+  const listed = x.roofReportFromWire({ ...EAGLEVIEW_WIRE, predominant_pitch: 5, pitches: [{ pitch: 5, square_feet: 1200, percent: 75 }, { pitch: 9, square_feet: 400, percent: 25 }] }, "r.pdf", readAt).report;
+  assert(x.reportPitchFlags(listed, withWing).length === 0, "the report lists 9/12: no flag");
+});
+
+test("taking the report's pitch types over the photos: its totals are then checked against the photos' roof as well as the drawing", () => {
+  // The report's 6/12 taken: the drawing is at 6/12 now, the photos' roof still at their 5/12.
+  const e = photosAndReport({ pitch: 6 });
+  const check = x.photoRoofCheck(e);
+  assert(!check.sameAsDrawing, "something typed stands over the photos");
+  near(check.totals.squareFeet, (40 + 44 / 12) * 34 * (13 / 12), "the photos' squares, whatever is typed");
+  const drawn = x.exteriorQuantities(e).roofing.drawing;
+  near(drawn.squareFeet, (40 + 44 / 12) * 34 * Math.sqrt(1 + 0.25), "the drawing at the typed 6/12, still on the photos' overhangs");
+  // 1612 against the photos' 1608.39 and the drawing's 1659.92: within both.
+  assert(x.totalDisagreement("squareFeet", 1612, check.totals.squareFeet, "photos") === null && x.totalDisagreement("squareFeet", 1612, drawn.squareFeet) === null, "the report agrees with both");
+  // 1800 is 11.9% over the photos' and 8.4% over the drawing's: said against each.
+  assert(x.totalDisagreement("squareFeet", 1800, check.totals.squareFeet, "photos") === "11.9% more than the photos' 16.08 SQ.", x.totalDisagreement("squareFeet", 1800, check.totals.squareFeet, "photos"));
+  assert(x.totalDisagreement("squareFeet", 1800, drawn.squareFeet) === "8.4% more than the drawing's 16.60 SQ.", x.totalDisagreement("squareFeet", 1800, drawn.squareFeet));
+  assert(x.totalDisagreement("valley", 18, check.totals.valley, "photos") === "The photos' roof has none.", "valleys the photos' roof hasn't");
+  // A rake overhang typed over the photos' counts the same: the check keeps the photos' 1'10".
+  const typedRake = photosAndReport({ rakeOverhangFeet: 1, overhangSource: { rake: "typed" } });
+  const c2 = x.photoRoofCheck(typedRake);
+  assert(!c2.sameAsDrawing && Math.abs(c2.totals.squareFeet - check.totals.squareFeet) < 1e-6, "the photos' roof, not the typed overhang's");
+  // Totals typed or taken never move the photos' roof: it is the drawing the photos make.
+  const taken = photosAndReport({}, ["squareFeet", "ridge"]);
+  assert(x.photoRoofCheck(taken).sameAsDrawing, "taken totals stand over the drawing's figures, not the photos' reads");
+});
+
+test("the scope says both: (from photos) for what the photos read, and the roof report named once in each list", () => {
+  const e = photosAndReport({}, ["squareFeet", "ridge", "eave"]);
+  const { roofing, siding } = x.exteriorScopeLines(e);
+  const has = (list, line) => assert(list.includes(line), `missing "${line}" in:\n      ${list.join("\n      ")}`);
+  has(roofing, "Remove & replace roofing – material to confirm – 5/12 (from photos) – 16.12 SQ – from the roof report (EagleView, 2026-09-30)");
+  has(roofing, "Hip & ridge cap – 44.0 LF – from the roof report");
+  has(roofing, "Starter – 84.5 LF (eaves) – from the roof report");
+  // The siding crew's list names it again, on its first line from the report; the overhang is the photos'.
+  has(siding, `Remove & replace soffit – material to confirm – 84.5 LF at 2' overhang (from photos) (169.0 SF) – eaves – from the roof report (EagleView, 2026-09-30)`);
+  has(siding, "Remove & replace eavestrough – 84.5 LF – from the roof report");
+  assert(roofing.filter((l) => l.includes("(EagleView, 2026-09-30)")).length === 1 && siding.filter((l) => l.includes("(EagleView, 2026-09-30)")).length === 1, "named once a list");
+  // Read but nothing taken: the photos' words only, no report.
+  const untaken = x.exteriorScopeLines(photosAndReport());
+  assert(/5\/12 \(from photos\)/.test(untaken.roofing[0]) && !/roof report/.test([...untaken.roofing, ...untaken.siding].join(" ")), untaken.roofing[0]);
 });
 
 console.log(`\n${passed.length} passed, ${failures.length} failed`);

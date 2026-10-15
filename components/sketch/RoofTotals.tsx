@@ -6,7 +6,9 @@ import {
   type ExteriorRoof,
   formatPitch,
   hasTypedTotals,
+  type PhotoRoofCheck,
   type PitchReading,
+  reportPitchFlags,
   reportLabel,
   type RoofReport,
   ROOF_TOTAL_KEYS,
@@ -220,6 +222,7 @@ export function RoofTotalsPanel({
   r,
   pitch,
   showPitch,
+  photoCheck,
   readOnly,
   onUpdate,
 }: {
@@ -228,6 +231,8 @@ export function RoofTotalsPanel({
   pitch: PitchReading;
   /** The pitch is typed here only with no roof drawn: with one it is the roof's own, set under The roof. */
   showPitch: boolean;
+  /** The roof as the photos read it (`photoRoofCheck`), for the report to be checked against; null with no reads. */
+  photoCheck: PhotoRoofCheck | null;
   readOnly: boolean;
   onUpdate: Update;
 }) {
@@ -284,17 +289,23 @@ export function RoofTotalsPanel({
   const ownKeys = typedKeys.filter((k) => typedSource(roof, k) === "estimator");
   const takenKeys = typedKeys.filter((k) => typedSource(roof, k) === "report");
 
-  /** Under a box: the report's figure to take or set aside (or that it was taken), and any flag against the drawing. */
+  /**
+   * Under a box: the report's figure to take or set aside (or that it was taken), and any flag against
+   * the drawing - and against the photos' roof, where something typed stands over what they read.
+   */
   const under = (key: RoofTotalKey): ReactNode => {
     const typed = typedTotal(roof, key);
+    const fromReport = typed !== null && typedSource(roof, key) === "report";
     const drawn = drawing?.[key] ?? null;
+    const photos = photoCheck && !photoCheck.sameAsDrawing ? (photoCheck.totals?.[key] ?? null) : null;
     const typedFlag = typed !== null && drawn !== null ? totalDisagreement(key, typed, drawn) : null;
     const offered = report && !report.setAside?.includes(key) ? (report.totals[key] ?? null) : null;
-    const taken = offered !== null && typed !== null && typedSource(roof, key) === "report" && Math.abs(typed - offered) < 1e-9;
+    const taken = offered !== null && fromReport && Math.abs((typed as number) - offered) < 1e-9;
     return (
       <>
-        {typed !== null && typedSource(roof, key) === "report" && <span className="field-note">From the roof report.</span>}
+        {fromReport && <span className="field-note">From the roof report.</span>}
         <Flag text={typedFlag} />
+        {fromReport && photos !== null && <Flag text={totalDisagreement(key, typed as number, photos, "photos")} />}
         {offered !== null && !taken && (
           <span className="roof-total-offer">
             <span>
@@ -311,6 +322,7 @@ export function RoofTotalsPanel({
               </span>
             )}
             {drawn !== null && <Flag text={totalDisagreement(key, offered, drawn)} />}
+            {photos !== null && <Flag text={totalDisagreement(key, offered, photos, "photos")} />}
           </span>
         )}
       </>
@@ -320,7 +332,17 @@ export function RoofTotalsPanel({
   return (
     <div className="exterior-rows roof-totals">
       {report && (
-        <ReportSummary report={report} roof={roof} pitch={pitch} drawn={drawing !== null} readOnly={readOnly} onUpdate={onUpdate} onSetAside={setAside} onRead={takeReport} />
+        <ReportSummary
+          report={report}
+          roof={roof}
+          pitch={pitch}
+          drawn={drawing !== null}
+          photoCheck={photoCheck}
+          readOnly={readOnly}
+          onUpdate={onUpdate}
+          onSetAside={setAside}
+          onRead={takeReport}
+        />
       )}
       <h4 className="exterior-subhead">{report ? "Roof totals" : "Roof totals typed by you"}</h4>
       <p className="field-note">
@@ -434,6 +456,7 @@ function ReportSummary({
   roof,
   pitch,
   drawn,
+  photoCheck,
   readOnly,
   onUpdate,
   onSetAside,
@@ -443,6 +466,7 @@ function ReportSummary({
   roof: ExteriorRoof;
   pitch: PitchReading;
   drawn: boolean;
+  photoCheck: PhotoRoofCheck | null;
   readOnly: boolean;
   onUpdate: Update;
   onSetAside: (what: "pitch" | "pitches") => void;
@@ -455,6 +479,10 @@ function ReportSummary({
   // The areas by pitch price the squares at each pitch only with no outline: a drawn roof has its own.
   const pitchesUsable = !drawn && withArea.length > 1;
   const nothing = Object.keys(report.totals).length === 0;
+  // The photos are the route and the report the cross-check: its pitch is said against theirs, and taking it is typing over them.
+  const photoPitch = photoCheck?.mainPitch ?? null;
+  const overPhotos = photoPitch !== null && report.pitch !== null && Math.abs(photoPitch.value - report.pitch) > 1e-9;
+  const pitchFlags = reportPitchFlags(report, photoCheck);
   return (
     <div className="roof-report">
       <h4 className="exterior-subhead">Roof report</h4>
@@ -471,6 +499,15 @@ function ReportSummary({
         </ul>
       )}
       {nothing && <p className="field-note roof-total-flag">The report gave no totals to take.</p>}
+      {photoCheck && (
+        <p className="field-note">
+          Checked against what the photos read: {photoCheck.words}.{" "}
+          {photoCheck.sameAsDrawing
+            ? "The drawing is built on those reads, so its figures are the photos'."
+            : "Something typed stands over them, so each box is checked against the photos' roof as well as the drawing."}{" "}
+          Nothing from the report is used until you take it.
+        </p>
+      )}
       <div className="exterior-row">
         <span className="exterior-row-label">
           Pitch: <strong>{report.pitch === null ? "not given" : formatPitch(report.pitch)}</strong>
@@ -478,7 +515,10 @@ function ReportSummary({
         {report.pitch === null ? (
           <span className="field-note">The report gives no pitch: the roof stays at {pitch.value === null ? "its own" : formatPitch(pitch.value)}{pitch.source === "assumed" ? ", assumed" : ""}.</span>
         ) : pitchTaken ? (
-          <span className="field-note">Taken: the roof is at {formatPitch(report.pitch)}.</span>
+          <span className="field-note">
+            Taken: the roof is at {formatPitch(report.pitch)}
+            {overPhotos ? `, typed over the photos' ${formatPitch(photoPitch.value)}` : ""}.
+          </span>
         ) : pitchOffered && !readOnly ? (
           <>
             <button type="button" className="btn-secondary" onClick={() => onUpdate((x) => ({ ...x, pitch: report.pitch }))}>
@@ -487,10 +527,20 @@ function ReportSummary({
             <button type="button" className="btn-secondary" onClick={() => onSetAside("pitch")}>
               Set aside
             </button>
-            {pitch.value !== null && <span className="field-note">The roof is at {formatPitch(pitch.value)}{pitch.source === "assumed" ? ", assumed" : pitch.source === "photos" ? ", from photos" : ""}.</span>}
+            {pitch.value !== null && (
+              <span className="field-note">
+                The roof is at {formatPitch(pitch.value)}
+                {pitch.source === "assumed" ? ", assumed" : pitch.source === "photos" ? ", from photos: taking the report's types over them" : ""}.
+              </span>
+            )}
           </>
         ) : null}
       </div>
+      {pitchFlags.map((f) => (
+        <span key={f} className="roof-total-flag">
+          {f}
+        </span>
+      ))}
       {report.pitches.length > 1 && (
         <div className="exterior-rows">
           <span className="field-note">

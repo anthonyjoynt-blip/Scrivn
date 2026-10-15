@@ -368,19 +368,21 @@ export const DISAGREE_SQUARES = 0.05;
 export const DISAGREE_LENGTHS = 0.1;
 
 /**
- * A total, typed or off the report, against the drawing's own figure: words to say beside its box
- * when the two are further apart than the drawing could be (2026-10-15), else null. One of them is
- * wrong - a slope missed on the drawing, a structure the report has and the drawing hasn't, a typo.
+ * A total, typed or off the report, against the drawing's own figure - or the photos' roof's
+ * (`photoRoofCheck`), named by `against` - words to say beside its box when the two are further
+ * apart than the drawing could be (2026-10-15), else null. One of them is wrong - a slope missed on
+ * the drawing, a structure the report has and the drawing hasn't, a typo.
  */
-export function totalDisagreement(key: RoofTotalKey, value: number, drawn: number): string | null {
+export function totalDisagreement(key: RoofTotalKey, value: number, drawn: number, against: "drawing" | "photos" = "drawing"): string | null {
   const squares = key === "squareFeet";
   const show = (v: number) => (squares ? `${(v / 100).toFixed(2)} SQ` : `${(Math.round(v * 10) / 10).toFixed(1)} LF`);
-  if (drawn <= 1e-6) return value > (squares ? 50 : 0.5) ? `The drawing has none.` : null;
+  const whose = against === "photos" ? "the photos'" : "the drawing's";
+  if (drawn <= 1e-6) return value > (squares ? 50 : 0.5) ? (against === "photos" ? "The photos' roof has none." : "The drawing has none.") : null;
   const off = (value - drawn) / drawn;
   if (Math.abs(off) <= (squares ? DISAGREE_SQUARES : DISAGREE_LENGTHS) + 1e-9) return null;
   // To the tenth near the limits, so 5.1% is not said as the 5% it is over.
   const pct = Math.abs(off) * 100;
-  return `${pct < 20 ? (Math.round(pct * 10) / 10).toFixed(1) : Math.round(pct)}% ${off > 0 ? "more" : "less"} than the drawing's ${show(drawn)}.`;
+  return `${pct < 20 ? (Math.round(pct * 10) / 10).toFixed(1) : Math.round(pct)}% ${off > 0 ? "more" : "less"} than ${whose} ${show(drawn)}.`;
 }
 
 /**
@@ -1991,6 +1993,90 @@ export function exteriorQuantities(exterior: Exterior): ExteriorQuantities {
   };
 }
 
+/**
+ * The roof as the photos read it (2026-10-15), for a roof report to be checked against: the owner's
+ * route is the photos, the report the fallback and the cross-check, and the report never quietly
+ * overrules what the photos read. The drawing is rebuilt with every pitch and overhang the photos
+ * read standing over anything typed (or taken off the report) and no totals typed. Null when the
+ * photos read nothing for the roof.
+ */
+export interface PhotoRoofCheck {
+  /** The main roof's pitch the gables' photos read, and off which sides; null when none read it. */
+  mainPitch: { value: number; reads: PhotoRead<number>[] } | null;
+  /** Each other part's pitch its own gable's photo read, by section key. */
+  sectionPitches: { key: string; value: number; reads: PhotoRead<number>[] }[];
+  /** The overhangs the photos read, between them; null for one they did not. */
+  overhangs: { eave: number | null; rake: number | null };
+  /** The totals the photos' roof gives, as `RoofingQuantities.drawing`; null with no closed outline. */
+  totals: Record<RoofTotalKey, number> | null;
+  /** Nothing typed stands over the photos: the drawing is the photos' roof, and one check covers both. */
+  sameAsDrawing: boolean;
+  /** "5/12 (West), eave overhang 1'11", rake overhang 2'2"": what the photos read, for the panel. */
+  words: string;
+}
+
+/** A pitch a report gives further than this from the photos' read (half a pitch) is flagged, as gables that disagree are. */
+export const DISAGREE_PITCH = 0.5;
+
+export function photoRoofCheck(exterior: Exterior): PhotoRoofCheck | null {
+  const reads = photoReads(exterior);
+  if (reads.pitches.length === 0 && reads.eaveOverhangs.length === 0 && reads.rakeOverhangs.length === 0) return null;
+  const pp = photoPitches(exterior);
+  const mainReads = pp.main.length > 0 ? pp.main : pp.unplaced;
+  const mainPitch = mainReads.length > 0 ? { value: meanOf(mainReads.map((r) => r.value)), reads: mainReads } : null;
+  const sectionPitches = Object.entries(pp.sections).map(([key, rs]) => ({ key, value: meanOf(rs.map((r) => r.value)), reads: rs }));
+  const eave = reads.eaveOverhangs.length > 0 ? meanOf(reads.eaveOverhangs.map((r) => r.value)) : null;
+  const rake = reads.rakeOverhangs.length > 0 ? meanOf(reads.rakeOverhangs.map((r) => r.value)) : null;
+  // Every read set explicitly, so nothing typed can stand over it.
+  const R = exterior.roof;
+  const asRead: Exterior = {
+    ...exterior,
+    roof: {
+      ...R,
+      pitch: mainPitch ? mainPitch.value : R.pitch,
+      sectionPitches: { ...(R.sectionPitches ?? {}), ...Object.fromEntries(sectionPitches.map((s) => [s.key, s.value])) },
+      eaveOverhangFeet: eave ?? R.eaveOverhangFeet,
+      rakeOverhangFeet: rake ?? R.rakeOverhangFeet,
+      overhangSource: { ...R.overhangSource, ...(eave !== null ? { eave: "typed" as const } : {}), ...(rake !== null ? { rake: "typed" as const } : {}) },
+      typed: {},
+      typedFrom: {},
+    },
+  };
+  const totals = exteriorQuantities(asRead).roofing?.drawing ?? null;
+  const drawing = totals ? (exteriorQuantities(exterior).roofing?.drawing ?? null) : null;
+  const sameAsDrawing = totals !== null && drawing !== null && ROOF_TOTAL_KEYS.every((k) => Math.abs(totals[k] - drawing[k]) < 1e-6);
+  const names = (rs: PhotoRead<number>[]) => rs.map((r) => r.name).join(", ");
+  const words = [
+    ...(mainPitch ? [`${formatPitch(mainPitch.value)} (${names(mainPitch.reads)})`] : []),
+    ...sectionPitches.map((s) => `${formatPitch(s.value)} (${names(s.reads)})`),
+    ...(eave !== null ? [`eave overhang ${formatFeetInches(eave)}`] : []),
+    ...(rake !== null ? [`rake overhang ${formatFeetInches(rake)}`] : []),
+  ].join(", ");
+  return { mainPitch, sectionPitches, overhangs: { eave, rake }, totals, sameAsDrawing, words };
+}
+
+/**
+ * The report's pitches against the photos' (2026-10-15): its predominant pitch against the main
+ * roof's gables, and each other part's photo against any pitch the report lists. Each further than
+ * half a pitch is said; nothing when they agree or either has no pitch.
+ */
+export function reportPitchFlags(report: RoofReport, check: PhotoRoofCheck | null): string[] {
+  if (!check) return [];
+  const flags: string[] = [];
+  const names = (rs: PhotoRead<number>[]) => rs.map((r) => r.name).join(", ");
+  if (check.mainPitch && report.pitch !== null && Math.abs(check.mainPitch.value - report.pitch) > DISAGREE_PITCH + 1e-9) {
+    flags.push(`The photos read ${formatPitch(check.mainPitch.value)} (${names(check.mainPitch.reads)}); the report has ${formatPitch(report.pitch)}.`);
+  }
+  const listed = [...(report.pitch !== null ? [report.pitch] : []), ...report.pitches.map((p) => p.pitch)];
+  if (listed.length > 0) {
+    for (const s of check.sectionPitches) {
+      if (listed.some((p) => Math.abs(p - s.value) <= DISAGREE_PITCH + 1e-9)) continue;
+      flags.push(`The photos read ${formatPitch(s.value)} (${names(s.reads)}); the report lists no pitch near it.`);
+    }
+  }
+  return flags;
+}
+
 // ---------------------------------------------------------------------------------------------
 // Into the scope
 // ---------------------------------------------------------------------------------------------
@@ -2021,6 +2107,21 @@ export function fixtureLine(f: SideFixture): string {
  * given for a ticked part has its line: nothing typed in is left off. Squares are real, with no
  * waste: that is the estimator's to add.
  */
+/**
+ * " – from the drawing", " – from the roof report (EagleView, 2026-09-30)": a list's source words,
+ * nothing at all while nothing is typed. The report is named in full the first time the list says it
+ * (2026-10-15), and is "the roof report" after - each list is one trade's work order.
+ */
+function reportNamer(r: RoofingQuantities): (s: TotalSource) => string {
+  let named = false;
+  return (s) => {
+    if (!r.typed) return "";
+    const full = !named && s !== "estimator" && s !== "drawing" && s !== "both";
+    if (full) named = true;
+    return ` – ${sourceWords(s, full ? r.report?.label : null)}`;
+  };
+}
+
 export function exteriorScopeLines(exterior: Exterior | undefined): ExteriorScopeLines {
   const out: ExteriorScopeLines = { roofing: [], siding: [] };
   const scope = exterior?.scope;
@@ -2031,11 +2132,12 @@ export function exteriorScopeLines(exterior: Exterior | undefined): ExteriorScop
   const R = exterior.roof;
 
   if (scope?.roofing && r) {
-    // Once anything is typed over the drawing, every measured line says where its number came from.
-    const from = (s: TotalSource) => (r.typed ? ` – ${sourceWords(s)}` : "");
+    // Once anything is typed over the drawing, every measured line says where its number came from;
+    // the roof report is named (maker, date) the first time, and is "the roof report" after.
+    const from = reportNamer(r);
     const sqKnown = r.drawn || r.from.squareFeet !== "drawing";
     const sq = sqKnown ? `${r.squares.toFixed(2)} SQ` : "squares to confirm";
-    const sqFrom = sqKnown ? from(r.from.squareFeet) : "";
+    const sqFrom = () => (sqKnown ? from(r.from.squareFeet) : "");
     const chosen = r.slopes.filter((s) => s.selected);
     // Typed squares are the roof being done, whatever is picked on the drawing.
     const which = r.from.squareFeet !== "drawing" || !r.drawn ? "" : ` (${r.allSlopes ? "all slopes" : `slope${chosen.length === 1 ? "" : "s"} ${chosen.map((s) => s.label).join(", ")}`})`;
@@ -2047,17 +2149,17 @@ export function exteriorScopeLines(exterior: Exterior | undefined): ExteriorScop
       r.byPitch.length > 1
         ? r.byPitch.map((b) => `${formatPitch(b.pitch)}${pitchFrom(b.assumed, b.fromPhotos)} on ${b.squares.toFixed(2)} SQ`).join(", ")
         : `${formatPitch(r.byPitch[0]?.pitch ?? r.pitch)}${pitchFrom(r.pitchAssumed, r.byPitch[0]?.fromPhotos ?? r.pitchFromPhotos)}`;
-    out.roofing.push(`Remove & replace roofing – ${r.material ? ROOF_MATERIAL_LABEL[r.material] : "material to confirm"} – ${pitches} – ${sq}${which}${sqFrom}`);
+    out.roofing.push(`Remove & replace roofing – ${r.material ? ROOF_MATERIAL_LABEL[r.material] : "material to confirm"} – ${pitches} – ${sq}${which}${sqFrom()}`);
     // Steep is charged on the squares at a steep pitch: all of them on a roof of one pitch.
-    for (const band of r.steepBands) out.roofing.push(`Steep roof charge – ${band.band} – ${r.byPitch.length > 1 && sqKnown ? `${band.squares.toFixed(2)} SQ` : sq}${sqFrom}`);
-    if (r.high?.automatic) out.roofing.push(`High roof charge – two storeys or more – ${sqKnown ? `${r.high.squares.toFixed(2)} SQ` : sq} (the roof over the upper floor)${sqFrom}`);
-    else if (r.high) out.roofing.push(`High roof charge – two storeys or more – ${sq}${sqFrom}`);
+    for (const band of r.steepBands) out.roofing.push(`Steep roof charge – ${band.band} – ${r.byPitch.length > 1 && sqKnown ? `${band.squares.toFixed(2)} SQ` : sq}${sqFrom()}`);
+    if (r.high?.automatic) out.roofing.push(`High roof charge – two storeys or more – ${sqKnown ? `${r.high.squares.toFixed(2)} SQ` : sq} (the roof over the upper floor)${sqFrom()}`);
+    else if (r.high) out.roofing.push(`High roof charge – two storeys or more – ${sq}${sqFrom()}`);
     if (r.ridgeFeet + r.hipFeet > 0) out.roofing.push(`Hip & ridge cap – ${num(r.ridgeFeet + r.hipFeet)} LF${from(sourceOfParts([r.ridgeFeet, r.from.ridge], [r.hipFeet, r.from.hip]))}`);
     if (metal) out.roofing.push(`Closure strips – ${num(r.closureFeet)} LF (eaves + 2 × ridge)${from(sourceOfParts([r.eaveFeet, r.from.eave], [r.ridgeFeet, r.from.ridge]))}`);
     else if (r.starterFeet > 0) out.roofing.push(`Starter – ${num(r.starterFeet)} LF (eaves)${from(r.from.starter)}`);
     if (R.dripEdge === true) out.roofing.push(`Drip edge – ${num(r.dripEdgeFeet)} LF (eaves + rakes)${from(r.from.dripEdge)} – photos required`);
     if (r.drawn || r.iceWaterFeet > 0) out.roofing.push(`${metal ? "High-temperature ice & water barrier" : "Ice & water barrier"} – ${num(r.iceWaterFeet)} LF (eaves + valleys)${from(r.from.iceWater)}`);
-    if (R.underlayment === "synthetic" || R.underlayment === "felt") out.roofing.push(`Underlayment – ${R.underlayment} – ${sq}${sqFrom} – photos required`);
+    if (R.underlayment === "synthetic" || R.underlayment === "felt") out.roofing.push(`Underlayment – ${R.underlayment} – ${sq}${sqFrom()} – photos required`);
     if (r.valleyFeet > 0) out.roofing.push(`Valleys – ${num(r.valleyFeet)} LF${from(r.from.valley)}`);
     if (r.stepFeet > 0) out.roofing.push(`Step flashing – ${num(r.stepFeet)} LF (a lower roof's slopes against the wall)${from(r.from.step)}`);
     if (r.headwallFeet > 0) out.roofing.push(`Headwall flashing – ${num(r.headwallFeet)} LF (a lower roof's top against the wall)${from(r.from.headwall)}`);
@@ -2069,9 +2171,9 @@ export function exteriorScopeLines(exterior: Exterior | undefined): ExteriorScop
     if ((R.pipeJacks?.four ?? 0) > 0) out.roofing.push(`Pipe jack – 4" – ${Math.round(R.pipeJacks?.four ?? 0)}`);
     if ((R.pipeJacks?.six ?? 0) > 0) out.roofing.push(`Pipe jack – 6" – ${Math.round(R.pipeJacks?.six ?? 0)}`);
     if (R.chimney && R.chimney !== "none") out.roofing.push(`Chimney flashing – ${R.chimney}`);
-    if (R.handload === true) out.roofing.push(`Handload roofing materials – ${sq}${sqFrom}`);
-    if (R.disposalHandload === true) out.roofing.push(`Handload debris to disposal – ${sq}${sqFrom}`);
-    if (metal) out.roofing.push(`Disposal – metal roofing – ${sq}${sqFrom}`);
+    if (R.handload === true) out.roofing.push(`Handload roofing materials – ${sq}${sqFrom()}`);
+    if (R.disposalHandload === true) out.roofing.push(`Handload debris to disposal – ${sq}${sqFrom()}`);
+    if (metal) out.roofing.push(`Disposal – metal roofing – ${sq}${sqFrom()}`);
   }
 
   const sides = q.sides.filter((s) => (scope?.sides ?? []).includes(s.sideId) && s.complete);
@@ -2113,7 +2215,7 @@ export function exteriorScopeLines(exterior: Exterior | undefined): ExteriorScop
   }
 
   // Typed eaves and rakes carry on to what runs along them: said, as on the roofing lines.
-  const edgeFrom = (s: TotalSource) => (r?.typed ? ` – ${sourceWords(s)}` : "");
+  const edgeFrom = r ? reportNamer(r) : () => "";
   if (scope?.soffitFascia && r) {
     const material = R.soffitMaterial ?? "material to confirm";
     if (r.soffit.eaveFeet > 0) {

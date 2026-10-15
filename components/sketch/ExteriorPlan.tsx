@@ -1,6 +1,6 @@
 "use client";
 
-import { type KeyboardEvent, type PointerEvent, useEffect, useRef, useState } from "react";
+import { type KeyboardEvent, type PointerEvent, useEffect, useMemo, useRef, useState } from "react";
 import { formatFeetInches, parseFeetInches } from "@/lib/sketch";
 import {
   DEFAULT_EAVE_FEET,
@@ -16,6 +16,7 @@ import {
   lShapeExterior,
   photoNotes,
   photoPitches,
+  photoRoofCheck,
   photoSectionPitches,
   rectangleExterior,
   resolvedOverhang,
@@ -718,6 +719,8 @@ export function PlanPane({
   useEffect(() => {
     if (placing && figure) figure.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }, [placing, figure]);
+  // A roof report is checked against what the photos read as well as the drawing (2026-10-15): built only while there is one.
+  const photoCheck = useMemo(() => (exterior.roof.report ? photoRoofCheck(exterior) : null), [exterior]);
   const plan = q.roof;
   const r = q.roofing;
   const roof = exterior.roof;
@@ -830,7 +833,7 @@ export function PlanPane({
     );
   }
 
-  const totals = (showPitch: boolean) => <RoofTotalsPanel roof={roof} r={r} pitch={q.pitch} showPitch={showPitch} readOnly={readOnly} onUpdate={updateRoof} />;
+  const totals = (showPitch: boolean) => <RoofTotalsPanel roof={roof} r={r} pitch={q.pitch} showPitch={showPitch} photoCheck={photoCheck} readOnly={readOnly} onUpdate={updateRoof} />;
 
   // Only the roof's totals, typed: nothing to draw on until an outline is drawn.
   if (exterior.sides.length === 0) {
