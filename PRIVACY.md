@@ -16,7 +16,8 @@ Written 2026-10-01 against the code as it stood then; accounts in Scrivn Scan, t
 deleting an account and the sign-up guards added 2026-10-14 (paste the Scrivn Scan, Service providers,
 Deleting your account, and Security sections into TermsFeed again). Site photos with spoken captions
 added 2026-10-14 (paste Information about your customers, AI processing, Dictation, Photos and
-location, Working without a connection, and Keeping and deleting claim data again).
+location, Working without a connection, and Keeping and deleting claim data again). Roof reports read
+by AI added 2026-10-15 (paste the AI processing section again).
 
 ## Generator answers (Canada, October 2026)
 
@@ -48,7 +49,7 @@ Scrivn is used by restoration companies to document property-damage claims. When
 
 **AI processing**
 
-To turn a walkthrough into a scope document and inspection report, Scrivn sends the claim's text (the dictation, the captions of its site photos with each photo's room and time, claim details and answers to follow-up questions) to Anthropic, PBC, which provides the Claude AI model. The site photos themselves are not sent. When a user chooses AI trace on a side of the house in the exterior sketch, Scrivn also sends Anthropic that side's photo from Scrivn Scan, squared up to the wall, so that Claude can trace the wall's cladding, windows and doors for the user to confirm. When a user chooses Photo beside a reading in the drying log, Scrivn sends Anthropic that photo of the meter's screen, reduced in size, so that Claude can read the number for the user to check; Scrivn does not store that photo. Anthropic processes this information only to return the result and, under its commercial terms, does not use it to train its models. No other photos are sent for AI processing.
+To turn a walkthrough into a scope document and inspection report, Scrivn sends the claim's text (the dictation, the captions of its site photos with each photo's room and time, claim details and answers to follow-up questions) to Anthropic, PBC, which provides the Claude AI model. The site photos themselves are not sent. When a user chooses AI trace on a side of the house in the exterior sketch, Scrivn also sends Anthropic that side's photo from Scrivn Scan, squared up to the wall, so that Claude can trace the wall's cladding, windows and doors for the user to confirm. When a user chooses Photo beside a reading in the drying log, Scrivn sends Anthropic that photo of the meter's screen, reduced in size, so that Claude can read the number for the user to check; Scrivn does not store that photo. When a user uploads a roof measurement report (a PDF, which may include the property's address and aerial images of it) on the exterior sketch, Scrivn sends Anthropic that PDF so that Claude can read the roof's measurements for the user to check and accept; Scrivn keeps the numbers read, with the report's maker, date, address and file name, but does not store the PDF. Anthropic processes this information only to return the result and, under its commercial terms, does not use it to train its models. No other photos or files are sent for AI processing.
 
 **Dictation**
 
@@ -108,7 +109,10 @@ To protect accounts and limit abuse, Scrivn counts attempts to create an account
   a photo of a meter's screen, shrunk to 1280 px in the browser, goes to `/api/drying/meter-photo` when
   the user presses Photo in the drying log, `lib/meterPhoto.ts`, and is kept nowhere; since 2026-10-14
   the site photos' captions, as text with each one's room and time, go to `/api/extract` and
-  `/api/generate` beside the transcript, `lib/photoNotesPrompt.ts` — never the pictures). Resend: `lib/email/send.ts`, used by sign-in
+  `/api/generate` beside the transcript, `lib/photoNotesPrompt.ts` — never the pictures; since 2026-10-15
+  a roof report's PDF, as uploaded and up to 4.4 MB, goes to `/api/exterior/roof-report` when the user
+  presses Read a roof report on the exterior's plan, `lib/roofReport.ts`, and is kept nowhere; what was
+  read rides in the claim as `ExteriorRoof.report`). Resend: `lib/email/send.ts`, used by sign-in
   confirmation, the contact form and Send documents. Dictation: `components/DictateButton.tsx` (browser
   speech recognition, no audio leaves the device to Scrivn). Scan permissions: the
   ARCapturePrototype manifest (CAMERA and INTERNET only). Phone revoke: `components/PairedPhones.tsx`.

@@ -1,7 +1,23 @@
 "use client";
 
-import { useState } from "react";
-import { type ExteriorRoof, formatPitch, hasTypedTotals, type PitchReading, ROOF_TOTAL_LABEL, type RoofingQuantities, type RoofTotalKey, typedTotal } from "@/lib/exterior";
+import { type ReactNode, useRef, useState, useSyncExternalStore } from "react";
+import { connection, isNetworkFailure, netFetch, onConnectionChange } from "@/lib/connectivity";
+import {
+  type ExteriorRoof,
+  formatPitch,
+  hasTypedTotals,
+  type PitchReading,
+  reportLabel,
+  type RoofReport,
+  ROOF_TOTAL_KEYS,
+  ROOF_TOTAL_LABEL,
+  type RoofingQuantities,
+  type RoofTotalKey,
+  totalDisagreement,
+  typedSource,
+  typedTotal,
+} from "@/lib/exterior";
+import { ROOF_REPORT_MAX_BYTES, type RoofReportResponse } from "@/lib/roofReport";
 import { parseFeetInches } from "@/lib/sketch";
 import { formatQuantity } from "@/lib/sketchQuantities";
 import { NumberField } from "./exteriorFields";
@@ -13,6 +29,11 @@ import { NumberField } from "./exteriorFields";
  * and the documents, which say where each number came from. A box left blank keeps the drawing's,
  * shown in it, so only what differs needs typing. With no outline drawn, the typed totals are the
  * whole roof. The model is lib/exterior.ts (`ExteriorRoof.typed`).
+ *
+ * "Read a roof report" (2026-10-15): the report's PDF is read by Claude (lib/roofReport.ts) and what
+ * it says is offered beside each box, to take or set aside one at a time - never applied by itself. A
+ * total taken is said to be from the roof report. Where a drawing is there to check against, a total
+ * further from it than the drawing could be (5% on squares, 10% on a length) says so beside its box.
  */
 
 type Update = (f: (roof: ExteriorRoof) => ExteriorRoof) => void;
@@ -42,6 +63,9 @@ const parseNumber = (raw: string): number | null => {
 /** Decimal feet as a report gives them, or feet and inches as a tape does: 45.3, 45'3". */
 const parseLength = (raw: string): number | null => parseFeetInches(raw.replace(/\s*lf\.?$/i, "")) ?? parseNumber(raw);
 
+/** A total as the boxes show it: squares to the hundredth, lengths to the tenth. */
+const shownTotal = (key: RoofTotalKey, v: number) => (key === "squareFeet" ? `${(v / 100).toFixed(2)} SQ` : `${formatQuantity(Math.round(v * 10) / 10)} LF`);
+
 /** A total's box: blank to take the drawing's, which it shows. */
 function TotalBox({
   id,
@@ -53,6 +77,7 @@ function TotalBox({
   readOnly,
   parse,
   onCommit,
+  children,
 }: {
   id: string;
   label: string;
@@ -63,6 +88,8 @@ function TotalBox({
   readOnly: boolean;
   parse: (raw: string) => number | null;
   onCommit: (v: number | null) => void;
+  /** Under the box: what the roof report offers for it, and how far it is from the drawing. */
+  children?: ReactNode;
 }) {
   const shown = value == null ? "" : String(unit === "SQ" ? Math.round(value * 100) / 100 : Math.round(value * 10) / 10);
   return (
@@ -101,7 +128,90 @@ function TotalBox({
         }}
       />
       {note && <span className="field-note">{note}</span>}
+      {children}
     </div>
+  );
+}
+
+/** A flag beside a box: this number and the drawing's are further apart than the drawing could be. */
+function Flag({ text }: { text: string | null }) {
+  return text ? <span className="roof-total-flag">{text}</span> : null;
+}
+
+/**
+ * The PDF picked, sent, and what it says handed back: a button, and a line saying how it went. With
+ * no signal it does not open the picker at all.
+ */
+function ReadReportButton({ label, readOnly, onRead }: { label: string; readOnly: boolean; onRead: (report: RoofReport) => void }) {
+  const input = useRef<HTMLInputElement>(null);
+  const online = useSyncExternalStore(onConnectionChange, () => connection() === "online", () => true);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  if (readOnly) return null;
+
+  async function read(file: File) {
+    setMessage(null);
+    if (file.size > ROOF_REPORT_MAX_BYTES) {
+      setMessage(
+        `This PDF is ${(file.size / 1e6).toFixed(1)} MB, and Scrivn reads reports up to ${(ROOF_REPORT_MAX_BYTES / 1e6).toFixed(1)} MB. Print it to PDF with only its pages of totals and pitches, and upload that.`,
+      );
+      return;
+    }
+    setBusy(true);
+    try {
+      const form = new FormData();
+      form.append("file", file, file.name);
+      const response = await netFetch("/api/exterior/roof-report", { method: "POST", body: form, timeoutMs: 150_000 });
+      const body = (await response.json().catch(() => null)) as (RoofReportResponse & { error?: string }) | null;
+      if (!response.ok || !body) {
+        setMessage(body?.error || "The report could not be read just now. Try again, or type its totals.");
+        return;
+      }
+      if (body.report) onRead(body.report);
+      setMessage(body.problem);
+    } catch (err) {
+      setMessage(isNetworkFailure(err) ? "No signal reached Scrivn, or the read took too long. Try again with signal." : err instanceof Error ? err.message : "The report could not be read.");
+    } finally {
+      setBusy(false);
+      if (input.current) input.current.value = "";
+    }
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        className="btn-secondary"
+        disabled={busy}
+        aria-busy={busy}
+        onClick={() => {
+          if (!online) {
+            setMessage("Reading a report needs signal. Type its totals for now, or read it later.");
+            return;
+          }
+          setMessage(null);
+          input.current?.click();
+        }}
+      >
+        {busy ? "Reading the report…" : label}
+      </button>
+      <input
+        ref={input}
+        type="file"
+        accept="application/pdf,.pdf"
+        hidden
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) void read(file);
+        }}
+      />
+      {busy && <span className="field-note">Reading every page: this takes about half a minute.</span>}
+      {message && (
+        <span className="field-note roof-total-flag" role="status">
+          {message}
+        </span>
+      )}
+    </>
   );
 }
 
@@ -122,25 +232,42 @@ export function RoofTotalsPanel({
   onUpdate: Update;
 }) {
   const typedAny = hasTypedTotals(roof);
+  const report = roof.report ?? null;
   const [open, setOpen] = useState(false);
   const drawing = r?.drawing ?? null;
-  const setTotal = (key: RoofTotalKey, v: number | null) =>
+  const setTotal = (key: RoofTotalKey, v: number | null, fromReport = false) =>
     onUpdate((x) => {
       const typed = { ...(x.typed ?? {}) };
+      const typedFrom = { ...(x.typedFrom ?? {}) };
       if (v === null) delete typed[key];
       else typed[key] = v;
-      return { ...x, typed };
+      // Typed over by hand, a total taken off the report is the estimator's own.
+      if (v !== null && fromReport) typedFrom[key] = "report";
+      else delete typedFrom[key];
+      return { ...x, typed, typedFrom };
     });
+  const setAside = (what: RoofTotalKey | "pitch" | "pitches") =>
+    onUpdate((x) => (x.report ? { ...x, report: { ...x.report, setAside: [...(x.report.setAside ?? []).filter((k) => k !== what), what] } } : x));
+  /** A new report in place of any before it: what was taken off the old one goes, so nothing claims the wrong report. */
+  const takeReport = (next: RoofReport) => {
+    onUpdate((x) => ({ ...withoutReportTotals(x), report: next }));
+    setOpen(true);
+  };
 
-  if (!open && !typedAny && drawing !== null) {
+  if (!open && !typedAny && !report && drawing !== null) {
     return (
       <div className="exterior-rows roof-totals">
         {!readOnly && (
-          <button type="button" className="btn-secondary" onClick={() => setOpen(true)}>
-            Enter roof totals yourself
-          </button>
+          <div className="exterior-row">
+            <button type="button" className="btn-secondary" onClick={() => setOpen(true)}>
+              Enter roof totals yourself
+            </button>
+            <ReadReportButton label="Read a roof report (PDF)" readOnly={readOnly} onRead={takeReport} />
+          </div>
         )}
-        <p className="field-note">For a roof the drawing can&rsquo;t make, or the totals off a roof report: each one typed replaces the drawing&rsquo;s, and a box left blank keeps it.</p>
+        <p className="field-note">
+          For a roof the drawing can&rsquo;t make, or the totals off a roof report: each one typed or taken replaces the drawing&rsquo;s, and a box left blank keeps it.
+        </p>
       </div>
     );
   }
@@ -152,15 +279,56 @@ export function RoofTotalsPanel({
     const made = MADE_OF[key];
     return `${formatQuantity(FEET_OF[key](r))} ${made ? `(${made})` : "drawn"}`;
   };
-  const typedNames = (Object.keys(ROOF_TOTAL_LABEL) as RoofTotalKey[]).filter((k) => typedTotal(roof, k) !== null).map((k) => ROOF_TOTAL_LABEL[k].toLowerCase());
+  const named = (keys: RoofTotalKey[]) => keys.map((k) => ROOF_TOTAL_LABEL[k].toLowerCase());
+  const typedKeys = ROOF_TOTAL_KEYS.filter((k) => typedTotal(roof, k) !== null);
+  const ownKeys = typedKeys.filter((k) => typedSource(roof, k) === "estimator");
+  const takenKeys = typedKeys.filter((k) => typedSource(roof, k) === "report");
+
+  /** Under a box: the report's figure to take or set aside (or that it was taken), and any flag against the drawing. */
+  const under = (key: RoofTotalKey): ReactNode => {
+    const typed = typedTotal(roof, key);
+    const drawn = drawing?.[key] ?? null;
+    const typedFlag = typed !== null && drawn !== null ? totalDisagreement(key, typed, drawn) : null;
+    const offered = report && !report.setAside?.includes(key) ? (report.totals[key] ?? null) : null;
+    const taken = offered !== null && typed !== null && typedSource(roof, key) === "report" && Math.abs(typed - offered) < 1e-9;
+    return (
+      <>
+        {typed !== null && typedSource(roof, key) === "report" && <span className="field-note">From the roof report.</span>}
+        <Flag text={typedFlag} />
+        {offered !== null && !taken && (
+          <span className="roof-total-offer">
+            <span>
+              Report: <strong>{shownTotal(key, offered)}</strong>
+            </span>
+            {!readOnly && (
+              <span className="roof-total-offer-actions">
+                <button type="button" className="btn-secondary" onClick={() => setTotal(key, offered, true)} aria-label={`Take the report's ${ROOF_TOTAL_LABEL[key].toLowerCase()}, ${shownTotal(key, offered)}`}>
+                  Take
+                </button>
+                <button type="button" className="btn-secondary" onClick={() => setAside(key)} aria-label={`Set the report's ${ROOF_TOTAL_LABEL[key].toLowerCase()} aside`}>
+                  Set aside
+                </button>
+              </span>
+            )}
+            {drawn !== null && <Flag text={totalDisagreement(key, offered, drawn)} />}
+          </span>
+        )}
+      </>
+    );
+  };
 
   return (
     <div className="exterior-rows roof-totals">
-      <h4 className="exterior-subhead">Roof totals typed by you</h4>
+      {report && (
+        <ReportSummary report={report} roof={roof} pitch={pitch} drawn={drawing !== null} readOnly={readOnly} onUpdate={onUpdate} onSetAside={setAside} onRead={takeReport} />
+      )}
+      <h4 className="exterior-subhead">{report ? "Roof totals" : "Roof totals typed by you"}</h4>
       <p className="field-note">
-        {drawing
-          ? "Each total typed replaces the drawing's on the scope and the documents, which say it came from you. A box left blank keeps the drawing's, shown in grey."
-          : "No outline is drawn, so these totals are the roof. Type what the roof report says, or what you measured: a box left blank is not counted."}
+        {report
+          ? "Take each of the report's totals you want, box by box: it is said to be from the roof report. A box left blank keeps the drawing's, shown in grey."
+          : drawing
+            ? "Each total typed replaces the drawing's on the scope and the documents, which say it came from you. A box left blank keeps the drawing's, shown in grey."
+            : "No outline is drawn, so these totals are the roof. Type what the roof report says, or what you measured: a box left blank is not counted."}
       </p>
       <div className="exterior-grid">
         <TotalBox
@@ -172,7 +340,9 @@ export function RoofTotalsPanel({
           readOnly={readOnly}
           parse={parseNumber}
           onCommit={(v) => setTotal("squareFeet", v === null ? null : v * 100)}
-        />
+        >
+          {under("squareFeet")}
+        </TotalBox>
         <TotalBox
           id="roof-total-sf"
           label="or area"
@@ -207,27 +377,156 @@ export function RoofTotalsPanel({
             readOnly={readOnly}
             parse={parseLength}
             onCommit={(v) => setTotal(key, v)}
-          />
+          >
+            {under(key)}
+          </TotalBox>
         ))}
       </div>
       <p className="field-note">
-        {typedNames.length > 0 ? `Typed: ${typedNames.join(", ")}.${drawing ? " The rest are the drawing's." : ""}` : drawing ? "Nothing typed yet: every total is the drawing's." : "Nothing typed yet."}
+        {typedKeys.length > 0
+          ? [ownKeys.length > 0 ? `Typed: ${named(ownKeys).join(", ")}.` : "", takenKeys.length > 0 ? `From the roof report: ${named(takenKeys).join(", ")}.` : "", drawing ? "The rest are the drawing's." : ""]
+              .filter(Boolean)
+              .join(" ")
+          : drawing
+            ? "Nothing typed or taken yet: every total is the drawing's."
+            : "Nothing typed yet."}
         {r && drawing && r.typed && !r.allEdges ? " The eavestrough, soffit and fascia follow the eaves and rakes picked on the plan." : ""}
       </p>
-      {!readOnly && (typedAny || drawing) && (
+      {!readOnly && (
         <div className="exterior-row">
+          {!report && <ReadReportButton label="Read a roof report (PDF)" readOnly={readOnly} onRead={takeReport} />}
           {typedAny && (
-            <button type="button" className="btn-secondary" onClick={() => onUpdate((x) => ({ ...x, typed: {} }))}>
+            <button type="button" className="btn-secondary" onClick={() => onUpdate((x) => ({ ...x, typed: {}, typedFrom: {} }))}>
               Clear what is typed
             </button>
           )}
-          {drawing && !typedAny && (
+          {drawing && !typedAny && !report && (
             <button type="button" className="btn-secondary" onClick={() => setOpen(false)}>
               Close
             </button>
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+/** The roof without the report, or anything taken off it. */
+function withoutReportTotals(x: ExteriorRoof): ExteriorRoof {
+  const typed = { ...(x.typed ?? {}) };
+  const typedFrom = { ...(x.typedFrom ?? {}) };
+  for (const k of ROOF_TOTAL_KEYS) {
+    if (typedFrom[k] !== "report") continue;
+    delete typed[k];
+    delete typedFrom[k];
+  }
+  const rest = { ...x, typed, typedFrom };
+  delete rest.report;
+  return rest;
+}
+
+/**
+ * Which report this is - maker, date, address, file - with what it says the estimator should know, its
+ * pitch to take, and its areas by pitch. Above the boxes, so what the numbers are from is read first.
+ */
+function ReportSummary({
+  report,
+  roof,
+  pitch,
+  drawn,
+  readOnly,
+  onUpdate,
+  onSetAside,
+  onRead,
+}: {
+  report: RoofReport;
+  roof: ExteriorRoof;
+  pitch: PitchReading;
+  drawn: boolean;
+  readOnly: boolean;
+  onUpdate: Update;
+  onSetAside: (what: "pitch" | "pitches") => void;
+  onRead: (report: RoofReport) => void;
+}) {
+  const label = reportLabel(report);
+  const pitchOffered = report.pitch !== null && !report.setAside?.includes("pitch");
+  const pitchTaken = report.pitch !== null && roof.pitch !== null && Math.abs(roof.pitch - report.pitch) < 1e-9;
+  const withArea = report.pitches.filter((p) => p.squareFeet !== null);
+  // The areas by pitch price the squares at each pitch only with no outline: a drawn roof has its own.
+  const pitchesUsable = !drawn && withArea.length > 1;
+  const nothing = Object.keys(report.totals).length === 0;
+  return (
+    <div className="roof-report">
+      <h4 className="exterior-subhead">Roof report</h4>
+      <p className="roof-report-name">
+        <strong>{label ?? "No maker or date given"}</strong>
+        {report.address ? ` · ${report.address}` : ""}
+      </p>
+      <span className="field-note">Read from {report.fileName}</span>
+      {report.notes.length > 0 && (
+        <ul className="roof-report-notes">
+          {report.notes.map((n) => (
+            <li key={n}>{n}</li>
+          ))}
+        </ul>
+      )}
+      {nothing && <p className="field-note roof-total-flag">The report gave no totals to take.</p>}
+      <div className="exterior-row">
+        <span className="exterior-row-label">
+          Pitch: <strong>{report.pitch === null ? "not given" : formatPitch(report.pitch)}</strong>
+        </span>
+        {report.pitch === null ? (
+          <span className="field-note">The report gives no pitch: the roof stays at {pitch.value === null ? "its own" : formatPitch(pitch.value)}{pitch.source === "assumed" ? ", assumed" : ""}.</span>
+        ) : pitchTaken ? (
+          <span className="field-note">Taken: the roof is at {formatPitch(report.pitch)}.</span>
+        ) : pitchOffered && !readOnly ? (
+          <>
+            <button type="button" className="btn-secondary" onClick={() => onUpdate((x) => ({ ...x, pitch: report.pitch }))}>
+              Take
+            </button>
+            <button type="button" className="btn-secondary" onClick={() => onSetAside("pitch")}>
+              Set aside
+            </button>
+            {pitch.value !== null && <span className="field-note">The roof is at {formatPitch(pitch.value)}{pitch.source === "assumed" ? ", assumed" : pitch.source === "photos" ? ", from photos" : ""}.</span>}
+          </>
+        ) : null}
+      </div>
+      {report.pitches.length > 1 && (
+        <div className="exterior-rows">
+          <span className="field-note">
+            Areas by pitch:{" "}
+            {report.pitches
+              .map((p) => `${formatPitch(p.pitch)}${p.squareFeet !== null ? ` on ${formatQuantity(Math.round(p.squareFeet))} SF` : ""}${p.percent !== null ? ` (${Math.round(p.percent)}%)` : ""}`)
+              .join(" · ")}
+            {drawn ? ". The drawing's own pitches stand: set a part's pitch in Pitch mode." : ""}
+          </span>
+          {pitchesUsable && !readOnly && !report.setAside?.includes("pitches") && (
+            <div className="exterior-row">
+              {report.pitchesTaken ? (
+                <>
+                  <span className="field-note">Taken: the squares are priced at each pitch.</span>
+                  <button type="button" className="btn-secondary" onClick={() => onUpdate((x) => (x.report ? { ...x, report: { ...x.report, pitchesTaken: false } } : x))}>
+                    Undo
+                  </button>
+                </>
+              ) : (
+                <button type="button" className="btn-secondary" onClick={() => onUpdate((x) => (x.report ? { ...x, report: { ...x.report, pitchesTaken: true } } : x))}>
+                  Take the squares at each pitch
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+      {!readOnly && (
+        <div className="exterior-row">
+          <ReadReportButton label="Read another report" readOnly={readOnly} onRead={onRead} />
+          <button type="button" className="btn-secondary" onClick={() => onUpdate(withoutReportTotals)}>
+            Remove the report
+          </button>
+        </div>
+      )}
+      {!readOnly && <p className="field-note">Reading another report, or removing this one, clears the totals taken from it.</p>}
     </div>
   );
 }

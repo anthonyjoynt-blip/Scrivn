@@ -1632,9 +1632,11 @@ function RoofingFields({ roof, r, readOnly, onUpdate }: { roof: ExteriorRoof; r:
 function RoofFigures({ r }: { r: RoofingQuantities }) {
   const g = r.gutter;
   const chosen = r.slopes.filter((s) => s.selected);
-  // With anything typed over a drawing, each total says where it came from, as the scope lines do.
+  // With anything typed over a drawing, each total says where it came from, as the scope lines do; the
+  // roof report anything was taken from is named once, above them (2026-10-15).
   const from = (key: RoofTotalKey) => (r.typed && r.drawn ? `, ${sourceWords(r.from[key])}` : "");
   const rows: [string, string][] = [
+    ...(r.report ? [["Roof report", `${r.report.label ?? "no maker or date given"} (${r.report.fileName})`] as [string, string]] : []),
     [
       "Pitch",
       r.byPitch.length > 1

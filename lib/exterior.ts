@@ -292,8 +292,11 @@ export type Underlayment = "synthetic" | "felt" | "none";
 export const ROOF_TOTAL_KEYS = ["squareFeet", "ridge", "hip", "valley", "eave", "rake", "step", "headwall", "dripEdge", "starter", "iceWater"] as const;
 export type RoofTotalKey = (typeof ROOF_TOTAL_KEYS)[number];
 export type TypedRoofTotals = Partial<Record<RoofTotalKey, number | null>>;
-/** Where a total came from: typed, read off the drawing, or a sum of one of each. */
-export type TotalSource = "estimator" | "drawing" | "both";
+/**
+ * Where a total came from: typed, taken off a roof report (2026-10-15), read off the drawing - or a
+ * sum of more than one: "both" is the estimator and the drawing, as it was before the report.
+ */
+export type TotalSource = "estimator" | "report" | "drawing" | "both" | "report+drawing" | "report+estimator" | "all";
 
 export const ROOF_TOTAL_LABEL: Record<RoofTotalKey, string> = {
   squareFeet: "Roof area",
@@ -319,15 +322,112 @@ export function hasTypedTotals(roof: ExteriorRoof): boolean {
   return ROOF_TOTAL_KEYS.some((k) => typedTotal(roof, k) !== null);
 }
 
-/** "from the estimator", "from the drawing", or both: what a line says its number came from. */
-export function sourceWords(source: TotalSource): string {
-  return source === "estimator" ? "from the estimator" : source === "drawing" ? "from the drawing" : "from the estimator and the drawing";
+/** Who gave a typed total: taken off the roof report, or the estimator's own. */
+export function typedSource(roof: ExteriorRoof, key: RoofTotalKey): "report" | "estimator" {
+  return roof.typedFrom?.[key] === "report" ? "report" : "estimator";
+}
+
+/**
+ * A roof report the estimator uploaded (2026-10-15): EagleView, Hover, Roofr, GAF QuickMeasure or a
+ * roofer's own, read by Claude (lib/roofReport.ts). What it says is kept here and offered beside each
+ * box until it is taken or set aside - never applied by itself. A total taken is a typed total
+ * (`ExteriorRoof.typed`) marked as the report's (`ExteriorRoof.typedFrom`). The PDF is not kept.
+ */
+export interface RoofReport {
+  /** "EagleView", "Hover", a roofer's company; null when the report names none. */
+  vendor: string | null;
+  /** The report's own date, YYYY-MM-DD; null when it gives none. */
+  date: string | null;
+  address: string | null;
+  fileName: string;
+  /** When it was read, ISO. */
+  readAt: string;
+  /** Each total the report gives, the area in square feet and the rest in feet; absent = not in it. */
+  totals: TypedRoofTotals;
+  /** The predominant pitch, rise in 12; null when the report gives none. */
+  pitch: number | null;
+  /** The areas by pitch, as the report lists them, most area first; empty when it has no such table. */
+  pitches: { pitch: number; squareFeet: number | null; percent: number | null }[];
+  /** What the estimator should know before taking a number: waste included, structures, a page unreadable. */
+  notes: string[];
+  /** What the estimator set aside, not to be offered again. */
+  setAside?: (RoofTotalKey | "pitch" | "pitches")[];
+  /** The areas by pitch taken for the squares at each pitch: a roof with no outline drawn only. */
+  pitchesTaken?: boolean;
+}
+
+/** "EagleView, 2026-09-30": the report as the documents name it; null for one that names neither. */
+export function reportLabel(report: RoofReport | null | undefined): string | null {
+  if (!report) return null;
+  const parts = [report.vendor, report.date].filter((p): p is string => !!p);
+  return parts.length > 0 ? parts.join(", ") : null;
+}
+
+/** How far a total may stand from the drawing's before it is flagged: squares 5%, lengths 10%. */
+export const DISAGREE_SQUARES = 0.05;
+export const DISAGREE_LENGTHS = 0.1;
+
+/**
+ * A total, typed or off the report, against the drawing's own figure: words to say beside its box
+ * when the two are further apart than the drawing could be (2026-10-15), else null. One of them is
+ * wrong - a slope missed on the drawing, a structure the report has and the drawing hasn't, a typo.
+ */
+export function totalDisagreement(key: RoofTotalKey, value: number, drawn: number): string | null {
+  const squares = key === "squareFeet";
+  const show = (v: number) => (squares ? `${(v / 100).toFixed(2)} SQ` : `${(Math.round(v * 10) / 10).toFixed(1)} LF`);
+  if (drawn <= 1e-6) return value > (squares ? 50 : 0.5) ? `The drawing has none.` : null;
+  const off = (value - drawn) / drawn;
+  if (Math.abs(off) <= (squares ? DISAGREE_SQUARES : DISAGREE_LENGTHS) + 1e-9) return null;
+  // To the tenth near the limits, so 5.1% is not said as the 5% it is over.
+  const pct = Math.abs(off) * 100;
+  return `${pct < 20 ? (Math.round(pct * 10) / 10).toFixed(1) : Math.round(pct)}% ${off > 0 ? "more" : "less"} than the drawing's ${show(drawn)}.`;
+}
+
+/**
+ * "from the estimator", "from the roof report", "from the drawing", or a mix: what a line says its
+ * number came from. Given the report's name ("EagleView, 2026-09-30"), the report is named: the
+ * documents' roof plan and figures say which report; the scope lines just "the roof report".
+ */
+export function sourceWords(source: TotalSource, report?: string | null): string {
+  const named = report ? `the roof report (${report})` : "the roof report";
+  switch (source) {
+    case "estimator":
+      return "from the estimator";
+    case "report":
+      return `from ${named}`;
+    case "drawing":
+      return "from the drawing";
+    case "both":
+      return "from the estimator and the drawing";
+    case "report+drawing":
+      return `from ${named} and the drawing`;
+    case "report+estimator":
+      return `from ${named} and the estimator`;
+    case "all":
+      return `from ${named}, the estimator and the drawing`;
+  }
+}
+
+/** Each single source a mix is made of. */
+function sourcesIn(s: TotalSource): ("estimator" | "report" | "drawing")[] {
+  if (s === "both") return ["estimator", "drawing"];
+  if (s === "report+drawing") return ["report", "drawing"];
+  if (s === "report+estimator") return ["report", "estimator"];
+  if (s === "all") return ["report", "estimator", "drawing"];
+  return [s];
 }
 
 function mixSources(sources: TotalSource[]): TotalSource {
-  if (sources.length > 0 && sources.every((s) => s === "estimator")) return "estimator";
-  if (sources.every((s) => s === "drawing")) return "drawing";
-  return "both";
+  const has = new Set(sources.flatMap(sourcesIn));
+  const e = has.has("estimator");
+  const p = has.has("report");
+  const d = has.has("drawing") || has.size === 0;
+  if (p && e && d) return "all";
+  if (p && e) return "report+estimator";
+  if (p && d) return "report+drawing";
+  if (p) return "report";
+  if (e && d) return "both";
+  return e ? "estimator" : "drawing";
 }
 
 /** Where a sum came from: the parts that add anything to it (a hip roof's rakes add nothing to its drip edge). */
@@ -404,6 +504,10 @@ export interface ExteriorRoof {
   soffitMaterial?: "metal" | "wood" | null;
   /** Totals typed over the drawing's, or in place of one (`TypedRoofTotals`). Absent: all from the drawing. */
   typed?: TypedRoofTotals;
+  /** Which of `typed` were taken off the roof report (2026-10-15); the rest are the estimator's own. */
+  typedFrom?: Partial<Record<RoofTotalKey, "report">>;
+  /** The roof report read, and what it offers (`RoofReport`). */
+  report?: RoofReport;
   /**
    * Two storeys: each lower roof over the main floor against the upper floor, by the side its free
    * end stands over - a lean-to, or a ridge running out from the wall. Absent: by its shape.
@@ -1522,6 +1626,8 @@ export interface RoofingQuantities {
   edgesFrom: { eave: TotalSource; rake: TotalSource };
   /** The drawing's own figure for each total, for the boxes to show beside the typed one; null with no drawing. */
   drawing: Record<RoofTotalKey, number> | null;
+  /** The roof report any total was taken from, as the documents name it (`reportLabel`); null when none was. */
+  report: { label: string | null; fileName: string } | null;
 }
 
 function steepBand(pitch: number): string | null {
@@ -1590,12 +1696,12 @@ export function roofingQuantities(exterior: Exterior, roof: RoofPlan | null, pit
   for (const k of ["squareFeet", "ridge", "hip", "valley", "eave", "rake", "step", "headwall"] as const) {
     const typed = typedTotal(R, k);
     value[k] = typed ?? drawing?.[k] ?? 0;
-    from[k] = typed !== null ? "estimator" : "drawing";
+    from[k] = typed !== null ? typedSource(R, k) : "drawing";
   }
   const madeOf = (k: "dripEdge" | "starter" | "iceWater", parts: RoofTotalKey[]) => {
     const typed = typedTotal(R, k);
     value[k] = typed ?? parts.reduce((s, p) => s + value[p], 0);
-    from[k] = typed !== null ? "estimator" : sourceOfParts(...parts.map((p): [number, TotalSource] => [value[p], from[p]]));
+    from[k] = typed !== null ? typedSource(R, k) : sourceOfParts(...parts.map((p): [number, TotalSource] => [value[p], from[p]]));
   };
   madeOf("dripEdge", ["eave", "rake"]);
   madeOf("starter", ["eave"]);
@@ -1667,9 +1773,12 @@ export function roofingQuantities(exterior: Exterior, roof: RoofPlan | null, pit
   if (R.ridgeVents === undefined && (roof?.lines ?? []).some((l) => l.kind === "ridge")) roofingQs.push("ridge vent: which ridges, or none");
 
   // The squares by pitch: the chosen slopes' own, shared out to a typed area as the drawing has them.
+  // With no outline, the roof report's areas by pitch where the estimator took them (2026-10-15).
   const pitchArea = new Map<number, number>();
   const chosenSlopes = noSlopes ? [] : slopes.filter((s) => s.selected);
-  if (chosenSlopes.length === 0) pitchArea.set(roofPitch, value.squareFeet);
+  const reportPitches = !roof && R.report?.pitchesTaken ? R.report.pitches.filter((p) => p.squareFeet !== null && p.squareFeet > 0) : [];
+  if (chosenSlopes.length === 0 && reportPitches.length > 0) for (const p of reportPitches) pitchArea.set(p.pitch, (pitchArea.get(p.pitch) ?? 0) + (p.squareFeet as number));
+  else if (chosenSlopes.length === 0) pitchArea.set(roofPitch, value.squareFeet);
   else for (const s of chosenSlopes) pitchArea.set(Math.round(s.pitch * 100) / 100, (pitchArea.get(Math.round(s.pitch * 100) / 100) ?? 0) + s.areaSquareFeet);
   const drawnArea = [...pitchArea.values()].reduce((a, b) => a + b, 0);
   const share = drawnArea > 0 ? value.squareFeet / drawnArea : 0;
@@ -1750,8 +1859,9 @@ export function roofingQuantities(exterior: Exterior, roof: RoofPlan | null, pit
     drawn: roof !== null,
     typed: hasTypedTotals(R),
     from,
-    edgesFrom: { eave: typedEave !== null ? "estimator" : "drawing", rake: typedRake !== null ? "estimator" : "drawing" },
+    edgesFrom: { eave: typedEave !== null ? typedSource(R, "eave") : "drawing", rake: typedRake !== null ? typedSource(R, "rake") : "drawing" },
     drawing,
+    report: ROOF_TOTAL_KEYS.some((k) => from[k] === "report") && R.report ? { label: reportLabel(R.report), fileName: R.report.fileName } : null,
   };
 }
 
@@ -1923,12 +2033,12 @@ export function exteriorScopeLines(exterior: Exterior | undefined): ExteriorScop
   if (scope?.roofing && r) {
     // Once anything is typed over the drawing, every measured line says where its number came from.
     const from = (s: TotalSource) => (r.typed ? ` – ${sourceWords(s)}` : "");
-    const sqKnown = r.drawn || r.from.squareFeet === "estimator";
+    const sqKnown = r.drawn || r.from.squareFeet !== "drawing";
     const sq = sqKnown ? `${r.squares.toFixed(2)} SQ` : "squares to confirm";
     const sqFrom = sqKnown ? from(r.from.squareFeet) : "";
     const chosen = r.slopes.filter((s) => s.selected);
     // Typed squares are the roof being done, whatever is picked on the drawing.
-    const which = r.from.squareFeet === "estimator" || !r.drawn ? "" : ` (${r.allSlopes ? "all slopes" : `slope${chosen.length === 1 ? "" : "s"} ${chosen.map((s) => s.label).join(", ")}`})`;
+    const which = r.from.squareFeet !== "drawing" || !r.drawn ? "" : ` (${r.allSlopes ? "all slopes" : `slope${chosen.length === 1 ? "" : "s"} ${chosen.map((s) => s.label).join(", ")}`})`;
     const metal = r.material === "metal";
     // One pitch, said once; several, each with the squares at it.
     // Where a pitch came from when it wasn't typed: assumed, or read off a gable's photo (2026-10-15).
