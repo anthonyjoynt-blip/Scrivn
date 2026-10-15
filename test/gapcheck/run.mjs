@@ -580,6 +580,161 @@ check(
   `answering the baseboard action takes no other question off the screen\n         ${bbPremature.join("\n         ")}`,
 );
 
+/* ── A room's baseboard is asked about once, however many records it is split into ─────────────── */
+
+/*
+  The owner's office claim, 2026-10-15: "tear out the affected baseboards on the exterior wall plus
+  one interior wall" and, for the repair, "detach and reset the remaining baseboards". Two records,
+  one room — and "What material is the baseboard?" and the shoe mold question were each asked twice,
+  word for word. "Unnecessary", "awkward". Material, height and shoe mold are facts about the room's
+  baseboard, so each is asked once and lands on every record waiting on it.
+*/
+const OFFICE_WALL = { wallMaterial: "DRYWALL", drywallBeingRemoved: true, insulationAffected: false, insulationType: null, insulationRValue: null, floodCutHeightIn: null, cutHeight: "TWO_FOOT", cutRunFt: 12, cutRunFraction: null };
+const officeRoom = (name, baseboard) => room(name, { walls: [{ ...OFFICE_WALL }], baseboard });
+const tornOut = (o = {}) => extractedBaseboard({ action: "REMOVE_AND_REPLACE", disposition: "REMOVE_AND_DISPOSE", ...o });
+const resetOnRepair = (o = {}) => extractedBaseboard({ action: "DETACH_AND_RESET", disposition: "SALVAGE_DRY", ...o });
+const office = extractionWith([officeRoom("Office", [tornOut(), resetOnRepair()])]);
+const bbIds = (qs, room = 0) => qs.map((q) => q.id).filter((id) => id.startsWith(`room:${room}:baseboard:`));
+const endingIn = (ids, field) => ids.filter((id) => id.endsWith(`:${field}`));
+
+{
+  const asked = nextQuestions(claim, withDerivedFields(office));
+  const ids = bbIds(asked);
+  check(endingIn(ids, "material").length === 1, `office: the baseboard material is asked once for the room (asked: ${ids.join(", ")})`);
+  check(endingIn(ids, "shoeMold").length === 1, `office: the shoe mold question is asked once for the room (asked: ${ids.join(", ")})`);
+  check(
+    endingIn(ids, "heightIn").length === 1 && endingIn(ids, "heightIn")[0] === "room:0:baseboard:0:heightIn",
+    `office: the height is asked of the baseboard being replaced only (asked: ${endingIn(ids, "heightIn").join(", ")})`,
+  );
+  const prompt = (field) => asked.find((q) => q.id.endsWith(`:${field}`) && q.id.startsWith("room:0:baseboard:"))?.prompt;
+  check(prompt("material") === "What material are the baseboards in this room?", `office: the material question says it is about the room's baseboards (got "${prompt("material")}")`);
+  check(
+    prompt("shoeMold") === "Is there shoe mold or quarter round coming off with the baseboards in this room?",
+    `office: so does the shoe mold question (got "${prompt("shoeMold")}")`,
+  );
+
+  // Answered once, on screen, and folded in the way the page folds it.
+  const answers = Object.fromEntries(
+    asked.filter((q) => q.id.startsWith("room:0:baseboard:")).map((q) => [q.id, q.id.endsWith(":material") ? "MDF with profile" : q.id.endsWith(":heightIn") ? "4.25" : "yes"]),
+  );
+  const done = resolveRound(claim, office, answers);
+  const [torn, reset] = done.extraction.rooms[0].baseboard;
+  check(
+    torn.material === "MDF" && torn.mdfProfile === "PROFILE" && reset.material === "MDF" && reset.mdfProfile === "PROFILE",
+    `office: one material answer lands on both records (got ${torn.material}/${torn.mdfProfile} and ${reset.material}/${reset.mdfProfile})`,
+  );
+  check(torn.shoeMold === true && reset.shoeMold === true, `office: and one shoe mold answer on both (got ${torn.shoeMold}, ${reset.shoeMold})`);
+  check(torn.heightIn === 4.25 && reset.heightIn === null, `office: the height only on the one being replaced (got ${torn.heightIn}, ${reset.heightIn})`);
+  check(bbIds(done.questions).length === 0, `office: and nothing about the baseboard is left to ask (open: ${bbIds(done.questions).join(", ")})`);
+  check(
+    torn.action === "REMOVE_AND_REPLACE" && reset.action === "DETACH_AND_RESET",
+    "office: each record keeps its own action — that is what tells them apart",
+  );
+
+  // Over a whole run, not just the first round: neither fact comes back for the second record later.
+  const run = runToCompletion(claim, office);
+  check(run.ok, `office: the claim completes (stuck on: ${(run.stuck ?? []).join(", ") || "n/a"})`);
+  const everAsked = run.seen.flat().filter((id) => id.startsWith("room:0:baseboard:"));
+  check(
+    endingIn(everAsked, "material").length === 1 && endingIn(everAsked, "shoeMold").length === 1,
+    `office: across every round, material and shoe mold are each asked once (asked: ${everAsked.join(", ")})`,
+  );
+  const premature = findPrematureQuestions(claim, office);
+  check(premature.length === 0, `office: answering one baseboard question takes no other off the screen\n         ${premature.join("\n         ")}`);
+}
+
+// Three records, one still without an action: it is asked that first, and the room's questions follow it.
+{
+  const mixed = extractionWith([officeRoom("Office", [extractedBaseboard(), tornOut(), resetOnRepair()])]);
+  const first = bbIds(nextQuestions(claim, withDerivedFields(mixed)));
+  check(
+    first.length === 1 && first[0] === "room:0:baseboard:0:action",
+    `mixed: a record with no action is asked that alone, and the room's shared questions wait for it (asked: ${first.join(", ")})`,
+  );
+  const live = resolveRound(claim, mixed, { "room:0:baseboard:0:action": "Removed and replaced" });
+  const after = bbIds(live.questions);
+  check(
+    endingIn(after, "material").length === 1 && endingIn(after, "heightIn").length === 1,
+    `mixed: once it is answered, material and height are asked once for all three, on the same screen (asked: ${after.join(", ")})`,
+  );
+  const answered = resolveRound(claim, mixed, {
+    "room:0:baseboard:0:action": "Removed and replaced",
+    ...Object.fromEntries(live.questions.filter((q) => q.id.startsWith("room:0:baseboard:")).map((q) => [q.id, q.id.endsWith(":heightIn") ? "3.5" : q.kind.type === "choice" ? "Flat MDF" : "no"])),
+  });
+  const bbs = answered.extraction.rooms[0].baseboard;
+  check(bbs.every((b) => b.material === "MDF" && b.mdfProfile === "FLAT"), `mixed: the material reaches all three (got ${bbs.map((b) => b.material).join(", ")})`);
+  check(bbs[0].heightIn === 3.5 && bbs[1].heightIn === 3.5 && bbs[2].heightIn === null, `mixed: the height both replacements (got ${bbs.map((b) => b.heightIn).join(", ")})`);
+  check(findPrematureQuestions(claim, mixed).length === 0, "mixed: nothing vanishes mid-round");
+}
+
+// Two rooms, each split in two: each room is asked once, and each answer stays in its own room.
+{
+  const twoOffices = extractionWith([officeRoom("Office", [tornOut(), resetOnRepair()]), officeRoom("Den", [tornOut(), resetOnRepair()])]);
+  const asked = nextQuestions(claim, withDerivedFields(twoOffices));
+  for (const n of [0, 1]) {
+    const ids = bbIds(asked, n);
+    check(endingIn(ids, "material").length === 1 && endingIn(ids, "shoeMold").length === 1, `two rooms: room ${n} is asked material and shoe mold once each (asked: ${ids.join(", ")})`);
+  }
+  const den = applyAnswer(withDerivedFields(twoOffices), "room:0:baseboard:0:material", "Solid wood");
+  check(
+    den.rooms[0].baseboard.every((b) => b.material === "SOLID_WOOD") && den.rooms[1].baseboard.every((b) => b.material === null),
+    "two rooms: the office's answer does not reach the den",
+  );
+  // "Apply to all rooms" still finds the other room's question, and through it every record there.
+  const siblings = siblingQuestionIds("room:0:baseboard:0:material", asked);
+  check(siblings.length === 1 && siblings[0] === "room:1:baseboard:0:material", `two rooms: apply-to-all-rooms offers the den's one question (got ${siblings.join(", ")})`);
+}
+
+// A record whose material is already known keeps it; the room's question is about the rest.
+{
+  const knownWood = extractionWith([officeRoom("Office", [tornOut({ material: "SOLID_WOOD" }), resetOnRepair(), extractedBaseboard({ action: "FINISH_ONLY" })])]);
+  const asked = nextQuestions(claim, withDerivedFields(knownWood));
+  const material = asked.filter((q) => q.id.startsWith("room:0:baseboard:") && q.id.endsWith(":material"));
+  check(
+    material.length === 1 && material[0].id === "room:0:baseboard:1:material" && material[0].prompt === "What material are the other baseboards in this room?",
+    `known material: one question, for the two without a material (got ${material.map((q) => `${q.id} "${q.prompt}"`).join(", ")})`,
+  );
+  const after = applyAnswer(withDerivedFields(knownWood), "room:0:baseboard:1:material", "Flat MDF");
+  const [wood, reset, finish] = after.rooms[0].baseboard;
+  check(wood.material === "SOLID_WOOD" && wood.mdfProfile === null, `known material: the solid wood record is not overwritten (got ${wood.material}/${wood.mdfProfile})`);
+  check(reset.material === "MDF" && finish.material === "MDF", `known material: the other two take the answer (got ${reset.material}, ${finish.material})`);
+  // Even addressed to the known record directly, a shared answer never reaches past the records waiting on it.
+  const direct = applyAnswer(withDerivedFields(knownWood), "room:0:baseboard:0:heightIn", "5");
+  check(direct.rooms[0].baseboard[0].heightIn === 5, "known material: a height for the one replacement lands on it");
+
+  // The finish-only coat is a different shoe mold question from one coming off — never folded together.
+  const shoe = asked.filter((q) => q.id.startsWith("room:0:baseboard:") && q.id.endsWith(":shoeMold"));
+  check(shoe.length === 2, `known material: the shoe coming off and the shoe's final coat are asked apart (asked: ${shoe.map((q) => q.prompt).join(" | ")})`);
+  const removalShoe = applyAnswer(withDerivedFields(knownWood), shoe[0].id, "yes").rooms[0].baseboard;
+  check(removalShoe[0].shoeMold === true && removalShoe[1].shoeMold === true && removalShoe[2].shoeMold === null, "known material: answering the shoe coming off leaves the final-coat question open");
+}
+
+// Records the transcript gave different materials are different baseboard: each is asked its own height and shoe mold, by name.
+{
+  const twoKinds = extractionWith([officeRoom("Office", [tornOut({ material: "MDF" }), tornOut({ material: "SOLID_WOOD" })])]);
+  const asked = nextQuestions(claim, withDerivedFields(twoKinds)).filter((q) => q.id.startsWith("room:0:baseboard:"));
+  const heights = asked.filter((q) => q.id.endsWith(":heightIn"));
+  check(
+    heights.length === 2 && heights[0].prompt === "What height is the MDF baseboard, in inches?" && heights[1].prompt === "What height is the solid wood baseboard, in inches?",
+    `different materials: each is asked its height, named (got ${heights.map((q) => `"${q.prompt}"`).join(", ")})`,
+  );
+  const one = applyAnswer(withDerivedFields(twoKinds), heights[0].id, "3");
+  check(one.rooms[0].baseboard[0].heightIn === 3 && one.rooms[0].baseboard[1].heightIn === null, "different materials: one height does not reach the other");
+  check(findPrematureQuestions(claim, twoKinds).length === 0, "different materials: nothing vanishes mid-round");
+
+  // One stated, one not: asked as one room, and the room's height is given before the material splits them.
+  const oneStated = extractionWith([officeRoom("Office", [tornOut({ material: "MDF" }), tornOut()])]);
+  const round = nextQuestions(claim, withDerivedFields(oneStated)).filter((q) => q.id.startsWith("room:0:baseboard:"));
+  check(endingIn(round.map((q) => q.id), "heightIn").length === 1, `one stated: the height is asked once (asked: ${round.map((q) => q.id).join(", ")})`);
+  const answeredApart = resolveRound(claim, oneStated, Object.fromEntries(round.map((q) => [q.id, q.id.endsWith(":heightIn") ? "4" : q.kind.type === "choice" ? "Solid wood" : "no"])));
+  check(
+    answeredApart.extraction.rooms[0].baseboard.every((b) => b.heightIn === 4),
+    `one stated: the room's height reaches both even when the material answer then says they differ (got ${answeredApart.extraction.rooms[0].baseboard.map((b) => b.heightIn).join(", ")})`,
+  );
+  check(bbIds(answeredApart.questions).length === 0, `one stated: and nothing is asked again (open: ${bbIds(answeredApart.questions).join(", ")})`);
+  check(findPrematureQuestions(claim, oneStated).length === 0, "one stated: nothing vanishes mid-round");
+}
+
 /* ── Nothing is asked before it is known to apply ──────────────────────────────────────────────── */
 
 /* ── Follow-ups arrive on the answer, not on the next submit ───────────────────────────────────── */

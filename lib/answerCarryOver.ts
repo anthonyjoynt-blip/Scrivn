@@ -1,8 +1,17 @@
 import type { ClaimInfo } from "./claimInfo";
-import { type EquipmentSuggestions, isConsolidatedEquipmentQuestion, normaliseRoomName, UNNAMED_ROOM_PLACEHOLDER } from "./gapCheck";
+import {
+  type EquipmentSuggestions,
+  type SharedBaseboardField,
+  baseboardFieldSense,
+  baseboardQuestionRecords,
+  isConsolidatedEquipmentQuestion,
+  isSharedBaseboardField,
+  normaliseRoomName,
+  UNNAMED_ROOM_PLACEHOLDER,
+} from "./gapCheck";
 import type { GapCheckQuestion } from "./questions";
 import { nextQuestions } from "./questionRound";
-import { type ContentsManipulation, type EquipmentRecord, type Room, type WaterLossExtraction, withDerivedFields } from "./types";
+import { type BaseboardRecord, type ContentsManipulation, type EquipmentRecord, type Room, type WaterLossExtraction, withDerivedFields } from "./types";
 
 /**
  * Answers already given, carried from the tree a fresh read replaces onto the tree replacing it
@@ -34,7 +43,9 @@ import { type ContentsManipulation, type EquipmentRecord, type Room, type WaterL
  *     door's or cabinet's location, a fixture's type, an equipment type — and only when exactly one
  *     record on each side has it. Never by position: a record the new read inserts would otherwise
  *     take its neighbour's answers. Baseboard and countertops say nothing about themselves, so they
- *     pair only as the room's one record of the kind on both sides.
+ *     pair only as the room's one record of the kind on both sides — except a baseboard's material,
+ *     height and shoe mold, which are asked once per room and so are carried from the room (see
+ *     `carryRoomBaseboard`).
  *   - A new record that does not say what it is (a floor of no stated material) pairs only as the
  *     room's one record of the kind on both sides, and only where nothing stated on both disagrees.
  *   - Only fields the new read left empty are filled; nothing it states is ever overwritten. A value
@@ -393,7 +404,12 @@ function carryAnswer(tree: WaterLossExtraction, old: WaterLossExtraction, rooms:
     if (!kind || !rule) return null;
     const index = Number(parts[3]);
     const was = pairedRecord(kind, nowRoom, oldRoom, index);
-    if (!was) return null;
+    if (!was) {
+      const field = parts[4]!;
+      if (parts[2] !== "baseboard" || !isSharedBaseboardField(field)) return null;
+      const room = carryRoomBaseboard(nowRoom, oldRoom, index, field, rule);
+      return room ? withRoom(tree, n, room) : null;
+    }
     const next = carried(kind.list(nowRoom)[index]!, was, rule);
     if (!next) return null;
     return withRoom(tree, n, kind.set(nowRoom, kind.list(nowRoom).map((r, i) => (i === index ? next : r))));
@@ -401,6 +417,43 @@ function carryAnswer(tree: WaterLossExtraction, old: WaterLossExtraction, rooms:
 
   const room = carryRoomAnswer(nowRoom, oldRoom, parts.slice(2).join(":"));
   return room ? withRoom(tree, n, room) : null;
+}
+
+/**
+ * A baseboard fact the room's records share, carried from the room rather than from one record.
+ *
+ * Material, height and shoe mold are asked once for every record of a room waiting on them
+ * (`baseboardQuestionRecords`), so a room with two baseboard records was answered once for both —
+ * and baseboard says nothing about itself, so with more than one record on either side no record
+ * pairs with another. The room still does: each record the question covers takes the answer the old
+ * room's baseboards gave in the same sense (a finish-only coat is not a shoe coming off), under the
+ * same action where the answer depended on it, and of the same material where both say. Only when
+ * every such old answer agrees; two different answers are asked again rather than chosen between.
+ */
+function carryRoomBaseboard(now: Room, old: Room, index: number, field: SharedBaseboardField, rule: Carry): Room | null {
+  const record = now.baseboard[index];
+  if (!record) return null;
+  const sense = baseboardFieldSense(record, field);
+  const answered = old.baseboard.filter((b) => sense !== null && baseboardFieldSense(b, field) === sense && isSet(b[field])) as unknown as Fields[];
+  if (answered.length === 0) return null;
+
+  const covers = baseboardQuestionRecords(now, index, field);
+  let changed = false;
+  const baseboard = now.baseboard.map((b, i) => {
+    if (!covers.includes(i)) return b;
+    const mine = b as unknown as Fields;
+    const sources = answered.filter(
+      (o) =>
+        (rule.same ?? []).every((f) => sameValue(o[f], mine[f])) &&
+        (field === "material" || !isSet(o.material) || !isSet(mine.material) || o.material === mine.material),
+    );
+    if (sources.length === 0 || !sources.every((o) => rule.copy.every((f) => sameValue(o[f], sources[0]![f])))) return b;
+    const next = carried(mine, sources[0]!, { copy: rule.copy, either: rule.either });
+    if (!next) return b;
+    changed = true;
+    return next as unknown as BaseboardRecord;
+  });
+  return changed ? { ...now, baseboard } : null;
 }
 
 /** A room-level question, answered from the same room in the old tree. */
