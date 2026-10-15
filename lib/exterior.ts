@@ -45,6 +45,7 @@ import {
   upperOverhang,
 } from "./roof";
 import { PIECE_LENGTH_KEYS, pieceCount, pieceCounts, type PieceFigures, pieceFigures, pieceFromPhotos, ROOF_PIECE_LABEL, type RoofPiece } from "./roofPieces";
+import { type PhotoPiece, type ResolvedPhotoPiece, resolvePhotoPiece, type UpperShown } from "./roofPhotoShapes";
 
 export type CladdingKind = "stucco" | "vinyl" | "wood_shake" | "eifs" | "wood" | "fibre_cement" | "brick" | "stone" | "metal" | "other";
 
@@ -209,6 +210,21 @@ export interface SideRoofRead {
    */
   upperPitch?: number | null;
   breakFeet?: number | null;
+  /**
+   * The dormers and turrets on the roof over this side, read off its photo (2026-10-15,
+   * lib/roofPhotoShapes.ts): each a roof piece "from photos" once ticked (`taken`), its numbers worked
+   * out on the roof as built (`photoRoofPieces`). One not ticked is offered on the roof pane.
+   */
+  pieces?: PhotoPiece[];
+  /**
+   * What the photo shows over the side: an upper floor flush over it, one set back behind a roof, or
+   * none. The upper floor is never drawn from it: it says one is to draw, and answers the high-roof charge.
+   */
+  upper?: UpperShown | null;
+  /** On a wall flush with an upper floor: the floor line, feet up from the side's level - where a tall side splits. */
+  floorLineFeet?: number | null;
+  /** Set back: the roof from this side up to the upper floor's wall. It fills that lower roof's kind under one picked on the plan. */
+  lowerRoof?: LowerRoofKind | null;
 }
 
 /**
@@ -1322,6 +1338,14 @@ export function upperFootprint(exterior: Exterior, main: Footprint): Footprint |
       else `ASSUMED_PITCH`.
     * OVERHANGS: typed; else the photos' reads, between them; else the phone's roofline; else the default.
     * GABLE OR HIP at each end of the roof: typed (a tap on the plan); else that side's photo; else a gable.
+    * THE RIDGE'S DIRECTION (2026-10-15): typed (picked on the plan); else the way that puts a roof end
+      over the sides the photos show as gables or hip ends, and none over those they show as eaves;
+      else along the longer walls.
+    * ROOF PIECES (2026-10-15): the estimator's own; else the dormers and turrets read off the photos,
+      once ticked. One changed by hand becomes the estimator's and stands in its place.
+    * TWO STOREYS (2026-10-15): the upper floor is only ever drawn; the photos say one is to draw, answer
+      the high-roof charge until it is, give the floor line a tall side splits at, and fill each lower
+      roof's kind - lean-to or a ridge running out - under one picked on the plan.
   A read set aside counts for nothing, and a gable whose photo pitch was set aside gives none off its peak.
 */
 
@@ -1343,10 +1367,16 @@ export interface PhotoReads {
   ends: PhotoRead<"gable" | "hip" | "eave">[];
   /** A gambrel's or mansard's break, where a side's photo gives both its numbers. */
   breaks: PhotoRead<RoofBreak>[];
+  /** What stands over each side: an upper floor flush over it, set back, or none (2026-10-15). */
+  upper: PhotoRead<UpperShown>[];
+  /** The upper floor's floor line on a flush wall, feet up from that side's level. */
+  floorLines: PhotoRead<number>[];
+  /** The roof from a side up to the upper floor's wall, by that side. */
+  lowerRoofs: PhotoRead<LowerRoofKind>[];
 }
 
 export function photoReads(exterior: Exterior): PhotoReads {
-  const out: PhotoReads = { pitches: [], rakeOverhangs: [], eaveOverhangs: [], ends: [], breaks: [] };
+  const out: PhotoReads = { pitches: [], rakeOverhangs: [], eaveOverhangs: [], ends: [], breaks: [], upper: [], floorLines: [], lowerRoofs: [] };
   for (const side of allSides(exterior)) {
     const r = side.roofRead;
     if (!r) continue;
@@ -1358,11 +1388,16 @@ export function photoReads(exterior: Exterior): PhotoReads {
     if (typeof r.upperPitch === "number" && Number.isFinite(r.upperPitch) && typeof r.breakFeet === "number" && Number.isFinite(r.breakFeet) && r.breakFeet > 0) {
       out.breaks.push({ ...at, value: { upperPitch: Math.max(0, r.upperPitch), breakFeet: r.breakFeet } });
     }
+    if (r.upper) out.upper.push({ ...at, value: r.upper });
+    if (typeof r.floorLineFeet === "number" && Number.isFinite(r.floorLineFeet)) out.floorLines.push({ ...at, value: r.floorLineFeet });
+    if (r.lowerRoof) out.lowerRoofs.push({ ...at, value: r.lowerRoof });
   }
   return out;
 }
 
 const meanOf = (vs: number[]) => vs.reduce((s, v) => s + v, 0) / vs.length;
+/** "A", "A and B", "A, B and C". */
+const listWords = (names: string[]) => (names.length <= 1 ? (names[0] ?? "") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`);
 
 /** An overhang as the roof is built with it, and where it came from. */
 export interface ResolvedOverhang {
@@ -1410,6 +1445,146 @@ export function resolvedEnds(exterior: Exterior): Record<string, RoofEndKind> {
 /** The sides whose end of the roof the photos set: read off the photo, not typed. */
 export function endsFromPhotos(exterior: Exterior): Set<string> {
   return new Set(photoReads(exterior).ends.filter((r) => !(r.sideId in exterior.roof.ends)).map((r) => r.sideId));
+}
+
+/** The ridge's direction the photos give: the side it is set by, and the reads it bears out. */
+export interface RidgeFromPhotos {
+  /** As `ExteriorRoof.ridgeAlong`: the side a rectangle's ridge runs along, or the main roof stands over. */
+  ridgeAlong: string;
+  /** The reads it bears out, and how many there are in all. */
+  agree: PhotoRead<"gable" | "hip" | "eave">[];
+  of: number;
+}
+
+const ridgeCache = new WeakMap<Exterior, { roof: ExteriorRoof; sides: ExteriorSide[]; upper: UpperFloor | undefined; got: RidgeFromPhotos | null }>();
+
+/**
+ * The ridge's direction off the photos (2026-10-15, photo-mode plan piece 4a): with none picked on the
+ * plan, the roof is built each way the plan offers, and the one that puts a roof end over the most
+ * sides the photos show as gables or hip ends - and none over those they show as eaves - is taken
+ * when it bears out more of them than the roof worked out from the outline does. Null when nothing is
+ * gained by it, or the ridge is picked.
+ */
+export function ridgeFromPhotos(exterior: Exterior): RidgeFromPhotos | null {
+  if (exterior.roof.ridgeAlong !== null) return null;
+  const cached = ridgeCache.get(exterior);
+  if (cached && cached.roof === exterior.roof && cached.sides === exterior.sides && cached.upper === exterior.upper) return cached.got;
+  let got: RidgeFromPhotos | null = null;
+  const reads = photoReads(exterior).ends;
+  const footprint = reads.length > 0 ? exteriorFootprint(exterior) : null;
+  if (footprint?.closes) {
+    const bearsOut = (ridgeAlong: string | null) => {
+      const plan = buildRoof(roofInputBase(exterior, footprint, ASSUMED_PITCH, ridgeAlong));
+      if (plan.shape === "other") return null;
+      const ends = new Set(plan.ends.map((e) => e.sideId));
+      return reads.filter((r) => (r.value === "eave" ? !ends.has(r.sideId) : ends.has(r.sideId)));
+    };
+    const outline = bearsOut(null);
+    if (outline && outline.length < reads.length) {
+      for (const side of allSides(exterior)) {
+        const agree = bearsOut(side.id);
+        if (agree && agree.length > (got?.agree.length ?? outline.length)) got = { ridgeAlong: side.id, agree, of: reads.length };
+      }
+    }
+  }
+  ridgeCache.set(exterior, { roof: exterior.roof, sides: exterior.sides, upper: exterior.upper, got });
+  return got;
+}
+
+/** The ridge's direction the roof is built with: picked on the plan, else the photos', else by the outline (null). */
+export function resolvedRidgeAlong(exterior: Exterior): string | null {
+  return exterior.roof.ridgeAlong ?? ridgeFromPhotos(exterior)?.ridgeAlong ?? null;
+}
+
+/**
+ * Each lower roof's kind against the upper floor, by the side its free end stands over: picked on the
+ * plan, else the photo of that side (a lean-to, or a ridge running out), else by its shape (absent).
+ */
+export function resolvedLowerRoofKinds(exterior: Exterior): Record<string, LowerRoofKind> {
+  const fromPhotos: Record<string, LowerRoofKind> = {};
+  for (const r of photoReads(exterior).lowerRoofs) fromPhotos[r.sideId] = r.value;
+  return { ...fromPhotos, ...(exterior.roof.lowerRoofs ?? {}) };
+}
+
+/** The sides whose lower roof's kind the photos set: read off the photo, not picked. */
+export function lowerRoofsFromPhotos(exterior: Exterior): Set<string> {
+  const picked = exterior.roof.lowerRoofs ?? {};
+  return new Set(photoReads(exterior).lowerRoofs.filter((r) => !(r.sideId in picked)).map((r) => r.sideId));
+}
+
+/**
+ * Two storeys or more, as the photos show it (2026-10-15): yes when a ticked read shows an upper floor
+ * over any side; no when the reads of two sides or more all show none; null when they don't say.
+ */
+export function photoStoreys(exterior: Exterior): { twoStoreys: boolean | null; reads: PhotoRead<UpperShown>[] } {
+  const reads = photoReads(exterior).upper;
+  const shown = reads.filter((r) => r.value !== "none");
+  if (shown.length > 0) return { twoStoreys: true, reads: shown };
+  return { twoStoreys: new Set(reads.map((r) => r.sideId)).size >= 2 ? false : null, reads };
+}
+
+/** The floor line the photos read on walls flush with an upper floor, between them (the median); null when none did. */
+export function photoFloorLine(exterior: Exterior): { feet: number; reads: PhotoRead<number>[] } | null {
+  const reads = photoReads(exterior).floorLines;
+  if (reads.length === 0) return null;
+  const v = reads.map((r) => r.value).sort((a, b) => a - b);
+  const mid = Math.floor(v.length / 2);
+  return { feet: v.length % 2 ? (v[mid] as number) : ((v[mid - 1] as number) + (v[mid] as number)) / 2, reads };
+}
+
+/** The pitch of the slope rising from [sideId]'s eave as the roof is built: its biggest slope's; null when none rises from it. */
+export function slopePitchOver(plan: RoofPlan | null, sideId: string): number | null {
+  const own = (plan?.facets ?? []).filter((f) => f.sideId === sideId).sort((a, b) => b.areaSquareFeet - a.areaSquareFeet);
+  return own[0]?.pitch ?? null;
+}
+
+/** A dormer or turret read off a side's photo, on the roof as built. */
+export interface PhotoRoofPiece extends ResolvedPhotoPiece {
+  sideId: string;
+  sideName: string;
+  photo: PhotoPiece;
+}
+
+/**
+ * The dormers and turrets the photos read (`SideRoofRead.pieces`), as roof pieces "from photos" on the
+ * roof as built [plan] at [mainPitch]: each on the slope over its side, under the eave overhang the
+ * roof has (lib/roofPhotoShapes.ts `resolvePhotoPiece`). One the estimator changed by hand is left out
+ * while their own piece stands in its place.
+ */
+export function photoRoofPieces(exterior: Exterior, plan: RoofPlan | null, mainPitch: number): PhotoRoofPiece[] {
+  const typed = new Set((exterior.roof.pieces ?? []).map((p) => p.id));
+  const out: PhotoRoofPiece[] = [];
+  for (const side of allSides(exterior)) {
+    const onRoof = photoPieceOnRoof(exterior, plan, mainPitch, side.id);
+    for (const photo of side.roofRead?.pieces ?? []) {
+      if (photo.typedAs && typed.has(photo.typedAs)) continue;
+      out.push({ ...onRoof(photo), sideId: side.id, sideName: side.name.trim() || "Side", photo });
+    }
+  }
+  return out;
+}
+
+/** How a dormer or turret read off [sideId]'s photo comes out on the roof as built [plan] at [mainPitch]: on the slope over that side, under the roof's eave overhang. */
+export function photoPieceOnRoof(exterior: Exterior, plan: RoofPlan | null, mainPitch: number, sideId: string): (pp: PhotoPiece) => ResolvedPhotoPiece {
+  const eave = resolvedOverhang(exterior, "eave").feet;
+  const slope = slopePitchOver(plan, sideId) ?? mainPitch;
+  // A dormer's size rests on the slope's pitch: on an assumed one, said.
+  const assumed = exteriorPitch(exterior).source === "assumed" && Math.abs(slope - mainPitch) < 1e-9;
+  return (pp) => {
+    const r = resolvePhotoPiece(pp, slope, eave, mainPitch);
+    if (!assumed || (pp.kind !== "gableDormer" && pp.kind !== "shedDormer")) return r;
+    return { ...r, checks: [`Its size is worked out on the roof's assumed ${formatPitch(slope)}: tick a gable's pitch, or type the roof's, and it follows.`, ...r.checks] };
+  };
+}
+
+/** Every roof piece on the roof as built: the estimator's own, then the photos'. */
+export function allRoofPieces(exterior: Exterior, plan: RoofPlan | null, mainPitch: number): RoofPiece[] {
+  return [...(exterior.roof.pieces ?? []), ...photoRoofPieces(exterior, plan, mainPitch).map((p) => p.piece)];
+}
+
+/** Whether the roof has any piece at all: the estimator's, or one read off a photo. */
+export function hasRoofPieces(exterior: Exterior): boolean {
+  return (exterior.roof.pieces ?? []).length > 0 || allSides(exterior).some((s) => (s.roofRead?.pieces ?? []).length > 0);
 }
 
 /** The gable photos' pitches, each on the part of the roof whose gable it is. */
@@ -1505,6 +1680,14 @@ export function photoNotes(exterior: Exterior): string[] {
   if (pp.unplaced.length > 0) {
     notes.push(`${list(pp.unplaced, formatPitch)}: the photo shows a gable, but the roof is drawn with no gable end over ${pp.unplaced.length === 1 ? "that side" : "those sides"}. Check the ridge's direction, or the gable or hip at each end.`);
   }
+  // The ridge turned to the photos (2026-10-15): said, with what it rests on.
+  const ridge = ridgeFromPhotos(exterior);
+  if (ridge) {
+    const ends = ridge.agree.filter((r) => r.value !== "eave").map((r) => r.name);
+    const eaves = ridge.agree.filter((r) => r.value === "eave").map((r) => r.name);
+    const words = [ends.length > 0 ? `${listWords(ends)} ${ends.length === 1 ? "shows" : "show"} a roof end` : "", eaves.length > 0 ? `${listWords(eaves)} ${eaves.length === 1 ? "shows" : "show"} an eave` : ""].filter(Boolean).join(", and ");
+    notes.push(`The ridge is set from the photos: ${words}.${ridge.agree.length < ridge.of ? ` ${ridge.of - ridge.agree.length} of the photos' reads still don't fit: check them.` : ""} Pick the ridge below to set it yourself.`);
+  }
   const typedPitch = exterior.roof.pitch !== null && exterior.roof.pitch >= 0 ? exterior.roof.pitch : null;
   if (typedPitch !== null) {
     const all = [...pp.main, ...pp.unplaced, ...Object.values(pp.sections).flat()];
@@ -1555,17 +1738,20 @@ export function exteriorPitch(exterior: Exterior): PitchReading {
   return { value: ASSUMED_PITCH, source: "assumed", fromSides, fromPhotos };
 }
 
-/** The roof's input with everything but the photos' part pitches: what tells which part is over which side. */
-function roofInputBase(exterior: Exterior, footprint: Footprint, pitch: number): RoofInput {
+/**
+ * The roof's input with everything but the photos' part pitches: what tells which part is over which
+ * side. [ridgeAlong] is the ridge's direction, as resolved unless given (`ridgeFromPhotos` tries each).
+ */
+function roofInputBase(exterior: Exterior, footprint: Footprint, pitch: number, ridgeAlong: string | null = resolvedRidgeAlong(exterior)): RoofInput {
   const upper = upperFootprint(exterior, footprint);
   return {
-    ...(upper?.closes ? { upper: { corners: upper.corners, sideIds: upper.sideIds }, lowerRoofKinds: exterior.roof.lowerRoofs ?? {} } : {}),
+    ...(upper?.closes ? { upper: { corners: upper.corners, sideIds: upper.sideIds }, lowerRoofKinds: resolvedLowerRoofKinds(exterior) } : {}),
     corners: footprint.corners,
     sideIds: footprint.sideIds,
     pitch,
     eaveOverhangFeet: resolvedOverhang(exterior, "eave").feet,
     rakeOverhangFeet: resolvedOverhang(exterior, "rake").feet,
-    ridgeAlong: exterior.roof.ridgeAlong,
+    ridgeAlong,
     ends: resolvedEnds(exterior),
     sectionPitches: exterior.roof.sectionPitches ?? {},
     ...(exterior.roof.sectionBreaks ? { sectionBreaks: exterior.roof.sectionBreaks } : {}),
@@ -1670,7 +1856,9 @@ export interface RoofingQuantities {
    * The high-roof charge: on the roof over a drawn upper floor by itself (automatic), else on the
    * whole roof when two storeys or more was answered yes; null when it isn't charged.
    */
-  high: { squares: number; automatic: boolean } | null;
+  high: { squares: number; automatic: boolean; fromPhotos?: boolean } | null;
+  /** Two storeys or more as the photos answer it, with no upper floor drawn and nothing answered (2026-10-15); null when they don't say. */
+  highFromPhotos: { twoStoreys: boolean; sides: string[] } | null;
   /** Every eave and rake chosen for the eavestrough, soffit and fascia. */
   allEdges: boolean;
   gutter: {
@@ -1769,10 +1957,11 @@ export function roofingQuantities(exterior: Exterior, roof: RoofPlan | null, pit
         iceWater: t.eave + t.valley,
       }
     : null;
-  // The pieces on top of the drawing, each worked out on its own (lib/roofPieces.ts), and what they come to together.
-  const pieceList = (R.pieces ?? []).filter(pieceCounts).map((piece) => ({ piece, figures: pieceFigures(piece, roofPitch) }));
+  // The pieces on top of the drawing, each worked out on its own (lib/roofPieces.ts), and what they come to together: the estimator's, then the photos' (2026-10-15).
+  const everyPiece = allRoofPieces(exterior, roof, roofPitch);
+  const pieceList = everyPiece.filter(pieceCounts).map((piece) => ({ piece, figures: pieceFigures(piece, roofPitch) }));
   // Proposed off the photos and not yet ticked: offered beside the plan, counted nowhere.
-  const offered = (R.pieces ?? []).filter((piece) => !pieceCounts(piece)).map((piece) => ({ piece, figures: pieceFigures(piece, roofPitch) }));
+  const offered = everyPiece.filter((piece) => !pieceCounts(piece)).map((piece) => ({ piece, figures: pieceFigures(piece, roofPitch) }));
   const sumOf = (list: { figures: PieceFigures }[]) => {
     const sum: Record<RoofTotalKey, number> = { squareFeet: 0, ridge: 0, hip: 0, valley: 0, eave: 0, rake: 0, step: 0, headwall: 0, dripEdge: 0, starter: 0, iceWater: 0 };
     for (const { figures } of list) {
@@ -1870,7 +2059,10 @@ export function roofingQuantities(exterior: Exterior, roof: RoofPlan | null, pit
   // A drawn upper floor answers it: the roof over it is the high one.
   const upperKeys = new Set((roof?.sections ?? []).filter((x) => x.floor === "upper").map((x) => x.key));
   const twoStorey = upperKeys.size > 0;
-  if (R.high == null && !twoStorey) roofingQs.push("two storeys or higher, yes or no");
+  // Not drawn and not answered: the photos answer it (2026-10-15) - an upper floor over any side, or none over two sides or more.
+  const storeysRead = R.high == null && !twoStorey ? photoStoreys(exterior) : null;
+  const highFromPhotos = storeysRead?.twoStoreys ?? null;
+  if (R.high == null && !twoStorey && highFromPhotos === null) roofingQs.push("two storeys or higher, yes or no");
   if (R.handload == null) roofingQs.push("handload materials, yes or no");
   if (R.disposalHandload == null) roofingQs.push("handload to disposal, yes or no");
   if (R.chimney == null) roofingQs.push("chimney flashing: none, small, medium or large");
@@ -1918,7 +2110,11 @@ export function roofingQuantities(exterior: Exterior, roof: RoofPlan | null, pit
     .filter((b) => b.areaSquareFeet > 1e-9 || pitchArea.size === 1)
     .sort((a, b) => b.pitch - a.pitch);
   const upperArea = noSlopes ? 0 : chosenSlopes.filter((x) => facets.find((f) => f.key === x.key && (f.section === null ? f.layer === 0 : upperKeys.has(f.section)))).reduce((a, x) => a + x.areaSquareFeet, 0);
-  const high = twoStorey ? { squares: (upperArea * share) / 100, automatic: true } : R.high === true ? { squares: value.squareFeet / 100, automatic: false } : null;
+  const high = twoStorey
+    ? { squares: (upperArea * share) / 100, automatic: true }
+    : R.high === true || highFromPhotos === true
+      ? { squares: value.squareFeet / 100, automatic: false, ...(highFromPhotos === true ? { fromPhotos: true } : {}) }
+      : null;
   const steepBands: { band: string; squares: number }[] = [];
   for (const b of byPitch) {
     const band = steepBand(b.pitch);
@@ -1956,6 +2152,7 @@ export function roofingQuantities(exterior: Exterior, roof: RoofPlan | null, pit
     pieces: { list: pieceList, offered, added, addedFromPhotos, sidingSquareFeet: pieceList.reduce((s, x) => s + x.figures.sidingSquareFeet, 0) },
     steepBands,
     high,
+    highFromPhotos: storeysRead && highFromPhotos !== null ? { twoStoreys: highFromPhotos, sides: [...new Set(storeysRead.reads.map((x) => x.name))] } : null,
     allEdges,
     gutter: {
       feet: gutterFeet,
@@ -2098,7 +2295,7 @@ export function exteriorQuantities(exterior: Exterior): ExteriorQuantities {
   }
 
   // Typed totals and roof pieces price a roof with no outline drawn, or one the drawing can't make.
-  const roofing: RoofingQuantities | null = roof || hasTypedTotals(exterior.roof) || (exterior.roof.pieces ?? []).length > 0 ? roofingQuantities(exterior, roof, pitch) : null;
+  const roofing: RoofingQuantities | null = roof || hasTypedTotals(exterior.roof) || hasRoofPieces(exterior) ? roofingQuantities(exterior, roof, pitch) : null;
 
   return {
     footprint,
@@ -2303,7 +2500,7 @@ export function exteriorScopeLines(exterior: Exterior | undefined): ExteriorScop
     // Steep is charged on the squares at a steep pitch: all of them on a roof of one pitch.
     for (const band of r.steepBands) out.roofing.push(`Steep roof charge – ${band.band} – ${(r.byPitch.length > 1 || r.curved) && sqKnown ? `${band.squares.toFixed(2)} SQ` : sq}${sqFrom()}`);
     if (r.high?.automatic) out.roofing.push(`High roof charge – two storeys or more – ${sqKnown ? `${r.high.squares.toFixed(2)} SQ` : sq} (the roof over the upper floor)${sqFrom()}`);
-    else if (r.high) out.roofing.push(`High roof charge – two storeys or more – ${sq}${sqFrom()}`);
+    else if (r.high) out.roofing.push(`High roof charge – two storeys or more${r.high.fromPhotos ? " (from photos)" : ""} – ${sq}${sqFrom()}`);
     if (r.ridgeFeet + r.hipFeet > 0) out.roofing.push(`Hip & ridge cap – ${num(r.ridgeFeet + r.hipFeet)} LF${paren(ofPieces(P.ridge + P.hip, r.ridgeFeet + r.hipFeet, PP.ridge + PP.hip))}${from(sourceOfParts([r.ridgeFeet, r.from.ridge], [r.hipFeet, r.from.hip]))}`);
     if (metal) out.roofing.push(`Closure strips – ${num(r.closureFeet)} LF${paren("eaves + 2 × ridge", ofPieces(P.eave + 2 * P.ridge, r.closureFeet, PP.eave + 2 * PP.ridge))}${from(sourceOfParts([r.eaveFeet, r.from.eave], [r.ridgeFeet, r.from.ridge]))}`);
     else if (r.starterFeet > 0) out.roofing.push(`Starter – ${num(r.starterFeet)} LF${paren("eaves", ofPieces(P.starter, r.starterFeet, PP.starter))}${from(r.from.starter)}`);

@@ -1,8 +1,9 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { type ExteriorRoof, formatPitch, pieceWords } from "@/lib/exterior";
-import { newRoofPiece } from "@/lib/exteriorPlan";
+import { type Exterior, type ExteriorRoof, formatPitch, type PhotoRoofPiece, pieceWords } from "@/lib/exterior";
+import { newRoofPiece, withPhotoPiece, withPhotoPieceMadeOwn } from "@/lib/exteriorPlan";
+import { formatFeetInches } from "@/lib/sketch";
 import { editedPiece, pieceCounts, type PieceFigures, pieceFigures, pieceFromPhotos, type PieceLengthKey, ROOF_PIECE_KINDS, ROOF_PIECE_LABEL, type RoofPiece, type RoofPieceKind } from "@/lib/roofPieces";
 import { formatQuantity } from "@/lib/sketchQuantities";
 import { Choice, FeetField, NumberField } from "./exteriorFields";
@@ -14,9 +15,14 @@ import { Choice, FeetField, NumberField } from "./exteriorFields";
  * the pieces alike, as a roof report already counts its dormers. A piece put on with nothing typed
  * counts nothing and is asked for. One proposed off the photos counts once ticked, and a number of
  * it changed makes it the estimator's. The maths is lib/roofPieces.ts.
+ *
+ * The dormers and turrets read off the side photos (2026-10-15, lib/roofPhotoShapes.ts) are listed
+ * after the estimator's own: kept on their sides, so their tick goes back onto the side's read, and a
+ * number changed puts the estimator's own piece in their place.
  */
 
 type Update = (f: (roof: ExteriorRoof) => ExteriorRoof) => void;
+type Change = (f: (exterior: Exterior) => Exterior) => void;
 
 const LENGTH_WORDS: Record<PieceLengthKey, string> = { ridge: "Ridge", hip: "Hips", valley: "Valleys", eave: "Eaves", rake: "Rakes", step: "Step flashing", headwall: "Headwall flashing" };
 
@@ -40,7 +46,24 @@ function figuresWords(piece: RoofPiece, f: PieceFigures): string {
   return [area, ...lengths, ...siding].filter(Boolean).join(" · ");
 }
 
-function PieceCard({ piece, index, roofPitch, readOnly, onSet, onRemove }: { piece: RoofPiece; index: number; roofPitch: number; readOnly: boolean; onSet: (f: (p: RoofPiece) => RoofPiece) => void; onRemove: () => void }) {
+function PieceCard({
+  piece,
+  index,
+  roofPitch,
+  readOnly,
+  from,
+  onSet,
+  onRemove,
+}: {
+  piece: RoofPiece;
+  index: number;
+  roofPitch: number;
+  readOnly: boolean;
+  /** Read off a side's photo: which side, and what to know of the read. */
+  from?: PhotoRoofPiece;
+  onSet: (f: (p: RoofPiece) => RoofPiece) => void;
+  onRemove: () => void;
+}) {
   const id = (what: string) => `roof-piece-${piece.id}-${what}`;
   const edit = (change: Partial<RoofPiece>) => onSet((p) => editedPiece(p, change));
   const name = `${pieceWords(piece)} ${index + 1}`;
@@ -183,6 +206,13 @@ function PieceCard({ piece, index, roofPitch, readOnly, onSet, onRemove }: { pie
           </button>
         )}
       </div>
+      {from && (
+        <p className="field-note">
+          From the photo of {from.sideName}
+          {from.setBackFeet != null ? `, its face ${formatFeetInches(from.setBackFeet)} back from the wall` : ""}: worked out on the roof as built, so a pitch typed or ticked later carries into it.
+          {from.checks.length > 0 ? ` ${from.checks.join(" ")}` : ""}
+        </p>
+      )}
       <div className="exterior-grid">{fields}</div>
       <p className={f.missing.length > 0 || !pieceCounts(piece) ? "exterior-assumed" : "field-note"}>
         {f.missing.length > 0
@@ -195,9 +225,29 @@ function PieceCard({ piece, index, roofPitch, readOnly, onSet, onRemove }: { pie
   );
 }
 
-export function RoofPiecesPanel({ roof, roofPitch, readOnly, onUpdate }: { roof: ExteriorRoof; roofPitch: number; readOnly: boolean; onUpdate: Update }) {
+export function RoofPiecesPanel({
+  roof,
+  roofPitch,
+  readOnly,
+  onUpdate,
+  fromPhotos = [],
+  onChange,
+}: {
+  roof: ExteriorRoof;
+  roofPitch: number;
+  readOnly: boolean;
+  onUpdate: Update;
+  /** The dormers and turrets read off the side photos, on the roof as built (lib/exterior.ts `photoRoofPieces`). */
+  fromPhotos?: PhotoRoofPiece[];
+  onChange?: Change;
+}) {
   const pieces = roof.pieces ?? [];
   const set = (id: string, f: (p: RoofPiece) => RoofPiece) => onUpdate((x) => ({ ...x, pieces: (x.pieces ?? []).map((p) => (p.id === id ? f(p) : p)) }));
+  // A photo's piece: its tick goes back onto its side; a number changed makes it the estimator's own, standing in its place.
+  const setPhoto = (x: PhotoRoofPiece, f: (p: RoofPiece) => RoofPiece) => {
+    const next = f(x.piece);
+    onChange?.((e) => (pieceFromPhotos(next) ? withPhotoPiece(e, x.sideId, x.photo.id, (pp) => ({ ...pp, taken: next.taken === true })) : withPhotoPieceMadeOwn(e, x.sideId, x.photo.id, next)));
+  };
   return (
     <div className="exterior-rows roof-pieces">
       <h4 className="exterior-subhead">Roof pieces</h4>
@@ -207,6 +257,18 @@ export function RoofPiecesPanel({ roof, roofPitch, readOnly, onUpdate }: { roof:
       </p>
       {pieces.map((p, i) => (
         <PieceCard key={p.id} piece={p} index={i} roofPitch={roofPitch} readOnly={readOnly} onSet={(f) => set(p.id, f)} onRemove={() => onUpdate((x) => ({ ...x, pieces: (x.pieces ?? []).filter((y) => y.id !== p.id) }))} />
+      ))}
+      {fromPhotos.map((x, i) => (
+        <PieceCard
+          key={`${x.sideId}-${x.photo.id}`}
+          piece={x.piece}
+          index={pieces.length + i}
+          roofPitch={roofPitch}
+          readOnly={readOnly || !onChange}
+          from={x}
+          onSet={(f) => setPhoto(x, f)}
+          onRemove={() => onChange?.((e) => withPhotoPiece(e, x.sideId, x.photo.id, () => null))}
+        />
       ))}
       {!readOnly && (
         <select

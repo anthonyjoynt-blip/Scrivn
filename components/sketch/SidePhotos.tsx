@@ -4,9 +4,10 @@ import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { formatFeetInches } from "@/lib/sketch";
 import { CLADDING_KINDS, CLADDING_LABEL, type ExteriorOpeningKind, type ExteriorShape, type ExteriorSide, formatOpeningSize, formatPitch, OPENING_LABEL, type RoofRise, type SidePhoto } from "@/lib/exterior";
 import { fillOutside, type PhotoPixels, squareFrame, type SquareFrame, squareUp } from "@/lib/exteriorPhoto";
-import { applyTrace, type RoofPicks, roofPicksAtFirst, type SideTrace, snapTrace, type TraceProposals, type TraceRequest, type TraceResponse } from "@/lib/exteriorTrace";
+import { applyTrace, type RoofPicks, roofPicksAtFirst, type ShapePicks, shapePicksAtFirst, type SideTrace, snapTrace, type TraceProposals, type TraceRequest, type TraceResponse } from "@/lib/exteriorTrace";
 import { type DoorCandidate, doorCandidates, doorLabel, withSizeDoors } from "@/lib/exteriorScale";
 import { camerasAt, grayOf, type ProposedRoof } from "@/lib/roofPhotoRead";
+import { LOWER_ROOF_WORDS, PHOTO_PIECE_LABEL, type PhotoPiece, type ProposedPiece, type ProposedStoreys, type ResolvedPhotoPiece, UPPER_SHOWN_WORDS } from "@/lib/roofPhotoShapes";
 import { formatQuantity } from "@/lib/sketchQuantities";
 import { ElevationDrawing, type ElevationReach, type ElevationView } from "./exteriorDrawings";
 import { setTraceAside, useSideTrace, waitForSignalToTrace } from "@/lib/aiJobs";
@@ -224,6 +225,8 @@ type Picks = {
   roof: RoofPicks;
   /** Doors kept as size checks (2026-10-15, lib/exteriorScale.ts), each with the size it is taken for: an index into its matches. */
   doors: Record<string, { on: boolean; size: number }>;
+  /** The roof's shapes (2026-10-15): dormers and turrets, and what stands over the side. */
+  roofShapes: ShapePicks;
 };
 
 function allPicked(p: TraceProposals, doors: DoorCandidate[]): Picks {
@@ -233,6 +236,7 @@ function allPicked(p: TraceProposals, doors: DoorCandidate[]): Picks {
     wallTop: p.wallTop !== null,
     roof: roofPicksAtFirst(p.roof),
     doors: Object.fromEntries(doors.map((d) => [d.key, { on: true, size: 0 }])),
+    roofShapes: shapePicksAtFirst(p),
   };
 }
 
@@ -274,6 +278,20 @@ function traceOverlay(p: TraceProposals, picks: Picks): ReactNode {
       )}
       {p.wallTop && <polyline points={pts(p.wallTop.line)} fill="none" stroke="#155e75" strokeWidth={picks.wallTop ? 2.5 : 1} strokeDasharray="8 4" {...stroke} />}
       {p.roof && roofOverlay(p.roof)}
+      {/* Dormers and turrets as the photo shows them (2026-10-15): not to scale, as they stand back from the wall. */}
+      {(p.pieces ?? []).map((q) =>
+        q.outline.length > 1 ? (
+          <polyline
+            key={q.key}
+            points={pts(q.outline)}
+            fill="none"
+            stroke={ROOF_EDGE}
+            strokeWidth={picks.roofShapes.pieces[q.key] ? 2.2 : 1}
+            strokeDasharray={picks.roofShapes.pieces[q.key] ? undefined : "4 4"}
+            {...stroke}
+          />
+        ) : null,
+      )}
     </g>
   );
 }
@@ -324,6 +342,7 @@ export function SideElevation({
   editor,
   roofAssumed = false,
   scaleFactor = null,
+  pieceOnRoof,
 }: {
   side: ExteriorSide;
   rise: RoofRise | null;
@@ -342,6 +361,8 @@ export function SideElevation({
   roofAssumed?: boolean;
   /** The house's sizes over the phone's own measure (lib/exteriorScale.ts); null for an exterior not scanned, which has no size checks. */
   scaleFactor?: number | null;
+  /** A dormer or turret read off this side's photo, on the roof as built (2026-10-15): its numbers, for the trace's rows. */
+  pieceOnRoof?: (pp: PhotoPiece) => ResolvedPhotoPiece;
 }) {
   const photos = side.photos ?? [];
   const photo = useSquaredPhoto(side);
@@ -436,6 +457,7 @@ export function SideElevation({
       openings: live.proposals.openings.filter((o) => picks.openings[o.key]?.on).map((o) => ({ key: o.key, kind: picks.openings[o.key]?.kind ?? o.kind })),
       wallTop: picks.wallTop,
       roof: picks.roof,
+      roofShapes: picks.roofShapes,
     };
     // Each door ticked, at the size picked for it: a check on the house's sizes, kept on the side.
     const kept = doors.flatMap((d) => {
@@ -512,14 +534,24 @@ export function SideElevation({
           </button>
         </div>
       )}
-      {live && picks && !readOnly && <TracePanel trace={live} picks={picks} doors={doors} onPicks={setPicks} onUse={use} onDiscard={() => onTrace(undefined)} />}
-      {!live && <RoofReadLine side={side} readOnly={readOnly} onUpdate={onUpdate} />}
+      {live && picks && !readOnly && <TracePanel trace={live} picks={picks} doors={doors} pieceOnRoof={pieceOnRoof} onPicks={setPicks} onUse={use} onDiscard={() => onTrace(undefined)} />}
+      {!live && <RoofReadLine side={side} readOnly={readOnly} pieceOnRoof={pieceOnRoof} onUpdate={onUpdate} />}
     </>
   );
 }
 
 /** The roof as ticked off this side's photo (2026-10-15), with a way to set it aside later. Nothing when none is ticked. */
-function RoofReadLine({ side, readOnly, onUpdate }: { side: ExteriorSide; readOnly: boolean; onUpdate: (f: (side: ExteriorSide) => ExteriorSide) => void }) {
+function RoofReadLine({
+  side,
+  readOnly,
+  pieceOnRoof,
+  onUpdate,
+}: {
+  side: ExteriorSide;
+  readOnly: boolean;
+  pieceOnRoof?: (pp: PhotoPiece) => ResolvedPhotoPiece;
+  onUpdate: (f: (side: ExteriorSide) => ExteriorSide) => void;
+}) {
   const r = side.roofRead;
   if (!r) return null;
   const parts = [
@@ -527,6 +559,11 @@ function RoofReadLine({ side, readOnly, onUpdate }: { side: ExteriorSide; readOn
     typeof r.rakeOverhangFeet === "number" ? `rake overhang ${formatFeetInches(r.rakeOverhangFeet)}` : null,
     typeof r.eaveOverhangFeet === "number" ? `eave overhang ${formatFeetInches(r.eaveOverhangFeet)}` : null,
     r.over ? OVER_LABEL[r.over] : null,
+    // The roof's shapes (2026-10-15): each piece ticked and not made the estimator's own, and what stands over the side.
+    ...(r.pieces ?? []).filter((pp) => pp.taken && !pp.typedAs).map((pp) => pieceWords(pp, pieceOnRoof)),
+    r.upper ? UPPER_SHOWN_WORDS[r.upper] : null,
+    typeof r.floorLineFeet === "number" ? `its floor line ${formatFeetInches(r.floorLineFeet)} up` : null,
+    r.lowerRoof ? `the roof up to it ${LOWER_ROOF_WORDS[r.lowerRoof]}` : null,
   ].filter((p): p is string => p !== null);
   if (parts.length === 0) return null;
   // Set aside: each read kept as set aside (null), so the gable gives no pitch off its peak either - as unticking it does.
@@ -539,6 +576,11 @@ function RoofReadLine({ side, readOnly, onUpdate }: { side: ExteriorSide; readOn
       if (next.rakeOverhangFeet !== undefined) next.rakeOverhangFeet = null;
       if (next.eaveOverhangFeet !== undefined) next.eaveOverhangFeet = null;
       if (next.over !== undefined) next.over = null;
+      // Its dormers and turrets no longer counted - offered on the roof pane, one tick away - and what stands over the side set aside.
+      if (next.pieces) next.pieces = next.pieces.map((pp) => ({ ...pp, taken: false }));
+      if (next.upper !== undefined) next.upper = null;
+      if (next.floorLineFeet !== undefined) next.floorLineFeet = null;
+      if (next.lowerRoof !== undefined) next.lowerRoof = null;
       return { ...s, roofRead: next, pitchMeasured: read.pitch !== undefined ? null : s.pitchMeasured };
     });
   return (
@@ -554,6 +596,20 @@ function RoofReadLine({ side, readOnly, onUpdate }: { side: ExteriorSide; readOn
 }
 
 const OVER_LABEL = { gable: "a gable end", hip: "a hip end", eave: "an eave along it" } as const;
+
+/** "a gable dormer 6'2" wide, projecting 4'6", 8/12": a piece as the roof has it, else as the photo shows it. */
+function pieceWords(pp: PhotoPiece | ProposedPiece["piece"], onRoof?: (pp: PhotoPiece) => ResolvedPhotoPiece): string {
+  const r = onRoof ? onRoof({ id: "", taken: true, ...pp }).piece : null;
+  const dims: string[] = [];
+  if (pp.kind === "roundTurret") dims.push(`${formatFeetInches(r?.diameterFeet ?? pp.seen.widthFeet)} across`);
+  else if (pp.kind === "polygonTurret") dims.push(`${pp.sideCount ?? "?"} sides, ${r?.sideFeet != null ? `${formatFeetInches(r.sideFeet)} each` : `${formatFeetInches(pp.seen.widthFeet)} across`}`);
+  else {
+    dims.push(`${formatFeetInches(r?.widthFeet ?? pp.seen.widthFeet)} wide`);
+    if (r?.projectionFeet != null) dims.push(`projecting ${formatFeetInches(r.projectionFeet)}`);
+  }
+  if (pp.pitch != null) dims.push(formatPitch(pp.pitch));
+  return `a ${PHOTO_PIECE_LABEL[pp.kind].toLowerCase()}, ${dims.join(", ")}`;
+}
 
 /** The roof's reads off the photo, each with its own tick (2026-10-15, lib/roofPhotoRead.ts). */
 function RoofReads({ roof, picks, onPicks }: { roof: ProposedRoof; picks: RoofPicks; onPicks: (p: RoofPicks) => void }) {
@@ -603,6 +659,75 @@ function RoofReads({ roof, picks, onPicks }: { roof: ProposedRoof; picks: RoofPi
 }
 
 /**
+ * The roof's shapes off the photo (2026-10-15, lib/roofPhotoShapes.ts): each dormer or turret, and what
+ * stands over the side, with its own tick. A piece ticked is a roof piece "from photos"; one left
+ * unticked is offered on the roof pane. An upper floor is never drawn from a photo: the read is a tick
+ * against the one drawn on the plan.
+ */
+function RoofShapes({
+  pieces,
+  storeys,
+  picks,
+  pieceOnRoof,
+  onPicks,
+}: {
+  pieces: ProposedPiece[];
+  storeys: ProposedStoreys | null | undefined;
+  picks: ShapePicks;
+  pieceOnRoof?: (pp: PhotoPiece) => ResolvedPhotoPiece;
+  onPicks: (p: ShapePicks) => void;
+}) {
+  const s = storeys ?? null;
+  if (pieces.length === 0 && !s?.upper) return null;
+  const row = (key: string, on: boolean, label: string, note: string, flip: () => void) => (
+    <div className="exterior-row" key={key}>
+      <input type="checkbox" aria-label={`Use the ${label.toLowerCase()} read off the photo`} checked={on} onChange={flip} />
+      <span className="exterior-row-label">{label}</span>
+      <span className="exterior-row-note">{note}</span>
+    </div>
+  );
+  // Each piece on the roof as built: its numbers, how far back it stands, and what to know of it.
+  const resolved = pieces.map((q) => (pieceOnRoof ? pieceOnRoof({ id: q.key, taken: true, ...q.piece }) : null));
+  const checks = [...pieces.flatMap((q, i) => [...q.checks, ...(resolved[i]?.checks ?? [])]), ...(s?.checks ?? [])];
+  const notes = [...pieces.map((q) => q.notes), s?.notes ?? ""].filter(Boolean);
+  return (
+    <>
+      <h4 className="exterior-subhead">The roof&rsquo;s shapes, off the photo</h4>
+      <div className="exterior-rows">
+        {pieces.map((q, i) => {
+          const back = resolved[i]?.setBackFeet;
+          const words = pieceWords(q.piece, pieceOnRoof).replace(/^an? [^,]+, /, "");
+          return row(
+            q.key,
+            picks.pieces[q.key] === true,
+            PHOTO_PIECE_LABEL[q.piece.kind],
+            `${words}${back != null ? ` – its face ${formatFeetInches(back)} back from the wall` : ""}`,
+            () => onPicks({ ...picks, pieces: { ...picks.pieces, [q.key]: picks.pieces[q.key] !== true } }),
+          );
+        })}
+        {s?.upper && row("upper", picks.upper === true, "Upper floor", UPPER_SHOWN_WORDS[s.upper], () => onPicks({ ...picks, upper: picks.upper !== true }))}
+        {s?.floorLineFeet != null &&
+          row("floor", picks.floorLine === true, "Floor line", `${formatFeetInches(s.floorLineFeet)} up – where a tall side splits into its two storeys`, () => onPicks({ ...picks, floorLine: picks.floorLine !== true }))}
+        {s?.lowerRoof && row("lower", picks.lowerRoof === true, "Roof up to it", LOWER_ROOF_WORDS[s.lowerRoof], () => onPicks({ ...picks, lowerRoof: picks.lowerRoof !== true }))}
+      </div>
+      {checks.map((c) => (
+        <p key={c} className="field-note">
+          {c}
+        </p>
+      ))}
+      {notes.map((n) => (
+        <p key={n} className="field-note">
+          On the roof&rsquo;s shapes, the trace says: {n}
+        </p>
+      ))}
+      {s?.upper && s.upper !== "none" && (
+        <p className="field-note">An upper floor is never drawn from a photo: ticked, the plan asks for it, and the high-roof charge is taken from it until it is drawn.</p>
+      )}
+    </>
+  );
+}
+
+/**
  * The doors on the photo that can check the house's sizes (2026-10-15, lib/exteriorScale.ts): each
  * ticked one is kept on the side at the size picked for it, and Plan & roof compares it with the
  * phone's own measure and any tape.
@@ -646,12 +771,37 @@ function SizeChecks({ doors, scaleAt, picks, onPicks }: { doors: DoorCandidate[]
   );
 }
 
-function TracePanel({ trace, picks, doors, onPicks, onUse, onDiscard }: { trace: SideTrace; picks: Picks; doors: DoorCandidate[]; onPicks: (p: Picks) => void; onUse: () => void; onDiscard: () => void }) {
+function TracePanel({
+  trace,
+  picks,
+  doors,
+  pieceOnRoof,
+  onPicks,
+  onUse,
+  onDiscard,
+}: {
+  trace: SideTrace;
+  picks: Picks;
+  doors: DoorCandidate[];
+  pieceOnRoof?: (pp: PhotoPiece) => ResolvedPhotoPiece;
+  onPicks: (p: Picks) => void;
+  onUse: () => void;
+  onDiscard: () => void;
+}) {
   const p = trace.proposals;
   const sf = (v: number) => `${formatQuantity(v)} SF`;
   const top = p.wallTop;
+  const rs = picks.roofShapes;
   const anything =
-    Object.values(picks.shapes).some((s) => s.on) || Object.values(picks.openings).some((o) => o.on) || picks.wallTop || Object.keys(picks.roof).length > 0 || Object.values(picks.doors).some((d) => d.on);
+    Object.values(picks.shapes).some((s) => s.on) ||
+    Object.values(picks.openings).some((o) => o.on) ||
+    picks.wallTop ||
+    Object.keys(picks.roof).length > 0 ||
+    Object.values(picks.doors).some((d) => d.on) ||
+    Object.keys(rs.pieces).length > 0 ||
+    rs.upper !== undefined ||
+    rs.floorLine !== undefined ||
+    rs.lowerRoof !== undefined;
   const topLine = top
     ? [
         top.eaveLeftFeet !== null ? `${formatFeetInches(top.eaveLeftFeet)} at the left end` : null,
@@ -723,10 +873,12 @@ function TracePanel({ trace, picks, doors, onPicks, onUse, onDiscard }: { trace:
       {p.offWall.length > 0 && <p className="field-note">In front of the wall, not traced (orange): {p.offWall.map((b) => b.what).join("; ")}.</p>}
       {p.notes && <p className="field-note">The trace&apos;s own notes: {p.notes}</p>}
       {p.roof && <RoofReads roof={p.roof} picks={picks.roof} onPicks={(roof) => onPicks({ ...picks, roof })} />}
+      <RoofShapes pieces={p.pieces ?? []} storeys={p.storeys} picks={rs} pieceOnRoof={pieceOnRoof} onPicks={(roofShapes) => onPicks({ ...picks, roofShapes })} />
       {doors.length > 0 && <SizeChecks doors={doors} scaleAt={trace.scaleAt ?? 1} picks={picks.doors} onPicks={(d) => onPicks({ ...picks, doors: d })} />}
       <p className="field-note">
         Ticked shapes replace the side&apos;s shapes, and ticked openings its openings; the wall top sets the eaves, and the peak when it has one. Ticked roof reads fill the roof as &ldquo;from
-        photos&rdquo;: anything typed on the roof wins over them, and they win over what is assumed.
+        photos&rdquo;: anything typed on the roof wins over them, and they win over what is assumed. A dormer or turret ticked is a roof piece from photos; one left unticked is offered on
+        the roof pane.
       </p>
       <div className="exterior-photo-controls">
         <button type="button" className="btn-primary" disabled={!anything} onClick={onUse}>

@@ -20,10 +20,15 @@ const FEET_PER_METRE = 1 / 0.3048;
  * px on the long edge before it scales an image down, so its answers stay in this image's pixels.
  */
 export const MAX_SQUARED_PX = 2400;
-/** Beyond the side's own extent, how far the squared image reaches: a strip of stucco over a deck, the soffit above the wall. */
+/**
+ * Beyond the side's own extent, how far the squared image reaches: a strip of stucco over a deck, the
+ * soffit above the wall - and, above it, the roof over the side (4 m since 2026-10-15, was 1.5): a
+ * dormer's face on the slope, or an upper floor's wall set back behind a lower roof, for the trace to
+ * read (lib/roofPhotoShapes.ts). Never past what the photo holds.
+ */
 const MARGIN_ALONG_M = 2.5;
 const MARGIN_BELOW_M = 0.6;
-const MARGIN_ABOVE_M = 1.5;
+const MARGIN_ABOVE_M = 4;
 
 /** A 3x3, row by row. */
 export type Mat3 = readonly number[];

@@ -13,8 +13,9 @@
  * the photos can fill: typed by the estimator (`source` absent or "typed"), or proposed off the
  * photos ("photos") for the estimator to tick (`taken`). A proposal counts nothing until ticked -
  * never applied by itself, as a roof report's totals are not - and once ticked its lines say "(from
- * photos)". A number of it changed by hand makes it the estimator's (`editedPiece`). Nothing reads
- * pieces off photos yet: this is the slot.
+ * photos)". A number of it changed by hand makes it the estimator's (`editedPiece`). The side photos'
+ * dormers and turrets fill it since 2026-10-15 (lib/roofPhotoShapes.ts, lib/exterior.ts `photoRoofPieces`):
+ * kept on their sides and worked out on the roof as built, they come here as pieces "from photos".
  *
  * ── The pieces ─────────────────────────────────────────────────────────────────────────────────
  * Lengths in feet, pitches rise in 12; m is the slope a dormer sits on (the roof's unless said).

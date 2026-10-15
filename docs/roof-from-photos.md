@@ -1,6 +1,6 @@
 # The roof from Scan's side photos: what is read, how to test it, first results
 
-Built 2026-10-15 (`lib/roofPhotoRead.ts`, the trace in `lib/exteriorTrace.ts`, the editor in `components/sketch/SidePhotos.tsx`). The owner's call: the AI photo route is how roofs come in.
+Built 2026-10-15 (`lib/roofPhotoRead.ts`, the trace in `lib/exteriorTrace.ts`, the editor in `components/sketch/SidePhotos.tsx`). The owner's call: the AI photo route is how roofs come in. Since the same day the call also proposes the roof's shapes - dormers, turrets, an upper floor - and the ridge's direction: see the last section.
 
 ## What the trace reads
 
@@ -192,4 +192,67 @@ The test claim's roof ("Exterior test – roof from photos") was rebuilt from Sc
 Built as data and maths only; nothing reads them off a photo yet. Each follows the order above: typed, then photos, then assumed.
 
 - **A gambrel's or mansard's break.** `SideRoofRead.upperPitch` and `breakFeet` on a gable's side (its `pitch` is then the one below the break). `photoSectionBreaks` puts them on the part whose gable it is, under a break typed in Pitch mode (`ExteriorRoof.sectionBreaks`). A break is never assumed.
-- **Roof pieces** (dormers, turrets; lib/roofPieces.ts). A piece with `source: "photos"` is a proposal: it counts only once the estimator ticks it (`taken`), and its lines then say "(from photos)". Changing one of its numbers makes it the estimator's (`editedPiece`).
+- **Roof pieces** (dormers, turrets; lib/roofPieces.ts): filled since the next section. A piece with `source: "photos"` is a proposal: it counts only once the estimator ticks it (`taken`), and its lines then say "(from photos)". Changing one of its numbers makes it the estimator's (`editedPiece`).
+
+## The roof's shapes off the photos (10-15)
+
+`lib/roofPhotoShapes.ts`. The same one trace call per side also proposes the roof's shapes, each with its own tick on the face-on side, kept on the side (`SideRoofRead`), shown "(from photos)", under anything typed, and undone by **Set the roof read aside**.
+
+### What is read
+
+- **Dormers** on the slope over an eave side, their fronts square to the photo: gable or shed.
+  - The front stands back on the roof, so the photo shows it smaller than it is. Where it meets the roof below it (its apron) is on the main slope, which rises from the eave's fascia (the eave overhang out, 8" over the soffit) at the slope's pitch. So the phone's position says how far back the face stands, and how much bigger it is than it shows. Worked out in the head of the file.
+  - **Pitch** of a gable dormer: off its face's two slopes, true at any distance, as a main gable's. Flagged when they differ by more than 1/2 in 12, or fall between whole pitches.
+  - **Width**, across the face at its walls.
+  - **Projection**: a gable dormer's eaves stand the slope's pitch × its projection over the slope at its face (lib/roofPieces.ts), so the projection is the face's eaves over its apron, over that pitch.
+  - A **shed dormer**'s own slope runs away from the photo: its width only; its projection and pitch are asked for.
+  - A **hipped** or other dormer is said, for the estimator to put in by hand.
+  - These are worked out on the roof as built (`resolvePhotoPiece`, `photoRoofPieces`), not when the photo is read, so a pitch typed or ticked later carries into the dormer. On the roof's **assumed** pitch it is said: a dormer's size rests on the slope's pitch (the painted 10/12 dormer reads 7'11" wide at 10/12 and 8'7" at 8/12).
+- **Turrets**, round or many-sided: the pitch off the roof's outline, the width read as if the turret stood on the wall's line (said: one standing out shows a little bigger), a many-sided one's side from its width across the flats.
+- **What stands over the side**: an upper floor flush (the wall carries on up past a floor line), set back behind a roof, or none. The floor line on a flush wall. Set back: whether the roof up to it is a lean-to or a ridge running out, checked against the roof over the side (a lean-to's eave runs along it; a ridge out ends in a gable or hip over it).
+- **The ridge's direction** (piece 4a of the photo-mode plan) needs no more of the call: it is worked out from the gable, hip and eave reads already there.
+
+### How each fills the roof
+
+- **Roof pieces**: each dormer or turret ticked is a roof piece "from photos", added to the drawing's totals as the estimator's own are; one left unticked is offered on the roof pane, counting nothing. A number of it changed on the roof pane makes it the estimator's own piece, standing in its place; take that one off and the photo's comes back. The same dormer read again keeps the estimator's in its place.
+- **Two storeys**: the upper floor is never drawn from a photo.
+  - With none drawn, a read showing one says it is to be drawn, and answers the high-roof charge "(from photos)". Reads of two sides or more showing none answer it no. An answer typed stands.
+  - The floor line read prefills the floor line a tall side splits at.
+  - Each lower roof's kind is the one picked on the plan, else its photo's, else by its shape.
+- **The ridge**: picked on the plan, else the way that puts a roof end over the most sides the photos show as gables or hip ends, and none over those they show as eaves, when that bears out more of them than the roof worked out from the outline does. The plan's first ridge choice then reads "As the photos show", and a note says what it rests on.
+
+### The squared image now reaches 4 m above the side
+
+It reached 1.5 m, which cut a dormer's face, or an upper wall set back behind a lower roof, out of an eave side's image. It never goes past what the photo holds. On an eave side it adds up to about 1,600 image tokens, about $0.006.
+
+### The call's schema is at its limit
+
+The schema is compiled into a grammar, and the API refuses one past a size: "The compiled grammar is too large". Dormers, turrets and storeys as objects of their own with enums came back refused, and so did a note on each piece. What fits: one `roof_shapes` object, its words plain strings, its points flat runs of numbers `[x1, y1, x2, y2, ...]`, one note. **Anything more for the trace needs room made in the schema first.** A text-only call with 16 tokens out tells whether a schema compiles, for under a cent.
+
+### Cost
+
+Still one call a side. The longer prompt adds about 1,450 tokens in ($0.006), and the shapes about 50-150 tokens out.
+
+| Photo | Calls on 10-15, before | Now |
+|---|---|---|
+| West gable | $0.086 | $0.082 |
+| Rear bump-out | $0.081, $0.082 | $0.077 |
+| Porch front (eave side) | - | $0.087 |
+| Painted gable wall | $0.059-0.086 | $0.057 |
+| Painted eave side with a dormer | - | $0.072 |
+| Painted upper floor behind a lean-to | - | $0.049 |
+
+So a side stays at about $0.05-0.09. The difference between runs is the thinking, not the shapes.
+
+### First results
+
+- **Painted eave side, gable dormer 2.4 m wide, 1.4 m projection, 12/12, its face 1.1 m back on a 10/12 slope** (`test:exterior:trace`): read as one gable dormer, 12/12 (slopes 12.26 and 11.94). Set back +0.02 m; width +0.3"; projection −0.5". No upper floor.
+- **Painted upper floor set back 1.8 m behind a 4/12 lean-to**: set back, behind a lean-to, the roof over the side an eave; no dormer.
+- **Painted gable wall**: every read as before; no dormer, turret or upper floor.
+- **The owner's photos** (no dormers, turrets or upper floor on his house):
+  - west gable, rear bump-out, porch front: no pieces, no upper floor;
+  - the rear bump-out's basement window and raised main floor did not read as two storeys;
+  - the porch front's roof vents and flue were rightly not taken for dormers ("Only roof vents and a flue stand on the roof; none of these are dormers");
+  - pitch 5/12 on both gables, as before.
+- **The owner's 14:53 walk**: its gables (the west gable, the rear bump-out) already fit the roof worked out from the outline, so the ridge stays and the squares are unchanged.
+- **Not yet tried on a real dormer, turret or two-storey house.** The painted ones are the evidence so far: a real one is the next test.

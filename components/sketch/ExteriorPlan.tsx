@@ -14,14 +14,20 @@ import {
   FEET_PER_DOWNSPOUT,
   formatPitch,
   lShapeExterior,
+  lowerRoofsFromPhotos,
+  photoFloorLine,
   photoNotes,
   photoPitches,
+  photoReads,
   photoRoofCheck,
+  photoRoofPieces,
+  photoStoreys,
   photoSectionBreaks,
   photoSectionPitches,
   pieceLine,
   rectangleExterior,
   resolvedOverhang,
+  ridgeFromPhotos,
   ROOF_MATERIAL_LABEL,
   ROOF_VENT_LABEL,
   type RoofingQuantities,
@@ -896,7 +902,14 @@ export function PlanPane({
   const totals = (showPitch: boolean) => (
     <>
       <RoofTotalsPanel roof={roof} r={r} pitch={q.pitch} showPitch={showPitch} photoCheck={photoCheck} readOnly={readOnly} onUpdate={updateRoof} />
-      <RoofPiecesPanel roof={roof} roofPitch={r?.pitch ?? q.pitch.value ?? 0} readOnly={readOnly} onUpdate={updateRoof} />
+      <RoofPiecesPanel
+        roof={roof}
+        roofPitch={r?.pitch ?? q.pitch.value ?? 0}
+        readOnly={readOnly}
+        onUpdate={updateRoof}
+        fromPhotos={photoRoofPieces(exterior, q.roof, r?.pitch ?? q.pitch.value ?? 0)}
+        onChange={onChange}
+      />
     </>
   );
 
@@ -1225,7 +1238,7 @@ function RoofShapeFields({
         <label className="exterior-field" htmlFor="ext-ridge">
           <span className="exterior-field-label">{plan.shape === "rectangle" ? "Ridge runs" : "Main roof"}</span>
           <select id="ext-ridge" value={roof.ridgeAlong ?? ""} disabled={readOnly} onChange={(e) => onUpdate((x) => ({ ...x, ridgeAlong: e.target.value || null }))}>
-            <option value="">{plan.shape === "rectangle" ? "Along the longer walls" : "Worked out from the outline"}</option>
+            <option value="">{ridgeOption(plan.shape, exterior, nameOf)}</option>
             {exterior.sides.map((s) => (
               <option key={s.id} value={s.id}>
                 {plan.shape === "rectangle" ? `Parallel to ${s.name.trim() || "Side"}` : `Over ${s.name.trim() || "Side"}, its ridge along it`}
@@ -1424,6 +1437,16 @@ function RoofAdditions({
  * A two-storey house's upper floor (2026-10-14): drawn over the plan, its sides listed to type and
  * open face-on, and each lower roof round it a lean-to or a ridge out from the wall.
  */
+/**
+ * The ridge select's first choice, the ridge not picked (2026-10-15): as the photos show it when they
+ * set it (`ridgeFromPhotos`), else along the longer walls or from the outline.
+ */
+function ridgeOption(shape: RoofPlan["shape"], exterior: Exterior, nameOf: (id: string) => string): string {
+  const photos = ridgeFromPhotos(exterior);
+  if (photos) return `As the photos show: ${shape === "rectangle" ? `parallel to ${nameOf(photos.ridgeAlong)}` : `over ${nameOf(photos.ridgeAlong)}, its ridge along it`}`;
+  return shape === "rectangle" ? "Along the longer walls" : "Worked out from the outline";
+}
+
 function UpperFloorFields({
   exterior,
   q,
@@ -1449,10 +1472,18 @@ function UpperFloorFields({
   /** The floor line typed for splitting tall sides; null until typed, a storey under their eave shown. */
   const [floorLine, setFloorLine] = useState<number | null>(null);
   const up = exterior.upper;
+  // What the photos show stands over the sides (2026-10-15): never drawn from them, only said.
+  const storeys = photoStoreys(exterior);
   if (!up) {
     return (
       <div className="exterior-rows">
         <h4 className="exterior-subhead">Upper floor</h4>
+        {storeys.twoStoreys && (
+          <p className="exterior-assumed">
+            The photos of {listOf([...new Set(storeys.reads.map((x) => x.name))])} show an upper floor: draw it over the plan for its own sides and roof. Until it is drawn, the high-roof charge is
+            taken from the photos.
+          </p>
+        )}
         <p className="field-note">
           Two storeys? Draw the upper floor over the plan. The house&rsquo;s roof goes over it; the main floor outside it gets a roof of its own against its walls, and the high-roof charge
           follows.
@@ -1474,7 +1505,12 @@ function UpperFloorFields({
   // A floor line to start from: a storey under the tall sides' eave.
   const eaves = tall.map((t) => t.eaveFeet).sort((a, b) => a - b);
   const guess = eaves.length > 0 ? Math.max(7, (eaves[Math.floor((eaves.length - 1) / 2)] as number) - UPPER_STOREY_FEET) : null;
-  const floor = floorLine ?? guess;
+  // The floor line read off the photos of flush walls (2026-10-15), over the guess; typed, the estimator's.
+  const photoFloor = photoFloorLine(exterior);
+  const floor = floorLine ?? photoFloor?.feet ?? guess;
+  // Sides whose photo shows no upper floor over them, with one drawn: said, in case it is drawn over the wrong part.
+  const noneShown = [...new Set(photoReads(exterior).upper.filter((x) => x.value === "none").map((x) => x.name))];
+  const lowerFromPhotos = lowerRoofsFromPhotos(exterior);
   return (
     <div className="exterior-rows">
       <h4 className="exterior-subhead">Upper floor</h4>
@@ -1511,7 +1547,17 @@ function UpperFloorFields({
           {!readOnly && (
             <>
               <div className="exterior-grid">
-                <FeetField id="ext-floor-line" label="Floor line, from grade" value={floor} onCommit={setFloorLine} note="The top of the main floor's walls, once for every side." />
+                <FeetField
+                  id="ext-floor-line"
+                  label="Floor line, from grade"
+                  value={floor}
+                  onCommit={setFloorLine}
+                  note={
+                    floorLine === null && photoFloor
+                      ? `Read off the photos of ${listOf([...new Set(photoFloor.reads.map((x) => x.name))])}: the top of the main floor's walls, once for every side.`
+                      : "The top of the main floor's walls, once for every side."
+                  }
+                />
               </div>
               <div className="exterior-row">
                 <button type="button" className="btn-secondary" disabled={!floor} onClick={() => floor && onChange((e) => splitTallSides(e, floor))}>
@@ -1528,10 +1574,16 @@ function UpperFloorFields({
           floor&rsquo;s sides stop at the floor line: if that was the upper floor&rsquo;s eave, put in the main floor&rsquo;s.
         </p>
       )}
+      {noneShown.length > 0 && (
+        <p className="exterior-assumed">
+          The photos of {listOf(noneShown)} show no upper floor over {noneShown.length === 1 ? "it" : "them"}: check the upper floor is drawn over the right part of the plan.
+        </p>
+      )}
       {plan.lowerRoofs.map((l) => (
         <Choice
           key={`lower-${l.sideId}`}
           label={`The roof out to ${nameOf(l.sideId)}`}
+          hint={lowerFromPhotos.has(l.sideId) ? `From the photo of ${nameOf(l.sideId)}: pick one to set it yourself.` : undefined}
           value={l.kind}
           readOnly={readOnly}
           options={[
@@ -1608,7 +1660,13 @@ function RoofingFields({ roof, r, readOnly, onUpdate }: { roof: ExteriorRoof; r:
       {r?.high?.automatic ? (
         <p className="field-note">High roof charge: on the roof over the upper floor, {r.high.squares.toFixed(2)} SQ, from the upper floor drawn.</p>
       ) : (
-        <YesNo label="Two storeys or higher (high roof)" value={roof.high ?? null} readOnly={readOnly} onChange={(high) => onUpdate((x) => ({ ...x, high }))} />
+        <YesNo
+          label="Two storeys or higher (high roof)"
+          hint={roof.high == null && r?.highFromPhotos ? `From the photos of ${listOf(r.highFromPhotos.sides)}: tap to answer it yourself.` : undefined}
+          value={roof.high ?? r?.highFromPhotos?.twoStoreys ?? null}
+          readOnly={readOnly}
+          onChange={(high) => onUpdate((x) => ({ ...x, high }))}
+        />
       )}
       <YesNo label="Handload materials" hint="More than 30 ft from the front of the driveway, or the loading truck can't reach." value={roof.handload ?? null} readOnly={readOnly} onChange={(handload) => onUpdate((x) => ({ ...x, handload }))} />
       <YesNo label="Handload to disposal" hint="Nowhere to put a bin on the driveway: an alley, or otherwise." value={roof.disposalHandload ?? null} readOnly={readOnly} onChange={(disposalHandload) => onUpdate((x) => ({ ...x, disposalHandload }))} />

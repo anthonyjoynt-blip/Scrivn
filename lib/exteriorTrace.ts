@@ -28,6 +28,7 @@ import type { CallUsage } from "./anthropic";
 import { frameAlongM, frameUpM, frameX, frameY, OUTSIDE_PHOTO_GREY, type SquareFrame } from "./exteriorPhoto";
 import { polygonArea, type Pt } from "./roof";
 import { type CameraAt, gableSlopes, type Gray, type ProposedRoof, readRoof, readRoofLines, ROOF_EDGE_ENDS, ROOF_OVER_WALL, type RoofLines, type RoofWire, snapRoof } from "./roofPhotoRead";
+import { type PhotoPiece, piecesOfWire, type ProposedPiece, type ProposedStoreys, readPieces, readStoreys, type RoofShapesWire } from "./roofPhotoShapes";
 import { formatFeetInches, newSketchId } from "./sketch";
 
 const FEET_PER_METRE = 1 / 0.3048;
@@ -37,6 +38,8 @@ export const TRACE_MATERIALS = ["stucco", "vinyl", "wood_shake", "eifs", "wood",
 const OPENING_KINDS = ["window", "door", "patio_door", "garage_door"] as const;
 
 const POINT = { type: "array", items: { type: "number" } };
+/** Points as one flat run [x1, y1, x2, y2, ...]: an array of arrays costs the schema's grammar more than it has room for (lib/roofPhotoShapes.ts). */
+const FLAT_POINTS = { type: "array", items: { type: "number" } };
 const ROOF_END = {
   type: "object",
   properties: { kind: { type: "string", enum: [...ROOF_EDGE_ENDS] }, point: POINT },
@@ -103,9 +106,32 @@ export const TRACE_SCHEMA: Record<string, unknown> = {
       required: ["over_wall", "rake_left", "rake_right", "eave_line", "left_end", "right_end", "notes"],
       additionalProperties: false,
     },
+    // The roof's shapes over the wall (2026-10-15, lib/roofPhotoShapes.ts): dormers on its slope, turrets, an upper floor over it.
+    // Lean on purpose - plain strings, points as flat runs, one note: the schema is compiled into a grammar, and this is at the
+    // size the API takes ("The compiled grammar is too large" one step past it). Make room before adding to the trace.
+    roof_shapes: {
+      type: "object",
+      properties: {
+        pieces: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: { kind: { type: "string" }, outline: FLAT_POINTS, foot: FLAT_POINTS, sides: { type: "number" } },
+            required: ["kind", "outline", "foot", "sides"],
+            additionalProperties: false,
+          },
+        },
+        upper_floor: { type: "string" },
+        floor_line: FLAT_POINTS,
+        lower_roof: { type: "string" },
+        notes: { type: "string" },
+      },
+      required: ["pieces", "upper_floor", "floor_line", "lower_roof", "notes"],
+      additionalProperties: false,
+    },
     notes: { type: "string" },
   },
-  required: ["materials", "openings", "wall_top", "off_wall", "roof", "notes"],
+  required: ["materials", "openings", "wall_top", "off_wall", "roof", "roof_shapes", "notes"],
   additionalProperties: false,
 };
 
@@ -116,6 +142,8 @@ export interface TraceWire {
   wall_top: number[][];
   off_wall: { what: string; box: number[] }[];
   roof?: RoofWire;
+  /** The roof's shapes (2026-10-15): absent from an answer given before then. */
+  roof_shapes?: RoofShapesWire;
   notes: string;
 }
 
@@ -157,12 +185,22 @@ Trace, in pixels:
 3. wall_top: the line where the wall's cladding meets the soffit, left to right, including any gable peak, as a polyline.
 4. off_wall: everything in front of the wall that hides part of it, as boxes [x0, y0, x1, y1].
 5. roof: the roof's edge over this wall. The fascia and the soffit stand out in front of the wall, so they show larger than the wall and set off from it: trace them where they show in this image, and the code works out how far out they stand.
-   - over_wall: "gable" if the wall rises to a peak under the roof; "hip_end" if the wall's top is level and the roof above it slopes up and back, with a hip rising from each end; "eave" if the wall's top is level and the roof slopes up and back to a ridge along the wall; "none" if no roof edge is over this wall; "unclear" if you can't tell.
+   - over_wall: "gable" if the wall rises to a peak under the roof; "hip_end" if the wall's top is level and the roof above it slopes up and back, with a hip rising from each end; "eave" if the wall's top is level and the roof slopes up and back to a ridge along the wall, or up to an upper storey's wall standing back above it; "none" if no roof edge is over this wall; "unclear" if you can't tell.
    - rake_left, rake_right: on a gable, the bottom edge of the fascia (the rake board) along each slope, where the soffit under the rake meets it - from the foot of the rake up to the peak on the left, from the peak down to its foot on the right, with a point every metre or so. Not the line where the soffit meets the wall (that is wall_top), not the shingles. [] when there is no gable.
    - eave_line: the bottom edge of the fascia along an eave over this wall, left to right; where an eavestrough hides it, the trough's bottom edge. [] when there is none.
    - left_end, right_end: where the roof's edge ends, past each end of the wall: point is the outermost bottom corner of the fascia there, where the rake board itself ends - past the wall's corner by the eave overhang, often 1 to 2 ft, and further out still in this image since the fascia stands out from the wall; never the wall's own corner, never where an eave's return running back along the house meets it, never the eavestrough's end cap or a downspout. kind: "rake_foot" where a rake comes down to an eave that runs back from it; "hip_corner" where the eave turns the corner; "eave_into_rake" where this wall's eave ends under the next wall's rake; "runs_on" where the roof carries on past the end, over a porch, a deck or another roof; "against_wall" where it stops against a wall; "hidden" where something in front hides it; "out_of_photo" where it is outside the photo. point is [] when hidden or out of the photo.
    - notes: anything about the roof's edge you are unsure of.
-6. notes: anything that makes this wall hard to trace, and anything you are unsure of.`;
+6. roof_shapes: what stands on the roof above this wall, and over it. Points here are one flat run of numbers, x then y for each point in turn: [x1, y1, x2, y2, ...].
+   - pieces: each dormer on the roof above this wall whose front faces out the same way as this wall, so its front wall shows square-on, and each turret (a round or many-sided tower with its own cone or pyramid roof) on or at this wall - not a dormer seen from its side, a skylight, a chimney or the main roof's own gable. A dormer's front wall stands back on the roof, so it shows smaller than it is: trace it where it shows. [] when there are none.
+     - kind: "gable_dormer" (its own little gable roof), "shed_dormer" (one slope, running back up into the main roof), "hipped_dormer", "other_dormer", "round_turret" or "many_sided_turret".
+     - outline: a dormer's front wall top, where its cladding meets its soffit, from its left corner (the top of its left side wall) to its right corner, with its peak between on a gable dormer; a turret's roof outline, its left bottom corner at the eave, its apex, its right bottom corner.
+     - foot: a dormer's front wall where it meets the main roof below it, its left and right ends, [] when hidden; a turret's wall, its left and right edges just under its soffit.
+     - sides: a many-sided turret's sides all the way round (count the faces you see and work it out); 0 otherwise.
+   - upper_floor: "none" if only roof stands over the wall's top (dormers and a walk-out basement make no upper floor); "flush" if the wall carries on up past a floor line to a second storey's wall in the same plane; "set_back" if a roof runs along this wall's top up to a second storey's wall standing back above it; "unclear".
+   - floor_line: on a flush wall, the upper storey's floor line where it shows - a band board, a change of cladding, the joint between the storeys - its left and right ends; [] otherwise.
+   - lower_roof: on a set-back wall, the roof between this wall and the upper storey: "lean_to" if it slopes up from this wall's eave to the upper wall; "ridge_out" if its ridge runs from the upper wall out over this wall, with a gable or hip end over it; "none" otherwise; "unclear".
+   - notes: anything about the pieces or the storeys you are unsure of.
+7. notes: anything that makes this wall hard to trace, and anything you are unsure of.`;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -228,6 +266,12 @@ export interface TraceProposals {
    * does over the side. Absent from a trace made before it; null when the photo says nothing of the roof.
    */
   roof?: ProposedRoof | null;
+  /**
+   * The dormers and turrets read off the photo (2026-10-15, lib/roofPhotoShapes.ts), each a roof piece
+   * once ticked; and what stands over the side. Absent from a trace made before then.
+   */
+  pieces?: ProposedPiece[];
+  storeys?: ProposedStoreys | null;
   /** What the trace was unsure of, in its words. */
   notes: string;
   /** The test's own checks: an eave level end to end. A gable's two slopes are the roof's (`roof.checks`). */
@@ -369,6 +413,18 @@ export function traceProposals(wire: TraceWire, frame: SquareFrame, lengthFeet: 
   }
   const roof = readRoof(wire.roof, frame, lengthFeet / FEET_PER_METRE, wallTop && peakIndex > 0 ? { line, peakIndex } : null, cameraAt);
 
+  // The roof's shapes (2026-10-15): dormers and turrets as pieces, and what stands over the side.
+  const toM = (q: unknown) => {
+    const f = point(frame, q);
+    return f ? { alongM: f.x / FEET_PER_METRE, upM: f.y / FEET_PER_METRE } : null;
+  };
+  const rs = wire.roof_shapes;
+  const split = rs ? piecesOfWire(rs.pieces, toM) : null;
+  const onRoof = split ? readPieces(split.dormers, split.turrets, line.length >= 2 ? line : null, cameraAt) : null;
+  if (onRoof) checks.push(...onRoof.checks);
+  const eaves = [wallTop?.eaveLeftFeet ?? null, wallTop?.eaveRightFeet ?? null].filter((v): v is number => v !== null);
+  const storeys = rs === undefined ? undefined : readStoreys(rs, toM, roof?.over ?? null, eaves.length > 0 ? Math.max(...eaves) : null);
+
   const offWall = (wire.off_wall ?? []).flatMap((b) => {
     const [x0, y0, x1, y1] = (b.box ?? []) as number[];
     if (![x0, y0, x1, y1].every((v) => typeof v === "number" && Number.isFinite(v))) return [];
@@ -378,7 +434,17 @@ export function traceProposals(wire: TraceWire, frame: SquareFrame, lengthFeet: 
     return [{ what: String(b.what ?? "").trim() || "something", x0: a.x, x1: c.x, y0: a.y, y1: c.y }];
   });
 
-  return { shapes, openings, wallTop, offWall, roof, notes: (wire.notes ?? "").trim(), checks };
+  return {
+    shapes,
+    openings,
+    wallTop,
+    offWall,
+    roof,
+    ...(onRoof ? { pieces: onRoof.pieces } : {}),
+    ...(storeys !== undefined ? { storeys } : {}),
+    notes: (wire.notes ?? "").trim(),
+    checks,
+  };
 }
 
 /** The roof's reads ticked (true) or not (false); one the trace did not read is left out. */
@@ -438,7 +504,35 @@ export interface TracePicks {
   wallTop: boolean;
   /** The roof's reads (2026-10-15). Absent: the roof is left as it was. */
   roof?: RoofPicks;
+  /** The roof's shapes (2026-10-15): each piece by its key, and what stands over the side. Absent: left as they were. */
+  roofShapes?: ShapePicks;
 }
+
+/** The roof's shapes ticked (true) or not (false), as `RoofPicks`: a piece by its key; a read the trace did not make is left out. */
+export interface ShapePicks {
+  pieces: Record<string, boolean>;
+  upper?: boolean;
+  floorLine?: boolean;
+  lowerRoof?: boolean;
+}
+
+/** What starts ticked of the shapes: each piece and read that holds together. */
+export function shapePicksAtFirst(p: Pick<TraceProposals, "pieces" | "storeys">): ShapePicks {
+  const picks: ShapePicks = { pieces: Object.fromEntries((p.pieces ?? []).map((q) => [q.key, q.agree])) };
+  const s = p.storeys;
+  if (s?.upper) picks.upper = s.agree.upper;
+  if (s?.floorLineFeet != null) picks.floorLine = s.agree.floorLine && s.agree.upper;
+  if (s?.lowerRoof) picks.lowerRoof = s.agree.lowerRoof;
+  return picks;
+}
+
+/** Anything of the shapes to put on the side, ticked or not. */
+function anyShapes(sp: ShapePicks | undefined): sp is ShapePicks {
+  return !!sp && (Object.keys(sp.pieces).length > 0 || sp.upper !== undefined || sp.floorLine !== undefined || sp.lowerRoof !== undefined);
+}
+
+/** Within this along the side, a piece read again is the one read before: kind and place. */
+const SAME_PIECE_FEET = 2.5;
 
 /** What starts ticked: every read that holds together - a pitch whose slopes agree on a whole pitch, an overhang read alike both ways. */
 export function roofPicksAtFirst(roof: ProposedRoof | null | undefined): RoofPicks {
@@ -456,7 +550,9 @@ export function roofPicksAtFirst(roof: ProposedRoof | null | undefined): RoofPic
  * its openings - each only when any are ticked, so a side whose phone taps are kept loses nothing.
  * The wall top sets the eaves over each end it reaches, and the peak when it has one. The roof's
  * reads go on the side as `roofRead`, ticked or not: a read set aside is kept as set aside (null), so
- * the gable it came from gives no pitch either (lib/exterior.ts, `exteriorPitch`).
+ * the gable it came from gives no pitch either (lib/exterior.ts, `exteriorPitch`). So do the roof's
+ * shapes (2026-10-15): each dormer or turret kept with its tick (`PhotoPiece.taken`), and what stands
+ * over the side.
  */
 export function applyTrace(side: ExteriorSide, proposals: TraceProposals, picks: TracePicks, at: string = new Date().toISOString()): ExteriorSide {
   const next: ExteriorSide = { ...side };
@@ -488,18 +584,36 @@ export function applyTrace(side: ExteriorSide, proposals: TraceProposals, picks:
     }
   }
   const roof = proposals.roof;
-  const rp = picks.roof;
-  if (roof && rp && Object.keys(rp).length > 0) {
+  const rp = picks.roof ?? {};
+  const sp = picks.roofShapes;
+  if ((roof && Object.keys(rp).length > 0) || anyShapes(sp)) {
     const read: SideRoofRead = { at };
-    if (roof.pitch && rp.pitch !== undefined) {
+    if (roof?.pitch && rp.pitch !== undefined) {
       read.pitch = rp.pitch ? roof.pitch.value : null;
       read.slopes = roof.pitch.slopes;
       // The pitch this side gives is the photo's, or none: a gable set aside must not give one off its peak.
       next.pitchMeasured = rp.pitch ? roof.pitch.value : null;
     }
-    if (roof.rakeOverhang && rp.rake !== undefined) read.rakeOverhangFeet = rp.rake ? roof.rakeOverhang.feet : null;
-    if (roof.eaveOverhang && rp.eave !== undefined) read.eaveOverhangFeet = rp.eave ? roof.eaveOverhang.feet : null;
-    if (roof.over && rp.over !== undefined) read.over = rp.over ? roof.over : null;
+    if (roof?.rakeOverhang && rp.rake !== undefined) read.rakeOverhangFeet = rp.rake ? roof.rakeOverhang.feet : null;
+    if (roof?.eaveOverhang && rp.eave !== undefined) read.eaveOverhangFeet = rp.eave ? roof.eaveOverhang.feet : null;
+    if (roof?.over && rp.over !== undefined) read.over = rp.over ? roof.over : null;
+    if (anyShapes(sp)) {
+      // Every piece read is kept, ticked or not: one not ticked is offered on the roof pane, counting nothing.
+      const before = side.roofRead?.pieces ?? [];
+      const pieces: PhotoPiece[] = (proposals.pieces ?? []).flatMap((q) => {
+        if (sp.pieces[q.key] === undefined) return [];
+        const piece: PhotoPiece = { ...q.piece, id: newSketchId("roofpiece"), taken: sp.pieces[q.key] === true };
+        // The same piece read again, that the estimator had made their own: theirs still stands in its place.
+        const same = before.find((b) => b.typedAs && b.kind === q.piece.kind && Math.abs(b.alongFeet - q.piece.alongFeet) <= SAME_PIECE_FEET);
+        if (same?.typedAs) piece.typedAs = same.typedAs;
+        return [piece];
+      });
+      if (pieces.length > 0) read.pieces = pieces;
+      const st = proposals.storeys;
+      if (st?.upper && sp.upper !== undefined) read.upper = sp.upper ? st.upper : null;
+      if (st?.floorLineFeet != null && sp.floorLine !== undefined) read.floorLineFeet = sp.floorLine ? st.floorLineFeet : null;
+      if (st?.lowerRoof && sp.lowerRoof !== undefined) read.lowerRoof = sp.lowerRoof ? st.lowerRoof : null;
+    }
     next.roofRead = read;
   }
   return next;
