@@ -24,8 +24,29 @@
  * are not there, because nothing changes across them.
  *
  * Everything here is in FEET with y UP (the front of the house along y = 0, the rear above it), in
- * plan. Heights are worked in feet of RUN - distance in from the drip line - and only turned into
- * rise by the pitch at the end, so a crease is where it is whatever the pitch.
+ * plan. Heights are feet of RISE above each roof's drip line: every plane climbs at its own
+ * section's pitch (2026-10-14), so a 4/12 garage meets a 6/12 house where the two really are level,
+ * and its valleys are not the 45° ones two equal pitches give. With one pitch everywhere it is the
+ * same roof as it always was, every height scaled alike, so every crease is where it was.
+ *
+ * ── A pitch per section (2026-10-14) ───────────────────────────────────────────────────────────
+ * Each section - the main roof, a wing, a lower roof, a porch, a cross gable - carries its own
+ * pitch, by its key (`RoofSection.key`), the roof's pitch unless said (`RoofInput.sectionPitches`).
+ * A porch carried on and a cross gable take the pitch of the slope they come off unless said. A
+ * slope's area is its plan area times ITS pitch's factor; a crease is where two planes are level, its
+ * length read off the heights at its ends. Two planes facing the same way at different pitches (a
+ * porch breaking flatter off the slope above) meet in a line that is no ridge, hip or valley: the
+ * slope just changes there, and nothing is counted for it.
+ *
+ * ── Two storeys (2026-10-14) ───────────────────────────────────────────────────────────────────
+ * With an upper floor (`RoofInput.upper`), the house's roof - layer 0 - is the roof over the UPPER
+ * floor's outline, built as any outline's is. The main floor outside it is taken apart as wings are:
+ * each part standing against the upper floor's wall is a roof of its own, set lower and stopping at
+ * that wall (`RoofSection.floor` "main"), and a part standing on one of those ties into it. Against
+ * the wall it is flashed as a lower wing is - step flashing up a slope, headwall along a level top.
+ * Each such roof is a LEAN-TO (one slope rising to the wall: a strip along it, a porch roof) or a
+ * TENT (its ridge running out from the wall, gable or hip at the far end: a garage, a bump-out),
+ * the strip's shape choosing unless said (`RoofInput.lowerRoofKinds`).
  *
  * Rectangles and L-shapes are built as they always were. Any other outline (a T, a U, the owner's
  * twelve corners, 2026-10-13) is taken apart into a MAIN roof and WINGS: the main is a rectangle of
@@ -85,6 +106,8 @@ export interface RoofPlane {
   sideId: string | null;
   /** What names a slope that rises from no side: a cross gable's, by the addition's id. */
   tag?: string;
+  /** The section it is the roof of (`RoofSection.key`): what a tap on its slope sets the pitch of. */
+  section?: string;
 }
 type Plane = RoofPlane;
 
@@ -101,6 +124,14 @@ type Rect = { x0: number; x1: number; y0: number; y1: number };
 /** One rectangle of roof with its ridge along `axis`. */
 export interface RoofSection {
   role: "main" | "wing" | "porch" | "gable";
+  /**
+   * What names it for its own pitch, kept when a length is retyped: "main"; a wing by the side its
+   * free end stands over ("wing:<side>"); a gable over a lower wing "over-<side>"; a porch or cross
+   * gable by its addition's id.
+   */
+  key: string;
+  /** Rise in 12: the roof's own unless said for this section. */
+  pitch: number;
   /** 0 is the house's roof; each roof that sits lower and stops at a wall is a layer of its own. */
   layer: number;
   /** The drip outline this section covers, plan feet. */
@@ -129,7 +160,16 @@ export interface RoofSection {
   planes?: RoofPlane[];
   /** Where its drip line stands against a wall. */
   wallEdges: WallEdge[];
+  /**
+   * Two storeys only: "upper", the roof over the upper floor (and what is put on its sides); "main",
+   * a roof over the main floor, set lower against the upper floor's walls - the wall that stands over
+   * it is the upper floor's own side, not a strip of the house's wall.
+   */
+  floor?: "main" | "upper";
 }
+
+/** A lower roof against the upper floor's wall: one slope rising to the wall, or a ridge running out from it. */
+export type LowerRoofKind = "leanto" | "tent";
 
 /**
  * What the estimator adds to the roof the footprint gives, on one side. "porch": the slope running
@@ -190,6 +230,10 @@ export interface RoofFacet {
   /** On the slope: the plan area times the pitch factor. */
   areaSquareFeet: number;
   layer: number;
+  /** Rise in 12 of the plane it is. */
+  pitch: number;
+  /** The section it is the roof of (`RoofSection.key`), when one plane is one section's. */
+  section: string | null;
 }
 
 /**
@@ -219,8 +263,10 @@ export interface RoofInput {
   corners: Pt[];
   /** The side each wall is: wall i runs corners[i] → corners[i + 1]. */
   sideIds: string[];
-  /** Rise in 12. */
+  /** Rise in 12: the main roof's, and every section's not said otherwise. */
   pitch: number;
+  /** A section's own pitch by its key (`RoofSection.key`), where it is not the roof's. */
+  sectionPitches?: Record<string, number>;
   eaveOverhangFeet: number;
   rakeOverhangFeet: number;
   /** A rectangle's ridge runs parallel to this side; null = along the longer walls. */
@@ -237,6 +283,13 @@ export interface RoofInput {
   coveredNotches?: string[];
   /** For the notes: what each side is called. */
   sideNames?: Record<string, string>;
+  /**
+   * The upper floor of a two-storey house: its outline over the main floor's, counter-clockwise, and
+   * its sides (wall i runs corners[i] -> corners[i + 1]). The house's roof goes over it.
+   */
+  upper?: { corners: Pt[]; sideIds: string[] };
+  /** A lower roof over the main floor against the upper floor's wall, by the side its free end stands over: lean-to or tent. */
+  lowerRoofKinds?: Record<string, LowerRoofKind>;
 }
 
 /** A wing as built, by the side its free end stands over. */
@@ -285,6 +338,8 @@ export interface RoofPlan {
   wings: RoofWing[];
   /** The notches the roof could carry over, and whether it does. */
   notches: RoofNotch[];
+  /** A two-storey house's lower roofs against the upper floor, by the side each one's free end stands over. */
+  lowerRoofs: { sideId: string; kind: LowerRoofKind; key: string }[];
   pitch: number;
   pitchFactor: number;
   /** √(2 + (rise/12)²): a hip or valley's length per foot of run. */
@@ -324,19 +379,47 @@ export function polygonArea(points: Pt[]): number {
 // The surface
 // ---------------------------------------------------------------------------------------------
 
+/** A plane rising `slope` feet per foot from the line a·x + b·y + c = 0 (a, b a unit axis): its heights in feet of rise. */
+function sloped(a: number, b: number, c: number, slope: number, sideId: string | null, section: string): Plane {
+  return { a: a * slope, b: b * slope, c: c * slope, sideId, section };
+}
+
 function sectionPlanes(s: RoofSection): Plane[] {
   if (s.planes) return s.planes;
+  const k = s.pitch / 12;
   const planes: Plane[] = [];
   if (s.axis === "x") {
-    planes.push({ a: 0, b: 1, c: -s.y0, sideId: s.sideA }, { a: 0, b: -1, c: s.y1, sideId: s.sideB });
-    if (s.lo === "hip") planes.push({ a: 1, b: 0, c: -s.x0, sideId: s.loSide });
-    if (s.hi === "hip") planes.push({ a: -1, b: 0, c: s.x1, sideId: s.hiSide });
+    planes.push(sloped(0, 1, -s.y0, k, s.sideA, s.key), sloped(0, -1, s.y1, k, s.sideB, s.key));
+    if (s.lo === "hip") planes.push(sloped(1, 0, -s.x0, k, s.loSide, s.key));
+    if (s.hi === "hip") planes.push(sloped(-1, 0, s.x1, k, s.hiSide, s.key));
   } else {
-    planes.push({ a: 1, b: 0, c: -s.x0, sideId: s.sideA }, { a: -1, b: 0, c: s.x1, sideId: s.sideB });
-    if (s.lo === "hip") planes.push({ a: 0, b: 1, c: -s.y0, sideId: s.loSide });
-    if (s.hi === "hip") planes.push({ a: 0, b: -1, c: s.y1, sideId: s.hiSide });
+    planes.push(sloped(1, 0, -s.x0, k, s.sideA, s.key), sloped(-1, 0, s.x1, k, s.sideB, s.key));
+    if (s.lo === "hip") planes.push(sloped(0, 1, -s.y0, k, s.loSide, s.key));
+    if (s.hi === "hip") planes.push(sloped(0, -1, s.y1, k, s.hiSide, s.key));
   }
   return planes;
+}
+
+/** A section's pitch by its key: the roof's for the main and for anything not said. */
+function pitchFor(input: RoofInput, key: string, fallback: number = input.pitch): number {
+  if (key === "main") return Math.max(0, input.pitch);
+  const said = input.sectionPitches?.[key];
+  return typeof said === "number" && Number.isFinite(said) && said >= 0 ? said : Math.max(0, fallback);
+}
+
+/**
+ * A section given its key and pitch. A tie end carries on into the roof it meets until its ridge
+ * reaches that roof's slope: its half-span at equal pitches, further for a steeper wing.
+ */
+function withPitch(s: RoofSection, key: string, pitch: number, parentPitch: number | null = null): RoofSection {
+  s.key = key;
+  s.pitch = pitch;
+  if (parentPitch !== null && parentPitch > 0) {
+    const run = s.axis === "x" ? (s.y1 - s.y0) / 2 : (s.x1 - s.x0) / 2;
+    if (s.lo === "tie") s.reachLo = (run * pitch) / parentPitch;
+    if (s.hi === "tie") s.reachHi = (run * pitch) / parentPitch;
+  }
+  return s;
 }
 
 function planeAt(p: Plane, x: number, y: number): number {
@@ -521,6 +604,36 @@ function boxOf(points: Pt[]): Box {
   };
 }
 
+/** Every outline the sides are walls of: the main floor's, and the upper floor's. */
+function loopsOf(input: RoofInput): { corners: Pt[]; sideIds: string[] }[] {
+  return [{ corners: input.corners, sideIds: input.sideIds }, ...(input.upper ? [input.upper] : [])];
+}
+
+/** A side's wall, start to end, on whichever floor's outline it is. */
+function sideEnds(input: RoofInput, sideId: string | null): [Pt, Pt] | null {
+  if (sideId === null) return null;
+  for (const loop of loopsOf(input)) {
+    const i = loop.sideIds.indexOf(sideId);
+    if (i >= 0) return [loop.corners[i] as Pt, loop.corners[(i + 1) % loop.corners.length] as Pt];
+  }
+  return null;
+}
+
+/** The roof over the upper floor alone, as the roof over any outline: its outline, its sides, and the roof's say on them. */
+function upperOnly(input: RoofInput, up: { corners: Pt[]; sideIds: string[] }): RoofInput {
+  const own = (id: string) => up.sideIds.includes(id);
+  return {
+    ...input,
+    corners: up.corners,
+    sideIds: up.sideIds,
+    upper: undefined,
+    ridgeAlong: input.ridgeAlong !== null && own(input.ridgeAlong) ? input.ridgeAlong : null,
+    lowerWings: (input.lowerWings ?? []).filter(own),
+    wingGables: (input.wingGables ?? []).filter(own),
+    coveredNotches: [],
+  };
+}
+
 /** The side whose wall lies on x = value (or y = value), overlapping [lo, hi] across. */
 function sideOn(input: RoofInput, vertical: boolean, value: number, lo: number, hi: number): string | null {
   const n = input.corners.length;
@@ -566,6 +679,8 @@ function makeSection(
   const joined = (end: SectionEnd) => end === "tie" || end === "wall";
   const s: RoofSection = {
     role,
+    key: role === "main" ? "main" : "",
+    pitch: Math.max(0, input.pitch),
     layer: 0,
     wall: { ...wall },
     wallEdges: [],
@@ -638,6 +753,8 @@ export interface BuiltSections {
   wings: RoofWing[];
   /** Why a wing is not as it was asked to be, or not where it might be expected. */
   notes: string[];
+  /** Two storeys: the lower roofs against the upper floor. */
+  lowerRoofs?: { sideId: string; kind: LowerRoofKind; key: string }[];
 }
 
 const builtFor = new WeakMap<RoofInput, BuiltSections | null>();
@@ -657,6 +774,7 @@ export function roofSections(input: RoofInput): BuiltSections | null {
 }
 
 function sectionsOf(input: RoofInput): BuiltSections | null {
+  if (input.upper) return twoStoreySections(input, input.upper);
   const notches = roofNotches(input);
   const grid = roofGrid(input, notches);
   // The outline the roof is planned round: the footprint, any notch it carries over filled in.
@@ -719,35 +837,42 @@ function sectionsOf(input: RoofInput): BuiltSections | null {
     mainIsH = false;
     wingLower = true;
   }
-  const join: SectionEnd = wingLower ? "wall" : "tie";
   const oe = input.eaveOverhangFeet;
-  let main: RoofSection;
-  let wing: RoofSection;
-  if (mainIsH) {
-    main = buildSection(input, "main", h, "x", "gable", "gable", null);
-    const wingWall = { x0: v.x0, x1: v.x1, y0: top ? r.y : box.miny, y1: top ? box.maxy : r.y };
-    const tieAt = wingLower ? r.y : top ? r.y + oe : r.y - oe;
-    wing = buildSection(input, "wing", wingWall, "y", top ? join : "gable", top ? "gable" : join, tieAt);
-    if (wingLower) {
-      wing.layer = 1;
-      wing.wallEdges = [{ vertical: false, at: r.y, from: h.x0, to: h.x1 }];
+  const free = mainIsH ? vFar : hFar;
+  const wingKey = `wing:${free ?? "L"}`;
+  const wingPitch = pitchFor(input, wingKey);
+  const main = buildSection(input, "main", mainIsH ? h : v, mainIsH ? "x" : "y", "gable", "gable", null);
+  const wingOf = (lower: boolean): RoofSection => {
+    const join: SectionEnd = lower ? "wall" : "tie";
+    let wing: RoofSection;
+    if (mainIsH) {
+      const wingWall = { x0: v.x0, x1: v.x1, y0: top ? r.y : box.miny, y1: top ? box.maxy : r.y };
+      const tieAt = lower ? r.y : top ? r.y + oe : r.y - oe;
+      wing = buildSection(input, "wing", wingWall, "y", top ? join : "gable", top ? "gable" : join, tieAt);
+      if (lower) wing.wallEdges = [{ vertical: false, at: r.y, from: h.x0, to: h.x1 }];
+    } else {
+      const wingWall = { x0: right ? r.x : box.minx, x1: right ? box.maxx : r.x, y0: h.y0, y1: h.y1 };
+      const tieAt = lower ? r.x : right ? r.x + oe : r.x - oe;
+      wing = buildSection(input, "wing", wingWall, "x", right ? join : "gable", right ? "gable" : join, tieAt);
+      if (lower) wing.wallEdges = [{ vertical: true, at: r.x, from: v.y0, to: v.y1 }];
     }
-  } else {
-    main = buildSection(input, "main", v, "y", "gable", "gable", null);
-    const wingWall = { x0: right ? r.x : box.minx, x1: right ? box.maxx : r.x, y0: h.y0, y1: h.y1 };
-    const tieAt = wingLower ? r.x : right ? r.x + oe : r.x - oe;
-    wing = buildSection(input, "wing", wingWall, "x", right ? join : "gable", right ? "gable" : join, tieAt);
-    if (wingLower) {
-      wing.layer = 1;
-      wing.wallEdges = [{ vertical: true, at: r.x, from: v.y0, to: v.y1 }];
-    }
+    if (lower) wing.layer = 1;
+    return withPitch(wing, wingKey, wingPitch, lower ? null : main.pitch);
+  };
+  const notes: string[] = [];
+  let wing = wingOf(wingLower);
+  let forced = false;
+  // A wing steeper than the main roof can carry its ridge over the main's: then it sits lower, stopping at the wall.
+  if (!wingLower && !seamless([main, wing])) {
+    forced = true;
+    notes.push(`The wing${free ? ` out to ${nameOf(free)}` : ""} at its pitch would stand over the main roof's ridge: it is built lower, stopping at the wall.`);
+    wingLower = true;
+    wing = wingOf(true);
   }
   const sections = [main, wing];
-  const notes: string[] = [];
-  const free = mainIsH ? vFar : hFar;
   const wings: RoofWing[] = [];
   if (free !== null) {
-    const record: RoofWing = { sideId: free, lower: wingLower, forced: false, onSlope: true, gable: false };
+    const record: RoofWing = { sideId: free, lower: wingLower, forced, onSlope: true, gable: false };
     if (wingLower && (input.wingGables ?? []).includes(free)) record.gable = gableOverWing(input, sections, wing, main, free, nameOf, notes);
     wings.push(record);
   }
@@ -778,28 +903,36 @@ function gableOverWing(input: RoofInput, sections: RoofSection[], wing: RoofSect
   }
   const half = span / 2 + oe;
   const tag = `over-${sideId}`;
+  // Its own pitch if said, else the roof it is part of; its ridge reaches that roof's slope further in for a steeper gable.
+  const pitch = pitchFor(input, tag, parent.pitch);
+  const k = pitch / 12;
+  if (parent.pitch <= 0 || k <= 0) {
+    notes.push(`${name} meets a flat roof: there is no slope for a gable over it to run into.`);
+    return false;
+  }
+  const deep = (half * pitch) / parent.pitch;
   // The roof it meets is beyond the wing's wall end; the gable's face is that roof's drip line there.
   const inward = wing.hi === "wall" ? 1 : -1;
   let rect: Rect;
   let planes: Plane[];
   if (wing.axis === "y") {
     const drip = inward > 0 ? w.y1 - oe : w.y0 + oe;
-    rect = { x0: w.x0 - oe, x1: w.x1 + oe, y0: Math.min(drip, drip + inward * half), y1: Math.max(drip, drip + inward * half) };
+    rect = { x0: w.x0 - oe, x1: w.x1 + oe, y0: Math.min(drip, drip + inward * deep), y1: Math.max(drip, drip + inward * deep) };
     planes = [
-      { a: 1, b: 0, c: -(w.x0 - oe), sideId: null, tag: `${tag}-a` },
-      { a: -1, b: 0, c: w.x1 + oe, sideId: null, tag: `${tag}-b` },
+      { ...sloped(1, 0, -(w.x0 - oe), k, null, tag), tag: `${tag}-a` },
+      { ...sloped(-1, 0, w.x1 + oe, k, null, tag), tag: `${tag}-b` },
     ];
   } else {
     const drip = inward > 0 ? w.x1 - oe : w.x0 + oe;
-    rect = { x0: Math.min(drip, drip + inward * half), x1: Math.max(drip, drip + inward * half), y0: w.y0 - oe, y1: w.y1 + oe };
+    rect = { x0: Math.min(drip, drip + inward * deep), x1: Math.max(drip, drip + inward * deep), y0: w.y0 - oe, y1: w.y1 + oe };
     planes = [
-      { a: 0, b: 1, c: -(w.y0 - oe), sideId: null, tag: `${tag}-a` },
-      { a: 0, b: -1, c: w.y1 + oe, sideId: null, tag: `${tag}-b` },
+      { ...sloped(0, 1, -(w.y0 - oe), k, null, tag), tag: `${tag}-a` },
+      { ...sloped(0, -1, w.y1 + oe, k, null, tag), tag: `${tag}-b` },
     ];
   }
   // No further than the roof it is part of: flush with that roof's gable end, it stops at the rake.
   rect = { x0: Math.max(rect.x0, parent.x0), x1: Math.min(rect.x1, parent.x1), y0: Math.max(rect.y0, parent.y0), y1: Math.min(rect.y1, parent.y1) };
-  const gable = planeSection("gable", parent.layer, rect, planes);
+  const gable = planeSection("gable", parent.layer, rect, planes, [], tag, pitch);
   if (!seamless([...sections.filter((s) => s.layer === parent.layer), gable])) {
     notes.push(`A gable over ${name.charAt(0).toLowerCase()}${name.slice(1)} would leave a step in the roof it meets, so there is none.`);
     return false;
@@ -1154,6 +1287,9 @@ function plannedSections(input: RoofInput, plan: Wing[], nameOf: (id: string) =>
     };
     let s = make("tie");
     const free = w.root === "lo" ? s.hiSide : s.loSide;
+    const key = `wing:${free ?? k}`;
+    const pitch = pitchFor(input, key);
+    withPitch(s, key, pitch, parent.pitch);
     const name = free === null ? "A wing" : `The wing out to ${nameOf(free)}`;
     let why: string | null = null;
     let lower = free !== null && said.includes(free);
@@ -1161,7 +1297,12 @@ function plannedSections(input: RoofInput, plan: Wing[], nameOf: (id: string) =>
       // The parent's end it stands on, if it stands on one.
       const end = w.onEnd ? (w.root === "hi" ? parent.lo : parent.hi) : null;
       const endSide = w.root === "hi" ? parent.loSide : parent.hiSide;
-      if (w.wider) {
+      // Its ridge over the parent's: wider at one pitch, or steeper.
+      const P = parent.wall as Rect;
+      const span = w.axis === "x" ? w.wall.y1 - w.wall.y0 : w.wall.x1 - w.wall.x0;
+      const across = parent.axis === "x" ? P.y1 - P.y0 : P.x1 - P.x0;
+      const taller = (span / 2 + oe) * pitch > (across / 2 + oe) * parent.pitch + 1e-6;
+      if (w.wider || taller) {
         why = `${name} is wider than the roof it meets, so carried into it its ridge would stand over that roof's: it is built lower, stopping at the wall.`;
         out.unsound += 1;
       } else if (end !== null && end !== "hip") {
@@ -1177,7 +1318,7 @@ function plannedSections(input: RoofInput, plan: Wing[], nameOf: (id: string) =>
       lower = why !== null;
     }
     if (lower) {
-      s = make("wall");
+      s = withPitch(make("wall"), key, pitch);
       s.layer = 1 + Math.max(...sections.map((x) => x.layer));
       const P = parent.wall as Rect;
       s.wallEdges = [w.axis === "y" ? { vertical: false, at: w.at, from: P.x0, to: P.x1 } : { vertical: true, at: w.at, from: P.y0, to: P.y1 }];
@@ -1249,7 +1390,7 @@ function levelValleys(sections: RoofSection[]): number {
       for (let j = i + 1; j < planes.length; j++) {
         const p = planes[i] as Plane;
         const q = planes[j] as Plane;
-        if (Math.abs(p.a + q.a) > 1e-9 || Math.abs(p.b + q.b) > 1e-9) continue;
+        if (facingOf2(p, q) !== "opposite") continue;
         count += creasesBetween(surface, p, q, box).filter((c) => c.kind === "valley").length;
       }
     }
@@ -1310,10 +1451,230 @@ function wingsRoof(input: RoofInput, g: Grid, nameOf: (id: string) => string): B
   return { shape: "wings", sections: best.planned.sections, wingEnds: best.planned.wingEnds, wings: best.planned.wings, notes };
 }
 
-/** A section that is only planes over a rectangle: a porch or a cross gable. */
-function planeSection(role: "porch" | "gable", layer: number, r: Rect, planes: Plane[], wallEdges: WallEdge[] = []): RoofSection {
+// ---------------------------------------------------------------------------------------------
+// Two storeys: the house's roof over the upper floor, and lower roofs round it
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * The biggest rectangle of a piece of the main floor standing with one whole edge against the upper
+ * floor (its cells `upper`): the roof over it rises to that wall, or runs its ridge out from it.
+ * Null when no rectangle of it stands along a whole edge against the upper floor.
+ */
+function wingOnUpper(g: Grid, piece: Set<number>, upper: Set<number>): Wing | null {
+  const ny = g.ys.length - 1;
+  const nx = g.xs.length - 1;
+  const at = (i: number, j: number) => (i < 0 || j < 0 || i >= nx || j >= ny ? -1 : i * ny + j);
+  const range = (a: number, b: number) => Array.from({ length: b - a }, (_, k) => a + k);
+  const allUpper = (cells: number[]) => cells.length > 0 && cells.every((c) => c >= 0 && upper.has(c));
+  type On = "below" | "above" | "left" | "right";
+  /** The ways the box stands against the upper floor, the longest edge first. */
+  const standing = (b: CellBox): On[] => {
+    const r = feetOf(g, b);
+    const out: [On, number][] = [];
+    if (allUpper(range(b.i0, b.i1).map((i) => at(i, b.j1)))) out.push(["below", r.x1 - r.x0]);
+    if (allUpper(range(b.i0, b.i1).map((i) => at(i, b.j0 - 1)))) out.push(["above", r.x1 - r.x0]);
+    if (allUpper(range(b.j0, b.j1).map((j) => at(b.i1, j)))) out.push(["left", r.y1 - r.y0]);
+    if (allUpper(range(b.j0, b.j1).map((j) => at(b.i0 - 1, j)))) out.push(["right", r.y1 - r.y0]);
+    return out.sort((p, q) => q[1] - p[1]).map(([on]) => on);
+  };
+  const { boxes, full } = boxesOf(g, (c) => piece.has(c));
+  let best: { wing: Wing; score: number[] } | null = null;
+  for (const box of boxes) {
+    const on = standing(box)[0];
+    if (!on) continue;
+    // As big as it can be while it still stands against the upper floor the same way.
+    if (grownBoxes(box).some((b) => full(b) && standing(b).includes(on))) continue;
+    const r = feetOf(g, box);
+    const vertical = on === "left" || on === "right";
+    const wing: Wing = {
+      box,
+      wall: r,
+      axis: vertical ? "x" : "y",
+      parent: -1,
+      root: on === "below" || on === "left" ? "hi" : "lo",
+      at: on === "below" ? r.y1 : on === "above" ? r.y0 : on === "left" ? r.x1 : r.x0,
+      onEnd: false,
+      wider: false,
+    };
+    const score = [-(r.x1 - r.x0) * (r.y1 - r.y0), box.i0, box.j0];
+    if (!best || before(score, best.score)) best = { wing, score };
+  }
+  return best?.wing ?? null;
+}
+
+/** Whether each end of a box across its axis - left and right for a ridge along y, bottom and top along x - stands against the upper floor. */
+function endsAgainst(g: Grid, w: Wing, upper: Set<number>): { lo: boolean; hi: boolean } {
+  const ny = g.ys.length - 1;
+  const nx = g.xs.length - 1;
+  const at = (i: number, j: number) => (i < 0 || j < 0 || i >= nx || j >= ny ? -1 : i * ny + j);
+  const range = (a: number, b: number) => Array.from({ length: b - a }, (_, k) => a + k);
+  const all = (cells: number[]) => cells.length > 0 && cells.every((c) => c >= 0 && upper.has(c));
+  const b = w.box;
+  return w.axis === "y"
+    ? { lo: all(range(b.j0, b.j1).map((j) => at(b.i0 - 1, j))), hi: all(range(b.j0, b.j1).map((j) => at(b.i1, j))) }
+    : { lo: all(range(b.i0, b.i1).map((i) => at(i, b.j0 - 1))), hi: all(range(b.i0, b.i1).map((i) => at(i, b.j1))) };
+}
+
+/**
+ * A lean-to against the upper floor's wall: one slope rising from its eave - one overhang out past
+ * its far wall - to the wall at `w.at`, its two ends rakes, without an overhang where an end stands
+ * against the upper floor too.
+ */
+function leanTo(input: RoofInput, w: Wing, key: string, pitch: number, free: string | null, against: { lo: boolean; hi: boolean }): RoofSection {
+  const oe = input.eaveOverhangFeet;
+  const lo = against.lo ? 0 : input.rakeOverhangFeet;
+  const hi = against.hi ? 0 : input.rakeOverhangFeet;
+  const W = w.wall;
+  const k = pitch / 12;
+  let rect: Rect;
+  let plane: Plane;
+  if (w.axis === "y") {
+    rect = w.root === "hi" ? { x0: W.x0 - lo, x1: W.x1 + hi, y0: W.y0 - oe, y1: W.y1 } : { x0: W.x0 - lo, x1: W.x1 + hi, y0: W.y0, y1: W.y1 + oe };
+    plane = w.root === "hi" ? sloped(0, 1, -(W.y0 - oe), k, free, key) : sloped(0, -1, W.y1 + oe, k, free, key);
+  } else {
+    rect = w.root === "hi" ? { x0: W.x0 - oe, x1: W.x1, y0: W.y0 - lo, y1: W.y1 + hi } : { x0: W.x0, x1: W.x1 + oe, y0: W.y0 - lo, y1: W.y1 + hi };
+    plane = w.root === "hi" ? sloped(1, 0, -(W.x0 - oe), k, free, key) : sloped(-1, 0, W.x1 + oe, k, free, key);
+  }
+  return {
+    role: "wing",
+    key,
+    pitch,
+    layer: 0,
+    ...rect,
+    axis: w.axis,
+    lo: "gable",
+    hi: "gable",
+    reachLo: 0,
+    reachHi: 0,
+    loSide: null,
+    hiSide: null,
+    sideA: null,
+    sideB: null,
+    loWallFeet: 0,
+    hiWallFeet: 0,
+    wall: { ...W },
+    planes: [plane],
+    wallEdges: [],
+  };
+}
+
+/** An outline's walls as lines a drip line can stand against. */
+function wallsOf(corners: Pt[]): WallEdge[] {
+  return corners.map((p, i) => {
+    const q = corners[(i + 1) % corners.length] as Pt;
+    return Math.abs(p.x - q.x) < 1e-9 ? { vertical: true, at: p.x, from: Math.min(p.y, q.y), to: Math.max(p.y, q.y) } : { vertical: false, at: p.y, from: Math.min(p.x, q.x), to: Math.max(p.x, q.x) };
+  });
+}
+
+/**
+ * A two-storey house's roof (see the file's head): the house's roof over the upper floor, built as any
+ * outline's, and the main floor outside it taken apart into roofs set lower against the upper floor's
+ * walls. An upper floor that runs past the main floor's walls, or a main floor that won't come apart
+ * round it, is said, and the roof worked out over the main floor alone.
+ */
+function twoStoreySections(input: RoofInput, up: { corners: Pt[]; sideIds: string[] }): BuiltSections | null {
+  const nameOf = (id: string) => input.sideNames?.[id] || "that side";
+  const single = (why: string): BuiltSections | null => {
+    const plain = sectionsOf({ ...input, upper: undefined });
+    if (!plain) return null;
+    plain.notes.unshift(why);
+    // Over the main floor alone: its walls meet it as one storey's do.
+    for (const s of plain.sections) s.floor = "main";
+    return plain;
+  };
+  const top = sectionsOf(upperOnly(input, up));
+  if (!top) return single("The upper floor's outline doesn't come apart into a main roof and wings, so the roof is worked out over the main floor alone.");
+  for (const s of top.sections) s.floor = "upper";
+
+  // One grid of both floors' lines; the main floor with any deck the roof carries over filled in.
+  const filled = roofNotches(input).filter((k) => k.covered);
+  const xs = [...new Set([...input.corners, ...up.corners].map((p) => round6(p.x)))].sort((a, b) => a - b);
+  const ys = [...new Set([...input.corners, ...up.corners].map((p) => round6(p.y)))].sort((a, b) => a - b);
+  const cell: boolean[] = [];
+  const upper = new Set<number>();
+  for (let i = 0; i + 1 < xs.length; i++) {
+    for (let j = 0; j + 1 < ys.length; j++) {
+      const cx = ((xs[i] as number) + (xs[i + 1] as number)) / 2;
+      const cy = ((ys[j] as number) + (ys[j + 1] as number)) / 2;
+      cell.push(insidePolygon(input.corners, cx, cy) || filled.some((k) => inside(k, cx, cy)));
+      if (insidePolygon(up.corners, cx, cy)) upper.add(cell.length - 1);
+    }
+  }
+  const g: Grid = { xs, ys, cell };
+  if ([...upper].some((k) => !cell[k])) {
+    return single("The upper floor runs past the main floor's walls, so the roof is worked out over the main floor alone: draw the upper floor inside the main floor's outline.");
+  }
+  const rest = new Set<number>();
+  cell.forEach((on, k) => {
+    if (on && !upper.has(k)) rest.add(k);
+  });
+
+  // Each part of the main floor round the upper floor: on a lower roof it touches - so a roof round a corner is one roof - or against the upper floor.
+  const plan: Wing[] = [];
+  const place = (piece: Set<number>): boolean => {
+    let found: Wing | null = null;
+    for (let p = 0; p < plan.length && !found; p++) if (touches(g, piece, (plan[p] as Wing).box)) found = wingOn(g, piece, plan[p] as Wing, p);
+    found ??= wingOnUpper(g, piece, upper);
+    if (!found) return false;
+    const w = found;
+    plan.push(w);
+    return piecesOf(g, new Set([...piece].filter((c) => !inBox(g, w.box, c)))).every(place);
+  };
+  for (const piece of piecesOf(g, rest)) {
+    if (!place(piece)) return single("The main floor round the upper floor doesn't come apart into roofs against its walls, so the roof is worked out over the main floor alone.");
+  }
+
+  const oe = input.eaveOverhangFeet;
+  const sections = [...top.sections];
+  const notes = [...top.notes];
+  const lowerRoofs: { sideId: string; kind: LowerRoofKind; key: string }[] = [];
+  const upperWalls = wallsOf(up.corners);
+  const own: RoofSection[] = [];
+  let layer = 1 + Math.max(...sections.map((x) => x.layer));
+  plan.forEach((w, k) => {
+    const join = (end: "tie" | "wall"): RoofSection => {
+      const tieAt = end === "wall" ? w.at : w.root === "lo" ? w.at + oe : w.at - oe;
+      return buildSection(input, "wing", w.wall, w.axis, w.root === "lo" ? end : "gable", w.root === "hi" ? end : "gable", tieAt);
+    };
+    let s = join(w.parent < 0 ? "wall" : "tie");
+    const free = w.root === "lo" ? s.hiSide : s.loSide;
+    const key = `wing:${free ?? `lower${k}`}`;
+    const pitch = pitchFor(input, key);
+    if (w.parent < 0) {
+      // Its own roof, stopping at the upper floor's wall: a strip along the wall a lean-to, anything deeper a ridge running out.
+      const deep = w.axis === "x" ? w.wall.x1 - w.wall.x0 : w.wall.y1 - w.wall.y0;
+      const wide = w.axis === "x" ? w.wall.y1 - w.wall.y0 : w.wall.x1 - w.wall.x0;
+      const kind: LowerRoofKind = (free !== null ? input.lowerRoofKinds?.[free] : undefined) ?? (deep < wide / 2 ? "leanto" : "tent");
+      s = kind === "tent" ? withPitch(s, key, pitch) : leanTo(input, w, key, pitch, free, endsAgainst(g, w, upper));
+      s.layer = layer++;
+      if (free !== null) lowerRoofs.push({ sideId: free, kind, key });
+    } else {
+      // Standing on another lower roof: tied into it, as a wing into the roof it meets, unless that leaves a step.
+      const parent = own[w.parent] as RoofSection;
+      withPitch(s, key, pitch, parent.pitch);
+      s.layer = parent.layer;
+      if (!seamless([...sections.filter((x) => x.layer === s.layer), s])) {
+        s = withPitch(join("wall"), key, pitch);
+        s.layer = layer++;
+        const P = parent.wall as Rect;
+        s.wallEdges = [w.axis === "y" ? { vertical: false, at: w.at, from: P.x0, to: P.x1 } : { vertical: true, at: w.at, from: P.y0, to: P.y1 }];
+        notes.push(`The roof out to ${free ? nameOf(free) : "a side"} can't run into the lower roof it meets: it is built lower, stopping at the wall.`);
+      }
+    }
+    s.floor = "main";
+    s.wallEdges = [...s.wallEdges, ...upperWalls];
+    sections.push(s);
+    own.push(s);
+  });
+  return { shape: top.shape, sections, wingEnds: top.wingEnds, wings: top.wings, notes, lowerRoofs };
+}
+
+/** A section that is only planes over a rectangle: a porch or a cross gable, its planes already at its pitch. */
+function planeSection(role: "porch" | "gable", layer: number, r: Rect, planes: Plane[], wallEdges: WallEdge[] = [], key = "", pitch = 0): RoofSection {
   return {
     role,
+    key,
+    pitch,
     layer,
     ...r,
     axis: "x",
@@ -1344,12 +1705,16 @@ function withAdditions(input: RoofInput, base: RoofSection[], nameOf: (id: strin
   const sections = [...base];
   const rank = (a: RoofAddition) => (a.kind === "porch" ? (a.lower ? 1 : 0) : 2);
   const adds = [...(input.additions ?? [])].sort((p, q) => rank(p) - rank(q));
-  const n = input.corners.length;
   for (const add of adds) {
-    const i = input.sideIds.indexOf(add.sideId);
-    if (i < 0) continue;
-    const p = input.corners[i] as Pt;
-    const q = input.corners[(i + 1) % n] as Pt;
+    // The floor whose side it is on: the main floor's, or a two-storey house's upper floor's.
+    const loop = loopsOf(input).find((l) => l.sideIds.includes(add.sideId));
+    if (!loop) continue;
+    const cs = loop.corners;
+    const n = cs.length;
+    const floor: RoofSection["floor"] = input.upper ? (loop === input.upper ? "upper" : "main") : undefined;
+    const i = loop.sideIds.indexOf(add.sideId);
+    const p = cs[i] as Pt;
+    const q = cs[(i + 1) % n] as Pt;
     const len = Math.hypot(q.x - p.x, q.y - p.y);
     if (len < 1e-9) continue;
     const d = { x: (q.x - p.x) / len, y: (q.y - p.y) / len };
@@ -1376,14 +1741,14 @@ function withAdditions(input: RoofInput, base: RoofSection[], nameOf: (id: strin
       { x: r.x1, y: r.y1 },
     ];
     // Only round an outside corner does a porch run on past the side's end; at an inside one the next wall stops it.
-    const outsideStart = lo <= 1e-6 && !isReflex(input.corners, i);
-    const outsideEnd = hi >= len - 1e-6 && !isReflex(input.corners, (i + 1) % n);
+    const outsideStart = lo <= 1e-6 && !isReflex(cs, i);
+    const outsideEnd = hi >= len - 1e-6 && !isReflex(cs, (i + 1) % n);
     // The wall that stops it there - the garage's side, say - which it is flashed against when that is a roof apart.
     const lineOf = (u: Pt, v: Pt): WallEdge =>
       Math.abs(u.x - v.x) < 1e-9 ? { vertical: true, at: u.x, from: Math.min(u.y, v.y), to: Math.max(u.y, v.y) } : { vertical: false, at: u.y, from: Math.min(u.x, v.x), to: Math.max(u.x, v.x) };
     const stops: WallEdge[] = [
-      ...(lo <= 1e-6 && !outsideStart ? [lineOf(input.corners[(i - 1 + n) % n] as Pt, p)] : []),
-      ...(hi >= len - 1e-6 && !outsideEnd ? [lineOf(q, input.corners[(i + 2) % n] as Pt)] : []),
+      ...(lo <= 1e-6 && !outsideStart ? [lineOf(cs[(i - 1 + n) % n] as Pt, p)] : []),
+      ...(hi >= len - 1e-6 && !outsideEnd ? [lineOf(q, cs[(i + 2) % n] as Pt)] : []),
     ];
 
     if (add.kind === "porch" && add.lower) {
@@ -1395,20 +1760,21 @@ function withAdditions(input: RoofInput, base: RoofSection[], nameOf: (id: strin
       // At a corner of the side it runs on past it by a rake's overhang, as the roof above does.
       const a0 = outsideStart ? -input.rakeOverhangFeet : lo;
       const a1 = outsideEnd ? len + input.rakeOverhangFeet : hi;
-      // One slope, rising from its eave to the wall: run in from the eave is depth - out.
-      const plane: Plane = { a: -out.x, b: -out.y, c: depth + p.x * out.x + p.y * out.y, sideId: add.sideId, tag: add.id };
+      // One slope, rising from its eave to the wall at its own pitch (the roof's unless said): run in from the eave is depth - out.
+      const pitch = pitchFor(input, add.id);
+      const plane: Plane = { ...sloped(-out.x, -out.y, depth + p.x * out.x + p.y * out.y, pitch / 12, add.sideId, add.id), tag: add.id };
       const vertical = Math.abs(d.x) < 0.5;
       const wallEdge: WallEdge = vertical ? { vertical, at: p.x, from: Math.min(p.y, q.y), to: Math.max(p.y, q.y) } : { vertical, at: p.y, from: Math.min(p.x, q.x), to: Math.max(p.x, q.x) };
       const layer = 1 + Math.max(...sections.map((s) => s.layer));
-      sections.push(planeSection("porch", layer, rectOf(a0, a1, 0, depth), [plane], [wallEdge, ...stops]));
+      sections.push(planeSection("porch", layer, rectOf(a0, a1, 0, depth), [plane], [wallEdge, ...stops], add.id, pitch));
       continue;
     }
 
     // The slope running down to this side: the plane rising from its wall.
-    const owner = sections.find(
-      (s) => (s.role === "main" || s.role === "wing") && sectionPlanes(s).some((pl) => pl.sideId === add.sideId && Math.abs(pl.a + out.x) < 1e-9 && Math.abs(pl.b + out.y) < 1e-9),
-    );
-    const plane = owner ? sectionPlanes(owner).find((pl) => pl.sideId === add.sideId && Math.abs(pl.a + out.x) < 1e-9 && Math.abs(pl.b + out.y) < 1e-9) : undefined;
+    // Rising from this side's wall, inward, at whatever pitch (level, on a flat roof).
+    const risesFrom = (pl: Plane) => pl.sideId === add.sideId && Math.abs(pl.a * out.y - pl.b * out.x) < 1e-9 && pl.a * out.x + pl.b * out.y <= 1e-12;
+    const owner = sections.find((s) => (s.role === "main" || s.role === "wing") && (floor === undefined || s.floor === floor) && sectionPlanes(s).some(risesFrom));
+    const plane = owner ? sectionPlanes(owner).find(risesFrom) : undefined;
     if (!owner || !plane) {
       notes.push(
         add.kind === "porch"
@@ -1417,8 +1783,12 @@ function withAdditions(input: RoofInput, base: RoofSection[], nameOf: (id: strin
       );
       continue;
     }
-    // Run from the drip line in to the wall: how far out the drip line stands.
-    const dripOut = planeAt(plane, p.x, p.y);
+    // How far out the drip line stands from the wall: the slope's run from its drip line in to the wall.
+    const ownerSlope = owner.pitch / 12;
+    const dripOut = ownerSlope > 0 ? planeAt(plane, p.x, p.y) / ownerSlope : input.eaveOverhangFeet;
+    // A porch or cross gable at the slope's pitch unless said.
+    const pitch = pitchFor(input, add.id, owner.pitch);
+    const k = pitch / 12;
 
     if (add.kind === "porch") {
       const depth = add.depthFeet ?? 0;
@@ -1430,7 +1800,9 @@ function withAdditions(input: RoofInput, base: RoofSection[], nameOf: (id: strin
       const reach = corners(owner).map(alongOf);
       const a0 = outsideStart ? Math.min(...reach) : lo;
       const a1 = outsideEnd ? Math.max(...reach) : hi;
-      sections.push(planeSection("porch", owner.layer, rectOf(a0, a1, dripOut, depth), [plane], stops));
+      // At the slope's own pitch it is that very plane; at another it breaks from it along the old drip line.
+      const porchPlane = Math.abs(pitch - owner.pitch) < 1e-9 ? plane : { ...sloped(-out.x, -out.y, dripOut + p.x * out.x + p.y * out.y, k, add.sideId, add.id), tag: add.id };
+      sections.push(planeSection("porch", owner.layer, rectOf(a0, a1, dripOut, depth), [porchPlane], stops, add.id, pitch));
       continue;
     }
 
@@ -1448,22 +1820,36 @@ function withAdditions(input: RoofInput, base: RoofSection[], nameOf: (id: strin
         break;
       }
     }
-    const zFront = dripOut - front;
-    // Its ridge, half its width up, must die into the slope before the slope's own top.
-    const back = at(mid, front - half);
+    const frontPt = at(mid, front);
+    const zFront = planeAt(plane, frontPt.x, frontPt.y);
+    if (ownerSlope <= 0 || k <= 0) {
+      notes.push(`The cross gable on ${name} has no slope to rise out of at a flat pitch, so it is left out.`);
+      continue;
+    }
+    // Its ridge, half its width up at its own pitch, must die into the slope before the slope's own top: a steeper gable reaches further in.
+    const deep = (half * k) / ownerSlope;
+    const back = at(mid, front - deep);
     const zBack = surface.z(back.x, back.y);
-    if (zBack === null || zBack < zFront + half - 1e-6) {
+    if (zBack === null || zBack < zFront + half * k - 1e-6) {
       notes.push(`The cross gable on ${name} is too wide for the slope it rises out of: its ridge would stand over the roof's.`);
       continue;
     }
     const pd = p.x * d.x + p.y * d.y;
     const planes: Plane[] = [
-      { a: d.x, b: d.y, c: zFront - lo - pd, sideId: null, tag: `${add.id}-left` },
-      { a: -d.x, b: -d.y, c: zFront + hi + pd, sideId: null, tag: `${add.id}-right` },
+      { a: d.x * k, b: d.y * k, c: zFront - k * (lo + pd), sideId: null, tag: `${add.id}-left`, section: add.id },
+      { a: -d.x * k, b: -d.y * k, c: zFront + k * (hi + pd), sideId: null, tag: `${add.id}-right`, section: add.id },
     ];
-    sections.push(planeSection("gable", owner.layer, rectOf(lo, hi, front - half, front), planes));
+    sections.push(planeSection("gable", owner.layer, rectOf(lo, hi, front - deep, front), planes, [], add.id, pitch));
   }
+  // On a two-storey house a porch or cross gable is the floor's whose side it is on: named, and walled, as its sides are.
+  if (input.upper) for (const s of sections) if (s.floor === undefined && (s.role === "porch" || s.role === "gable")) s.floor = floorOfAddition(input, s.key);
   return sections;
+}
+
+/** The floor a porch or cross gable is on, by its side. */
+function floorOfAddition(input: RoofInput, key: string): "main" | "upper" {
+  const add = (input.additions ?? []).find((a) => a.id === key);
+  return add && input.upper?.sideIds.includes(add.sideId) ? "upper" : "main";
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1519,6 +1905,16 @@ function profile(surface: Surface, a: Pt, b: Pt): { t: number; z: number | null 
   return ts.map((t) => ({ t, z: surface.z(a.x + d.x * t, a.y + d.y * t) }));
 }
 
+/** How two planes face in plan: opposite ways (a ridge between them), the same way or one flat (a change of pitch), or across. */
+function facingOf2(p: Plane, q: Plane): "opposite" | "same" | "across" {
+  const gp = Math.hypot(p.a, p.b);
+  const gq = Math.hypot(q.a, q.b);
+  if (gp < 1e-12 || gq < 1e-12) return "same";
+  const cross = (p.a * q.b - p.b * q.a) / (gp * gq);
+  if (Math.abs(cross) > 1e-9) return "across";
+  return p.a * q.a + p.b * q.b < 0 ? "opposite" : "same";
+}
+
 /** A crease between planes p and q, wherever it really is one. */
 function creasesBetween(surface: Surface, p: Plane, q: Plane, box: Box): { a: Pt; b: Pt; kind: "ridge" | "hip" | "valley" }[] {
   const na = p.a - q.a;
@@ -1533,7 +1929,10 @@ function creasesBetween(surface: Surface, p: Plane, q: Plane, box: Box): { a: Pt
   const range = clipToBox(o, d, box);
   if (!range) return [];
   const ts = uniqSorted(surface.breaks(o, d), range[0], range[1]);
-  const ridge = Math.abs(p.a + q.a) < 1e-12 && Math.abs(p.b + q.b) < 1e-12;
+  const facing = facingOf2(p, q);
+  // Two slopes facing the same way at different pitches (or one flat) meet where the slope just changes: no line to count.
+  if (facing === "same") return [];
+  const ridge = facing === "opposite";
   const delta = 1e-5;
   const found: { t0: number; t1: number; kind: "ridge" | "hip" | "valley" }[] = [];
   for (let i = 0; i + 1 < ts.length; i++) {
@@ -1703,7 +2102,7 @@ function letter(i: number): string {
  * side, as the sides are listed, every roof's slopes together (a lower roof's after the house's
  * from the same side).
  */
-function facetsOf(layers: { layer: number; surface: Surface; rects: Rect[] }[], sideOrder: string[], factor: number): RoofFacet[] {
+function facetsOf(layers: { layer: number; surface: Surface; rects: Rect[] }[], sideOrder: string[]): RoofFacet[] {
   const pieces = layers.flatMap(({ layer, surface, rects }) => slopePieces(surface, rects).map((p) => ({ ...p, layer })));
   const order = (id: string | null) => {
     const i = id === null ? -1 : sideOrder.indexOf(id);
@@ -1723,8 +2122,11 @@ function facetsOf(layers: { layer: number; surface: Surface; rects: Rect[] }[], 
       cells: p.cells,
       centroid: p.centroid,
       planSquareFeet: p.plan,
-      areaSquareFeet: p.plan * factor,
+      // Each slope on its own pitch: its plan area times its own factor.
+      areaSquareFeet: p.plan * pitchFactor(p.pitch),
       layer: p.layer,
+      pitch: p.pitch,
+      section: p.section,
     };
   });
 }
@@ -1759,6 +2161,9 @@ function slopePieces(surface: Surface, rects: Rect[]) {
     }
     cells = next;
   }
+  // Corners cut out of planes at any pitch carry float dust (a corner at -1e-17 for 0): snapped, two slopes' shared corner is one point.
+  const snap = (v: number) => Math.round(v * 1e9) / 1e9 + 0;
+  cells = cells.map((poly) => poly.map((p) => ({ x: snap(p.x), y: snap(p.y) })));
 
   const tagged = cells.map((poly) => {
     const m = centroidOf(poly);
@@ -1795,7 +2200,10 @@ function slopePieces(surface: Surface, rects: Rect[]) {
       { x: 0, y: 0 },
     );
     const plane = surface.planes[g.plane] as Plane;
-    return { plane: g.plane, sideId: plane.sideId, tag: plane.tag, cells: g.cells, plan, centroid, facing: { x: -plane.a, y: -plane.b } };
+    const slope = Math.hypot(plane.a, plane.b);
+    // Water runs down the plane, against the way it rises; a flat one faces nowhere.
+    const facing = slope > 1e-12 ? { x: -plane.a / slope, y: -plane.b / slope } : { x: 0, y: 0 };
+    return { plane: g.plane, sideId: plane.sideId, tag: plane.tag, cells: g.cells, plan, centroid, facing, pitch: slope * 12, section: plane.section ?? null };
   });
 }
 
@@ -1893,12 +2301,10 @@ function sideAlong(input: RoofInput, a: Pt, b: Pt): string | null {
 
 /** Keys that stay put: by kind and side, numbered along the side's own direction. */
 function keyEdges(input: RoofInput, pieces: Omit<RoofEdge, "key">[]): RoofEdge[] {
-  const n = input.corners.length;
   const along = (piece: Omit<RoofEdge, "key">) => {
-    const i = piece.sideId === null ? -1 : input.sideIds.indexOf(piece.sideId);
-    if (i < 0) return 0;
-    const p = input.corners[i] as Pt;
-    const q = input.corners[(i + 1) % n] as Pt;
+    const ends = sideEnds(input, piece.sideId);
+    if (!ends) return 0;
+    const [p, q] = ends;
     const len = Math.hypot(q.x - p.x, q.y - p.y) || 1;
     const mid = { x: (piece.a.x + piece.b.x) / 2, y: (piece.a.y + piece.b.y) / 2 };
     return ((mid.x - p.x) * (q.x - p.x) + (mid.y - p.y) * (q.y - p.y)) / len;
@@ -1928,7 +2334,7 @@ function alongWall(w: WallEdge, a: Pt, d: Pt): [number, number] | null {
  * level piece is an eave, a sloped one a rake - or, where it stands against a wall, headwall and
  * step flashing.
  */
-function dripPieces(surface: Surface, facets: RoofFacet[], input: RoofInput, loop: Pt[], rise: number, walls: WallEdge[], loopIndex: number, layer: number): Omit<RoofEdge, "key">[] {
+function dripPieces(surface: Surface, facets: RoofFacet[], input: RoofInput, loop: Pt[], walls: WallEdge[], loopIndex: number, layer: number, wallNames: RoofInput = input): Omit<RoofEdge, "key">[] {
   const pieces: Omit<RoofEdge, "key">[] = [];
   const n = loop.length;
   for (let i = 0; i < n; i++) {
@@ -1984,7 +2390,7 @@ function dripPieces(surface: Surface, facets: RoofFacet[], input: RoofInput, loo
       const kind: RoofEdge["kind"] = wall ? (level ? "headwall" : "step") : level ? "eave" : "rake";
       const mid = { x: a.x + d.x * tm - d.y * 1e-4, y: a.y + d.y * tm + d.x * 1e-4 };
       const facet = facetAt(facets, mid)?.key ?? null;
-      const feet = level ? t1 - t0 : Math.hypot(t1 - t0, (z1 - z0) * rise);
+      const feet = level ? t1 - t0 : Math.hypot(t1 - t0, z1 - z0);
       const last = runs[runs.length - 1];
       if (last && last.kind === kind && last.facet === facet) {
         last.t1 = t1;
@@ -1999,14 +2405,15 @@ function dripPieces(surface: Surface, facets: RoofFacet[], input: RoofInput, loo
         kind: r.kind,
         a: pa,
         b: pb,
-        za: r.z0 * rise,
-        zb: r.z1 * rise,
+        za: r.z0,
+        zb: r.z1,
         feet: r.feet,
         planFeet: r.t1 - r.t0,
         facets: r.facet === null ? [] : [r.facet],
         // Flashing is on the side whose wall it is against, if the wall is one of the outside's at all.
         sideId: r.wall
-          ? sideOn(input, r.wall.vertical, r.wall.at, r.wall.vertical ? Math.min(pa.y, pb.y) : Math.min(pa.x, pb.x), r.wall.vertical ? Math.max(pa.y, pb.y) : Math.max(pa.x, pb.x))
+          ? sideOn(wallNames, r.wall.vertical, r.wall.at, r.wall.vertical ? Math.min(pa.y, pb.y) : Math.min(pa.x, pb.x), r.wall.vertical ? Math.max(pa.y, pb.y) : Math.max(pa.x, pb.x)) ??
+            sideOn(input, r.wall.vertical, r.wall.at, r.wall.vertical ? Math.min(pa.y, pb.y) : Math.min(pa.x, pb.x), r.wall.vertical ? Math.max(pa.y, pb.y) : Math.max(pa.x, pb.x))
           : sideAlong(input, pa, pb),
         cornerAtEnd: k === runs.length - 1 ? corner : "straight",
         layer,
@@ -2076,7 +2483,6 @@ export function buildRoof(input: RoofInput): RoofPlan {
   const pitch = Math.max(0, input.pitch);
   const factor = pitchFactor(pitch);
   const hipFactor = hipValleyFactor(pitch);
-  const rise = pitch / 12;
   const footprintSquareFeet = polygonArea(input.corners);
   const built = roofSections(input);
 
@@ -2121,6 +2527,7 @@ export function buildRoof(input: RoofInput): RoofPlan {
       wingEnds: [],
       wings: [],
       notches,
+      lowerRoofs: [],
       pitch,
       pitchFactor: factor,
       hipFactor,
@@ -2133,10 +2540,11 @@ export function buildRoof(input: RoofInput): RoofPlan {
   }
 
   const notes: string[] = [];
-  if (pitch <= 0) notes.push("A flat roof: no ridge, hips or valleys, and every edge is an eave.");
-  notes.push(...built.notes);
   const nameOf = (id: string) => input.sideNames?.[id] || "that side";
+  notes.push(...built.notes);
   const sections = withAdditions(input, built.sections, nameOf, notes);
+  const pitched = sections.some((s) => s.pitch > 0);
+  if (!pitched) notes.unshift("A flat roof: no ridge, hips or valleys, and every edge is an eave.");
   const { shape } = built;
   // Each roof on its own: the house's, then each lower one against a wall.
   const roofs = [...new Set(sections.map((s) => s.layer))]
@@ -2151,10 +2559,11 @@ export function buildRoof(input: RoofInput): RoofPlan {
       };
       return { layer, own, surface: new Surface(own), outline: outlineOf(own), box };
     });
+  // Two storeys: the house's roof - over the upper floor - is lettered first, round its own sides.
+  const upperInput = input.upper ? upperOnly(input, input.upper) : null;
   const facets = facetsOf(
     roofs.map((r) => ({ layer: r.layer, surface: r.surface, rects: r.outline.rects })),
-    input.sideIds,
-    factor,
+    [...(input.upper?.sideIds ?? []), ...input.sideIds],
   );
 
   // Ridges, hips and valleys: every pair of planes, kept only where the surface really folds, cut where the slopes beside them change.
@@ -2162,7 +2571,7 @@ export function buildRoof(input: RoofInput): RoofPlan {
   const pieces: Omit<RoofEdge, "key">[] = [];
   roofs.forEach(({ layer, own, surface, outline, box }, loop) => {
     const mine = facets.filter((f) => f.layer === layer);
-    if (pitch > 0) {
+    if (pitched) {
       for (let i = 0; i < surface.planes.length; i++) {
         for (let j = i + 1; j < surface.planes.length; j++) {
           for (const c of creasesBetween(surface, surface.planes[i] as Plane, surface.planes[j] as Plane, box)) {
@@ -2171,8 +2580,8 @@ export function buildRoof(input: RoofInput): RoofPlan {
             for (const s of byFacets(surface, mine, c.a, c.b, [1, -1])) {
               const pa = { x: c.a.x + d.x * s.t0, y: c.a.y + d.y * s.t0 };
               const pb = { x: c.a.x + d.x * s.t1, y: c.a.y + d.y * s.t1 };
-              const za = (surface.z(pa.x, pa.y) ?? 0) * rise;
-              const zb = (surface.z(pb.x, pb.y) ?? 0) * rise;
+              const za = surface.z(pa.x, pa.y) ?? 0;
+              const zb = surface.z(pb.x, pb.y) ?? 0;
               const plan = s.t1 - s.t0;
               if (plan < 1e-5) continue;
               creases.push({ kind: c.kind, key: "", a: pa, b: pb, za, zb, feet: Math.hypot(plan, zb - za), facets: s.facets, layer });
@@ -2181,7 +2590,9 @@ export function buildRoof(input: RoofInput): RoofPlan {
         }
       }
     }
-    pieces.push(...dripPieces(surface, mine, input, boundaryLoop(outline.edges), rise, own.flatMap((s) => s.wallEdges), loop, layer));
+    // A roof over the upper floor runs along its sides; one over the main floor along the main floor's, flashed against the upper floor's walls.
+    const onUpper = upperInput !== null && own.some((s) => s.floor === "upper");
+    pieces.push(...dripPieces(surface, mine, onUpper ? (upperInput as RoofInput) : input, boundaryLoop(outline.edges), own.flatMap((s) => s.wallEdges), loop, layer, upperInput ?? input));
   });
   const merged = mergeCollinear(creases);
   const used = new Map<string, number>();
@@ -2211,6 +2622,9 @@ export function buildRoof(input: RoofInput): RoofPlan {
   }
 
   const planSquareFeet = roofs.reduce((sum, r) => sum + r.outline.area, 0);
+  // Each slope at its own pitch; any sliver no slope took (none, as a rule) at the roof's.
+  const facetPlan = facets.reduce((sum, f) => sum + f.planSquareFeet, 0);
+  const areaSquareFeet = facets.reduce((sum, f) => sum + f.areaSquareFeet, 0) + Math.max(0, planSquareFeet - facetPlan) * factor;
   return {
     shape,
     sections,
@@ -2222,12 +2636,13 @@ export function buildRoof(input: RoofInput): RoofPlan {
     wingEnds: built.wingEnds,
     wings: built.wings,
     notches: roofNotches(input),
+    lowerRoofs: built.lowerRoofs ?? [],
     pitch,
     pitchFactor: factor,
     hipFactor,
     planSquareFeet,
     footprintSquareFeet,
-    areaSquareFeet: planSquareFeet * factor,
+    areaSquareFeet,
     totals,
     note: notes.length > 0 ? notes.join(" ") : null,
   };
@@ -2242,22 +2657,24 @@ export function buildRoof(input: RoofInput): RoofPlan {
  * wall under a lower roof (a garage wing's) is read off that roof, above its own eave. Porches and
  * cross gables stand off the walls and change no side's gable.
  */
-export function roofRiseAlongWall(input: RoofInput, from: Pt, to: Pt): { t: number; rise: number }[] {
-  const built = roofSections(input);
-  if (!built || input.pitch <= 0) return [];
+export function roofRiseAlongWall(input: RoofInput, from: Pt, to: Pt, storey: "main" | "upper" = "main"): { t: number; rise: number; eave: number }[] {
+  const all = roofSections(input);
+  if (!all) return [];
+  // Two storeys: a main-floor wall meets only the lower roofs, an upper-floor wall only the roof over the upper floor.
+  const built = input.upper ? { ...all, sections: all.sections.filter((s) => s.floor === storey) } : all;
+  if (!built.sections.some((s) => s.pitch > 0)) return [];
   const len = Math.hypot(to.x - from.x, to.y - from.y);
   if (len < 1e-9) return [];
   const d = { x: (to.x - from.x) / len, y: (to.y - from.y) / len };
   // A wall the roof carries over - the back of a covered deck - stands under the roof, not under its edge: no gable.
   const beyond = { x: (from.x + to.x) / 2 + d.y * 1e-3, y: (from.y + to.y) / 2 - d.x * 1e-3 };
   if (roofNotches(input).some((k) => k.covered && beyond.x > k.x0 && beyond.x < k.x1 && beyond.y > k.y0 && beyond.y < k.y1)) return [];
-  const rise = input.pitch / 12;
-  const base = input.eaveOverhangFeet;
+  const oe = input.eaveOverhangFeet;
   const roofs = [...new Set(built.sections.map((s) => s.layer))]
     .sort((a, b) => a - b)
     .map((layer) => {
       const own = built.sections.filter((s) => s.layer === layer);
-      return { surface: new Surface(own), walls: own.map((s) => s.wall).filter((w): w is Rect => w !== null) };
+      return { surface: new Surface(own), walls: own.map((s) => s.wall).filter((w): w is Rect => w !== null), own };
     });
   const at = (t: number): Pt => ({ x: from.x + d.x * t, y: from.y + d.y * t });
   const ts = uniqSorted(
@@ -2265,18 +2682,30 @@ export function roofRiseAlongWall(input: RoofInput, from: Pt, to: Pt): { t: numb
     0,
     len,
   );
-  const out: { t: number; rise: number }[] = [];
+  const out: { t: number; rise: number; eave: number }[] = [];
+  // The eave there is one overhang in from the drip line, at the pitch of the section whose wall it is.
+  let base = 0;
   const push = (t: number, z: number | null) => {
-    const point = { t: t / len, rise: Math.max(0, ((z ?? base) - base) * rise) };
+    const point = { t: t / len, rise: Math.max(0, (z ?? base) - base), eave: base };
     const last = out[out.length - 1];
-    if (!last || Math.abs(last.t - point.t) > 1e-12 || Math.abs(last.rise - point.rise) > 1e-9) out.push(point);
+    if (!last || Math.abs(last.t - point.t) > 1e-12 || Math.abs(last.rise - point.rise) > 1e-9 || Math.abs(last.eave - point.eave) > 1e-9) out.push(point);
   };
   // Each stretch from the roof whose walls stand there - the house's where both do - and a step where that changes.
   for (let k = 0; k + 1 < ts.length; k++) {
     const t0 = ts[k] as number;
     const t1 = ts[k + 1] as number;
     const m = at((t0 + t1) / 2);
-    const roof = roofs.find((r) => r.walls.some((w) => inside(w, m.x, m.y))) ?? (roofs[0] as (typeof roofs)[number]);
+    const under = roofs.find((r) => r.walls.some((w) => inside(w, m.x, m.y)));
+    // Two storeys: a main-floor wall under no lower roof stands under the upper floor, and meets no roof.
+    if (!under && input.upper) {
+      base = 0;
+      push(t0, 0);
+      push(t1, 0);
+      continue;
+    }
+    const roof = under ?? (roofs[0] as (typeof roofs)[number]);
+    const section = roof.own.find((s) => s.wall && inside(s.wall, m.x, m.y)) ?? roof.own[0];
+    base = oe * ((section?.pitch ?? input.pitch) / 12);
     const p0 = at(t0);
     const p1 = at(t1);
     push(t0, roof.surface.z(p0.x, p0.y));
@@ -2285,10 +2714,74 @@ export function roofRiseAlongWall(input: RoofInput, from: Pt, to: Pt): { t: numb
   return out;
 }
 
+/**
+ * What an upper-floor wall stands on, along it from its start corner to its end, as (fraction along,
+ * feet above the floor line) at every bend: a lower roof, where one meets the wall - its underside
+ * there above its own eave, the main floor's - and the floor line itself (0) where the wall stands on
+ * the main floor's wall below. The bottom of an upper side's cladding.
+ */
+export function roofBaseAlongWall(input: RoofInput, from: Pt, to: Pt): { t: number; rise: number }[] {
+  const built = roofSections(input);
+  const len = Math.hypot(to.x - from.x, to.y - from.y);
+  if (!built || !input.upper || len < 1e-9) return [];
+  const d = { x: (to.x - from.x) / len, y: (to.y - from.y) / len };
+  // Just outside the wall: the upper floor goes counter-clockwise, so out is to the right.
+  const o = { x: from.x + d.y * 1e-4, y: from.y - d.x * 1e-4 };
+  const oe = input.eaveOverhangFeet;
+  const lower = built.sections.filter((s) => s.floor === "main");
+  const roofs = [...new Set(lower.map((s) => s.layer))].map((layer) => {
+    const own = lower.filter((s) => s.layer === layer);
+    return { own, surface: new Surface(own) };
+  });
+  const ts = uniqSorted(
+    roofs.flatMap((r) => r.surface.breaks(o, d)),
+    0,
+    len,
+  );
+  const at = (t: number): Pt => ({ x: o.x + d.x * t, y: o.y + d.y * t });
+  /** The highest lower roof over a point by the wall, above its own eave; 0 with none. */
+  const baseIn = (m: Pt, p: Pt): number => {
+    let best = 0;
+    for (const r of roofs) {
+      if (r.surface.z(m.x, m.y) === null) continue;
+      const z = r.surface.z(p.x, p.y);
+      const section = r.own.find((s) => inside(s, m.x, m.y)) ?? r.own[0];
+      if (z === null || !section) continue;
+      best = Math.max(best, z - oe * (section.pitch / 12));
+    }
+    return best;
+  };
+  const out: { t: number; rise: number }[] = [];
+  const push = (t: number, rise: number) => {
+    const last = out[out.length - 1];
+    if (!last || Math.abs(last.t - t / len) > 1e-12 || Math.abs(last.rise - rise) > 1e-9) out.push({ t: t / len, rise });
+  };
+  for (let k = 0; k + 1 < ts.length; k++) {
+    const t0 = ts[k] as number;
+    const t1 = ts[k + 1] as number;
+    if (t1 - t0 < 1e-9) continue;
+    const m = at((t0 + t1) / 2);
+    const e = Math.min(1e-6, (t1 - t0) / 4);
+    push(t0, baseIn(m, at(t0 + e)));
+    push(t1, baseIn(m, at(t1 - e)));
+  }
+  return out.some((p) => p.rise > 1e-6) ? out : [];
+}
+
+/**
+ * How far a roof's eave stands above its own drip line: one eave overhang in, at the pitch of the
+ * roof's first section (the main roof's for the house, a lower roof's own). What turns a height above
+ * the drip line into one above the eave, for the 3D view.
+ */
+export function eaveAboveDrip(plan: RoofPlan, layer: number, eaveOverhangFeet: number): number {
+  const first = plan.sections.find((s) => s.layer === layer && s.role === "main") ?? plan.sections.find((s) => s.layer === layer);
+  return eaveOverhangFeet * ((first?.pitch ?? plan.pitch) / 12);
+}
+
 const heightsFor = new WeakMap<RoofPlan, Map<number, Surface>>();
 
 /**
- * Each roof's height at a plan point, in feet of run above its own drip line (below it over a porch), or null off that
+ * Each roof's height at a plan point, in feet of rise above its own drip line (below it over a porch), or null off that
  * roof: the very surface the slopes and lines were read off, for the house drawn in 3D (lib/exterior3d.ts). Nothing is
  * worked out again here; the plan's own sections are its surface.
  */

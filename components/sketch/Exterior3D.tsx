@@ -18,7 +18,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { Exterior, RoofMaterial } from "@/lib/exterior";
+import { allSides, type Exterior, type RoofMaterial } from "@/lib/exterior";
 import { exteriorModel, POST_SIZE_FEET, type Wall3D } from "@/lib/exterior3d";
 import type { SquareFrame } from "@/lib/exteriorPhoto";
 import type { Pt } from "@/lib/roof";
@@ -144,7 +144,7 @@ function withPhoto(wall: Wall3D, paint: ReturnType<typeof paintWall>, photo: { f
 
 /** The wall's top over [x0, x1]: the lowest of its outline's top there. */
 function topOver(wall: Wall3D, x0: number, x1: number): number {
-  const top = wall.outline.slice(2);
+  const top = wall.outline.slice(wall.bottomPoints ?? 2);
   let low = Infinity;
   for (let i = 0; i + 1 < top.length; i++) {
     const p = top[i] as Pt;
@@ -385,7 +385,7 @@ export default function Exterior3D({ exterior, onClose }: Props) {
           const trouble: string[] = [];
           let waiting = 0;
           for (const p of photographed) {
-            const side = exterior.sides.find((s) => s.id === p.wall.sideId);
+            const side = allSides(exterior).find((s) => s.id === p.wall.sideId);
             const job = on && side ? squaredWallPhoto(side) : null;
             if (!job) {
               p.texture.image = p.paint.canvas;
@@ -426,7 +426,7 @@ export default function Exterior3D({ exterior, onClose }: Props) {
       disposed = true;
       teardown?.();
     };
-  }, [model, exterior.roof.material, exterior.sides]);
+  }, [model, exterior.roof.material, exterior.sides, exterior.upper]);
 
   useEffect(() => {
     api.current?.lines(showLines);

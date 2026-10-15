@@ -1776,7 +1776,7 @@ function model3d(e) {
 }
 /** A wall's top at u along it. */
 function wallTopAt(w, u) {
-  const top = w.outline.slice(2).reverse();
+  const top = w.outline.slice(w.bottomPoints ?? 2).reverse();
   for (let k = 0; k + 1 < top.length; k++) {
     const p = top[k];
     const q = top[k + 1];
@@ -2269,6 +2269,516 @@ test("roof end toggles: a tap on an end turns a gable to a hip and back; a porch
   assert(plan2.planSquareFeet > plan1.planSquareFeet + 100 && !/left out/.test(plan2.note ?? ""), plan2.note ?? `${plan2.planSquareFeet}`);
   e.roof = x.withAddition(e.roof, "gable", id("Front"), 40);
   assert(e.roof.additions[1].kind === "gable" && e.roof.additions[1].fromFeet === 15 && e.roof.additions[1].toFeet === 25, JSON.stringify(e.roof.additions[1]));
+});
+
+console.log("\ntyped roof totals (10-14)");
+
+/** The 40 x 30 gable at 6/12 worked by hand above: 15.34 SQ, ridge 42, eaves 84, rakes 2 x 32.666667 x 1.118034 = 73.045, no hips or valleys. */
+const RAKES_40X30 = 2 * 32.666667 * 1.118034;
+
+test("a typed total replaces the drawing's; a blank box keeps it", () => {
+  const e = rect(40, 30, { pitch: 6, typed: { ridge: 45, hip: null } });
+  const r = x.exteriorQuantities(e).roofing;
+  near(r.ridgeFeet, 45, "ridge as typed");
+  assert(r.from.ridge === "estimator" && r.typed, "and said to be typed");
+  near(r.hipFeet, 0, "a blank hip box keeps the drawing's none");
+  assert(r.from.hip === "drawing" && r.from.squareFeet === "drawing", "the rest from the drawing");
+  near(r.areaSquareFeet, 1533.9426, "area the drawing's");
+  near(r.drawing.ridge, 42, "the drawing's own ridge kept beside it");
+  // Cleared, it is the drawing's again.
+  e.roof.typed = { ridge: null };
+  const back = x.exteriorQuantities(e).roofing;
+  near(back.ridgeFeet, 42, "cleared: the drawing's 42'");
+  assert(!back.typed, "nothing typed");
+});
+
+test("drip edge, starter and ice & water follow the eaves, rakes and valleys - typed or drawn - unless typed themselves", () => {
+  const e = rect(40, 30, { pitch: 6, typed: { eave: 90 } });
+  let r = x.exteriorQuantities(e).roofing;
+  near(r.eaveFeet, 90, "eaves typed");
+  near(r.starterFeet, 90, "starter is the typed eaves");
+  assert(r.from.starter === "estimator", `starter from ${r.from.starter}`);
+  near(r.dripEdgeFeet, 90 + RAKES_40X30, "drip edge: typed eaves + drawn rakes");
+  assert(r.from.dripEdge === "both", `drip edge from ${r.from.dripEdge}`);
+  // No valleys on a gable roof: ice & water is the typed eaves alone, and says so.
+  near(r.iceWaterFeet, 90, "ice & water: eaves + no valleys");
+  assert(r.from.iceWater === "estimator", `ice & water from ${r.from.iceWater}`);
+  e.roof.typed = { eave: 90, dripEdge: 170, starter: 88, iceWater: 100 };
+  r = x.exteriorQuantities(e).roofing;
+  near(r.dripEdgeFeet, 170, "drip edge typed stands over eaves + rakes");
+  near(r.starterFeet, 88, "starter typed");
+  near(r.iceWaterFeet, 100, "ice & water typed");
+  near(r.closureFeet, 90 + 2 * 42, "closure strips: typed eaves + 2 x drawn ridge");
+});
+
+test("typed squares are the roof being done, whatever slopes are picked", () => {
+  const e = rect(40, 30, { pitch: 6 });
+  const facets = x.exteriorQuantities(e).roof.facets;
+  e.roof.slopes = [facets[0].key];
+  near(x.exteriorQuantities(e).roofing.areaSquareFeet, 1533.9426 / 2, "one slope of two picked: half");
+  e.roof.typed = { squareFeet: 2000 };
+  const r = x.exteriorQuantities(e).roofing;
+  near(r.areaSquareFeet, 2000, "typed area");
+  near(r.squares, 20, "20 squares");
+  e.scope = { roofing: true, sides: [], soffitFascia: false, eavestrough: false };
+  const first = x.exteriorScopeLines(e).roofing[0];
+  assert(first === "Remove & replace roofing – material to confirm – 6/12 – 20.00 SQ – from the estimator", first);
+});
+
+test("every measured line says where its number came from once anything is typed; nothing typed, the lines are as they were", () => {
+  const scope = { roofing: true, sides: [], soffitFascia: true, eavestrough: true };
+  const plain = rect(40, 30, { pitch: 6, dripEdge: true });
+  plain.scope = scope;
+  const before = x.exteriorScopeLines(plain);
+  assert(!/from the (estimator|drawing)/.test([...before.roofing, ...before.siding].join(" ")), "untouched: no source words");
+  const e = rect(40, 30, { pitch: 6, dripEdge: true, typed: { ridge: 45, eave: 90 } });
+  e.scope = scope;
+  const { roofing, siding } = x.exteriorScopeLines(e);
+  const has = (list, line) => assert(list.includes(line), `missing "${line}" in:\n      ${list.join("\n      ")}`);
+  has(roofing, "Remove & replace roofing – material to confirm – 6/12 – 15.34 SQ (all slopes) – from the drawing");
+  has(roofing, "Hip & ridge cap – 45.0 LF – from the estimator");
+  has(roofing, "Starter – 90.0 LF (eaves) – from the estimator");
+  has(roofing, `Drip edge – ${(90 + RAKES_40X30).toFixed(1)} LF (eaves + rakes) – from the estimator and the drawing – photos required`);
+  has(roofing, "Ice & water barrier – 90.0 LF (eaves + valleys) – from the estimator");
+  // Every eave and rake is chosen, so the eavestrough and soffit run along the typed eaves; the rakes are the drawing's.
+  has(siding, "Remove & replace eavestrough – 90.0 LF – from the estimator");
+  has(siding, `Remove & replace soffit – material to confirm – 90.0 LF at 1'4" overhang (120.0 SF) – eaves – from the estimator`);
+  has(siding, `Remove & replace soffit – material to confirm – ${RAKES_40X30.toFixed(1)} LF at 1' overhang (${RAKES_40X30.toFixed(1)} SF) – rakes – from the drawing`);
+  has(siding, `Remove & replace fascia – material to confirm – ${(90 + RAKES_40X30).toFixed(1)} LF (eaves + rakes) – from the estimator and the drawing`);
+  // Two runs of 42' drawn, scaled to 90' typed: 45' each, two downspouts each.
+  has(siding, "Remove & replace downspouts – 4 – 46.0 LF (eave height + 15%)");
+});
+
+test("the eavestrough keeps to the eaves picked on the plan: typed eaves stand only when every eave and rake is chosen", () => {
+  const e = rect(40, 30, { pitch: 6, typed: { eave: 150 } });
+  const all = x.exteriorQuantities(e).roofing;
+  near(all.gutter.feet, 150, "every edge chosen: the typed eaves");
+  // Two runs of 42' scaled to 75' each: three downspouts each.
+  assert(all.gutter.downspouts === 6, `downspouts ${all.gutter.downspouts}`);
+  const plan = x.exteriorQuantities(e).roof;
+  e.roof.edges = [plan.edges.find((g) => g.kind === "eave").key];
+  const one = x.exteriorQuantities(e).roofing;
+  near(one.gutter.feet, 42, "one eave picked: that eave as drawn");
+  assert(one.edgesFrom.eave === "drawing", "and said to be the drawing's");
+  near(one.eaveFeet, 150, "the roofing's eaves are still the typed ones");
+});
+
+test("no outline at all: the typed totals are the roof, and scope it", () => {
+  const e = {
+    sides: [],
+    roof: { ...x.defaultRoof(), pitch: 7, typed: { squareFeet: 2430, ridge: 38, hip: 52, valley: 18, eave: 120, rake: 30 } },
+    scope: { roofing: true, sides: [], soffitFascia: true, eavestrough: true },
+  };
+  const q = x.exteriorQuantities(e);
+  assert(q.roof === null && q.roofing !== null && !q.roofing.drawn, "no roof drawn, and roofing priced");
+  const { roofing, siding } = x.exteriorScopeLines(e);
+  const has = (list, line) => assert(list.includes(line), `missing "${line}" in:\n      ${list.join("\n      ")}`);
+  has(roofing, "Remove & replace roofing – material to confirm – 7/12 – 24.30 SQ – from the estimator");
+  has(roofing, "Steep roof charge – 7/12 to 9/12 – 24.30 SQ – from the estimator");
+  has(roofing, "Hip & ridge cap – 90.0 LF – from the estimator");
+  has(roofing, "Starter – 120.0 LF (eaves) – from the estimator");
+  has(roofing, "Ice & water barrier – 138.0 LF (eaves + valleys) – from the estimator");
+  has(roofing, "Valleys – 18.0 LF – from the estimator");
+  assert(!roofing.some((l) => /Ridge vent|Step flashing|Headwall/.test(l)), "nothing that was not typed");
+  has(siding, "Remove & replace eavestrough – 120.0 LF – from the estimator");
+  // 120' with no runs drawn: one downspout per 35', so four; no sides, so no eave height to size them by.
+  has(siding, "Remove & replace downspouts – 4");
+  has(siding, `Remove & replace soffit – material to confirm – 120.0 LF at 1'4" overhang (160.0 SF) – eaves – from the estimator`);
+  has(siding, "Remove & replace fascia – material to confirm – 150.0 LF (eaves + rakes) – from the estimator");
+  assert(!q.roofing.toAnswer.roofing.some((t) => /squares/.test(t)), "the squares are given");
+  assert(!q.roofing.toAnswer.roofing.some((t) => /pitch/.test(t)), "and the pitch typed");
+  // Squares not typed: asked for, and the line says so rather than pricing nothing.
+  delete e.roof.typed.squareFeet;
+  const r2 = x.exteriorQuantities(e).roofing;
+  assert(r2.toAnswer.roofing[0] === "the roof's squares (type them, or draw the outline)", r2.toAnswer.roofing.join("; "));
+  assert(x.exteriorScopeLines(e).roofing[0] === "Remove & replace roofing – material to confirm – 7/12 – squares to confirm", x.exteriorScopeLines(e).roofing[0]);
+  // Nothing typed and nothing drawn: no roof to tick.
+  e.roof.typed = {};
+  assert(x.exteriorQuantities(e).roofing === null, "no totals, no roofing");
+});
+
+test("a walk still going round can be scoped from typed totals while its outline waits", () => {
+  const e = x.startWalk(40, 10);
+  assert(x.exteriorQuantities(e).roofing === null, "open walk, nothing typed: no roof");
+  e.roof.typed = { squareFeet: 1800 };
+  const r = x.exteriorQuantities(e).roofing;
+  assert(r !== null && !r.drawn && Math.abs(r.squares - 18) < 1e-9, "18 typed squares");
+  // Its downspouts take the sides' own eave: 1 x 10' x 1.15.
+  e.roof.typed.eave = 30;
+  near(x.exteriorQuantities(e).roofing.gutter.downspoutFeet, 11.5, "downspout length off the walk's eave");
+});
+
+console.log("\na pitch per section (10-14)");
+
+/**
+ * A 40 x 30 house (ridge along the 40) with a 20 x 20 garage out of its front at the right, flush
+ * with the right wall: an L, no overhangs. Walked from the garage's front: [garage front 20, right
+ * 50, rear 40, left 30, the house's front 20 to the inside corner, the garage's left 20].
+ */
+const houseAndGarage = (roof = {}) =>
+  walked(
+    [
+      ["garageFront", 20, "outside"],
+      ["right", 50, "outside"],
+      ["rear", 40, "outside"],
+      ["left", 30, "outside"],
+      ["front", 20, "inside"],
+      ["garageLeft", 20, "outside"],
+    ],
+    roof,
+  );
+const F6 = Math.sqrt(1 + 0.25);
+const F4 = Math.sqrt(1 + 1 / 9);
+const F3 = Math.sqrt(1 + 1 / 16);
+
+test("a 6/12 house with a 4/12 garage tied in: its ridge runs further in, its valleys are not 45°, each slope at its own pitch", () => {
+  const e = houseAndGarage({ pitch: 6, sectionPitches: { "wing:garageFront": 4 } });
+  const q = roofOf(e);
+  const plan = q.roof;
+  const r = q.roofing;
+  const wing = plan.sections.find((s) => s.role === "wing");
+  assert(wing.key === "wing:garageFront" && wing.pitch === 4 && wing.layer === 0, `${wing.key} ${wing.pitch} layer ${wing.layer}`);
+  // The garage's ridge, 10 x 1/3 = 3'4" up, meets the house's 6/12 front slope 3'4" / (6/12) = 6'8" in from its eave.
+  const garageRidge = linesOf(plan, "ridge").find((l) => Math.abs(l.a.x - l.b.x) < 1e-9);
+  near(garageRidge.feet, 20 + 20 / 3, "the garage's ridge: 20 over the garage and 6'8\" on into the house's slope");
+  near(r.ridgeFeet, 40 + 20 + 20 / 3, "ridges: the house's 40 and the garage's");
+  // Each valley from an inside corner of the drip line to the ridge's end: 10 across, 6'8" in, 3'4" up.
+  const valleys = linesOf(plan, "valley");
+  assert(valleys.length === 2, `${valleys.length} valleys`);
+  for (const v of valleys) {
+    near(Math.hypot(v.b.x - v.a.x, v.b.y - v.a.y), Math.hypot(10, 20 / 3), "a valley's run in plan: not the 45° of one pitch");
+    near(v.feet, 10 * Math.sqrt(14 / 9), "a valley: 10 x sqrt(1 + (2/3)^2 + (1/3)^2)");
+  }
+  near(r.hipFeet, 0, "no hips");
+  // Rakes: the house's two gable ends 30 across at 6/12, the garage's front 20 across at 4/12.
+  near(r.rakeFeet, 2 * 30 * F6 + 20 * F4, "rakes");
+  near(r.eaveFeet, 20 + 40 + 20 + 20, "eaves: the house's front left of the garage, its rear, the garage's two sides");
+  // The house's 1200 less the 20 x 6'8" triangle the garage's slopes take, at 6/12; the garage's 400 and that triangle at 4/12.
+  const triangle = (20 * (20 / 3)) / 2;
+  near(r.areaSquareFeet, (1200 - triangle) * F6 + (400 + triangle) * F4, "area, each slope at its own factor");
+  const pitches = plan.facets.map((f) => `${f.sideId}:${f.pitch}`).sort();
+  assert(pitches.join() === "front:6,garageLeft:4,rear:6,right:4", pitches.join());
+  assert(r.byPitch.length === 2 && r.byPitch[0].pitch === 6 && r.byPitch[1].pitch === 4, JSON.stringify(r.byPitch));
+  near(r.byPitch[0].areaSquareFeet, (1200 - triangle) * F6, "the 6/12 squares");
+  near(r.byPitch[1].areaSquareFeet, (400 + triangle) * F4, "the 4/12 squares");
+  e.scope = { roofing: true, sides: [], soffitFascia: false, eavestrough: false };
+  const first = x.exteriorScopeLines(e).roofing[0];
+  const sq6 = (((1200 - triangle) * F6) / 100).toFixed(2);
+  const sq4 = (((400 + triangle) * F4) / 100).toFixed(2);
+  assert(first === `Remove & replace roofing – material to confirm – 6/12 on ${sq6} SQ, 4/12 on ${sq4} SQ – ${r.squares.toFixed(2)} SQ (all slopes)`, first);
+  // The garage's front gable climbs at its own 4/12: 10 across, 3'4" up, 33.3 SF.
+  near(gableOf(q, "garageFront"), (20 * (10 / 3)) / 2, "the garage's gable at 4/12");
+  near(gableOf(q, "left"), (30 * 7.5) / 2, "the house's at 6/12");
+});
+
+test("the same house and garage at one pitch is the roof it always was", () => {
+  const one = roofOf(houseAndGarage({ pitch: 6 })).roofing;
+  const said = roofOf(houseAndGarage({ pitch: 6, sectionPitches: { "wing:garageFront": 6 } })).roofing;
+  near(one.areaSquareFeet, 1600 * F6, "1600 SF of plan at 6/12");
+  near(said.areaSquareFeet, one.areaSquareFeet, "the garage said to be the roof's pitch changes nothing");
+  near(one.valleyFeet, 2 * 10 * x.hipValleyFactor(6), "45° valleys at one pitch");
+  assert(one.byPitch.length === 1, "one pitch");
+});
+
+test("a garage steeper than the house would carry its ridge over the house's: it is built lower, stopping at the wall", () => {
+  // 20 wide at 12/12 is 10' up; the house's 30 at 6/12 is 7'6".
+  const plan = roofOf(houseAndGarage({ pitch: 6, sectionPitches: { "wing:garageFront": 12 } })).roof;
+  const wing = plan.sections.find((s) => s.role === "wing");
+  assert(wing.layer === 1 && plan.wings[0].lower && plan.wings[0].forced, `layer ${wing.layer}, ${JSON.stringify(plan.wings)}`);
+  assert(/would stand over the main roof's ridge/.test(plan.note ?? ""), plan.note ?? "no note");
+  near(plan.totals.valley, 0, "no valleys: flashing instead");
+  // Its two slopes up the house's wall: 10 run, 10 up each.
+  near(plan.totals.step, 2 * 10 * Math.SQRT2, "step flashing up the garage's 12/12 slopes");
+});
+
+test("a 12/12 cross gable on a 6/12 roof: twice as deep into the slope, valleys at their true lengths", () => {
+  const e = rect(40, 30, { pitch: 6, eaveOverhangFeet: 0, rakeOverhangFeet: 0, additions: [{ id: "cg", kind: "gable", sideId: "front", fromFeet: 15, toFeet: 25 }], sectionPitches: { cg: 12 } });
+  const q = roofOf(e);
+  const plan = q.roof;
+  const r = q.roofing;
+  assert(plan.note === null, plan.note);
+  const gable = plan.sections.find((s) => s.role === "gable");
+  assert(gable.key === "cg" && gable.pitch === 12, `${gable.key} ${gable.pitch}`);
+  // Half its width (5) up at 12/12 is 5'; the 6/12 slope is 5' up 10' in. Its ridge runs those 10'.
+  near(r.ridgeFeet, 40 + 10, "the house's ridge and the cross gable's");
+  const valleys = linesOf(plan, "valley");
+  assert(valleys.length === 2, `${valleys.length} valleys`);
+  for (const v of valleys) {
+    near(Math.hypot(v.b.x - v.a.x, v.b.y - v.a.y), Math.hypot(5, 10), "a valley's run: 5 across, 10 in");
+    near(v.feet, 5 * Math.sqrt(6), "a valley: 5 x sqrt(1 + 4 + 1)");
+  }
+  // The gable's face: 5 across and 5 up each side.
+  near(r.rakeFeet, 2 * 30 * F6 + 2 * 5 * Math.SQRT2, "the house's rakes and the cross gable's");
+  near(r.eaveFeet, 30 + 40, "eaves either side of it and the rear");
+  // It takes two triangles of 5 x 10 / 2 from the front slope, at 12/12.
+  near(r.areaSquareFeet, 1150 * F6 + 50 * Math.SQRT2, "area");
+  assert(r.byPitch.map((b) => b.pitch).join() === "12,6", JSON.stringify(r.byPitch));
+  e.scope = { roofing: true, sides: [], soffitFascia: false, eavestrough: false };
+  const lines = x.exteriorScopeLines(e).roofing;
+  assert(lines.includes(`Steep roof charge – 10/12 to 12/12 – ${((50 * Math.SQRT2) / 100).toFixed(2)} SQ`), lines.join(" | "));
+  // At the roof's 6/12 it would be as before: 5 in, 45° valleys of 5 x 1.5.
+  const same = roofOf(rect(40, 30, { pitch: 6, eaveOverhangFeet: 0, rakeOverhangFeet: 0, additions: [{ id: "cg", kind: "gable", sideId: "front", fromFeet: 15, toFeet: 25 }] })).roofing;
+  near(same.valleyFeet, 2 * 5 * 1.5, "one pitch: two valleys of 7'6\"");
+  near(same.areaSquareFeet, 1200 * F6, "one pitch: no more roof");
+});
+
+test("a lean-to at its own 3/12, and a porch breaking flatter off the slope above - no crease counted where it breaks", () => {
+  const leanto = roofOf(rect(40, 30, { pitch: 6, eaveOverhangFeet: 0, rakeOverhangFeet: 0, additions: [{ id: "lt", kind: "porch", sideId: "front", fromFeet: 0, toFeet: 40, depthFeet: 8, lower: true }], sectionPitches: { lt: 3 } })).roof;
+  const lower = leanto.facets.find((f) => f.layer === 1);
+  assert(lower.pitch === 3, `${lower.pitch}`);
+  near(lower.areaSquareFeet, 320 * F3, "8 x 40 at 3/12");
+  near(leanto.totals.headwall, 40, "headwall along the wall");
+  // Its ends: 8 run, 2 up.
+  near(leanto.edges.filter((g) => g.layer === 1 && g.kind === "rake").reduce((s, g) => s + g.feet, 0), 2 * Math.hypot(8, 2), "the lean-to's rakes at 3/12");
+  const porch = (pitch) =>
+    roofOf(rect(40, 30, { pitch: 6, eaveOverhangFeet: 1, rakeOverhangFeet: 0, additions: [{ id: "p", kind: "porch", sideId: "front", fromFeet: 0, toFeet: 40, depthFeet: 8 }], sectionPitches: pitch === null ? {} : { p: pitch } }));
+  const carried = porch(null).roof;
+  assert(carried.facets.length === 2, `at the slope's pitch the porch is that slope: ${carried.facets.length} slopes`);
+  const broken = porch(3);
+  assert(broken.roof.facets.length === 3, `broken flatter it is a slope of its own: ${broken.roof.facets.length}`);
+  near(broken.roof.totals.valley + broken.roof.totals.hip, 0, "no valley or hip where the pitch changes");
+  // The house 40 x 32 at 6/12, the porch 40 x 7 past the drip line at 3/12; its ends 7 run and 1'9" down.
+  near(broken.roofing.areaSquareFeet, 1280 * F6 + 280 * F3, "area");
+  near(broken.roof.totals.rake, 2 * 32 * F6 + 2 * Math.hypot(7, 1.75), "rakes");
+});
+
+test("a tap on a section sets its pitch; the roof's own is the main's, and a blank goes back to it", () => {
+  let roof = x.defaultRoof();
+  roof = x.withSectionPitch(roof, "wing:g", 4);
+  assert(roof.sectionPitches["wing:g"] === 4, JSON.stringify(roof.sectionPitches));
+  roof = x.withSectionPitch(roof, "main", 7);
+  assert(roof.pitch === 7 && roof.sectionPitches.main === undefined, "the main's is the roof's pitch");
+  roof = x.withSectionPitch(roof, "wing:g", null);
+  assert(roof.sectionPitches["wing:g"] === undefined, "cleared");
+  // A side taken away takes its wing's pitch with it.
+  roof = x.withSectionPitch(roof, "wing:g", 4);
+  assert(x.roofWithoutSides(roof, (id) => id === "g").sectionPitches["wing:g"] === undefined, "gone with its side");
+});
+
+test("3D: the house and its 4/12 garage, and the 12/12 cross gable, stand on their walls with no crack between slopes", () => {
+  soundRoof(houseAndGarage({ pitch: 6, eaveOverhangFeet: ft(1, 4), rakeOverhangFeet: 1, sectionPitches: { "wing:garageFront": 4 } }), "6/12 house, 4/12 garage");
+  // The cross gable's face closes the front wall under it, as at one pitch: 10 across, 5' up at 12/12.
+  const { m } = soundRoof(rect(40, 30, { pitch: 6, additions: [{ id: "cg", kind: "gable", sideId: "front", fromFeet: 15, toFeet: 25 }], sectionPitches: { cg: 12 } }), "12/12 cross gable on 6/12", ["front"]);
+  const ys = m.roof.gables.filter((_, i) => i % 3 === 1);
+  near(Math.max(...ys) - Math.min(...ys), 5, "its face 5' high");
+});
+
+console.log("\ntwo storeys: an upper floor over the main floor (10-14)");
+
+/** An upper floor walked as its sides, [id, length, the corner at its end] each, 9' from the floor line to its eave, its first corner at `at`. */
+function upperOf(list, at = { sideId: "front", dx: 0, dy: 0 }) {
+  return { sides: list.map(([id, lengthFeet, turn]) => side({ id, name: id, lengthFeet, turn: turn ?? "outside", base: "grade", eaveLeftFeet: 9, eaveRightFeet: 9 })), at };
+}
+const upperBox = (w, d, at) =>
+  upperOf(
+    [
+      ["uFront", w],
+      ["uRight", d],
+      ["uRear", w],
+      ["uLeft", d],
+    ],
+    at,
+  );
+
+/** A two-storey house 30 x 24 with a one-storey garage 22 x 24 at its right, flush front and back: the main floor 52 x 24, the upper 30 x 24 over the left. */
+function boxAndGarage(roof = {}) {
+  const e = walked(
+    [
+      ["front", 52, "outside"],
+      ["right", 24, "outside"],
+      ["rear", 52, "outside"],
+      ["left", 24, "outside"],
+    ],
+    { pitch: 6, ...roof },
+  );
+  e.upper = upperBox(30, 24);
+  return e;
+}
+
+/** A two-storey house 30 x 24 with a one-storey bump-out 16 wide and 10 deep on the middle of its back. */
+function boxAndBumpOut(roof = {}) {
+  const e = walked(
+    [
+      ["front", 30, "outside"],
+      ["right", 24, "outside"],
+      ["rearRight", 7, "inside"],
+      ["bumpRight", 10, "outside"],
+      ["bumpRear", 16, "outside"],
+      ["bumpLeft", 10, "inside"],
+      ["rearLeft", 7, "outside"],
+      ["left", 24, "outside"],
+    ],
+    { pitch: 6, ...roof },
+  );
+  e.upper = upperBox(30, 24);
+  return e;
+}
+
+test("a two-storey box with a one-storey garage: the house's roof over the upper floor, the garage's lower, stopping at its wall", () => {
+  const q = roofOf(boxAndGarage());
+  const plan = q.roof;
+  const r = q.roofing;
+  assert(plan.note === null, plan.note);
+  const upper = plan.sections.filter((s) => s.floor === "upper");
+  const lower = plan.sections.filter((s) => s.floor === "main");
+  assert(upper.length === 1 && upper[0].layer === 0, `${upper.length} upper sections`);
+  assert(lower.length === 1 && lower[0].layer === 1, `${lower.length} lower sections`);
+  // The garage, 22 out from the wall and 24 along it, is deeper than a strip: its ridge runs out from the wall.
+  assert(plan.lowerRoofs.length === 1 && plan.lowerRoofs[0].sideId === "right" && plan.lowerRoofs[0].kind === "tent", JSON.stringify(plan.lowerRoofs));
+  // The house: 30 x 24 at 6/12, its ridge along the 30, 6' up. The garage: 22 x 24, its ridge 22 out from the wall, 6' up.
+  near(r.ridgeFeet, 30 + 22, "two ridges");
+  near(r.rakeFeet, 2 * 24 * F6 + 24 * F6, "the house's two gable ends and the garage's one");
+  near(r.eaveFeet, 30 + 30 + 22 + 22, "eaves");
+  // The garage's two slopes up the house's right wall: 12 run, 6 up each.
+  near(r.stepFeet, 2 * Math.hypot(12, 6), "step flashing");
+  near(r.valleyFeet + r.hipFeet + r.headwallFeet, 0, "no valleys, hips or headwall");
+  near(r.areaSquareFeet, (720 + 528) * F6, "area");
+  // The high-roof charge is the upper floor's roof's by itself, and nothing asks for it.
+  assert(r.high && r.high.automatic, JSON.stringify(r.high));
+  near(r.high.squares, (720 * F6) / 100, "high roof squares");
+  assert(!r.toAnswer.roofing.some((t) => /two storeys/.test(t)), "not asked");
+  // The main floor's sides stop at its eave: its left wall under the upper floor carries no gable; its right one the garage's.
+  assert(!q.rises.left && !q.rises.front, "no gable on a main-floor wall under the upper floor");
+  near(gableOf(q, "right"), (24 * 6) / 2, "the garage's gable on the right");
+  near(gableOf(q, "uLeft"), (24 * 6) / 2, "the house's gable on the upper floor's left");
+  // The upper right wall stands on the garage roof: its 9' wall and 6' gable, less the garage roof's 6' triangle.
+  const uRight = q.sides.find((s) => s.sideId === "uRight");
+  assert(q.bases.uRight && !q.bases.uFront, "the upper right stands on the garage roof; the upper front on the floor line");
+  near(uRight.grossSquareFeet, 24 * 9 + (24 * 6) / 2 - (24 * 6) / 2, "the upper right's cladding");
+  near(q.sides.find((s) => s.sideId === "uFront").grossSquareFeet, 30 * 9, "the upper front: 30 x 9");
+  near(q.sides.find((s) => s.sideId === "front").grossSquareFeet, 52 * 10, "the main front: one storey");
+  // The scope: the high charge said to be the upper floor's roof's.
+  const e = boxAndGarage();
+  e.scope = { roofing: true, sides: [], soffitFascia: false, eavestrough: false };
+  assert(x.exteriorScopeLines(e).roofing.includes(`High roof charge – two storeys or more – ${((720 * F6) / 100).toFixed(2)} SQ (the roof over the upper floor)`), x.exteriorScopeLines(e).roofing.join(" | "));
+});
+
+test("a two-storey with a one-storey bump-out on the back: its own roof against the back wall, as a gable or as a lean-to", () => {
+  const tent = roofOf(boxAndBumpOut());
+  assert(tent.roof.note === null, tent.roof.note);
+  // 10 out and 16 along: deeper than half its width, so a ridge running out from the wall, 8 x 1/2 = 4' up.
+  assert(tent.roof.lowerRoofs.map((l) => `${l.sideId}:${l.kind}`).join() === "bumpRear:tent", JSON.stringify(tent.roof.lowerRoofs));
+  near(tent.roofing.ridgeFeet, 30 + 10, "the house's ridge and the bump-out's");
+  near(tent.roofing.stepFeet, 2 * Math.hypot(8, 4), "its slopes flashed up the back wall");
+  near(tent.roofing.rakeFeet, 2 * 24 * F6 + 16 * F6, "rakes");
+  near(tent.roofing.eaveFeet, 60 + 20, "eaves: the house's front and back, the bump-out's two sides");
+  near(tent.roofing.areaSquareFeet, (720 + 160) * F6, "area");
+  // The upper rear stands on it: 0 either side, 4' at its ridge.
+  near(Math.max(...tent.bases.uRear.map((b) => b.rise)), 4, "the bump-out's ridge on the upper rear wall");
+  near(tent.sides.find((s) => s.sideId === "uRear").grossSquareFeet, 30 * 9 - (16 * 4) / 2, "the upper rear less the bump-out roof's triangle");
+  assert(!tent.rises.rearLeft && !tent.rises.rearRight, "the main floor's rear either side is under the upper floor: no gable");
+  near(gableOf(tent, "bumpRear"), (16 * 4) / 2, "the bump-out's gable end");
+
+  const lean = roofOf(boxAndBumpOut({ lowerRoofs: { bumpRear: "leanto" } }));
+  assert(lean.roof.lowerRoofs[0].kind === "leanto", "said to be a lean-to");
+  // One slope from its eave at the back up 10 to the wall: 5' up; level against the wall, so headwall flashing.
+  near(lean.roofing.headwallFeet, 16, "headwall along the back wall");
+  near(lean.roofing.stepFeet, 0, "no step flashing");
+  near(lean.roofing.ridgeFeet, 30, "only the house's ridge");
+  near(lean.roofing.rakeFeet, 2 * 24 * F6 + 2 * Math.hypot(10, 5), "its two ends are rakes");
+  near(lean.roofing.eaveFeet, 60 + 16, "its eave at the back");
+  near(lean.roofing.areaSquareFeet, (720 + 160) * F6, "the same area");
+  near(lean.sides.find((s) => s.sideId === "uRear").grossSquareFeet, 30 * 9 - 16 * 5, "the upper rear less the lean-to's 5' along 16'");
+});
+
+test("two storeys with overhangs: the upper floor's eaves overhang the lower roofs, and a strip along a wall is a lean-to by itself", () => {
+  // A main floor 30 x 32 under an upper floor 30 x 24 at its front: the 8' strip at the back is a lean-to.
+  const e = walked(
+    [
+      ["front", 30, "outside"],
+      ["right", 32, "outside"],
+      ["rear", 30, "outside"],
+      ["left", 32, "outside"],
+    ],
+    { pitch: 6, eaveOverhangFeet: 1, rakeOverhangFeet: 1 },
+  );
+  e.upper = upperBox(30, 24);
+  const q = roofOf(e);
+  assert(q.roof.lowerRoofs.map((l) => `${l.sideId}:${l.kind}`).join() === "rear:leanto", JSON.stringify(q.roof.lowerRoofs));
+  // The lean-to: 8 deep plus its 1' eave, 30 along plus a 1' rake each end, rising to the wall.
+  const lower = q.roof.facets.filter((f) => f.layer > 0);
+  near(lower.reduce((s, f) => s + f.planSquareFeet, 0), 9 * 32, "the lean-to's plan");
+  // Against the wall along its 30'; its top past the house's corners, under the eave above, is no flashing.
+  near(q.roof.totals.headwall, 30, "headwall along the wall");
+  // The house's roof: 32 x 26 with its overhangs, at layer 0, over the lean-to's top.
+  near(q.roof.facets.filter((f) => f.layer === 0).reduce((s, f) => s + f.planSquareFeet, 0), 32 * 26, "the upper floor's roof");
+  // The upper rear stands on the lean-to: 8 x 1/2 = 4' above the floor line all along.
+  near(Math.min(...q.bases.uRear.map((b) => b.rise)), 4, "the lean-to's top at the wall");
+});
+
+test("the upper floor is put on the main floor's plan: from a corner, its walls on the main floor's within a foot", () => {
+  const e = boxAndGarage();
+  // Drawn 6" short of the main floor's walls, and 6" in from the corner: snapped onto them.
+  e.upper = upperOf(
+    [
+      ["uFront", 29.5, "outside"],
+      ["uRight", 23.5, "outside"],
+      ["uRear", 29.5, "outside"],
+      ["uLeft", 23.5, "outside"],
+    ],
+    { sideId: "front", dx: 0.5, dy: 0.5 },
+  );
+  const fp = x.upperFootprint(e, x.exteriorFootprint(e));
+  assert(fp.closes, fp.reason);
+  const xs = [...new Set(fp.corners.map((c) => c.x))].sort((a, b) => a - b);
+  const ys = [...new Set(fp.corners.map((c) => c.y))].sort((a, b) => a - b);
+  assert(xs.join() === "0,30" && ys.join() === "0,24", `${xs} / ${ys}`);
+  // Set 4' in from the main floor's walls, it stays where it is drawn: a floor set back, its roof lower all round.
+  e.upper = upperOf(
+    [
+      ["uFront", 20, "outside"],
+      ["uRight", 16, "outside"],
+      ["uRear", 20, "outside"],
+      ["uLeft", 16, "outside"],
+    ],
+    { sideId: "front", dx: 4, dy: 4 },
+  );
+  const back = x.upperFootprint(e, x.exteriorFootprint(e));
+  assert(back.corners[0].x === 4 && back.corners[0].y === 4, JSON.stringify(back.corners[0]));
+  const q = roofOf(e);
+  assert(!/runs past|doesn't come apart/.test(q.roof.note ?? "") && q.roof.sections.some((s) => s.floor === "main"), q.roof.note);
+  // Running past the main floor's walls, it is said, and the roof is the main floor's alone.
+  e.upper = upperBox(60, 24);
+  const past = roofOf(e).roof;
+  assert(/runs past the main floor's walls/.test(past.note ?? ""), past.note ?? "no note");
+});
+
+test("one storey stays as it was: no upper floor, no high charge unless answered", () => {
+  const q = roofOf(rect(40, 30, { pitch: 6 }));
+  assert(q.upperFootprint === null && Object.keys(q.bases).length === 0, "no upper floor");
+  assert(q.roofing.high === null && q.roofing.toAnswer.roofing.includes("two storeys or higher, yes or no"), "asked");
+  const yes = roofOf(rect(40, 30, { pitch: 6, high: true })).roofing;
+  assert(yes.high && !yes.high.automatic && Math.abs(yes.high.squares - yes.squares) < 1e-9, JSON.stringify(yes.high));
+});
+
+test("3D: a two-storey box and its garage stand up - main walls to the floor line, the upper walls on it and on the garage roof", () => {
+  const e = boxAndGarage({ eaveOverhangFeet: ft(1, 4), rakeOverhangFeet: 1 });
+  // The main floor's front, rear and left run on up as the upper floor's: checked below rather than against a roof.
+  const { m } = soundRoof(e, "two storeys and a garage", ["front", "rear", "left"]);
+  const wall = (id) => m.walls.find((w) => w.sideId === id);
+  const bottomOf = (w) => w.outline.slice(0, w.bottomPoints ?? 2);
+  near(m.eaves[0], 10 + 9, "the house's eave: the floor line and the upper sides' 9'");
+  near(wallTopAt(wall("left"), 12), 10, "the main left wall stands to the floor line");
+  near(wallTopAt(wall("front"), 10), 10, "so does the main front under the upper floor");
+  near(Math.min(...bottomOf(wall("uLeft")).map((p) => p.y)), 10, "the upper left stands on it");
+  // The upper right stands on the garage roof: 6' over the floor line at the garage's ridge, on the floor line at its eaves.
+  const b = bottomOf(wall("uRight"));
+  near(Math.max(...b.map((p) => p.y)), 10 + 6, "on the garage roof's ridge");
+  near(Math.min(...b.map((p) => p.y)), 10, "and its eaves");
+  // And that roof's underside meets it there.
+  const u = wall("uRight");
+  const mid = b.reduce((best, p) => (p.y > best.y ? p : best), b[0]);
+  const hs = undersides(m, planOf(u, mid.x, -0.01));
+  assert(hs.some((h) => Math.abs(h - mid.y) < 0.02), `the garage roof at the wall: ${hs.map((h) => h.toFixed(3)).join(" / ")}, the wall's foot ${mid.y.toFixed(3)}`);
+});
+
+test("3D: the bump-out's lean-to meets the upper rear wall along a level line", () => {
+  const e = boxAndBumpOut({ lowerRoofs: { bumpRear: "leanto" } });
+  const { m } = soundRoof(e, "two storeys and a lean-to", ["front", "right", "left", "rearLeft", "rearRight"]);
+  const u = m.walls.find((w) => w.sideId === "uRear");
+  const b = u.outline.slice(0, u.bottomPoints);
+  // 10 deep at 6/12: 5' over the floor line, all along the 16' it is against.
+  near(Math.max(...b.map((p) => p.y)), 10 + 5, "the lean-to's top on the wall");
 });
 
 console.log(`\n${passed.length} passed, ${failures.length} failed`);

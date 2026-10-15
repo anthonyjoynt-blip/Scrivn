@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  allSides,
   emptyScope,
   type Exterior,
   type ExteriorQuantities,
@@ -84,23 +85,37 @@ export function ExteriorEditor({
     );
   }
 
-  const index = exterior.sides.findIndex((s) => s.id === view);
-  const current = index >= 0 ? (exterior.sides[index] as ExteriorSide) : null;
+  // The side open face-on: one of the main floor's, or of a two-storey house's upper floor's.
+  const upperSides = exterior.upper?.sides ?? [];
+  const mainIndex = exterior.sides.findIndex((s) => s.id === view);
+  const upperIndex = upperSides.findIndex((s) => s.id === view);
+  const onUpper = mainIndex < 0 && upperIndex >= 0;
+  const index = onUpper ? upperIndex : mainIndex;
+  const current = mainIndex >= 0 ? (exterior.sides[mainIndex] as ExteriorSide) : onUpper ? (upperSides[upperIndex] as ExteriorSide) : null;
+  const loop = onUpper ? { sides: upperSides, footprint: q.upperFootprint, upper: true } : { sides: exterior.sides, footprint: q.footprint, upper: false };
+  const qIndex = onUpper ? exterior.sides.length + upperIndex : mainIndex;
 
   /** A change to what was measured: from here on a scanned exterior is the estimator's (`exteriorReplaceable`). */
   const measured = (next: Exterior): Exterior => (next.source && !next.source.edited ? { ...next, source: { ...next.source, edited: true } } : next);
   const change = (f: (e: Exterior) => Exterior) => onChange((prev) => (prev ? measured(f(prev)) : prev));
-  const updateSide = (id: string, f: (side: ExteriorSide) => ExteriorSide) => change((prev) => ({ ...prev, sides: prev.sides.map((s) => (s.id === id ? f(s) : s)) }));
+  const updateSide = (id: string, f: (side: ExteriorSide) => ExteriorSide) =>
+    change((prev) => ({
+      ...prev,
+      sides: prev.sides.map((s) => (s.id === id ? f(s) : s)),
+      ...(prev.upper ? { upper: { ...prev.upper, sides: prev.upper.sides.map((s) => (s.id === id ? f(s) : s)) } } : {}),
+    }));
 
   function removeSide(id: string) {
-    const at = exterior?.sides.findIndex((s) => s.id === id) ?? -1;
+    const list = loop.sides;
+    const at = list.findIndex((s) => s.id === id);
     change((prev) => ({
       ...prev,
       sides: prev.sides.filter((s) => s.id !== id),
+      ...(prev.upper ? { upper: { ...prev.upper, sides: prev.upper.sides.filter((s) => s.id !== id) } } : {}),
       roof: roofWithoutSides(prev.roof, (x) => x === id),
       ...(prev.scope ? { scope: { ...prev.scope, sides: prev.scope.sides.filter((s) => s !== id) } } : {}),
     }));
-    const next = exterior?.sides[Math.max(0, at - 1)];
+    const next = list[Math.max(0, at - 1)];
     setView(next && next.id !== id ? next.id : "plan");
   }
 
@@ -111,7 +126,7 @@ export function ExteriorEditor({
           <button type="button" className={`option-btn${current === null ? " selected" : ""}`} aria-pressed={current === null} onClick={() => setView("plan")}>
             Plan &amp; roof
           </button>
-          {exterior.sides.map((s) => (
+          {allSides(exterior).map((s) => (
             <button key={s.id} type="button" className={`option-btn${view === s.id ? " selected" : ""}`} aria-pressed={view === s.id} onClick={() => setView(s.id)}>
               {s.name.trim() || "Side"}
             </button>
@@ -136,6 +151,8 @@ export function ExteriorEditor({
           exterior={exterior}
           side={current}
           index={index}
+          qIndex={qIndex}
+          loop={loop}
           q={q}
           readOnly={readOnly}
           onUpdate={(f) => updateSide(current.id, f)}
@@ -143,7 +160,12 @@ export function ExteriorEditor({
           onRemove={() => removeSide(current.id)}
           onInsertAfter={() => {
             const id = newSketchId("side");
-            change((prev) => withSideAfter(prev, current.id, id));
+            change((prev) => {
+              if (!onUpper || !prev.upper) return withSideAfter(prev, current.id, id);
+              // On the upper floor's own outline.
+              const done = withSideAfter({ sides: prev.upper.sides, roof: prev.roof }, current.id, id);
+              return { ...prev, upper: { ...prev.upper, sides: done.sides } };
+            });
             setView(id);
           }}
           onGo={setView}
@@ -214,7 +236,7 @@ function ExteriorScopePicker({
       </p>
       <div className="exterior-ticks">
         {tick("Roofing", scope.roofing, noRoof, () => onChange((s) => ({ ...s, roofing: !s.roofing })), "roofing", ask?.roofing)}
-        {exterior.sides.map((side, i) =>
+        {allSides(exterior).map((side, i) =>
           tick(
             `${side.name.trim() || "Side"} cladding`,
             scope.sides.includes(side.id),
@@ -226,7 +248,7 @@ function ExteriorScopePicker({
         {tick("Soffit & fascia", scope.soffitFascia, noRoof, () => onChange((s) => ({ ...s, soffitFascia: !s.soffitFascia })), "soffit", ask?.soffitFascia)}
         {tick("Eavestrough & downspouts", scope.eavestrough, noRoof, () => onChange((s) => ({ ...s, eavestrough: !s.eavestrough })), "trough", ask?.eavestrough)}
       </div>
-      {noRoof && <p className="field-note">Roofing, soffit, fascia and eavestrough need the roof: the outline closed round the house.</p>}
+      {noRoof && <p className="field-note">Roofing, soffit, fascia and eavestrough need the roof: the outline closed round the house, or its totals typed on the plan.</p>}
       {all.length > 0 && <pre className="document-text exterior-lines">{all.map((l) => `- ${l}`).join("\n")}</pre>}
     </div>
   );
@@ -235,84 +257,92 @@ function ExteriorScopePicker({
 function ExteriorTotals({ exterior, q }: { exterior: Exterior; q: ExteriorQuantities }) {
   const incomplete = q.sides.filter((s) => !s.complete);
   const r = q.roofing;
-  const fixtures = exterior.sides.flatMap((side) => (side.fixtures ?? []).filter((f) => f.count > 0).map((f) => `${fixtureLine(f)} (${side.name.trim() || "Side"}) × ${f.count}`));
+  const fixtures = allSides(exterior).flatMap((side) => (side.fixtures ?? []).filter((f) => f.count > 0).map((f) => `${fixtureLine(f)} (${side.name.trim() || "Side"}) × ${f.count}`));
+  // Only the roof's totals typed: no sides, so nothing of the walls to count.
+  const walls = exterior.sides.length > 0;
   return (
     <div className="sketch-quantities exterior-totals">
       <h3>Exterior quantities</h3>
       {incomplete.length > 0 && <p className="field-note">Not counted until an eave is put in: {incomplete.map((s) => s.name || "Side").join(", ")}.</p>}
-      <div className="sketch-qty-scroll">
-        <table className="sketch-qty-table">
-          <thead>
-            <tr>
-              <th scope="col">Cladding</th>
-              <th scope="col">Gross</th>
-              <th scope="col">Openings</th>
-              <th scope="col">Net</th>
-            </tr>
-          </thead>
-          <tbody>
-            {q.cladding.map((c) => (
-              <tr key={c.key}>
-                <th scope="row">{c.label}</th>
-                <td>{sf(c.grossSquareFeet)}</td>
-                <td>{sf(c.openingSquareFeet)}</td>
-                <td>{sf(c.netSquareFeet)}</td>
-              </tr>
-            ))}
-            {q.cladding.length > 1 && (
+      {walls && (
+        <div className="sketch-qty-scroll">
+          <table className="sketch-qty-table">
+            <thead>
               <tr>
-                <th scope="row">All cladding</th>
-                <td>{sf(q.totals.grossSquareFeet)}</td>
-                <td>{sf(q.totals.openingSquareFeet)}</td>
-                <td>{sf(q.totals.netSquareFeet)}</td>
+                <th scope="col">Cladding</th>
+                <th scope="col">Gross</th>
+                <th scope="col">Openings</th>
+                <th scope="col">Net</th>
               </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {q.cladding.map((c) => (
+                <tr key={c.key}>
+                  <th scope="row">{c.label}</th>
+                  <td>{sf(c.grossSquareFeet)}</td>
+                  <td>{sf(c.openingSquareFeet)}</td>
+                  <td>{sf(c.netSquareFeet)}</td>
+                </tr>
+              ))}
+              {q.cladding.length > 1 && (
+                <tr>
+                  <th scope="row">All cladding</th>
+                  <td>{sf(q.totals.grossSquareFeet)}</td>
+                  <td>{sf(q.totals.openingSquareFeet)}</td>
+                  <td>{sf(q.totals.netSquareFeet)}</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
       <table className="sketch-qty-table exterior-table">
         <tbody>
-          <tr>
-            <th scope="row">Gables (in the above)</th>
-            <td>
-              {sf(q.totals.gableSquareFeet)}
-              {q.pitch.source === "assumed" && q.sides.some((s) => s.gableSource === "roof") ? ", the roof's at its assumed pitch" : ""}
-            </td>
-          </tr>
-          <tr>
-            <th scope="row">House wrap (net cladding)</th>
-            <td>{sf(q.totals.netSquareFeet)}</td>
-          </tr>
-          <tr>
-            <th scope="row">Openings</th>
-            <td>{q.openings.length === 0 ? "none" : q.openings.map((o) => `${o.count} × ${OPENING_LABEL[o.kind].toLowerCase()} ${formatOpeningSize(o.widthFeet, o.heightFeet)}`).join("; ")}</td>
-          </tr>
-          <tr>
-            <th scope="row">Trim round openings</th>
-            <td>{lf(q.totals.openingTrimFeet)}</td>
-          </tr>
-          <tr>
-            <th scope="row">Outside corners</th>
-            <td>{lf(q.totals.outsideCornerFeet)}</td>
-          </tr>
-          {q.totals.insideCornerFeet > 0 && (
-            <tr>
-              <th scope="row">Inside corners</th>
-              <td>{lf(q.totals.insideCornerFeet)}</td>
-            </tr>
-          )}
-          {fixtures.length > 0 && (
-            <tr>
-              <th scope="row">On the walls</th>
-              <td>{fixtures.join("; ")}</td>
-            </tr>
+          {walls && (
+            <>
+              <tr>
+                <th scope="row">Gables (in the above)</th>
+                <td>
+                  {sf(q.totals.gableSquareFeet)}
+                  {q.pitch.source === "assumed" && q.sides.some((s) => s.gableSource === "roof") ? ", the roof's at its assumed pitch" : ""}
+                </td>
+              </tr>
+              <tr>
+                <th scope="row">House wrap (net cladding)</th>
+                <td>{sf(q.totals.netSquareFeet)}</td>
+              </tr>
+              <tr>
+                <th scope="row">Openings</th>
+                <td>{q.openings.length === 0 ? "none" : q.openings.map((o) => `${o.count} × ${OPENING_LABEL[o.kind].toLowerCase()} ${formatOpeningSize(o.widthFeet, o.heightFeet)}`).join("; ")}</td>
+              </tr>
+              <tr>
+                <th scope="row">Trim round openings</th>
+                <td>{lf(q.totals.openingTrimFeet)}</td>
+              </tr>
+              <tr>
+                <th scope="row">Outside corners</th>
+                <td>{lf(q.totals.outsideCornerFeet)}</td>
+              </tr>
+              {q.totals.insideCornerFeet > 0 && (
+                <tr>
+                  <th scope="row">Inside corners</th>
+                  <td>{lf(q.totals.insideCornerFeet)}</td>
+                </tr>
+              )}
+              {fixtures.length > 0 && (
+                <tr>
+                  <th scope="row">On the walls</th>
+                  <td>{fixtures.join("; ")}</td>
+                </tr>
+              )}
+            </>
           )}
           {r && (
             <>
               <tr>
                 <th scope="row">Roofing</th>
                 <td>
-                  {r.squares.toFixed(2)} SQ ({sf(r.areaSquareFeet)} at {formatPitch(r.pitch)}
+                  {r.squares.toFixed(2)} SQ ({sf(r.areaSquareFeet)} at {r.byPitch.length > 1 ? r.byPitch.map((b) => formatPitch(b.pitch)).join(" and ") : formatPitch(r.pitch)}
                   {r.pitchAssumed ? ", assumed" : ""}){r.allSlopes ? "" : `, slopes ${r.slopes.filter((s) => s.selected).map((s) => s.label).join(", ")}`}
                 </td>
               </tr>
@@ -334,7 +364,8 @@ function ExteriorTotals({ exterior, q }: { exterior: Exterior; q: ExteriorQuanti
       </table>
       <p className="field-note">
         Cladding is net of openings and takes in the gables, measured or from the roof. The roof&rsquo;s area is the plan inside the drip line times the pitch factor, for the slopes being
-        roofed; its lines are read off the roof the footprint, overhangs and pitch make. Squares are real: waste is the estimator&rsquo;s to add.
+        roofed; its lines are read off the roof the footprint, overhangs and pitch make, except a total typed on the plan, which replaces the drawing&rsquo;s. Squares are real: waste is
+        the estimator&rsquo;s to add.
       </p>
     </div>
   );

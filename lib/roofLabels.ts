@@ -156,11 +156,13 @@ export function facetLabels(plan: RoofPlan, fs: number): FacetLabel[] {
   // How far into a slope a length on its edge reaches: half its height and half the gap kept round it.
   const gap = fs * 0.62 * 0.12;
   const intrusion = (fs * 0.62 * 1.25) / 2 + gap / 2;
+  // A roof of more than one pitch (2026-10-14): each slope says its own under its letter.
+  const mixed = new Set(plan.facets.map((f) => Math.round(f.pitch * 10))).size > 1;
   return plan.facets.map((f) => {
     const bounds = plan.lines.filter((l) => l.facets.includes(f.key));
     const clear = (p: Pt) => Math.min(Infinity, ...bounds.map((l) => distanceToSegment(p, l.a, l.b)));
     const c = f.centroid;
-    const area = `${Math.round(f.areaSquareFeet)} SF`;
+    const area = `${mixed ? `${Math.round(f.pitch * 10) / 10}/12 · ` : ""}${Math.round(f.areaSquareFeet)} SF`;
     if (clear(c) >= fs * 1.6) {
       // The letter 1.3 high from 0.2 under the middle, the area 0.65 high under that.
       return { key: f.key, letter: f.label, area, x: c.x, y: c.y + fs * 0.26, size: fs * 1.3, box: { x: c.x, y: c.y - fs * 0.2, angle: 0, width: Math.max(fs, textWidthEm(area) * fs * 0.65), height: fs * 2 } };

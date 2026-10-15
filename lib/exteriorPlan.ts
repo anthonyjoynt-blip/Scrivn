@@ -35,8 +35,12 @@ import {
   type ExteriorRoof,
   type ExteriorSide,
   exteriorFootprint,
+  type Footprint,
   newSide,
   type SideTurn,
+  UPPER_SNAP_FEET,
+  UPPER_STOREY_FEET,
+  type UpperFloor,
 } from "./exterior";
 import type { Pt, RoofAddition, RoofEndKind, RoofPlan } from "./roof";
 import { newSketchId } from "./sketch";
@@ -79,9 +83,11 @@ export function nextFacingName(facing: Facing, taken: string[]): string {
  * first wall whichever way it mostly goes, every one after it across the one before, so each corner
  * is a corner of the house and none is a wall carried straight on.
  */
-export function snapOutlinePoint(raw: Pt, draft: Pt[], gridFeet = 1): Pt {
-  const g = (v: number) => Math.round(v / gridFeet) * gridFeet;
-  const p = { x: g(raw.x), y: g(raw.y) };
+export function snapOutlinePoint(raw: Pt, draft: Pt[], gridFeet = 1, lines?: { xs: number[]; ys: number[] }): Pt {
+  // On a line of what is traced over (the main floor, under an upper floor being drawn) when within a foot of one; else the grid.
+  const onLine = (v: number, list: number[] | undefined) => list?.filter((l) => Math.abs(l - v) <= UPPER_SNAP_FEET).sort((a, b) => Math.abs(a - v) - Math.abs(b - v))[0];
+  const g = (v: number, list?: number[]) => onLine(v, list) ?? Math.round(v / gridFeet) * gridFeet;
+  const p = { x: g(raw.x, lines?.xs), y: g(raw.y, lines?.ys) };
   const last = draft[draft.length - 1];
   if (!last) return p;
   const prev = draft[draft.length - 2];
@@ -167,9 +173,8 @@ export function closeOutline(draft: Pt[], snapFeet = 0): Pt[] | null {
  * Of the walls facing one way the outermost has the plain name - "Rear" is the back of the house,
  * not the back of a notch - and the rest are numbered from the outside in.
  */
-export function exteriorFromOutline(drawn: Pt[], eaveFeet: number = DEFAULT_EAVE_FEET): Exterior | null {
-  const ring = orthogonalRing(drawn);
-  if (!ring) return null;
+/** The wall of an outline that is its front: facing the street, nearest it, the longest of those level with it. -1 for none. */
+function frontOf(ring: Pt[]): number {
   const n = ring.length;
   const wall = (i: number) => ({ a: ring[i] as Pt, b: ring[(i + 1) % n] as Pt });
   let front = -1;
@@ -183,6 +188,15 @@ export function exteriorFromOutline(drawn: Pt[], eaveFeet: number = DEFAULT_EAVE
     const f = wall(front);
     if (a.y < f.a.y - EPS || (Math.abs(a.y - f.a.y) < EPS && b.x - a.x > f.b.x - f.a.x + EPS)) front = i;
   }
+  return front;
+}
+
+export function exteriorFromOutline(drawn: Pt[], eaveFeet: number = DEFAULT_EAVE_FEET): Exterior | null {
+  const ring = orthogonalRing(drawn);
+  if (!ring) return null;
+  const n = ring.length;
+  const wall = (i: number) => ({ a: ring[i] as Pt, b: ring[(i + 1) % n] as Pt });
+  const front = frontOf(ring);
   if (front < 0) return null;
   const walls = ring.map((_, k) => {
     const { a, b } = wall((front + k) % n);
@@ -208,6 +222,47 @@ export function exteriorFromOutline(drawn: Pt[], eaveFeet: number = DEFAULT_EAVE
     return { ...newSide(names[k] as string, w.length, eaveFeet, turn), lengthFrom: "drawn" as const };
   });
   return { sides, roof: defaultRoof() };
+}
+
+// ---------------------------------------------------------------------------------------------
+// The upper floor of a two-storey house (2026-10-14)
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * An upper floor from an outline drawn over the main floor's: its walls are sides named as the main
+ * floor's are, "Upper front" and so on, each 9' from the floor line to its eave, and it is placed by
+ * the main floor's corner nearest its first one - so retyping a main-floor length far from it leaves
+ * it be. Null when the corners can't be an outline.
+ */
+export function upperFromOutline(drawn: Pt[], main: Footprint, eaveFeet: number = UPPER_STOREY_FEET): UpperFloor | null {
+  const made = exteriorFromOutline(drawn, eaveFeet);
+  const ring = orthogonalRing(drawn);
+  if (!made || !ring || !main.closes || main.corners.length === 0) return null;
+  const start = ring[frontOf(ring)] as Pt;
+  let k = 0;
+  main.corners.forEach((c, i) => {
+    if (Math.hypot(c.x - start.x, c.y - start.y) < Math.hypot((main.corners[k] as Pt).x - start.x, (main.corners[k] as Pt).y - start.y)) k = i;
+  });
+  const corner = main.corners[k] as Pt;
+  const sides = made.sides.map((s) => ({ ...s, name: `Upper ${s.name.charAt(0).toLowerCase()}${s.name.slice(1)}`, base: "grade" as const }));
+  return { sides, at: { sideId: main.sideIds[k] as string, dx: start.x - corner.x, dy: start.y - corner.y } };
+}
+
+/** An upper floor's side typed to a length, as a main-floor side is (`withSideLength`): its own outline moves, the main floor's stays. */
+export function withUpperSideLength(exterior: Exterior, sideId: string, feet: number): Exterior {
+  const up = exterior.upper;
+  if (!up) return exterior;
+  const done = withSideLength({ sides: up.sides, roof: exterior.roof }, sideId, feet);
+  return { ...exterior, upper: { ...up, sides: done.sides }, roof: done.roof };
+}
+
+/** The upper floor taken off: its sides, and what the roof said about them. */
+export function withoutUpper(exterior: Exterior): Exterior {
+  const ids = new Set((exterior.upper?.sides ?? []).map((s) => s.id));
+  const out: Exterior = { ...exterior, roof: roofWithoutSides(exterior.roof, (id) => ids.has(id)) };
+  delete out.upper;
+  if (out.scope) out.scope = { ...out.scope, sides: out.scope.sides.filter((id) => !ids.has(id)) };
+  return out;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -506,6 +561,18 @@ export function withRoofEnd(roof: ExteriorRoof, sideId: string, kind: RoofEndKin
   return { ...roof, ends: { ...roof.ends, [sideId]: kind } };
 }
 
+/**
+ * A section's own pitch, from a tap on it on the plan (2026-10-14). The main roof's is the roof's own
+ * pitch; null puts a section back to the roof's (a porch or cross gable: the slope's it comes off).
+ */
+export function withSectionPitch(roof: ExteriorRoof, key: string, pitch: number | null): ExteriorRoof {
+  if (key === "main") return { ...roof, pitch };
+  const sectionPitches = { ...(roof.sectionPitches ?? {}) };
+  if (pitch === null) delete sectionPitches[key];
+  else sectionPitches[key] = pitch;
+  return { ...roof, sectionPitches };
+}
+
 export type AdditionKind = "porch" | "leanto" | "gable";
 
 /**
@@ -526,11 +593,19 @@ export function withAddition(roof: ExteriorRoof, kind: AdditionKind, sideId: str
 /** Everything the roof says about the sides, let go of sides that are no longer there. */
 export function roofWithoutSides(roof: ExteriorRoof, gone: (id: string) => boolean): ExteriorRoof {
   const ends = Object.fromEntries(Object.entries(roof.ends).filter(([id]) => !gone(id)));
+  const additions = roof.additions?.filter((a) => !gone(a.sideId));
+  // A section's own pitch goes with its side: a wing's and a gable over one by the side, a porch's by the porch.
+  const kept = (key: string) => {
+    const side = /^(?:wing:|over-)(.+)$/.exec(key)?.[1];
+    if (side !== undefined) return !gone(side);
+    return key === "main" || (additions ?? []).some((a) => a.id === key) || !(roof.additions ?? []).some((a) => a.id === key);
+  };
   return {
     ...roof,
     ends,
     ridgeAlong: roof.ridgeAlong !== null && gone(roof.ridgeAlong) ? null : roof.ridgeAlong,
-    additions: roof.additions?.filter((a) => !gone(a.sideId)),
+    ...(roof.sectionPitches ? { sectionPitches: Object.fromEntries(Object.entries(roof.sectionPitches).filter(([key]) => kept(key))) } : {}),
+    additions,
     lowerWings: roof.lowerWings?.filter((w) => !gone(w)),
     wingGables: roof.wingGables?.filter((w) => !gone(w)),
     coveredNotches: roof.coveredNotches?.filter((w) => !gone(w)),
