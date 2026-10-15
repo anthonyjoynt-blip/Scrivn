@@ -21,6 +21,9 @@
  *   * the report: every number in it is the quantities', what is assumed says so, it builds as a PDF
  *     with every page, on the phone's engine and in Scrivn alike
  *   * the pieces: the Finish block read and put on, which sides still want reading, the SVG painter
+ *   * the walls off the photos (2026-10-15, option 1): the 14:53 walk with its four photographed sides cut back to their two
+ *     bottom corners, read whole off the photos - cladding, windows, doors and wall top - against the walk as tapped and the
+ *     10-12 hand marks; taps win where there are any; set aside, a side is its corners again and not counted
  */
 
 import { build } from "esbuild";
@@ -282,8 +285,9 @@ for (const [index, want] of [
   ["11", { name: "Left 5", pitch: 5, rake: 25.6, over: "gable" }],
   ["6", { name: "Rear", pitch: 5, rake: 27.1, eave: 22.9, over: "gable" }],
   ["4", { name: "Front 3", pitch: null, over: "gable" }],
+  ["1", { name: "Left", over: "eave" }],
 ]) {
-  await test(`${want.name}: squared, asked, the answer set on the photo's edges - ${want.pitch ? `${want.pitch}/12` : "the doubtful pitch set aside"}`, async () => {
+  await test(`${want.name}: squared, asked, the answer set on the photo's edges - ${want.pitch ? `${want.pitch}/12` : want.pitch === null ? "the doubtful pitch set aside" : `an ${want.over} along it`}`, async () => {
     const { request, squared } = await x.prepare(capture, finish, Number(index), host);
     // The request is the one the route takes, for this capture.
     const checked = x.readTraceRequest(request);
@@ -297,11 +301,13 @@ for (const [index, want] of [
     assert(read.photos.length === 1 && read.scaleAt === 1, "read off its one photo at the walk's scale");
     assert(read.roofRead.over === want.over, `over ${read.roofRead.over}`);
     if (want.pitch === null) assert(read.roofRead.pitch === null, `pitch set aside, not ${read.roofRead.pitch}`);
-    else assert(read.roofRead.pitch === want.pitch, `pitch ${read.roofRead.pitch}`);
+    else if (want.pitch !== undefined) assert(read.roofRead.pitch === want.pitch, `pitch ${read.roofRead.pitch}`);
     // The overhangs as the roof-from-photos session read them on 10-15, its lines snapped in the editor, within 1.5".
     if (want.rake) near(read.roofRead.rakeOverhangFeet * 12, want.rake, `${want.name}'s rake overhang, inches`, 1.5);
     if (want.eave) near(read.roofRead.eaveOverhangFeet * 12, want.eave, `${want.name}'s eave overhang, inches`, 1.5);
-    assert(read.said.length > 0 && read.said.some((w) => w.includes("pitch")), read.said.join("; "));
+    assert(read.said.length > 0 && (want.pitch === undefined || read.said.some((w) => w.includes("pitch"))), read.said.join("; "));
+    // The walls off the same call: kept until set aside, put on only where nothing was tapped.
+    assert(read.walls && read.walls.taken && read.walls.shapes.length > 0 && read.walls.openings.length > 0 && read.walls.wallTop, "the walls read");
     assert(read.model === "claude-opus-5-5" && read.costUsd > 0.03, "the call it cost");
   });
 }
@@ -311,7 +317,7 @@ await test("Finish again: sides already read are not read twice; a side photogra
   const done = { format: "scrivn-finish/1", sides: Object.fromEntries(sides.map((s) => [String(s.index), { at: "t", photos: s.photos, scaleAt: 1, roofRead: { at: "t" }, said: [] }])) };
   assert(x.sidesToRead(sides, done, 1).length === 0, "all read");
   assert(x.sidesToRead(sides.map((s, k) => (k === 0 ? { ...s, photos: [...s.photos, 950] } : s)), done, 1).length === 1, "another photo");
-  assert(x.sidesToRead(sides, done, 1.04).length === 3, "a tape typed since");
+  assert(x.sidesToRead(sides, done, 1.04).length === sides.length, "a tape typed since");
   assert(x.sidesToRead([{ index: 0, name: "s", photos: [] }], null, 1).length === 0, "no photo, nothing to read");
 });
 
@@ -326,12 +332,154 @@ await test("the roof with the photos' reads: the phone's and Scrivn's import of 
   assert(wings["Wing at Left 5"] === "5/12" && wings["Wing at Rear"] === "5/12", JSON.stringify(s.roof.sections));
   assert(q.roofing.overhangs.rake.source === "photos" && q.roofing.overhangs.eave.source === "photos", "both overhangs from the photos");
   assert(s.roof.rake.endsWith("(from photos)") && s.roof.eave.endsWith("(from photos)"), `${s.roof.rake} / ${s.roof.eave}`);
-  // The three photographed sides read again would cost nothing more: none is still to read.
-  assert(s.sides.length === 3 && s.sides.every((x2) => !x2.toRead), JSON.stringify(s.sides));
+  // The four photographed sides read again would cost nothing more: none is still to read.
+  assert(s.sides.length === 4 && s.sides.every((x2) => !x2.toRead), JSON.stringify(s.sides.map((x2) => x2.name)));
+  // Taps win: every side here was tapped whole, so its walls are as tapped - no shape, opening or eave from the photo.
+  const { exterior } = scrivnOf(capture, finish);
+  for (const side of exterior.sides) {
+    assert(!(side.shapes ?? []).some((x2) => x2.from === "photo") && !side.openings.some((o) => o.from === "photo") && side.wallTopFrom === undefined, `${side.name}: as tapped`);
+  }
+  assert(s.sides.every((x2) => x2.walls.read && x2.walls.taken && x2.walls.words.startsWith("walls as tapped")), JSON.stringify(s.sides.map((x2) => x2.walls.words)));
   assert(s.sides.find((x2) => x2.name === "Front 3").said.some((w) => w.startsWith("pitch set aside")), "the garage's set aside, said");
   console.log(`    the owner's walk on the phone: ${s.roof.squares} SQ at ${s.roof.pitchText} (${s.roof.pitchWords}); eave ${s.roof.eave}, rake ${s.roof.rake}`);
   // Scan's own test reads this answer (ExteriorFinishTest): SCRIVN_SUMMARY_OUT writes it for its resources.
   if (process.env.SCRIVN_SUMMARY_OUT) writeFileSync(process.env.SCRIVN_SUMMARY_OUT, JSON.stringify(s, null, 1));
+});
+
+// ---------------------------------------------------------------------------------------------
+// The walls off the photos: two bottom corners and a photo per side (2026-10-15, option 1)
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * The walk with its photographed sides cut back to what option 1 taps: the two bottom corners, and the photo - written as Scan
+ * writes such a side (ExteriorFinishTest pins it): one open shape of the side's material along its bottom, the eaves at the
+ * bottom's height. [bare]: the same with no shape and no eave at all, as an older or hand-made file might have it.
+ */
+function cutToCorners(bare) {
+  const c = JSON.parse(capture);
+  for (const side of c.sides) {
+    if (!answers[String(side.index)]) continue;
+    const material = side.cladding ?? "stucco";
+    const along = [
+      { material, label: material[0].toUpperCase() + material.slice(1), polygon: [[0, side.bottom_left_m], [side.length_m, side.bottom_right_m]], area_m2: 0, openings_m2: 0, net_m2: 0, closed: false },
+    ];
+    Object.assign(side, {
+      eave_left_m: bare ? null : side.bottom_left_m,
+      eave_right_m: bare ? null : side.bottom_right_m,
+      peak: null,
+      pitch_12: null,
+      shapes: bare ? [] : along,
+      roofline: [],
+      openings: [],
+      areas: [],
+      gross_sf: 0,
+      net_sf: 0,
+      opening_trim_m: 0,
+    });
+  }
+  return JSON.stringify(c);
+}
+const cornersOnly = cutToCorners(false);
+
+await test("a side of its two bottom corners alone, as Scan writes it, has no height: no shape, no eave, not counted; a shape begun up the wall is a height", () => {
+  const { exterior, q, notes } = (() => {
+    const r = x.parseScanExterior(JSON.parse(cornersOnly), { scanId: null });
+    return { exterior: r.exterior, q: x.exteriorQuantities(r.exterior), notes: r.notes };
+  })();
+  for (const a of Object.values(answers)) {
+    const side = exterior.sides.find((x2) => x2.name === a.side);
+    assert(side.eaveLeftFeet === null && side.eaveRightFeet === null && (side.shapes ?? []).length === 0, `${a.side}: no height`);
+    assert(!q.sides.find((x2) => x2.name === a.side).complete, `${a.side}: not counted`);
+  }
+  assert(notes.some((n) => n.startsWith("No eave was tapped on Left, Front 3, Rear, Left 5")), notes.join(" | "));
+  assert(!notes.some((n) => /left open|uneven|differ/i.test(n) && /Left 5|Front 3/.test(n)), notes.join(" | "));
+  // The bare form reads the same.
+  const bare = x.parseScanExterior(JSON.parse(cutToCorners(true)), { scanId: null }).exterior;
+  assert(Math.abs(x.exteriorQuantities(bare).totals.netSquareFeet - q.totals.netSquareFeet) < 1e-6, "the same, bare");
+  // Begun up the wall - a third corner 1 m over the bottom, left open - is a height tapped: kept as it is.
+  const begun = JSON.parse(cornersOnly);
+  const s5 = begun.sides.find((s) => s.index === 11);
+  s5.shapes[0].polygon.push([s5.length_m, s5.bottom_right_m + 1]);
+  const kept = x.parseScanExterior(begun, { scanId: null }).exterior.sides.find((s) => s.name === "Left 5");
+  assert((kept.shapes ?? []).length === 1 && kept.eaveLeftFeet !== null, "a shape begun up the wall is kept");
+});
+
+let cornersFinish = { format: "scrivn-finish/1" };
+const ftIn = (feet) => {
+  const inches = Math.round(feet * 12);
+  return `${Math.floor(inches / 12)}'${inches % 12}"`;
+};
+
+await test("with no signal, a side tapped as its corners alone has no height, is not counted, and the phone says so", async () => {
+  const s = JSON.parse(await P.run("summary", { capture: cornersOnly, finish: null }));
+  // Scan's ExteriorFinishTest reads these answers too.
+  if (process.env.SCRIVN_CORNERS_SUMMARY_OUT) writeFileSync(process.env.SCRIVN_CORNERS_SUMMARY_OUT, JSON.stringify(s, null, 1));
+  const names = Object.values(answers).map((a) => a.side);
+  for (const n of names) assert(s.uncounted.includes(n), `${n} not counted`);
+  assert(s.sides.filter((x2) => names.includes(x2.name)).every((x2) => x2.toRead && !x2.walls.complete && x2.walls.words.startsWith("only its corners")), JSON.stringify(s.sides.map((x2) => x2.walls.words)));
+});
+
+await test("corners and a photo: Finish reads each side whole - cladding, windows, doors, wall top - the phone and Scrivn's import alike", async () => {
+  for (const index of Object.keys(answers)) {
+    const { request, squared } = await x.prepare(cornersOnly, cornersFinish, Number(index), host);
+    // No height tapped: the squared photo reaches 9 m over the side's bottom, so the wall top and the roof are in it.
+    assert(request.frame.upMaxM > 3, `${answers[index].side}: the top in the squared photo (${request.frame.upMaxM.toFixed(2)} m)`);
+    cornersFinish = await x.take(cornersOnly, cornersFinish, Number(index), answerFor(Number(index), request), squared, host, "2026-10-15T16:00:00.000Z");
+  }
+  const s = JSON.parse(await P.run("summary", { capture: cornersOnly, finish: cornersFinish }));
+  if (process.env.SCRIVN_WALLS_SUMMARY_OUT) writeFileSync(process.env.SCRIVN_WALLS_SUMMARY_OUT, JSON.stringify(s, null, 1));
+  const { q, exterior } = scrivnOf(cornersOnly, cornersFinish);
+  sameRoof(s, q, "corners and photos");
+  assert(s.uncounted.length === 0, `every side counted: ${s.uncounted.join(", ")}`);
+  for (const a of Object.values(answers)) {
+    const side = exterior.sides.find((x2) => x2.name === a.side);
+    assert(side.wallTopFrom === "photo" && side.shapes.length > 0 && side.shapes.every((x2) => x2.from === "photo") && side.openings.every((o) => o.from === "photo"), `${a.side}: all of it from the photo`);
+    const mine = s.sides.find((x2) => x2.name === a.side);
+    assert(mine.walls.complete && mine.walls.fromPhoto.shapes && mine.walls.fromPhoto.wallTop && mine.walls.words.startsWith("walls from photo:"), mine.walls.words);
+    // The phone's totals of the side are Scrivn's.
+    assert(Math.abs(q.sides.find((x2) => x2.name === a.side).netSquareFeet - Number(/(\d+) SF net/.exec(mine.walls.words)?.[1] ?? NaN)) < 1, `${a.side}: ${mine.walls.words}`);
+  }
+});
+
+await test("the walls read against the walk as tapped and the 10-12 hand marks: the same sides and openings, heights at the photo's", () => {
+  const tapped = scrivnOf(capture, null);
+  const read = scrivnOf(cornersOnly, cornersFinish);
+  const rows = [];
+  for (const a of Object.values(answers)) {
+    const t = tapped.exterior.sides.find((x2) => x2.name === a.side);
+    const r = read.exterior.sides.find((x2) => x2.name === a.side);
+    const tq = tapped.q.sides.find((x2) => x2.name === a.side);
+    const rq = read.q.sides.find((x2) => x2.name === a.side);
+    near(r.lengthFeet, t.lengthFeet, `${a.side}: the same length`, 1e-9);
+    // Every tapped opening is there, one for one: windows, doors and garage doors alike.
+    assert(r.openings.length === t.openings.length && r.openings.every((o) => t.openings.some((o2) => o2.kind === o.kind)), `${a.side}: ${t.openings.length} tapped, ${r.openings.length} read`);
+    rows.push(
+      `${a.side.padEnd(8)} eaves ${ftIn(t.eaveLeftFeet)}/${ftIn(t.eaveRightFeet)} tapped, ${ftIn(r.eaveLeftFeet)}/${ftIn(r.eaveRightFeet)} read (${Math.round((r.eaveLeftFeet - t.eaveLeftFeet) * 12)}", ${Math.round((r.eaveRightFeet - t.eaveRightFeet) * 12)}")` +
+        (t.gable && r.gable ? ` · peak ${ftIn(t.gable.peakFeet)} / ${ftIn(r.gable.peakFeet)} (${Math.round((r.gable.peakFeet - t.gable.peakFeet) * 12)}")` : "") +
+        ` · net ${Math.round(tq.netSquareFeet)} / ${Math.round(rq.netSquareFeet)} SF (${Math.round(rq.netSquareFeet - tq.netSquareFeet) >= 0 ? "+" : ""}${Math.round(rq.netSquareFeet - tq.netSquareFeet)})` +
+        ` · openings ${t.openings.map((o) => `${ftIn(o.widthFeet)}x${ftIn(o.heightFeet)}`).join(", ")} / ${r.openings.map((o) => `${ftIn(o.widthFeet)}x${ftIn(o.heightFeet)}`).join(", ")}`,
+    );
+  }
+  for (const row of rows) console.log(`    ${row}`);
+  console.log(`    house net: ${Math.round(tapped.q.totals.netSquareFeet)} SF tapped, ${Math.round(read.q.totals.netSquareFeet)} SF with the four sides read`);
+  // The west gable against the 10-12 hand marks on its photo (photo-elevation-test.md: back corner 13'10", front 11'5", peak
+  // 17'9" over the stucco's bottom, on the 13:25 walk's scale), carried onto this walk as its photo is (x1.0983, + 0'29.5").
+  const w = read.exterior.sides.find((x2) => x2.name === "Left 5");
+  const k = answers["11"].scale.k;
+  const up = answers["11"].scale.offUpM / 0.3048;
+  near(w.eaveLeftFeet, (13 + 10 / 12) * k + up, "back corner to the soffit, as hand-marked, within 2\"", 2 / 12);
+  near(w.eaveRightFeet, (11 + 5 / 12) * k + up, "front corner to the soffit, as hand-marked, within 2\"", 2 / 12);
+  near(w.gable.peakFeet, (17 + 9 / 12) * k + up, "the peak, as hand-marked, within 2\"", 2 / 12);
+});
+
+await test("set aside on the phone, a side's walls come off: it is its corners again, not counted; the roof read stays", async () => {
+  const f = JSON.parse(JSON.stringify(cornersFinish));
+  f.sides["11"].walls.taken = false;
+  const s = JSON.parse(await P.run("summary", { capture: cornersOnly, finish: f }));
+  const { exterior } = scrivnOf(cornersOnly, f);
+  const w = exterior.sides.find((x2) => x2.name === "Left 5");
+  assert(!w.wallTopFrom && (w.shapes ?? []).length === 0 && w.openings.length === 0 && w.roofRead?.pitch === 5, "corners again, the roof read kept");
+  assert(s.uncounted.includes("Left 5") && s.sides.find((x2) => x2.name === "Left 5").walls.words.startsWith("walls set aside"), "said");
 });
 
 // ---------------------------------------------------------------------------------------------
@@ -342,7 +490,7 @@ await test("the report's numbers are the quantities': walls by side and material
   const { exterior, q } = scrivnOf(capture, finish);
   const r = x.exteriorReport(exterior, { title: "The owner's house", date: "Oct 15, 2026", madeWith: "test" });
   const walls = r.tables.find((t) => t.caption === "Walls by side and material");
-  const net = walls.rows.reduce((s, row) => s + (Number(row[4]) || 0), 0);
+  const net = walls.rows.reduce((s, row) => s + (Number(row[5]) || 0), 0);
   near(net, q.totals.netSquareFeet, "net SF, rounded per row", 0.05 * walls.rows.length);
   const lines = r.tables.find((t) => t.caption === "Roof lines");
   near(Number(lines.rows.find((row) => row[0] === "Eaves")[1]), q.roofing.eaveFeet, "eaves", 0.05);
@@ -352,7 +500,7 @@ await test("the report's numbers are the quantities': walls by side and material
   assert(squares.rows.some((row) => row[0] === "All the roof" && row[1] === q.roofing.squares.toFixed(2)), "squares");
   assert(r.tables.some((t) => t.caption === "Soffit, fascia and eavestrough"), "soffit, fascia and eavestrough");
   assert(r.tables.some((t) => t.caption === "Openings") && r.tables.find((t) => t.caption === "Openings").rows.length === exterior.sides.reduce((n, s) => n + s.openings.length, 0), "every opening");
-  assert(r.photos.length === 3 && r.photos.every((p) => p.caption.startsWith("Read for the roof:")), "each photo with its read");
+  assert(r.photos.length === 4 && r.photos.every((p) => p.caption.includes("Read for the roof:")), "each photo with its read");
   assert(r.sources.some((s) => s === "Wing at Left 5: 5/12, from its gable's photo."), r.sources.join(" | "));
   assert(r.sources.some((s) => s.startsWith("Rake overhang:") && s.includes("read off the photos of")), "the rake from the photos");
 });
@@ -378,16 +526,35 @@ await test("the report from the phone's engine: a PDF with every page, the photo
   assert(text.startsWith("%PDF-"), "a PDF");
   const pages = Number(/\/Count (\d+)/.exec(text)?.[1] ?? 0);
   assert(pages >= 8, `${pages} pages`);
-  assert((text.match(/\/Subtype \/Image/g) ?? []).length === 3, "three photos");
+  assert((text.match(/\/Subtype \/Image/g) ?? []).length === 4, "four photos");
   for (const words of ["EXTERIOR REPORT", "Roof plan", "Elevations", "Side photos", "Measurements", "Walls by side and material"]) assert(text.includes(`(${words}`), `"${words}" in it`);
   if (process.env.SCRIVN_REPORT_OUT) writeFileSync(process.env.SCRIVN_REPORT_OUT, pdf);
+});
+
+await test("the report of the corners-and-photos walk says which walls came off the photos", async () => {
+  const { exterior, q } = scrivnOf(cornersOnly, cornersFinish);
+  const r = x.exteriorReport(exterior, { title: "t", date: "d", madeWith: "m" });
+  assert(r.sources.some((s) => s.startsWith("Read off the side's photo where nothing was tapped") && s.includes("Left 5 (cladding, 2 openings and wall top)")), r.sources.join(" | "));
+  const walls = r.tables.find((t) => t.caption === "Walls by side and material");
+  assert(walls.rows.filter((row) => row[2] === "photo").length >= 4, "the walls table says photo");
+  assert(r.tables.find((t) => t.caption === "Openings").rows.filter((row) => row[2] === "photo").length === Object.values(answers).reduce((n, a) => n + read0(a.side), 0), "each read opening says photo");
+  assert(r.facts.find((f) => f.label === "Cladding").value.includes("of it read off photos"), "the cover says how much");
+  assert(r.sides.find((s) => s.side.name === "Left 5").dims.some((d) => d.endsWith("(from photo)")), "the elevation's lines too");
+  const b64 = await P.run("report", { capture: cornersOnly, finish: cornersFinish, meta: { title: "The owner's house - corners and photos", date: "Oct 15, 2026", madeWith: `Scrivn Scan (${P.version})` } });
+  const text = Buffer.from(b64, "base64").toString("latin1");
+  assert(text.startsWith("%PDF-") && text.includes("(photo)"), "a PDF that says photo");
+  if (process.env.SCRIVN_WALLS_REPORT_OUT) writeFileSync(process.env.SCRIVN_WALLS_REPORT_OUT, Buffer.from(b64, "base64"));
+  function read0(name) {
+    return exterior.sides.find((x2) => x2.name === name).openings.filter((o) => o.from === "photo").length;
+  }
+  void q;
 });
 
 await test("Scrivn's own report of the claim the phone sent is the same document", () => {
   const { exterior } = scrivnOf(capture, finish);
   const meta = { title: "The owner's house - 14:53 walk, 10-12 photos", date: "Oct 15, 2026", madeWith: `Scrivn Scan (${P.version})` };
   const r = x.exteriorReport(exterior, meta);
-  const photos = Object.fromEntries([900, 901, 902].map((n) => [n, { dataUrl: `data:image/jpeg;base64,${photo(n)}`, width: 1600, height: 0 }]));
+  const photos = Object.fromEntries([900, 901, 902, 903].map((n) => [n, { dataUrl: `data:image/jpeg;base64,${photo(n)}`, width: 1600, height: 0 }]));
   for (const [n, p] of Object.entries(photos)) p.height = x.jpegSize(photo(Number(n))).height;
   const ours = Buffer.from(x.exteriorReportBytes({ report: r, svgOf: (el) => x.renderToStaticMarkup(el), photos, footer: meta.madeWith }));
   // jsPDF stamps the time it was made: past that line, byte for byte.

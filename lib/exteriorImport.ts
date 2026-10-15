@@ -50,6 +50,12 @@ const MAX_HEIGHT_M = 60;
 const MAX_SIDES = 40;
 const MAX_OPENINGS = 100;
 const MAX_SHAPES = 40;
+/**
+ * A side tapped as its two bottom corners alone (2026-10-15, the owner's option 1: Finish reads the rest off the photo) comes
+ * from Scan as one open shape along its bottom, its eaves at the bottom's height. Nothing this close over the bottom is a
+ * height tapped.
+ */
+const CORNERS_ONLY_RISE_M = 0.15;
 /** A side photographed in a few stills side by side is a tight side; more than this is a slip. */
 const MAX_PHOTOS = 8;
 /** Scan numbers a side's photos from 900, under the scan photos' cap of 1000 (lib/scanPhotos.ts). */
@@ -202,12 +208,23 @@ export function parseScanExterior(input: unknown, meta: { scanId?: string | null
       each bottom corner, which on a gable whose stucco steps out over a deck really do differ. They
       are kept as they are. /1's were two taps of one eave line, so they are averaged.
     */
-    const rawShapes = (Array.isArray(raw.shapes) ? raw.shapes : []).filter(isObject);
+    const listedShapes = (Array.isArray(raw.shapes) ? raw.shapes : []).filter(isObject);
+    /*
+      A side of its two bottom corners alone (option 1, 2026-10-15) is Scan's one open shape along the
+      bottom with its eaves there: no height was tapped. It is read as a side with no shapes and no eave
+      (named below as not counted), so Finish's walls read off its photo go on it.
+    */
+    const bottomAt = Math.max(height(raw.bottom_left_m) ?? 0, height(raw.bottom_right_m) ?? height(raw.bottom_left_m) ?? 0);
+    const cornersOnly =
+      listedShapes.length > 0 &&
+      listedShapes.every((sh) => sh.closed === false && (Array.isArray(sh.polygon) ? sh.polygon : []).every((pt) => Array.isArray(pt) && (height(pt[1]) ?? 0) <= bottomAt + CORNERS_ONLY_RISE_M)) &&
+      [tappedL, tappedR].every((e) => e === null || e <= bottomAt + CORNERS_ONLY_RISE_M);
+    const rawShapes = cornersOnly ? [] : listedShapes;
     const tappedAsShapes = rawShapes.length > 0;
-    const eave = tappedL !== null && tappedR !== null ? (tappedL + tappedR) / 2 : tappedL;
+    const eave = cornersOnly ? null : tappedL !== null && tappedR !== null ? (tappedL + tappedR) / 2 : tappedL;
     const eaveLeft = tappedAsShapes ? tappedL : eave;
     const eaveRight = tappedAsShapes ? tappedR : eave;
-    if (!tappedAsShapes && tappedL !== null && tappedR !== null && Math.abs(tappedR - tappedL) > 0.025) uneven.push(`${name} (${Math.round(Math.abs(tappedR - tappedL) / 0.0254)} in)`);
+    if (!cornersOnly && !tappedAsShapes && tappedL !== null && tappedR !== null && Math.abs(tappedR - tappedL) > 0.025) uneven.push(`${name} (${Math.round(Math.abs(tappedR - tappedL) / 0.0254)} in)`);
     const shapes: ExteriorShape[] = [];
     for (const sh of rawShapes.slice(0, MAX_SHAPES)) {
       const polygon = (Array.isArray(sh.polygon) ? sh.polygon : [])
@@ -358,7 +375,8 @@ export function parseScanExterior(input: unknown, meta: { scanId?: string | null
       : Math.abs(factor - 1) > 0.0005
         ? { from: "tape", factor }
         : { from: "phone", factor: 1 };
-  if (unmeasured.length > 0) notes.push(`No eave was tapped on ${unmeasured.join(", ")}: put it in to count that side.`);
+  // Said after the phone's Finish is put on, below: a side tapped as its corners alone has its eave off its photo then.
+  const unmeasuredAt = notes.length;
   if (uneven.length > 0) notes.push(`The two eave taps differ on ${uneven.join(", ")}; the eave is level, so the two are averaged.`);
   if (open.length > 0) notes.push(`A shape left open is drawn but not counted: ${open.join(", ")}.`);
   if (overlapping.length > 0) notes.push(`Shapes overlap on ${overlapping.join(", ")}: each overlap is counted once, as the shape tapped later.`);
@@ -457,6 +475,11 @@ export function parseScanExterior(input: unknown, meta: { scanId?: string | null
     finishedRoof = done.roof;
     notes.push(...done.notes);
   }
+  const stillUnmeasured = unmeasured.filter((name) => {
+    const s = finishedSides.find((x) => x.name === name);
+    return !s || (s.eaveLeftFeet == null && (s.shapes ?? []).length === 0);
+  });
+  if (stillUnmeasured.length > 0) notes.splice(unmeasuredAt, 0, `No eave was tapped on ${stillUnmeasured.join(", ")}: put it in, or read the side's photo (Finish exterior on the phone), to count that side.`);
 
   const outer = asObject(input);
   const captureId = typeof part.capture_id === "string" ? part.capture_id : isObject(outer) && typeof outer.capture_id === "string" ? outer.capture_id : null;
