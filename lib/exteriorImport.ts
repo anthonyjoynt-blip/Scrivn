@@ -379,8 +379,15 @@ export function parseScanExterior(input: unknown, meta: { scanId?: string | null
   const outs = (gable: boolean) => rooflines.filter((r) => hasPeak(r.points) === gable).flatMap((r) => r.points.map((p) => p.out).filter((o): o is number => o !== null && o >= 0 && o < 3));
   const eaveOuts = outs(false);
   const rakeOuts = outs(true);
-  if (eaveOuts.length > 0) roof.eaveOverhangFeet = median(eaveOuts) * FEET_PER_METRE;
-  if (rakeOuts.length > 0) roof.rakeOverhangFeet = median(rakeOuts) * FEET_PER_METRE;
+  // The phone's, not typed: the side photos' reads go over them (2026-10-15, lib/exterior.ts).
+  if (eaveOuts.length > 0) {
+    roof.eaveOverhangFeet = median(eaveOuts) * FEET_PER_METRE;
+    roof.overhangSource = { ...roof.overhangSource, eave: "scan" };
+  }
+  if (rakeOuts.length > 0) {
+    roof.rakeOverhangFeet = median(rakeOuts) * FEET_PER_METRE;
+    roof.overhangSource = { ...roof.overhangSource, rake: "scan" };
+  }
   const read = [eaveOuts.length > 0 ? `eave ${formatFeetInches(roof.eaveOverhangFeet)}` : null, rakeOuts.length > 0 ? `rake ${formatFeetInches(roof.rakeOverhangFeet)}` : null].filter(Boolean);
   if (read.length > 0) notes.push(`Overhangs from the phone's roofline: ${read.join(", ")}.`);
   /*
@@ -406,8 +413,14 @@ export function parseScanExterior(input: unknown, meta: { scanId?: string | null
     const eaveOver = num(part.roof.eave_overhang_m);
     const rakeOver = num(part.roof.rake_overhang_m);
     if (pitch !== null && pitch >= 0 && pitch <= 24) roof.pitch = pitch;
-    if (eaveOver !== null && eaveOver >= 0 && eaveOver < 3) roof.eaveOverhangFeet = eaveOver * FEET_PER_METRE;
-    if (rakeOver !== null && rakeOver >= 0 && rakeOver < 3) roof.rakeOverhangFeet = rakeOver * FEET_PER_METRE;
+    if (eaveOver !== null && eaveOver >= 0 && eaveOver < 3) {
+      roof.eaveOverhangFeet = eaveOver * FEET_PER_METRE;
+      roof.overhangSource = { ...roof.overhangSource, eave: "scan" };
+    }
+    if (rakeOver !== null && rakeOver >= 0 && rakeOver < 3) {
+      roof.rakeOverhangFeet = rakeOver * FEET_PER_METRE;
+      roof.overhangSource = { ...roof.overhangSource, rake: "scan" };
+    }
   }
 
   const outer = asObject(input);

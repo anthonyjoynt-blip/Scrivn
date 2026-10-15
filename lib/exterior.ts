@@ -248,6 +248,12 @@ export interface ExteriorRoof {
   pitch: number | null;
   eaveOverhangFeet: number;
   rakeOverhangFeet: number;
+  /**
+   * Where each overhang came from when it is not the default (2026-10-15): typed on the plan, or read
+   * by the phone off Scan's roofline. Absent from an exterior saved before then: a value off the
+   * default is taken as typed. The photos fill an overhang not typed (lib/roofFromPhotos.ts).
+   */
+  overhangSource?: { eave?: "typed" | "scan"; rake?: "typed" | "scan" };
   /** A rectangle's ridge runs parallel to this side; null = along the longer walls. */
   ridgeAlong: string | null;
   /** Each end of the roof by the side it stands over. Absent = gable. */

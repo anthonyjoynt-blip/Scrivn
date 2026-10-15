@@ -380,6 +380,10 @@ export function snapTrace(p: TraceProposals, frame: SquareFrame, g: Gray, length
   if (!s) return p;
   const line = s.wallTop.line;
   const apex = line[s.wallTop.peakIndex] as Pt;
+  // A snapped run that turns by more than 1/2 in 12 has caught some other line (a soffit seen edge-on, a fascia): as traced.
+  const was = gableSlopes(top.line, peakIndex);
+  const now = gableSlopes(line, s.wallTop.peakIndex);
+  if (!was || !now || Math.abs(was[0] - now[0]) > 0.5 || Math.abs(was[1] - now[1]) > 0.5) return p;
   const wallTop: ProposedWallTop = {
     line,
     eaveLeftFeet: heightAt(line, 0),

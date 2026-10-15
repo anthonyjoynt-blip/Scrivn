@@ -451,7 +451,8 @@ export function snapEdge(g: Gray, a: PxPt, b: PxPt, reach = 16): { a: PxPt; b: P
  */
 export function fasciaOffset(g: Gray, a: PxPt, b: PxPt, near: number, upTo: number, from = 0.2, to = 0.85, keep: (p: PxPt) => boolean = () => true): number | null {
   const { len, dx, dy, nx, ny } = frameOf(a, b);
-  const lo = 4;
+  // Clear of the wall-to-soffit step itself, whose spill reaches a few pixels.
+  const lo = 6;
   const hi = Math.max(lo + 8, Math.round(upTo));
   const ts: number[] = [];
   for (let t = from * len; t <= to * len; t += 3) {
