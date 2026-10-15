@@ -60,6 +60,8 @@ export const SLOPES_AGREE_IN_12 = 0.5;
 export const OVERHANGS_AGREE_M = 3 * INCH_M;
 /** An overhang read outside 0-4 ft is not an overhang: the line was something else. */
 const OVERHANG_MAX_M = 1.25;
+/** An overhang read under 4" is flagged, not ticked: a roof with soffits stands further out than that, and a trace on the wall's corner reads 0. */
+const SMALLEST_OVERHANG_M = 4 * INCH_M;
 /** A rake read within this of its peak is left out: the fascia rounds the apex there. */
 const NEAR_PEAK_M = 0.3;
 /**
@@ -681,10 +683,12 @@ export function readRoofLines(lines: RoofLines, lengthM: number, wallTop: WallTo
     if (read) {
       const per = read.perSlope.map((o) => (o === null ? null : o * FEET_PER_METRE)) as [number | null, number | null];
       const got = read.perSlope.filter((o): o is number => o !== null);
-      const agree = read.hangM !== null || got.length < 2 || Math.abs((got[0] as number) - (got[1] as number)) <= OVERHANGS_AGREE_M;
-      rakeOverhang = { feet: read.outM * FEET_PER_METRE, perSlope: per, hangFeet: read.hangM === null ? null : read.hangM * FEET_PER_METRE, agree };
+      const alike = read.hangM !== null || got.length < 2 || Math.abs((got[0] as number) - (got[1] as number)) <= OVERHANGS_AGREE_M;
+      const some = read.outM >= SMALLEST_OVERHANG_M;
+      rakeOverhang = { feet: read.outM * FEET_PER_METRE, perSlope: per, hangFeet: read.hangM === null ? null : read.hangM * FEET_PER_METRE, agree: alike && some };
       if (read.hangM !== null) checks.push(`The fascia hangs ${inches(read.hangM)} below the soffit, read off the two slopes together; the rake stands ${inches(read.outM)} out to the fascia's face.`);
-      else if (!agree) checks.push(`The two rakes stand out ${inches(got[0] as number)} and ${inches(got[1] as number)}: a roof's are alike, so one fascia is traced off.`);
+      else if (!alike) checks.push(`The two rakes stand out ${inches(got[0] as number)} and ${inches(got[1] as number)}: a roof's are alike, so one fascia is traced off.`);
+      if (!some) checks.push(`The rake reads under 4" out from the wall: the fascia is most likely traced on the wall top. Check it before ticking it.`);
     } else if (rakeLeft.length + rakeRight.length > 0) {
       checks.push("The fascia up the gable was traced, but no rake overhang could be read off it.");
     }
@@ -725,15 +729,18 @@ export function readRoofLines(lines: RoofLines, lengthM: number, wallTop: WallTo
       const right = best.find((r) => r.end === "right") ?? null;
       const w = best.reduce((s, r) => s + 1 / r.varM2, 0);
       const mean = best.reduce((s, r) => s + r.o / r.varM2, 0) / w;
-      const agree = !left || !right || Math.abs(left.o - right.o) <= Math.max(OVERHANGS_AGREE_M, 2 * Math.sqrt(left.varM2 + right.varM2));
+      const ends = !left || !right || Math.abs(left.o - right.o) <= Math.max(OVERHANGS_AGREE_M, 2 * Math.sqrt(left.varM2 + right.varM2));
+      // Hardly past the wall at all: the trace has most likely put the foot on the wall's own corner.
+      const some = best.every((r) => r.o >= SMALLEST_OVERHANG_M);
       eaveOverhang = {
         feet: mean * FEET_PER_METRE,
         left: left ? left.o * FEET_PER_METRE : null,
         right: right ? right.o * FEET_PER_METRE : null,
         from: (best[0] as (typeof best)[number]).from,
-        agree,
+        agree: ends && some,
       };
-      if (!agree && left && right) checks.push(`The eave reads ${inches(left.o)} past the wall at the left end and ${inches(right.o)} at the right: if the roof is the same all round, one end is traced off.`);
+      if (!ends && left && right) checks.push(`The eave reads ${inches(left.o)} past the wall at the left end and ${inches(right.o)} at the right: if the roof is the same all round, one end is traced off.`);
+      else if (!some) checks.push(`The roof edge's end reads under 4" past the wall: the trace has most likely put it on the wall's own corner. Check it before ticking it.`);
     }
   }
   for (const [end, e] of [

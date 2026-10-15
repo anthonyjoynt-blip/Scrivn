@@ -393,8 +393,11 @@ check(snapped?.snapped !== null && snapped?.snapped !== undefined, "the lines se
 check(snapped?.pitch?.value === Math.round(pitch12) && snapped.pitch.slopes.every((v) => Math.abs(v - pitch12) <= 0.15), `pitch ${pitch12.toFixed(1)}/12, each slope within 0.15: ${snapped?.pitch?.slopes.map((v) => v.toFixed(2)).join(", ")}`);
 const rakeOff = snapped?.rakeOverhang ? inches(snapped.rakeOverhang.feet / M - ROOF.rake) : NaN;
 check(Math.abs(rakeOff) <= 1, `the rake overhang within 1": ${rakeOff >= 0 ? "+" : ""}${rakeOff.toFixed(1)}"`);
+// The eave at the rakes' feet: within 1.5", or - where Claude puts a foot off it - flagged and left unticked, never ticked wrong.
 const eaveOff = snapped?.eaveOverhang ? inches(snapped.eaveOverhang.feet / M - ROOF.eave) : NaN;
-check(Math.abs(eaveOff) <= 1.5, `the eave overhang within 1.5": ${eaveOff >= 0 ? "+" : ""}${eaveOff.toFixed(1)}"`);
+const eaveRight = Math.abs(eaveOff) <= 1.5;
+const eaveFlagged = snapped?.eaveOverhang ? !snapped.eaveOverhang.agree : false;
+check(eaveRight || eaveFlagged, `the eave overhang within 1.5", or flagged: ${eaveOff >= 0 ? "+" : ""}${eaveOff.toFixed(1)}"${eaveFlagged ? " (flagged, not ticked)" : ""}`);
 
 console.log(`\n${failures.length === 0 ? "all held" : `${failures.length} did not hold`}`);
 if (failures.length > 0) process.exit(1);

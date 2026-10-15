@@ -1961,6 +1961,17 @@ test("slopes that disagree are flagged and not ticked; a trace calling a peaked 
   assert(q.roof.over === null && q.roof.pitch === null && q.roof.checks.some((c) => /calls the roof over this side an eave, but the wall top it drew rises to a peak/.test(c)), q.roof.checks.join(" | "));
 });
 
+test("a rake's foot traced on the wall's own corner reads no eave, and is flagged, not ticked", () => {
+  const cam = phone({ at: [2.6, -6.5, 1.5], yaw: 0.05, pitch: 0.15, width: 1920, height: 1080, f: 1100 });
+  const w = gableWire([cam]);
+  // Both feet where the fascia's line crosses the wall's corners, as a trace mistaking the corner for the foot would put them.
+  w.roof.left_end.point = px(seenOnWall(cam, 0, gTop(0), G.rake));
+  w.roof.right_end.point = px(seenOnWall(cam, G.L, gTop(G.L), G.rake));
+  const r = x.traceProposals(w, roofFrame, G.L * M, x.camerasAt([cam.photo])).roof;
+  assert(r.eaveOverhang.feet < 0.05 && !r.eaveOverhang.agree && x.roofPicksAtFirst(r).eave === false, JSON.stringify(r.eaveOverhang));
+  assert(r.checks.some((c) => /under 4" past the wall/.test(c)), r.checks.join(" | "));
+});
+
 test("a hip's corner: as far past the wall as out from it - unless seen down its diagonal", () => {
   const L = 10;
   const o = 0.5;
