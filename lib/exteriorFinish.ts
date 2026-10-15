@@ -152,6 +152,10 @@ export function applyScanFinish(
   for (const [k, fs] of Object.entries(finish.sides ?? {})) {
     const id = idByIndex.get(Number(k));
     if (!id) continue;
+    // Read off photos this side still has: a side undone on the phone and tapped again under the same number is another
+    // wall, with other photos (Scan never gives a number twice), and its read is not this one.
+    const has = new Set((sides.find((s) => s.id === id)?.photos ?? []).map((p) => p.n));
+    if (fs.photos.length === 0 || !fs.photos.every((n) => has.has(n))) continue;
     const k2 = fs.scaleAt > 0 ? scaleNow / fs.scaleAt : 1;
     reads.set(id, Math.abs(k2 - 1) > 1e-6 ? scaledRoofRead(scaleOverhangs(fs.roofRead, k2), k2) : fs.roofRead);
   }

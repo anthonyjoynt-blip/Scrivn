@@ -329,6 +329,8 @@ await test("the roof with the photos' reads: the phone's and Scrivn's import of 
   assert(s.sides.length === 3 && s.sides.every((x2) => !x2.toRead), JSON.stringify(s.sides));
   assert(s.sides.find((x2) => x2.name === "Front 3").said.some((w) => w.startsWith("pitch set aside")), "the garage's set aside, said");
   console.log(`    the owner's walk on the phone: ${s.roof.squares} SQ at ${s.roof.pitchText} (${s.roof.pitchWords}); eave ${s.roof.eave}, rake ${s.roof.rake}`);
+  // Scan's own test reads this answer (ExteriorFinishTest): SCRIVN_SUMMARY_OUT writes it for its resources.
+  if (process.env.SCRIVN_SUMMARY_OUT) writeFileSync(process.env.SCRIVN_SUMMARY_OUT, JSON.stringify(s, null, 1));
 });
 
 // ---------------------------------------------------------------------------------------------
@@ -407,12 +409,15 @@ await test("the Finish block is read with care: junk, the wrong format and impos
 });
 
 await test("a read made before a tape was typed is put on at the tape's scale: overhangs scale, the pitch does not", () => {
-  const sides = [{ id: "a", name: "Left", photos: [] }];
+  const sides = [{ id: "a", name: "Left", photos: [{ n: 900 }] }];
   const finish2 = { format: "scrivn-finish/1", sides: { 0: { at: "t", photos: [900], scaleAt: 1, roofRead: { at: "t", pitch: 5, rakeOverhangFeet: 2, eaveOverhangFeet: 1.5 }, said: [] } } };
   const out = x.applyScanFinish(sides, { ends: {} }, finish2, new Map([[0, "a"]]), 1.1);
   near(out.sides[0].roofRead.rakeOverhangFeet, 2.2, "rake", 1e-9);
   near(out.sides[0].roofRead.eaveOverhangFeet, 1.65, "eave", 1e-9);
   assert(out.sides[0].roofRead.pitch === 5, "pitch");
+  // Another wall under the same number (the side undone on the phone and tapped again), with its own photo: not this read.
+  const other = x.applyScanFinish([{ id: "a", name: "Left", photos: [{ n: 903 }] }], { ends: {} }, finish2, new Map([[0, "a"]]), 1);
+  assert(other.sides[0].roofRead === undefined, "not put on another wall");
 });
 
 await test("the SVG painter reads what React writes: a turned label's text, its anchor, entities, and only the standard fonts' characters", () => {
