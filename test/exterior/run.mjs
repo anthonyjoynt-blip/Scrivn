@@ -26,6 +26,9 @@
  *   * roof pieces on top of the drawing (10-15, lib/roofPieces.ts): gable and shed dormers, round and
  *     many-sided turrets, a barrel, a flat roof, each worked in closed form; and a gambrel and a
  *     mansard as a second pitch above a break (lib/roof.ts)
+ *   * the roof's shapes off the side photos (10-15, lib/roofPhotoShapes.ts): a dormer set back on its
+ *     slope seen through a phone and worked back to its width, projection and pitch; turrets; what
+ *     stands over a side; the ridge turned to the photos' gables; each as a tick under anything typed
  *   * two storeys (10-14, 10-15): the house's roof over the upper floor and lower roofs round it -
  *     lean-tos hipped round its outside corners and in a valley at an inside one, all the way round
  *     with two drip lines - the upper floor kept flush when a main length is typed, tall sides split
@@ -61,6 +64,7 @@ async function load() {
       `export * from "${lib("exteriorPhoto.ts")}";`,
       `export * from "${lib("exteriorTrace.ts")}";`,
       `export * from "${lib("roofPhotoRead.ts")}";`,
+      `export * from "${lib("roofPhotoShapes.ts")}";`,
       `export * from "${lib("exterior3d.ts")}";`,
       `export * from "${lib("exteriorPlan.ts")}";`,
       `export * from "${lib("exteriorScale.ts")}";`,
@@ -1672,7 +1676,7 @@ test("the squared image: the side and a margin, cut to what the photo holds, its
   assert(Math.max(f.width, f.height) === 2400, `${f.width}x${f.height}`);
   near(f.ppm, 2400 / (f.alongMaxM - f.alongMinM), "one scale", 1e-9);
   assert(f.alongMinM <= -2.8 && f.alongMaxM >= 8 && f.upMinM <= 0 && f.upMaxM >= 6.4, JSON.stringify(f));
-  assert(f.alongMinM >= -2.8 - 2.5 - 1e-9 && f.upMaxM <= 6.4 + 1.5 + 1e-9, "no more than the margin");
+  assert(f.alongMinM >= -2.8 - 2.5 - 1e-9 && f.upMaxM <= 6.4 + 4 + 1e-9, "no more than the margin (4 m above since 10-15: the roof over the side)");
   // Scan's square-on still from 5 m: 540 and 960 px either side of its middle at 1500 px focal hold
   // 2.2 to 5.8 m along (its in_view) and 1.5 +/- 3.2 m up - the gable's top out of it, as Scan says.
   const g = x.squareFrame(side, [narrow]);
@@ -3556,9 +3560,13 @@ test("the garage's gable photo fills the garage's own pitch; the house's gable, 
   assert(roofOf(typedPart).roof.sections.find((s) => s.key === "wing:garageFront").pitch === 3, "the part's typed pitch");
 });
 
-test("a gable photo off a side the roof has no gable end over: used for the main roof, and said", () => {
-  const e = withRead(rect(40, 30), "front", photoRead(5));
-  assert(x.photoPitches(e).unplaced.length === 1 && x.exteriorPitch(e).value === 5, JSON.stringify(x.photoPitches(e)));
+test("a gable photo off a side no ridge can put a gable end over: used for the main roof, and said", () => {
+  // 40 x 30 with gables read over the Front and the Left: a rectangle's ends are opposite sides, so no
+  // ridge fits both (since 10-15 the ridge turns to fit the photos, `ridgeFromPhotos`). Turned, it fits
+  // one, as the outline's does: it stays along the 40, and the Front's read is said.
+  const e = withRead(withRead(rect(40, 30), "front", photoRead(5)), "left", photoRead(5));
+  assert(x.ridgeFromPhotos(e) === null, "no ridge fits better than the outline's");
+  assert(x.photoPitches(e).unplaced.length === 1 && x.photoPitches(e).unplaced[0].sideId === "front" && x.exteriorPitch(e).value === 5, JSON.stringify(x.photoPitches(e)));
   assert(x.photoNotes(e).some((n) => /5\/12 \(Front\): the photo shows a gable, but the roof is drawn with no gable end over that side/.test(n)), x.photoNotes(e).join(" | "));
   // Two photos of one roof that disagree are said; two overhang reads apart, likewise.
   const two = withRead(withRead(rect(40, 30), "left", photoRead(5, "gable", { eaveOverhangFeet: 2 })), "right", photoRead(6, "gable", { eaveOverhangFeet: 1.5 }));
@@ -4460,6 +4468,329 @@ test("a wing's gable photo with a break fills the wing's own: the house typed, t
   const q = roofOf(e);
   assert(q.roof.note === null && q.roof.sections.every((s) => s.break), q.roof.note);
   near(q.roofing.valleyFeet, 2 * (Math.sqrt(96) + Math.sqrt(72 + 9)), "the two bent valleys worked by hand above");
+});
+
+console.log("\nthe roof's shapes off the photos: dormers, turrets, two storeys, the ridge's direction (10-15)");
+
+/*
+  The dormer scene, metres (worked by hand, handwork.py beside the session's notes): an eave side 12 m long,
+  its wall top 3.0 m up; the slope over it 10/12, the eave's fascia 1'6" out and the roof 8" over the soffit
+  there, so the slope at the wall's face is z0 = 3.0 + 0.2032 + (10/12)(0.4572) = 3.5842 m up. A gable
+  dormer 2.4 m wide (4.8 to 7.2 m along), its face 1.2 m back: its apron on the slope at 3.5842 + 1.0 =
+  4.5842 m; projecting 1.5 m, so its eaves 1.25 m over that, at 5.8342 m; 12/12, its peak 1.2 m higher, 7.0342 m.
+*/
+const DORMER = { L: 12, top: 3.0, m: 10 / 12, eaveOut: 1.5, b: 1.2, a0: 4.8, a1: 7.2, apron: 4.5842, eave: 5.8342, peak: 7.0342 };
+const dormerFrame = { alongMinM: -1, alongMaxM: 13, upMinM: -0.5, upMaxM: 8.5, ppm: 100, width: 1400, height: 900 };
+const dormerCam = () => phone({ at: [5.0, -8.0, 1.6], yaw: 0.05, pitch: 0.25, width: 4000, height: 3000, f: 2400 });
+/** A point [b] behind the wall as the squared image shows it, in its pixels. */
+const dpx = (cam, a, u, b = 0) => {
+  const s = seenOnWall(cam, a, u, -b);
+  return [x.frameX(dormerFrame, s.alongM), x.frameY(dormerFrame, s.upM)];
+};
+/**
+ * What a perfect trace of the eave side answers: the wall top level, the dormer's face top and apron where they show -
+ * as the call answers them, points in flat runs [x1, y1, x2, y2, ...]. [pieces] in place of the dormer; [storeys] over "none".
+ */
+function dormerWire(cam, { apron = true, kind = "gable", pieces, storeys = {} } = {}) {
+  const D = DORMER;
+  const mid = (D.a0 + D.a1) / 2;
+  const dormer = {
+    kind: `${kind}_dormer`,
+    outline: (kind === "gable" ? [dpx(cam, D.a0, D.eave, D.b), dpx(cam, mid, D.peak, D.b), dpx(cam, D.a1, D.eave, D.b)] : [dpx(cam, D.a0, D.eave, D.b), dpx(cam, D.a1, D.eave, D.b)]).flat(),
+    foot: apron ? [dpx(cam, D.a0, D.apron, D.b), dpx(cam, D.a1, D.apron, D.b)].flat() : [],
+    sides: 0,
+  };
+  return {
+    materials: [],
+    openings: [],
+    wall_top: [dpx(cam, 0, D.top), dpx(cam, D.L, D.top)],
+    off_wall: [],
+    roof: { over_wall: "eave", rake_left: [], rake_right: [], eave_line: [], left_end: { kind: "hip_corner", point: [] }, right_end: { kind: "hip_corner", point: [] }, notes: "" },
+    roof_shapes: { pieces: pieces ?? [dormer], upper_floor: "none", floor_line: [], lower_roof: "none", notes: "", ...storeys },
+    notes: "",
+  };
+}
+const dormerTrace = (opts) => {
+  const cam = dormerCam();
+  return x.traceProposals(dormerWire(cam, opts), dormerFrame, DORMER.L * M, x.camerasAt([cam.photo]));
+};
+
+test("a gable dormer off an eave side's photo: how far back it stands, its width, projection and pitch, worked by hand", () => {
+  const p = dormerTrace();
+  assert(p.pieces.length === 1, JSON.stringify(p.pieces));
+  const q = p.pieces[0];
+  assert(q.piece.kind === "gableDormer" && q.agree && q.piece.pitch === 12, JSON.stringify(q));
+  // Seen 8/9.2 of its size from 8 m out with its face 1.2 m back: 2.4 x 8/9.2 = 2.0870 m across.
+  near(q.piece.seen.widthFeet / M, 2.4 * (8 / 9.2), "seen narrower than it is", 0.002);
+  near(q.piece.seen.wallTopFeet / M, DORMER.top, "the wall top under it", 1e-6);
+  // On the 10/12 slope under a 1'6" eave: 1.2 m back (3'11.2"), 2.4 m wide (7'10.5"), projecting 1.5 m (4'11.1"), 12/12.
+  const r = x.resolvePhotoPiece({ id: "d", taken: true, ...q.piece }, 10, DORMER.eaveOut);
+  near(r.setBackFeet / M, DORMER.b, "how far back its face stands", 0.002);
+  near(r.piece.widthFeet / M, 2.4, "its width", 0.002);
+  near(r.piece.projectionFeet / M, 1.5, "its projection: the cheek 1.25 m over the slope, over 10/12", 0.002);
+  assert(r.piece.pitch === 12 && r.piece.onPitch === null && r.piece.source === "photos" && r.piece.taken === true, JSON.stringify(r.piece));
+  // The same read on a slope taken as 4/12: the face would stand 93.6 m back - no such dormer, so said and its width read as if on the wall.
+  const flat = x.resolvePhotoPiece({ id: "d", taken: true, ...q.piece }, 4, DORMER.eaveOut);
+  assert(flat.setBackFeet === null && flat.piece.projectionFeet === null && /didn't come out .* is the roof's pitch right/.test(flat.checks.join(" ")), flat.checks.join(" | "));
+  near(flat.piece.widthFeet, q.piece.seen.widthFeet, "as seen");
+});
+
+test("a ticked dormer is a roof piece from photos on the roof as built: a pitch typed later carries in; set aside it is offered; changed by hand it is the estimator's", () => {
+  const p = dormerTrace();
+  const front = (e) => e.sides.find((s) => s.id === "front");
+  // On the 40 x 30's front, its ridge along the 40: the front's slope is the roof's. Nothing typed for the pitch yet: assumed 4/12.
+  const base = rect(40, 30, { pitch: null, eaveOverhangFeet: DORMER.eaveOut, overhangSource: { eave: "typed" } });
+  const ticked = x.applyTrace(front(base), p, { shapes: [], openings: [], wallTop: false, roofShapes: x.shapePicksAtFirst(p) }, "2026-10-15T00:00:00Z");
+  assert(ticked.roofRead.pieces.length === 1 && ticked.roofRead.pieces[0].taken === true && ticked.roofRead.at === "2026-10-15T00:00:00Z", JSON.stringify(ticked.roofRead));
+  const e = { ...base, sides: base.sides.map((s) => (s.id === "front" ? ticked : s)), scope: allScope };
+  const assumed = x.photoRoofPieces(e, roofOf(e).roof, 4)[0];
+  assert(assumed.setBackFeet === null && /assumed 4\/12/.test(assumed.checks.join(" ")), assumed.checks.join(" | "));
+  // The pitch typed at 10/12: the dormer is worked out on it, as in the case above - nothing on the side changed.
+  e.roof = { ...e.roof, pitch: 10 };
+  const q = roofOf(e);
+  const list = q.roofing.pieces.list;
+  assert(list.length === 1 && list[0].piece.source === "photos", JSON.stringify(list.map((l) => l.piece)));
+  near(list[0].piece.widthFeet / M, 2.4, "its width on the 10/12", 0.002);
+  near(list[0].piece.projectionFeet / M, 1.5, "its projection", 0.002);
+  /*
+    W 7.8740', D 4.9213', 12/12 on 10/12 (lib/roofPieces.ts): plan 4.9213 x 7.8740 + 1 x 7.8740² / (4 x 0.8333) = 57.350;
+    at 12/12 x 1.414214 = 81.105, less the slope's 57.350 x 1.301708 = 74.653: +6.452 SF. Ridge 4.9213 + 7.8740/1.6667 =
+    9.6457; valleys 7.8740 x √(1 + 1.44 + 1) = 14.6041; eaves 9.8425; rakes 11.1355; step 2 x 4.9213 x 1.301708 = 12.8121.
+  */
+  near(q.roofing.pieces.addedFromPhotos.squareFeet, 6.452, "its area, all from photos", 0.002);
+  near(q.roofing.pieces.addedFromPhotos.valley, 14.6041, "valleys", 0.001);
+  near(q.roofing.pieces.addedFromPhotos.step, 12.8121, "step flashing", 0.001);
+  const typed = roofOf(rect(40, 30, { pitch: 10, eaveOverhangFeet: DORMER.eaveOut }));
+  near(q.roofing.areaSquareFeet, typed.roofing.areaSquareFeet + 6.452, "the drawing's plus the dormer's", 0.002);
+  const lines = x.exteriorScopeLines(e).roofing;
+  assert(lines.some((l) => /^Added roof pieces – gable dormer, 7'10" wide, 4'11" out, 12\/12 on a 10\/12 slope .*\(from photos\)/.test(l)) && lines.some((l) => /incl\. .* from added pieces from photos/.test(l)), lines.join(" | "));
+  // Set aside on its side: offered, counted nowhere.
+  const id = ticked.roofRead.pieces[0].id;
+  const aside = x.withPhotoPiece(e, "front", id, (pp) => ({ ...pp, taken: false }));
+  const qa = roofOf(aside);
+  assert(qa.roofing.pieces.list.length === 0 && qa.roofing.pieces.offered.length === 1, "offered, not counted");
+  near(qa.roofing.areaSquareFeet, typed.roofing.areaSquareFeet, "the drawing's alone");
+  // Changed by hand on the roof pane: the estimator's own 9' dormer stands in its place - counted once.
+  const own = x.editedPiece(list[0].piece, { widthFeet: 9 });
+  const mine = x.withPhotoPieceMadeOwn(e, "front", id, own);
+  const qm = roofOf(mine);
+  assert(qm.roofing.pieces.list.length === 1 && qm.roofing.pieces.list[0].piece.widthFeet === 9 && !x.pieceFromPhotos(qm.roofing.pieces.list[0].piece), JSON.stringify(qm.roofing.pieces.list.map((l) => l.piece)));
+  assert(front(mine).roofRead.pieces[0].typedAs === mine.roof.pieces[0].id, "the photo's stands aside for it");
+  // Traced again, the same dormer still has the estimator's in its place; their piece taken off, the photo's is back.
+  const again = x.applyTrace(front(mine), p, { shapes: [], openings: [], wallTop: false, roofShapes: x.shapePicksAtFirst(p) });
+  assert(again.roofRead.pieces[0].typedAs === mine.roof.pieces[0].id && again.roofRead.pieces[0].id !== id, "re-read, still theirs");
+  const gone = { ...mine, roof: { ...mine.roof, pieces: [] } };
+  assert(roofOf(gone).roofing.pieces.list[0].piece.source === "photos", "back to the photo's");
+});
+
+test("a dormer the photo can't place, a shed dormer, a hipped one: read as far as the photo goes, said, and not ticked", () => {
+  // Its foot hidden: how far back is unknown, so its width is read as if on the wall, and its projection is left to type.
+  const hidden = dormerTrace({ apron: false }).pieces[0];
+  assert(!hidden.agree && /hidden/.test(hidden.checks.join(" ")), hidden.checks.join(" | "));
+  const rh = x.resolvePhotoPiece({ id: "d", taken: true, ...hidden.piece }, 10, DORMER.eaveOut);
+  assert(rh.setBackFeet === null && rh.piece.projectionFeet === null && x.pieceFigures(rh.piece, 10).missing.join() === "its projection", JSON.stringify(rh.piece));
+  // A shed dormer: its width (the same 2.4 m), its projection and pitch to type - its slope runs away from the photo.
+  const shed = dormerTrace({ kind: "shed" }).pieces[0];
+  assert(shed.piece.kind === "shedDormer" && shed.piece.pitch === null && /type its projection and its pitch/.test(shed.checks.join(" ")), JSON.stringify(shed));
+  const rs = x.resolvePhotoPiece({ id: "s", taken: true, ...shed.piece }, 10, DORMER.eaveOut);
+  near(rs.piece.widthFeet / M, 2.4, "the shed dormer's width", 0.002);
+  assert(x.pieceFigures(rs.piece, 10).missing.join() === "its projection,its pitch", x.pieceFigures(rs.piece, 10).missing.join());
+  // Ticked, it is asked for in the roofing questions, as a piece typed with numbers missing is.
+  const e = rect(40, 30, { pitch: 10 });
+  e.sides[0].roofRead = { at: "t", pieces: [{ id: "s", taken: true, ...shed.piece }] };
+  assert(roofOf(e).roofing.toAnswer.roofing.some((t) => /the shed dormer: its projection and its pitch/.test(t)), roofOf(e).roofing.toAnswer.roofing.join(" | "));
+  // A hipped dormer: no piece to propose, said for the estimator to put in by hand.
+  const hip = dormerTrace({ kind: "hipped" });
+  assert(hip.pieces.length === 0 && hip.checks.some((c) => /hipped dormer it can't read/.test(c)), hip.checks.join(" | "));
+});
+
+test("a turret: its pitch off its roof's outline, its width as if on the wall's line; a many-sided one's side from its width", () => {
+  // A round turret 3 m across at 1 to 4 m along, its eave 4 m up, 12/12: its cone's outline 1.5 m up over 1.5 m each way.
+  const cam = dormerCam();
+  const turret = (kind, sides) => ({ kind: `${kind}_turret`, outline: [dpx(cam, 1, 4), dpx(cam, 2.5, 5.5), dpx(cam, 4, 4)].flat(), foot: [dpx(cam, 1, 4), dpx(cam, 4, 4)].flat(), sides });
+  const p = x.traceProposals(dormerWire(cam, { pieces: [turret("round", 0), turret("many_sided", 8)] }), dormerFrame, DORMER.L * M, x.camerasAt([cam.photo]));
+  const [round, octagon] = p.pieces;
+  assert(round.piece.kind === "roundTurret" && round.piece.pitch === 12 && round.agree && /as if it stood on the wall's line/.test(round.checks.join(" ")), JSON.stringify(round));
+  const rr = x.resolvePhotoPiece({ id: "t", taken: true, ...round.piece }, 5, 1);
+  // On the wall's line it shows as it is: 3 m, 9'10.1".
+  near(rr.piece.diameterFeet / M, 3, "its diameter", 1e-6);
+  // Eight sides, 3 m across the flats: each 3 x tan(22.5°) = 1.2426 m (4'0.9").
+  const ro = x.resolvePhotoPiece({ id: "o", taken: true, ...octagon.piece }, 5, 1);
+  assert(ro.piece.sideCount === 8 && octagon.piece.pitch === 12, JSON.stringify(ro.piece));
+  near(ro.piece.sideFeet / M, 3 * Math.tan(Math.PI / 8), "each side", 1e-6);
+  // Its sides not said: not ticked, asked.
+  const unsure = x.traceProposals(dormerWire(cam, { pieces: [turret("many_sided", 0)] }), dormerFrame, DORMER.L * M, x.camerasAt([cam.photo])).pieces[0];
+  assert(!unsure.agree && /How many sides/.test(unsure.checks.join(" ")), JSON.stringify(unsure));
+});
+
+test("what stands over a side: an upper floor flush with its floor line, or set back behind a lean-to or a ridge out; reads that disagree are flagged", () => {
+  const cam = dormerCam();
+  // Flush: a tall wall (its top 5.8 m, 19'0") with the floor line at 3.0 m (9'10.1").
+  const tallWire = { ...dormerWire(cam, { pieces: [], storeys: { upper_floor: "flush", floor_line: [dpx(cam, 0, 3.0), dpx(cam, 12, 3.0)].flat() } }), wall_top: [dpx(cam, 0, 5.8), dpx(cam, 12, 5.8)] };
+  const flush = x.traceProposals(tallWire, dormerFrame, DORMER.L * M, x.camerasAt([cam.photo])).storeys;
+  assert(flush.upper === "flush" && flush.agree.upper && flush.lowerRoof === null, JSON.stringify(flush));
+  near(flush.floorLineFeet / M, 3.0, "the floor line", 1e-6);
+  // Flush, but the wall top one storey's (3.0 m): flagged, not ticked.
+  const low = x.traceProposals({ ...tallWire, wall_top: [dpx(cam, 0, 3), dpx(cam, 12, 3)], roof_shapes: { ...tallWire.roof_shapes, floor_line: [] } }, dormerFrame, DORMER.L * M, x.camerasAt([cam.photo])).storeys;
+  assert(!low.agree.upper && /one storey's/.test(low.checks.join(" ")), JSON.stringify(low));
+  // Set back behind a lean-to, the roof over the side an eave: as one. Behind a ridge out, but the roof read as an eave: flagged.
+  // Words read however written: "Set back", "lean-to".
+  const set = (lower) => x.traceProposals(dormerWire(cam, { pieces: [], storeys: { upper_floor: "Set back", lower_roof: lower } }), dormerFrame, DORMER.L * M, x.camerasAt([cam.photo]));
+  const lean = set("lean-to");
+  assert(lean.storeys.upper === "setBack" && lean.storeys.lowerRoof === "leanto" && lean.storeys.agree.lowerRoof, JSON.stringify(lean.storeys));
+  const out = set("ridge_out");
+  assert(out.storeys.lowerRoof === "tent" && !out.storeys.agree.lowerRoof, JSON.stringify(out.storeys));
+  const picks = x.shapePicksAtFirst(out);
+  assert(picks.upper === true && picks.lowerRoof === false, JSON.stringify(picks));
+  // Onto the side as ticked, the one set aside kept as set aside.
+  const s = x.applyTrace(side({ id: "rear", name: "Rear" }), out, { shapes: [], openings: [], wallTop: false, roofShapes: picks });
+  assert(s.roofRead.upper === "setBack" && s.roofRead.lowerRoof === null, JSON.stringify(s.roofRead));
+});
+
+test("two storeys from the photos: the high-roof charge until one is drawn, answers typed stand; the floor line to split at; a lower roof's kind under one picked", () => {
+  const read = (more) => ({ at: "t", ...more });
+  // An upper floor over the Front, none drawn: two storeys, from photos - charged on the whole roof, and not asked.
+  const e = { ...withRead(rect(40, 30, { pitch: 6 }), "front", read({ upper: "flush" })), scope: allScope };
+  const r = roofOf(e).roofing;
+  assert(r.high && !r.high.automatic && r.high.fromPhotos && r.highFromPhotos.twoStoreys && r.highFromPhotos.sides.join() === "Front", JSON.stringify(r.high));
+  assert(!r.toAnswer.roofing.some((t) => /two storeys/.test(t)), r.toAnswer.roofing.join(" | "));
+  assert(x.exteriorScopeLines(e).roofing.some((l) => /^High roof charge – two storeys or more \(from photos\) – /.test(l)), x.exteriorScopeLines(e).roofing.join(" | "));
+  // Answered no by the estimator: theirs stands.
+  assert(roofOf({ ...e, roof: { ...e.roof, high: false } }).roofing.high === null, "typed no");
+  // Two sides that show none: one storey, from photos - no charge and not asked. One side alone says nothing of the house.
+  const none = withRead(withRead(rect(40, 30, { pitch: 6 }), "front", read({ upper: "none" })), "left", read({ upper: "none" }));
+  const rn = roofOf(none).roofing;
+  assert(rn.high === null && rn.highFromPhotos.twoStoreys === false && !rn.toAnswer.roofing.some((t) => /two storeys/.test(t)), JSON.stringify(rn.highFromPhotos));
+  const one = roofOf(withRead(rect(40, 30, { pitch: 6 }), "front", read({ upper: "none" }))).roofing;
+  assert(one.highFromPhotos === null && one.toAnswer.roofing.some((t) => /two storeys/.test(t)), "one side: still asked");
+  // The floor line: the reads' median - 9'8", 9'10", 10'1" give 9'10".
+  const lines = withRead(withRead(withRead(rect(40, 30), "front", read({ upper: "flush", floorLineFeet: ft(9, 8) })), "right", read({ upper: "flush", floorLineFeet: ft(10, 1) })), "rear", read({ upper: "flush", floorLineFeet: ft(9, 10) }));
+  near(x.photoFloorLine(lines).feet, ft(9, 10), "the median floor line", 1e-9);
+  // The bump-out behind the two-storey box is a ridge out by its shape (10 deep, 16 along); its photo says a lean-to, so it is one; picked a ridge out, it is.
+  const bump = boxAndBumpOut();
+  bump.sides = bump.sides.map((s) => (s.id === "bumpRear" ? { ...s, roofRead: read({ upper: "setBack", lowerRoof: "leanto" }) } : s));
+  const q = roofOf(bump);
+  assert(q.roof.lowerRoofs.map((l) => `${l.sideId}:${l.kind}`).join() === "bumpRear:leanto" && x.lowerRoofsFromPhotos(bump).has("bumpRear"), JSON.stringify(q.roof.lowerRoofs));
+  // As a lean-to: one slope from its eave up 10 to the wall, headwall along the 16, as the lean-to picked on the plan (above) gives.
+  near(q.roofing.headwallFeet, 16, "headwall along the back wall");
+  const picked = roofOf({ ...bump, roof: { ...bump.roof, lowerRoofs: { bumpRear: "tent" } } });
+  assert(picked.roof.lowerRoofs[0].kind === "tent" && !x.lowerRoofsFromPhotos({ ...bump, roof: { ...bump.roof, lowerRoofs: { bumpRear: "tent" } } }).has("bumpRear"), "picked stands");
+  // A drawn upper floor answers the charge itself: the photos' read changes nothing.
+  assert(q.roofing.high.automatic && q.roofing.highFromPhotos === null, "drawn");
+});
+
+test("the ridge's direction from the photos: a gable over a long side turns it, an eave over a short one too; picked on the plan, it stands", () => {
+  // 40 x 30, nothing picked: the ridge along the 40, ends over Right and Left. The Front's photo shows a gable: turned
+  // parallel to the Right, the ends are over Front and Rear, and the Front's pitch is the main roof's.
+  const g = withRead(rect(40, 30), "front", photoRead(5));
+  const ridge = x.ridgeFromPhotos(g);
+  assert(ridge && ridge.ridgeAlong === "right" && ridge.agree.length === 1 && ridge.of === 1, JSON.stringify(ridge));
+  const q = roofOf(g);
+  assert(q.roof.ends.map((e) => e.sideId).sort().join() === "front,rear", JSON.stringify(q.roof.ends));
+  assert(x.photoPitches(g).main.length === 1 && x.photoPitches(g).unplaced.length === 0, JSON.stringify(x.photoPitches(g)));
+  // 5/12 with the default 1'4" eaves and 1' rakes, the ridge along the 30: eaves out past the 40's ends, rakes past the 30's -
+  // (40 + 2'8") x (30 + 2') = 1,365.33 SF of plan x 1.083333 = 1,479.11 SF (along the 40 it was 42 x 32.6667 x 1.083333 = 1,486.33).
+  near(q.roofing.areaSquareFeet, 1479.1111, "the roof turned", 0.001);
+  assert(x.photoNotes(g).some((n) => /^The ridge is set from the photos: Front shows a roof end\. Pick the ridge below/.test(n)), x.photoNotes(g).join(" | "));
+  // An eave read over the Left (a short side) says the same: the ridge runs along it.
+  const eave = withRead(rect(40, 30), "left", photoRead(null, "eave"));
+  assert(x.ridgeFromPhotos(eave)?.ridgeAlong === "right" && x.resolvedRidgeAlong(eave) === "right", JSON.stringify(x.ridgeFromPhotos(eave)));
+  // A hip end read over the Right, where the outline puts an end already: nothing to turn.
+  assert(x.ridgeFromPhotos(withRead(rect(40, 30), "right", photoRead(null, "hip"))) === null, "already fits");
+  // Picked on the plan, it stands, and the Front's gable is said again.
+  const picked = { ...g, roof: { ...g.roof, ridgeAlong: "front" } };
+  assert(x.ridgeFromPhotos(picked) === null && x.photoPitches(picked).unplaced.length === 1, "picked");
+  // Set aside on its side, the read turns nothing.
+  assert(x.ridgeFromPhotos(withRead(rect(40, 30), "front", { ...photoRead(5), over: null, pitch: null })) === null, "set aside");
+});
+
+test("the owner's 14:53 walk: the photos' gables already fit the roof, so the ridge stays and the squares do too", () => {
+  // The walk as Scrivn reads it, the test claim's roof set-up (session dd469594's squares.mjs), the west gable (Left 5) and the
+  // bump-out (Rear) ticked as on 10-15: 5/12, rakes 25.6" and 27.1", the bump-out's eave 22.9".
+  const read = x.parseScanExterior(fixture("scan-exterior-v2-walk-1453.json"), { scanId: null });
+  assert(read.ok, read.error);
+  const base = read.exterior;
+  const id = (name) => base.sides.find((s) => s.name === name).id;
+  const front = base.sides.find((s) => s.name === "Front");
+  const sq = 6.963;
+  const reads = {
+    "Left 5": { at: "t", pitch: 5, slopes: [4.97, 5.06], rakeOverhangFeet: 25.6 / 12, over: "gable" },
+    Rear: { at: "t", pitch: 5, slopes: [5.08, 5.09], rakeOverhangFeet: 27.1 / 12, eaveOverhangFeet: 22.9 / 12, over: "gable" },
+  };
+  const e = {
+    ...base,
+    sides: base.sides.map((s) => (reads[s.name] ? { ...s, roofRead: reads[s.name] } : s)),
+    roof: {
+      ...x.defaultRoof(),
+      ...base.roof,
+      pitch: null,
+      eaveOverhangFeet: x.DEFAULT_EAVE_OVERHANG_FEET,
+      rakeOverhangFeet: x.DEFAULT_RAKE_OVERHANG_FEET,
+      ridgeAlong: null,
+      ends: { [id("Front 2")]: "hip" },
+      coveredNotches: [id("Rear 3")],
+      lowerWings: [id("Front 2")],
+      wingGables: [id("Front 2")],
+      additions: [
+        { id: "porch", kind: "porch", sideId: front.id, fromFeet: 0, toFeet: front.lengthFeet, depthFeet: ft(4, 10) },
+        { id: "door-gable", kind: "gable", sideId: front.id, fromFeet: (2.9 / sq) * front.lengthFeet, toFeet: (6.4 / sq) * front.lengthFeet },
+      ],
+    },
+  };
+  assert(x.ridgeFromPhotos(e) === null, JSON.stringify(x.ridgeFromPhotos(e)));
+  const q = roofOf(e);
+  assert(q.pitch.source === "photos" && q.pitch.value === 5, JSON.stringify(q.pitch));
+  // 34.0445 off this fixture, as main gives it before this change; the capture file the 10-15 read used (its corners
+  // rounded a hair differently) gives 34.0464 - the 34.05 in docs/roof-from-photos.md.
+  near(q.roofing.squares, 34.0445, "34.04 SQ, unchanged", 0.0005);
+  assert(q.roofing.pieces.list.length === 0 && q.roofing.highFromPhotos === null, "no shapes read: nothing else changes");
+});
+
+test("a dormer's read scales with its side, and goes onto the upper side with the roof when a tall side is split", () => {
+  const q = dormerTrace().pieces[0];
+  const pp = { id: "d", taken: true, ...q.piece };
+  const scaled = x.scaledRoofRead({ at: "t", pieces: [pp], floorLineFeet: 10 }, 1.1);
+  const s = scaled.pieces[0];
+  near(s.seen.widthFeet, pp.seen.widthFeet * 1.1, "width", 1e-9);
+  near(s.camera.distanceFeet, pp.camera.distanceFeet * 1.1, "where the phone stood", 1e-9);
+  near(scaled.floorLineFeet, 11, "the floor line", 1e-9);
+  // Every length the phone measured times 1.1, the pitch a ratio: the dormer comes out about 1.1 times as big - not exactly, as
+  // the fascia's 8" over the soffit is no measure of the phone's and stays (7'10.5" becomes 8'8.3", not 8'7.9").
+  const a = x.resolvePhotoPiece(pp, 10, DORMER.eaveOut);
+  const b = x.resolvePhotoPiece(s, 10, DORMER.eaveOut * 1.1);
+  near(b.piece.widthFeet, a.piece.widthFeet * 1.1, "scaled width, within 1/2\"", 0.042);
+  near(b.piece.projectionFeet, a.piece.projectionFeet * 1.1, "scaled projection, within 1/2\"", 0.042);
+  // Moved onto a side 10' along and 9' up: the same dormer, worked out the same - and the floor line spent.
+  const moved = x.shiftedRoofRead({ at: "t", pieces: [pp], floorLineFeet: 9 }, 10, 9);
+  const c = x.resolvePhotoPiece({ ...moved.pieces[0], seen: { ...moved.pieces[0].seen } }, 10, DORMER.eaveOut);
+  near(moved.pieces[0].alongFeet, pp.alongFeet - 10, "along", 1e-9);
+  near(c.piece.widthFeet, a.piece.widthFeet, "the same width", 1e-6);
+  near(c.piece.projectionFeet, a.piece.projectionFeet, "the same projection", 1e-6);
+  assert(moved.floorLineFeet === undefined, "spent");
+  // Split: the tall front's dormer goes up with its roof read, on the upper front's frame.
+  const e = exterior([side({ id: "front", name: "Front", lengthFeet: 40, eaveLeftFeet: 19, eaveRightFeet: 19, roofRead: { at: "t", pieces: [pp] } }), side({ id: "right", name: "Right", eaveLeftFeet: 19, eaveRightFeet: 19 }), side({ id: "rear", name: "Rear", lengthFeet: 40, eaveLeftFeet: 19, eaveRightFeet: 19 }), side({ id: "left", name: "Left", eaveLeftFeet: 19, eaveRightFeet: 19 })], { pitch: 10 });
+  const fp = x.exteriorFootprint(e);
+  e.upper = x.upperFromOutline(fp.corners, fp);
+  const split = x.splitTallSides(e, 10);
+  const up = split.upper.sides.find((u) => u.name === "Upper front");
+  assert(!split.sides.find((v) => v.id === "front").roofRead && up.roofRead.pieces.length === 1, "onto the upper front");
+  near(up.roofRead.pieces[0].seen.apronFeet, pp.seen.apronFeet - 10, "its heights from the floor line", 1e-9);
+  near(up.roofRead.pieces[0].camera.upFeet, pp.camera.upFeet - 10, "and the phone's", 1e-9);
+});
+
+test("the call is asked for the roof's shapes in the same one call: dormers, turrets, what stands over the wall", () => {
+  const msg = x.traceUserMessage(traceFrame, { name: "Front", lengthM: 8, bottomLeftM: 0.5, bottomRightM: 0.5, leftEndInPhoto: true, rightEndInPhoto: true });
+  assert(/6\. roof_shapes: what stands on the roof above this wall/.test(msg) && /each dormer on the roof above this wall whose front faces out the same way/.test(msg) && /stands back on the roof, so it shows smaller than it is/.test(msg), "dormers");
+  assert(/"gable_dormer"/.test(msg) && /"many_sided_turret"/.test(msg) && /upper_floor: "none" .*"flush" .*"set_back"/.test(msg) && /dormers and a walk-out basement make no upper floor/.test(msg), "turrets and storeys");
+  assert(/\[x1, y1, x2, y2, \.\.\.\]/.test(msg), "points as flat runs");
+  // One small object, points as flat runs of numbers: the grammar the schema compiles to has no room for more (lib/roofPhotoShapes.ts).
+  const props = x.TRACE_SCHEMA.properties;
+  const rs = props.roof_shapes;
+  assert(rs && x.TRACE_SCHEMA.required.includes("roof_shapes") && rs.properties.pieces.items.properties.outline.items.type === "number" && rs.properties.floor_line.items.type === "number", JSON.stringify(rs));
+  assert(JSON.stringify(x.pointsOf([1, 2, 3, 4, 5])) === "[[1,2],[3,4]]" && JSON.stringify(x.pointsOf([[1, 2]])) === "[[1,2]]" && x.pointsOf(null).length === 0, "flat runs read as points; pairs too");
+  // A trace from before 10-15 has none of them: no pieces, no storeys - nothing put on the side for them.
+  const old = x.traceProposals({ materials: [], openings: [], wall_top: [], off_wall: [], notes: "" }, traceFrame, 8 * M);
+  assert(old.pieces === undefined && old.storeys === undefined, JSON.stringify(old));
 });
 
 console.log(`\n${passed.length} passed, ${failures.length} failed`);

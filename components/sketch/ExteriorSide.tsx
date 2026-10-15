@@ -20,6 +20,7 @@ import {
   formatPitch,
   OPENING_LABEL,
   openingRect,
+  photoPieceOnRoof,
   SIDE_FIXTURE_LABEL,
   type SideFixture,
   type SideFixtureKind,
@@ -393,6 +394,7 @@ export function SidePane({
           editor={editor}
           roofAssumed={q.pitch.source === "assumed"}
           scaleFactor={scaleOf(exterior)?.factor ?? null}
+          pieceOnRoof={photoPieceOnRoof(exterior, q.roof, q.roof?.pitch ?? q.pitch.value ?? 0, side.id)}
           caption={
             <figcaption className="field-note">
               {nameOf(side)} elevation, to scale, seen from outside.

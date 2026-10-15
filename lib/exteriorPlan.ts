@@ -49,6 +49,7 @@ import {
 import { polygonArea, type Pt, type RoofAddition, type RoofBreak, type RoofEndKind, type RoofPlan } from "./roof";
 import type { RoofPiece, RoofPieceKind } from "./roofPieces";
 import { photoCoverageM, photoOnPart } from "./exteriorPhoto";
+import { type PhotoPiece, shiftedRoofRead } from "./roofPhotoShapes";
 import { newSketchId } from "./sketch";
 
 /** A foot in metres: a side's photos are laid on it in metres. */
@@ -425,7 +426,8 @@ export function splitTallSides(exterior: Exterior, floorFeet: number): Exterior 
       }
       if (o === roofOver) {
         if (S.pitchMeasured != null) next.pitchMeasured = S.pitchMeasured;
-        if (S.roofRead) next.roofRead = S.roofRead;
+        // Its dormers, and where the phone stood, on the upper side's frame too (2026-10-15).
+        if (S.roofRead) next.roofRead = shiftedRoofRead(S.roofRead, lo, Fz);
       }
       uppers.set(o.sideId, next);
     }
@@ -866,6 +868,29 @@ export function withSectionBreak(roof: ExteriorRoof, key: string, brk: RoofBreak
 /** A roof piece of a kind, put on with nothing typed: it counts nothing, and is asked for, until its numbers are in. */
 export function newRoofPiece(kind: RoofPieceKind): RoofPiece {
   return { id: newSketchId("piece"), kind, count: 1, ...(kind === "flat" ? { perimeterAs: "eave" as const } : {}) };
+}
+
+/** [exterior] with the dormer or turret [pieceId] read off [sideId]'s photo changed by [f], or taken off the side's read when [f] gives null (2026-10-15). */
+export function withPhotoPiece(exterior: Exterior, sideId: string, pieceId: string, f: (pp: PhotoPiece) => PhotoPiece | null): Exterior {
+  const onSide = (s: ExteriorSide): ExteriorSide => {
+    if (s.id !== sideId || !s.roofRead?.pieces) return s;
+    const pieces = s.roofRead.pieces.flatMap((pp) => (pp.id === pieceId ? (f(pp) ?? []) : [pp]));
+    return { ...s, roofRead: { ...s.roofRead, pieces } };
+  };
+  return { ...exterior, sides: exterior.sides.map(onSide), ...(exterior.upper ? { upper: { ...exterior.upper, sides: exterior.upper.sides.map(onSide) } } : {}) };
+}
+
+/**
+ * A photo's dormer or turret made the estimator's own, a number of it changed on the roof pane
+ * (2026-10-15): [own] goes among their pieces, and the photo's stands aside for it while it is there -
+ * taken off again, the photo's comes back.
+ */
+export function withPhotoPieceMadeOwn(exterior: Exterior, sideId: string, pieceId: string, own: RoofPiece): Exterior {
+  const piece: RoofPiece = { ...own, id: newSketchId("piece") };
+  delete piece.source;
+  delete piece.taken;
+  const e = withPhotoPiece(exterior, sideId, pieceId, (pp) => ({ ...pp, typedAs: piece.id }));
+  return { ...e, roof: { ...e.roof, pieces: [...(e.roof.pieces ?? []), piece] } };
 }
 
 export type AdditionKind = "porch" | "leanto" | "gable";

@@ -23,6 +23,7 @@
 
 import { allSides, type Exterior, type ExteriorScale, type ExteriorSide, type SidePhoto, type SizeDoor } from "./exterior";
 import type { ProposedOpening } from "./exteriorTrace";
+import { scaledRoofRead } from "./roofPhotoShapes";
 import { formatFeetInches, newSketchId } from "./sketch";
 
 /** Two references further apart than this are flagged (the owner, 10-14). */
@@ -311,7 +312,8 @@ function scaleSide(side: ExteriorSide, k: number): ExteriorSide {
   if (side.shapes) out.shapes = side.shapes.map((s) => ({ ...s, polygon: s.polygon.map((p) => ({ x: p.x * k, y: p.y * k })) }));
   if (side.roofline) out.roofline = side.roofline.map((r) => ({ alongFeet: r.alongFeet * k, upFeet: r.upFeet * k, outFeet: r.outFeet === null ? null : r.outFeet * k }));
   if (side.roofRead) {
-    const r = { ...side.roofRead };
+    // Its dormers and turrets, and a floor line, scale with it too (2026-10-15).
+    const r = scaledRoofRead(side.roofRead, k);
     if (typeof r.rakeOverhangFeet === "number") r.rakeOverhangFeet *= k;
     if (typeof r.eaveOverhangFeet === "number") r.eaveOverhangFeet *= k;
     out.roofRead = r;
