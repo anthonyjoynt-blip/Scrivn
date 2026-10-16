@@ -5181,5 +5181,26 @@ test("the owner's house from each compass point: the front's three walls, the si
   assert(open.views.length === 0, "no views without a footprint");
 });
 
+test("the report: the roof's parts as proposed are assumed until checked - the deck under the roof, the garage lower under a gable; once it looks right, not", () => {
+  const e = photoRouteHouse();
+  const r = x.exteriorReport(e, { title: "t", date: "d", madeWith: "m" });
+  const line = r.assumed.find((a) => a.startsWith("The roof's parts as proposed"));
+  assert(
+    line === "The roof's parts as proposed off the outline and the photos, not yet checked: the corner at Covered-deck side and Covered-deck back wall under the roof; the part out to Garage front, west bay lower, under a gable on the roof it meets. Check them on the roof plan.",
+    line ?? r.assumed.join(" | "),
+  );
+  // Pressed "Looks right": answered, so not assumed.
+  const checked = x.exteriorReport(ownersTaps(e), { title: "t", date: "d", madeWith: "m" });
+  assert(!checked.assumed.some((a) => a.startsWith("The roof's parts as proposed")), checked.assumed.join(" | "));
+  // The deck answered on the check: the garage still as proposed.
+  const plan = roofOf(e).roof;
+  const deck = plan.notches.find((k) => k.covered);
+  const half = { ...e, roof: x.withNotchAnswer(e.roof, plan, deck, "covered") };
+  const left = x.exteriorReport(half, { title: "t", date: "d", madeWith: "m" }).assumed.find((a) => a.startsWith("The roof's parts as proposed"));
+  assert(left === "The roof's parts as proposed off the outline and the photos, not yet checked: the part out to Garage front, west bay lower, under a gable on the roof it meets. Check them on the roof plan.", String(left));
+  // A house drawn by hand proposes nothing.
+  assert(!x.exteriorReport(rect(40, 30, { pitch: 6 }), { title: "t", date: "d", madeWith: "m" }).assumed.some((a) => a.startsWith("The roof's parts")), "nothing proposed");
+});
+
 console.log(`\n${passed.length} passed, ${failures.length} failed`);
 if (failures.length > 0) process.exit(1);
