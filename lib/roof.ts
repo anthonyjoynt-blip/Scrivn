@@ -283,6 +283,10 @@ export interface RoofEnd {
   sideId: string;
   kind: RoofEndKind;
   role: "main" | "wing";
+  /** How much of the side's wall the end stands over, 0 to 1 (2026-10-16): a photo of a long side may show its eaves, not this end. */
+  share: number;
+  /** A hip because a photo shows the side's wall top level along it (`RoofInput.eaveSides`), not because it was said. */
+  fromEave?: true;
 }
 
 export interface RoofInput {
@@ -298,8 +302,13 @@ export interface RoofInput {
   rakeOverhangFeet: number;
   /** A rectangle's ridge runs parallel to this side; null = along the longer walls. */
   ridgeAlong: string | null;
-  /** Each end by the side it stands over; anything absent is a gable. */
+  /** Each end by the side it stands over; anything absent is a gable (or a hip, by `eaveSides`). */
   ends: Record<string, RoofEndKind>;
+  /**
+   * Sides a photo shows with a level wall top - an eave along them (2026-10-16): an end of the roof not
+   * in `ends` that stands over most of one (`EAVE_END_SHARE`) is a hip, the roof sloping up from it.
+   */
+  eaveSides?: string[];
   /** Porches and cross gables, in the order added. */
   additions?: RoofAddition[];
   /** Wings whose roof sits lower and stops at the wall, each by the side its free end stands over. */
@@ -843,9 +852,30 @@ function makeSection(
   return s;
 }
 
-/** The end kind a side asks for: gable unless it says hip. */
-function endKind(input: RoofInput, sideId: string | null): RoofEndKind {
-  return sideId !== null && input.ends[sideId] === "hip" ? "hip" : "gable";
+/**
+ * A photo showing a level wall top along a side (`RoofInput.eaveSides`) makes an end over it a hip only
+ * where the end stands over this much of the side (2026-10-16): a long side that is eaves along most
+ * of it and a gable end over a stretch of it - the owner's 70' east wall, garage and bump-out eaves
+ * either side of the house's gable - says nothing of that end.
+ */
+export const EAVE_END_SHARE = 0.75;
+
+/** How much of a side's wall an end's wall (on x = at, or y = at, from lo to hi) stands over: 0 to 1. */
+function shareOfSide(input: RoofInput, sideId: string, vertical: boolean, at: number, lo: number, hi: number): number {
+  const w = wallOf(input, sideId);
+  if (!w || w.vertical !== vertical || Math.abs(w.at - at) > 1e-6 || w.to - w.from < 1e-9) return 0;
+  return Math.max(0, Math.min(hi, w.to) - Math.max(lo, w.from)) / (w.to - w.from);
+}
+
+/**
+ * The end kind a side asks for: as said (typed, or a photo's gable or hip), else a hip where a photo
+ * shows the side's wall top level and the end stands over most of it, else gable.
+ */
+function endKind(input: RoofInput, sideId: string | null, share: number): RoofEndKind {
+  if (sideId === null) return "gable";
+  const said = input.ends[sideId];
+  if (said) return said;
+  return (input.eaveSides ?? []).includes(sideId) && share >= EAVE_END_SHARE - 1e-9 ? "hip" : "gable";
 }
 
 /**
@@ -855,8 +885,11 @@ function endKind(input: RoofInput, sideId: string | null): RoofEndKind {
  */
 function buildSection(input: RoofInput, role: "main" | "wing", wall: Rect, axis: "x" | "y", lo: SectionEnd, hi: SectionEnd, tieAt: number | null): RoofSection {
   const probe = makeSection(input, role, wall, axis, lo, hi, tieAt);
-  const loKind: SectionEnd = lo === "tie" || lo === "wall" ? lo : endKind(input, probe.loSide);
-  const hiKind: SectionEnd = hi === "tie" || hi === "wall" ? hi : endKind(input, probe.hiSide);
+  // An end of a ridge along x stands on x = x0 or x1, across y; along y, on y = y0 or y1, across x.
+  const share = (sideId: string | null, at: number) =>
+    sideId === null ? 0 : axis === "x" ? shareOfSide(input, sideId, true, at, wall.y0, wall.y1) : shareOfSide(input, sideId, false, at, wall.x0, wall.x1);
+  const loKind: SectionEnd = lo === "tie" || lo === "wall" ? lo : endKind(input, probe.loSide, share(probe.loSide, axis === "x" ? wall.x0 : wall.y0));
+  const hiKind: SectionEnd = hi === "tie" || hi === "wall" ? hi : endKind(input, probe.hiSide, share(probe.hiSide, axis === "x" ? wall.x1 : wall.y1));
   return makeSection(input, role, wall, axis, loKind, hiKind, tieAt);
 }
 
@@ -3037,7 +3070,10 @@ export function buildRoof(input: RoofInput): RoofPlan {
     ] as [string | null, SectionEnd][]) {
       // Two ends over one side follow the one setting: listed once.
       if (side === null || kind === "tie" || kind === "wall" || ends.some((e) => e.sideId === side)) continue;
-      ends.push({ sideId: side, kind, role: s.role });
+      const w = s.wall;
+      const lo = side === s.loSide;
+      const share = !w ? 1 : s.axis === "x" ? shareOfSide(input, side, true, lo ? w.x0 : w.x1, w.y0, w.y1) : shareOfSide(input, side, false, lo ? w.y0 : w.y1, w.x0, w.x1);
+      ends.push({ sideId: side, kind, role: s.role, share, ...(kind === "hip" && !input.ends[side] ? { fromEave: true as const } : {}) });
     }
   }
 

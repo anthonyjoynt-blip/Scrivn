@@ -72,6 +72,7 @@ async function load() {
       `export * from "${lib("exteriorTrace.ts")}";`,
       `export * from "${lib("roofPhotoRead.ts")}";`,
       `export * from "${lib("roofPhotoShapes.ts")}";`,
+      `export * from "${lib("roofCheck.ts")}";`,
       `export * from "${lib("exterior3d.ts")}";`,
       `export * from "${lib("exteriorPlan.ts")}";`,
       `export * from "${lib("exteriorScale.ts")}";`,
@@ -4830,6 +4831,161 @@ test("the call is asked for the roof's shapes in the same one call: dormers, tur
   assert(old.pieces === undefined && old.storeys === undefined, JSON.stringify(old));
 });
 
+console.log("\nthe roof check: the owner's house off photos alone (10-16, lib/roofCheck.ts)");
+
+/**
+ * The owner's house as the photo route read it on 10-16 (Desktop/Claude - scope/photo-route-proof): 15 phone photos and three
+ * tapes, nothing tapped on the phone, the photos read by eye for gable, hip or eave over each side. The footprint was right;
+ * the roof (main, 9c42cc8) was "very wrong": one 72'7" ridge down the east strip from the garage's bay to the bump-out, no
+ * lower garage, a hip over the French-door wall, the west part of the house forced lower - 32.83 SQ at the default overhangs.
+ * The real roof, as the owner gives it and the 10-13 test claim drew it: 5/12; the deck under the main roof; the garage
+ * hipped at the street, a gable over its east bay, tied in lower under a gable on the house; gable ends west and at the
+ * bump-out; the porch the main roof's front slope carried on; a gable over the front door.
+ */
+function photoRouteHouse() {
+  const read = x.parseScanExterior({ ...fixture("photos-only-1016.json"), finish: fixture("photos-only-1016-finish.json") }, { scanId: null });
+  assert(read.ok, read.error);
+  return read.exterior;
+}
+const sideStarting = (e, start) => e.sides.find((s) => s.name.startsWith(start));
+const ridgesOf = (plan) => linesOf(plan, "ridge").map((l) => l.feet);
+
+/** His taps on the roof check: + Porch roof on the front wall, 4'10" out; + Cross gable on it (over its door); Looks right. */
+function ownersTaps(e) {
+  const front = sideStarting(e, "Front wall behind");
+  const fp = x.exteriorFootprint(e);
+  const feet = fp.lengthsFeet[fp.sideIds.indexOf(front.id)];
+  let roof = x.withAddition(e.roof, "porch", front.id, feet);
+  roof = { ...roof, additions: roof.additions.map((a) => ({ ...a, depthFeet: ft(4, 10) })) };
+  roof = x.withAddition(roof, "gable", front.id, feet, front.openings.find((o) => o.kind === "door"));
+  const tapped = { ...e, roof };
+  const plan = roofOf(tapped).roof;
+  const fromPhotos = x.endsFromPhotos(tapped, plan);
+  const guessed = plan.ends.filter((en) => !(en.sideId in tapped.roof.ends) && !fromPhotos.has(en.sideId)).map((en) => en.sideId);
+  return { ...tapped, roof: x.withRoofChecked(tapped.roof, plan, guessed, "2026-10-16T22:00:00.000Z") };
+}
+
+test("his house off photos, nothing pressed: the deck under the roof, the garage lower under a gable, the house's ridge east-west", () => {
+  const e = photoRouteHouse();
+  const q = roofOf(e);
+  const plan = q.roof;
+  const named = (start) => sideStarting(e, start).id;
+  // The house is the main roof, deck and all: 48'11" across, its ridge the whole way and a 1' rake each end - no 72' ridge.
+  assert(plan.shape === "wings" && plan.sections[0].axis === "x" && plan.note === null, `${plan.shape} ${plan.sections[0].axis}: ${plan.note}`);
+  near(Math.max(...ridgesOf(plan)), 48.884 + 2, "the house's ridge, west gable to east gable", 0.01);
+  assert(ridgesOf(plan).every((f) => f < 55), `no long ridge down the east strip: ${ridgesOf(plan).map((f) => f.toFixed(1))}`);
+  // Each end as the photos show it; the east wall, eaves over the garage and bump-out either side of the house's gable, is no hip.
+  const ends = Object.fromEntries(plan.ends.map((en) => [en.sideId, en.kind]));
+  assert(
+    ends[named("West gable")] === "gable" && ends[named("East side")] === "gable" && ends[named("Garage front, west")] === "hip" && ends[named("Garage front, east")] === "gable" && ends[named("Rear bump-out")] === "gable",
+    JSON.stringify(plan.ends),
+  );
+  assert(!(named("Rear wall") in ends), "no end, and no hip, over the French-door wall");
+  near(plan.ends.find((en) => en.sideId === named("East side")).share, 38.3 / 70.57, "the house's gable over half the east wall", 0.01);
+  // The garage reads 5'4" under the house and sits lower under a gable on it; the bump-out and the garage's bay tie in.
+  const garage = plan.wings.find((w) => w.sideId === named("Garage front, west"));
+  assert(garage.lower && garage.gable && !garage.forced, JSON.stringify(garage));
+  assert(plan.wings.filter((w) => w !== garage).every((w) => !w.lower), JSON.stringify(plan.wings));
+  assert(plan.notches.filter((k) => k.covered).map((k) => k.sideIds.join()).join("|") === [named("Covered-deck side"), named("Covered-deck back")].join(), "the deck alone under the roof");
+  // Said so, part by part, on the check: proposed, with why.
+  const p = x.roofProposal(e).proposed;
+  assert(p.length === 2 && p[0].value === "covered" && /would have to sit lower/.test(p[0].why) && p[1].value === "gable" && /5'4" under the main roof's/.test(p[1].why), JSON.stringify(p));
+  // On the check, only the corners a deck could be: the deck, and the 15'3" x 5'6" behind the bump-out - not the step beside the
+  // garage's bay, nor the 22' x 25' front corner (all four listed under the plan, as before).
+  const nameOf = (id) => e.sides.find((s) => s.id === id).name;
+  const rows = x.checkRows(plan, e.roof, x.roofProposal(e), nameOf, true);
+  assert(rows.notches.length === 2 && rows.notches.filter((r) => r.proposed).length === 1 && rows.wings.filter((r) => r.proposed).length === 1, JSON.stringify(rows));
+  assert(x.checkRows(plan, e.roof, x.roofProposal(e), nameOf).notches.length === 4, "every notch under the plan");
+  // Two roofs: the house's, and the garage's below it with its bay.
+  assert(new Set(plan.sections.map((s) => s.layer)).size === 2, "the garage's roof is a layer of its own");
+  near(q.roofing.squares, 32.61, "squares at the default overhangs, no porch yet", 0.005);
+});
+
+test("his taps - a porch roof 4'10\" out on the front wall, a gable over the door, Looks right: 33.49 SQ, the 10-13 claim's roof", () => {
+  const e = ownersTaps(photoRouteHouse());
+  const q = roofOf(e);
+  const r = q.roofing;
+  const plan = q.roof;
+  // 5/12 off the three gables measured, the overhangs Scrivn's defaults (no overhang was read: said assumed on the report).
+  assert(q.pitch.value === 5 && r.overhangs.eave.source === "default" && r.overhangs.rake.source === "default", JSON.stringify(q.pitch));
+  // The lines, as the report lists them.
+  near(r.ridgeFeet, 107.83, "ridge: the house 50'11\", the bump-out 17'7\", the gable over the garage 14'9\", the garage 11'5\", its bay 9'8\", the door's 3'7\"", 0.05);
+  near(r.hipFeet, 31.6, "hips: the garage's street end", 0.05);
+  near(r.valleyFeet, 101.5, "valleys: the bump-out's, the gable over the garage's, the bay's, the door gable's", 0.05);
+  near(r.eaveFeet, 122.2, "eaves", 0.05);
+  near(r.rakeFeet, 175.9, "rakes", 0.05);
+  near(r.stepFeet, 34.3, "step flashing: the garage's slopes against the house's wall", 0.05);
+  near(r.headwallFeet, 0, "no headwall");
+  near(r.squares, 33.49, "squares", 0.005);
+  // Near the 10-13 claim's 33.71 (next test): its footprint, the 14:53 walk's, is 133 SF smaller - this one's west side reads
+  // long (+/-11%) - and the claim typed 2' eaves and 1'10" rakes, which here give 35.62.
+  const typed = roofOf({ ...e, roof: { ...e.roof, eaveOverhangFeet: 2, rakeOverhangFeet: ft(1, 10), overhangSource: { eave: "typed", rake: "typed" } } });
+  near(typed.roofing.squares, 35.62, "at the claim's overhangs", 0.005);
+  // Looks right: every part answered as built, the guessed east gable the estimator's; nothing left to propose, the roof the same.
+  assert(e.roof.checkedAt && e.roof.ends[sideStarting(e, "East side").id] === "gable", JSON.stringify(e.roof.ends));
+  assert(x.roofProposal(e).proposed.length === 0, JSON.stringify(x.roofProposal(e).proposed));
+  assert(plan.wings.find((w) => w.sideId === sideStarting(e, "Garage front, west").id).gable, "the garage still under its gable");
+  // The gable over the door: over the door and 2' either side of it, on the porch's slope.
+  const door = sideStarting(e, "Front wall behind").openings.find((o) => o.kind === "door");
+  const gable = e.roof.additions.find((a) => a.kind === "gable");
+  near(gable.fromFeet, door.fromLeftFeet - 2, "from", 1e-9);
+  near(gable.toFeet, door.fromLeftFeet + door.widthFeet + 2, "to", 1e-9);
+  assert(plan.sections.some((s) => s.role === "porch") && plan.sections.some((s) => s.role === "gable" && s.key === gable.id), "a porch and the door's gable");
+});
+
+test("an answer stands over a proposal, and a roof from before the check is left as it was", () => {
+  const e = photoRouteHouse();
+  const plan = roofOf(e).roof;
+  const garage = sideStarting(e, "Garage front, west").id;
+  // Said to tie in: it ties in, and the deck stays proposed.
+  const tied = { ...e, roof: x.withWingAnswer(e.roof, plan, garage, "tie") };
+  const t = roofOf(tied).roof;
+  assert(!t.wings.find((w) => w.sideId === garage).lower && t.notches.some((k) => k.covered), "tied in; the deck still under the roof");
+  assert(x.roofProposal(tied).proposed.every((p) => p.key !== x.wingKey(garage)), "not proposed once answered");
+  // The deck said to be open: open, and no other corner - the 22' x 25' front one - is proposed in its place.
+  const deck = plan.notches.find((k) => k.covered);
+  const open = { ...e, roof: x.withNotchAnswer(e.roof, plan, deck, "open") };
+  assert(roofOf(open).roof.notches.every((k) => !k.covered), "nothing under the roof");
+  // Lists set by hand before the check, nothing answered: nothing proposed.
+  const legacy = { ...e, roof: { ...e.roof, lowerWings: [garage] } };
+  assert(x.isLegacyRoof(legacy.roof) && x.roofProposal(legacy) === null && roofOf(legacy).roof.notches.every((k) => !k.covered), "as it was");
+  // A house drawn by hand, no photos: nothing proposed either.
+  const drawn = { ...e, sides: e.sides.map(({ photos, roofRead, ...s }) => s) };
+  assert(x.roofProposal(drawn) === null, "no photos, no proposal");
+});
+
+test("the same check on the 14:53 walk the 10-13 claim was drawn on: proposed the same, the claim's taps give its 33.71 SQ", () => {
+  const read = x.parseScanExterior(fixture("finish-1453/capture.json"), { scanId: null });
+  assert(read.ok, read.error);
+  const w = read.exterior;
+  const id = (name) => w.sides.find((s) => s.name === name).id;
+  const front = w.sides.find((s) => s.name === "Front");
+  const sq = 6.963;
+  // What the claim typed that the check doesn't ask: the pitch, the overhangs, the garage's street hip (no photo of it), the
+  // porch and the door's gable where the claim put it.
+  const typed = {
+    ...x.defaultRoof(),
+    ...w.roof,
+    pitch: 5,
+    eaveOverhangFeet: 2,
+    rakeOverhangFeet: ft(1, 10),
+    overhangSource: { eave: "typed", rake: "typed" },
+    ends: { [id("Front 2")]: "hip" },
+    additions: [
+      { id: "porch", kind: "porch", sideId: front.id, fromFeet: 0, toFeet: front.lengthFeet, depthFeet: ft(4, 10) },
+      { id: "door-gable", kind: "gable", sideId: front.id, fromFeet: (2.9 / sq) * front.lengthFeet, toFeet: (6.4 / sq) * front.lengthFeet },
+    ],
+  };
+  const checked = roofOf({ ...w, roof: typed });
+  const p = x.roofProposal({ ...w, roof: typed }).proposed;
+  assert(p.map((v) => `${v.key}=${v.value}`).join() === `notch:${id("Left 4")}=covered,wing:${id("Front 2")}=gable`, JSON.stringify(p));
+  assert(/1'10" under the main roof's/.test(p[1].why), p[1].why);
+  // The claim's own lists, typed: the same roof, line for line.
+  const claim = roofOf({ ...w, roof: { ...typed, coveredNotches: [id("Rear 3")], lowerWings: [id("Front 2")], wingGables: [id("Front 2")] } });
+  for (const k of ["squares", "ridgeFeet", "hipFeet", "valleyFeet", "eaveFeet", "rakeFeet", "stepFeet"]) near(checked.roofing[k], claim.roofing[k], k, 1e-6);
+  near(checked.roofing.squares, 33.71, "the claim's 33.71 SQ", 0.005);
+});
+
 console.log("\nthe drawings and the report as a customer document (10-16)");
 
 /**
@@ -4843,7 +4999,7 @@ const owner = x.parseScanExterior(photosOnly).exterior;
 const sideNamed = (e, n) => e.sides.find((s) => s.name === n);
 
 test("the owner's side yard steps: the ground and the parging step down at the stairs past the side door, not one sloped band", () => {
-  const east = sideNamed(owner, "East side wall");
+  const east = sideStarting(owner, "East side wall");
   const grade = x.elevationFaces(east).grade;
   // Three 7" risers, each upright: two points at one x.
   const risers = grade.map((p, i) => (i > 0 && Math.abs(p.x - grade[i - 1].x) < 1e-9 ? grade[i - 1].y - p.y : null)).filter((d) => d !== null);
@@ -4865,7 +5021,7 @@ test("the owner's side yard steps: the ground and the parging step down at the s
 
 test("a parging bottom is the ground end to end, at the corners' own x: a slope stays a slope, a step stays upright", () => {
   // The west gable's parging was tapped sloping up 1'6" to the right; read at a rounded x, the corner was missed and the ground came out level.
-  const west = sideNamed(owner, "West gable wall");
+  const west = sideStarting(owner, "West gable wall");
   near(x.groundAt(west, west.lengthFeet), 0.4572 / 0.3048, "the ground rises 1'6\" to its right end", 1e-6);
   near(x.groundAt(west, west.lengthFeet / 2), 0.2286 / 0.3048, "and halfway along, halfway up", 1e-6);
   // A step at an x with more places than a millionth: still upright, and at that x.
@@ -4898,7 +5054,7 @@ test("the report of a photos-only house: walls read off the photos, the ± on th
       ]),
     JSON.stringify(check),
   );
-  assert(sideNamed(owner, "Rear bump-out gable").lengthPlusMinusPct === undefined && sideNamed(owner, "Bay step").lengthPlusMinusPct === 4, "the field as the file gives it");
+  assert(sideStarting(owner, "Rear bump-out gable").lengthPlusMinusPct === undefined && sideStarting(owner, "Bay step").lengthPlusMinusPct === 4, "the field as the file gives it");
   const by = (n) => r.sides.find((s) => s.side.name === n);
   assert(by("East side wall").heading.startsWith("East side wall · 70'7\" ±6% · "), by("East side wall").heading);
   assert(by("Bay step").heading === "Bay step · 2' · 19 SF net", by("Bay step").heading);
