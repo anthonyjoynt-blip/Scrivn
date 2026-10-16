@@ -603,8 +603,6 @@ export function HouseElevationDrawing({ view, fontFeet, size }: { view: HouseVie
   return (
     <svg xmlns="http://www.w3.org/2000/svg" viewBox={`${vx} ${vy} ${vw} ${vh}`} width={size?.width} height={size?.height} role="img" aria-label={`${COMPASS_WORD[view.compass]} elevation of the house, to scale`}>
       <rect x={vx} y={vy} width={vw} height={vh} fill="#ffffff" />
-      <polygon points={pts([...line, { x: view.maxX + fs * 0.6, y: bottomY }, { x: vx, y: bottomY }])} fill="#f4efe6" />
-      <FaceTexture poly={earth} kind="ground" unit={fs} />
       {view.pieces.map((p, i) => {
         if (p.type === "post") {
           return <rect key={`post-${i}`} x={p.x0} y={Y(p.y1)} width={p.x1 - p.x0} height={p.y1 - p.y0} fill="#ffffff" stroke="#374151" strokeWidth={0.9} {...stroke} />;
@@ -643,6 +641,9 @@ export function HouseElevationDrawing({ view, fontFeet, size }: { view: HouseVie
           </g>
         );
       })}
+      {/* The ground in front, over the foot of all behind it: a post or a wall further back stands down into it. */}
+      <polygon points={pts([...line, { x: view.maxX + fs * 0.6, y: bottomY }, { x: vx, y: bottomY }])} fill="#f4efe6" />
+      <FaceTexture poly={earth} kind="ground" unit={fs} />
       <polyline points={pts(line)} fill="none" stroke="#5b4630" strokeWidth={2} {...stroke} />
       {/* The overall width under it. */}
       <line x1={view.minX} x2={view.maxX} y1={Y(view.groundY - fs * 1.4)} y2={Y(view.groundY - fs * 1.4)} stroke="#374151" strokeWidth={1} {...stroke} />

@@ -133,20 +133,25 @@ function drawing(input: ReportPdfInput, element: ReactElement) {
   return { svg, box: svgViewBox(svg) };
 }
 
-/** The footprint, to a standard scale inside the box; where it ends. */
-function drawFootprint(doc: jsPDF, input: ReportPdfInput, x: number, y: number, w: number, h: number): number {
+/** The footprint at the largest standard scale at which it fits [w] x [h] points as drawn - its names lettered about 8 points - with room for the scale under it; null when none does. */
+function fitFootprint(input: ReportPdfInput, w: number, h: number): { made: ReturnType<typeof drawing>; ptPerFt: number; text: string } | null {
   const { report } = input;
   const fp = report.q.footprint;
   const nameOf = (id: string) => allSides(report.exterior).find((s) => s.id === id)?.name.trim() || "Side";
   const approx = (id: string) => report.exterior.sides.find((s) => s.id === id)?.lengthFrom === "drawn";
   const upper = report.q.upperFootprint?.closes ? report.q.upperFootprint.corners : null;
   const plusMinus = plusMinusOf(report.exterior);
-  // Lettering about 8 points on paper: a first frame at 3% lettering finds the scale, the second is drawn.
-  const first = drawing(input, createElement(FootprintDrawing, { footprint: fp, nameOf, approx, plusMinus, upper }));
-  let [ptPerFt, text] = standardScale(first.box.width, first.box.height, w, h - 24);
-  let made = drawing(input, createElement(FootprintDrawing, { footprint: fp, nameOf, approx, plusMinus, upper, fontFeet: 8 / ptPerFt }));
-  [ptPerFt, text] = standardScale(made.box.width, made.box.height, w, h - 24);
-  made = drawing(input, createElement(FootprintDrawing, { footprint: fp, nameOf, approx, plusMinus, upper, fontFeet: 8 / ptPerFt }));
+  // Each scale tried with the lettering it gives, so the names that widen the frame are in what is measured.
+  for (const [ptPerFt, text] of SCALES) {
+    const made = drawing(input, createElement(FootprintDrawing, { footprint: fp, nameOf, approx, plusMinus, upper, fontFeet: 8 / ptPerFt }));
+    if (made.box.width * ptPerFt <= w && made.box.height * ptPerFt <= h - 24) return { made, ptPerFt, text };
+  }
+  return null;
+}
+
+/** The footprint as fitted, centred across [w]; where it ends. */
+function drawFootprint(doc: jsPDF, fit: NonNullable<ReturnType<typeof fitFootprint>>, x: number, y: number, w: number): number {
+  const { made, ptPerFt, text } = fit;
   const dw = made.box.width * ptPerFt;
   const dh = made.box.height * ptPerFt;
   paintSvg(doc, made.svg, x + (w - dw) / 2, y, ptPerFt, { pixel: PIXEL });
@@ -209,14 +214,17 @@ function cover(doc: jsPDF, input: ReportPdfInput): void {
     const room = BOTTOM - 20 - y;
     // A wall whose length is to check is marked on the plan, and said under it.
     const marked = allSides(report.exterior).some((s) => lengthToCheck(s) !== undefined) ? " A wall dashed, with a ±: worked out from the photos, to tape." : "";
-    if (room < 180) {
-      doc.addPage();
-      y = heading(doc, "Footprint", `To scale, front at the bottom. Each wall's name and length outside it.${marked}`);
-      drawFootprint(doc, input, PAGE_MARGIN, y, CONTENT_W, BOTTOM - 20 - y);
-    } else {
+    // Under the cover's words when it fits there at 1/16" or larger; else a page of its own.
+    const here = room >= 180 ? fitFootprint(input, CONTENT_W, room - 10) : null;
+    if (here && here.ptPerFt >= 4.5) {
       setText(doc, 10, "bold", NAVY);
       doc.text("Footprint", PAGE_MARGIN, y);
-      drawFootprint(doc, input, PAGE_MARGIN, y + 10, CONTENT_W, room - 10);
+      drawFootprint(doc, here, PAGE_MARGIN, y + 10, CONTENT_W);
+    } else {
+      doc.addPage();
+      y = heading(doc, "Footprint", `To scale, front at the bottom. Each wall's name and length outside it.${marked}`);
+      const fit = fitFootprint(input, CONTENT_W, BOTTOM - 20 - y);
+      if (fit) drawFootprint(doc, fit, PAGE_MARGIN, y, CONTENT_W);
     }
   }
 }
