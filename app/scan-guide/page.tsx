@@ -770,8 +770,16 @@ export default async function ScanGuidePage() {
                     the next wall&apos;s bottom-left corner. Every wall, every jog. No photos yet.
                   </li>
                   <li>
-                    <strong>The photos.</strong> When the walls meet all the way round the photos come up by themselves:{" "}
-                    <Q>The walls meet all the way round – now a few photos of the house</Q>. <B>Photos</B> on the card or the chips
+                    <strong>The tape.</strong> When the walls meet all the way round:{" "}
+                    <Q>Tape one wall, or type the garage door&apos;s width</Q>. <B>Tape a wall</B> lists the walls, shortest first;
+                    the ones marked <Q>easy alone</Q> (20 ft or under) you can tape without help. Run the tape along the bottom,
+                    between the two corners you tapped, and type it (<Q>18&apos;4</Q>, <Q>220&quot;</Q>). Or{" "}
+                    <B>Garage door width</B>: 8&apos;, 9&apos;, 10&apos;, 12&apos;, 16&apos;, 18&apos; or another width. Either one
+                    scales the whole house: the corners and every photo read. <B>Skip – no tape</B> goes straight on: the sizes are
+                    then the phone&apos;s own, and Stop offers the tape again.
+                  </li>
+                  <li>
+                    <strong>The photos.</strong> Then the card goes on to the photos. <B>Photos</B> on the card or the chips
                     starts them any time. <Q>Turn the phone sideways</Q>, then{" "}
                     <Q>Take 4 to 8 photos from wherever you can see the most of the house</Q>: the front, the garage, each end you can
                     get to, the back. A photo from a corner covers both walls. Press <B>Photo</B>, or a volume key.
@@ -783,8 +791,10 @@ export default async function ScanGuidePage() {
                     <strong>Long-press Photo</strong> for what the photos cover so far.
                   </li>
                   <li>
-                    <B>Stop</B> shows the only checklist there is, as advice: how many walls were walked and seen, the walls no photo
-                    saw (their height comes from the walls beside them), and an optional tape. A walk short of closing says so:{" "}
+                    <B>Stop</B> shows the only checklist there is, as advice: how many walls were walked and seen, and the walls no
+                    photo saw (their height comes from the walls beside them). With no tape and no garage door it says so plainly,{" "}
+                    <Q>Not scaled to a tape – sizes are the phone&apos;s own. Tape a wall to scale it.</Q>, with{" "}
+                    <B>Tape a wall</B> right there. The report says the same. A walk short of closing says so:{" "}
                     <Q>4 walls walked – walk the rest to build the roof, or Finish with the walls only</Q>, with <B>Walk the rest</B> or{" "}
                     <B>Finish with the walls only</B>. Both work.
                   </li>
@@ -801,6 +811,13 @@ export default async function ScanGuidePage() {
                   assumed until you type it.
                 </p>
                 <p className="sg-note">
+                  <strong>A tape and the garage door both?</strong> The tape stands for the house: it measures the lap itself. The
+                  garage door checks the photo of its own wall, and where the two differ by more than 3% that wall&apos;s heights
+                  and openings follow the door (a 9&apos; door read as 9&apos;8&quot; is put back to 9&apos;). The roof screen names
+                  it. With no tape, the door scales the whole house. A door typed that no photo saw is said, and the sizes stay as
+                  they were.
+                </p>
+                <p className="sg-note">
                   <strong>A covered deck or porch?</strong> Tap the wall&apos;s own corners behind it, where the siding meets the
                   deck floor, and photograph it from back far enough that the main roof edge shows over the porch roof. Porch roofs
                   aren&apos;t read off the photos yet: add them in Scrivn&apos;s roof plan.
@@ -811,10 +828,16 @@ export default async function ScanGuidePage() {
                   drops, the card says so and asks for a corner again, then carries on where it was.
                 </p>
               </div>
-              <figure className="sg-fig sg-phonefig">
-                <PhotoRouteScreen />
-                <figcaption>The lap: a wall&apos;s two corners tapped, and the card with the next step.</figcaption>
-              </figure>
+              <div>
+                <figure className="sg-fig sg-phonefig">
+                  <PhotoRouteScreen />
+                  <figcaption>The lap: a wall&apos;s two corners tapped, and the card with the next step.</figcaption>
+                </figure>
+                <figure className="sg-fig sg-phonefig">
+                  <PhotoRouteScreen step="sizes" />
+                  <figcaption>The lap closed: tape a wall, type the garage door, or skip.</figcaption>
+                </figure>
+              </div>
             </div>
             <div className="sg-split">
               <div>
