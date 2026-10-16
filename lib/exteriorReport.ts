@@ -192,6 +192,27 @@ export function roofReadWords(read: SideRoofRead): string[] {
   return out;
 }
 
+/** A tape on the photo route, as said: what was taped across, or the wall typed corner to corner. */
+const TAPE_WORDS: Record<string, string> = { garage: "a garage door", door: "a door", window: "a window", wall: "a wall", other: "a tape" };
+
+/**
+ * Where a photos-only house's sizes come from (2026-10-16, the photo route, lib/photoRoute.ts): the photos,
+ * scaled by the tapes the estimator took. "the photos (9 of 18 used) and 4 tapes: a garage door 9', ..." for
+ * the sentence; "the photos and 4 tapes" for the cover. Null for any other exterior.
+ */
+function photoRouteSizes(exterior: Exterior): { line: string; short: string } | null {
+  if (exterior.source?.kind !== "photos") return null;
+  const route = exterior.photoRoute;
+  const tapes = route?.buildings.flatMap((b) => b.tapes) ?? [];
+  const ids = route?.measured?.sideIds ?? [];
+  const nameOf = (from: number) => exterior.sides.find((s) => s.id === ids[from])?.name.trim();
+  const taped = tapes.map((t) => (t.kind === "side" ? `${nameOf(t.from) ? `the ${nameOf(t.from)}` : "a wall"} ${formatFeetInches(t.feet)}` : `${TAPE_WORDS[t.what] ?? "a tape"} ${formatFeetInches(t.feet)}`));
+  const used = route?.measured ? ` (${route.measured.cameras.length} of ${route.photos.length} used)` : "";
+  const count = plural(tapes.length, "tape");
+  if (tapes.length === 0) return { line: `Sizes: from the photos${used}; no tape was taken, so they are the photos' own and not to scale.`, short: "the photos alone, no tape" };
+  return { line: `Sizes: from the photos${used}, scaled by ${count}: ${listWords(taped)}.`, short: `the photos and ${count}` };
+}
+
 /** Each opening numbered by its kind along the side, left to right: "Window 2". */
 function openingNames(side: ExteriorSide): Map<string, string> {
   const names = new Map<string, string>();
@@ -320,7 +341,8 @@ export function exteriorReport(exterior: Exterior, meta: ReportMeta): ExteriorRe
   const assumed: string[] = [];
   const from = sizesFrom(exterior);
   // Not scaled to anything (2026-10-15, the owner: "Should be scaled off of something"): said plainly.
-  sources.push(scanned && scaleOf(exterior)?.from === "phone" ? NOT_SCALED : `Sizes: ${from ? `from ${from}` : scanned ? "from the phone" : "as drawn and typed in Scrivn"}.`);
+  const routeSizes = photoRouteSizes(exterior);
+  sources.push(routeSizes ? routeSizes.line : scanned && scaleOf(exterior)?.from === "phone" ? NOT_SCALED : `Sizes: ${from ? `from ${from}` : scanned ? "from the phone" : "as drawn and typed in Scrivn"}.`);
   sources.push(
     photosOnly
       ? "Walls, heights, materials and openings: read off the photos, side by side round the house; nothing was tapped on the walls."
@@ -412,7 +434,7 @@ export function exteriorReport(exterior: Exterior, meta: ReportMeta): ExteriorRe
     facts.push({ label: "Roof lines", value: lineTotals(plan).map(({ kind, feet }) => `${LINE_WORD[kind]} ${ft(feet)}`).join(" · ") });
     facts.push({ label: "Overhangs", value: `eave ${ft(r.overhangs.eave.feet)}${r.overhangs.eave.source === "default" ? " (assumed)" : r.overhangs.eave.source === "photos" ? " (from photos)" : ""} · rake ${ft(r.overhangs.rake.feet)}${r.overhangs.rake.source === "default" ? " (assumed)" : r.overhangs.rake.source === "photos" ? " (from photos)" : ""}` });
   }
-  if (from) facts.push({ label: "Sizes from", value: from });
+  if (from || routeSizes) facts.push({ label: "Sizes from", value: routeSizes ? routeSizes.short : (from as string) });
 
   // ---- The tables ----
   const tables: ReportTable[] = [];

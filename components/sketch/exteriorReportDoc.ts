@@ -6,6 +6,7 @@ import { exteriorReportPdf, type ReportPhotoImage } from "@/lib/exteriorReportPd
 import type { Letterhead } from "@/lib/letterhead";
 import { claimFileName } from "@/lib/pdf";
 import { pdfImage } from "@/lib/photoImage";
+import { claimPhotoUrl } from "./exteriorPhotoAccess";
 import { markup } from "./exteriorImages";
 
 /**
@@ -22,11 +23,31 @@ export interface ExteriorReportFor {
   jobNumber: string;
   customerName: string;
   letterhead: Letterhead;
+  /** The claim the photo route's side photos are filed under (its site photos); none, those are named, not printed. */
+  claimId?: string | null;
 }
 
-/** Each side photo by its scan and number, made small for a PDF; those that can't be fetched are left out. */
-async function sidePhotos(exterior: Exterior): Promise<Record<number, ReportPhotoImage>> {
+/**
+ * Each side photo by its number, made small for a PDF: a scan's from the scan, the photo route's from the
+ * claim's site photos (2026-10-16). Those that can't be fetched are left out.
+ */
+async function sidePhotos(exterior: Exterior, claimId: string | null): Promise<Record<number, ReportPhotoImage>> {
   const out: Record<number, ReportPhotoImage> = {};
+  // The photo route's: this phone's own copy while it waits to upload, else the claim's.
+  for (const side of allSides(exterior)) {
+    for (const p of side.photos ?? []) {
+      if (!p.claimPhotoId || out[p.n]) continue;
+      try {
+        const url = await claimPhotoUrl(claimId, p.claimPhotoId);
+        if (!url) continue;
+        const img = await fetch(url);
+        if (img.ok) out[p.n] = await pdfImage(await img.blob());
+        if (url.startsWith("blob:")) URL.revokeObjectURL(url);
+      } catch {
+        // Named in the report, not printed.
+      }
+    }
+  }
   const byScan = new Map<string, number[]>();
   for (const side of allSides(exterior)) for (const p of side.photos ?? []) if (p.scanId) byScan.set(p.scanId, [...(byScan.get(p.scanId) ?? []), p.n]);
   for (const [scanId, ns] of byScan) {
@@ -55,7 +76,7 @@ export async function exteriorReportFile(r: ExteriorReportFor): Promise<{ blob: 
   const date = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
   const report = exteriorReport(r.exterior, { title: r.title.trim() || "Exterior", date, madeWith: "Scrivn" });
   if (!report) return null;
-  const photos = await sidePhotos(r.exterior);
+  const photos = await sidePhotos(r.exterior, r.claimId ?? null);
   const doc = exteriorReportPdf({ report, svgOf: (el) => markup(el as Parameters<typeof markup>[0]), photos, letterhead: r.letterhead, footer: "Scrivn" });
   return { blob: doc.output("blob"), filename: claimFileName(r.jobNumber, r.customerName, "Exterior Report", "pdf") };
 }
