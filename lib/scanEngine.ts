@@ -9,6 +9,7 @@ import { exteriorReportBytes, type ReportPhotoImage } from "./exteriorReportPdf"
 import { snapTrace, type TraceRequest, type TraceResponse } from "./exteriorTrace";
 import { camerasAt, grayOf } from "./roofPhotoRead";
 import { formatFeetInches } from "./sketch";
+import { NOT_SCALED, scaleFlags, scaleOf, sizesLine } from "./exteriorScale";
 
 /**
  * Scrivn's exterior on the phone (2026-10-15): what Scrivn Scan runs, bundled into the app as one
@@ -108,6 +109,12 @@ export interface EngineSummary {
    * [notSeen] no photo saw them, [topNotRead] a photo did but didn't show the wall top.
    */
   neighbours: { notSeen: string[]; topNotRead: string[] };
+  /**
+   * What the sizes are from (2026-10-15): "Sizes from the tape on the Front (34'2"), +2.2% on the phone's own measure.", a
+   * garage door's, or "Not scaled to a tape – sizes are the phone's own." - and any two references more than 3% apart.
+   */
+  sizes: string | null;
+  sizesFlags: string[];
   roof: {
     pitch: number;
     pitchText: string;
@@ -233,6 +240,8 @@ export async function summary(capture: CaptureInput, finishRaw: unknown, host: E
     footprint: footprintPng,
     uncounted,
     neighbours,
+    sizes: scaleOf(exterior)?.from === "phone" ? NOT_SCALED : sizesLine(exterior),
+    sizesFlags: scaleFlags(exterior).map((f) => f.text),
   };
 }
 

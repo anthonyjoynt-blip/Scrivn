@@ -25,7 +25,7 @@ import {
   type SideRoofRead,
   SIDING_KINDS,
 } from "./exterior";
-import { sizesFrom } from "./exteriorScale";
+import { NOT_SCALED, scaleOf, sizesFrom } from "./exteriorScale";
 import type { RoofLineKind, RoofPlan, RoofSection } from "./roof";
 import { lineTotals } from "./roofLabels";
 import { PHOTO_PIECE_LABEL, UPPER_SHOWN_WORDS } from "./roofPhotoShapes";
@@ -251,7 +251,8 @@ export function exteriorReport(exterior: Exterior, meta: ReportMeta): ExteriorRe
   const sources: string[] = [];
   const assumed: string[] = [];
   const from = sizesFrom(exterior);
-  sources.push(`Sizes: ${from ? `from ${from}` : scanned ? "from the phone" : "as drawn and typed in Scrivn"}.`);
+  // Not scaled to anything (2026-10-15, the owner: "Should be scaled off of something"): said plainly.
+  sources.push(scanned && scaleOf(exterior)?.from === "phone" ? NOT_SCALED : `Sizes: ${from ? `from ${from}` : scanned ? "from the phone" : "as drawn and typed in Scrivn"}.`);
   sources.push(scanned ? "Walls, heights, materials and openings: tapped on the phone, side by side round the house." : "Walls, heights, materials and openings: as entered in Scrivn.");
   // Read off the photos where nothing was tapped (2026-10-15, Finish exterior): said side by side, each part marked "from photo" below.
   const walled = every.filter((s) => {

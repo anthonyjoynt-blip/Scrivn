@@ -34,6 +34,7 @@ import {
   sideQuantities,
 } from "./exterior";
 import { applyScanFinish, readScanFinish } from "./exteriorFinish";
+import { sizesLine, withScaleFrom } from "./exteriorScale";
 
 export const EXTERIOR_FORMAT = "arcapture-exterior/1";
 /**
@@ -467,10 +468,13 @@ export function parseScanExterior(input: unknown, meta: { scanId?: string | null
     roof is the one the phone showed, and no photo is traced twice.
   */
   const finish = readScanFinish(part.finish);
+  // The garage door typed on the phone, with no tape: the house's sizes are taken from it, once, after it is put on.
+  let doorScaleId: string | undefined;
   let finishedSides = sides;
   let finishedRoof = roof;
   if (finish) {
-    const done = applyScanFinish(sides, roof, finish, idByIndex, factor, closed);
+    const done = applyScanFinish(sides, roof, finish, idByIndex, factor, closed, scale.from === "tape");
+    doorScaleId = done.doorScaleId;
     finishedSides = done.sides;
     finishedRoof = done.roof;
     notes.push(...done.notes);
@@ -483,22 +487,29 @@ export function parseScanExterior(input: unknown, meta: { scanId?: string | null
 
   const outer = asObject(input);
   const captureId = typeof part.capture_id === "string" ? part.capture_id : isObject(outer) && typeof outer.capture_id === "string" ? outer.capture_id : null;
+  let exterior: Exterior = {
+    sides: finishedSides,
+    roof: finishedRoof,
+    scale,
+    source: {
+      kind: "scan",
+      captureId,
+      scanId: meta.scanId ?? null,
+      receivedAt: meta.receivedAt ?? null,
+      notes,
+      ...(closed ? {} : { walkClosed: false }),
+      ...(finish ? { finish: { at: finish.at ?? null, acceptedAt: finish.acceptedAt ?? null, engine: finish.engine ?? null } } : {}),
+    },
+  };
+  // The garage door typed on the phone and found in a photo, with no tape (2026-10-15): the house's sizes are taken from it.
+  if (doorScaleId) {
+    exterior = withScaleFrom(exterior, { from: "door", doorId: doorScaleId });
+    const line = sizesLine(exterior);
+    if (line) notes.push(`${line} (The garage door's width was typed on the phone; no tape.)`);
+  }
   return {
     ok: true,
-    exterior: {
-      sides: finishedSides,
-      roof: finishedRoof,
-      scale,
-      source: {
-        kind: "scan",
-        captureId,
-        scanId: meta.scanId ?? null,
-        receivedAt: meta.receivedAt ?? null,
-        notes,
-        ...(closed ? {} : { walkClosed: false }),
-        ...(finish ? { finish: { at: finish.at ?? null, acceptedAt: finish.acceptedAt ?? null, engine: finish.engine ?? null } } : {}),
-      },
-    },
+    exterior,
     notes,
     scanIndex: Object.fromEntries([...idByIndex.entries()].map(([index, id]) => [id, index])),
   };
