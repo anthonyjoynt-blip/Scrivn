@@ -4954,6 +4954,27 @@ test("an answer stands over a proposal, and a roof from before the check is left
   assert(x.roofProposal(drawn) === null, "no photos, no proposal");
 });
 
+test("on the photo route, a side still at the route's 10' says nothing, and only a garage is ever proposed lower", () => {
+  // The route (lib/photoRouteExterior.ts) starts every side at a 10' eave and sets none itself; a read marks its own.
+  const base = photoRouteHouse();
+  const route = { ...base, source: { ...base.source, kind: "photos", by: "photos" }, sides: base.sides.map((s) => ({ ...s, eaveLeftFeet: 10, eaveRightFeet: 10, wallTopFrom: undefined })) };
+  const id = (start) => sideStarting(route, start).id;
+  const read = (e, start, feet) => ({ ...e, sides: e.sides.map((s) => (s.id === id(start) ? { ...s, eaveLeftFeet: feet, eaveRightFeet: feet, wallTopFrom: "photo" } : s)) });
+  const wingsProposed = (e) => (x.roofProposal(e)?.proposed ?? []).filter((p) => p.key.startsWith("wing:")).map((p) => p.key.slice(5));
+  // Nothing read: every wall at the route's 10' - no step to go on, nothing proposed lower; the deck still is, off the outline.
+  assert(wingsProposed(route).length === 0 && x.roofProposal(route).proposed.some((p) => p.value === "covered"), JSON.stringify(x.roofProposal(route).proposed));
+  // The garage read 9'2" against walls still at 10': no read of the house, nothing to compare.
+  assert(wingsProposed(read(route, "Garage front, west", ft(9, 2))).length === 0, "the house unread");
+  // Session A's partial reads (10-16): the west gable read 18'2", the bump-out 15'5" - the bump-out is no garage, never lower.
+  const partial = read(read(read(route, "West gable", ft(18, 2)), "Rear bump-out", ft(15, 5)), "Garage front, west", ft(9, 2));
+  assert(wingsProposed(partial).join() === id("Garage front, west"), JSON.stringify(x.roofProposal(partial).proposed));
+  const garage = roofOf(partial).roof.wings.find((w) => w.sideId === id("Garage front, west"));
+  assert(garage.lower && garage.gable, "the garage lower, under a gable on the house");
+  // A wall top typed on the route counts, as any measure does.
+  const typed = { ...partial, sides: partial.sides.map((s) => (s.id === id("Rear wall") ? { ...s, eaveLeftFeet: 16, eaveRightFeet: 16 } : s)) };
+  assert(wingsProposed(typed).join() === id("Garage front, west"), "still the garage alone");
+});
+
 test("the same check on the 14:53 walk the 10-13 claim was drawn on: proposed the same, the claim's taps give its 33.71 SQ", () => {
   const read = x.parseScanExterior(fixture("finish-1453/capture.json"), { scanId: null });
   assert(read.ok, read.error);

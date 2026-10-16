@@ -1911,12 +1911,16 @@ function saidRoofInput(exterior: Exterior, footprint: Footprint, pitch: number, 
 
 /**
  * Each side's wall top as measured, for the roof check: its two eaves above its own grade. A side whose
- * height came from the sides beside it, or that has none, says nothing.
+ * height came from the sides beside it, or that has none, says nothing - nor, on the photo route, one
+ * still at the route's 10' it starts every side at, neither read off its photo nor typed (session A, 10-16:
+ * the route sets no eave of its own, so a read garage would otherwise stand "lower" than placeholder walls).
  */
 function measuredWallTops(exterior: Exterior): Record<string, number[]> {
   const out: Record<string, number[]> = {};
+  const placeholders = exterior.source?.kind === "photos";
   for (const s of exterior.sides) {
     if (s.wallTopFrom === "neighbours") continue;
+    if (placeholders && s.wallTopFrom !== "photo" && s.eaveLeftFeet === DEFAULT_EAVE_FEET && s.eaveRightFeet === DEFAULT_EAVE_FEET) continue;
     const tops = [s.eaveLeftFeet, s.eaveRightFeet].filter((v): v is number => typeof v === "number" && Number.isFinite(v) && v > 0);
     if (tops.length > 0) out[s.id] = tops;
   }
@@ -1953,6 +1957,7 @@ export function roofProposal(exterior: Exterior): RoofProposal | null {
     if (footprint.closes) {
       got = proposeRoof(saidRoofInput(exterior, footprint, proposalPitch(exterior), exterior.roof.ridgeAlong), {
         wallTops: measuredWallTops(exterior),
+        garageSides: exterior.sides.filter((s) => s.openings.some((o) => o.kind === "garage")).map((s) => s.id),
         answered: exterior.roof.answered ?? [],
       });
     }
