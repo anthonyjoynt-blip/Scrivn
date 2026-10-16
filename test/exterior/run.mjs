@@ -5223,5 +5223,40 @@ test("the report: the roof's parts as proposed are assumed until checked - the d
   assert(!x.exteriorReport(rect(40, 30, { pitch: 6 }), { title: "t", date: "d", madeWith: "m" }).assumed.some((a) => a.startsWith("The roof's parts")), "nothing proposed");
 });
 
+test("the report of a house measured on the photo route: sizes from the photos, scaled by the tapes, each named", () => {
+  // The owner's house as the photo route lands one (lib/photoRouteExterior.ts): source "photos", the route's tapes and its measure kept.
+  const base = x.parseScanExterior(fixture("photos-only-1016.json")).exterior;
+  const ids = base.sides.map((s) => s.id);
+  const e = {
+    ...base,
+    scale: undefined,
+    source: { kind: "photos", by: "photos", captureId: null, scanId: null, receivedAt: "2026-10-16T22:00:00.000Z", notes: ["Measured from 9 of 18 photos and 4 tapes."], walkClosed: true },
+    photoRoute: {
+      format: "scrivn-photo-route/1",
+      photos: Array.from({ length: 18 }, (_, i) => ({ id: `p${i}` })),
+      buildings: [
+        {
+          id: "main",
+          outline: [],
+          corners: [],
+          tapes: [
+            { id: "t1", kind: "line", photo: "p0", a: [0, 0], b: [1, 0], feet: 9, what: "garage" },
+            { id: "t2", kind: "line", photo: "p1", a: [0, 0], b: [1, 0], feet: 9, what: "garage" },
+            { id: "t3", kind: "side", from: 10, feet: ft(21, 11) },
+            { id: "t4", kind: "side", from: 4, feet: ft(22, 2) },
+          ],
+        },
+      ],
+      measured: { cameras: Array.from({ length: 9 }, (_, i) => ({ photo: `p${i}` })), sideIds: ids },
+    },
+  };
+  const r = x.exteriorReport(e, { title: "t", date: "d", madeWith: "m" });
+  assert(r.sources[0] === "Sizes: from the photos (9 of 18 used), scaled by 4 tapes: a garage door 9', a garage door 9', the Front wall behind the porch 21'11\" and the Rear bump-out gable 22'2\".", r.sources[0]);
+  assert(r.sources[1] === "Walls, heights, materials and openings: read off the photos, side by side round the house; nothing was tapped on the walls.", r.sources[1]);
+  assert(r.facts.find((f) => f.label === "Sizes from")?.value === "the photos and 4 tapes", JSON.stringify(r.facts));
+  // A scanned exterior's sizes are as they were: the photo route's words are only for its own.
+  assert(!x.exteriorReport(base, { title: "t", date: "d", madeWith: "m" }).sources[0].includes("scaled by"), "the scan's own words");
+});
+
 console.log(`\n${passed.length} passed, ${failures.length} failed`);
 if (failures.length > 0) process.exit(1);
