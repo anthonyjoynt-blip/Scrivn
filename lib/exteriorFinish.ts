@@ -29,6 +29,13 @@
  *     "sides": { "<Scan side index>": FinishSide }                the roof read off each side's photos
  *   }
  *
+ * HEIGHTS FROM THE NEIGHBOURS (2026-10-15, the owner after his 18:02 walk: "Tapping corners and a few photos is fine but
+ * its every tiny side and some of them just will not be possible to photograph correctly"). The walk is now a lap of corners,
+ * then a few photos of the house, each laid on every side it sees. Once Finish has read any side, a side left with no height
+ * of its own - no photo saw it, or none showed its top - takes its eaves from the sides beside it, at the corners it shares
+ * with them, marked "neighbours" ([heightsFromNeighbours]): its siding counts at that height, with no openings unless some
+ * were tapped. A side whose read walls the estimator set aside is left as he set it.
+ *
  * Keyed by Scan's side index, the only name a side has on both: Scrivn gives each side an id of its
  * own when it reads the file (lib/exteriorImport.ts). Reads made at another tape's scale are scaled
  * to the file's as they are put on (`scaledRoofRead`; a pitch is a ratio and stays).
@@ -196,6 +203,8 @@ export function applyScanFinish(
   finish: ScanFinish,
   idByIndex: Map<number, string>,
   scaleNow: number,
+  /** The walk went all the way round: the last side's right end meets the first's left. */
+  closed = false,
 ): { sides: ExteriorSide[]; roof: ExteriorRoof; notes: string[] } {
   const notes: string[] = [];
   const reads = new Map<string, SideRoofRead>();
@@ -211,11 +220,20 @@ export function applyScanFinish(
     reads.set(id, Math.abs(k2 - 1) > 1e-6 ? scaledRoofRead(scaleOverhangs(fs.roofRead, k2), k2) : fs.roofRead);
     if (fs.walls?.taken) walls.set(id, Math.abs(k2 - 1) > 1e-6 ? scaledWalls(fs.walls, k2) : fs.walls);
   }
-  const nextSides = sides.map((s) => {
+  const walledSides = sides.map((s) => {
     const withRead = reads.has(s.id) ? { ...s, roofRead: reads.get(s.id) as SideRoofRead } : s;
     const w = walls.get(s.id);
     return w ? withWalls(withRead, w) : withRead;
   });
+  // Once anything was read: a side still with no height takes its neighbours' at the corners it shares - not one whose read
+  // walls were set aside on the phone, which stays as he left it.
+  const setAside = new Set<string>();
+  for (const [k, fs] of Object.entries(finish.sides ?? {})) {
+    const id = idByIndex.get(Number(k));
+    if (id && fs.walls && !fs.walls.taken) setAside.add(id);
+  }
+  const neighbours = reads.size > 0 ? heightsFromNeighbours(walledSides, closed, setAside) : { sides: walledSides, filled: [] as string[] };
+  const nextSides = neighbours.sides;
   const nextRoof: ExteriorRoof = { ...roof };
   if (finish.pitch != null) nextRoof.pitch = finish.pitch;
   if (finish.ends) {
@@ -230,6 +248,12 @@ export function applyScanFinish(
   if (reads.size > 0) notes.push(`The roof was read off the photos of ${listWords(named([...reads.keys()]))} on the phone (Finish exterior).`);
   const walled = nextSides.filter((s) => walls.has(s.id) && (s.wallTopFrom === "photo" || (s.shapes ?? []).some((x) => x.from === "photo") || s.openings.some((o) => o.from === "photo")));
   if (walled.length > 0) notes.push(`Walls read off the photos where nothing was tapped (cladding, windows, doors, wall top): ${listWords(walled.map((s) => s.name))}. Each is marked from photo.`);
+  if (neighbours.filled.length > 0) {
+    const unseen = neighbours.filled.filter((id) => (nextSides.find((s) => s.id === id)?.photos ?? []).length === 0);
+    const unread = neighbours.filled.filter((id) => !unseen.includes(id));
+    if (unseen.length > 0) notes.push(`Not seen in any photo, ${unseen.length === 1 ? "its height comes" : "their heights come"} from the sides beside ${unseen.length === 1 ? "it" : "them"}: ${listWords(named(unseen))}. No openings on ${unseen.length === 1 ? "it" : "them"} unless tapped.`);
+    if (unread.length > 0) notes.push(`The wall top didn't read off the photo of ${listWords(named(unread))}: the height comes from the sides beside ${unread.length === 1 ? "it" : "them"}.`);
+  }
   if (finish.pitch != null) notes.push(`The pitch was typed on the phone: ${formatPitch(finish.pitch)}.`);
   if (finish.ends && Object.keys(finish.ends).length > 0) {
     notes.push(`Roof ends set on the phone: ${Object.entries(finish.ends).map(([k, kind]) => `${named([idByIndex.get(Number(k)) ?? ""])[0]} ${kind}`).join(", ")}.`);
@@ -265,6 +289,47 @@ export function withWalls(side: ExteriorSide, w: FinishWalls): ExteriorSide {
     next.wallTopFrom = "photo";
   }
   return next;
+}
+
+/**
+ * Sides with no height of their own - neither eave tapped nor read - given their neighbours' eaves at the corners they share
+ * (2026-10-15): side k's right end meets side k + 1's left end, and with the walk [closed] the last's meets the first's. A run
+ * of such sides fills in from both ends, a side at a time; a side whose one neighbour has a height takes it at both ends. Sides
+ * in [keepOut] are left as they are. Each side filled is marked `wallTopFrom: "neighbours"`, and its id is in `filled`.
+ */
+export function heightsFromNeighbours(sides: ExteriorSide[], closed: boolean, keepOut: Set<string> = new Set()): { sides: ExteriorSide[]; filled: string[] } {
+  const out = sides.map((s) => ({ ...s }));
+  const n = out.length;
+  const has = (s: ExteriorSide) => s.eaveLeftFeet != null || s.eaveRightFeet != null;
+  const leftOf = (s: ExteriorSide) => s.eaveLeftFeet ?? s.eaveRightFeet;
+  const rightOf = (s: ExteriorSide) => s.eaveRightFeet ?? s.eaveLeftFeet;
+  const filled: string[] = [];
+  const wanted = new Set(out.filter((s) => !has(s) && !keepOut.has(s.id)).map((s) => s.id));
+  if (wanted.size === 0 || wanted.size === n) return { sides: out, filled };
+  for (let pass = 0; pass < n && wanted.size > 0; pass++) {
+    const now: { i: number; left: number | null; right: number | null }[] = [];
+    const at = (i: number): ExteriorSide | null => (i >= 0 && i < n ? (out[i] as ExteriorSide) : closed ? (out[(i + n) % n] as ExteriorSide) : null);
+    for (let i = 0; i < n; i++) {
+      const me = out[i] as ExteriorSide;
+      if (!wanted.has(me.id)) continue;
+      const prev = at(i - 1);
+      const next = at(i + 1);
+      const left = prev && has(prev) ? rightOf(prev) ?? null : null;
+      const right = next && has(next) ? leftOf(next) ?? null : null;
+      if (left != null || right != null) now.push({ i, left, right });
+    }
+    if (now.length === 0) break;
+    for (const { i, left, right } of now) {
+      const me = out[i] as ExteriorSide;
+      // A level eave at the lower of the two corners: where the neighbours differ, the wall between is the lower one more often
+      // than not - a wing against a taller gable wall - and its gable, if any, comes from the roof.
+      const eave = left != null && right != null ? Math.min(left, right) : (left ?? right);
+      out[i] = { ...me, eaveLeftFeet: eave, eaveRightFeet: eave, wallTopFrom: "neighbours" };
+      wanted.delete(me.id);
+      filled.push(me.id);
+    }
+  }
+  return { sides: out, filled };
 }
 
 /** A side's walls with every length times [k], as the side is scaled. */

@@ -169,8 +169,12 @@ export interface ExteriorSide {
   photos?: SidePhoto[];
   /** Doors of a standard size on its photo, kept off its AI trace as checks on the house's sizes (2026-10-15, lib/exteriorScale.ts). */
   sizeDoors?: SizeDoor[];
-  /** The eaves (and the peak) read off the side's photo by Finish exterior, where none was tapped (2026-10-15, lib/exteriorFinish.ts). */
-  wallTopFrom?: "photo";
+  /**
+   * The eaves (and the peak) read off the side's photo by Finish exterior, where none was tapped (2026-10-15,
+   * lib/exteriorFinish.ts): "photo". "neighbours" (2026-10-15, the owner's corners-lap-then-photos walk): no photo
+   * showed its wall top, so its eaves are the sides' beside it at the corners it shares with them.
+   */
+  wallTopFrom?: "photo" | "neighbours";
 }
 
 /**

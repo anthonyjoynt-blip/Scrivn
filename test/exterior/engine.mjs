@@ -483,6 +483,90 @@ await test("set aside on the phone, a side's walls come off: it is its corners a
 });
 
 // ---------------------------------------------------------------------------------------------
+// A lap of corners, then a few photos of the house (2026-10-15, the owner after his 18:02 walk)
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * "Tapping corners and a few photos is fine but its every tiny side and some of them just will not be possible to photograph
+ * correctly." The whole 14:53 walk cut back to its corners - every side, as the new walk taps it - with only the four photos the
+ * 10-12 test took. Finish reads those four; every other side takes its height from the sides beside it.
+ */
+function lapThenPhotos() {
+  const c = JSON.parse(cutToCorners(false));
+  for (const side of c.sides) {
+    if (answers[String(side.index)]) continue;
+    const material = side.cladding ?? "stucco";
+    Object.assign(side, {
+      eave_left_m: side.bottom_left_m,
+      eave_right_m: side.bottom_right_m,
+      peak: null,
+      pitch_12: null,
+      shapes: [{ material, label: material[0].toUpperCase() + material.slice(1), polygon: [[0, side.bottom_left_m], [side.length_m, side.bottom_right_m]], area_m2: 0, openings_m2: 0, net_m2: 0, closed: false }],
+      roofline: [],
+      openings: [],
+      areas: [],
+      gross_sf: 0,
+      net_sf: 0,
+      opening_trim_m: 0,
+    });
+  }
+  return JSON.stringify(c);
+}
+
+await test("a lap of corners and four photos: the four read, every other side's height from the sides beside it - every side counted, the phone and Scrivn alike", async () => {
+  const lap = lapThenPhotos();
+  // Before Finish nothing has a height: nothing borrowed, nothing counted.
+  const before = JSON.parse(await P.run("summary", { capture: lap, finish: null }));
+  assert(before.uncounted.length === 12 && before.neighbours.notSeen.length === 0, `before: ${before.uncounted.length} uncounted`);
+  let f = { format: "scrivn-finish/1" };
+  for (const index of Object.keys(answers)) {
+    const { request, squared } = await x.prepare(lap, f, Number(index), host);
+    f = await x.take(lap, f, Number(index), answerFor(Number(index), request), squared, host, "2026-10-15T19:00:00.000Z");
+  }
+  const s = JSON.parse(await P.run("summary", { capture: lap, finish: f }));
+  const { q, exterior } = scrivnOf(lap, f);
+  sameRoof(s, q, "lap then photos");
+  assert(s.uncounted.length === 0, `every side counted: ${s.uncounted.join(", ")}`);
+  const read = Object.values(answers).map((a) => a.side);
+  const unseen = exterior.sides.map((x2) => x2.name).filter((n) => !read.includes(n));
+  assert(JSON.stringify(s.neighbours.notSeen) === JSON.stringify(unseen), `not seen: ${s.neighbours.notSeen.join(", ")}`);
+  assert(s.neighbours.topNotRead.length === 0, "every photographed side's top read");
+  const by = (n) => exterior.sides.find((x2) => x2.name === n);
+  for (const n of unseen) {
+    const side = by(n);
+    assert(side.wallTopFrom === "neighbours" && side.eaveLeftFeet > 0 && side.eaveRightFeet > 0 && side.openings.length === 0, `${n}: a height from its neighbours, no openings`);
+    assert(q.sides.find((x2) => x2.name === n).netSquareFeet > 0, `${n}: its siding counted`);
+  }
+  // Right, between Front 3 and Rear (both read): its eaves are theirs at the corners it shares with them.
+  near(by("Right").eaveLeftFeet, Math.min(by("Front 3").eaveRightFeet, by("Rear").eaveLeftFeet), "Right: level, at the lower of Front 3's right and Rear's left", 1e-9);
+  near(by("Right").eaveRightFeet, by("Right").eaveLeftFeet, "Right: one level eave", 1e-9);
+  // Front, between Left 5 (the last side; the walk closed round) and Left.
+  near(by("Front").eaveLeftFeet, Math.min(by("Left 5").eaveRightFeet, by("Left").eaveLeftFeet), "Front: the lower of Left 5's right (round the ring) and Left's left", 1e-9);
+  near(by("Front").eaveRightFeet, by("Front").eaveLeftFeet, "Front: one level eave", 1e-9);
+  assert(exterior.source.notes.some((n2) => n2.startsWith("Not seen in any photo, their heights come from the sides beside them:")), exterior.source.notes.join(" | "));
+  // The report says so, side by side and in what is assumed.
+  const r = x.exteriorReport(exterior, { title: "", date: "", madeWith: "" });
+  assert(r.assumed.some((a) => a.includes("the sides' beside them at the corners, not seen in a photo")), r.assumed.join(" | "));
+  const tapped = scrivnOf(capture, null);
+  for (const n of unseen) {
+    const t = tapped.exterior.sides.find((x2) => x2.name === n);
+    console.log(`    ${n.padEnd(8)} tapped ${ftIn(t.eaveLeftFeet)}/${ftIn(t.eaveRightFeet)}, from its neighbours ${ftIn(by(n).eaveLeftFeet)}`);
+  }
+  console.log(`    house net: ${Math.round(tapped.q.totals.netSquareFeet)} SF tapped whole; ${Math.round(q.totals.netSquareFeet)} SF from 24 corner taps and 4 photos (${unseen.length} sides from their neighbours)`);
+});
+
+await test("the 18:02 walk (four sides, a side yard): Finish reads the walls only and says the walk isn't closed", async () => {
+  const file = readFileSync(join(here, "fixtures", "scan-exterior-1802-side-yard.json"), "utf8");
+  const s = JSON.parse(await P.run("summary", { capture: file, finish: null }));
+  assert(!s.closes && s.roof === null, "no roof");
+  assert(/all the way round/.test(s.reason ?? ""), `the reason: ${s.reason}`);
+  // Every photographed side wants reading: Finish has the walls to read.
+  assert(s.sides.length === 4 && s.sides.every((x2) => x2.toRead), JSON.stringify(s.sides.map((x2) => [x2.name, x2.toRead])));
+  const { exterior } = scrivnOf(file, null);
+  assert(exterior.source.notes.some((n) => n.includes("did not go all the way round")), exterior.source.notes.join(" | "));
+});
+
+// ---------------------------------------------------------------------------------------------
 // The report
 // ---------------------------------------------------------------------------------------------
 

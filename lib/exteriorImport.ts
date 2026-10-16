@@ -470,7 +470,7 @@ export function parseScanExterior(input: unknown, meta: { scanId?: string | null
   let finishedSides = sides;
   let finishedRoof = roof;
   if (finish) {
-    const done = applyScanFinish(sides, roof, finish, idByIndex, factor);
+    const done = applyScanFinish(sides, roof, finish, idByIndex, factor, closed);
     finishedSides = done.sides;
     finishedRoof = done.roof;
     notes.push(...done.notes);
