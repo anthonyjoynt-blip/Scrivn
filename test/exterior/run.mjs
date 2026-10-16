@@ -36,7 +36,7 @@
  *   * the drawings and the report as a customer document (10-16): the owner's side yard stepping down
  *     with its parging, the ground off a parging's bottom at its corners' own x, the ± on a length worked
  *     out from photos, a photos-only house said as one, every wall's name beside its own wall, and each
- *     cladding's marks (lib/claddingTexture.ts)
+ *     cladding's marks (lib/claddingTexture.ts); the house from each compass point (lib/exteriorViews.ts)
  */
 
 import { build } from "esbuild";
@@ -61,6 +61,7 @@ async function load() {
       `export * from "${lib("roofPieces.ts")}";`,
       `export * from "${lib("roofLabels.ts")}";`,
       `export * from "${lib("claddingTexture.ts")}";`,
+      `export * from "${lib("exteriorViews.ts")}";`,
       `export { exteriorReport } from "${lib("exteriorReport.ts")}";`,
       `export { formatFeetInches } from "${lib("sketch.ts")}";`,
       `export { availableTrades, buildWorkOrders } from "${lib("workOrders.ts")}";`,
@@ -4975,6 +4976,53 @@ test("each cladding drawn as it looks, every mark on its face: lap lines at thei
   const diamond = [{ x: 0, y: -1 }, { x: 1, y: 0 }, { x: 0, y: 1 }, { x: -1, y: 0 }];
   const cut = x.clipSegment(diamond, { x: -2, y: 0 }, { x: 2, y: 0 });
   assert(cut.length === 1 && Math.abs(cut[0][0].x + 1) < 1e-9 && Math.abs(cut[0][1].x - 1) < 1e-9, JSON.stringify(cut));
+});
+
+test("the house from each compass point: a 40' x 30' gable at 6/12 - front and back square-on under their slopes, the gable ends under the roof's profile", () => {
+  const m = x.exteriorModel(rect(40, 30, { pitch: 6 }));
+  assert(m.ok, m.reason);
+  const views = Object.fromEntries(x.COMPASS.map((c) => [c, x.houseView(m.model, c)]));
+  // Each compass point shows its own side: the plan's front is south, east to its right.
+  assert(JSON.stringify(x.COMPASS.map((c) => views[c].sides.map((s) => s.name))) === JSON.stringify([["Front"], ["Right"], ["Rear"], ["Left"]]), JSON.stringify(x.COMPASS.map((c) => views[c].sides)));
+  near(views.south.maxX - views.south.minX, 40, "the front's width", 1e-6);
+  near(views.east.maxX - views.east.minX, 30, "the right gable's width", 1e-6);
+  // The front: its one slope facing it, and the fascia along its eave. A gable end: both slopes edge-on, drawn as the roof's profile.
+  const kinds = (v) => v.pieces.filter((p) => p.type === "roof").map((p) => p.kind);
+  assert(kinds(views.south).filter((k) => k === "slope").length === 1 && kinds(views.south).includes("fascia"), kinds(views.south).join());
+  assert(!kinds(views.east).includes("slope") && kinds(views.east).filter((k) => k === "edge").length === 2, kinds(views.east).join());
+  // Heights from the ground: the eave 10'; the roof's top 15' of run at 6/12 over it, and the roof's 6" thickness: 18'.
+  for (const c of x.COMPASS) {
+    near(views[c].groundY, 0, `${c}: the ground`, 1e-6);
+    near(views[c].topY, 18, `${c}: the roof's top`, 1e-6);
+  }
+  assert(JSON.stringify(views.south.levels.map((l) => [l.label, Math.round(l.y * 1e6) / 1e6])) === JSON.stringify([["Eave", 10], ["Top of roof", 18]]), JSON.stringify(views.south.levels));
+  // The gable end's wall up to the roof's underside at the ridge: 17'6".
+  const gable = views.east.pieces.find((p) => p.type === "wall");
+  near(Math.max(...gable.outline.map((p) => p.y)), 17.5, "the gable's peak", 1e-6);
+  // Drawn back to front.
+  for (const c of x.COMPASS) for (let i = 1; i < views[c].pieces.length; i++) assert(views[c].pieces[i].depth <= views[c].pieces[i - 1].depth + 1e-9, `${c}: piece ${i} out of order`);
+});
+
+test("the owner's house from each compass point: the front's three walls, the side yard's steps from the east", () => {
+  const m = x.exteriorModel(owner);
+  assert(m.ok, m.reason);
+  const view = (c) => x.houseView(m.model, c);
+  const south = view("south");
+  assert(JSON.stringify(south.sides.map((s) => s.name)) === JSON.stringify(["Front wall behind the porch", "Garage front, west bay", "Garage front, east bay"]), JSON.stringify(south.sides));
+  const east = view("east");
+  assert(east.sides.map((s) => s.name).join() === "East side wall", JSON.stringify(east.sides));
+  near(east.maxX - east.minX, sideNamed(owner, "East side wall").lengthFeet, "the east wall's whole length", 1e-6);
+  // Its ground, front on the left, steps three times by the side door: three 7" risers.
+  const risers = east.ground.filter((p, i) => i > 0 && p.x - east.ground[i - 1].x < 1e-3 && east.ground[i - 1].y - p.y > 0.4);
+  assert(risers.length === 3, JSON.stringify(east.ground.map((p) => [Math.round(p.x * 100) / 100, Math.round(p.y * 100) / 100])));
+  for (const c of ["north", "west"]) assert(view(c).sides.length >= 3, `${c}: ${JSON.stringify(view(c).sides)}`);
+  // The report gives them first, by compass point, each saying what it shows.
+  const r = x.exteriorReport(owner, { title: "t", date: "d", madeWith: "m" });
+  assert(JSON.stringify(r.views.map((v) => v.heading)) === JSON.stringify(["South elevation · the front", "East elevation · to the right of the front", "North elevation · the back", "West elevation · to the left of the front"]), JSON.stringify(r.views.map((v) => v.heading)));
+  assert(r.views[1].shows === "Shows East side wall.", r.views[1].shows);
+  // No footprint, no views: the sides alone.
+  const open = x.exteriorReport(exterior([ownersSide()]), { title: "t", date: "d", madeWith: "m" });
+  assert(open.views.length === 0, "no views without a footprint");
 });
 
 console.log(`\n${passed.length} passed, ${failures.length} failed`);

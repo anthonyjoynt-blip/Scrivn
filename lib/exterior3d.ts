@@ -120,6 +120,13 @@ export interface Roof3D {
   lines: { kind: "ridge" | "hip" | "valley"; a: V3; b: V3 }[];
   /** Each slope's letter, over it, and which way the slope faces (a unit normal): a letter is read only from the side it is on. */
   labels: { text: string; at: V3; normal: V3 }[];
+  /**
+   * The same top as whole pieces (2026-10-16, the house's four elevations): each slope's cells as
+   * polygons, by the slope they belong to, so a drawing can join them into the slope with no seams.
+   */
+  faces: { facet: string; poly: V3[] }[];
+  /** The fascia as quads, each with the way out from the roof in plan: a face is seen only from that side. */
+  fasciaFaces: { poly: V3[]; out: Pt }[];
 }
 
 export interface Ground3D {
@@ -813,6 +820,8 @@ function roofModel(plan: RoofPlan, underAt: (layer: number, z: number) => number
   const fascia: number[] = [];
   const gables: number[] = [];
   const steps: number[] = [];
+  const faces: Roof3D["faces"] = [];
+  const fasciaFaces: Roof3D["fasciaFaces"] = [];
   const tri = (out: number[], p: V3, q: V3, s: V3) => out.push(...p, ...q, ...s);
 
   // Every corner of a layer's cells that lies along another cell's edge is put into that edge, so
@@ -832,6 +841,7 @@ function roofModel(plan: RoofPlan, underAt: (layer: number, z: number) => number
     }
     const m = c.poly.reduce((s, p) => ({ x: s.x + p.x / c.poly.length, y: s.y + p.y / c.poly.length }), { x: 0, y: 0 });
     const h = (p: Pt) => underAt(c.layer, planeZ(c.plane, p));
+    faces.push({ facet: c.facet, poly: ring.map((p) => at3(p, h(p) + T)) });
     for (let i = 0; i < ring.length; i++) {
       const p = ring[i] as Pt;
       const q = ring[(i + 1) % ring.length] as Pt;
@@ -851,6 +861,12 @@ function roofModel(plan: RoofPlan, underAt: (layer: number, z: number) => number
     const b1 = at3(e.b, base + e.zb + T);
     tri(fascia, a0, b0, b1);
     tri(fascia, a0, b1, a1);
+    // Out is the side of the edge its own roof is not on.
+    const len = Math.hypot(e.b.x - e.a.x, e.b.y - e.a.y) || 1;
+    const n = { x: (e.b.y - e.a.y) / len, y: -(e.b.x - e.a.x) / len };
+    const mid = { x: (e.a.x + e.b.x) / 2 + n.x * 0.05, y: (e.a.y + e.b.y) / 2 + n.y * 0.05 };
+    const roofed = cells.some((c) => c.layer === e.layer && insideConvex(c.poly, mid));
+    fasciaFaces.push({ poly: [a0, b0, b1, a1], out: roofed ? { x: -n.x, y: -n.y } : n });
   }
 
   // Steps: where two cells of one roof meet along an edge at different heights, the face between them.
@@ -933,7 +949,7 @@ function roofModel(plan: RoofPlan, underAt: (layer: number, z: number) => number
     const len = Math.hypot(f.facing.x * r, 1, f.facing.y * r);
     labels.push({ text: f.label, at: at3(m, underAt(f.layer, z) + T + 0.3), normal: [(f.facing.x * r) / len, 1 / len, (-f.facing.y * r) / len] });
   }
-  return { top, under, fascia, gables, steps, lines, labels };
+  return { top, under, fascia, gables, steps, lines, labels, faces, fasciaFaces };
 }
 
 /** The stretch two segments share, when they lie on one line: its two ends. */

@@ -1,6 +1,6 @@
 import { jsPDF } from "jspdf";
 import { createElement, type ReactElement } from "react";
-import { CHECK_INK, CladdingLegend, ElevationDrawing, elevationFontFeet, FootprintDrawing, LINE_STYLE, type LegendItem, RoofPlanDrawing } from "@/components/sketch/exteriorDrawings";
+import { CHECK_INK, CladdingLegend, ElevationDrawing, elevationFontFeet, FootprintDrawing, HouseElevationDrawing, houseViewFontFeet, LINE_STYLE, type LegendItem, RoofPlanDrawing } from "@/components/sketch/exteriorDrawings";
 import { allSides, elevationFaces, type Exterior, lengthToCheck } from "./exterior";
 import { type ExteriorReport, LINE_WORD, roofPlanCaption } from "./exteriorReport";
 import { type Letterhead, letterheadInkColor } from "./letterhead";
@@ -337,7 +337,14 @@ function elevationPages(doc: jsPDF, input: ReportPdfInput): void {
   });
 
   doc.addPage();
-  let y = heading(doc, "Elevations", "Each side as seen from outside, left to right, to scale: heights from the ground under each end, every opening's size over it, the length under it.");
+  const views = report.views;
+  let y = heading(
+    doc,
+    "Elevations",
+    views.length > 0
+      ? "The whole house square-on from each side, then each side on its own, to scale. The plan's front is taken as south: no compass bearing is measured."
+      : "Each side as seen from outside, left to right, to scale: heights from the ground under each end, every opening's size over it, the length under it.",
+  );
   // The materials, as the faces show them (2026-10-16): a swatch of each with its name.
   const items: LegendItem[] = [];
   for (const s of sides) {
@@ -351,6 +358,69 @@ function elevationPages(doc: jsPDF, input: ReportPdfInput): void {
     const k = Math.min(7.5, CONTENT_W / legend.box.width);
     paintSvg(doc, legend.svg, PAGE_MARGIN, y - 6, k, { pixel: PIXEL });
     y += legend.box.height * k + 8;
+  }
+
+  /*
+    The house from the south, east, north and west first (2026-10-16, the owner: "an overview of the full
+    face on view would be nice as well"), all four at ONE standard scale - the largest at which each fits
+    the page's width and about 300 points - so they compare as an architect's sheet does. Lettered at
+    about 7.5 points, as the sides are.
+  */
+  if (views.length > 0) {
+    const houseEl = (v: (typeof views)[number], fontFeet: number) => createElement(HouseElevationDrawing, { view: v.view, fontFeet });
+    const fitOf = (fontFor: (v: (typeof views)[number]) => number) =>
+      views.map((v) => {
+        const made = drawing(input, houseEl(v, fontFor(v)));
+        return standardScale(made.box.width, made.box.height, CONTENT_W, 300);
+      });
+    const least = (scales: [number, string][]) => scales.reduce((a, b) => (b[0] < a[0] ? b : a));
+    let [ptPerFt, text] = least(fitOf((v) => houseViewFontFeet(v.view)));
+    if (ptPerFt > MAX) [ptPerFt, text] = most;
+    for (let pass = 0; pass < 2; pass++) {
+      let next = least(fitOf(() => 7.5 / ptPerFt));
+      if (next[0] > MAX) next = most;
+      if (next[0] === ptPerFt) break;
+      [ptPerFt, text] = next;
+    }
+    for (const v of views) {
+      const made = drawing(input, houseEl(v, 7.5 / ptPerFt));
+      const dh = made.box.height * ptPerFt;
+      const dw = made.box.width * ptPerFt;
+      setText(doc, 8, "normal", MUTED);
+      const shows = doc.splitTextToSize(pdfSafe(v.shows), CONTENT_W) as string[];
+      if (y + 16 + shows.length * 10 + dh + 18 > BOTTOM - 14) {
+        doc.addPage();
+        y = heading(doc, "Elevations", "Continued.");
+      }
+      setText(doc, 10.5, "bold", NAVY);
+      doc.text(pdfSafe(v.heading), PAGE_MARGIN, y + 2);
+      setText(doc, 7.5, "normal", MUTED);
+      doc.text(pdfSafe(`Scale ${text} at 100%`), PAGE_W - PAGE_MARGIN, y + 2, { align: "right" });
+      y += 14;
+      setText(doc, 8, "normal", MUTED);
+      for (const line of shows) {
+        doc.text(line, PAGE_MARGIN, y);
+        y += 10;
+      }
+      paintSvg(doc, made.svg, PAGE_MARGIN + (CONTENT_W - dw) / 2, y, ptPerFt, { pixel: PIXEL });
+      y += dh + 8;
+      doc.setDrawColor(225, 229, 234);
+      doc.setLineWidth(0.5);
+      doc.line(PAGE_MARGIN, y, PAGE_W - PAGE_MARGIN, y);
+      y += 16;
+    }
+    // Then each side on its own: its heading kept with the first of them.
+    const first = scaled[0];
+    setText(doc, 8.2, "normal", INK);
+    const firstNeed = first ? 16 + first.made.box.height * first.ptPerFt + 6 + first.s.dims.flatMap((d) => doc.splitTextToSize(pdfSafe(d), CONTENT_W) as string[]).length * 10 + 14 : 0;
+    if (y + 40 + firstNeed > BOTTOM - 14) {
+      doc.addPage();
+      y = heading(doc, "Elevations", "Continued.");
+    }
+    setText(doc, 12, "bold", NAVY);
+    doc.text("Each side", PAGE_MARGIN, y + 2);
+    setText(doc, 8.5, "normal", MUTED);
+    y = para(doc, "As seen from outside, left to right, to scale: heights from the ground under each end, every opening's size over it, the length under it.", PAGE_MARGIN, y + 16, CONTENT_W, 10.5) + 8;
   }
   for (const { s, made, ptPerFt, text } of scaled) {
     const dh = made.box.height * ptPerFt;

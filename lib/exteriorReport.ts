@@ -28,7 +28,9 @@ import {
   type SideRoofRead,
   SIDING_KINDS,
 } from "./exterior";
+import { exteriorModel } from "./exterior3d";
 import { NOT_SCALED, scaleOf, sizesFrom } from "./exteriorScale";
+import { COMPASS, COMPASS_WORD, type Compass, type HouseView, houseView } from "./exteriorViews";
 import type { RoofLineKind, RoofPlan, RoofSection } from "./roof";
 import { lineTotals } from "./roofLabels";
 import { PHOTO_PIECE_LABEL, UPPER_SHOWN_WORDS } from "./roofPhotoShapes";
@@ -89,6 +91,18 @@ export interface ReportSide {
   dims: string[];
 }
 
+/** The whole house from one compass point (2026-10-16): lib/exteriorViews.ts. */
+export interface ReportView {
+  view: HouseView;
+  /** "South elevation · the front". */
+  heading: string;
+  /** "Shows Garage front, west bay, ... and Front wall behind the porch." */
+  shows: string;
+}
+
+/** Where each compass point is, the plan's front being south. */
+const COMPASS_PLACE: Record<Compass, string> = { south: "the front", east: "to the right of the front", north: "the back", west: "to the left of the front" };
+
 export interface ReportPhoto {
   sideName: string;
   photo: SidePhoto;
@@ -109,6 +123,8 @@ export interface ExteriorReport {
   /** What the roof's reads say of themselves, and anything else to check. */
   notes: string[];
   sides: ReportSide[];
+  /** The house from the south, east, north and west, before the sides one by one; none without a footprint. */
+  views: ReportView[];
   photos: ReportPhoto[];
   tables: ReportTable[];
   /** The roof plan's title line, its legend and its slopes; null with no roof drawn. */
@@ -564,7 +580,19 @@ export function exteriorReport(exterior: Exterior, meta: ReportMeta): ExteriorRe
   // A length worked out from the photos and further out than it should be: named to tape (2026-10-16).
   const toTape = every.filter((s) => lengthToCheck(s) !== undefined).map((s) => `${s.name.trim() || "Side"}: ${ft(s.lengthFeet)} ${plusMinus(s)}, worked out from the photos, not taped. Tape it to be sure.`);
   const notes = [...toTape, ...(roof?.notes ?? [])];
-  return { meta, exterior, q, facts, sources, assumed, notes, sides, photos, tables, roof };
+
+  // ---- The house from each compass point: the 3D model, square-on ----
+  const model = exteriorModel(exterior);
+  const views: ReportView[] = model.ok
+    ? COMPASS.map((c) => houseView(model.model, c))
+        .filter((v) => v.sides.length > 0)
+        .map((view) => ({
+          view,
+          heading: `${COMPASS_WORD[view.compass]} elevation · ${COMPASS_PLACE[view.compass]}`,
+          shows: `Shows ${listWords(view.sides.map((s) => s.name))}.`,
+        }))
+    : [];
+  return { meta, exterior, q, facts, sources, assumed, notes, sides, views, photos, tables, roof };
 }
 
 /** Each line's word in the legend and the facts: Scrivn's own (components/sketch/exteriorDrawings.tsx `LINE_STYLE`). */
