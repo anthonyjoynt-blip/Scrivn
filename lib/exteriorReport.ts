@@ -216,7 +216,7 @@ export function exteriorReport(exterior: Exterior, meta: ReportMeta): ExteriorRe
     ].filter(Boolean);
     const shapeFrom = new Set((side.shapes ?? []).filter((x) => x.from === "photo").map((x) => x.id));
     const dims = [
-      `${side.lengthFrom === "drawn" ? "About " : ""}${ft(sq.lengthFeet)} long${side.lengthFrom === "drawn" ? " (drawn, not measured)" : ""}${heights.length > 0 ? ` · ${heights.join(", ")}${side.wallTopFrom === "photo" ? " (from photo)" : ""}` : ""}${side.base === "parging" ? ` · parging ${ft(side.baseLeftFeet)} / ${ft(side.baseRightFeet)}` : ""}`,
+      `${side.lengthFrom === "drawn" ? "About " : ""}${ft(sq.lengthFeet)} long${side.lengthFrom === "drawn" ? " (drawn, not measured)" : ""}${heights.length > 0 ? ` · ${heights.join(", ")}${side.wallTopFrom === "photo" ? " (from photo)" : side.wallTopFrom === "neighbours" ? ` (from the sides beside it: ${(side.photos ?? []).length === 0 ? "not seen in a photo" : "its photo didn't show the top"})` : ""}` : ""}${side.base === "parging" ? ` · parging ${ft(side.baseLeftFeet)} / ${ft(side.baseRightFeet)}` : ""}`,
       ...sq.bands.map((b) => `${b.label}: ${sf(b.grossSquareFeet)} gross, ${sf(b.openingSquareFeet)} of openings, ${sf(b.netSquareFeet)} net${shapeFrom.has(b.bandId) ? " (from photo)" : ""}`),
       ...[...side.openings].sort((a, b) => a.fromLeftFeet - b.fromLeftFeet).map((o) => openingLine(o, names.get(o.id) ?? OPENING_LABEL[o.kind])),
       ...(side.fixtures ?? []).filter((f) => f.count > 0).map((f) => `${f.kind === "other" ? f.label?.trim() || "Other" : SIDE_FIXTURE_LABEL[f.kind]}: ${f.count} (${f.action === "replace" ? "replace" : "detach & reset"})`),
@@ -262,6 +262,9 @@ export function exteriorReport(exterior: Exterior, meta: ReportMeta): ExteriorRe
     const w = wallsFromPhoto(s);
     return `${s.name} (${listWords([w.shapes ? "cladding" : "", w.openings > 0 ? `${w.openings} opening${w.openings === 1 ? "" : "s"}` : "", w.wallTop ? "wall top" : ""].filter(Boolean))})`;
   }).join(", ")}.`);
+  // Heights from the sides beside them (2026-10-15): not seen in a photo, or its photo didn't show the top.
+  const borrowed = every.filter((s) => s.wallTopFrom === "neighbours").map((s) => s.name);
+  if (borrowed.length > 0) assumed.push(`${listWords(borrowed)}: ${borrowed.length === 1 ? "its height is" : "their heights are"} the sides' beside ${borrowed.length === 1 ? "it" : "them"} at the corners, not seen in a photo; no openings unless tapped.`);
   const drawn = every.filter((s) => s.lengthFrom === "drawn").map((s) => s.name);
   if (drawn.length > 0) assumed.push(`${listWords(drawn)}: ${drawn.length === 1 ? "its length is" : "their lengths are"} only drawn, not measured.`);
   const unmeasured = sides.filter((s) => !s.q.complete).map((s) => s.side.name);
@@ -335,7 +338,7 @@ export function exteriorReport(exterior: Exterior, meta: ReportMeta): ExteriorRe
     ],
     rows: sides.flatMap((s) => {
       const ids = new Set((s.side.shapes ?? []).filter((x) => x.from === "photo").map((x) => x.id));
-      const own = scanned ? "tapped" : "entered";
+      const own = s.side.wallTopFrom === "neighbours" ? "neighbours" : scanned ? "tapped" : "entered";
       return s.q.bands.length === 0
         ? [[s.side.name, s.q.complete ? "-" : "not counted", "-", "-", "-", "-"]]
         : s.q.bands.map((b, k) => [k === 0 ? s.side.name : "", b.label, ids.has(b.bandId) ? "photo" : own, one(b.grossSquareFeet), one(b.openingSquareFeet), one(b.netSquareFeet)]);

@@ -103,6 +103,11 @@ export interface EngineSummary {
   }[];
   /** Sides with no height at all - their corners alone, no photo read - which are not counted: said by name. */
   uncounted: string[];
+  /**
+   * Sides whose height came from the sides beside them (2026-10-15, lib/exteriorFinish.ts `heightsFromNeighbours`), by name:
+   * [notSeen] no photo saw them, [topNotRead] a photo did but didn't show the wall top.
+   */
+  neighbours: { notSeen: string[]; topNotRead: string[] };
   roof: {
     pitch: number;
     pitchText: string;
@@ -149,7 +154,9 @@ export async function summary(capture: CaptureInput, finishRaw: unknown, host: E
     const openings = [count("window") ? `${count("window")} window${count("window") === 1 ? "" : "s"}` : "", count("door") ? `${count("door")} door${count("door") === 1 ? "" : "s"}` : "", count("garage") ? `${count("garage")} garage door${count("garage") === 1 ? "" : "s"}` : ""].filter(Boolean).join(", ");
     const heights = s.eaveLeftFeet != null ? `eave ${formatFeetInches(s.eaveLeftFeet)}${s.eaveRightFeet != null && Math.abs(s.eaveRightFeet - s.eaveLeftFeet) > 1 / 24 ? `/${formatFeetInches(s.eaveRightFeet)}` : ""}${s.gable ? `, peak ${formatFeetInches(s.gable.peakFeet)}` : ""}` : "";
     const what = [cladding, openings, heights].filter(Boolean).join(" · ");
-    const words = !sq?.complete
+    const words = s.wallTopFrom === "neighbours" && sq?.complete
+      ? `the wall top didn't read off the photo: height from the sides beside it · ${what}`
+      : !sq?.complete
       ? read?.walls && !read.walls.taken
         ? "walls set aside: only its corners were tapped, so it is not counted"
         : "only its corners: Finish reads its walls off the photo"
@@ -165,6 +172,11 @@ export async function summary(capture: CaptureInput, finishRaw: unknown, host: E
     sides.push({ index, name: s.name, photos: photosOf(s), toRead: want.has(index), said: read?.said ?? [], walls: { read: !!read?.walls, taken: read?.walls?.taken !== false, fromPhoto, words, complete: !!sq?.complete }, elevation });
   }
   const uncounted = every.filter((s) => !q.sides.find((x) => x.sideId === s.id)?.complete).map((s) => s.name);
+  const fromNeighbours = every.filter((s) => s.wallTopFrom === "neighbours");
+  const neighbours = {
+    notSeen: fromNeighbours.filter((s) => photosOf(s).length === 0).map((s) => s.name),
+    topNotRead: fromNeighbours.filter((s) => photosOf(s).length > 0).map((s) => s.name),
+  };
   const r = q.roofing;
   const plan = q.roof;
   let roof: EngineSummary["roof"] = null;
@@ -220,6 +232,7 @@ export async function summary(capture: CaptureInput, finishRaw: unknown, host: E
     plan: planPng,
     footprint: footprintPng,
     uncounted,
+    neighbours,
   };
 }
 
