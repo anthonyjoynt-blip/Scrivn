@@ -567,13 +567,13 @@ export function PhotoRouteScreen() {
       <line x1={210} y1={96} x2={252} y2={96} stroke={NAVY} strokeWidth={2.4} strokeLinecap="round" />
       {/* the ring, green on tracking alone while a photo is the step */}
       <circle cx={150} cy={214} r={20} fill="none" stroke={GREEN} strokeWidth={4.5} />
-      {/* the card */}
-      <rect x={30} y={300} width={240} height={166} rx={16} fill="rgba(11,13,16,0.82)" />
-      <text x={44} y={320} fontSize={10} fontWeight={700} fill={GREEN}>
+      {/* the card, with its way on: Skip this photo */}
+      <rect x={30} y={294} width={240} height={182} rx={16} fill="rgba(11,13,16,0.82)" />
+      <text x={44} y={312} fontSize={10} fontWeight={700} fill={GREEN}>
         Side 1 of the house
       </text>
       {["Step back until the whole wall", "and the roof edge are on screen,", "then press Photo"].map((t, i) => (
-        <text key={t} x={44} y={342 + i * 18} fontSize={14} fontWeight={700} fill={PAPER}>
+        <text key={t} x={44} y={332 + i * 18} fontSize={14} fontWeight={700} fill={PAPER}>
           {t}
         </text>
       ))}
@@ -583,17 +583,18 @@ export function PhotoRouteScreen() {
         "Can't fit the whole wall? Take it in pieces",
         "along the wall, overlapping a few feet.",
       ].map((t, i) => (
-        <text key={t} x={44} y={408 + i * 13} fontSize={9.5} fill="#c9d1d9">
+        <text key={t} x={44} y={392 + i * 13} fontSize={9.5} fill="#c9d1d9">
           {t}
         </text>
       ))}
+      <Chip x={44} y={442} w={212} label="Skip this photo" />
       {/* the chip bar: Photo and Add by hand, then Undo · ? · Next side */}
-      <rect x={20} y={476} width={260} height={94} fill="rgba(18,40,63,0.92)" />
-      <Chip x={30} y={486} w={116} label="Photo" lit />
-      <Chip x={154} y={486} w={116} label="Add by hand" />
-      <Chip x={30} y={524} w={48} label="Undo" />
-      <Chip x={135} y={524} w={30} label="?" />
-      <Chip x={198} y={524} w={72} label="Next side" />
+      <rect x={20} y={482} width={260} height={88} fill="rgba(18,40,63,0.92)" />
+      <Chip x={30} y={490} w={116} label="Photo" lit />
+      <Chip x={154} y={490} w={116} label="Add by hand" />
+      <Chip x={30} y={528} w={48} label="Undo" />
+      <Chip x={135} y={528} w={30} label="?" />
+      <Chip x={198} y={528} w={72} label="Next side" />
     </svg>
   );
 }
