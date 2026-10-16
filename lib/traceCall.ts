@@ -1,5 +1,6 @@
 import "server-only";
 import { createStructuredMessage } from "./anthropic";
+import { cleanEnv } from "./env";
 import { MAX_SQUARED_PX, type SquareFrame } from "./exteriorPhoto";
 import { TRACE_PRICE_PER_MILLION, TRACE_SCHEMA, TRACE_SYSTEM_PROMPT, traceCostUsd, traceProposals, type TraceRequest, type TraceResponse, type TraceSide, traceUserMessage, type TraceWire } from "./exteriorTrace";
 import { camerasAt } from "./roofPhotoRead";
@@ -84,6 +85,19 @@ export function readTraceRequest(body: Record<string, unknown> | null): { ok: tr
  * has numbers to start from), and its answer as proposals in the side's own feet. [route] names the
  * route in the log. Throws `ScopingApiError` as `createStructuredMessage` does.
  */
+/**
+ * Photo reads are OFF until the owner turns them on (2026-10-16). A test walk's Finish spent $0.73 reading photos that could
+ * give no wall, and the owner: "I said no more spent API calls for developing. we have to stop spending this meaninglessly".
+ * Until Scan reaches testers every trace is his own testing, so both routes refuse before any call (and before the phone's
+ * scan is counted) unless SCRIVN_EXTERIOR_READS=on. Turn it on when testers start.
+ */
+export function exteriorReadsOn(): boolean {
+  return cleanEnv("SCRIVN_EXTERIOR_READS")?.toLowerCase() === "on";
+}
+
+export const EXTERIOR_READS_OFF =
+  "Photo reads are off while Scrivn is being tested, so nothing is spent. The photos are kept, and the walls and roof stay as tapped.";
+
 export async function runTrace(t: ReadTrace, route: string): Promise<TraceResponse> {
   const started = Date.now();
   const result = await createStructuredMessage<TraceWire>({

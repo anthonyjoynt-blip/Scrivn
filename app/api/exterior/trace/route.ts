@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { ScopingApiError } from "@/lib/anthropic";
-import { readTraceRequest, runTrace } from "@/lib/traceCall";
+import { EXTERIOR_READS_OFF, exteriorReadsOn, readTraceRequest, runTrace } from "@/lib/traceCall";
 import { checkUsageAllowed } from "@/lib/usage";
 
 /**
@@ -26,6 +26,8 @@ export async function POST(request: Request) {
   }
   const read = readTraceRequest(body);
   if (!read.ok) return NextResponse.json({ error: read.error }, { status: 400 });
+  // Off while the owner tests (2026-10-16), as the phone's: no call made.
+  if (!exteriorReadsOn()) return NextResponse.json({ error: EXTERIOR_READS_OFF }, { status: 403 });
 
   const blocked = await checkUsageAllowed();
   if (blocked) return NextResponse.json({ error: blocked.error }, { status: blocked.status });

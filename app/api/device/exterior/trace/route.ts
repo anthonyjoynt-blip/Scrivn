@@ -3,7 +3,7 @@ import { ScopingApiError } from "@/lib/anthropic";
 import { deviceIdentity, ScanLimitError } from "@/lib/deviceRepo";
 import { takeScan } from "@/lib/scanAllowance";
 import { captureKey } from "@/lib/scanAllowanceRules";
-import { readTraceRequest, runTrace } from "@/lib/traceCall";
+import { EXTERIOR_READS_OFF, exteriorReadsOn, readTraceRequest, runTrace } from "@/lib/traceCall";
 import { deviceToken, errorResponse, notPaired } from "../../pair/route";
 
 /**
@@ -34,6 +34,8 @@ export async function POST(request: Request) {
   if (!read.ok) return NextResponse.json({ error: read.error }, { status: 400 });
   const id = typeof body?.captureId === "string" ? body.captureId.trim() : "";
   if (id === "" || id.length > 200) return NextResponse.json({ error: "Send the capture's id." }, { status: 400 });
+  // Off while the owner tests (2026-10-16): no call and no scan counted. 402 stops the phone asking for the other sides.
+  if (!exteriorReadsOn()) return NextResponse.json({ error: EXTERIOR_READS_OFF }, { status: 402 });
 
   let allowance;
   try {
