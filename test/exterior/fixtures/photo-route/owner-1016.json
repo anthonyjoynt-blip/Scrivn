@@ -1,0 +1,417 @@
+{
+ "format": "scrivn-photo-route-fixture/1",
+ "about": "The owner's house, 2026-10-16: 18 photos (C:/Users/Anthony/Desktop/House Photos), the user input the photo route asks for. Corner taps were placed by a Claude session reading each photo (zoomed crops), then snapped by the app's own code; the outline is drawn rough on a 1 ft grid, as an owner would sketch it. No API.",
+ "photos": [
+  {
+   "n": 1,
+   "file": "20261016_124948.jpg",
+   "width": 1931,
+   "height": 1448,
+   "takenAt": "2026:10:16 12:49:48"
+  },
+  {
+   "n": 2,
+   "file": "20261016_124959.jpg",
+   "width": 1878,
+   "height": 1409,
+   "takenAt": "2026:10:16 12:49:59"
+  },
+  {
+   "n": 3,
+   "file": "20261016_125016.jpg",
+   "width": 1419,
+   "height": 1065,
+   "takenAt": "2026:10:16 12:50:16"
+  },
+  {
+   "n": 4,
+   "file": "20261016_125019.jpg",
+   "width": 1436,
+   "height": 1077,
+   "takenAt": "2026:10:16 12:50:18"
+  },
+  {
+   "n": 5,
+   "file": "20261016_125021.jpg",
+   "width": 1383,
+   "height": 1037,
+   "takenAt": "2026:10:16 12:50:21"
+  },
+  {
+   "n": 6,
+   "file": "20261016_125032.jpg",
+   "width": 1730,
+   "height": 1298,
+   "takenAt": "2026:10:16 12:50:32"
+  },
+  {
+   "n": 7,
+   "file": "20261016_125106.jpg",
+   "width": 1840,
+   "height": 1380,
+   "takenAt": "2026:10:16 12:51:06"
+  },
+  {
+   "n": 8,
+   "file": "20261016_125113.jpg",
+   "width": 1880,
+   "height": 1410,
+   "takenAt": "2026:10:16 12:51:13"
+  },
+  {
+   "n": 9,
+   "file": "20261016_125116.jpg",
+   "width": 1739,
+   "height": 1304,
+   "takenAt": "2026:10:16 12:51:15"
+  },
+  {
+   "n": 10,
+   "file": "20261016_125127.jpg",
+   "width": 1690,
+   "height": 1268,
+   "takenAt": "2026:10:16 12:51:27"
+  },
+  {
+   "n": 11,
+   "file": "20261016_125241.jpg",
+   "width": 1550,
+   "height": 1163,
+   "takenAt": "2026:10:16 12:52:41"
+  },
+  {
+   "n": 12,
+   "file": "20261016_125300.jpg",
+   "width": 1677,
+   "height": 1258,
+   "takenAt": "2026:10:16 12:53:00"
+  },
+  {
+   "n": 13,
+   "file": "20261016_125314.jpg",
+   "width": 1727,
+   "height": 1295,
+   "takenAt": "2026:10:16 12:53:13"
+  },
+  {
+   "n": 14,
+   "file": "20261016_125327.jpg",
+   "width": 2000,
+   "height": 1500,
+   "takenAt": "2026:10:16 12:53:27"
+  },
+  {
+   "n": 15,
+   "file": "20261016_125335.jpg",
+   "width": 2000,
+   "height": 1500,
+   "takenAt": "2026:10:16 12:53:35"
+  },
+  {
+   "n": 16,
+   "file": "20261016_125340.jpg",
+   "width": 1857,
+   "height": 1393,
+   "takenAt": "2026:10:16 12:53:40"
+  },
+  {
+   "n": 17,
+   "file": "20261016_125348.jpg",
+   "width": 1805,
+   "height": 1354,
+   "takenAt": "2026:10:16 12:53:48"
+  },
+  {
+   "n": 18,
+   "file": "20261016_125424.jpg",
+   "width": 1425,
+   "height": 1901,
+   "takenAt": "2026:10:16 12:54:24"
+  }
+ ],
+ "buildings": [
+  {
+   "id": "main",
+   "outline": [
+    [
+     0,
+     0
+    ],
+    [
+     12,
+     0
+    ],
+    [
+     12,
+     -2
+    ],
+    [
+     25,
+     -2
+    ],
+    [
+     25,
+     62
+    ],
+    [
+     5,
+     62
+    ],
+    [
+     5,
+     56
+    ],
+    [
+     -10,
+     56
+    ],
+    [
+     -10,
+     46
+    ],
+    [
+     -20,
+     46
+    ],
+    [
+     -20,
+     20
+    ],
+    [
+     0,
+     20
+    ]
+   ],
+   "corners": [
+    {
+     "photo": 1,
+     "corner": 10,
+     "x": 189.5,
+     "y": 1043
+    },
+    {
+     "photo": 2,
+     "corner": 0,
+     "x": 1681.9,
+     "y": 1120
+    },
+    {
+     "photo": 3,
+     "corner": 9,
+     "x": 496.4,
+     "y": 1000
+    },
+    {
+     "photo": 6,
+     "corner": 9,
+     "x": 790.1,
+     "y": 1150
+    },
+    {
+     "photo": 6,
+     "corner": 10,
+     "x": 1350.2,
+     "y": 1010
+    },
+    {
+     "photo": 7,
+     "corner": 9,
+     "x": 1295.2,
+     "y": 1260
+    },
+    {
+     "photo": 7,
+     "corner": 10,
+     "x": 1406.6,
+     "y": 1150
+    },
+    {
+     "photo": 8,
+     "corner": 5,
+     "x": 45.4,
+     "y": 1190
+    },
+    {
+     "photo": 9,
+     "corner": 4,
+     "x": 385.1,
+     "y": 985
+    },
+    {
+     "photo": 9,
+     "corner": 5,
+     "x": 957.0,
+     "y": 985
+    },
+    {
+     "photo": 10,
+     "corner": 5,
+     "x": 992.0,
+     "y": 975
+    },
+    {
+     "photo": 11,
+     "corner": 3,
+     "x": 564.0,
+     "y": 860
+    },
+    {
+     "photo": 11,
+     "corner": 4,
+     "x": 791.9,
+     "y": 1150
+    },
+    {
+     "photo": 12,
+     "corner": 3,
+     "x": 514.3,
+     "y": 900
+    },
+    {
+     "photo": 13,
+     "corner": 4,
+     "x": 1255.3,
+     "y": 1000
+    },
+    {
+     "photo": 14,
+     "corner": 2,
+     "x": 167.5,
+     "y": 1233
+    },
+    {
+     "photo": 14,
+     "corner": 3,
+     "x": 1127.9,
+     "y": 1345
+    },
+    {
+     "photo": 14,
+     "corner": 4,
+     "x": 1512.5,
+     "y": 1044
+    },
+    {
+     "photo": 15,
+     "corner": 0,
+     "x": 381.2,
+     "y": 1000
+    },
+    {
+     "photo": 15,
+     "corner": 3,
+     "x": 1564.2,
+     "y": 1050
+    },
+    {
+     "photo": 15,
+     "corner": 10,
+     "x": 210.7,
+     "y": 960
+    },
+    {
+     "photo": 16,
+     "corner": 0,
+     "x": 631.1,
+     "y": 1000
+    },
+    {
+     "photo": 16,
+     "corner": 1,
+     "x": 1261.3,
+     "y": 990
+    },
+    {
+     "photo": 16,
+     "corner": 3,
+     "x": 1826.7,
+     "y": 975
+    },
+    {
+     "photo": 17,
+     "corner": 0,
+     "x": 1005.4,
+     "y": 935
+    },
+    {
+     "photo": 17,
+     "corner": 3,
+     "x": 1766.5,
+     "y": 905
+    },
+    {
+     "photo": 17,
+     "corner": 10,
+     "x": 58.3,
+     "y": 960
+    },
+    {
+     "photo": 7,
+     "corner": 7,
+     "x": 486,
+     "y": 520
+    },
+    {
+     "photo": 8,
+     "corner": 7,
+     "x": 945,
+     "y": 860
+    },
+    {
+     "photo": 8,
+     "corner": 9,
+     "x": 1428,
+     "y": 640
+    }
+   ],
+   "tapes": [
+    {
+     "id": "door-west",
+     "kind": "line",
+     "photo": 15,
+     "a": [
+      494.9,
+      774.6
+     ],
+     "b": [
+      865.9,
+      774.6
+     ],
+     "feet": 9.0,
+     "what": "garage"
+    },
+    {
+     "id": "door-east",
+     "kind": "line",
+     "photo": 15,
+     "a": [
+      1028.1,
+      784.5
+     ],
+     "b": [
+      1451.8,
+      784.5
+     ],
+     "feet": 9.0,
+     "what": "garage"
+    },
+    {
+     "id": "porch",
+     "kind": "side",
+     "from": 10,
+     "feet": 21.916666666666668,
+     "what": "wall",
+     "note": "keystone wall to the west porch post's inner face, along the house"
+    },
+    {
+     "id": "bump-out",
+     "kind": "side",
+     "from": 4,
+     "feet": 22.166666666666668,
+     "what": "wall",
+     "note": "the rear bump-out gable, hose on the right"
+    }
+   ]
+  }
+ ]
+}

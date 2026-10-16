@@ -48,15 +48,51 @@ export function applyH(h: Mat3, x: number, y: number): { x: number; y: number; w
   };
 }
 
+type Lens = { camera?: { width: number; cx: number; cy: number; k?: number } };
+
+/**
+ * A pixel as the camera saw it, from where a straight (pinhole) camera would have put it: moved out
+ * from the middle by the lens's radial term (2026-10-16, the photo route keeps its photos as taken).
+ * The inverse of p_u = c + d (1 + k |d|^2 / width^2) by a few fixed-point steps; nothing to do at k = 0,
+ * which is every photo Scan sends.
+ */
+export function lensDistort(photo: Lens, x: number, y: number): { x: number; y: number } {
+  const c = photo.camera;
+  const k = c?.k;
+  if (!c || !k) return { x, y };
+  const ux = x - c.cx;
+  const uy = y - c.cy;
+  let dx = ux;
+  let dy = uy;
+  for (let i = 0; i < 5; i++) {
+    const s = 1 + (k * (dx * dx + dy * dy)) / (c.width * c.width);
+    dx = ux / s;
+    dy = uy / s;
+  }
+  return { x: c.cx + dx, y: c.cy + dy };
+}
+
+/** The other way: a pixel of the photo as a straight camera would have put it. */
+export function lensUndistort(photo: Lens, x: number, y: number): { x: number; y: number } {
+  const c = photo.camera;
+  const k = c?.k;
+  if (!c || !k) return { x, y };
+  const dx = x - c.cx;
+  const dy = y - c.cy;
+  const s = 1 + (k * (dx * dx + dy * dy)) / (c.width * c.width);
+  return { x: c.cx + dx * s, y: c.cy + dy * s };
+}
+
 /**
  * Where a point of the elevation falls in the photo, in its pixels; null when it is behind the
  * camera. Scan divides `to_photo` through by its last entry, so w is positive in front: its own
- * `SidePhoto.project` reads it the same way.
+ * `SidePhoto.project` reads it the same way. A photo with a radial term (`camera.k`) is read where
+ * the lens put the point.
  */
-export function projectToPhoto(photo: Pick<SidePhoto, "toPhoto">, alongM: number, upM: number): { x: number; y: number } | null {
+export function projectToPhoto(photo: Pick<SidePhoto, "toPhoto"> & Lens, alongM: number, upM: number): { x: number; y: number } | null {
   const p = applyH(photo.toPhoto, alongM, upM);
   if (!(p.w > 1e-9)) return null;
-  return { x: p.x / p.w, y: p.y / p.w };
+  return lensDistort(photo, p.x / p.w, p.y / p.w);
 }
 
 /** The inverse of a 3x3, or null when it has none. */
@@ -74,10 +110,11 @@ export function invert3(m: Mat3): number[] | null {
  * The point of the elevation a pixel of the photo shows: `to_photo` run backwards. Null when the
  * pixel's ray meets the wall's plane behind the camera - above the wall's horizon, say.
  */
-export function photoToElevation(photo: Pick<SidePhoto, "toPhoto">, px: number, py: number): { alongM: number; upM: number } | null {
+export function photoToElevation(photo: Pick<SidePhoto, "toPhoto"> & Lens, px: number, py: number): { alongM: number; upM: number } | null {
   const inv = invert3(photo.toPhoto);
   if (!inv) return null;
-  const q = applyH(inv, px, py);
+  const u = lensUndistort(photo, px, py);
+  const q = applyH(inv, u.x, u.y);
   // Through to_photo, (q.x/q.w, q.y/q.w) comes back as (px, py, 1)/q.w: in front when q.w > 0.
   if (!(q.w > 1e-12)) return null;
   return { alongM: q.x / q.w, upM: q.y / q.w };
@@ -235,7 +272,7 @@ export function squareUp(sources: { photo: SidePhoto; pixels: PhotoPixels }[], f
     const sy = pixels.height / photo.camera.height;
     // The photo's pixels in the decoded image's: a photo scaled on the way is read where it now is.
     const h = photo.toPhoto as number[];
-    return { h, sx, sy, cx: photo.camera.width / 2, cy: photo.camera.height / 2, cw: photo.camera.width, ch: photo.camera.height, px: pixels };
+    return { h, sx, sy, cx: photo.camera.width / 2, cy: photo.camera.height / 2, cw: photo.camera.width, ch: photo.camera.height, px: pixels, lens: photo.camera.k ? photo : null };
   });
   for (let j = 0; j < H; j++) {
     const up = frame.upMaxM - (j + 0.5) / frame.ppm;
@@ -250,8 +287,9 @@ export function squareUp(sources: { photo: SidePhoto; pixels: PhotoPixels }[], f
         const h = s.h;
         const w = (h[6] as number) * along + (h[7] as number) * up + (h[8] as number);
         if (!(w > 1e-9)) continue;
-        const x = ((h[0] as number) * along + (h[1] as number) * up + (h[2] as number)) / w;
-        const y = ((h[3] as number) * along + (h[4] as number) * up + (h[5] as number)) / w;
+        let x = ((h[0] as number) * along + (h[1] as number) * up + (h[2] as number)) / w;
+        let y = ((h[3] as number) * along + (h[4] as number) * up + (h[5] as number)) / w;
+        if (s.lens) ({ x, y } = lensDistort(s.lens, x, y));
         if (x < 0 || y < 0 || x >= s.cw || y >= s.ch) continue;
         const dx = (x - s.cx) / s.cw;
         const dy = (y - s.cy) / s.ch;
@@ -287,8 +325,7 @@ export function photoIndexAt(photos: readonly Pick<SidePhoto, "toPhoto" | "camer
     const h = photo.toPhoto as number[];
     const w = (h[6] as number) * alongM + (h[7] as number) * upM + (h[8] as number);
     if (!(w > 1e-9)) continue;
-    const x = ((h[0] as number) * alongM + (h[1] as number) * upM + (h[2] as number)) / w;
-    const y = ((h[3] as number) * alongM + (h[4] as number) * upM + (h[5] as number)) / w;
+    const { x, y } = lensDistort(photo, ((h[0] as number) * alongM + (h[1] as number) * upM + (h[2] as number)) / w, ((h[3] as number) * alongM + (h[4] as number) * upM + (h[5] as number)) / w);
     const { width: cw, height: ch } = photo.camera;
     if (x < 0 || y < 0 || x >= cw || y >= ch) continue;
     const dx = (x - cw / 2) / cw;
