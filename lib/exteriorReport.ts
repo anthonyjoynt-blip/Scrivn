@@ -20,6 +20,7 @@ import {
   type PitchReading,
   pieceLine,
   ROOF_MATERIAL_LABEL,
+  roofProposal,
   type RoofRise,
   type RoofSource,
   SIDE_FIXTURE_LABEL,
@@ -361,6 +362,21 @@ export function exteriorReport(exterior: Exterior, meta: ReportMeta): ExteriorRe
       sources.push(`Roof ends: ${ends.map((e) => `${e.name} ${e.kind} (${e.how})`).join(", ")}.`);
       const guessed = ends.filter((e) => e.how === "assumed");
       if (guessed.length > 0) assumed.push(`The roof end${guessed.length === 1 ? "" : "s"} over ${listWords(guessed.map((e) => e.name))}: ${guessed.length === 1 ? "a gable, as nothing" : "gables, as nothing"} says otherwise. A photo of the side, or a tap on the plan, settles it.`);
+    }
+    // The roof check's parts as proposed off the outline and the photos, until the estimator answers them or says it looks right (2026-10-16).
+    if (!exterior.roof.checkedAt) {
+      const answered = new Set(exterior.roof.answered ?? []);
+      const parts = (roofProposal(exterior)?.proposed ?? [])
+        .filter((p) => !answered.has(p.key))
+        .map((p) => {
+          const id = p.key.slice(p.key.indexOf(":") + 1);
+          if (p.key.startsWith("notch:")) {
+            const k = plan.notches.find((n) => n.sideId === id);
+            return `the corner at ${listWords((k?.sideIds ?? [id]).map(nameOf))} under the roof`;
+          }
+          return `the part out to ${nameOf(id)} lower, ${p.value === "gable" ? "under a gable on the roof it meets" : "under its eave"}`;
+        });
+      if (parts.length > 0) assumed.push(`The roof's parts as proposed off the outline and the photos, not yet checked: ${parts.join("; ")}. Check them on the roof plan.`);
     }
     const taken = r.pieces.list.filter((x) => x.figures.missing.length === 0);
     if (taken.length > 0) sources.push(`Roof pieces: ${taken.map((x) => pieceLine(x.piece, x.figures, r.pitch)).join("; ")}.`);
