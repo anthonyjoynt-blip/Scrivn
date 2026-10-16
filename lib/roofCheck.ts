@@ -14,9 +14,11 @@
  *   * a NOTCH the roof carries over (a covered deck in a corner of the house): when leaving it open
  *     makes some part of the roof sit lower because it has to - the roof doesn't frame as one round
  *     an open corner there - and covering it doesn't. Only a deck's or porch's depth, 4' to 12'.
- *   * a WING that sits LOWER and stops at the wall: when its walls' tops read a foot or more under
- *     those of the roof it meets. Lower and standing on that roof's slope, its ridge reaching above
- *     the eave there, the roof it meets has a GABLE over it - the owner's garage, siding between.
+ *   * a GARAGE that sits LOWER and stops at the wall: a part with a garage door whose walls' tops read
+ *     a foot or more under those of the roof it meets. Standing on that roof's slope it is under a
+ *     GABLE of it - the owner's garage, siding between: a roof a garage wide can't sit under an eave.
+ *     Only a garage: each side's height is above its own ground, and on a sloping lot one wall read
+ *     off a photo can put a bump-out "lower" than a house it really ties into (session A's route, 10-16).
  *   * each END gable or hip: off the photos, as before (lib/exterior.ts `resolvedEnds`); a level wall
  *     top on a photo makes a hip only of an end over most of that side (lib/roof.ts `eaveSides`).
  * Porches and cross gables are the estimator's to put on (one tap on the side, its depth typed): the
@@ -39,7 +41,7 @@ export const MIN_COVERED_NOTCH_FEET = 4;
  * been with his deck said to be open.
  */
 export const MAX_COVERED_NOTCH_DEPTH_FEET = 12;
-/** A wing whose walls' tops read this much under those of the roof it meets is proposed lower. */
+/** A garage whose walls' tops read this much under those of the roof it meets is proposed lower. */
 export const WING_STEP_FEET = 1;
 
 export type WingHow = "tie" | "lower" | "gable";
@@ -52,6 +54,8 @@ export const notchKey = (sideId: string) => `notch:${sideId}`;
 export interface RoofEvidence {
   /** Each side's wall top (its eaves, left and right, above its own grade), feet; a side with none measured is left out. */
   wallTops: Record<string, number[]>;
+  /** The sides with a garage door on them: what makes a part a garage, the one part proposed lower. */
+  garageSides: string[];
   /** Part keys answered (`ExteriorRoof.answered`). */
   answered: string[];
 }
@@ -169,7 +173,7 @@ export function proposeRoof(said: RoofInput, evidence: RoofEvidence): RoofPropos
     proposed.push({ key: notchKey(best.k.sideId), value: "covered", why });
   }
 
-  // Wings: lower where their walls' tops step down from the roof they meet.
+  // Garages: lower where their walls' tops step down from the roof they meet.
   const built = roofSections(input);
   const lower = [...(input.lowerWings ?? [])];
   const gables = [...(input.wingGables ?? [])];
@@ -180,22 +184,22 @@ export function proposeRoof(said: RoofInput, evidence: RoofEvidence): RoofPropos
     const { wing, root, parent } = found;
     const parentRoot = parent.role === "main" ? null : (wingAndParent(built?.sections ?? [], parent.key.slice("wing:".length))?.root ?? null);
     const tops = (ids: string[]) => ids.flatMap((id) => evidence.wallTops[id] ?? []);
-    const own = median(tops(sidesOf(input, wing.wall as NonNullable<RoofSection["wall"]>, root)));
+    const ownSides = sidesOf(input, wing.wall as NonNullable<RoofSection["wall"]>, root);
+    if (!ownSides.some((id) => evidence.garageSides.includes(id))) continue;
+    const own = median(tops(ownSides));
     const theirs = median(tops(sidesOf(input, parent.wall as NonNullable<RoofSection["wall"]>, parentRoot)));
     if (own === null || theirs === null) continue;
     const step = theirs - own;
     if (step < WING_STEP_FEET - 1e-9) continue;
-    const W = wing.wall as NonNullable<RoofSection["wall"]>;
-    // Its ridge over its own wall tops, at its pitch: above the step, it would reach past the eave of the roof it meets.
-    const rise = ((wing.axis === "y" ? W.x1 - W.x0 : W.y1 - W.y0) / 2) * (wing.pitch / 12);
-    const gable = w.onSlope && rise > step + 1e-9;
+    // On the other roof's slope, under a gable of it; on its end there is no gable to be under.
+    const gable = w.onSlope;
     lower.push(w.sideId);
     if (gable) gables.push(w.sideId);
     const parentWords = parent.role === "main" ? "the main roof's" : `those of the part out to ${nameOf(parent.key.slice("wing:".length))}`;
     proposed.push({
       key: wingKey(w.sideId),
       value: gable ? "gable" : "lower",
-      why: `Its walls' tops read ${formatFeetInches(step)} under ${parentWords}${gable ? `; its roof would reach above that eave, so the roof it meets has a gable over it` : ""}.`,
+      why: `A garage, its walls' tops reading ${formatFeetInches(step)} under ${parentWords}${gable ? `: set lower, under a gable of the roof it meets - a roof that wide can't sit under its eave` : ""}.`,
     });
   }
   return { coveredNotches: [...(input.coveredNotches ?? [])], lowerWings: lower, wingGables: gables, proposed };
