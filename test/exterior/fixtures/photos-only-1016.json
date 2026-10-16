@@ -1,0 +1,1986 @@
+{
+ "format": "arcapture-exterior/2",
+ "source": "photos",
+ "capture_id": "photos-only-1016",
+ "captured_at": "2026-10-16T18:54:00Z",
+ "scale": 1,
+ "taped": {
+  "side": 4,
+  "metres": 6.7535
+ },
+ "closed": true,
+ "walk": "right",
+ "frame": {
+  "theta_deg": 0
+ },
+ "footprint": [
+  [
+   0,
+   0
+  ],
+  [
+   4.0702,
+   0
+  ],
+  [
+   4.0702,
+   -0.5986
+  ],
+  [
+   8.1772,
+   -0.5986
+  ],
+  [
+   8.1772,
+   20.9118
+  ],
+  [
+   1.4236,
+   20.9118
+  ],
+  [
+   1.4236,
+   19.2386
+  ],
+  [
+   -3.2316,
+   19.2386
+  ],
+  [
+   -3.2316,
+   16.4624
+  ],
+  [
+   -6.7231,
+   16.4624
+  ],
+  [
+   -6.7231,
+   7.5614
+  ],
+  [
+   0,
+   7.5614
+  ]
+ ],
+ "footprint_xy": [
+  [
+   0,
+   0
+  ],
+  [
+   4.0702,
+   0
+  ],
+  [
+   4.0702,
+   -0.5986
+  ],
+  [
+   8.1772,
+   -0.5986
+  ],
+  [
+   8.1772,
+   20.9118
+  ],
+  [
+   1.4236,
+   20.9118
+  ],
+  [
+   1.4236,
+   19.2386
+  ],
+  [
+   -3.2316,
+   19.2386
+  ],
+  [
+   -3.2316,
+   16.4624
+  ],
+  [
+   -6.7231,
+   16.4624
+  ],
+  [
+   -6.7231,
+   7.5614
+  ],
+  [
+   0,
+   7.5614
+  ]
+ ],
+ "corners": [
+  {
+   "u": 4.0702,
+   "v": 0,
+   "from": 0,
+   "to": 1,
+   "outside": false
+  },
+  {
+   "u": 4.0702,
+   "v": -0.5986,
+   "from": 1,
+   "to": 2,
+   "outside": true
+  },
+  {
+   "u": 8.1772,
+   "v": -0.5986,
+   "from": 2,
+   "to": 3,
+   "outside": true
+  },
+  {
+   "u": 8.1772,
+   "v": 20.9118,
+   "from": 3,
+   "to": 4,
+   "outside": true
+  },
+  {
+   "u": 1.4236,
+   "v": 20.9118,
+   "from": 4,
+   "to": 5,
+   "outside": true
+  },
+  {
+   "u": 1.4236,
+   "v": 19.2386,
+   "from": 5,
+   "to": 6,
+   "outside": false
+  },
+  {
+   "u": -3.2316,
+   "v": 19.2386,
+   "from": 6,
+   "to": 7,
+   "outside": true
+  },
+  {
+   "u": -3.2316,
+   "v": 16.4624,
+   "from": 7,
+   "to": 8,
+   "outside": false
+  },
+  {
+   "u": -6.7231,
+   "v": 16.4624,
+   "from": 8,
+   "to": 9,
+   "outside": true
+  },
+  {
+   "u": -6.7231,
+   "v": 7.5614,
+   "from": 9,
+   "to": 10,
+   "outside": true
+  },
+  {
+   "u": 0,
+   "v": 7.5614,
+   "from": 10,
+   "to": 11,
+   "outside": false
+  },
+  {
+   "u": 0,
+   "v": 0,
+   "from": 11,
+   "to": 0,
+   "outside": true
+  }
+ ],
+ "sides": [
+  {
+   "index": 0,
+   "name": "Garage front, west bay",
+   "cladding": "stucco",
+   "length_m": 4.0702,
+   "left_joined": true,
+   "right_joined": true,
+   "grade": "ground",
+   "bottom_left_m": 0,
+   "bottom_right_m": 0,
+   "eave_left_m": 2.8956,
+   "eave_right_m": 2.8956,
+   "peak": null,
+   "pitch_12": null,
+   "bands": [],
+   "shapes": [
+    {
+     "material": "stucco",
+     "label": "Stucco",
+     "closed": true,
+     "polygon": [
+      [
+       0,
+       0
+      ],
+      [
+       4.0702,
+       0
+      ],
+      [
+       4.0702,
+       2.8956
+      ],
+      [
+       0,
+       2.8956
+      ]
+     ],
+     "area_m2": 11.7857,
+     "openings_m2": 6.5134,
+     "net_m2": 5.2722
+    }
+   ],
+   "roofline": [],
+   "openings": [
+    {
+     "kind": "garage",
+     "number": 1,
+     "from_m": 0.737616,
+     "width_m": 2.7432000000000003,
+     "sill_m": 0,
+     "head_m": 2.3743920000000003
+    }
+   ],
+   "areas": [
+    {
+     "cladding": "stucco",
+     "gross_m2": 11.7857,
+     "openings_m2": 6.5134,
+     "net_m2": 5.2722
+    }
+   ],
+   "gross_sf": 126.86,
+   "net_sf": 56.75,
+   "opening_trim_m": 0,
+   "photos": [
+    {
+     "n": 916,
+     "file": "side_0_photo_16.jpg",
+     "t_s": 0,
+     "epoch": 0,
+     "camera": {
+      "width": 1600,
+      "height": 1200,
+      "fx": 1061.1200000000001,
+      "fy": 1061.1200000000001,
+      "cx": 800,
+      "cy": 600
+     },
+     "position": [
+      0,
+      0,
+      0
+     ],
+     "forward": [
+      0,
+      0,
+      -1
+     ],
+     "up": [
+      0,
+      1,
+      0
+     ],
+     "to_photo": [
+      165.14344928191647,
+      7.927079176829509,
+      551.5336625949744,
+      22.226739856312445,
+      -137.9461933932162,
+      868.8149371537502,
+      0.03191562874933102,
+      0.009020519068766948,
+      1
+     ],
+     "in_view": {
+      "from_m": 0,
+      "to_m": 4.07018446978255,
+      "left_end": true,
+      "right_end": true,
+      "top": true
+     }
+    },
+    {
+     "n": 917,
+     "file": "side_0_photo_17.jpg",
+     "t_s": 0,
+     "epoch": 0,
+     "camera": {
+      "width": 1600,
+      "height": 1200,
+      "fx": 1061.1200000000001,
+      "fy": 1061.1200000000001,
+      "cx": 800,
+      "cy": 600
+     },
+     "position": [
+      0,
+      0,
+      0
+     ],
+     "forward": [
+      0,
+      0,
+      -1
+     ],
+     "up": [
+      0,
+      1,
+      0
+     ],
+     "to_photo": [
+      155.5316005578168,
+      1.400691020135986,
+      900.3110905173227,
+      31.487617005057153,
+      -122.76480065759112,
+      839.8844708670432,
+      0.052573331866024926,
+      0.006130541892835469,
+      1
+     ],
+     "in_view": {
+      "from_m": 0,
+      "to_m": 4.07018446978255,
+      "left_end": true,
+      "right_end": true,
+      "top": true
+     }
+    }
+   ],
+   "length_pm_pct": 2
+  },
+  {
+   "index": 1,
+   "name": "Bay step",
+   "cladding": "stucco",
+   "length_m": 0.5986,
+   "left_joined": true,
+   "right_joined": true,
+   "grade": "ground",
+   "bottom_left_m": 0,
+   "bottom_right_m": 0,
+   "eave_left_m": 2.8956,
+   "eave_right_m": 2.8956,
+   "peak": null,
+   "pitch_12": null,
+   "bands": [],
+   "shapes": [
+    {
+     "material": "stucco",
+     "label": "Stucco",
+     "closed": true,
+     "polygon": [
+      [
+       0,
+       0
+      ],
+      [
+       0.5986,
+       0
+      ],
+      [
+       0.5986,
+       2.8956
+      ],
+      [
+       0,
+       2.8956
+      ]
+     ],
+     "area_m2": 1.7333,
+     "openings_m2": 0,
+     "net_m2": 1.7333
+    }
+   ],
+   "roofline": [],
+   "openings": [],
+   "areas": [
+    {
+     "cladding": "stucco",
+     "gross_m2": 1.7333,
+     "openings_m2": 0,
+     "net_m2": 1.7333
+    }
+   ],
+   "gross_sf": 18.657,
+   "net_sf": 18.657,
+   "opening_trim_m": 0,
+   "photos": [],
+   "length_pm_pct": 4
+  },
+  {
+   "index": 2,
+   "name": "Garage front, east bay",
+   "cladding": "stucco",
+   "length_m": 4.107,
+   "left_joined": true,
+   "right_joined": true,
+   "grade": "ground",
+   "bottom_left_m": 0,
+   "bottom_right_m": 0,
+   "eave_left_m": 2.8956,
+   "eave_right_m": 2.8956,
+   "peak": {
+    "along_m": 2.0535,
+    "height_m": 4.0234
+   },
+   "pitch_12": 5,
+   "bands": [],
+   "shapes": [
+    {
+     "material": "stucco",
+     "label": "Stucco",
+     "closed": true,
+     "polygon": [
+      [
+       0,
+       0
+      ],
+      [
+       4.107,
+       0
+      ],
+      [
+       4.107,
+       2.8956
+      ],
+      [
+       2.0535,
+       4.0234
+      ],
+      [
+       0,
+       2.8956
+      ]
+     ],
+     "area_m2": 14.2082,
+     "openings_m2": 6.5218,
+     "net_m2": 7.6864
+    }
+   ],
+   "roofline": [],
+   "openings": [
+    {
+     "kind": "garage",
+     "number": 1,
+     "from_m": 0.6126610724808097,
+     "width_m": 2.7432000000000003,
+     "sill_m": 0,
+     "head_m": 2.37744
+    }
+   ],
+   "areas": [
+    {
+     "cladding": "stucco",
+     "gross_m2": 14.2082,
+     "openings_m2": 6.5218,
+     "net_m2": 7.6864
+    }
+   ],
+   "gross_sf": 152.935,
+   "net_sf": 82.735,
+   "opening_trim_m": 0,
+   "photos": [
+    {
+     "n": 915,
+     "file": "side_2_photo_15.jpg",
+     "t_s": 0,
+     "epoch": 0,
+     "camera": {
+      "width": 1600,
+      "height": 1200,
+      "fx": 1061.1200000000001,
+      "fy": 1061.1200000000001,
+      "cx": 800,
+      "cy": 600
+     },
+     "position": [
+      0,
+      0,
+      0
+     ],
+     "forward": [
+      0,
+      0,
+      -1
+     ],
+     "up": [
+      0,
+      1,
+      0
+     ],
+     "to_photo": [
+      113.9155063485997,
+      9.416555200100147,
+      745.2206988789578,
+      -3.0480307257665387,
+      -115.78989132550696,
+      827.9811692936826,
+      -0.008620888072583101,
+      0.008325551415612536,
+      1
+     ],
+     "in_view": {
+      "from_m": 0,
+      "to_m": 4.106976249540782,
+      "left_end": true,
+      "right_end": true,
+      "top": true
+     }
+    },
+    {
+     "n": 914,
+     "file": "side_2_photo_14.jpg",
+     "t_s": 0,
+     "epoch": 0,
+     "camera": {
+      "width": 1600,
+      "height": 1200,
+      "fx": 1061.1200000000001,
+      "fy": 1061.1200000000001,
+      "cx": 800,
+      "cy": 600
+     },
+     "position": [
+      0,
+      0,
+      0
+     ],
+     "forward": [
+      0,
+      0,
+      -1
+     ],
+     "up": [
+      0,
+      1,
+      0
+     ],
+     "to_photo": [
+      124.62955357578463,
+      21.748311223030345,
+      112.50935955287403,
+      -49.52191747678194,
+      -186.07211235130927,
+      1048.56710921495,
+      -0.07400419944502287,
+      0.021380824909537906,
+      1
+     ],
+     "in_view": {
+      "from_m": 0,
+      "to_m": 3.593604218348185,
+      "left_end": true,
+      "right_end": false,
+      "top": true
+     }
+    }
+   ],
+   "length_pm_pct": 4
+  },
+  {
+   "index": 3,
+   "name": "East side wall",
+   "cladding": "stucco",
+   "length_m": 21.5104,
+   "left_joined": true,
+   "right_joined": true,
+   "grade": "ground",
+   "bottom_left_m": 0,
+   "bottom_right_m": 0,
+   "eave_left_m": 4.8463,
+   "eave_right_m": 4.8463,
+   "peak": null,
+   "pitch_12": null,
+   "bands": [],
+   "shapes": [
+    {
+     "material": "parging",
+     "label": "Parging",
+     "closed": true,
+     "polygon": [
+      [
+       0,
+       1.9507
+      ],
+      [
+       6.4,
+       1.3177
+      ],
+      [
+       7.5,
+       1.3177
+      ],
+      [
+       7.5,
+       1.1399
+      ],
+      [
+       7.7743,
+       1.1399
+      ],
+      [
+       7.7743,
+       0.9621
+      ],
+      [
+       8.0486,
+       0.9621
+      ],
+      [
+       8.0486,
+       0.7843
+      ],
+      [
+       15.24,
+       0.7843
+      ],
+      [
+       21.5104,
+       0
+      ],
+      [
+       21.5104,
+       0.2032
+      ],
+      [
+       15.24,
+       0.9875
+      ],
+      [
+       10.9728,
+       0.9875
+      ],
+      [
+       10.9728,
+       1.5209
+      ],
+      [
+       6.4,
+       1.5209
+      ],
+      [
+       0,
+       2.1539
+      ]
+     ],
+     "area_m2": 6.077,
+     "openings_m2": 0,
+     "net_m2": 6.077
+    },
+    {
+     "material": "stucco",
+     "label": "Stucco",
+     "closed": true,
+     "polygon": [
+      [
+       0,
+       2.1539
+      ],
+      [
+       6.4,
+       1.5209
+      ],
+      [
+       10.9728,
+       1.5209
+      ],
+      [
+       10.9728,
+       0.9875
+      ],
+      [
+       15.24,
+       0.9875
+      ],
+      [
+       21.5104,
+       0.2032
+      ],
+      [
+       21.5104,
+       4.8463
+      ],
+      [
+       0,
+       4.8463
+      ]
+     ],
+     "area_m2": 77.5848,
+     "openings_m2": 0,
+     "net_m2": 77.5848
+    }
+   ],
+   "roofline": [],
+   "openings": [
+    {
+     "kind": "door",
+     "number": 1,
+     "from_m": 6.52272,
+     "width_m": 0.9144000000000001,
+     "sill_m": 1.3177303177900732,
+     "head_m": 3.350746317790073
+    },
+    {
+     "kind": "window",
+     "number": 2,
+     "from_m": 10.2108,
+     "width_m": 1.3716000000000002,
+     "sill_m": 3.26136,
+     "head_m": 4.48056
+    },
+    {
+     "kind": "window",
+     "number": 3,
+     "from_m": 14.386560000000001,
+     "width_m": 1.3716000000000002,
+     "sill_m": 3.1699200000000003,
+     "head_m": 4.38912
+    },
+    {
+     "kind": "window",
+     "number": 4,
+     "from_m": 10.972800000000001,
+     "width_m": 1.3716000000000002,
+     "sill_m": 1.2192,
+     "head_m": 1.9812
+    },
+    {
+     "kind": "window",
+     "number": 5,
+     "from_m": 13.2588,
+     "width_m": 1.3716000000000002,
+     "sill_m": 1.00584,
+     "head_m": 1.76784
+    }
+   ],
+   "areas": [
+    {
+     "cladding": "stucco",
+     "gross_m2": 83.2657,
+     "openings_m2": 7.2938,
+     "net_m2": 75.9719
+    }
+   ],
+   "gross_sf": 896.264,
+   "net_sf": 817.754,
+   "opening_trim_m": 0,
+   "photos": [
+    {
+     "n": 913,
+     "file": "side_3_photo_13.jpg",
+     "t_s": 0,
+     "epoch": 0,
+     "camera": {
+      "width": 1600,
+      "height": 1200,
+      "fx": 1061.1200000000001,
+      "fy": 1061.1200000000001,
+      "cx": 800,
+      "cy": 600
+     },
+     "position": [
+      0,
+      0,
+      0
+     ],
+     "forward": [
+      0,
+      0,
+      -1
+     ],
+     "up": [
+      0,
+      1,
+      0
+     ],
+     "to_photo": [
+      -241.11894779173699,
+      43.693356151352496,
+      1401.6070950478922,
+      -99.65717483110483,
+      237.4672039013734,
+      -148.14075001157678,
+      -0.1924638847451455,
+      0.011953617610432316,
+      1
+     ],
+     "in_view": {
+      "from_m": 10.75520654212211,
+      "to_m": 21.51041308424422,
+      "left_end": false,
+      "right_end": true,
+      "top": true
+     }
+    }
+   ],
+   "length_pm_pct": 6
+  },
+  {
+   "index": 4,
+   "name": "Rear bump-out gable",
+   "cladding": "stucco",
+   "length_m": 6.7535,
+   "left_joined": true,
+   "right_joined": true,
+   "grade": "ground",
+   "bottom_left_m": 0,
+   "bottom_right_m": 0,
+   "eave_left_m": 4.8463,
+   "eave_right_m": 4.8463,
+   "peak": {
+    "along_m": 3.3768,
+    "height_m": 6.2179
+   },
+   "pitch_12": 5,
+   "bands": [],
+   "shapes": [
+    {
+     "material": "stucco",
+     "label": "Stucco",
+     "closed": true,
+     "polygon": [
+      [
+       0,
+       0
+      ],
+      [
+       6.7535,
+       0
+      ],
+      [
+       6.7535,
+       4.8463
+      ],
+      [
+       3.3768,
+       6.2179
+      ],
+      [
+       0,
+       4.8463
+      ]
+     ],
+     "area_m2": 37.361,
+     "openings_m2": 5.2374,
+     "net_m2": 32.1236
+    }
+   ],
+   "roofline": [],
+   "openings": [
+    {
+     "kind": "window",
+     "number": 1,
+     "from_m": 0.43586400000000003,
+     "width_m": 1.4935200000000002,
+     "sill_m": 3.048,
+     "head_m": 4.31292
+    },
+    {
+     "kind": "window",
+     "number": 2,
+     "from_m": 1.6855440000000002,
+     "width_m": 1.76784,
+     "sill_m": 0.36576000000000003,
+     "head_m": 1.2192
+    },
+    {
+     "kind": "window",
+     "number": 3,
+     "from_m": 3.666744,
+     "width_m": 1.8288000000000002,
+     "sill_m": 3.3528000000000002,
+     "head_m": 4.35864
+    }
+   ],
+   "areas": [
+    {
+     "cladding": "stucco",
+     "gross_m2": 37.361,
+     "openings_m2": 5.2374,
+     "net_m2": 32.1236
+    }
+   ],
+   "gross_sf": 402.151,
+   "net_sf": 345.776,
+   "opening_trim_m": 0,
+   "photos": [
+    {
+     "n": 910,
+     "file": "side_4_photo_10.jpg",
+     "t_s": 0,
+     "epoch": 0,
+     "camera": {
+      "width": 1600,
+      "height": 1200,
+      "fx": 1061.1200000000001,
+      "fy": 1061.1200000000001,
+      "cx": 800,
+      "cy": 600
+     },
+     "position": [
+      0,
+      0,
+      0
+     ],
+     "forward": [
+      0,
+      0,
+      -1
+     ],
+     "up": [
+      0,
+      1,
+      0
+     ],
+     "to_photo": [
+      204.30541793657056,
+      11.364622554766767,
+      -43.6092183578483,
+      36.299931574785454,
+      -146.48574322732978,
+      1160.45070680241,
+      0.060438715202519554,
+      0.030247034753312037,
+      1
+     ],
+     "in_view": {
+      "from_m": 0.8441917265139103,
+      "to_m": 6.753533812111282,
+      "left_end": false,
+      "right_end": true,
+      "top": true
+     }
+    },
+    {
+     "n": 911,
+     "file": "side_4_photo_11.jpg",
+     "t_s": 0,
+     "epoch": 0,
+     "camera": {
+      "width": 1600,
+      "height": 1201,
+      "fx": 1061.1200000000001,
+      "fy": 1061.1200000000001,
+      "cx": 800,
+      "cy": 600.5
+     },
+     "position": [
+      0,
+      0,
+      0
+     ],
+     "forward": [
+      0,
+      0,
+      -1
+     ],
+     "up": [
+      0,
+      1,
+      0
+     ],
+     "to_photo": [
+      361.04189446530773,
+      18.388095823566864,
+      833.2457642632188,
+      29.912194835976145,
+      -275.23769302350416,
+      1343.436338591885,
+      0.06900096904756009,
+      0.0564759000172002,
+      1
+     ],
+     "in_view": {
+      "from_m": 0,
+      "to_m": 0,
+      "left_end": false,
+      "right_end": false,
+      "top": true
+     }
+    }
+   ]
+  },
+  {
+   "index": 5,
+   "name": "Bump-out west side",
+   "cladding": "stucco",
+   "length_m": 1.6732,
+   "left_joined": true,
+   "right_joined": true,
+   "grade": "ground",
+   "bottom_left_m": 0,
+   "bottom_right_m": 0,
+   "eave_left_m": 4.8463,
+   "eave_right_m": 4.8463,
+   "peak": null,
+   "pitch_12": null,
+   "bands": [],
+   "shapes": [
+    {
+     "material": "parging",
+     "label": "Parging",
+     "closed": true,
+     "polygon": [
+      [
+       0,
+       0
+      ],
+      [
+       1.6732,
+       0
+      ],
+      [
+       1.6732,
+       2.286
+      ],
+      [
+       0,
+       2.286
+      ]
+     ],
+     "area_m2": 3.8249,
+     "openings_m2": 0,
+     "net_m2": 3.8249
+    },
+    {
+     "material": "stucco",
+     "label": "Stucco",
+     "closed": true,
+     "polygon": [
+      [
+       0,
+       2.286
+      ],
+      [
+       1.6732,
+       2.286
+      ],
+      [
+       1.6732,
+       4.8463
+      ],
+      [
+       0,
+       4.8463
+      ]
+     ],
+     "area_m2": 4.2839,
+     "openings_m2": 0,
+     "net_m2": 4.2839
+    }
+   ],
+   "roofline": [],
+   "openings": [],
+   "areas": [
+    {
+     "cladding": "stucco",
+     "gross_m2": 4.2839,
+     "openings_m2": 0,
+     "net_m2": 4.2839
+    }
+   ],
+   "gross_sf": 46.111,
+   "net_sf": 46.111,
+   "opening_trim_m": 0,
+   "photos": [],
+   "length_pm_pct": 5
+  },
+  {
+   "index": 6,
+   "name": "Rear wall (French doors)",
+   "cladding": "stucco",
+   "length_m": 4.6552,
+   "left_joined": true,
+   "right_joined": true,
+   "grade": "ground",
+   "bottom_left_m": 0,
+   "bottom_right_m": 0,
+   "eave_left_m": 4.8768,
+   "eave_right_m": 4.8768,
+   "peak": null,
+   "pitch_12": null,
+   "bands": [],
+   "shapes": [
+    {
+     "material": "parging",
+     "label": "Parging",
+     "closed": true,
+     "polygon": [
+      [
+       0,
+       0
+      ],
+      [
+       4.6552,
+       0
+      ],
+      [
+       4.6552,
+       2.286
+      ],
+      [
+       0,
+       2.286
+      ]
+     ],
+     "area_m2": 10.6418,
+     "openings_m2": 0,
+     "net_m2": 10.6418
+    },
+    {
+     "material": "stucco",
+     "label": "Stucco",
+     "closed": true,
+     "polygon": [
+      [
+       0,
+       2.286
+      ],
+      [
+       4.6552,
+       2.286
+      ],
+      [
+       4.6552,
+       4.8768
+      ],
+      [
+       0,
+       4.8768
+      ]
+     ],
+     "area_m2": 12.0607,
+     "openings_m2": 3.9331,
+     "net_m2": 8.1275
+    }
+   ],
+   "roofline": [],
+   "openings": [
+    {
+     "kind": "door",
+     "number": 1,
+     "from_m": 2.1621062157219444,
+     "width_m": 1.792224,
+     "sill_m": 2.286,
+     "head_m": 4.48056
+    }
+   ],
+   "areas": [
+    {
+     "cladding": "stucco",
+     "gross_m2": 12.0607,
+     "openings_m2": 3.9331,
+     "net_m2": 8.1275
+    }
+   ],
+   "gross_sf": 129.82,
+   "net_sf": 87.484,
+   "opening_trim_m": 0,
+   "photos": [
+    {
+     "n": 909,
+     "file": "side_6_photo_9.jpg",
+     "t_s": 0,
+     "epoch": 0,
+     "camera": {
+      "width": 1600,
+      "height": 1200,
+      "fx": 1061.1200000000001,
+      "fy": 1061.1200000000001,
+      "cx": 800,
+      "cy": 600
+     },
+     "position": [
+      0,
+      0,
+      0
+     ],
+     "forward": [
+      0,
+      0,
+      -1
+     ],
+     "up": [
+      0,
+      1,
+      0
+     ],
+     "to_photo": [
+      42.42618635520769,
+      6.757555631981915,
+      990.2009473372,
+      -47.920496303746766,
+      -109.70564651139085,
+      941.2227584541193,
+      -0.06534479939262872,
+      0.011183670917779217,
+      1
+     ],
+     "in_view": {
+      "from_m": 0,
+      "to_m": 4.07333217710096,
+      "left_end": true,
+      "right_end": false,
+      "top": true
+     }
+    }
+   ],
+   "length_pm_pct": 2
+  },
+  {
+   "index": 7,
+   "name": "Covered-deck side",
+   "cladding": "stucco",
+   "length_m": 2.7762,
+   "left_joined": true,
+   "right_joined": true,
+   "grade": "ground",
+   "bottom_left_m": 0,
+   "bottom_right_m": 0,
+   "eave_left_m": 5.0292,
+   "eave_right_m": 5.0292,
+   "peak": null,
+   "pitch_12": null,
+   "bands": [],
+   "shapes": [
+    {
+     "material": "parging",
+     "label": "Parging",
+     "closed": true,
+     "polygon": [
+      [
+       0,
+       0
+      ],
+      [
+       2.7762,
+       0
+      ],
+      [
+       2.7762,
+       2.286
+      ],
+      [
+       0,
+       2.286
+      ]
+     ],
+     "area_m2": 6.3464,
+     "openings_m2": 0,
+     "net_m2": 6.3464
+    },
+    {
+     "material": "stucco",
+     "label": "Stucco",
+     "closed": true,
+     "polygon": [
+      [
+       0,
+       2.286
+      ],
+      [
+       2.7762,
+       2.286
+      ],
+      [
+       2.7762,
+       5.0292
+      ],
+      [
+       0,
+       5.0292
+      ]
+     ],
+     "area_m2": 7.6157,
+     "openings_m2": 0,
+     "net_m2": 7.6157
+    }
+   ],
+   "roofline": [],
+   "openings": [],
+   "areas": [
+    {
+     "cladding": "stucco",
+     "gross_m2": 7.6157,
+     "openings_m2": 0,
+     "net_m2": 7.6157
+    }
+   ],
+   "gross_sf": 81.974,
+   "net_sf": 81.974,
+   "opening_trim_m": 0,
+   "photos": [
+    {
+     "n": 907,
+     "file": "side_7_photo_7.jpg",
+     "t_s": 0,
+     "epoch": 0,
+     "camera": {
+      "width": 1600,
+      "height": 1200,
+      "fx": 1061.1200000000001,
+      "fy": 1061.1200000000001,
+      "cx": 800,
+      "cy": 600
+     },
+     "position": [
+      0,
+      0,
+      0
+     ],
+     "forward": [
+      0,
+      0,
+      -1
+     ],
+     "up": [
+      0,
+      1,
+      0
+     ],
+     "to_photo": [
+      206.19903553693243,
+      18.75167441845658,
+      382.2514797486987,
+      118.31065716797174,
+      -172.754296028755,
+      1208.7963527506329,
+      0.16059997288335384,
+      0.022849787290025802,
+      1
+     ],
+     "in_view": {
+      "from_m": 0.3470298320279376,
+      "to_m": 2.7762386562235006,
+      "left_end": false,
+      "right_end": true,
+      "top": true
+     }
+    }
+   ],
+   "length_pm_pct": 12
+  },
+  {
+   "index": 8,
+   "name": "Covered-deck back wall",
+   "cladding": "stucco",
+   "length_m": 3.4915,
+   "left_joined": true,
+   "right_joined": true,
+   "grade": "ground",
+   "bottom_left_m": 0,
+   "bottom_right_m": 0,
+   "eave_left_m": 5.0292,
+   "eave_right_m": 5.0292,
+   "peak": null,
+   "pitch_12": null,
+   "bands": [],
+   "shapes": [
+    {
+     "material": "parging",
+     "label": "Parging",
+     "closed": true,
+     "polygon": [
+      [
+       0,
+       0
+      ],
+      [
+       3.4915,
+       0
+      ],
+      [
+       3.4915,
+       2.286
+      ],
+      [
+       0,
+       2.286
+      ]
+     ],
+     "area_m2": 7.9816,
+     "openings_m2": 0,
+     "net_m2": 7.9816
+    },
+    {
+     "material": "stucco",
+     "label": "Stucco",
+     "closed": true,
+     "polygon": [
+      [
+       0,
+       2.286
+      ],
+      [
+       3.4915,
+       2.286
+      ],
+      [
+       3.4915,
+       5.0292
+      ],
+      [
+       0,
+       5.0292
+      ]
+     ],
+     "area_m2": 9.5779,
+     "openings_m2": 5.0607,
+     "net_m2": 4.5172
+    }
+   ],
+   "roofline": [],
+   "openings": [
+    {
+     "kind": "door",
+     "number": 1,
+     "from_m": 0.12576093051526768,
+     "width_m": 0.950976,
+     "sill_m": 2.286,
+     "head_m": 4.3434
+    },
+    {
+     "kind": "window",
+     "number": 2,
+     "from_m": 1.4770343966203499,
+     "width_m": 1.50876,
+     "sill_m": 2.286,
+     "head_m": 4.3434
+    }
+   ],
+   "areas": [
+    {
+     "cladding": "stucco",
+     "gross_m2": 9.5779,
+     "openings_m2": 5.0607,
+     "net_m2": 4.5172
+    }
+   ],
+   "gross_sf": 103.095,
+   "net_sf": 48.623,
+   "opening_trim_m": 0,
+   "photos": [
+    {
+     "n": 908,
+     "file": "side_8_photo_8.jpg",
+     "t_s": 0,
+     "epoch": 0,
+     "camera": {
+      "width": 1600,
+      "height": 1200,
+      "fx": 1061.1200000000001,
+      "fy": 1061.1200000000001,
+      "cx": 800,
+      "cy": 600
+     },
+     "position": [
+      0,
+      0,
+      0
+     ],
+     "forward": [
+      0,
+      0,
+      -1
+     ],
+     "up": [
+      0,
+      1,
+      0
+     ],
+     "to_photo": [
+      89.873676179973,
+      11.563566833376777,
+      850.8799409245161,
+      -14.87657027439967,
+      -92.86516228072142,
+      1017.9912665008113,
+      -0.016485522757949435,
+      0.016998783179137715,
+      1
+     ],
+     "in_view": {
+      "from_m": 0,
+      "to_m": 3.4914822479779395,
+      "left_end": true,
+      "right_end": true,
+      "top": true
+     }
+    }
+   ],
+   "length_pm_pct": 3
+  },
+  {
+   "index": 9,
+   "name": "West gable wall",
+   "cladding": "stucco",
+   "length_m": 8.901,
+   "left_joined": true,
+   "right_joined": true,
+   "grade": "ground",
+   "bottom_left_m": 0,
+   "bottom_right_m": 0,
+   "eave_left_m": 4.2672,
+   "eave_right_m": 4.7244,
+   "peak": {
+    "along_m": 4.8587,
+    "height_m": 6.2789
+   },
+   "pitch_12": 5,
+   "bands": [],
+   "shapes": [
+    {
+     "material": "parging",
+     "label": "Parging",
+     "closed": true,
+     "polygon": [
+      [
+       0,
+       0
+      ],
+      [
+       8.901,
+       0.4572
+      ],
+      [
+       8.901,
+       1.0668
+      ],
+      [
+       0,
+       1.0668
+      ]
+     ],
+     "area_m2": 7.4608,
+     "openings_m2": 0,
+     "net_m2": 7.4608
+    },
+    {
+     "material": "stucco",
+     "label": "Stucco",
+     "closed": true,
+     "polygon": [
+      [
+       0,
+       1.0668
+      ],
+      [
+       8.901,
+       1.0668
+      ],
+      [
+       8.901,
+       4.7244
+      ],
+      [
+       4.8587,
+       6.2789
+      ],
+      [
+       0,
+       4.2672
+      ]
+     ],
+     "area_m2": 38.3639,
+     "openings_m2": 1.1396,
+     "net_m2": 37.2243
+    }
+   ],
+   "roofline": [],
+   "openings": [
+    {
+     "kind": "window",
+     "number": 1,
+     "from_m": 0.7670279070687673,
+     "width_m": 0.694944,
+     "sill_m": 2.5359360000000004,
+     "head_m": 4.17576
+    },
+    {
+     "kind": "window",
+     "number": 2,
+     "from_m": 1.344168,
+     "width_m": 1.38684,
+     "sill_m": 0.31699200000000005,
+     "head_m": 0.865632
+    }
+   ],
+   "areas": [
+    {
+     "cladding": "stucco",
+     "gross_m2": 38.3639,
+     "openings_m2": 1.9005,
+     "net_m2": 37.2243
+    }
+   ],
+   "gross_sf": 412.946,
+   "net_sf": 400.679,
+   "opening_trim_m": 0,
+   "photos": [
+    {
+     "n": 906,
+     "file": "side_9_photo_6.jpg",
+     "t_s": 0,
+     "epoch": 0,
+     "camera": {
+      "width": 1600,
+      "height": 1200,
+      "fx": 1061.1200000000001,
+      "fy": 1061.1200000000001,
+      "cx": 800,
+      "cy": 600
+     },
+     "position": [
+      0,
+      0,
+      0
+     ],
+     "forward": [
+      0,
+      0,
+      -1
+     ],
+     "up": [
+      0,
+      1,
+      0
+     ],
+     "to_photo": [
+      198.28347515803782,
+      14.902267085448617,
+      734.3229783506454,
+      82.9542465808337,
+      -142.81100323463264,
+      1144.7438364699817,
+      0.11087789953741567,
+      0.02726229208931757,
+      1
+     ],
+     "in_view": {
+      "from_m": 0,
+      "to_m": 8.900977126628732,
+      "left_end": true,
+      "right_end": true,
+      "top": true
+     }
+    },
+    {
+     "n": 903,
+     "file": "side_9_photo_3.jpg",
+     "t_s": 0,
+     "epoch": 0,
+     "camera": {
+      "width": 1600,
+      "height": 1201,
+      "fx": 1061.1200000000001,
+      "fy": 1061.1200000000001,
+      "cx": 800,
+      "cy": 600.5
+     },
+     "position": [
+      0,
+      0,
+      0
+     ],
+     "forward": [
+      0,
+      0,
+      -1
+     ],
+     "up": [
+      0,
+      1,
+      0
+     ],
+     "to_photo": [
+      -376.69964299800336,
+      -113.83189167874903,
+      3678.759196849851,
+      -91.29589920558875,
+      -61.76614611132603,
+      947.3742295808154,
+      -0.10864646206903468,
+      -0.0222101726451388,
+      1
+     ],
+     "in_view": {
+      "from_m": 0,
+      "to_m": 0,
+      "left_end": true,
+      "right_end": false,
+      "top": true
+     }
+    }
+   ],
+   "length_pm_pct": 11
+  },
+  {
+   "index": 10,
+   "name": "Front wall behind the porch",
+   "cladding": "stucco",
+   "length_m": 6.7231,
+   "left_joined": true,
+   "right_joined": true,
+   "grade": "ground",
+   "bottom_left_m": 0,
+   "bottom_right_m": 0,
+   "eave_left_m": 2.6213,
+   "eave_right_m": 2.6213,
+   "peak": null,
+   "pitch_12": null,
+   "bands": [],
+   "shapes": [
+    {
+     "material": "stucco",
+     "label": "Stucco",
+     "closed": true,
+     "polygon": [
+      [
+       0,
+       0
+      ],
+      [
+       6.7231,
+       0
+      ],
+      [
+       6.7231,
+       2.6213
+      ],
+      [
+       0,
+       2.6213
+      ]
+     ],
+     "area_m2": 17.6233,
+     "openings_m2": 3.5263,
+     "net_m2": 14.0969
+    }
+   ],
+   "roofline": [],
+   "openings": [
+    {
+     "kind": "window",
+     "number": 1,
+     "from_m": 1.3045440000000001,
+     "width_m": 1.024128,
+     "sill_m": 1.042416,
+     "head_m": 2.023872
+    },
+    {
+     "kind": "door",
+     "number": 2,
+     "from_m": 3.557016,
+     "width_m": 0.957072,
+     "sill_m": 0,
+     "head_m": 2.033016
+    },
+    {
+     "kind": "window",
+     "number": 3,
+     "from_m": 4.626864,
+     "width_m": 0.496824,
+     "sill_m": 0.85344,
+     "head_m": 2.01168
+    }
+   ],
+   "areas": [
+    {
+     "cladding": "stucco",
+     "gross_m2": 17.6233,
+     "openings_m2": 3.5263,
+     "net_m2": 14.0969
+    }
+   ],
+   "gross_sf": 189.695,
+   "net_sf": 151.738,
+   "opening_trim_m": 0,
+   "photos": [
+    {
+     "n": 901,
+     "file": "side_10_photo_1.jpg",
+     "t_s": 0,
+     "epoch": 0,
+     "camera": {
+      "width": 1600,
+      "height": 1200,
+      "fx": 1061.1200000000001,
+      "fy": 1061.1200000000001,
+      "cx": 800,
+      "cy": 600
+     },
+     "position": [
+      0,
+      0,
+      0
+     ],
+     "forward": [
+      0,
+      0,
+      -1
+     ],
+     "up": [
+      0,
+      1,
+      0
+     ],
+     "to_photo": [
+      134.9329108257308,
+      12.303771566556682,
+      146.51798068371346,
+      13.034463652976804,
+      -109.39589538723563,
+      811.2504569958103,
+      0.019196514839722924,
+      0.017278285755918832,
+      1
+     ],
+     "in_view": {
+      "from_m": 0,
+      "to_m": 6.723092114595557,
+      "left_end": true,
+      "right_end": true,
+      "top": true
+     }
+    }
+   ],
+   "length_pm_pct": 3
+  },
+  {
+   "index": 11,
+   "name": "Keystone wall",
+   "cladding": "stucco",
+   "length_m": 7.5614,
+   "left_joined": true,
+   "right_joined": true,
+   "grade": "ground",
+   "bottom_left_m": 0,
+   "bottom_right_m": 0,
+   "eave_left_m": 2.8499,
+   "eave_right_m": 2.8499,
+   "peak": null,
+   "pitch_12": null,
+   "bands": [],
+   "shapes": [
+    {
+     "material": "stucco",
+     "label": "Stucco",
+     "closed": true,
+     "polygon": [
+      [
+       0,
+       0
+      ],
+      [
+       7.5614,
+       0
+      ],
+      [
+       7.5614,
+       2.8499
+      ],
+      [
+       0,
+       2.8499
+      ]
+     ],
+     "area_m2": 21.5492,
+     "openings_m2": 0.774,
+     "net_m2": 20.7752
+    }
+   ],
+   "roofline": [],
+   "openings": [
+    {
+     "kind": "window",
+     "number": 1,
+     "from_m": 5.28828,
+     "width_m": 0.7985760000000001,
+     "sill_m": 1.0454640000000002,
+     "head_m": 2.0147280000000003
+    }
+   ],
+   "areas": [
+    {
+     "cladding": "stucco",
+     "gross_m2": 21.5492,
+     "openings_m2": 0.774,
+     "net_m2": 20.7752
+    }
+   ],
+   "gross_sf": 231.954,
+   "net_sf": 223.622,
+   "opening_trim_m": 0,
+   "photos": [
+    {
+     "n": 902,
+     "file": "side_11_photo_2.jpg",
+     "t_s": 0,
+     "epoch": 0,
+     "camera": {
+      "width": 1600,
+      "height": 1200,
+      "fx": 1061.1200000000001,
+      "fy": 1061.1200000000001,
+      "cx": 800,
+      "cy": 600
+     },
+     "position": [
+      0,
+      0,
+      0
+     ],
+     "forward": [
+      0,
+      0,
+      -1
+     ],
+     "up": [
+      0,
+      1,
+      0
+     ],
+     "to_photo": [
+      123.05934376215959,
+      6.601048204198147,
+      263.61726017410393,
+      -24.179297928322544,
+      -133.18020520380446,
+      969.0911106216714,
+      -0.023737960123540968,
+      0.016777127817765004,
+      1
+     ],
+     "in_view": {
+      "from_m": 0,
+      "to_m": 7.561413621742548,
+      "left_end": true,
+      "right_end": true,
+      "top": true
+     }
+    }
+   ],
+   "length_pm_pct": 3
+  }
+ ],
+ "links": [],
+ "taps": [],
+ "notes": [
+  "Built from 15 phone photos (10-16, 12:49-12:54) and 3 tapes, no AR taps: 9'0\" garage doors, 263\" porch (keystone wall to the west porch post), 22'2\" rear bump-out."
+ ]
+}

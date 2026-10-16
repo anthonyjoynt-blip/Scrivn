@@ -196,6 +196,164 @@ export function facetLabelBoxes(plan: RoofPlan, fs: number): LabelBox[] {
   return facetLabels(plan, fs).map((f) => f.box);
 }
 
+/** The corners of a turned box. */
+function corners(b: LabelBox): Pt[] {
+  const [u, v] = axes(b);
+  const w = b.width / 2;
+  const h = b.height / 2;
+  return [
+    { x: b.x - u.x * w - v.x * h, y: b.y - u.y * w - v.y * h },
+    { x: b.x + u.x * w - v.x * h, y: b.y + u.y * w - v.y * h },
+    { x: b.x + u.x * w + v.x * h, y: b.y + u.y * w + v.y * h },
+    { x: b.x - u.x * w + v.x * h, y: b.y - u.y * w + v.y * h },
+  ];
+}
+
+/** The point of a turned box nearest [p]. */
+function nearestInBox(b: LabelBox, p: Pt): Pt {
+  const [u, v] = axes(b);
+  const c = { x: p.x - b.x, y: p.y - b.y };
+  const s = Math.max(-b.width / 2, Math.min(b.width / 2, c.x * u.x + c.y * u.y));
+  const t = Math.max(-b.height / 2, Math.min(b.height / 2, c.x * v.x + c.y * v.y));
+  return { x: b.x + u.x * s + v.x * t, y: b.y + u.y * s + v.y * t };
+}
+
+function segmentsCross(a: Pt, b: Pt, c: Pt, d: Pt): boolean {
+  const o = (p: Pt, q: Pt, r: Pt) => (q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x);
+  const d1 = o(c, d, a);
+  const d2 = o(c, d, b);
+  const d3 = o(a, b, c);
+  const d4 = o(a, b, d);
+  return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0));
+}
+
+function insideRing(poly: Pt[], p: Pt): boolean {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const a = poly[i] as Pt;
+    const b = poly[j] as Pt;
+    if (a.y > p.y !== b.y > p.y && p.x < ((b.x - a.x) * (p.y - a.y)) / (b.y - a.y) + a.x) inside = !inside;
+  }
+  return inside;
+}
+
+/** Whether a turned box lies on any part of a polygon: across an edge, or inside it. */
+export function boxOnPolygon(b: LabelBox, poly: Pt[]): boolean {
+  if (poly.length < 3) return false;
+  const c = corners(b);
+  if (c.some((p) => insideRing(poly, p)) || insideRing(poly, { x: b.x, y: b.y })) return true;
+  if (poly.some((p) => insideRing(c, p))) return true;
+  for (let i = 0; i < poly.length; i++) {
+    const p = poly[i] as Pt;
+    const q = poly[(i + 1) % poly.length] as Pt;
+    for (let k = 0; k < 4; k++) if (segmentsCross(p, q, c[k] as Pt, c[(k + 1) % 4] as Pt)) return true;
+  }
+  return false;
+}
+
+/** How far a turned box is from the segment a-b: 0 where they touch. */
+export function boxToSegment(b: LabelBox, a: Pt, c: Pt): number {
+  if (boxOnPolygon(b, [a, c, { x: c.x + 1e-9, y: c.y + 1e-9 }])) return 0;
+  const toSeg = (p: Pt) => distanceToSegment(p, a, c);
+  const fromEnds = [a, c].map((p) => {
+    const q = nearestInBox(b, p);
+    return Math.hypot(q.x - p.x, q.y - p.y);
+  });
+  return Math.min(...corners(b).map(toSeg), ...fromEnds);
+}
+
+/** A wall to name on a plan: its ends (going round the house, outside on its left as `out` says), and its words. */
+export interface WallToName {
+  id: string;
+  a: Pt;
+  b: Pt;
+  /** The way out from the house, a unit vector. */
+  out: Pt;
+  name: string;
+  /** Its length as written: "70'7"", "≈ 12'", "70'7" ±6%". */
+  length: string;
+  /** How far out from the wall the plan's own drawing reaches over it: the roof's edge, on a roof plan. */
+  clear: number;
+}
+
+/** A wall's name as placed: its lines, its box, and the line back to its wall when it had to stand off. */
+export interface SideName {
+  id: string;
+  /** One line; or the name over the length, where one line is longer than the wall. */
+  lines: string[];
+  box: LabelBox;
+  /** Reading up the page, along a wall that runs up the plan. */
+  upright: boolean;
+  /** From the label to its wall, when the label is not beside it. */
+  leader: [Pt, Pt] | null;
+}
+
+/**
+ * Each wall's name and length beside its own wall (2026-10-16, the owner's report: names floated away
+ * from their walls, and lay over each other on the footprint). Tried beside the wall first, along it as
+ * far as its ends, on one line and then two; then turned to read across; then stepped further out. Each is
+ * kept off the names already placed, the boxes given (an end's pill) and the polygons given (the house,
+ * or the roof), nearest its wall winning. One that has to stand clear of its wall gets a leader line back
+ * to it. `em` is the lettering's height in feet; a pill's padding is `pad` round its words.
+ */
+export function placeWallNames(walls: WallToName[], em: number, keepOff: { boxes: LabelBox[]; polygons: Pt[][] }, pad = 0): SideName[] {
+  const lineH = em * 1.2;
+  const placed: { box: LabelBox; id: string }[] = [];
+  const out: SideName[] = [];
+  const order = [...walls].sort((p, q) => Math.hypot(p.b.x - p.a.x, p.b.y - p.a.y) - Math.hypot(q.b.x - q.a.x, q.b.y - q.a.y));
+  for (const w of order) {
+    const len = Math.hypot(w.b.x - w.a.x, w.b.y - w.a.y) || 1;
+    const dir = { x: (w.b.x - w.a.x) / len, y: (w.b.y - w.a.y) / len };
+    const mid = { x: (w.a.x + w.b.x) / 2, y: (w.a.y + w.b.y) / 2 };
+    const runsUp = Math.abs(dir.y) > Math.abs(dir.x);
+    const one = [`${w.name} ${w.length}`];
+    const two = [w.name, w.length];
+    const widthOf = (lines: string[]) => Math.max(...lines.map((t) => textWidthEm(t))) * em + pad * 2;
+    const layouts = [
+      { lines: one, along: true, cost: 0 },
+      { lines: two, along: true, cost: 1.5 },
+      ...(runsUp ? [{ lines: one, along: false, cost: 3 }, { lines: two, along: false, cost: 3.5 }] : []),
+    ];
+    let best: { box: LabelBox; lines: string[]; cost: number; upright: boolean } | null = null;
+    for (const lay of layouts) {
+      const W = widthOf(lay.lines);
+      const H = lay.lines.length * lineH + pad * 2;
+      // The box's size across the wall, and along it: turned with a wall up the page, or reading across it.
+      const deep = lay.along ? H : runsUp ? W : H;
+      const long = lay.along ? W : runsUp ? H : W;
+      const angle = lay.along && runsUp ? 90 : 0;
+      // Along the wall as far as it still lies beside some of it: past an end, round a corner, before out.
+      const reach = Math.max(0, len / 2 + long / 2 - em * 1.5);
+      const slides = [0, 0.15, -0.15, 0.3, -0.3, 0.45, -0.45, 0.6, -0.6, 0.8, -0.8, 1, -1].map((f) => f * reach);
+      for (let k = 0; k <= 12; k++) {
+        const o = w.clear + em * 0.35 + deep / 2 + k * deep * 0.5;
+        for (const s of slides) {
+          const box: LabelBox = { x: mid.x + w.out.x * o + dir.x * s, y: mid.y + w.out.y * o + dir.y * s, angle, width: W, height: H };
+          let cost = lay.cost + (k * deep * 0.5) / em + (2 * Math.abs(s)) / (len + long);
+          for (const p of placed) if (labelsOverlap(box, p.box, em * 0.25)) cost += 1000;
+          for (const q of keepOff.boxes) if (labelsOverlap(box, q, em * 0.15)) cost += 200;
+          for (const poly of keepOff.polygons) if (boxOnPolygon(box, poly)) cost += 25;
+          if (!best || cost < best.cost - 1e-9) best = { box, lines: lay.lines, cost, upright: angle === 90 };
+        }
+      }
+    }
+    const chosen = best as NonNullable<typeof best>;
+    placed.push({ box: chosen.box, id: w.id });
+    // Beside its wall, or a line back to it.
+    const gap = boxToSegment(chosen.box, w.a, w.b);
+    let leader: [Pt, Pt] | null = null;
+    // Past an eave's overhang it reads as its wall's; standing off further - past a deck's roof, a porch's - it gets its line.
+    if (gap > Math.max(em * 2.5, 3)) {
+      const t = Math.max(0, Math.min(len, (chosen.box.x - w.a.x) * dir.x + (chosen.box.y - w.a.y) * dir.y));
+      const at = { x: w.a.x + dir.x * t, y: w.a.y + dir.y * t };
+      leader = [nearestInBox(chosen.box, at), at];
+    }
+    out.push({ id: w.id, lines: chosen.lines, box: chosen.box, upright: chosen.upright, leader });
+  }
+  const index = new Map(walls.map((w, i) => [w.id, i]));
+  return out.sort((p, q) => (index.get(p.id) ?? 0) - (index.get(q.id) ?? 0));
+}
+
 /** Each kind's total along the roof, for the legend: only the kinds the roof has. */
 export function lineTotals(plan: RoofPlan): { kind: RoofLineKind; feet: number }[] {
   return (Object.keys(plan.totals) as RoofLineKind[]).filter((k) => plan.lines.some((l) => l.kind === k)).map((kind) => ({ kind, feet: plan.totals[kind] }));

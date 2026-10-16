@@ -32,7 +32,7 @@ const FIXTURE = join(here, "fixtures", "photo-route", "owner-1016.json");
 async function load() {
   const outDir = mkdtempSync(join(tmpdir(), "photo-route-"));
   const entry = join(outDir, "entry.ts");
-  writeFileSync(entry, ["photoRoute.ts", "photoRouteLens.ts", "photoRouteLines.ts", "photoRouteEdges.ts", "photoRouteSolve.ts", "photoRouteData.ts", "photoRouteExterior.ts", "exteriorPhoto.ts", "exterior.ts", "exteriorTrace.ts"].map((f) => `export * from "${lib(f)}";`).join("\n"));
+  writeFileSync(entry, ["photoRoute.ts", "photoRouteLens.ts", "photoRouteLines.ts", "photoRouteEdges.ts", "photoRouteSolve.ts", "photoRouteData.ts", "photoRouteExterior.ts", "exteriorPhoto.ts", "exterior.ts", "exteriorTrace.ts", "exteriorReport.ts"].map((f) => `export * from "${lib(f)}";`).join("\n"));
   await build({ entryPoints: [entry], bundle: true, format: "esm", platform: "node", outfile: join(outDir, "entry.mjs"), alias: { "@": root }, logLevel: "silent" });
   const mod = await import(pathToFileURL(join(outDir, "entry.mjs")).href);
   rmSync(outDir, { recursive: true, force: true });
@@ -244,6 +244,12 @@ const doorsRead = ["C1-C2", "C3-C4"].map((k) => readOut[k]?.openings.find((o) =>
 console.log(`  garage doors read off their squared photos: ${doorsRead.map(ftin).join(", ")} (taped 9'0")`);
 check("the walls read off the squared photos land on their sides (shapes, openings, wall top)", Object.values(readOut).filter((s) => s && s.shapes?.length && s.openings.length).length >= 3);
 check("each garage door read off its squared photo is within 6% of its 9' tape", doorsRead.length === 2 && doorsRead.every((w) => Math.abs(w / 9 - 1) < 0.06), doorsRead.map(ftin).join(", "));
+// The report and the roof work from it unchanged: the exterior with the walls read on it.
+const withReads = ext ? { ...ext, sides: ext.sides.map((s) => Object.values(readOut).find((r) => r && r.id === s.id) ?? s) } : null;
+const report = withReads ? x.exteriorReport(withReads, { title: "The owner's house", date: "Oct 16, 2026", madeWith: "Scrivn" }) : null;
+const q = withReads ? x.exteriorQuantities(withReads) : null;
+console.log(`  the report: ${report ? `${report.sides.length} sides, ${report.views.length} views; ${report.sides.filter((s) => s.heading.includes("±")).length} sides marked ± to check` : "none"}; the roof: ${q?.roofing ? `${q.roofing.squares.toFixed(1)} SQ` : "none"}`);
+check("the report and the roof build from the photo-measured exterior, its ± sides marked", !!report && report.sides.length === 12 && report.sides.some((s) => s.heading.includes("±")) && !!q?.roofing);
 check("the measure lands as the claim's exterior, from photos", !!ext && ext.sides.length === 12 && ext.source?.kind === "photos" && ext.sides.filter((s) => s.lengthPlusMinusPct !== undefined).length === 10);
 check("each side photo puts the side's ends where its corners were tapped (median within 12 px)", errs.length >= 6 && (errs[Math.floor(errs.length / 2)] ?? 99) < 12);
 check("every photo with two or more corners is placed", all.unplaced.every((u) => !/fit the shape/.test(u.why)));

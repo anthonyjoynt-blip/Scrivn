@@ -200,7 +200,8 @@ export function exteriorFromRoute(prev: Exterior | undefined, state: PhotoRouteS
     roof: prev?.roof ?? defaultRoof(),
     ...(prev?.scope ? { scope: { ...prev.scope, sides: prev.scope.sides.filter((x) => sides.some((s) => s.id === x)) } } : {}),
     photoRoute: { ...state, measured: { ...m, sideIds } },
-    source: { kind: "photos", captureId: null, scanId: null, receivedAt: m.at, notes, walkClosed: true },
+    // "by photos": measured off ordinary photos and a few tapes, nothing tapped on the walls - the report words it so.
+    source: { kind: "photos", by: "photos", captureId: null, scanId: null, receivedAt: m.at, notes, walkClosed: true },
   };
 }
 

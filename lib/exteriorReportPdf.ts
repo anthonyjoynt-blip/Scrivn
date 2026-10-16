@@ -1,7 +1,7 @@
 import { jsPDF } from "jspdf";
 import { createElement, type ReactElement } from "react";
-import { ElevationDrawing, elevationFontFeet, FootprintDrawing, LINE_STYLE, RoofPlanDrawing } from "@/components/sketch/exteriorDrawings";
-import { allSides } from "./exterior";
+import { CHECK_INK, CladdingLegend, ElevationDrawing, elevationFontFeet, FootprintDrawing, HouseElevationDrawing, houseViewFontFeet, LINE_STYLE, type LegendItem, RoofPlanDrawing } from "@/components/sketch/exteriorDrawings";
+import { allSides, elevationFaces, type Exterior, lengthToCheck } from "./exterior";
 import { type ExteriorReport, LINE_WORD, roofPlanCaption } from "./exteriorReport";
 import { type Letterhead, letterheadInkColor } from "./letterhead";
 import { drawLetterhead, drawPhotoPages, drawTables, LETTERHEAD_HEIGHT, PAGE_MARGIN, type PdfPhoto } from "./pdf";
@@ -67,6 +67,14 @@ const SCALES: [number, string][] = [
   [2.25, '1/32" = 1\'-0"'],
 ];
 
+/** A side's ± on its length where it is to check (`lengthToCheck`): what the plans mark. */
+function plusMinusOf(exterior: Exterior) {
+  return (id: string) => {
+    const side = allSides(exterior).find((s) => s.id === id);
+    return side ? lengthToCheck(side) : undefined;
+  };
+}
+
 /** The largest standard scale at which [w] x [h] feet fit [boxW] x [boxH] points; the smallest if none does. */
 export function standardScale(w: number, h: number, boxW: number, boxH: number): [number, string] {
   for (const s of SCALES) if (w * s[0] <= boxW && h * s[0] <= boxH) return s;
@@ -125,19 +133,25 @@ function drawing(input: ReportPdfInput, element: ReactElement) {
   return { svg, box: svgViewBox(svg) };
 }
 
-/** The footprint, to a standard scale inside the box; where it ends. */
-function drawFootprint(doc: jsPDF, input: ReportPdfInput, x: number, y: number, w: number, h: number): number {
+/** The footprint at the largest standard scale at which it fits [w] x [h] points as drawn - its names lettered about 8 points - with room for the scale under it; null when none does. */
+function fitFootprint(input: ReportPdfInput, w: number, h: number): { made: ReturnType<typeof drawing>; ptPerFt: number; text: string } | null {
   const { report } = input;
   const fp = report.q.footprint;
   const nameOf = (id: string) => allSides(report.exterior).find((s) => s.id === id)?.name.trim() || "Side";
   const approx = (id: string) => report.exterior.sides.find((s) => s.id === id)?.lengthFrom === "drawn";
   const upper = report.q.upperFootprint?.closes ? report.q.upperFootprint.corners : null;
-  // Lettering about 8 points on paper: a first frame at 3% lettering finds the scale, the second is drawn.
-  const first = drawing(input, createElement(FootprintDrawing, { footprint: fp, nameOf, approx, upper }));
-  let [ptPerFt, text] = standardScale(first.box.width, first.box.height, w, h - 24);
-  let made = drawing(input, createElement(FootprintDrawing, { footprint: fp, nameOf, approx, upper, fontFeet: 8 / ptPerFt }));
-  [ptPerFt, text] = standardScale(made.box.width, made.box.height, w, h - 24);
-  made = drawing(input, createElement(FootprintDrawing, { footprint: fp, nameOf, approx, upper, fontFeet: 8 / ptPerFt }));
+  const plusMinus = plusMinusOf(report.exterior);
+  // Each scale tried with the lettering it gives, so the names that widen the frame are in what is measured.
+  for (const [ptPerFt, text] of SCALES) {
+    const made = drawing(input, createElement(FootprintDrawing, { footprint: fp, nameOf, approx, plusMinus, upper, fontFeet: 8 / ptPerFt }));
+    if (made.box.width * ptPerFt <= w && made.box.height * ptPerFt <= h - 24) return { made, ptPerFt, text };
+  }
+  return null;
+}
+
+/** The footprint as fitted, centred across [w]; where it ends. */
+function drawFootprint(doc: jsPDF, fit: NonNullable<ReturnType<typeof fitFootprint>>, x: number, y: number, w: number): number {
+  const { made, ptPerFt, text } = fit;
   const dw = made.box.width * ptPerFt;
   const dh = made.box.height * ptPerFt;
   paintSvg(doc, made.svg, x + (w - dw) / 2, y, ptPerFt, { pixel: PIXEL });
@@ -198,14 +212,19 @@ function cover(doc: jsPDF, input: ReportPdfInput): void {
   // The footprint under it all, when there is room for it; its own page when not.
   if (report.q.footprint.closes) {
     const room = BOTTOM - 20 - y;
-    if (room < 180) {
-      doc.addPage();
-      y = heading(doc, "Footprint", "To scale, front at the bottom. Each wall's name and length outside it.");
-      drawFootprint(doc, input, PAGE_MARGIN, y, CONTENT_W, BOTTOM - 20 - y);
-    } else {
+    // A wall whose length is to check is marked on the plan, and said under it.
+    const marked = allSides(report.exterior).some((s) => lengthToCheck(s) !== undefined) ? " A wall dashed, with a ±: worked out from the photos, to tape." : "";
+    // Under the cover's words when it fits there at 1/16" or larger; else a page of its own.
+    const here = room >= 180 ? fitFootprint(input, CONTENT_W, room - 10) : null;
+    if (here && here.ptPerFt >= 4.5) {
       setText(doc, 10, "bold", NAVY);
       doc.text("Footprint", PAGE_MARGIN, y);
-      drawFootprint(doc, input, PAGE_MARGIN, y + 10, CONTENT_W, room - 10);
+      drawFootprint(doc, here, PAGE_MARGIN, y + 10, CONTENT_W);
+    } else {
+      doc.addPage();
+      y = heading(doc, "Footprint", `To scale, front at the bottom. Each wall's name and length outside it.${marked}`);
+      const fit = fitFootprint(input, CONTENT_W, BOTTOM - 20 - y);
+      if (fit) drawFootprint(doc, fit, PAGE_MARGIN, y, CONTENT_W);
     }
   }
 }
@@ -228,6 +247,7 @@ function roofPage(doc: jsPDF, input: ReportPdfInput): void {
     edges: R.edges ?? null,
     ridgeVents: R.ridgeVents ?? [],
     approx: (id: string) => report.exterior.sides.find((s) => s.id === id)?.lengthFrom === "drawn",
+    plusMinus: plusMinusOf(report.exterior),
   };
   // Room under it for the legend, the slopes and the notes.
   const below = 64 + roof.notes.length * 22;
@@ -271,6 +291,23 @@ function roofPage(doc: jsPDF, input: ReportPdfInput): void {
     doc.text(pdfSafe(words), x + 26, y);
     x += w;
   }
+  // A wall whose length is to check (2026-10-16): marked as on the plan.
+  if (allSides(report.exterior).some((s) => lengthToCheck(s) !== undefined)) {
+    const words = "Length to check (±): worked out from the photos, not taped";
+    setText(doc, 8, "normal", INK);
+    const w = 26 + doc.getTextWidth(pdfSafe(words)) + 14;
+    if (x > PAGE_MARGIN && x + w > PAGE_W - PAGE_MARGIN) {
+      x = PAGE_MARGIN;
+      y += 13;
+    }
+    const [r, g, b] = [1, 3, 5].map((i) => parseInt(CHECK_INK.slice(i, i + 2), 16)) as [number, number, number];
+    doc.setDrawColor(r, g, b);
+    doc.setLineWidth(2.2 * PIXEL);
+    doc.setLineDashPattern([6 * PIXEL, 3 * PIXEL], 0);
+    doc.line(x, y - 3, x + 20, y - 3);
+    doc.setLineDashPattern([], 0);
+    doc.text(pdfSafe(words), x + 26, y);
+  }
   y += 16;
   setText(doc, 8, "normal", INK);
   if (roof.slopes) y = para(doc, `Slopes: ${roof.slopes}`, PAGE_MARGIN, y, CONTENT_W, 10.5) + 4;
@@ -308,7 +345,91 @@ function elevationPages(doc: jsPDF, input: ReportPdfInput): void {
   });
 
   doc.addPage();
-  let y = heading(doc, "Elevations", "Each side as seen from outside, left to right, to scale: heights from the side's own level, every opening's size over it, the length under it.");
+  const views = report.views;
+  let y = heading(
+    doc,
+    "Elevations",
+    views.length > 0
+      ? "The whole house square-on from each side, then each side on its own, to scale. The plan's front is taken as south: no compass bearing is measured."
+      : "Each side as seen from outside, left to right, to scale: heights from the ground under each end, every opening's size over it, the length under it.",
+  );
+  // The materials, as the faces show them (2026-10-16): a swatch of each with its name.
+  const items: LegendItem[] = [];
+  for (const s of sides) {
+    const { faces, fromShapes } = elevationFaces(s.side, s.rise, s.base);
+    const found: LegendItem[] = faces.filter((f) => f.closed && f.poly.length >= 3).map((f) => ({ kind: f.kind, label: f.label }));
+    if (!fromShapes && s.side.base === "parging") found.push({ kind: "parging", label: "Parging" });
+    for (const it of found) if (!items.some((x) => x.kind === it.kind && x.label === it.label)) items.push(it);
+  }
+  if (items.length > 0) {
+    const legend = drawing(input, createElement(CladdingLegend, { items }));
+    const k = Math.min(7.5, CONTENT_W / legend.box.width);
+    paintSvg(doc, legend.svg, PAGE_MARGIN, y - 6, k, { pixel: PIXEL });
+    y += legend.box.height * k + 8;
+  }
+
+  /*
+    The house from the south, east, north and west first (2026-10-16, the owner: "an overview of the full
+    face on view would be nice as well"), all four at ONE standard scale - the largest at which each fits
+    the page's width and about 300 points - so they compare as an architect's sheet does. Lettered at
+    about 7.5 points, as the sides are.
+  */
+  if (views.length > 0) {
+    const houseEl = (v: (typeof views)[number], fontFeet: number) => createElement(HouseElevationDrawing, { view: v.view, fontFeet });
+    const fitOf = (fontFor: (v: (typeof views)[number]) => number) =>
+      views.map((v) => {
+        const made = drawing(input, houseEl(v, fontFor(v)));
+        return standardScale(made.box.width, made.box.height, CONTENT_W, 300);
+      });
+    const least = (scales: [number, string][]) => scales.reduce((a, b) => (b[0] < a[0] ? b : a));
+    let [ptPerFt, text] = least(fitOf((v) => houseViewFontFeet(v.view)));
+    if (ptPerFt > MAX) [ptPerFt, text] = most;
+    for (let pass = 0; pass < 2; pass++) {
+      let next = least(fitOf(() => 7.5 / ptPerFt));
+      if (next[0] > MAX) next = most;
+      if (next[0] === ptPerFt) break;
+      [ptPerFt, text] = next;
+    }
+    for (const v of views) {
+      const made = drawing(input, houseEl(v, 7.5 / ptPerFt));
+      const dh = made.box.height * ptPerFt;
+      const dw = made.box.width * ptPerFt;
+      setText(doc, 8, "normal", MUTED);
+      const shows = doc.splitTextToSize(pdfSafe(v.shows), CONTENT_W) as string[];
+      if (y + 16 + shows.length * 10 + dh + 18 > BOTTOM - 14) {
+        doc.addPage();
+        y = heading(doc, "Elevations", "Continued.");
+      }
+      setText(doc, 10.5, "bold", NAVY);
+      doc.text(pdfSafe(v.heading), PAGE_MARGIN, y + 2);
+      setText(doc, 7.5, "normal", MUTED);
+      doc.text(pdfSafe(`Scale ${text} at 100%`), PAGE_W - PAGE_MARGIN, y + 2, { align: "right" });
+      y += 14;
+      setText(doc, 8, "normal", MUTED);
+      for (const line of shows) {
+        doc.text(line, PAGE_MARGIN, y);
+        y += 10;
+      }
+      paintSvg(doc, made.svg, PAGE_MARGIN + (CONTENT_W - dw) / 2, y, ptPerFt, { pixel: PIXEL });
+      y += dh + 8;
+      doc.setDrawColor(225, 229, 234);
+      doc.setLineWidth(0.5);
+      doc.line(PAGE_MARGIN, y, PAGE_W - PAGE_MARGIN, y);
+      y += 16;
+    }
+    // Then each side on its own: its heading kept with the first of them.
+    const first = scaled[0];
+    setText(doc, 8.2, "normal", INK);
+    const firstNeed = first ? 16 + first.made.box.height * first.ptPerFt + 6 + first.s.dims.flatMap((d) => doc.splitTextToSize(pdfSafe(d), CONTENT_W) as string[]).length * 10 + 14 : 0;
+    if (y + 40 + firstNeed > BOTTOM - 14) {
+      doc.addPage();
+      y = heading(doc, "Elevations", "Continued.");
+    }
+    setText(doc, 12, "bold", NAVY);
+    doc.text("Each side", PAGE_MARGIN, y + 2);
+    setText(doc, 8.5, "normal", MUTED);
+    y = para(doc, "As seen from outside, left to right, to scale: heights from the ground under each end, every opening's size over it, the length under it.", PAGE_MARGIN, y + 16, CONTENT_W, 10.5) + 8;
+  }
   for (const { s, made, ptPerFt, text } of scaled) {
     const dh = made.box.height * ptPerFt;
     const dw = made.box.width * ptPerFt;
