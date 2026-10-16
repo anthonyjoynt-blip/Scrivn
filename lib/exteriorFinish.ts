@@ -36,12 +36,20 @@
  * with them, marked "neighbours" ([heightsFromNeighbours]): its siding counts at that height, with no openings unless some
  * were tapped. A side whose read walls the estimator set aside is left as he set it.
  *
+ * THE GARAGE DOOR TYPED ON THE PHONE (2026-10-15, the owner: "we need to include a taped measurement in the walks. Should be
+ * scaled off of something"). Scan's walk asks for a tape on one wall or the garage door's width, typed. The tape is Scan's own
+ * `taped` (the house's scale, as ever). The door is `garageDoorFeet` here, and it is matched against each garage door a photo
+ * read (within 12%, the read at the scale it was read): with no tape, the house's sizes are taken from it, once
+ * (`withScaleFrom`, lib/exteriorScale.ts); with a tape, the tape stands for the house - it measures the lap itself - and the
+ * door corrects only what was read off its own wall's photo, heights and openings, where the two disagree by more than 3%.
+ *
  * Keyed by Scan's side index, the only name a side has on both: Scrivn gives each side an id of its
  * own when it reads the file (lib/exteriorImport.ts). Reads made at another tape's scale are scaled
  * to the file's as they are put on (`scaledRoofRead`; a pitch is a ratio and stays).
  */
 
-import { allSides, CLADDING_KINDS, type CladdingKind, type Exterior, type ExteriorOpening, type ExteriorOpeningKind, type ExteriorRoof, type ExteriorSide, formatPitch, type SidePhoto, type SideRoofRead } from "./exterior";
+import { allSides, CLADDING_KINDS, type CladdingKind, type Exterior, type ExteriorOpening, type ExteriorOpeningKind, type ExteriorRoof, type ExteriorSide, formatPitch, type SidePhoto, type SideRoofRead, type SizeDoor } from "./exterior";
+import { withSizeDoors } from "./exteriorScale";
 import type { SquareFrame } from "./exteriorPhoto";
 import { applyTrace, type TracePicks, type TraceProposals, type TraceRequest, roofPicksAtFirst, shapePicksAtFirst } from "./exteriorTrace";
 import type { Pt, RoofEndKind } from "./roof";
@@ -89,6 +97,8 @@ export interface ScanFinish {
   pitch?: number | null;
   ends?: Record<string, RoofEndKind>;
   sides?: Record<string, FinishSide>;
+  /** The garage door's width as typed on the phone, feet: a reference for the sizes (2026-10-15). */
+  garageDoorFeet?: number | null;
 }
 
 type Json = Record<string, unknown>;
@@ -163,6 +173,8 @@ export function readScanFinish(raw: unknown): ScanFinish | null {
   if ("acceptedAt" in raw) out.acceptedAt = str(raw.acceptedAt);
   const pitch = num(raw.pitch);
   if (pitch !== null && pitch >= 0 && pitch <= 24) out.pitch = pitch;
+  const door = num(raw.garageDoorFeet);
+  if (door !== null && door >= 6 && door <= 30) out.garageDoorFeet = door;
   if (isObject(raw.ends)) {
     const ends: Record<string, RoofEndKind> = {};
     for (const [k, v] of Object.entries(raw.ends)) if (/^\d+$/.test(k) && (v === "gable" || v === "hip")) ends[k] = v;
@@ -205,7 +217,9 @@ export function applyScanFinish(
   scaleNow: number,
   /** The walk went all the way round: the last side's right end meets the first's left. */
   closed = false,
-): { sides: ExteriorSide[]; roof: ExteriorRoof; notes: string[] } {
+  /** The house's scale is a tape's: a garage door typed corrects only its own wall's read, not the house. */
+  taped = false,
+): { sides: ExteriorSide[]; roof: ExteriorRoof; notes: string[]; doorScaleId?: string } {
   const notes: string[] = [];
   const reads = new Map<string, SideRoofRead>();
   const walls = new Map<string, FinishWalls>();
@@ -220,11 +234,56 @@ export function applyScanFinish(
     reads.set(id, Math.abs(k2 - 1) > 1e-6 ? scaledRoofRead(scaleOverhangs(fs.roofRead, k2), k2) : fs.roofRead);
     if (fs.walls?.taken) walls.set(id, Math.abs(k2 - 1) > 1e-6 ? scaledWalls(fs.walls, k2) : fs.walls);
   }
+  // The garage door typed on the phone, against each garage door a photo read: kept as a size check on its side, and with a
+  // tape, its own wall's read corrected to it; with none, the house's sizes are taken from it after (`doorScaleId`).
+  const doors = new Map<string, SizeDoor>();
+  const doorNotes: string[] = [];
+  let doorScaleId: string | undefined;
+  let doorMid: { id: string; door: SizeDoor; k: number } | undefined;
+  const typed = finish.garageDoorFeet ?? null;
+  if (typed !== null && typed > 0) {
+    const found: { id: string; door: SizeDoor; k: number }[] = [];
+    for (const [id, w] of walls) {
+      for (const o of w.openings) {
+        if (o.kind !== "garage" || !(o.widthFeet > 0)) continue;
+        const k = typed / o.widthFeet;
+        if (Math.abs(k - 1) > GARAGE_WITHIN) continue;
+        // In the phone's own measure, as every size check is kept; its height taken in the same proportion, as only the width was typed.
+        const phone = { widthFeet: o.widthFeet / scaleNow, heightFeet: o.heightFeet / scaleNow, middleFeet: (o.fromLeftFeet + o.widthFeet / 2) / scaleNow };
+        const door: SizeDoor = { id: newSketchId("door"), kind: "garage", widthFeet: typed, heightFeet: phone.heightFeet * (typed / phone.widthFeet), phone };
+        found.push({ id, door, k });
+      }
+    }
+    for (const f of found) doors.set(f.id, f.door);
+    const nameOfId = (id: string) => sides.find((s) => s.id === id)?.name ?? "a side";
+    if (found.length === 0) {
+      doorNotes.push(`The ${formatFeetInches(typed)} garage door typed on the phone wasn't found in the photos read: the sizes stay from ${taped ? "the tape" : "the phone's own measure"}.`);
+    } else if (taped) {
+      for (const f of found) {
+        if (Math.abs(f.k - 1) <= DOOR_AGREE) continue;
+        const w = walls.get(f.id) as FinishWalls;
+        walls.set(f.id, readHeightsScaled(w, f.k));
+        const r = reads.get(f.id);
+        if (r) reads.set(f.id, scaleOverhangs(r, f.k));
+        doorNotes.push(`The garage door on ${nameOfId(f.id)} read ${formatFeetInches(typed / f.k)} wide against the ${formatFeetInches(typed)} typed: the heights and openings read off its photo are scaled to it (x${f.k.toFixed(3)}); the tape stays the house's.`);
+      }
+    } else {
+      // The house from the door: the one in the middle, where there are more of the typed size.
+      doorMid = [...found].sort((a, b) => a.k - b.k)[Math.floor((found.length - 1) / 2)] as (typeof found)[number];
+    }
+  }
   const walledSides = sides.map((s) => {
     const withRead = reads.has(s.id) ? { ...s, roofRead: reads.get(s.id) as SideRoofRead } : s;
     const w = walls.get(s.id);
-    return w ? withWalls(withRead, w) : withRead;
+    const walled = w ? withWalls(withRead, w) : withRead;
+    const d = doors.get(s.id);
+    return d ? withSizeDoors(walled, [d]) : walled;
   });
+  // The door the house is taken from, by the id it was kept under.
+  if (doorMid) {
+    const mid = doorMid;
+    doorScaleId = walledSides.find((s) => s.id === mid.id)?.sizeDoors?.find((d) => d.kind === "garage" && Math.abs(d.phone.middleFeet - mid.door.phone.middleFeet) < 1e-6)?.id;
+  }
   // Once anything was read: a side still with no height takes its neighbours' at the corners it shares - not one whose read
   // walls were set aside on the phone, which stays as he left it.
   const setAside = new Set<string>();
@@ -254,11 +313,31 @@ export function applyScanFinish(
     if (unseen.length > 0) notes.push(`Not seen in any photo, ${unseen.length === 1 ? "its height comes" : "their heights come"} from the sides beside ${unseen.length === 1 ? "it" : "them"}: ${listWords(named(unseen))}. No openings on ${unseen.length === 1 ? "it" : "them"} unless tapped.`);
     if (unread.length > 0) notes.push(`The wall top didn't read off the photo of ${listWords(named(unread))}: the height comes from the sides beside ${unread.length === 1 ? "it" : "them"}.`);
   }
+  notes.push(...doorNotes);
   if (finish.pitch != null) notes.push(`The pitch was typed on the phone: ${formatPitch(finish.pitch)}.`);
   if (finish.ends && Object.keys(finish.ends).length > 0) {
     notes.push(`Roof ends set on the phone: ${Object.entries(finish.ends).map(([k, kind]) => `${named([idByIndex.get(Number(k)) ?? ""])[0]} ${kind}`).join(", ")}.`);
   }
-  return { sides: nextSides, roof: nextRoof, notes };
+  return { sides: nextSides, roof: nextRoof, notes, ...(doorScaleId ? { doorScaleId } : {}) };
+}
+
+/** A garage door read further than this from the width typed is another door (a double beside a single). */
+const GARAGE_WITHIN = 0.12;
+/** With a tape, a door within this of its wall's read leaves the read as it is: the two agree. */
+const DOOR_AGREE = 0.03;
+
+/**
+ * A side's walls read off its photo with every height and opening size times [k], where along the wall stays: the door on it
+ * says the photo's read is k off, and the wall's length is the tape's (2026-10-15).
+ */
+function readHeightsScaled(w: FinishWalls, k: number): FinishWalls {
+  const sc = (v: number | null) => (v === null ? null : v * k);
+  return {
+    taken: w.taken,
+    shapes: w.shapes.map((s) => ({ ...s, polygon: s.polygon.map((p) => ({ x: p.x, y: p.y * k })) })),
+    openings: w.openings.map((o) => ({ ...o, widthFeet: o.widthFeet * k, heightFeet: o.heightFeet * k, sillFeet: o.sillFeet * k })),
+    wallTop: w.wallTop ? { eaveLeftFeet: sc(w.wallTop.eaveLeftFeet), eaveRightFeet: sc(w.wallTop.eaveRightFeet), peak: w.wallTop.peak ? { atFeet: w.wallTop.peak.atFeet, peakFeet: w.wallTop.peak.peakFeet * k } : null } : null,
+  };
 }
 
 /** Two openings the same one: their boxes share more than a third of the smaller's area. */

@@ -26,6 +26,9 @@ import type { ProposedOpening } from "./exteriorTrace";
 import { scaledRoofRead } from "./roofPhotoShapes";
 import { formatFeetInches, newSketchId } from "./sketch";
 
+/** A scanned house scaled to nothing - no tape, no door - said plainly on the phone and in the report (2026-10-15). */
+export const NOT_SCALED = "Not scaled to a tape – sizes are the phone's own.";
+
 /** Two references further apart than this are flagged (the owner, 10-14). */
 export const SCALE_AGREE = 0.03;
 

@@ -555,6 +555,76 @@ await test("a lap of corners and four photos: the four read, every other side's 
   console.log(`    house net: ${Math.round(tapped.q.totals.netSquareFeet)} SF tapped whole; ${Math.round(q.totals.netSquareFeet)} SF from 24 corner taps and 4 photos (${unseen.length} sides from their neighbours)`);
 });
 
+/**
+ * A tape, or the garage door's width typed on the phone (2026-10-15, the owner: "we need to include a taped measurement in the
+ * walks. Should be scaled off of something"). The 10-12 photos read Front 3's garage door at 9'8" wide; the owner marked it 9'.
+ */
+async function readAll(file, extra) {
+  let f = { format: "scrivn-finish/1", ...extra };
+  for (const index of Object.keys(answers)) {
+    const { request, squared } = await x.prepare(file, f, Number(index), host);
+    f = await x.take(file, f, Number(index), answerFor(Number(index), request), squared, host, "2026-10-15T20:00:00.000Z");
+  }
+  return f;
+}
+const garageOf = (exterior) => exterior.sides.find((s) => s.name === "Front 3").openings.find((o) => o.kind === "garage");
+
+await test("the garage door typed, no tape: the house's sizes are taken from it - the door 9', every size with it, the phone and Scrivn alike", async () => {
+  const rows = [];
+  for (const [what, file] of [["four sides read, the rest as tapped", cornersOnly], ["the lap and four photos", lapThenPhotos()]]) {
+    const before = scrivnOf(file, await readAll(file, {}));
+    const f = await readAll(file, { garageDoorFeet: 9 });
+    const after = scrivnOf(file, f);
+    const s = JSON.parse(await P.run("summary", { capture: file, finish: f }));
+    sameRoof(s, after.q, `${what}, the door`);
+    assert(after.exterior.scale.from === "door", `from ${after.exterior.scale.from}`);
+    near(garageOf(after.exterior).widthFeet, 9, "the garage door is 9' wide now", 1 / 96);
+    const k = after.exterior.scale.factor;
+    near(k, 9 / garageOf(before.exterior).widthFeet, "the factor is the door's: typed over read", 1e-9);
+    assert(s.sizes.startsWith("Sizes from the 9' × ") && s.sizes.includes("garage door on the Front 3"), s.sizes);
+    assert(after.exterior.source.notes.some((n) => n.includes("The garage door's width was typed on the phone; no tape.")), "said");
+    const g = garageOf(after.exterior);
+    rows.push(`${what}: house net ${Math.round(before.q.totals.netSquareFeet)} SF -> ${Math.round(after.q.totals.netSquareFeet)} SF (x${k.toFixed(3)}); Front 3's garage door ${ftIn(garageOf(before.exterior).widthFeet)} x ${ftIn(garageOf(before.exterior).heightFeet)} -> ${ftIn(g.widthFeet)} x ${ftIn(g.heightFeet)}`);
+  }
+  for (const r of rows) console.log(`    ${r}`);
+});
+
+await test("a tape and the door: the tape stands for the house, the door corrects only its own wall's read", async () => {
+  // A tape on the Rear agreeing with the phone to the inch: the house is the phone's, from a tape.
+  const c = JSON.parse(cornersOnly);
+  const rear = c.sides.find((s) => s.name === "Rear");
+  c.taped = { side: rear.index, metres: rear.length_m };
+  const taped = JSON.stringify(c);
+  const plain = scrivnOf(taped, await readAll(taped, {}));
+  const f = await readAll(taped, { garageDoorFeet: 9 });
+  const both = scrivnOf(taped, f);
+  const s = JSON.parse(await P.run("summary", { capture: taped, finish: f }));
+  sameRoof(s, both.q, "a tape and the door");
+  assert(both.exterior.scale.from === "tape", `from ${both.exterior.scale.from}`);
+  // Front 3's read to the door, its length the tape's; every other side as it was.
+  near(garageOf(both.exterior).widthFeet, 9, "the garage door 9'", 1 / 96);
+  const f3 = (e) => e.sides.find((x2) => x2.name === "Front 3");
+  near(f3(both.exterior).lengthFeet, f3(plain.exterior).lengthFeet, "Front 3's length stays the tape's", 1e-9);
+  assert(f3(both.exterior).eaveLeftFeet < f3(plain.exterior).eaveLeftFeet, "Front 3's read heights come down");
+  for (const n of ["Left", "Rear", "Left 5"]) near(both.exterior.sides.find((x2) => x2.name === n).eaveLeftFeet, plain.exterior.sides.find((x2) => x2.name === n).eaveLeftFeet, `${n} as read`, 1e-9);
+  assert(both.exterior.source.notes.some((n) => n.startsWith("The garage door on Front 3 read 9'8\" wide against the 9' typed")), both.exterior.source.notes.join(" | "));
+  // The door and the tape disagree by more than 3%: flagged, as Scrivn flags any two references.
+  assert(s.sizesFlags.some((t) => t.includes("garage door") && t.includes("% apart")), JSON.stringify(s.sizesFlags));
+  console.log(`    a tape and the door: house net ${Math.round(plain.q.totals.netSquareFeet)} SF -> ${Math.round(both.q.totals.netSquareFeet)} SF (Front 3's read x${(9 / garageOf(plain.exterior).widthFeet).toFixed(3)})`);
+});
+
+await test("nothing to scale to: said plainly, on the phone and in the report", async () => {
+  const s = JSON.parse(await P.run("summary", { capture: cornersOnly, finish: null }));
+  assert(s.sizes === "Not scaled to a tape – sizes are the phone's own.", s.sizes);
+  const { exterior } = scrivnOf(cornersOnly, null);
+  const r = x.exteriorReport(exterior, { title: "", date: "", madeWith: "" });
+  assert(r.sources.includes("Not scaled to a tape – sizes are the phone's own."), r.sources.join(" | "));
+  // A door typed that no photo read: the sizes stay, and it says why.
+  const f = await readAll(cornersOnly, { garageDoorFeet: 16 });
+  const odd = scrivnOf(cornersOnly, f);
+  assert(odd.exterior.scale.from === "phone" && odd.exterior.source.notes.some((n) => n.startsWith("The 16' garage door typed on the phone wasn't found in the photos read")), odd.exterior.source.notes.join(" | "));
+});
+
 await test("the 18:02 walk (four sides, a side yard): Finish reads the walls only and says the walk isn't closed", async () => {
   const file = readFileSync(join(here, "fixtures", "scan-exterior-1802-side-yard.json"), "utf8");
   const s = JSON.parse(await P.run("summary", { capture: file, finish: null }));

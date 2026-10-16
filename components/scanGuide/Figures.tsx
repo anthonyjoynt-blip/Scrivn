@@ -538,7 +538,8 @@ export function ExteriorRound() {
  * and the card over the chip bar with the next step - which side, the step in big words, the small print - then Photo (lit, a photo
  * is the step) and Add by hand, and Undo · ? · Next side. The words are the app's own.
  */
-export function PhotoRouteScreen() {
+export function PhotoRouteScreen({ step = "lap" }: { step?: "lap" | "sizes" }) {
+  const sizes = step === "sizes";
   return (
     <svg viewBox="0 0 300 600" aria-hidden="true" className="sg-svg sg-phone">
       <defs>
@@ -565,25 +566,50 @@ export function PhotoRouteScreen() {
       </text>
       <rect x={196} y={44} width={70} height={70} rx={8} fill={PAPER} stroke={NAVY} strokeWidth={1} />
       <line x1={210} y1={96} x2={252} y2={96} stroke={NAVY} strokeWidth={2.4} strokeLinecap="round" />
-      {/* the ring, green on tracking alone while a photo is the step */}
-      <circle cx={150} cy={214} r={20} fill="none" stroke={GREEN} strokeWidth={4.5} />
-      {/* the card on the lap: the wall's two corners in, on round the house */}
-      <rect x={30} y={318} width={240} height={158} rx={16} fill="rgba(11,13,16,0.82)" />
-      <text x={44} y={336} fontSize={10} fontWeight={700} fill={GREEN}>
-        Side 1 of the house
-      </text>
-      {["Next side: walk round", "the corner"].map((t, i) => (
-        <text key={t} x={44} y={358 + i * 18} fontSize={14} fontWeight={700} fill={PAPER}>
-          {t}
-        </text>
-      ))}
-      {["Then tap its bottom-left corner. No photos", "yet – they come after the lap."].map((t, i) => (
-        <text key={t} x={44} y={398 + i * 13} fontSize={9.5} fill="#c9d1d9">
-          {t}
-        </text>
-      ))}
-      <Chip x={44} y={434} w={104} label="Next side" lit />
-      <Chip x={152} y={434} w={104} label="Photos" />
+      {/* the ring, green on tracking alone while a corner is the step */}
+      {!sizes && <circle cx={150} cy={214} r={20} fill="none" stroke={GREEN} strokeWidth={4.5} />}
+      {sizes ? (
+        <>
+          {/* the card once the lap closes: the sizes, before the photos - a tape, the garage door, or skip */}
+          <rect x={30} y={296} width={240} height={180} rx={16} fill="rgba(11,13,16,0.82)" />
+          <text x={44} y={314} fontSize={10} fontWeight={700} fill={GREEN}>
+            Sizes
+          </text>
+          {["Tape one wall, or type the", "garage door\u2019s width"].map((t, i) => (
+            <text key={t} x={44} y={336 + i * 18} fontSize={14} fontWeight={700} fill={PAPER}>
+              {t}
+            </text>
+          ))}
+          {["Either one scales the whole house: the", "corners and every photo read. Easy to", "tape alone: Left 2 (6\u20322\u2033)."].map((t, i) => (
+            <text key={t} x={44} y={374 + i * 13} fontSize={9.5} fill="#c9d1d9">
+              {t}
+            </text>
+          ))}
+          <Chip x={44} y={412} w={104} label="Tape a wall" lit />
+          <Chip x={152} y={412} w={104} label="Garage door width" size={9.5} />
+          <Chip x={44} y={444} w={212} label="Skip – no tape" />
+        </>
+      ) : (
+        <>
+          {/* the card on the lap: the wall's two corners in, on round the house */}
+          <rect x={30} y={318} width={240} height={158} rx={16} fill="rgba(11,13,16,0.82)" />
+          <text x={44} y={336} fontSize={10} fontWeight={700} fill={GREEN}>
+            Side 1 of the house
+          </text>
+          {["Next side: walk round", "the corner"].map((t, i) => (
+            <text key={t} x={44} y={358 + i * 18} fontSize={14} fontWeight={700} fill={PAPER}>
+              {t}
+            </text>
+          ))}
+          {["Then tap its bottom-left corner. No photos", "yet – they come after the lap."].map((t, i) => (
+            <text key={t} x={44} y={398 + i * 13} fontSize={9.5} fill="#c9d1d9">
+              {t}
+            </text>
+          ))}
+          <Chip x={44} y={434} w={104} label="Next side" lit />
+          <Chip x={152} y={434} w={104} label="Photos" />
+        </>
+      )}
       {/* the chip bar: Photos and Add by hand, then Undo · ? · Next side */}
       <rect x={20} y={482} width={260} height={88} fill="rgba(18,40,63,0.92)" />
       <Chip x={30} y={490} w={116} label="Photos" />
