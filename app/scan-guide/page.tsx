@@ -43,8 +43,9 @@ import "./scan-guide.css";
  * the Roof screen, and the exterior report that Share makes on an exterior capture (docs/exterior-report.md).
  *
  * The photo route added later on 2026-10-15 (Scan GuidedExterior.kt): Exterior sketch asks "Photos (recommended)" or "Tap it
- * yourself", and on the photo route a card over the chip bar says each step - two corners and a photo a side, Finish, Walls,
- * Accept. The card's words are quoted here as GuidedExterior.prompt has them.
+ * yourself", and on the photo route a card over the chip bar says each step - since the owner's 18:02 walk, a lap of corners
+ * and then 4 to 8 photos of the house, each laid on every wall it sees, then Finish, Walls, Accept. The card's words are quoted
+ * here as GuidedExterior.prompt and GuidedWalk have them.
  */
 export const metadata = {
   title: "Scrivn Scan — Tester Guide",
@@ -165,9 +166,9 @@ export default async function ScanGuidePage() {
                 Another floor: hold <B>Add room</B>.
               </li>
               <li>
-                Outside: <B>Start</B> → <B>Exterior sketch</B> → <B>Photos (recommended)</B>. A card at the bottom says each step: two
-                corners and a photo a side, round the house. After <B>Stop</B>, <B>Finish exterior</B> reads the walls and the roof off
-                the photos, and <B>Share</B> makes the exterior report (<See id="exterior" />).
+                Outside: <B>Start</B> → <B>Exterior sketch</B> → <B>Photos (recommended)</B>. Walk round tapping each wall&apos;s two
+                bottom corners, then take 4 to 8 photos of the house, sideways. After <B>Stop</B>, <B>Finish exterior</B> reads the walls
+                and the roof off the photos, and <B>Share</B> makes the exterior report (<See id="exterior" />).
               </li>
               <li>
                 Anything wrong? On the plan, tap <B>Report a problem</B> and tell us. Did the room twice? Report after the second run;
@@ -750,86 +751,69 @@ export default async function ScanGuidePage() {
               whole outside. It is a capture of its own: the rooms inside are a separate capture.
             </p>
             <p>
-              <B>Start</B> → <B>Exterior sketch</B> asks how: <B>Photos (recommended): tap two corners and take a photo per side</B>,
-              or <B>Tap it yourself: draw each material</B>. The one you picked last is ticked.
+              <B>Start</B> → <B>Exterior sketch</B> asks how: <B>Photos (recommended): tap each wall&apos;s two corners round the
+              house, then a few photos of it</B>, or <B>Tap it yourself: draw each material</B>. The one you picked last is ticked.
             </p>
             <div className="sg-split">
               <div>
-                <h3 className="sg-h3">From photos: the card says each step</h3>
+                <h3 className="sg-h3">From photos: a lap of corners, then a few photos</h3>
                 <p>
                   The first time, a card shows the route in three lines. Then a card over the chips says what to do next, in big
-                  words, with the side you are on (<Q>Side 2 of the house</Q>). It follows what you have done: Undo takes it back a
-                  step, and a step already done is never shown. The material list never comes up: the photo gives the siding.{" "}
-                  <strong>Nothing on it is required.</strong> Every step has its way on as a button on the card (<B>Skip this photo</B>,{" "}
-                  <B>Next side</B>, <B>Stop and finish</B>), and a photo asked for twice and not got is let go: the walk goes on and the
-                  line says what it goes without.
+                  words. It follows what you have done: Undo takes it back a step. <strong>Nothing on it is required</strong>: every
+                  step has its way on as a button on the card, and <B>Stop</B> always leads to Finish.
                 </p>
                 <ol className="sg-steps">
                   <li>
-                    <Q>Tap the bottom-left corner of this wall</Q>, standing 1 to 3 m (3 to 10 ft) back: the wall&apos;s own corner,
-                    where the siding meets the floor, not the posts or the deck edge. Then <Q>Now the bottom-right corner</Q>. Those
-                    two fix the wall: <Q>Front: 34&apos;3&quot; between the corners</Q>.
+                    <strong>The lap.</strong> <Q>Tap the bottom-left corner of this wall</Q>, standing 1 to 3 m (3 to 10 ft) back: the
+                    wall&apos;s own corner, where the siding meets the floor, not the posts or the deck edge. Then{" "}
+                    <Q>Now the bottom-right corner</Q>, and <Q>Next side: walk round the corner</Q>: press <B>Next side</B>, or just tap
+                    the next wall&apos;s bottom-left corner. Every wall, every jog. No photos yet.
                   </li>
                   <li>
-                    <Q>Step back until the whole wall and the roof edge are on screen, then press Photo</Q>. <B>Photo</B> is lit. Each
-                    photo&apos;s line says what the side&apos;s photos together still miss:{" "}
-                    <Q>Photo 1 of Front kept · still missing: the right end</Q>, and the card asks for it:{" "}
-                    <Q>Still missing: the right end</Q>. Once they cover the wall: <Q>Photo 2 of Front kept · the whole wall is in</Q>.
-                    A tap on the screen here takes nothing: <Q>Press Photo to take it</Q>. Two more photos that don&apos;t get it, and
-                    the walk goes on: <Q>Going on – still missing on this side: the right end</Q>. Or <B>Skip this photo</B>.
+                    <strong>The photos.</strong> When the walls meet all the way round the photos come up by themselves:{" "}
+                    <Q>The walls meet all the way round – now a few photos of the house</Q>. <B>Photos</B> on the card or the chips
+                    starts them any time. <Q>Turn the phone sideways</Q>, then{" "}
+                    <Q>Take 4 to 8 photos from wherever you can see the most of the house</Q>: the front, the garage, each end you can
+                    get to, the back. A photo from a corner covers both walls. Press <B>Photo</B>, or a volume key.
                   </li>
                   <li>
-                    <Q>Does the top of this wall come to a point?</Q> Look at the wall itself, not the roof behind it:{" "}
-                    <B>This side has no peak</B> or <B>It does</B>. The answer can be changed on the next card. On a gable end, if no
-                    photo was square to it: <Q>This end has a peak: take one photo straight on</Q>, two or three steps to one side
-                    of the peak, or <B>Skip this photo</B>, or <B>This side has no peak</B>.
+                    Each photo is laid on every wall it sees, and its line says which: <Q>Photo 3 · covers: Front, Front 2, Left</Q>.
+                    The card keeps count: <Q>Seen so far: 9 of 12 walls. Not yet: Left 2, Rear 2, Left 3 and 1 more.</Q> A wall seen
+                    only down its length, more than about 80&deg; off square, isn&apos;t counted as seen: too stretched to read.{" "}
+                    <strong>Long-press Photo</strong> for what the photos cover so far.
                   </li>
                   <li>
-                    Once for the house, on the first gable: <Q>Take one photo of a plain roof corner from about 45°</Q>. Step out
-                    past an end of the wall where the roof edge ends plainly, not over a porch or a lower roof. <B>Skip this photo</B>{" "}
-                    or <B>Next side</B> passes it.
-                  </li>
-                  <li>
-                    <Q>Next side: walk round the corner</Q>. Press <B>Next side</B>, or just tap the new wall&apos;s bottom-left
-                    corner: that starts the next side.
-                  </li>
-                  <li>
-                    When the walls meet all the way round: <Q>Back at the start? Press Stop</Q>, with <B>Stop and finish</B> on the
-                    card. Stopping before they meet, it says so plainly, for example{" "}
-                    <Q>4 sides walked – walk the rest to build the roof, or Finish with the walls only</Q>: <B>Walk the rest</B> or{" "}
+                    <B>Stop</B> shows the only checklist there is, as advice: how many walls were walked and seen, the walls no photo
+                    saw (their height comes from the walls beside them), and an optional tape. A walk short of closing says so:{" "}
+                    <Q>4 walls walked – walk the rest to build the roof, or Finish with the walls only</Q>, with <B>Walk the rest</B> or{" "}
                     <B>Finish with the walls only</B>. Both work.
                   </li>
                   <li>
-                    After <B>Stop</B>, always Finish: <Q>Press Finish exterior</Q>. Then, on the Roof screen, the button to press is
-                    filled and the line over it says why: <B>Finish</B>, then <B>Walls</B>, then <B>Accept</B> (below). Then{" "}
-                    <Q>Done: Send takes it to Scrivn</Q>.
+                    Then the Roof screen: the button to press is filled and the line over it says why: <B>Finish</B> reads each wall a
+                    photo sees, then <B>Walls</B>, then <B>Accept</B> (below). Then <Q>Done: Send takes it to Scrivn</Q>.
                   </li>
                 </ol>
                 <p className="sg-note">
-                  <strong>A covered deck or porch?</strong> Tap the wall&apos;s own corners behind it, where the siding meets the
-                  deck floor. For the photo, step back until the main roof edge shows above the porch roof. If the porch roof still
-                  hides the wall top, Finish names the side as not counted: set its height in Scrivn&apos;s sketch. The porch roof
-                  itself isn&apos;t read off the photos yet: add porch roofs in Scrivn&apos;s roof plan.
+                  <strong>A wall no photo saw</strong> - a tiny jog, a side yard - takes its height from the walls beside it, a level
+                  eave at the lower of their two corners, marked as such on the roof screen and in the report:{" "}
+                  <Q>Not seen in a photo, height from the walls beside them</Q>. No windows or doors on it unless you add them by
+                  hand. If no gable was shot square enough for the pitch, it says so: the pitch is Scan&apos;s own measure, or 4/12
+                  assumed until you type it.
                 </p>
                 <p className="sg-note">
-                  <strong>A side too tight for one photo</strong> (the neighbour&apos;s house close by)? Take it in pieces along the
-                  wall, overlapping a few feet: <Q>Can&apos;t fit the whole wall? Take it in pieces along the wall, overlapping a few feet.</Q>{" "}
-                  The line keeps saying which end, the top or the middle is still missing until the pieces cover it; Scrivn joins
-                  them. If you can only see it at a steep angle, the card offers <B>Can&apos;t get square to it – next side</B> and{" "}
-                  <B>Add by hand</B> for its windows and doors. A side yard, where every photo is well off square once the wall is
-                  covered, is done as it is: <Q>Too tight to shoot square – the pitch comes from your other gables</Q>.
+                  <strong>A covered deck or porch?</strong> Tap the wall&apos;s own corners behind it, where the siding meets the
+                  deck floor, and photograph it from back far enough that the main roof edge shows over the porch roof. Porch roofs
+                  aren&apos;t read off the photos yet: add them in Scrivn&apos;s roof plan.
                 </p>
                 <p className="sg-note">
                   <strong>Something a photo can&apos;t see?</strong> A window behind a bush, say: <B>Add by hand</B> →{" "}
-                  <B>Window</B>, <B>Door</B> or <B>Material</B>, tapped as below. What you tap wins over the photo. A material
-                  tapped by hand means that wall&apos;s siding is all tapped: the photo&apos;s siding isn&apos;t used there.{" "}
-                  <B>Cancel</B> on the card takes it back. If tracking drops, the card says so and asks for a corner again,
-                  then carries on where it was.
+                  <B>Window</B>, <B>Door</B> or <B>Material</B>, tapped as below. What you tap wins over the photos. If tracking
+                  drops, the card says so and asks for a corner again, then carries on where it was.
                 </p>
               </div>
               <figure className="sg-fig sg-phonefig">
                 <PhotoRouteScreen />
-                <figcaption>The photo route: the wall&apos;s two corners tapped, and the card with the next step.</figcaption>
+                <figcaption>The lap: a wall&apos;s two corners tapped, and the card with the next step.</figcaption>
               </figure>
             </div>
             <div className="sg-split">
