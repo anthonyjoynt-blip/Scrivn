@@ -759,7 +759,10 @@ export default async function ScanGuidePage() {
                 <p>
                   The first time, a card shows the route in three lines. Then a card over the chips says what to do next, in big
                   words, with the side you are on (<Q>Side 2 of the house</Q>). It follows what you have done: Undo takes it back a
-                  step, and a step already done is never shown. The material list never comes up: the photo gives the siding.
+                  step, and a step already done is never shown. The material list never comes up: the photo gives the siding.{" "}
+                  <strong>Nothing on it is required.</strong> Every step has its way on as a button on the card (<B>Skip this photo</B>,{" "}
+                  <B>Next side</B>, <B>Stop and finish</B>), and a photo asked for twice and not got is let go: the walk goes on and the
+                  line says what it goes without.
                 </p>
                 <ol className="sg-steps">
                   <li>
@@ -772,26 +775,33 @@ export default async function ScanGuidePage() {
                     photo&apos;s line says what the side&apos;s photos together still miss:{" "}
                     <Q>Photo 1 of Front kept · still missing: the right end</Q>, and the card asks for it:{" "}
                     <Q>Still missing: the right end</Q>. Once they cover the wall: <Q>Photo 2 of Front kept · the whole wall is in</Q>.
-                    A tap on the screen here takes nothing: <Q>Press Photo to take it</Q>.
+                    A tap on the screen here takes nothing: <Q>Press Photo to take it</Q>. Two more photos that don&apos;t get it, and
+                    the walk goes on: <Q>Going on – still missing on this side: the right end</Q>. Or <B>Skip this photo</B>.
                   </li>
                   <li>
-                    <Q>Does this wall go up to a peak?</Q> <B>Yes, a peak</B> or <B>No</B>. On a gable end, if no photo was square
-                    to it: <Q>This end has a peak: take one photo straight on</Q>, two or three steps to one side of the peak.
+                    <Q>Does the top of this wall come to a point?</Q> Look at the wall itself, not the roof behind it:{" "}
+                    <B>This side has no peak</B> or <B>It does</B>. The answer can be changed on the next card. On a gable end, if no
+                    photo was square to it: <Q>This end has a peak: take one photo straight on</Q>, two or three steps to one side
+                    of the peak, or <B>Skip this photo</B>, or <B>This side has no peak</B>.
                   </li>
                   <li>
                     Once for the house, on the first gable: <Q>Take one photo of a plain roof corner from about 45°</Q>. Step out
-                    past an end of the wall where the roof edge ends plainly, not over a porch or a lower roof. Next side skips it.
+                    past an end of the wall where the roof edge ends plainly, not over a porch or a lower roof. <B>Skip this photo</B>{" "}
+                    or <B>Next side</B> passes it.
                   </li>
                   <li>
                     <Q>Next side: walk round the corner</Q>. Press <B>Next side</B>, or just tap the new wall&apos;s bottom-left
                     corner: that starts the next side.
                   </li>
                   <li>
-                    When the walls meet all the way round: <Q>Back at the start? Press Stop</Q>.
+                    When the walls meet all the way round: <Q>Back at the start? Press Stop</Q>, with <B>Stop and finish</B> on the
+                    card. Stopping before they meet, it says so plainly, for example{" "}
+                    <Q>4 sides walked – walk the rest to build the roof, or Finish with the walls only</Q>: <B>Walk the rest</B> or{" "}
+                    <B>Finish with the walls only</B>. Both work.
                   </li>
                   <li>
-                    After <B>Stop</B>: <Q>Press Finish exterior</Q>. Then, on the Roof screen, the button to press is filled and the
-                    line over it says why: <B>Finish</B>, then <B>Walls</B>, then <B>Accept</B> (below). Then{" "}
+                    After <B>Stop</B>, always Finish: <Q>Press Finish exterior</Q>. Then, on the Roof screen, the button to press is
+                    filled and the line over it says why: <B>Finish</B>, then <B>Walls</B>, then <B>Accept</B> (below). Then{" "}
                     <Q>Done: Send takes it to Scrivn</Q>.
                   </li>
                 </ol>
@@ -805,7 +815,9 @@ export default async function ScanGuidePage() {
                   <strong>A side too tight for one photo</strong> (the neighbour&apos;s house close by)? Take it in pieces along the
                   wall, overlapping a few feet: <Q>Can&apos;t fit the whole wall? Take it in pieces along the wall, overlapping a few feet.</Q>{" "}
                   The line keeps saying which end, the top or the middle is still missing until the pieces cover it; Scrivn joins
-                  them. If you can only see it at a steep angle, the card offers <B>Add by hand</B> for its windows and doors.
+                  them. If you can only see it at a steep angle, the card offers <B>Can&apos;t get square to it – next side</B> and{" "}
+                  <B>Add by hand</B> for its windows and doors. A side yard, where every photo is well off square once the wall is
+                  covered, is done as it is: <Q>Too tight to shoot square – the pitch comes from your other gables</Q>.
                 </p>
                 <p className="sg-note">
                   <strong>Something a photo can&apos;t see?</strong> A window behind a bush, say: <B>Add by hand</B> →{" "}
