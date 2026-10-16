@@ -131,6 +131,7 @@ import { FreeCabinetPanel, SymbolPanel } from "./SymbolPanel";
 import { type Obstacle, conformedDragWall, obstaclesFor, placeNewRoom, pullRoomFromWall, viewCentredOn, wallDragMeetsWall } from "@/lib/roomPlacement";
 import { QuantitiesPanel } from "./QuantitiesPanel";
 import { ExteriorEditor } from "./ExteriorEditor";
+import { type ExteriorPhotoAccess, ExteriorPhotoContext } from "./exteriorPhotoAccess";
 import { type QuantityOptions, DEFAULT_QUANTITY_OPTIONS } from "@/lib/sketchQuantities";
 import { SQUARE_TOLERANCE_DEG, leaningCorners, squareUpRoom } from "@/lib/sketchSquare";
 import type { MoistureTool, ToolMode } from "./SketchCanvas";
@@ -255,6 +256,7 @@ export function SketchEditor({
   onClose,
   startReadOnly = false,
   notice,
+  photoAccess,
 }: {
   sketch: Sketch;
   /** Room names already used elsewhere in this claim — offered as autocomplete so a sketch room can be matched back to the scope later. */
@@ -296,6 +298,8 @@ export function SketchEditor({
    * drawing has to be where the drawing is.
    */
   notice?: ReactNode;
+  /** The claim's site photos, for measuring the outside of the house from photos (2026-10-16, ExteriorEditor.tsx). */
+  photoAccess?: ExteriorPhotoAccess;
 }) {
   const [tool, setTool] = useState<ToolMode>("select");
   /*
@@ -2479,6 +2483,7 @@ export function SketchEditor({
         is in force.
       */}
       {mode === "exterior" ? (
+        <ExteriorPhotoContext.Provider value={photoAccess ?? null}>
         <ExteriorEditor
           exterior={sketch.exterior}
           readOnly={readOnly}
@@ -2493,6 +2498,7 @@ export function SketchEditor({
             })
           }
         />
+        </ExteriorPhotoContext.Provider>
       ) : (
       <div className="sketch-body">
       <div className="sketch-stage">

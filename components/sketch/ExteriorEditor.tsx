@@ -22,6 +22,8 @@ import { newSketchId } from "@/lib/sketch";
 import type { SideTrace } from "@/lib/exteriorTrace";
 import { lf, sf } from "./exteriorFields";
 import { ExteriorStart, PlanPane } from "./ExteriorPlan";
+import { PhotoRoutePane, PhotoRouteStart } from "./PhotoRoute";
+import { setSidePhotoClaim, useExteriorPhotos } from "./exteriorPhotoAccess";
 import { SidePane } from "./ExteriorSide";
 import type { PhotoOpacity } from "./SidePhotos";
 
@@ -55,8 +57,11 @@ export function ExteriorEditor({
   /** Opens the house in 3D, where the header has no room for it (a phone). */
   onShow3d?: () => void;
 }) {
-  /** "plan", or the id of the side open face-on. */
-  const [view, setView] = useState<string>("plan");
+  /** "plan", "photos" (measuring from photos), or the id of the side open face-on. */
+  const [view, setView] = useState<string>(exterior?.photoRoute && exterior.sides.length === 0 ? "photos" : "plan");
+  const access = useExteriorPhotos();
+  // A side's photos from the photo route are the claim's own site photos: SidePhotos.tsx reads them under this claim.
+  useEffect(() => setSidePhotoClaim(access?.claimId ?? null), [access?.claimId]);
   /** Each side's AI trace until it is used or set aside, and how the photos are shown: kept here so a side visited again finds them. */
   const [traces, setTraces] = useState<Record<string, SideTrace>>({});
   const [photoOpacity, setPhotoOpacity] = useState<PhotoOpacity>("full");
@@ -75,6 +80,13 @@ export function ExteriorEditor({
   if (!exterior || !q) {
     return (
       <div className="exterior" ref={root}>
+        <PhotoRouteStart
+          readOnly={readOnly}
+          onStart={(next) => {
+            onChange(() => next);
+            setView("photos");
+          }}
+        />
         <ExteriorStart
           readOnly={readOnly}
           onStart={(next) => {
@@ -124,7 +136,12 @@ export function ExteriorEditor({
     <div className="exterior" ref={root}>
       <div className="exterior-strip">
         <div className="option-group exterior-strip-tabs" role="group" aria-label="The plan, and each side of the house in order round it">
-          <button type="button" className={`option-btn${current === null ? " selected" : ""}`} aria-pressed={current === null} onClick={() => setView("plan")}>
+          {exterior.photoRoute && (
+            <button type="button" className={`option-btn${view === "photos" ? " selected" : ""}`} aria-pressed={view === "photos"} onClick={() => setView("photos")}>
+              Photos
+            </button>
+          )}
+          <button type="button" className={`option-btn${current === null && view !== "photos" ? " selected" : ""}`} aria-pressed={current === null && view !== "photos"} onClick={() => setView("plan")}>
             Plan &amp; roof
           </button>
           {allSides(exterior).map((s) => (
@@ -142,7 +159,8 @@ export function ExteriorEditor({
 
       {exterior.source && (
         <p className="field-note exterior-source">
-          Measured with Scrivn Scan{exterior.source.edited ? ", and changed here since" : ""}. {exterior.source.notes.filter((n) => !isOldTapeNote(n)).join(" ")} {sizesLine(exterior)}
+          {exterior.source.kind === "photos" ? "Measured from photos" : "Measured with Scrivn Scan"}
+          {exterior.source.edited ? ", and changed here since" : ""}. {exterior.source.notes.filter((n) => !isOldTapeNote(n)).join(" ")} {sizesLine(exterior)}
         </p>
       )}
       {/* Two of the sizes' references more than 3% apart (2026-10-15): said wherever the house is, the detail on the plan. */}
@@ -152,7 +170,10 @@ export function ExteriorEditor({
         </p>
       )}
 
-      {current ? (
+      {view === "photos" && exterior.photoRoute ? (
+        // Taps and tapes are the route's own inputs, not a change to what was measured: the plain updater.
+        <PhotoRoutePane exterior={exterior} readOnly={readOnly} onChange={(f) => onChange((prev) => (prev ? f(prev) : prev))} />
+      ) : current ? (
         <SidePane
           key={current.id}
           exterior={exterior}

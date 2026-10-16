@@ -48,6 +48,7 @@ import {
 import { isLegacyRoof, proposeRoof, type RoofProposal } from "./roofCheck";
 import { PIECE_LENGTH_KEYS, pieceCount, pieceCounts, type PieceFigures, pieceFigures, pieceFromPhotos, ROOF_PIECE_LABEL, type RoofPiece } from "./roofPieces";
 import { type PhotoPiece, type ResolvedPhotoPiece, resolvePhotoPiece, type UpperShown } from "./roofPhotoShapes";
+import type { PhotoRouteState } from "./photoRoute";
 
 export type CladdingKind = "stucco" | "vinyl" | "wood_shake" | "eifs" | "wood" | "fibre_cement" | "brick" | "stone" | "metal" | "other";
 
@@ -131,8 +132,9 @@ export interface ExteriorSide {
    */
   lengthFrom?: "drawn";
   /**
-   * How far its length may be out, ± percent (2026-10-16, the photos-only route): a side worked out from
-   * the photos, not taped. The plan, its elevation and the report's "To check" mark it. Absent: taped or measured.
+   * How far its length may be out, ± percent (2026-10-16, the photos-only route, lib/photoRoute.ts): a side
+   * worked out from the photos, not taped. The plan, its elevation and the report's "To check" mark it.
+   * Absent: taped, typed, drawn or measured by the phone.
    */
   lengthPlusMinusPct?: number;
   /** The corner at this side's RIGHT end, facing it from outside: an outside corner, or an inside one (the inside of an L). */
@@ -252,8 +254,17 @@ export interface SidePhoto {
   n: number;
   /** The scan it was sent with; null when the exterior came in as a file, whose photos stay on the phone. */
   scanId: string | null;
-  /** The JPEG upright, as saved: pixels, x right, y down. */
-  camera: { width: number; height: number; fx: number; fy: number; cx: number; cy: number };
+  /**
+   * A site photo of the claim instead (2026-10-16, the photo route): its id among the claim's photos
+   * (lib/photos.ts), kept on the phone and in the claim-photos bucket like any other.
+   */
+  claimPhotoId?: string;
+  /**
+   * The JPEG upright, as saved: pixels, x right, y down. `k`: the lens's radial term, when the photo is
+   * as the camera took it rather than straightened (the photo route): a pixel `to_photo` gives is moved
+   * out from the middle by it - see lib/exteriorPhoto.ts.
+   */
+  camera: { width: number; height: number; fx: number; fy: number; cx: number; cy: number; k?: number };
   /** Row by row: (along_m, up_m, 1) of this side's elevation to the photo's pixel (x, y, w), x/w across and y/w down. */
   toPhoto: number[];
   /** How much of the side's bottom is in the picture, and whether its ends and top are; null when Scan could not say. */
@@ -629,12 +640,19 @@ export interface Exterior {
    */
   scale?: ExteriorScale;
   /**
+   * The photo route's own inputs (2026-10-16, lib/photoRoute.ts): which photos, the shape drawn, the
+   * corners tapped on them and the tapes, and what the last measure said - kept so the estimator can
+   * come back, add a tape or a photo, and measure again.
+   */
+  photoRoute?: PhotoRouteState;
+  /**
    * Where it came from when the phone measured it - see `lib/exteriorImport.ts`. `edited` is set by the
    * first change to a measurement in Scrivn; from then on it is the estimator's, and a later scan asks
    * before replacing it. Ticking what is in scope is not a change to what was measured.
    */
   source?: {
-    kind: "scan";
+    /** "scan": Scrivn Scan measured it; "photos": the photo route in Scrivn (2026-10-16, lib/photoRoute.ts). */
+    kind: "scan" | "photos";
     captureId: string | null;
     scanId: string | null;
     receivedAt: string | null;

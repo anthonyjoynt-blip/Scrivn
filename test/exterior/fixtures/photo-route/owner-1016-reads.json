@@ -1,0 +1,439 @@
+{
+ "format": "scrivn-photo-route-reads/1",
+ "about": "The AI trace's answers for five of the owner's walls, in the trace's wire format (lib/exteriorTrace.ts TraceWire), written by a Claude session reading each side's squared photo by eye on a pixel grid (2026-10-16). No API call was made. Each is in the pixels of the squared image it was read off: 'frame' is that image's, so the test lays the read on the side as squared now. Keys are the outline's corners, as the README numbers them (C1-C2 is the garage's west bay).",
+ "sides": {
+  "C1-C2": {
+   "photo": "p16",
+   "frame": {
+    "alongMinM": -2.5,
+    "alongMaxM": 6.66458492705024,
+    "upMinM": -0.6,
+    "upMaxM": 7.048,
+    "ppm": 174.58510262449872,
+    "width": 1600,
+    "height": 1335
+   },
+   "wire": {
+    "materials": [
+     {
+      "material": "stucco",
+      "polygon": [
+       [
+        437,
+        1238
+       ],
+       [
+        1162,
+        1238
+       ],
+       [
+        1162,
+        748
+       ],
+       [
+        437,
+        748
+       ]
+      ],
+      "partly_hidden_by": "pilasters at both ends"
+     }
+    ],
+    "openings": [
+     {
+      "kind": "garage_door",
+      "left": 572,
+      "right": 1030,
+      "top": 828,
+      "bottom": 1240,
+      "measured_to": "door_itself",
+      "leaf": [],
+      "partly_hidden_by": ""
+     }
+    ],
+    "wall_top": [
+     [
+      437,
+      748
+     ],
+     [
+      1162,
+      748
+     ]
+    ],
+    "off_wall": [
+     {
+      "what": "pilaster",
+      "box": [
+       430,
+       750,
+       500,
+       1225
+      ]
+     },
+     {
+      "what": "pilaster",
+      "box": [
+       1155,
+       728,
+       1262,
+       1240
+      ]
+     }
+    ],
+    "notes": "Stucco to the soffit; the garage door read to the door itself, inside its trim."
+   }
+  },
+  "C3-C4": {
+   "photo": "p15",
+   "frame": {
+    "alongMinM": -2.5,
+    "alongMaxM": 6.518274937372367,
+    "upMinM": -0.6,
+    "upMaxM": 7.048,
+    "ppm": 177.4175228756319,
+    "width": 1600,
+    "height": 1357
+   },
+   "wire": {
+    "materials": [
+     {
+      "material": "stucco",
+      "polygon": [
+       [
+        443,
+        1250
+       ],
+       [
+        1156,
+        1250
+       ],
+       [
+        1156,
+        750
+       ],
+       [
+        1065,
+        720
+       ],
+       [
+        793,
+        578
+       ],
+       [
+        520,
+        720
+       ],
+       [
+        443,
+        750
+       ]
+      ],
+      "partly_hidden_by": "pilasters at both ends"
+     }
+    ],
+    "openings": [
+     {
+      "kind": "garage_door",
+      "left": 540,
+      "right": 1022,
+      "top": 848,
+      "bottom": 1258,
+      "measured_to": "door_itself",
+      "leaf": [],
+      "partly_hidden_by": ""
+     }
+    ],
+    "wall_top": [
+     [
+      443,
+      750
+     ],
+     [
+      520,
+      720
+     ],
+     [
+      793,
+      578
+     ],
+     [
+      1065,
+      720
+     ],
+     [
+      1156,
+      750
+     ]
+    ],
+    "off_wall": [
+     {
+      "what": "pilaster",
+      "box": [
+       400,
+       760,
+       468,
+       1240
+      ]
+     },
+     {
+      "what": "pilaster",
+      "box": [
+       1095,
+       760,
+       1165,
+       1245
+      ]
+     }
+    ],
+    "notes": "A front gable over the east bay; the garage door read to the door itself."
+   }
+  },
+  "C5-C6": {
+   "photo": "p9",
+   "frame": {
+    "alongMinM": -2.5,
+    "alongMaxM": 9.25666992413305,
+    "upMinM": -0.6,
+    "upMaxM": 7.048,
+    "ppm": 136.0929591733848,
+    "width": 1600,
+    "height": 1041
+   },
+   "wire": {
+    "materials": [
+     {
+      "material": "stucco",
+      "polygon": [
+       [
+        340,
+        940
+       ],
+       [
+        1290,
+        940
+       ],
+       [
+        1290,
+        345
+       ],
+       [
+        848,
+        110
+       ],
+       [
+        400,
+        318
+       ],
+       [
+        340,
+        318
+       ]
+      ],
+      "partly_hidden_by": "shrubs at the bottom"
+     }
+    ],
+    "openings": [
+     {
+      "kind": "window",
+      "left": 403,
+      "right": 662,
+      "top": 340,
+      "bottom": 570,
+      "measured_to": "outer_trim",
+      "leaf": [],
+      "partly_hidden_by": ""
+     },
+     {
+      "kind": "window",
+      "left": 835,
+      "right": 1127,
+      "top": 340,
+      "bottom": 525,
+      "measured_to": "outer_trim",
+      "leaf": [],
+      "partly_hidden_by": ""
+     },
+     {
+      "kind": "window",
+      "left": 570,
+      "right": 865,
+      "top": 760,
+      "bottom": 932,
+      "measured_to": "outer_trim",
+      "leaf": [],
+      "partly_hidden_by": ""
+     }
+    ],
+    "wall_top": [
+     [
+      340,
+      318
+     ],
+     [
+      400,
+      318
+     ],
+     [
+      848,
+      110
+     ],
+     [
+      1290,
+      345
+     ]
+    ],
+    "off_wall": [
+     {
+      "what": "downspout",
+      "box": [
+       1262,
+       335,
+       1282,
+       870
+      ]
+     },
+     {
+      "what": "garden hose on a reel",
+      "box": [
+       1230,
+       680,
+       1370,
+       830
+      ]
+     }
+    ],
+    "notes": "The bump-out gable end; the eave runs level to the left corner (the photo puts the corner a little left of the wall edge seen). A basement window low in the stucco. Windows read to their outer trim."
+   }
+  },
+  "C10-C11": {
+   "photo": "p6",
+   "frame": {
+    "alongMinM": -2.5,
+    "alongMaxM": 10.80939977664434,
+    "upMinM": -0.6,
+    "upMaxM": 7.048,
+    "ppm": 120.21578935570926,
+    "width": 1600,
+    "height": 919
+   },
+   "wire": {
+    "materials": [
+     {
+      "material": "stucco",
+      "polygon": [
+       [
+        300,
+        762
+       ],
+       [
+        1290,
+        762
+       ],
+       [
+        1290,
+        228
+       ],
+       [
+        690,
+        40
+       ],
+       [
+        300,
+        180
+       ]
+      ],
+      "partly_hidden_by": "an air conditioner and meters at the bottom"
+     },
+     {
+      "material": "parging",
+      "polygon": [
+       [
+        300,
+        860
+       ],
+       [
+        1290,
+        860
+       ],
+       [
+        1290,
+        762
+       ],
+       [
+        300,
+        762
+       ]
+      ],
+      "partly_hidden_by": "bikes"
+     }
+    ],
+    "openings": [
+     {
+      "kind": "window",
+      "left": 388,
+      "right": 468,
+      "top": 396,
+      "bottom": 590,
+      "measured_to": "outer_trim",
+      "leaf": [],
+      "partly_hidden_by": ""
+     },
+     {
+      "kind": "window",
+      "left": 418,
+      "right": 617,
+      "top": 778,
+      "bottom": 855,
+      "measured_to": "frame",
+      "leaf": [],
+      "partly_hidden_by": ""
+     }
+    ],
+    "wall_top": [
+     [
+      300,
+      180
+     ],
+     [
+      690,
+      40
+     ],
+     [
+      1290,
+      228
+     ]
+    ],
+    "off_wall": [
+     {
+      "what": "air conditioner",
+      "box": [
+       787,
+       653,
+       1022,
+       780
+      ]
+     },
+     {
+      "what": "meters and pipes",
+      "box": [
+       1150,
+       625,
+       1310,
+       860
+      ]
+     },
+     {
+      "what": "deck privacy screen",
+      "box": [
+       0,
+       445,
+       300,
+       690
+      ]
+     }
+    ],
+    "notes": "The west gable; parging above the grade, stucco above it to the soffit."
+   }
+  }
+ }
+}

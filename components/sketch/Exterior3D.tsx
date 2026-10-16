@@ -225,7 +225,7 @@ export default function Exterior3D({ exterior, onClose }: Props) {
   showPhotosRef.current = showPhotos;
   // The sides whose photos could not be laid on, and why, while Photos is on.
   const [photoTrouble, setPhotoTrouble] = useState<string | null>(null);
-  const hasPhotos = !!model?.walls.some((w) => w.photos.some((p) => p.scanId));
+  const hasPhotos = !!model?.walls.some((w) => w.photos.some((p) => p.scanId || p.claimPhotoId));
   const api = useRef<{ frame: () => void; lines: (on: boolean) => void; photos: (on: boolean) => void } | null>(null);
 
   useEffect(() => {
@@ -292,7 +292,7 @@ export default function Exterior3D({ exterior, onClose }: Props) {
         textures.push(texture);
         scene.add(new THREE.Mesh(geometry, standard(0xffffff, { map: texture })));
         openingParts(wall, cut, parts);
-        if (wall.photos.some((p) => p.scanId)) photographed.push({ wall, paint, texture });
+        if (wall.photos.some((p) => p.scanId || p.claimPhotoId)) photographed.push({ wall, paint, texture });
       }
       mesh(parts.reveal, standard(COLORS.reveal));
       mesh(parts.glass, standard(COLORS.glass, { roughness: 0.18, metalness: 0.35 }));

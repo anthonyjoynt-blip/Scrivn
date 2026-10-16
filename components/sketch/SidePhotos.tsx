@@ -13,6 +13,7 @@ import { ElevationDrawing, type ElevationReach, type ElevationView } from "./ext
 import { setTraceAside, useSideTrace, waitForSignalToTrace } from "@/lib/aiJobs";
 import { traceRequestFor } from "@/lib/exteriorFinish";
 import { isNetworkFailure, netFetch } from "@/lib/connectivity";
+import { claimSidePhotoUrl } from "./exteriorPhotoAccess";
 
 /** A browser's words for a fetch that got no answer — what squaring a photo says with no signal. */
 function isNetworkFailureMessage(message: string): boolean {
@@ -92,8 +93,8 @@ async function squareSide(photos: SidePhoto[], frame: SquareFrame): Promise<Squa
 async function squaredPixels(photos: SidePhoto[], frame: SquareFrame): Promise<{ rgba: Uint8ClampedArray; used: SidePhoto[] }> {
   const sources: { photo: SidePhoto; pixels: PhotoPixels }[] = [];
   for (const photo of photos) {
-    if (!photo.scanId) continue;
-    const url = (await photoLinks(photo.scanId))[photo.n];
+    // A claim's own site photo (the photo route, 2026-10-16), or one sent with a scan.
+    const url = photo.claimPhotoId ? await claimSidePhotoUrl(photo) : photo.scanId ? (await photoLinks(photo.scanId))[photo.n] : undefined;
     if (!url) continue;
     const pixels = await pixelsOf(url);
     // A picture turned on the way would be read in the wrong place: its shape must be its camera's.
@@ -102,7 +103,13 @@ async function squaredPixels(photos: SidePhoto[], frame: SquareFrame): Promise<{
     }
     sources.push({ photo, pixels });
   }
-  if (sources.length === 0) throw new Error("The photo has not reached Scrivn yet: the phone sends it after the scan. Try again in a minute.");
+  if (sources.length === 0) {
+    throw new Error(
+      photos.some((p) => p.claimPhotoId)
+        ? "The photo is not on this phone and has not reached Scrivn yet: it is sent from the phone that took it. Try again in a minute."
+        : "The photo has not reached Scrivn yet: the phone sends it after the scan. Try again in a minute.",
+    );
+  }
   return { rgba: squareUp(sources, frame), used: sources.map((s) => s.photo) };
 }
 
@@ -116,11 +123,11 @@ const wallPhotoCache = new Map<string, Promise<{ frame: SquareFrame; canvas: HTM
  * file import's, whose photos stayed on the phone, or none that shows the side).
  */
 export function squaredWallPhoto(side: ExteriorSide): Promise<{ frame: SquareFrame; canvas: HTMLCanvasElement }> | null {
-  const photos = (side.photos ?? []).filter((p) => p.scanId);
+  const photos = (side.photos ?? []).filter((p) => p.scanId || p.claimPhotoId);
   if (photos.length === 0) return null;
   const frame = squareFrame(side, photos);
   if (!frame) return null;
-  const key = JSON.stringify({ p: photos.map((p) => [p.scanId, p.n, p.toPhoto]), f: frame });
+  const key = JSON.stringify({ p: photos.map((p) => [p.scanId ?? p.claimPhotoId, p.n, p.toPhoto]), f: frame });
   let job = wallPhotoCache.get(key);
   if (!job) {
     job = squaredPixels(photos, frame).then(({ rgba }) => {
@@ -143,7 +150,7 @@ type PhotoState = { state: "none" } | { state: "file" } | { state: "loading" } |
 function useSquaredPhoto(side: ExteriorSide): PhotoState {
   const photos = side.photos ?? [];
   const frame = useMemo(() => (photos.length > 0 ? squareFrame(side, photos) : null), [side, photos]);
-  const key = frame ? JSON.stringify({ p: photos.map((p) => [p.scanId, p.n, p.toPhoto]), f: frame }) : null;
+  const key = frame ? JSON.stringify({ p: photos.map((p) => [p.scanId ?? p.claimPhotoId, p.n, p.toPhoto]), f: frame }) : null;
   const [state, setState] = useState<PhotoState>({ state: "loading" });
   useEffect(() => {
     if (!key || !frame) return;
@@ -166,7 +173,7 @@ function useSquaredPhoto(side: ExteriorSide): PhotoState {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
   if (photos.length === 0) return { state: "none" };
-  if (photos.every((p) => !p.scanId)) return { state: "file" };
+  if (photos.every((p) => !p.scanId && !p.claimPhotoId)) return { state: "file" };
   if (!frame) return { state: "error", message: "The photo does not show this side." };
   return state;
 }
