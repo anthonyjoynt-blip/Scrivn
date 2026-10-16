@@ -90,6 +90,13 @@ export interface SolveInput {
    * gave -0.07, the bearings -0.02, as the proof's own fit).
    */
   lens?: { k0: number; sd: number };
+  /**
+   * A photo held in the hand stands about 5 ft over the ground (2026-10-16): for a corner tapped where it
+   * meets the ground, `drop` (how far below the level camera's horizon, over the focal) times the
+   * corner's depth ahead of the camera is the camera's height. Held loosely (sd `sdFeet`, robust), it
+   * says roughly how far off each camera stood, which the bearings alone never say.
+   */
+  heights?: { camera: string; point: string; drop: number; forward: number; feet: number; sdFeet: number }[];
 }
 
 export interface Solution {
@@ -177,7 +184,8 @@ export function solvePlan(input: SolveInput, opts: { maxIterations?: number } = 
   const bearings = input.bearings.filter((b) => camById.has(b.camera) && pointById.has(b.point));
   const residual = (x: Float64Array): Float64Array => {
     void 0;
-    const out = new Float64Array(bearings.length + input.cameras.length + input.distances.length + (input.lens ? 1 : 0));
+    const hs = input.heights ?? [];
+    const out = new Float64Array(bearings.length + input.cameras.length + input.distances.length + (input.lens ? 1 : 0) + hs.length);
     let i = 0;
     for (const b of bearings) {
       const cam = camById.get(b.camera) as SolveCamera;
@@ -194,7 +202,17 @@ export function solvePlan(input: SolveInput, opts: { maxIterations?: number } = 
       const v = wall(id.slice(5), x);
       return axis === "N" ? [0, v] : [v, 0];
     };
-    if (input.lens) out[out.length - 1] = (lensK(x) - input.lens.k0) / input.lens.sd;
+    if (input.lens) out[bearings.length + input.cameras.length + input.distances.length] = (lensK(x) - input.lens.k0) / input.lens.sd;
+    const hAt = bearings.length + input.cameras.length + input.distances.length + (input.lens ? 1 : 0);
+    hs.forEach((hh, j) => {
+      const cam = camById.get(hh.camera);
+      if (!cam) return;
+      const { at, yaw } = camera(hh.camera, x);
+      const P = point(hh.point, x);
+      const z = planDirection(hh.forward, cam.quadrant, yaw);
+      const depth = (P[0] - at[0]) * z[0] + (P[1] - at[1]) * z[1];
+      out[hAt + j] = (hh.drop * depth - hh.feet) / hh.sdFeet;
+    });
     for (const dd of input.distances) {
       const A = end(dd.a, dd.axis, x);
       const B = end(dd.b, dd.axis, x);

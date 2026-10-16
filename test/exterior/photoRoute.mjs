@@ -32,7 +32,7 @@ const FIXTURE = join(here, "fixtures", "photo-route", "owner-1016.json");
 async function load() {
   const outDir = mkdtempSync(join(tmpdir(), "photo-route-"));
   const entry = join(outDir, "entry.ts");
-  writeFileSync(entry, ["photoRoute.ts", "photoRouteLens.ts", "photoRouteLines.ts", "photoRouteEdges.ts", "photoRouteSolve.ts", "photoRouteData.ts", "photoRouteExterior.ts", "exteriorPhoto.ts", "exterior.ts"].map((f) => `export * from "${lib(f)}";`).join("\n"));
+  writeFileSync(entry, ["photoRoute.ts", "photoRouteLens.ts", "photoRouteLines.ts", "photoRouteEdges.ts", "photoRouteSolve.ts", "photoRouteData.ts", "photoRouteExterior.ts", "exteriorPhoto.ts", "exterior.ts", "exteriorTrace.ts"].map((f) => `export * from "${lib(f)}";`).join("\n"));
   await build({ entryPoints: [entry], bundle: true, format: "esm", platform: "node", outfile: join(outDir, "entry.mjs"), alias: { "@": root }, logLevel: "silent" });
   const mod = await import(pathToFileURL(join(outDir, "entry.mjs")).href);
   rmSync(outDir, { recursive: true, force: true });
@@ -148,6 +148,21 @@ console.log(`    corners alone, no wall edges, all tapes: ${corners.sides.map((s
 console.log(`\n  Advice after the solve:`);
 for (const a of all.advice) console.log(`    ${README[a.from][0]}: ${a.why}`);
 
+// How much the answer moves (SENSITIVITY=1): the shape drawn another way, and every tap 6 px off where it was.
+if (process.env.SENSITIVITY) {
+  const variant = (name, f) => {
+    const inp = f(structuredClone(input));
+    const s = x.measureRoute(inp, "main", pixels, { lines, solve: { withoutTapes: ["porch", "bump-out"] } }).solution;
+    const p = s.sides[10].lengthFeet * 12;
+    const bo = s.sides[4].lengthFeet;
+    console.log(`  sensitivity, ${name}: porch ${p.toFixed(1)}" (${((p / 263 - 1) * 100).toFixed(1)}%), bump-out ${ftin(bo)} (${((bo / 22.1667 - 1) * 100).toFixed(1)}%), ${s.cameras.length} photos placed`);
+  };
+  variant("the shape drawn 15% bigger", (inp) => ((inp.buildings[0].outline = inp.buildings[0].outline.map((p) => ({ x: p.x * 1.15, y: p.y * 1.15 }))), inp));
+  variant("the shape drawn 10% deeper, 10% narrower", (inp) => ((inp.buildings[0].outline = inp.buildings[0].outline.map((p) => ({ x: p.x * 0.9, y: p.y * 1.1 }))), inp));
+  variant("every tap 6 px right", (inp) => ((inp.buildings[0].corners = inp.buildings[0].corners.map((c) => ({ ...c, x: c.x + 6 }))), inp));
+  variant("every tap 6 px left", (inp) => ((inp.buildings[0].corners = inp.buildings[0].corners.map((c) => ({ ...c, x: c.x - 6 }))), inp));
+}
+
 const b = fx.buildings[0];
 const inputs = { outline: b.outline.length, corners: b.corners.length, lineTapes: b.tapes.filter((t) => t.kind === "line").length, sideTapes: b.tapes.filter((t) => t.kind === "side").length };
 console.log(`\n  The user's inputs: ${fx.photos.length} photos added; the shape drawn with ${inputs.outline} taps; ${inputs.corners} corner taps on ${new Set(b.corners.map((c) => c.photo)).size} photos; ${inputs.lineTapes} tapes as a line on a photo (a drag and a pick each); ${inputs.sideTapes} typed (a pick and a number each)`);
@@ -195,6 +210,40 @@ ext?.sides.forEach((side, k) => {
 });
 errs.sort((a, b) => a - b);
 console.log(`  side photos against the corners tapped: ${errs.length} corners, across error median ${errs[Math.floor(errs.length / 2)]?.toFixed(1)} px, worst ${errs[errs.length - 1]?.toFixed(1)} px`);
+// Walls per side: each side's photo squared from its solved camera, and read as the AI trace reads it - here from
+// the reads a Claude session wrote by looking at the squared photos (fixtures/photo-route/owner-1016-reads.json), no API.
+const READS = JSON.parse(readFileSync(join(here, "fixtures", "photo-route", "owner-1016-reads.json"), "utf8"));
+const sideIds = ext?.photoRoute?.measured?.sideIds ?? [];
+const readOut = {};
+for (const [key, r] of Object.entries(READS.sides)) {
+  const from = Number(key.split("-")[0].slice(1)) - 1;
+  const side = ext?.sides.find((s) => s.id === sideIds[from]);
+  if (!side?.photos?.length) {
+    readOut[key] = null;
+    continue;
+  }
+  const frame = x.squareFrame(side, side.photos, 1600);
+  // The read is in the pixels of the image it was read off; laid on the side as squared now.
+  const re = (p) => [x.frameX(frame, x.frameAlongM(r.frame, p[0])), x.frameY(frame, x.frameUpM(r.frame, p[1]))];
+  const box = (o) => { const [l, t] = re([o.left, o.top]); const [rr, b] = re([o.right, o.bottom]); return { ...o, left: l, top: t, right: rr, bottom: b }; };
+  const wire = {
+    ...r.wire,
+    materials: r.wire.materials.map((m) => ({ ...m, polygon: m.polygon.map(re) })),
+    openings: r.wire.openings.map(box),
+    wall_top: r.wire.wall_top.map(re),
+    off_wall: r.wire.off_wall.map((o) => { const [a, b] = re([o.box[0], o.box[1]]); const [c, d] = re([o.box[2], o.box[3]]); return { ...o, box: [a, b, c, d] }; }),
+  };
+  const p = x.traceProposals(wire, frame, side.lengthFeet);
+  const picks = { shapes: p.shapes.map((s) => ({ key: s.key, kind: s.kind })), openings: p.openings.map((o) => ({ key: o.key, kind: o.kind })), wallTop: true };
+  const next = x.applyTrace(side, p, picks, "2026-10-16T13:00:00.000Z");
+  readOut[key] = next;
+  const ops = next.openings.map((o) => `${o.kind} ${ftin(o.widthFeet)} x ${ftin(o.heightFeet)}`).join(", ");
+  console.log(`  read ${key} (${side.name}): ${next.shapes?.map((s) => s.kind).join("+")}; eave ${ftin(next.eaveLeftFeet)} / ${ftin(next.eaveRightFeet)}${next.gable ? `, peak ${ftin(next.gable.peakFeet)}` : ""}; ${ops}`);
+}
+const doorsRead = ["C1-C2", "C3-C4"].map((k) => readOut[k]?.openings.find((o) => o.kind === "garage")?.widthFeet).filter((v) => v);
+console.log(`  garage doors read off their squared photos: ${doorsRead.map(ftin).join(", ")} (taped 9'0")`);
+check("the walls read off the squared photos land on their sides (shapes, openings, wall top)", Object.values(readOut).filter((s) => s && s.shapes?.length && s.openings.length).length >= 3);
+check("each garage door read off its squared photo is within 6% of its 9' tape", doorsRead.length === 2 && doorsRead.every((w) => Math.abs(w / 9 - 1) < 0.06), doorsRead.map(ftin).join(", "));
 check("the measure lands as the claim's exterior, from photos", !!ext && ext.sides.length === 12 && ext.source?.kind === "photos" && ext.sides.filter((s) => s.lengthPlusMinusPct !== undefined).length === 10);
 check("each side photo puts the side's ends where its corners were tapped (median within 12 px)", errs.length >= 6 && (errs[Math.floor(errs.length / 2)] ?? 99) < 12);
 check("every photo with two or more corners is placed", all.unplaced.every((u) => !/fit the shape/.test(u.why)));

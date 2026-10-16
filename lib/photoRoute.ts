@@ -366,6 +366,11 @@ function cornerInView(cam: PhotoCamera, p: { quadrant: number; at: [number, numb
 
 // ── The solve ────────────────────────────────────────────────────────────────────────────────────
 
+/** Where a photo held in the hand is taken from, feet over the ground at the corner it shows: what places a photo with one corner along that corner's ray. */
+const HAND_HEIGHT_FEET: [number, number] = [3, 7.5];
+/** And about this high: the hand-height prior every camera is held to, loosely (lib/photoRouteSolve.ts `heights`). */
+const HAND_FEET = 5;
+const HAND_SD_FEET = 2.5;
 /** A wall edge's bearing sd: the proof's 2 px. */
 const PX_SD = 2;
 /**
@@ -527,7 +532,17 @@ export function solveRoute(input: PhotoRouteInput, buildingId: string, data: Rou
     }
     // Without a tape nothing sizes the house: its perimeter is held, loosely, to the one drawn.
     const hasScale = distances.length > 0;
-    return { input: { walls: wallsNow, points, cameras, bearings, distances, lens: lensPrior }, hasScale };
+    // Each camera's hand height, from the corner tapped lowest in it: the one most likely tapped at the ground (one shown over a deck is tapped higher).
+    const heights: { camera: string; point: string; drop: number; forward: number; feet: number; sdFeet: number }[] = [];
+    for (const [id] of placedCams) {
+      const cam = (byId.get(id) as RoutePhotoData).camera as PhotoCamera;
+      const mine = taps.filter((t) => t.photo === id && t.v > cam.height / 2 + 0.02 * cam.f).sort((a, b) => a.v - b.v);
+      const t = mine[mine.length - 1];
+      if (!t) continue;
+      const { zl } = levelAxes(cam);
+      heights.push({ camera: id, point: `c${t.corner}`, drop: (t.v - cam.height / 2) / cam.f, forward: Math.atan2(zl[0], zl[2]), feet: HAND_FEET, sdFeet: HAND_SD_FEET });
+    }
+    return { input: { walls: wallsNow, points, cameras, bearings, distances, lens: lensPrior, heights }, hasScale };
   };
 
   /**
@@ -973,11 +988,21 @@ function placeByOneCorner(tap: SnappedTap, d: RoutePhotoData, ring: Pt[], points
   const n = ring.length;
   let best: { quadrant: number; at: [number, number]; score: number } | null = null;
   let second = 0;
+  // How far below the level camera's horizon the corner's foot was tapped: at distance t along the ray
+  // the camera then stood (v - cy) / f * depth over the ground there.
+  const { zl } = levelAxes(cam);
+  const drop = (tap.v - cam.height / 2) / cam.f;
   for (let q = 0; q < 4; q++) {
     const dir = planDirection(tap.bearing, q, 0);
+    const zg = planDirection(Math.atan2(zl[0], zl[2]), q, 0);
+    const ahead = dir[0] * zg[0] + dir[1] * zg[1];
     for (let t = 6; t <= 120; t += 0.25) {
       const C = { x: P.x - dir[0] * t, y: P.y - dir[1] * t };
       if (insideRing(C, ring)) continue;
+      // A photo held in the hand is taken 3 to 7.5 ft over the ground at the corner it shows (a step or a slope
+      // either way): a place along the ray that puts the camera higher or lower is not where it stood.
+      const h = drop * t * ahead;
+      if (drop > 0.005 && (h < HAND_HEIGHT_FEET[0] || h > HAND_HEIGHT_FEET[1])) continue;
       // The corner itself must be the first thing the ray meets (no wall in the way).
       const back = castRay(C, dir, ring);
       if (back && back.t < t - 0.5) continue;
@@ -992,6 +1017,8 @@ function placeByOneCorner(tap: SnappedTap, d: RoutePhotoData, ring: Pt[], points
         if ((C.x - A.x) * nrm.x + (C.y - A.y) * nrm.y <= 0) continue;
         if (points.some((p) => p.side === hit.side && Math.abs(p.along - hit.along) < 0.15 && p.obs[0]?.polarity === e.polarity)) score++;
       }
+      // A camera held higher or lower than the hand usually holds one scores the worse for it.
+      if (drop > 0.005) score -= 1.5 * Math.max(0, Math.abs(drop * t * ahead - HAND_FEET) - 0.75);
       if (!best || score > best.score) {
         if (best && Math.hypot(best.at[0] - C.x, best.at[1] - C.y) > 3) second = Math.max(second, best.score);
         best = { quadrant: q, at: [C.x, C.y], score };

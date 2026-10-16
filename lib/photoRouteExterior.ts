@@ -182,7 +182,7 @@ export function exteriorFromRoute(prev: Exterior | undefined, state: PhotoRouteS
     const { lengthFrom: _drawn, lengthPlusMinusPct: _pm, ...rest } = base;
     const side: ExteriorSide = { ...rest, id, name: old?.name ?? s.name, lengthFeet: s.lengthFeet, turn: s.turn, heightsFrom: "level" };
     if (measured && measured.plusMinusPct !== null) side.lengthPlusMinusPct = measured.plusMinusPct;
-    const photos = bestPhotos(m, state, A, B);
+    const photos = bestPhotos(m, state, ring, i);
     if (photos.length) side.photos = photos;
     else delete side.photos;
     return side;
@@ -218,8 +218,30 @@ function stretched(side: ExteriorSide, lengthFeet: number): ExteriorSide {
   return out;
 }
 
-/** Up to two photos for a side: those that face it best and show the most of its bottom. */
-function bestPhotos(m: RouteMeasured, state: PhotoRouteState, A: Pt, B: Pt): SidePhoto[] {
+/** Whether the house hides the point P of side [side] from C: something of the outline crosses the line between them first. */
+function hidden(ring: Pt[], side: number, C: Pt, P: Pt): boolean {
+  const n = ring.length;
+  for (let j = 0; j < n; j++) {
+    if (j === side) continue;
+    const a = ring[j] as Pt;
+    const b = ring[(j + 1) % n] as Pt;
+    const d1x = P.x - C.x;
+    const d1y = P.y - C.y;
+    const d2x = b.x - a.x;
+    const d2y = b.y - a.y;
+    const den = d1x * d2y - d1y * d2x;
+    if (Math.abs(den) < 1e-12) continue;
+    const t = ((a.x - C.x) * d2y - (a.y - C.y) * d2x) / den;
+    const s = ((a.x - C.x) * d1y - (a.y - C.y) * d1x) / den;
+    if (t > 1e-6 && t < 1 - 1e-6 && s > 1e-6 && s < 1 - 1e-6) return true;
+  }
+  return false;
+}
+
+/** Up to two photos for a side: those that face it best and show the most of its bottom, with the house not in the way. */
+function bestPhotos(m: RouteMeasured, state: PhotoRouteState, ring: Pt[], i: number): SidePhoto[] {
+  const A = ring[i] as Pt;
+  const B = ring[(i + 1) % ring.length] as Pt;
   const L = Math.hypot(B.x - A.x, B.y - A.y);
   const nrm = { x: (B.y - A.y) / L, y: -(B.x - A.x) / L };
   const mid = { x: (A.x + B.x) / 2, y: (A.y + B.y) / 2 };
@@ -230,6 +252,10 @@ function bestPhotos(m: RouteMeasured, state: PhotoRouteState, A: Pt, B: Pt): Sid
     const v = { x: rc.at[0] - mid.x, y: rc.at[1] - mid.y };
     const facing = (v.x * nrm.x + v.y * nrm.y) / (Math.hypot(v.x, v.y) || 1);
     if (facing < Math.sin((15 * Math.PI) / 180)) continue;
+    // The side's middle, and a point a fifth in from each end: at least the middle and one more in clear view.
+    const C = { x: rc.at[0], y: rc.at[1] };
+    const at = (t: number) => ({ x: A.x + (B.x - A.x) * t, y: A.y + (B.y - A.y) * t });
+    if (hidden(ring, i, C, at(0.5)) || (hidden(ring, i, C, at(0.2)) && hidden(ring, i, C, at(0.8)))) continue;
     const index = state.photos.findIndex((p) => p.id === rc.photo);
     const sp = sidePhotoFor(lens, rc, A, B, 900 + Math.max(0, index), rc.photo);
     if (!sp?.inView) continue;
@@ -237,7 +263,13 @@ function bestPhotos(m: RouteMeasured, state: PhotoRouteState, A: Pt, B: Pt): Sid
     scored.push({ photo: sp, score: facing * (0.3 + coverage) });
   }
   scored.sort((a, b) => b.score - a.score);
-  return scored.slice(0, 2).map((s) => s.photo);
+  const first = scored[0];
+  if (!first) return [];
+  // One photo, unless it misses an end of the wall that another shows: two blended disagree by an inch or two
+  // at the seam (each camera's height is its own), and a seam across a window reads worse than a missing corner.
+  const v = first.photo.inView;
+  const second = scored.slice(1).find((s) => (!v?.leftEnd && s.photo.inView?.leftEnd) || (!v?.rightEnd && s.photo.inView?.rightEnd));
+  return second ? [first.photo, second.photo] : [first.photo];
 }
 
 /** One line for the screen: "Measured from 12 of 18 photos and 4 tapes; the house is 70'3" by 51'2"." */
