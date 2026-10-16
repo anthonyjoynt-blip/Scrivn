@@ -895,17 +895,22 @@ export function withPhotoPieceMadeOwn(exterior: Exterior, sideId: string, pieceI
 
 export type AdditionKind = "porch" | "leanto" | "gable";
 
+/** A cross gable put on a side with a door covers the door and this much either side of it. */
+export const DOOR_GABLE_MARGIN_FEET = 2;
+
 /**
  * A porch roof (the slope carried on), a lean-to (a lower roof against the wall) or a cross gable
- * put on a side with one tap: a porch along the whole side, 6' out; a cross gable 10' wide in the
- * middle. Its numbers are typed after, in the list under the plan.
+ * put on a side with one tap: a porch along the whole side, 6' out; a cross gable over the side's
+ * [door] (2026-10-16), or 10' wide in the middle. Its numbers are typed after, in the list under the plan.
  */
-export function withAddition(roof: ExteriorRoof, kind: AdditionKind, sideId: string, sideFeet: number): ExteriorRoof {
+export function withAddition(roof: ExteriorRoof, kind: AdditionKind, sideId: string, sideFeet: number, door?: { fromLeftFeet: number; widthFeet: number }): ExteriorRoof {
   const id = newSketchId("roof");
   const L = Math.max(0, sideFeet);
+  // A cross gable over the side's door when there is one (2026-10-16): the door and 2' either side, where a porch's posts stand; else 10' in the middle.
+  const [from, to] = door ? [door.fromLeftFeet - DOOR_GABLE_MARGIN_FEET, door.fromLeftFeet + door.widthFeet + DOOR_GABLE_MARGIN_FEET] : [L / 2 - 5, L / 2 + 5];
   const a: RoofAddition =
     kind === "gable"
-      ? { id, kind: "gable", sideId, fromFeet: Math.max(0, L / 2 - 5), toFeet: Math.min(L, L / 2 + 5) }
+      ? { id, kind: "gable", sideId, fromFeet: Math.max(0, from), toFeet: Math.min(L, to) }
       : { id, kind: "porch", sideId, fromFeet: 0, toFeet: L, depthFeet: 6, lower: kind === "leanto" };
   return { ...roof, additions: [...(roof.additions ?? []), a] };
 }
