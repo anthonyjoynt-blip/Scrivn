@@ -130,6 +130,11 @@ export interface ExteriorSide {
    * shown as about that long until its own length is typed. Absent: typed, or measured by the phone.
    */
   lengthFrom?: "drawn";
+  /**
+   * How far its length may be out, ± percent (2026-10-16, the photos-only route): a side worked out from
+   * the photos, not taped. The plan, its elevation and the report's "To check" mark it. Absent: taped or measured.
+   */
+  lengthPlusMinusPct?: number;
   /** The corner at this side's RIGHT end, facing it from outside: an outside corner, or an inside one (the inside of an L). */
   turn: SideTurn;
   /** Where the cladding starts: the top of the parging (the usual), or the grade itself. */
@@ -637,6 +642,8 @@ export interface Exterior {
     edited?: boolean;
     /** False when the phone's walk did not go all the way round: its sides are not yet a footprint. */
     walkClosed?: boolean;
+    /** "photos": measured off ordinary photos and a few tapes, nothing tapped on the walls (2026-10-16, the photos-only route). */
+    by?: "photos";
     /**
      * Finish exterior on the phone (2026-10-15, lib/exteriorFinish.ts): when the roof was read off the
      * photos there, when the estimator accepted it, and the Scrivn build the phone ran.
@@ -933,13 +940,57 @@ function lowestAt(poly: Pt[], x: number): number {
 /**
  * The ground under a side tapped as shapes: the bottom edge of its parging, where the parging was
  * tapped down to the ground - Scan's one level elsewhere. What the drawing stands the side on.
+ * Where the ground steps (2026-10-16, the owner's side yard: "it steps down"), the parging's bottom
+ * steps with it, and the step is kept upright: the ground just left of it and just right of it.
  */
 function gradeFromParging(shapes: ExteriorShape[]): Pt[] | null {
   const polys = shapes.filter((s) => s.kind === "parging" && s.polygon.length >= 3).map((s) => s.polygon);
   if (polys.length === 0) return null;
-  const xs = [...new Set(polys.flatMap((p) => p.map((v) => Math.round(v.x * 1e6) / 1e6)))].sort((a, b) => a - b);
-  const pts = xs.map((x) => ({ x, y: Math.min(...polys.map((p) => lowestAt(p, x))) })).filter((p) => Number.isFinite(p.y));
+  // Each corner's own x, once: a rounded one can miss the corner it came from, and the ground with it.
+  const xs = polys
+    .flatMap((p) => p.map((v) => v.x))
+    .sort((a, b) => a - b)
+    .filter((x, i, all) => i === 0 || x - (all[i - 1] as number) > 1e-6);
+  const low = (x: number) => Math.min(...polys.map((p) => lowestAt(p, x)));
+  const pts = xs
+    .flatMap((x) => {
+      const [l, r] = [low(x - 1e-5), low(x + 1e-5)];
+      return Number.isFinite(l) && Number.isFinite(r) && Math.abs(l - r) > 1e-3 ? [{ x, y: l }, { x, y: r }] : [{ x, y: low(x) }];
+    })
+    .filter((p) => Number.isFinite(p.y));
   return pts.length >= 2 ? pts : null;
+}
+
+/**
+ * A length worked out from the photos further out than this, ± percent, is marked to check (2026-10-16:
+ * on the owner's photos-only house the three sides to tape were ±6, ±11 and ±12%; the rest ±2 to ±5%).
+ */
+export const LENGTH_CHECK_PCT = 5;
+
+/** The ± a side's length is marked with, to check; undefined when it is taped, measured, or close enough. */
+export function lengthToCheck(side: ExteriorSide): number | undefined {
+  const pct = side.lengthPlusMinusPct;
+  return pct !== undefined && pct > LENGTH_CHECK_PCT ? pct : undefined;
+}
+
+/**
+ * The ground's height in the side's frame at x along it, as its elevation stands on it: a side tapped as
+ * shapes on its parging's bottom, stepped or not (2026-10-16); any other on its grade line. What a tape
+ * from the ground reads a height above, at the ends.
+ */
+export function groundAt(side: ExteriorSide, x: number): number {
+  const line = (side.shapes ?? []).some((s) => s.polygon.length >= 2) ? gradeFromParging(side.shapes ?? []) : null;
+  if (!line) return gradeAt(side, x);
+  const first = line[0] as Pt;
+  const last = line[line.length - 1] as Pt;
+  if (x <= first.x) return first.y;
+  if (x >= last.x) return last.y;
+  for (let i = 0; i + 1 < line.length; i++) {
+    const p = line[i] as Pt;
+    const q = line[i + 1] as Pt;
+    if (x >= p.x && x <= q.x && q.x - p.x > 1e-9) return p.y + ((q.y - p.y) * (x - p.x)) / (q.x - p.x);
+  }
+  return last.y;
 }
 
 /** What an elevation drawing needs: the shape, each face of cladding, the ground, and each opening's rectangle. */

@@ -360,7 +360,8 @@
       "top": true
      }
     }
-   ]
+   ],
+   "length_pm_pct": 2
   },
   {
    "index": 1,
@@ -418,7 +419,8 @@
    "gross_sf": 18.657,
    "net_sf": 18.657,
    "opening_trim_m": 0,
-   "photos": []
+   "photos": [],
+   "length_pm_pct": 4
   },
   {
    "index": 2,
@@ -587,11 +589,12 @@
       "top": true
      }
     }
-   ]
+   ],
+   "length_pm_pct": 4
   },
   {
    "index": 3,
-   "name": "East side wall (low confidence +/-6%)",
+   "name": "East side wall",
    "cladding": "stucco",
    "length_m": 21.5104,
    "left_joined": true,
@@ -606,8 +609,8 @@
    "bands": [],
    "shapes": [
     {
-     "material": "stucco",
-     "label": "Stucco",
+     "material": "parging",
+     "label": "Parging",
      "closed": true,
      "polygon": [
       [
@@ -615,8 +618,98 @@
        1.9507
       ],
       [
+       6.4,
+       1.3177
+      ],
+      [
+       7.5,
+       1.3177
+      ],
+      [
+       7.5,
+       1.1399
+      ],
+      [
+       7.7743,
+       1.1399
+      ],
+      [
+       7.7743,
+       0.9621
+      ],
+      [
+       8.0486,
+       0.9621
+      ],
+      [
+       8.0486,
+       0.7843
+      ],
+      [
+       15.24,
+       0.7843
+      ],
+      [
        21.5104,
        0
+      ],
+      [
+       21.5104,
+       0.2032
+      ],
+      [
+       15.24,
+       0.9875
+      ],
+      [
+       10.9728,
+       0.9875
+      ],
+      [
+       10.9728,
+       1.5209
+      ],
+      [
+       6.4,
+       1.5209
+      ],
+      [
+       0,
+       2.1539
+      ]
+     ],
+     "area_m2": 6.077,
+     "openings_m2": 0,
+     "net_m2": 6.077
+    },
+    {
+     "material": "stucco",
+     "label": "Stucco",
+     "closed": true,
+     "polygon": [
+      [
+       0,
+       2.1539
+      ],
+      [
+       6.4,
+       1.5209
+      ],
+      [
+       10.9728,
+       1.5209
+      ],
+      [
+       10.9728,
+       0.9875
+      ],
+      [
+       15.24,
+       0.9875
+      ],
+      [
+       21.5104,
+       0.2032
       ],
       [
        21.5104,
@@ -627,9 +720,9 @@
        4.8463
       ]
      ],
-     "area_m2": 83.2657,
-     "openings_m2": 7.2938,
-     "net_m2": 75.9719
+     "area_m2": 77.5848,
+     "openings_m2": 0,
+     "net_m2": 77.5848
     }
    ],
    "roofline": [],
@@ -734,11 +827,12 @@
       "top": true
      }
     }
-   ]
+   ],
+   "length_pm_pct": 6
   },
   {
    "index": 4,
-   "name": "Rear bump-out gable (taped 22'2\")",
+   "name": "Rear bump-out gable",
    "cladding": "stucco",
    "length_m": 6.7535,
    "left_joined": true,
@@ -1003,7 +1097,8 @@
    "gross_sf": 46.111,
    "net_sf": 46.111,
    "opening_trim_m": 0,
-   "photos": []
+   "photos": [],
+   "length_pm_pct": 5
   },
   {
    "index": 6,
@@ -1144,11 +1239,12 @@
       "top": true
      }
     }
-   ]
+   ],
+   "length_pm_pct": 2
   },
   {
    "index": 7,
-   "name": "Covered-deck side (low confidence +/-12%)",
+   "name": "Covered-deck side",
    "cladding": "stucco",
    "length_m": 2.7762,
    "left_joined": true,
@@ -1276,7 +1372,8 @@
       "top": true
      }
     }
-   ]
+   ],
+   "length_pm_pct": 12
   },
   {
    "index": 8,
@@ -1425,11 +1522,12 @@
       "top": true
      }
     }
-   ]
+   ],
+   "length_pm_pct": 3
   },
   {
    "index": 9,
-   "name": "West gable wall (low confidence +/-11%)",
+   "name": "West gable wall",
    "cladding": "stucco",
    "length_m": 8.901,
    "left_joined": true,
@@ -1628,7 +1726,8 @@
       "top": true
      }
     }
-   ]
+   ],
+   "length_pm_pct": 11
   },
   {
    "index": 10,
@@ -1759,7 +1858,8 @@
       "top": true
      }
     }
-   ]
+   ],
+   "length_pm_pct": 3
   },
   {
    "index": 11,
@@ -1874,130 +1974,13 @@
       "top": true
      }
     }
-   ]
+   ],
+   "length_pm_pct": 3
   }
  ],
  "links": [],
  "taps": [],
  "notes": [
-  "Built from 15 phone photos (10-16, 12:49-12:54) and 3 tapes, no AR taps: 9'0\" garage doors, 263\" porch (keystone wall to the west porch post), 22'2\" rear bump-out.",
-  "Low confidence: East side wall +/-6%, West gable wall +/-11% (probably 1-3 ft long), Covered-deck side +/-12%."
- ],
- "finish": {
-  "format": "scrivn-finish/1",
-  "sides": {
-   "0": {
-    "at": "2026-10-16T20:00:00.000Z",
-    "photos": [
-     916,
-     917
-    ],
-    "scaleAt": 1,
-    "roofRead": {
-     "at": "2026-10-16T20:00:00.000Z",
-     "over": "hip"
-    },
-    "said": []
-   },
-   "2": {
-    "at": "2026-10-16T20:00:00.000Z",
-    "photos": [
-     915,
-     914
-    ],
-    "scaleAt": 1,
-    "roofRead": {
-     "at": "2026-10-16T20:00:00.000Z",
-     "over": "gable"
-    },
-    "said": []
-   },
-   "3": {
-    "at": "2026-10-16T20:00:00.000Z",
-    "photos": [
-     913
-    ],
-    "scaleAt": 1,
-    "roofRead": {
-     "at": "2026-10-16T20:00:00.000Z",
-     "over": "eave"
-    },
-    "said": []
-   },
-   "4": {
-    "at": "2026-10-16T20:00:00.000Z",
-    "photos": [
-     910,
-     911
-    ],
-    "scaleAt": 1,
-    "roofRead": {
-     "at": "2026-10-16T20:00:00.000Z",
-     "over": "gable"
-    },
-    "said": []
-   },
-   "6": {
-    "at": "2026-10-16T20:00:00.000Z",
-    "photos": [
-     909
-    ],
-    "scaleAt": 1,
-    "roofRead": {
-     "at": "2026-10-16T20:00:00.000Z",
-     "over": "eave"
-    },
-    "said": []
-   },
-   "8": {
-    "at": "2026-10-16T20:00:00.000Z",
-    "photos": [
-     908
-    ],
-    "scaleAt": 1,
-    "roofRead": {
-     "at": "2026-10-16T20:00:00.000Z",
-     "over": "eave"
-    },
-    "said": []
-   },
-   "9": {
-    "at": "2026-10-16T20:00:00.000Z",
-    "photos": [
-     906,
-     903
-    ],
-    "scaleAt": 1,
-    "roofRead": {
-     "at": "2026-10-16T20:00:00.000Z",
-     "over": "gable"
-    },
-    "said": []
-   },
-   "10": {
-    "at": "2026-10-16T20:00:00.000Z",
-    "photos": [
-     901
-    ],
-    "scaleAt": 1,
-    "roofRead": {
-     "at": "2026-10-16T20:00:00.000Z",
-     "over": "eave"
-    },
-    "said": []
-   },
-   "11": {
-    "at": "2026-10-16T20:00:00.000Z",
-    "photos": [
-     902
-    ],
-    "scaleAt": 1,
-    "roofRead": {
-     "at": "2026-10-16T20:00:00.000Z",
-     "over": "eave"
-    },
-    "said": []
-   }
-  }
- }
+  "Built from 15 phone photos (10-16, 12:49-12:54) and 3 tapes, no AR taps: 9'0\" garage doors, 263\" porch (keystone wall to the west porch post), 22'2\" rear bump-out."
+ ]
 }
