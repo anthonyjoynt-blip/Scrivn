@@ -3,6 +3,7 @@ import {
   CLADDING_LABEL,
   DEFAULT_EAVE_OVERHANG_FEET,
   DEFAULT_RAKE_OVERHANG_FEET,
+  elevationFaces,
   FEET_PER_DOWNSPOUT,
   endsFromPhotos,
   type Exterior,
@@ -12,6 +13,8 @@ import {
   type ExteriorSide,
   formatOpeningSize,
   formatPitch,
+  groundAt,
+  lengthToCheck,
   OPENING_LABEL,
   photoNotes,
   type PitchReading,
@@ -183,8 +186,49 @@ function openingNames(side: ExteriorSide): Map<string, string> {
   return names;
 }
 
-function openingLine(o: ExteriorOpening, name: string): string {
-  return `${name}: ${formatOpeningSize(o.widthFeet, o.heightFeet)}, ${o.sillFeet > 0.04 ? `sill ${ft(o.sillFeet)} up` : "at the bottom"}, ${ft(o.fromLeftFeet)} from the left end${o.from === "photo" ? " (from photo)" : ""}`;
+/**
+ * A side tapped as shapes stands on its parging's bottom, which may step (2026-10-16, the owner's side
+ * yard): its heights in its own frame are from one level, and a tape reads them from the ground under
+ * them. Every other side's heights are from the ground already.
+ */
+function steps(side: ExteriorSide): boolean {
+  return (side.shapes ?? []).some((s) => s.polygon.length >= 2);
+}
+
+/** A height on [side] at x along it, as a tape from the ground there reads it. */
+function aboveGround(side: ExteriorSide, z: number, x: number): number {
+  return steps(side) ? z - groundAt(side, x) : z;
+}
+
+/** An opening's sill above the ground under its middle. */
+function sillOf(side: ExteriorSide, o: ExteriorOpening): number {
+  return Math.max(0, aboveGround(side, o.sillFeet, o.fromLeftFeet + o.widthFeet / 2));
+}
+
+/** How the ground goes along a side tapped as shapes, when it isn't level: "the ground falls 6'5" from left to right, in steps". */
+function groundWords(side: ExteriorSide): string | null {
+  if (!steps(side)) return null;
+  const grade = elevationFaces(side).grade;
+  const left = groundAt(side, 0);
+  const right = groundAt(side, side.lengthFeet);
+  const low = Math.min(...grade.map((p) => p.y));
+  const high = Math.max(...grade.map((p) => p.y));
+  if (high - low < 1 / 24) return null;
+  const stepped = grade.some((p, i) => i > 0 && Math.abs(p.x - (grade[i - 1] as { x: number }).x) < 1e-6 && Math.abs(p.y - (grade[i - 1] as { y: number }).y) > 1e-3);
+  const how = stepped ? ", in steps" : "";
+  if (Math.abs(left - right) < 1 / 24) return `the ground is uneven along it, ${ft(high - low)} from its highest to its lowest${how}`;
+  return `the ground ${left > right ? "falls" : "rises"} ${ft(Math.abs(left - right))} from left to right${how}`;
+}
+
+function openingLine(side: ExteriorSide, o: ExteriorOpening, name: string): string {
+  const sill = sillOf(side, o);
+  return `${name}: ${formatOpeningSize(o.widthFeet, o.heightFeet)}, ${sill > 0.04 ? `sill ${ft(sill)} up` : "at the bottom"}, ${ft(o.fromLeftFeet)} from the left end${o.from === "photo" ? " (from photo)" : ""}`;
+}
+
+/** "±6%": the ± a side's length is marked with, to check (`lengthToCheck`), or nothing. */
+function plusMinus(side: ExteriorSide): string {
+  const pct = lengthToCheck(side);
+  return pct === undefined ? "" : `±${Math.max(1, Math.round(pct))}%`;
 }
 
 /** What a side's walls came from, each part: read off its photo by Finish exterior (2026-10-15), else tapped or entered. */
@@ -204,21 +248,28 @@ export function exteriorReport(exterior: Exterior, meta: ReportMeta): ExteriorRe
   const plan = q.roof;
   const nameOf = (id: string) => every.find((s) => s.id === id)?.name.trim() || "Side";
   const scanned = exterior.source?.kind === "scan";
+  // Measured off photos and tapes, nothing tapped (2026-10-16): its walls are the photos', and say so.
+  const photosOnly = exterior.source?.by === "photos";
+  /** Where a wall, a height or an opening came from when nothing marks it: photos, taps on the phone, or typed in Scrivn. */
+  const ownFrom = photosOnly ? "photo" : scanned ? "tapped" : "entered";
 
   // ---- The sides, each with every dimension ----
   const sides: ReportSide[] = every.map((side, i) => {
     const sq = q.sides[i] as SideQuantities;
     const names = openingNames(side);
+    const ground = groundWords(side);
     const heights = [
-      side.eaveLeftFeet != null ? `eave ${ft(side.eaveLeftFeet)} at the left` : null,
-      side.eaveRightFeet != null ? `${ft(side.eaveRightFeet)} at the right` : null,
-      side.gable ? `peak ${ft(side.gable.peakFeet)}, ${ft(side.gable.atFeet)} from the left end` : sq.gableSource === "roof" ? `gable from the roof${q.pitch.source === "assumed" ? " (pitch assumed)" : ""}` : null,
+      side.eaveLeftFeet != null ? `eave ${ft(aboveGround(side, side.eaveLeftFeet, 0))}${ground ? " above the ground" : ""} at the left` : null,
+      side.eaveRightFeet != null ? `${ft(aboveGround(side, side.eaveRightFeet, side.lengthFeet))} at the right` : null,
+      side.gable ? `peak ${ft(aboveGround(side, side.gable.peakFeet, side.gable.atFeet))}, ${ft(side.gable.atFeet)} from the left end` : sq.gableSource === "roof" ? `gable from the roof${q.pitch.source === "assumed" ? " (pitch assumed)" : ""}` : null,
+      ground,
     ].filter(Boolean);
+    const pm = plusMinus(side);
     const shapeFrom = new Set((side.shapes ?? []).filter((x) => x.from === "photo").map((x) => x.id));
     const dims = [
-      `${side.lengthFrom === "drawn" ? "About " : ""}${ft(sq.lengthFeet)} long${side.lengthFrom === "drawn" ? " (drawn, not measured)" : ""}${heights.length > 0 ? ` · ${heights.join(", ")}${side.wallTopFrom === "photo" ? " (from photo)" : side.wallTopFrom === "neighbours" ? ` (from the sides beside it: ${(side.photos ?? []).length === 0 ? "not seen in a photo" : "its photo didn't show the top"})` : ""}` : ""}${side.base === "parging" ? ` · parging ${ft(side.baseLeftFeet)} / ${ft(side.baseRightFeet)}` : ""}`,
+      `${side.lengthFrom === "drawn" ? "About " : ""}${ft(sq.lengthFeet)} long${side.lengthFrom === "drawn" ? " (drawn, not measured)" : ""}${pm ? ` ${pm} (worked out from the photos: to check)` : ""}${heights.length > 0 ? ` · ${heights.join(", ")}${side.wallTopFrom === "photo" ? " (from photo)" : side.wallTopFrom === "neighbours" ? ` (from the sides beside it: ${(side.photos ?? []).length === 0 ? "not seen in a photo" : "its photo didn't show the top"})` : ""}` : ""}${side.base === "parging" ? ` · parging ${ft(side.baseLeftFeet)} / ${ft(side.baseRightFeet)}` : ""}`,
       ...sq.bands.map((b) => `${b.label}: ${sf(b.grossSquareFeet)} gross, ${sf(b.openingSquareFeet)} of openings, ${sf(b.netSquareFeet)} net${shapeFrom.has(b.bandId) ? " (from photo)" : ""}`),
-      ...[...side.openings].sort((a, b) => a.fromLeftFeet - b.fromLeftFeet).map((o) => openingLine(o, names.get(o.id) ?? OPENING_LABEL[o.kind])),
+      ...[...side.openings].sort((a, b) => a.fromLeftFeet - b.fromLeftFeet).map((o) => openingLine(side, o, names.get(o.id) ?? OPENING_LABEL[o.kind])),
       ...(side.fixtures ?? []).filter((f) => f.count > 0).map((f) => `${f.kind === "other" ? f.label?.trim() || "Other" : SIDE_FIXTURE_LABEL[f.kind]}: ${f.count} (${f.action === "replace" ? "replace" : "detach & reset"})`),
       ...(side.roofRead ? [`Roof read off its photo: ${roofReadWords(side.roofRead).join(", ") || "nothing taken"}.`] : []),
       ...(!sq.complete ? ["Not every height of this side was measured: its area is not counted."] : []),
@@ -228,7 +279,7 @@ export function exteriorReport(exterior: Exterior, meta: ReportMeta): ExteriorRe
       q: sq,
       rise: q.rises[side.id] ?? null,
       base: q.bases[side.id] ?? null,
-      heading: `${side.name.trim() || "Side"} · ${ft(sq.lengthFeet)} · ${sf(sq.netSquareFeet)} net`,
+      heading: `${side.name.trim() || "Side"} · ${ft(sq.lengthFeet)}${pm ? ` ${pm}` : ""} · ${sf(sq.netSquareFeet)} net`,
       dims,
     };
   });
@@ -253,7 +304,13 @@ export function exteriorReport(exterior: Exterior, meta: ReportMeta): ExteriorRe
   const from = sizesFrom(exterior);
   // Not scaled to anything (2026-10-15, the owner: "Should be scaled off of something"): said plainly.
   sources.push(scanned && scaleOf(exterior)?.from === "phone" ? NOT_SCALED : `Sizes: ${from ? `from ${from}` : scanned ? "from the phone" : "as drawn and typed in Scrivn"}.`);
-  sources.push(scanned ? "Walls, heights, materials and openings: tapped on the phone, side by side round the house." : "Walls, heights, materials and openings: as entered in Scrivn.");
+  sources.push(
+    photosOnly
+      ? "Walls, heights, materials and openings: read off the photos, side by side round the house; nothing was tapped on the walls."
+      : scanned
+        ? "Walls, heights, materials and openings: tapped on the phone, side by side round the house."
+        : "Walls, heights, materials and openings: as entered in Scrivn.",
+  );
   // Read off the photos where nothing was tapped (2026-10-15, Finish exterior): said side by side, each part marked "from photo" below.
   const walled = every.filter((s) => {
     const w = wallsFromPhoto(s);
@@ -339,7 +396,7 @@ export function exteriorReport(exterior: Exterior, meta: ReportMeta): ExteriorRe
     ],
     rows: sides.flatMap((s) => {
       const ids = new Set((s.side.shapes ?? []).filter((x) => x.from === "photo").map((x) => x.id));
-      const own = s.side.wallTopFrom === "neighbours" ? "neighbours" : scanned ? "tapped" : "entered";
+      const own = s.side.wallTopFrom === "neighbours" ? "neighbours" : ownFrom;
       return s.q.bands.length === 0
         ? [[s.side.name, s.q.complete ? "-" : "not counted", "-", "-", "-", "-"]]
         : s.q.bands.map((b, k) => [k === 0 ? s.side.name : "", b.label, ids.has(b.bandId) ? "photo" : own, one(b.grossSquareFeet), one(b.openingSquareFeet), one(b.netSquareFeet)]);
@@ -367,7 +424,7 @@ export function exteriorReport(exterior: Exterior, meta: ReportMeta): ExteriorRe
     const names = openingNames(side);
     return [...side.openings]
       .sort((a, b) => a.fromLeftFeet - b.fromLeftFeet)
-      .map((o) => [side.name, names.get(o.id) ?? OPENING_LABEL[o.kind], o.from === "photo" ? "photo" : scanned ? "tapped" : "entered", formatOpeningSize(o.widthFeet, o.heightFeet), ft(o.sillFeet), ft(o.fromLeftFeet), one(o.widthFeet * o.heightFeet)]);
+      .map((o) => [side.name, names.get(o.id) ?? OPENING_LABEL[o.kind], o.from === "photo" ? "photo" : ownFrom, formatOpeningSize(o.widthFeet, o.heightFeet), ft(sillOf(side, o)), ft(o.fromLeftFeet), one(o.widthFeet * o.heightFeet)]);
   });
   if (openingRows.length > 0) {
     tables.push({
@@ -504,7 +561,9 @@ export function exteriorReport(exterior: Exterior, meta: ReportMeta): ExteriorRe
     };
   }
 
-  const notes = roof?.notes ?? [];
+  // A length worked out from the photos and further out than it should be: named to tape (2026-10-16).
+  const toTape = every.filter((s) => lengthToCheck(s) !== undefined).map((s) => `${s.name.trim() || "Side"}: ${ft(s.lengthFeet)} ${plusMinus(s)}, worked out from the photos, not taped. Tape it to be sure.`);
+  const notes = [...toTape, ...(roof?.notes ?? [])];
   return { meta, exterior, q, facts, sources, assumed, notes, sides, photos, tables, roof };
 }
 

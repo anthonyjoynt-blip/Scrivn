@@ -7,7 +7,8 @@ import type { jsPDF } from "jspdf";
  * SVG with jsPDF's own pen, so a report printed at 100% is to scale and its lines stay sharp.
  *
  * Only what those drawings use: <svg viewBox>, <g transform>, <rect> (rounded too), <polygon>,
- * <polyline>, <line>, <circle> and <text>, with fill, stroke, their opacities, a dash, round caps,
+ * <polyline>, <line>, <circle> and <text>, with fill, stroke, their opacities, a dash and where it starts,
+ * round caps (a dash of nothing with round caps is a dot: the stucco's stipple, lib/claddingTexture.ts),
  * `vector-effect="non-scaling-stroke"` (a width in the picture's pixels) and text anchored start,
  * middle or end, bold or italic, turned by the group's rotation. Anything else is passed over: an
  * <image> (the side's photo behind the editor's elevation) is never in a document's drawing.
@@ -141,7 +142,7 @@ function rgb(c: string | undefined): [number, number, number] | null {
 }
 
 /** Presentation attributes a group hands down to what is in it. */
-const INHERITED = ["fill", "fill-opacity", "stroke", "stroke-width", "stroke-dasharray", "stroke-opacity", "stroke-linecap", "font-size", "font-weight", "font-style", "font-family", "text-anchor", "vector-effect", "opacity"];
+const INHERITED = ["fill", "fill-opacity", "stroke", "stroke-width", "stroke-dasharray", "stroke-dashoffset", "stroke-opacity", "stroke-linecap", "font-size", "font-weight", "font-style", "font-family", "text-anchor", "vector-effect", "opacity"];
 
 interface Style {
   [k: string]: string | undefined;
@@ -271,7 +272,7 @@ function shape(doc: jsPDF, m: M, s: Style, opts: PaintOptions, pts: { x: number;
     doc.setLineWidth(Math.max(0.1, width * k));
     const dash = (s["stroke-dasharray"] ?? "").trim();
     const parts = dash && dash !== "none" ? dash.split(/[\s,]+/).map(Number).filter((v) => Number.isFinite(v) && v >= 0) : [];
-    doc.setLineDashPattern(parts.length > 0 ? parts.map((v) => v * k) : [], 0);
+    doc.setLineDashPattern(parts.length > 0 ? parts.map((v) => v * k) : [], parts.length > 0 ? num(s["stroke-dashoffset"]) * k : 0);
     doc.setLineCap(s["stroke-linecap"] === "round" ? "round" : "butt");
     path();
     doc.stroke();

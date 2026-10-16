@@ -336,6 +336,8 @@ export function parseScanExterior(input: unknown, meta: { scanId?: string | null
       ...(roofline.length > 0 ? { roofline: roofline.map((r) => ({ alongFeet: r.along * FEET_PER_METRE, upFeet: r.up * FEET_PER_METRE, outFeet: r.out === null ? null : r.out * FEET_PER_METRE })) } : {}),
       ...(pitch12 !== null ? { pitchMeasured: pitch12 } : {}),
       ...(photos.length > 0 ? { photos } : {}),
+      // Worked out from the photos, not taped (2026-10-16): how far its length may be out.
+      ...((num(raw.length_pm_pct) ?? 0) > 0 ? { lengthPlusMinusPct: num(raw.length_pm_pct) as number } : {}),
     };
     sides.push(side);
     idByIndex.set(num(raw.index) ?? i, side.id);
@@ -497,6 +499,7 @@ export function parseScanExterior(input: unknown, meta: { scanId?: string | null
       scanId: meta.scanId ?? null,
       receivedAt: meta.receivedAt ?? null,
       notes,
+      ...(part.source === "photos" ? { by: "photos" as const } : {}),
       ...(closed ? {} : { walkClosed: false }),
       ...(finish ? { finish: { at: finish.at ?? null, acceptedAt: finish.acceptedAt ?? null, engine: finish.engine ?? null } } : {}),
     },

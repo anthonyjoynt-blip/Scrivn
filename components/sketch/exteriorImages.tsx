@@ -3,11 +3,11 @@
 import { createElement } from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
-import { allSides, type Exterior, exteriorQuantities, formatPitch, pieceLine, ROOF_TOTAL_KEYS, ROOF_TOTAL_LABEL, type RoofTotalKey, sourceWords } from "@/lib/exterior";
+import { allSides, elevationFaces, type Exterior, exteriorQuantities, formatPitch, lengthToCheck, pieceLine, ROOF_TOTAL_KEYS, ROOF_TOTAL_LABEL, type RoofTotalKey, sourceWords } from "@/lib/exterior";
 import { sizesFrom } from "@/lib/exteriorScale";
 import { formatQuantity } from "@/lib/sketchQuantities";
 import { lineTotals, textWidthEm } from "@/lib/roofLabels";
-import { ElevationDrawing, elevationFontFeet, LINE_STYLE, RoofPlanDrawing } from "./exteriorDrawings";
+import { CladdingLegend, ElevationDrawing, elevationFontFeet, LINE_STYLE, type LegendItem, RoofPlanDrawing } from "./exteriorDrawings";
 
 /**
  * The exterior as pictures for the documents (2026-10-12): the roof plan with the slopes being
@@ -111,6 +111,11 @@ function roofSvg(exterior: Exterior): { svg: string; width: number; height: numb
     ridgeVents: exterior.roof.ridgeVents ?? [],
     // A side only drawn, never taped, is about that long on the page as on the screen.
     approx: (id: string) => exterior.sides.find((s) => s.id === id)?.lengthFrom === "drawn",
+    // A length worked out from the photos, to check (2026-10-16): marked on the plan as in the report.
+    plusMinus: (id: string) => {
+      const side = allSides(exterior).find((s) => s.id === id);
+      return side ? lengthToCheck(side) : undefined;
+    },
   };
   const planW = WIDTH - 80;
   const planH = Math.round(planW / aspect(markup(createElement(RoofPlanDrawing, props))));
@@ -210,6 +215,21 @@ function elevationsSvg(exterior: Exterior): { svg: string; width: number; height
   const from = sizesFrom(exterior);
   let y = from ? 96 : 70;
   const parts: string[] = [label(40, 44, "Elevations", 30, 700), from ? label(40, 78, `Sizes from ${from}.`, 20) : ""];
+  // The materials as the faces show them (2026-10-16): a swatch of each, as on the report.
+  const items: LegendItem[] = [];
+  for (const { side } of sides) {
+    const { faces, fromShapes } = elevationFaces(side, q.rises[side.id] ?? null, q.bases[side.id] ?? null);
+    const found: LegendItem[] = faces.filter((f) => f.closed && f.poly.length >= 3).map((f) => ({ kind: f.kind, label: f.label }));
+    if (!fromShapes && side.base === "parging") found.push({ kind: "parging", label: "Parging" });
+    for (const it of found) if (!items.some((o) => o.kind === it.kind && o.label === it.label)) items.push(it);
+  }
+  if (items.length > 0) {
+    const legend = markup(createElement(CladdingLegend, { items }));
+    const box = viewBox(legend);
+    const k = Math.min(20, (WIDTH - 80) / box.width);
+    parts.push(`<g transform="translate(40 ${y + 4})">${markup(createElement(CladdingLegend, { items, size: { width: box.width * k, height: box.height * k } }))}</g>`);
+    y += box.height * k + 12;
+  }
   for (let i = 0; i < cells.length; i += columns) {
     const row = cells.slice(i, i + columns);
     const rowH = Math.max(...row.map((c) => c.h));
