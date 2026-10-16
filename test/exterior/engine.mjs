@@ -325,11 +325,14 @@ await test("the roof with the photos' reads: the phone's and Scrivn's import of 
   const s = JSON.parse(await P.run("summary", { capture, finish }));
   const { q } = scrivnOf(capture, finish);
   sameRoof(s, q, "photos");
-  // The main roof stands over Right, whose gable nobody photographed: Scan measured it, 5.3/12 (typed > its own photo > the main
-  // roof's photo > measured gables > assumed). The wings out to Left 5 and Rear take their own gable photos' 5/12.
-  assert(s.roof.pitchSource === "sides" && s.roof.pitchText === "5.3/12", `${s.roof.pitchText} from ${s.roof.pitchSource}`);
-  const wings = Object.fromEntries(s.roof.sections.map((w) => [w.name, w.pitch]));
-  assert(wings["Wing at Left 5"] === "5/12" && wings["Wing at Rear"] === "5/12", JSON.stringify(s.roof.sections));
+  // Since the roof check (2026-10-16, lib/roofCheck.ts) the deck is proposed under the roof - left open, the part out to Left 5
+  // and the garage's bay would have to sit lower - so the main roof is the whole house, its gable over Left 5, whose photo gives
+  // the house its 5/12 (typed > its own photo > measured gables > assumed); the garage reads 1'10" under it and sits lower,
+  // under a gable on the house, as the owner gives it. The bump-out (Rear) takes its own gable photo's 5/12: one pitch all
+  // round, so no part is listed apart. (Before, the deck open, the main stood over Right at Scan's 5.3/12.)
+  assert(s.roof.pitchSource === "photos" && s.roof.pitchText === "5/12", `${s.roof.pitchText} from ${s.roof.pitchSource}`);
+  assert(s.roof.sections.length === 0, JSON.stringify(s.roof.sections));
+  assert(s.roof.ends.find((e) => e.name === "Left 5")?.how === "photo", JSON.stringify(s.roof.ends));
   assert(q.roofing.overhangs.rake.source === "photos" && q.roofing.overhangs.eave.source === "photos", "both overhangs from the photos");
   assert(s.roof.rake.endsWith("(from photos)") && s.roof.eave.endsWith("(from photos)"), `${s.roof.rake} / ${s.roof.eave}`);
   // The four photographed sides read again would cost nothing more: none is still to read.
@@ -655,7 +658,8 @@ await test("the report's numbers are the quantities': walls by side and material
   assert(r.tables.some((t) => t.caption === "Soffit, fascia and eavestrough"), "soffit, fascia and eavestrough");
   assert(r.tables.some((t) => t.caption === "Openings") && r.tables.find((t) => t.caption === "Openings").rows.length === exterior.sides.reduce((n, s) => n + s.openings.length, 0), "every opening");
   assert(r.photos.length === 4 && r.photos.every((p) => p.caption.includes("Read for the roof:")), "each photo with its read");
-  assert(r.sources.some((s) => s === "Wing at Left 5: 5/12, from its gable's photo."), r.sources.join(" | "));
+  // The house's own gable over Left 5 since the roof check put the deck under the roof (2026-10-16): its pitch is the house's.
+  assert(r.sources.some((s) => s === "Pitch: 5/12, read off the gable photos of Left 5."), r.sources.join(" | "));
   assert(r.sources.some((s) => s.startsWith("Rake overhang:") && s.includes("read off the photos of")), "the rake from the photos");
 });
 

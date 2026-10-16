@@ -28,6 +28,7 @@
 import { formatFeetInches, newSketchId } from "./sketch";
 import {
   buildRoof,
+  EAVE_END_SHARE,
   type GutterRun,
   gutterRuns,
   type LowerRoofKind,
@@ -44,6 +45,7 @@ import {
   type RoofBreak,
   upperOverhang,
 } from "./roof";
+import { isLegacyRoof, proposeRoof, type RoofProposal } from "./roofCheck";
 import { PIECE_LENGTH_KEYS, pieceCount, pieceCounts, type PieceFigures, pieceFigures, pieceFromPhotos, ROOF_PIECE_LABEL, type RoofPiece } from "./roofPieces";
 import { type PhotoPiece, type ResolvedPhotoPiece, resolvePhotoPiece, type UpperShown } from "./roofPhotoShapes";
 
@@ -509,6 +511,15 @@ export interface ExteriorRoof {
   wingGables?: string[];
   /** Notches the roof carries over (a covered deck), each by one of its inner walls' sides. */
   coveredNotches?: string[];
+  /**
+   * The roof check (2026-10-16, lib/roofCheck.ts): the parts the estimator answered, "wing:<side>" and
+   * "notch:<side>" - for those, the three lists above are the answer. A part not answered takes what the
+   * outline and the photos propose (`roofProposal`). Absent with any of the lists set: an exterior from
+   * before the check, whose lists are all there is.
+   */
+  answered?: string[];
+  /** When the estimator said the roof's parts are right on the roof check; absent or null until then. */
+  checkedAt?: string | null;
   /**
    * No longer used: waste is the estimator's to add (owner, 10-12: "just want real values"). Kept
    * optional so an exterior saved with it still loads.
@@ -1448,18 +1459,52 @@ export function resolvedOverhang(exterior: Exterior, which: "eave" | "rake"): Re
 
 /**
  * Each end of the roof by the side it stands over: typed (a tap on the plan) over the photos, which
- * say gable, or hip - a level wall top with the roof sloping up from it is a hip end wherever the
- * roof has an end over that side. The roof passes over any side that is no end of it.
+ * say gable or hip. The roof passes over any side that is no end of it. A photo showing a level wall
+ * top - an eave - is `eaveSidesFromPhotos`: a hip only of an end over most of that side (2026-10-16).
  */
 export function resolvedEnds(exterior: Exterior): Record<string, RoofEndKind> {
   const fromPhotos: Record<string, RoofEndKind> = {};
-  for (const r of photoReads(exterior).ends) fromPhotos[r.sideId] = r.value === "gable" ? "gable" : "hip";
+  for (const r of photoReads(exterior).ends) if (r.value !== "eave") fromPhotos[r.sideId] = r.value;
   return { ...fromPhotos, ...exterior.roof.ends };
 }
 
-/** The sides whose end of the roof the photos set: read off the photo, not typed. */
-export function endsFromPhotos(exterior: Exterior): Set<string> {
-  return new Set(photoReads(exterior).ends.filter((r) => !(r.sideId in exterior.roof.ends)).map((r) => r.sideId));
+/**
+ * The sides whose photo shows a level wall top with the roof sloping up from it, none typed (2026-10-16):
+ * an end of the roof over most of one is a hip (lib/roof.ts `eaveSides`). Until then any end over such a
+ * side was - and the owner's 70' east wall, eaves over his garage and bump-out, hipped his house's gable.
+ */
+export function eaveSidesFromPhotos(exterior: Exterior): string[] {
+  return photoReads(exterior)
+    .ends.filter((r) => r.value === "eave" && !(r.sideId in exterior.roof.ends))
+    .map((r) => r.sideId);
+}
+
+/**
+ * The sides whose end of the roof the photos set: read off the photo as a gable or hip, not typed; or a
+ * hip because its photo shows its eave and the end stands over most of it, on the roof as built [plan]
+ * (worked out here when not given).
+ */
+export function endsFromPhotos(exterior: Exterior, plan?: RoofPlan | null): Set<string> {
+  const reads = photoReads(exterior).ends.filter((r) => !(r.sideId in exterior.roof.ends));
+  const out = new Set(reads.filter((r) => r.value !== "eave").map((r) => r.sideId));
+  if (reads.some((r) => r.value === "eave")) {
+    const built = plan === undefined ? roofAsBuilt(exterior) : plan;
+    for (const e of built?.ends ?? []) if (e.fromEave) out.add(e.sideId);
+  }
+  return out;
+}
+
+const builtCache = new WeakMap<Exterior, { roof: ExteriorRoof; sides: ExteriorSide[]; upper: UpperFloor | undefined; got: RoofPlan | null }>();
+
+/** The roof as the quantities build it, kept against the exterior as it was. */
+function roofAsBuilt(exterior: Exterior): RoofPlan | null {
+  const cached = builtCache.get(exterior);
+  if (cached && cached.roof === exterior.roof && cached.sides === exterior.sides && cached.upper === exterior.upper) return cached.got;
+  const footprint = exteriorFootprint(exterior);
+  const pitch = exteriorPitch(exterior).value;
+  const got = footprint.closes && pitch !== null ? buildRoof(roofInput(exterior, footprint, pitch)) : null;
+  builtCache.set(exterior, { roof: exterior.roof, sides: exterior.sides, upper: exterior.upper, got });
+  return got;
 }
 
 /** The ridge's direction the photos give: the side it is set by, and the reads it bears out. */
@@ -1488,17 +1533,24 @@ export function ridgeFromPhotos(exterior: Exterior): RidgeFromPhotos | null {
   const reads = photoReads(exterior).ends;
   const footprint = reads.length > 0 ? exteriorFootprint(exterior) : null;
   if (footprint?.closes) {
+    /*
+      A read of an eave agrees unless an end stands over most of its side: a long side can be eaves along
+      most of it and a gable end over a stretch (2026-10-16). And a ridge that makes more of the roof sit
+      lower because it has to than the outline's own does is no roof anyone frames, however many reads it
+      bears out - the owner's house came out as a 13' strip from the garage's bay to the bump-out.
+    */
     const bearsOut = (ridgeAlong: string | null) => {
       const plan = buildRoof(roofInputBase(exterior, footprint, ASSUMED_PITCH, ridgeAlong));
       if (plan.shape === "other") return null;
-      const ends = new Set(plan.ends.map((e) => e.sideId));
-      return reads.filter((r) => (r.value === "eave" ? !ends.has(r.sideId) : ends.has(r.sideId)));
+      const ends = new Map(plan.ends.map((e) => [e.sideId, e]));
+      const agree = reads.filter((r) => (r.value === "eave" ? (ends.get(r.sideId)?.share ?? 0) < EAVE_END_SHARE - 1e-9 : ends.has(r.sideId)));
+      return { agree, forced: plan.wings.filter((w) => w.forced).length };
     };
     const outline = bearsOut(null);
-    if (outline && outline.length < reads.length) {
+    if (outline && outline.agree.length < reads.length) {
       for (const side of allSides(exterior)) {
-        const agree = bearsOut(side.id);
-        if (agree && agree.length > (got?.agree.length ?? outline.length)) got = { ridgeAlong: side.id, agree, of: reads.length };
+        const tried = bearsOut(side.id);
+        if (tried && tried.forced <= outline.forced && tried.agree.length > (got?.agree.length ?? outline.agree.length)) got = { ridgeAlong: side.id, agree: tried.agree, of: reads.length };
       }
     }
   }
@@ -1756,9 +1808,18 @@ export function exteriorPitch(exterior: Exterior): PitchReading {
 /**
  * The roof's input with everything but the photos' part pitches: what tells which part is over which
  * side. [ridgeAlong] is the ridge's direction, as resolved unless given (`ridgeFromPhotos` tries each).
+ * The parts not answered on the roof check are as proposed (`roofProposal`, 2026-10-16).
  */
 function roofInputBase(exterior: Exterior, footprint: Footprint, pitch: number, ridgeAlong: string | null = resolvedRidgeAlong(exterior)): RoofInput {
+  const said = saidRoofInput(exterior, footprint, pitch, ridgeAlong);
+  const proposal = roofProposal(exterior);
+  return proposal ? { ...said, coveredNotches: proposal.coveredNotches, lowerWings: proposal.lowerWings, wingGables: proposal.wingGables } : said;
+}
+
+/** The roof's input as said: typed, read off the photos, and the parts as answered - nothing proposed. */
+function saidRoofInput(exterior: Exterior, footprint: Footprint, pitch: number, ridgeAlong: string | null): RoofInput {
   const upper = upperFootprint(exterior, footprint);
+  const eaveSides = eaveSidesFromPhotos(exterior);
   return {
     ...(upper?.closes ? { upper: { corners: upper.corners, sideIds: upper.sideIds }, lowerRoofKinds: resolvedLowerRoofKinds(exterior) } : {}),
     corners: footprint.corners,
@@ -1768,6 +1829,7 @@ function roofInputBase(exterior: Exterior, footprint: Footprint, pitch: number, 
     rakeOverhangFeet: resolvedOverhang(exterior, "rake").feet,
     ridgeAlong,
     ends: resolvedEnds(exterior),
+    ...(eaveSides.length > 0 ? { eaveSides } : {}),
     sectionPitches: exterior.roof.sectionPitches ?? {},
     ...(exterior.roof.sectionBreaks ? { sectionBreaks: exterior.roof.sectionBreaks } : {}),
     additions: exterior.roof.additions ?? [],
@@ -1776,6 +1838,58 @@ function roofInputBase(exterior: Exterior, footprint: Footprint, pitch: number, 
     coveredNotches: exterior.roof.coveredNotches ?? [],
     sideNames: Object.fromEntries(allSides(exterior).map((s) => [s.id, s.name.trim() || "Side"])),
   };
+}
+
+/**
+ * Each side's wall top as measured, for the roof check: its two eaves above its own grade. A side whose
+ * height came from the sides beside it, or that has none, says nothing.
+ */
+function measuredWallTops(exterior: Exterior): Record<string, number[]> {
+  const out: Record<string, number[]> = {};
+  for (const s of exterior.sides) {
+    if (s.wallTopFrom === "neighbours") continue;
+    const tops = [s.eaveLeftFeet, s.eaveRightFeet].filter((v): v is number => typeof v === "number" && Number.isFinite(v) && v > 0);
+    if (tops.length > 0) out[s.id] = tops;
+  }
+  return out;
+}
+
+/**
+ * The pitch the roof check proposes on (no roof built for it, so no part's own pitch): typed, else the
+ * photos' gables, else the measured gables, else assumed.
+ */
+function proposalPitch(exterior: Exterior): number {
+  if (exterior.roof.pitch !== null && exterior.roof.pitch >= 0) return exterior.roof.pitch;
+  const read = photoReads(exterior).pitches;
+  if (read.length > 0) return meanOf(read.map((r) => r.value));
+  const sides = exterior.sides.filter((s) => s.roofRead?.pitch === undefined).map((s) => sideQuantities(s).pitchFromGable).filter((p): p is number => p !== null);
+  return sides.length > 0 ? meanOf(sides) : ASSUMED_PITCH;
+}
+
+const proposalCache = new WeakMap<Exterior, { roof: ExteriorRoof; sides: ExteriorSide[]; upper: UpperFloor | undefined; got: RoofProposal | null }>();
+
+/**
+ * The roof check's proposal (2026-10-16, lib/roofCheck.ts): the notches to cover and the wings to set
+ * lower, over what is answered. Only for a house that was photographed - the photo route, where the
+ * estimator never drew the roof - and one storey; never for a roof from before the check, whose lists
+ * are all it says. Null when there is nothing to propose on.
+ */
+export function roofProposal(exterior: Exterior): RoofProposal | null {
+  const cached = proposalCache.get(exterior);
+  if (cached && cached.roof === exterior.roof && cached.sides === exterior.sides && cached.upper === exterior.upper) return cached.got;
+  let got: RoofProposal | null = null;
+  const photographed = exterior.sides.some((s) => (s.photos?.length ?? 0) > 0 || s.roofRead !== undefined);
+  if (photographed && !exterior.upper && !isLegacyRoof(exterior.roof)) {
+    const footprint = exteriorFootprint(exterior);
+    if (footprint.closes) {
+      got = proposeRoof(saidRoofInput(exterior, footprint, proposalPitch(exterior), exterior.roof.ridgeAlong), {
+        wallTops: measuredWallTops(exterior),
+        answered: exterior.roof.answered ?? [],
+      });
+    }
+  }
+  proposalCache.set(exterior, { roof: exterior.roof, sides: exterior.sides, upper: exterior.upper, got });
+  return got;
 }
 
 /** The roof's input: the overhangs and ends as typed, else read off the photos; each part's pitch, and any break, as typed, else its gable photo's. */
