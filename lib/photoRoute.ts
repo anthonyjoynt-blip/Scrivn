@@ -247,6 +247,123 @@ export function columnBearing(cam: PhotoCamera, u: number): number {
   return Math.atan2(a * xl[0] + zl[0], a * xl[2] + zl[2]);
 }
 
+// ── The corners' numbers ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * The app's number for each corner tap the user did not number (2026-10-16): so a user taps corners
+ * and does not have to say which.
+ *
+ * Facing a house, its corners run left to right in the outline's own order (each next side is to the
+ * right). So a photo's taps, left to right, are some run of the outline's corners, perhaps skipping one
+ * or two hidden behind a wing. Every such run is tried, each with the four quarter-turns, and the
+ * camera placed from it on the shape: a run is possible only if the camera then sees those corners
+ * ahead, from outside the house, with the walls between them facing it. Of those, the one that fits
+ * best and sees its walls most face-on wins, and where two corners leave it open, the one that puts
+ * the camera nearest the photos taken just before and after it. A number the user gave is kept, and
+ * the runs must agree with it.
+ *
+ * A photo with one tap gets no number: one bearing cannot say which corner it is, and the pane asks.
+ */
+export function numberCorners(input: PhotoRouteInput, buildingId: string, data: RoutePhotoData[], outline?: Pt[]): CornerTap[] {
+  const b = input.buildings.find((x) => x.id === buildingId);
+  if (!b) throw new Error(`No building ${buildingId}`);
+  const ring = outline ?? b.outline;
+  const n = ring.length;
+  const byId = new Map(data.map((d) => [d.id, d]));
+  const out = b.corners.map((c) => ({ ...c }));
+  const time = new Map(input.photos.map((p, i) => [p.id, p.takenAt ?? i]));
+  const photoIds = [...new Set(out.map((c) => c.photo))];
+  const chosen = new Map<string, [number, number]>();
+  type Job = { id: string; idx: number[]; snapped: SnappedTap[] };
+  const jobs: Job[] = [];
+  for (const id of photoIds) {
+    const d = byId.get(id);
+    if (!d?.camera) continue;
+    const idx = out.map((c, i) => (c.photo === id ? i : -1)).filter((i) => i >= 0);
+    const snapped = idx.map((i) => {
+      const t = out[i] as CornerTap;
+      const s = snapToEdge(d.gray, d.camera as PhotoCamera, t.x, t.y);
+      const [, v] = toLevel(d.camera as PhotoCamera, t.x, t.y);
+      return { photo: id, corner: t.corner, u: s.u, v, bearing: columnBearing(d.camera as PhotoCamera, s.u), onEdge: s.onEdge, px: [s.x, s.y] as [number, number] };
+    });
+    // Left to right in the photo.
+    const order = snapped.map((_, k) => k).sort((p, q) => (snapped[p] as SnappedTap).u - (snapped[q] as SnappedTap).u);
+    jobs.push({ id, idx: order.map((k) => idx[k] as number), snapped: order.map((k) => snapped[k] as SnappedTap) });
+  }
+  // Photos with more taps first: they leave the fewest answers, and place the walk the others are judged by.
+  jobs.sort((p, q) => q.idx.length - p.idx.length);
+  for (const job of jobs) {
+    const m = job.idx.length;
+    const userSet = job.idx.map((i) => ((out[i] as CornerTap).by === "user" && (out[i] as CornerTap).corner >= 0 ? (out[i] as CornerTap).corner : -1));
+    if (m < 2) {
+      if (userSet[0] !== undefined && userSet[0] < 0) (out[job.idx[0] as number] as CornerTap).corner = -1;
+      continue;
+    }
+    if (userSet.every((c) => c >= 0)) continue;
+    // The photos either side in time that are placed.
+    const t0 = time.get(job.id) ?? 0;
+    const near = [...chosen].map(([id, at]) => ({ at, dt: Math.abs((time.get(id) ?? 0) - t0) })).sort((p, q) => p.dt - q.dt).slice(0, 2);
+    let best: { labels: number[]; score: number; at: [number, number] } | null = null;
+    const gaps = (k: number): number[][] => (k === 0 ? [[]] : gaps(k - 1).flatMap((g) => [1, 2, 3].map((x) => [...g, x])));
+    for (const g of gaps(m - 1)) {
+      if (g.reduce((s, v) => s + v, 0) >= n) continue;
+      for (let s0 = 0; s0 < n; s0++) {
+        const labels = [s0];
+        for (const step of g) labels.push(((labels[labels.length - 1] as number) + step) % n);
+        if (labels.some((l, k) => (userSet[k] as number) >= 0 && userSet[k] !== l)) continue;
+        const taps = job.snapped.map((t, k) => ({ ...t, corner: labels[k] as number }));
+        const cam = (byId.get(job.id) as RoutePhotoData).camera as PhotoCamera;
+        for (const p of placementsFromCorners(taps, ring)) {
+          const skipped = g.reduce((s, v) => s + v - 1, 0);
+          const walk = near.length ? Math.min(...near.map((x) => Math.hypot(x.at[0] - p.at[0], x.at[1] - p.at[1]))) / 30 : 0;
+          // Corners this camera would see plainly - in the picture, ahead, nothing of the house in the way - that were not tapped.
+          const seenUntapped = ring.filter((_, c) => !labels.includes(c) && cornerInView(cam, p, ring, c)).length;
+          const score = 200 * p.err + p.slant + 0.4 * skipped + walk + seenUntapped;
+          if (!best || score < best.score) best = { labels, score, at: p.at };
+        }
+      }
+    }
+    if (!best) continue;
+    job.idx.forEach((i, k) => {
+      const t = out[i] as CornerTap;
+      if (t.by === "user" && t.corner >= 0) return;
+      t.corner = (best as { labels: number[] }).labels[k] as number;
+      t.by = "app";
+    });
+    chosen.set(job.id, best.at);
+  }
+  return out;
+}
+
+/**
+ * Whether outline corner c would show plainly in a photo from placement p: ahead, inside the picture
+ * with a margin of a twentieth of its width, and the first thing of the house its ray meets.
+ */
+function cornerInView(cam: PhotoCamera, p: { quadrant: number; at: [number, number] }, ring: Pt[], c: number): boolean {
+  const P = ring[c] as Pt;
+  const v: [number, number] = [P.x - p.at[0], P.y - p.at[1]];
+  const dist = Math.hypot(v[0], v[1]);
+  if (dist < 1) return false;
+  // The corner's bearing in the photo's own frame, against the level camera's forward.
+  const Z = [
+    [0, 1],
+    [1, 0],
+    [0, -1],
+    [-1, 0],
+  ][((p.quadrant % 4) + 4) % 4] as [number, number];
+  const X: [number, number] = [Z[1], -Z[0]];
+  const lx = (v[0] * X[0] + v[1] * X[1]) / dist;
+  const lz = (v[0] * Z[0] + v[1] * Z[1]) / dist;
+  const { xl, zl } = levelAxes(cam);
+  const ahead = lx * zl[0] + lz * zl[2];
+  if (ahead <= 0.05) return false;
+  const across = lx * xl[0] + lz * xl[2];
+  const u = cam.width / 2 + (cam.f * across) / ahead;
+  if (u < 0.05 * cam.width || u > 0.95 * cam.width) return false;
+  const hit = castRay({ x: p.at[0], y: p.at[1] }, [v[0] / dist, v[1] / dist], ring);
+  return !hit || hit.t >= dist - 0.5;
+}
+
 // ── The solve ────────────────────────────────────────────────────────────────────────────────────
 
 /** A wall edge's bearing sd: the proof's 2 px. */
@@ -322,6 +439,8 @@ export function solveRoute(input: PhotoRouteInput, buildingId: string, data: Rou
   const taps: SnappedTap[] = [];
   for (const t of b.corners) {
     if (opts.skipTap?.(t)) continue;
+    // A tap not yet numbered (one alone on its photo): the pane asks which corner it is.
+    if (!(t.corner >= 0 && t.corner < n)) continue;
     const d = byId.get(t.photo);
     if (!d?.camera) continue;
     const s = snapToEdge(d.gray, d.camera, t.x, t.y);
@@ -908,7 +1027,8 @@ function tapeAdvice(sides: RouteSide[], ring: Pt[], cameras: RouteCamera[], taps
     const endsSeen = [i, (i + 1) % n].filter((k) => taps.some((t) => t.corner === k)).length;
     const edges = points.filter((p) => p.side === i).length;
     let why: string;
-    if (squarest < 25) why = "it was only seen from along it (a side yard, or a narrow gap): no photo faces it";
+    if (squarest < 5 && edges === 0 && endsSeen === 0) why = "no photo shows it";
+    else if (squarest < 25) why = "it was only seen from along it (a side yard, or a narrow gap): no photo faces it";
     else if (endsSeen < 2) why = `only ${endsSeen === 1 ? "one of its corners was" : "neither of its corners was"} tapped on a photo`;
     else if (edges === 0) why = "nothing on it (a window or door edge) was seen in two photos";
     else why = "the photos round it do not hold it to better than that";

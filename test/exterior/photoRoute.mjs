@@ -68,7 +68,7 @@ const input = {
   buildings: fx.buildings.map((b) => ({
     id: b.id,
     outline: b.outline.map(([px, py]) => ({ x: px, y: py })),
-    corners: b.corners.map((c) => ({ photo: `p${c.photo}`, corner: c.corner, x: c.x, y: c.y })),
+    corners: b.corners.map((c) => ({ photo: `p${c.photo}`, corner: c.corner, x: c.x, y: c.y, by: "user" })),
     tapes: b.tapes.map((t) => (t.kind === "line" ? { ...t, photo: `p${t.photo}` } : t)),
   })),
 };
@@ -151,6 +151,25 @@ for (const a of all.advice) console.log(`    ${README[a.from][0]}: ${a.why}`);
 const b = fx.buildings[0];
 const inputs = { outline: b.outline.length, corners: b.corners.length, lineTapes: b.tapes.filter((t) => t.kind === "line").length, sideTapes: b.tapes.filter((t) => t.kind === "side").length };
 console.log(`\n  The user's inputs: ${fx.photos.length} photos added; the shape drawn with ${inputs.outline} taps; ${inputs.corners} corner taps on ${new Set(b.corners.map((c) => c.photo)).size} photos; ${inputs.lineTapes} tapes as a line on a photo (a drag and a pick each); ${inputs.sideTapes} typed (a pick and a number each)`);
+
+// The app numbering the corners itself: the same taps with no numbers, numbered as the pane does.
+// The user says which corner the leftmost tap on each photo is (one tap on the plan); the app numbers the rest.
+const leftmost = new Map();
+for (const c of input.buildings[0].corners) if (!leftmost.has(c.photo) || c.x < leftmost.get(c.photo).x) leftmost.set(c.photo, c);
+const bare = { ...input, buildings: input.buildings.map((bb) => ({ ...bb, corners: bb.corners.map((c) => (leftmost.get(c.photo) === c ? { photo: c.photo, x: c.x, y: c.y, corner: c.corner, by: "user" } : { photo: c.photo, x: c.x, y: c.y, corner: -1 })) })) };
+const numbered = x.measureRoute(bare, "main", pixels, { lines });
+const truth = input.buildings[0].corners;
+let right = 0;
+let asked = 0;
+const wrong = [];
+numbered.corners.forEach((c, i) => {
+  if (c.corner < 0) asked++;
+  else if (c.corner === truth[i].corner) right++;
+  else wrong.push(`${c.photo} C${truth[i].corner + 1} as C${c.corner + 1}`);
+});
+const singles = new Set(truth.map((c) => c.photo).filter((p) => truth.filter((c) => c.photo === p).length === 1)).size;
+console.log(`\n  The app's own numbers for the ${truth.length} corner taps: ${right} right, ${wrong.length} wrong${wrong.length ? ` (${wrong.join(", ")})` : ""}, ${asked} left to ask (one tap alone on ${singles} photos)`);
+console.log(`    measured from the app's numbers (wrong ones not fixed): porch hold-out n/a; sides ${numbered.solution.sides.map((s) => s.lengthFeet.toFixed(1)).join(" ")}`);
 
 // Where it lands: the claim's exterior, each side with its ± and its photos laid on it by the solved cameras.
 const state = { format: "scrivn-photo-route/1", ...input, measured: null };

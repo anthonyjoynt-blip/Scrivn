@@ -1733,6 +1733,7 @@ export default function Home() {
           onMoistureChange={setMoisture}
           onChange={setSketch}
           startReadOnly={sketchOpensReadOnly}
+          photoAccess={{ claimId: persistence.claimId, claimIdNow: persistence.claimIdNow, onServer: persistence.onServer, photos, onPhotosChange: setPhotos, onCheckpoint: checkpoint }}
           onClose={() => {
             setShowSketch(false);
             /*

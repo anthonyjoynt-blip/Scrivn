@@ -12,7 +12,7 @@
 import { DEFAULT_RADIAL_K, levelPhotos, type LevelResult, type PhotoCamera, type PhotoLines } from "./photoRouteLens";
 import { grayFrom, lineSegments, type Gray, type Segment } from "./photoRouteLines";
 import { uprightEdges } from "./photoRouteEdges";
-import { type PhotoRouteInput, type RoutePhotoData, type RouteSolution, solveRoute, type SolveRouteOptions } from "./photoRoute";
+import { type CornerTap, numberCorners, type PhotoRouteInput, type RoutePhotoData, type RouteSolution, solveRoute, type SolveRouteOptions } from "./photoRoute";
 
 export interface PhotoPixelsIn {
   id: string;
@@ -92,12 +92,15 @@ export function measureRoute(
   buildingId: string,
   pixels: PhotoPixelsIn[],
   opts: { lines?: { gray: Gray; segments: Segment[] }[]; solve?: SolveRouteOptions } = {},
-): { prepared: PreparedPhotos; solution: RouteSolution; firstK: number } {
+): { prepared: PreparedPhotos; solution: RouteSolution; firstK: number; corners: CornerTap[] } {
   const lines = opts.lines ?? pixels.map(photoLines);
   const first = preparePhotos(input, pixels, lines);
-  const rough = solveRoute(input, buildingId, first.data, opts.solve);
+  // The corners the user did not number, numbered on the shape drawn; then again on the shape measured.
+  const withCorners = (corners: CornerTap[]): PhotoRouteInput => ({ ...input, buildings: input.buildings.map((b) => (b.id === buildingId ? { ...b, corners } : b)) });
+  const once = withCorners(numberCorners(input, buildingId, first.data));
+  const rough = solveRoute(once, buildingId, first.data, opts.solve);
   const k = rough.solution.k;
-  if (Math.abs(k - first.level.k) < 0.003) return { prepared: first, solution: rough, firstK: first.level.k };
-  const prepared = preparePhotos(input, pixels, lines, { k });
-  return { prepared, solution: solveRoute(input, buildingId, prepared.data, opts.solve), firstK: first.level.k };
+  const prepared = Math.abs(k - first.level.k) < 0.003 ? first : preparePhotos(once, pixels, lines, { k });
+  const corners = numberCorners(once, buildingId, prepared.data, rough.corners);
+  return { prepared, solution: solveRoute(withCorners(corners), buildingId, prepared.data, opts.solve), firstK: first.level.k, corners };
 }
