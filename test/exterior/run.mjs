@@ -33,6 +33,10 @@
  *     lean-tos hipped round its outside corners and in a valley at an inside one, all the way round
  *     with two drip lines - the upper floor kept flush when a main length is typed, tall sides split
  *     at the floor line, and a cantilever's floor soffit
+ *   * the drawings and the report as a customer document (10-16): the owner's side yard stepping down
+ *     with its parging, the ground off a parging's bottom at its corners' own x, the ± on a length worked
+ *     out from photos, a photos-only house said as one, every wall's name beside its own wall, and each
+ *     cladding's marks (lib/claddingTexture.ts)
  */
 
 import { build } from "esbuild";
@@ -56,6 +60,8 @@ async function load() {
       `export * from "${lib("roof.ts")}";`,
       `export * from "${lib("roofPieces.ts")}";`,
       `export * from "${lib("roofLabels.ts")}";`,
+      `export * from "${lib("claddingTexture.ts")}";`,
+      `export { exteriorReport } from "${lib("exteriorReport.ts")}";`,
       `export { formatFeetInches } from "${lib("sketch.ts")}";`,
       `export { availableTrades, buildWorkOrders } from "${lib("workOrders.ts")}";`,
       `export { emptyClaimInfo } from "${lib("claimInfo.ts")}";`,
@@ -4821,6 +4827,154 @@ test("the call is asked for the roof's shapes in the same one call: dormers, tur
   // A trace from before 10-15 has none of them: no pieces, no storeys - nothing put on the side for them.
   const old = x.traceProposals({ materials: [], openings: [], wall_top: [], off_wall: [], notes: "" }, traceFrame, 8 * M);
   assert(old.pieces === undefined && old.storeys === undefined, JSON.stringify(old));
+});
+
+console.log("\nthe drawings and the report as a customer document (10-16)");
+
+/**
+ * The owner's house measured off photos and three tapes (10-16, the photos-only proof), with its East
+ * side wall as read off photos #11-#14: the front walk down to the side door's landing, three 7" steps
+ * just past the door, the lower walk past the basement windows, then down to the back gate - the parging
+ * under the stucco stepping with it. Each side's ± is a field, not in its name.
+ */
+const photosOnly = fixture("photos-only-1016.json");
+const owner = x.parseScanExterior(photosOnly).exterior;
+const sideNamed = (e, n) => e.sides.find((s) => s.name === n);
+
+test("the owner's side yard steps: the ground and the parging step down at the stairs past the side door, not one sloped band", () => {
+  const east = sideNamed(owner, "East side wall");
+  const grade = x.elevationFaces(east).grade;
+  // Three 7" risers, each upright: two points at one x.
+  const risers = grade.map((p, i) => (i > 0 && Math.abs(p.x - grade[i - 1].x) < 1e-9 ? grade[i - 1].y - p.y : null)).filter((d) => d !== null);
+  assert(risers.length === 3, JSON.stringify(grade));
+  for (const d of risers) near(d, 7 / 12, 'a 7" riser', 1e-3);
+  // A tape from the ground: 9'6" to the eave at the front (the proof's read off the garage front), 15'11" at the back.
+  near(east.eaveLeftFeet - x.groundAt(east, 0), ft(9, 6), "eave over the front walk", 1 / 24);
+  near(east.eaveRightFeet - x.groundAt(east, east.lengthFeet), ft(15, 11), "eave over the back", 1 / 24);
+  // The side door stands on its landing.
+  const door = east.openings.find((o) => o.kind === "door");
+  near(x.groundAt(east, door.fromLeftFeet + door.widthFeet / 2), door.sillFeet, "the landing under the door", 1e-3);
+  // The stucco's bottom steps too: down at the first basement window, where the parging's top meets it.
+  const stucco = east.shapes.find((s) => s.kind === "stucco").polygon;
+  assert(stucco.some((p, i) => i > 0 && Math.abs(p.x - stucco[i - 1].x) < 1e-9 && Math.abs(p.y - stucco[i - 1].y) > 1 && p.y < 10), JSON.stringify(stucco));
+  // Drawn as shapes, counted as shapes: the parging is not cladding.
+  const q = x.sideQuantities(east);
+  assert(q.bands.length === 1 && q.bands[0].kind === "stucco", JSON.stringify(q.bands));
+});
+
+test("a parging bottom is the ground end to end, at the corners' own x: a slope stays a slope, a step stays upright", () => {
+  // The west gable's parging was tapped sloping up 1'6" to the right; read at a rounded x, the corner was missed and the ground came out level.
+  const west = sideNamed(owner, "West gable wall");
+  near(x.groundAt(west, west.lengthFeet), 0.4572 / 0.3048, "the ground rises 1'6\" to its right end", 1e-6);
+  near(x.groundAt(west, west.lengthFeet / 2), 0.2286 / 0.3048, "and halfway along, halfway up", 1e-6);
+  // A step at an x with more places than a millionth: still upright, and at that x.
+  const at = 10 / 3;
+  const s = side({ shapes: [{ id: "p", kind: "parging", closed: true, polygon: [{ x: 0, y: 2 }, { x: at, y: 2 }, { x: at, y: 0 }, { x: 30, y: 0 }, { x: 30, y: 1 }, { x: 0, y: 3 }] }, { id: "c", kind: "stucco", closed: true, polygon: [{ x: 0, y: 3 }, { x: 30, y: 1 }, { x: 30, y: 10 }, { x: 0, y: 10 }] }], heightsFrom: "level" });
+  const g = x.elevationFaces(s).grade;
+  assert(JSON.stringify(g.map((p) => [Math.round(p.x * 1e4) / 1e4, p.y])) === JSON.stringify([[0, 2], [3.3333, 2], [3.3333, 0], [30, 0]]), JSON.stringify(g));
+  near(x.groundAt(s, 1), 2, "on the top tread", 1e-9);
+  near(x.groundAt(s, 20), 0, "below the step", 1e-9);
+  // A side not tapped as shapes keeps its grade line: the eaves' fall.
+  const plain = side({ eaveLeftFeet: 10, eaveRightFeet: 12 });
+  near(x.groundAt(plain, 30), -2, "a taped side's grade falls as its eaves say", 1e-9);
+});
+
+test("the report of a photos-only house: walls read off the photos, the ± on the sides to tape, heights and sills from the ground under them", () => {
+  const r = x.exteriorReport(owner, { title: "t", date: "d", madeWith: "m" });
+  assert(r.sources.includes("Walls, heights, materials and openings: read off the photos, side by side round the house; nothing was tapped on the walls."), r.sources.join(" | "));
+  assert(!r.sources.some((s) => /tapped on the phone/.test(s)), "nothing was tapped");
+  const walls = r.tables.find((t) => t.caption === "Walls by side and material");
+  assert(walls.rows.every((row) => row[2] === "photo" || row[2] === "-"), JSON.stringify(walls.rows.map((row) => row[2])));
+  assert(r.tables.find((t) => t.caption === "Openings").rows.every((row) => row[2] === "photo"), "the openings too");
+  // Only the three sides further out than 5% are to check, in the order round the house; the taped side has no ± at all.
+  const check = r.notes.filter((n) => n.includes("worked out from the photos, not taped"));
+  assert(
+    JSON.stringify(check) ===
+      JSON.stringify([
+        "East side wall: 70'7\" ±6%, worked out from the photos, not taped. Tape it to be sure.",
+        "Covered-deck side: 9'1\" ±12%, worked out from the photos, not taped. Tape it to be sure.",
+        "West gable wall: 29'2\" ±11%, worked out from the photos, not taped. Tape it to be sure.",
+      ]),
+    JSON.stringify(check),
+  );
+  assert(sideNamed(owner, "Rear bump-out gable").lengthPlusMinusPct === undefined && sideNamed(owner, "Bay step").lengthPlusMinusPct === 4, "the field as the file gives it");
+  const by = (n) => r.sides.find((s) => s.side.name === n);
+  assert(by("East side wall").heading.startsWith("East side wall · 70'7\" ±6% · "), by("East side wall").heading);
+  assert(by("Bay step").heading === "Bay step · 2' · 19 SF net", by("Bay step").heading);
+  const first = by("East side wall").dims[0];
+  assert(first.includes("±6% (worked out from the photos: to check)") && first.includes("eave 9'6\" above the ground at the left, 15'11\" at the right") && first.endsWith("the ground falls 6'5\" from left to right, in steps"), first);
+  assert(by("West gable wall").dims[0].includes("the ground rises 1'6\" from left to right") && !by("West gable wall").dims[0].includes("in steps"), by("West gable wall").dims[0]);
+  // The side door on its landing is at the bottom, not 4'4" up; a basement window over the lower walk 1'5" up.
+  const dims = by("East side wall").dims;
+  assert(dims.some((d) => d.startsWith("Door 1: 3' × 6'8\", at the bottom")) && dims.some((d) => d.startsWith("Window 2: 4'6\" × 2'6\", sill 1'5\" up")), dims.join(" | "));
+  // A level side's heights are as they were.
+  assert(by("Keystone wall").dims[0] === "24'10\" long · eave 9'4\" at the left, 9'4\" at the right", by("Keystone wall").dims[0]);
+  // A walk tapped on the phone still says so.
+  const tapped = x.parseScanExterior(fixture("scan-exterior-v2-walk-1453.json")).exterior;
+  const rt = x.exteriorReport(tapped, { title: "t", date: "d", madeWith: "m" });
+  assert(rt.sources.includes("Walls, heights, materials and openings: tapped on the phone, side by side round the house."), rt.sources.join(" | "));
+});
+
+test("every wall's name beside its own wall: none over another or across the house, a line back to the wall where one has to stand off", () => {
+  const fp = x.exteriorQuantities(owner).footprint;
+  // Lettering as the report sets it: 8 points at 3/32" = 1'-0".
+  const em = (8 / 6.75) * 0.85;
+  const n = fp.corners.length;
+  const walls = fp.sideIds.map((id, i) => {
+    const a = fp.corners[i];
+    const b = fp.corners[(i + 1) % n];
+    const len = Math.hypot(b.x - a.x, b.y - a.y);
+    return { id, a, b, out: { x: (b.y - a.y) / len, y: -(b.x - a.x) / len }, name: owner.sides.find((s) => s.id === id).name, length: x.formatFeetInches(fp.lengthsFeet[i]), clear: em * 0.3 };
+  });
+  const names = x.placeWallNames(walls, em, { boxes: [], polygons: [fp.corners] });
+  assert(names.length === walls.length && names.every((m, i) => m.id === walls[i].id), "one each, in the walls' order");
+  for (let i = 0; i < names.length; i++) {
+    for (let j = i + 1; j < names.length; j++) assert(!x.labelsOverlap(names[i].box, names[j].box), `${walls[i].name} over ${walls[j].name}`);
+    assert(!x.boxOnPolygon(names[i].box, fp.corners), `${walls[i].name} across the house`);
+    const off = x.boxToSegment(names[i].box, walls[i].a, walls[i].b);
+    assert(names[i].leader !== null || off <= walls[i].clear + em * 1.2, `${walls[i].name}: ${off.toFixed(2)} ft off its wall with no line back`);
+  }
+  // Most sit right beside their walls: the 5'6" bump-out side's name is three times its wall, and still beside it.
+  assert(names.filter((m) => m.leader !== null).length <= 4, names.filter((m) => m.leader).map((m) => m.id).join(", "));
+  const step = names[walls.findIndex((w) => w.name === "Bump-out west side")];
+  assert(step.leader === null, JSON.stringify(step));
+});
+
+test("each cladding drawn as it looks, every mark on its face: lap lines at their exposure, brick courses, stucco's dots, parging's hatch", () => {
+  // A gable end 20' wide, 9' to the eave, 14' to the peak.
+  const face = [{ x: 0, y: 0 }, { x: 20, y: 0 }, { x: 20, y: 9 }, { x: 10, y: 14 }, { x: 0, y: 9 }];
+  const onFace = (p) => p.x >= -1e-9 && p.x <= 20 + 1e-9 && p.y >= -1e-9 && p.y <= 9 + Math.max(0, 5 * (1 - Math.abs(p.x - 10) / 10)) + 1e-9;
+  const allOn = (segs) => segs.every(([a, b]) => onFace(a) && onFace(b));
+  // Vinyl at 4": a line every 4" up, cut to the gable's slopes.
+  const vinyl = x.textureMarks(face, x.textureOf("vinyl"), 0.5);
+  const ys = [...new Set(vinyl.lines.map(([a]) => Math.round(a.y * 1e6) / 1e6))];
+  assert(ys.length === 41 && ys.every((y) => Math.abs(y * 3 - Math.round(y * 3)) < 1e-5), `${ys.length} lines: ${ys.slice(0, 4)}`);
+  assert(allOn(vinyl.lines), "on the face");
+  const top = vinyl.lines.find(([a]) => Math.abs(a.y - 41 / 3) < 1e-6);
+  near(top[1].x - top[0].x, 20 * (1 - (41 / 3 - 9) / 5), "cut to the gable at 13'8\"", 1e-6);
+  // Lettered large (a small scale): 4" is too fine, so every second course.
+  const small = x.textureMarks(face, x.textureOf("vinyl"), 2);
+  const sy = [...new Set(small.lines.map(([a]) => Math.round(a.y * 1e6) / 1e6))];
+  near(sy[1] - sy[0], 2 / 3, "every second 4\" course", 1e-6);
+  // Fibre cement at 7", wood at 6".
+  near(x.textureOf("fibre_cement").exposureFeet, 7 / 12, "fibre cement", 1e-9);
+  near(x.textureOf("wood").exposureFeet, 0.5, "wood", 1e-9);
+  // Brick: courses and head joints, each joint within its course.
+  const brick = x.textureMarks(face, x.textureOf("brick"), 0.3);
+  assert(brick.lines.length > 100 && allOn(brick.lines), `${brick.lines.length} brick marks`);
+  // Stucco: rows of dots, each run on the face; stone, shakes, battens, ribs, parging: marks on the face.
+  const stucco = x.textureMarks(face, x.textureOf("stucco"), 1);
+  assert(stucco.dots.length > 10 && stucco.dots.every((d) => onFace(d.a) && onFace(d.b) && /^0\.01 /.test(d.dash)), "stucco's dots");
+  for (const k of ["stone", "wood_shake", "metal", "parging", "eifs"]) {
+    const m = x.textureMarks(face, x.textureOf(k), 1);
+    assert(m.lines.length + m.fine.length + m.dots.length > 0 && allOn([...m.lines, ...m.fine]), k);
+  }
+  // "Other" by its name.
+  assert(x.textureOf("other", "Board and batten").texture === "battens" && x.textureOf("other", "cedar shingles").texture === "shake" && x.textureOf("other", "Hardie plank").exposureFeet === 7 / 12 && x.textureOf("other", "glass block").texture === "plain", "by name");
+  // A line through a corner of a diamond is inside once, from edge to edge.
+  const diamond = [{ x: 0, y: -1 }, { x: 1, y: 0 }, { x: 0, y: 1 }, { x: -1, y: 0 }];
+  const cut = x.clipSegment(diamond, { x: -2, y: 0 }, { x: 2, y: 0 });
+  assert(cut.length === 1 && Math.abs(cut[0][0].x + 1) < 1e-9 && Math.abs(cut[0][1].x - 1) < 1e-9, JSON.stringify(cut));
 });
 
 console.log(`\n${passed.length} passed, ${failures.length} failed`);
