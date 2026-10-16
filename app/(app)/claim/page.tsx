@@ -1799,7 +1799,7 @@ export default function Home() {
 
       {/* The exterior report (2026-10-15), beside the drying log for the same reason: there whenever the outside is measured. */}
       {!showSketch && hasExteriorReport(sketch.exterior) && (
-        <ExteriorReportSection exterior={sketch.exterior} title={claim.address || claim.customerName} jobNumber={claim.jobNumber} customerName={claim.customerName} letterhead={letterhead} />
+        <ExteriorReportSection exterior={sketch.exterior} title={claim.address || claim.customerName} jobNumber={claim.jobNumber} customerName={claim.customerName} letterhead={letterhead} claimId={persistence.claimId} />
       )}
 
       {/* Photos, beside the sketch and the drying log: optional, and not a step either. */}
@@ -2405,7 +2405,8 @@ export default function Home() {
                 ? [
                     {
                       label: "Exterior Report",
-                      file: () => exteriorReportFile({ exterior: sketch.exterior as NonNullable<typeof sketch.exterior>, title: claim.address || claim.customerName, jobNumber: claim.jobNumber, customerName: claim.customerName, letterhead }),
+                      file: () =>
+                        exteriorReportFile({ exterior: sketch.exterior as NonNullable<typeof sketch.exterior>, title: claim.address || claim.customerName, jobNumber: claim.jobNumber, customerName: claim.customerName, letterhead, claimId: persistence.claimId }),
                     } satisfies SendableDocument,
                   ]
                 : []),

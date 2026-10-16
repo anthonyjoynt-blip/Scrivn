@@ -13,7 +13,22 @@ import { exteriorReportFile } from "./sketch/exteriorReportDoc";
  * the phone, built from the claim's exterior. No Claude call: everything in it is measured, read or
  * worked out already.
  */
-export function ExteriorReportSection({ exterior, title, jobNumber, customerName, letterhead }: { exterior: Exterior; title: string; jobNumber: string; customerName: string; letterhead: Letterhead }) {
+export function ExteriorReportSection({
+  exterior,
+  title,
+  jobNumber,
+  customerName,
+  letterhead,
+  claimId = null,
+}: {
+  exterior: Exterior;
+  title: string;
+  jobNumber: string;
+  customerName: string;
+  letterhead: Letterhead;
+  /** Where the photo route's side photos are filed: the claim's site photos. */
+  claimId?: string | null;
+}) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -21,7 +36,7 @@ export function ExteriorReportSection({ exterior, title, jobNumber, customerName
     setBusy(true);
     setError(null);
     try {
-      const file = await exteriorReportFile({ exterior, title, jobNumber, customerName, letterhead });
+      const file = await exteriorReportFile({ exterior, title, jobNumber, customerName, letterhead, claimId });
       if (!file) {
         setError("There is nothing measured on the outside of the house yet.");
         return;
