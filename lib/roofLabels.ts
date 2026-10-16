@@ -342,7 +342,8 @@ export function placeWallNames(walls: WallToName[], em: number, keepOff: { boxes
     // Beside its wall, or a line back to it.
     const gap = boxToSegment(chosen.box, w.a, w.b);
     let leader: [Pt, Pt] | null = null;
-    if (gap > w.clear + em * 1.2) {
+    // Past an eave's overhang it reads as its wall's; standing off further - past a deck's roof, a porch's - it gets its line.
+    if (gap > Math.max(em * 2.5, 3)) {
       const t = Math.max(0, Math.min(len, (chosen.box.x - w.a.x) * dir.x + (chosen.box.y - w.a.y) * dir.y));
       const at = { x: w.a.x + dir.x * t, y: w.a.y + dir.y * t };
       leader = [nearestInBox(chosen.box, at), at];

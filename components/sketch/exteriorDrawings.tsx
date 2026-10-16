@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { textureMarks, textureOf } from "@/lib/claddingTexture";
+import { COMPASS_WORD, type HouseView } from "@/lib/exteriorViews";
 import { formatFeetInches } from "@/lib/sketch";
 import {
   bandLabel,
@@ -131,8 +132,9 @@ export function plusMinusWords(pct: number | undefined): string {
  * brick coursing, stone, shakes, battens, metal ribs, parging's hatch - lib/claddingTexture.ts, grey on
  * the face's light fill. `unit` is the drawing's lettering, which sets how fine the marks go.
  */
-function FaceTexture({ poly, kind, label, unit }: { poly: Pt[]; kind: CladdingKind | "parging" | "ground"; label?: string; unit: number }) {
-  const marks = textureMarks(poly, kind === "ground" ? { texture: "ground" } : textureOf(kind, label), unit);
+function FaceTexture({ poly, kind, label, unit }: { poly: Pt[]; kind: CladdingKind | "parging" | "ground" | "shingles"; label?: string; unit: number }) {
+  // Shingles: their courses, 5" to the weather, seen square-on.
+  const marks = textureMarks(poly, kind === "ground" ? { texture: "ground" } : kind === "shingles" ? { texture: "lap", exposureFeet: 5 / 12 } : textureOf(kind, label), unit);
   const Y = (z: number) => -z;
   const ink = kind === "ground" ? "#a08a6c" : MARK;
   const stroke = { vectorEffect: "non-scaling-stroke" as const };
@@ -179,7 +181,20 @@ function sizeLabelLevels(openings: { opening: ExteriorOpening; rect: { x0: numbe
   return at;
 }
 
-function OpeningGlyph({ opening, rect, fs, seeThrough, labelZ }: { opening: ExteriorOpening; rect: { x0: number; x1: number; y0: number; y1: number }; fs: number; seeThrough: boolean; labelZ: number }) {
+function OpeningGlyph({
+  opening,
+  rect,
+  fs,
+  seeThrough,
+  labelZ,
+}: {
+  opening: Pick<ExteriorOpening, "kind"> & Partial<Pick<ExteriorOpening, "widthFeet" | "heightFeet">>;
+  rect: { x0: number; x1: number; y0: number; y1: number };
+  fs: number;
+  seeThrough: boolean;
+  /** Where its size is written; none, no size (the house's elevations: each side's has them). */
+  labelZ?: number;
+}) {
   const Y = (z: number) => -z;
   const stroke = { vectorEffect: "non-scaling-stroke" as const };
   const fillOpacity = seeThrough ? 0 : 1;
@@ -262,9 +277,11 @@ function OpeningGlyph({ opening, rect, fs, seeThrough, labelZ }: { opening: Exte
   return (
     <g pointerEvents="none">
       {parts}
-      <text x={(x0 + x1) / 2} y={Y(labelZ)} fontSize={fs * 0.75} textAnchor="middle" fill={INK} fontFamily={FONT}>
-        {formatOpeningSize(opening.widthFeet, opening.heightFeet)}
-      </text>
+      {labelZ !== undefined && opening.widthFeet !== undefined && opening.heightFeet !== undefined && (
+        <text x={(x0 + x1) / 2} y={Y(labelZ)} fontSize={fs * 0.75} textAnchor="middle" fill={INK} fontFamily={FONT}>
+          {formatOpeningSize(opening.widthFeet, opening.heightFeet)}
+        </text>
+      )}
     </g>
   );
 }
@@ -535,6 +552,120 @@ export function ElevationDrawing({
       </text>
       {overlay}
       {editor?.({ vx, vy, vw, vh, fontFeet: fs })}
+    </svg>
+  );
+}
+
+const ROOF_FILL = "#cdd2d8";
+const ROOF_FILL_SIDE = "#e1e4e8";
+/** A siding face the roof brings (a cross gable's front, a step between two parts of one roof). */
+const ROOF_SIDING = "#ece7dc";
+
+/** The lettering size a house elevation picks for itself, in feet: 3% of its larger dimension. */
+export function houseViewFontFeet(view: HouseView): number {
+  return Math.max(0.5, Math.max(view.maxX - view.minX, view.topY - view.groundY) * 0.03);
+}
+
+/**
+ * The whole house seen square-on from one compass point (2026-10-16): lib/exteriorViews.ts's pieces drawn
+ * back to front - each wall that faces the view with its cladding's marks, windows and doors as on its own
+ * elevation, the roof's slopes with their shingle courses, the fascia and the posts - standing on the
+ * ground as the nearest wall meets it. Under it the overall width; to its right the main levels, each
+ * above the lowest ground the view shows.
+ */
+export function HouseElevationDrawing({ view, fontFeet, size }: { view: HouseView; fontFeet?: number; size?: Size }) {
+  const fs = fontFeet ?? houseViewFontFeet(view);
+  const Y = (z: number) => -z;
+  const pts = (poly: Pt[]) => poly.map((p) => `${p.x},${Y(p.y)}`).join(" ");
+  const stroke = { vectorEffect: "non-scaling-stroke" as const };
+  const text = { fill: INK, fontFamily: FONT };
+  const ground = view.ground.length >= 2 ? view.ground : [{ x: view.minX, y: view.groundY }, { x: view.maxX, y: view.groundY }];
+  const levelsW = Math.max(0, ...view.levels.map((l) => textWidthEm(`${l.label} ${formatFeetInches(l.y - view.groundY)}`))) * fs * 0.8;
+  const vx = view.minX - fs * 2;
+  const vw = view.maxX + fs * 2.2 + levelsW - vx + fs;
+  const bottomY = view.groundY - fs * 4.6;
+  const vy = -(view.topY + fs * 1.5);
+  const vh = view.topY + fs * 1.5 - bottomY;
+  const g0 = ground[0] as Pt;
+  const gN = ground[ground.length - 1] as Pt;
+  // The ground stops short of the levels' column, so their words stand clear of it.
+  const line = [{ x: vx, y: g0.y }, ...ground, { x: view.maxX + fs * 0.6, y: gN.y }];
+  const earth = [...line, ...[...line].reverse().map((p) => ({ x: p.x, y: p.y - fs * 0.55 }))];
+  // The levels up the right, kept a line apart where two are close.
+  const levels: { label: string; y: number; at: number }[] = [];
+  for (const l of [{ label: "Ground", y: view.groundY }, ...view.levels]) {
+    const last = levels[levels.length - 1];
+    levels.push({ ...l, at: last ? Math.max(l.y, last.at + fs * 1.1) : l.y });
+  }
+  const width = view.maxX - view.minX;
+  const scaleFeet = width >= 30 ? 10 : 5;
+  const lx = view.maxX + fs * 0.8;
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox={`${vx} ${vy} ${vw} ${vh}`} width={size?.width} height={size?.height} role="img" aria-label={`${COMPASS_WORD[view.compass]} elevation of the house, to scale`}>
+      <rect x={vx} y={vy} width={vw} height={vh} fill="#ffffff" />
+      {view.pieces.map((p, i) => {
+        if (p.type === "post") {
+          return <rect key={`post-${i}`} x={p.x0} y={Y(p.y1)} width={p.x1 - p.x0} height={p.y1 - p.y0} fill="#ffffff" stroke="#374151" strokeWidth={0.9} {...stroke} />;
+        }
+        if (p.type === "roof" && p.kind === "edge") {
+          // A slope seen edge-on: the roof's profile, a line.
+          return <polyline key={`roof-${i}`} points={pts([...p.poly, p.poly[0] as Pt])} fill="none" stroke="#4b5563" strokeWidth={0.9} strokeLinejoin="round" {...stroke} />;
+        }
+        if (p.type === "roof") {
+          const fill = p.kind === "fascia" ? "#ffffff" : p.kind === "slope" ? (p.facing > 0.7 ? ROOF_FILL : ROOF_FILL_SIDE) : ROOF_SIDING;
+          return (
+            <g key={`roof-${i}`}>
+              <polygon points={pts(p.poly)} fill={fill} />
+              {p.kind === "slope" && <FaceTexture poly={p.poly} kind="shingles" unit={fs} />}
+              <polygon points={pts(p.poly)} fill="none" stroke="#4b5563" strokeWidth={p.kind === "fascia" ? 0.8 : 0.9} strokeLinejoin="round" {...stroke} />
+            </g>
+          );
+        }
+        return (
+          <g key={`wall-${p.id}-${i}`}>
+            <polygon points={pts(p.outline)} fill={p.background === "unclad" ? "#eef0f2" : FACE_FILL(p.background)} />
+            {p.background !== "unclad" && <FaceTexture poly={p.outline} kind={p.background} unit={fs} />}
+            {p.faces.map((f, k) =>
+              f.poly.length >= 3 ? (
+                <g key={k}>
+                  <polygon points={pts(f.poly)} fill={FACE_FILL(f.kind)} />
+                  <FaceTexture poly={f.poly} kind={f.kind} unit={fs} />
+                  <polygon points={pts(f.poly)} fill="none" stroke="#6b7280" strokeWidth={0.6} {...stroke} />
+                </g>
+              ) : null,
+            )}
+            {p.openings.map((o) => (
+              <OpeningGlyph key={o.id} opening={{ kind: o.kind }} rect={o} fs={fs} seeThrough={false} />
+            ))}
+            <polygon points={pts(p.outline)} fill="none" stroke="#374151" strokeWidth={1.1} strokeLinejoin="round" {...stroke} />
+          </g>
+        );
+      })}
+      {/* The ground in front, over the foot of all behind it: a post or a wall further back stands down into it. */}
+      <polygon points={pts([...line, { x: view.maxX + fs * 0.6, y: bottomY }, { x: vx, y: bottomY }])} fill="#f4efe6" />
+      <FaceTexture poly={earth} kind="ground" unit={fs} />
+      <polyline points={pts(line)} fill="none" stroke="#5b4630" strokeWidth={2} {...stroke} />
+      {/* The overall width under it. */}
+      <line x1={view.minX} x2={view.maxX} y1={Y(view.groundY - fs * 1.4)} y2={Y(view.groundY - fs * 1.4)} stroke="#374151" strokeWidth={1} {...stroke} />
+      <line x1={view.minX} x2={view.minX} y1={Y(view.groundY - fs * 0.9)} y2={Y(view.groundY - fs * 1.9)} stroke="#374151" strokeWidth={1} {...stroke} />
+      <line x1={view.maxX} x2={view.maxX} y1={Y(view.groundY - fs * 0.9)} y2={Y(view.groundY - fs * 1.9)} stroke="#374151" strokeWidth={1} {...stroke} />
+      <text x={(view.minX + view.maxX) / 2} y={Y(view.groundY - fs * 2.7)} fontSize={fs} textAnchor="middle" {...text}>
+        {formatFeetInches(width)} overall
+      </text>
+      {/* The main levels up the right, each above the lowest ground in the view. */}
+      {levels.map((l, k) => (
+        <g key={`level-${k}`}>
+          <line x1={view.maxX + fs * 0.15} x2={lx + fs * 0.5} y1={Y(l.y)} y2={Y(l.y)} stroke="#6b7280" strokeWidth={0.8} strokeDasharray="3 2" {...stroke} />
+          <polygon points={pts([{ x: lx + fs * 0.5, y: l.y }, { x: lx + fs * 0.85, y: l.y + fs * 0.35 }, { x: lx + fs * 0.15, y: l.y + fs * 0.35 }])} fill="#374151" />
+          <text x={lx + fs * 1.1} y={Y(l.at) - fs * 0.12} fontSize={fs * 0.8} {...text}>
+            {k === 0 ? "Ground" : `${l.label} ${formatFeetInches(l.y - view.groundY)}`}
+          </text>
+        </g>
+      ))}
+      <line x1={vx + fs} x2={vx + fs + scaleFeet} y1={Y(bottomY + fs * 0.55)} y2={Y(bottomY + fs * 0.55)} stroke={INK} strokeWidth={2} {...stroke} />
+      <text x={vx + fs + scaleFeet / 2} y={Y(bottomY + fs * 0.95)} fontSize={fs * 0.7} textAnchor="middle" {...text}>
+        {scaleFeet}&prime;
+      </text>
     </svg>
   );
 }
