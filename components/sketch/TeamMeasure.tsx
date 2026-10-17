@@ -221,7 +221,7 @@ export function SendToTeam({ exterior, readOnly, apply }: { exterior: Exterior; 
   return (
     <div className={styles.form}>
       <p>
-        The Scrivn team measures {the} from these {photoIds.length} photo{photoIds.length === 1 ? "" : "s"} and the tapes, and puts it back here for you to use. Our staff see this claim&rsquo;s
+        The Scrivn team measures {the} from these {photoIds.length} photo{photoIds.length === 1 ? "" : "s"} and any tapes, and puts it back here for you to use. Our staff see this claim&rsquo;s
         exterior photos, tapes and note, nothing else.
       </p>
       <label>

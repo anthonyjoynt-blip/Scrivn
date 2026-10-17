@@ -11,6 +11,9 @@
   background: #ecfeff;
   font-size: 0.9rem;
   line-height: 1.45;
+  /* A line of its own beside the Measure button (a flex row there); nothing to a block. */
+  flex: 1 1 100%;
+  box-sizing: border-box;
 }
 
 .ready {
@@ -36,6 +39,8 @@
   border-radius: 8px;
   padding: 0.75rem 1rem;
   background: var(--surface-muted, #fafaf9);
+  flex: 1 1 100%;
+  box-sizing: border-box;
 }
 
 .form p {

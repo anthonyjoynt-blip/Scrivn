@@ -22,6 +22,7 @@ import { claimPhotoUrl, useExteriorPhotos } from "./exteriorPhotoAccess";
 import { useExteriorSubject } from "./exteriorSubject";
 import styles from "./PhotoRoute.module.css";
 import { squaredWallPhoto } from "./SidePhotos";
+import { SendToTeam } from "./TeamMeasure";
 
 /**
  * Measuring the outside of the house from photos (2026-10-16): the pane over lib/photoRoute.ts. One
@@ -452,9 +453,13 @@ export function PhotoRoutePane({ exterior, readOnly, onChange }: { exterior: Ext
       <section>
         <h3>4. Measure</h3>
         {!readOnly && (
-          <button type="button" className="btn-primary" disabled={!ready || busy !== null} onClick={() => void measure(false)}>
-            {measured ? "Measure again" : `Measure ${the}`}
-          </button>
+          <div className={styles.row}>
+            <button type="button" className="btn-primary" disabled={!ready || busy !== null} onClick={() => void measure(false)}>
+              {measured ? "Measure again" : `Measure ${the}`}
+            </button>
+            {/* Or the Scrivn team measures it from these photos and tapes (2026-10-17, lib/exteriorRequests.ts). */}
+            <SendToTeam exterior={exterior} readOnly={readOnly} apply={(f) => onChange((e) => f(e))} />
+          </div>
         )}
         {!ready && <p className="field-note">Measuring needs the shape drawn and two photos at least with two corners each.</p>}
         {busy && <p className="field-note">{busy}</p>}
