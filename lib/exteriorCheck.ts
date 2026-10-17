@@ -134,7 +134,9 @@ export function withChecksClosed(exterior: Exterior, keys: string[]): Exterior {
 
 /** The report's "To check": what was assumed and not answered, closed or not. */
 export function checkNotes(exterior: Exterior, q: ExteriorQuantities): string[] {
-  return exteriorChecks(exterior, q).map((r) => {
+  // A roof cut at a party line over a shared wall (2026-10-17): its firewall cap and flashing are not measured.
+  const party = (q.roof?.lines ?? []).some((l) => l.kind === "party") ? ["Check the firewall cap and flashing at the party line."] : [];
+  return [...party, ...exteriorChecks(exterior, q).map((r) => {
     if (r.kind === "drop") {
       return r.garage
         ? `The garage's eave is drawn ${formatFeetInches(r.feet)} under the house's: assumed, as nothing measured it. Measure how much lower it is.`
@@ -145,5 +147,5 @@ export function checkNotes(exterior: Exterior, q: ExteriorQuantities): string[] 
     const what = OPENING_LABEL[o.kind].toLowerCase();
     const said = r.why === "hidden" ? `read off a photo that hid part of it (${o.hiddenBy})` : `${formatFeetInches(aboveGround(side, o))} up off the ground with no step or deck seen at its foot`;
     return `${sideName(side)}: a ${what} ${formatOpeningSize(o.widthFeet, o.heightFeet)}, ${said}. Check it is a ${what}.`;
-  });
+  })];
 }
