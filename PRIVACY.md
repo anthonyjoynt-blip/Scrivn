@@ -17,7 +17,8 @@ deleting an account and the sign-up guards added 2026-10-14 (paste the Scrivn Sc
 Deleting your account, and Security sections into TermsFeed again). Site photos with spoken captions
 added 2026-10-14 (paste Information about your customers, AI processing, Dictation, Photos and
 location, Working without a connection, and Keeping and deleting claim data again). Roof reports read
-by AI added 2026-10-15 (paste the AI processing section again).
+by AI added 2026-10-15 (paste the AI processing section again). Exteriors measured from photos added
+2026-10-16 (paste AI processing, and Photos and location, again).
 
 ## Generator answers (Canada, October 2026)
 
@@ -49,7 +50,7 @@ Scrivn is used by restoration companies to document property-damage claims. When
 
 **AI processing**
 
-To turn a walkthrough into a scope document and inspection report, Scrivn sends the claim's text (the dictation, the captions of its site photos with each photo's room and time, claim details and answers to follow-up questions) to Anthropic, PBC, which provides the Claude AI model. The site photos themselves are not sent. When a user chooses AI trace on a side of the house in the exterior sketch, or Finish exterior in Scrivn Scan, Scrivn also sends Anthropic that side's photo from Scrivn Scan, squared up to the wall, so that Claude can trace the wall's cladding, windows and doors and read its roof (pitch, overhangs, gable or hip) for the user to confirm; Scrivn does not store the squared photo sent from the phone. When a user chooses Photo beside a reading in the drying log, Scrivn sends Anthropic that photo of the meter's screen, reduced in size, so that Claude can read the number for the user to check; Scrivn does not store that photo. When a user uploads a roof measurement report (a PDF, which may include the property's address and aerial images of it) on the exterior sketch, Scrivn sends Anthropic that PDF so that Claude can read the roof's measurements for the user to check and accept; Scrivn keeps the numbers read, with the report's maker, date, address and file name, but does not store the PDF. Anthropic processes this information only to return the result and, under its commercial terms, does not use it to train its models. No other photos or files are sent for AI processing.
+To turn a walkthrough into a scope document and inspection report, Scrivn sends the claim's text (the dictation, the captions of its site photos with each photo's room and time, claim details and answers to follow-up questions) to Anthropic, PBC, which provides the Claude AI model. The site photos themselves are not sent. When a user chooses AI trace on a side of the house in the exterior sketch, or Finish exterior in Scrivn Scan, Scrivn also sends Anthropic that side's photo, squared up to the wall (a photo from Scrivn Scan, or one of the claim's site photos when the outside of the house was measured from photos), so that Claude can trace the wall's cladding, windows and doors and read its roof (pitch, overhangs, gable or hip) for the user to confirm; Scrivn does not store the squared photo sent from the phone. When a user chooses Photo beside a reading in the drying log, Scrivn sends Anthropic that photo of the meter's screen, reduced in size, so that Claude can read the number for the user to check; Scrivn does not store that photo. When a user uploads a roof measurement report (a PDF, which may include the property's address and aerial images of it) on the exterior sketch, Scrivn sends Anthropic that PDF so that Claude can read the roof's measurements for the user to check and accept; Scrivn keeps the numbers read, with the report's maker, date, address and file name, but does not store the PDF. Anthropic processes this information only to return the result and, under its commercial terms, does not use it to train its models. No other photos or files are sent for AI processing.
 
 **Dictation**
 
@@ -57,7 +58,7 @@ When you use the Dictate button, or speak a caption after taking a photo in Scri
 
 **Photos and location**
 
-Scrivn keeps no location (GPS) information from photos. Each photo taken or added in Scrivn is redrawn at a smaller size on your device before it is stored, which leaves out the location and the other details a camera writes into a photo file. When you add a photo from your phone's gallery, Scrivn reads only the date and time it was taken, to file it in order.
+Scrivn keeps no location (GPS) information from photos. Each photo taken or added in Scrivn is redrawn at a smaller size on your device before it is stored, which leaves out the location and the other details a camera writes into a photo file. When you add a photo from your phone's gallery, Scrivn reads only the date and time it was taken, to file it in order, and, for photos used to measure the outside of a house, the camera lens's focal length, to measure from them.
 
 **Scrivn Scan**
 
@@ -141,7 +142,11 @@ To protect accounts and limit abuse, Scrivn counts attempts to create an account
   by the server (`lib/claimPhotos.ts`), readable by the organization's members; records (room, time,
   caption) ride in the claim (`lib/photos.ts`). Captions use the same browser speech recognition as
   Dictate (`lib/useDictation.ts`). A gallery photo's taken time is read from its EXIF
-  `DateTimeOriginal`/`OffsetTimeOriginal` and nothing else (`lib/exifTime.ts`). Deleting a claim removes its `claim-photos` folder and its scans'
+  `DateTimeOriginal`/`OffsetTimeOriginal` and nothing else (`lib/exifTime.ts`). Since 2026-10-16 a photo
+  added to measure the outside of a house (From photos, `components/sketch/PhotoRoute.tsx`) also has its
+  EXIF `FocalLengthIn35mmFilm` read, nothing more (`lib/photoRouteExif.ts`); those photos are claim photos
+  (`SidePhoto.claimPhotoId`), and AI trace can send one, squared, to `/api/exterior/trace` (refused unless
+  `SCRIVN_EXTERIOR_READS=on`, `lib/traceCall.ts`). Deleting a claim removes its `claim-photos` folder and its scans'
   `scan-photos` folders (`removeClaimFolders`; the scan photos were left behind before this). Photos
   waiting to upload are the `photoFiles` store in IndexedDB (`lib/devicePhotos.ts`), not swept on
   sign-out.
