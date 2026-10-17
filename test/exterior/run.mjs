@@ -4887,7 +4887,7 @@ test("his house off photos, nothing pressed: the deck under the roof, the house'
     ends[named("West gable")] === "gable" && ends[named("East side")] === "gable" && ends[named("Garage front, west")] === "hip" && ends[named("Garage front, east")] === "gable" && ends[named("Rear bump-out")] === "gable",
     JSON.stringify(plan.ends),
   );
-  assert(!(named("Rear wall") in ends), "no end, and no hip, over the French-door wall");
+  assert(!(named("Rear wall") in ends), "no end, and no hip, over the rear wall");
   near(plan.ends.find((en) => en.sideId === named("East side")).share, 38.3 / 70.57, "the house's gable over half the east wall", 0.01);
   // The garage is not proposed lower (2026-10-16): its walls meet the house's only where the keystone wall meets the front wall,
   // and that wall's heights are from the porch deck - it reads the garage 9" HIGHER. The house's rear walls read 15'11" from the

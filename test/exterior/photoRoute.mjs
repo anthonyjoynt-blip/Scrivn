@@ -85,7 +85,7 @@ const README = [
   ["East side wall (side yard)", 70 + 7 / 12, "6%"],
   ["Rear bump-out gable", 22 + 2 / 12, "tape"],
   ["Bump-out west side", 5.5, "5%"],
-  ["Rear wall (French doors)", 15.25, "2%"],
+  ["Rear wall", 15.25, "2%"],
   ["Covered-deck side", 9 + 1 / 12, "12%"],
   ["Covered-deck back wall", 11 + 5 / 12, "3%"],
   ["West gable wall", 29 + 2 / 12, "11%"],
