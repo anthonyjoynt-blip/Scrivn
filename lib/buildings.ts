@@ -69,6 +69,43 @@ export function asBuilding(exterior: Exterior, name: string, id: string = newSke
   return { ...exterior, id, name: name.trim() || "Building" };
 }
 
+/** A change to one exterior, from the exterior as it is now; undefined removes it. */
+export type ExteriorChange = (prev: Exterior | undefined) => Exterior | undefined;
+
+/**
+ * The sketch with the house's exterior changed: the editor's updater for the house (SketchEditor), kept here so
+ * "Use it" on a house the Scrivn team measured (lib/exteriorRequests.ts) goes through the same code. Nothing
+ * changed, the same sketch back.
+ */
+export function withHouseChange(sketch: Sketch, update: ExteriorChange): Sketch {
+  const next = update(sketch.exterior);
+  if (next === sketch.exterior) return sketch;
+  const out: Sketch = { ...sketch, exterior: next };
+  if (next === undefined) delete out.exterior;
+  return out;
+}
+
+/** The sketch with its list of other buildings changed (SketchEditor): an empty list is no list, as before buildings. */
+export function withBuildingsChange(sketch: Sketch, update: (list: Exterior[]) => Exterior[]): Sketch {
+  const list = sketch.buildings ?? [];
+  const next = update(list);
+  if (next === list) return sketch;
+  const out: Sketch = { ...sketch, buildings: next };
+  if (next.length === 0) delete out.buildings;
+  return out;
+}
+
+/** One building changed on the list (ExteriorSite): it keeps its id and name whatever comes back, and is gone when its exterior is. */
+export function withBuildingChange(list: Exterior[], id: string, update: ExteriorChange): Exterior[] {
+  const at = list.findIndex((b) => b.id === id);
+  const prev = list[at];
+  if (!prev) return list;
+  const next = update(prev);
+  if (next === prev) return list;
+  if (next === undefined) return list.filter((b) => b.id !== id);
+  return list.map((b, i) => (i === at ? { ...next, id: prev.id, name: prev.name } : b));
+}
+
 /** Whether there is anything on the outside of the claim at all: the house's exterior, or any building. */
 export function hasAnyExterior(sketch: Pick<Sketch, "exterior" | "buildings">): boolean {
   return !!sketch.exterior || buildingsOf(sketch).length > 0;

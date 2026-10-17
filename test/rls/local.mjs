@@ -486,6 +486,86 @@ console.log("\n  Claim photos");
   check(stray.error === null && (await visible(ada)).length === 2, "a picture in a folder that is no organization is nobody's");
 }
 
+/* ── Exterior requests (0016): Send to Scrivn team ────────────────────────────────────────────── */
+
+console.log("\n  Exterior requests");
+{
+  // Ada owns Acme by now; Mel was removed and Owen left (above). Rae joins Acme for this.
+  const rae = await s.createUser({ email: "rae@acme.test", fullName: "Rae Roofer" });
+  check((await accept(rae, (await invite(ada, "rae@acme.test")).token)).error === null, "Rae joins Acme");
+  const acmeClaim = await newClaim(ada, acme, "exterior-claim");
+  const xanClaim = await newClaim(xan, other, "xan-exterior");
+  const route = { format: "scrivn-photo-route/1", photos: [{ id: "p1", width: 2000, height: 1500 }], buildings: [{ id: "main", outline: [], corners: [], tapes: [] }] };
+  /** An insert as the browser would send it: only the columns it names. */
+  const file = (asUser, cols, opts) =>
+    s.as(
+      asUser,
+      `insert into public.exterior_requests (${Object.keys(cols).join(", ")}) values (${Object.keys(cols).map((_, i) => `$${i + 1}`).join(", ")}) returning id, user_id, status, organization_id`,
+      Object.values(cols).map((v) => (v && typeof v === "object" && !Array.isArray(v) ? JSON.stringify(v) : v)),
+      opts,
+    );
+  const inputs = (claimId, orgId, extra = {}) => ({ claim_id: claimId, organization_id: orgId, building: "house", photo_ids: ["p1"], route, note: "Side yard is tight", ...extra });
+
+  const sent = await file(rae, inputs(acmeClaim, acme));
+  const req = rows(sent)[0];
+  check(sent.error === null && req?.user_id === rae && req?.status === "sent" && req?.organization_id === acme, `a member sends a house of her organization's claim, as herself, as sent (got ${sent.error?.message ?? JSON.stringify(req)})`);
+  const shed = await file(rae, inputs(acmeClaim, acme, { building: "building-mq1x-3", building_name: "Shed" }));
+  check(shed.error === null, "and another building on it");
+
+  refusedWith(await file(rae, inputs(acmeClaim, acme, { user_id: ada }), { rollback: true }), "42501", "she cannot send one in someone else's name (column not granted)");
+  refusedWith(await file(rae, inputs(acmeClaim, acme, { status: "ready" }), { rollback: true }), "42501", "nor send one already ready");
+  refusedWith(await file(rae, inputs(acmeClaim, acme, { result: { sides: [] } }), { rollback: true }), "42501", "nor plant a result");
+  check((await file(rae, inputs(xanClaim, acme), { rollback: true })).error !== null, "nor file another organization's claim under her own");
+  check((await file(xan, inputs(acmeClaim, acme), { rollback: true })).error !== null, "Xan cannot send Acme's claim, naming Acme");
+  check((await file(xan, inputs(acmeClaim, other), { rollback: true })).error !== null, "nor naming his own organization");
+  check((await file(null, inputs(acmeClaim, acme), { rollback: true })).error !== null, "nor can the anon key send one");
+
+  const read = async (asUser) => rows(await s.as(asUser, `select id from public.exterior_requests`)).map((r) => r.id);
+  check((await read(ada)).includes(req.id) && (await read(rae)).length === 2, "Acme's members read Acme's requests, whoever sent them");
+  check((await read(xan)).length === 0, "another organization reads none of them");
+  check(rows(await s.as(xan, `select id from public.exterior_requests where id = $1`, [req.id])).length === 0, "not even by naming one");
+  check((await read(mel)).length === 0, "a member who was removed reads none");
+  check((await read(null)).length === 0, "nor does the anon key");
+
+  refusedWith(await s.as(rae, `update public.exterior_requests set status = 'ready' where id = $1`, [req.id], { rollback: true }), "42501", "a member cannot set a status herself");
+  refusedWith(await s.as(rae, `update public.exterior_requests set result = '{}'::jsonb where id = $1`, [req.id], { rollback: true }), "42501", "nor write a result");
+  refusedWith(await s.as(rae, `delete from public.exterior_requests where id = $1`, [req.id], { rollback: true }), "42501", "nor delete a request");
+
+  const withdraw = (asUser, id) => s.as(asUser, `select public.exterior_request_withdraw($1) as ok`, [id]);
+  const applied = (asUser, id) => s.as(asUser, `select public.exterior_request_applied($1) as ok`, [id]);
+  const statusOf = async (id) => (await s.sql(`select status, result, withdrawn_at, applied_at from public.exterior_requests where id = $1`, [id]))[0];
+
+  check(rows(await withdraw(xan, req.id))[0]?.ok === false && (await statusOf(req.id)).status === "sent", "Xan cannot withdraw Acme's request (false, unchanged)");
+  check(rows(await applied(rae, req.id))[0]?.ok === false, "a request not measured yet cannot be marked used");
+  refusedWith(await withdraw(null, req.id), "42501", "the anon key cannot call withdraw");
+  refusedWith(await applied(null, req.id), "42501", "nor applied");
+
+  // Ours: the scripts, with the service role.
+  const result = { sides: [{ id: "s1", name: "Front", lengthFeet: 30 }], roof: {} };
+  check((await s.service(`update public.exterior_requests set status = 'measuring', measuring_at = now() where id = $1`, [req.id])).error === null, "the service role marks it measuring");
+  check(
+    (await s.service(`update public.exterior_requests set status = 'ready', ready_at = now(), result = $2 where id = $1`, [req.id, JSON.stringify(result)])).error === null &&
+      (await statusOf(req.id)).result?.sides?.[0]?.lengthFeet === 30,
+    "and returns the measured exterior as ready",
+  );
+  check(rows(await s.as(ada, `select status, result from public.exterior_requests where id = $1`, [req.id]))[0]?.status === "ready", "which the organization reads");
+  check(rows(await applied(xan, req.id))[0]?.ok === false && (await statusOf(req.id)).status === "ready", "Xan cannot mark it used");
+  check(rows(await applied(rae, req.id))[0]?.ok === true && (await statusOf(req.id)).status === "applied" && (await statusOf(req.id)).applied_at !== null, "Rae marks it used after Use it");
+  check(rows(await withdraw(rae, req.id))[0]?.ok === false && (await statusOf(req.id)).status === "applied", "a used one cannot be withdrawn after");
+  check(rows(await applied(rae, req.id))[0]?.ok === false, "nor marked used twice");
+
+  const shedId = rows(shed)[0].id;
+  check(rows(await withdraw(ada, shedId))[0]?.ok === true && (await statusOf(shedId)).status === "withdrawn" && (await statusOf(shedId)).withdrawn_at !== null, "any member withdraws one still waiting");
+  check(rows(await withdraw(ada, shedId))[0]?.ok === false, "once");
+  check((await s.service(`update public.exterior_requests set status = 'lost' where id = $1`, [shedId])).error !== null, "a status that is none of the five is refused, even to the service role");
+  check((await file(rae, inputs(acmeClaim, acme, { note: "x".repeat(2001) }), { rollback: true })).error !== null, "a note over 2,000 characters is refused");
+  check((await file(rae, inputs(acmeClaim, acme, { photo_ids: [] }), { rollback: true })).error !== null, "and a request with no photos");
+
+  const doomed = await newClaim(ada, acme, "exterior-doomed");
+  const gone = rows(await file(rae, inputs(doomed, acme)))[0]?.id;
+  check(rows(await s.as(ada, `delete from public.claims where id = $1 returning id`, [doomed])).length === 1 && (await s.sql(`select 1 from public.exterior_requests where id = $1`, [gone])).length === 0, "deleting a claim deletes its requests");
+}
+
 /* ── Who can call what ────────────────────────────────────────────────────────────────────────── */
 
 console.log("\n  Function grants");
@@ -506,6 +586,9 @@ const privileged = [
   ["org_count_claim(uuid, boolean)", false, false],
   ["mirror_profile_billing()", false, false],
   ["claims_keep_creator()", false, false],
+  ["exterior_request_withdraw(uuid)", false, true],
+  ["exterior_request_applied(uuid)", false, true],
+  ["exterior_requests_touch()", false, false],
 ];
 for (const [fn, anon, authed] of privileged) {
   const r = (await s.sql(`select has_function_privilege('anon', 'public.${fn}', 'execute') as a, has_function_privilege('authenticated', 'public.${fn}', 'execute') as b`))[0];

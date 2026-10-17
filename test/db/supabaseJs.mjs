@@ -5,10 +5,10 @@
  *   const admin = supabaseJs(local, { role: "service_role" });
  *   const user = supabaseJs(local, { userId, email });
  *
- * Covers from(table) with select (plain columns, and a to-one embed such as
- * `organizations (subscription_tier)` through its `organization_id`), update, insert, delete, eq,
- * neq, is, limit, maybeSingle and single; rpc() with named arguments; auth.getClaims() and
- * auth.admin.getUserById(). Errors come back as `{ data: null, error: { code, message } }`, as
+ * Covers from(table) with select (plain columns, a JSON path under a name such as
+ * `photos:payload->photos`, and a to-one embed such as `organizations (subscription_tier)` through
+ * its `organization_id`), update, insert, delete, eq, neq, in, is, order, limit, maybeSingle and
+ * single; rpc() with named arguments; auth.getClaims(), auth.getUser() and auth.admin.getUserById(). Errors come back as `{ data: null, error: { code, message } }`, as
  * supabase-js reports Postgres's own codes, so `isBillingSchemaMissing` reads them the same way.
  * Anything else throws, so a route that starts needing more fails loudly rather than passing.
  */
@@ -18,7 +18,8 @@ const ident = (name) => {
   if (!IDENT.test(name)) throw new Error(`supabaseJs: unsupported identifier ${JSON.stringify(name)}`);
   return `"${name}"`;
 };
-const value = (v) => (v !== null && typeof v === "object" && !(v instanceof Date) ? JSON.stringify(v) : v);
+/** As PostgREST takes a value: an object as JSON (jsonb); a list of plain values as a Postgres array (text[]). */
+const value = (v) => (Array.isArray(v) && v.every((x) => typeof x === "string" || typeof x === "number") ? v : v !== null && typeof v === "object" && !(v instanceof Date) ? JSON.stringify(v) : v);
 const asError = (err) => ({ code: err?.code ?? "", message: err?.message ?? String(err) });
 
 /** Splits a select list on its top-level commas: `a, b, organizations (c, d)` → three items. */
@@ -37,7 +38,11 @@ function selectItems(columns) {
   if (current.trim()) items.push(current.trim());
   return items.map((item) => {
     const embed = /^([a-z_]+)\s*\((.*)\)$/s.exec(item);
-    return embed ? { embed: embed[1], columns: embed[2] } : { column: item };
+    if (embed) return { embed: embed[1], columns: embed[2] };
+    // `photos:payload->photos`: a JSON path, named.
+    const path = /^([a-z_]+)\s*:\s*([a-z_]+)((?:->[a-z_]+)+)$/.exec(item);
+    if (path) return { column: item, sql: `${ident(path[2])}${path[3].split("->").slice(1).map((k) => `->'${k}'`).join("")} as ${ident(path[1])}` };
+    return { column: item };
   });
 }
 
@@ -51,7 +56,7 @@ class Query {
     this.filters = [];
     this.limitTo = null;
     this.returning = null;
-    this.single = null;
+    this.one = null;
   }
 
   select(columns = "*", options = {}) {
@@ -85,6 +90,18 @@ class Query {
     this.filters.push({ column, op: "<>", v });
     return this;
   }
+  in(column, list) {
+    this.filters.push({ column, op: "in", v: list });
+    return this;
+  }
+  order(column, { ascending = true } = {}) {
+    (this.orders ??= []).push(`${ident(column)} ${ascending ? "asc" : "desc"}`);
+    return this;
+  }
+  single() {
+    this.one = "one";
+    return this;
+  }
   is(column, v) {
     if (v !== null) throw new Error("supabaseJs: is() supports null only");
     this.filters.push({ column, op: "is null" });
@@ -95,7 +112,7 @@ class Query {
     return this;
   }
   maybeSingle() {
-    this.single = "maybe";
+    this.one = "maybe";
     return this;
   }
   then(resolve, reject) {
@@ -109,6 +126,10 @@ class Query {
       this.filters
         .map((f) => {
           if (f.op === "is null") return `${ident(f.column)} is null`;
+          if (f.op === "in") {
+            params.push(f.v);
+            return `${ident(f.column)} = any($${params.length})`;
+          }
           params.push(value(f.v));
           return `${ident(f.column)} ${f.op} $${params.length}`;
         })
@@ -124,10 +145,10 @@ class Query {
     if (this.op === "select") {
       const items = selectItems(this.columns);
       embeds = items.filter((i) => i.embed);
-      const plain = items.filter((i) => i.column).map((i) => (i.column === "*" ? "*" : ident(i.column)));
+      const plain = items.filter((i) => i.column).map((i) => (i.sql ?? (i.column === "*" ? "*" : ident(i.column))));
       // The embed is found through the row's `<name>_id`, so fetch that too.
       for (const e of embeds) plain.push(ident(`${e.embed.replace(/s$/, "")}_id`));
-      sql = `select ${[...new Set(plain)].join(", ")} from ${table}${this.where(params)}${this.limitTo ? ` limit ${Number(this.limitTo)}` : ""}`;
+      sql = `select ${[...new Set(plain)].join(", ")} from ${table}${this.where(params)}${this.orders ? ` order by ${this.orders.join(", ")}` : ""}${this.limitTo ? ` limit ${Number(this.limitTo)}` : ""}`;
     } else if (this.op === "update") {
       const sets = Object.entries(this.values).map(([k, v]) => {
         params.push(value(v));
@@ -138,7 +159,8 @@ class Query {
       const rows = Array.isArray(this.values) ? this.values : [this.values];
       const keys = Object.keys(rows[0]);
       const tuples = rows.map((r) => `(${keys.map((k) => (params.push(value(r[k])), `$${params.length}`)).join(", ")})`);
-      sql = `insert into ${table} (${keys.map(ident).join(", ")}) values ${tuples.join(", ")}${this.returning ? " returning *" : ""}`;
+      const returning = !this.returning ? "" : this.returning === "*" ? " returning *" : ` returning ${selectItems(this.returning).map((i) => ident(i.column)).join(", ")}`;
+      sql = `insert into ${table} (${keys.map(ident).join(", ")}) values ${tuples.join(", ")}${returning}`;
     } else if (this.op === "delete") {
       sql = `delete from ${table}${this.where(params)}`;
     } else throw new Error("supabaseJs: no operation");
@@ -158,9 +180,13 @@ class Query {
       rows = out;
     }
     if (this.op !== "select" && !this.returning) return { data: null, error: null };
-    if (this.single === "maybe") {
+    if (this.one === "maybe") {
       if (rows.length > 1) return { data: null, error: { code: "PGRST116", message: "more than one row" } };
       return { data: rows[0] ?? null, error: null };
+    }
+    if (this.one === "one") {
+      if (rows.length !== 1) return { data: null, error: { code: "PGRST116", message: `${rows.length} rows` } };
+      return { data: rows[0], error: null };
     }
     return { data: rows, error: null };
   }
@@ -193,6 +219,9 @@ export function supabaseJs(local, { userId = null, email = null, role = null } =
     auth: {
       async getClaims() {
         return { data: userId ? { claims: { sub: userId, email } } : null, error: null };
+      },
+      async getUser() {
+        return userId ? { data: { user: { id: userId, email } }, error: null } : { data: { user: null }, error: { message: "Auth session missing!" } };
       },
       admin: {
         async getUserById(id) {

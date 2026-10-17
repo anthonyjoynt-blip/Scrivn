@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { asBuilding, BUILDING_NAMES, buildingName, buildingScopeLines, HOUSE_NAME, uniqueName } from "@/lib/buildings";
+import { asBuilding, BUILDING_NAMES, buildingName, buildingScopeLines, HOUSE_NAME, uniqueName, withBuildingChange } from "@/lib/buildings";
 import {
   allSides,
   emptyScope,
@@ -18,6 +18,7 @@ import {
 } from "@/lib/exterior";
 import { roofWithoutSides, withSideAfter } from "@/lib/exteriorPlan";
 import { isOldTapeNote, scaleFlags, sizesLine } from "@/lib/exteriorScale";
+import { buildingKeyOf } from "@/lib/exteriorRequests";
 import { newSketchId } from "@/lib/sketch";
 import type { SideTrace } from "@/lib/exteriorTrace";
 import { lf, sf } from "./exteriorFields";
@@ -27,6 +28,7 @@ import { QuickBoxStart } from "./QuickBox";
 import { ExteriorSubjectContext, useExteriorSubject } from "./exteriorSubject";
 import { setSidePhotoClaim, useExteriorPhotos } from "./exteriorPhotoAccess";
 import { SidePane } from "./ExteriorSide";
+import { type ApplyTeam, TeamMeasureStatus } from "./TeamMeasure";
 import type { PhotoOpacity } from "./SidePhotos";
 
 /**
@@ -95,15 +97,7 @@ export function ExteriorSite({
   const updateBuilding =
     (id: string): ExteriorUpdate =>
     (update) =>
-      onBuildings((list) => {
-        const at = list.findIndex((b) => b.id === id);
-        const prev = list[at];
-        if (!prev) return list;
-        const next = update(prev);
-        if (next === prev) return list;
-        if (next === undefined) return list.filter((b) => b.id !== id);
-        return list.map((b, i) => (i === at ? { ...next, id: prev.id, name: prev.name } : b));
-      });
+      onBuildings((list) => withBuildingChange(list, id, update));
 
   return (
     <div className="exterior-site">
@@ -279,9 +273,14 @@ export function ExteriorEditor({
     if (top < 0) window.scrollBy({ top: top - 8 });
   }, [view]);
 
+  // Send to Scrivn team (2026-10-17): while this house or building is with us, one line saying so, on every tab.
+  const applyTeam: ApplyTeam = (f) => onChange((prev) => f(prev));
+  const team = <TeamMeasureStatus exterior={exterior} building={buildingKeyOf(exterior)} readOnly={readOnly} apply={applyTeam} onUsed={() => setView("plan")} />;
+
   if (!exterior || !q) {
     return (
       <div className="exterior" ref={root}>
+        {team}
         <PhotoRouteStart
           readOnly={readOnly}
           onStart={(next) => {
@@ -336,6 +335,7 @@ export function ExteriorEditor({
 
   return (
     <div className="exterior" ref={root}>
+      {team}
       <div className="exterior-strip">
         <div className="option-group exterior-strip-tabs" role="group" aria-label="The plan, and each side of the house in order round it">
           {exterior.photoRoute && (
