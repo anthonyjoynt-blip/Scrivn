@@ -1,7 +1,9 @@
 "use client";
 
-import { type PointerEvent as ReactPointerEvent, useEffect, useRef, useState } from "react";
-import { defaultRoof, type Exterior } from "@/lib/exterior";
+import { type PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState } from "react";
+import { defaultRoof, type Exterior, type ExteriorOpening, type ExteriorOpeningKind, type ExteriorSide, exteriorQuantities, OPENING_LABEL, openingRect } from "@/lib/exterior";
+import { type CheckRow, openChecks, withCheckDrop, withChecksClosed, withOpeningKind } from "@/lib/exteriorCheck";
+import { frameX, frameY } from "@/lib/exteriorPhoto";
 import { exifTakenAt } from "@/lib/exifTime";
 import { onDeviceChange } from "@/lib/deviceClaims";
 import { keepPhotoFile, sendWaitingPhotos } from "@/lib/devicePhotos";
@@ -14,8 +16,10 @@ import { exteriorFromRoute, measuredFrom } from "@/lib/photoRouteExterior";
 import type { Pt } from "@/lib/roof";
 import { formatFeetInches, parseFeetInches } from "@/lib/sketch";
 import { FootprintDraw } from "./ExteriorPlan";
+import { Choice, FeetField } from "./exteriorFields";
 import { claimPhotoUrl, useExteriorPhotos } from "./exteriorPhotoAccess";
 import styles from "./PhotoRoute.module.css";
+import { squaredWallPhoto } from "./SidePhotos";
 
 /**
  * Measuring the outside of the house from photos (2026-10-16): the pane over lib/photoRoute.ts. One
@@ -27,7 +31,8 @@ import styles from "./PhotoRoute.module.css";
  *   3. on each photo, a tap on each corner of the house where it meets the ground. The first one asks
  *      which corner it is, on the shape; the app numbers the rest when it measures;
  *   4. tapes: a line on a photo across what was taped (a garage door, a window), or a wall's length;
- *   5. Measure: the sides, each with its ±, and which want a tape and why.
+ *   5. Measure: the sides, each with its ±, and which want a tape and why; then "Check these", only
+ *      what a photo couldn't settle (lib/exteriorCheck.ts), one tap each.
  *
  * Nothing waits on anything: a photo with one corner, a side never seen, no tape at all - it measures
  * what it can and says plainly what would make it better.
@@ -418,6 +423,7 @@ export function PhotoRoutePane({ exterior, readOnly, onChange }: { exterior: Ext
         {busy && <p className="field-note">{busy}</p>}
         {error && <p className="sketch-length-error">{error}</p>}
         {measured && <Results exterior={exterior} route={route} />}
+        {measured && <CheckThese exterior={exterior} readOnly={readOnly} onChange={onChange} />}
       </section>
     </div>
   );
@@ -482,6 +488,114 @@ function Results({ exterior, route }: { exterior: Exterior; route: PhotoRouteSta
       )}
     </div>
   );
+}
+
+const KIND_OPTIONS = (Object.keys(OPENING_LABEL) as ExteriorOpeningKind[]).map((k): [ExteriorOpeningKind, string] => [k, OPENING_LABEL[k]]);
+
+/**
+ * "Check these" (2026-10-16, lib/exteriorCheck.ts): only what a photo couldn't settle - an opening it hid
+ * part of, a door up off the ground with nothing at its foot, a lower roof's assumed drop. One tap each;
+ * "Looks right" closes it and whatever was not answered stays as read.
+ */
+function CheckThese({ exterior, readOnly, onChange }: { exterior: Exterior; readOnly: boolean; onChange: (f: (e: Exterior) => Exterior) => void }) {
+  const q = useMemo(() => exteriorQuantities(exterior), [exterior]);
+  const rows = openChecks(exterior, q);
+  if (rows.length === 0) return null;
+  return (
+    <div>
+      <h4 className="exterior-subhead">Check these</h4>
+      <p className="field-note">What the photos couldn&rsquo;t show for sure. Anything left stays as read.</p>
+      {rows.map((r) => (
+        <div key={r.key} className={styles.check}>
+          <CheckRowView exterior={exterior} row={r} readOnly={readOnly} onChange={onChange} />
+        </div>
+      ))}
+      {!readOnly && (
+        <button type="button" className="btn-primary" onClick={() => onChange((e) => withChecksClosed(e, rows.map((r) => r.key)))}>
+          Looks right
+        </button>
+      )}
+    </div>
+  );
+}
+
+function CheckRowView({ exterior, row, readOnly, onChange }: { exterior: Exterior; row: CheckRow; readOnly: boolean; onChange: (f: (e: Exterior) => Exterior) => void }) {
+  if (row.kind === "drop") {
+    return (
+      <FeetField
+        id={`check-${row.sideId}`}
+        label={row.question}
+        value={null}
+        placeholder={`${formatFeetInches(row.feet)} assumed`}
+        readOnly={readOnly}
+        allowZero
+        nullable
+        onCommit={(v) => v !== null && onChange((e) => withCheckDrop(e, row.sideId, v))}
+      />
+    );
+  }
+  const side = exterior.sides.find((s) => s.id === row.sideId);
+  const opening = side?.openings.find((o) => o.id === row.openingId);
+  return (
+    <>
+      {side && opening && <OpeningCrop side={side} opening={opening} />}
+      <Choice
+        label={row.title}
+        hint={`${row.words} As read: ${OPENING_LABEL[row.openingKind].toLowerCase()}.`}
+        value={row.openingKind}
+        readOnly={readOnly}
+        options={KIND_OPTIONS}
+        onChange={(k) => onChange((e) => withOpeningKind(e, row.sideId, row.openingId, k))}
+      />
+    </>
+  );
+}
+
+/** The crop's longest side, CSS pixels. */
+const CROP_PX = 240;
+
+/** The opening cut out of its side's squared photo, outlined, with a little wall round it: what the question is about. */
+function OpeningCrop({ side, opening }: { side: ExteriorSide; opening: ExteriorOpening }) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  const [shown, setShown] = useState(true);
+  useEffect(() => {
+    const job = squaredWallPhoto(side);
+    if (!job) {
+      setShown(false);
+      return;
+    }
+    let live = true;
+    job.then(
+      ({ frame, canvas }) => {
+        const out = ref.current;
+        const ctx = out?.getContext("2d");
+        if (!live || !out || !ctx) return;
+        const M = 0.3048;
+        const r = openingRect(side, opening);
+        const pad = Math.max(1.5, 0.3 * Math.max(r.x1 - r.x0, r.y1 - r.y0));
+        const sx = frameX(frame, (r.x0 - pad) * M);
+        const sy = frameY(frame, (r.y1 + pad) * M);
+        const sw = frameX(frame, (r.x1 + pad) * M) - sx;
+        const sh = frameY(frame, (r.y0 - pad) * M) - sy;
+        const scale = Math.min(CROP_PX / sw, CROP_PX / sh) * Math.min(2, window.devicePixelRatio || 1);
+        out.width = Math.max(1, Math.round(sw * scale));
+        out.height = Math.max(1, Math.round(sh * scale));
+        ctx.setTransform(scale, 0, 0, scale, -sx * scale, -sy * scale);
+        ctx.drawImage(canvas, 0, 0);
+        ctx.strokeStyle = "#ea580c";
+        ctx.lineWidth = 2 / scale;
+        ctx.strokeRect(frameX(frame, r.x0 * M), frameY(frame, r.y1 * M), (r.x1 - r.x0) * M * frame.ppm, (r.y1 - r.y0) * M * frame.ppm);
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        setShown(true);
+      },
+      () => live && setShown(false),
+    );
+    return () => {
+      live = false;
+    };
+  }, [side, opening]);
+  if (!shown) return null;
+  return <canvas ref={ref} className={styles.crop} role="img" aria-label={`The ${OPENING_LABEL[opening.kind].toLowerCase()} on ${side.name}, from its photo`} />;
 }
 
 /** The shape with its corners numbered; corners or sides tappable when something is being picked. */

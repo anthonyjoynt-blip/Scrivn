@@ -32,7 +32,7 @@ const FIXTURE = join(here, "fixtures", "photo-route", "owner-1016.json");
 async function load() {
   const outDir = mkdtempSync(join(tmpdir(), "photo-route-"));
   const entry = join(outDir, "entry.ts");
-  writeFileSync(entry, ["photoRoute.ts", "photoRouteLens.ts", "photoRouteLines.ts", "photoRouteEdges.ts", "photoRouteSolve.ts", "photoRouteData.ts", "photoRouteExterior.ts", "exteriorPhoto.ts", "exterior.ts", "exteriorTrace.ts", "exteriorReport.ts"].map((f) => `export * from "${lib(f)}";`).join("\n"));
+  writeFileSync(entry, ["photoRoute.ts", "photoRouteLens.ts", "photoRouteLines.ts", "photoRouteEdges.ts", "photoRouteSolve.ts", "photoRouteData.ts", "photoRouteExterior.ts", "exteriorPhoto.ts", "exterior.ts", "exteriorTrace.ts", "exteriorReport.ts", "exteriorCheck.ts"].map((f) => `export * from "${lib(f)}";`).join("\n"));
   await build({ entryPoints: [entry], bundle: true, format: "esm", platform: "node", outfile: join(outDir, "entry.mjs"), alias: { "@": root }, logLevel: "silent" });
   const mod = await import(pathToFileURL(join(outDir, "entry.mjs")).href);
   rmSync(outDir, { recursive: true, force: true });
@@ -249,6 +249,20 @@ const withReads = ext ? { ...ext, sides: ext.sides.map((s) => Object.values(read
 const report = withReads ? x.exteriorReport(withReads, { title: "The owner's house", date: "Oct 16, 2026", madeWith: "Scrivn" }) : null;
 const q = withReads ? x.exteriorQuantities(withReads) : null;
 console.log(`  the report: ${report ? `${report.sides.length} sides, ${report.views.length} views; ${report.sides.filter((s) => s.heading.includes("±")).length} sides marked ± to check` : "none"}; the roof: ${q?.roofing ? `${q.roofing.squares.toFixed(1)} SQ` : "none"}`);
+// "Check these" (10-16, lib/exteriorCheck.ts): only what the photos couldn't settle. Here the rear wall's three-pane unit,
+// read a window with its foot behind the deck's glass railing (the owner: "Its a window not a door").
+const checks = withReads && q ? x.exteriorChecks(withReads, q) : [];
+console.log(`  check these: ${checks.map((c) => (c.kind === "opening" ? `${c.title} - ${c.words}` : c.question)).join("; ") || "nothing"}`);
+check(
+  "Check these asks about the rear wall's window behind the deck railing, and no opening the photos settled",
+  checks.filter((c) => c.kind === "opening").length === 1 && checks[0].why === "hidden" && checks[0].sideId === sideIds[6] && checks[0].openingKind === "window",
+  checks.map((c) => c.title).join(" | "),
+);
+check(
+  "the report's To check names the window the railing hid",
+  !!report && report.notes.some((n) => /^Rear 2: a window .*, read off a photo that hid part of it \(deck railing and a planter\)\. Check it is a window\.$/.test(n)),
+  report?.notes.join(" | "),
+);
 check("the report and the roof build from the photo-measured exterior, its ± sides marked", !!report && report.sides.length === 12 && report.sides.some((s) => s.heading.includes("±")) && !!q?.roofing);
 check("the measure lands as the claim's exterior, from photos", !!ext && ext.sides.length === 12 && ext.source?.kind === "photos" && ext.sides.filter((s) => s.lengthPlusMinusPct !== undefined).length === 10);
 check("each side photo puts the side's ends where its corners were tapped (median within 12 px)", errs.length >= 6 && (errs[Math.floor(errs.length / 2)] ?? 99) < 12);

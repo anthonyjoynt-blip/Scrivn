@@ -65,7 +65,8 @@ export interface FinishWalls {
   /** Kept, unless the estimator set them aside on the phone. */
   taken: boolean;
   shapes: { kind: CladdingKind | "parging"; label?: string; polygon: Pt[] }[];
-  openings: { kind: ExteriorOpeningKind; widthFeet: number; heightFeet: number; sillFeet: number; fromLeftFeet: number }[];
+  /** Each with what hid part of it in the photo, when something did (2026-10-16): its kind is asked on "Check these". */
+  openings: { kind: ExteriorOpeningKind; widthFeet: number; heightFeet: number; sillFeet: number; fromLeftFeet: number; hiddenBy?: string }[];
   wallTop: { eaveLeftFeet: number | null; eaveRightFeet: number | null; peak: { atFeet: number; peakFeet: number } | null } | null;
 }
 
@@ -150,6 +151,7 @@ function wallsOf(raw: unknown): FinishWalls | undefined {
       heightFeet: num(o.heightFeet) ?? 0,
       sillFeet: Math.max(0, num(o.sillFeet) ?? 0),
       fromLeftFeet: num(o.fromLeftFeet) ?? 0,
+      ...(str(o.hiddenBy) ? { hiddenBy: (str(o.hiddenBy) as string).slice(0, 120) } : {}),
     }))
     .filter((o) => o.widthFeet > 0.2 && o.widthFeet < 60 && o.heightFeet > 0.2 && o.heightFeet < 40);
   const t = isObject(raw.wallTop) ? raw.wallTop : null;
@@ -488,7 +490,7 @@ export function wallsFrom(p: TraceProposals): FinishWalls {
   return {
     taken: true,
     shapes: p.shapes.map((s) => ({ kind: s.kind, ...(s.label ? { label: s.label } : {}), polygon: s.polygon.map((q) => ({ x: q.x, y: q.y })) })),
-    openings: p.openings.map((o) => ({ kind: o.kind, widthFeet: o.widthFeet, heightFeet: o.heightFeet, sillFeet: o.sillFeet, fromLeftFeet: o.fromLeftFeet })),
+    openings: p.openings.map((o) => ({ kind: o.kind, widthFeet: o.widthFeet, heightFeet: o.heightFeet, sillFeet: o.sillFeet, fromLeftFeet: o.fromLeftFeet, ...(o.hiddenBy ? { hiddenBy: o.hiddenBy } : {}) })),
     wallTop: p.wallTop ? { eaveLeftFeet: p.wallTop.eaveLeftFeet, eaveRightFeet: p.wallTop.eaveRightFeet, peak: p.wallTop.peak ? { ...p.wallTop.peak } : null } : null,
   };
 }

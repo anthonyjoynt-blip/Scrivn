@@ -135,3 +135,21 @@
 .ask p {
   margin: 0 0 0.4rem;
 }
+
+/* "Check these" (lib/exteriorCheck.ts): each row its photo crop beside the one question. */
+.check {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.75rem;
+  align-items: flex-start;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--border, #e7e5e4);
+}
+
+.crop {
+  max-width: min(240px, 100%);
+  height: auto;
+  border: 1px solid var(--border, #d6d3d1);
+  border-radius: 4px;
+  background: #808080;
+}

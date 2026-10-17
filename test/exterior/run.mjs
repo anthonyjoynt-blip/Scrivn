@@ -73,6 +73,8 @@ async function load() {
       `export * from "${lib("roofPhotoRead.ts")}";`,
       `export * from "${lib("roofPhotoShapes.ts")}";`,
       `export * from "${lib("roofCheck.ts")}";`,
+      `export * from "${lib("exteriorCheck.ts")}";`,
+      `export { wallsFrom } from "${lib("exteriorFinish.ts")}";`,
       `export * from "${lib("exterior3d.ts")}";`,
       `export * from "${lib("exteriorPlan.ts")}";`,
       `export * from "${lib("exteriorScale.ts")}";`,
@@ -5301,6 +5303,104 @@ test("the report of a house measured on the photo route: sizes from the photos, 
   assert(r.facts.find((f) => f.label === "Sizes from")?.value === "the photos and 4 tapes", JSON.stringify(r.facts));
   // A scanned exterior's sizes are as they were: the photo route's words are only for its own.
   assert(!x.exteriorReport(base, { title: "t", date: "d", madeWith: "m" }).sources[0].includes("scaled by"), "the scan's own words");
+});
+
+console.log('\n"check these" after Measure (10-16)');
+
+const reportOf = (e) => x.exteriorReport(e, { title: "t", date: "d", madeWith: "m" });
+
+/**
+ * His house as the trace reads it since 10-16: the back wall's tall glass unit a window, its foot hidden by the deck
+ * railing (the owner: "Its a window not a door"); and the garage set lower on the roof check, one tap, nothing measuring
+ * how much lower - so drawn at the assumed 1'6".
+ */
+function checkHouse() {
+  const e = photoRouteHouse();
+  const rear = sideStarting(e, "Rear wall");
+  const sides = e.sides.map((s) => (s.id !== rear.id ? s : { ...s, openings: s.openings.map((o) => ({ ...o, hiddenBy: "deck railing" })) }));
+  return { ...e, sides, roof: x.withWingAnswer(e.roof, roofOf(e).roof, sideStarting(e, "Garage front, west").id, "gable") };
+}
+const WINDOW_LINE = `Rear wall: a window 5'11" × 7'2", read off a photo that hid part of it (deck railing). Check it is a window.`;
+const DROP_LINE = `The garage's eave is drawn 1'6" under the house's: assumed, as nothing measured it. Measure how much lower it is.`;
+
+test("his house: two rows - the back wall's window behind the railing, and the garage's assumed drop - and the report names both", () => {
+  const e = checkHouse();
+  const rows = x.exteriorChecks(e, roofOf(e));
+  assert(rows.length === 2, rows.map((r) => r.title).join(" | "));
+  const [win, drop] = rows;
+  assert(win.kind === "opening" && win.why === "hidden" && win.sideId === sideStarting(e, "Rear wall").id && win.openingKind === "window", JSON.stringify(win));
+  assert(win.title === `Rear wall: window 5'11" × 7'2"` && win.words === "Part of it is hidden in the photo (deck railing).", `${win.title} / ${win.words}`);
+  assert(drop.kind === "drop" && drop.garage && drop.sideId === sideStarting(e, "Garage front, west").id && drop.feet === 1.5, JSON.stringify(drop));
+  assert(drop.question === "How much lower is the garage's eave than the house's?", drop.question);
+  // Not asked: the side door, 4'4" over the level but at the top of the side yard's steps (on the ground there); the deck door
+  // 7'6" up, the deck under the roof at its foot. Said open, the deck's door is asked: 7'6" up with nothing under it.
+  const plan = roofOf(e).roof;
+  const open = { ...e, roof: x.withNotchAnswer(e.roof, plan, plan.notches.find((k) => k.covered), "open") };
+  const asked = x.exteriorChecks(open, roofOf(open)).filter((r) => r.why === "off_ground");
+  assert(asked.length === 1 && asked[0].sideId === sideStarting(e, "Covered-deck back").id && /^7'6" up off the ground, with no step or deck seen at its foot\.$/.test(asked[0].words), JSON.stringify(asked));
+  // The report's "To check" names the two, after the sides to tape.
+  const notes = reportOf(e).notes;
+  assert(notes.includes(WINDOW_LINE) && notes.includes(DROP_LINE), notes.join(" | "));
+  assert(notes.indexOf(WINDOW_LINE) > notes.findIndex((n) => /Tape it to be sure/.test(n)), "after the sides to tape");
+});
+
+test("answered - Window, and 2' lower - it lands in the exterior, its 3D and the report; Door changes it", () => {
+  const e = checkHouse();
+  const [win, drop] = x.exteriorChecks(e, roofOf(e));
+  const answered = x.withCheckDrop(x.withOpeningKind(e, win.sideId, win.openingId, "window"), drop.sideId, 2);
+  const o = answered.sides.find((s) => s.id === win.sideId).openings.find((p) => p.id === win.openingId);
+  assert(o.kind === "window" && o.confirmed === true && o.hiddenBy === "deck railing", JSON.stringify(o));
+  // The drop through the roof check's own writer: typed, as the roof check would have it.
+  const q = roofOf(answered);
+  assert(answered.roof.wingDrops[drop.sideId] === 2 && q.wingDrops[drop.sideId].source === "typed" && q.wingDrops[drop.sideId].feet === 2, JSON.stringify(q.wingDrops));
+  const m = x.exteriorModel(answered).model;
+  near(m.eaves[0] - m.eaves[1], 2, "the garage's eave 2' under the house's in 3D", 1e-9);
+  assert(x.exteriorChecks(answered, q).length === 0, "nothing left to check");
+  const notes = reportOf(answered).notes;
+  assert(!notes.includes(WINDOW_LINE) && !notes.some((n) => /garage's eave is drawn/.test(n)), notes.join(" | "));
+  // Door: the kind as tapped.
+  const door = x.withOpeningKind(e, win.sideId, win.openingId, "door").sides.find((s) => s.id === win.sideId).openings[0];
+  assert(door.kind === "door" && door.confirmed, JSON.stringify(door));
+  // Cleared, the drop goes back to the assumed 1'6" and is asked again.
+  const cleared = x.withCheckDrop(answered, drop.sideId, null);
+  assert(x.exteriorChecks(cleared, roofOf(cleared)).map((r) => r.kind).join() === "drop", "the drop asked again");
+});
+
+test("Looks right closes the list; what was not answered stays as read, and on the report's To check", () => {
+  const e = { ...checkHouse(), photoRoute: { format: "scrivn-photo-route/1", photos: [], buildings: [] } };
+  const shown = x.openChecks(e, roofOf(e));
+  assert(shown.length === 2, "two to start");
+  const closed = x.withChecksClosed(e, shown.map((r) => r.key));
+  assert(x.openChecks(closed, roofOf(closed)).length === 0 && x.exteriorChecks(closed, roofOf(closed)).length === 2, "closed, still there to check");
+  const o = closed.sides.find((s) => s.id === shown[0].sideId).openings[0];
+  assert(o.kind === "window" && !o.confirmed && roofOf(closed).wingDrops[shown[1].sideId].source === "assumed", "as read");
+  const notes = reportOf(closed).notes;
+  assert(notes.includes(WINDOW_LINE) && notes.includes(DROP_LINE), notes.join(" | "));
+  // Changing its kind on the side is saying what it is too (ExteriorSide.tsx sets `confirmed`): no longer asked.
+  const said = { ...e, sides: e.sides.map((s) => (s.id !== shown[0].sideId ? s : { ...s, openings: s.openings.map((p) => ({ ...p, confirmed: true })) })) };
+  assert(x.exteriorChecks(said, roofOf(said)).map((r) => r.kind).join() === "drop", "the window said");
+});
+
+test("a house with nothing hidden asks nothing: his, nothing set lower; a scanned house's tapped openings", () => {
+  const e = photoRouteHouse();
+  assert(x.exteriorChecks(e, roofOf(e)).length === 0, x.exteriorChecks(e, roofOf(e)).map((r) => r.title).join(" | "));
+  assert(!reportOf(e).notes.some((n) => /Check it is a|Measure how much lower/.test(n)), reportOf(e).notes.join(" | "));
+  // Scanned: a door tapped on the phone is no guess, wherever it is.
+  const scan = x.parseScanExterior(fixture("scan-exterior-v2-sample.json")).exterior;
+  assert(x.exteriorChecks(scan, x.exteriorQuantities(scan)).length === 0, "nothing on a scan");
+});
+
+test("the trace's 'partly hidden by' rides onto the opening, from the editor and from Finish; a door needs proof in the photo", () => {
+  const side = x.parseScanExterior(fixture("scan-exterior-v2-photos.json"), { scanId: "s" }).exterior.sides[0];
+  const hidden = { ...wire, openings: wire.openings.map((o, i) => (i === 2 ? { ...o, kind: "window", partly_hidden_by: "deck railing" } : o)) };
+  const p = x.traceProposals(hidden, traceFrame, side.lengthFeet);
+  const s = x.applyTrace(side, p, { shapes: [], openings: p.openings.map((o) => ({ key: o.key, kind: o.kind })), wallTop: false });
+  assert(s.openings[2].hiddenBy === "deck railing" && !("hiddenBy" in s.openings[0]) && !("hiddenBy" in s.openings[1]), JSON.stringify(s.openings));
+  const w = x.wallsFrom(p);
+  assert(w.openings[2].hiddenBy === "deck railing" && !("hiddenBy" in w.openings[0]), JSON.stringify(w.openings));
+  const msg = x.traceUserMessage(traceFrame, { name: "Rear", lengthM: 8, bottomLeftM: 0.5, bottomRightM: 0.5, leftEndInPhoto: true, rightEndInPhoto: true });
+  assert(/only when the photo shows what makes it one: a handle, hinges, a threshold, or a step, deck, path or driveway meeting its foot\./.test(msg), "a door's proof");
+  assert(/Tall glass whose foot is hidden - by a railing, a deck, plants, a car - is a window\. Say what hides any part of an opening/.test(msg), "a hidden foot is a window, and said");
 });
 
 console.log(`\n${passed.length} passed, ${failures.length} failed`);
