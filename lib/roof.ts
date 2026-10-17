@@ -193,6 +193,8 @@ export interface RoofSection {
    * it is the upper floor's own side, not a strip of the house's wall.
    */
   floor?: "main" | "upper";
+  /** One slope over the whole rectangle (`RoofInput.oneSlope`): its level edge up at the far wall is a rake, not an eave. */
+  oneSlope?: true;
 }
 
 /** A lower roof against the upper floor's wall: one slope rising to the wall, or a ridge running out from it. */
@@ -328,6 +330,13 @@ export interface RoofInput {
   lowerRoofKinds?: Record<string, LowerRoofKind>;
   /** A gambrel or mansard: a section's second pitch above a break, by its key (`RoofSection.key`). */
   sectionBreaks?: Record<string, RoofBreak>;
+  /**
+   * One slope over a rectangle, draining to this side (2026-10-16, a shed's roof - lib/buildings.ts): one plane
+   * rising from that side's eave to the far wall, a rake's overhang past the far wall and the two ends. Its high
+   * edge is no eave - no eavestrough, no starter - and is counted with the rakes: drip edge, fascia, soffit.
+   * Only a rectangle has one; on any other outline it is not read.
+   */
+  oneSlope?: string;
 }
 
 /**
@@ -893,6 +902,63 @@ function buildSection(input: RoofInput, role: "main" | "wing", wall: Rect, axis:
   return makeSection(input, role, wall, axis, loKind, hiKind, tieAt);
 }
 
+/**
+ * One slope over the rectangle [wall], draining to [sideId] (`RoofInput.oneSlope`): a plane rising from that
+ * side's drip line, an eave's overhang out, to the far wall and a rake's overhang past it and past both ends.
+ * Null when the side is not one of the rectangle's walls. Its ends are no gable or hip to pick: none is listed.
+ */
+function oneSlopeSection(input: RoofInput, wall: Rect, sideId: string): RoofSection | null {
+  const w = wallOf(input, sideId);
+  if (!w) return null;
+  const oe = input.eaveOverhangFeet;
+  const ro = input.rakeOverhangFeet;
+  const k = Math.max(0, input.pitch) / 12;
+  const near = (a: number, b: number) => Math.abs(a - b) < 1e-6;
+  let rect: Rect;
+  let plane: Plane;
+  // The high edge runs along the side it drains to: across x for a side on x = at, across y for one on y = at.
+  let axis: "x" | "y";
+  if (w.vertical && near(w.at, wall.x0)) {
+    axis = "y";
+    rect = { x0: wall.x0 - oe, x1: wall.x1 + ro, y0: wall.y0 - ro, y1: wall.y1 + ro };
+    plane = sloped(1, 0, -(wall.x0 - oe), k, sideId, "main");
+  } else if (w.vertical && near(w.at, wall.x1)) {
+    axis = "y";
+    rect = { x0: wall.x0 - ro, x1: wall.x1 + oe, y0: wall.y0 - ro, y1: wall.y1 + ro };
+    plane = sloped(-1, 0, wall.x1 + oe, k, sideId, "main");
+  } else if (!w.vertical && near(w.at, wall.y0)) {
+    axis = "x";
+    rect = { x0: wall.x0 - ro, x1: wall.x1 + ro, y0: wall.y0 - oe, y1: wall.y1 + ro };
+    plane = sloped(0, 1, -(wall.y0 - oe), k, sideId, "main");
+  } else if (!w.vertical && near(w.at, wall.y1)) {
+    axis = "x";
+    rect = { x0: wall.x0 - ro, x1: wall.x1 + ro, y0: wall.y0 - ro, y1: wall.y1 + oe };
+    plane = sloped(0, -1, wall.y1 + oe, k, sideId, "main");
+  } else return null;
+  return {
+    role: "main",
+    key: "main",
+    pitch: Math.max(0, input.pitch),
+    layer: 0,
+    ...rect,
+    axis,
+    lo: "gable",
+    hi: "gable",
+    reachLo: 0,
+    reachHi: 0,
+    loSide: null,
+    hiSide: null,
+    sideA: null,
+    sideB: null,
+    loWallFeet: 0,
+    hiWallFeet: 0,
+    wall: { ...wall },
+    planes: [plane],
+    wallEdges: [],
+    oneSlope: true,
+  };
+}
+
 /** The sections a footprint gives, and what the settings offer for them. */
 export interface BuiltSections {
   shape: "rectangle" | "L" | "wings";
@@ -942,6 +1008,8 @@ function sectionsOf(input: RoofInput): BuiltSections | null {
       axis = Math.abs(q.x - p.x) >= Math.abs(q.y - p.y) ? "x" : "y";
     }
     const wall = { x0: box.minx, x1: box.maxx, y0: box.miny, y1: box.maxy };
+    const one = input.oneSlope !== undefined ? oneSlopeSection(input, wall, input.oneSlope) : null;
+    if (one) return { shape: "rectangle", sections: [one], wingEnds: [], wings: [], notes: [`One slope, draining to ${nameOf(input.oneSlope as string)}: its high edge is counted with the rakes (drip edge, fascia, soffit), with no eavestrough.`] };
     return { shape: "rectangle", sections: [buildSection(input, "main", wall, axis, "gable", "gable", null)], wingEnds: [], wings: [], notes: [] };
   }
 
@@ -2783,7 +2851,7 @@ function alongWall(w: WallEdge, a: Pt, d: Pt): [number, number] | null {
  * level piece is an eave, a sloped one a rake - or, where it stands against a wall, headwall and
  * step flashing.
  */
-function dripPieces(surface: Surface, facets: RoofFacet[], input: RoofInput, loop: Pt[], walls: WallEdge[], loopIndex: number, layer: number, wallNames: RoofInput = input): Omit<RoofEdge, "key">[] {
+function dripPieces(surface: Surface, facets: RoofFacet[], input: RoofInput, loop: Pt[], walls: WallEdge[], loopIndex: number, layer: number, wallNames: RoofInput = input, highIsRake = false): Omit<RoofEdge, "key">[] {
   const pieces: Omit<RoofEdge, "key">[] = [];
   const n = loop.length;
   for (let i = 0; i < n; i++) {
@@ -2836,7 +2904,8 @@ function dripPieces(surface: Surface, facets: RoofFacet[], input: RoofInput, loo
       const level = Math.abs(z1 - z0) < 1e-6;
       const tm = (t0 + t1) / 2;
       const wall = onWalls.find((x) => tm > x.span[0] && tm < x.span[1])?.w ?? null;
-      const kind: RoofEdge["kind"] = wall ? (level ? "headwall" : "step") : level ? "eave" : "rake";
+      // One slope (a shed's roof): its level edge up at the far wall drains nothing, and is counted with the rakes.
+      const kind: RoofEdge["kind"] = wall ? (level ? "headwall" : "step") : level ? (highIsRake && z0 > 1e-6 ? "rake" : "eave") : "rake";
       const mid = { x: a.x + d.x * tm - d.y * 1e-4, y: a.y + d.y * tm + d.x * 1e-4 };
       const facet = facetAt(facets, mid)?.key ?? null;
       const feet = level ? t1 - t0 : Math.hypot(t1 - t0, z1 - z0);
@@ -3044,7 +3113,7 @@ export function buildRoof(input: RoofInput): RoofPlan {
     // A roof over the upper floor runs along its sides; one over the main floor along the main floor's, flashed against the upper floor's walls.
     const onUpper = upperInput !== null && own.some((s) => s.floor === "upper");
     for (const ring of boundaryLoops(outline.edges, (x, y) => surface.covered(x, y))) {
-      pieces.push(...dripPieces(surface, mine, onUpper ? (upperInput as RoofInput) : input, ring, own.flatMap((s) => s.wallEdges), loop++, layer, upperInput ?? input));
+      pieces.push(...dripPieces(surface, mine, onUpper ? (upperInput as RoofInput) : input, ring, own.flatMap((s) => s.wallEdges), loop++, layer, upperInput ?? input, own.some((s) => s.oneSlope)));
     }
   });
   const merged = mergeCollinear(creases);

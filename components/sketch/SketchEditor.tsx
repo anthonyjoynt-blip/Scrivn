@@ -130,7 +130,8 @@ import { type BlockTurnRun, carriedWithRoom, roomTurnForPress, roomTurnStepDeg, 
 import { FreeCabinetPanel, SymbolPanel } from "./SymbolPanel";
 import { type Obstacle, conformedDragWall, obstaclesFor, placeNewRoom, pullRoomFromWall, viewCentredOn, wallDragMeetsWall } from "@/lib/roomPlacement";
 import { QuantitiesPanel } from "./QuantitiesPanel";
-import { ExteriorEditor } from "./ExteriorEditor";
+import { ExteriorSite } from "./ExteriorEditor";
+import { buildingName, hasAnyExterior } from "@/lib/buildings";
 import { type ExteriorPhotoAccess, ExteriorPhotoContext } from "./exteriorPhotoAccess";
 import { type QuantityOptions, DEFAULT_QUANTITY_OPTIONS } from "@/lib/sketchQuantities";
 import { SQUARE_TOLERANCE_DEG, leaningCorners, squareUpRoom } from "@/lib/sketchSquare";
@@ -325,8 +326,16 @@ export function SketchEditor({
     landed on the empty rooms view and took the sketches for gone.
   */
   const [mode, setMode] = useState<"sketch" | "moisture" | "exterior">(() =>
-    sketch.exterior && sketch.rooms.length === 0 ? "exterior" : "sketch",
+    hasAnyExterior(sketch) && sketch.rooms.length === 0 ? "exterior" : "sketch",
   );
+  /*
+    Which building the exterior is on (2026-10-16, lib/buildings.ts): null for the house, else one of the claim's
+    other buildings by its id - the one the switcher shows, and the one the 3D view stands up. A building gone (removed)
+    is the house again.
+  */
+  const [building, setBuilding] = useState<string | null>(null);
+  const shownBuilding = building === null ? undefined : (sketch.buildings ?? []).find((b) => b.id === building);
+  const shownExterior = shownBuilding ?? sketch.exterior;
   // The 3D view is a window over the editor, not a mode of it: nothing drawn changes while it is open.
   const [show3d, setShow3d] = useState(false);
   const [moistureTool, setMoistureTool] = useState<MoistureTool>("read");
@@ -2357,7 +2366,7 @@ export function SketchEditor({
         <button
           type="button"
           className="option-btn"
-          disabled={mode === "exterior" ? !sketch.exterior : sketch.rooms.length === 0}
+          disabled={mode === "exterior" ? !shownExterior : sketch.rooms.length === 0}
           onClick={() => setShow3d(true)}
           title={mode === "exterior" ? "See the outside of the house in 3D" : "See the house in 3D"}
         >
@@ -2484,16 +2493,29 @@ export function SketchEditor({
       */}
       {mode === "exterior" ? (
         <ExteriorPhotoContext.Provider value={photoAccess ?? null}>
-        <ExteriorEditor
-          exterior={sketch.exterior}
+        <ExteriorSite
+          house={sketch.exterior}
+          buildings={sketch.buildings ?? []}
+          selected={shownBuilding ? building : null}
+          onSelect={setBuilding}
           readOnly={readOnly}
           onShow3d={phone ? () => setShow3d(true) : undefined}
-          onChange={(update) =>
+          onHouse={(update) =>
             onChange((prev) => {
               const next = update(prev.exterior);
               if (next === prev.exterior) return prev;
               const out: Sketch = { ...prev, exterior: next };
               if (next === undefined) delete out.exterior;
+              return out;
+            })
+          }
+          onBuildings={(update) =>
+            onChange((prev) => {
+              const list = prev.buildings ?? [];
+              const next = update(list);
+              if (next === list) return prev;
+              const out: Sketch = { ...prev, buildings: next };
+              if (next.length === 0) delete out.buildings;
               return out;
             })
           }
@@ -3512,7 +3534,7 @@ export function SketchEditor({
       )}
       {show3d &&
         (mode === "exterior" ? (
-          sketch.exterior && <Exterior3D exterior={sketch.exterior} onClose={() => setShow3d(false)} />
+          shownExterior && <Exterior3D key={shownBuilding?.id ?? "house"} exterior={shownExterior} name={shownBuilding ? buildingName(shownBuilding) : undefined} onClose={() => setShow3d(false)} />
         ) : (
           <Sketch3D sketch={sketch} moisture={moisture} onClose={() => setShow3d(false)} />
         ))}

@@ -778,6 +778,12 @@ export interface Sketch {
    * 2026-10-12. Outside `sketchFingerprint`: measuring the outside is not an edit of the phone's rooms.
    */
   exterior?: Exterior;
+  /**
+   * The claim's other buildings (2026-10-16, lib/buildings.ts): a shed, a detached garage, a workshop - each a whole
+   * exterior of its own beside the house's, with its own id and name, measured, roofed, scoped and reported like it.
+   * Absent on every sketch saved before then and on one with none; a scan always lands on the house (`exterior`).
+   */
+  buildings?: Exterior[];
 }
 
 /**

@@ -15,13 +15,17 @@ import { exteriorReportFile } from "./sketch/exteriorReportDoc";
  */
 export function ExteriorReportSection({
   exterior,
+  buildings = [],
   title,
   jobNumber,
   customerName,
   letterhead,
   claimId = null,
 }: {
-  exterior: Exterior;
+  /** The house's; none on a claim with only other buildings measured. */
+  exterior: Exterior | undefined;
+  /** The claim's other buildings (2026-10-16): each a section of the same report. */
+  buildings?: Exterior[];
   title: string;
   jobNumber: string;
   customerName: string;
@@ -36,7 +40,7 @@ export function ExteriorReportSection({
     setBusy(true);
     setError(null);
     try {
-      const file = await exteriorReportFile({ exterior, title, jobNumber, customerName, letterhead, claimId });
+      const file = await exteriorReportFile({ exterior, buildings, title, jobNumber, customerName, letterhead, claimId });
       if (!file) {
         setError("There is nothing measured on the outside of the house yet.");
         return;

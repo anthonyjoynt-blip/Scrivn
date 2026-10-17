@@ -7,7 +7,7 @@ import type { SavedClaimState } from "./claimState";
 import { buildContentsScopeSection, type ContentsTM } from "./contentsTM";
 import { hasDGIGContent } from "./dgig";
 import { claimEquipment, DEFAULT_EQUIPMENT_SETTINGS } from "./equipment";
-import { exteriorScopeLines } from "./exterior";
+import { siteScopeLines } from "./buildings";
 import { type EquipmentSuggestions, normaliseRoomName, withoutResolvedSuggestions } from "./gapCheck";
 import { isDGIG } from "./insurers";
 import { roomMoistureSummary, type MoistureMap } from "./moisture";
@@ -171,7 +171,8 @@ export function withExtraction(
 /** The body /api/generate is sent for this claim. Null when there is no extraction to generate from. */
 export function generationRequest(state: SavedClaimState) {
   if (!state.extraction) return null;
-  const exterior = exteriorScopeLines(state.sketch.exterior);
+  // The house's lines, then each other building's, named for it (2026-10-16, lib/buildings.ts).
+  const exterior = siteScopeLines(state.sketch.exterior, state.sketch.buildings);
   return {
     claim: state.claim,
     extraction: state.extraction,

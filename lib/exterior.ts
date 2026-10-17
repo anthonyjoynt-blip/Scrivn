@@ -604,6 +604,11 @@ export interface ExteriorRoof {
    * end stands over - a lean-to, or a ridge running out from the wall. Absent: by its shape.
    */
   lowerRoofs?: Record<string, LowerRoofKind>;
+  /**
+   * One slope, draining to this side (2026-10-16, a shed's roof, lib/roof.ts `RoofInput.oneSlope`): a rectangle
+   * only. Absent: the roof the outline gives, gable or hip at its ends.
+   */
+  oneSlopeTo?: string;
 }
 
 /**
@@ -635,6 +640,12 @@ export interface ExteriorScope {
 }
 
 export interface Exterior {
+  /**
+   * Another building on the claim (2026-10-16, lib/buildings.ts): a shed, a detached garage, a workshop, kept in
+   * `Sketch.buildings` with its own id and the name the estimator gave it. Absent on the house's (`Sketch.exterior`).
+   */
+  id?: string;
+  name?: string;
   /** In order round the house: each next side is to the RIGHT of the one before, as you face them from outside. */
   sides: ExteriorSide[];
   /**
@@ -1919,6 +1930,7 @@ function saidRoofInput(exterior: Exterior, footprint: Footprint, pitch: number, 
     wingGables: exterior.roof.wingGables ?? [],
     coveredNotches: exterior.roof.coveredNotches ?? [],
     sideNames: Object.fromEntries(allSides(exterior).map((s) => [s.id, s.name.trim() || "Side"])),
+    ...(exterior.roof.oneSlopeTo ? { oneSlope: exterior.roof.oneSlopeTo } : {}),
   };
 }
 

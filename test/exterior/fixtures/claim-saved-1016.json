@@ -1,0 +1,2068 @@
+{
+ "step": "intake",
+ "claim": {
+  "customerName": "",
+  "jobNumber": "",
+  "claimNumber": "",
+  "address": "",
+  "insurer": "",
+  "pmName": "",
+  "pmPhone": "",
+  "lossType": null,
+  "lossTypeOther": "",
+  "waterCategory": null,
+  "waterCategoryNote": null,
+  "contentsAssignment": null,
+  "contentsScopeTiming": null,
+  "waterClass": null,
+  "dateOfLoss": null,
+  "yearOfBuilding": null,
+  "causeOfLoss": "",
+  "preExistingConditions": "",
+  "dateTimeInspected": "",
+  "scopeOnly": false,
+  "scopePhases": [
+   "EMERGENCY",
+   "REPAIR"
+  ]
+ },
+ "transcript": "",
+ "extraction": null,
+ "answers": {},
+ "questionLog": [],
+ "documents": null,
+ "contentsApproach": "TM",
+ "contentsTM": {
+  "onSiteManipulationHours": "",
+  "packOutHours": "",
+  "packBackHours": "",
+  "consumables": {
+   "smallBoxes": "",
+   "mediumBoxes": "",
+   "largeBoxes": "",
+   "extraLargeBoxes": "",
+   "wardrobeBoxesSmall": "",
+   "wardrobeBoxesMedium": "",
+   "wardrobeBoxesLarge": "",
+   "mattressBagSingle": "",
+   "mattressBagDouble": "",
+   "mattressBagQueen": "",
+   "mattressBagKing": "",
+   "garbageBags": "",
+   "clearLaundryBags": "",
+   "bubbleWrap": "",
+   "shrinkWrap5x1000": "",
+   "shrinkWrap20x1000": "",
+   "poly": ""
+  },
+  "truckChargeCount": "",
+  "disposalType": null,
+  "otherAdditions": ""
+ },
+ "bricABrac": {
+  "rooms": [
+   {
+    "id": "skdrvtzele",
+    "roomName": "",
+    "contentSize": null,
+    "unboxableItems": "",
+    "boxes": {
+     "smallBoxes": "",
+     "mediumBoxes": "",
+     "largeBoxes": "",
+     "extraLargeBoxes": "",
+     "wardrobeBoxesSmall": "",
+     "wardrobeBoxesMedium": "",
+     "wardrobeBoxesLarge": "",
+     "mattressBagSingle": "",
+     "mattressBagDouble": "",
+     "mattressBagQueen": "",
+     "mattressBagKing": ""
+    },
+    "otherConsumables": "",
+    "movingBlankets": ""
+   }
+  ],
+  "cleaning": {
+   "isCleaningContent": false,
+   "isCleaningBoxes": false,
+   "boxEntries": [],
+   "individualItemsText": ""
+  },
+  "nonRestorableCount": "",
+  "truckChargeCount": "",
+  "disposalType": null
+ },
+ "dgigData": {
+  "pmInspectionHours": "",
+  "travelHours": "",
+  "equipmentMonitoringHours": "",
+  "disposalType": null,
+  "rooms": [
+   {
+    "id": "uyn7emrg4d",
+    "roomName": "",
+    "tearOutHours": "",
+    "tearOutDescription": "",
+    "contentManipulationHours": "",
+    "waterExtractionHours": "",
+    "cleaningHours": "",
+    "dryingClass": null,
+    "antimicrobial": false,
+    "antimicrobialSF": "",
+    "antimicrobialExtent": null,
+    "otherNotes": ""
+   }
+  ]
+ },
+ "asbestos": {
+  "material": "",
+  "surface": "ceiling",
+  "wallRemovalSqFt": "",
+  "wallsRemovedOverride": "",
+  "friable": false,
+  "minimalDisturbance": true,
+  "areaDisturbedSqFt": "",
+  "typeOverride": null,
+  "roomLengthFt": "",
+  "roomWidthFt": "",
+  "roomHeightFt": "",
+  "sketchRoomId": null,
+  "crewSize": "",
+  "durationDays": "",
+  "hoursPerDay": "",
+  "totalHoursOverride": "",
+  "deconChamber": null,
+  "ppeChanges": "",
+  "respirator": "",
+  "suit": "",
+  "airChangesPerHour": "4",
+  "negativeAirSize": null,
+  "ductingLinearFeet": "",
+  "otherEquipmentUnits": "",
+  "sampleCount": "",
+  "preAbatementFee": "",
+  "postAbatementFee": "",
+  "notes": ""
+ },
+ "selectedTrades": [],
+ "workOrders": [],
+ "sketch": {
+  "rooms": [],
+  "exterior": {
+   "sides": [
+    {
+     "id": "side-mvbss8xq-1",
+     "name": "Front",
+     "lengthFeet": 13.184741110514889,
+     "turn": "outside",
+     "base": "parging",
+     "baseLeftFeet": 0.6666666666666666,
+     "baseRightFeet": 0.6666666666666666,
+     "eaveLeftFeet": 9.258129358006391,
+     "eaveRightFeet": 9.254211361898628,
+     "gable": {
+      "peakFeet": 12.434869353261915,
+      "atFeet": 6.462212978461874
+     },
+     "bands": [
+      {
+       "id": "band-mvbss8xq-2",
+       "kind": "stucco",
+       "top": null
+      }
+     ],
+     "openings": [
+      {
+       "id": "opening-mvbss97t-29",
+       "kind": "garage",
+       "widthFeet": 8.913239254866882,
+       "heightFeet": 7.441975994726524,
+       "sillFeet": 0,
+       "fromLeftFeet": 1.783686979537973
+      }
+     ],
+     "heightsFrom": "level",
+     "lengthPlusMinusPct": 3,
+     "photos": [
+      {
+       "n": 914,
+       "scanId": null,
+       "claimPhotoId": "p15",
+       "camera": {
+        "width": 2000,
+        "height": 1500,
+        "fx": 1338.8721738166014,
+        "fy": 1338.8721738166014,
+        "cx": 1000,
+        "cy": 750,
+        "k": -0.026007895314890454
+       },
+       "toPhoto": [
+        144.19079490766828,
+        11.528890981962565,
+        946.4436244529331,
+        -3.713259573250946,
+        -147.02097871723666,
+        1036.3893467114517,
+        -0.00870123510386912,
+        0.007908329551592003,
+        1.0056213719777949
+       ],
+       "inView": {
+        "fromM": 0,
+        "toM": 4.018709090484938,
+        "leftEnd": true,
+        "rightEnd": true,
+        "top": true
+       }
+      }
+     ],
+     "shapes": [
+      {
+       "id": "shape-mvbss97t-28",
+       "kind": "stucco",
+       "closed": true,
+       "polygon": [
+        {
+         "x": -0.010056190009926039,
+         "y": 0.008112549796050373
+        },
+        {
+         "x": 13.174880716048344,
+         "y": 0.008112549796050373
+        },
+        {
+         "x": 13.174880716048344,
+         "y": 9.254211361898628
+        },
+        {
+         "x": 11.49209073224568,
+         "y": 9.808977290624783
+        },
+        {
+         "x": 6.462212978461874,
+         "y": 12.434869353261915
+        },
+        {
+         "x": 1.41384302705387,
+         "y": 9.808977290624783
+        },
+        {
+         "x": -0.010056190009926039,
+         "y": 9.254211361898628
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "id": "side-mvbss8xq-3",
+     "name": "Right",
+     "lengthFeet": 69.5305490652657,
+     "turn": "outside",
+     "base": "parging",
+     "baseLeftFeet": 0.6666666666666666,
+     "baseRightFeet": 0.6666666666666666,
+     "eaveLeftFeet": 10,
+     "eaveRightFeet": 10,
+     "gable": null,
+     "bands": [
+      {
+       "id": "band-mvbss8xq-4",
+       "kind": "stucco",
+       "top": null
+      }
+     ],
+     "openings": [],
+     "heightsFrom": "level",
+     "lengthPlusMinusPct": 15
+    },
+    {
+     "id": "side-mvbss8xq-5",
+     "name": "Rear",
+     "lengthFeet": 22.168085813850798,
+     "turn": "outside",
+     "base": "parging",
+     "baseLeftFeet": 0.6666666666666666,
+     "baseRightFeet": 0.6666666666666666,
+     "eaveLeftFeet": 15.457223925782664,
+     "eaveRightFeet": 15.193538237793145,
+     "gable": {
+      "peakFeet": 20.471551649330227,
+      "atFeet": 12.240928673853398
+     },
+     "bands": [
+      {
+       "id": "band-mvbss8xq-6",
+       "kind": "stucco",
+       "top": null
+      }
+     ],
+     "openings": [
+      {
+       "id": "opening-mvbss97t-31",
+       "kind": "window",
+       "widthFeet": 6.243802309609702,
+       "heightFeet": 5.5446893096920125,
+       "sillFeet": 9.382173029946198,
+       "fromLeftFeet": 1.5131602268405895
+      },
+      {
+       "id": "opening-mvbss97t-32",
+       "kind": "window",
+       "widthFeet": 7.039344688826379,
+       "heightFeet": 4.459858792578357,
+       "sillFeet": 10.467003547059853,
+       "fromLeftFeet": 11.927533191131676
+      },
+      {
+       "id": "opening-mvbss97t-33",
+       "kind": "window",
+       "widthFeet": 7.111666723300626,
+       "heightFeet": 4.146463309856634,
+       "sillFeet": 0.6553142033874643,
+       "fromLeftFeet": 5.539086812573485
+      }
+     ],
+     "heightsFrom": "level",
+     "photos": [
+      {
+       "n": 908,
+       "scanId": null,
+       "claimPhotoId": "d8f821e4-3774-4895-9709-ccf867a71984",
+       "camera": {
+        "width": 1739,
+        "height": 1304,
+        "fx": 1164.149355133535,
+        "fy": 1164.149355133535,
+        "cx": 869.5,
+        "cy": 652,
+        "k": -0.026007895314890454
+       },
+       "toPhoto": [
+        47.648310013284565,
+        6.620531426920489,
+        428.2672273306689,
+        -46.40159645998642,
+        -112.54020768753614,
+        1163.3761483976107,
+        -0.05823741655241806,
+        0.010066860011864746,
+        1.181649946053356
+       ],
+       "inView": {
+        "fromM": 0,
+        "toM": 6.756832556061724,
+        "leftEnd": true,
+        "rightEnd": true,
+        "top": true
+       }
+      }
+     ],
+     "shapes": [
+      {
+       "id": "shape-mvbss97t-30",
+       "kind": "stucco",
+       "closed": true,
+       "polygon": [
+        {
+         "x": -0.005602497118526718,
+         "y": 0.4624554447894795
+        },
+        {
+         "x": 22.89637508639196,
+         "y": 0.4624554447894795
+        },
+        {
+         "x": 22.89637508639196,
+         "y": 14.806325615514472
+        },
+        {
+         "x": 12.240928673853398,
+         "y": 20.471551649330227
+        },
+        {
+         "x": 1.4408381923663465,
+         "y": 15.457223925782664
+        },
+        {
+         "x": -0.005602497118526718,
+         "y": 15.457223925782664
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "id": "side-mvbss8xq-7",
+     "name": "Left 4",
+     "lengthFeet": 9.902478385429468,
+     "turn": "inside",
+     "base": "parging",
+     "baseLeftFeet": 0.6666666666666666,
+     "baseRightFeet": 0.6666666666666666,
+     "eaveLeftFeet": 10,
+     "eaveRightFeet": 10,
+     "gable": null,
+     "bands": [
+      {
+       "id": "band-mvbss8xq-8",
+       "kind": "stucco",
+       "top": null
+      }
+     ],
+     "openings": [],
+     "heightsFrom": "level",
+     "lengthPlusMinusPct": 29,
+     "photos": [
+      {
+       "n": 907,
+       "scanId": null,
+       "claimPhotoId": "p8",
+       "camera": {
+        "width": 1880,
+        "height": 1410,
+        "fx": 1258.5398433876053,
+        "fy": 1258.5398433876053,
+        "cx": 940,
+        "cy": 705,
+        "k": -0.026007895314890454
+       },
+       "toPhoto": [
+        130.44522065466404,
+        14.737655351357066,
+        67.60003305632625,
+        104.05830464183394,
+        -132.48477515976663,
+        687.3485631549985,
+        0.11466123201668875,
+        0.019053689891549215,
+        0.7983798765168195
+       ],
+       "inView": {
+        "fromM": 0,
+        "toM": 3.018275411878902,
+        "leftEnd": true,
+        "rightEnd": true,
+        "top": true
+       }
+      }
+     ]
+    },
+    {
+     "id": "side-mvbss8xq-9",
+     "name": "Rear 2",
+     "lengthFeet": 13.62852999610315,
+     "turn": "outside",
+     "base": "parging",
+     "baseLeftFeet": 0.6666666666666666,
+     "baseRightFeet": 0.6666666666666666,
+     "eaveLeftFeet": 15.627165354330707,
+     "eaveRightFeet": 15.627165354330707,
+     "gable": null,
+     "bands": [
+      {
+       "id": "band-mvbss8xq-10",
+       "kind": "stucco",
+       "top": null
+      }
+     ],
+     "openings": [
+      {
+       "id": "opening-mvbss97u-40",
+       "kind": "window",
+       "widthFeet": 6.790485564304462,
+       "heightFeet": 6.790485564304463,
+       "sillFeet": 8.33484251968504,
+       "fromLeftFeet": 6.319816272965876,
+       "hiddenBy": "deck railing and a planter"
+      }
+     ],
+     "heightsFrom": "level",
+     "lengthPlusMinusPct": 7,
+     "photos": [
+      {
+       "n": 908,
+       "scanId": null,
+       "claimPhotoId": "d8f821e4-3774-4895-9709-ccf867a71984",
+       "camera": {
+        "width": 1739,
+        "height": 1304,
+        "fx": 1164.149355133535,
+        "fy": 1164.149355133535,
+        "cx": 869.5,
+        "cy": 652,
+        "k": -0.026007895314890454
+       },
+       "toPhoto": [
+        50.893261056107875,
+        7.071403668807777,
+        1257.2983418623749,
+        -49.56164366374915,
+        -120.2044346914615,
+        1111.7038515659367,
+        -0.06220350822535288,
+        0.010752434545029705,
+        1.113067286545775
+       ],
+       "inView": {
+        "fromM": 0,
+        "toM": 4.153975942812241,
+        "leftEnd": true,
+        "rightEnd": true,
+        "top": true
+       }
+      }
+     ],
+     "shapes": [
+      {
+       "id": "shape-mvbss97u-38",
+       "kind": "stucco",
+       "closed": true,
+       "polygon": [
+        {
+         "x": -0.00019685039370207698,
+         "y": 4.1476377952755925
+        },
+        {
+         "x": 13.627821522309707,
+         "y": 4.1476377952755925
+        },
+        {
+         "x": 13.627821522309707,
+         "y": 15.627165354330707
+        },
+        {
+         "x": -0.00019685039370207698,
+         "y": 15.627165354330707
+        }
+       ]
+      },
+      {
+       "id": "shape-mvbss97u-39",
+       "kind": "parging",
+       "closed": true,
+       "polygon": [
+        {
+         "x": -0.00019685039370207698,
+         "y": 0.007480314960632302
+        },
+        {
+         "x": 13.627821522309707,
+         "y": 0.007480314960632302
+        },
+        {
+         "x": 13.627821522309707,
+         "y": 4.1476377952755925
+        },
+        {
+         "x": -0.00019685039370207698,
+         "y": 4.1476377952755925
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "id": "side-mvbss8xq-11",
+     "name": "Left 2",
+     "lengthFeet": 7.784481202287985,
+     "turn": "inside",
+     "base": "parging",
+     "baseLeftFeet": 0.6666666666666666,
+     "baseRightFeet": 0.6666666666666666,
+     "eaveLeftFeet": 10,
+     "eaveRightFeet": 10,
+     "gable": null,
+     "bands": [
+      {
+       "id": "band-mvbss8xq-12",
+       "kind": "stucco",
+       "top": null
+      }
+     ],
+     "openings": [],
+     "heightsFrom": "level",
+     "lengthPlusMinusPct": 18,
+     "photos": [
+      {
+       "n": 905,
+       "scanId": null,
+       "claimPhotoId": "p6",
+       "camera": {
+        "width": 1730,
+        "height": 1298,
+        "fx": 1158.1244303513602,
+        "fy": 1158.1244303513602,
+        "cx": 865,
+        "cy": 649,
+        "k": -0.026007895314890454
+       },
+       "toPhoto": [
+        180.86061799542244,
+        15.808219292481175,
+        21.048929300487067,
+        76.45905212730878,
+        -128.97236801817945,
+        987.1265484684199,
+        0.09157863559003825,
+        0.02468192156325963,
+        0.8543323513613591
+       ],
+       "inView": {
+        "fromM": 0,
+        "toM": 2.372709870457378,
+        "leftEnd": true,
+        "rightEnd": true,
+        "top": true
+       }
+      }
+     ]
+    },
+    {
+     "id": "side-mvbss8xq-13",
+     "name": "Rear 3",
+     "lengthFeet": 12.979337689835894,
+     "turn": "outside",
+     "base": "parging",
+     "baseLeftFeet": 0.6666666666666666,
+     "baseRightFeet": 0.6666666666666666,
+     "eaveLeftFeet": 10,
+     "eaveRightFeet": 10,
+     "gable": null,
+     "bands": [
+      {
+       "id": "band-mvbss8xq-14",
+       "kind": "stucco",
+       "top": null
+      }
+     ],
+     "openings": [],
+     "heightsFrom": "level",
+     "lengthPlusMinusPct": 7,
+     "photos": [
+      {
+       "n": 907,
+       "scanId": null,
+       "claimPhotoId": "p8",
+       "camera": {
+        "width": 1880,
+        "height": 1410,
+        "fx": 1258.5398433876053,
+        "fy": 1258.5398433876053,
+        "cx": 940,
+        "cy": 705,
+        "k": -0.026007895314890454
+       },
+       "toPhoto": [
+        96.96824722071493,
+        11.009866086625493,
+        978.6563106742377,
+        -14.205648336979825,
+        -98.97365613801006,
+        873.5600586661537,
+        -0.012976117286283706,
+        0.01423418916786719,
+        1.0043161388520259
+       ],
+       "inView": {
+        "fromM": 0,
+        "toM": 3.9561021278619806,
+        "leftEnd": true,
+        "rightEnd": true,
+        "top": true
+       }
+      }
+     ]
+    },
+    {
+     "id": "side-mvbss8xq-15",
+     "name": "Left",
+     "lengthFeet": 23.87598356829101,
+     "turn": "outside",
+     "base": "parging",
+     "baseLeftFeet": 0.6666666666666666,
+     "baseRightFeet": 0.6666666666666666,
+     "eaveLeftFeet": 18.216218627286622,
+     "eaveRightFeet": 17.880946136363384,
+     "gable": {
+      "peakFeet": 22.031709335905152,
+      "atFeet": 10.628866974008766
+     },
+     "bands": [
+      {
+       "id": "band-mvbss8xq-16",
+       "kind": "stucco",
+       "top": null
+      }
+     ],
+     "openings": [
+      {
+       "id": "opening-mvbss97t-36",
+       "kind": "window",
+       "widthFeet": 2.1833004882946745,
+       "heightFeet": 5.294503684114587,
+       "sillFeet": 7.021518478879261,
+       "fromLeftFeet": 2.3869076306963675
+      },
+      {
+       "id": "opening-mvbss97t-37",
+       "kind": "window",
+       "widthFeet": 5.430959964633005,
+       "heightFeet": 1.8907623313867767,
+       "sillFeet": 0,
+       "fromLeftFeet": 3.20564531380687
+      }
+     ],
+     "heightsFrom": "level",
+     "lengthPlusMinusPct": 36,
+     "photos": [
+      {
+       "n": 905,
+       "scanId": null,
+       "claimPhotoId": "p6",
+       "camera": {
+        "width": 1730,
+        "height": 1298,
+        "fx": 1158.1244303513602,
+        "fy": 1158.1244303513602,
+        "cx": 865,
+        "cy": 649,
+        "k": -0.026007895314890454
+       },
+       "toPhoto": [
+        163.8775931824134,
+        14.323808902484105,
+        527.339346472489,
+        69.27945717817451,
+        -116.86171092476671,
+        775.23659087397,
+        0.0829792939655034,
+        0.022364260090090328,
+        0.6645168615584032
+       ],
+       "inView": {
+        "fromM": 0,
+        "toM": 7.2773997916151,
+        "leftEnd": true,
+        "rightEnd": true,
+        "top": true
+       }
+      }
+     ],
+     "shapes": [
+      {
+       "id": "shape-mvbss97t-34",
+       "kind": "stucco",
+       "closed": true,
+       "polygon": [
+        {
+         "x": -0.014722906427775906,
+         "y": 2.3274224290457117
+        },
+        {
+         "x": 27.00362063621883,
+         "y": 2.3274224290457117
+        },
+        {
+         "x": 27.00362063621883,
+         "y": 16.900953188412668
+        },
+        {
+         "x": 10.628866974008766,
+         "y": 22.031709335905152
+        },
+        {
+         "x": -0.014722906427775906,
+         "y": 18.21093348138947
+        }
+       ]
+      },
+      {
+       "id": "shape-mvbss97t-35",
+       "kind": "parging",
+       "closed": true,
+       "polygon": [
+        {
+         "x": -0.014722906427775906,
+         "y": -0.34712066911526795
+        },
+        {
+         "x": 27.00362063621883,
+         "y": -0.34712066911526795
+        },
+        {
+         "x": 27.00362063621883,
+         "y": 2.3274224290457117
+        },
+        {
+         "x": -0.014722906427775906,
+         "y": 2.3274224290457117
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "id": "side-mvbss8xq-17",
+     "name": "Front 3",
+     "lengthFeet": 21.91575459357559,
+     "turn": "inside",
+     "base": "parging",
+     "baseLeftFeet": 0.6666666666666666,
+     "baseRightFeet": 0.6666666666666666,
+     "eaveLeftFeet": 10,
+     "eaveRightFeet": 10,
+     "gable": null,
+     "bands": [
+      {
+       "id": "band-mvbss8xq-18",
+       "kind": "stucco",
+       "top": null
+      }
+     ],
+     "openings": [],
+     "heightsFrom": "level",
+     "photos": [
+      {
+       "n": 916,
+       "scanId": null,
+       "claimPhotoId": "p17",
+       "camera": {
+        "width": 1805,
+        "height": 1354,
+        "fx": 1208.3321368694828,
+        "fy": 1208.3321368694828,
+        "cx": 902.5,
+        "cy": 677,
+        "k": -0.026007895314890454
+       },
+       "toPhoto": [
+        104.80637033703358,
+        1.2352036038002754,
+        59.38267020250623,
+        21.35794099652759,
+        -82.54120017680343,
+        831.0453258881898,
+        0.03146875228783032,
+        0.003903177878652217,
+        0.8890408278200905
+       ],
+       "inView": {
+        "fromM": 0,
+        "toM": 6.67992200012184,
+        "leftEnd": true,
+        "rightEnd": true,
+        "top": true
+       }
+      }
+     ]
+    },
+    {
+     "id": "side-mvbss8xq-19",
+     "name": "Left 3",
+     "lengthFeet": 25.96307683464708,
+     "turn": "outside",
+     "base": "parging",
+     "baseLeftFeet": 0.6666666666666666,
+     "baseRightFeet": 0.6666666666666666,
+     "eaveLeftFeet": 10,
+     "eaveRightFeet": 10,
+     "gable": null,
+     "bands": [
+      {
+       "id": "band-mvbss8xq-20",
+       "kind": "stucco",
+       "top": null
+      }
+     ],
+     "openings": [],
+     "heightsFrom": "level",
+     "lengthPlusMinusPct": 4,
+     "photos": [
+      {
+       "n": 916,
+       "scanId": null,
+       "claimPhotoId": "p17",
+       "camera": {
+        "width": 1805,
+        "height": 1354,
+        "fx": 1208.3321368694828,
+        "fy": 1208.3321368694828,
+        "cx": 902.5,
+        "cy": 677,
+        "k": -0.026007895314890454
+       },
+       "toPhoto": [
+        -22.215273961664078,
+        1.444032430339755,
+        887.8821773636495,
+        -56.07796373570656,
+        -96.49596999859651,
+        1138.3350961644433,
+        -0.07378186954334884,
+        0.004563065895223769,
+        1.2850935037859443
+       ],
+       "inView": {
+        "fromM": 0,
+        "toM": 7.91354581920043,
+        "leftEnd": true,
+        "rightEnd": true,
+        "top": true
+       }
+      }
+     ]
+    },
+    {
+     "id": "side-mvbss8xq-21",
+     "name": "Front 2",
+     "lengthFeet": 13.675457795699366,
+     "turn": "inside",
+     "base": "parging",
+     "baseLeftFeet": 0.6666666666666666,
+     "baseRightFeet": 0.6666666666666666,
+     "eaveLeftFeet": 9.066786570223138,
+     "eaveRightFeet": 9.066786570223138,
+     "gable": null,
+     "bands": [
+      {
+       "id": "band-mvbss8xq-22",
+       "kind": "stucco",
+       "top": null
+      }
+     ],
+     "openings": [
+      {
+       "id": "opening-mvbss97s-27",
+       "kind": "garage",
+       "widthFeet": 8.606832137034546,
+       "heightFeet": 7.563409777728022,
+       "sillFeet": 0,
+       "fromLeftFeet": 2.547044328807285
+      }
+     ],
+     "heightsFrom": "level",
+     "lengthPlusMinusPct": 3,
+     "photos": [
+      {
+       "n": 915,
+       "scanId": null,
+       "claimPhotoId": "p16",
+       "camera": {
+        "width": 1857,
+        "height": 1393,
+        "fx": 1243.1428133887143,
+        "fy": 1243.1428133887143,
+        "cx": 928.5,
+        "cy": 696.5,
+        "k": -0.026007895314890454
+       },
+       "toPhoto": [
+        180.77543688277603,
+        8.814833124865656,
+        580.1242115675254,
+        25.275913691507526,
+        -150.321094199279,
+        925.3780429905993,
+        0.03129692558455488,
+        0.008581533658154965,
+        0.9219005322838387
+       ],
+       "inView": {
+        "fromM": 0,
+        "toM": 4.168279536129167,
+        "leftEnd": true,
+        "rightEnd": true,
+        "top": true
+       }
+      }
+     ],
+     "shapes": [
+      {
+       "id": "shape-mvbss97s-26",
+       "kind": "stucco",
+       "closed": true,
+       "polygon": [
+        {
+         "x": 0.010095991471772418,
+         "y": -0.1413962838094562
+        },
+        {
+         "x": 13.634448173458779,
+         "y": -0.1413962838094562
+        },
+        {
+         "x": 13.634448173458779,
+         "y": 9.066786570223138
+        },
+        {
+         "x": 0.010095991471772418,
+         "y": 9.066786570223138
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "id": "side-mvbss8xq-23",
+     "name": "Left 5",
+     "lengthFeet": 2.0045290746101676,
+     "turn": "outside",
+     "base": "parging",
+     "baseLeftFeet": 0.6666666666666666,
+     "baseRightFeet": 0.6666666666666666,
+     "eaveLeftFeet": 10,
+     "eaveRightFeet": 10,
+     "gable": null,
+     "bands": [
+      {
+       "id": "band-mvbss8xq-24",
+       "kind": "stucco",
+       "top": null
+      }
+     ],
+     "openings": [],
+     "heightsFrom": "level",
+     "lengthPlusMinusPct": 9,
+     "photos": [
+      {
+       "n": 916,
+       "scanId": null,
+       "claimPhotoId": "p17",
+       "camera": {
+        "width": 1805,
+        "height": 1354,
+        "fx": 1208.3321368694828,
+        "fy": 1208.3321368694828,
+        "cx": 902.5,
+        "cy": 677,
+        "k": -0.026007895314890454
+       },
+       "toPhoto": [
+        -26.482409156274535,
+        1.7214038287881794,
+        1457.6775904488914,
+        -66.84948305667729,
+        -115.0310261239292,
+        952.0395405655618,
+        -0.08795397531147404,
+        0.005439544803853779,
+        1.018709763026903
+       ],
+       "inView": {
+        "fromM": 0,
+        "toM": 0.6109804619411792,
+        "leftEnd": true,
+        "rightEnd": true,
+        "top": true
+       }
+      }
+     ]
+    }
+   ],
+   "open": false,
+   "roof": {
+    "pitch": null,
+    "eaveOverhangFeet": 1.3333333333333333,
+    "rakeOverhangFeet": 1,
+    "ridgeAlong": null,
+    "ends": {},
+    "downspouts": null,
+    "lowerWings": [
+     "side-mvbss8xq-21"
+    ],
+    "wingGables": [
+     "side-mvbss8xq-21"
+    ],
+    "answered": [
+     "wing:side-mvbss8xq-21"
+    ]
+   },
+   "photoRoute": {
+    "format": "scrivn-photo-route/1",
+    "photos": [
+     {
+      "id": "p1",
+      "width": 1931,
+      "height": 1448,
+      "focalPrior": null,
+      "takenAt": 1792176588000
+     },
+     {
+      "id": "p2",
+      "width": 1878,
+      "height": 1409,
+      "focalPrior": null,
+      "takenAt": 1792176599000
+     },
+     {
+      "id": "p3",
+      "width": 1419,
+      "height": 1065,
+      "focalPrior": null,
+      "takenAt": 1792176616000
+     },
+     {
+      "id": "p4",
+      "width": 1436,
+      "height": 1077,
+      "focalPrior": null,
+      "takenAt": 1792176618000
+     },
+     {
+      "id": "p5",
+      "width": 1383,
+      "height": 1037,
+      "focalPrior": null,
+      "takenAt": 1792176621000
+     },
+     {
+      "id": "p6",
+      "width": 1730,
+      "height": 1298,
+      "focalPrior": null,
+      "takenAt": 1792176632000
+     },
+     {
+      "id": "p7",
+      "width": 1840,
+      "height": 1380,
+      "focalPrior": null,
+      "takenAt": 1792176666000
+     },
+     {
+      "id": "p8",
+      "width": 1880,
+      "height": 1410,
+      "focalPrior": null,
+      "takenAt": 1792176673000
+     },
+     {
+      "id": "d8f821e4-3774-4895-9709-ccf867a71984",
+      "width": 1739,
+      "height": 1304,
+      "focalPrior": null,
+      "takenAt": 1792176675000
+     },
+     {
+      "id": "p10",
+      "width": 1690,
+      "height": 1268,
+      "focalPrior": null,
+      "takenAt": 1792176687000
+     },
+     {
+      "id": "p11",
+      "width": 1550,
+      "height": 1163,
+      "focalPrior": null,
+      "takenAt": 1792176761000
+     },
+     {
+      "id": "p12",
+      "width": 1677,
+      "height": 1258,
+      "focalPrior": null,
+      "takenAt": 1792176780000
+     },
+     {
+      "id": "p13",
+      "width": 1727,
+      "height": 1295,
+      "focalPrior": null,
+      "takenAt": 1792176793000
+     },
+     {
+      "id": "p14",
+      "width": 2000,
+      "height": 1500,
+      "focalPrior": null,
+      "takenAt": 1792176807000
+     },
+     {
+      "id": "p15",
+      "width": 2000,
+      "height": 1500,
+      "focalPrior": null,
+      "takenAt": 1792176815000
+     },
+     {
+      "id": "p16",
+      "width": 1857,
+      "height": 1393,
+      "focalPrior": null,
+      "takenAt": 1792176820000
+     },
+     {
+      "id": "p17",
+      "width": 1805,
+      "height": 1354,
+      "focalPrior": null,
+      "takenAt": 1792176828000
+     },
+     {
+      "id": "p18",
+      "width": 1425,
+      "height": 1901,
+      "focalPrior": null,
+      "takenAt": 1792176864000
+     }
+    ],
+    "buildings": [
+     {
+      "id": "main",
+      "outline": [
+       {
+        "x": 0,
+        "y": 0
+       },
+       {
+        "x": 12,
+        "y": 0
+       },
+       {
+        "x": 12,
+        "y": -2
+       },
+       {
+        "x": 25,
+        "y": -2
+       },
+       {
+        "x": 25,
+        "y": 62
+       },
+       {
+        "x": 5,
+        "y": 62
+       },
+       {
+        "x": 5,
+        "y": 56
+       },
+       {
+        "x": -10,
+        "y": 56
+       },
+       {
+        "x": -10,
+        "y": 46
+       },
+       {
+        "x": -20,
+        "y": 46
+       },
+       {
+        "x": -20,
+        "y": 20
+       },
+       {
+        "x": 0,
+        "y": 20
+       }
+      ],
+      "corners": [
+       {
+        "photo": "p1",
+        "corner": 10,
+        "x": 189.5,
+        "y": 1043,
+        "by": "user"
+       },
+       {
+        "photo": "p2",
+        "corner": 0,
+        "x": 1681.9,
+        "y": 1120,
+        "by": "user"
+       },
+       {
+        "photo": "p3",
+        "corner": 9,
+        "x": 496.4,
+        "y": 1000,
+        "by": "user"
+       },
+       {
+        "photo": "p6",
+        "corner": 9,
+        "x": 790.1,
+        "y": 1150,
+        "by": "user"
+       },
+       {
+        "photo": "p6",
+        "corner": 10,
+        "x": 1350.2,
+        "y": 1010,
+        "by": "user"
+       },
+       {
+        "photo": "p7",
+        "corner": 9,
+        "x": 1295.2,
+        "y": 1260,
+        "by": "user"
+       },
+       {
+        "photo": "p7",
+        "corner": 10,
+        "x": 1406.6,
+        "y": 1150,
+        "by": "user"
+       },
+       {
+        "photo": "p8",
+        "corner": 5,
+        "x": 45.4,
+        "y": 1190,
+        "by": "user"
+       },
+       {
+        "photo": "d8f821e4-3774-4895-9709-ccf867a71984",
+        "corner": 4,
+        "x": 385.1,
+        "y": 985,
+        "by": "user"
+       },
+       {
+        "photo": "d8f821e4-3774-4895-9709-ccf867a71984",
+        "corner": 5,
+        "x": 957,
+        "y": 985,
+        "by": "user"
+       },
+       {
+        "photo": "p10",
+        "corner": 5,
+        "x": 992,
+        "y": 975,
+        "by": "user"
+       },
+       {
+        "photo": "p11",
+        "corner": 3,
+        "x": 564,
+        "y": 860,
+        "by": "user"
+       },
+       {
+        "photo": "p11",
+        "corner": 4,
+        "x": 791.9,
+        "y": 1150,
+        "by": "user"
+       },
+       {
+        "photo": "p12",
+        "corner": 3,
+        "x": 514.3,
+        "y": 900,
+        "by": "user"
+       },
+       {
+        "photo": "p13",
+        "corner": 4,
+        "x": 1255.3,
+        "y": 1000,
+        "by": "user"
+       },
+       {
+        "photo": "p14",
+        "corner": 2,
+        "x": 167.5,
+        "y": 1233,
+        "by": "user"
+       },
+       {
+        "photo": "p14",
+        "corner": 3,
+        "x": 1127.9,
+        "y": 1345,
+        "by": "user"
+       },
+       {
+        "photo": "p14",
+        "corner": 4,
+        "x": 1512.5,
+        "y": 1044,
+        "by": "user"
+       },
+       {
+        "photo": "p15",
+        "corner": 0,
+        "x": 381.2,
+        "y": 1000,
+        "by": "user"
+       },
+       {
+        "photo": "p15",
+        "corner": 3,
+        "x": 1564.2,
+        "y": 1050,
+        "by": "user"
+       },
+       {
+        "photo": "p15",
+        "corner": 10,
+        "x": 210.7,
+        "y": 960,
+        "by": "user"
+       },
+       {
+        "photo": "p16",
+        "corner": 0,
+        "x": 631.1,
+        "y": 1000,
+        "by": "user"
+       },
+       {
+        "photo": "p16",
+        "corner": 1,
+        "x": 1261.3,
+        "y": 990,
+        "by": "user"
+       },
+       {
+        "photo": "p16",
+        "corner": 3,
+        "x": 1826.7,
+        "y": 975,
+        "by": "user"
+       },
+       {
+        "photo": "p17",
+        "corner": 0,
+        "x": 1005.4,
+        "y": 935,
+        "by": "user"
+       },
+       {
+        "photo": "p17",
+        "corner": 3,
+        "x": 1766.5,
+        "y": 905,
+        "by": "user"
+       },
+       {
+        "photo": "p17",
+        "corner": 10,
+        "x": 58.3,
+        "y": 960,
+        "by": "user"
+       },
+       {
+        "photo": "p7",
+        "corner": 7,
+        "x": 486,
+        "y": 520,
+        "by": "user"
+       },
+       {
+        "photo": "p8",
+        "corner": 7,
+        "x": 945,
+        "y": 860,
+        "by": "user"
+       },
+       {
+        "photo": "p8",
+        "corner": 9,
+        "x": 1428,
+        "y": 640,
+        "by": "user"
+       }
+      ],
+      "tapes": [
+       {
+        "id": "door-west",
+        "kind": "line",
+        "photo": "p15",
+        "a": [
+         494.9,
+         774.6
+        ],
+        "b": [
+         865.9,
+         774.6
+        ],
+        "feet": 9,
+        "what": "garage"
+       },
+       {
+        "id": "door-east",
+        "kind": "line",
+        "photo": "p15",
+        "a": [
+         1028.1,
+         784.5
+        ],
+        "b": [
+         1451.8,
+         784.5
+        ],
+        "feet": 9,
+        "what": "garage"
+       },
+       {
+        "id": "porch",
+        "kind": "side",
+        "from": 10,
+        "feet": 21.916666666666668,
+        "what": "wall",
+        "note": "keystone wall to the west porch post's inner face, along the house"
+       },
+       {
+        "id": "bump-out",
+        "kind": "side",
+        "from": 4,
+        "feet": 22.166666666666668,
+        "what": "wall",
+        "note": "the rear bump-out gable, hose on the right"
+       }
+      ]
+     }
+    ],
+    "measured": {
+     "at": "2026-10-16T13:00:00.000Z",
+     "building": "main",
+     "focalOverWidth": 0.6694360869083007,
+     "k": -0.026007895314890454,
+     "rms": 0.6360349173169743,
+     "corners": [
+      {
+       "x": -1.675457795699365,
+       "y": 0
+      },
+      {
+       "x": 12,
+       "y": 0
+      },
+      {
+       "x": 12,
+       "y": -2.0045290746101676
+      },
+      {
+       "x": 25.18474111051489,
+       "y": -2.0045290746101676
+      },
+      {
+       "x": 25.18474111051489,
+       "y": 67.52601999065554
+      },
+      {
+       "x": 3.0166552966640903,
+       "y": 67.52601999065554
+      },
+      {
+       "x": 3.0166552966640903,
+       "y": 57.62354160522607
+      },
+      {
+       "x": -10.61187469943906,
+       "y": 57.62354160522607
+      },
+      {
+       "x": -10.61187469943906,
+       "y": 49.83906040293809
+      },
+      {
+       "x": -23.591212389274954,
+       "y": 49.83906040293809
+      },
+      {
+       "x": -23.591212389274954,
+       "y": 25.96307683464708
+      },
+      {
+       "x": -1.675457795699365,
+       "y": 25.96307683464708
+      }
+     ],
+     "sides": [
+      {
+       "from": 0,
+       "lengthFeet": 13.675457795699366,
+       "plusMinusPct": 3,
+       "taped": false,
+       "photos": 3
+      },
+      {
+       "from": 1,
+       "lengthFeet": 2.0045290746101676,
+       "plusMinusPct": 9,
+       "taped": false,
+       "photos": 0
+      },
+      {
+       "from": 2,
+       "lengthFeet": 13.184741110514889,
+       "plusMinusPct": 3,
+       "taped": false,
+       "photos": 4
+      },
+      {
+       "from": 3,
+       "lengthFeet": 69.5305490652657,
+       "plusMinusPct": 15,
+       "taped": false,
+       "photos": 0
+      },
+      {
+       "from": 4,
+       "lengthFeet": 22.168085813850798,
+       "plusMinusPct": null,
+       "taped": true,
+       "photos": 2
+      },
+      {
+       "from": 5,
+       "lengthFeet": 9.902478385429468,
+       "plusMinusPct": 29,
+       "taped": false,
+       "photos": 0
+      },
+      {
+       "from": 6,
+       "lengthFeet": 13.62852999610315,
+       "plusMinusPct": 7,
+       "taped": false,
+       "photos": 2
+      },
+      {
+       "from": 7,
+       "lengthFeet": 7.784481202287985,
+       "plusMinusPct": 18,
+       "taped": false,
+       "photos": 0
+      },
+      {
+       "from": 8,
+       "lengthFeet": 12.979337689835894,
+       "plusMinusPct": 7,
+       "taped": false,
+       "photos": 2
+      },
+      {
+       "from": 9,
+       "lengthFeet": 23.87598356829101,
+       "plusMinusPct": 36,
+       "taped": false,
+       "photos": 0
+      },
+      {
+       "from": 10,
+       "lengthFeet": 21.91575459357559,
+       "plusMinusPct": null,
+       "taped": true,
+       "photos": 3
+      },
+      {
+       "from": 11,
+       "lengthFeet": 25.96307683464708,
+       "plusMinusPct": 4,
+       "taped": false,
+       "photos": 0
+      }
+     ],
+     "cameras": [
+      {
+       "photo": "p7",
+       "at": [
+        -27.388664604489012,
+        74.41055106072771
+       ],
+       "quadrant": 2,
+       "yawTweakDeg": -0.1339371137783354,
+       "heightFeet": 7.759968718519292,
+       "placedBy": "corners"
+      },
+      {
+       "photo": "p8",
+       "at": [
+        -15.36861713963683,
+        87.38344664520893
+       ],
+       "quadrant": 2,
+       "yawTweakDeg": 0.3073046188634255,
+       "heightFeet": -1.2141353312956806,
+       "placedBy": "corners"
+      },
+      {
+       "photo": "p11",
+       "at": [
+        28.55965293988802,
+        81.96867981800075
+       ],
+       "quadrant": 2,
+       "yawTweakDeg": -0.21160778439373099,
+       "heightFeet": 5.154133744368474,
+       "placedBy": "corners"
+      },
+      {
+       "photo": "p14",
+       "at": [
+        29.225094127251516,
+        -14.372107897267346
+       ],
+       "quadrant": 0,
+       "yawTweakDeg": 0.5583248754031234,
+       "heightFeet": 4.517538298383111,
+       "placedBy": "corners"
+      },
+      {
+       "photo": "p15",
+       "at": [
+        15.339409536159437,
+        -30.9877780178659
+       ],
+       "quadrant": 0,
+       "yawTweakDeg": -1.4617108404020913,
+       "heightFeet": 4.061684273614355,
+       "placedBy": "corners"
+      },
+      {
+       "photo": "p16",
+       "at": [
+        -2.172940014701755,
+        -25.014429898689386
+       ],
+       "quadrant": 0,
+       "yawTweakDeg": 0.013384802481980936,
+       "heightFeet": 4.315347960188704,
+       "placedBy": "corners"
+      },
+      {
+       "photo": "p17",
+       "at": [
+        -16.426081772714554,
+        -24.1812420902536
+       ],
+       "quadrant": 0,
+       "yawTweakDeg": 0.502408374651,
+       "heightFeet": 5.745301355546623,
+       "placedBy": "corners"
+      },
+      {
+       "photo": "p6",
+       "at": [
+        -38.39568093178741,
+        63.52325361572579
+       ],
+       "quadrant": 2,
+       "yawTweakDeg": -0.021236190392379298,
+       "heightFeet": 4.571158415745225,
+       "placedBy": "corners"
+      },
+      {
+       "photo": "d8f821e4-3774-4895-9709-ccf867a71984",
+       "at": [
+        -10.415039804758724,
+        89.76760783473561
+       ],
+       "quadrant": 2,
+       "yawTweakDeg": 1.3362242025135547,
+       "heightFeet": 6.73258801924637,
+       "placedBy": "corners"
+      }
+     ],
+     "unplaced": [
+      {
+       "photo": "p1",
+       "why": "Only one corner on it, and too few window or door edges it shares with the other photos to place it."
+      },
+      {
+       "photo": "p2",
+       "why": "Only one corner on it, and too few window or door edges it shares with the other photos to place it."
+      },
+      {
+       "photo": "p3",
+       "why": "Only one corner on it, and too few window or door edges it shares with the other photos to place it."
+      },
+      {
+       "photo": "p10",
+       "why": "Only one corner on it, and too few window or door edges it shares with the other photos to place it."
+      },
+      {
+       "photo": "p12",
+       "why": "Only one corner on it, and too few window or door edges it shares with the other photos to place it."
+      },
+      {
+       "photo": "p13",
+       "why": "Only one corner on it, and too few window or door edges it shares with the other photos to place it."
+      }
+     ],
+     "advice": [
+      {
+       "from": 1,
+       "why": "±9%: nothing on it (a window or door edge) was seen in two photos. A tape along it fixes it."
+      },
+      {
+       "from": 3,
+       "why": "±15%: it was only seen from along it (a side yard, or a narrow gap): no photo faces it. A tape along it fixes it."
+      },
+      {
+       "from": 5,
+       "why": "±29%: only one of its corners was tapped on a photo. A tape along it fixes it."
+      },
+      {
+       "from": 6,
+       "why": "±7%: only one of its corners was tapped on a photo. A tape along it fixes it."
+      },
+      {
+       "from": 7,
+       "why": "±18%: only one of its corners was tapped on a photo. A tape along it fixes it."
+      },
+      {
+       "from": 8,
+       "why": "±7%: only one of its corners was tapped on a photo. A tape along it fixes it."
+      },
+      {
+       "from": 9,
+       "why": "±36%: nothing on it (a window or door edge) was seen in two photos. A tape along it fixes it."
+      }
+     ],
+     "counts": {
+      "cornerBearings": 24,
+      "edgeBearings": 80,
+      "edgePoints": 34,
+      "tapes": 4
+     },
+     "lenses": {
+      "p7": {
+       "f": 1231.7623999112732,
+       "k": -0.026007895314890454,
+       "R": [
+        0.9059526869096617,
+        0.0025482584988002835,
+        0.4233712737772698,
+        -0.04711576711033406,
+        -0.9931637056401537,
+        0.10679868111883709,
+        -0.420749133773047,
+        0.11670201445451392,
+        0.899639264511887
+       ],
+       "width": 1840,
+       "height": 1380
+      },
+      "p8": {
+       "f": 1258.5398433876053,
+       "k": -0.026007895314890454,
+       "R": [
+        0.9871221069904668,
+        -0.021451125842620135,
+        0.15852379976137834,
+        -0.04661202006978257,
+        -0.986536938892484,
+        0.1567551842385494,
+        -0.15302700897461102,
+        0.16212562228325123,
+        0.9748323020517699
+       ],
+       "width": 1880,
+       "height": 1410
+      },
+      "p11": {
+       "f": 1037.625934707866,
+       "k": -0.026007895314890454,
+       "R": [
+        0.9663354897658323,
+        -0.0873788669406665,
+        -0.24199308839550426,
+        -0.039395180861204984,
+        -0.9797232677604317,
+        0.19644423721182133,
+        0.25425133420287493,
+        0.18029767669325827,
+        0.9501836700528332
+       ],
+       "width": 1550,
+       "height": 1163
+      },
+      "p14": {
+       "f": 1338.8721738166014,
+       "k": -0.026007895314890454,
+       "R": [
+        0.9137347092286711,
+        0.020247210428136504,
+        0.40580651993366834,
+        -0.02715450350208565,
+        -0.9934816095647047,
+        0.1107109949204639,
+        -0.4054029034064152,
+        0.11217995331877495,
+        0.9072288266931592
+       ],
+       "width": 2000,
+       "height": 1500
+      },
+      "p15": {
+       "f": 1338.8721738166014,
+       "k": -0.026007895314890454,
+       "R": [
+        0.9985177861701527,
+        0.02360809420925064,
+        0.04903966343342859,
+        0.02013572710572279,
+        -0.9973344265952753,
+        0.07013268868222136,
+        -0.05056464373236172,
+        0.0690412877608802,
+        0.9963315298576767
+       ],
+       "width": 2000,
+       "height": 1500
+      },
+      "p16": {
+       "f": 1243.1428133887143,
+       "k": -0.026007895314890454,
+       "R": [
+        0.9684757924777154,
+        0.005405700986220941,
+        -0.2490490268632039,
+        0.022182754400383368,
+        -0.9976641827652856,
+        0.06460730480748365,
+        0.2481180460826531,
+        0.06809520411983795,
+        0.9663335233675815
+       ],
+       "width": 1857,
+       "height": 1393
+      },
+      "p17": {
+       "f": 1208.3321368694828,
+       "k": -0.026007895314890454,
+       "R": [
+        0.8991259617699426,
+        -0.026802044266191108,
+        -0.43686857897361875,
+        0.00008944052678457742,
+        -0.9981120908100051,
+        0.06141861427346325,
+        0.43768995518707987,
+        0.05526214438504379,
+        0.8974260964147959
+       ],
+       "width": 1805,
+       "height": 1354
+      },
+      "p6": {
+       "f": 1158.1244303513602,
+       "k": -0.026007895314890454,
+       "R": [
+        0.7256401097316769,
+        -0.037472483041736754,
+        0.6870533051832926,
+        -0.15968366239131554,
+        -0.9804259304927465,
+        0.1151786559338514,
+        -0.6692888458011953,
+        0.19328944056031339,
+        0.717420123117539
+       ],
+       "width": 1730,
+       "height": 1298
+      },
+      "d8f821e4-3774-4895-9709-ccf867a71984": {
+       "f": 1164.149355133535,
+       "k": -0.026007895314890454,
+       "R": [
+        0.8075878216666537,
+        -0.017816536163304832,
+        0.5894781432206381,
+        -0.07205419145140442,
+        -0.995036026697924,
+        0.06864036033918276,
+        -0.5853290559932882,
+        0.09790749007277301,
+        0.8048627333885302
+       ],
+       "width": 1739,
+       "height": 1304
+      }
+     },
+     "sideIds": [
+      "side-mvbss8xq-21",
+      "side-mvbss8xq-23",
+      "side-mvbss8xq-1",
+      "side-mvbss8xq-3",
+      "side-mvbss8xq-5",
+      "side-mvbss8xq-7",
+      "side-mvbss8xq-9",
+      "side-mvbss8xq-11",
+      "side-mvbss8xq-13",
+      "side-mvbss8xq-15",
+      "side-mvbss8xq-17",
+      "side-mvbss8xq-19"
+     ]
+    }
+   },
+   "source": {
+    "kind": "photos",
+    "by": "photos",
+    "captureId": null,
+    "scanId": null,
+    "receivedAt": "2026-10-16T13:00:00.000Z",
+    "notes": [
+     "Measured from 9 of 18 photos and 4 tapes."
+    ],
+    "walkClosed": true
+   }
+  }
+ },
+ "sketchAttachments": {
+  "inspectionReport": [
+   "roof",
+   "elevations"
+  ],
+  "scopeDocument": [
+   "roof",
+   "elevations"
+  ],
+  "workOrders": {
+   "ROOFING": [
+    "roof"
+   ],
+   "SIDING": [
+    "roof",
+    "elevations"
+   ]
+  },
+  "exteriorDefaulted": true
+ },
+ "moisture": {
+  "rooms": {},
+  "reference": {}
+ },
+ "dryingLog": {
+  "version": 1,
+  "goalMarginPercent": 10,
+  "tempUnit": "F",
+  "points": [],
+  "visits": []
+ },
+ "photos": {
+  "items": [
+   {
+    "id": "d8f821e4-3774-4895-9709-ccf867a71984",
+    "room": "exterior",
+    "roomName": "Exterior",
+    "takenAt": 1792176675000,
+    "caption": "",
+    "captionBy": null,
+    "width": 1739,
+    "height": 1304,
+    "source": "gallery",
+    "editedAt": 1792205412994
+   }
+  ],
+  "deleted": [],
+  "scopedNotes": null
+ },
+ "scopeMarks": {},
+ "resolvedSuggestions": []
+}

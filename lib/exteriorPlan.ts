@@ -916,6 +916,14 @@ export function withAddition(roof: ExteriorRoof, kind: AdditionKind, sideId: str
 }
 
 /** Everything the roof says about the sides, let go of sides that are no longer there. */
+/** One slope draining to [sideId] (2026-10-16, a shed's roof); null, the roof the outline gives again - its ends as they were. */
+export function withOneSlope(roof: ExteriorRoof, sideId: string | null): ExteriorRoof {
+  const out = { ...roof };
+  if (sideId) out.oneSlopeTo = sideId;
+  else delete out.oneSlopeTo;
+  return out;
+}
+
 export function roofWithoutSides(roof: ExteriorRoof, gone: (id: string) => boolean): ExteriorRoof {
   const ends = Object.fromEntries(Object.entries(roof.ends).filter(([id]) => !gone(id)));
   const additions = roof.additions?.filter((a) => !gone(a.sideId));
@@ -925,7 +933,7 @@ export function roofWithoutSides(roof: ExteriorRoof, gone: (id: string) => boole
     if (side !== undefined) return !gone(side);
     return key === "main" || (additions ?? []).some((a) => a.id === key) || !(roof.additions ?? []).some((a) => a.id === key);
   };
-  return {
+  const out: ExteriorRoof = {
     ...roof,
     ends,
     ridgeAlong: roof.ridgeAlong !== null && gone(roof.ridgeAlong) ? null : roof.ridgeAlong,
@@ -936,4 +944,7 @@ export function roofWithoutSides(roof: ExteriorRoof, gone: (id: string) => boole
     wingGables: roof.wingGables?.filter((w) => !gone(w)),
     coveredNotches: roof.coveredNotches?.filter((w) => !gone(w)),
   };
+  // One slope drains to a side: gone with it (2026-10-16), the roof the outline gives.
+  if (out.oneSlopeTo !== undefined && gone(out.oneSlopeTo)) delete out.oneSlopeTo;
+  return out;
 }

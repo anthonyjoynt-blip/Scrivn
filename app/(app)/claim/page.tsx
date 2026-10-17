@@ -12,7 +12,7 @@ import { ClashBanner } from "@/components/ClashBanner";
 import { useLetterhead } from "@/lib/useLetterhead";
 import type { RoomAreasByName } from "@/lib/debris";
 import { roomAreasForEstimate } from "@/lib/sketchQuantities";
-import { exteriorScopeLines } from "@/lib/exterior";
+import { hasAnyExterior, siteScopeLines } from "@/lib/buildings";
 import { useProfile } from "@/lib/useProfile";
 import { claimsCanSave, isSupabaseConfigured } from "@/lib/supabase/env";
 import { resolveRound } from "@/lib/questionRound";
@@ -721,7 +721,8 @@ export default function Home() {
     sketch's Exterior, each with the quantity it measures to. Ready-made like the disposal line, so
     the scope document copies them and the Roofing and Siding work orders are them.
   */
-  const exteriorLines = useMemo(() => exteriorScopeLines(sketch.exterior), [sketch.exterior]);
+  // The house's lines, then each other building's, named for it (2026-10-16, lib/buildings.ts).
+  const exteriorLines = useMemo(() => siteScopeLines(sketch.exterior, sketch.buildings), [sketch.exterior, sketch.buildings]);
 
   const paintableWallSF = useMemo(() => {
     const out: Record<string, number | null> = {};
@@ -1749,7 +1750,7 @@ export default function Home() {
         />
       ) : (
         <div className="sketch-launch">
-          {hasSketchContent(sketch) || sketch.exterior ? (
+          {hasSketchContent(sketch) || hasAnyExterior(sketch) ? (
             /*
               View and Edit as separate doors, with View first.
 
@@ -1761,7 +1762,7 @@ export default function Home() {
             */
             <>
               <button className="btn-secondary" onClick={() => openSketch(true)}>
-                View sketch ({sketch.rooms.length} room{sketch.rooms.length === 1 ? "" : "s"}{sketch.exterior ? ", exterior" : ""})
+                View sketch ({sketch.rooms.length} room{sketch.rooms.length === 1 ? "" : "s"}{hasAnyExterior(sketch) ? ", exterior" : ""})
               </button>
               <button className="btn-secondary" onClick={() => openSketch(false)}>
                 Edit sketch
@@ -1798,8 +1799,8 @@ export default function Home() {
       )}
 
       {/* The exterior report (2026-10-15), beside the drying log for the same reason: there whenever the outside is measured. */}
-      {!showSketch && hasExteriorReport(sketch.exterior) && (
-        <ExteriorReportSection exterior={sketch.exterior} title={claim.address || claim.customerName} jobNumber={claim.jobNumber} customerName={claim.customerName} letterhead={letterhead} claimId={persistence.claimId} />
+      {!showSketch && hasExteriorReport(sketch.exterior, sketch.buildings) && (
+        <ExteriorReportSection exterior={sketch.exterior} buildings={sketch.buildings} title={claim.address || claim.customerName} jobNumber={claim.jobNumber} customerName={claim.customerName} letterhead={letterhead} claimId={persistence.claimId} />
       )}
 
       {/* Photos, beside the sketch and the drying log: optional, and not a step either. */}
@@ -2401,12 +2402,12 @@ export default function Home() {
                   ]
                 : []),
               /* The exterior report, made when it is sent: the same report as its Download, photos and all. */
-              ...(hasExteriorReport(sketch.exterior)
+              ...(hasExteriorReport(sketch.exterior, sketch.buildings)
                 ? [
                     {
                       label: "Exterior Report",
                       file: () =>
-                        exteriorReportFile({ exterior: sketch.exterior as NonNullable<typeof sketch.exterior>, title: claim.address || claim.customerName, jobNumber: claim.jobNumber, customerName: claim.customerName, letterhead, claimId: persistence.claimId }),
+                        exteriorReportFile({ exterior: sketch.exterior, buildings: sketch.buildings, title: claim.address || claim.customerName, jobNumber: claim.jobNumber, customerName: claim.customerName, letterhead, claimId: persistence.claimId }),
                     } satisfies SendableDocument,
                   ]
                 : []),

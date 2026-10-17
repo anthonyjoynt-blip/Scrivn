@@ -1,7 +1,7 @@
 "use client";
 
+import { siteReport } from "@/lib/buildings";
 import { allSides, type Exterior } from "@/lib/exterior";
-import { exteriorReport } from "@/lib/exteriorReport";
 import { exteriorReportPdf, type ReportPhotoImage } from "@/lib/exteriorReportPdf";
 import type { Letterhead } from "@/lib/letterhead";
 import { claimFileName } from "@/lib/pdf";
@@ -15,10 +15,16 @@ import { markup } from "./exteriorImages";
  * the phone, from the same exterior, so the two agree (test:exterior:engine proves it on the owner's
  * walk). The side photos come from the scan they came with, each made small enough for the PDF to be
  * emailed (`pdfImage`, as the site report's photos); a photo that can't be had is named, not printed.
+ *
+ * With the claim's other buildings (2026-10-16, lib/buildings.ts): the house's pages, then each building's own
+ * section, and the cover's totals of them all. Each building's photos are its own, read the same way.
  */
 
 export interface ExteriorReportFor {
-  exterior: Exterior;
+  /** The house's exterior; none on a claim with only other buildings measured. */
+  exterior: Exterior | undefined;
+  /** The claim's other buildings (`Sketch.buildings`). */
+  buildings?: Exterior[];
   title: string;
   jobNumber: string;
   customerName: string;
@@ -71,17 +77,20 @@ async function sidePhotos(exterior: Exterior, claimId: string | null): Promise<R
   return out;
 }
 
-/** The report as a file to download or send; null when the exterior has nothing measured. */
+/** The report as a file to download or send; null when nothing on the claim's outside is measured. */
 export async function exteriorReportFile(r: ExteriorReportFor): Promise<{ blob: Blob; filename: string } | null> {
   const date = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-  const report = exteriorReport(r.exterior, { title: r.title.trim() || "Exterior", date, madeWith: "Scrivn" });
-  if (!report) return null;
-  const photos = await sidePhotos(r.exterior, r.claimId ?? null);
-  const doc = exteriorReportPdf({ report, svgOf: (el) => markup(el as Parameters<typeof markup>[0]), photos, letterhead: r.letterhead, footer: "Scrivn" });
+  const site = siteReport(r.exterior, r.buildings, { title: r.title.trim() || "Exterior", date, madeWith: "Scrivn" });
+  if (!site) return null;
+  const claimId = r.claimId ?? null;
+  const photos = site.house ? await sidePhotos(site.house.exterior, claimId) : undefined;
+  const buildings = [];
+  for (const b of site.buildings) buildings.push({ name: b.name, report: b.report, photos: await sidePhotos(b.report.exterior, claimId) });
+  const doc = exteriorReportPdf({ report: site.house, svgOf: (el) => markup(el as Parameters<typeof markup>[0]), photos, buildings, totals: site.totals, letterhead: r.letterhead, footer: "Scrivn" });
   return { blob: doc.output("blob"), filename: claimFileName(r.jobNumber, r.customerName, "Exterior Report", "pdf") };
 }
 
-/** Whether the claim's exterior has anything to report: a side with a length. */
-export function hasExteriorReport(exterior: Exterior | undefined): exterior is Exterior {
-  return !!exterior && allSides(exterior).some((s) => s.lengthFeet > 0);
+/** Whether the claim's outside has anything to report: a side with a length, on the house or another building. */
+export function hasExteriorReport(exterior: Exterior | undefined, buildings: Exterior[] = []): boolean {
+  return [exterior, ...buildings].some((e) => !!e && allSides(e).some((s) => s.lengthFeet > 0));
 }
