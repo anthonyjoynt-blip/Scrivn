@@ -285,6 +285,14 @@ await test("a claim with nothing in it but a photo is worth saving", () => {
   assert(mod.hasAnyContent({ ...mod.emptySavedClaimState(), photos: photosOf(photo(1)) }), "one photo is");
 });
 
+await test("a claim with nothing in it but the outside measured is worth saving, the house or another building", () => {
+  const empty = mod.emptySavedClaimState();
+  const side = { id: "s1", name: "Front", lengthFeet: 20 };
+  assert(!mod.hasAnyContent({ ...empty, sketch: { ...empty.sketch, exterior: { sides: [] } } }), "an exterior with no sides is not");
+  assert(mod.hasAnyContent({ ...empty, sketch: { ...empty.sketch, exterior: { sides: [side] } } }), "the house's outside is");
+  assert(mod.hasAnyContent({ ...empty, sketch: { ...empty.sketch, buildings: [{ id: "b1", name: "Shed", sides: [side] }] } }), "a shed is");
+});
+
 await test("captions, moves and deletes", () => {
   let p = photosOf(photo(1), photo(2));
   p = mod.captionPhoto(p, id(1), "Baseboard wet behind the vanity", "voice", T0 + DAY);

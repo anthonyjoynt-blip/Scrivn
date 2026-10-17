@@ -264,6 +264,12 @@ export function claimSummary(state: SavedClaimState): {
  * Guards against a row being created the moment somebody opens the page and types nothing — an
  * empty claim in the list is noise, and a list full of them makes the real ones hard to find.
  */
+/** A side of the house's exterior, or of any other building, has been measured or drawn. */
+function hasExteriorContent(sketch: Sketch): boolean {
+  const measured = (e: Exterior | null | undefined) => !!e && Array.isArray(e.sides) && e.sides.length > 0;
+  return measured(sketch.exterior) || (sketch.buildings ?? []).some(measured);
+}
+
 export function hasAnyContent(state: SavedClaimState): boolean {
   return (
     state.claim.customerName.trim() !== "" ||
@@ -271,6 +277,9 @@ export function hasAnyContent(state: SavedClaimState): boolean {
     state.transcript.trim() !== "" ||
     state.extraction !== null ||
     hasSketchContent(state.sketch) ||
+    // And outside: a house or another building measured before anything is typed (2026-10-16). This
+    // never counted an exterior, so an outside-only claim did not reach the server until something else did.
+    hasExteriorContent(state.sketch) ||
     // A drying job can start at the log, before anybody types a name: Day 1 started is work to keep.
     state.dryingLog.visits.length > 0 ||
     // And at the camera: a photo taken before anything is typed is the start of a claim.
