@@ -74,6 +74,7 @@ async function load() {
       `export * from "${lib("roofPhotoShapes.ts")}";`,
       `export * from "${lib("roofCheck.ts")}";`,
       `export * from "${lib("exteriorCheck.ts")}";`,
+      `export { cornerPlace, routeCoverage } from "${lib("photoRouteCoverage.ts")}";`,
       `export { wallsFrom } from "${lib("exteriorFinish.ts")}";`,
       `export * from "${lib("exterior3d.ts")}";`,
       `export * from "${lib("exteriorPlan.ts")}";`,
@@ -5541,6 +5542,72 @@ test("a detached home's roof and quantities are as they were: no party line, not
   assert(q.roof.lines.every((l) => l.kind !== "party") && q.roofing.partyFeet === 0 && q.roof.totals.party === 0, "no party line");
   assert(x.homeTypeWords(e) === null && x.sharedOf(e) === undefined, "no words, nothing to draw");
   assert(!x.checkNotes(e, q).some((n) => /party line/.test(n)), "nothing to check");
+});
+
+console.log("\nwhat to take next on the photo route (10-17)");
+
+/**
+ * A clean four-sided house, 40' by 30', photographed as the checklist asks: each corner at 45 degrees from 45' out on
+ * its bisector, each wall straight on from 50' out, the owner's lens (f/W 0.664, so 37 degrees either side).
+ */
+const RECT = [{ x: 0, y: 0 }, { x: 40, y: 0 }, { x: 40, y: 30 }, { x: 0, y: 30 }];
+const HALF = Math.atan(0.5 / 0.664);
+const lookAt = (photo, from, to) => {
+  const d = [to.x - from[0], to.y - from[1]];
+  const L = Math.hypot(d[0], d[1]);
+  return { photo, at: from, forward: [d[0] / L, d[1] / L], halfFov: HALF };
+};
+const cornerShots = RECT.map((P, k) => {
+  const out = [P.x === 0 ? -1 : 1, P.y === 0 ? -1 : 1];
+  return lookAt(`corner${k}`, [P.x + (45 * out[0]) / Math.SQRT2, P.y + (45 * out[1]) / Math.SQRT2], P);
+});
+const wallShots = RECT.map((A, i) => {
+  const B = RECT[(i + 1) % 4];
+  const mid = { x: (A.x + B.x) / 2, y: (A.y + B.y) / 2 };
+  const L = Math.hypot(B.x - A.x, B.y - A.y);
+  const nrm = [(B.y - A.y) / L, -(B.x - A.x) / L];
+  return lookAt(`wall${i}`, [mid.x + 50 * nrm[0], mid.y + 50 * nrm[1]], mid);
+});
+
+test("a clean four-sided house photographed to the checklist: no warnings", () => {
+  const cov = x.routeCoverage({ ring: RECT, views: [...cornerShots, ...wallShots], taps: [], shots: [], measured: true });
+  assert(cov.items.length === 0, cov.items.map((i) => i.words).join(" | "));
+  assert(cov.corners.every((c) => c.photos.length >= 3 && c.at45), JSON.stringify(cov.corners));
+  assert(cov.walls.every((w) => w.both.length >= 2 && w.straight), JSON.stringify(cov.walls));
+});
+
+test("before a measure the list is the photos to take, ticked off as they're taken from it", () => {
+  const none = x.routeCoverage({ ring: RECT, views: [], taps: [], shots: [], measured: false });
+  assert(none.items.length === 8 && none.items.filter((i) => i.kind === "corner-45").length === 4 && none.items.filter((i) => i.kind === "wall-straight").length === 4, none.items.map((i) => i.words).join(" | "));
+  assert(none.items[0].words === "Corner 1 (front left): stand at the front left, at 45° to its two walls, both walls in.", none.items[0].words);
+  assert(none.items[4].words === "The wall from corner 1 to 2: straight on from the street, both corners in.", none.items[4].words);
+  const shots = [...RECT.map((_, k) => ({ photo: `c${k}`, shot: { kind: "corner", index: k } })), ...RECT.map((_, i) => ({ photo: `w${i}`, shot: { kind: "wall", index: i } }))];
+  assert(x.routeCoverage({ ring: RECT, views: [], taps: [], shots, measured: false }).items.length === 0, "all eight taken");
+  // A gable is asked square on, its peak in; a named wall by its name.
+  const g = x.routeCoverage({ ring: RECT, views: [], taps: [], shots: [], measured: false, gables: [1], wallName: (i) => (i === 1 ? "Right" : null) });
+  assert(g.items.some((i) => i.kind === "gable" && i.words === "The Right wall (corners 2 to 3), a gable: straight on from the right side, both corners and its peak in."), g.items.map((i) => i.words).join(" | "));
+});
+
+test("one photo left out: the checklist says which corner and from where; a photo the measure couldn't place counts for nothing", () => {
+  // The 45-degree photo of the back-right corner (3) gone: it's still in three photos, but none looks at it at 45.
+  const less = x.routeCoverage({ ring: RECT, views: [...cornerShots.filter((v) => v.photo !== "corner2"), ...wallShots], taps: [], shots: [], measured: true });
+  assert(less.items.length === 1 && less.items[0].words === "No photo looks at corner 3 (back right) at 45°: take one from the back right, both walls in.", less.items.map((i) => i.words).join(" | "));
+  // Only the front's two photos: the back corners in none, the back wall with no photo of both its ends.
+  const front = x.routeCoverage({ ring: RECT, views: [cornerShots[0], wallShots[0]], taps: [{ photo: "unplaced", corner: 2 }], shots: [], measured: true });
+  const words = front.items.map((i) => i.words);
+  assert(words.includes("Corner 3 (back right) is in no photo yet: take one from the back right, at 45° to its two walls."), words.join(" | "));
+  assert(words.includes("The wall from corner 3 to 4 has no photo with both its corners in: take one straight on from the back yard, both corners in."), words.join(" | "));
+  // Corners and walls missing come before the 45s and the straight-ons.
+  const kinds = front.items.map((i) => i.kind);
+  assert(kinds.lastIndexOf("corner-seen") < kinds.indexOf("wall-both") && kinds.lastIndexOf("wall-both") < kinds.indexOf("corner-45"), kinds.join());
+});
+
+test("where a corner is, in words: front and back as seen from the street, an inside corner said so", () => {
+  // An L: the back-left quarter cut out (counter-clockwise from the front left).
+  const L = [{ x: 0, y: 0 }, { x: 40, y: 0 }, { x: 40, y: 40 }, { x: 20, y: 40 }, { x: 20, y: 20 }, { x: 0, y: 20 }];
+  assert(["front left", "front right", "back right", "back, middle", "middle", "left side"].every((w, k) => x.cornerPlace(L, k) === w), L.map((_, k) => x.cornerPlace(L, k)).join(" | "));
+  const items = x.routeCoverage({ ring: L, views: [], taps: [], shots: [], measured: false }).items;
+  assert(!items.some((i) => i.corner === 4) && items.filter((i) => i.kind === "corner-45").length === 5, "the inside corner is not asked at 45");
 });
 
 console.log(`\n${passed.length} passed, ${failures.length} failed`);
