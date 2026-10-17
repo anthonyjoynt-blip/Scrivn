@@ -3,7 +3,7 @@
 import { createElement } from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
-import { allSides, elevationFaces, type Exterior, exteriorQuantities, formatPitch, lengthToCheck, pieceLine, ROOF_TOTAL_KEYS, ROOF_TOTAL_LABEL, type RoofTotalKey, sourceWords } from "@/lib/exterior";
+import { allSides, elevationFaces, type Exterior, exteriorQuantities, formatPitch, lengthToCheck, pieceLine, ROOF_TOTAL_KEYS, ROOF_TOTAL_LABEL, type RoofTotalKey, sharedOf, sourceWords } from "@/lib/exterior";
 import { sizesFrom } from "@/lib/exteriorScale";
 import { formatQuantity } from "@/lib/sketchQuantities";
 import { lineTotals, textWidthEm } from "@/lib/roofLabels";
@@ -116,6 +116,8 @@ function roofSvg(exterior: Exterior): { svg: string; width: number; height: numb
       const side = allSides(exterior).find((s) => s.id === id);
       return side ? lengthToCheck(side) : undefined;
     },
+    // A wall shared with the neighbour's home (2026-10-17), hatched as on the report.
+    shared: sharedOf(exterior),
   };
   const planW = WIDTH - 80;
   const planH = Math.round(planW / aspect(markup(createElement(RoofPlanDrawing, props))));

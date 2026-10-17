@@ -219,8 +219,12 @@ export interface RoofAddition {
   lower?: boolean;
 }
 
-/** "headwall" and "step" are flashing: a lower roof's level top, and its slope, against a wall. */
-export type RoofLineKind = "ridge" | "hip" | "valley" | "eave" | "rake" | "headwall" | "step";
+/**
+ * "headwall" and "step" are flashing: a lower roof's level top, and its slope, against a wall. "party": where
+ * the roof is cut by the party line over a wall shared with the neighbour's home (2026-10-17) - no eave or
+ * rake, the firewall's cap and flashing.
+ */
+export type RoofLineKind = "ridge" | "hip" | "valley" | "eave" | "rake" | "headwall" | "step" | "party";
 
 export interface RoofLine {
   kind: RoofLineKind;
@@ -270,8 +274,8 @@ export interface RoofFacet {
  * flashing where a lower roof stands against a wall.
  */
 export interface RoofEdge extends RoofLine {
-  kind: "eave" | "rake" | "headwall" | "step";
-  /** The side it runs along, one overhang out (or the side whose wall it is against). */
+  kind: "eave" | "rake" | "headwall" | "step" | "party";
+  /** The side it runs along, one overhang out (or the side whose wall it is against, or that is shared). */
   sideId: string | null;
   /** Plan length (an eave's `feet`; a rake's run along the drip line). */
   planFeet: number;
@@ -306,6 +310,12 @@ export interface RoofInput {
   ridgeAlong: string | null;
   /** Each end by the side it stands over; anything absent is a gable (or a hip, by `eaveSides`). */
   ends: Record<string, RoofEndKind>;
+  /**
+   * Walls shared with the neighbour's home - a semi-detached house, a townhouse (2026-10-17), main floor or
+   * upper: the roof is CUT by the party line over each, no overhang, eave, rake or end there - a ridge running
+   * across it just stops at it - and the edge it leaves is a "party" line.
+   */
+  sharedSides?: string[];
   /**
    * Sides a photo shows with a level wall top - an eave along them (2026-10-16): an end of the roof not
    * in `ends` that stands over most of one (`EAVE_END_SHARE`) is a hip, the roof sloping up from it.
@@ -882,6 +892,8 @@ function shareOfSide(input: RoofInput, sideId: string, vertical: boolean, at: nu
  */
 function endKind(input: RoofInput, sideId: string | null, share: number): RoofEndKind {
   if (sideId === null) return "gable";
+  // Shared with the neighbour: the roof runs on over the party wall into theirs, cut at the line - no hip turns there.
+  if ((input.sharedSides ?? []).includes(sideId)) return "gable";
   const said = input.ends[sideId];
   if (said) return said;
   return (input.eaveSides ?? []).includes(sideId) && share >= EAVE_END_SHARE - 1e-9 ? "hip" : "gable";
@@ -985,8 +997,68 @@ export function roofSections(input: RoofInput): BuiltSections | null {
   if (known !== undefined) return known;
   const out = sectionsOf(input);
   if (out) withBreaks(input, out);
+  if (out) cutAtParty(input, out.sections);
   builtFor.set(input, out);
   return out;
+}
+
+/** A party line: a shared side's wall, and which way is the neighbour's (+1: toward greater x or y). */
+interface PartyLine extends WallEdge {
+  out: 1 | -1;
+  sideId: string;
+}
+
+/** The lines the roof is cut at: each shared side's wall, on the main floor's outline or the upper floor's. */
+function partyLines(input: RoofInput): PartyLine[] {
+  const shared = new Set(input.sharedSides ?? []);
+  if (shared.size === 0) return [];
+  const out: PartyLine[] = [];
+  for (const ring of [{ corners: input.corners, sideIds: input.sideIds }, ...(input.upper ? [input.upper] : [])]) {
+    const n = ring.corners.length;
+    ring.sideIds.forEach((id, i) => {
+      if (!shared.has(id)) return;
+      const p = ring.corners[i] as Pt;
+      const q = ring.corners[(i + 1) % n] as Pt;
+      const vertical = Math.abs(q.x - p.x) < Math.abs(q.y - p.y);
+      // Counter-clockwise, the outside is on the right of the way round: (dy, -dx).
+      const sign = vertical ? Math.sign(q.y - p.y) : Math.sign(p.x - q.x);
+      out.push(vertical ? { vertical, at: p.x, from: Math.min(p.y, q.y), to: Math.max(p.y, q.y), out: sign > 0 ? 1 : -1, sideId: id } : { vertical, at: p.y, from: Math.min(p.x, q.x), to: Math.max(p.x, q.x), out: sign > 0 ? 1 : -1, sideId: id });
+    });
+  }
+  return out;
+}
+
+/**
+ * The roof cut by the party lines (2026-10-17): each section's slopes kept as they are - its planes fixed
+ * first, so taking its edge in moves no ridge - and its rectangle stopped at the line wherever it runs on
+ * past a shared wall, overhang and all. Twice is once.
+ */
+function cutAtParty(input: RoofInput, sections: RoofSection[]): void {
+  const lines = partyLines(input);
+  if (lines.length === 0) return;
+  // An overhang's worth past the wall's ends, so a rake's or an eave's corner over the line is cut with it.
+  const m = Math.max(input.eaveOverhangFeet, input.rakeOverhangFeet) + 1e-6;
+  for (const s of sections) {
+    for (const l of lines) {
+      const [lo, hi] = l.vertical ? [s.y0, s.y1] : [s.x0, s.x1];
+      if (Math.min(hi, l.to + m) - Math.max(lo, l.from - m) <= 1e-9) continue;
+      const [a, b] = l.vertical ? [s.x0, s.x1] : [s.y0, s.y1];
+      // Wholly on the neighbour's side, or not across the line: nothing of this home's to cut.
+      if (l.out > 0 ? !(b > l.at + 1e-9 && a < l.at - 1e-9) : !(a < l.at - 1e-9 && b > l.at + 1e-9)) continue;
+      if (!s.planes) s.planes = sectionPlanes(s);
+      const alongAxis = (s.axis === "x") === l.vertical;
+      if (l.vertical) {
+        if (l.out > 0) s.x1 = l.at;
+        else s.x0 = l.at;
+      } else if (l.out > 0) s.y1 = l.at;
+      else s.y0 = l.at;
+      // A tie end carried on past the line is cut with it.
+      if (alongAxis) {
+        if (l.out > 0) s.reachHi = 0;
+        else s.reachLo = 0;
+      }
+    }
+  }
 }
 
 function sectionsOf(input: RoofInput): BuiltSections | null {
@@ -2496,7 +2568,7 @@ function grownOutline(points: Pt[], by: number): Pt[] {
   });
 }
 
-const EMPTY_TOTALS: Record<RoofLineKind, number> = { ridge: 0, hip: 0, valley: 0, eave: 0, rake: 0, headwall: 0, step: 0 };
+const EMPTY_TOTALS: Record<RoofLineKind, number> = { ridge: 0, hip: 0, valley: 0, eave: 0, rake: 0, headwall: 0, step: 0, party: 0 };
 
 // ---------------------------------------------------------------------------------------------
 // Slopes
@@ -2893,9 +2965,15 @@ function dripPieces(surface: Surface, facets: RoofFacet[], input: RoofInput, loo
       return [u - slope * e, v + slope * e];
     };
     const onWalls = walls.map((w) => ({ w, span: alongWall(w, a, d) })).filter((x): x is { w: WallEdge; span: [number, number] } => x.span !== null);
+    // The party lines this edge runs along, an overhang's worth past their walls' ends: where the roof was cut.
+    const om = Math.max(input.eaveOverhangFeet, input.rakeOverhangFeet) + 1e-6;
+    const onParty = partyLines(wallNames)
+      .concat(wallNames === input ? [] : partyLines(input))
+      .map((w) => ({ w, span: alongWall({ ...w, from: w.from - om, to: w.to + om }, a, d) }))
+      .filter((x): x is { w: PartyLine; span: [number, number] } => x.span !== null);
     // The outline's corners are rounded to a millionth and the planes are not: a break that close to another is the same one.
-    const ts = withoutSlivers(uniqSorted([...prof.map((p) => p.t), ...byFacets(surface, facets, a, b, [1]).flatMap((s) => [s.t0, s.t1]), ...onWalls.flatMap((x) => x.span)], 0, len));
-    type Run = { kind: RoofEdge["kind"]; t0: number; t1: number; z0: number; z1: number; feet: number; facet: string | null; wall: WallEdge | null };
+    const ts = withoutSlivers(uniqSorted([...prof.map((p) => p.t), ...byFacets(surface, facets, a, b, [1]).flatMap((s) => [s.t0, s.t1]), ...onWalls.flatMap((x) => x.span), ...onParty.flatMap((x) => x.span)], 0, len));
+    type Run = { kind: RoofEdge["kind"]; t0: number; t1: number; z0: number; z1: number; feet: number; facet: string | null; wall: WallEdge | null; party: PartyLine | null };
     const runs: Run[] = [];
     for (let k = 0; k + 1 < ts.length; k++) {
       const t0 = ts[k] as number;
@@ -2904,8 +2982,9 @@ function dripPieces(surface: Surface, facets: RoofFacet[], input: RoofInput, loo
       const level = Math.abs(z1 - z0) < 1e-6;
       const tm = (t0 + t1) / 2;
       const wall = onWalls.find((x) => tm > x.span[0] && tm < x.span[1])?.w ?? null;
+      const party = onParty.find((x) => tm > x.span[0] && tm < x.span[1])?.w ?? null;
       // One slope (a shed's roof): its level edge up at the far wall drains nothing, and is counted with the rakes.
-      const kind: RoofEdge["kind"] = wall ? (level ? "headwall" : "step") : level ? (highIsRake && z0 > 1e-6 ? "rake" : "eave") : "rake";
+      const kind: RoofEdge["kind"] = party ? "party" : wall ? (level ? "headwall" : "step") : level ? (highIsRake && z0 > 1e-6 ? "rake" : "eave") : "rake";
       const mid = { x: a.x + d.x * tm - d.y * 1e-4, y: a.y + d.y * tm + d.x * 1e-4 };
       const facet = facetAt(facets, mid)?.key ?? null;
       const feet = level ? t1 - t0 : Math.hypot(t1 - t0, z1 - z0);
@@ -2914,7 +2993,7 @@ function dripPieces(surface: Surface, facets: RoofFacet[], input: RoofInput, loo
         last.t1 = t1;
         last.z1 = z1;
         last.feet += feet;
-      } else runs.push({ kind, t0, t1, z0, z1, feet, facet, wall });
+      } else runs.push({ kind, t0, t1, z0, z1, feet, facet, wall, party });
     }
     runs.forEach((r, k) => {
       const pa = { x: a.x + d.x * r.t0, y: a.y + d.y * r.t0 };
@@ -2928,8 +3007,10 @@ function dripPieces(surface: Surface, facets: RoofFacet[], input: RoofInput, loo
         feet: r.feet,
         planFeet: r.t1 - r.t0,
         facets: r.facet === null ? [] : [r.facet],
-        // Flashing is on the side whose wall it is against, if the wall is one of the outside's at all.
-        sideId: r.wall
+        // Flashing is on the side whose wall it is against, if the wall is one of the outside's at all; a party line on the shared side.
+        sideId: r.party
+          ? r.party.sideId
+          : r.wall
           ? sideOn(wallNames, r.wall.vertical, r.wall.at, r.wall.vertical ? Math.min(pa.y, pb.y) : Math.min(pa.x, pb.x), r.wall.vertical ? Math.max(pa.y, pb.y) : Math.max(pa.x, pb.x)) ??
             sideOn(input, r.wall.vertical, r.wall.at, r.wall.vertical ? Math.min(pa.y, pb.y) : Math.min(pa.x, pb.x), r.wall.vertical ? Math.max(pa.y, pb.y) : Math.max(pa.x, pb.x))
           : sideAlong(input, pa, pb),
@@ -3061,6 +3142,7 @@ export function buildRoof(input: RoofInput): RoofPlan {
   const nameOf = (id: string) => input.sideNames?.[id] || "that side";
   notes.push(...built.notes);
   const sections = withAdditions(input, built.sections, nameOf, notes);
+  cutAtParty(input, sections);
   const pitched = sections.some((s) => s.pitch > 0);
   if (!pitched) notes.unshift("A flat roof: no ridge, hips or valleys, and every edge is an eave.");
   const { shape } = built;
@@ -3137,8 +3219,8 @@ export function buildRoof(input: RoofInput): RoofPlan {
       [s.loSide, s.lo],
       [s.hiSide, s.hi],
     ] as [string | null, SectionEnd][]) {
-      // Two ends over one side follow the one setting: listed once.
-      if (side === null || kind === "tie" || kind === "wall" || ends.some((e) => e.sideId === side)) continue;
+      // Two ends over one side follow the one setting: listed once. A shared side's is the party line, no end.
+      if (side === null || kind === "tie" || kind === "wall" || ends.some((e) => e.sideId === side) || (input.sharedSides ?? []).includes(side)) continue;
       const w = s.wall;
       const lo = side === s.loSide;
       const share = !w ? 1 : s.axis === "x" ? shareOfSide(input, side, true, lo ? w.x0 : w.x1, w.y0, w.y1) : shareOfSide(input, side, false, lo ? w.y0 : w.y1, w.x0, w.x1);

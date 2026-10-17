@@ -191,6 +191,91 @@ export interface ExteriorSide {
    * showed its wall top, so its eaves are the sides' beside it at the corners it shares with them.
    */
   wallTopFrom?: "photo" | "neighbours";
+  /**
+   * A party wall, shared with the neighbour's home (2026-10-17: semi-detached houses and townhouses, the owner:
+   * "One tester at least will have a townhouse. Semi detached"). Nothing on it is counted - cladding, openings,
+   * trim, its corners - nor scoped; its elevation is a line saying so; the roof is cut by the party line over it.
+   */
+  shared?: boolean;
+}
+
+/** The kind of home, as a label (2026-10-17): the sides' `shared` flags are what is counted. Absent: by the flags. */
+export type HomeType = "detached" | "semi" | "town_end" | "town_middle";
+
+export const HOME_TYPE_LABEL: Record<HomeType, string> = {
+  detached: "Detached",
+  semi: "Semi-detached",
+  town_end: "Townhouse, end unit",
+  town_middle: "Townhouse, middle unit",
+};
+
+const sharedCache = new WeakMap<Exterior, { sides: ExteriorSide[]; upper: UpperFloor | undefined; got: Set<string> }>();
+
+/**
+ * Every side shared with a neighbour's home, by id (2026-10-17): each one said so, and an upper floor's side
+ * standing on a shared wall's line - a party wall runs up the whole house, so a townhouse's second storey
+ * is shared where its first is, with nothing more to set.
+ */
+export function sharedSideIds(exterior: Exterior): Set<string> {
+  const cached = sharedCache.get(exterior);
+  if (cached && cached.sides === exterior.sides && cached.upper === exterior.upper) return cached.got;
+  const got = new Set(allSides(exterior).filter((s) => s.shared === true).map((s) => s.id));
+  const main = exterior.sides.filter((s) => s.shared === true);
+  if (exterior.upper && main.length > 0) {
+    const fp = exteriorFootprint(exterior);
+    const up = upperFootprint(exterior, fp);
+    if (fp.closes && up?.closes) {
+      const seg = (corners: Pt[], i: number) => [corners[i] as Pt, corners[(i + 1) % corners.length] as Pt] as const;
+      const walls = fp.sideIds.map((id, i) => ({ id, seg: seg(fp.corners, i) })).filter((w) => main.some((s) => s.id === w.id));
+      up.sideIds.forEach((id, i) => {
+        const [a, b] = seg(up.corners, i);
+        const vertical = Math.abs(b.x - a.x) < Math.abs(b.y - a.y);
+        const on = walls.some(({ seg: [p, q] }) => {
+          const wv = Math.abs(q.x - p.x) < Math.abs(q.y - p.y);
+          if (wv !== vertical) return false;
+          if (vertical ? Math.abs(p.x - a.x) > 0.01 : Math.abs(p.y - a.y) > 0.01) return false;
+          const [lo, hi] = vertical ? [Math.min(p.y, q.y), Math.max(p.y, q.y)] : [Math.min(p.x, q.x), Math.max(p.x, q.x)];
+          const [ulo, uhi] = vertical ? [Math.min(a.y, b.y), Math.max(a.y, b.y)] : [Math.min(a.x, b.x), Math.max(a.x, b.x)];
+          return Math.min(hi, uhi) - Math.max(lo, ulo) > 0.5;
+        });
+        if (on) got.add(id);
+      });
+    }
+  }
+  sharedCache.set(exterior, { sides: exterior.sides, upper: exterior.upper, got });
+  return got;
+}
+
+/** The sides shared with the neighbours' homes, main floor and upper (`sharedSideIds`). */
+export function sharedSides(exterior: Exterior): ExteriorSide[] {
+  const ids = sharedSideIds(exterior);
+  return allSides(exterior).filter((s) => ids.has(s.id));
+}
+
+/** For the drawings: whether a side is shared - or nothing at all for a home with none, drawn as it always was. */
+export function sharedOf(exterior: Exterior): ((sideId: string) => boolean) | undefined {
+  const ids = sharedSideIds(exterior);
+  return ids.size > 0 ? (id: string) => ids.has(id) : undefined;
+}
+
+/**
+ * What the home is, in words for the report's cover, or null for one with no wall shared: its type as said,
+ * else by how many of the main floor's walls are shared.
+ */
+export function homeTypeWords(exterior: Exterior): string | null {
+  // The main floor's walls named: an upper floor's on them goes without saying.
+  const mainShared = exterior.sides.filter((s) => s.shared === true);
+  const shared = mainShared.length > 0 ? mainShared : sharedSides(exterior);
+  if (shared.length === 0) return null;
+  const main = mainShared.length;
+  const type = exterior.homeType && exterior.homeType !== "detached" ? HOME_TYPE_LABEL[exterior.homeType] : main >= 2 ? "Attached on both sides" : "Attached on one side";
+  const wallOf = (s: ExteriorSide) => {
+    const name = s.name.trim() || "Side";
+    return `the ${name}${/\bwall$/i.test(name) ? "" : " wall"}`;
+  };
+  const names = shared.map(wallOf);
+  const list = names.length <= 1 ? (names[0] ?? "") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+  return `${type}: ${list} ${names.length === 1 ? "is" : "are"} shared with the neighbour${names.length === 1 ? "" : "s"} and not counted.`;
 }
 
 /**
@@ -648,6 +733,8 @@ export interface Exterior {
   name?: string;
   /** In order round the house: each next side is to the RIGHT of the one before, as you face them from outside. */
   sides: ExteriorSide[];
+  /** Semi-detached, a townhouse's end or middle unit (2026-10-17): a label; the sides' `shared` flags are the truth. */
+  homeType?: HomeType;
   /**
    * Being typed in side by side round the house and not yet back at the start (2026-10-13): the last
    * side's corner is not known until the next is added, so there is no footprint until it is closed.
@@ -1228,6 +1315,31 @@ function shapeQuantities(side: ExteriorSide, empty: SideQuantities): SideQuantit
     corners: { leftFeet: zl == null ? 0 : zl - baseL, rightFeet: zr == null ? 0 : zr - baseR },
     pitchFromGable,
     gableSource: side.gable ? "measured" : null,
+  };
+}
+
+/**
+ * A wall shared with the neighbour's home (2026-10-17): nothing counted - no cladding, openings or trim, no
+ * gable - its length kept for the plan.
+ */
+export function sharedSideQuantities(side: ExteriorSide): SideQuantities {
+  return {
+    sideId: side.id,
+    name: side.name.trim() || "Side",
+    complete: true,
+    lengthFeet: side.lengthFeet,
+    fallFeet: 0,
+    wallSquareFeet: 0,
+    gableSquareFeet: 0,
+    grossSquareFeet: 0,
+    openingSquareFeet: 0,
+    netSquareFeet: 0,
+    bands: [],
+    openings: [],
+    openingTrimFeet: 0,
+    corners: { leftFeet: 0, rightFeet: 0 },
+    pitchFromGable: null,
+    gableSource: null,
   };
 }
 
@@ -1923,6 +2035,7 @@ function saidRoofInput(exterior: Exterior, footprint: Footprint, pitch: number, 
     ridgeAlong,
     ends: resolvedEnds(exterior),
     ...(eaveSides.length > 0 ? { eaveSides } : {}),
+    ...(sharedSides(exterior).length > 0 ? { sharedSides: sharedSides(exterior).map((x) => x.id) } : {}),
     sectionPitches: exterior.roof.sectionPitches ?? {},
     ...(exterior.roof.sectionBreaks ? { sectionBreaks: exterior.roof.sectionBreaks } : {}),
     additions: exterior.roof.additions ?? [],
@@ -1945,7 +2058,7 @@ export function measuredSideEnds(exterior: Exterior): Record<string, [number, nu
   const out: Record<string, [number, number]> = {};
   const placeholders = exterior.source?.kind === "photos";
   for (const s of exterior.sides) {
-    if (s.wallTopFrom === "neighbours" || s.eaveLeftFeet == null || s.lengthFeet <= 0) continue;
+    if (s.shared || s.wallTopFrom === "neighbours" || s.eaveLeftFeet == null || s.lengthFeet <= 0) continue;
     if (placeholders && s.wallTopFrom !== "photo" && s.eaveLeftFeet === DEFAULT_EAVE_FEET && s.eaveRightFeet === DEFAULT_EAVE_FEET) continue;
     const right = s.eaveRightFeet ?? s.eaveLeftFeet;
     // Heights from one level: the eave is the higher reading, as the 3D view takes it - a lower one is a stray tap.
@@ -2061,6 +2174,8 @@ export interface RoofingQuantities {
   /** The drip line of the chosen slopes. */
   eaveFeet: number;
   rakeFeet: number;
+  /** Where the roof is cut by a party line over a shared wall (2026-10-17): the firewall's cap and flashing, not priced here. */
+  partyFeet: number;
   dripEdgeFeet: number;
   starterFeet: number;
   iceWaterFeet: number;
@@ -2178,7 +2293,7 @@ export function roofingQuantities(exterior: Exterior, roof: RoofPlan | null, pit
   const noSlopes = facets.length === 0;
   const allSlopes = noSlopes || slopes.every((s) => s.selected);
   const touches = (keys: string[]) => noSlopes || keys.some(slopeChosen);
-  const t: Record<RoofLineKind, number> = { ridge: 0, hip: 0, valley: 0, eave: 0, rake: 0, headwall: 0, step: 0 };
+  const t: Record<RoofLineKind, number> = { ridge: 0, hip: 0, valley: 0, eave: 0, rake: 0, headwall: 0, step: 0, party: 0 };
   for (const l of roof?.lines ?? []) if (touches(l.facets)) t[l.kind] += l.feet;
   const ridgeVentFeet = (roof?.lines ?? []).filter((l) => l.kind === "ridge" && (R.ridgeVents ?? []).includes(l.key)).reduce((s, l) => s + l.feet, 0);
 
@@ -2382,6 +2497,7 @@ export function roofingQuantities(exterior: Exterior, roof: RoofPlan | null, pit
     stepFeet: value.step,
     eaveFeet: value.eave,
     rakeFeet: value.rake,
+    partyFeet: t.party,
     dripEdgeFeet: value.dripEdge,
     starterFeet: value.starter,
     iceWaterFeet: value.iceWater,
@@ -2498,7 +2614,8 @@ export function exteriorQuantities(exterior: Exterior): ExteriorQuantities {
   }
 
   const every = allSides(exterior);
-  const sides = every.map((side) => sideQuantities(side, rises[side.id] ?? null, bases[side.id] ?? null));
+  const sharedIds = sharedSideIds(exterior);
+  const sides = every.map((side) => (sharedIds.has(side.id) ? sharedSideQuantities(side) : sideQuantities(side, rises[side.id] ?? null, bases[side.id] ?? null)));
 
   const byKind = new Map<string, CladdingTotal>();
   for (const s of sides) {
@@ -2514,6 +2631,7 @@ export function exteriorQuantities(exterior: Exterior): ExteriorQuantities {
 
   const openingGroups = new Map<string, { kind: ExteriorOpeningKind; widthFeet: number; heightFeet: number; count: number }>();
   for (const side of every) {
+    if (sharedIds.has(side.id)) continue;
     for (const o of side.openings) {
       const key = `${o.kind}:${Math.round(o.widthFeet * 12)}x${Math.round(o.heightFeet * 12)}`;
       const g = openingGroups.get(key) ?? { kind: o.kind, widthFeet: o.widthFeet, heightFeet: o.heightFeet, count: 0 };
@@ -2532,6 +2650,8 @@ export function exteriorQuantities(exterior: Exterior): ExteriorQuantities {
     list.forEach((side, i) => {
       const q = sides[from + i] as SideQuantities;
       if (!q.complete) return;
+      // A corner at a shared wall is no corner of the outside: the wall runs on into the neighbour's.
+      if (sharedIds.has(side.id) || sharedIds.has(list[(i + 1) % list.length]?.id ?? "")) return;
       const next = sides[from + ((i + 1) % list.length)] as SideQuantities;
       const height = next.complete ? (q.corners.rightFeet + next.corners.leftFeet) / 2 : q.corners.rightFeet;
       if (side.turn === "outside") outsideCornerFeet += height;

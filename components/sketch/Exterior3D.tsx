@@ -22,7 +22,7 @@ import { allSides, type Exterior, type RoofMaterial } from "@/lib/exterior";
 import { exteriorModel, POST_SIZE_FEET, type Wall3D } from "@/lib/exterior3d";
 import type { SquareFrame } from "@/lib/exteriorPhoto";
 import type { Pt } from "@/lib/roof";
-import { CLADDING_FILL, LINE_STYLE } from "./exteriorDrawings";
+import { CLADDING_FILL, LINE_STYLE, PARTY_FILL } from "./exteriorDrawings";
 import { squaredWallPhoto } from "./SidePhotos";
 import { applyFraming, createStage, framingOf, loadThree, STAGE_BACKGROUND_CSS, type Three } from "./stage3d";
 
@@ -90,7 +90,8 @@ function paintWall(wall: Wall3D): { canvas: HTMLCanvasElement; minV: number; max
     poly.forEach((p, i) => (i === 0 ? g.moveTo(X(p.x), Y(p.y)) : g.lineTo(X(p.x), Y(p.y))));
     g.closePath();
   };
-  g.fillStyle = wall.background === "unclad" ? COLORS.unclad : CLADDING_FILL[wall.background];
+  // A wall shared with the neighbour's home (2026-10-17): bare grey, the house cut there.
+  g.fillStyle = wall.shared ? PARTY_FILL : wall.background === "unclad" ? COLORS.unclad : CLADDING_FILL[wall.background];
   g.fillRect(0, 0, canvas.width, canvas.height);
   // Under the ground it was measured from, the foundation: shown only where the ground round the house is lower.
   if (wall.grade && wall.grade.length >= 2) {

@@ -9,7 +9,8 @@ import { onDeviceChange } from "@/lib/deviceClaims";
 import { keepPhotoFile, sendWaitingPhotos } from "@/lib/devicePhotos";
 import { preparePhoto } from "@/lib/photoImage";
 import { addPhoto, type ClaimPhoto, EXTERIOR_ROOM } from "@/lib/photos";
-import { type CornerTap, emptyPhotoRoute, type PhotoRouteState, type RoutePhoto, type RouteTape, type TapeWhat } from "@/lib/photoRoute";
+import { type CornerTap, emptyPhotoRoute, type PhotoRouteState, type RoutePhoto, type RouteShot, type RouteTape, type TapeWhat } from "@/lib/photoRoute";
+import { routeCoverage, viewsFromMeasure } from "@/lib/photoRouteCoverage";
 import { measureRoute, type PhotoPixelsIn, photoLines } from "@/lib/photoRouteData";
 import { exifFocal35, focalOverWidth } from "@/lib/photoRouteExif";
 import { exteriorFromRoute, measuredFrom } from "@/lib/photoRouteExterior";
@@ -157,7 +158,7 @@ export function PhotoRoutePane({ exterior, readOnly, onChange }: { exterior: Ext
   const tapsHere = main.corners.map((c, i) => ({ c, i })).filter(({ c }) => c.photo === selected);
   const claimExterior = (access?.photos.items ?? []).filter((p) => p.room === EXTERIOR_ROOM && !route.photos.some((q) => q.id === p.id));
 
-  async function addFiles(files: File[]) {
+  async function addFiles(files: File[], shot?: RouteShot) {
     if (!access) return;
     setError(null);
     const added: RoutePhoto[] = [];
@@ -173,7 +174,7 @@ export function PhotoRoutePane({ exterior, readOnly, onChange }: { exterior: Ext
         const record: ClaimPhoto = { id, room: EXTERIOR_ROOM, roomName: "Exterior", takenAt, caption: "", captionBy: null, width: prepared.width, height: prepared.height, source: "gallery", editedAt: now };
         await keepPhotoFile(access.claimIdNow(), id, prepared.full, prepared.thumb);
         access.onPhotosChange((p) => addPhoto(p, record));
-        added.push({ id, width: prepared.width, height: prepared.height, takenAt, focalPrior: f35 ? focalOverWidth(f35, prepared.width, prepared.height) : null });
+        added.push({ id, width: prepared.width, height: prepared.height, takenAt, focalPrior: f35 ? focalOverWidth(f35, prepared.width, prepared.height) : null, ...(shot ? { shot } : {}) });
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "A photo could not be kept.");
@@ -204,7 +205,13 @@ export function PhotoRoutePane({ exterior, readOnly, onChange }: { exterior: Ext
   }
 
   function setCorner(index: number, corner: number) {
-    change((r) => withMain(r, (b) => ({ ...b, corners: b.corners.map((c, i) => (i === index ? { ...c, corner, by: "user" } : c)) })));
+    change((r) => withMain(r, (b) => ({ ...b, corners: b.corners.map((c, i) => (i === index ? { photo: c.photo, x: c.x, y: c.y, corner, by: "user" } : c)) })));
+    setPicking(null);
+  }
+
+  /** A mark Scrivn put down, kept as it is. */
+  function keepTap(index: number) {
+    change((r) => withMain(r, (b) => ({ ...b, corners: b.corners.map((c, i) => (i === index ? { photo: c.photo, x: c.x, y: c.y, corner: c.corner, by: "app" } : c)) })));
     setPicking(null);
   }
 
@@ -217,9 +224,11 @@ export function PhotoRoutePane({ exterior, readOnly, onChange }: { exterior: Ext
     change((r) => withMain(r, (b) => ({ ...b, tapes: [...b.tapes, t] })));
   }
 
-  async function measure() {
+  async function measure(keepMarks = false) {
     if (!access) return;
     setError(null);
+    // "Looks right": every mark Scrivn put down kept, then measured with them.
+    const buildings = keepMarks ? route.buildings.map((b) => (b.id === "main" ? { ...b, corners: b.corners.map((c) => (c.proposed ? { photo: c.photo, x: c.x, y: c.y, corner: c.corner, by: "app" as const } : c)) } : b)) : route.buildings;
     try {
       const have = route.photos.filter((p) => urls.has(p.id));
       const pixels: PhotoPixelsIn[] = [];
@@ -236,10 +245,11 @@ export function PhotoRoutePane({ exterior, readOnly, onChange }: { exterior: Ext
       }
       setBusy("Working out the lens, where each photo was taken, and the walls…");
       await tick();
-      const input = { photos: have.map((p) => ({ ...p, width: pixels.find((q) => q.id === p.id)?.width ?? p.width, height: pixels.find((q) => q.id === p.id)?.height ?? p.height })), buildings: route.buildings };
-      const { prepared, solution, corners } = measureRoute(input, "main", pixels, { lines });
+      const input = { photos: have.map((p) => ({ ...p, width: pixels.find((q) => q.id === p.id)?.width ?? p.width, height: pixels.find((q) => q.id === p.id)?.height ?? p.height })), buildings };
+      const { prepared, solution, corners, proposals } = measureRoute(input, "main", pixels, { lines });
       const m = measuredFrom(solution, prepared.data, new Date().toISOString());
-      const state = withMain({ ...route, photos: route.photos }, (b) => ({ ...b, corners }));
+      // The marks of the last measure give way to this one's.
+      const state = withMain({ ...route, buildings, photos: route.photos }, (b) => ({ ...b, corners: [...corners.filter((c) => !c.proposed), ...proposals] }));
       let failed = false;
       onChange((e) => {
         const next = exteriorFromRoute(e, state, m);
@@ -260,7 +270,9 @@ export function PhotoRoutePane({ exterior, readOnly, onChange }: { exterior: Ext
 
   const measured = route.measured ?? null;
   const placed = new Set((measured?.cameras ?? []).map((c) => c.photo));
-  const ready = main.outline.length >= 4 && new Set(main.corners.filter((c) => c.corner >= 0 || main.corners.filter((d) => d.photo === c.photo).length >= 2).map((c) => c.photo)).size >= 2;
+  const marks = main.corners.filter((c) => c.proposed);
+  const pickedMark = picking !== null && main.corners[picking]?.proposed;
+  const ready = main.outline.length >= 4 && new Set(main.corners.filter((c) => !c.proposed && (c.corner >= 0 || main.corners.filter((d) => d.photo === c.photo && !d.proposed).length >= 2)).map((c) => c.photo)).size >= 2;
 
   if (!access) {
     return <p className="field-note">Open this claim to measure the outside from photos: the photos are kept with the claim.</p>;
@@ -268,7 +280,7 @@ export function PhotoRoutePane({ exterior, readOnly, onChange }: { exterior: Ext
 
   return (
     <div className={styles.pane}>
-      <TakeCard />
+      {main.outline.length < 4 && <TakeCard />}
 
       <section>
         <h3>1. The photos</h3>
@@ -300,6 +312,8 @@ export function PhotoRoutePane({ exterior, readOnly, onChange }: { exterior: Ext
             )}
           </div>
         )}
+        {!readOnly && <p className="field-note">Hold the phone sideways, on the 1x lens.</p>}
+        <CoverageList route={route} exterior={exterior} readOnly={readOnly} onTake={(files, shot) => void addFiles(files, shot)} />
       </section>
 
       <section>
@@ -365,15 +379,28 @@ export function PhotoRoutePane({ exterior, readOnly, onChange }: { exterior: Ext
           </p>
           {picking !== null && (
             <div className={styles.ask}>
-              <p>
-                Which corner is this? Tap it on the shape.{" "}
-                <button type="button" className="link-button" onClick={() => removeTap(picking)}>
-                  Remove this tap
-                </button>{" "}
-                <button type="button" className="link-button" onClick={() => setPicking(null)}>
-                  Leave it to Scrivn
-                </button>
-              </p>
+              {pickedMark ? (
+                <p>
+                  Scrivn marked corner {(main.corners[picking]?.corner ?? 0) + 1} here, from the measure.{" "}
+                  <button type="button" className="link-button" onClick={() => keepTap(picking)}>
+                    Keep it
+                  </button>{" "}
+                  <button type="button" className="link-button" onClick={() => removeTap(picking)}>
+                    Take it away
+                  </button>{" "}
+                  Or tap the corner it is on the shape.
+                </p>
+              ) : (
+                <p>
+                  Which corner is this? Tap it on the shape.{" "}
+                  <button type="button" className="link-button" onClick={() => removeTap(picking)}>
+                    Remove this tap
+                  </button>{" "}
+                  <button type="button" className="link-button" onClick={() => setPicking(null)}>
+                    Leave it to Scrivn
+                  </button>
+                </p>
+              )}
               <div className={styles.askPlan}>
                 <ShapePlan outline={measured?.corners ?? main.outline} highlight={null} pick={(k, kind) => kind === "corner" && setCorner(picking, k)} taped={new Set()} />
               </div>
@@ -425,7 +452,7 @@ export function PhotoRoutePane({ exterior, readOnly, onChange }: { exterior: Ext
       <section>
         <h3>4. Measure</h3>
         {!readOnly && (
-          <button type="button" className="btn-primary" disabled={!ready || busy !== null} onClick={() => void measure()}>
+          <button type="button" className="btn-primary" disabled={!ready || busy !== null} onClick={() => void measure(false)}>
             {measured ? "Measure again" : `Measure ${the}`}
           </button>
         )}
@@ -433,6 +460,18 @@ export function PhotoRoutePane({ exterior, readOnly, onChange }: { exterior: Ext
         {busy && <p className="field-note">{busy}</p>}
         {error && <p className="sketch-length-error">{error}</p>}
         {measured && <Results exterior={exterior} route={route} />}
+        {measured && marks.length > 0 && (
+          <div className={styles.card}>
+            <p>
+              Scrivn marked {marks.length} more corner{marks.length === 1 ? "" : "s"}, dashed, where the measure puts {marks.length === 1 ? "it" : "them"} on the photos it placed. Tap one that is wrong to take it away or renumber it.
+            </p>
+            {!readOnly && (
+              <button type="button" className="btn-primary" disabled={busy !== null} onClick={() => void measure(true)}>
+                Looks right
+              </button>
+            )}
+          </div>
+        )}
         {measured && <CheckThese exterior={exterior} readOnly={readOnly} onChange={onChange} />}
       </section>
     </div>
@@ -608,8 +647,94 @@ function OpeningCrop({ side, opening }: { side: ExteriorSide; opening: ExteriorO
   return <canvas ref={ref} className={styles.crop} role="img" aria-label={`The ${OPENING_LABEL[opening.kind].toLowerCase()} on ${side.name}, from its photo`} />;
 }
 
+/**
+ * What to take next (2026-10-17, lib/photoRouteCoverage.ts): live from the shape and the photos so far - before
+ * a measure, the corners tapped on them; after one, what each placed photo sees. A small plan with what is thin
+ * in orange, and each photo still worth taking in plain words with a camera button that tags the photo with what
+ * it was taken for, so its corners are named by it. Advice only: Measure works any time.
+ */
+function CoverageList({ route, exterior, readOnly, onTake }: { route: PhotoRouteState; exterior: Exterior; readOnly: boolean; onTake: (files: File[], shot: RouteShot) => void }) {
+  const [all, setAll] = useState(false);
+  const main = mainOf(route);
+  const m = route.measured ?? null;
+  const ring = m?.corners ?? main.outline;
+  if (ring.length < 4) return null;
+  const n = ring.length;
+  const ids = m?.sideIds ?? [];
+  const cov = routeCoverage({
+    ring,
+    views: m ? viewsFromMeasure(m) : [],
+    taps: main.corners.filter((c) => !c.proposed && c.corner >= 0).map((c) => ({ photo: c.photo, corner: c.corner })),
+    shots: route.photos.flatMap((p) => (p.shot ? [{ photo: p.id, shot: p.shot }] : [])),
+    measured: !!m,
+    gables: ids.flatMap((id, i) => (exterior.roof.ends[id] === "gable" ? [i] : [])),
+    wallName: (i) => exterior.sides.find((s) => s.id === ids[i])?.name ?? null,
+  });
+  // In orange: each corner and wall the list asks a photo of.
+  const thin = {
+    corners: new Set(cov.items.flatMap((it) => (it.corner !== undefined ? [it.corner] : []))),
+    walls: new Set(cov.items.flatMap((it) => (it.wall !== undefined ? [it.wall] : []))),
+  };
+  const seen = cov.corners.filter((c) => c.photos.length >= 2).length;
+  const both = cov.walls.filter((w) => w.both.length > 0).length;
+  const shown = all ? cov.items : cov.items.slice(0, 4);
+  return (
+    <div className={styles.cover}>
+      <h4 className="exterior-subhead">What to take next</h4>
+      {cov.items.length === 0 ? (
+        <p className="field-note">The photos cover every corner and every wall{m ? "" : ", as tapped so far"}.</p>
+      ) : (
+        <>
+          <div className={styles.coverRow}>
+            <div className={styles.coverPlan}>
+              <ShapePlan outline={ring} pick={null} highlight={null} taped={new Set()} thin={thin} />
+            </div>
+            <p className="field-note">
+              {m
+                ? `${seen} of ${n} corners are in two photos or more, and ${both} of ${n} walls have a photo with both corners in, counting the photos the measure placed. In orange: what the list asks for.`
+                : `${cov.items.length} photo${cov.items.length === 1 ? "" : "s"} to take, from the shape, in orange. A photo added another way counts once Measure has placed it.`}{" "}
+              Advice only: Measure works any time.
+            </p>
+          </div>
+          <ul className={styles.coverList}>
+            {shown.map((it) => (
+              <li key={it.key}>
+                <span>{it.words}</span>
+                {!readOnly && (
+                  <label className="btn-secondary">
+                    Take it
+                    <input type="file" accept="image/*" capture="environment" hidden onChange={(e) => (onTake([...(e.target.files ?? [])], it.shot), (e.target.value = ""))} />
+                  </label>
+                )}
+              </li>
+            ))}
+          </ul>
+          {cov.items.length > 4 && (
+            <button type="button" className="link-button" onClick={() => setAll(!all)}>
+              {all ? "Show fewer" : `Show ${cov.items.length - 4} more`}
+            </button>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 /** The shape with its corners numbered; corners or sides tappable when something is being picked. */
-function ShapePlan({ outline, pick, highlight, taped }: { outline: Pt[]; pick: ((k: number, kind: "corner" | "side") => void) | null; highlight: number | null; taped: Set<number> }) {
+function ShapePlan({
+  outline,
+  pick,
+  highlight,
+  taped,
+  thin,
+}: {
+  outline: Pt[];
+  pick: ((k: number, kind: "corner" | "side") => void) | null;
+  highlight: number | null;
+  taped: Set<number>;
+  /** What the photos cover thinly (lib/photoRouteCoverage.ts), in orange. */
+  thin?: { corners: Set<number>; walls: Set<number> };
+}) {
   const xs = outline.map((p) => p.x);
   const ys = outline.map((p) => p.y);
   const x0 = Math.min(...xs);
@@ -634,7 +759,15 @@ function ShapePlan({ outline, pick, highlight, taped }: { outline: Pt[]; pick: (
         const mid = { x: (A.x + B.x) / 2, y: (A.y + B.y) / 2 };
         return (
           <g key={`s${i}`}>
-            <line x1={A.x} y1={A.y} x2={B.x} y2={B.y} stroke={highlight === i ? "#ea580c" : taped.has(i) ? "#15803d" : "transparent"} strokeWidth={span * 0.02} />
+            <line
+              x1={A.x}
+              y1={A.y}
+              x2={B.x}
+              y2={B.y}
+              stroke={highlight === i || thin?.walls.has(i) ? "#ea580c" : taped.has(i) ? "#15803d" : "transparent"}
+              strokeWidth={span * 0.02}
+              strokeDasharray={thin?.walls.has(i) && highlight !== i ? `${span * 0.03} ${span * 0.02}` : undefined}
+            />
             {pick && <line x1={A.x} y1={A.y} x2={B.x} y2={B.y} stroke="transparent" strokeWidth={span * 0.06} style={{ cursor: "pointer" }} onClick={() => pick(i, "side")} />}
             {taped.has(i) && (
               <text x={mid.x} y={mid.y} fontSize={span * 0.04} textAnchor="middle" fill="#15803d">
@@ -648,7 +781,7 @@ function ShapePlan({ outline, pick, highlight, taped }: { outline: Pt[]; pick: (
         const q = P(p);
         return (
           <g key={`c${i}`} style={{ cursor: pick ? "pointer" : undefined }} onClick={() => pick?.(i, "corner")}>
-            <circle cx={q.x} cy={q.y} r={r} fill={pick ? "#ea580c" : "#0891b2"} />
+            <circle cx={q.x} cy={q.y} r={r} fill={pick || thin?.corners.has(i) ? "#ea580c" : "#0891b2"} />
             <text x={q.x} y={q.y + r * 0.4} fontSize={r * 1.15} textAnchor="middle" fill="#fff">
               {i + 1}
             </text>
@@ -742,9 +875,17 @@ function PhotoTaps({
               onPickTap(i);
             }}
           >
-            <line x1={c.x} y1={c.y - r * 6} x2={c.x} y2={c.y} stroke={selected === i ? "#ea580c" : "#0891b2"} strokeWidth={r / 4} />
-            <circle cx={c.x} cy={c.y} r={r} fill={selected === i ? "#ea580c" : c.corner >= 0 ? "#0891b2" : "#78716c"} stroke="#fff" strokeWidth={r / 5} />
-            <text x={c.x} y={c.y + r * 0.42} fontSize={r * 1.2} textAnchor="middle" fill="#fff">
+            <line x1={c.x} y1={c.y - r * 6} x2={c.x} y2={c.y} stroke={selected === i ? "#ea580c" : "#0891b2"} strokeWidth={r / 4} strokeDasharray={c.proposed ? `${r / 1.5} ${r / 2.5}` : undefined} />
+            <circle
+              cx={c.x}
+              cy={c.y}
+              r={r}
+              fill={c.proposed ? "rgba(8,145,178,0.35)" : selected === i ? "#ea580c" : c.corner >= 0 ? "#0891b2" : "#78716c"}
+              stroke={c.proposed ? (selected === i ? "#ea580c" : "#0891b2") : "#fff"}
+              strokeWidth={r / 5}
+              strokeDasharray={c.proposed ? `${r / 2} ${r / 3}` : undefined}
+            />
+            <text x={c.x} y={c.y + r * 0.42} fontSize={r * 1.2} textAnchor="middle" fill="#fff" stroke={c.proposed ? "#0e7490" : undefined} strokeWidth={c.proposed ? r / 8 : undefined} paintOrder="stroke">
               {c.corner >= 0 ? c.corner + 1 : "?"}
             </text>
           </g>

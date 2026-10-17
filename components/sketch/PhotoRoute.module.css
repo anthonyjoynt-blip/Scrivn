@@ -153,3 +153,45 @@
   border-radius: 4px;
   background: #808080;
 }
+
+/* What to take next (lib/photoRouteCoverage.ts): the small plan beside the counts, then the list, each with its camera. */
+.cover {
+  margin-top: 0.75rem;
+}
+
+.coverRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.75rem;
+  align-items: flex-start;
+}
+
+.coverPlan {
+  flex: 0 0 auto;
+  width: min(200px, 100%);
+}
+
+.coverRow > p {
+  flex: 1 1 14rem;
+  margin: 0;
+}
+
+.coverList {
+  list-style: none;
+  padding: 0;
+  margin: 0.5rem 0;
+}
+
+.coverList li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.75rem;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.4rem 0;
+  border-bottom: 1px solid var(--border, #e7e5e4);
+}
+
+.coverList li > span {
+  flex: 1 1 16rem;
+}

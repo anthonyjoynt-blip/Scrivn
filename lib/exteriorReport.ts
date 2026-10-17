@@ -14,6 +14,8 @@ import {
   formatOpeningSize,
   formatPitch,
   groundAt,
+  homeTypeWords,
+  sharedSideIds,
   lengthToCheck,
   OPENING_LABEL,
   photoNotes,
@@ -91,6 +93,8 @@ export interface ReportSide {
   heading: string;
   /** Every dimension of it, in lines. */
   dims: string[];
+  /** Shared with the neighbour's home (2026-10-17): no elevation drawn, one line saying so. */
+  shared?: true;
 }
 
 /** The whole house from one compass point (2026-10-16): lib/exteriorViews.ts. */
@@ -293,8 +297,13 @@ export function exteriorReport(exterior: Exterior, meta: ReportMeta): ExteriorRe
   const ownFrom = photosOnly ? "photo" : scanned ? "tapped" : "entered";
 
   // ---- The sides, each with every dimension ----
+  const sharedIds = sharedSideIds(exterior);
   const sides: ReportSide[] = every.map((side, i) => {
     const sq = q.sides[i] as SideQuantities;
+    // A party wall (2026-10-17): nothing on it counted, and its elevation not drawn - a line saying so.
+    if (sharedIds.has(side.id)) {
+      return { side, q: sq, rise: null, base: null, heading: `${side.name.trim() || "Side"} · ${ft(sq.lengthFeet)} · shared wall`, dims: ["Shared with the neighbour \u2013 not counted."], shared: true as const };
+    }
     const names = openingNames(side);
     const ground = groundWords(side);
     const heights = [
@@ -424,6 +433,9 @@ export function exteriorReport(exterior: Exterior, meta: ReportMeta): ExteriorRe
   // ---- The cover's facts ----
   const facts: ReportFact[] = [];
   const fp = q.footprint;
+  // A semi-detached house or a townhouse (2026-10-17): what it is, and which walls are shared and not counted.
+  const home = homeTypeWords(exterior);
+  if (home) facts.push({ label: "Home", value: home });
   facts.push({ label: "Footprint", value: fp.closes ? `${sf(fp.areaSquareFeet)} · perimeter ${ft(fp.perimeterFeet)} · ${plural(fp.sideIds.length, "side")}` : `${plural(every.length, "side")}, not closed${fp.reason ? `: ${fp.reason}` : ""}` });
   facts.push({ label: "Walls", value: `${sf(q.totals.grossSquareFeet)} gross · ${sf(q.totals.openingSquareFeet)} of openings · ${sf(q.totals.netSquareFeet)} net` });
   // How much of the cladding was read off photos rather than tapped, side by side.
@@ -526,6 +538,8 @@ export function exteriorReport(exterior: Exterior, meta: ReportMeta): ExteriorRe
         lineRow("Ice & water", r.iceWaterFeet, "iceWater", "eaves + valleys"),
         ...(r.material === "metal" ? [lineRow("Closure strips", r.closureFeet, "eave", "eaves + 2 × ridge")] : []),
         ...(r.ridgeVentFeet > 0 ? [lineRow("Ridge vent", r.ridgeVentFeet, "ridge")] : []),
+        // Cut at a wall shared with the neighbour (2026-10-17): the firewall's cap and flashing, to check.
+        ...(r.partyFeet > 0 ? [[`Party line`, one(r.partyFeet), "the drawing (the firewall's cap and flashing: to check)"]] : []),
       ],
       note: "Lengths along the roof: a hip, valley, rake or step along its slope, a ridge, eave or headwall level. Real lengths, no waste.",
     });
@@ -649,6 +663,7 @@ export const LINE_WORD: Record<RoofLineKind, string> = {
   valley: "Valley",
   headwall: "Headwall flashing",
   step: "Step flashing",
+  party: "Party line",
 };
 
 /** The plan drawn with every line's length (lib/roofLabels.ts): what a page of it is called. */
