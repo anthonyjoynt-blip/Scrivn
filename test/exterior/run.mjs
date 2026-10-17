@@ -2404,9 +2404,12 @@ test("3D: the owner's own walk (14:53) stands up, the garage under its gable, th
   // As the owner gave the roof on 10-13: the deck covered, the garage lower under a gable on the house, hipped at the street.
   e.roof = { ...e.roof, pitch: 5, eaveOverhangFeet: 2, rakeOverhangFeet: ft(1, 10), coveredNotches: [id("Rear 3")], lowerWings: [id("Front 2")], wingGables: [id("Front 2")], ends: { [id("Front 2")]: "hip" } };
   const { m } = soundRoof(e, "the owner's walk", [id("Left 4"), id("Rear 3")]);
-  // Every eave the walk read, in the middle: the house's 10'4", the garage's 8'9".
+  // The house's eave: every eave the walk read under it, in the middle - 10'4". The garage's: its drop under the house's, not
+  // the middle of its own walls' readings, each from its own ground (2026-10-16) - here the assumed 1'6", as no corner where
+  // the garage's walls meet the house's measures it; said in the notes.
   near(m.eaves[0], 10.348, "the house's eave", 0.01);
-  near(m.eaves[1], 8.757, "the garage's eave", 0.01);
+  near(m.eaves[1], m.eaves[0] - 1.5, "the garage's eave, 1'6\" under the house's", 1e-9);
+  assert(m.notes.some((n) => /The roof out to Front 2 is drawn 1'6" under the eave of the roof it meets: assumed/.test(n)), m.notes.join(" | "));
   assert(m.walls.filter((w) => w.sideId === null).length === 2, "the wall over the garage and the strip over the deck");
   assert(m.walls.every((w) => w.sideId === null || w.background === "unclad"), "tapped as shapes: what no shape covers is left bare");
   assert(m.walls.filter((w) => w.sideId !== null).reduce((s, w) => s + w.openings.length, 0) === 20, "every opening the walk tapped");
@@ -4850,22 +4853,26 @@ function photoRouteHouse() {
 const sideStarting = (e, start) => e.sides.find((s) => s.name.startsWith(start));
 const ridgesOf = (plan) => linesOf(plan, "ridge").map((l) => l.feet);
 
-/** His taps on the roof check: + Porch roof on the front wall, 4'10" out; + Cross gable on it (over its door); Looks right. */
+/**
+ * His taps on the roof check: the garage "Lower, under a gable" (one tap - his walls can't say it, see below); + Porch roof
+ * on the front wall, 4'10" out; + Cross gable on it (over its door); Looks right, keeping the garage's assumed 1'6" drop.
+ */
 function ownersTaps(e) {
   const front = sideStarting(e, "Front wall behind");
   const fp = x.exteriorFootprint(e);
   const feet = fp.lengthsFeet[fp.sideIds.indexOf(front.id)];
-  let roof = x.withAddition(e.roof, "porch", front.id, feet);
+  let roof = x.withWingAnswer(e.roof, roofOf(e).roof, sideStarting(e, "Garage front, west").id, "gable");
+  roof = x.withAddition(roof, "porch", front.id, feet);
   roof = { ...roof, additions: roof.additions.map((a) => ({ ...a, depthFeet: ft(4, 10) })) };
   roof = x.withAddition(roof, "gable", front.id, feet, front.openings.find((o) => o.kind === "door"));
   const tapped = { ...e, roof };
   const plan = roofOf(tapped).roof;
   const fromPhotos = x.endsFromPhotos(tapped, plan);
   const guessed = plan.ends.filter((en) => !(en.sideId in tapped.roof.ends) && !fromPhotos.has(en.sideId)).map((en) => en.sideId);
-  return { ...tapped, roof: x.withRoofChecked(tapped.roof, plan, guessed, "2026-10-16T22:00:00.000Z") };
+  return { ...tapped, roof: x.withRoofChecked(tapped.roof, plan, guessed, "2026-10-16T22:00:00.000Z", roofOf(tapped).wingDrops) };
 }
 
-test("his house off photos, nothing pressed: the deck under the roof, the garage lower under a gable, the house's ridge east-west", () => {
+test("his house off photos, nothing pressed: the deck under the roof, the house's ridge east-west, the garage left to him", () => {
   const e = photoRouteHouse();
   const q = roofOf(e);
   const plan = q.roof;
@@ -4882,26 +4889,27 @@ test("his house off photos, nothing pressed: the deck under the roof, the garage
   );
   assert(!(named("Rear wall") in ends), "no end, and no hip, over the French-door wall");
   near(plan.ends.find((en) => en.sideId === named("East side")).share, 38.3 / 70.57, "the house's gable over half the east wall", 0.01);
-  // The garage reads 5'4" under the house and sits lower under a gable on it; the bump-out and the garage's bay tie in.
-  const garage = plan.wings.find((w) => w.sideId === named("Garage front, west"));
-  assert(garage.lower && garage.gable && !garage.forced, JSON.stringify(garage));
-  assert(plan.wings.filter((w) => w !== garage).every((w) => !w.lower), JSON.stringify(plan.wings));
+  // The garage is not proposed lower (2026-10-16): its walls meet the house's only where the keystone wall meets the front wall,
+  // and that wall's heights are from the porch deck - it reads the garage 9" HIGHER. The house's rear walls read 15'11" from the
+  // back yard, 6'5" below the driveway: compared, they had put the garage 5'4" lower (the owner: "the gap between the roofs is
+  // too great"). So every part ties in until he says otherwise.
+  assert(plan.wings.every((w) => !w.lower), JSON.stringify(plan.wings));
+  near(x.measuredDrop(x.roofInput(e, q.footprint, 5), named("Garage front, west"), { ends: x.measuredSideEnds(e) }), 8.6 - 9.35, "at the keystone corner, the porch deck's 8'7\" against the garage's 9'4\"", 0.01);
   assert(plan.notches.filter((k) => k.covered).map((k) => k.sideIds.join()).join("|") === [named("Covered-deck side"), named("Covered-deck back")].join(), "the deck alone under the roof");
   // Said so, part by part, on the check: proposed, with why.
   const p = x.roofProposal(e).proposed;
-  assert(p.length === 2 && p[0].value === "covered" && /would have to sit lower/.test(p[0].why) && p[1].value === "gable" && /5'4" under the main roof's/.test(p[1].why), JSON.stringify(p));
+  assert(p.length === 1 && p[0].value === "covered" && /would have to sit lower/.test(p[0].why), JSON.stringify(p));
   // On the check, only the corners a deck could be: the deck, and the 15'3" x 5'6" behind the bump-out - not the step beside the
   // garage's bay, nor the 22' x 25' front corner (all four listed under the plan, as before).
   const nameOf = (id) => e.sides.find((s) => s.id === id).name;
   const rows = x.checkRows(plan, e.roof, x.roofProposal(e), nameOf, true);
-  assert(rows.notches.length === 2 && rows.notches.filter((r) => r.proposed).length === 1 && rows.wings.filter((r) => r.proposed).length === 1, JSON.stringify(rows));
+  assert(rows.notches.length === 2 && rows.notches.filter((r) => r.proposed).length === 1 && rows.wings.every((r) => !r.proposed && r.drop === null), JSON.stringify(rows));
   assert(x.checkRows(plan, e.roof, x.roofProposal(e), nameOf).notches.length === 4, "every notch under the plan");
-  // Two roofs: the house's, and the garage's below it with its bay.
-  assert(new Set(plan.sections.map((s) => s.layer)).size === 2, "the garage's roof is a layer of its own");
-  near(q.roofing.squares, 32.61, "squares at the default overhangs, no porch yet", 0.005);
+  // One roof, every part tied in.
+  assert(new Set(plan.sections.map((s) => s.layer)).size === 1, "one roof");
 });
 
-test("his taps - a porch roof 4'10\" out on the front wall, a gable over the door, Looks right: 33.49 SQ, the 10-13 claim's roof", () => {
+test("his taps - the garage lower under a gable, a porch roof 4'10\" out, a gable over the door, Looks right: 33.49 SQ, the 10-13 claim's roof", () => {
   const e = ownersTaps(photoRouteHouse());
   const q = roofOf(e);
   const r = q.roofing;
@@ -4931,6 +4939,37 @@ test("his taps - a porch roof 4'10\" out on the front wall, a gable over the doo
   near(gable.fromFeet, door.fromLeftFeet - 2, "from", 1e-9);
   near(gable.toFeet, door.fromLeftFeet + door.widthFeet + 2, "to", 1e-9);
   assert(plan.sections.some((s) => s.role === "porch") && plan.sections.some((s) => s.role === "gable" && s.key === gable.id), "a porch and the door's gable");
+  // The garage's drop: nothing measured it, so the assumed 1'6", kept by Looks right as his.
+  const garage = sideStarting(e, "Garage front, west").id;
+  assert(e.roof.wingDrops?.[garage] === 1.5 && q.wingDrops[garage].source === "typed", JSON.stringify(q.wingDrops));
+});
+
+test("one level for the house's roofs: the garage 1'6\" under the house's eave in 3D and every elevation, not 6'5\"", () => {
+  // Before (main e53e808): the house's eave at the middle of its walls' readings, 15'11" from the low back yard, the garage's at
+  // 9'6" from the driveway - drawn 6'5" apart, and the South elevation read the house's eave 15'11" over the driveway.
+  const e = ownersTaps(photoRouteHouse());
+  const m = x.exteriorModel(e).model;
+  near(m.eaves[0], 15.9, "the house's eave", 0.01);
+  near(m.eaves[0] - m.eaves[1], 1.5, "the garage's 1'6\" under it", 1e-9);
+  const south = x.houseView(m, "south");
+  const levels = south.levels.filter((l) => l.label === "Eave").map((l) => l.y - south.groundY);
+  // Over the driveway: the garage's eave 9'6"; the house's 11' - its porch eave 2' under that, about level with the garage's.
+  assert(levels.length === 2, JSON.stringify(south.levels));
+  near(levels[0], 9.5, "the garage's eave over the driveway", 0.01);
+  near(levels[1], 11, "the house's eave over the driveway", 0.01);
+  assert(levels.every((y) => y < 12), "no 15'11\" eave on the front");
+  // Typed on the check as he measures it - 1'10" - and every view follows.
+  const garage = sideStarting(e, "Garage front, west").id;
+  const typed = { ...e, roof: x.withWingDrop(e.roof, garage, ft(1, 10)) };
+  const t = x.exteriorModel(typed).model;
+  near(t.eaves[0] - t.eaves[1], ft(1, 10), "1'10\" as typed", 1e-9);
+  const ts = x.houseView(t, "south");
+  near(Math.max(...ts.levels.filter((l) => l.label === "Eave").map((l) => l.y - ts.groundY)), 9.5 + ft(1, 10), "the house's eave 1'10\" over the garage's", 0.01);
+  // The report says where the drop came from: assumed until typed.
+  const said = (ex) => x.exteriorReport(ex, { title: "t", date: "d", madeWith: "m" });
+  const assumedNow = { ...e, roof: { ...e.roof, wingDrops: {} } };
+  assert(said(assumedNow).assumed.some((a) => a === "The roof out to Garage front, west bay sits 1'6\" under the eave of the roof it meets: Scrivn's assumption, as nothing measured it. Type it on the roof check."), said(assumedNow).assumed.join(" | "));
+  assert(said(typed).sources.some((a) => a === "The roof out to Garage front, west bay: 1'10\" under the eave of the roof it meets, as set on the roof check."), said(typed).sources.join(" | "));
 });
 
 test("an answer stands over a proposal, and a roof from before the check is left as it was", () => {
@@ -4965,14 +5004,18 @@ test("on the photo route, a side still at the route's 10' says nothing, and only
   assert(wingsProposed(route).length === 0 && x.roofProposal(route).proposed.some((p) => p.value === "covered"), JSON.stringify(x.roofProposal(route).proposed));
   // The garage read 9'2" against walls still at 10': no read of the house, nothing to compare.
   assert(wingsProposed(read(route, "Garage front, west", ft(9, 2))).length === 0, "the house unread");
-  // Session A's partial reads (10-16): the west gable read 18'2", the bump-out 15'5" - the bump-out is no garage, never lower.
+  // Session A's partial reads (10-16): the west gable read 18'2", the bump-out 15'5", the garage 9'2" - walls that meet the
+  // garage's at no corner, each from its own ground: nothing proposed. The bump-out is no garage, never lower.
   const partial = read(read(read(route, "West gable", ft(18, 2)), "Rear bump-out", ft(15, 5)), "Garage front, west", ft(9, 2));
-  assert(wingsProposed(partial).join() === id("Garage front, west"), JSON.stringify(x.roofProposal(partial).proposed));
-  const garage = roofOf(partial).roof.wings.find((w) => w.sideId === id("Garage front, west"));
+  assert(wingsProposed(partial).length === 0, JSON.stringify(x.roofProposal(partial).proposed));
+  // The keystone wall (the garage's side) and the front wall it meets at a corner, both read over the one ground there: the
+  // garage's eave 1'10" under the house's - proposed lower, under a gable on the house, that much under it.
+  const corner = read(read(partial, "Keystone", ft(9, 4)), "Front wall behind", ft(11, 2));
+  assert(wingsProposed(corner).join() === id("Garage front, west"), JSON.stringify(x.roofProposal(corner).proposed));
+  const q = roofOf(corner);
+  const garage = q.roof.wings.find((w) => w.sideId === id("Garage front, west"));
   assert(garage.lower && garage.gable, "the garage lower, under a gable on the house");
-  // A wall top typed on the route counts, as any measure does.
-  const typed = { ...partial, sides: partial.sides.map((s) => (s.id === id("Rear wall") ? { ...s, eaveLeftFeet: 16, eaveRightFeet: 16 } : s)) };
-  assert(wingsProposed(typed).join() === id("Garage front, west"), "still the garage alone");
+  assert(q.wingDrops[garage.sideId].source === "walls" && Math.abs(q.wingDrops[garage.sideId].feet - ft(1, 10)) < 1e-9, JSON.stringify(q.wingDrops));
 });
 
 test("the same check on the 14:53 walk the 10-13 claim was drawn on: proposed the same, the claim's taps give its 33.71 SQ", () => {
@@ -4997,10 +5040,11 @@ test("the same check on the 14:53 walk the 10-13 claim was drawn on: proposed th
       { id: "door-gable", kind: "gable", sideId: front.id, fromFeet: (2.9 / sq) * front.lengthFeet, toFeet: (6.4 / sq) * front.lengthFeet },
     ],
   };
-  const checked = roofOf({ ...w, roof: typed });
+  // The deck proposed; the garage his tap - where its walls meet the house's, the walk's eaves don't put it lower.
   const p = x.roofProposal({ ...w, roof: typed }).proposed;
-  assert(p.map((v) => `${v.key}=${v.value}`).join() === `notch:${id("Left 4")}=covered,wing:${id("Front 2")}=gable`, JSON.stringify(p));
-  assert(/1'10" under the main roof's/.test(p[1].why), p[1].why);
+  assert(p.map((v) => `${v.key}=${v.value}`).join() === `notch:${id("Left 4")}=covered`, JSON.stringify(p));
+  const answered = { ...w, roof: x.withWingAnswer(typed, roofOf({ ...w, roof: typed }).roof, id("Front 2"), "gable") };
+  const checked = roofOf(answered);
   // The claim's own lists, typed: the same roof, line for line.
   const claim = roofOf({ ...w, roof: { ...typed, coveredNotches: [id("Rear 3")], lowerWings: [id("Front 2")], wingGables: [id("Front 2")] } });
   for (const k of ["squares", "ridgeFeet", "hipFeet", "valleyFeet", "eaveFeet", "rakeFeet", "stepFeet"]) near(checked.roofing[k], claim.roofing[k], k, 1e-6);
@@ -5206,19 +5250,20 @@ test("the report: the roof's parts as proposed are assumed until checked - the d
   const e = photoRouteHouse();
   const r = x.exteriorReport(e, { title: "t", date: "d", madeWith: "m" });
   const line = r.assumed.find((a) => a.startsWith("The roof's parts as proposed"));
+  // Since 10-16 the garage is his to set lower (no corner where his walls meet measures it): the deck alone is proposed.
   assert(
-    line === "The roof's parts as proposed off the outline and the photos, not yet checked: the corner at Covered-deck side and Covered-deck back wall under the roof; the part out to Garage front, west bay lower, under a gable on the roof it meets. Check them on the roof plan.",
+    line === "The roof's parts as proposed off the outline and the photos, not yet checked: the corner at Covered-deck side and Covered-deck back wall under the roof. Check them on the roof plan.",
     line ?? r.assumed.join(" | "),
   );
   // Pressed "Looks right": answered, so not assumed.
   const checked = x.exteriorReport(ownersTaps(e), { title: "t", date: "d", madeWith: "m" });
   assert(!checked.assumed.some((a) => a.startsWith("The roof's parts as proposed")), checked.assumed.join(" | "));
-  // The deck answered on the check: the garage still as proposed.
+  // The deck answered on the check and the garage set lower: nothing left proposed, the garage's drop said to be assumed.
   const plan = roofOf(e).roof;
   const deck = plan.notches.find((k) => k.covered);
-  const half = { ...e, roof: x.withNotchAnswer(e.roof, plan, deck, "covered") };
-  const left = x.exteriorReport(half, { title: "t", date: "d", madeWith: "m" }).assumed.find((a) => a.startsWith("The roof's parts as proposed"));
-  assert(left === "The roof's parts as proposed off the outline and the photos, not yet checked: the part out to Garage front, west bay lower, under a gable on the roof it meets. Check them on the roof plan.", String(left));
+  const half = { ...e, roof: x.withWingAnswer(x.withNotchAnswer(e.roof, plan, deck, "covered"), plan, sideStarting(e, "Garage front, west").id, "gable") };
+  const said = x.exteriorReport(half, { title: "t", date: "d", madeWith: "m" }).assumed;
+  assert(!said.some((a) => a.startsWith("The roof's parts as proposed")) && said.some((a) => a.startsWith("The roof out to Garage front, west bay sits 1'6\" under")), said.join(" | "));
   // A house drawn by hand proposes nothing.
   assert(!x.exteriorReport(rect(40, 30, { pitch: 6 }), { title: "t", date: "d", madeWith: "m" }).assumed.some((a) => a.startsWith("The roof's parts")), "nothing proposed");
 });

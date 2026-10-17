@@ -327,9 +327,10 @@ await test("the roof with the photos' reads: the phone's and Scrivn's import of 
   sameRoof(s, q, "photos");
   // Since the roof check (2026-10-16, lib/roofCheck.ts) the deck is proposed under the roof - left open, the part out to Left 5
   // and the garage's bay would have to sit lower - so the main roof is the whole house, its gable over Left 5, whose photo gives
-  // the house its 5/12 (typed > its own photo > measured gables > assumed); the garage reads 1'10" under it and sits lower,
-  // under a gable on the house, as the owner gives it. The bump-out (Rear) takes its own gable photo's 5/12: one pitch all
-  // round, so no part is listed apart. (Before, the deck open, the main stood over Right at Scan's 5.3/12.)
+  // the house its 5/12 (typed > its own photo > measured gables > assumed). The garage is not proposed lower: where its walls
+  // meet the house's the walk's eaves don't say so (10-16, the drop is measured only there) - it is the owner's tap on the
+  // check. The bump-out (Rear) takes its own gable photo's 5/12: one pitch all round, so no part is listed apart. (Before,
+  // the deck open, the main stood over Right at Scan's 5.3/12.)
   assert(s.roof.pitchSource === "photos" && s.roof.pitchText === "5/12", `${s.roof.pitchText} from ${s.roof.pitchSource}`);
   assert(s.roof.sections.length === 0, JSON.stringify(s.roof.sections));
   assert(s.roof.ends.find((e) => e.name === "Left 5")?.how === "photo", JSON.stringify(s.roof.ends));
