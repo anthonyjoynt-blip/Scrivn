@@ -3225,6 +3225,38 @@ button:disabled {
   min-width: 0;
   flex-wrap: wrap;
 }
+/* The house and the claim's other buildings (2026-10-16): one small row over the exterior, then the editor on the one picked. */
+.exterior-site {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+.sketch-card-expanded .exterior-site {
+  flex: 1;
+  min-height: 0;
+}
+.exterior-site .field-note {
+  margin-left: 0;
+}
+.exterior-buildings {
+  flex-wrap: wrap;
+  align-self: flex-start;
+  max-width: 100%;
+}
+.exterior-building-name input {
+  min-width: 0;
+  width: 14rem;
+  max-width: 100%;
+}
+.exterior-add-building input {
+  min-width: 0;
+  flex: 1 1 12rem;
+  max-width: 20rem;
+}
+.exterior-quick-opening .exterior-feet {
+  width: 5rem;
+}
 .sketch-card-phone .exterior-strip-tabs {
   flex-wrap: nowrap;
   overflow-x: auto;

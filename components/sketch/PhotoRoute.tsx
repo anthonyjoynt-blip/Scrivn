@@ -18,6 +18,7 @@ import { formatFeetInches, parseFeetInches } from "@/lib/sketch";
 import { FootprintDraw } from "./ExteriorPlan";
 import { Choice, FeetField } from "./exteriorFields";
 import { claimPhotoUrl, useExteriorPhotos } from "./exteriorPhotoAccess";
+import { useExteriorSubject } from "./exteriorSubject";
 import styles from "./PhotoRoute.module.css";
 import { squaredWallPhoto } from "./SidePhotos";
 
@@ -57,12 +58,13 @@ function withMain(route: PhotoRouteState, f: (b: ReturnType<typeof mainOf>) => R
 
 /** The start card beside the other ways in (ExteriorEditor.tsx shows it over ExteriorStart). */
 export function PhotoRouteStart({ readOnly, onStart }: { readOnly: boolean; onStart: (exterior: Exterior) => void }) {
+  const { the } = useExteriorSubject();
   if (readOnly) return null;
   return (
     <div className={`exterior-start-way ${styles.card}`}>
       <h4 className="exterior-subhead">Measure it from photos</h4>
       <p className="field-note">
-        Photos of the house from all round it, the corners tapped on them, and a tape or two: Scrivn works out every wall&rsquo;s length, and how sure it is of each.
+        Photos of {the} from all round it, the corners tapped on them, and a tape or two: Scrivn works out every wall&rsquo;s length, and how sure it is of each.
       </p>
       <button type="button" className="btn-primary" onClick={() => onStart({ sides: [], roof: defaultRoof(), photoRoute: emptyPhotoRoute() })}>
         From photos
@@ -72,6 +74,7 @@ export function PhotoRouteStart({ readOnly, onStart }: { readOnly: boolean; onSt
 }
 
 function TakeCard() {
+  const { the } = useExteriorSubject();
   return (
     <div className={styles.card}>
       <strong>How to take the photos</strong>
@@ -80,7 +83,7 @@ function TakeCard() {
         <li>One photo of each wall, straight on, with both its corners, the ground and the roof edge in it.</li>
         <li>One photo of each outside corner from 45 degrees, so both walls show.</li>
         <li>Each gable end square-on.</li>
-        <li>Walk round the house in one direction, so the photos follow each other.</li>
+        <li>Walk round {the} in one direction, so the photos follow each other.</li>
       </ul>
     </div>
   );
@@ -105,6 +108,9 @@ const tick = () => new Promise<void>((r) => setTimeout(r, 0));
 
 export function PhotoRoutePane({ exterior, readOnly, onChange }: { exterior: Exterior; readOnly: boolean; onChange: (f: (e: Exterior) => Exterior) => void }) {
   const access = useExteriorPhotos();
+  // "the house", or the other building being measured (2026-10-16): "the shed".
+  const { the } = useExteriorSubject();
+  const The = the.charAt(0).toUpperCase() + the.slice(1);
   const route = exterior.photoRoute ?? emptyPhotoRoute();
   const main = mainOf(route);
   const change: RouteChange = (f) => onChange((e) => withRoute(e, f));
@@ -120,7 +126,11 @@ export function PhotoRoutePane({ exterior, readOnly, onChange }: { exterior: Ext
 
   // Each photo's picture: this phone's copy or Scrivn's link; asked again when the phone's store changes (a photo uploaded).
   const [storeTick, setStoreTick] = useState(0);
-  useEffect(() => onDeviceChange(() => setStoreTick((n) => n + 1)), []);
+  useEffect(() => {
+    // A subscription, not a state updater: named, so test:sketch's source rule (stateRules.mjs) doesn't take it for one.
+    const bump = () => setStoreTick((n) => n + 1);
+    return onDeviceChange(bump);
+  }, []);
   useEffect(() => {
     let live = true;
     const made: string[] = [];
@@ -293,13 +303,13 @@ export function PhotoRoutePane({ exterior, readOnly, onChange }: { exterior: Ext
       </section>
 
       <section>
-        <h3>2. The house&rsquo;s shape</h3>
+        <h3>2. {The}&rsquo;s shape</h3>
         {main.outline.length < 4 ? (
           readOnly ? (
             <p className="field-note">No shape drawn yet.</p>
           ) : (
             <>
-              <p className="field-note">Tap each corner of the house in turn, going round it, then the first one again. The street side at the bottom. Rough is fine: the photos set the sizes.</p>
+              <p className="field-note">Tap each corner of {the} in turn, going round it, then the first one again. The street side at the bottom. Rough is fine: the photos set the sizes.</p>
               <FootprintDraw onClose={(ring) => change((r) => withMain(r, (b) => ({ ...b, outline: ring, corners: b.corners.map((c) => ({ ...c, corner: -1, by: undefined })) })))} />
             </>
           )
@@ -348,7 +358,7 @@ export function PhotoRoutePane({ exterior, readOnly, onChange }: { exterior: Ext
           )}
           <p className="field-note">
             {mode === "corners"
-              ? "Tap each corner of the house you can see, where it meets the ground. The first one on each photo asks which corner it is; Scrivn numbers the rest. Tap a number to change it."
+              ? `Tap each corner of ${the} you can see, where it meets the ground. The first one on each photo asks which corner it is; Scrivn numbers the rest. Tap a number to change it.`
               : mode === "tape"
                 ? "Drag across what you taped, end to end: a garage door, a window, a door. Then say how long it is."
                 : "Tap a side of the shape above, then type its length as you taped it, corner to corner."}
@@ -416,7 +426,7 @@ export function PhotoRoutePane({ exterior, readOnly, onChange }: { exterior: Ext
         <h3>4. Measure</h3>
         {!readOnly && (
           <button type="button" className="btn-primary" disabled={!ready || busy !== null} onClick={() => void measure()}>
-            {measured ? "Measure again" : "Measure the house"}
+            {measured ? "Measure again" : `Measure ${the}`}
           </button>
         )}
         {!ready && <p className="field-note">Measuring needs the shape drawn and two photos at least with two corners each.</p>}

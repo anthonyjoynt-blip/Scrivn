@@ -9,6 +9,7 @@ import type { DGIGData } from "./dgig";
 import { emptyDGIGData } from "./dgig";
 import type { AsbestosScope } from "./asbestos";
 import { emptyAsbestosScope } from "./asbestos";
+import type { Exterior } from "./exterior";
 import type { Sketch } from "./sketch";
 import { emptySketch, hasSketchContent } from "./sketch";
 import { normalizeStoredExtraction } from "./extractionWire";
@@ -197,7 +198,38 @@ export function parseSavedClaimState(payload: unknown): SavedClaimState {
   merged.dryingLog = normalizeDryingLog(merged.dryingLog);
   // The photo records, one order and one shape — and the same answer run twice, which the sync check relies on.
   merged.photos = normalizeClaimPhotos(merged.photos);
+  // The other buildings (2026-10-16): a claim saved before them has no list and is left exactly as it was; a list a
+  // device copy got wrong keeps only what can be opened - an unparsed device copy crashed the claim page on 10-15.
+  const sketch = merged.sketch as Partial<Sketch> | null | undefined;
+  if (sketch && typeof sketch === "object" && "buildings" in sketch) {
+    const buildings = normalizeBuildings(sketch.buildings);
+    if (buildings !== sketch.buildings) {
+      const next = { ...sketch } as Sketch;
+      if (buildings) next.buildings = buildings;
+      else delete next.buildings;
+      merged.sketch = next;
+    }
+  }
   return merged as unknown as SavedClaimState;
+}
+
+/**
+ * A saved list of buildings as it can be opened (2026-10-16): only entries with sides and a roof to read, each with
+ * an id and a name - a device copy written by a build that got it half-right must not crash the claim page (10-15).
+ * Undefined when there are none, so a claim saved before buildings comes back exactly as it was saved.
+ */
+function normalizeBuildings(raw: unknown): Exterior[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const kept: Exterior[] = [];
+  raw.forEach((b, i) => {
+    if (!b || typeof b !== "object") return;
+    const e = b as Partial<Exterior>;
+    if (!Array.isArray(e.sides) || !e.roof || typeof e.roof !== "object") return;
+    const id = typeof e.id === "string" && e.id ? e.id : `building-saved-${i}`;
+    const name = typeof e.name === "string" && e.name.trim() ? e.name : "Building";
+    kept.push(e.id === id && e.name === name ? (e as Exterior) : ({ ...(e as Exterior), id, name } as Exterior));
+  });
+  return kept.length > 0 ? kept : undefined;
 }
 
 /**

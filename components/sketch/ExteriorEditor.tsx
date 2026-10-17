@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { asBuilding, BUILDING_NAMES, buildingName, buildingScopeLines, HOUSE_NAME, uniqueName } from "@/lib/buildings";
 import {
   allSides,
   emptyScope,
@@ -9,7 +10,6 @@ import {
   type ExteriorScope,
   type ExteriorSide,
   exteriorQuantities,
-  exteriorScopeLines,
   fixtureLine,
   formatOpeningSize,
   formatPitch,
@@ -23,6 +23,8 @@ import type { SideTrace } from "@/lib/exteriorTrace";
 import { lf, sf } from "./exteriorFields";
 import { ExteriorStart, PlanPane } from "./ExteriorPlan";
 import { PhotoRoutePane, PhotoRouteStart } from "./PhotoRoute";
+import { QuickBoxStart } from "./QuickBox";
+import { ExteriorSubjectContext, useExteriorSubject } from "./exteriorSubject";
 import { setSidePhotoClaim, useExteriorPhotos } from "./exteriorPhotoAccess";
 import { SidePane } from "./ExteriorSide";
 import type { PhotoOpacity } from "./SidePhotos";
@@ -44,6 +46,206 @@ import type { PhotoOpacity } from "./SidePhotos";
  */
 
 export type ExteriorUpdate = (update: (prev: Exterior | undefined) => Exterior | undefined) => void;
+
+/**
+ * The house and the claim's other buildings (2026-10-16, lib/buildings.ts): a small switcher over the editor -
+ * House | Shed | + Add building - and the editor on whichever is picked, the same editor for each. Adding one asks
+ * its name, then offers the house's starts with the quick box first: a shed with a tape in under a minute.
+ * [selected] is the building's id, null for the house; it lives with the sketch, which opens its 3D view.
+ */
+export function ExteriorSite({
+  house,
+  buildings,
+  selected,
+  onSelect,
+  onHouse,
+  onBuildings,
+  readOnly,
+  onShow3d,
+}: {
+  house: Exterior | undefined;
+  buildings: Exterior[];
+  selected: string | null;
+  onSelect: (id: string | null) => void;
+  onHouse: ExteriorUpdate;
+  onBuildings: (f: (list: Exterior[]) => Exterior[]) => void;
+  readOnly: boolean;
+  onShow3d?: () => void;
+}) {
+  /** Naming a new building; then its name, waiting for how it is measured. Nothing is saved until it is started. */
+  const [naming, setNaming] = useState(false);
+  const [pending, setPending] = useState<string | null>(null);
+  const [typed, setTyped] = useState("");
+  const current = selected === null ? undefined : buildings.find((b) => b.id === selected);
+  const onHouseTab = !naming && pending === null && !current;
+  // With nothing to switch to and nothing to add (read only), the house's editor as it always was.
+  const switcher = !readOnly || buildings.length > 0;
+
+  const pick = (id: string | null) => {
+    setNaming(false);
+    setPending(null);
+    onSelect(id);
+  };
+  const named = (name: string) => {
+    setNaming(false);
+    setTyped("");
+    setPending(uniqueName(name, buildings.map(buildingName)));
+  };
+  /** A building's own updater: it keeps its id and name whatever the editor hands back, and is gone when its exterior is. */
+  const updateBuilding =
+    (id: string): ExteriorUpdate =>
+    (update) =>
+      onBuildings((list) => {
+        const at = list.findIndex((b) => b.id === id);
+        const prev = list[at];
+        if (!prev) return list;
+        const next = update(prev);
+        if (next === prev) return list;
+        if (next === undefined) return list.filter((b) => b.id !== id);
+        return list.map((b, i) => (i === at ? { ...next, id: prev.id, name: prev.name } : b));
+      });
+
+  return (
+    <div className="exterior-site">
+      {switcher && (
+        <div className="option-group exterior-buildings" role="group" aria-label="The buildings on this claim">
+          <button type="button" className={`option-btn${onHouseTab ? " selected" : ""}`} aria-pressed={onHouseTab} onClick={() => pick(null)}>
+            {HOUSE_NAME}
+          </button>
+          {buildings.map((b) => {
+            const on = !naming && pending === null && current?.id === b.id;
+            return (
+              <button key={b.id} type="button" className={`option-btn${on ? " selected" : ""}`} aria-pressed={on} onClick={() => pick(b.id ?? null)}>
+                {buildingName(b)}
+              </button>
+            );
+          })}
+          {pending !== null && (
+            <button type="button" className="option-btn selected" aria-pressed>
+              {pending}
+            </button>
+          )}
+          {!readOnly && (
+            <button
+              type="button"
+              className={`option-btn${naming ? " selected" : ""}`}
+              aria-pressed={naming}
+              onClick={() => {
+                setPending(null);
+                setNaming(true);
+              }}
+            >
+              + Add building
+            </button>
+          )}
+        </div>
+      )}
+
+      {naming ? (
+        <div className="exterior-start exterior-add-building">
+          <h3>Another building</h3>
+          <p className="field-note">A shed, a detached garage, a workshop: measured, roofed and reported like the house, on the same claim. What is it?</p>
+          <div className="exterior-row">
+            {BUILDING_NAMES.map((n) => (
+              <button key={n} type="button" className="btn-secondary" onClick={() => named(n)}>
+                {n}
+              </button>
+            ))}
+          </div>
+          <form
+            className="exterior-row"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (typed.trim()) named(typed);
+            }}
+          >
+            <input type="text" aria-label="Or its name" placeholder="Or type its name" value={typed} maxLength={40} onChange={(e) => setTyped(e.target.value)} />
+            <button type="submit" className="btn-secondary" disabled={!typed.trim()}>
+              Next
+            </button>
+            <button type="button" className="btn-secondary" onClick={() => setNaming(false)}>
+              Cancel
+            </button>
+          </form>
+        </div>
+      ) : pending !== null ? (
+        <ExteriorSubjectContext.Provider value={pending}>
+          <BuildingStart
+            readOnly={readOnly}
+            onCancel={() => setPending(null)}
+            onStart={(exterior) => {
+              const b = asBuilding(exterior, pending);
+              onBuildings((list) => [...list, b]);
+              setPending(null);
+              onSelect(b.id ?? null);
+            }}
+          />
+        </ExteriorSubjectContext.Provider>
+      ) : current ? (
+        <ExteriorSubjectContext.Provider value={buildingName(current)}>
+          <BuildingName building={current} readOnly={readOnly} taken={buildings.filter((b) => b.id !== current.id).map(buildingName)} onRename={(name) => onBuildings((list) => list.map((b) => (b.id === current.id ? { ...b, name } : b)))} />
+          <ExteriorEditor key={current.id} exterior={current} readOnly={readOnly} onShow3d={onShow3d} onChange={updateBuilding(current.id as string)} />
+        </ExteriorSubjectContext.Provider>
+      ) : (
+        <ExteriorEditor key="house" exterior={house} readOnly={readOnly} onShow3d={onShow3d} onChange={onHouse} />
+      )}
+    </div>
+  );
+}
+
+/** How a new building is measured: the quick box first, then the house's own starts - from photos, or drawn. */
+function BuildingStart({ readOnly, onStart, onCancel }: { readOnly: boolean; onStart: (exterior: Exterior) => void; onCancel: () => void }) {
+  const { the } = useExteriorSubject();
+  return (
+    <div className="exterior">
+      <div className="exterior-start">
+        <div className="exterior-row">
+          <h3>How to measure {the}</h3>
+          <button type="button" className="btn-secondary" onClick={onCancel}>
+            Cancel
+          </button>
+        </div>
+      </div>
+      <div className="exterior-start-ways">
+        <QuickBoxStart readOnly={readOnly} onStart={onStart} />
+        <PhotoRouteStart readOnly={readOnly} onStart={onStart} />
+      </div>
+      <ExteriorStart readOnly={readOnly} onStart={onStart} />
+    </div>
+  );
+}
+
+/** A building's name, typed over to rename it (2026-10-16): what its tab, its scope lines and its report section are called. */
+function BuildingName({ building, readOnly, taken, onRename }: { building: Exterior; readOnly: boolean; taken: string[]; onRename: (name: string) => void }) {
+  const name = buildingName(building);
+  return (
+    <div className="exterior-row exterior-building-name">
+      <label className="exterior-row-label" htmlFor={`bname-${building.id}`}>
+        Name
+      </label>
+      <input
+        id={`bname-${building.id}`}
+        type="text"
+        key={name}
+        defaultValue={name}
+        maxLength={40}
+        disabled={readOnly}
+        onBlur={(e) => {
+          const next = e.target.value.trim();
+          if (!next || next === name) {
+            e.target.value = name;
+            return;
+          }
+          onRename(uniqueName(next, taken));
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") e.currentTarget.blur();
+        }}
+      />
+      <span className="field-note">Its tab, its lines on the scope and its pages in the exterior report go by this name.</span>
+    </div>
+  );
+}
 
 export function ExteriorEditor({
   exterior,
@@ -242,7 +444,8 @@ function ExteriorScopePicker({
   onChange: (f: (scope: ExteriorScope) => ExteriorScope) => void;
 }) {
   const scope = exterior.scope ?? emptyScope();
-  const lines = exteriorScopeLines(exterior);
+  // Another building's lines are named for it, as they go on the scope (2026-10-16): "Shed – Remove & replace ...".
+  const lines = buildingScopeLines(exterior);
   const all = [...lines.roofing, ...lines.siding];
   const noRoof = q.roofing === null;
   const ask = q.roofing?.toAnswer;

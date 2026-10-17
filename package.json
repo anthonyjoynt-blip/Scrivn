@@ -39,6 +39,7 @@
     "test:exterior": "node test/exterior/run.mjs",
     "test:exterior:trace": "node test/exterior/trace.mjs",
     "test:exterior:photos": "node test/exterior/photoRoute.mjs",
+    "test:exterior:buildings": "node test/exterior/buildings.mjs",
     "test:sw": "node test/sw/run.mjs",
     "test:letterhead": "node test/letterhead/run.mjs",
     "test:billing": "node test/billing/run.mjs && node test/billing/db.mjs && node test/billing/routes.mjs",

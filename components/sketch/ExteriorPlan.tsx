@@ -58,6 +58,7 @@ import {
   walkState,
   withAddition,
   withNextSide,
+  withOneSlope,
   withRoofEnd,
   withSectionBreak,
   withSectionPitch,
@@ -71,6 +72,7 @@ import { textWidthEm } from "@/lib/roofLabels";
 import { pickableEdge, type RoofPick, RoofLegend, RoofPlanDrawing, type RoofPlanMode } from "./exteriorDrawings";
 import { Cell, Choice, FeetField, FeetInput, lf, listOf, NumberField, sf, YesNo } from "./exteriorFields";
 import { ExteriorSizes } from "./ExteriorSizes";
+import { useExteriorSubject } from "./exteriorSubject";
 import { RoofCheckPanel, RoofParts } from "./RoofCheck";
 import { RoofPiecesPanel } from "./RoofPieces";
 import { RoofTotalsPanel } from "./RoofTotals";
@@ -126,6 +128,8 @@ const lengthOf = (text: string): number | null => {
 };
 
 export function ExteriorStart({ readOnly, onStart }: { readOnly: boolean; onStart: (exterior: Exterior) => void }) {
+  // "the house", or the other building being measured (2026-10-16): "the shed".
+  const { the, isHouse } = useExteriorSubject();
   const [eave, setEave] = useState<number | null>(DEFAULT_EAVE_FEET);
   const [front, setFront] = useState("");
   const [shape, setShape] = useState<"rectangle" | "L" | null>(null);
@@ -146,9 +150,9 @@ export function ExteriorStart({ readOnly, onStart }: { readOnly: boolean; onStar
   return (
     <div className="exterior-start">
       <div>
-        <h3>Draw the outside of the house</h3>
+        <h3>Draw the outside of {the}</h3>
         <p className="field-note">
-          Tap each corner of the house in turn, going round it, then tap the first corner again. The street side goes at the bottom. Rough is fine: type the real lengths after. The roof
+          Tap each corner of {the} in turn, going round it, then tap the first corner again. The street side goes at the bottom. Rough is fine: type the real lengths after. The roof
           appears as soon as the outline closes, and each side opens face-on for its windows, doors and heights.
         </p>
       </div>
@@ -225,7 +229,8 @@ export function ExteriorStart({ readOnly, onStart }: { readOnly: boolean; onStar
         </div>
         <FeetField id="ext-start-eave" label="Eave height, from grade" value={eave} onCommit={setEave} note="Every side starts at this; change any side after." />
       </div>
-      <p className="field-note">A Scrivn Scan exterior comes in from the phone, or through Import scan on the Sketch view.</p>
+      {/* A scan always lands on the house (2026-10-16): on another building, nothing to say about one. */}
+      {isHouse && <p className="field-note">A Scrivn Scan exterior comes in from the phone, or through Import scan on the Sketch view.</p>}
     </div>
   );
 }
@@ -776,6 +781,8 @@ export function PlanPane({
   const [figure, setFigure] = useState<HTMLElement | null>(null);
   const [narrow, setNarrow] = useState(false);
   const fp = q.footprint;
+  // On another building (2026-10-16) removing its exterior removes the building: said so, by its name.
+  const { the, isHouse } = useExteriorSubject();
 
   // Drawn narrow (a phone), the plan letters bigger: its own 3% is too fine there to read or to tap.
   useEffect(() => {
@@ -805,9 +812,11 @@ export function PlanPane({
             <span>
               {confirm === "redraw"
                 ? `Draw the outline again? Its ${exterior.sides.length} sides go, with what is on them; the roof's answers stay.`
-                : exterior.sides.length > 0
-                  ? `Remove all ${exterior.sides.length} sides and the roof?`
-                  : "Remove the roof's totals and answers?"}
+                : !isHouse
+                  ? `Remove ${the} from the claim, with its ${exterior.sides.length} side${exterior.sides.length === 1 ? "" : "s"} and roof?`
+                  : exterior.sides.length > 0
+                    ? `Remove all ${exterior.sides.length} sides and the roof?`
+                    : "Remove the roof's totals and answers?"}
             </span>
             <button
               type="button"
@@ -832,7 +841,7 @@ export function PlanPane({
               </button>
             )}
             <button type="button" className="btn-secondary exterior-remove" onClick={() => setConfirm("remove")}>
-              Remove the exterior…
+              {isHouse ? "Remove the exterior…" : `Remove ${the}…`}
             </button>
           </div>
         ))}
@@ -1262,7 +1271,32 @@ function RoofShapeFields({
           {n}
         </p>
       ))}
-      {(plan.shape === "rectangle" || plan.shape === "wings") && (
+      {/* One slope (2026-10-16, a shed's roof): a rectangle's roof as one plane, draining to the side picked. */}
+      {plan.shape === "rectangle" && exterior.sides.length === 4 && (
+        <>
+          <Choice
+            label="Slopes"
+            value={roof.oneSlopeTo ? "one" : "two"}
+            readOnly={readOnly}
+            options={[
+              ["two", "Gable or hip"],
+              ["one", "One slope"],
+            ]}
+            onChange={(v) => onUpdate((x) => withOneSlope(x, v === "one" ? (x.oneSlopeTo ?? exterior.sides[2]?.id ?? null) : null))}
+          />
+          {roof.oneSlopeTo && (
+            <Choice
+              label="Draining to"
+              hint="The low side, with the eavestrough. The side across from it is the high one."
+              value={roof.oneSlopeTo}
+              readOnly={readOnly}
+              options={exterior.sides.map((s) => [s.id, s.name.trim() || "Side"] as [string, string])}
+              onChange={(v) => onUpdate((x) => withOneSlope(x, v))}
+            />
+          )}
+        </>
+      )}
+      {(plan.shape === "rectangle" || plan.shape === "wings") && !roof.oneSlopeTo && (
         <label className="exterior-field" htmlFor="ext-ridge">
           <span className="exterior-field-label">{plan.shape === "rectangle" ? "Ridge runs" : "Main roof"}</span>
           <select id="ext-ridge" value={roof.ridgeAlong ?? ""} disabled={readOnly} onChange={(e) => onUpdate((x) => ({ ...x, ridgeAlong: e.target.value || null }))}>

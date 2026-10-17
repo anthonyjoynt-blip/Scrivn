@@ -29,6 +29,8 @@ import { applyFraming, createStage, framingOf, loadThree, STAGE_BACKGROUND_CSS, 
 interface Props {
   exterior: Exterior;
   onClose: () => void;
+  /** Another building's name (2026-10-16, lib/buildings.ts), beside the title; none for the house. */
+  name?: string;
 }
 
 const COLORS = {
@@ -212,7 +214,7 @@ function openingParts(wall: Wall3D, cut: ReturnType<typeof cuttable>, parts: Par
   }
 }
 
-export default function Exterior3D({ exterior, onClose }: Props) {
+export default function Exterior3D({ exterior, onClose, name }: Props) {
   const result = useMemo(() => exteriorModel(exterior), [exterior]);
   const model = result.ok ? result.model : null;
   const mountRef = useRef<HTMLDivElement>(null);
@@ -464,7 +466,7 @@ export default function Exterior3D({ exterior, onClose }: Props) {
           background: "#fff",
         }}
       >
-        <strong style={{ fontSize: 16, color: "#1b3a5c", marginRight: 8 }}>3D view</strong>
+        <strong style={{ fontSize: 16, color: "#1b3a5c", marginRight: 8 }}>3D view{name ? ` · ${name}` : ""}</strong>
         {model?.roof && (
           <button
             type="button"

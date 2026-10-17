@@ -2,7 +2,7 @@ import { jsPDF } from "jspdf";
 import { createElement, type ReactElement } from "react";
 import { CHECK_INK, CladdingLegend, ElevationDrawing, elevationFontFeet, FootprintDrawing, HouseElevationDrawing, houseViewFontFeet, LINE_STYLE, type LegendItem, RoofPlanDrawing } from "@/components/sketch/exteriorDrawings";
 import { allSides, elevationFaces, type Exterior, lengthToCheck } from "./exterior";
-import { type ExteriorReport, LINE_WORD, roofPlanCaption } from "./exteriorReport";
+import { type ExteriorReport, LINE_WORD, type ReportTable, roofPlanCaption } from "./exteriorReport";
 import { type Letterhead, letterheadInkColor } from "./letterhead";
 import { drawLetterhead, drawPhotoPages, drawTables, LETTERHEAD_HEIGHT, PAGE_MARGIN, type PdfPhoto } from "./pdf";
 import { paintSvg, parseSvg, pdfSafe, svgViewBox } from "./svgPdf";
@@ -19,6 +19,10 @@ import { paintSvg, parseSvg, pdfSafe, svgViewBox } from "./svgPdf";
  *   5. the tables: walls by side and material, openings, roof lines, squares, slopes, soffit, fascia
  *      and eavestrough, corners and trim, and what is still to answer.
  *
+ * With other buildings on the claim (2026-10-16, lib/buildings.ts), the cover lists them all with their totals and
+ * the totals of them all, and after the house's pages each building has the same five of its own, every page
+ * headed with its name ("Shed · Roof plan"). Without any, the report is the house's exactly as it always was.
+ *
  * DRAWN TO SCALE, as Scan's room plan is (PlanPdf.kt): each drawing at the largest standard
  * architectural scale that fits its page, the scale written under it with a 10 ft bar, true when
  * printed at 100%. The drawings are Scrivn's own (components/sketch/exteriorDrawings.tsx), painted as
@@ -34,11 +38,16 @@ export interface ReportPhotoImage {
 }
 
 export interface ReportPdfInput {
-  report: ExteriorReport;
+  /** The house's report; null on a claim with only other buildings measured (then `buildings` has one at least). */
+  report: ExteriorReport | null;
   /** A drawing's SVG markup: react-dom/server's renderToStaticMarkup, or a rendered element's innerHTML. */
   svgOf: (element: ReactElement) => string;
   /** The side photos by Scan's number. A photo not here is named in the list, not printed. */
   photos?: Record<number, ReportPhotoImage>;
+  /** The claim's other buildings (2026-10-16, lib/buildings.ts): each a section of its own after the house's. */
+  buildings?: { name: string; report: ExteriorReport; photos?: Record<number, ReportPhotoImage> }[];
+  /** The cover's table of every building, per building and for them all (lib/buildings.ts `siteReport`). */
+  totals?: ReportTable | null;
   /** The company's letterhead on the cover; none, a plain title. */
   letterhead?: Letterhead | null;
   /** At the foot of every page, right: what made it ("Scrivn Scan 0.1.170"). */
@@ -54,6 +63,16 @@ const INK: [number, number, number] = [20, 20, 20];
 const MUTED: [number, number, number] = [91, 100, 114];
 /** One pixel of a drawing's line, on paper. */
 const PIXEL = 0.5;
+
+/** One building's pages: the house's (no name), or another building's, each page headed with its name. */
+interface Part {
+  report: ExteriorReport;
+  photos: Record<number, ReportPhotoImage>;
+  name: string | null;
+}
+
+/** A page's heading in [part]: the house's as it always was, another building's with its name in front. */
+const titled = (part: Part, words: string) => (part.name ? `${part.name} · ${words}` : words);
 
 /** The standard scales, largest first: points a foot, and how each is written. */
 const SCALES: [number, string][] = [
@@ -134,8 +153,8 @@ function drawing(input: ReportPdfInput, element: ReactElement) {
 }
 
 /** The footprint at the largest standard scale at which it fits [w] x [h] points as drawn - its names lettered about 8 points - with room for the scale under it; null when none does. */
-function fitFootprint(input: ReportPdfInput, w: number, h: number): { made: ReturnType<typeof drawing>; ptPerFt: number; text: string } | null {
-  const { report } = input;
+function fitFootprint(input: ReportPdfInput, part: Part, w: number, h: number): { made: ReturnType<typeof drawing>; ptPerFt: number; text: string } | null {
+  const { report } = part;
   const fp = report.q.footprint;
   const nameOf = (id: string) => allSides(report.exterior).find((s) => s.id === id)?.name.trim() || "Side";
   const approx = (id: string) => report.exterior.sides.find((s) => s.id === id)?.lengthFrom === "drawn";
@@ -159,8 +178,7 @@ function drawFootprint(doc: jsPDF, fit: NonNullable<ReturnType<typeof fitFootpri
   return y + dh + 28;
 }
 
-function cover(doc: jsPDF, input: ReportPdfInput): void {
-  const { report } = input;
+function cover(doc: jsPDF, input: ReportPdfInput, house: Part | null, meta: ExteriorReport["meta"]): void {
   const letterhead = input.letterhead ?? null;
   let y: number;
   if (letterhead) {
@@ -180,11 +198,27 @@ function cover(doc: jsPDF, input: ReportPdfInput): void {
     y = PAGE_MARGIN + 26;
   }
   setText(doc, 18, "bold", NAVY);
-  y = para(doc, report.meta.title, PAGE_MARGIN, y, CONTENT_W, 21);
+  y = para(doc, meta.title, PAGE_MARGIN, y, CONTENT_W, 21);
   setText(doc, 9.5, "normal", MUTED);
-  doc.text(pdfSafe(`${report.meta.date} · ${report.meta.madeWith}`), PAGE_MARGIN, y);
+  doc.text(pdfSafe(`${meta.date} · ${meta.madeWith}`), PAGE_MARGIN, y);
   y += 20;
+  // The buildings on the claim, the house first, with the totals of them all (2026-10-16): only with another building.
+  const totals = input.totals && (input.buildings ?? []).length > 0 ? input.totals : null;
+  if (!house) {
+    if (totals) drawTables(doc, [totals], y - 6, CONTENT_W, BOTTOM);
+    return;
+  }
+  coverBody(doc, input, house, y, totals);
+}
 
+/**
+ * A building's facts, where its numbers came from, what is assumed and what to check, and its footprint: under the
+ * cover's title for the house, on a page of its own for another building. [totals], on the house's cover only, goes
+ * between its facts and the lists.
+ */
+function coverBody(doc: jsPDF, input: ReportPdfInput, part: Part, start: number, totals: ReportTable | null = null): void {
+  const { report } = part;
+  let y = start;
   // The house in a few lines, label beside value.
   for (const f of report.facts) {
     setText(doc, 7.5, "bold", MUTED);
@@ -193,6 +227,7 @@ function cover(doc: jsPDF, input: ReportPdfInput): void {
     y = para(doc, f.value, PAGE_MARGIN + 92, y, CONTENT_W - 92, 12) + 3;
   }
   y += 6;
+  if (totals) y = drawTables(doc, [totals], y - 6, CONTENT_W, BOTTOM) + 10;
   const list = (title: string, items: string[]) => {
     if (items.length === 0) return;
     setText(doc, 10, "bold", NAVY);
@@ -215,27 +250,27 @@ function cover(doc: jsPDF, input: ReportPdfInput): void {
     // A wall whose length is to check is marked on the plan, and said under it.
     const marked = allSides(report.exterior).some((s) => lengthToCheck(s) !== undefined) ? " A wall dashed, with a ±: worked out from the photos, to tape." : "";
     // Under the cover's words when it fits there at 1/16" or larger; else a page of its own.
-    const here = room >= 180 ? fitFootprint(input, CONTENT_W, room - 10) : null;
+    const here = room >= 180 ? fitFootprint(input, part, CONTENT_W, room - 10) : null;
     if (here && here.ptPerFt >= 4.5) {
       setText(doc, 10, "bold", NAVY);
       doc.text("Footprint", PAGE_MARGIN, y);
       drawFootprint(doc, here, PAGE_MARGIN, y + 10, CONTENT_W);
     } else {
       doc.addPage();
-      y = heading(doc, "Footprint", `To scale, front at the bottom. Each wall's name and length outside it.${marked}`);
-      const fit = fitFootprint(input, CONTENT_W, BOTTOM - 20 - y);
+      y = heading(doc, titled(part, "Footprint"), `To scale, front at the bottom. Each wall's name and length outside it.${marked}`);
+      const fit = fitFootprint(input, part, CONTENT_W, BOTTOM - 20 - y);
       if (fit) drawFootprint(doc, fit, PAGE_MARGIN, y, CONTENT_W);
     }
   }
 }
 
-function roofPage(doc: jsPDF, input: ReportPdfInput): void {
-  const { report } = input;
+function roofPage(doc: jsPDF, input: ReportPdfInput, part: Part): void {
+  const { report } = part;
   const plan = report.q.roof;
   const roof = report.roof;
   if (!plan || !roof) return;
   doc.addPage();
-  const top = heading(doc, roofPlanCaption(plan), roof.title);
+  const top = heading(doc, titled(part, roofPlanCaption(plan)), roof.title);
   const nameOf = (id: string) => allSides(report.exterior).find((s) => s.id === id)?.name.trim() || "Side";
   const R = report.exterior.roof;
   const props = {
@@ -315,8 +350,8 @@ function roofPage(doc: jsPDF, input: ReportPdfInput): void {
   for (const note of roof.notes) y = para(doc, note, PAGE_MARGIN, y, CONTENT_W, 10.5) + 2;
 }
 
-function elevationPages(doc: jsPDF, input: ReportPdfInput): void {
-  const { report } = input;
+function elevationPages(doc: jsPDF, input: ReportPdfInput, part: Part): void {
+  const { report } = part;
   const sides = report.sides.filter((s) => s.q.complete);
   if (sides.length === 0) return;
   const roofAssumed = report.q.pitch.source === "assumed";
@@ -348,9 +383,9 @@ function elevationPages(doc: jsPDF, input: ReportPdfInput): void {
   const views = report.views;
   let y = heading(
     doc,
-    "Elevations",
+    titled(part, "Elevations"),
     views.length > 0
-      ? "The whole house square-on from each side, then each side on its own, to scale. The plan's front is taken as south: no compass bearing is measured."
+      ? `The whole ${part.name ? "building" : "house"} square-on from each side, then each side on its own, to scale. The plan's front is taken as south: no compass bearing is measured.`
       : "Each side as seen from outside, left to right, to scale: heights from the ground under each end, every opening's size over it, the length under it.",
   );
   // The materials, as the faces show them (2026-10-16): a swatch of each with its name.
@@ -398,7 +433,7 @@ function elevationPages(doc: jsPDF, input: ReportPdfInput): void {
       const shows = doc.splitTextToSize(pdfSafe(v.shows), CONTENT_W) as string[];
       if (y + 16 + shows.length * 10 + dh + 18 > BOTTOM - 14) {
         doc.addPage();
-        y = heading(doc, "Elevations", "Continued.");
+        y = heading(doc, titled(part, "Elevations"), "Continued.");
       }
       setText(doc, 10.5, "bold", NAVY);
       doc.text(pdfSafe(v.heading), PAGE_MARGIN, y + 2);
@@ -423,7 +458,7 @@ function elevationPages(doc: jsPDF, input: ReportPdfInput): void {
     const firstNeed = first ? 16 + first.made.box.height * first.ptPerFt + 6 + first.s.dims.flatMap((d) => doc.splitTextToSize(pdfSafe(d), CONTENT_W) as string[]).length * 10 + 14 : 0;
     if (y + 40 + firstNeed > BOTTOM - 14) {
       doc.addPage();
-      y = heading(doc, "Elevations", "Continued.");
+      y = heading(doc, titled(part, "Elevations"), "Continued.");
     }
     setText(doc, 12, "bold", NAVY);
     doc.text("Each side", PAGE_MARGIN, y + 2);
@@ -438,7 +473,7 @@ function elevationPages(doc: jsPDF, input: ReportPdfInput): void {
     const need = 16 + dh + 6 + lines.length * 10 + 14;
     if (y + need > BOTTOM - 14) {
       doc.addPage();
-      y = heading(doc, "Elevations", "Continued.");
+      y = heading(doc, titled(part, "Elevations"), "Continued.");
     }
     setText(doc, 10.5, "bold", NAVY);
     doc.text(pdfSafe(s.heading), PAGE_MARGIN, y + 2);
@@ -458,37 +493,52 @@ function elevationPages(doc: jsPDF, input: ReportPdfInput): void {
   }
 }
 
-function photoPages(doc: jsPDF, input: ReportPdfInput): void {
-  const images = input.photos ?? {};
+function photoPages(doc: jsPDF, part: Part): void {
+  const images = part.photos;
   const printed: PdfPhoto[] = [];
   const missing: string[] = [];
-  for (const p of input.report.photos) {
+  for (const p of part.report.photos) {
     const img = images[p.photo.n];
     if (img) printed.push({ dataUrl: img.dataUrl, width: img.width, height: img.height, label: pdfSafe(p.label), caption: pdfSafe(p.caption) });
     else missing.push(p.label);
   }
-  if (printed.length > 0) drawPhotoPages(doc, printed, "Side photos");
+  if (printed.length > 0) drawPhotoPages(doc, printed, pdfSafe(titled(part, "Side photos")));
   if (missing.length > 0) {
     doc.addPage();
-    const y = heading(doc, "Side photos not printed");
+    const y = heading(doc, titled(part, "Side photos not printed"));
     setText(doc, 9, "normal", INK);
     para(doc, `These photos are on the phone or in the claim but could not be read for this report: ${missing.join("; ")}.`, PAGE_MARGIN, y, CONTENT_W, 12);
   }
 }
 
-function tablePages(doc: jsPDF, input: ReportPdfInput): void {
+function tablePages(doc: jsPDF, part: Part): void {
   doc.addPage();
-  const y = heading(doc, "Measurements", "Worked out by Scrivn from the measurements above: the same figures the scope is written from.");
-  drawTables(doc, input.report.tables, y - 6, CONTENT_W, BOTTOM);
+  const y = heading(doc, titled(part, "Measurements"), "Worked out by Scrivn from the measurements above: the same figures the scope is written from.");
+  drawTables(doc, part.report.tables, y - 6, CONTENT_W, BOTTOM);
 }
 
-/** What every page says at its foot: which report, the page, and what made it. */
-function footers(doc: jsPDF, input: ReportPdfInput): void {
+/** Another building's section (2026-10-16): a page of its facts and footprint, then its roof, elevations, photos and tables. */
+function buildingSection(doc: jsPDF, input: ReportPdfInput, part: Part): void {
+  doc.addPage();
+  const y = heading(doc, part.name ?? "Building", "Measured, drawn and roofed on its own, as the house is: every number in this section is this building's alone.");
+  coverBody(doc, input, part, y + 4);
+  roofPage(doc, input, part);
+  elevationPages(doc, input, part);
+  photoPages(doc, part);
+  tablePages(doc, part);
+}
+
+/**
+ * What every page says at its foot: which report, the page, and what made it - and on another building's pages its
+ * name (2026-10-16), [owners] holding each page's: so a table run on to a page with no heading says whose it is.
+ */
+function footers(doc: jsPDF, input: ReportPdfInput, meta: ExteriorReport["meta"], owners: (string | null)[] = []): void {
   const n = doc.getNumberOfPages();
   for (let i = 1; i <= n; i++) {
     doc.setPage(i);
     setText(doc, 7, "normal", MUTED);
-    doc.text(pdfSafe(`Exterior report · ${input.report.meta.title} · page ${i} of ${n}`), PAGE_MARGIN, PAGE_H - PAGE_MARGIN / 2);
+    const owner = owners[i - 1] ?? null;
+    doc.text(pdfSafe(`Exterior report · ${meta.title}${owner ? ` · ${owner}` : ""} · page ${i} of ${n}`), PAGE_MARGIN, PAGE_H - PAGE_MARGIN / 2);
     doc.text(pdfSafe(input.footer), PAGE_W - PAGE_MARGIN, PAGE_H - PAGE_MARGIN / 2, { align: "right" });
   }
 }
@@ -496,12 +546,24 @@ function footers(doc: jsPDF, input: ReportPdfInput): void {
 /** The report as a jsPDF document, every page drawn. */
 export function exteriorReportPdf(input: ReportPdfInput): jsPDF {
   const doc = new jsPDF({ unit: "pt", format: "letter" });
-  cover(doc, input);
-  roofPage(doc, input);
-  elevationPages(doc, input);
-  photoPages(doc, input);
-  tablePages(doc, input);
-  footers(doc, input);
+  const house: Part | null = input.report ? { report: input.report, photos: input.photos ?? {}, name: null } : null;
+  const others: Part[] = (input.buildings ?? []).map((b) => ({ report: b.report, photos: b.photos ?? {}, name: b.name }));
+  const meta = (house ?? others[0])?.report.meta;
+  if (!meta) throw new Error("There is nothing measured to report yet.");
+  cover(doc, input, house, meta);
+  if (house) {
+    roofPage(doc, input, house);
+    elevationPages(doc, input, house);
+    photoPages(doc, house);
+    tablePages(doc, house);
+  }
+  // After the house, each other building: its own section, every page headed and footed with its name (2026-10-16).
+  const owners: (string | null)[] = Array.from({ length: doc.getNumberOfPages() }, () => null);
+  for (const part of others) {
+    buildingSection(doc, input, part);
+    while (owners.length < doc.getNumberOfPages()) owners.push(part.name);
+  }
+  footers(doc, input, meta, owners);
   return doc;
 }
 
