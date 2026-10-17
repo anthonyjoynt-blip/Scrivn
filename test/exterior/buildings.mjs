@@ -139,8 +139,23 @@ function recordOf(e) {
   };
 }
 
-/** Every exterior the fixtures hold, read as a claim reads them. */
+/**
+ * Every exterior the fixtures hold, read as a claim reads them - on a stopped clock. An id is "<what>-<time>-<n>", and
+ * some of the roof's keys list slopes in the order of their sides' ids, so a millisecond ticking over between two
+ * sides' ids can swap a valley's two slopes from one run to the next: with the clock stopped, every run makes the
+ * same ids, and the record compares.
+ */
 function fixtureExteriors() {
+  const realNow = Date.now;
+  Date.now = () => Date.UTC(2026, 9, 16, 12);
+  try {
+    return readFixtures();
+  } finally {
+    Date.now = realNow;
+  }
+}
+
+function readFixtures() {
   const out = [];
   const read = (name, body) => {
     const got = x.parseScanExterior(body, { scanId: null, receivedAt: "2026-10-16T00:00:00.000Z" });
@@ -196,4 +211,5 @@ for (const [name, e, error] of fixtureExteriors()) {
 }
 
 console.log(`\n${passed} passed, ${failures.length} failed`);
-if (failures.length > 0) process.exit(1);
+// Something the bundle opens keeps Node waiting after the last test: done is done.
+process.exit(failures.length > 0 ? 1 : 0);
