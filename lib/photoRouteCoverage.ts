@@ -20,7 +20,7 @@
  * from the street.
  */
 
-import type { RouteMeasured, RouteShot } from "./photoRoute";
+import { neighbourBlocks, partyCorners, type RouteMeasured, type RouteShot } from "./photoRoute";
 import { levelAxes, type PhotoCamera } from "./photoRouteLens";
 import { planDirection } from "./photoRouteSolve";
 import type { Pt } from "./roof";
@@ -50,9 +50,13 @@ export interface CoverageInput {
   gables?: number[];
   /** A wall's name, when the exterior has one (outline side index → "Rear 2"). */
   wallName?: (side: number) => string | null;
+  /** Walls shared with a neighbour's home (2026-10-17): never asked for, and the neighbour's home hides what is past them. */
+  shared?: number[];
+  /** A tape on a wall running back from the street (the depth), for a home whose depth no photo can see. */
+  depthTaped?: boolean;
 }
 
-export type CoverageKind = "corner-seen" | "wall-both" | "corner-45" | "wall-straight" | "gable";
+export type CoverageKind = "corner-seen" | "wall-both" | "corner-45" | "wall-straight" | "gable" | "depth-tape";
 
 export interface CoverageItem {
   key: string;
@@ -127,7 +131,7 @@ function firstHit(c: Pt, d: Pt, ring: Pt[]): number {
 }
 
 /** Whether a placed photo shows plan point P: ahead, inside the picture, nothing of the house in the way. */
-function shows(v: CoverageView, P: Pt, ring: Pt[]): boolean {
+function shows(v: CoverageView, P: Pt, ring: Pt[], shared: Set<number> = new Set()): boolean {
   const dx = P.x - v.at[0];
   const dy = P.y - v.at[1];
   const dist = Math.hypot(dx, dy);
@@ -137,8 +141,26 @@ function shows(v: CoverageView, P: Pt, ring: Pt[]): boolean {
   if (cos <= 0.05) return false;
   // Inside the picture, a margin off its edges: its column's tan against the half width's.
   if (Math.abs(sin / cos) > Math.tan(v.halfFov) * (1 - 2 * EDGE_FRACTION)) return false;
-  return firstHit({ x: v.at[0], y: v.at[1] }, { x: dx / dist, y: dy / dist }, ring) >= dist - 0.5;
+  return firstHit({ x: v.at[0], y: v.at[1] }, { x: dx / dist, y: dy / dist }, ring) >= dist - 0.5 && !neighbourBlocks({ x: v.at[0], y: v.at[1] }, P, ring, shared);
 }
+
+/** A wall running back from the street (north-south on the plan): what a home's depth is seen along. */
+const runsBack = (A: Pt, B: Pt) => Math.abs(B.x - A.x) < Math.abs(B.y - A.y);
+
+/**
+ * Whether no photo can see the home's depth (2026-10-17, a middle townhouse): every wall running back from the
+ * street is shared, so the front and the back are all the photos see. One tape of the depth then measures it.
+ */
+function depthHidden(ring: Pt[], shared: Set<number>): boolean {
+  if (shared.size === 0) return false;
+  const n = ring.length;
+  return !ring.some((A, i) => {
+    const B = ring[(i + 1) % n] as Pt;
+    return runsBack(A, B) && !shared.has(i) && segLen(A, B) >= STRAIGHT_MIN_FEET;
+  });
+}
+
+const DEPTH_WORDS = "Tape the depth once, front wall to back wall – along the fence or inside: no photo can see it past the neighbours' homes.";
 
 /** The angle, degrees, between the way a photo looked at P and direction d out of the house there. */
 function angleOff(v: CoverageView, P: Pt, d: Pt): number {
@@ -187,12 +209,14 @@ function cornerWords(ring: Pt[], k: number): string {
  * or more straight on (a gable square on, its peak in) - less those already taken from this list. Photos added any
  * other way can't be judged until a measure places them.
  */
-function shotList(ring: Pt[], shots: { shot: RouteShot }[], gables: Set<number>, wallName: (i: number) => string): CoverageItem[] {
+function shotList(ring: Pt[], shots: { shot: RouteShot }[], gables: Set<number>, wallName: (i: number) => string, shared: Set<number>, depthTaped: boolean): CoverageItem[] {
   const n = ring.length;
   const items: CoverageItem[] = [];
   const taken = (kind: RouteShot["kind"], index: number) => shots.some((s) => s.shot.kind === kind && s.shot.index === index);
+  const party = partyCorners(n, shared);
   ring.forEach((_, k) => {
-    if (!isOutside(ring, k) || taken("corner", k)) return;
+    // Where this home ends is no corner to stand at 45 degrees to: the neighbour's home is there.
+    if (!isOutside(ring, k) || taken("corner", k) || party.has(k)) return;
     items.push({
       key: `corner-45:${k}`,
       kind: "corner-45",
@@ -203,7 +227,7 @@ function shotList(ring: Pt[], shots: { shot: RouteShot }[], gables: Set<number>,
   });
   ring.forEach((A, i) => {
     const B = ring[(i + 1) % n] as Pt;
-    if (segLen(A, B) < STRAIGHT_MIN_FEET || taken("wall", i)) return;
+    if (segLen(A, B) < STRAIGHT_MIN_FEET || taken("wall", i) || shared.has(i)) return;
     const nrm = outward(A, B);
     const gable = gables.has(i);
     items.push({
@@ -214,7 +238,14 @@ function shotList(ring: Pt[], shots: { shot: RouteShot }[], gables: Set<number>,
       shot: { kind: "wall", index: i },
     });
   });
+  if (depthHidden(ring, shared) && !depthTaped) items.push(depthItem(ring, shared));
   return items;
+}
+
+/** The depth to tape: about no wall a photo can be taken of, so none is marked for it. */
+function depthItem(ring: Pt[], shared: Set<number>): CoverageItem {
+  void ring;
+  return { key: "depth-tape", kind: "depth-tape", words: DEPTH_WORDS, shot: { kind: "wall", index: [...shared][0] ?? 0 } };
 }
 
 /** Each placed photo of a measure as what it saw: where it stood, the way it looked, and how wide. */
@@ -244,7 +275,9 @@ export function routeCoverage(inp: CoverageInput): Coverage {
   const sees = new Map<number, Set<string>>();
   const add = (k: number, photo: string) => (sees.get(k) ?? sees.set(k, new Set()).get(k))?.add(photo);
   const placed = new Set(inp.views.map((v) => v.photo));
-  for (const v of inp.views) for (let k = 0; k < n; k++) if (shows(v, ring[k] as Pt, ring)) add(k, v.photo);
+  const shared = new Set(inp.shared ?? []);
+  const party = partyCorners(n, shared);
+  for (const v of inp.views) for (let k = 0; k < n; k++) if (shows(v, ring[k] as Pt, ring, shared)) add(k, v.photo);
   for (const t of inp.taps) {
     if (t.corner < 0 || t.corner >= n) continue;
     // After a measure only placed photos count: one the solve could not place helps nothing.
@@ -266,7 +299,7 @@ export function routeCoverage(inp: CoverageInput): Coverage {
     const out = isOutside(ring, k);
     const d = bisector(ring, k);
     const at45 =
-      inp.views.some((v) => shows(v, P, ring) && angleOff(v, P, d) <= AT45_DEG) ||
+      inp.views.some((v) => shows(v, P, ring, shared) && angleOff(v, P, d) <= AT45_DEG) ||
       (!inp.measured && inp.shots.some((s) => s.shot.kind === "corner" && s.shot.index === k));
     return { index: k, outside: out, photos: [...(sees.get(k) ?? [])], at45 };
   });
@@ -284,13 +317,15 @@ export function routeCoverage(inp: CoverageInput): Coverage {
   });
 
   const gables = new Set(inp.gables ?? []);
-  if (!inp.measured) return { corners, walls, items: shotList(ring, inp.shots, gables, wallName) };
+  if (!inp.measured) return { corners, walls, items: shotList(ring, inp.shots, gables, wallName, shared, inp.depthTaped === true) };
 
   const items: CoverageItem[] = [];
   for (const c of corners) {
     if (c.photos.length >= 2) continue;
-    const d = bisector(ring, c.index);
-    const where = c.outside ? `take one ${standWords(d)}, at 45° to its two walls` : `take one ${standWords(d)}, looking into it`;
+    // Where this home ends: stood in front of the wall it ends, not at 45 degrees (the neighbour's home is there).
+    const open = party.has(c.index) ? openWallNormal(ring, c.index, shared) : null;
+    const d = open ?? bisector(ring, c.index);
+    const where = open ? `take one ${standWords(d)}, the line where this home ends in it` : c.outside ? `take one ${standWords(d)}, at 45° to its two walls` : `take one ${standWords(d)}, looking into it`;
     items.push({
       key: `corner-seen:${c.index}`,
       kind: "corner-seen",
@@ -300,7 +335,7 @@ export function routeCoverage(inp: CoverageInput): Coverage {
     });
   }
   for (const w of walls) {
-    if (w.both.length > 0) continue;
+    if (w.both.length > 0 || shared.has(w.from)) continue;
     const nrm = outward(ring[w.from] as Pt, ring[(w.from + 1) % n] as Pt);
     items.push({
       key: `wall-both:${w.from}`,
@@ -311,7 +346,7 @@ export function routeCoverage(inp: CoverageInput): Coverage {
     });
   }
   for (const c of corners) {
-    if (!c.outside || c.at45 || c.photos.length < 2) continue;
+    if (!c.outside || c.at45 || c.photos.length < 2 || party.has(c.index)) continue;
     items.push({
       key: `corner-45:${c.index}`,
       kind: "corner-45",
@@ -320,7 +355,7 @@ export function routeCoverage(inp: CoverageInput): Coverage {
       shot: { kind: "corner", index: c.index },
     });
   }
-  const straightNeeded = walls.filter((w) => !w.straight && w.both.length > 0 && w.feet >= STRAIGHT_MIN_FEET).sort((a, b) => b.feet - a.feet);
+  const straightNeeded = walls.filter((w) => !w.straight && w.both.length > 0 && w.feet >= STRAIGHT_MIN_FEET && !shared.has(w.from)).sort((a, b) => b.feet - a.feet);
   for (const w of straightNeeded) {
     const nrm = outward(ring[w.from] as Pt, ring[(w.from + 1) % n] as Pt);
     const gable = gables.has(w.from);
@@ -334,5 +369,15 @@ export function routeCoverage(inp: CoverageInput): Coverage {
       shot: { kind: "wall", index: w.from },
     });
   }
+  if (depthHidden(ring, shared) && !inp.depthTaped) items.push(depthItem(ring, shared));
   return { corners, walls, items };
+}
+
+/** At a corner where this home ends: the outward normal of its wall that is not shared - the way to stand to see it. */
+function openWallNormal(ring: Pt[], k: number, shared: Set<number>): Pt | null {
+  const n = ring.length;
+  const before = (k - 1 + n) % n;
+  const open = !shared.has(k) ? k : !shared.has(before) ? before : null;
+  if (open === null) return null;
+  return outward(ring[open] as Pt, ring[(open + 1) % n] as Pt);
 }

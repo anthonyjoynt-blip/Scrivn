@@ -168,6 +168,8 @@ export function exteriorFromRoute(prev: Exterior | undefined, state: PhotoRouteS
   if (front < 0) return null;
   const before = new Map((prev?.sides ?? []).map((s) => [s.id, s]));
   const keptIds = state.measured?.building === m.building ? state.measured.sideIds : undefined;
+  const building = state.buildings.find((b) => b.id === m.building);
+  const shared = building?.shared ? new Set(building.shared) : null;
   const sideIds: string[] = [];
   const sides: ExteriorSide[] = made.sides.map((s, k) => {
     const i = (front + k) % n;
@@ -182,7 +184,12 @@ export function exteriorFromRoute(prev: Exterior | undefined, state: PhotoRouteS
     const { lengthFrom: _drawn, lengthPlusMinusPct: _pm, ...rest } = base;
     const side: ExteriorSide = { ...rest, id, name: old?.name ?? s.name, lengthFeet: s.lengthFeet, turn: s.turn, heightsFrom: "level" };
     if (measured && measured.plusMinusPct !== null) side.lengthPlusMinusPct = measured.plusMinusPct;
-    const photos = bestPhotos(m, state, ring, i);
+    // A party wall (2026-10-17): shared with the neighbour, so nothing on it counts, and no photo of it.
+    // Said on the route it is the route's; a route from before says nothing, and the side keeps its own.
+    const isShared = shared ? shared.has(i) : side.shared === true;
+    if (isShared) side.shared = true;
+    else delete side.shared;
+    const photos = isShared ? [] : bestPhotos(m, state, ring, i);
     if (photos.length) side.photos = photos;
     else delete side.photos;
     return side;
@@ -193,8 +200,11 @@ export function exteriorFromRoute(prev: Exterior | undefined, state: PhotoRouteS
     `Measured from ${placed} of ${state.photos.length} photo${state.photos.length === 1 ? "" : "s"} and ${tapes.length} tape${tapes.length === 1 ? "" : "s"}.`,
     ...(tapes.length === 0 ? ["No tape: the sizes follow the shape as drawn, and are not to scale."] : []),
   ];
+  const { homeType: _was, ...prevRest } = prev ?? ({} as Partial<Exterior>);
+  const homeType = building?.homeType ?? _was;
   return {
-    ...(prev ?? {}),
+    ...prevRest,
+    ...(homeType && homeType !== "detached" ? { homeType } : {}),
     sides,
     open: false,
     roof: prev?.roof ?? defaultRoof(),
