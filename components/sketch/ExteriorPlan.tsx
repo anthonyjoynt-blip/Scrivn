@@ -28,12 +28,14 @@ import {
   pieceLine,
   rectangleExterior,
   resolvedOverhang,
+  ridgeAcrossParty,
   ridgeFromPhotos,
   ROOF_MATERIAL_LABEL,
   roofProposal,
   HOME_TYPE_LABEL,
   type HomeType,
   sharedOf,
+  sharedSides,
   ROOF_VENT_LABEL,
   type RoofingQuantities,
   type RoofMaterial,
@@ -1487,11 +1489,13 @@ function RoofAdditions({
  */
 /**
  * The ridge select's first choice, the ridge not picked (2026-10-15): as the photos show it when they
- * set it (`ridgeFromPhotos`), else along the longer walls or from the outline.
+ * set it (`ridgeFromPhotos`), else across an attached home's shared walls (`ridgeAcrossParty`), else along
+ * the longer walls or from the outline.
  */
 function ridgeOption(shape: RoofPlan["shape"], exterior: Exterior, nameOf: (id: string) => string): string {
   const photos = ridgeFromPhotos(exterior);
   if (photos) return `As the photos show: ${shape === "rectangle" ? `parallel to ${nameOf(photos.ridgeAlong)}` : `over ${nameOf(photos.ridgeAlong)}, its ridge along it`}`;
+  if (ridgeAcrossParty(exterior)) return sharedSides(exterior).length > 1 ? "Across the shared walls" : "Across the shared wall";
   return shape === "rectangle" ? "Along the longer walls" : "Worked out from the outline";
 }
 

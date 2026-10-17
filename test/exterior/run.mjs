@@ -5546,6 +5546,55 @@ test("a detached home's roof and quantities are as they were: no party line, not
   assert(!x.checkNotes(e, q).some((n) => /party line/.test(n)), "nothing to check");
 });
 
+/**
+ * An attached home's ridge, with none picked and none off the photos (2026-10-17): across its shared walls. A deep
+ * middle townhouse came off the photo route with its ridge front to back, the longer walls' way, and 37.9' of rakes
+ * over its front and back that no row of townhouses has.
+ */
+test("an attached home's ridge, nothing picked: across its shared walls - no rakes on a middle townhouse deeper than wide", () => {
+  const e = attached(18, 30, null, ["left", "right"], "town_middle");
+  assert(x.ridgeAcrossParty(e) === "front" && x.resolvedRidgeAlong(e) === "front", `${x.ridgeAcrossParty(e)}`);
+  const r = roofOf(e).roofing;
+  near(r.ridgeFeet, 18, "the ridge, party line to party line");
+  near(r.rakeFeet, 0, "no rakes");
+  near(r.eaveFeet, 36, "eaves front and back");
+  // Each slope 15' of run and the 1'4" eave: a party line up and over each side.
+  near(r.partyFeet, 4 * ft(16, 4) * K6, "the party lines");
+  near(r.squares, (18 * (30 + ft(2, 8)) * K6) / 100, "squares");
+  // Picked on the plan, the ridge front to back stands: gables over the front and back, 9' of run each rake.
+  const picked = { ...e, roof: { ...e.roof, ridgeAlong: "left" } };
+  assert(x.resolvedRidgeAlong(picked) === "left", "picked");
+  near(roofOf(picked).roofing.rakeFeet, 4 * 9 * K6, "rakes over the front and back, as picked");
+});
+
+test("a semi with nothing picked runs its ridge across the party wall, to a gable over its own end; a gable in the front's photo turns it", () => {
+  const e = attached(24, 40, null, ["left"], "semi");
+  assert(x.ridgeAcrossParty(e) === "front", `${x.ridgeAcrossParty(e)}`);
+  const q = roofOf(e);
+  near(q.roofing.ridgeFeet, 25, "the ridge, from the party line to the Right's 1' rake");
+  assert(q.roof.ends.map((en) => en.sideId).join() === "right", JSON.stringify(q.roof.ends));
+  near(q.roofing.partyFeet, 2 * ft(21, 4) * K6, "the party line, up and over");
+  near(q.roofing.rakeFeet, 2 * ft(21, 4) * K6, "the Right's rakes");
+  // The Front's photo shows a gable: the ridge turns front to back, the photos' way.
+  const g = { ...e, sides: e.sides.map((s) => (s.id === "front" ? { ...s, roofRead: photoRead(6) } : s)) };
+  assert(x.ridgeFromPhotos(g)?.ridgeAlong === "right", JSON.stringify(x.ridgeFromPhotos(g)));
+  assert(roofOf(g).roof.ends.map((en) => en.sideId).sort().join() === "front,rear", JSON.stringify(roofOf(g).roof.ends));
+});
+
+test("two storeys on a shared wall, nothing picked: the house's roof over the upper floor runs across the party wall", () => {
+  const e = rect(20, 36, { pitch: 6 }, 9);
+  e.sides = e.sides.map((s) => (s.id === "left" ? { ...s, shared: true } : s));
+  const fp = x.exteriorFootprint(e);
+  e.upper = x.upperFromOutline(fp.corners, fp);
+  const along = e.upper.sides.find((s) => s.id === x.ridgeAcrossParty(e));
+  assert(along && along.name === "Upper front", along?.name);
+  const r = roofOf(e).roofing;
+  near(r.ridgeFeet, 21, "the ridge, the party line to the Right's rake");
+  near(r.partyFeet, 2 * ft(19, 4) * K6, "the party line");
+  // A detached home's ridge is the outline's to say, as ever.
+  assert(x.ridgeAcrossParty(rect(40, 30)) === null && x.resolvedRidgeAlong(rect(40, 30)) === null, "detached");
+});
+
 console.log("\nwhat to take next on the photo route (10-17)");
 
 /**
@@ -5739,8 +5788,8 @@ test("a middle townhouse: both side walls shared; its depth no photo can see, so
   assert(!cov.items.some((i) => i.kind !== "depth-tape" && (i.wall === 1 || i.wall === 3)), "nothing asked of the shared walls but the tape");
   assert(ext.homeType === "town_middle" && ext.sides.filter((s) => s.shared).length === 2, JSON.stringify(ext.sides.map((s) => s.shared)));
   const q = x.exteriorQuantities(ext);
-  // The roof cut at both party lines (its ridge's way is the roof's to say: deeper than wide, it runs front to back).
-  assert(q.roofing && q.roofing.partyFeet > 0, `party ${q.roofing?.partyFeet}`);
+  // The roof cut at both party lines, its ridge across them as a row's runs (`ridgeAcrossParty`): deeper than wide, no rakes all the same.
+  assert(q.roofing && q.roofing.partyFeet > 0 && q.roofing.rakeFeet === 0 && q.roof.ends.length === 0, `party ${q.roofing?.partyFeet}, rakes ${q.roofing?.rakeFeet}`);
   // Taped once, the depth is the tape's, and nothing more is asked.
   const taped = synRoute(TOWN, TOWN_DRAWN, "town_middle", townShots, [...tapes, { id: "depth", kind: "side", from: 1, feet: 36 }]);
   const sol2 = x.solveRoute(taped.input, "main", taped.data);
