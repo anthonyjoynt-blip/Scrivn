@@ -50,6 +50,7 @@ export const LINE_STYLE: Record<RoofLineKind, { stroke: string; width: number; d
   valley: { stroke: "#1d4ed8", width: 2.5, dash: "6 4", label: "Valley" },
   headwall: { stroke: "#0f766e", width: 3, label: "Headwall flashing" },
   step: { stroke: "#0f766e", width: 3, dash: "2 3", label: "Step flashing" },
+  party: { stroke: "#57534e", width: 3, dash: "8 3 2 3", label: "Party line" },
 };
 
 /** What a tap in "Eaves & rakes" can choose: flashing takes no eavestrough, soffit or fascia. */
@@ -581,8 +582,10 @@ export function HouseElevationDrawing({ view, fontFeet, size }: { view: HouseVie
   const text = { fill: INK, fontFamily: FONT };
   const ground = view.ground.length >= 2 ? view.ground : [{ x: view.minX, y: view.groundY }, { x: view.maxX, y: view.groundY }];
   const levelsW = Math.max(0, ...view.levels.map((l) => textWidthEm(`${l.label} ${formatFeetInches(l.y - view.groundY)}`))) * fs * 0.8;
+  // A cut at the right-hand end (a party line, 2026-10-17): the levels stand further out, clear of its words.
+  const shift = view.party.some((c) => c.side > 0 && c.x > view.maxX - 0.5) ? fs * 1.6 : 0;
   const vx = view.minX - fs * 2;
-  const vw = view.maxX + fs * 2.2 + levelsW - vx + fs;
+  const vw = view.maxX + fs * 2.2 + levelsW - vx + fs + shift;
   const bottomY = view.groundY - fs * 4.6;
   const vy = -(view.topY + fs * 1.5);
   const vh = view.topY + fs * 1.5 - bottomY;
@@ -599,7 +602,7 @@ export function HouseElevationDrawing({ view, fontFeet, size }: { view: HouseVie
   }
   const width = view.maxX - view.minX;
   const scaleFeet = width >= 30 ? 10 : 5;
-  const lx = view.maxX + fs * 0.8;
+  const lx = view.maxX + fs * 0.8 + shift;
   return (
     <svg xmlns="http://www.w3.org/2000/svg" viewBox={`${vx} ${vy} ${vw} ${vh}`} width={size?.width} height={size?.height} role="img" aria-label={`${COMPASS_WORD[view.compass]} elevation of the house, to scale`}>
       <rect x={vx} y={vy} width={vw} height={vh} fill="#ffffff" />
@@ -618,6 +621,19 @@ export function HouseElevationDrawing({ view, fontFeet, size }: { view: HouseVie
               <polygon points={pts(p.poly)} fill={fill} />
               {p.kind === "slope" && <FaceTexture poly={p.poly} kind="shingles" unit={fs} />}
               <polygon points={pts(p.poly)} fill="none" stroke="#4b5563" strokeWidth={p.kind === "fascia" ? 0.8 : 0.9} strokeLinejoin="round" {...stroke} />
+            </g>
+          );
+        }
+        if (p.shared) {
+          // A wall shared with the neighbour's home: bare, and said so.
+          const xs = p.outline.map((q) => q.x);
+          const ys = p.outline.map((q) => q.y);
+          return (
+            <g key={`wall-${p.id}-${i}`}>
+              <polygon points={pts(p.outline)} fill={PARTY_FILL} stroke="#57534e" strokeWidth={1.1} strokeLinejoin="round" {...stroke} />
+              <text x={(Math.min(...xs) + Math.max(...xs)) / 2} y={Y((Math.min(...ys) + Math.max(...ys)) / 2)} fontSize={fs} textAnchor="middle" {...text}>
+                Shared wall
+              </text>
             </g>
           );
         }
@@ -652,10 +668,19 @@ export function HouseElevationDrawing({ view, fontFeet, size }: { view: HouseVie
       <text x={(view.minX + view.maxX) / 2} y={Y(view.groundY - fs * 2.7)} fontSize={fs} textAnchor="middle" {...text}>
         {formatFeetInches(width)} overall
       </text>
+      {/* Where the house is cut by a party line: the neighbour's home carries on past it. */}
+      {view.party.map((c, k) => (
+        <g key={`party-${k}`}>
+          <line x1={c.x} x2={c.x} y1={Y(c.y0 - fs * 0.55)} y2={Y(view.topY + fs * 0.4)} stroke="#57534e" strokeWidth={1.4} strokeDasharray="8 3 2 3" {...stroke} />
+          <text transform={`translate(${c.x + c.side * fs * 0.85} ${Y((c.y0 + view.topY) / 2)}) rotate(-90)`} fontSize={fs * 0.8} textAnchor="middle" fill="#57534e" fontFamily={FONT}>
+            Neighbour&rsquo;s home
+          </text>
+        </g>
+      ))}
       {/* The main levels up the right, each above the lowest ground in the view. */}
       {levels.map((l, k) => (
         <g key={`level-${k}`}>
-          <line x1={view.maxX + fs * 0.15} x2={lx + fs * 0.5} y1={Y(l.y)} y2={Y(l.y)} stroke="#6b7280" strokeWidth={0.8} strokeDasharray="3 2" {...stroke} />
+          <line x1={view.maxX + fs * 0.15 + shift} x2={lx + fs * 0.5} y1={Y(l.y)} y2={Y(l.y)} stroke="#6b7280" strokeWidth={0.8} strokeDasharray="3 2" {...stroke} />
           <polygon points={pts([{ x: lx + fs * 0.5, y: l.y }, { x: lx + fs * 0.85, y: l.y + fs * 0.35 }, { x: lx + fs * 0.15, y: l.y + fs * 0.35 }])} fill="#374151" />
           <text x={lx + fs * 1.1} y={Y(l.at) - fs * 0.12} fontSize={fs * 0.8} {...text}>
             {k === 0 ? "Ground" : `${l.label} ${formatFeetInches(l.y - view.groundY)}`}
@@ -729,6 +754,7 @@ export function RoofPlanDrawing({
   placing = false,
   approx,
   plusMinus,
+  shared,
   fontScale = 1,
   section = null,
   upper = null,
@@ -748,6 +774,8 @@ export function RoofPlanDrawing({
   approx?: (sideId: string) => boolean;
   /** A side's ± on its length, worked out from the photos: `ExteriorSide.lengthPlusMinusPct`. */
   plusMinus?: (sideId: string) => number | undefined;
+  /** A side shared with the neighbour's home (2026-10-17): hatched along its outside, and named so. */
+  shared?: (sideId: string) => boolean;
   /** Bigger lettering for a plan drawn small (a phone), where the drawing's own 3% is too fine to read or tap. */
   fontScale?: number;
   /** In "pitch" mode, the section picked (`RoofSection.key`): its slopes shaded. */
@@ -876,7 +904,7 @@ export function RoofPlanDrawing({
     { x: r.x0, y: r.y1 },
   ]);
   const sideNames = placeWallNames(
-    walls.map(({ id, i, a, b, len, out, reach }) => ({ id, a, b, out, name: nameOf(id), length: lengthWords(id, footprint.lengthsFeet[i] ?? len, approx, plusMinus), clear: reach })),
+    walls.map(({ id, i, a, b, len, out, reach }) => ({ id, a, b, out, name: shared?.(id) ? `${nameOf(id)} · Shared wall` : nameOf(id), length: lengthWords(id, footprint.lengthsFeet[i] ?? len, approx, plusMinus), clear: shared?.(id) ? Math.max(reach, fs * 0.85) : reach })),
     nameEm,
     { boxes: endPills.map((p) => p.box), polygons: [...roofPolys, corners] },
     sidesOpen ? fs * 0.45 : 0,
@@ -919,6 +947,9 @@ export function RoofPlanDrawing({
         );
       })}
       <polygon points={corners.map((p) => `${p.x},${Y(p.y)}`).join(" ")} fill="none" stroke="#6b7280" strokeWidth={1} strokeDasharray="4 3" pointerEvents="none" {...stroke} />
+      {walls.filter((w) => shared?.(w.id)).map((w) => (
+        <PartyMark key={`party-${w.id}`} a={w.a} b={w.b} out={w.out} fs={fs} />
+      ))}
       {walls.filter((w) => plusMinusWords(plusMinus?.(w.id))).map((w) => (
         <CheckMark key={`check-${w.id}`} a={w.a} b={w.b} out={w.out} off={0} />
       ))}
@@ -1068,6 +1099,31 @@ function NameLeader({ name, fs }: { name: SideName; fs: number }) {
   );
 }
 
+/** A wall shared with the neighbour's home (2026-10-17), as the plans and elevations draw it. */
+export const PARTY_FILL = "#e7e5e4";
+const PARTY_INK = "#57534e";
+
+/** A party wall on a plan: a strip along the wall, hatched across, on its outside - where the neighbour's home stands. */
+function PartyMark({ a, b, out, fs }: { a: Pt; b: Pt; out: Pt; fs: number }) {
+  const len = Math.hypot(b.x - a.x, b.y - a.y);
+  const d = { x: (b.x - a.x) / (len || 1), y: (b.y - a.y) / (len || 1) };
+  const w = fs * 0.55;
+  const n = Math.max(1, Math.floor(len / (fs * 0.6)));
+  const ticks = Array.from({ length: n }, (_, k) => (k + 0.5) * (len / n));
+  const P = (t: number, o: number) => ({ x: a.x + d.x * t + out.x * o, y: a.y + d.y * t + out.y * o });
+  const strip = [P(0, 0), P(len, 0), P(len, w), P(0, w)];
+  return (
+    <g pointerEvents="none">
+      <polygon points={strip.map((q) => `${q.x},${-q.y}`).join(" ")} fill={PARTY_FILL} stroke={PARTY_INK} strokeWidth={1} vectorEffect="non-scaling-stroke" />
+      {ticks.map((t) => {
+        const p0 = P(t - w * 0.5, 0);
+        const p1 = P(t + w * 0.5, w);
+        return <line key={t} x1={p0.x} y1={-p0.y} x2={p1.x} y2={-p1.y} stroke={PARTY_INK} strokeWidth={0.8} vectorEffect="non-scaling-stroke" />;
+      })}
+    </g>
+  );
+}
+
 /** A wall whose length is to check, marked along its outside: dashed, in the check's colour. */
 function CheckMark({ a, b, out, off }: { a: Pt; b: Pt; out: Pt; off: number }) {
   return <line x1={a.x + out.x * off} y1={-(a.y + out.y * off)} x2={b.x + out.x * off} y2={-(b.y + out.y * off)} stroke={CHECK_INK} strokeWidth={2.2} strokeDasharray="6 3" vectorEffect="non-scaling-stroke" pointerEvents="none" />;
@@ -1128,6 +1184,7 @@ export function FootprintDrawing({
   nameOf,
   approx,
   plusMinus,
+  shared,
   upper = null,
   size,
   fontFeet,
@@ -1137,6 +1194,8 @@ export function FootprintDrawing({
   approx?: (sideId: string) => boolean;
   /** A side's ± on its length: `ExteriorSide.lengthPlusMinusPct`. */
   plusMinus?: (sideId: string) => number | undefined;
+  /** A side shared with the neighbour's home (2026-10-17): hatched, and named so. */
+  shared?: (sideId: string) => boolean;
   upper?: Pt[] | null;
   size?: Size;
   /** The lettering, feet: a page drawn to a fixed scale sets it; left out, 3% of the house. */
@@ -1161,7 +1220,7 @@ export function FootprintDrawing({
     const b = corners[(i + 1) % n] as Pt;
     const len = Math.hypot(b.x - a.x, b.y - a.y) || 1;
     const out = { x: (b.y - a.y) / len, y: -(b.x - a.x) / len };
-    return { id, a, b, out, name: nameOf(id), length: lengthWords(id, footprint.lengthsFeet[i] ?? len, approx, plusMinus), clear: fs * 0.25 } satisfies WallToName;
+    return { id, a, b, out, name: shared?.(id) ? `${nameOf(id)} · Shared wall` : nameOf(id), length: lengthWords(id, footprint.lengthsFeet[i] ?? len, approx, plusMinus), clear: shared?.(id) ? fs * 0.85 : fs * 0.25 } satisfies WallToName;
   });
   const names = placeWallNames(walls, nameEm, { boxes: [areaBox], polygons: [corners] });
   const half = (b: LabelBox) => (b.angle === 0 ? { x: b.width / 2, y: b.height / 2 } : { x: b.height / 2, y: b.width / 2 });
@@ -1176,6 +1235,9 @@ export function FootprintDrawing({
       <rect x={fx0} y={Y(fy1)} width={fx1 - fx0} height={fy1 - fy0} fill="#ffffff" />
       <polygon points={corners.map((p) => `${p.x},${Y(p.y)}`).join(" ")} fill="#f4efe4" stroke={INK} strokeWidth={2} strokeLinejoin="round" {...stroke} />
       {upper && upper.length > 2 && <polygon points={upper.map((p) => `${p.x},${Y(p.y)}`).join(" ")} fill="none" stroke="#1b3a5c" strokeWidth={1.6} strokeDasharray="9 4" {...stroke} />}
+      {walls.filter((w) => shared?.(w.id)).map((w) => (
+        <PartyMark key={`party-${w.id}`} a={w.a} b={w.b} out={w.out} fs={fs} />
+      ))}
       {walls.filter((w) => plusMinusWords(plusMinus?.(w.id))).map((w) => (
         <CheckMark key={`check-${w.id}`} a={w.a} b={w.b} out={w.out} off={fs * 0.3} />
       ))}

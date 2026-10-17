@@ -1,7 +1,7 @@
 import { jsPDF } from "jspdf";
 import { createElement, type ReactElement } from "react";
 import { CHECK_INK, CladdingLegend, ElevationDrawing, elevationFontFeet, FootprintDrawing, HouseElevationDrawing, houseViewFontFeet, LINE_STYLE, type LegendItem, RoofPlanDrawing } from "@/components/sketch/exteriorDrawings";
-import { allSides, elevationFaces, type Exterior, lengthToCheck } from "./exterior";
+import { allSides, elevationFaces, type Exterior, lengthToCheck, sharedOf } from "./exterior";
 import { type ExteriorReport, LINE_WORD, type ReportTable, roofPlanCaption } from "./exteriorReport";
 import { type Letterhead, letterheadInkColor } from "./letterhead";
 import { drawLetterhead, drawPhotoPages, drawTables, LETTERHEAD_HEIGHT, PAGE_MARGIN, type PdfPhoto } from "./pdf";
@@ -162,7 +162,7 @@ function fitFootprint(input: ReportPdfInput, part: Part, w: number, h: number): 
   const plusMinus = plusMinusOf(report.exterior);
   // Each scale tried with the lettering it gives, so the names that widen the frame are in what is measured.
   for (const [ptPerFt, text] of SCALES) {
-    const made = drawing(input, createElement(FootprintDrawing, { footprint: fp, nameOf, approx, plusMinus, upper, fontFeet: 8 / ptPerFt }));
+    const made = drawing(input, createElement(FootprintDrawing, { footprint: fp, nameOf, approx, plusMinus, shared: sharedOf(report.exterior), upper, fontFeet: 8 / ptPerFt }));
     if (made.box.width * ptPerFt <= w && made.box.height * ptPerFt <= h - 24) return { made, ptPerFt, text };
   }
   return null;
@@ -283,6 +283,7 @@ function roofPage(doc: jsPDF, input: ReportPdfInput, part: Part): void {
     ridgeVents: R.ridgeVents ?? [],
     approx: (id: string) => report.exterior.sides.find((s) => s.id === id)?.lengthFrom === "drawn",
     plusMinus: plusMinusOf(report.exterior),
+    shared: sharedOf(report.exterior),
   };
   // Room under it for the legend, the slopes and the notes.
   const below = 64 + roof.notes.length * 22;
@@ -352,7 +353,8 @@ function roofPage(doc: jsPDF, input: ReportPdfInput, part: Part): void {
 
 function elevationPages(doc: jsPDF, input: ReportPdfInput, part: Part): void {
   const { report } = part;
-  const sides = report.sides.filter((s) => s.q.complete);
+  const sides = report.sides.filter((s) => s.q.complete && !s.shared);
+  const shared = report.sides.filter((s) => s.shared);
   if (sides.length === 0) return;
   const roofAssumed = report.q.pitch.source === "assumed";
   const el = (s: (typeof sides)[number], fontFeet: number) => createElement(ElevationDrawing, { side: s.side, rise: s.rise, base: s.base, fontFeet, roofAssumed });
@@ -490,6 +492,22 @@ function elevationPages(doc: jsPDF, input: ReportPdfInput, part: Part): void {
     doc.setLineWidth(0.5);
     doc.line(PAGE_MARGIN, y, PAGE_W - PAGE_MARGIN, y);
     y += 16;
+  }
+  // A wall shared with the neighbour's home (2026-10-17): no drawing, its line.
+  for (const s of shared) {
+    if (y + 40 > BOTTOM - 14) {
+      doc.addPage();
+      y = heading(doc, titled(part, "Elevations"), "Continued.");
+    }
+    setText(doc, 10.5, "bold", NAVY);
+    doc.text(pdfSafe(s.heading), PAGE_MARGIN, y + 2);
+    y += 16;
+    setText(doc, 8.2, "normal", INK);
+    for (const d of s.dims) {
+      doc.text(pdfSafe(d), PAGE_MARGIN, y);
+      y += 10;
+    }
+    y += 10;
   }
 }
 

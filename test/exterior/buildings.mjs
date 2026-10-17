@@ -122,6 +122,15 @@ function pdfText(bytes) {
 /** Everything in scope: so every line the exterior can make is made. */
 const allInScope = (e) => ({ ...e, scope: { roofing: true, sides: x.allSides(e).map((s) => s.id), soffitFascia: true, eavestrough: true } });
 
+/**
+ * The quantities as they were before attached homes (2026-10-17): a home with no wall shared has a party line of
+ * nothing, which the record never had - the new zero totals (`totals.party`, `partyFeet`) are left out, and any
+ * that is not zero is kept, and fails.
+ */
+function withoutParty(q) {
+  return JSON.parse(JSON.stringify(q), (key, v) => ((key === "party" || key === "partyFeet") && v === 0 ? undefined : v));
+}
+
 function recordOf(e) {
   const r = x.exteriorReport(e, META);
   const q = x.exteriorQuantities(e);
@@ -139,7 +148,7 @@ function recordOf(e) {
   const pdf = r ? pdfText(x.exteriorReportBytes({ report: r, svgOf, footer: META.madeWith })) : null;
   return {
     report: report ? stable(report) : null,
-    quantities: hash(stable(q)),
+    quantities: hash(stable(withoutParty(q))),
     model: hash(stable(x.exteriorModel(e))),
     lines: stable(x.exteriorScopeLines(e)),
     linesAll: stable(x.exteriorScopeLines(allInScope(e))),

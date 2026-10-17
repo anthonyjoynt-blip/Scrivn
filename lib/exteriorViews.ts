@@ -48,6 +48,8 @@ export interface ViewWall {
   grade: Pt[] | null;
   /** How squarely it faces the view: 1 square-on. Its marks are drawn a little lighter turned away. */
   facing: number;
+  /** A party wall (2026-10-17): drawn bare and marked "Shared wall" - the neighbour's home stands against it. */
+  shared?: true;
 }
 
 export interface ViewRoof {
@@ -87,6 +89,11 @@ export interface HouseView {
   sides: { sideId: string; name: string }[];
   /** The main levels: the eave of each of the widest walls, and the roof's top. */
   levels: { label: string; y: number }[];
+  /**
+   * Where the house is cut by a party line seen edge-on (2026-10-17): a wall shared with the neighbour's home, at
+   * view x, from its foot to its top, and which way the neighbour's home is (+1 to the right). Drawn as a clean cut.
+   */
+  party: { x: number; y0: number; y1: number; side: 1 | -1 }[];
 }
 
 const plan = (v: V3): Pt => ({ x: v[0], y: -v[2] });
@@ -142,9 +149,17 @@ export function houseView(model: ExteriorModel3D, compass: Compass): HouseView {
   const pieces: ViewPiece[] = [];
 
   // ---- Walls facing the view --------------------------------------------------------------------
+  const party: HouseView["party"] = [];
   for (const w of model.walls) {
     const out = { x: w.out[0], y: -w.out[2] };
     const facing = -(out.x * look.x + out.y * look.y);
+    // A shared wall seen edge-on is where the house is cut: the neighbour's home carries on past it.
+    if (w.shared && Math.abs(facing) < FACING) {
+      const ys = w.outline.map((p) => p.y);
+      const foot = w.grade && w.grade.length > 0 ? Math.min(...w.grade.map((p) => p.y)) : Math.min(...ys);
+      const side = out.x * right.x + out.y * right.y > 0 ? 1 : -1;
+      party.push({ x: sx(plan(w.origin)), y0: foot, y1: Math.max(...ys), side });
+    }
     if (facing < FACING) continue;
     const o = plan(w.origin);
     const along = { x: w.along[0], y: -w.along[2] };
@@ -170,6 +185,7 @@ export function houseView(model: ExteriorModel3D, compass: Compass): HouseView {
       }),
       grade: w.grade && w.grade.length >= 2 ? w.grade.map(at) : null,
       facing,
+      ...(w.shared ? { shared: true as const } : {}),
     });
   }
 
@@ -280,7 +296,7 @@ export function houseView(model: ExteriorModel3D, compass: Compass): HouseView {
   }
   if (roofs.length > 0 && !levels.some((l) => Math.abs(l.y - topY) < 0.5)) levels.push({ label: "Top of roof", y: topY });
   levels.sort((p, q) => p.y - q.y);
-  return { compass, pieces, ground: dedupeX(ground), minX, maxX, topY, groundY, sides, levels };
+  return { compass, pieces, ground: dedupeX(ground), minX, maxX, topY, groundY, sides, levels, party };
 }
 
 /**

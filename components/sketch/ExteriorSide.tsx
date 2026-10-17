@@ -26,13 +26,14 @@ import {
   type SideFixtureKind,
   type SideQuantities,
   zFromGrade,
+  sharedSideIds,
 } from "@/lib/exterior";
 import { MIN_SIDE_FEET, sideChain, withSideLength, withUpperSideLength } from "@/lib/exteriorPlan";
 import { scaleOf } from "@/lib/exteriorScale";
 import type { SideTrace } from "@/lib/exteriorTrace";
 import type { Pt } from "@/lib/roof";
 import type { ElevationView } from "./exteriorDrawings";
-import { Cell, CountInput, FeetField, FeetInput, lf, sf } from "./exteriorFields";
+import { Cell, Choice, CountInput, FeetField, FeetInput, lf, sf } from "./exteriorFields";
 import { type PhotoOpacity, SideElevation } from "./SidePhotos";
 
 /**
@@ -126,6 +127,8 @@ export function SidePane({
   const apply = useRef<((s: ExteriorSide) => ExteriorSide) | null>(null);
 
   const sq = q.sides[qIndex] as SideQuantities;
+  // Shared with the neighbour (2026-10-17): said on this side, or standing on a shared wall of the floor below.
+  const sharedHere = sharedSideIds(exterior).has(side.id);
   const rise = q.rises[side.id] ?? null;
   const base = q.bases[side.id] ?? null;
   const used = loop.footprint?.closes ? loop.footprint.lengthsFeet[index] : undefined;
@@ -398,7 +401,7 @@ export function SidePane({
           caption={
             <figcaption className="field-note">
               {nameOf(side)} elevation, to scale, seen from outside.
-              {sq.complete ? ` ${sf(sq.netSquareFeet)} of cladding after openings.` : " Put in the eave height to work out its area."}
+              {sharedHere ? " Shared with the neighbour – not counted." : sq.complete ? ` ${sf(sq.netSquareFeet)} of cladding after openings.` : " Put in the eave height to work out its area."}
             </figcaption>
           }
         />
@@ -459,6 +462,29 @@ export function SidePane({
             </select>
           </label>
         </div>
+        {/* A semi-detached house or a townhouse (2026-10-17): a party wall counts nothing, and the roof is cut at it. */}
+        <Choice
+          label="Shared with the neighbour"
+          hint={
+            sharedHere && !side.shared
+              ? "It stands on a shared wall of the floor below, so it is shared too."
+              : sharedHere
+                ? "A party wall: nothing on it is counted or scoped, and the roof stops at the party line over it."
+                : "A wall this home shares with the next one: a semi-detached house or a townhouse."
+          }
+          value={sharedHere ? "yes" : "no"}
+          readOnly={readOnly || (sharedHere && !side.shared)}
+          options={[
+            ["no", "No"],
+            ["yes", "Yes, a shared wall"],
+          ]}
+          onChange={(v) =>
+            onUpdate((s) => {
+              const { shared: _was, ...rest } = s;
+              return v === "yes" ? { ...rest, shared: true } : rest;
+            })
+          }
+        />
 
         <h4 className="exterior-subhead">Eave</h4>
         <div className="exterior-grid">

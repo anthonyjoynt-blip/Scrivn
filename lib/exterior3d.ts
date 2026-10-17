@@ -57,6 +57,7 @@ import {
   exteriorFootprint,
   exteriorPitch,
   exteriorWingDrops,
+  sharedSideIds,
   formatPitch,
   type ExteriorOpeningKind,
   type ExteriorSide,
@@ -115,6 +116,8 @@ export interface Wall3D {
   /** v of the side's own frame's zero (its heights are from there): what lays its photos on it. */
   frameV: number;
   photos: SidePhoto[];
+  /** A party wall, shared with the neighbour's home (2026-10-17): drawn bare - the neighbour's home stands against it. */
+  shared?: true;
 }
 
 export interface Roof3D {
@@ -378,6 +381,8 @@ export function exteriorModel(exterior: Exterior): ExteriorModelResult {
         })
       : [];
   const eaves = eaveLevels(sides, built, ov, uppers);
+  // The walls shared with the neighbours' homes, upper floor and all (2026-10-17): drawn bare.
+  const sharedIds = sharedSideIds(exterior);
   // A lower roof: its drop under the eave of the roof it meets, one level for the house's roofs (see the doc above).
   if (built && input && !twoStorey) {
     const drops = exteriorWingDrops(exterior, input, built);
@@ -472,6 +477,7 @@ export function exteriorModel(exterior: Exterior): ExteriorModelResult {
     openings: p.openings,
     frameV: p.frameV,
     photos: p.side.photos ?? [],
+    ...(sharedIds.has(p.side.id) ? { shared: true as const, faces: [], openings: [], background: "unclad" as const, photos: [] } : {}),
   }));
 
   // ---- The upper floor's walls: on the floor line, or on the lower roof against them, up to the house's roof ----
@@ -508,6 +514,7 @@ export function exteriorModel(exterior: Exterior): ExteriorModelResult {
       openings: faces.openings.map(({ opening, rect }) => ({ id: opening.id, kind: opening.kind, x0: rect.x0, x1: rect.x1, y0: rect.y0 + frameV, y1: rect.y1 + frameV })),
       frameV,
       photos: u.side.photos ?? [],
+      ...(sharedIds.has(u.side.id) ? { shared: true as const, faces: [], openings: [], background: "unclad" as const, photos: [] } : {}),
     });
   }
 

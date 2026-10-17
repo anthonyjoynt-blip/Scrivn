@@ -5403,5 +5403,145 @@ test("the trace's 'partly hidden by' rides onto the opening, from the editor and
   assert(/Tall glass whose foot is hidden - by a railing, a deck, plants, a car - is a window\. Say what hides any part of an opening/.test(msg), "a hidden foot is a window, and said");
 });
 
+console.log("\nattached homes: semi-detached and townhouses (10-17)");
+
+/**
+ * The owner, 10-17: "One tester at least will have a townhouse. Semi detached. We will need to be able to handle
+ * different types of homes as well". A wall shared with the neighbour's home (`ExteriorSide.shared`) counts nothing
+ * and the roof is cut by the party line over it. Three homes typed in, 18' to the eave (two storeys as tall walls),
+ * 6/12, the default 1'4" eaves and 1' rakes, 8" of parging: each worked by hand. 6/12 is 1.118034 a foot of run.
+ */
+const K6 = Math.sqrt(1 + 0.25);
+function attached(width, depth, ridgeAlong, shared, homeType) {
+  const e = rect(width, depth, { pitch: 6, ridgeAlong }, 18);
+  e.sides = e.sides.map((s) => (shared.includes(s.id) ? { ...s, shared: true } : s));
+  e.homeType = homeType;
+  e.scope = { roofing: true, sides: e.sides.map((s) => s.id), soffitFascia: true, eavestrough: true };
+  return e;
+}
+const edgesOn = (plan, sideId) => plan.edges.filter((ed) => ed.sideId === sideId);
+const said = (e) => x.exteriorReport(e, { title: "t", date: "d", madeWith: "m" });
+
+test("semi-detached, 24' x 40', the ridge front to back, the Left wall shared: no eave or overhang there, a party line, its walls not counted", () => {
+  const e = attached(24, 40, "left", ["left"], "semi");
+  const q = roofOf(e);
+  const r = q.roofing;
+  const plan = q.roof;
+  // Walls: the Front and Rear 24' x 17'4" (18' less 8" of parging) and their 72 SF gables (24' across, 6' up), the Right 40' x 17'4"; the Left nothing.
+  const left = q.sides.find((s) => s.sideId === "left");
+  assert(left.grossSquareFeet === 0 && left.netSquareFeet === 0 && left.bands.length === 0, JSON.stringify(left));
+  near(q.totals.grossSquareFeet, 2 * (24 * ft(17, 4) + 72) + 40 * ft(17, 4), "walls: three sides");
+  // Corners: only the two at the Right; the Left's are no corners of the outside.
+  near(q.totals.outsideCornerFeet, 2 * ft(17, 4), "two outside corners");
+  // The roof: 25'4" across (no overhang at the party wall) by 42' (1' rakes), at 6/12.
+  near(plan.planSquareFeet, (24 + ft(1, 4)) * 42, "plan");
+  near(r.squares, ((24 + ft(1, 4)) * 42 * K6) / 100, "squares");
+  near(r.ridgeFeet, 42, "the ridge, rake to rake");
+  near(r.eaveFeet, 42, "the Right's eave alone");
+  // Each gable end: 12' of run from the party line up to the ridge, 13'4" down to the Right's drip line.
+  near(r.rakeFeet, 2 * (12 + ft(13, 4)) * K6, "rakes");
+  near(r.partyFeet, 42, "the party line: level, at the Left wall, rake to rake");
+  near(r.hipFeet + r.valleyFeet, 0, "no hips or valleys");
+  assert(edgesOn(plan, "left").every((ed) => ed.kind === "party") && edgesOn(plan, "left").length === 1, JSON.stringify(edgesOn(plan, "left")));
+  assert(plan.ends.map((en) => en.sideId).sort().join() === "front,rear", "the ends front and back, none at the party wall");
+  // Eavestrough, soffit and fascia: the Right's eave and the rakes - nothing at the party line.
+  near(r.dripEdgeFeet, r.eaveFeet + r.rakeFeet, "drip edge: eaves + rakes, no party line");
+  // The report: what the home is, the Left's line, the firewall to check.
+  const rep = said(e);
+  assert(rep.facts[0].label === "Home" && rep.facts[0].value === "Semi-detached: the Left wall is shared with the neighbour and not counted.", JSON.stringify(rep.facts[0]));
+  const leftSide = rep.sides.find((s) => s.side.id === "left");
+  assert(leftSide.shared && leftSide.heading === "Left · 40' · shared wall" && leftSide.dims.join() === "Shared with the neighbour – not counted.", JSON.stringify(leftSide.dims));
+  assert(rep.notes[0] === "Check the firewall cap and flashing at the party line.", rep.notes.join(" | "));
+  assert(rep.facts.find((f) => f.label === "Roof lines").value === "Ridge 42' · Eave 42' · Rake 56'8\" · Party line 42'", rep.facts.find((f) => f.label === "Roof lines").value);
+  assert(rep.tables.find((t) => t.caption === "Roof lines").rows.some((row) => row[0] === "Party line" && row[1] === "42.0"), "the lines table");
+  // Scope: the stucco of three sides, nothing of the Left's.
+  const lines = x.exteriorScopeLines(e).siding;
+  assert(lines[0] === `Remove & replace stucco – Front, Right, Rear – ${q.totals.netSquareFeet.toFixed(1)} SF`, lines[0]);
+});
+
+test("an end townhouse, 20' x 36', the ridge along the street running across the shared Left wall: it stops at the party line", () => {
+  const e = attached(20, 36, "front", ["left"], "town_end");
+  const q = roofOf(e);
+  const r = q.roofing;
+  // 21' along (a 1' rake at the Right only) by 38'8" (16" eaves front and back).
+  near(q.roof.planSquareFeet, 21 * (36 + ft(2, 8)), "plan");
+  near(r.squares, (21 * (36 + ft(2, 8)) * K6) / 100, "squares");
+  near(r.ridgeFeet, 21, "the ridge, from the party line to the Right's rake");
+  // Each slope 19'4" of run from the drip line to the ridge: the Right's gable two rakes of it, the party line two more.
+  near(r.rakeFeet, 2 * ft(19, 4) * K6, "the Right's rakes alone");
+  near(r.partyFeet, 2 * ft(19, 4) * K6, "the party line, up and over the roof at the Left wall");
+  near(r.eaveFeet, 2 * 21, "eaves front and back");
+  assert(q.roof.ends.map((en) => en.sideId).join() === "right", JSON.stringify(q.roof.ends));
+  assert(edgesOn(q.roof, "left").every((ed) => ed.kind === "party"), "no rake at the Left");
+  // Walls: no Left; the Right with its gable (36' across, 9' up: 162 SF).
+  near(q.totals.grossSquareFeet, 2 * 20 * ft(17, 4) + 36 * ft(17, 4) + 162, "walls");
+  assert(said(e).facts[0].value === "Townhouse, end unit: the Left wall is shared with the neighbour and not counted.", said(e).facts[0].value);
+});
+
+test("a middle townhouse, 18' x 36', both side walls shared: no rakes, a party line each side, front and back walls alone", () => {
+  const e = attached(18, 36, "front", ["left", "right"], "town_middle");
+  const q = roofOf(e);
+  const r = q.roofing;
+  near(q.roof.planSquareFeet, 18 * (36 + ft(2, 8)), "plan: no overhang either side");
+  near(r.squares, (18 * (36 + ft(2, 8)) * K6) / 100, "squares");
+  near(r.ridgeFeet, 18, "the ridge, party line to party line");
+  near(r.rakeFeet, 0, "no rakes");
+  near(r.partyFeet, 4 * ft(19, 4) * K6, "a party line up and over each side");
+  near(r.eaveFeet, 36, "eaves front and back");
+  assert(q.roof.ends.length === 0, "no end of the roof is this home's");
+  near(q.totals.grossSquareFeet, 2 * 18 * ft(17, 4), "the front and the back");
+  near(q.totals.outsideCornerFeet + q.totals.insideCornerFeet, 0, "no corner of the outside");
+  assert(said(e).facts[0].value === "Townhouse, middle unit: the Left wall and the Right wall are shared with the neighbours and not counted." || said(e).facts[0].value === "Townhouse, middle unit: the Right wall and the Left wall are shared with the neighbours and not counted.", said(e).facts[0].value);
+  // Soffit, fascia and eavestrough: the eaves alone.
+  assert(!x.exteriorScopeLines(e).siding.some((l) => /rakes$/.test(l) && /soffit/.test(l)), "no rake soffit");
+});
+
+test("attached homes in 3D and on the elevations: the party wall bare, the cut a clean edge marked for the neighbour's home", () => {
+  const e = attached(24, 40, "left", ["left"], "semi");
+  const m = x.exteriorModel(e).model;
+  const wall = m.walls.find((w) => w.sideId === "left");
+  assert(wall.shared && wall.faces.length === 0 && wall.openings.length === 0, "bare");
+  // From the front the Left wall is edge-on: the cut, the neighbour's home to the left.
+  const south = x.houseView(m, "south");
+  assert(south.party.length === 1 && south.party[0].side === -1 && Math.abs(south.party[0].x - south.minX) < 1e-6, JSON.stringify(south.party));
+  // From the west it faces the viewer: drawn, marked shared.
+  const west = x.houseView(m, "west");
+  assert(west.pieces.some((p) => p.type === "wall" && p.shared), "the shared wall seen from the west");
+  // A detached home: no cut, and no wall marked.
+  const d = x.exteriorModel(attached(24, 40, "left", [], undefined)).model;
+  assert(x.houseView(d, "south").party.length === 0 && d.walls.every((w) => !w.shared), "nothing for a detached home");
+});
+
+test("two storeys on a shared wall: the upper floor's side over it is shared with nothing more set, and the roof is cut the same", () => {
+  // Drawn as a main floor 9' to its eave and an upper floor over the whole of it: the same 24' x 40' semi.
+  const e = rect(24, 40, { pitch: 6, ridgeAlong: "left" }, 9);
+  e.sides = e.sides.map((s) => (s.id === "left" ? { ...s, shared: true } : s));
+  const fp = x.exteriorFootprint(e);
+  e.upper = x.upperFromOutline(fp.corners, fp);
+  const shared = x.sharedSideIds(e);
+  const upperLeft = e.upper.sides.find((s) => s.name === "Upper left");
+  assert(shared.has("left") && shared.has(upperLeft.id) && shared.size === 2, [...shared].join());
+  const q = roofOf(e);
+  near(q.roof.planSquareFeet, (24 + ft(1, 4)) * 42, "the roof over the upper floor, cut at the party line");
+  near(q.roofing.partyFeet, 42, "the party line");
+  assert(q.sides.find((s) => s.sideId === upperLeft.id).grossSquareFeet === 0, "the upper floor's shared side not counted");
+  // Set back 6' from the front, the lower roof along the front is cut at the party line too.
+  const back = rect(24, 40, { pitch: 6, ridgeAlong: "left" }, 9);
+  back.sides = back.sides.map((s) => (s.id === "left" ? { ...s, shared: true } : s));
+  const fp2 = x.exteriorFootprint(back);
+  back.upper = x.upperFromOutline(fp2.corners.map((p) => ({ x: p.x, y: p.y < 1 ? p.y + 6 : p.y })), fp2);
+  const b = roofOf(back);
+  assert(b.roof.edges.filter((ed) => ed.kind === "party").length >= 2 && b.roof.edges.every((ed) => !(ed.sideId === "left" && (ed.kind === "eave" || ed.kind === "rake"))), JSON.stringify(b.roof.edges.map((ed) => [ed.kind, ed.sideId])));
+  assert(x.sharedSideIds(back).size === 2, "the upper left, set back but on the same line, shared too");
+});
+
+test("a detached home's roof and quantities are as they were: no party line, nothing marked", () => {
+  const e = rect(40, 30, { pitch: 6 });
+  const q = roofOf(e);
+  assert(q.roof.lines.every((l) => l.kind !== "party") && q.roofing.partyFeet === 0 && q.roof.totals.party === 0, "no party line");
+  assert(x.homeTypeWords(e) === null && x.sharedOf(e) === undefined, "no words, nothing to draw");
+  assert(!x.checkNotes(e, q).some((n) => /party line/.test(n)), "nothing to check");
+});
+
 console.log(`\n${passed.length} passed, ${failures.length} failed`);
 if (failures.length > 0) process.exit(1);

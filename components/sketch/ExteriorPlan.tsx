@@ -31,6 +31,9 @@ import {
   ridgeFromPhotos,
   ROOF_MATERIAL_LABEL,
   roofProposal,
+  HOME_TYPE_LABEL,
+  type HomeType,
+  sharedOf,
   ROOF_VENT_LABEL,
   type RoofingQuantities,
   type RoofMaterial,
@@ -609,6 +612,11 @@ function SidesList({ exterior, q, readOnly, showTurns, onOpenSide, onChange }: {
                 {name} <span aria-hidden="true">›</span>
               </button>
               <FeetInput label={`${name}: length`} value={s.lengthFeet} readOnly={readOnly} onCommit={(v) => v !== null && onChange((e) => withSideLength(e, s.id, v))} />
+              {s.shared ? (
+                <span className="exterior-row-note" title="Shared with the neighbour: not counted, and the roof stops at it">
+                  shared wall
+                </span>
+              ) : null}
               {s.lengthFrom === "drawn" ? (
                 <span className="exterior-drawn" title="As long as it was drawn: type its length as taped">
                   drawn
@@ -636,6 +644,31 @@ function SidesList({ exterior, q, readOnly, showTurns, onOpenSide, onChange }: {
           ? "Type each side as taped: the corner at its right-hand end moves, and the sides only drawn follow. A side marked drawn is as long as it was drawn."
           : "Each side's length, and the corner at its right-hand end as you face it: outside, or inside (the inside of an L)."}
       </p>
+      {/* Semi-detached houses and townhouses (2026-10-17): the kind of home, for the report; each shared wall is set on its side. */}
+      <label className="exterior-field" htmlFor="ext-home-type">
+        <span className="exterior-field-label">The home</span>
+        <select
+          id="ext-home-type"
+          value={exterior.homeType ?? "detached"}
+          disabled={readOnly}
+          onChange={(e) =>
+            onChange((x) => {
+              const { homeType: _was, ...rest } = x;
+              const v = e.target.value as HomeType;
+              return v === "detached" ? rest : { ...rest, homeType: v };
+            })
+          }
+        >
+          {(Object.keys(HOME_TYPE_LABEL) as HomeType[]).map((k) => (
+            <option key={k} value={k}>
+              {HOME_TYPE_LABEL[k]}
+            </option>
+          ))}
+        </select>
+      </label>
+      {exterior.homeType && exterior.homeType !== "detached" && !exterior.sides.some((s) => s.shared) && (
+        <p className="field-note">Open each wall shared with the neighbour and set it shared: it is then not counted, and the roof stops at it.</p>
+      )}
     </div>
   );
 }
@@ -1122,6 +1155,7 @@ export function PlanPane({
                 }
           }
           placing={placing !== null}
+          shared={sharedOf(exterior)}
           approx={(id) => exterior.sides.find((s) => s.id === id)?.lengthFrom === "drawn"}
           fontScale={narrow ? 1.45 : 1}
           section={mode === "pitch" ? sectionKey : null}
