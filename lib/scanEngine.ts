@@ -6,7 +6,7 @@ import { parseScanExterior, scanExteriorPart } from "./exteriorImport";
 import { fillOutside, type PhotoPixels, squareFrame, type SquareFrame, squareUp } from "./exteriorPhoto";
 import { exteriorReport, LINE_WORD, type ReportMeta, sectionName } from "./exteriorReport";
 import { exteriorReportBytes, type ReportPhotoImage } from "./exteriorReportPdf";
-import { snapTrace, type TraceRequest, type TraceResponse } from "./exteriorTrace";
+import { snapTrace, type TraceRequest, type TraceResponse, withSwatches } from "./exteriorTrace";
 import { camerasAt, grayOf } from "./roofPhotoRead";
 import { formatFeetInches } from "./sketch";
 import { NOT_SCALED, scaleFlags, scaleOf, sizesLine } from "./exteriorScale";
@@ -313,6 +313,8 @@ export async function take(capture: CaptureInput, finishRaw: unknown, index: num
     try {
       const pixels = await host.decode(squared.image);
       proposals = snapTrace(proposals, squared.frame, grayOf(pixels), side.lengthFeet, camerasAt(squared.used));
+      // Each shape's and trim's colour off the same picture (2026-10-17): drawing only.
+      proposals = withSwatches(proposals, pixels, squared.frame);
     } catch {
       // As Claude gave them: the snap is a refinement, never a reason to lose the read.
     }

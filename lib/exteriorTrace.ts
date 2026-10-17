@@ -23,6 +23,8 @@ import {
   type ExteriorOpeningKind,
   type ExteriorShape,
   type ExteriorSide,
+  type OpeningTrim,
+  type SideColumn,
   type SidePhoto,
   type SideRoofRead,
 } from "./exterior";
@@ -183,9 +185,13 @@ Scale: ${frame.ppm.toFixed(1)} pixels per metre, the same across and up.
 
 Trace, in pixels:
 1. materials: each cladding material on this wall as a closed polygon (corners in order, not repeating the first). Include parging (the cement coat over the foundation) down to the ground. If a material runs on past the wall's ends (over a covered deck, up a gable), follow it. Say what hides any part of it, or "" when nothing does.
-2. openings: every window, door, patio door and garage door on this wall. Call an opening a door, a patio door or a garage door only when the photo shows what makes it one: a handle, hinges, a threshold, or a step, deck, path or driveway meeting its foot. Tall glass whose foot is hidden - by a railing, a deck, plants, a car - is a window. Say what hides any part of an opening, or "" when nothing does. A window or door: to the outer edge of its trim, or of its frame where it has no trim; say which. A garage door: the door itself - the panels that move, from their bottom edge to their top edge and side to side - never the trim, jamb or stucco surround framing it; its measured_to is "door_itself". For a door (not a patio door or a garage door) also give leaf: the door leaf itself - the slab that swings, from its hinge edge to its latch edge and from its bottom edge to its top edge, inside the frame and its stops, sidelights left out - as [x0, y0, x1, y1]; [] for every other opening, and for a door whose leaf you cannot see whole.
+2. openings: every window, door, patio door and garage door on this wall. Call an opening a door, a patio door or a garage door only when the photo shows what makes it one: a handle, hinges, a threshold, or a step, deck, path or driveway meeting its foot. Tall glass whose foot is hidden - by a railing, a deck, plants, a car - is a window. Say what hides any part of an opening, or "" when nothing does. A window or door: to the outer edge of its trim, or of its frame where it has no trim; say which. Its trim is the narrow casing round its frame: a wide surround of stucco, foam or another colour than the wall is not, and goes in off_wall (4). A garage door: the door itself - the panels that move, from their bottom edge to their top edge and side to side - never the trim, jamb or stucco surround framing it; its measured_to is "door_itself". For a door (not a patio door or a garage door) also give leaf: the door leaf itself - the slab that swings, from its hinge edge to its latch edge and from its bottom edge to its top edge, inside the frame and its stops, sidelights left out - as [x0, y0, x1, y1]; [] for every other opening, and for a door whose leaf you cannot see whole.
 3. wall_top: the line where the wall's cladding meets the soffit, left to right, including any gable peak, as a polyline.
-4. off_wall: everything in front of the wall that hides part of it, as boxes [x0, y0, x1, y1].
+4. off_wall: everything in front of the wall that hides part of it, as boxes [x0, y0, x1, y1]. The wall's own trim goes here too, each piece its own box, its what starting with one of these words, then its material ("surround, stucco"), and ending "partly hidden by ..." when something hides part of it:
+   - "surround": a raised band round a window or door, often another colour than the wall: its outer edges, the opening inside it traced on its own in (2). Add "open top" when it has no head and its sides run on up.
+   - "keystone": the block over a surround's head, at the middle of the opening.
+   - "pilaster": a flat column against the wall; "column": a column standing clear of the wall, a porch column - each from its foot to its top. "base" and "cap": a column's or pilaster's base and cap, where they stand out wider than it.
+   None of these is a material in (1): the wall's material runs on behind them. A column standing clear of the wall is counted, not taken as wall hidden.
 5. roof: the roof's edge over this wall. The fascia and the soffit stand out in front of the wall, so they show larger than the wall and set off from it: trace them where they show in this image, and the code works out how far out they stand.
    - over_wall: "gable" if the wall rises to a peak under the roof; "hip_end" if the wall's top is level and the roof above it slopes up and back, with a hip rising from each end; "eave" if the wall's top is level and the roof slopes up and back to a ridge along the wall, or up to an upper storey's wall standing back above it; "none" if no roof edge is over this wall; "unclear" if you can't tell.
    - rake_left, rake_right: on a gable, the bottom edge of the fascia (the rake board) along each slope, where the soffit under the rake meets it - from the foot of the rake up to the peak on the left, from the peak down to its foot on the right, with a point every metre or so. Not the line where the soffit meets the wall (that is wall_top), not the shingles. [] when there is no gable.
@@ -218,6 +224,24 @@ export interface ProposedShape {
   polygon: Pt[];
   squareFeet: number;
   hiddenBy: string;
+  /** Its colour off the squared photo, "#rrggbb" (2026-10-17, `withSwatches`): for drawing only. */
+  colour?: string;
+}
+
+/** A surround read off the photo, on the opening it goes round (by its proposal's key). */
+export interface ProposedTrim {
+  key: string;
+  openingKey: string;
+  trim: OpeningTrim;
+  /** The off_wall boxes it was read from, by place in `offWall`. */
+  from: number[];
+}
+
+/** A column or pilaster read off the photo. */
+export interface ProposedColumn {
+  key: string;
+  column: Omit<SideColumn, "id">;
+  from: number[];
 }
 
 export interface ProposedOpening {
@@ -274,6 +298,12 @@ export interface TraceProposals {
    */
   pieces?: ProposedPiece[];
   storeys?: ProposedStoreys | null;
+  /**
+   * The wall's own trim (2026-10-17), off the off_wall boxes whose words start "surround", "keystone", "pilaster",
+   * "column", "base" or "cap": each surround on the opening it goes round, and each column or pilaster. Absent with none.
+   */
+  trims?: ProposedTrim[];
+  columns?: ProposedColumn[];
   /** What the trace was unsure of, in its words. */
   notes: string;
   /** The test's own checks: an eave level end to end. A gable's two slopes are the roof's (`roof.checks`). */
@@ -436,6 +466,9 @@ export function traceProposals(wire: TraceWire, frame: SquareFrame, lengthFeet: 
     return [{ what: String(b.what ?? "").trim() || "something", x0: a.x, x1: c.x, y0: a.y, y1: c.y }];
   });
 
+  // The wall's own trim (2026-10-17), off the boxes the prompt asks it in.
+  const trim = readTrim(offWall, openings, shapes, checks);
+
   return {
     shapes,
     openings,
@@ -444,9 +477,226 @@ export function traceProposals(wire: TraceWire, frame: SquareFrame, lengthFeet: 
     roof,
     ...(onRoof ? { pieces: onRoof.pieces } : {}),
     ...(storeys !== undefined ? { storeys } : {}),
+    ...(trim.trims.length > 0 ? { trims: trim.trims } : {}),
+    ...(trim.columns.length > 0 ? { columns: trim.columns } : {}),
     notes: (wire.notes ?? "").trim(),
     checks,
   };
+}
+
+// ---------------------------------------------------------------------------------------------
+// The wall's trim, read through off_wall (2026-10-17)
+// ---------------------------------------------------------------------------------------------
+
+/*
+  The trace's schema is at the grammar's limit (flat points, no enums), so the trim comes through a slot it already has:
+  an off_wall box whose words start with what it is - "surround, stucco", "keystone", "pilaster", "column", "base", "cap"
+  - and end "partly hidden by ..." when it is. Nothing else in off_wall starts with those words; anything that does not
+  stays a thing in front of the wall, as before.
+*/
+
+const TRIM_WORD = /^\s*(surround|keystone|pilaster|column|base|cap)\b/i;
+/** A pilaster's face off the wall, which a square-on photo can't show: a usual 4". */
+export const PILASTER_OUT_FEET = 4 / 12;
+/** A porch column's back off the wall, which a square-on photo can't show either: a usual porch's depth less the column. */
+export const COLUMN_OFF_WALL_FEET = 4;
+/** A box inside another, give or take this. */
+const TRIM_GRACE_FEET = 0.25;
+
+/** The trim's material in its words; else the wall's own. */
+function trimMaterial(what: string, fallback: CladdingKind): { material: CladdingKind; label?: string } {
+  const t = what.toLowerCase();
+  if (/stucco|plaster/.test(t)) return { material: "stucco" };
+  if (/eifs|foam/.test(t)) return { material: "eifs" };
+  if (/brick/.test(t)) return { material: "brick" };
+  if (/stone/.test(t)) return { material: "stone" };
+  if (/vinyl/.test(t)) return { material: "vinyl" };
+  if (/fib(re|er) ?cement|hardie/.test(t)) return { material: "fibre_cement" };
+  if (/metal|alumin/.test(t)) return { material: "metal" };
+  if (/pvc|composite/.test(t)) return { material: "other", label: "PVC" };
+  if (/wood|cedar/.test(t)) return { material: "wood" };
+  return { material: fallback };
+}
+
+const hiddenIn = (what: string) => /partly hidden by (.+?)\s*\.?\s*$/i.exec(what)?.[1]?.trim();
+
+function readTrim(offWall: TraceProposals["offWall"], openings: ProposedOpening[], shapes: ProposedShape[], checks: string[]): { trims: ProposedTrim[]; columns: ProposedColumn[] } {
+  const items = offWall.map((b, i) => ({ ...b, i, word: TRIM_WORD.exec(b.what)?.[1]?.toLowerCase() })).filter((b) => b.word);
+  if (items.length === 0) return { trims: [], columns: [] };
+  // The wall's own material, when the trim's words don't say: the largest counted shape's.
+  const main = [...shapes].filter((s) => s.kind !== "parging").sort((a, b) => b.squareFeet - a.squareFeet)[0];
+  const fallback: CladdingKind = main && main.kind !== "parging" ? main.kind : "stucco";
+  const boxOf = (o: ProposedOpening): FeetBox => o.box ?? { x0: o.fromLeftFeet, x1: o.fromLeftFeet + o.widthFeet, y0: o.sillFeet, y1: o.sillFeet + o.heightFeet };
+  const width = (v: number) => (v < 1 / 12 ? 0 : v);
+  const trims: ProposedTrim[] = [];
+  for (const b of items.filter((x) => x.word === "surround")) {
+    const inside = openings.filter((o) => {
+      const r = boxOf(o);
+      return r.x0 >= b.x0 - TRIM_GRACE_FEET && r.x1 <= b.x1 + TRIM_GRACE_FEET && r.y0 >= b.y0 - TRIM_GRACE_FEET && r.y1 <= b.y1 + TRIM_GRACE_FEET;
+    });
+    const o = inside.sort((p, q) => q.widthFeet * q.heightFeet - p.widthFeet * p.heightFeet)[0];
+    if (!o || trims.some((t) => t.openingKey === o.key)) {
+      if (!o) checks.push(`A surround read with no opening inside it was left out (${b.what}).`);
+      continue;
+    }
+    const r = boxOf(o);
+    const openTop = /open top/i.test(b.what);
+    const hidden = hiddenIn(b.what);
+    trims.push({
+      key: `trim-${b.i}`,
+      openingKey: o.key,
+      from: [b.i],
+      trim: {
+        leftFeet: width(r.x0 - b.x0),
+        rightFeet: width(b.x1 - r.x1),
+        topFeet: openTop ? 0 : width(b.y1 - r.y1),
+        bottomFeet: width(r.y0 - b.y0),
+        ...(openTop && b.y1 - r.y1 > 1 / 12 ? { upFeet: b.y1 - r.y1 } : {}),
+        ...trimMaterial(b.what, fallback),
+        from: "photo",
+        ...(hidden ? { unsure: `partly hidden by ${hidden}` } : {}),
+      },
+    });
+  }
+  // A keystone sits over an opening's head: on its surround, or on one of its own.
+  for (const k of items.filter((x) => x.word === "keystone")) {
+    const mid = (k.x0 + k.x1) / 2;
+    const o = openings.find((p) => {
+      const r = boxOf(p);
+      const t = trims.find((x) => x.openingKey === p.key)?.trim;
+      return mid > r.x0 && mid < r.x1 && k.y0 >= r.y1 - 0.75 && k.y0 <= r.y1 + (t?.topFeet ?? 0) + 0.75;
+    });
+    if (!o) continue;
+    const r = boxOf(o);
+    let t = trims.find((x) => x.openingKey === o.key);
+    if (!t) {
+      t = { key: `trim-${k.i}`, openingKey: o.key, from: [], trim: { leftFeet: 0, rightFeet: 0, topFeet: 0, bottomFeet: 0, ...trimMaterial(k.what, fallback), from: "photo" } };
+      trims.push(t);
+    }
+    t.from.push(k.i);
+    t.trim.keystone = { widthFeet: k.x1 - k.x0, heightFeet: Math.max(1 / 12, k.y1 - r.y1) };
+  }
+  const columns: ProposedColumn[] = [];
+  for (const c of items.filter((x) => x.word === "pilaster" || x.word === "column")) {
+    const pilaster = c.word === "pilaster";
+    const w = c.x1 - c.x0;
+    const foot = Math.max(0, c.y0);
+    const hidden = hiddenIn(c.what);
+    const blocks = items.filter((x) => (x.word === "base" || x.word === "cap") && Math.min(x.x1, c.x1) - Math.max(x.x0, c.x0) > w / 2);
+    const block = (word: string) => {
+      const x = blocks.find((q) => q.word === word);
+      return x ? { box: x, block: { heightFeet: x.y1 - x.y0, outFeet: Math.max(0, (x.x1 - x.x0 - w) / 2) } } : null;
+    };
+    const base = block("base");
+    const cap = block("cap");
+    columns.push({
+      key: `column-${c.i}`,
+      from: [c.i, ...(base ? [base.box.i] : []), ...(cap ? [cap.box.i] : [])],
+      column: {
+        kind: pilaster ? "pilaster" : "column",
+        fromLeftFeet: c.x0,
+        widthFeet: w,
+        depthFeet: pilaster ? PILASTER_OUT_FEET : w,
+        outFeet: pilaster ? PILASTER_OUT_FEET : COLUMN_OFF_WALL_FEET,
+        footFeet: foot,
+        heightFeet: Math.max(1 / 12, c.y1 - foot),
+        ...(base ? { base: base.block } : {}),
+        ...(cap ? { cap: cap.block } : {}),
+        ...trimMaterial(c.what, fallback),
+        from: "photo",
+        ...(hidden ? { unsure: `partly hidden by ${hidden}` } : {}),
+      },
+    });
+  }
+  return { trims, columns };
+}
+
+/** Pixels of the squared image the trace was asked about, RGB or RGBA. */
+export interface SwatchPixels {
+  data: ArrayLike<number>;
+  width: number;
+  height: number;
+  channels: 3 | 4;
+}
+
+/**
+ * Each shape's and each trim's colour off the squared photo (2026-10-17): the middle of the photo's colours inside it -
+ * a shape's less its openings and the trim on it - as "#rrggbb", for drawing only: the owner's dark stucco drawn dark and
+ * his trim white. Nothing outside the photo (its flat grey) counts; a piece with too little of the photo in it gets none.
+ */
+export function withSwatches(p: TraceProposals, img: SwatchPixels, frame: SquareFrame): TraceProposals {
+  const M = 1 / FEET_PER_METRE;
+  const at = (x: number, y: number): [number, number, number] | null => {
+    const px = Math.round(frameX(frame, x * M));
+    const py = Math.round(frameY(frame, y * M));
+    if (px < 0 || py < 0 || px >= img.width || py >= img.height) return null;
+    const o = (py * img.width + px) * img.channels;
+    const rgb: [number, number, number] = [img.data[o] as number, img.data[o + 1] as number, img.data[o + 2] as number];
+    return rgb[0] === OUTSIDE_PHOTO_GREY && rgb[1] === OUTSIDE_PHOTO_GREY && rgb[2] === OUTSIDE_PHOTO_GREY ? null : rgb;
+  };
+  const inPoly = (poly: Pt[], q: Pt) => {
+    let inside = false;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const a = poly[i] as Pt;
+      const b = poly[j] as Pt;
+      if (a.y > q.y !== b.y > q.y && q.x < ((b.x - a.x) * (q.y - a.y)) / (b.y - a.y) + a.x) inside = !inside;
+    }
+    return inside;
+  };
+  const inBox = (b: FeetBox, q: Pt) => q.x >= b.x0 && q.x <= b.x1 && q.y >= b.y0 && q.y <= b.y1;
+  /**
+   * The colour over a grid of about 900 points in [inside]'s bounds: each channel's middle for a wall; its upper quarter
+   * for trim ([lit]), whose raised pieces each have a lit face and a shaded one - the lit one is its colour.
+   */
+  const swatch = (bounds: FeetBox, inside: (q: Pt) => boolean, lit = false): string | undefined => {
+    const step = Math.max(1 / 24, Math.sqrt(((bounds.x1 - bounds.x0) * (bounds.y1 - bounds.y0)) / 900));
+    const rs: number[] = [];
+    const gs: number[] = [];
+    const bs: number[] = [];
+    for (let y = bounds.y0 + step / 2; y < bounds.y1; y += step) {
+      for (let x = bounds.x0 + step / 2; x < bounds.x1; x += step) {
+        if (!inside({ x, y })) continue;
+        const c = at(x, y);
+        if (!c) continue;
+        rs.push(c[0]);
+        gs.push(c[1]);
+        bs.push(c[2]);
+      }
+    }
+    if (rs.length < 12) return undefined;
+    const mid = (v: number[]) => [...v].sort((a, b) => a - b)[Math.floor(v.length * (lit ? 0.75 : 0.5))] as number;
+    return `#${[mid(rs), mid(gs), mid(bs)].map((v) => Math.round(v).toString(16).padStart(2, "0")).join("")}`;
+  };
+  const boxOf = (o: ProposedOpening): FeetBox => o.box ?? { x0: o.fromLeftFeet, x1: o.fromLeftFeet + o.widthFeet, y0: o.sillFeet, y1: o.sillFeet + o.heightFeet };
+  const holes = p.openings.map(boxOf);
+  // The trim's outer boxes: kept off the wall's swatch.
+  const trimBoxes: FeetBox[] = [];
+  const trims = (p.trims ?? []).map((t) => {
+    const o = p.openings.find((q) => q.key === t.openingKey);
+    if (!o) return t;
+    const r = boxOf(o);
+    const g = t.trim.gapFeet ?? 0;
+    const outer = { x0: r.x0 - g - t.trim.leftFeet, x1: r.x1 + g + t.trim.rightFeet, y0: r.y0 - (t.trim.bottomFeet > 0 ? g + t.trim.bottomFeet : 0), y1: Math.max(r.y1 + g + t.trim.topFeet, r.y1 + (t.trim.upFeet ?? 0)) };
+    trimBoxes.push(outer);
+    const inner = { x0: r.x0 - g, x1: r.x1 + g, y0: r.y0 - (t.trim.bottomFeet > 0 ? g : 0), y1: r.y1 + g };
+    const colour = swatch(outer, (q) => inBox(outer, q) && !inBox(inner, q), true);
+    return colour ? { ...t, trim: { ...t.trim, colour } } : t;
+  });
+  const columns = (p.columns ?? []).map((c) => {
+    const k = c.column;
+    const box = { x0: k.fromLeftFeet, x1: k.fromLeftFeet + k.widthFeet, y0: k.footFeet, y1: k.footFeet + k.heightFeet };
+    trimBoxes.push(box);
+    const colour = swatch(box, (q) => inBox(box, q), true);
+    return colour ? { ...c, column: { ...k, colour } } : c;
+  });
+  const shapes = p.shapes.map((s) => {
+    const xs = s.polygon.map((q) => q.x);
+    const ys = s.polygon.map((q) => q.y);
+    const bounds = { x0: Math.min(...xs), x1: Math.max(...xs), y0: Math.min(...ys), y1: Math.max(...ys) };
+    const colour = swatch(bounds, (q) => inPoly(s.polygon, q) && !holes.some((h) => inBox(h, q)) && !trimBoxes.some((h) => inBox(h, q)) && !p.offWall.some((h) => inBox(h, q)));
+    return colour ? { ...s, colour } : s;
+  });
+  return { ...p, shapes, ...(p.trims ? { trims } : {}), ...(p.columns ? { columns } : {}) };
 }
 
 /** The roof's reads ticked (true) or not (false); one the trace did not read is left out. */
@@ -508,6 +758,16 @@ export interface TracePicks {
   roof?: RoofPicks;
   /** The roof's shapes (2026-10-15): each piece by its key, and what stands over the side. Absent: left as they were. */
   roofShapes?: ShapePicks;
+  /**
+   * The trim ticked (2026-10-17): surrounds and columns by key. A surround goes on with its opening, ticked; ticked
+   * columns replace the side's, as ticked shapes do. Absent: no trim put on.
+   */
+  trims?: string[];
+}
+
+/** What starts ticked of the trim: all of it. */
+export function trimPicksAtFirst(p: Pick<TraceProposals, "trims" | "columns">): string[] {
+  return [...(p.trims ?? []).map((t) => t.key), ...(p.columns ?? []).map((c) => c.key)];
 }
 
 /** The roof's shapes ticked (true) or not (false), as `RoofPicks`: a piece by its key; a read the trace did not make is left out. */
@@ -564,9 +824,12 @@ export function applyTrace(side: ExteriorSide, proposals: TraceProposals, picks:
       if (!s) return [];
       const shape: ExteriorShape = { id: newSketchId("shape"), kind, closed: true, polygon: s.polygon.map((p) => ({ ...p })) };
       if (kind === "other" && s.label) shape.label = s.label;
+      // Its colour off the photo (2026-10-17), the same material or not: what the wall looks like.
+      if (s.colour) shape.colour = s.colour;
       return [shape];
     });
   }
+  const trimPicked = new Set(picks.trims ?? []);
   if (picks.openings.length > 0) {
     next.openings = picks.openings.flatMap(({ key, kind }) => {
       const o = proposals.openings.find((p) => p.key === key);
@@ -574,9 +837,17 @@ export function applyTrace(side: ExteriorSide, proposals: TraceProposals, picks:
       const opening: ExteriorOpening = { id: newSketchId("opening"), kind, widthFeet: o.widthFeet, heightFeet: o.heightFeet, sillFeet: o.sillFeet, fromLeftFeet: o.fromLeftFeet };
       // What hid part of it rides along (2026-10-16): its kind is asked on "Check these".
       if (o.hiddenBy) opening.hiddenBy = o.hiddenBy;
+      // Its surround (2026-10-17), ticked, goes on with it; widths are past the opening as traced, and its clipped left end moves them.
+      const t = (proposals.trims ?? []).find((x) => x.openingKey === key && trimPicked.has(x.key));
+      if (t) {
+        const cut = o.box ? o.fromLeftFeet - o.box.x0 : 0;
+        opening.trim = { ...t.trim, leftFeet: Math.max(0, t.trim.leftFeet + cut) };
+      }
       return [opening];
     });
   }
+  const columns = (proposals.columns ?? []).filter((c) => trimPicked.has(c.key));
+  if (columns.length > 0) next.columns = columns.map((c) => ({ id: newSketchId("column"), ...c.column }));
   const top = proposals.wallTop;
   if (picks.wallTop && top) {
     if (top.eaveLeftFeet !== null) next.eaveLeftFeet = top.eaveLeftFeet;

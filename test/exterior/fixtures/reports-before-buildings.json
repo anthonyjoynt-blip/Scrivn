@@ -20,7 +20,7 @@
    "linesAll": "{\"roofing\":[\"Remove & replace roofing – material to confirm – 4.1/12 – 13.64 SQ (all slopes)\",\"Hip & ridge cap – 58.8 LF\",\"Starter – 73.5 LF (eaves)\",\"Ice & water barrier – 105.5 LF (eaves + valleys)\",\"Valleys – 32.0 LF\"],\"siding\":[\"Remove & replace vinyl siding – Front, Inside right, Rear – 721.8 SF (838.9 SF less 117.0 SF of openings)\",\"Remove & replace fibre cement – Right – 210.3 SF\",\"Remove & replace stone – Left – 76.9 SF (77.6 SF less 0.7 SF of openings)\",\"Remove & replace stucco – Left – 395.6 SF (405.0 SF less 9.4 SF of openings)\",\"House wrap – 932.1 SF\",\"Trim & J-channel round openings – 45.8 LF\",\"Remove & replace soffit – material to confirm – 73.5 LF at 1'4\\\" overhang (98.0 SF) – eaves\",\"Remove & replace soffit – material to confirm – 84.6 LF at 1' overhang (84.6 SF) – rakes\",\"Remove & replace fascia – material to confirm – 158.1 LF (eaves + rakes)\",\"Remove & replace eavestrough – 73.5 LF\",\"End caps – 8\",\"Mitres – 1 (0 outside, 1 inside)\",\"Drops – 4\",\"Elbows – 12\",\"Remove & replace downspouts – 4 – 53.2 LF (eave height + 15%)\"]}",
    "pdf": {
     "pages": 9,
-    "hash": "2be1f317b1e18bfc62ac5a80"
+    "hash": "e2514a5011693a277605deac"
    }
   },
   "scan-exterior-sample.json": {
@@ -31,7 +31,7 @@
    "linesAll": "{\"roofing\":[\"Remove & replace roofing – material to confirm – 4/12 – 10.61 SQ (all slopes)\",\"Hip & ridge cap – 34.8 LF\",\"Starter – 69.6 LF (eaves)\",\"Ice & water barrier – 69.6 LF (eaves + valleys)\"],\"siding\":[\"Remove & replace brick – Front – 86.0 SF (96.9 SF less 10.9 SF of openings)\",\"Remove & replace stucco – Front, Right, Rear, Left – 985.9 SF (1064.2 SF less 78.2 SF of openings)\",\"Remove & replace soffit – material to confirm – 69.6 LF at 1'4\\\" overhang (92.8 SF) – eaves\",\"Remove & replace soffit – material to confirm – 61.0 LF at 1' overhang (61.0 SF) – rakes\",\"Remove & replace fascia – material to confirm – 130.6 LF (eaves + rakes)\",\"Remove & replace eavestrough – 69.6 LF\",\"End caps – 4\",\"Drops – 2\",\"Elbows – 6\",\"Remove & replace downspouts – 2 – 22.6 LF (eave height + 15%)\"]}",
    "pdf": {
     "pages": 9,
-    "hash": "60ff855a672fd3de567f97a4"
+    "hash": "fc4cfda11e7c8de23a768dea"
    }
   },
   "scan-exterior-send.json": {
@@ -42,7 +42,7 @@
    "linesAll": "{\"roofing\":[\"Remove & replace roofing – material to confirm – 4/12 – 10.61 SQ (all slopes)\",\"Hip & ridge cap – 34.8 LF\",\"Starter – 69.6 LF (eaves)\",\"Ice & water barrier – 69.6 LF (eaves + valleys)\"],\"siding\":[\"Remove & replace brick – Front – 86.0 SF (96.9 SF less 10.9 SF of openings)\",\"Remove & replace stucco – Front, Right, Rear, Left – 985.9 SF (1064.2 SF less 78.2 SF of openings)\",\"Remove & replace soffit – material to confirm – 69.6 LF at 1'4\\\" overhang (92.8 SF) – eaves\",\"Remove & replace soffit – material to confirm – 61.0 LF at 1' overhang (61.0 SF) – rakes\",\"Remove & replace fascia – material to confirm – 130.6 LF (eaves + rakes)\",\"Remove & replace eavestrough – 69.6 LF\",\"End caps – 4\",\"Drops – 2\",\"Elbows – 6\",\"Remove & replace downspouts – 2 – 22.6 LF (eave height + 15%)\"]}",
    "pdf": {
     "pages": 9,
-    "hash": "60ff855a672fd3de567f97a4"
+    "hash": "fc4cfda11e7c8de23a768dea"
    }
   },
   "scan-exterior-v2-photos.json": {
@@ -97,7 +97,7 @@
    "linesAll": "{\"roofing\":[\"Remove & replace roofing – material to confirm – 5/12 – 29.99 SQ (all slopes)\",\"Hip & ridge cap – 115.2 LF\",\"Starter – 118.3 LF (eaves)\",\"Ice & water barrier – 200.9 LF (eaves + valleys)\",\"Valleys – 82.7 LF\",\"Step flashing – 46.2 LF (a lower roof's slopes against the wall)\"],\"siding\":[\"Remove & replace stucco – Front, Left, Front 2, Left 2, Front 3, Right, Rear, Left 3, Rear 2, Left 4, Rear 3, Left 5 – 2074.8 SF (2422.8 SF less 348.1 SF of openings)\",\"Remove & replace soffit – material to confirm – 118.3 LF at 1'4\\\" overhang (157.7 SF) – eaves\",\"Remove & replace soffit – material to confirm – 190.8 LF at 1' overhang (190.8 SF) – rakes\",\"Remove & replace fascia – material to confirm – 309.1 LF (eaves + rakes)\",\"Remove & replace eavestrough – 118.3 LF\",\"End caps – 20\",\"Mitres – 2 (0 outside, 2 inside)\",\"Drops – 11\",\"Elbows – 33\",\"Remove & replace downspouts – 11 – 112.3 LF (eave height + 15%)\"]}",
    "pdf": {
     "pages": 14,
-    "hash": "c6ad2cc761c8d57642f37018"
+    "hash": "b70b2c173cf96121126cb66a"
    }
   },
   "photos-only-1016.json": {
@@ -108,7 +108,7 @@
    "linesAll": "{\"roofing\":[\"Remove & replace roofing – material to confirm – 5/12 – 32.31 SQ (all slopes)\",\"Hip & ridge cap – 110.6 LF\",\"Starter – 114.0 LF (eaves)\",\"Ice & water barrier – 193.1 LF (eaves + valleys)\",\"Valleys – 79.1 LF\",\"Step flashing – 16.0 LF (a lower roof's slopes against the wall)\"],\"siding\":[\"Remove & replace stucco – Garage front, west bay, Bay step, Garage front, east bay, East side wall, Rear bump-out gable, Bump-out west side, Rear wall, Covered-deck side, Covered-deck back wall, West gable wall, Front wall behind the porch, Keystone wall – 2302.8 SF (2731.3 SF less 428.6 SF of openings)\",\"Remove & replace soffit – material to confirm – 114.0 LF at 1'4\\\" overhang (152.0 SF) – eaves\",\"Remove & replace soffit – material to confirm – 166.6 LF at 1' overhang (166.6 SF) – rakes\",\"Remove & replace fascia – material to confirm – 280.5 LF (eaves + rakes)\",\"Remove & replace eavestrough – 114.0 LF\",\"End caps – 16\",\"Mitres – 2 (0 outside, 2 inside)\",\"Drops – 9\",\"Elbows – 27\",\"Remove & replace downspouts – 9 – 134.1 LF (eave height + 15%)\"]}",
    "pdf": {
     "pages": 16,
-    "hash": "cceff662f80c12aeee61d789"
+    "hash": "06b0d7febfd0950de619210b"
    }
   },
   "finish-1453/capture.json": {
@@ -119,7 +119,7 @@
    "linesAll": "{\"roofing\":[\"Remove & replace roofing – material to confirm – 5/12 – 30.39 SQ (all slopes)\",\"Hip & ridge cap – 114.2 LF\",\"Starter – 116.3 LF (eaves)\",\"Ice & water barrier – 198.9 LF (eaves + valleys)\",\"Valleys – 82.7 LF\",\"Step flashing – 14.9 LF (a lower roof's slopes against the wall)\"],\"siding\":[\"Remove & replace stucco – Front, Left, Front 2, Left 2, Front 3, Right, Rear, Left 3, Rear 2, Left 4, Rear 3, Left 5 – 2074.8 SF (2422.8 SF less 348.1 SF of openings)\",\"Remove & replace soffit – material to confirm – 116.3 LF at 1'4\\\" overhang (155.0 SF) – eaves\",\"Remove & replace soffit – material to confirm – 156.6 LF at 1' overhang (156.6 SF) – rakes\",\"Remove & replace fascia – material to confirm – 272.9 LF (eaves + rakes)\",\"Remove & replace eavestrough – 116.3 LF\",\"End caps – 16\",\"Mitres – 2 (0 outside, 2 inside)\",\"Drops – 9\",\"Elbows – 27\",\"Remove & replace downspouts – 9 – 89.4 LF (eave height + 15%)\"]}",
    "pdf": {
     "pages": 15,
-    "hash": "d07ef90756ab55bf1596aea9"
+    "hash": "aec7cc46fa4e90c56553c2fa"
    }
   },
   "photos-only-1016.json + finish": {
@@ -130,7 +130,7 @@
    "linesAll": "{\"roofing\":[\"Remove & replace roofing – material to confirm – 5/12 – 32.19 SQ (all slopes)\",\"Hip & ridge cap – 134.5 LF\",\"Starter – 125.3 LF (eaves)\",\"Ice & water barrier – 216.3 LF (eaves + valleys)\",\"Valleys – 91.0 LF\"],\"siding\":[\"Remove & replace stucco – Garage front, west bay, Bay step, Garage front, east bay, East side wall, Rear bump-out gable, Bump-out west side, Rear wall, Covered-deck side, Covered-deck back wall, West gable wall, Front wall behind the porch, Keystone wall – 2302.8 SF (2731.3 SF less 428.6 SF of openings)\",\"Remove & replace soffit – material to confirm – 125.3 LF at 1'4\\\" overhang (167.1 SF) – eaves\",\"Remove & replace soffit – material to confirm – 133.2 LF at 1' overhang (133.2 SF) – rakes\",\"Remove & replace fascia – material to confirm – 258.5 LF (eaves + rakes)\",\"Remove & replace eavestrough – 125.3 LF\",\"End caps – 12\",\"Mitres – 4 (1 outside, 3 inside)\",\"Drops – 7\",\"Elbows – 21\",\"Remove & replace downspouts – 7 – 101.4 LF (eave height + 15%)\"]}",
    "pdf": {
     "pages": 16,
-    "hash": "a5fe6035260b36d8acf37f47"
+    "hash": "e3a7bb7e90e9617924b09aef"
    }
   },
   "claim-saved-1016.json": {
@@ -141,7 +141,7 @@
    "linesAll": "{\"roofing\":[\"Remove & replace roofing – material to confirm – 5.5/12 – 31.11 SQ (all slopes)\",\"Hip & ridge cap – 117.5 LF\",\"Starter – 127.6 LF (eaves)\",\"Ice & water barrier – 207.5 LF (eaves + valleys)\",\"Valleys – 79.9 LF\",\"Step flashing – 47.0 LF (a lower roof's slopes against the wall)\"],\"siding\":[\"Remove & replace stucco – Front, Right, Rear, Left 4, Rear 2, Left 2, Rear 3, Left, Front 3, Left 3, Front 2, Left 5 – 2519.1 SF (2803.7 SF less 284.5 SF of openings)\",\"Remove & replace soffit – material to confirm – 127.6 LF at 1'4\\\" overhang (170.1 SF) – eaves\",\"Remove & replace soffit – material to confirm – 187.7 LF at 1' overhang (187.7 SF) – rakes\",\"Remove & replace fascia – material to confirm – 315.3 LF (eaves + rakes)\",\"Remove & replace eavestrough – 127.6 LF\",\"End caps – 18\",\"Mitres – 1 (0 outside, 1 inside)\",\"Drops – 10\",\"Elbows – 30\",\"Remove & replace downspouts – 10 – 128.3 LF (eave height + 15%)\"]}",
    "pdf": {
     "pages": 13,
-    "hash": "51534bae0ff4cf72e031a12e"
+    "hash": "d3a58b45aedd2877996d518d"
    }
   },
   "rectangle 40 x 30 at 6/12": {
@@ -152,7 +152,7 @@
    "linesAll": "{\"roofing\":[\"Remove & replace roofing – material to confirm – 6/12 – 15.34 SQ (all slopes)\",\"Hip & ridge cap – 42.0 LF\",\"Starter – 84.0 LF (eaves)\",\"Ice & water barrier – 84.0 LF (eaves + valleys)\"],\"siding\":[\"Remove & replace stucco – Front, Right, Rear, Left – 1391.7 SF\",\"Remove & replace soffit – material to confirm – 84.0 LF at 1'4\\\" overhang (112.0 SF) – eaves\",\"Remove & replace soffit – material to confirm – 73.0 LF at 1' overhang (73.0 SF) – rakes\",\"Remove & replace fascia – material to confirm – 157.0 LF (eaves + rakes)\",\"Remove & replace eavestrough – 84.0 LF\",\"End caps – 4\",\"Drops – 4\",\"Elbows – 12\",\"Remove & replace downspouts – 4 – 41.4 LF (eave height + 15%)\"]}",
    "pdf": {
     "pages": 8,
-    "hash": "29247da57f3972a5379ac6ab"
+    "hash": "11a3fd1615c8da1d226aa17b"
    }
   },
   "L 50 x 40, notch 20 x 15": {
@@ -163,7 +163,7 @@
    "linesAll": "{\"roofing\":[\"Remove & replace roofing – material to confirm – 5/12 – 20.76 SQ (all slopes)\",\"Hip & ridge cap – 75.5 LF\",\"Starter – 96.3 LF (eaves)\",\"Ice & water barrier – 136.6 LF (eaves + valleys)\",\"Valleys – 40.3 LF\"],\"siding\":[\"Remove & replace stucco – Front, Right, Right rear, Inside right, Rear, Left – 1932.6 SF\",\"Remove & replace soffit – material to confirm – 96.3 LF at 1'4\\\" overhang (128.4 SF) – eaves\",\"Remove & replace soffit – material to confirm – 100.7 LF at 1' overhang (100.7 SF) – rakes\",\"Remove & replace fascia – material to confirm – 197.1 LF (eaves + rakes)\",\"Remove & replace eavestrough – 96.3 LF\",\"End caps – 8\",\"Mitres – 1 (0 outside, 1 inside)\",\"Drops – 5\",\"Elbows – 15\",\"Remove & replace downspouts – 5 – 57.5 LF (eave height + 15%)\"]}",
    "pdf": {
     "pages": 8,
-    "hash": "bc37a1f90e5c15f51f3094c6"
+    "hash": "40f3ea35b4c0dced126dbabb"
    }
   }
  }

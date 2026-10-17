@@ -110,6 +110,82 @@ export interface ExteriorOpening {
   hiddenBy?: string;
   /** The estimator said what it is (2026-10-16): on "Check these", or by changing its kind. No longer a guess off a photo. */
   confirmed?: true;
+  /** Its surround, when it has one of another finish or colour than the wall (2026-10-17, `OpeningTrim`). */
+  trim?: OpeningTrim;
+}
+
+/**
+ * Trim round an opening (2026-10-17, the owner: "the main house is stucco but you will notice another color and shapes.
+ * Columns and surrounding the windows and garage doors. We would want to be able to differentiate these in the report"):
+ * a raised surround of another finish or colour - white stucco on his dark stucco - and the keystone at its head. It has
+ * its own lines on the scope and the report, and the wall's cladding under it comes off the field, as an opening's does.
+ * Not the narrow casing every window and door has: that is the opening's own.
+ */
+export interface OpeningTrim {
+  /** How wide it is past the opening, feet: each jamb, the head over its top, a sill band under its bottom. 0: none there (a door's foot). */
+  leftFeet: number;
+  rightFeet: number;
+  topFeet: number;
+  bottomFeet: number;
+  /** A strip of the wall showing between the opening and the surround all round, feet: a band set off from the window. Absent: tight to it. */
+  gapFeet?: number;
+  /** Its jambs run on up past its head to this far over the opening's top: up to a porch ceiling, say. Absent: to the head's top. */
+  upFeet?: number;
+  material: CladdingKind;
+  /** What "other" is. */
+  label?: string;
+  /** Its colour off the photo, "#rrggbb": for drawing only. */
+  colour?: string;
+  /** A keystone at the head, centred: its width across its top, and its height from the opening's top up. */
+  keystone?: { widthFeet: number; heightFeet: number };
+  /** Read off the side's photo, not tapped or typed. */
+  from?: "photo";
+  /** Why the read is unsure, in words: what hid part of it in its photo, or that its photo saw it edge-on. Asked on "Check these". */
+  unsure?: string;
+  /** The estimator kept it on "Check these": no longer asked. */
+  confirmed?: true;
+}
+
+export type ColumnKind = "pilaster" | "column";
+
+export const COLUMN_LABEL: Record<ColumnKind, string> = { pilaster: "Pilaster", column: "Column" };
+
+/** A column's base or cap: a block standing out past its shaft all round. */
+export interface ColumnBlock {
+  heightFeet: number;
+  /** How far it stands out past the shaft, each way. */
+  outFeet: number;
+}
+
+/**
+ * A column or pilaster on a side (2026-10-17): the owner's square stucco columns at the porch and beside the garage doors,
+ * with their bases and caps. A PILASTER stands against the wall, its back in it, and covers the cladding behind it; a
+ * COLUMN stands clear of the wall (a porch column) and hides nothing of it - each is counted, never taken as the wall hidden.
+ */
+export interface SideColumn {
+  id: string;
+  kind: ColumnKind;
+  /** From the side's left corner to its left edge, feet: less than 0, or past the right end, where it wraps the corner. */
+  fromLeftFeet: number;
+  /** Its shaft across, as the side's face sees it, and front to back. */
+  widthFeet: number;
+  depthFeet: number;
+  /** A pilaster: how far its face stands out from the wall. A column: how far its back stands off the wall. */
+  outFeet: number;
+  /** Its foot above the ground under it (a porch deck), and its height from there to its top, cap and all. */
+  footFeet: number;
+  heightFeet: number;
+  base?: ColumnBlock | null;
+  cap?: ColumnBlock | null;
+  material: CladdingKind;
+  /** What "other" is. */
+  label?: string;
+  /** Its colour off the photo, "#rrggbb": for drawing only. */
+  colour?: string;
+  from?: "photo";
+  /** Why the read is unsure, in words (see `OpeningTrim.unsure`). */
+  unsure?: string;
+  confirmed?: true;
 }
 
 /** A gable as measured: the peak, and where along the wall it is. */
@@ -197,6 +273,8 @@ export interface ExteriorSide {
    * trim, its corners - nor scoped; its elevation is a line saying so; the roof is cut by the party line over it.
    */
   shared?: boolean;
+  /** Its columns and pilasters (2026-10-17, `SideColumn`). Absent: none. */
+  columns?: SideColumn[];
 }
 
 /** The kind of home, as a label (2026-10-17): the sides' `shared` flags are what is counted. Absent: by the flags. */
@@ -374,6 +452,8 @@ export interface ExteriorShape {
   polygon: Pt[];
   /** Read off the side's photo by Finish exterior on the phone (2026-10-15, lib/exteriorFinish.ts), not tapped. */
   from?: "photo";
+  /** Its colour off the photo, "#rrggbb" (2026-10-17): for drawing only - the owner's dark stucco drawn dark. */
+  colour?: string;
 }
 
 export interface RooflinePoint {
@@ -1046,6 +1126,8 @@ export interface ElevationFace {
   poly: Pt[];
   /** False for a shape left open: drawn, not counted. */
   closed: boolean;
+  /** Its colour off the photo (2026-10-17): drawn in it. Absent: the kind's own. */
+  colour?: string;
 }
 
 function shapeLabel(shape: ExteriorShape): string {
@@ -1131,7 +1213,7 @@ export function elevationFaces(side: ExteriorSide, roofRise: RoofRise | null = n
   if (fromShapes) {
     const faces: ElevationFace[] = (side.shapes ?? [])
       .filter((s) => s.polygon.length >= 2)
-      .map((s) => ({ id: s.id, kind: s.kind, label: shapeLabel(s), poly: s.polygon, closed: s.closed && s.polygon.length >= 3 }));
+      .map((s) => ({ id: s.id, kind: s.kind, label: shapeLabel(s), poly: s.polygon, closed: s.closed && s.polygon.length >= 3, ...(s.colour ? { colour: s.colour } : {}) }));
     return { shape, faces, bandLines: [] as number[], grade: gradeFromParging(side.shapes ?? []) ?? [...shape.grade], openings, fromShapes };
   }
   const ranges = shape.eaveZ === null ? [] : bandRanges(side, shape.eaveZ);
@@ -1149,6 +1231,8 @@ export interface BandQuantities {
   netSquareFeet: number;
   /** A shape's area that a shape tapped after it covers, taken out so nothing is counted twice. */
   overlapSquareFeet?: number;
+  /** The trim over it (2026-10-17): surrounds, keystones and pilasters, taken off as an opening is. Absent: none. */
+  trimSquareFeet?: number;
 }
 
 /** A simple polygon in triangles (ear clipping), either way round. */
@@ -1209,6 +1293,11 @@ function sharedArea(a: Pt[], b: Pt[]): number {
   return total;
 }
 
+/** How much two simple polygons share, square feet (2026-10-17: a read shape over a tapped one). */
+export function polygonOverlap(a: Pt[], b: Pt[]): number {
+  return a.length >= 3 && b.length >= 3 ? sharedArea(a, b) : 0;
+}
+
 export interface SideQuantities {
   sideId: string;
   name: string;
@@ -1231,6 +1320,46 @@ export interface SideQuantities {
   /** Rise in 12 from a MEASURED gable: (peak − the eave under it) over half the gable's span. */
   pitchFromGable: number | null;
   gableSource: "measured" | "roof" | null;
+  /** Its surrounds, keystones, columns and pilasters (2026-10-17); absent with none. */
+  trim?: SideTrim;
+}
+
+/** A surround round one opening, as priced. */
+export interface SurroundQuantity {
+  openingId: string;
+  openingKind: ExteriorOpeningKind;
+  material: CladdingKind;
+  /** "Stucco", or what "other" is: the trim's material. */
+  label: string;
+  /** Its pieces as cut, each along its run: the jambs full height, the head and the sill between them. */
+  linearFeet: number;
+  /** Its face, pieces and the keystone's part past the head. */
+  squareFeet: number;
+  keystone: boolean;
+  unsure?: string;
+}
+
+/** A column or pilaster, as priced. */
+export interface ColumnQuantity {
+  id: string;
+  kind: ColumnKind;
+  material: CladdingKind;
+  label: string;
+  /** Round its shaft where it is clad: all four faces of a column; a pilaster's face and the two returns to the wall. */
+  perimeterFeet: number;
+  heightFeet: number;
+  /** Perimeter × height. */
+  wrapSquareFeet: number;
+  base: boolean;
+  cap: boolean;
+  unsure?: string;
+}
+
+export interface SideTrim {
+  /** The trim's face where it covers the side's counted cladding, once: what comes off it. */
+  squareFeet: number;
+  surrounds: SurroundQuantity[];
+  columns: ColumnQuantity[];
 }
 
 export function bandLabel(band: CladdingBand): string {
@@ -1247,6 +1376,8 @@ function shapeQuantities(side: ExteriorSide, empty: SideQuantities): SideQuantit
   if (faces.length === 0) return empty;
   const L = Math.max(1e-9, side.lengthFeet);
   const rects = side.openings.map((o) => openingRect(side, o));
+  // The trim over the wall (2026-10-17): each shape gives up what of it is under trim, the topmost shape only.
+  const cover = trimCover(side);
   /*
     Shapes that overlap - a stone wainscot tapped over a stucco wall - would count the overlap twice.
     The later-tapped shape is taken to be the one on top, as it is laid over the first, so the
@@ -1272,20 +1403,23 @@ function shapeQuantities(side: ExteriorSide, empty: SideQuantities): SideQuantit
         return sum + a - Math.min(a, covered);
       }, 0),
     );
+    const trim = cover.length > 0 ? Math.min(Math.max(0, gross - holes), trimAreaIn(f.polygon, later.map((g) => g.polygon), cover)) : 0;
     return {
       bandId: f.id,
       kind: f.kind as CladdingKind,
       label: shapeLabel(f),
       grossSquareFeet: gross,
       openingSquareFeet: holes,
-      netSquareFeet: Math.max(0, gross - holes),
+      netSquareFeet: Math.max(0, gross - holes - trim),
       ...(overlap > 1e-6 ? { overlapSquareFeet: overlap } : {}),
+      ...(trim > 1e-6 ? { trimSquareFeet: trim } : {}),
     };
   });
   const zl = side.eaveLeftFeet;
   const zr = side.eaveRightFeet ?? zl;
   const gross = bands.reduce((sum, b) => sum + b.grossSquareFeet, 0);
   const holes = bands.reduce((sum, b) => sum + b.openingSquareFeet, 0);
+  const trimOff = bands.reduce((sum, b) => sum + (b.trimSquareFeet ?? 0), 0);
   // Below the line between the two eaves is wall; above it, gable - each shape's share less what it gave up to an overlap.
   const wall =
     zl == null || zr == null
@@ -1310,11 +1444,12 @@ function shapeQuantities(side: ExteriorSide, empty: SideQuantities): SideQuantit
     gableSquareFeet: Math.max(0, gross - wall),
     grossSquareFeet: gross,
     openingSquareFeet: holes,
-    netSquareFeet: Math.max(0, gross - holes),
+    netSquareFeet: Math.max(0, gross - holes - trimOff),
     bands,
     corners: { leftFeet: zl == null ? 0 : zl - baseL, rightFeet: zr == null ? 0 : zr - baseR },
     pitchFromGable,
     gableSource: side.gable ? "measured" : null,
+    ...trimOf(side, trimOff),
   };
 }
 
@@ -1370,16 +1505,28 @@ export function sideQuantities(side: ExteriorSide, roofRise: RoofRise | null = n
   const eaveZ = shape.eaveZ;
 
   const rects = side.openings.map((o) => openingRect(side, o));
+  const cover = trimCover(side);
   const bands: BandQuantities[] = bandRanges(side, eaveZ).map(({ band, lo, hi }) => {
     const part = clipLevels(shape.cladding, lo, hi);
     const gross = area(part);
     const holes = rects.reduce((s, r) => s + area(clipRect(part, r.x0, r.x1, r.y0, r.y1)), 0);
-    return { bandId: band.id, kind: band.kind, label: bandLabel(band), grossSquareFeet: gross, openingSquareFeet: holes, netSquareFeet: Math.max(0, gross - holes) };
+    // The trim over it (2026-10-17), taken off as the openings are.
+    const trim = cover.length > 0 && part.length >= 3 ? Math.min(Math.max(0, gross - holes), trimAreaIn(part, [], cover)) : 0;
+    return {
+      bandId: band.id,
+      kind: band.kind,
+      label: bandLabel(band),
+      grossSquareFeet: gross,
+      openingSquareFeet: holes,
+      netSquareFeet: Math.max(0, gross - holes - trim),
+      ...(trim > 1e-6 ? { trimSquareFeet: trim } : {}),
+    };
   });
   const wall = area(clipLevels(shape.cladding, -Infinity, eaveZ));
   const gable = area(clipLevels(shape.cladding, eaveZ, Infinity));
   const gross = bands.reduce((s, b) => s + b.grossSquareFeet, 0);
   const holes = bands.reduce((s, b) => s + b.openingSquareFeet, 0);
+  const trimOff = bands.reduce((s, b) => s + (b.trimSquareFeet ?? 0), 0);
 
   let pitchFromGable: number | null = side.pitchMeasured ?? null;
   if (pitchFromGable === null && shape.gable?.source === "measured") {
@@ -1394,12 +1541,326 @@ export function sideQuantities(side: ExteriorSide, roofRise: RoofRise | null = n
     gableSquareFeet: gable,
     grossSquareFeet: gross,
     openingSquareFeet: holes,
-    netSquareFeet: Math.max(0, gross - holes),
+    netSquareFeet: Math.max(0, gross - holes - trimOff),
     bands,
     corners: { leftFeet: eaveZ - shape.bottom[0].y, rightFeet: eaveZ - shape.bottom[1].y },
     pitchFromGable,
     gableSource: shape.gable?.source ?? null,
+    ...trimOf(side, trimOff),
   };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Trim on a side: surrounds, keystones, columns and pilasters (2026-10-17)
+// ---------------------------------------------------------------------------------------------
+
+/*
+  The owner's house: dark grey field stucco with WHITE stucco trim - a wide surround round each window and garage door,
+  a keystone over some, square columns with bases and caps at the porch and beside the garage doors. Each is its own
+  line, and the field stucco is what is left of the wall once the openings AND the trim are off it.
+
+  A surround is its pieces: two jambs full height, a head over the top and a sill band under the bottom between them, a
+  keystone over the head. A pilaster covers the wall behind it; a column standing clear of the wall covers none of it.
+  Where pieces overlap (a keystone on its head, a surround against a pilaster), the wall under them comes off once.
+*/
+
+/** How far a surround and a keystone stand out of the wall: for the drawings and the 3D view only. */
+export const SURROUND_OUT_FEET = 1.5 / 12;
+export const KEYSTONE_OUT_FEET = 2.5 / 12;
+/** A keystone's foot as a share of its top: it narrows down to the opening, as a keystone does. */
+export const KEYSTONE_FOOT = 0.6;
+
+export type TrimPart = "jamb" | "head" | "sill" | "keystone" | "shaft" | "base" | "cap";
+
+/** One piece of trim as drawn, in the side's frame: convex, counter-clockwise. */
+export interface TrimShape {
+  part: TrimPart;
+  /** The opening or column it belongs to, by id. */
+  of: string;
+  poly: Pt[];
+  material: CladdingKind;
+  label: string;
+  colour?: string;
+  /** How far its face stands out of the wall's face. */
+  outFeet: number;
+  /** How far its back stands off the wall's face: 0 but for a column standing clear. */
+  backFeet: number;
+  /** Against the wall, covering its cladding: false for a column standing clear of it. */
+  onWall: boolean;
+}
+
+const rectPoly = (x0: number, x1: number, y0: number, y1: number): Pt[] => [
+  { x: x0, y: y0 },
+  { x: x1, y: y0 },
+  { x: x1, y: y1 },
+  { x: x0, y: y1 },
+];
+
+/** The trim's material in words: "Stucco", or what "other" is. */
+export function trimLabel(material: CladdingKind, label?: string): string {
+  return material === "other" && label?.trim() ? label.trim() : CLADDING_LABEL[material];
+}
+
+/** Whether a side has any trim at all: a surround or a column. */
+export function hasTrim(side: ExteriorSide): boolean {
+  return side.openings.some((o) => o.trim) || (side.columns ?? []).length > 0;
+}
+
+/** An opening's surround as drawn: its pieces, then its keystone whole, over the head. */
+export function surroundShapes(side: ExteriorSide, o: ExteriorOpening): TrimShape[] {
+  const t = o.trim;
+  if (!t) return [];
+  const r = openingRect(side, o);
+  const g = Math.max(0, t.gapFeet ?? 0);
+  const [L, R, T, B] = [t.leftFeet, t.rightFeet, t.topFeet, t.bottomFeet].map((v) => (Number.isFinite(v) ? Math.max(0, v) : 0)) as [number, number, number, number];
+  const ix0 = r.x0 - g;
+  const ix1 = r.x1 + g;
+  const iy0 = B > 0 ? r.y0 - g : r.y0;
+  const iy1 = r.y1 + g;
+  const oy0 = iy0 - B;
+  const oy1 = Math.max(iy1 + T, r.y1 + Math.max(0, t.upFeet ?? 0));
+  const of = { of: o.id, material: t.material, label: trimLabel(t.material, t.label), ...(t.colour ? { colour: t.colour } : {}), outFeet: SURROUND_OUT_FEET, backFeet: 0, onWall: true };
+  const out: TrimShape[] = [];
+  if (L > 1e-6) out.push({ part: "jamb", poly: rectPoly(ix0 - L, ix0, oy0, oy1), ...of });
+  if (R > 1e-6) out.push({ part: "jamb", poly: rectPoly(ix1, ix1 + R, oy0, oy1), ...of });
+  if (T > 1e-6) out.push({ part: "head", poly: rectPoly(ix0, ix1, iy1, iy1 + T), ...of });
+  if (B > 1e-6) out.push({ part: "sill", poly: rectPoly(ix0, ix1, oy0, iy0), ...of });
+  const k = t.keystone;
+  if (k && k.widthFeet > 1e-6 && k.heightFeet > 1e-6) {
+    const xc = (r.x0 + r.x1) / 2;
+    const top = k.widthFeet / 2;
+    const foot = top * KEYSTONE_FOOT;
+    const keystone = [
+      { x: xc - foot, y: r.y1 },
+      { x: xc + foot, y: r.y1 },
+      { x: xc + top, y: r.y1 + k.heightFeet },
+      { x: xc - top, y: r.y1 + k.heightFeet },
+    ];
+    out.push({ part: "keystone", poly: keystone, ...of, outFeet: KEYSTONE_OUT_FEET });
+  }
+  return out;
+}
+
+/** A column or pilaster as drawn: its base, shaft and cap, in the side's frame. */
+export function columnShapes(side: ExteriorSide, c: SideColumn): TrimShape[] {
+  const x0 = c.fromLeftFeet;
+  const x1 = x0 + Math.max(0, c.widthFeet);
+  const y0 = zFromGrade(side, (x0 + x1) / 2, c.footFeet);
+  const y1 = y0 + Math.max(0, c.heightFeet);
+  if (x1 - x0 < 1e-6 || y1 - y0 < 1e-6) return [];
+  const clear = c.kind === "column";
+  const back = clear ? Math.max(0, c.outFeet) : 0;
+  const face = clear ? back + Math.max(0, c.depthFeet) : Math.max(0, c.outFeet);
+  const bh = c.base ? clamp(c.base.heightFeet, 0, y1 - y0) : 0;
+  const ch = c.cap ? clamp(c.cap.heightFeet, 0, y1 - y0 - bh) : 0;
+  const bo = c.base ? Math.max(0, c.base.outFeet) : 0;
+  const co = c.cap ? Math.max(0, c.cap.outFeet) : 0;
+  const of = { of: c.id, material: c.material, label: trimLabel(c.material, c.label), ...(c.colour ? { colour: c.colour } : {}), backFeet: back, onWall: !clear };
+  const out: TrimShape[] = [];
+  if (bh > 1e-6) out.push({ part: "base", poly: rectPoly(x0 - bo, x1 + bo, y0, y0 + bh), ...of, outFeet: face + bo, backFeet: clear ? Math.max(0, back - bo) : 0 });
+  if (y1 - ch - (y0 + bh) > 1e-6) out.push({ part: "shaft", poly: rectPoly(x0, x1, y0 + bh, y1 - ch), ...of, outFeet: face });
+  if (ch > 1e-6) out.push({ part: "cap", poly: rectPoly(x0 - co, x1 + co, y1 - ch, y1), ...of, outFeet: face + co, backFeet: clear ? Math.max(0, back - co) : 0 });
+  return out;
+}
+
+/** How light a "#rrggbb" colour is, 0 to 1 (Rec. 709 weights on the sRGB values); 1 for no colour. */
+export function colourLightness(hex: string | undefined): number {
+  const v = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex ?? "");
+  if (!v) return 1;
+  const [r, g, b] = [v[1], v[2], v[3]].map((c) => parseInt(c as string, 16) / 255) as [number, number, number];
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+/** The house's colours for drawing (2026-10-17), by material: its walls' faces, and its trim apart. */
+export interface HouseColours {
+  faces: Partial<Record<CladdingKind | "parging", string>>;
+  trim: Partial<Record<CladdingKind, string>>;
+}
+
+/**
+ * Each material drawn in ONE colour round the house (2026-10-17), off what its sides' photos read: as light as the middle
+ * of the reads for a wall's face, as the upper quarter for its trim - a white surround reads grey in the shade or against
+ * the sun, never whiter than it is - and of the hue of the lightest read, the one in the most direct light: a wall in the
+ * shade under a blue sky reads blue. So the owner's photos of the front, taken into the sun, and of the back, in it, draw
+ * one dark grey stucco with white trim, and a side no photo read is drawn in them too. Null when nothing was read.
+ */
+export function houseColours(exterior: Exterior): HouseColours | null {
+  const faces = new Map<string, string[]>();
+  const trim = new Map<string, string[]>();
+  for (const side of allSides(exterior)) {
+    for (const s of side.shapes ?? []) if (s.colour) faces.set(s.kind, [...(faces.get(s.kind) ?? []), s.colour]);
+    for (const o of side.openings) if (o.trim?.colour) trim.set(o.trim.material, [...(trim.get(o.trim.material) ?? []), o.trim.colour]);
+    for (const c of side.columns ?? []) if (c.colour) trim.set(c.material, [...(trim.get(c.material) ?? []), c.colour]);
+  }
+  if (faces.size === 0 && trim.size === 0) return null;
+  const at = (list: string[], q: number) => {
+    const sorted = [...list].sort((a, b) => colourLightness(a) - colourLightness(b));
+    const want = colourLightness(sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * q))]);
+    const hue = sorted[sorted.length - 1] as string;
+    const k = colourLightness(hue) > 1e-6 ? want / colourLightness(hue) : 1;
+    const v = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hue);
+    if (!v) return hue;
+    return `#${[v[1], v[2], v[3]].map((c) => Math.min(255, Math.round(parseInt(c as string, 16) * k)).toString(16).padStart(2, "0")).join("")}`;
+  };
+  return {
+    faces: Object.fromEntries([...faces].map(([k, list]) => [k, at(list, 0.5)])),
+    trim: Object.fromEntries([...trim].map(([k, list]) => [k, at(list, 0.75)])),
+  };
+}
+
+/** Every piece of trim on a side as drawn: the surrounds round its openings, then its columns and pilasters. */
+export function trimShapes(side: ExteriorSide): TrimShape[] {
+  return [...side.openings.flatMap((o) => surroundShapes(side, o)), ...(side.columns ?? []).flatMap((c) => columnShapes(side, c))];
+}
+
+function signedArea(poly: Pt[]): number {
+  let s = 0;
+  for (let i = 0; i < poly.length; i++) {
+    const p = poly[i] as Pt;
+    const q = poly[(i + 1) % poly.length] as Pt;
+    s += p.x * q.y - q.x * p.y;
+  }
+  return s / 2;
+}
+
+/** The part of [poly] to the left of a → b (inside, for a counter-clockwise edge), or to its right. */
+function sideOf(poly: Pt[], a: Pt, b: Pt, left: boolean): Pt[] {
+  const A = b.y - a.y;
+  const B = -(b.x - a.x);
+  const C = A * a.x + B * a.y;
+  return left ? clipHalf(poly, A, B, C) : clipHalf(poly, -A, -B, -C);
+}
+
+/** [p] cut to the convex [q]. */
+function clipConvex(p: Pt[], q: Pt[]): Pt[] {
+  const qq = signedArea(q) < 0 ? [...q].reverse() : q;
+  let out = p;
+  for (let i = 0; i < qq.length && out.length >= 3; i++) out = sideOf(out, qq[i] as Pt, qq[(i + 1) % qq.length] as Pt, true);
+  return out;
+}
+
+/** The convex [p] less the convex [q], as convex pieces that do not overlap. */
+function convexMinus(p: Pt[], q: Pt[]): Pt[][] {
+  const qq = signedArea(q) < 0 ? [...q].reverse() : q;
+  const out: Pt[][] = [];
+  let rest = p;
+  for (let i = 0; i < qq.length && rest.length >= 3; i++) {
+    const a = qq[i] as Pt;
+    const b = qq[(i + 1) % qq.length] as Pt;
+    const outside = sideOf(rest, a, b, false);
+    if (outside.length >= 3 && Math.abs(signedArea(outside)) > 1e-9) out.push(outside);
+    rest = sideOf(rest, a, b, true);
+  }
+  return out;
+}
+
+/**
+ * The trim that covers a side's wall, cut to the side's length (a pilaster wrapping a corner covers the next wall
+ * there), as convex pieces that overlap neither each other nor an opening: what comes off the cladding, once.
+ */
+function trimCover(side: ExteriorSide): Pt[][] {
+  if (!hasTrim(side)) return [];
+  const L = Math.max(0, side.lengthFeet);
+  const holes = side.openings.map((o) => {
+    const r = openingRect(side, o);
+    return rectPoly(r.x0, r.x1, r.y0, r.y1);
+  });
+  const out: Pt[][] = [];
+  for (const s of trimShapes(side)) {
+    if (!s.onWall) continue;
+    let parts = [clipHalf(clipHalf(s.poly, -1, 0, 0), 1, 0, L)].filter((p) => p.length >= 3 && Math.abs(signedArea(p)) > 1e-9);
+    for (const q of [...holes, ...out]) parts = parts.flatMap((p) => convexMinus(p, q));
+    out.push(...parts);
+  }
+  return out;
+}
+
+/** How much of [pieces] lies on [face] and under none of the faces laid over it after ([later]). */
+function trimAreaIn(face: Pt[], later: Pt[][], pieces: Pt[][]): number {
+  const over = later.flatMap((g) => triangulate(g));
+  let total = 0;
+  for (const p of pieces) {
+    let a = sharedArea(face, p);
+    if (a <= 1e-9) continue;
+    for (const t of over) {
+      const q = clipConvex(p, t);
+      if (q.length >= 3) a -= sharedArea(face, q);
+    }
+    total += Math.max(0, a);
+  }
+  return total;
+}
+
+/** A surround's run and face, as priced. */
+function surroundQuantity(side: ExteriorSide, o: ExteriorOpening): SurroundQuantity | null {
+  const t = o.trim;
+  if (!t) return null;
+  const shapes = surroundShapes(side, o);
+  const pieces = shapes.filter((s) => s.part !== "keystone");
+  const run = (s: TrimShape) => {
+    const xs = s.poly.map((p) => p.x);
+    const ys = s.poly.map((p) => p.y);
+    return s.part === "jamb" ? Math.max(...ys) - Math.min(...ys) : Math.max(...xs) - Math.min(...xs);
+  };
+  let squareFeet = pieces.reduce((sum, s) => sum + area(s.poly), 0);
+  const key = shapes.find((s) => s.part === "keystone");
+  if (key) {
+    // The keystone's face past the head it sits on.
+    let parts = [key.poly];
+    for (const s of pieces) parts = parts.flatMap((p) => convexMinus(p, s.poly));
+    squareFeet += parts.reduce((sum, p) => sum + area(p), 0);
+  }
+  return {
+    openingId: o.id,
+    openingKind: o.kind,
+    material: t.material,
+    label: trimLabel(t.material, t.label),
+    linearFeet: pieces.reduce((sum, s) => sum + run(s), 0),
+    squareFeet,
+    keystone: !!key,
+    ...(t.unsure && !t.confirmed ? { unsure: t.unsure } : {}),
+  };
+}
+
+/**
+ * Round a column's shaft where it is clad: a column standing clear, all four faces; a pilaster, its face and its two
+ * returns to the wall - and where it runs past an end of the side round the corner, its far face and its back there too.
+ */
+export function columnPerimeter(side: ExteriorSide, c: SideColumn): number {
+  const w = Math.max(0, c.widthFeet);
+  const d = Math.max(0, c.depthFeet, c.kind === "pilaster" ? c.outFeet : 0);
+  if (c.kind === "column") return 2 * (w + d);
+  const p = Math.max(0, c.outFeet);
+  const a = c.fromLeftFeet;
+  const L = Math.max(0, side.lengthFeet);
+  const left = a < -1e-6 ? d + Math.min(-a, w) : p;
+  const right = a + w > L + 1e-6 ? d + Math.min(a + w - L, w) : p;
+  return w + left + right;
+}
+
+function columnQuantity(side: ExteriorSide, c: SideColumn): ColumnQuantity {
+  const perimeterFeet = columnPerimeter(side, c);
+  const heightFeet = Math.max(0, c.heightFeet);
+  return {
+    id: c.id,
+    kind: c.kind,
+    material: c.material,
+    label: trimLabel(c.material, c.label),
+    perimeterFeet,
+    heightFeet,
+    wrapSquareFeet: perimeterFeet * heightFeet,
+    base: !!c.base && c.base.heightFeet > 0,
+    cap: !!c.cap && c.cap.heightFeet > 0,
+    ...(c.unsure && !c.confirmed ? { unsure: c.unsure } : {}),
+  };
+}
+
+/** A side's trim as priced, and what it took off the cladding - nothing at all for a side with none. */
+function trimOf(side: ExteriorSide, taken: number): Pick<SideQuantities, "trim"> {
+  if (!hasTrim(side)) return {};
+  const surrounds = side.openings.map((o) => surroundQuantity(side, o)).filter((q): q is SurroundQuantity => q !== null);
+  const columns = (side.columns ?? []).map((c) => columnQuantity(side, c));
+  return { trim: { squareFeet: taken, surrounds, columns } };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -2167,6 +2628,59 @@ export interface CladdingTotal {
   grossSquareFeet: number;
   openingSquareFeet: number;
   netSquareFeet: number;
+  /** The trim over it (2026-10-17), taken off; absent with none. */
+  trimSquareFeet?: number;
+}
+
+/**
+ * The house's trim as priced (2026-10-17): its surrounds by material and the kind of opening, its keystones, its columns
+ * and pilasters by material - each a line of its own.
+ */
+export interface TrimTotals {
+  /** What it took off the cladding, every side. */
+  squareFeet: number;
+  surrounds: { label: string; material: CladdingKind; openingKind: ExteriorOpeningKind; count: number; linearFeet: number; squareFeet: number; keystones: number }[];
+  keystones: number;
+  columns: { label: string; material: CladdingKind; kind: ColumnKind; count: number; wrapSquareFeet: number; caps: number; bases: number }[];
+}
+
+/** The sides' trim added up, grouped as the scope prices it; null with none. */
+export function trimTotals(sides: SideQuantities[]): TrimTotals | null {
+  const withTrim = sides.filter((s) => s.trim);
+  if (withTrim.length === 0) return null;
+  const surrounds = new Map<string, TrimTotals["surrounds"][number]>();
+  const columns = new Map<string, TrimTotals["columns"][number]>();
+  for (const s of withTrim) {
+    const t = s.trim as SideTrim;
+    for (const q of t.surrounds) {
+      const key = `${q.label.toLowerCase()}:${q.openingKind}`;
+      const g = surrounds.get(key) ?? { label: q.label, material: q.material, openingKind: q.openingKind, count: 0, linearFeet: 0, squareFeet: 0, keystones: 0 };
+      g.count += 1;
+      g.linearFeet += q.linearFeet;
+      g.squareFeet += q.squareFeet;
+      if (q.keystone) g.keystones += 1;
+      surrounds.set(key, g);
+    }
+    for (const c of t.columns) {
+      const key = `${c.label.toLowerCase()}:${c.kind}`;
+      const g = columns.get(key) ?? { label: c.label, material: c.material, kind: c.kind, count: 0, wrapSquareFeet: 0, caps: 0, bases: 0 };
+      g.count += 1;
+      g.wrapSquareFeet += c.wrapSquareFeet;
+      if (c.cap) g.caps += 1;
+      if (c.base) g.bases += 1;
+      columns.set(key, g);
+    }
+  }
+  // Windows, doors, garage doors; pilasters before columns, as the house is walked.
+  const ORDER: Record<ExteriorOpeningKind, number> = { window: 0, door: 1, garage: 2 };
+  const list = [...surrounds.values()].sort((a, b) => a.label.localeCompare(b.label) || ORDER[a.openingKind] - ORDER[b.openingKind]);
+  const cols = [...columns.values()].sort((a, b) => a.label.localeCompare(b.label) || (a.kind === b.kind ? 0 : a.kind === "pilaster" ? -1 : 1));
+  return {
+    squareFeet: withTrim.reduce((sum, s) => sum + (s.trim as SideTrim).squareFeet, 0),
+    surrounds: list,
+    keystones: list.reduce((n, g) => n + g.keystones, 0),
+    columns: cols,
+  };
 }
 
 /** A slope of the roof as the estimate sees it. */
@@ -2606,7 +3120,11 @@ export interface ExteriorQuantities {
     openingTrimFeet: number;
     outsideCornerFeet: number;
     insideCornerFeet: number;
+    /** What the trim took off the cladding (2026-10-17); absent with none. */
+    trimSquareFeet?: number;
   };
+  /** The surrounds, keystones, columns and pilasters (2026-10-17); absent with none. */
+  trim?: TrimTotals;
 }
 
 export function exteriorQuantities(exterior: Exterior): ExteriorQuantities {
@@ -2653,10 +3171,11 @@ export function exteriorQuantities(exterior: Exterior): ExteriorQuantities {
   for (const s of sides) {
     for (const b of s.bands) {
       const key = b.kind === "other" ? `other:${b.label.toLowerCase()}` : b.kind;
-      const t = byKind.get(key) ?? { key, kind: b.kind, label: b.label, grossSquareFeet: 0, openingSquareFeet: 0, netSquareFeet: 0 };
+      const t: CladdingTotal = byKind.get(key) ?? { key, kind: b.kind, label: b.label, grossSquareFeet: 0, openingSquareFeet: 0, netSquareFeet: 0 };
       t.grossSquareFeet += b.grossSquareFeet;
       t.openingSquareFeet += b.openingSquareFeet;
       t.netSquareFeet += b.netSquareFeet;
+      if (b.trimSquareFeet) t.trimSquareFeet = (t.trimSquareFeet ?? 0) + b.trimSquareFeet;
       byKind.set(key, t);
     }
   }
@@ -2693,6 +3212,8 @@ export function exteriorQuantities(exterior: Exterior): ExteriorQuantities {
 
   // Typed totals and roof pieces price a roof with no outline drawn, or one the drawing can't make.
   const roofing: RoofingQuantities | null = roof || hasTypedTotals(exterior.roof) || hasRoofPieces(exterior) ? roofingQuantities(exterior, roof, pitch) : null;
+  // The trim (2026-10-17): its own lines; nothing at all on a house with none, so such a house's quantities are as they were.
+  const trim = trimTotals(sides);
 
   return {
     footprint,
@@ -2715,7 +3236,9 @@ export function exteriorQuantities(exterior: Exterior): ExteriorQuantities {
       openingTrimFeet: sides.reduce((s, q) => s + q.openingTrimFeet, 0),
       outsideCornerFeet,
       insideCornerFeet,
+      ...(trim ? { trimSquareFeet: trim.squareFeet } : {}),
     },
+    ...(trim ? { trim } : {}),
   };
 }
 
@@ -2927,13 +3450,14 @@ export function exteriorScopeLines(exterior: Exterior | undefined): ExteriorScop
   if (sides.length > 0) {
     // A gable the roof gives at a pitch nobody measured is that pitch's guess: the line says so.
     const guessed = (s: SideQuantities) => q.pitch.source === "assumed" && s.gableSource === "roof" && s.gableSquareFeet > 0.05;
-    const kinds = new Map<string, { label: string; kind: CladdingKind; gross: number; holes: number; net: number; names: string[]; guessed: boolean }>();
+    const kinds = new Map<string, { label: string; kind: CladdingKind; gross: number; holes: number; trim: number; net: number; names: string[]; guessed: boolean }>();
     for (const s of sides) {
       for (const b of s.bands) {
         const key = b.kind === "other" ? `other:${b.label.toLowerCase()}` : b.kind;
-        const k = kinds.get(key) ?? { label: b.label, kind: b.kind, gross: 0, holes: 0, net: 0, names: [], guessed: false };
+        const k = kinds.get(key) ?? { label: b.label, kind: b.kind, gross: 0, holes: 0, trim: 0, net: 0, names: [], guessed: false };
         k.gross += b.grossSquareFeet;
         k.holes += b.openingSquareFeet;
+        k.trim += b.trimSquareFeet ?? 0;
         k.net += b.netSquareFeet;
         k.guessed ||= guessed(s);
         if (!k.names.includes(s.name)) k.names.push(s.name);
@@ -2943,11 +3467,14 @@ export function exteriorScopeLines(exterior: Exterior | undefined): ExteriorScop
     let wrap = 0;
     for (const k of kinds.values()) {
       if (k.net <= 0) continue;
-      const holes = k.holes > 0.05 ? ` (${num(k.gross)} SF less ${num(k.holes)} SF of openings)` : "";
+      // The field: what is left once the openings and the trim (2026-10-17) are off it.
+      const less = [k.holes > 0.05 ? `${num(k.holes)} SF of openings` : "", k.trim > 0.05 ? `${num(k.trim)} SF of trim` : ""].filter(Boolean);
+      const holes = less.length > 0 ? ` (${num(k.gross)} SF less ${less.join(" and ")})` : "";
       const gables = k.guessed ? ` – gables at the assumed ${formatPitch(q.pitch.value ?? ASSUMED_PITCH)}, to confirm` : "";
       out.siding.push(`Remove & replace ${k.label.toLowerCase()} – ${k.names.join(", ")} – ${num(k.net)} SF${holes}${gables}`);
       if (SIDING_KINDS.includes(k.kind)) wrap += k.net;
     }
+    out.siding.push(...trimLines(trimTotals(sides)));
     if (wrap > 0) out.siding.push(`House wrap – ${num(wrap)} SF`);
     const sidedTrim = sides
       .filter((s) => s.bands.some((b) => SIDING_KINDS.includes(b.kind) && b.netSquareFeet > 0))
@@ -2994,6 +3521,35 @@ export function exteriorScopeLines(exterior: Exterior | undefined): ExteriorScop
       const length = g.downspoutFeet === null ? "" : ` – ${num(g.downspoutFeet)} LF${g.downspoutFeetTyped ? "" : " (eave height + 15%)"}`;
       out.siding.push(`Remove & replace downspouts – ${g.downspouts}${length}`);
     }
+  }
+  return out;
+}
+
+/** A surround by the kind of opening it goes round: "window surrounds". */
+export const SURROUND_WORDS: Record<ExteriorOpeningKind, string> = { window: "window surrounds", door: "door surrounds", garage: "garage door surrounds" };
+
+/**
+ * The trim's scope lines (2026-10-17), each its own: "Stucco trim – window surrounds – 9 – 112.4 LF (68.0 SF)",
+ * "Stucco trim – keystones – 3", "Columns – stucco wrap – 3 – 81.0 SF (round the shaft × its height)", then the caps
+ * and the bases by count. Nothing with no trim.
+ */
+export function trimLines(t: TrimTotals | null): string[] {
+  if (!t) return [];
+  const num = (v: number) => (Math.round(v * 10) / 10).toFixed(1);
+  const out: string[] = [];
+  const labels = [...new Set(t.surrounds.map((g) => g.label))];
+  for (const label of labels) {
+    const mine = t.surrounds.filter((g) => g.label === label);
+    for (const g of mine) out.push(`${label} trim – ${SURROUND_WORDS[g.openingKind]} – ${g.count} – ${num(g.linearFeet)} LF (${num(g.squareFeet)} SF)`);
+    const keys = mine.reduce((n, g) => n + g.keystones, 0);
+    if (keys > 0) out.push(`${label} trim – keystones – ${keys}`);
+  }
+  for (const c of t.columns) {
+    const what = c.kind === "column" ? "Columns" : "Pilasters";
+    const m = c.label.toLowerCase();
+    out.push(`${what} – ${m} wrap – ${c.count} – ${num(c.wrapSquareFeet)} SF (round the shaft × its height)`);
+    if (c.caps > 0) out.push(`${what} – ${m} caps – ${c.caps}`);
+    if (c.bases > 0) out.push(`${what} – ${m} bases – ${c.bases}`);
   }
   return out;
 }

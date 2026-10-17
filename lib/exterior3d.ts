@@ -66,7 +66,11 @@ import {
   type RoofRise,
   pieceWords,
   roofInput,
+  type HouseColours,
+  houseColours,
   type SidePhoto,
+  type TrimPart,
+  trimShapes,
   UPPER_STOREY_FEET,
   upperFootprint,
 } from "./exterior";
@@ -107,10 +111,18 @@ export interface Wall3D {
   bottomPoints?: number;
   /** The ground it was measured from, left to right; null for a wall over a roof. */
   grade: Pt[] | null;
-  /** Its cladding, drawn in order - a later face over an earlier one, as on the elevation - in (u, v). */
-  faces: { kind: WallFaceKind; poly: Pt[] }[];
+  /** Its cladding, drawn in order - a later face over an earlier one, as on the elevation - in (u, v); in its colour off the photo where it has one (2026-10-17). */
+  faces: { kind: WallFaceKind; poly: Pt[]; colour?: string }[];
+  /**
+   * Its trim (2026-10-17, lib/exterior.ts `trimShapes`): each piece a prism, its face (u, v) standing out of the wall from
+   * w0 to w1 - a surround's pieces and keystone, a pilaster's base, shaft and cap against it, a porch column clear of it
+   * (`onWall` false). Absent with none.
+   */
+  trim?: Trim3D[];
   /** What shows where no face is: the side's top band, or nothing measured ("unclad") on a side tapped as shapes. */
   background: CladdingKind | "unclad";
+  /** Its colour off the house's photos (2026-10-17, `houseColours`), where they read its material: the wall over a lower roof too. */
+  backgroundColour?: string;
   /** Windows, doors and garage doors, in (u, v). */
   openings: { id: string; kind: ExteriorOpeningKind; x0: number; x1: number; y0: number; y1: number }[];
   /** v of the side's own frame's zero (its heights are from there): what lays its photos on it. */
@@ -118,6 +130,18 @@ export interface Wall3D {
   photos: SidePhoto[];
   /** A party wall, shared with the neighbour's home (2026-10-17): drawn bare - the neighbour's home stands against it. */
   shared?: true;
+}
+
+/** A piece of trim in its wall's frame: its face in (u, v), from w0 to w1 out of the wall. */
+export interface Trim3D {
+  part: TrimPart;
+  poly: Pt[];
+  w0: number;
+  w1: number;
+  material: CladdingKind;
+  colour?: string;
+  /** Against the wall; false for a column standing clear of it. */
+  onWall: boolean;
 }
 
 export interface Roof3D {
@@ -349,6 +373,9 @@ export function exteriorModel(exterior: Exterior): ExteriorModelResult {
   const footprint: Footprint = exteriorFootprint(exterior);
   if (!footprint.closes) return { ok: false, reason: footprint.reason ?? "The sides don't close into a footprint." };
   const notes: string[] = [];
+  // One colour a material round the house, off its photos (2026-10-17): none read, none set.
+  const colours = houseColours(exterior);
+  const colourOf = (kind: WallFaceKind, own: string | undefined) => colours?.faces[kind] ?? own;
   const reading = exteriorPitch(exterior);
   const pitch = reading.value;
   const input = pitch !== null ? roofInput(exterior, footprint, pitch) : null;
@@ -445,7 +472,10 @@ export function exteriorModel(exterior: Exterior): ExteriorModelResult {
       const shape = faces.shape;
       if (side.base !== "grade" && shape.eaveZ !== null) wallFaces.push({ kind: "parging", poly: lift([shape.grade[0], shape.grade[1], shape.bottom[1], shape.bottom[0]]) });
     }
-    for (const f of faces.faces) if (f.poly.length >= 3) wallFaces.push({ kind: f.kind, poly: lift(f.poly) });
+    for (const f of faces.faces) {
+      const colour = colourOf(f.kind, f.colour);
+      if (f.poly.length >= 3) wallFaces.push({ kind: f.kind, poly: lift(f.poly), ...(colour ? { colour } : {}) });
+    }
     const bands = side.bands.length > 0 ? side.bands : null;
     return {
       side,
@@ -457,6 +487,7 @@ export function exteriorModel(exterior: Exterior): ExteriorModelResult {
       faces: wallFaces,
       background: faces.fromShapes ? ("unclad" as const) : ((bands?.[bands.length - 1]?.kind ?? "stucco") as CladdingKind),
       openings: faces.openings.map(({ opening, rect }) => ({ id: opening.id, kind: opening.kind, x0: rect.x0, x1: rect.x1, y0: rect.y0 + frameV, y1: rect.y1 + frameV })),
+      trim: trimOf3d(side, lift, colours),
     };
   });
   const lowest = Math.min(...prepared.flatMap((p) => p.grade.map((g) => g.y)));
@@ -477,6 +508,7 @@ export function exteriorModel(exterior: Exterior): ExteriorModelResult {
     openings: p.openings,
     frameV: p.frameV,
     photos: p.side.photos ?? [],
+    ...(p.trim && !sharedIds.has(p.side.id) ? { trim: p.trim } : {}),
     ...(sharedIds.has(p.side.id) ? { shared: true as const, faces: [], openings: [], background: "unclad" as const, photos: [] } : {}),
   }));
 
@@ -509,11 +541,17 @@ export function exteriorModel(exterior: Exterior): ExteriorModelResult {
       outline: [...base, ...[...dedupe(top)].reverse()],
       bottomPoints: base.length,
       grade: null,
-      faces: faces.faces.filter((f) => f.poly.length >= 3).map((f) => ({ kind: f.kind, poly: lift(f.poly) })),
+      faces: faces.faces
+        .filter((f) => f.poly.length >= 3)
+        .map((f) => {
+          const colour = colourOf(f.kind, f.colour);
+          return { kind: f.kind, poly: lift(f.poly), ...(colour ? { colour } : {}) };
+        }),
       background: (bands?.[bands.length - 1]?.kind ?? "stucco") as CladdingKind,
       openings: faces.openings.map(({ opening, rect }) => ({ id: opening.id, kind: opening.kind, x0: rect.x0, x1: rect.x1, y0: rect.y0 + frameV, y1: rect.y1 + frameV })),
       frameV,
       photos: u.side.photos ?? [],
+      ...(trimOf3d(u.side, lift, colours) && !sharedIds.has(u.side.id) ? { trim: trimOf3d(u.side, lift, colours) } : {}),
       ...(sharedIds.has(u.side.id) ? { shared: true as const, faces: [], openings: [], background: "unclad" as const, photos: [] } : {}),
     });
   }
@@ -628,6 +666,9 @@ export function exteriorModel(exterior: Exterior): ExteriorModelResult {
     // Porch roofs: posts along the eave, a foot in.
     for (const s of built.sections) {
       if (s.role !== "porch") continue;
+      // A porch whose wall has its columns read or typed (2026-10-17) stands on them: no posts guessed for it.
+      const addition = (exterior.roof.additions ?? []).find((a) => a.id === s.key);
+      if ((byId.get(addition?.sideId ?? "")?.columns ?? []).some((c) => c.kind === "column")) continue;
       const plane = s.planes?.[0];
       if (!plane) continue;
       // The eave is the edge the slope falls to: the plane rises along (a, b).
@@ -648,6 +689,18 @@ export function exteriorModel(exterior: Exterior): ExteriorModelResult {
         if (z === null) continue;
         posts.push({ x: p.x, z: -p.y, y0: NaN, y1: underAt(s.layer, z) });
       }
+    }
+  }
+
+  // What shows where no face is, in the house's colour for its material where its photos read one (2026-10-17).
+  // A side tapped as shapes shows its largest face's colour where no shape reaches (under a gable the roof gives): the
+  // look, not a count - its own elevation still outlines what was measured.
+  if (colours) {
+    for (const w of walls) {
+      if (w.shared) continue;
+      const largest = [...w.faces].filter((f) => f.kind !== "parging" && f.colour).sort((a, b) => Math.abs(polygonArea(b.poly)) - Math.abs(polygonArea(a.poly)))[0];
+      const c = w.background !== "unclad" ? colours.faces[w.background] : largest?.colour;
+      if (c) w.backgroundColour = c;
     }
   }
 
@@ -691,6 +744,16 @@ export function exteriorModel(exterior: Exterior): ExteriorModelResult {
   for (let j = 0; j < nz; j++) for (let i = 0; i < nx; i++) ground.heights.push(groundAt(samples, ground.x0 + i * step, ground.z0 + j * step));
 
   return { ok: true, model: { walls, roof, posts, ceilings, ground, eaves, bounds: { minX, maxX, minY, maxY, minZ, maxZ }, notes } };
+}
+
+/** A side's trim as prisms in its wall's frame (2026-10-17), lifted as its faces are; undefined with none. */
+function trimOf3d(side: ExteriorSide, lift: (poly: Pt[]) => Pt[], colours: HouseColours | null): Trim3D[] | undefined {
+  const shapes = trimShapes(side);
+  if (shapes.length === 0) return undefined;
+  return shapes.map((s) => {
+    const colour = colours?.trim[s.material] ?? s.colour;
+    return { part: s.part, poly: lift(s.poly), w0: s.backFeet, w1: s.outFeet, material: s.material, ...(colour ? { colour } : {}), onWall: s.onWall };
+  });
 }
 
 /**

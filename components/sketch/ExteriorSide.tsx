@@ -17,8 +17,11 @@ import {
   type ExteriorShape,
   type ExteriorSide,
   type Footprint,
+  COLUMN_LABEL,
+  formatOpeningSize,
   formatPitch,
   OPENING_LABEL,
+  type OpeningTrim,
   openingRect,
   photoPieceOnRoof,
   SIDE_FIXTURE_LABEL,
@@ -29,6 +32,7 @@ import {
   sharedSideIds,
 } from "@/lib/exterior";
 import { MIN_SIDE_FEET, sideChain, withSideLength, withUpperSideLength } from "@/lib/exteriorPlan";
+import { surroundWords } from "@/lib/exteriorReport";
 import { scaleOf } from "@/lib/exteriorScale";
 import type { SideTrace } from "@/lib/exteriorTrace";
 import type { Pt } from "@/lib/roof";
@@ -593,6 +597,8 @@ export function SidePane({
         <h4 className="exterior-subhead">Openings</h4>
         <OpeningsEditor side={side} readOnly={readOnly} selected={selected} onSelect={setSelected} onUpdate={onUpdate} />
 
+        <TrimList side={side} sq={sq} readOnly={readOnly} onUpdate={onUpdate} />
+
         <h4 className="exterior-subhead">On the wall</h4>
         <FixturesEditor side={side} readOnly={readOnly} onUpdate={onUpdate} />
 
@@ -965,6 +971,55 @@ function SideFigures({ sq }: { sq: SideQuantities }) {
         </tr>
       </tbody>
     </table>
+  );
+}
+
+/**
+ * The side's trim (2026-10-17): each surround and column read off its photo, in a line with what it adds up to, and
+ * a way to take one away that isn't there. Nothing at all on a side with none.
+ */
+function TrimList({ side, sq, readOnly, onUpdate }: { side: ExteriorSide; sq: SideQuantities; readOnly: boolean; onUpdate: (f: (side: ExteriorSide) => ExteriorSide) => void }) {
+  const t = sq.trim;
+  if (!t) return null;
+  const surrounds = side.openings.map((o, i) => ({ o, n: i + 1 })).filter(({ o }) => o.trim);
+  const columns = side.columns ?? [];
+  const row = (key: string, label: string, note: string, remove: () => void) => (
+    <div className="exterior-row" key={key}>
+      <span className="exterior-row-label">{label}</span>
+      <span className="exterior-row-note">{note}</span>
+      {!readOnly && (
+        <button type="button" className="btn-secondary exterior-row-x" aria-label={`Take away ${label.toLowerCase()}`} onClick={remove}>
+          ×
+        </button>
+      )}
+    </div>
+  );
+  return (
+    <>
+      <h4 className="exterior-subhead">Trim</h4>
+      <div className="exterior-rows">
+        {surrounds.map(({ o, n }) => {
+          const q = t.surrounds.find((g) => g.openingId === o.id);
+          return row(
+            `s-${o.id}`,
+            `${OPENING_LABEL[o.kind]} ${n}'s surround`,
+            `${surroundWords(o.trim as OpeningTrim).replace(/^surround /, "")}${q ? ` · ${lf(q.linearFeet)}, ${sf(q.squareFeet)}` : ""}`,
+            () => onUpdate((s) => ({ ...s, openings: s.openings.map((x) => (x.id === o.id ? (({ trim: _t, ...rest }) => rest)(x) : x)) })),
+          );
+        })}
+        {columns.map((c, i) => {
+          const q = t.columns.find((g) => g.id === c.id);
+          const blocks = [c.base ? "base" : "", c.cap ? "cap" : ""].filter(Boolean).join(" and ");
+          return row(
+            `c-${c.id}`,
+            `${COLUMN_LABEL[c.kind]} ${i + 1}`,
+            `${formatOpeningSize(c.widthFeet, c.heightFeet)}${blocks ? `, ${blocks}` : ""}${q ? ` · ${sf(q.wrapSquareFeet)} wrap` : ""}`,
+            () => onUpdate((s) => ({ ...s, columns: (s.columns ?? []).filter((x) => x.id !== c.id) })),
+          );
+        })}
+        <p className="field-note">Off this side&apos;s cladding: {sf(t.squareFeet)}, as an opening comes off it.</p>
+      </div>
+    </>
   );
 }
 

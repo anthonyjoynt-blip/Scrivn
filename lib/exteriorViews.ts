@@ -1,4 +1,4 @@
-import type { ExteriorOpeningKind } from "./exterior";
+import type { CladdingKind, ExteriorOpeningKind, TrimPart } from "./exterior";
 import type { ExteriorModel3D, V3, Wall3D, WallFaceKind } from "./exterior3d";
 import { POST_SIZE_FEET } from "./exterior3d";
 import type { Pt } from "./roof";
@@ -41,8 +41,12 @@ export interface ViewWall {
   depth: number;
   /** Its face from the ground (or what it stands on) up to the roof, in the view. */
   outline: Pt[];
-  faces: { kind: WallFaceKind; poly: Pt[] }[];
+  faces: { kind: WallFaceKind; poly: Pt[]; colour?: string }[];
+  /** Its trim against it, in the view (2026-10-17): each piece's face, and how far it stands out. Absent with none. */
+  trim?: { part: TrimPart; poly: Pt[]; out: number; material: CladdingKind; colour?: string }[];
   background: Wall3D["background"];
+  /** Its colour off the photos, where read (2026-10-17). */
+  backgroundColour?: string;
   openings: { id: string; kind: ExteriorOpeningKind; x0: number; x1: number; y0: number; y1: number }[];
   /** The ground it stands on, left to right; null for a wall standing on a roof or a deck's ceiling. */
   grade: Pt[] | null;
@@ -71,7 +75,19 @@ export interface ViewPost {
   y1: number;
 }
 
-export type ViewPiece = ViewWall | ViewRoof | ViewPost;
+/**
+ * A column standing clear of a wall (2026-10-17): a porch column, seen from any side - each piece (base, shaft, cap) the
+ * box it is, square-on.
+ */
+export interface ViewColumn {
+  type: "column";
+  depth: number;
+  pieces: { part: TrimPart; x0: number; x1: number; y0: number; y1: number }[];
+  material: CladdingKind;
+  colour?: string;
+}
+
+export type ViewPiece = ViewWall | ViewRoof | ViewPost | ViewColumn;
 
 export interface HouseView {
   compass: Compass;
@@ -153,6 +169,32 @@ export function houseView(model: ExteriorModel3D, compass: Compass): HouseView {
   for (const w of model.walls) {
     const out = { x: w.out[0], y: -w.out[2] };
     const facing = -(out.x * look.x + out.y * look.y);
+    // A column standing clear of the wall (2026-10-17): seen from every side, whichever way the wall faces.
+    const clear = (w.trim ?? []).filter((t) => !t.onWall);
+    if (clear.length > 0) {
+      const o = plan(w.origin);
+      const along = { x: w.along[0], y: -w.along[2] };
+      const corner = (u: number, d: number): Pt => ({ x: o.x + along.x * u + out.x * d, y: o.y + along.y * u + out.y * d });
+      const box = (t: (typeof clear)[number]) => {
+        const us = t.poly.map((p) => p.x);
+        const ps = [corner(Math.min(...us), t.w0), corner(Math.max(...us), t.w0), corner(Math.max(...us), t.w1), corner(Math.min(...us), t.w1)];
+        const xs = ps.map(sx);
+        const ys = t.poly.map((p) => p.y);
+        return { part: t.part, x0: Math.min(...xs), x1: Math.max(...xs), y0: Math.min(...ys), y1: Math.max(...ys), depth: Math.min(...ps.map(depthOf)) };
+      };
+      // One piece a column, its base, shaft and cap together: by the column each belongs to, along the wall.
+      const columns = new Map<string, typeof clear>();
+      for (const t of clear) {
+        const us = t.poly.map((p) => p.x);
+        const key = `${Math.round(((Math.min(...us) + Math.max(...us)) / 2) * 4)}`;
+        columns.set(key, [...(columns.get(key) ?? []), t]);
+      }
+      for (const parts of columns.values()) {
+        const boxes = parts.map(box);
+        const first = parts[0] as (typeof clear)[number];
+        pieces.push({ type: "column", depth: Math.min(...boxes.map((b) => b.depth)), pieces: boxes.map(({ depth: _d, ...b }) => b), material: first.material, ...(first.colour ? { colour: first.colour } : {}) });
+      }
+    }
     // A shared wall seen edge-on is where the house is cut: the neighbour's home carries on past it.
     if (w.shared && Math.abs(facing) < FACING) {
       const ys = w.outline.map((p) => p.y);
@@ -176,8 +218,12 @@ export function houseView(model: ExteriorModel3D, compass: Compass): HouseView {
       name: w.name,
       depth: Math.min(depthOf(o), depthOf({ x: o.x + along.x * w.length, y: o.y + along.y * w.length })),
       outline,
-      faces: w.faces.map((f) => ({ kind: f.kind, poly: f.poly.map(at) })),
+      faces: w.faces.map((f) => ({ kind: f.kind, poly: f.poly.map(at), ...(f.colour ? { colour: f.colour } : {}) })),
+      ...((w.trim ?? []).some((t) => t.onWall)
+        ? { trim: (w.trim ?? []).filter((t) => t.onWall).map((t) => ({ part: t.part, poly: t.poly.map(at), out: t.w1, material: t.material, ...(t.colour ? { colour: t.colour } : {}) })) }
+        : {}),
       background: w.background,
+      ...(w.backgroundColour ? { backgroundColour: w.backgroundColour } : {}),
       openings: w.openings.map((op) => {
         const a = at({ x: op.x0, y: op.y0 });
         const b = at({ x: op.x1, y: op.y1 });
@@ -241,8 +287,8 @@ export function houseView(model: ExteriorModel3D, compass: Compass): HouseView {
     pieces.push({ type: "post", depth: depthOf(at), x0: c - POST_SIZE_FEET / 2, x1: c + POST_SIZE_FEET / 2, y0: p.y0, y1: p.y1 });
   }
 
-  // Back to front; at one depth a wall before the roof over it, a post last.
-  const order = { wall: 0, roof: 1, post: 2 } as const;
+  // Back to front; at one depth a wall before the roof over it, a post or column last.
+  const order = { wall: 0, roof: 1, post: 2, column: 2 } as const;
   pieces.sort((p, q) => q.depth - p.depth || order[p.type] - order[q.type]);
 
   // ---- The ground at the foot of the house: under each x, the nearest wall's ------------------------

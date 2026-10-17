@@ -3,7 +3,7 @@
 import { createElement } from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
-import { allSides, elevationFaces, type Exterior, exteriorQuantities, formatPitch, lengthToCheck, pieceLine, ROOF_TOTAL_KEYS, ROOF_TOTAL_LABEL, type RoofTotalKey, sharedOf, sourceWords } from "@/lib/exterior";
+import { allSides, elevationFaces, type Exterior, exteriorQuantities, formatPitch, lengthToCheck, pieceLine, ROOF_TOTAL_KEYS, ROOF_TOTAL_LABEL, type RoofTotalKey, houseColours, sharedOf, sourceWords, trimShapes } from "@/lib/exterior";
 import { sizesFrom } from "@/lib/exteriorScale";
 import { formatQuantity } from "@/lib/sketchQuantities";
 import { lineTotals, textWidthEm } from "@/lib/roofLabels";
@@ -204,14 +204,16 @@ function elevationsSvg(exterior: Exterior): { svg: string; width: number; height
   const fontFeet = Math.max(...sides.map(({ side }) => elevationFontFeet(side, q.rises[side.id] ?? null, q.bases[side.id] ?? null)));
   // A gable the roof gives at a pitch nobody gave says so on the page, as on the screen.
   const roofAssumed = q.pitch.source === "assumed";
-  const boxes = sides.map(({ side }) => viewBox(markup(createElement(ElevationDrawing, { side, rise: q.rises[side.id] ?? null, base: q.bases[side.id] ?? null, fontFeet, roofAssumed }))));
+  // Each material in one colour round the house, off its photos (2026-10-17).
+  const colours = houseColours(exterior);
+  const boxes = sides.map(({ side }) => viewBox(markup(createElement(ElevationDrawing, { side, rise: q.rises[side.id] ?? null, base: q.bases[side.id] ?? null, fontFeet, roofAssumed, colours }))));
   const scale = Math.min(...boxes.map((b) => cellW / b.width));
   const cells = sides.map(({ side, sq }, i) => {
     const rise = q.rises[side.id] ?? null;
     const box = boxes[i] as { width: number; height: number };
     const w = Math.round(box.width * scale);
     const h = Math.round(box.height * scale);
-    return { side, sq, h, drawing: markup(createElement(ElevationDrawing, { side, rise, base: q.bases[side.id] ?? null, fontFeet, roofAssumed, size: { width: w, height: h } })) };
+    return { side, sq, h, drawing: markup(createElement(ElevationDrawing, { side, rise, base: q.bases[side.id] ?? null, fontFeet, roofAssumed, colours, size: { width: w, height: h } })) };
   });
   // What the sizes are from (2026-10-15, lib/exteriorScale.ts), for a house the phone measured: under the title.
   const from = sizesFrom(exterior);
@@ -219,12 +221,16 @@ function elevationsSvg(exterior: Exterior): { svg: string; width: number; height
   const parts: string[] = [label(40, 44, "Elevations", 30, 700), from ? label(40, 78, `Sizes from ${from}.`, 20) : ""];
   // The materials as the faces show them (2026-10-16): a swatch of each, as on the report.
   const items: LegendItem[] = [];
+  const trimItems: LegendItem[] = [];
   for (const { side } of sides) {
     const { faces, fromShapes } = elevationFaces(side, q.rises[side.id] ?? null, q.bases[side.id] ?? null);
-    const found: LegendItem[] = faces.filter((f) => f.closed && f.poly.length >= 3).map((f) => ({ kind: f.kind, label: f.label }));
+    const found: LegendItem[] = faces.filter((f) => f.closed && f.poly.length >= 3).map((f) => ({ kind: f.kind, label: f.label, ...((colours?.faces[f.kind] ?? f.colour) ? { colour: colours?.faces[f.kind] ?? f.colour } : {}) }));
     if (!fromShapes && side.base === "parging") found.push({ kind: "parging", label: "Parging" });
     for (const it of found) if (!items.some((o) => o.kind === it.kind && o.label === it.label)) items.push(it);
+    // The trim apart from the field (2026-10-17).
+    for (const t of trimShapes(side)) if (!trimItems.some((o) => o.label === `${t.label} trim`)) trimItems.push({ kind: t.material, label: `${t.label} trim`, ...((colours?.trim[t.material] ?? t.colour) ? { colour: colours?.trim[t.material] ?? t.colour } : {}) });
   }
+  items.push(...trimItems);
   if (items.length > 0) {
     const legend = markup(createElement(CladdingLegend, { items }));
     const box = viewBox(legend);
