@@ -1751,7 +1751,7 @@ export function ridgeFromPhotos(exterior: Exterior): RidgeFromPhotos | null {
       const agree = reads.filter((r) => (r.value === "eave" ? (ends.get(r.sideId)?.share ?? 0) < EAVE_END_SHARE - 1e-9 : ends.has(r.sideId)));
       return { agree, forced: plan.wings.filter((w) => w.forced).length };
     };
-    const outline = bearsOut(null);
+    const outline = bearsOut(ridgeAcrossParty(exterior));
     if (outline && outline.agree.length < reads.length) {
       for (const side of allSides(exterior)) {
         const tried = bearsOut(side.id);
@@ -1763,9 +1763,41 @@ export function ridgeFromPhotos(exterior: Exterior): RidgeFromPhotos | null {
   return got;
 }
 
-/** The ridge's direction the roof is built with: picked on the plan, else the photos', else by the outline (null). */
+/** The ridge's direction the roof is built with: picked on the plan, else the photos', else across the shared walls, else by the outline (null). */
 export function resolvedRidgeAlong(exterior: Exterior): string | null {
-  return exterior.roof.ridgeAlong ?? ridgeFromPhotos(exterior)?.ridgeAlong ?? null;
+  return exterior.roof.ridgeAlong ?? ridgeFromPhotos(exterior)?.ridgeAlong ?? ridgeAcrossParty(exterior);
+}
+
+/**
+ * An attached home's ridge (2026-10-17): across its shared walls, as a semi's or a row's roof most often
+ * runs - a deep middle townhouse came off the photo route with its ridge front to back and rakes over its
+ * front and back. The side it runs along is the longest wall square to a shared one and not shared itself,
+ * of the upper floor when there is one (its roof is the house's). Null for a home with no wall shared,
+ * whose ridge is the outline's to say.
+ */
+export function ridgeAcrossParty(exterior: Exterior): string | null {
+  const shared = sharedSideIds(exterior);
+  if (shared.size === 0) return null;
+  const fp = exteriorFootprint(exterior);
+  if (!fp.closes) return null;
+  const up = exterior.upper ? upperFootprint(exterior, fp) : null;
+  const ring = up?.closes ? up : fp;
+  const n = ring.corners.length;
+  const run = (i: number) => {
+    const a = ring.corners[i] as Pt;
+    const b = ring.corners[(i + 1) % n] as Pt;
+    return { dx: b.x - a.x, dy: b.y - a.y, len: Math.hypot(b.x - a.x, b.y - a.y) };
+  };
+  const party = ring.sideIds.map((id, i) => (shared.has(id) ? run(i) : null)).filter((r) => r !== null);
+  let best: { id: string; len: number } | null = null;
+  for (let i = 0; i < n; i++) {
+    const id = ring.sideIds[i] as string;
+    if (shared.has(id)) continue;
+    const r = run(i);
+    const square = party.some((p) => Math.abs(r.dx * p.dx + r.dy * p.dy) < 0.1 * r.len * p.len);
+    if (square && (!best || r.len > best.len + 1e-6)) best = { id, len: r.len };
+  }
+  return best?.id ?? null;
 }
 
 /**
@@ -2106,7 +2138,7 @@ export function roofProposal(exterior: Exterior): RoofProposal | null {
   if (photographed && !exterior.upper && !isLegacyRoof(exterior.roof)) {
     const footprint = exteriorFootprint(exterior);
     if (footprint.closes) {
-      got = proposeRoof(saidRoofInput(exterior, footprint, proposalPitch(exterior), exterior.roof.ridgeAlong), {
+      got = proposeRoof(saidRoofInput(exterior, footprint, proposalPitch(exterior), exterior.roof.ridgeAlong ?? ridgeAcrossParty(exterior)), {
         ends: measuredSideEnds(exterior),
         garageSides: exterior.sides.filter((s) => s.openings.some((o) => o.kind === "garage")).map((s) => s.id),
         answered: exterior.roof.answered ?? [],
