@@ -259,7 +259,7 @@ await test("Use it puts the team's measurement into the house, through the claim
   equal(puts()[0].body.base, v1, "naming the version it was opened at: offline mode's versioned save, never a server write");
   const house = server.claims.get(ID).state.sketch.exterior;
   equal(house.sides.length, 12, "the house has the 12 measured sides");
-  assert(house.source.notes.includes(mod.TEAM_NOTE) && house.source.edited === false, "says the Scrivn team measured it, and is not marked changed since");
+  assert(house.source.kind === "photos" && house.source.by === "photos" && house.source.notes.at(-1) === mod.TEAM_NOTE && house.source.edited === false, "says it was measured from photos, by the Scrivn team (not 'with Scrivn Scan', though we wrote it as a capture), and is not marked changed since");
   equal(house.scope.roofing && house.scope.eavestrough, true, "the tester's scope ticks stay");
   equal([house.photoRoute.photos.length, house.photoRoute.measured], [3, null], "their photos stay on the route, with no old measure to contradict the sides");
   assert(house.sides.every((s) => (s.photos ?? []).every((p) => p.claimPhotoId || p.scanId)), "no side photo the claim could not show");

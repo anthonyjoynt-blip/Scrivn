@@ -144,7 +144,7 @@ function readablePhotos(exterior: Exterior): Exterior {
 }
 
 /** Said with a returned exterior, wherever its source notes are (the editor, the report). */
-export const TEAM_NOTE = "Measured by the Scrivn team from the photos sent.";
+export const TEAM_NOTE = "The Scrivn team measured it from the photos sent.";
 
 /**
  * A returned exterior put into the claim (the "Use it" tap), from the exterior as it is now:
@@ -156,7 +156,8 @@ export const TEAM_NOTE = "Measured by the Scrivn team from the photos sent.";
  *     kept with its old measure cleared, so the Photos tab never shows numbers that are not these sides';
  *   * a building keeps its id and name; the house has neither.
  *
- * Nothing is marked edited: from here on it is the estimator's to change, as a measure of their own would be.
+ * It says it was measured from photos, by the Scrivn team, and nothing is marked edited: from here on it is the
+ * estimator's to change, as a measure of their own would be.
  */
 export function withTeamMeasure(prev: Exterior | undefined, result: Exterior, at: string): Exterior {
   const team = readablePhotos(result);
@@ -171,10 +172,21 @@ export function withTeamMeasure(prev: Exterior | undefined, result: Exterior, at
     const { checksClosed: _closed, ...rest } = mine;
     photoRoute = { ...rest, measured: null };
   }
-  const source: NonNullable<Exterior["source"]> = team.source
-    ? { ...team.source, notes: [...team.source.notes.filter((n) => n !== TEAM_NOTE), TEAM_NOTE], edited: false }
-    : { kind: "photos", by: "photos", captureId: null, scanId: null, receivedAt: at, notes: [TEAM_NOTE], walkClosed: true };
-  const { id: _id, name: _name, scope: teamScope, photoRoute: _route, source: _source, ...measured } = team;
+  // Measured off the tester's photos, whatever we wrote it as (a Scan capture by hand says "measured on the phone"):
+  // a measure of the route's own keeps its notes ("Measured from 11 of 18 photos and 4 tapes."), and says who.
+  const routeNotes = team.source?.kind === "photos" ? team.source.notes.filter((n) => n !== TEAM_NOTE) : [];
+  const source: NonNullable<Exterior["source"]> = {
+    kind: "photos",
+    by: "photos",
+    captureId: null,
+    scanId: null,
+    receivedAt: team.source?.receivedAt ?? at,
+    notes: [...routeNotes, TEAM_NOTE],
+    walkClosed: true,
+    edited: false,
+  };
+  // `scale` is a Scan phone's measure against its tape: nothing to do with photos, and it would say "the phone's own measure".
+  const { id: _id, name: _name, scope: teamScope, photoRoute: _route, source: _source, scale: _scale, ...measured } = team;
   const scope = prev?.scope ? { ...prev.scope, sides: prev.scope.sides.filter((x) => sideIds.has(x)) } : teamScope;
   return {
     ...measured,
