@@ -74,7 +74,9 @@ async function load() {
       `export * from "${lib("roofPhotoShapes.ts")}";`,
       `export * from "${lib("roofCheck.ts")}";`,
       `export * from "${lib("exteriorCheck.ts")}";`,
-      `export { cornerPlace, routeCoverage } from "${lib("photoRouteCoverage.ts")}";`,
+      `export { cornerPlace, routeCoverage, viewsFromMeasure } from "${lib("photoRouteCoverage.ts")}";`,
+      `export { defaultShared, numberCorners, partyCorners, solveRoute } from "${lib("photoRoute.ts")}";`,
+      `export { exteriorFromRoute, measuredFrom } from "${lib("photoRouteExterior.ts")}";`,
       `export { wallsFrom } from "${lib("exteriorFinish.ts")}";`,
       `export * from "${lib("exterior3d.ts")}";`,
       `export * from "${lib("exteriorPlan.ts")}";`,
@@ -5608,6 +5610,152 @@ test("where a corner is, in words: front and back as seen from the street, an in
   assert(["front left", "front right", "back right", "back, middle", "middle", "left side"].every((w, k) => x.cornerPlace(L, k) === w), L.map((_, k) => x.cornerPlace(L, k)).join(" | "));
   const items = x.routeCoverage({ ring: L, views: [], taps: [], shots: [], measured: false }).items;
   assert(!items.some((i) => i.corner === 4) && items.filter((i) => i.kind === "corner-45").length === 5, "the inside corner is not asked at 45");
+});
+
+console.log("\nattached homes on the photo route (10-17)");
+
+/**
+ * Photos made up for a house of known shape, no pixels: each camera level, 5' up, the owner's lens (f/W 0.664) on an
+ * 800 x 600 photo, and each corner it sees tapped where its foot falls. The grey is blank, so a tap stays where it is
+ * (no edge to snap to), and no photo has wall edges: the corners and the tapes are all the solve has.
+ */
+const SYN = { W: 800, H: 600, f: 0.664 * 800 };
+const GD = [[0, 1], [1, 0], [0, -1], [-1, 0]];
+function synPhoto(id, at, look) {
+  const d = [look.x - at[0], look.y - at[1]];
+  const L = Math.hypot(d[0], d[1]);
+  const q = [0, 1, 2, 3].reduce((a, c) => (d[0] * GD[c][0] + d[1] * GD[c][1] > d[0] * GD[a][0] + d[1] * GD[a][1] ? c : a), 0);
+  const Z = GD[q];
+  const X = [Z[1], -Z[0]];
+  const psi = Math.atan2((d[0] * X[0] + d[1] * X[1]) / L, (d[0] * Z[0] + d[1] * Z[1]) / L);
+  const camera = { width: SYN.W, height: SYN.H, f: SYN.f, k: 0, R: [Math.cos(psi), 0, -Math.sin(psi), 0, -1, 0, Math.sin(psi), 0, Math.cos(psi)] };
+  const tap = (P) => {
+    const v = [P.x - at[0], P.y - at[1]];
+    const off = Math.atan2(v[0] * X[0] + v[1] * X[1], v[0] * Z[0] + v[1] * Z[1]) - psi;
+    const depth = Math.hypot(v[0], v[1]) * Math.cos(off);
+    return { x: SYN.W / 2 + SYN.f * Math.tan(off), y: SYN.H / 2 + (SYN.f * 5) / depth };
+  };
+  return { id, at, data: { id, camera, gray: { data: new Float32Array(SYN.W * SYN.H), width: SYN.W, height: SYN.H }, edges: [] }, tap };
+}
+/** A route over made-up photos: [shots] as [id, at, look, corners seen (party ones flagged)]. */
+function synRoute(truth, drawn, homeType, shots, tapes) {
+  const photos = shots.map(([id, at, look]) => synPhoto(id, at, look));
+  const corners = shots.flatMap(([id, , , seen], k) => seen.map(({ c, party }) => ({ photo: id, corner: c, by: "user", ...photos[k].tap(truth[c]), ...(party ? { party: true } : {}) })));
+  const input = {
+    photos: photos.map((p, i) => ({ id: p.id, width: SYN.W, height: SYN.H, takenAt: i * 10000 })),
+    buildings: [{ id: "main", outline: drawn, homeType, shared: x.defaultShared(drawn, homeType), corners, tapes }],
+  };
+  return { input, data: photos.map((p) => p.data) };
+}
+const landOf = (input, data, sol) => {
+  const m = x.measuredFrom(sol, data, "2026-10-17T12:00:00.000Z");
+  const state = { format: "scrivn-photo-route/1", ...input, measured: null };
+  return { m, ext: x.exteriorFromRoute(undefined, state, m) };
+};
+
+// A semi, 24' x 40', its right-hand wall shared; drawn rough at 26' x 36'. Photographed from the front, the front left at
+// 45, the left, the back left at 45 and the back; where it ends tapped on the front and back photos; the front taped.
+const SEMI = [{ x: 0, y: 0 }, { x: 24, y: 0 }, { x: 24, y: 40 }, { x: 0, y: 40 }];
+const SEMI_DRAWN = [{ x: 0, y: 0 }, { x: 26, y: 0 }, { x: 26, y: 36 }, { x: 0, y: 36 }];
+const semiShots = [
+  ["front", [12, -50], { x: 12, y: 20 }, [{ c: 0 }, { c: 1, party: true }]],
+  ["front-left", [-32, -32], { x: 0, y: 0 }, [{ c: 3 }, { c: 0 }, { c: 1, party: true }]],
+  ["left", [-50, 20], { x: 0, y: 20 }, [{ c: 3 }, { c: 0 }]],
+  ["back-left", [-32, 72], { x: 0, y: 40 }, [{ c: 2, party: true }, { c: 3 }, { c: 0 }]],
+  ["back", [12, 90], { x: 12, y: 20 }, [{ c: 2, party: true }, { c: 3 }]],
+];
+
+test("a semi off photos: the right-hand wall shared by one tap, its depth from the open side, the party line where it ends", () => {
+  assert(JSON.stringify(x.defaultShared(SEMI_DRAWN, "semi")) === "[1]" && JSON.stringify(x.defaultShared(SEMI_DRAWN, "detached")) === "[]", "the right-hand side wall");
+  const { input, data } = synRoute(SEMI, SEMI_DRAWN, "semi", semiShots, [{ id: "front", kind: "side", from: 0, feet: 24 }]);
+  const sol = x.solveRoute(input, "main", data);
+  assert(sol.cameras.length === 5, `${sol.cameras.length} placed: ${JSON.stringify(sol.unplaced)}`);
+  near(sol.sides[0].lengthFeet, 24, "the front, taped", 0.01);
+  // The depth, seen from the open side: corners alone (made-up photos have no window edges), each photo free to turn a
+  // degree, so within its own ±.
+  for (const i of [1, 3]) assert(Math.abs(sol.sides[i].lengthFeet / 40 - 1) * 100 <= sol.sides[i].plusMinusPct && Math.abs(sol.sides[i].lengthFeet - 40) < 0.8, `side ${i}: ${sol.sides[i].lengthFeet.toFixed(2)} ±${sol.sides[i].plusMinusPct}%`);
+  const { ext } = landOf(input, data, sol);
+  const right = ext.sides.find((s) => s.shared);
+  assert(ext.homeType === "semi" && ext.sides.filter((s) => s.shared).length === 1 && right && !right.photos, JSON.stringify(ext.sides.map((s) => [s.name, s.shared, s.photos?.length])));
+  // The model, roof and report take it from there (session B's): nothing on it counted, the roof cut at the party line.
+  const q = x.exteriorQuantities(ext);
+  assert(q.roofing && q.roofing.partyFeet > 0, `party line ${q.roofing?.partyFeet}`);
+  assert(/^Semi-detached: the .* wall is shared with the neighbour and not counted\.$/.test(x.homeTypeWords(ext) ?? ""), x.homeTypeWords(ext));
+});
+
+test("where this home ends is numbered only as a corner of the shared wall", () => {
+  const { input, data } = synRoute(SEMI, SEMI_DRAWN, "semi", semiShots, []);
+  // Every tap left to the app but the first on each photo; the party taps flagged.
+  const b = input.buildings[0];
+  const first = new Set();
+  b.corners = b.corners.map((c) => {
+    if (first.has(c.photo)) return { ...c, corner: -1, by: undefined };
+    first.add(c.photo);
+    return c;
+  });
+  const out = x.numberCorners(input, "main", data);
+  const truth = synRoute(SEMI, SEMI_DRAWN, "semi", semiShots, []).input.buildings[0].corners;
+  assert(out.every((c, i) => c.corner === truth[i].corner), out.map((c, i) => `${c.photo}:${c.corner}/${truth[i].corner}`).join(" "));
+  const party = x.partyCorners(4, [1]);
+  assert(out.filter((c) => c.party).every((c) => party.has(c.corner)), "party taps on the shared wall's ends");
+});
+
+test("the checklist never asks for the shared wall, nor a 45 where the home ends", () => {
+  const { input, data } = synRoute(SEMI, SEMI_DRAWN, "semi", semiShots, [{ id: "front", kind: "side", from: 0, feet: 24 }]);
+  const before = x.routeCoverage({ ring: SEMI_DRAWN, views: [], taps: [], shots: [], measured: false, shared: [1] });
+  assert(!before.items.some((i) => i.wall === 1 || i.corner === 1 || i.corner === 2), before.items.map((i) => i.words).join(" | "));
+  assert(before.items.filter((i) => i.kind === "corner-45").length === 2 && before.items.filter((i) => i.kind === "wall-straight").length === 3, before.items.map((i) => i.words).join(" | "));
+  const sol = x.solveRoute(input, "main", data);
+  const { m } = landOf(input, data, sol);
+  const after = x.routeCoverage({ ring: m.corners, views: x.viewsFromMeasure(m), taps: input.buildings[0].corners, shots: [], measured: true, shared: [1] });
+  assert(!after.items.some((i) => i.wall === 1 || (i.kind === "corner-45" && (i.corner === 1 || i.corner === 2))), after.items.map((i) => i.words).join(" | "));
+  // The end unit's open side gives the depth: no depth tape asked.
+  assert(!after.items.some((i) => i.kind === "depth-tape") && !before.items.some((i) => i.kind === "depth-tape"), "no depth tape for a semi");
+});
+
+// A middle townhouse, 18' x 36', both side walls shared; drawn rough at 20' x 30'. Only its front and back can be seen.
+const TOWN = [{ x: 0, y: 0 }, { x: 18, y: 0 }, { x: 18, y: 36 }, { x: 0, y: 36 }];
+const TOWN_DRAWN = [{ x: 0, y: 0 }, { x: 20, y: 0 }, { x: 20, y: 30 }, { x: 0, y: 30 }];
+const townShots = [
+  ["front", [9, -45], { x: 9, y: 18 }, [{ c: 0, party: true }, { c: 1, party: true }]],
+  ["front-oblique", [-6, -40], { x: 9, y: 0 }, [{ c: 0, party: true }, { c: 1, party: true }]],
+  ["back", [9, 80], { x: 9, y: 18 }, [{ c: 2, party: true }, { c: 3, party: true }]],
+  ["back-oblique", [24, 75], { x: 9, y: 36 }, [{ c: 2, party: true }, { c: 3, party: true }]],
+];
+
+test("a middle townhouse: both side walls shared; its depth no photo can see, so one tape of it is asked - and measures it", () => {
+  assert(JSON.stringify(x.defaultShared(TOWN_DRAWN, "town_middle")) === "[1,3]", "both side walls");
+  const tapes = [{ id: "front", kind: "side", from: 0, feet: 18 }];
+  const { input, data } = synRoute(TOWN, TOWN_DRAWN, "town_middle", townShots, tapes);
+  const sol = x.solveRoute(input, "main", data);
+  near(sol.sides[0].lengthFeet, 18, "the front", 0.01);
+  near(sol.sides[2].lengthFeet, 18, "the back, off its photos", 0.2);
+  // The depth, untaped, is only the shape as drawn: its ± says so, and the advice names the tape.
+  assert(sol.sides[1].plusMinusPct > 10 && sol.advice.some((a) => a.from === 1 && /Tape the depth once, front wall to back wall – along the fence or inside/.test(a.why)), JSON.stringify(sol.advice));
+  const { m, ext } = landOf(input, data, sol);
+  const cov = x.routeCoverage({ ring: m.corners, views: x.viewsFromMeasure(m), taps: input.buildings[0].corners, shots: [], measured: true, shared: [1, 3] });
+  const depth = cov.items.filter((i) => i.kind === "depth-tape");
+  assert(depth.length === 1 && depth[0].words.startsWith("Tape the depth once, front wall to back wall – along the fence or inside"), cov.items.map((i) => i.words).join(" | "));
+  assert(!cov.items.some((i) => i.kind !== "depth-tape" && (i.wall === 1 || i.wall === 3)), "nothing asked of the shared walls but the tape");
+  assert(ext.homeType === "town_middle" && ext.sides.filter((s) => s.shared).length === 2, JSON.stringify(ext.sides.map((s) => s.shared)));
+  const q = x.exteriorQuantities(ext);
+  // The roof cut at both party lines (its ridge's way is the roof's to say: deeper than wide, it runs front to back).
+  assert(q.roofing && q.roofing.partyFeet > 0, `party ${q.roofing?.partyFeet}`);
+  // Taped once, the depth is the tape's, and nothing more is asked.
+  const taped = synRoute(TOWN, TOWN_DRAWN, "town_middle", townShots, [...tapes, { id: "depth", kind: "side", from: 1, feet: 36 }]);
+  const sol2 = x.solveRoute(taped.input, "main", taped.data);
+  near(sol2.sides[1].lengthFeet, 36, "the depth, taped", 0.01);
+  near(sol2.sides[3].lengthFeet, 36, "the other shared wall with it", 0.05);
+  const m2 = landOf(taped.input, taped.data, sol2).m;
+  const cov2 = x.routeCoverage({ ring: m2.corners, views: x.viewsFromMeasure(m2), taps: taped.input.buildings[0].corners, shots: [], measured: true, shared: [1, 3], depthTaped: true });
+  assert(!cov2.items.some((i) => i.kind === "depth-tape"), cov2.items.map((i) => i.words).join(" | "));
+});
+
+test("a detached house on the route is as it was: nothing shared, no party line, no home type", () => {
+  const { input, data } = synRoute(SEMI, SEMI_DRAWN, undefined, semiShots.map(([id, at, look, seen]) => [id, at, look, seen.map(({ c }) => ({ c }))]), [{ id: "front", kind: "side", from: 0, feet: 24 }]);
+  assert(JSON.stringify(input.buildings[0].shared) === "[]", "nothing shared");
+  const { ext } = landOf(input, data, x.solveRoute(input, "main", data));
+  assert(!ext.homeType && ext.sides.every((s) => !s.shared) && x.exteriorQuantities(ext).roofing.partyFeet === 0, "detached");
 });
 
 console.log(`\n${passed.length} passed, ${failures.length} failed`);

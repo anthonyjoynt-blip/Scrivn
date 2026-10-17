@@ -1,7 +1,7 @@
 "use client";
 
 import { type PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState } from "react";
-import { defaultRoof, type Exterior, type ExteriorOpening, type ExteriorOpeningKind, type ExteriorSide, exteriorQuantities, OPENING_LABEL, openingRect } from "@/lib/exterior";
+import { defaultRoof, type Exterior, type ExteriorOpening, type ExteriorOpeningKind, type ExteriorSide, exteriorQuantities, HOME_TYPE_LABEL, type HomeType, OPENING_LABEL, openingRect } from "@/lib/exterior";
 import { type CheckRow, openChecks, withCheckDrop, withChecksClosed, withOpeningKind } from "@/lib/exteriorCheck";
 import { frameX, frameY } from "@/lib/exteriorPhoto";
 import { exifTakenAt } from "@/lib/exifTime";
@@ -9,7 +9,7 @@ import { onDeviceChange } from "@/lib/deviceClaims";
 import { keepPhotoFile, sendWaitingPhotos } from "@/lib/devicePhotos";
 import { preparePhoto } from "@/lib/photoImage";
 import { addPhoto, type ClaimPhoto, EXTERIOR_ROOM } from "@/lib/photos";
-import { type CornerTap, emptyPhotoRoute, type PhotoRouteState, type RoutePhoto, type RouteShot, type RouteTape, type TapeWhat } from "@/lib/photoRoute";
+import { type CornerTap, defaultShared, emptyPhotoRoute, type PhotoRouteState, type RoutePhoto, type RouteShot, type RouteTape, type TapeWhat } from "@/lib/photoRoute";
 import { routeCoverage, viewsFromMeasure } from "@/lib/photoRouteCoverage";
 import { measureRoute, type PhotoPixelsIn, photoLines } from "@/lib/photoRouteData";
 import { exifFocal35, focalOverWidth } from "@/lib/photoRouteExif";
@@ -44,6 +44,12 @@ import { SendToTeam } from "./TeamMeasure";
 const WHAT_LABEL: Record<TapeWhat, string> = { garage: "Garage door", door: "Door", window: "Window", wall: "Wall", other: "Other" };
 
 type RouteChange = (f: (route: PhotoRouteState) => PhotoRouteState) => void;
+
+/** A tap as kept: no longer a mark of Scrivn's to keep or not; still where this home ends if it was. */
+function kept(c: CornerTap): CornerTap {
+  const { proposed: _mark, ...rest } = c;
+  return rest;
+}
 
 function withRoute(e: Exterior, f: (route: PhotoRouteState) => PhotoRouteState): Exterior {
   return { ...e, photoRoute: f(e.photoRoute ?? emptyPhotoRoute()) };
@@ -111,10 +117,13 @@ const tick = () => new Promise<void>((r) => setTimeout(r, 0));
 export function PhotoRoutePane({ exterior, readOnly, onChange }: { exterior: Exterior; readOnly: boolean; onChange: (f: (e: Exterior) => Exterior) => void }) {
   const access = useExteriorPhotos();
   // "the house", or the other building being measured (2026-10-16): "the shed".
-  const { the } = useExteriorSubject();
+  const { the, isHouse } = useExteriorSubject();
   const The = the.charAt(0).toUpperCase() + the.slice(1);
   const route = exterior.photoRoute ?? emptyPhotoRoute();
   const main = mainOf(route);
+  // A semi or a townhouse (2026-10-17): its walls shared with the neighbours, by the outline's side index.
+  const attached = !!main.homeType && main.homeType !== "detached";
+  const sharedSides = new Set(main.shared ?? []);
   const change: RouteChange = (f) => onChange((e) => withRoute(e, f));
   const [selected, setSelected] = useState<string | null>(route.photos[0]?.id ?? null);
   const [urls, setUrls] = useState<Map<string, string>>(new Map());
@@ -122,7 +131,7 @@ export function PhotoRoutePane({ exterior, readOnly, onChange }: { exterior: Ext
   const [error, setError] = useState<string | null>(null);
   /** The tap whose corner is being picked on the shape, by its index in the corners. */
   const [picking, setPicking] = useState<number | null>(null);
-  const [mode, setMode] = useState<"corners" | "tape" | "wall">("corners");
+  const [mode, setMode] = useState<"corners" | "ends" | "tape" | "wall">("corners");
   const [line, setLine] = useState<{ a: [number, number]; b: [number, number] } | null>(null);
   const [wallSide, setWallSide] = useState<number | null>(null);
 
@@ -200,19 +209,20 @@ export function PhotoRoutePane({ exterior, readOnly, onChange }: { exterior: Ext
     if (!selected) return;
     const first = !main.corners.some((c) => c.photo === selected && c.corner >= 0 && c.by === "user");
     const index = main.corners.length;
-    change((r) => withMain(r, (b) => ({ ...b, corners: [...b.corners, { photo: selected, corner: -1, x, y }] })));
+    // In "Where this home ends", the tap is the party line: a corner of a shared wall.
+    change((r) => withMain(r, (b) => ({ ...b, corners: [...b.corners, { photo: selected, corner: -1, x, y, ...(mode === "ends" ? { party: true as const } : {}) }] })));
     // The first corner on a photo: which is it? The app numbers the rest from it.
     if (first) setPicking(index);
   }
 
   function setCorner(index: number, corner: number) {
-    change((r) => withMain(r, (b) => ({ ...b, corners: b.corners.map((c, i) => (i === index ? { photo: c.photo, x: c.x, y: c.y, corner, by: "user" } : c)) })));
+    change((r) => withMain(r, (b) => ({ ...b, corners: b.corners.map((c, i) => (i === index ? { ...kept(c), corner, by: "user" } : c)) })));
     setPicking(null);
   }
 
   /** A mark Scrivn put down, kept as it is. */
   function keepTap(index: number) {
-    change((r) => withMain(r, (b) => ({ ...b, corners: b.corners.map((c, i) => (i === index ? { photo: c.photo, x: c.x, y: c.y, corner: c.corner, by: "app" } : c)) })));
+    change((r) => withMain(r, (b) => ({ ...b, corners: b.corners.map((c, i) => (i === index ? { ...kept(c), by: "app" } : c)) })));
     setPicking(null);
   }
 
@@ -229,7 +239,7 @@ export function PhotoRoutePane({ exterior, readOnly, onChange }: { exterior: Ext
     if (!access) return;
     setError(null);
     // "Looks right": every mark Scrivn put down kept, then measured with them.
-    const buildings = keepMarks ? route.buildings.map((b) => (b.id === "main" ? { ...b, corners: b.corners.map((c) => (c.proposed ? { photo: c.photo, x: c.x, y: c.y, corner: c.corner, by: "app" as const } : c)) } : b)) : route.buildings;
+    const buildings = keepMarks ? route.buildings.map((b) => (b.id === "main" ? { ...b, corners: b.corners.map((c) => (c.proposed ? { ...kept(c), by: "app" as const } : c)) } : b)) : route.buildings;
     try {
       const have = route.photos.filter((p) => urls.has(p.id));
       const pixels: PhotoPixelsIn[] = [];
@@ -319,13 +329,29 @@ export function PhotoRoutePane({ exterior, readOnly, onChange }: { exterior: Ext
 
       <section>
         <h3>2. {The}&rsquo;s shape</h3>
+        {isHouse && (
+          <div className="option-group" role="group" aria-label="The home">
+            {(Object.keys(HOME_TYPE_LABEL) as HomeType[]).map((k) => (
+              <button
+                key={k}
+                type="button"
+                className={`option-btn${(main.homeType ?? "detached") === k ? " selected" : ""}`}
+                aria-pressed={(main.homeType ?? "detached") === k}
+                disabled={readOnly}
+                onClick={() => change((r) => withMain(r, (b) => ({ ...b, homeType: k, shared: defaultShared(b.outline, k) })))}
+              >
+                {HOME_TYPE_LABEL[k]}
+              </button>
+            ))}
+          </div>
+        )}
         {main.outline.length < 4 ? (
           readOnly ? (
             <p className="field-note">No shape drawn yet.</p>
           ) : (
             <>
               <p className="field-note">Tap each corner of {the} in turn, going round it, then the first one again. The street side at the bottom. Rough is fine: the photos set the sizes.</p>
-              <FootprintDraw onClose={(ring) => change((r) => withMain(r, (b) => ({ ...b, outline: ring, corners: b.corners.map((c) => ({ ...c, corner: -1, by: undefined })) })))} />
+              <FootprintDraw onClose={(ring) => change((r) => withMain(r, (b) => ({ ...b, outline: ring, shared: defaultShared(ring, b.homeType), corners: b.corners.map((c) => ({ ...c, corner: -1, by: undefined })) })))} />
             </>
           )
         ) : (
@@ -333,9 +359,23 @@ export function PhotoRoutePane({ exterior, readOnly, onChange }: { exterior: Ext
             <ShapePlan
               outline={measured?.corners ?? main.outline}
               highlight={picking !== null ? null : wallSide}
-              pick={picking !== null || mode === "wall" ? (k, kind) => (picking !== null && kind === "corner" ? setCorner(picking, k) : kind === "side" && mode === "wall" ? setWallSide(k) : undefined) : null}
+              pick={
+                picking !== null || mode === "wall" || (attached && !readOnly)
+                  ? (k, kind) =>
+                      picking !== null && kind === "corner"
+                        ? setCorner(picking, k)
+                        : kind === "side" && mode === "wall"
+                          ? setWallSide(k)
+                          : kind === "side" && attached && picking === null
+                            ? change((r) => withMain(r, (b) => ({ ...b, shared: (b.shared ?? []).includes(k) ? (b.shared ?? []).filter((i) => i !== k) : [...(b.shared ?? []), k].sort((p, q) => p - q) })))
+                            : undefined
+                  : null
+              }
               taped={new Set(main.tapes.filter((t): t is Extract<RouteTape, { kind: "side" }> => t.kind === "side").map((t) => t.from))}
+              shared={sharedSides}
+              pickCorners={picking !== null}
             />
+            {attached && <p className="field-note">Shared with the neighbour, in grey: not photographed, not counted. Tap a wall to change it.</p>}
             {!readOnly && (
               <div className={styles.row}>
                 <button
@@ -361,6 +401,7 @@ export function PhotoRoutePane({ exterior, readOnly, onChange }: { exterior: Ext
               {(
                 [
                   ["corners", "Tap corners"],
+                  ...(attached ? ([["ends", "Where this home ends"]] as const) : []),
                   ["tape", "Draw a tape"],
                   ["wall", "A wall's length"],
                 ] as const
@@ -372,7 +413,9 @@ export function PhotoRoutePane({ exterior, readOnly, onChange }: { exterior: Ext
             </div>
           )}
           <p className="field-note">
-            {mode === "corners"
+            {mode === "ends"
+              ? "On a front or back photo, tap where this home ends, at the ground: the party line, often a downspout, a trim line, or where the siding or colour changes. What's past it is the neighbour's and isn't measured."
+              : mode === "corners"
               ? `Tap each corner of ${the} you can see, where it meets the ground. The first one on each photo asks which corner it is; Scrivn numbers the rest. Tap a number to change it.`
               : mode === "tape"
                 ? "Drag across what you taped, end to end: a garage door, a window, a door. Then say how long it is."
@@ -674,6 +717,13 @@ function CoverageList({ route, exterior, readOnly, onTake }: { route: PhotoRoute
     measured: !!m,
     gables: ids.flatMap((id, i) => (exterior.roof.ends[id] === "gable" ? [i] : [])),
     wallName: (i) => exterior.sides.find((s) => s.id === ids[i])?.name ?? null,
+    shared: main.shared ?? [],
+    depthTaped: main.tapes.some((t) => {
+      if (t.kind !== "side") return false;
+      const a = ring[t.from];
+      const b = ring[(t.from + 1) % ring.length];
+      return !!a && !!b && Math.abs(b.x - a.x) < Math.abs(b.y - a.y);
+    }),
   });
   // In orange: each corner and wall the list asks a photo of.
   const thin = {
@@ -682,6 +732,7 @@ function CoverageList({ route, exterior, readOnly, onTake }: { route: PhotoRoute
   };
   const seen = cov.corners.filter((c) => c.photos.length >= 2).length;
   const both = cov.walls.filter((w) => w.both.length > 0).length;
+  const toTake = cov.items.filter((it) => it.kind !== "depth-tape").length;
   const shown = all ? cov.items : cov.items.slice(0, 4);
   return (
     <div className={styles.cover}>
@@ -692,12 +743,12 @@ function CoverageList({ route, exterior, readOnly, onTake }: { route: PhotoRoute
         <>
           <div className={styles.coverRow}>
             <div className={styles.coverPlan}>
-              <ShapePlan outline={ring} pick={null} highlight={null} taped={new Set()} thin={thin} />
+              <ShapePlan outline={ring} pick={null} highlight={null} taped={new Set()} thin={thin} shared={new Set(main.shared ?? [])} />
             </div>
             <p className="field-note">
               {m
                 ? `${seen} of ${n} corners are in two photos or more, and ${both} of ${n} walls have a photo with both corners in, counting the photos the measure placed. In orange: what the list asks for.`
-                : `${cov.items.length} photo${cov.items.length === 1 ? "" : "s"} to take, from the shape, in orange. A photo added another way counts once Measure has placed it.`}{" "}
+                : `${toTake} photo${toTake === 1 ? "" : "s"} to take, from the shape, in orange. A photo added another way counts once Measure has placed it.`}{" "}
               Advice only: Measure works any time.
             </p>
           </div>
@@ -705,7 +756,7 @@ function CoverageList({ route, exterior, readOnly, onTake }: { route: PhotoRoute
             {shown.map((it) => (
               <li key={it.key}>
                 <span>{it.words}</span>
-                {!readOnly && (
+                {!readOnly && it.kind !== "depth-tape" && (
                   <label className="btn-secondary">
                     Take it
                     <input type="file" accept="image/*" capture="environment" hidden onChange={(e) => (onTake([...(e.target.files ?? [])], it.shot), (e.target.value = ""))} />
@@ -732,6 +783,8 @@ function ShapePlan({
   highlight,
   taped,
   thin,
+  shared,
+  pickCorners = true,
 }: {
   outline: Pt[];
   pick: ((k: number, kind: "corner" | "side") => void) | null;
@@ -739,6 +792,10 @@ function ShapePlan({
   taped: Set<number>;
   /** What the photos cover thinly (lib/photoRouteCoverage.ts), in orange. */
   thin?: { corners: Set<number>; walls: Set<number> };
+  /** The walls shared with the neighbours, in grey. */
+  shared?: Set<number>;
+  /** Whether a corner is being picked (orange, tappable); otherwise only the sides take taps. */
+  pickCorners?: boolean;
 }) {
   const xs = outline.map((p) => p.x);
   const ys = outline.map((p) => p.y);
@@ -769,7 +826,7 @@ function ShapePlan({
               y1={A.y}
               x2={B.x}
               y2={B.y}
-              stroke={highlight === i || thin?.walls.has(i) ? "#ea580c" : taped.has(i) ? "#15803d" : "transparent"}
+              stroke={highlight === i || thin?.walls.has(i) ? "#ea580c" : taped.has(i) ? "#15803d" : shared?.has(i) ? "#a8a29e" : "transparent"}
               strokeWidth={span * 0.02}
               strokeDasharray={thin?.walls.has(i) && highlight !== i ? `${span * 0.03} ${span * 0.02}` : undefined}
             />
@@ -779,14 +836,19 @@ function ShapePlan({
                 taped
               </text>
             )}
+            {shared?.has(i) && !taped.has(i) && (
+              <text x={mid.x} y={mid.y} fontSize={span * 0.04} textAnchor="middle" fill="#78716c" stroke="#fff" strokeWidth={span * 0.006} paintOrder="stroke">
+                shared
+              </text>
+            )}
           </g>
         );
       })}
       {outline.map((p, i) => {
         const q = P(p);
         return (
-          <g key={`c${i}`} style={{ cursor: pick ? "pointer" : undefined }} onClick={() => pick?.(i, "corner")}>
-            <circle cx={q.x} cy={q.y} r={r} fill={pick || thin?.corners.has(i) ? "#ea580c" : "#0891b2"} />
+          <g key={`c${i}`} style={{ cursor: pick && pickCorners ? "pointer" : undefined }} onClick={() => pickCorners && pick?.(i, "corner")}>
+            <circle cx={q.x} cy={q.y} r={r} fill={(pick && pickCorners) || thin?.corners.has(i) ? "#ea580c" : "#0891b2"} />
             <text x={q.x} y={q.y + r * 0.4} fontSize={r * 1.15} textAnchor="middle" fill="#fff">
               {i + 1}
             </text>
@@ -817,7 +879,7 @@ function PhotoTaps({
   taps: { c: CornerTap; i: number }[];
   tapes: Extract<RouteTape, { kind: "line" }>[];
   line: { a: [number, number]; b: [number, number] } | null;
-  mode: "corners" | "tape" | "wall" | null;
+  mode: "corners" | "ends" | "tape" | "wall" | null;
   selected: number | null;
   onTap: (x: number, y: number) => void;
   onPickTap: (i: number) => void;
@@ -854,7 +916,7 @@ function PhotoTaps({
           start.current = null;
           if (!s || !mode) return;
           const moved = Math.hypot(e.clientX - s.x, e.clientY - s.y);
-          if (mode === "corners" && moved < 10) onTap(...toPhoto(e));
+          if ((mode === "corners" || mode === "ends") && moved < 10) onTap(...toPhoto(e));
           if (mode === "tape") {
             const b = toPhoto(e);
             setDrag(null);
@@ -880,7 +942,15 @@ function PhotoTaps({
               onPickTap(i);
             }}
           >
-            <line x1={c.x} y1={c.y - r * 6} x2={c.x} y2={c.y} stroke={selected === i ? "#ea580c" : "#0891b2"} strokeWidth={r / 4} strokeDasharray={c.proposed ? `${r / 1.5} ${r / 2.5}` : undefined} />
+            <line
+              x1={c.x}
+              y1={c.party ? 0 : c.y - r * 6}
+              x2={c.x}
+              y2={c.y}
+              stroke={selected === i ? "#ea580c" : c.party ? "#7c3aed" : "#0891b2"}
+              strokeWidth={r / 4}
+              strokeDasharray={c.proposed ? `${r / 1.5} ${r / 2.5}` : undefined}
+            />
             <circle
               cx={c.x}
               cy={c.y}

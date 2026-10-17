@@ -22,6 +22,7 @@
  * `RouteBuilding`; photos and their lens are shared, so a shed can later be tapped in the same photos.
  */
 
+import type { HomeType } from "./exterior";
 import type { Pt } from "./roof";
 import { fromLevel, type PhotoCamera, levelAxes, planBearing, toLevel } from "./photoRouteLens";
 import { snapToEdge, type UprightEdge } from "./photoRouteEdges";
@@ -63,6 +64,12 @@ export interface CornerTap {
   /** Who said which corner it is: the app numbering it, or the user changing that. Absent: the app. */
   by?: "app" | "user";
   /**
+   * Where this home ends (2026-10-17, attached homes): tapped on a front or back photo at the party line - often a
+   * downspout, a trim line, or where the siding or colour changes. It is a corner of a shared wall, and numbered
+   * only as one; what lies past it is the neighbour's and is not measured.
+   */
+  party?: true;
+  /**
    * Marked by Scrivn after a measure (2026-10-17, `proposeCorners`): where this corner of the shape should be on
    * this photo, seen from where the photo was placed, on the edge nearest. Left out of the solve until the user
    * keeps it ("Looks right"); a tap on it takes it away.
@@ -83,6 +90,10 @@ export type RouteTape =
 export interface RouteBuilding {
   id: string;
   name?: string;
+  /** Semi-detached or a townhouse (2026-10-17): said first, one tap; it marks the shared sides, which a tap on a wall changes. */
+  homeType?: HomeType;
+  /** The outline's sides shared with a neighbour's home (party walls), by side index: not photographed, not measured on. */
+  shared?: number[];
   /** The shape as drawn: corners in order round the house (counter-clockwise from above, as the plan draws them). Sizes rough. */
   outline: Pt[];
   corners: CornerTap[];
@@ -288,6 +299,8 @@ export function numberCorners(input: PhotoRouteInput, buildingId: string, data: 
   const n = ring.length;
   const byId = new Map(data.map((d) => [d.id, d]));
   const out = b.corners.map((c) => ({ ...c }));
+  const shared = new Set(b.shared ?? []);
+  const party = partyCorners(n, shared);
   const time = new Map(input.photos.map((p, i) => [p.id, p.takenAt ?? i]));
   const shotOf = new Map(input.photos.filter((p) => p.shot).map((p) => [p.id, p.shot as RouteShot]));
   const photoIds = [...new Set(out.map((c) => c.photo))];
@@ -344,13 +357,15 @@ export function numberCorners(input: PhotoRouteInput, buildingId: string, data: 
         const labels = [s0];
         for (const step of g) labels.push(((labels[labels.length - 1] as number) + step) % n);
         if (labels.some((l, k) => (userSet[k] as number) >= 0 && userSet[k] !== l)) continue;
+        // Where this home ends is a corner of a shared wall.
+        if (labels.some((l, k) => (out[job.idx[k] as number] as CornerTap).party && !party.has(l))) continue;
         const taps = job.snapped.map((t, k) => ({ ...t, corner: labels[k] as number }));
         const cam = (byId.get(job.id) as RoutePhotoData).camera as PhotoCamera;
-        for (const p of placementsFromCorners(taps, ring)) {
+        for (const p of placementsFromCorners(taps, ring, shared)) {
           const skipped = g.reduce((s, v) => s + v - 1, 0);
           const walk = near.length ? Math.min(...near.map((x) => Math.hypot(x.at[0] - p.at[0], x.at[1] - p.at[1]))) / 30 : 0;
           // Corners this camera would see plainly - in the picture, ahead, nothing of the house in the way - that were not tapped.
-          const seenUntapped = ring.filter((_, c) => !labels.includes(c) && cornerInView(cam, p, ring, c)).length;
+          const seenUntapped = ring.filter((_, c) => !labels.includes(c) && cornerInView(cam, p, ring, c, shared)).length;
           const score = 200 * p.err + p.slant + 0.4 * skipped + walk + seenUntapped;
           if (!best || score < best.score) best = { labels, score, at: p.at };
         }
@@ -397,7 +412,7 @@ function shotNames(shot: RouteShot, snapped: { u: number }[], width: number, n: 
  * Whether outline corner c would show plainly in a photo from placement p: ahead, inside the picture
  * with a margin of a twentieth of its width, and the first thing of the house its ray meets.
  */
-function cornerInView(cam: PhotoCamera, p: { quadrant: number; at: [number, number] }, ring: Pt[], c: number): boolean {
+function cornerInView(cam: PhotoCamera, p: { quadrant: number; at: [number, number] }, ring: Pt[], c: number, shared: Set<number> = new Set()): boolean {
   const P = ring[c] as Pt;
   const v: [number, number] = [P.x - p.at[0], P.y - p.at[1]];
   const dist = Math.hypot(v[0], v[1]);
@@ -419,7 +434,82 @@ function cornerInView(cam: PhotoCamera, p: { quadrant: number; at: [number, numb
   const u = cam.width / 2 + (cam.f * across) / ahead;
   if (u < 0.05 * cam.width || u > 0.95 * cam.width) return false;
   const hit = castRay({ x: p.at[0], y: p.at[1] }, [v[0] / dist, v[1] / dist], ring);
-  return !hit || hit.t >= dist - 0.5;
+  return (!hit || hit.t >= dist - 0.5) && !neighbourBlocks({ x: p.at[0], y: p.at[1] }, P, ring, shared);
+}
+
+// ── Attached homes ───────────────────────────────────────────────────────────────────────────────
+
+/** How far the neighbour's home is taken to reach past a shared wall, feet: what a camera can't stand in or see through. */
+const NEIGHBOUR_FEET = 40;
+
+/**
+ * The sides a home of this kind shares, on a shape drawn with the street at the bottom (2026-10-17): a semi or an
+ * end townhouse its right-hand side wall - the outermost wall running back from the street on the right - a middle
+ * townhouse both its outermost side walls. A tap on a wall changes it. None for a detached home.
+ */
+export function defaultShared(outline: Pt[], homeType: HomeType | undefined): number[] {
+  if (!homeType || homeType === "detached" || outline.length < 4) return [];
+  const n = outline.length;
+  const runsBack = outline.map((a, i) => {
+    const b = outline[(i + 1) % n] as Pt;
+    return Math.abs(b.x - a.x) < Math.abs(b.y - a.y);
+  });
+  const xs = outline.map((p) => p.x);
+  const side = (right: boolean): number[] => {
+    const x = right ? Math.max(...xs) : Math.min(...xs);
+    const on = outline.map((a, i) => i).filter((i) => runsBack[i] && Math.abs((outline[i] as Pt).x - x) < 0.5);
+    // Of the walls on that edge of the shape, the longest (a step in it is no party wall).
+    const len = (i: number) => Math.abs((outline[(i + 1) % n] as Pt).y - (outline[i] as Pt).y);
+    return on.length ? [on.reduce((a, c) => (len(c) > len(a) ? c : a))] : [];
+  };
+  return homeType === "town_middle" ? [...side(false), ...side(true)].sort((a, c) => a - c) : side(true);
+}
+
+/** The corners where this home ends: both ends of each shared side. */
+export function partyCorners(n: number, shared: Set<number> | number[]): Set<number> {
+  const out = new Set<number>();
+  for (const i of shared) {
+    out.add(((i % n) + n) % n);
+    out.add((i + 1) % n);
+  }
+  return out;
+}
+
+/** The neighbour's home past shared side i: the wall and a box reaching NEIGHBOUR_FEET out from it. */
+function neighbourBox(ring: Pt[], i: number): Pt[] {
+  const A = ring[i] as Pt;
+  const B = ring[(i + 1) % ring.length] as Pt;
+  const nrm = outward(A, B);
+  return [A, B, { x: B.x + NEIGHBOUR_FEET * nrm.x, y: B.y + NEIGHBOUR_FEET * nrm.y }, { x: A.x + NEIGHBOUR_FEET * nrm.x, y: A.y + NEIGHBOUR_FEET * nrm.y }];
+}
+
+/** Whether C stands inside a neighbour's home (past a shared wall). */
+export function inNeighbour(C: Pt, ring: Pt[], shared: Set<number> | number[]): boolean {
+  for (const i of shared) if (insideRing(C, neighbourBox(ring, i))) return true;
+  return false;
+}
+
+/** Whether a neighbour's home stands between C and P: the line between them crosses one of its outer edges first. */
+export function neighbourBlocks(C: Pt, P: Pt, ring: Pt[], shared: Set<number> | number[]): boolean {
+  for (const i of shared) {
+    const box = neighbourBox(ring, i);
+    // Its three edges away from this home (the shared wall itself is this home's).
+    for (let e = 1; e < 4; e++) {
+      const a = box[e] as Pt;
+      const b = box[(e + 1) % 4] as Pt;
+      const d1x = P.x - C.x;
+      const d1y = P.y - C.y;
+      const d2x = b.x - a.x;
+      const d2y = b.y - a.y;
+      const den = d1x * d2y - d1y * d2x;
+      if (Math.abs(den) < 1e-12) continue;
+      const t = ((a.x - C.x) * d2y - (a.y - C.y) * d2x) / den;
+      const s = ((a.x - C.x) * d1y - (a.y - C.y) * d1x) / den;
+      if (t > 1e-6 && t < 1 - 1e-6 && s > 1e-6 && s < 1 - 1e-6) return true;
+    }
+    if (insideRing({ x: (C.x + P.x) / 2, y: (C.y + P.y) / 2 }, box)) return true;
+  }
+  return false;
 }
 
 // ── The solve ────────────────────────────────────────────────────────────────────────────────────
@@ -527,7 +617,7 @@ export function solveRoute(input: PhotoRouteInput, buildingId: string, data: Rou
       continue;
     }
     if (mine.length >= 2) {
-      const list = placementsFromCorners(mine, b.outline);
+      const list = placementsFromCorners(mine, b.outline, new Set(b.shared ?? []));
       if (list.length) candidates.set(id, list);
       else unplaced.push({ photo: id, why: "Its corners do not fit the shape drawn: check which corners they are." });
     }
@@ -661,7 +751,7 @@ export function solveRoute(input: PhotoRouteInput, buildingId: string, data: Rou
   const rounds = opts.wallEdges === false ? 1 : SEARCH.length;
   for (let round = 0; round < rounds; round++) {
     const placedNow = new Map([...cams].filter(([id]) => sol.input.cameras.some((c) => c.id === id) || round === 0));
-    const obs = opts.wallEdges === false ? [] : wallObservations(placedNow, byId, ring, sol, camHeight);
+    const obs = opts.wallEdges === false ? [] : wallObservations(placedNow, byId, ring, sol, camHeight).filter((o) => !(b.shared ?? []).includes(o.side));
     edgePoints = opts.wallEdges === false ? [] : tieEdges(obs, SEARCH[round] as number, TOL[round] as number).filter((q) => !(opts.skipSides ?? []).includes(q.side));
     // Photos with one corner: placed along that corner's ray where their wall edges meet the others' (once there are some to meet).
     for (const id of input.photos.map((p) => p.id)) {
@@ -753,7 +843,7 @@ export function solveRoute(input: PhotoRouteInput, buildingId: string, data: Rou
     counts: { cornerBearings, edgeBearings, edgePoints: edgePoints.length, tapes: tapes.length },
     rms: sol.rms,
     unscaled: !scaled,
-    advice: tapeAdvice(sides, ring, cameras, taps, edgePoints),
+    advice: tapeAdvice(sides, ring, cameras, taps, edgePoints, new Set(b.shared ?? [])),
     edgePoints: edgePoints.map((q) => ({ id: q.id, side: q.side, along: sol.input.points.some((x) => x.id === q.id) ? alongOf(sol, q.id, ring, q.side) : q.along, photos: q.obs.map((o) => o.photo) })),
     solution: sol,
   };
@@ -794,7 +884,7 @@ interface Placement {
  * the house, with nothing of the house in the way, and faces every wall that runs between two of them.
  * Two corners fit any quarter-turn exactly, so there are often two answers: `chooseByWalk` picks.
  */
-function placementsFromCorners(mine: SnappedTap[], outline: Pt[]): Placement[] {
+function placementsFromCorners(mine: SnappedTap[], outline: Pt[], shared: Set<number> = new Set()): Placement[] {
   const out: Placement[] = [];
   const n = outline.length;
   for (let q = 0; q < 4; q++) {
@@ -802,6 +892,9 @@ function placementsFromCorners(mine: SnappedTap[], outline: Pt[]): Placement[] {
     const at = resect(obs, q);
     if (!at) continue;
     if (insideRing({ x: at[0], y: at[1] }, outline)) continue;
+    // Not in the neighbour's home, and nothing of it in the way.
+    if (inNeighbour({ x: at[0], y: at[1] }, outline, shared)) continue;
+    if (obs.some((o) => neighbourBlocks({ x: at[0], y: at[1] }, { x: o.at[0], y: o.at[1] }, outline, shared))) continue;
     let err = 0;
     let ahead = true;
     for (const o of obs) {
@@ -1099,12 +1192,17 @@ function placeByOneCorner(tap: SnappedTap, d: RoutePhotoData, ring: Pt[], points
  * Which sides want a tape, and why, in plain words: any whose ± is over 5%. Advice only: nothing waits
  * on it.
  */
-function tapeAdvice(sides: RouteSide[], ring: Pt[], cameras: RouteCamera[], taps: SnappedTap[], points: { side: number; obs: EdgeObs[] }[]): { from: number; why: string }[] {
+function tapeAdvice(sides: RouteSide[], ring: Pt[], cameras: RouteCamera[], taps: SnappedTap[], points: { side: number; obs: EdgeObs[] }[], shared: Set<number> = new Set()): { from: number; why: string }[] {
   const n = ring.length;
   const out: { from: number; why: string }[] = [];
   for (const s of sides) {
     if (s.taped || (s.plusMinusPct ?? 0) <= 5) continue;
     const i = s.from;
+    // A party wall: no photo sees along it; it is the home's depth.
+    if (shared.has(i)) {
+      out.push({ from: i, why: `±${s.plusMinusPct}%: it is shared with the neighbour, so no photo sees along it. Tape the depth once, front wall to back wall – along the fence or inside.` });
+      continue;
+    }
     const A = ring[i] as Pt;
     const B = ring[(i + 1) % n] as Pt;
     const nrm = outward(A, B);
@@ -1145,6 +1243,8 @@ export function proposeCorners(input: PhotoRouteInput, buildingId: string, data:
   const ring = sol.corners;
   const n = ring.length;
   const out: CornerTap[] = [];
+  const shared = new Set(b.shared ?? []);
+  const party = partyCorners(n, shared);
   for (const c of sol.cameras) {
     const d = data.find((q) => q.id === c.photo);
     const cam = d?.camera;
@@ -1165,6 +1265,7 @@ export function proposeCorners(input: PhotoRouteInput, buildingId: string, data:
       if (dist < 3) continue;
       const hit = castRay({ x: c.at[0], y: c.at[1] }, [v0 / dist, v1 / dist], ring);
       if (hit && hit.t < dist - 0.5) continue;
+      if (neighbourBlocks({ x: c.at[0], y: c.at[1] }, P, ring, shared)) continue;
       // The plan direction in the photo's own frame: planDirection with this quadrant and turn, run backwards.
       const cy = Math.cos(yaw);
       const sy = Math.sin(yaw);
@@ -1180,7 +1281,7 @@ export function proposeCorners(input: PhotoRouteInput, buildingId: string, data:
       const px = fromLevel(cam, u, v);
       if (!px || px[0] < 0 || px[1] < 0 || px[0] >= cam.width || px[1] >= cam.height) continue;
       const s = snapToEdge(d.gray, cam, px[0], px[1]);
-      out.push({ photo: c.photo, corner: k, x: s.onEdge ? s.x : px[0], y: s.onEdge ? s.y : px[1], by: "app", proposed: true });
+      out.push({ photo: c.photo, corner: k, x: s.onEdge ? s.x : px[0], y: s.onEdge ? s.y : px[1], by: "app", proposed: true, ...(party.has(k) ? { party: true as const } : {}) });
     }
   }
   return out;
