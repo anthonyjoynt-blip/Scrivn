@@ -7,6 +7,7 @@ import { syncAll } from "@/lib/claimSync";
 import { connection, onReconnect, probe } from "@/lib/connectivity";
 import { pruneDeviceClaims } from "@/lib/deviceClaims";
 import { discardRefusedOf, sendWaitingPhotos } from "@/lib/devicePhotos";
+import { sendWaitingRequests } from "@/lib/exteriorRequestQueue";
 import { claimName, useDeviceWork } from "@/lib/useDeviceWork";
 
 /**
@@ -38,6 +39,8 @@ export function SyncStatus() {
         await runWaitingJobs();
         // After the claims: Scrivn takes a photo's picture only once its claim lists it.
         await sendWaitingPhotos();
+        // After the photos: a house sent to the Scrivn team goes once its photos are up (lib/exteriorRequestQueue.ts).
+        await sendWaitingRequests();
       } finally {
         if (alive) setBusy(false);
       }

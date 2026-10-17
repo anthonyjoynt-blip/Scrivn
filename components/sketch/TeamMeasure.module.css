@@ -1,0 +1,62 @@
+/* Send to Scrivn team (lib/exteriorRequests.ts): one line on the Exterior while a house is with us. */
+.status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.75rem;
+  align-items: center;
+  margin: 0 0 0.75rem;
+  padding: 0.5rem 0.75rem;
+  border-left: 4px solid #0891b2;
+  border-radius: 4px;
+  background: #ecfeff;
+  font-size: 0.9rem;
+  line-height: 1.45;
+  /* A line of its own beside the Measure button (a flex row there); nothing to a block. */
+  flex: 1 1 100%;
+  box-sizing: border-box;
+}
+
+.ready {
+  border-left-color: #15803d;
+  background: #f0fdf4;
+}
+
+.refused {
+  border-left-color: #b45309;
+  background: #fffbeb;
+}
+
+.status p {
+  margin: 0;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-width: 560px;
+  border: 1px solid var(--border, #d6d3d1);
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  background: var(--surface-muted, #fafaf9);
+  flex: 1 1 100%;
+  box-sizing: border-box;
+}
+
+.form p {
+  margin: 0;
+}
+
+.form textarea {
+  width: 100%;
+  min-height: 4.5rem;
+  font: inherit;
+  box-sizing: border-box;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}

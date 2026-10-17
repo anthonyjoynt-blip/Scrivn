@@ -18,7 +18,9 @@ Deleting your account, and Security sections into TermsFeed again). Site photos 
 added 2026-10-14 (paste Information about your customers, AI processing, Dictation, Photos and
 location, Working without a connection, and Keeping and deleting claim data again). Roof reports read
 by AI added 2026-10-15 (paste the AI processing section again). Exteriors measured from photos added
-2026-10-16 (paste AI processing, and Photos and location, again).
+2026-10-16 (paste AI processing, and Photos and location, again). Send to Scrivn team for exteriors
+added 2026-10-17 (paste the new section, Sending an exterior to the Scrivn team, after Photos and
+location; and paste Working without a connection again).
 
 ## Generator answers (Canada, October 2026)
 
@@ -60,6 +62,10 @@ When you use the Dictate button, or speak a caption after taking a photo in Scri
 
 Scrivn keeps no location (GPS) information from photos. Each photo taken or added in Scrivn is redrawn at a smaller size on your device before it is stored, which leaves out the location and the other details a camera writes into a photo file. When you add a photo from your phone's gallery, Scrivn reads only the date and time it was taken, to file it in order, and, for photos used to measure the outside of a house, the camera lens's focal length, to measure from them.
 
+**Sending an exterior to the Scrivn team**
+
+When you choose Send to Scrivn team on the outside of a house or another building, Scrivn staff see that claim's exterior photos, the tapes and other inputs you entered with them, and your note, to measure the outside for you. We see nothing else of the claim, and we are told it has arrived by an email that carries your note. The measurements are returned to the claim, where you choose whether to use them. Our working copies are deleted once the measurements are returned, or within 30 days. The request itself, with the measurements returned, is kept with the claim and deleted with it.
+
 **Scrivn Scan**
 
 Scrivn Scan uses your phone's camera to measure rooms and to take photos and 360° images. It asks for camera permission only, and does not access your location, microphone, contacts or files. Measurements and photos are sent to Scrivn when you send a scan to a claim. You can use Scan without an account.
@@ -72,7 +78,7 @@ Scrivn Scan runs on Google Play Services for AR (ARCore), which is provided by G
 
 **Working without a connection**
 
-So that Scrivn works with no signal, it keeps a copy of the claims you have opened recently, and of the latest ones on your claims list, in your browser's storage on your device, along with changes that have not reached our servers yet, photos that have not uploaded yet, and AI steps waiting to run. Signing out removes those copies; changes and photos that have not reached Scrivn yet stay on the device, out of sight of anyone else who signs in there, until you sign in again, so that they are not lost. Scrivn Scan likewise keeps a scan it could not send, with its photos, on the phone until it has been sent or you delete it.
+So that Scrivn works with no signal, it keeps a copy of the claims you have opened recently, and of the latest ones on your claims list, in your browser's storage on your device, along with changes that have not reached our servers yet, photos that have not uploaded yet, AI steps waiting to run, and exteriors waiting to be sent to the Scrivn team. Signing out removes those copies; changes and photos that have not reached Scrivn yet stay on the device, out of sight of anyone else who signs in there, until you sign in again, so that they are not lost. Scrivn Scan likewise keeps a scan it could not send, with its photos, on the phone until it has been sent or you delete it.
 
 **Service providers**
 
@@ -150,6 +156,19 @@ To protect accounts and limit abuse, Scrivn counts attempts to create an account
   `scan-photos` folders (`removeClaimFolders`; the scan photos were left behind before this). Photos
   waiting to upload are the `photoFiles` store in IndexedDB (`lib/devicePhotos.ts`), not swept on
   sign-out.
+- **Send to Scrivn team for exteriors** (2026-10-17, migration 0016): the button is on the photo route
+  (`components/sketch/TeamMeasure.tsx`); a request is the claim photo ids, the route's inputs
+  (`Exterior.photoRoute`: the shape drawn, corner taps, tapes) and the note, in `exterior_requests`,
+  readable by the claim's organization and written only by the service role but for the member's own
+  withdraw and used (`lib/exteriorRequestsRepo.ts`, `app/api/claims/[id]/exterior-requests`). Our side is
+  `scripts/pull-exterior-request.mjs` (photos, request.json to `exterior-requests/<id>/`, gitignored; it
+  deletes copies whose request was withdrawn or used and warns past 30 days) and
+  `scripts/return-exterior-request.mjs` (stores the result, deletes our copy, emails the sender that it
+  is ready through `lib/email/send.ts`). The notice to us goes to SCAN_REPORTS_TO / CONTACT_EMAIL with
+  the sender's email and note (`emails/ExteriorRequest.tsx`). Measuring is done on our machine with the
+  route's own code and a person or Claude session reading the photos: nothing is sent to Anthropic. A
+  request waiting for its photos to upload is kept in the browser's localStorage
+  (`lib/exteriorRequestQueue.ts`). Customer name, address and the rest of the claim are never pulled.
 - **Working without a connection** (2026-10-13, offline mode): the device copies are IndexedDB
   (`lib/deviceClaims.ts`, `lib/aiJobs.ts`); signing out sweeps the copies the server already has
   (`forgetCopiedClaims` in `public/sw.js`) and keeps unsynced work, scoped to its owner by

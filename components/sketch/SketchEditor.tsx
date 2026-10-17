@@ -131,7 +131,7 @@ import { FreeCabinetPanel, SymbolPanel } from "./SymbolPanel";
 import { type Obstacle, conformedDragWall, obstaclesFor, placeNewRoom, pullRoomFromWall, viewCentredOn, wallDragMeetsWall } from "@/lib/roomPlacement";
 import { QuantitiesPanel } from "./QuantitiesPanel";
 import { ExteriorSite } from "./ExteriorEditor";
-import { buildingName, hasAnyExterior } from "@/lib/buildings";
+import { buildingName, hasAnyExterior, withBuildingsChange, withHouseChange } from "@/lib/buildings";
 import { type ExteriorPhotoAccess, ExteriorPhotoContext } from "./exteriorPhotoAccess";
 import { type QuantityOptions, DEFAULT_QUANTITY_OPTIONS } from "@/lib/sketchQuantities";
 import { SQUARE_TOLERANCE_DEG, leaningCorners, squareUpRoom } from "@/lib/sketchSquare";
@@ -2500,25 +2500,8 @@ export function SketchEditor({
           onSelect={setBuilding}
           readOnly={readOnly}
           onShow3d={phone ? () => setShow3d(true) : undefined}
-          onHouse={(update) =>
-            onChange((prev) => {
-              const next = update(prev.exterior);
-              if (next === prev.exterior) return prev;
-              const out: Sketch = { ...prev, exterior: next };
-              if (next === undefined) delete out.exterior;
-              return out;
-            })
-          }
-          onBuildings={(update) =>
-            onChange((prev) => {
-              const list = prev.buildings ?? [];
-              const next = update(list);
-              if (next === list) return prev;
-              const out: Sketch = { ...prev, buildings: next };
-              if (next.length === 0) delete out.buildings;
-              return out;
-            })
-          }
+          onHouse={(update) => onChange((prev) => withHouseChange(prev, update))}
+          onBuildings={(update) => onChange((prev) => withBuildingsChange(prev, update))}
         />
         </ExteriorPhotoContext.Provider>
       ) : (

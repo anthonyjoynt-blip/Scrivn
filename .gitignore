@@ -46,3 +46,7 @@ test/pipeline/reports-*/
 
 # What scripts/pull-scan-report.mjs pulls by default: testers' scans and logs. Never committed.
 scan-reports/
+
+# What scripts/pull-exterior-request.mjs pulls: a tester's exterior photos, tapes and note. Never committed;
+# deleted when the request is returned (scripts/return-exterior-request.mjs), and within 30 days (PRIVACY.md).
+exterior-requests/
