@@ -48,10 +48,26 @@
  * to the file's as they are put on (`scaledRoofRead`; a pitch is a ratio and stays).
  */
 
-import { allSides, CLADDING_KINDS, type CladdingKind, type Exterior, type ExteriorOpening, type ExteriorOpeningKind, type ExteriorRoof, type ExteriorSide, formatPitch, type SidePhoto, type SideRoofRead, type SizeDoor } from "./exterior";
+import {
+  allSides,
+  CLADDING_KINDS,
+  type CladdingKind,
+  type Exterior,
+  type ExteriorOpening,
+  type ExteriorOpeningKind,
+  type ExteriorRoof,
+  type ExteriorSide,
+  formatPitch,
+  type OpeningTrim,
+  polygonOverlap,
+  type SideColumn,
+  type SidePhoto,
+  type SideRoofRead,
+  type SizeDoor,
+} from "./exterior";
 import { withSizeDoors } from "./exteriorScale";
 import type { SquareFrame } from "./exteriorPhoto";
-import { applyTrace, type TracePicks, type TraceProposals, type TraceRequest, roofPicksAtFirst, shapePicksAtFirst } from "./exteriorTrace";
+import { applyTrace, type ProposedOpening, type TracePicks, type TraceProposals, type TraceRequest, roofPicksAtFirst, shapePicksAtFirst } from "./exteriorTrace";
 import type { Pt, RoofEndKind } from "./roof";
 import { PHOTO_PIECE_LABEL, scaledRoofRead, UPPER_SHOWN_WORDS } from "./roofPhotoShapes";
 import { formatFeetInches, newSketchId } from "./sketch";
@@ -64,10 +80,16 @@ const FEET_PER_METRE = 1 / 0.3048;
 export interface FinishWalls {
   /** Kept, unless the estimator set them aside on the phone. */
   taken: boolean;
-  shapes: { kind: CladdingKind | "parging"; label?: string; polygon: Pt[] }[];
-  /** Each with what hid part of it in the photo, when something did (2026-10-16): its kind is asked on "Check these". */
-  openings: { kind: ExteriorOpeningKind; widthFeet: number; heightFeet: number; sillFeet: number; fromLeftFeet: number; hiddenBy?: string }[];
+  /** Each with its colour off the photo (2026-10-17), when it was read: for drawing only. */
+  shapes: { kind: CladdingKind | "parging"; label?: string; polygon: Pt[]; colour?: string }[];
+  /**
+   * Each with what hid part of it in the photo, when something did (2026-10-16): its kind is asked on "Check these".
+   * And its surround (2026-10-17), when it has one: put on the opening it is, read or tapped.
+   */
+  openings: { kind: ExteriorOpeningKind; widthFeet: number; heightFeet: number; sillFeet: number; fromLeftFeet: number; hiddenBy?: string; trim?: OpeningTrim }[];
   wallTop: { eaveLeftFeet: number | null; eaveRightFeet: number | null; peak: { atFeet: number; peakFeet: number } | null } | null;
+  /** The side's columns and pilasters off the photo (2026-10-17): put on a side with none of its own. Absent from a read before then. */
+  columns?: Omit<SideColumn, "id">[];
 }
 
 /** One side's roof read, as Finish made it on the phone. */
@@ -135,13 +157,67 @@ function readOf(raw: unknown): SideRoofRead | null {
 const pts = (v: unknown): Pt[] =>
   Array.isArray(v) ? v.filter(isObject).map((p) => ({ x: num(p.x), y: num(p.y) })).filter((p): p is Pt => p.x !== null && p.y !== null && Math.abs(p.x) < 700 && Math.abs(p.y) < 200) : [];
 
+/** A colour as Scrivn keeps one, "#rrggbb", or nothing. */
+const colourOf = (v: unknown): string | undefined => (typeof v === "string" && /^#[0-9a-f]{6}$/i.test(v.trim()) ? v.trim().toLowerCase() : undefined);
+/** A trim's material: one of Scrivn's, else "other". */
+const materialOf = (v: unknown): CladdingKind => ((CLADDING_KINDS as string[]).includes(String(v)) ? (v as CladdingKind) : "other");
+/** A length a trim can be: 0 to 4 ft. */
+const trimFeet = (v: unknown, hi = 4): number => {
+  const n = num(v);
+  return n !== null && n >= 0 && n <= hi ? n : 0;
+};
+
+/** An opening's surround as the phone wrote it (2026-10-17), checked; undefined when there is none or it is no surround. */
+function openingTrimOf(raw: unknown): OpeningTrim | undefined {
+  if (!isObject(raw)) return undefined;
+  const t: OpeningTrim = { leftFeet: trimFeet(raw.leftFeet), rightFeet: trimFeet(raw.rightFeet), topFeet: trimFeet(raw.topFeet), bottomFeet: trimFeet(raw.bottomFeet), material: materialOf(raw.material) };
+  const gap = trimFeet(raw.gapFeet);
+  if (gap > 0) t.gapFeet = gap;
+  const up = trimFeet(raw.upFeet, 20);
+  if (up > 0) t.upFeet = up;
+  if (str(raw.label)) t.label = (str(raw.label) as string).slice(0, 60);
+  if (colourOf(raw.colour)) t.colour = colourOf(raw.colour);
+  if (isObject(raw.keystone) && trimFeet(raw.keystone.widthFeet) > 0 && trimFeet(raw.keystone.heightFeet) > 0) t.keystone = { widthFeet: trimFeet(raw.keystone.widthFeet), heightFeet: trimFeet(raw.keystone.heightFeet) };
+  t.from = "photo";
+  if (str(raw.unsure)) t.unsure = (str(raw.unsure) as string).slice(0, 120);
+  return t.leftFeet + t.rightFeet + t.topFeet + t.bottomFeet > 0 || t.keystone ? t : undefined;
+}
+
+/** A column as the phone wrote it (2026-10-17), checked; null when it is no column. */
+function columnOf(raw: unknown): Omit<SideColumn, "id"> | null {
+  if (!isObject(raw)) return null;
+  const width = trimFeet(raw.widthFeet, 6);
+  const height = trimFeet(raw.heightFeet, 40);
+  const from = num(raw.fromLeftFeet);
+  if (!(width > 0.1) || !(height > 0.5) || from === null || Math.abs(from) > 700) return null;
+  const block = (v: unknown) => (isObject(v) && trimFeet(v.heightFeet, 6) > 0 ? { heightFeet: trimFeet(v.heightFeet, 6), outFeet: trimFeet(v.outFeet, 2) } : null);
+  const base = block(raw.base);
+  const cap = block(raw.cap);
+  return {
+    kind: raw.kind === "column" ? "column" : "pilaster",
+    fromLeftFeet: from,
+    widthFeet: width,
+    depthFeet: trimFeet(raw.depthFeet, 6) || width,
+    outFeet: trimFeet(raw.outFeet, 30),
+    footFeet: trimFeet(raw.footFeet, 30),
+    heightFeet: height,
+    ...(base ? { base } : {}),
+    ...(cap ? { cap } : {}),
+    material: materialOf(raw.material),
+    ...(str(raw.label) ? { label: (str(raw.label) as string).slice(0, 60) } : {}),
+    ...(colourOf(raw.colour) ? { colour: colourOf(raw.colour) } : {}),
+    from: "photo",
+    ...(str(raw.unsure) ? { unsure: (str(raw.unsure) as string).slice(0, 120) } : {}),
+  };
+}
+
 /** A side's walls as the phone wrote them, checked: what is not a shape, an opening or a wall top is left out. */
 function wallsOf(raw: unknown): FinishWalls | undefined {
   if (!isObject(raw)) return undefined;
   const kinds = [...CLADDING_KINDS, "parging"] as string[];
   const shapes = (Array.isArray(raw.shapes) ? raw.shapes : [])
     .filter(isObject)
-    .map((s) => ({ kind: (kinds.includes(String(s.kind)) ? s.kind : "other") as CladdingKind | "parging", ...(str(s.label) ? { label: str(s.label) as string } : {}), polygon: pts(s.polygon) }))
+    .map((s) => ({ kind: (kinds.includes(String(s.kind)) ? s.kind : "other") as CladdingKind | "parging", ...(str(s.label) ? { label: str(s.label) as string } : {}), polygon: pts(s.polygon), ...(colourOf(s.colour) ? { colour: colourOf(s.colour) } : {}) }))
     .filter((s) => s.polygon.length >= 3);
   const openings = (Array.isArray(raw.openings) ? raw.openings : [])
     .filter(isObject)
@@ -152,8 +228,10 @@ function wallsOf(raw: unknown): FinishWalls | undefined {
       sillFeet: Math.max(0, num(o.sillFeet) ?? 0),
       fromLeftFeet: num(o.fromLeftFeet) ?? 0,
       ...(str(o.hiddenBy) ? { hiddenBy: (str(o.hiddenBy) as string).slice(0, 120) } : {}),
+      ...(openingTrimOf(o.trim) ? { trim: openingTrimOf(o.trim) } : {}),
     }))
     .filter((o) => o.widthFeet > 0.2 && o.widthFeet < 60 && o.heightFeet > 0.2 && o.heightFeet < 40);
+  const columns = (Array.isArray(raw.columns) ? raw.columns : []).map(columnOf).filter((c): c is Omit<SideColumn, "id"> => c !== null);
   const t = isObject(raw.wallTop) ? raw.wallTop : null;
   const height = (v: unknown) => {
     const n = num(v);
@@ -161,7 +239,13 @@ function wallsOf(raw: unknown): FinishWalls | undefined {
   };
   const peak = t && isObject(t.peak) && height(t.peak.peakFeet) !== null && num(t.peak.atFeet) !== null ? { atFeet: num(t.peak.atFeet) as number, peakFeet: height(t.peak.peakFeet) as number } : null;
   const wallTop = t ? { eaveLeftFeet: height(t.eaveLeftFeet), eaveRightFeet: height(t.eaveRightFeet), peak } : null;
-  return { taken: raw.taken !== false, shapes, openings, wallTop: wallTop && (wallTop.eaveLeftFeet !== null || wallTop.eaveRightFeet !== null || wallTop.peak) ? wallTop : null };
+  return {
+    taken: raw.taken !== false,
+    shapes,
+    openings,
+    wallTop: wallTop && (wallTop.eaveLeftFeet !== null || wallTop.eaveRightFeet !== null || wallTop.peak) ? wallTop : null,
+    ...(columns.length > 0 ? { columns } : {}),
+  };
 }
 
 /** The `finish` block as Scan wrote it, or null when there is none or it is not one. */
@@ -337,8 +421,39 @@ function readHeightsScaled(w: FinishWalls, k: number): FinishWalls {
   return {
     taken: w.taken,
     shapes: w.shapes.map((s) => ({ ...s, polygon: s.polygon.map((p) => ({ x: p.x, y: p.y * k })) })),
-    openings: w.openings.map((o) => ({ ...o, widthFeet: o.widthFeet * k, heightFeet: o.heightFeet * k, sillFeet: o.sillFeet * k })),
+    openings: w.openings.map((o) => ({ ...o, widthFeet: o.widthFeet * k, heightFeet: o.heightFeet * k, sillFeet: o.sillFeet * k, ...(o.trim ? { trim: trimScaled(o.trim, k) } : {}) })),
     wallTop: w.wallTop ? { eaveLeftFeet: sc(w.wallTop.eaveLeftFeet), eaveRightFeet: sc(w.wallTop.eaveRightFeet), peak: w.wallTop.peak ? { atFeet: w.wallTop.peak.atFeet, peakFeet: w.wallTop.peak.peakFeet * k } : null } : null,
+    ...(w.columns ? { columns: w.columns.map((c) => columnScaled(c, k, false)) } : {}),
+  };
+}
+
+/** A surround with every length times [k] (2026-10-17). */
+function trimScaled(t: OpeningTrim, k: number): OpeningTrim {
+  return {
+    ...t,
+    leftFeet: t.leftFeet * k,
+    rightFeet: t.rightFeet * k,
+    topFeet: t.topFeet * k,
+    bottomFeet: t.bottomFeet * k,
+    ...(t.gapFeet !== undefined ? { gapFeet: t.gapFeet * k } : {}),
+    ...(t.upFeet !== undefined ? { upFeet: t.upFeet * k } : {}),
+    ...(t.keystone ? { keystone: { widthFeet: t.keystone.widthFeet * k, heightFeet: t.keystone.heightFeet * k } } : {}),
+  };
+}
+
+/** A column with its sizes times [k], and where it is along the side too when [along]. */
+function columnScaled(c: Omit<SideColumn, "id">, k: number, along: boolean): Omit<SideColumn, "id"> {
+  const block = (b: SideColumn["base"]) => (b ? { heightFeet: b.heightFeet * k, outFeet: b.outFeet * k } : b);
+  return {
+    ...c,
+    fromLeftFeet: along ? c.fromLeftFeet * k : c.fromLeftFeet,
+    widthFeet: c.widthFeet * k,
+    depthFeet: c.depthFeet * k,
+    outFeet: c.outFeet * k,
+    footFeet: c.footFeet * k,
+    heightFeet: c.heightFeet * k,
+    ...(c.base !== undefined ? { base: block(c.base) } : {}),
+    ...(c.cap !== undefined ? { cap: block(c.cap) } : {}),
   };
 }
 
@@ -358,10 +473,28 @@ function sameOpening(a: Pick<ExteriorOpening, "fromLeftFeet" | "widthFeet" | "si
 export function withWalls(side: ExteriorSide, w: FinishWalls): ExteriorSide {
   const next: ExteriorSide = { ...side };
   if ((side.shapes ?? []).length === 0 && w.shapes.length > 0) {
-    next.shapes = w.shapes.map((s) => ({ id: newSketchId("shape"), kind: s.kind, ...(s.label ? { label: s.label } : {}), closed: true, polygon: s.polygon.map((p) => ({ ...p })), from: "photo" as const }));
+    next.shapes = w.shapes.map((s) => ({ id: newSketchId("shape"), kind: s.kind, ...(s.label ? { label: s.label } : {}), closed: true, polygon: s.polygon.map((p) => ({ ...p })), from: "photo" as const, ...(s.colour ? { colour: s.colour } : {}) }));
+  } else if ((side.shapes ?? []).length > 0 && w.shapes.some((s) => s.colour)) {
+    // Tapped shapes keep their corners and take the colour of the read shape of their kind over them most (2026-10-17): drawing only.
+    next.shapes = (side.shapes ?? []).map((s) => {
+      if (s.colour || s.polygon.length < 3) return s;
+      const best = w.shapes
+        .filter((r) => r.colour && r.kind === s.kind && r.polygon.length >= 3)
+        .map((r) => ({ r, over: overlapArea(s.polygon, r.polygon) }))
+        .sort((a, b) => b.over - a.over)[0];
+      return best && best.over > 0.5 ? { ...s, colour: best.r.colour } : s;
+    });
   }
+  // A read surround goes on the tapped opening it is (2026-10-17), where that one has none: typed beats photos beats nothing.
+  const trimmed = side.openings.map((t) => {
+    if (t.trim) return t;
+    const r = w.openings.find((o) => o.trim && sameOpening(t, o));
+    return r?.trim ? { ...t, trim: trimOnto(r, r.trim, t) } : t;
+  });
+  if (trimmed.some((t, i) => t !== side.openings[i])) next.openings = trimmed;
   const added = w.openings.filter((o) => !side.openings.some((t) => sameOpening(t, o))).map((o) => ({ id: newSketchId("opening"), ...o, from: "photo" as const }));
-  if (added.length > 0) next.openings = [...side.openings, ...added];
+  if (added.length > 0) next.openings = [...(next.openings ?? side.openings), ...added];
+  if ((side.columns ?? []).length === 0 && (w.columns ?? []).length > 0) next.columns = (w.columns ?? []).map((c) => ({ id: newSketchId("column"), ...c }));
   const t = w.wallTop;
   if (t && side.eaveLeftFeet == null && side.eaveRightFeet == null && (t.eaveLeftFeet !== null || t.eaveRightFeet !== null)) {
     next.eaveLeftFeet = t.eaveLeftFeet ?? t.eaveRightFeet;
@@ -370,6 +503,34 @@ export function withWalls(side: ExteriorSide, w: FinishWalls): ExteriorSide {
     next.wallTopFrom = "photo";
   }
   return next;
+}
+
+type Box = Pick<ExteriorOpening, "fromLeftFeet" | "widthFeet" | "sillFeet" | "heightFeet">;
+
+/**
+ * A surround read round one opening put round the tapped opening it is (2026-10-17): its outer edges stay where the photo
+ * put them, so each width gives or takes what the two openings differ by - and its keystone's top stays too.
+ */
+function trimOnto(read: Box, t: OpeningTrim, onto: Box): OpeningTrim {
+  const dLeft = onto.fromLeftFeet - read.fromLeftFeet;
+  const dRight = read.fromLeftFeet + read.widthFeet - (onto.fromLeftFeet + onto.widthFeet);
+  const dTop = read.sillFeet + read.heightFeet - (onto.sillFeet + onto.heightFeet);
+  const dBottom = onto.sillFeet - read.sillFeet;
+  const out: OpeningTrim = {
+    ...t,
+    leftFeet: Math.max(0, t.leftFeet + dLeft),
+    rightFeet: Math.max(0, t.rightFeet + dRight),
+    topFeet: t.topFeet > 0 ? Math.max(0, t.topFeet + dTop) : 0,
+    bottomFeet: t.bottomFeet > 0 ? Math.max(0, t.bottomFeet + dBottom) : 0,
+  };
+  if (t.upFeet !== undefined) out.upFeet = Math.max(0, t.upFeet + dTop);
+  if (t.keystone) out.keystone = { widthFeet: t.keystone.widthFeet, heightFeet: Math.max(1 / 12, t.keystone.heightFeet + dTop) };
+  return out;
+}
+
+/** How much two polygons share, square feet. */
+function overlapArea(a: Pt[], b: Pt[]): number {
+  return polygonOverlap(a, b);
 }
 
 /**
@@ -419,8 +580,9 @@ function scaledWalls(w: FinishWalls, k: number): FinishWalls {
   return {
     taken: w.taken,
     shapes: w.shapes.map((s) => ({ ...s, polygon: s.polygon.map((p) => ({ x: p.x * k, y: p.y * k })) })),
-    openings: w.openings.map((o) => ({ ...o, widthFeet: o.widthFeet * k, heightFeet: o.heightFeet * k, sillFeet: o.sillFeet * k, fromLeftFeet: o.fromLeftFeet * k })),
+    openings: w.openings.map((o) => ({ ...o, widthFeet: o.widthFeet * k, heightFeet: o.heightFeet * k, sillFeet: o.sillFeet * k, fromLeftFeet: o.fromLeftFeet * k, ...(o.trim ? { trim: trimScaled(o.trim, k) } : {}) })),
     wallTop: w.wallTop ? { eaveLeftFeet: sc(w.wallTop.eaveLeftFeet), eaveRightFeet: sc(w.wallTop.eaveRightFeet), peak: w.wallTop.peak ? { atFeet: w.wallTop.peak.atFeet * k, peakFeet: w.wallTop.peak.peakFeet * k } : null } : null,
+    ...(w.columns ? { columns: w.columns.map((c) => columnScaled(c, k, true)) } : {}),
   };
 }
 
@@ -487,11 +649,19 @@ export function finishSideFrom(side: ExteriorSide, proposals: TraceProposals, ph
 
 /** The trace's cladding, openings and wall top as a side's walls: every one, as the editor ticks them first. */
 export function wallsFrom(p: TraceProposals): FinishWalls {
+  const trimOf = (o: ProposedOpening) => {
+    const t = (p.trims ?? []).find((x) => x.openingKey === o.key)?.trim;
+    if (!t) return {};
+    // Its widths past the opening as kept (its left end cut at the side's), as applyTrace puts it on.
+    const cut = o.box ? o.fromLeftFeet - o.box.x0 : 0;
+    return { trim: { ...t, leftFeet: Math.max(0, t.leftFeet + cut) } };
+  };
   return {
     taken: true,
-    shapes: p.shapes.map((s) => ({ kind: s.kind, ...(s.label ? { label: s.label } : {}), polygon: s.polygon.map((q) => ({ x: q.x, y: q.y })) })),
-    openings: p.openings.map((o) => ({ kind: o.kind, widthFeet: o.widthFeet, heightFeet: o.heightFeet, sillFeet: o.sillFeet, fromLeftFeet: o.fromLeftFeet, ...(o.hiddenBy ? { hiddenBy: o.hiddenBy } : {}) })),
+    shapes: p.shapes.map((s) => ({ kind: s.kind, ...(s.label ? { label: s.label } : {}), polygon: s.polygon.map((q) => ({ x: q.x, y: q.y })), ...(s.colour ? { colour: s.colour } : {}) })),
+    openings: p.openings.map((o) => ({ kind: o.kind, widthFeet: o.widthFeet, heightFeet: o.heightFeet, sillFeet: o.sillFeet, fromLeftFeet: o.fromLeftFeet, ...(o.hiddenBy ? { hiddenBy: o.hiddenBy } : {}), ...trimOf(o) })),
     wallTop: p.wallTop ? { eaveLeftFeet: p.wallTop.eaveLeftFeet, eaveRightFeet: p.wallTop.eaveRightFeet, peak: p.wallTop.peak ? { ...p.wallTop.peak } : null } : null,
+    ...((p.columns ?? []).length > 0 ? { columns: (p.columns ?? []).map((c) => ({ ...c.column })) } : {}),
   };
 }
 

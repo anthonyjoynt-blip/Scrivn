@@ -15,6 +15,7 @@ import {
   formatPitch,
   OPENING_LABEL,
   type SideQuantities,
+  trimLines,
 } from "@/lib/exterior";
 import { roofWithoutSides, withSideAfter } from "@/lib/exteriorPlan";
 import { isOldTapeNote, scaleFlags, sizesLine } from "@/lib/exteriorScale";
@@ -503,6 +504,7 @@ function ExteriorTotals({ exterior, q }: { exterior: Exterior; q: ExteriorQuanti
                 <th scope="col">Cladding</th>
                 <th scope="col">Gross</th>
                 <th scope="col">Openings</th>
+                {q.trim && <th scope="col">Trim</th>}
                 <th scope="col">Net</th>
               </tr>
             </thead>
@@ -512,6 +514,7 @@ function ExteriorTotals({ exterior, q }: { exterior: Exterior; q: ExteriorQuanti
                   <th scope="row">{c.label}</th>
                   <td>{sf(c.grossSquareFeet)}</td>
                   <td>{sf(c.openingSquareFeet)}</td>
+                  {q.trim && <td>{sf(c.trimSquareFeet ?? 0)}</td>}
                   <td>{sf(c.netSquareFeet)}</td>
                 </tr>
               ))}
@@ -520,6 +523,7 @@ function ExteriorTotals({ exterior, q }: { exterior: Exterior; q: ExteriorQuanti
                   <th scope="row">All cladding</th>
                   <td>{sf(q.totals.grossSquareFeet)}</td>
                   <td>{sf(q.totals.openingSquareFeet)}</td>
+                  {q.trim && <td>{sf(q.totals.trimSquareFeet ?? 0)}</td>}
                   <td>{sf(q.totals.netSquareFeet)}</td>
                 </tr>
               )}
@@ -550,6 +554,13 @@ function ExteriorTotals({ exterior, q }: { exterior: Exterior; q: ExteriorQuanti
                 <th scope="row">Trim round openings</th>
                 <td>{lf(q.totals.openingTrimFeet)}</td>
               </tr>
+              {/* The surrounds, keystones, columns and pilasters (2026-10-17): each line as the scope prices it. */}
+              {q.trim && (
+                <tr>
+                  <th scope="row">Surrounds, keystones, columns</th>
+                  <td>{trimLines(q.trim).join("; ")}</td>
+                </tr>
+              )}
               <tr>
                 <th scope="row">Outside corners</th>
                 <td>{lf(q.totals.outsideCornerFeet)}</td>

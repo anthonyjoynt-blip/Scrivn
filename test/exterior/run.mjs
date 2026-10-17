@@ -77,7 +77,7 @@ async function load() {
       `export { cornerPlace, routeCoverage, viewsFromMeasure } from "${lib("photoRouteCoverage.ts")}";`,
       `export { defaultShared, numberCorners, partyCorners, solveRoute } from "${lib("photoRoute.ts")}";`,
       `export { exteriorFromRoute, measuredFrom } from "${lib("photoRouteExterior.ts")}";`,
-      `export { wallsFrom } from "${lib("exteriorFinish.ts")}";`,
+      `export { applyScanFinish, readScanFinish, wallsFrom } from "${lib("exteriorFinish.ts")}";`,
       `export * from "${lib("exterior3d.ts")}";`,
       `export * from "${lib("exteriorPlan.ts")}";`,
       `export * from "${lib("exteriorScale.ts")}";`,
@@ -5805,6 +5805,305 @@ test("a detached house on the route is as it was: nothing shared, no party line,
   assert(JSON.stringify(input.buildings[0].shared) === "[]", "nothing shared");
   const { ext } = landOf(input, data, x.solveRoute(input, "main", data));
   assert(!ext.homeType && ext.sides.every((s) => !s.shared) && x.exteriorQuantities(ext).roofing.partyFeet === 0, "detached");
+});
+
+// ---------------------------------------------------------------------------------------------
+// Trim: surrounds, keystones, columns and pilasters (10-17)
+// ---------------------------------------------------------------------------------------------
+
+console.log("\ntrim: surrounds, keystones, columns and pilasters (10-17)");
+
+/**
+ * A 20' x 10' stucco wall, level, no parging: a 3' x 4' window, sill 3', 6" from the left... worked by hand:
+ *   the window 8.5..11.5 x 3..7, 12 SF; its surround 6" all round: (4 x 5) - 12 = 8 SF; its pieces as cut - two jambs
+ *   5' each, a head and a sill 3' each - 16 LF; a keystone 1' across its top, 0.6' at its foot, 1' up from the window's
+ *   top (7 to 8): past the head (7.5 to 8) it is (0.8 + 1) / 2 x 0.5 = 0.45 SF more.
+ *   a pilaster 1' wide at 15', 10' high, standing out 4", a base and a cap 1' high standing out 3" each way: its face on
+ *   the wall 1.5 + 8 + 1.5 = 11 SF; round its shaft 1 + 2 x 1/3 = 1.667', its wrap 16.67 SF.
+ *   The field: 200 - 12 - (8 + 0.45 + 11) = 168.55 SF.
+ */
+function trimmedWall(extra = {}) {
+  return side({
+    lengthFeet: 20,
+    base: "grade",
+    baseLeftFeet: 0,
+    baseRightFeet: 0,
+    eaveLeftFeet: 10,
+    eaveRightFeet: 10,
+    bands: [{ id: "b", kind: "stucco", top: null }],
+    openings: [
+      {
+        id: "w",
+        kind: "window",
+        widthFeet: 3,
+        heightFeet: 4,
+        sillFeet: 3,
+        fromLeftFeet: 8.5,
+        trim: { leftFeet: 0.5, rightFeet: 0.5, topFeet: 0.5, bottomFeet: 0.5, material: "stucco", keystone: { widthFeet: 1, heightFeet: 1 } },
+      },
+    ],
+    columns: [{ id: "p", kind: "pilaster", fromLeftFeet: 15, widthFeet: 1, depthFeet: 1 / 3, outFeet: 1 / 3, footFeet: 0, heightFeet: 10, base: { heightFeet: 1, outFeet: 0.25 }, cap: { heightFeet: 1, outFeet: 0.25 }, material: "stucco" }],
+    ...extra,
+  });
+}
+
+test("a surround, its keystone and a pilaster: each its own quantity, and the field what is left once they and the window are off", () => {
+  const q = x.sideQuantities(trimmedWall());
+  near(q.grossSquareFeet, 200, "gross");
+  near(q.openingSquareFeet, 12, "the window");
+  const t = q.trim;
+  assert(t && t.surrounds.length === 1 && t.columns.length === 1, JSON.stringify(t));
+  near(t.surrounds[0].squareFeet, 8.45, "the surround's face, the keystone's part past the head in", 1e-9);
+  near(t.surrounds[0].linearFeet, 16, "its pieces as cut");
+  assert(t.surrounds[0].keystone, "a keystone");
+  near(t.columns[0].perimeterFeet, 1 + 2 / 3, "round the pilaster's shaft", 1e-9);
+  near(t.columns[0].wrapSquareFeet, (1 + 2 / 3) * 10, "its wrap", 1e-9);
+  assert(t.columns[0].base && t.columns[0].cap, "base and cap");
+  near(t.squareFeet, 8.45 + 11, "the trim taken off the wall, once", 1e-9);
+  near(q.bands[0].trimSquareFeet, 19.45, "off the stucco band", 1e-9);
+  near(q.netSquareFeet, 168.55, "the field", 1e-9);
+});
+
+test("trim that overlaps - a pilaster against a surround - comes off the wall once; a column standing clear takes none of it", () => {
+  // The pilaster moved to 11.75: its left 0.25' over the window's right jamb (11.5-12), from 2.5' to 7.5' up... the jamb's
+  // 0.25 x 5 = 1.25 SF the two share comes off once.
+  const pil = { id: "p", kind: "pilaster", fromLeftFeet: 11.75, widthFeet: 1, depthFeet: 1 / 3, outFeet: 1 / 3, footFeet: 0, heightFeet: 10, material: "stucco" };
+  const q = x.sideQuantities(trimmedWall({ columns: [pil] }));
+  near(q.trim.squareFeet, 8.45 + 10 - 1.25, "surround + pilaster less what they share", 1e-9);
+  // Standing clear of the wall, 4' out: counted, its wrap all round, the wall behind it whole.
+  const col = { ...pil, kind: "column", fromLeftFeet: 15, depthFeet: 1, outFeet: 4 };
+  const c = x.sideQuantities(trimmedWall({ columns: [col] }));
+  near(c.trim.squareFeet, 8.45, "only the surround off the wall", 1e-9);
+  near(c.trim.columns[0].wrapSquareFeet, 2 * (1 + 1) * 10, "a column's four faces", 1e-9);
+});
+
+test("a pilaster round an outside corner: its face, both its sides and its back past the corner are clad", () => {
+  // 0.73' square, standing out 0.31' from this wall, 0.2' past its left end: 0.73 + (0.73 + 0.2) + 0.31.
+  const s = trimmedWall({ openings: [], columns: [{ id: "p", kind: "pilaster", fromLeftFeet: -0.2, widthFeet: 0.73, depthFeet: 0.73, outFeet: 0.31, footFeet: 0, heightFeet: 9.5, material: "stucco" }] });
+  near(x.columnPerimeter(s, s.columns[0]), 0.73 + 0.73 + 0.2 + 0.31, "perimeter", 1e-9);
+  // Only its part on this wall's own length comes off it: 0.53 x 9.5.
+  near(x.sideQuantities(s).trim.squareFeet, 0.53 * 9.5, "the wall under it, this side", 1e-9);
+});
+
+test("on a side of tapped shapes, trim comes off the shape on top only", () => {
+  // Stone wainscot 0-4' over the stucco 0-10' (tapped after it): the window's sill band (8.5..11.5 x 2.5..3) lies on the stone.
+  const stucco = { id: "st", kind: "stucco", closed: true, polygon: [{ x: 0, y: 0 }, { x: 20, y: 0 }, { x: 20, y: 10 }, { x: 0, y: 10 }] };
+  const stone = { id: "sn", kind: "stone", closed: true, polygon: [{ x: 0, y: 0 }, { x: 20, y: 0 }, { x: 20, y: 4 }, { x: 0, y: 4 }] };
+  const q = x.sideQuantities(trimmedWall({ shapes: [stucco, stone], columns: [], heightsFrom: "level" }));
+  const [qs, qn] = q.bands;
+  // The surround below 4' (sill band 3 x 0.5, the jambs' 0.5 x 1.5 each) is on the stone: 1.5 + 1.5 = 3 SF.
+  near(qn.trimSquareFeet, 3, "on the stone", 1e-9);
+  near(qs.trimSquareFeet, 8.45 - 3, "on the stucco, less what the stone covers", 1e-9);
+  near(q.trim.squareFeet, 8.45, "all of it once", 1e-9);
+});
+
+test("the trim's scope lines, each its own, and the field line says what came off it", () => {
+  const e = { sides: [trimmedWall({ id: "a", name: "Front" })], roof: x.defaultRoof(), scope: { roofing: false, sides: ["a"], soffitFascia: false, eavestrough: false } };
+  const lines = x.exteriorScopeLines(e).siding;
+  assert(lines[0].startsWith("Remove & replace stucco – Front – 168.6 SF (200.0 SF less 12.0 SF of openings and 19.") && lines[0].endsWith(" SF of trim)"), lines[0]);
+  for (const want of ["Stucco trim – window surrounds – 1 – 16.0 LF (8.5 SF)", "Stucco trim – keystones – 1", "Pilasters – stucco wrap – 1 – 16.7 SF (round the shaft × its height)", "Pilasters – stucco caps – 1", "Pilasters – stucco bases – 1"]) {
+    assert(lines.includes(want), `${want}\n      in ${lines.join(" | ")}`);
+  }
+  // Out of scope, no line.
+  assert(!x.exteriorScopeLines({ ...e, scope: { ...e.scope, sides: [] } }).siding.some((l) => /trim|Pilaster/.test(l)), "nothing out of scope");
+});
+
+test("a side with no trim is priced as it always was: no trim keys at all", () => {
+  const s = trimmedWall({ openings: [{ id: "w", kind: "window", widthFeet: 3, heightFeet: 4, sillFeet: 3, fromLeftFeet: 8.5 }], columns: undefined });
+  const q = x.sideQuantities(s);
+  assert(!("trim" in q) && !("trimSquareFeet" in q.bands[0]), JSON.stringify(q).slice(0, 200));
+  near(q.netSquareFeet, 188, "200 less the window");
+  const all = x.exteriorQuantities({ sides: [s, { ...s, id: "b" }, { ...s, id: "c" }, { ...s, id: "d" }], roof: { ...x.defaultRoof(), pitch: 4 } });
+  assert(!("trim" in all) && !("trimSquareFeet" in all.totals), "nor on the house");
+});
+
+test("the trace reads trim through off_wall: a surround on its opening, its keystone, a pilaster with base and cap; anything else stays in front of the wall", () => {
+  // The window 250..350 x 380..470 px (1.5-2.5 m along, 1.3-2.2 m up); its surround 230..370 x 360..490 (0.2 m round).
+  const trimWire = {
+    ...wire,
+    off_wall: [
+      ...wire.off_wall,
+      { what: "surround, white stucco", box: [230, 360, 370, 490] },
+      { what: "keystone", box: [285, 345, 315, 380] },
+      { what: "pilaster, stucco", box: [820, 300, 860, 600] },
+      { what: "cap", box: [810, 300, 870, 320] },
+      { what: "base", box: [812, 570, 868, 600] },
+      { what: "deck post", box: [50, 400, 60, 600] },
+    ],
+  };
+  const p = x.traceProposals(trimWire, traceFrame, 8 * M);
+  assert(p.offWall.length === 7, "every box kept as the trace gave it");
+  assert(p.trims?.length === 1 && p.columns?.length === 1, JSON.stringify({ t: p.trims, c: p.columns }));
+  const t = p.trims[0];
+  assert(t.openingKey === p.openings[0].key && t.trim.material === "stucco" && t.trim.from === "photo", JSON.stringify(t));
+  for (const k of ["leftFeet", "rightFeet", "topFeet", "bottomFeet"]) near(t.trim[k], 0.2 * M, k, 1e-9);
+  near(t.trim.keystone.widthFeet, 0.3 * M, "the keystone across", 1e-9);
+  near(t.trim.keystone.heightFeet, 0.35 * M, "and up from the window's top", 1e-9);
+  const c = p.columns[0].column;
+  assert(c.kind === "pilaster" && c.cap && c.base, JSON.stringify(c));
+  near(c.widthFeet, 0.4 * M, "its width", 1e-9);
+  near(c.cap.outFeet, 0.1 * M, "the cap past it", 1e-9);
+  near(c.base.heightFeet, 0.3 * M, "the base's height", 1e-9);
+  // Ticked: the surround goes on with its window, the pilaster on the side; set aside, nothing.
+  const s = side({ lengthFeet: 8 * M, openings: [] });
+  const picks = { shapes: [], openings: p.openings.map((o) => ({ key: o.key, kind: o.kind })), wallTop: false, trims: x.trimPicksAtFirst(p) };
+  const on = x.applyTrace(s, p, picks);
+  assert(on.openings[0].trim && on.columns?.length === 1, JSON.stringify(on.columns));
+  const off = x.applyTrace(s, p, { ...picks, trims: [] });
+  assert(!off.openings.some((o) => o.trim) && !off.columns, "none ticked, none on");
+  // An answer with no trim words reads as before: no trims, no columns.
+  const plain = x.traceProposals(wire, traceFrame, 8 * M);
+  assert(!("trims" in plain) && !("columns" in plain), "nothing added to a plain answer");
+});
+
+test("a surround partly hidden is asked on Check these: kept, it is said; taken away, it is gone", () => {
+  const p = x.traceProposals({ ...wire, off_wall: [{ what: "surround, stucco, partly hidden by a railing", box: [230, 360, 370, 490] }] }, traceFrame, 8 * M);
+  assert(p.trims[0].trim.unsure === "partly hidden by a railing", p.trims[0].trim.unsure);
+  const s = x.applyTrace(side({ id: "a", lengthFeet: 8 * M, openings: [] }), p, { shapes: [], openings: [{ key: p.openings[0].key, kind: "window" }], wallTop: false, trims: x.trimPicksAtFirst(p) });
+  const e = { sides: [s, side({ id: "b" }), side({ id: "c" }), side({ id: "d" })], roof: x.defaultRoof() };
+  const rows = x.exteriorChecks(e, x.exteriorQuantities(e)).filter((r) => r.kind === "trim");
+  assert(rows.length === 1 && rows[0].openingId === s.openings[0].id && /surround round the window/.test(rows[0].title), JSON.stringify(rows));
+  assert(x.checkNotes(e, x.exteriorQuantities(e)).some((n) => /couldn't show it all \(partly hidden by a railing\)/.test(n)), "on the report's To check");
+  const kept = x.withTrimAnswer(e, "a", { openingId: s.openings[0].id }, true);
+  assert(kept.sides[0].openings[0].trim.confirmed && x.exteriorChecks(kept, x.exteriorQuantities(kept)).every((r) => r.kind !== "trim"), "kept: no longer asked");
+  const gone = x.withTrimAnswer(e, "a", { openingId: s.openings[0].id }, false);
+  assert(!gone.sides[0].openings[0].trim, "taken away");
+});
+
+test("each shape's and trim's colour off the squared photo: the wall's middle, the trim's lit quarter", () => {
+  // A 1000 x 650 image: dark grey wall (60, 62, 66) everywhere, a white surround (235) round the window, the window glass blue.
+  const W = 1000;
+  const H = 650;
+  const data = new Uint8ClampedArray(W * H * 4);
+  for (let y = 0; y < H; y++) {
+    for (let px = 0; px < W; px++) {
+      const o = (y * W + px) * 4;
+      const inSur = px >= 230 && px < 370 && y >= 360 && y < 490;
+      const inWin = px >= 250 && px < 350 && y >= 380 && y < 470;
+      const c = inWin ? [90, 120, 160] : inSur ? [235, 235, 232] : [60, 62, 66];
+      data.set([...c, 255], o);
+    }
+  }
+  const p = x.traceProposals({ ...wire, off_wall: [{ what: "surround, stucco", box: [230, 360, 370, 490] }] }, traceFrame, 8 * M);
+  const sw = x.withSwatches(p, { data, width: W, height: H, channels: 4 }, traceFrame);
+  assert(sw.shapes[0].colour === "#3c3e42", `the wall ${sw.shapes[0].colour}`);
+  assert(sw.trims[0].trim.colour === "#ebebe8", `the trim ${sw.trims[0].trim.colour}`);
+});
+
+test("trim read on the phone rides Finish's walls and goes on the tapped opening it is, its outer edges where the photo put them", () => {
+  const p = x.traceProposals({ ...wire, off_wall: [{ what: "surround, stucco", box: [230, 360, 370, 490] }, { what: "column, stucco", box: [820, 300, 880, 600] }] }, traceFrame, 8 * M);
+  const walls = x.wallsFrom(p);
+  assert(walls.openings[0].trim && walls.columns?.length === 1, JSON.stringify(walls).slice(0, 300));
+  const finish = { format: "scrivn-finish/1", sides: { 0: { at: "t", photos: [900], scaleAt: 1, roofRead: { at: "t" }, said: [], walls: JSON.parse(JSON.stringify(walls)) } } };
+  // The same window tapped 2" wider on the left: the surround's left jamb 2" narrower, so its outer edge stays.
+  const read = walls.openings[0];
+  const tapped = side({ id: "a", lengthFeet: 8 * M, photos: [{ n: 900 }], openings: [{ id: "t", kind: "window", widthFeet: read.widthFeet + 2 / 12, heightFeet: read.heightFeet, sillFeet: read.sillFeet, fromLeftFeet: read.fromLeftFeet - 2 / 12 }] });
+  const out = x.applyScanFinish([tapped], x.defaultRoof(), x.readScanFinish(finish), new Map([[0, "a"]]), 1);
+  // The window is the tapped one, its surround on it; the read garage and patio doors, which nothing tapped, are put on as ever.
+  const t = out.sides[0].openings.find((o) => o.id === "t")?.trim;
+  assert(out.sides[0].openings.length === 3 && t, `on the tapped window, no second window: ${out.sides[0].openings.map((o) => o.kind).join(", ")}`);
+  near(t.leftFeet, read.trim.leftFeet - 2 / 12, "the left jamb", 1e-9);
+  near(t.rightFeet, read.trim.rightFeet, "the right", 1e-9);
+  assert(out.sides[0].columns?.[0].kind === "column", "the column on the side");
+});
+
+// The owner's house (10-17): his 18 photos read by eye for the trim, no API (fixtures/photos-only-1016-trim.json).
+const ownerTrimmed = () => x.parseScanExterior({ ...fixture("photos-only-1016.json"), finish: fixture("photos-only-1016-trim.json") }, { scanId: null }).exterior;
+const ownerPlain = () => x.parseScanExterior({ ...fixture("photos-only-1016.json"), finish: fixture("photos-only-1016-finish.json") }, { scanId: null }).exterior;
+
+test("the owner's house: the field stucco goes down by exactly the trim over it, and the rest is as it was", () => {
+  const before = x.exteriorQuantities(ownerPlain());
+  const after = x.exteriorQuantities(ownerTrimmed());
+  const stucco = (q) => q.cladding.find((c) => c.kind === "stucco");
+  const taken = after.totals.trimSquareFeet;
+  assert(taken > 100 && taken < 250, `taken ${taken}`);
+  near(stucco(before).netSquareFeet - stucco(after).netSquareFeet, taken, "the field down by the trim", 1e-6);
+  near(stucco(after).trimSquareFeet, taken, "all of it off the stucco", 1e-6);
+  near(after.totals.grossSquareFeet, before.totals.grossSquareFeet, "gross unchanged", 1e-9);
+  near(after.totals.openingSquareFeet, before.totals.openingSquareFeet, "openings unchanged", 1e-9);
+  near(after.roofing.squares, before.roofing.squares, "the roof unchanged", 1e-9);
+  console.log(`    field stucco ${stucco(before).netSquareFeet.toFixed(1)} -> ${stucco(after).netSquareFeet.toFixed(1)} SF (${taken.toFixed(1)} SF of trim off it)`);
+});
+
+test("the owner's house: every surround counted - 9 windows, the side door, both garage doors - and 3 keystones", () => {
+  const e = ownerTrimmed();
+  const q = x.exteriorQuantities(e);
+  const read = x.allSides(e).flatMap((s) => s.openings.filter((o) => o.trim).map((o) => o.id));
+  const counted = q.sides.flatMap((s) => s.trim?.surrounds ?? []).map((g) => g.openingId);
+  assert(read.length === 12 && counted.length === 12 && read.every((id) => counted.includes(id)), `${read.length} read, ${counted.length} counted`);
+  const by = Object.fromEntries(q.trim.surrounds.map((g) => [g.openingKind, g.count]));
+  assert(by.window === 9 && by.door === 1 && by.garage === 2, JSON.stringify(by));
+  assert(q.trim.keystones === 3, `keystones ${q.trim.keystones}`);
+  const lf = q.trim.surrounds.reduce((s, g) => s + g.linearFeet, 0);
+  const sf = q.trim.surrounds.reduce((s, g) => s + g.squareFeet, 0);
+  console.log(`    ${q.trim.surrounds.map((g) => `${g.count} ${g.openingKind} ${g.linearFeet.toFixed(1)} LF ${g.squareFeet.toFixed(1)} SF`).join("; ")}; all ${lf.toFixed(1)} LF, ${sf.toFixed(1)} SF`);
+});
+
+test("the owner's house: the columns as his photos show them - 3 by the garage doors, 3 at the porch - each with its base and cap", () => {
+  const e = ownerTrimmed();
+  const q = x.exteriorQuantities(e);
+  const cols = q.trim.columns;
+  const n = (kind) => cols.filter((c) => c.kind === kind).reduce((s, c) => s + c.count, 0);
+  assert(n("pilaster") === 4 && n("column") === 2, JSON.stringify(cols));
+  assert(cols.reduce((s, c) => s + c.caps, 0) === 6 && cols.reduce((s, c) => s + c.bases, 0) === 6, "six caps and six bases");
+  const garage = e.sides.filter((s) => s.name.startsWith("Garage front")).flatMap((s) => s.columns ?? []);
+  const porch = e.sides.find((s) => s.name.startsWith("Front wall behind")).columns ?? [];
+  assert(garage.length === 3 && porch.length === 3, `${garage.length} at the garage, ${porch.length} at the porch`);
+  // The porch stands on its real columns now: no posts guessed for it in 3D.
+  const model = x.exteriorModel(e);
+  assert(model.ok && model.model.walls.some((w) => (w.trim ?? []).some((t) => !t.onWall)), "the porch columns in 3D, clear of the wall");
+  console.log(`    ${cols.map((c) => `${c.count} ${c.kind}${c.count === 1 ? "" : "s"} ${c.wrapSquareFeet.toFixed(1)} SF wrap`).join("; ")}`);
+});
+
+test("the owner's house on the report and the scope: its own facts, tables and lines; what the photos couldn't show on To check", () => {
+  const e = ownerTrimmed();
+  const r = x.exteriorReport(e, { title: "t", date: "d", madeWith: "m" });
+  assert(r.facts.some((f) => f.label === "Trim" && /^12 surrounds .* · 3 keystones · 6 columns and pilasters/.test(f.value)), JSON.stringify(r.facts.find((f) => f.label === "Trim")));
+  assert(/ of trim · /.test(r.facts.find((f) => f.label === "Walls").value), "the walls' fact");
+  const captions = r.tables.map((t) => t.caption);
+  assert(captions.includes("Trim by side") && captions.includes("Trim totals"), captions.join(" | "));
+  assert(r.tables[0].columns.some((c) => c.title === "Trim SF"), "the walls table's Trim SF");
+  const totals = r.tables.find((t) => t.caption === "Trim totals").rows.map((row) => row[0]);
+  for (const want of ["Stucco trim – window surrounds", "Stucco trim – door surrounds", "Stucco trim – garage door surrounds", "Stucco trim – keystones", "Pilasters – stucco wrap", "Columns – stucco wrap", "Columns – caps", "Columns – bases"]) assert(totals.includes(want), `${want} in ${totals.join(" | ")}`);
+  // The east wall's five, seen only edge-on, in one note; the porch window's band behind the railing in its own. Check these asks each.
+  const notes = r.notes.filter((n) => /surrounds? round/.test(n));
+  assert(notes.length === 2 && notes.some((n) => /^East side wall: the surrounds round 5 openings - .* \(seen only edge-on/.test(n)) && notes.some((n) => /porch railing/.test(n)), notes.join(" | "));
+  assert(x.exteriorChecks(e, x.exteriorQuantities(e)).filter((c) => c.kind === "trim").length === 6, "six to tap on Check these");
+  const lines = x.exteriorScopeLines({ ...e, scope: { roofing: false, sides: e.sides.map((s) => s.id), soffitFascia: false, eavestrough: false } }).siding;
+  assert(lines.some((l) => /^Stucco trim – window surrounds – 9 – /.test(l)) && lines.some((l) => /^Columns – stucco wrap – 2 – /.test(l)) && lines.some((l) => /^Pilasters – stucco caps – 4$/.test(l)), lines.join("\n"));
+});
+
+test("the owner's house drawn: one dark stucco and white trim round the house, the trim raised on the walls and the porch's columns in every view", () => {
+  const e = ownerTrimmed();
+  const c = x.houseColours(e);
+  assert(c && x.colourLightness(c.faces.stucco) < 0.35 && x.colourLightness(c.trim.stucco) > 0.75, JSON.stringify(c));
+  const model = x.exteriorModel(e).model;
+  // Every stucco face one colour, the bay step's too - no photo read it.
+  const faces = model.walls.flatMap((w) => w.faces.filter((f) => f.kind === "stucco"));
+  assert(faces.length > 0 && faces.every((f) => f.colour === c.faces.stucco), "one stucco");
+  const south = x.houseView(model, "south");
+  const trimmedWalls = south.pieces.filter((p) => p.type === "wall" && p.trim?.length);
+  assert(trimmedWalls.length >= 3, `${trimmedWalls.length} walls with trim facing south`);
+  for (const compass of ["south", "east", "west"]) {
+    const v = x.houseView(model, compass);
+    assert(v.pieces.some((p) => p.type === "column"), `the porch's columns from the ${compass}`);
+  }
+  // A house with no colour read is drawn as it always was.
+  assert(x.houseColours(ownerPlain()) === null && x.exteriorModel(ownerPlain()).model.walls.every((w) => !w.backgroundColour && !w.trim), "nothing new on the plain house");
+});
+
+test("the roof on the elevations: shingles with their tab cuts, metal with its seams, anything else plain", () => {
+  const slope = [{ x: 0, y: 0 }, { x: 20, y: 0 }, { x: 20, y: 6 }, { x: 0, y: 6 }];
+  const sh = x.textureMarks(slope, x.roofTextureOf("three_tab"), 0.5);
+  // Courses 5" apart, every one drawn at this size; the cuts staggered half a tab, course to course.
+  assert(sh.lines.length >= 10 && sh.fine.length > 50, `${sh.lines.length} courses, ${sh.fine.length} cuts`);
+  const cutsAt = (y) => sh.fine.filter(([a]) => Math.abs(a.y - y) < 1e-6).map(([a]) => a.x % 1).map((v) => Math.round(((v + 1) % 1) * 100) / 100);
+  assert(cutsAt(5 / 12).every((v) => v === 0.5) && cutsAt(10 / 12).every((v) => v === 0), "staggered");
+  // Lap siding is lines alone: no cut on it.
+  assert(x.textureMarks(slope, x.textureOf("vinyl"), 0.5).fine.length === 0, "siding has none");
+  const metal = x.textureMarks(slope, x.roofTextureOf("metal"), 0.5);
+  assert(metal.lines.length > 5 && metal.lines.every(([a, b]) => Math.abs(a.x - b.x) < 1e-9), "seams down the slope");
+  assert(x.roofTextureOf("tile").texture === "plain" && x.roofTextureOf(null).texture === "shingles", "plain, and shingles when unsaid");
 });
 
 console.log(`\n${passed.length} passed, ${failures.length} failed`);

@@ -14,12 +14,26 @@ import type { Pt } from "./roof";
  * drawing at that scale would. Plan feet, y up, as the elevation's own frame.
  */
 
-export type Texture = "stucco" | "eifs" | "lap" | "shake" | "brick" | "stone" | "battens" | "ribs" | "parging" | "ground" | "plain";
+export type Texture = "stucco" | "eifs" | "lap" | "shake" | "brick" | "stone" | "battens" | "ribs" | "parging" | "ground" | "shingles" | "seams" | "plain";
 
 export interface TextureSpec {
   texture: Texture;
   /** Lap siding: the exposure, feet. */
   exposureFeet?: number;
+  /** Shingles: laminated (architectural), their tabs of uneven width; else three-tab, a tab every foot. */
+  laminated?: boolean;
+}
+
+/**
+ * How a roof's slopes are drawn on the elevations (2026-10-17, the owner: "The shingles on the elevations look like vinyl
+ * siding with the horizontal lines. Can we have that look more shingle like"): asphalt shingles as courses at 5" to the
+ * weather with their tab cuts staggered course to course - three-tab even, laminated uneven - metal roofing as standing
+ * seams running down the slope, anything else plain. Null material: shingles, the usual roof.
+ */
+export function roofTextureOf(material: "three_tab" | "composite" | "metal" | "tile" | "cedar_shake" | null | undefined): TextureSpec {
+  if (material === "metal") return { texture: "seams" };
+  if (material === "tile" || material === "cedar_shake") return { texture: "plain" };
+  return { texture: "shingles", exposureFeet: 5 / 12, laminated: material === "composite" };
 }
 
 /** The finest spacing drawn, in lettering heights. */
@@ -251,6 +265,39 @@ export function textureMarks(poly: Pt[], spec: TextureSpec, unit: number): Textu
       }
       marks.lines.push(...uprights(poly, ribs, b.y0 - 1, b.y1 + 1));
       marks.fine.push(...uprights(poly, minor, b.y0 - 1, b.y1 + 1));
+      return marks;
+    }
+    case "shingles": {
+      /*
+        Courses at their exposure, thinned where too fine, and in each course the tab cuts rising from its bottom edge
+        most of the way to the next: a three-tab strip's every foot, half a tab over from the course below; a laminated
+        one's at uneven widths. The cuts are what no lap siding has.
+      */
+      const course = drawnEvery(spec.exposureFeet ?? 5 / 12, finest);
+      const tab = drawnEvery(1, finest * 2.2);
+      for (const row of levels(poly, course)) marks.lines.push(...row.runs);
+      // Each course's cuts, the lowest (from the drip edge, under the first line) included.
+      for (let k = Math.floor(b.y0 / course + 1e-9); k * course < b.y1 - 1e-9; k++) {
+        const y = Math.max(b.y0, k * course);
+        const xs: number[] = [];
+        if (spec.laminated) {
+          for (let x = b.x0 - rnd(k, 0) * tab, j = 1; x < b.x1; j++) {
+            x += tab * (0.55 + 0.9 * rnd(k, j));
+            xs.push(x);
+          }
+        } else {
+          for (let x = Math.floor(b.x0 / tab) * tab + (((k % 2) + 2) % 2 === 0 ? 0 : tab / 2); x < b.x1; x += tab) xs.push(x);
+        }
+        marks.fine.push(...uprights(poly, xs, y, k * course + course * 0.7));
+      }
+      return marks;
+    }
+    case "seams": {
+      // Standing seams every 16", running down the slope.
+      const every = drawnEvery(16 / 12, finest * 2);
+      const xs: number[] = [];
+      for (let x = Math.ceil(b.x0 / every) * every; x < b.x1; x += every) xs.push(x);
+      marks.lines.push(...uprights(poly, xs, b.y0 - 1, b.y1 + 1));
       return marks;
     }
     case "parging":

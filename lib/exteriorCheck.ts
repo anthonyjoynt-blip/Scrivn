@@ -13,9 +13,11 @@
  * report's "To check" names it (`checkNotes`).
  */
 
-import { type Exterior, type ExteriorOpening, type ExteriorOpeningKind, type ExteriorQuantities, type ExteriorSide, formatOpeningSize, groundAt, OPENING_LABEL, openingRect } from "./exterior";
+import { COLUMN_LABEL, type Exterior, type ExteriorOpening, type ExteriorOpeningKind, type ExteriorQuantities, type ExteriorSide, formatOpeningSize, groundAt, OPENING_LABEL, openingRect } from "./exterior";
 import { withWingDrop } from "./roofCheck";
 import { formatFeetInches } from "./sketch";
+
+const capital = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 /** A door's sill more than this over the ground under it, with no deck or porch there, is asked: no one steps out of it. */
 export const DOOR_OFF_GROUND_FEET = 2;
@@ -34,6 +36,18 @@ export type CheckRow =
       words: string;
       /** As read, until tapped. */
       openingKind: ExteriorOpeningKind;
+    }
+  | {
+      key: string;
+      /** A surround or a column read off a photo that couldn't show it all (2026-10-17): keep it, or take it away. */
+      kind: "trim";
+      sideId: string;
+      /** The opening the surround goes round, or the column, by id: one of the two. */
+      openingId?: string;
+      columnId?: string;
+      title: string;
+      /** Why it is asked: what hid part of it, or that the photo saw it edge-on. */
+      words: string;
     }
   | {
       key: string;
@@ -89,6 +103,18 @@ export function exteriorChecks(exterior: Exterior, q: ExteriorQuantities): Check
       }
     }
   }
+  // Trim the photo couldn't show all of (2026-10-17): a surround partly hidden, a column seen edge-on.
+  for (const side of exterior.sides) {
+    for (const o of side.openings) {
+      const t = o.trim;
+      if (!t?.unsure || t.confirmed) continue;
+      rows.push({ key: `trim:${o.id}`, kind: "trim", sideId: side.id, openingId: o.id, title: `${sideName(side)}: the surround round the ${OPENING_LABEL[o.kind].toLowerCase()} ${formatOpeningSize(o.widthFeet, o.heightFeet)}`, words: `${capital(t.unsure)}.` });
+    }
+    for (const c of side.columns ?? []) {
+      if (!c.unsure || c.confirmed) continue;
+      rows.push({ key: `trim:${c.id}`, kind: "trim", sideId: side.id, columnId: c.id, title: `${sideName(side)}: a ${COLUMN_LABEL[c.kind].toLowerCase()} ${formatOpeningSize(c.widthFeet, c.heightFeet)}`, words: `${capital(c.unsure)}.` });
+    }
+  }
   for (const [sideId, d] of Object.entries(q.wingDrops)) {
     if (d.source !== "assumed") continue;
     const side = exterior.sides.find((s) => s.id === sideId);
@@ -120,6 +146,29 @@ export function withOpeningKind(exterior: Exterior, sideId: string, openingId: s
   };
 }
 
+/** A surround or column on "Check these" (2026-10-17): kept as read - said, so no longer asked - or taken away. */
+export function withTrimAnswer(exterior: Exterior, sideId: string, of: { openingId?: string; columnId?: string }, keep: boolean): Exterior {
+  return {
+    ...exterior,
+    sides: exterior.sides.map((s) => {
+      if (s.id !== sideId) return s;
+      if (of.openingId) {
+        return {
+          ...s,
+          openings: s.openings.map((o) => {
+            if (o.id !== of.openingId || !o.trim) return o;
+            if (keep) return { ...o, trim: { ...o.trim, confirmed: true as const } };
+            const { trim: _gone, ...rest } = o;
+            return rest;
+          }),
+        };
+      }
+      const columns = (s.columns ?? []).flatMap((c) => (c.id !== of.columnId ? [c] : keep ? [{ ...c, confirmed: true as const }] : []));
+      return { ...s, columns };
+    }),
+  };
+}
+
 /** A lower roof's drop typed on "Check these": the roof check's own writer. Null goes back to measured or assumed. */
 export function withCheckDrop(exterior: Exterior, sideId: string, feet: number | null): Exterior {
   return { ...exterior, roof: withWingDrop(exterior.roof, sideId, feet) };
@@ -136,7 +185,31 @@ export function withChecksClosed(exterior: Exterior, keys: string[]): Exterior {
 export function checkNotes(exterior: Exterior, q: ExteriorQuantities): string[] {
   // A roof cut at a party line over a shared wall (2026-10-17): its firewall cap and flashing are not measured.
   const party = (q.roof?.lines ?? []).some((l) => l.kind === "party") ? ["Check the firewall cap and flashing at the party line."] : [];
-  return [...party, ...exteriorChecks(exterior, q).map((r) => {
+  const rows = exteriorChecks(exterior, q);
+  // The trim, one note a side for one reason (2026-10-17): five surrounds seen edge-on from one side yard are one thing to check.
+  const trim = new Map<string, Extract<CheckRow, { kind: "trim" }>[]>();
+  for (const r of rows) if (r.kind === "trim") trim.set(`${r.sideId}|${r.words}`, [...(trim.get(`${r.sideId}|${r.words}`) ?? []), r]);
+  const trimNote = (group: Extract<CheckRow, { kind: "trim" }>[]) => {
+    const first = group[0] as Extract<CheckRow, { kind: "trim" }>;
+    const why = first.words.replace(/\.$/, "").replace(/^./, (c) => c.toLowerCase());
+    if (group.length === 1) return `${first.title}: read off a photo that couldn't show it all (${why}). Check it is there, and its size.`;
+    const side = exterior.sides.find((s) => s.id === first.sideId) as ExteriorSide;
+    const what = group.map((r) => {
+      const o = side.openings.find((x) => x.id === r.openingId);
+      const c = (side.columns ?? []).find((x) => x.id === r.columnId);
+      return o ? `the ${OPENING_LABEL[o.kind].toLowerCase()} ${formatOpeningSize(o.widthFeet, o.heightFeet)}` : c ? `a ${COLUMN_LABEL[c.kind].toLowerCase()}` : "";
+    });
+    const lead = group.every((r) => r.openingId) ? `the surrounds round ${group.length} openings` : group.every((r) => r.columnId) ? `${group.length} columns` : `${group.length} surrounds and columns`;
+    return `${sideName(side)}: ${lead} - ${what.filter(Boolean).join(", ")} - read off a photo that couldn't show them all (${why}). Check they are there, and their sizes.`;
+  };
+  const noted = new Set<string>();
+  return [...party, ...rows.flatMap((r) => {
+    if (r.kind === "trim") {
+      const key = `${r.sideId}|${r.words}`;
+      if (noted.has(key)) return [];
+      noted.add(key);
+      return [trimNote(trim.get(key) ?? [r])];
+    }
     if (r.kind === "drop") {
       return r.garage
         ? `The garage's eave is drawn ${formatFeetInches(r.feet)} under the house's: assumed, as nothing measured it. Measure how much lower it is.`

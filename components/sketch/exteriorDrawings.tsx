@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { textureMarks, textureOf } from "@/lib/claddingTexture";
+import { roofTextureOf, textureMarks, textureOf, type TextureSpec } from "@/lib/claddingTexture";
 import { COMPASS_WORD, type HouseView } from "@/lib/exteriorViews";
 import { formatFeetInches } from "@/lib/sketch";
 import {
@@ -10,13 +10,17 @@ import {
   type ExteriorOpening,
   type ExteriorSide,
   type Footprint,
+  type HouseColours,
   formatOpeningSize,
   groundAt,
   lengthToCheck,
+  type RoofMaterial,
   type RoofRise,
+  ROOF_MATERIAL_LABEL,
+  trimShapes,
   zFromGrade,
 } from "@/lib/exterior";
-import type { Pt, RoofLineKind, RoofPlan, RoofSection } from "@/lib/roof";
+import { polygonArea, type Pt, type RoofLineKind, type RoofPlan, type RoofSection } from "@/lib/roof";
 import { facetLabels, type LabelBox, lineTotals, placeWallNames, roofLineLabels, type SideName, textWidthEm, type WallToName } from "@/lib/roofLabels";
 import { formatQuantity } from "@/lib/sketchQuantities";
 
@@ -75,7 +79,9 @@ function elevationExtent(side: ExteriorSide, rise: RoofRise | null, reach?: Elev
   const { shape, faces, openings } = elevationFaces(side, rise, base);
   const L = Math.max(1, shape.lengthFeet);
   const roofline = side.roofline ?? [];
-  const xs = [0, L, ...faces.flatMap((f) => f.poly.map((p) => p.x)), ...roofline.map((r) => r.alongFeet), ...(reach ? [reach.minX, reach.maxX] : [])];
+  // Its trim (2026-10-17): a pilaster round a corner, a column, a keystone over the eave reach past the wall.
+  const trim = trimShapes(side).flatMap((s) => s.poly);
+  const xs = [0, L, ...faces.flatMap((f) => f.poly.map((p) => p.x)), ...roofline.map((r) => r.alongFeet), ...(reach ? [reach.minX, reach.maxX] : []), ...trim.map((p) => p.x)];
   const ys = [
     shape.eaveZ ?? DEFAULT_EAVE_FEET,
     side.eaveRightFeet ?? 0,
@@ -84,6 +90,7 @@ function elevationExtent(side: ExteriorSide, rise: RoofRise | null, reach?: Elev
     ...roofline.map((r) => r.upFeet),
     ...openings.map((o) => o.rect.y1),
     ...(reach ? [reach.maxZ] : []),
+    ...trim.map((p) => p.y),
   ];
   return {
     minX: Math.min(...xs),
@@ -123,6 +130,41 @@ export const CHECK_INK = "#a21caf";
 const MARK = "#7b8089";
 const GLASS = "#e2ebf1";
 
+/** How light a "#rrggbb" colour is, 0 to 1 (Rec. 709 weights on the sRGB values). */
+export function lightnessOf(hex: string): number {
+  const v = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex);
+  if (!v) return 1;
+  const [r, g, b] = [v[1], v[2], v[3]].map((c) => parseInt(c as string, 16) / 255) as [number, number, number];
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+/** "#rrggbb" times [k]: toward black under 1, lighter over it. */
+function darker(hex: string, k: number): string {
+  const v = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex);
+  if (!v) return hex;
+  return `#${[v[1], v[2], v[3]].map((c) => Math.min(255, Math.round(parseInt(c as string, 16) * k)).toString(16).padStart(2, "0")).join("")}`;
+}
+
+/** The marks on a face of [fill]: grey on a light one, a lighter grey on a dark one (the owner's dark stucco), so they read either way. */
+function marksOn(fill: string): string | undefined {
+  return lightnessOf(fill) < 0.45 ? "#70757c" : undefined;
+}
+
+/** Trim with no colour off a photo: white, as most is. */
+const TRIM_FILL = "#fbfaf7";
+/** A raised piece's shadow, cast to its right: light from the left, as drawings have it, and none below it into the ground. */
+const SHADOW = "#1f2329";
+
+/**
+ * The roof on the elevations (2026-10-17): shingles, metal or plain, in a tone darker than any wall drawn with it - the
+ * owner's dark stucco included - so a slope is never taken for siding.
+ */
+export const ROOF_TONE = "#4a4f56";
+export function roofTone(walls: string[]): string {
+  const darkest = walls.reduce((d, c) => Math.min(d, lightnessOf(c)), 1);
+  return darkest <= lightnessOf(ROOF_TONE) + 0.04 ? darker(walls.reduce((a, c) => (lightnessOf(c) < lightnessOf(a) ? c : a)), 0.62) : ROOF_TONE;
+}
+
 /** "±6%": a side's length to check. */
 export function plusMinusWords(pct: number | undefined): string {
   return pct !== undefined && pct > 0 ? `±${Math.max(1, Math.round(pct))}%` : "";
@@ -133,11 +175,10 @@ export function plusMinusWords(pct: number | undefined): string {
  * brick coursing, stone, shakes, battens, metal ribs, parging's hatch - lib/claddingTexture.ts, grey on
  * the face's light fill. `unit` is the drawing's lettering, which sets how fine the marks go.
  */
-function FaceTexture({ poly, kind, label, unit }: { poly: Pt[]; kind: CladdingKind | "parging" | "ground" | "shingles"; label?: string; unit: number }) {
-  // Shingles: their courses, 5" to the weather, seen square-on.
-  const marks = textureMarks(poly, kind === "ground" ? { texture: "ground" } : kind === "shingles" ? { texture: "lap", exposureFeet: 5 / 12 } : textureOf(kind, label), unit);
+function FaceTexture({ poly, kind, label, unit, spec, ink: inkAs }: { poly: Pt[]; kind: CladdingKind | "parging" | "ground" | "roof"; label?: string; unit: number; spec?: TextureSpec; ink?: string }) {
+  const marks = textureMarks(poly, spec ?? (kind === "ground" ? { texture: "ground" } : kind === "roof" ? roofTextureOf(null) : textureOf(kind, label)), unit);
   const Y = (z: number) => -z;
-  const ink = kind === "ground" ? "#a08a6c" : MARK;
+  const ink = inkAs ?? (kind === "ground" ? "#a08a6c" : MARK);
   const stroke = { vectorEffect: "non-scaling-stroke" as const };
   return (
     <g pointerEvents="none">
@@ -166,15 +207,17 @@ function openingTrim(rect: { x0: number; x1: number; y0: number; y1: number }): 
 
 /**
  * Where each opening's size is written: over it, above its trim - and, where two openings stand close
- * enough for their sizes to run into each other, the later one a line higher.
+ * enough for their sizes to run into each other, the later one a line higher. [tops]: the top of an
+ * opening's own surround (2026-10-17), over which its size goes instead.
  */
-function sizeLabelLevels(openings: { opening: ExteriorOpening; rect: { x0: number; x1: number; y0: number; y1: number } }[], fs: number): Map<string, number> {
+function sizeLabelLevels(openings: { opening: ExteriorOpening; rect: { x0: number; x1: number; y0: number; y1: number } }[], fs: number, tops?: Map<string, number>): Map<string, number> {
   const placed: { x0: number; x1: number; y: number }[] = [];
   const at = new Map<string, number>();
   for (const { opening, rect } of [...openings].sort((a, b) => a.rect.x0 - b.rect.x0)) {
     const half = (textWidthEm(formatOpeningSize(opening.widthFeet, opening.heightFeet)) * fs * 0.75) / 2 + fs * 0.15;
     const mid = (rect.x0 + rect.x1) / 2;
-    let y = rect.y1 + openingTrim(rect) + fs * 0.3;
+    const top = tops?.get(opening.id);
+    let y = (top ?? rect.y1 + openingTrim(rect)) + fs * 0.3;
     while (placed.some((q) => q.x0 < mid + half && q.x1 > mid - half && Math.abs(q.y - y) < fs * 0.8)) y += fs * 0.85;
     placed.push({ x0: mid - half, x1: mid + half, y });
     at.set(opening.id, y);
@@ -188,6 +231,8 @@ function OpeningGlyph({
   fs,
   seeThrough,
   labelZ,
+  plain = false,
+  plate = false,
 }: {
   opening: Pick<ExteriorOpening, "kind"> & Partial<Pick<ExteriorOpening, "widthFeet" | "heightFeet">>;
   rect: { x0: number; x1: number; y0: number; y1: number };
@@ -195,6 +240,10 @@ function OpeningGlyph({
   seeThrough: boolean;
   /** Where its size is written; none, no size (the house's elevations: each side's has them). */
   labelZ?: number;
+  /** It has a surround of its own drawn round it (2026-10-17): no casing drawn here. */
+  plain?: boolean;
+  /** Its size on a plate of white: the wall behind it is dark. */
+  plate?: boolean;
 }) {
   const Y = (z: number) => -z;
   const stroke = { vectorEffect: "non-scaling-stroke" as const };
@@ -220,7 +269,7 @@ function OpeningGlyph({
     );
   };
   const pane = (key: string, a: number, b: number, c: number, d: number) => [box(`${key}g`, a, b, c, d, GLASS, "#6b7280", 0.7), glint(`${key}s`, a, b, c, d)];
-  const parts: ReactNode[] = [box("trim", x0 - trim, y0 - sill, x1 + trim, y1 + trim, "#ffffff", "#6b7280", 0.8), box("frame", x0, y0, x1, y1, "#ffffff", INK, 1.1)];
+  const parts: ReactNode[] = [...(plain ? [] : [box("trim", x0 - trim, y0 - sill, x1 + trim, y1 + trim, "#ffffff", "#6b7280", 0.8)]), box("frame", x0, y0, x1, y1, "#ffffff", INK, 1.1)];
   if (opening.kind === "window") {
     const f = Math.min(0.15, w * 0.07, h * 0.07);
     if (w >= h * 1.5) {
@@ -278,11 +327,59 @@ function OpeningGlyph({
   return (
     <g pointerEvents="none">
       {parts}
+      {labelZ !== undefined && opening.widthFeet !== undefined && opening.heightFeet !== undefined && plate && (
+        <rect
+          x={(x0 + x1) / 2 - (textWidthEm(formatOpeningSize(opening.widthFeet, opening.heightFeet)) * fs * 0.75) / 2 - fs * 0.15}
+          y={Y(labelZ) - fs * 0.72}
+          width={textWidthEm(formatOpeningSize(opening.widthFeet, opening.heightFeet)) * fs * 0.75 + fs * 0.3}
+          height={fs * 0.95}
+          rx={fs * 0.15}
+          fill="#ffffff"
+          fillOpacity={0.9}
+        />
+      )}
       {labelZ !== undefined && opening.widthFeet !== undefined && opening.heightFeet !== undefined && (
         <text x={(x0 + x1) / 2} y={Y(labelZ)} fontSize={fs * 0.75} textAnchor="middle" fill={INK} fontFamily={FONT}>
           {formatOpeningSize(opening.widthFeet, opening.heightFeet)}
         </text>
       )}
+    </g>
+  );
+}
+
+/** A piece of trim to draw: its face, how far it stands out, its material and colour. */
+interface TrimPiece {
+  key: string;
+  poly: Pt[];
+  out: number;
+  material: CladdingKind;
+  colour?: string;
+}
+
+/**
+ * Trim drawn raised (2026-10-17): each piece's shadow cast to its right, as far as it stands out - light from the left -
+ * then the piece in its colour (white where none was read) with its material's marks, outlined.
+ */
+function TrimDrawn({ pieces, fs, textured, opacity = 1 }: { pieces: TrimPiece[]; fs: number; textured: boolean; opacity?: number }) {
+  const Y = (z: number) => -z;
+  const pts = (poly: Pt[]) => poly.map((p) => `${p.x},${Y(p.y)}`).join(" ");
+  const stroke = { vectorEffect: "non-scaling-stroke" as const };
+  return (
+    <g pointerEvents="none">
+      {pieces.map((p) => {
+        const s = Math.min(0.3, Math.max(0.05, p.out * 0.45));
+        return <polygon key={`s-${p.key}`} points={pts(p.poly.map((q) => ({ x: q.x + s, y: q.y })))} fill={SHADOW} fillOpacity={0.22 * opacity} />;
+      })}
+      {pieces.map((p) => {
+        const fill = p.colour ?? TRIM_FILL;
+        return (
+          <g key={p.key}>
+            <polygon points={pts(p.poly)} fill={fill} fillOpacity={opacity} />
+            {textured && <FaceTexture poly={p.poly} kind={p.material} unit={fs} ink={marksOn(fill)} />}
+            <polygon points={pts(p.poly)} fill="none" stroke="#6b7280" strokeWidth={0.7} {...stroke} />
+          </g>
+        );
+      })}
     </g>
   );
 }
@@ -327,8 +424,18 @@ function faceLabelSpot(poly: Pt[], width: number, fs: number, rects: { x0: numbe
 
 /** A material in the legend: what the elevations show it as. */
 export interface LegendItem {
-  kind: CladdingKind | "parging";
+  /** "roof" (2026-10-17): the roof's slopes as the elevations draw them. */
+  kind: CladdingKind | "parging" | "roof";
   label: string;
+  /** Its colour off the photos (2026-10-17): the swatch in it. */
+  colour?: string;
+  /** A roof item's material: its marks. */
+  roof?: RoofMaterial | null;
+}
+
+/** The roof's legend item (2026-10-17): its material's name, and its look. */
+export function roofLegendItem(material: RoofMaterial | null | undefined, tone: string): LegendItem {
+  return { kind: "roof", label: material ? `Roof: ${ROOF_MATERIAL_LABEL[material].toLowerCase()}` : "Roof: shingles", colour: tone, roof: material ?? null };
 }
 
 /**
@@ -358,10 +465,16 @@ export function CladdingLegend({ items, size }: { items: LegendItem[]; size?: Si
           { x: at + sw, y: sh },
           { x: at, y: sh },
         ];
+        const roof = it.kind === "roof";
+        const fill = it.colour ?? (roof ? ROOF_TONE : FACE_FILL(it.kind as CladdingKind | "parging"));
         return (
           <g key={`${it.kind}-${it.label}`}>
-            <rect x={at} y={Y(sh)} width={sw} height={sh} fill={FACE_FILL(it.kind)} />
-            <FaceTexture poly={poly} kind={it.kind} label={it.label} unit={fs} />
+            <rect x={at} y={Y(sh)} width={sw} height={sh} fill={fill} />
+            {roof ? (
+              <FaceTexture poly={poly} kind="roof" unit={fs * 0.6} spec={roofTextureOf(it.roof)} ink={ROOF_MARK} />
+            ) : (
+              <FaceTexture poly={poly} kind={it.kind} label={it.label} unit={fs} ink={it.colour ? marksOn(it.colour) : undefined} />
+            )}
             <rect x={at} y={Y(sh)} width={sw} height={sh} fill="none" stroke="#374151" strokeWidth={0.8} {...stroke} />
             <text x={at + sw + 0.5} y={Y(sh / 2) + fs * 0.35} fontSize={fs} fill={INK} fontFamily={FONT}>
               {it.label}
@@ -397,6 +510,7 @@ export function ElevationDrawing({
   seeThrough = false,
   editor,
   roofAssumed = false,
+  colours = null,
 }: {
   side: ExteriorSide;
   rise: RoofRise | null;
@@ -409,6 +523,8 @@ export function ElevationDrawing({
   editor?: (view: ElevationView) => ReactNode;
   roofAssumed?: boolean;
   base?: RoofRise | null;
+  /** The house's colours (2026-10-17, `houseColours`): each material in one colour round the house. Absent: each face's own read. */
+  colours?: HouseColours | null;
 }) {
   const { shape, faces, bandLines, grade, openings, fromShapes } = elevationFaces(side, rise, base);
   const L = Math.max(1, shape.lengthFeet);
@@ -465,7 +581,19 @@ export function ElevationDrawing({
   // A length worked out from the photos, not taped: to check, on the drawing as in the report.
   const pm = plusMinusWords(lengthToCheck(side));
   const dimInk = pm ? CHECK_INK : "#374151";
-  const sizeAt = sizeLabelLevels(openings, fs);
+  // The trim (2026-10-17): against the wall, then a column standing clear in front of all; each opening's size over its own surround.
+  const trim = trimShapes(side);
+  const trimColour = (s: (typeof trim)[number]) => colours?.trim[s.material] ?? s.colour;
+  const trimOnWall: TrimPiece[] = trim.filter((s) => s.onWall).map((s, i) => ({ key: `t${i}`, poly: s.poly, out: s.outFeet, material: s.material, ...(trimColour(s) ? { colour: trimColour(s) } : {}) }));
+  const trimClear: TrimPiece[] = trim.filter((s) => !s.onWall).map((s, i) => ({ key: `c${i}`, poly: s.poly, out: Math.max(0.3, s.outFeet - s.backFeet), material: s.material, ...(trimColour(s) ? { colour: trimColour(s) } : {}) }));
+  const surrounded = new Set(side.openings.filter((o) => o.trim).map((o) => o.id));
+  const tops = new Map<string, number>();
+  for (const s of trim) if (surrounded.has(s.of)) tops.set(s.of, Math.max(tops.get(s.of) ?? -Infinity, ...s.poly.map((p) => p.y)));
+  const sizeAt = sizeLabelLevels(openings, fs, tops.size > 0 ? tops : undefined);
+  // A dark wall (its colour off the photo): the openings' sizes on plates of white, to be read.
+  const colourOf = (f: { kind: CladdingKind | "parging"; colour?: string }) => colours?.faces[f.kind] ?? f.colour;
+  const fillOf = (f: { kind: CladdingKind | "parging"; colour?: string }) => colourOf(f) ?? FACE_FILL(f.kind);
+  const darkWall = faces.some((f) => colourOf(f) && lightnessOf(colourOf(f) as string) < 0.45);
 
   const scaleFeet = L >= 30 ? 10 : 5;
   return (
@@ -492,8 +620,8 @@ export function ElevationDrawing({
       {faces.map((f) =>
         f.poly.length >= 3 ? (
           <g key={f.id}>
-            {f.closed && <polygon points={pts(f.poly)} fill={FACE_FILL(f.kind)} fillOpacity={faceOpacity} />}
-            {f.closed && textured && <FaceTexture poly={f.poly} kind={f.kind} label={f.label} unit={fs} />}
+            {f.closed && <polygon points={pts(f.poly)} fill={fillOf(f)} fillOpacity={faceOpacity} />}
+            {f.closed && textured && <FaceTexture poly={f.poly} kind={f.kind} label={f.label} unit={fs} ink={colourOf(f) ? marksOn(colourOf(f) as string) : undefined} />}
             {(fromShapes || seeThrough) && <polygon points={pts(f.poly)} fill="none" stroke="#374151" strokeWidth={1.2} strokeDasharray={f.closed ? undefined : "4 3"} {...stroke} />}
           </g>
         ) : (
@@ -508,7 +636,8 @@ export function ElevationDrawing({
       {faces.map((f) => {
         if (f.poly.length < 3 || f.kind === "parging") return null;
         const words = `${f.label}${f.closed ? "" : " (open: not counted)"}`;
-        const at = faceLabelSpot(f.poly, textWidthEm(words) * fs * 0.85, fs, openings.map((o) => o.rect));
+        const clearOf = [...openings.map((o) => o.rect), ...trim.map((s) => ({ x0: Math.min(...s.poly.map((p) => p.x)), x1: Math.max(...s.poly.map((p) => p.x)), y0: Math.min(...s.poly.map((p) => p.y)), y1: Math.max(...s.poly.map((p) => p.y)) }))];
+        const at = faceLabelSpot(f.poly, textWidthEm(words) * fs * 0.85, fs, clearOf);
         if (!at) return null;
         // On a plate of white, so the face's marks don't run through it.
         return (
@@ -527,9 +656,11 @@ export function ElevationDrawing({
       {roofline.length >= 2 && (
         <polyline points={pts(roofline.map((r) => ({ x: r.alongFeet, y: r.upFeet })))} fill="none" stroke="#7c2d12" strokeWidth={2} strokeDasharray="7 4" {...stroke} />
       )}
+      {trimOnWall.length > 0 && <TrimDrawn pieces={trimOnWall} fs={fs} textured={textured} opacity={seeThrough ? 0.35 : 1} />}
       {openings.map(({ opening, rect }) => (
-        <OpeningGlyph key={opening.id} opening={opening} rect={rect} fs={fs} seeThrough={seeThrough} labelZ={sizeAt.get(opening.id) ?? rect.y1} />
+        <OpeningGlyph key={opening.id} opening={opening} rect={rect} fs={fs} seeThrough={seeThrough} labelZ={sizeAt.get(opening.id) ?? rect.y1} plain={surrounded.has(opening.id)} plate={darkWall} />
       ))}
+      {trimClear.length > 0 && <TrimDrawn pieces={trimClear} fs={fs} textured={textured} opacity={seeThrough ? 0.35 : 1} />}
       <polyline points={pts(ground)} fill="none" stroke={upper ? "#4b5563" : "#5b4630"} strokeWidth={2} {...stroke} />
       {/* Where the wall stands, when the cladding runs past it. */}
       {fromShapes && (ext.minX < -1e-6 || ext.maxX > L + 1e-6) && (
@@ -557,8 +688,21 @@ export function ElevationDrawing({
   );
 }
 
-const ROOF_FILL = "#cdd2d8";
-const ROOF_FILL_SIDE = "#e1e4e8";
+/** The marks on a roof's dark tone: light, so the courses and cuts read on it, in colour and in black and white. */
+const ROOF_MARK = "#a7adb4";
+
+/** A slope's fill and its marks: shingles, metal or plain (2026-10-17), lighter where the slope turns away. */
+function RoofSlope({ poly, tone, facing, material, unit }: { poly: Pt[]; tone: string; facing: number; material: RoofMaterial | null | undefined; unit: number }) {
+  const Y = (z: number) => -z;
+  const pts = poly.map((p) => `${p.x},${Y(p.y)}`).join(" ");
+  return (
+    <>
+      <polygon points={pts} fill={facing > 0.7 ? tone : darker(tone, 1.18)} />
+      <FaceTexture poly={poly} kind="roof" unit={unit} spec={roofTextureOf(material)} ink={ROOF_MARK} />
+    </>
+  );
+}
+
 /** A siding face the roof brings (a cross gable's front, a step between two parts of one roof). */
 const ROOF_SIDING = "#ece7dc";
 
@@ -574,8 +718,14 @@ export function houseViewFontFeet(view: HouseView): number {
  * ground as the nearest wall meets it. Under it the overall width; to its right the main levels, each
  * above the lowest ground the view shows.
  */
-export function HouseElevationDrawing({ view, fontFeet, size }: { view: HouseView; fontFeet?: number; size?: Size }) {
+export function HouseElevationDrawing({ view, fontFeet, size, roof }: { view: HouseView; fontFeet?: number; size?: Size; roof?: RoofMaterial | null }) {
   const fs = fontFeet ?? houseViewFontFeet(view);
+  // The walls' own colours (2026-10-17): the roof drawn darker than any of them, and the roof's siding faces in the most of them.
+  const walls = view.pieces.filter((p): p is Extract<typeof p, { type: "wall" }> => p.type === "wall" && !p.shared);
+  const wallFills = walls.flatMap((w) => [w.backgroundColour ?? (w.background === "unclad" ? "#eef0f2" : FACE_FILL(w.background)), ...w.faces.map((f) => f.colour ?? FACE_FILL(f.kind))]);
+  const tone = roofTone(wallFills);
+  const coloured = walls.flatMap((w) => w.faces.filter((f) => f.colour && f.kind !== "parging"));
+  const siding = coloured.length > 0 ? (([...coloured].sort((a, b) => Math.abs(polygonArea(b.poly)) - Math.abs(polygonArea(a.poly)))[0]?.colour as string) ?? ROOF_SIDING) : ROOF_SIDING;
   const Y = (z: number) => -z;
   const pts = (poly: Pt[]) => poly.map((p) => `${p.x},${Y(p.y)}`).join(" ");
   const stroke = { vectorEffect: "non-scaling-stroke" as const };
@@ -614,12 +764,24 @@ export function HouseElevationDrawing({ view, fontFeet, size }: { view: HouseVie
           // A slope seen edge-on: the roof's profile, a line.
           return <polyline key={`roof-${i}`} points={pts([...p.poly, p.poly[0] as Pt])} fill="none" stroke="#4b5563" strokeWidth={0.9} strokeLinejoin="round" {...stroke} />;
         }
+        if (p.type === "column") {
+          // A column standing clear of the wall (2026-10-17): its base, shaft and cap, raised, in its colour.
+          const rects = p.pieces.map((b, k) => ({ key: `col-${i}-${k}`, poly: [{ x: b.x0, y: b.y0 }, { x: b.x1, y: b.y0 }, { x: b.x1, y: b.y1 }, { x: b.x0, y: b.y1 }], out: 0.35, material: p.material, ...(p.colour ? { colour: p.colour } : {}) }));
+          return <TrimDrawn key={`col-${i}`} pieces={rects} fs={fs} textured />;
+        }
+        if (p.type === "roof" && p.kind === "slope") {
+          return (
+            <g key={`roof-${i}`}>
+              <RoofSlope poly={p.poly} tone={tone} facing={p.facing} material={roof} unit={fs} />
+              <polygon points={pts(p.poly)} fill="none" stroke="#2f3338" strokeWidth={0.9} strokeLinejoin="round" {...stroke} />
+            </g>
+          );
+        }
         if (p.type === "roof") {
-          const fill = p.kind === "fascia" ? "#ffffff" : p.kind === "slope" ? (p.facing > 0.7 ? ROOF_FILL : ROOF_FILL_SIDE) : ROOF_SIDING;
+          const fill = p.kind === "fascia" ? "#ffffff" : siding;
           return (
             <g key={`roof-${i}`}>
               <polygon points={pts(p.poly)} fill={fill} />
-              {p.kind === "slope" && <FaceTexture poly={p.poly} kind="shingles" unit={fs} />}
               <polygon points={pts(p.poly)} fill="none" stroke="#4b5563" strokeWidth={p.kind === "fascia" ? 0.8 : 0.9} strokeLinejoin="round" {...stroke} />
             </g>
           );
@@ -639,13 +801,13 @@ export function HouseElevationDrawing({ view, fontFeet, size }: { view: HouseVie
         }
         return (
           <g key={`wall-${p.id}-${i}`}>
-            <polygon points={pts(p.outline)} fill={p.background === "unclad" ? "#eef0f2" : FACE_FILL(p.background)} />
-            {p.background !== "unclad" && <FaceTexture poly={p.outline} kind={p.background} unit={fs} />}
+            <polygon points={pts(p.outline)} fill={p.backgroundColour ?? (p.background === "unclad" ? "#eef0f2" : FACE_FILL(p.background))} />
+            {p.background !== "unclad" && <FaceTexture poly={p.outline} kind={p.background} unit={fs} ink={p.backgroundColour ? marksOn(p.backgroundColour) : undefined} />}
             {p.faces.map((f, k) =>
               f.poly.length >= 3 ? (
                 <g key={k}>
-                  <polygon points={pts(f.poly)} fill={FACE_FILL(f.kind)} />
-                  <FaceTexture poly={f.poly} kind={f.kind} unit={fs} />
+                  <polygon points={pts(f.poly)} fill={f.colour ?? FACE_FILL(f.kind)} />
+                  <FaceTexture poly={f.poly} kind={f.kind} unit={fs} ink={f.colour ? marksOn(f.colour) : undefined} />
                   <polygon points={pts(f.poly)} fill="none" stroke="#6b7280" strokeWidth={0.6} {...stroke} />
                 </g>
               ) : null,
@@ -653,6 +815,7 @@ export function HouseElevationDrawing({ view, fontFeet, size }: { view: HouseVie
             {p.openings.map((o) => (
               <OpeningGlyph key={o.id} opening={{ kind: o.kind }} rect={o} fs={fs} seeThrough={false} />
             ))}
+            {p.trim && <TrimDrawn pieces={p.trim.map((t, k) => ({ key: `tr-${k}`, poly: t.poly, out: t.out, material: t.material, ...(t.colour ? { colour: t.colour } : {}) }))} fs={fs} textured />}
             <polygon points={pts(p.outline)} fill="none" stroke="#374151" strokeWidth={1.1} strokeLinejoin="round" {...stroke} />
           </g>
         );

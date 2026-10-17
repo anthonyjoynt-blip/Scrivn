@@ -2,7 +2,7 @@
 
 import { type PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState } from "react";
 import { defaultRoof, type Exterior, type ExteriorOpening, type ExteriorOpeningKind, type ExteriorSide, exteriorQuantities, HOME_TYPE_LABEL, type HomeType, OPENING_LABEL, openingRect } from "@/lib/exterior";
-import { type CheckRow, openChecks, withCheckDrop, withChecksClosed, withOpeningKind } from "@/lib/exteriorCheck";
+import { type CheckRow, openChecks, withCheckDrop, withChecksClosed, withOpeningKind, withTrimAnswer } from "@/lib/exteriorCheck";
 import { frameX, frameY } from "@/lib/exteriorPhoto";
 import { exifTakenAt } from "@/lib/exifTime";
 import { onDeviceChange } from "@/lib/deviceClaims";
@@ -588,6 +588,10 @@ function Results({ exterior, route }: { exterior: Exterior; route: PhotoRouteSta
 }
 
 const KIND_OPTIONS = (Object.keys(OPENING_LABEL) as ExteriorOpeningKind[]).map((k): [ExteriorOpeningKind, string] => [k, OPENING_LABEL[k]]);
+const TRIM_OPTIONS: ["keep" | "away", string][] = [
+  ["keep", "Keep it"],
+  ["away", "Take it away"],
+];
 
 /**
  * "Check these" (2026-10-16, lib/exteriorCheck.ts): only what a photo couldn't settle - an opening it hid
@@ -629,6 +633,24 @@ function CheckRowView({ exterior, row, readOnly, onChange }: { exterior: Exterio
         nullable
         onCommit={(v) => v !== null && onChange((e) => withCheckDrop(e, row.sideId, v))}
       />
+    );
+  }
+  if (row.kind === "trim") {
+    // A surround or column the photo couldn't show all of (2026-10-17): kept as read, or taken away.
+    const tside = exterior.sides.find((s) => s.id === row.sideId);
+    const around = row.openingId ? tside?.openings.find((o) => o.id === row.openingId) : undefined;
+    return (
+      <>
+        {tside && around && <OpeningCrop side={tside} opening={around} />}
+        <Choice
+          label={row.title}
+          hint={`${row.words} As read: there.`}
+          value="keep"
+          readOnly={readOnly}
+          options={TRIM_OPTIONS}
+          onChange={(v) => onChange((e) => withTrimAnswer(e, row.sideId, { openingId: row.openingId, columnId: row.columnId }, v === "keep"))}
+        />
+      </>
     );
   }
   const side = exterior.sides.find((s) => s.id === row.sideId);

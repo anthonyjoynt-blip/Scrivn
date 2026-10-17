@@ -1,6 +1,13 @@
 import {
   allSides,
   CLADDING_LABEL,
+  COLUMN_LABEL,
+  type ColumnQuantity,
+  hasTrim,
+  type OpeningTrim,
+  type SideColumn,
+  SURROUND_WORDS,
+  trimLabel,
   DEFAULT_EAVE_OVERHANG_FEET,
   DEFAULT_RAKE_OVERHANG_FEET,
   elevationFaces,
@@ -265,7 +272,43 @@ function groundWords(side: ExteriorSide): string | null {
 
 function openingLine(side: ExteriorSide, o: ExteriorOpening, name: string): string {
   const sill = sillOf(side, o);
-  return `${name}: ${formatOpeningSize(o.widthFeet, o.heightFeet)}, ${sill > 0.04 ? `sill ${ft(sill)} up` : "at the bottom"}, ${ft(o.fromLeftFeet)} from the left end${o.from === "photo" ? " (from photo)" : ""}`;
+  return `${name}: ${formatOpeningSize(o.widthFeet, o.heightFeet)}, ${sill > 0.04 ? `sill ${ft(sill)} up` : "at the bottom"}, ${ft(o.fromLeftFeet)} from the left end${o.from === "photo" ? " (from photo)" : ""}${o.trim ? ` · ${surroundWords(o.trim)}` : ""}`;
+}
+
+/**
+ * A surround in words (2026-10-17): "surround 9" each side, 6" head, 9" sill, keystone 11" × 10" (stucco trim)" - its
+ * pieces' widths, a gap to the opening, sides running on up, and its keystone.
+ */
+export function surroundWords(t: OpeningTrim): string {
+  const sides = Math.abs(t.leftFeet - t.rightFeet) < 1 / 48 ? `${ft(t.leftFeet)} each side` : `${ft(t.leftFeet)} left, ${ft(t.rightFeet)} right`;
+  const parts = [
+    sides,
+    t.topFeet > 1e-6 ? `${ft(t.topFeet)} head` : "no head",
+    ...(t.bottomFeet > 1e-6 ? [`${ft(t.bottomFeet)} sill`] : []),
+    ...((t.gapFeet ?? 0) > 1e-6 ? [`set ${ft(t.gapFeet ?? 0)} off it`] : []),
+    ...((t.upFeet ?? 0) > t.topFeet + (t.gapFeet ?? 0) + 1e-6 ? [`its sides up ${ft(t.upFeet ?? 0)} over the top`] : []),
+    ...(t.keystone ? [`keystone ${formatOpeningSize(t.keystone.widthFeet, t.keystone.heightFeet)}`] : []),
+  ];
+  return `surround ${parts.join(", ")} (${trimLabel(t.material, t.label).toLowerCase()} trim)`;
+}
+
+/** A column or pilaster in words: "Pilaster 1: 9" × 9", 9'6" high, base and cap, standing out 4", 0'0" from the left end (stucco) · 59 SF wrap". */
+function columnLine(c: SideColumn, name: string, q: ColumnQuantity | undefined): string {
+  const blocks = [c.base && c.base.heightFeet > 0 ? "base" : "", c.cap && c.cap.heightFeet > 0 ? "cap" : ""].filter(Boolean);
+  const stands = c.kind === "column" ? `standing ${ft(c.outFeet)} off the wall` : `standing out ${ft(c.outFeet)}`;
+  const at = c.fromLeftFeet < -1 / 24 ? `round the left corner, ${ft(-c.fromLeftFeet)} past it` : c.fromLeftFeet < 1 / 24 ? "at the left corner" : `${ft(c.fromLeftFeet)} from the left end`;
+  return `${name}: ${formatOpeningSize(c.widthFeet, c.depthFeet)}, ${ft(c.heightFeet)} high${blocks.length > 0 ? `, ${blocks.join(" and ")}` : ""}, ${stands}, ${at} (${trimLabel(c.material, c.label).toLowerCase()})${q ? ` · ${sf(q.wrapSquareFeet)} wrap` : ""}${c.from === "photo" ? " (from photo)" : ""}`;
+}
+
+/** Each column numbered by its kind along the side, left to right: "Pilaster 2". */
+function columnNames(side: ExteriorSide): Map<string, string> {
+  const names = new Map<string, string>();
+  const count: Record<string, number> = {};
+  for (const c of [...(side.columns ?? [])].sort((a, b) => a.fromLeftFeet - b.fromLeftFeet)) {
+    count[c.kind] = (count[c.kind] ?? 0) + 1;
+    names.set(c.id, `${COLUMN_LABEL[c.kind]} ${count[c.kind]}`);
+  }
+  return names;
 }
 
 /** "±6%": the ± a side's length is marked with, to check (`lengthToCheck`), or nothing. */
@@ -314,10 +357,13 @@ export function exteriorReport(exterior: Exterior, meta: ReportMeta): ExteriorRe
     ].filter(Boolean);
     const pm = plusMinus(side);
     const shapeFrom = new Set((side.shapes ?? []).filter((x) => x.from === "photo").map((x) => x.id));
+    const colNames = columnNames(side);
+    const colQ = new Map((sq.trim?.columns ?? []).map((c) => [c.id, c]));
     const dims = [
       `${side.lengthFrom === "drawn" ? "About " : ""}${ft(sq.lengthFeet)} long${side.lengthFrom === "drawn" ? " (drawn, not measured)" : ""}${pm ? ` ${pm} (worked out from the photos: to check)` : ""}${heights.length > 0 ? ` · ${heights.join(", ")}${side.wallTopFrom === "photo" ? " (from photo)" : side.wallTopFrom === "neighbours" ? ` (from the sides beside it: ${(side.photos ?? []).length === 0 ? "not seen in a photo" : "its photo didn't show the top"})` : ""}` : ""}${side.base === "parging" ? ` · parging ${ft(side.baseLeftFeet)} / ${ft(side.baseRightFeet)}` : ""}`,
-      ...sq.bands.map((b) => `${b.label}: ${sf(b.grossSquareFeet)} gross, ${sf(b.openingSquareFeet)} of openings, ${sf(b.netSquareFeet)} net${shapeFrom.has(b.bandId) ? " (from photo)" : ""}`),
+      ...sq.bands.map((b) => `${b.label}: ${sf(b.grossSquareFeet)} gross, ${sf(b.openingSquareFeet)} of openings, ${b.trimSquareFeet ? `${sf(b.trimSquareFeet)} of trim, ` : ""}${sf(b.netSquareFeet)} net${shapeFrom.has(b.bandId) ? " (from photo)" : ""}`),
       ...[...side.openings].sort((a, b) => a.fromLeftFeet - b.fromLeftFeet).map((o) => openingLine(side, o, names.get(o.id) ?? OPENING_LABEL[o.kind])),
+      ...[...(side.columns ?? [])].sort((a, b) => a.fromLeftFeet - b.fromLeftFeet).map((c) => columnLine(c, colNames.get(c.id) ?? COLUMN_LABEL[c.kind], colQ.get(c.id))),
       ...(side.fixtures ?? []).filter((f) => f.count > 0).map((f) => `${f.kind === "other" ? f.label?.trim() || "Other" : SIDE_FIXTURE_LABEL[f.kind]}: ${f.count} (${f.action === "replace" ? "replace" : "detach & reset"})`),
       ...(side.roofRead ? [`Roof read off its photo: ${roofReadWords(side.roofRead).join(", ") || "nothing taken"}.`] : []),
       ...(!sq.complete ? ["Not every height of this side was measured: its area is not counted."] : []),
@@ -360,6 +406,14 @@ export function exteriorReport(exterior: Exterior, meta: ReportMeta): ExteriorRe
         ? "Walls, heights, materials and openings: tapped on the phone, side by side round the house."
         : "Walls, heights, materials and openings: as entered in Scrivn.",
   );
+  // The trim (2026-10-17): its own lines, read off the photos or entered; the field is what is left once it is off.
+  const trimmed = every.filter((s) => !sharedIds.has(s.id) && hasTrim(s));
+  if (trimmed.length > 0) {
+    const read = trimmed.some((s) => s.openings.some((o) => o.trim?.from === "photo") || (s.columns ?? []).some((c) => c.from === "photo"));
+    sources.push(
+      `Trim - surrounds, keystones, columns and pilasters, on ${listWords(trimmed.map((s) => s.name.trim() || "Side"))}: ${read || photosOnly ? "read off the photos" : scanned ? "tapped on the phone" : "as entered in Scrivn"}, each its own line. The wall's cladding under it comes off the field, as an opening's does; its colours are the photos', for the drawings.`,
+    );
+  }
   // Read off the photos where nothing was tapped (2026-10-15, Finish exterior): said side by side, each part marked "from photo" below.
   const walled = every.filter((s) => {
     const w = wallsFromPhoto(s);
@@ -437,7 +491,7 @@ export function exteriorReport(exterior: Exterior, meta: ReportMeta): ExteriorRe
   const home = homeTypeWords(exterior);
   if (home) facts.push({ label: "Home", value: home });
   facts.push({ label: "Footprint", value: fp.closes ? `${sf(fp.areaSquareFeet)} · perimeter ${ft(fp.perimeterFeet)} · ${plural(fp.sideIds.length, "side")}` : `${plural(every.length, "side")}, not closed${fp.reason ? `: ${fp.reason}` : ""}` });
-  facts.push({ label: "Walls", value: `${sf(q.totals.grossSquareFeet)} gross · ${sf(q.totals.openingSquareFeet)} of openings · ${sf(q.totals.netSquareFeet)} net` });
+  facts.push({ label: "Walls", value: `${sf(q.totals.grossSquareFeet)} gross · ${sf(q.totals.openingSquareFeet)} of openings · ${q.trim ? `${sf(q.totals.trimSquareFeet ?? 0)} of trim · ` : ""}${sf(q.totals.netSquareFeet)} net` });
   // How much of the cladding was read off photos rather than tapped, side by side.
   const photoNet = sides.reduce((sum, s) => {
     const ids = new Set((s.side.shapes ?? []).filter((x) => x.from === "photo").map((x) => x.id));
@@ -446,6 +500,23 @@ export function exteriorReport(exterior: Exterior, meta: ReportMeta): ExteriorRe
   if (q.cladding.length > 0) facts.push({ label: "Cladding", value: q.cladding.map((c) => `${c.label} ${sf(c.netSquareFeet)} net`).join(" · ") + (photoNet > 0.5 ? ` (${sf(photoNet)} of it read off photos)` : "") });
   const count = (k: ExteriorOpening["kind"]) => every.reduce((n, s) => n + s.openings.filter((o) => o.kind === k).length, 0);
   facts.push({ label: "Openings", value: [plural(count("window"), "window"), plural(count("door"), "door"), plural(count("garage"), "garage door")].join(" · ") });
+  // The trim (2026-10-17), in a line: the owner's "differentiate these in the report".
+  if (q.trim) {
+    const t = q.trim;
+    const n = t.surrounds.reduce((s, g) => s + g.count, 0);
+    const lfAll = t.surrounds.reduce((s, g) => s + g.linearFeet, 0);
+    const sfAll = t.surrounds.reduce((s, g) => s + g.squareFeet, 0);
+    const cols = t.columns.reduce((s, g) => s + g.count, 0);
+    const wrap = t.columns.reduce((s, g) => s + g.wrapSquareFeet, 0);
+    facts.push({
+      label: "Trim",
+      value: [
+        ...(n > 0 ? [`${plural(n, "surround")} ${lf(lfAll)} (${sf(sfAll)})`] : []),
+        ...(t.keystones > 0 ? [plural(t.keystones, "keystone")] : []),
+        ...(cols > 0 ? [`${plural(cols, "column or pilaster", "columns and pilasters")} (${sf(wrap)} wrap)`] : []),
+      ].join(" · "),
+    });
+  }
   if (r && plan) {
     const pitches = r.byPitch.length > 1 ? r.byPitch.map((b) => `${formatPitch(b.pitch)}${b.assumed ? " (assumed)" : b.fromPhotos ? " (from photos)" : ""} on ${b.squares.toFixed(2)} SQ`).join(", ") : `${formatPitch(r.pitch)}${r.pitchAssumed ? " (assumed)" : r.pitchFromPhotos ? " (from photos)" : ""}`;
     facts.push({ label: "Roof", value: `${r.squares.toFixed(2)} SQ (${sf(r.areaSquareFeet)}) · ${pitches}` });
@@ -456,6 +527,9 @@ export function exteriorReport(exterior: Exterior, meta: ReportMeta): ExteriorRe
 
   // ---- The tables ----
   const tables: ReportTable[] = [];
+  // With trim (2026-10-17) the wall tables have a column for what it took off; without, they are as they were.
+  const withTrim = !!q.trim;
+  const trimCol = (v: number | undefined) => (withTrim ? [one(v ?? 0)] : []);
   tables.push({
     caption: "Walls by side and material",
     columns: [
@@ -464,16 +538,17 @@ export function exteriorReport(exterior: Exterior, meta: ReportMeta): ExteriorRe
       { title: "From", weight: 1.2 },
       { title: "Gross SF", weight: 1, align: "center" },
       { title: "Openings SF", weight: 1, align: "center" },
+      ...(withTrim ? [{ title: "Trim SF", weight: 1, align: "center" as const }] : []),
       { title: "Net SF", weight: 1, align: "center" },
     ],
     rows: sides.flatMap((s) => {
       const ids = new Set((s.side.shapes ?? []).filter((x) => x.from === "photo").map((x) => x.id));
       const own = s.side.wallTopFrom === "neighbours" ? "neighbours" : ownFrom;
       return s.q.bands.length === 0
-        ? [[s.side.name, s.q.complete ? "-" : "not counted", "-", "-", "-", "-"]]
-        : s.q.bands.map((b, k) => [k === 0 ? s.side.name : "", b.label, ids.has(b.bandId) ? "photo" : own, one(b.grossSquareFeet), one(b.openingSquareFeet), one(b.netSquareFeet)]);
+        ? [[s.side.name, s.q.complete ? "-" : "not counted", "-", "-", "-", ...(withTrim ? ["-"] : []), "-"]]
+        : s.q.bands.map((b, k) => [k === 0 ? s.side.name : "", b.label, ids.has(b.bandId) ? "photo" : own, one(b.grossSquareFeet), one(b.openingSquareFeet), ...trimCol(b.trimSquareFeet), one(b.netSquareFeet)]);
     }),
-    note: `Gross includes the gable triangles (${sf(q.totals.gableSquareFeet)} in all). Parging is not counted as cladding. An opening comes off only the part of it inside the cladding.`,
+    note: `Gross includes the gable triangles (${sf(q.totals.gableSquareFeet)} in all). Parging is not counted as cladding. An opening comes off only the part of it inside the cladding.${withTrim ? " So does the trim over it - surrounds, keystones and pilasters - once, where it covers counted cladding: the net is the field." : ""}`,
   });
   if (q.cladding.length > 0) {
     const sided = q.cladding.filter((c) => SIDING_KINDS.includes(c.kind)).reduce((s, c) => s + c.netSquareFeet, 0);
@@ -483,13 +558,75 @@ export function exteriorReport(exterior: Exterior, meta: ReportMeta): ExteriorRe
         { title: "Material", weight: 3 },
         { title: "Gross SF", weight: 1, align: "center" },
         { title: "Openings SF", weight: 1, align: "center" },
+        ...(withTrim ? [{ title: "Trim SF", weight: 1, align: "center" as const }] : []),
         { title: "Net SF", weight: 1, align: "center" },
       ],
       rows: [
-        ...q.cladding.map((c) => [c.label || CLADDING_LABEL[c.kind], one(c.grossSquareFeet), one(c.openingSquareFeet), one(c.netSquareFeet)]),
-        ["All walls", one(q.totals.grossSquareFeet), one(q.totals.openingSquareFeet), one(q.totals.netSquareFeet)],
+        ...q.cladding.map((c) => [c.label || CLADDING_LABEL[c.kind], one(c.grossSquareFeet), one(c.openingSquareFeet), ...trimCol(c.trimSquareFeet), one(c.netSquareFeet)]),
+        ["All walls", one(q.totals.grossSquareFeet), one(q.totals.openingSquareFeet), ...trimCol(q.totals.trimSquareFeet), one(q.totals.netSquareFeet)],
       ],
       ...(sided > 0 ? { note: `House wrap under the siding: ${one(sided)} SF.` } : {}),
+    });
+  }
+  // The trim (2026-10-17): each surround and column where it is, then the lines the scope prices.
+  if (q.trim) {
+    const rows = sides.flatMap((s) => {
+      if (!s.q.trim || s.shared) return [];
+      const names = openingNames(s.side);
+      const colNames = columnNames(s.side);
+      const byOpening = new Map(s.side.openings.map((o) => [o.id, o]));
+      const surrounds = [...s.q.trim.surrounds]
+        .sort((a, b) => (byOpening.get(a.openingId)?.fromLeftFeet ?? 0) - (byOpening.get(b.openingId)?.fromLeftFeet ?? 0))
+        .map((g) => {
+          const o = byOpening.get(g.openingId) as ExteriorOpening;
+          return [`${names.get(o.id) ?? OPENING_LABEL[o.kind]} surround`, surroundWords(o.trim as OpeningTrim).replace(/^surround /, "").replace(/ \([^)]*trim\)$/, ""), one(g.linearFeet), one(g.squareFeet)];
+        });
+      const byColumn = new Map((s.side.columns ?? []).map((c) => [c.id, c]));
+      const columns = [...s.q.trim.columns]
+        .sort((a, b) => (byColumn.get(a.id)?.fromLeftFeet ?? 0) - (byColumn.get(b.id)?.fromLeftFeet ?? 0))
+        .map((g) => {
+          const c = byColumn.get(g.id) as SideColumn;
+          const blocks = [g.base ? "base" : "", g.cap ? "cap" : ""].filter(Boolean);
+          return [colNames.get(c.id) ?? COLUMN_LABEL[c.kind], `${formatOpeningSize(c.widthFeet, c.depthFeet)} × ${ft(c.heightFeet)} high${blocks.length > 0 ? `, ${blocks.join(" and ")}` : ""}`, "-", `${one(g.wrapSquareFeet)} wrap`];
+        });
+      return [...surrounds, ...columns].map((r, k) => [k === 0 ? s.side.name : "", ...r]);
+    });
+    tables.push({
+      caption: "Trim by side",
+      columns: [
+        { title: "Side", weight: 2 },
+        { title: "Trim", weight: 1.8 },
+        { title: "Size", weight: 3.6 },
+        { title: "LF", weight: 0.8, align: "center" },
+        { title: "SF", weight: 1, align: "center" },
+      ],
+      rows,
+      note: "A surround's widths are past the opening; LF is each piece along its run - the jambs full height, the head and sill between them - and SF its face, a keystone's part past the head included. A column's size is across, front to back and high; its wrap is round the shaft where it is clad, times its height.",
+    });
+    const t = q.trim;
+    const totalRows: string[][] = [];
+    for (const label of [...new Set(t.surrounds.map((g) => g.label))]) {
+      const mine = t.surrounds.filter((g) => g.label === label);
+      for (const g of mine) totalRows.push([`${label} trim – ${SURROUND_WORDS[g.openingKind]}`, String(g.count), one(g.linearFeet), one(g.squareFeet)]);
+      const keys = mine.reduce((n, g) => n + g.keystones, 0);
+      if (keys > 0) totalRows.push([`${label} trim – keystones`, String(keys), "-", "-"]);
+    }
+    for (const c of t.columns) {
+      const what = c.kind === "column" ? "Columns" : "Pilasters";
+      totalRows.push([`${what} – ${c.label.toLowerCase()} wrap`, String(c.count), "-", one(c.wrapSquareFeet)]);
+      if (c.caps > 0) totalRows.push([`${what} – caps`, String(c.caps), "-", "-"]);
+      if (c.bases > 0) totalRows.push([`${what} – bases`, String(c.bases), "-", "-"]);
+    }
+    tables.push({
+      caption: "Trim totals",
+      columns: [
+        { title: "", weight: 3 },
+        { title: "Count", weight: 1, align: "center" },
+        { title: "LF", weight: 1, align: "center" },
+        { title: "SF", weight: 1, align: "center" },
+      ],
+      rows: totalRows,
+      note: `Taken off the cladding under it: ${one(t.squareFeet)} SF - the trim's face where it covers counted cladding (not parging), each square foot once.`,
     });
   }
   const openingRows = every.flatMap((side) => {

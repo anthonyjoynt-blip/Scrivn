@@ -1,7 +1,21 @@
 import { jsPDF } from "jspdf";
 import { createElement, type ReactElement } from "react";
-import { CHECK_INK, CladdingLegend, ElevationDrawing, elevationFontFeet, FootprintDrawing, HouseElevationDrawing, houseViewFontFeet, LINE_STYLE, type LegendItem, RoofPlanDrawing } from "@/components/sketch/exteriorDrawings";
-import { allSides, elevationFaces, type Exterior, lengthToCheck, sharedOf } from "./exterior";
+import {
+  CHECK_INK,
+  CLADDING_FILL,
+  CladdingLegend,
+  ElevationDrawing,
+  elevationFontFeet,
+  FootprintDrawing,
+  HouseElevationDrawing,
+  houseViewFontFeet,
+  LINE_STYLE,
+  type LegendItem,
+  roofLegendItem,
+  RoofPlanDrawing,
+  roofTone,
+} from "@/components/sketch/exteriorDrawings";
+import { allSides, elevationFaces, type Exterior, houseColours, lengthToCheck, sharedOf, trimShapes } from "./exterior";
 import { type ExteriorReport, LINE_WORD, type ReportTable, roofPlanCaption } from "./exteriorReport";
 import { type Letterhead, letterheadInkColor } from "./letterhead";
 import { drawLetterhead, drawPhotoPages, drawTables, LETTERHEAD_HEIGHT, PAGE_MARGIN, type PdfPhoto } from "./pdf";
@@ -235,6 +249,13 @@ function coverBody(doc: jsPDF, input: ReportPdfInput, part: Part, start: number,
     y += 14;
     setText(doc, 8.8, "normal", INK);
     for (const item of items) {
+      // A list longer than the page (2026-10-17: the owner's trim to check) runs on to the next, never off its foot.
+      const lines = (doc.splitTextToSize(pdfSafe(item), CONTENT_W - 12) as string[]).length;
+      if (y + lines * 11 > BOTTOM - 14) {
+        doc.addPage();
+        y = heading(doc, titled(part, title), "Continued.");
+        setText(doc, 8.8, "normal", INK);
+      }
       doc.text("-", PAGE_MARGIN + 2, y);
       y = para(doc, item, PAGE_MARGIN + 12, y, CONTENT_W - 12, 11) + 2;
     }
@@ -357,7 +378,9 @@ function elevationPages(doc: jsPDF, input: ReportPdfInput, part: Part): void {
   const shared = report.sides.filter((s) => s.shared);
   if (sides.length === 0) return;
   const roofAssumed = report.q.pitch.source === "assumed";
-  const el = (s: (typeof sides)[number], fontFeet: number) => createElement(ElevationDrawing, { side: s.side, rise: s.rise, base: s.base, fontFeet, roofAssumed });
+  // Each material in one colour round the house, off its photos (2026-10-17): none read, as it always was.
+  const colours = houseColours(report.exterior);
+  const el = (s: (typeof sides)[number], fontFeet: number) => createElement(ElevationDrawing, { side: s.side, rise: s.rise, base: s.base, fontFeet, roofAssumed, ...(colours ? { colours } : {}) });
   /*
     Each side at the largest standard scale that fits the page's width and a third of its height, up
     to 3/16" = 1'-0" - one scale for a whole house would draw a 10 ft return at the scale its 66 ft side
@@ -390,13 +413,30 @@ function elevationPages(doc: jsPDF, input: ReportPdfInput, part: Part): void {
       ? `The whole ${part.name ? "building" : "house"} square-on from each side, then each side on its own, to scale. The plan's front is taken as south: no compass bearing is measured.`
       : "Each side as seen from outside, left to right, to scale: heights from the ground under each end, every opening's size over it, the length under it.",
   );
-  // The materials, as the faces show them (2026-10-16): a swatch of each with its name.
+  // The materials, as the faces show them (2026-10-16): a swatch of each with its name - in its colour off the photos,
+  // and the trim apart from the field (2026-10-17) - then the roof as the house's elevations draw it.
   const items: LegendItem[] = [];
+  const trimItems: LegendItem[] = [];
   for (const s of sides) {
     const { faces, fromShapes } = elevationFaces(s.side, s.rise, s.base);
-    const found: LegendItem[] = faces.filter((f) => f.closed && f.poly.length >= 3).map((f) => ({ kind: f.kind, label: f.label }));
+    const found: LegendItem[] = faces
+      .filter((f) => f.closed && f.poly.length >= 3)
+      .map((f) => {
+        const colour = colours?.faces[f.kind] ?? f.colour;
+        return { kind: f.kind, label: f.label, ...(colour ? { colour } : {}) };
+      });
     if (!fromShapes && s.side.base === "parging") found.push({ kind: "parging", label: "Parging" });
     for (const it of found) if (!items.some((x) => x.kind === it.kind && x.label === it.label)) items.push(it);
+    for (const t of trimShapes(s.side)) {
+      const label = `${t.label} trim`;
+      const colour = colours?.trim[t.material] ?? t.colour;
+      if (!trimItems.some((x) => x.label === label)) trimItems.push({ kind: t.material, label, ...(colour ? { colour } : {}) });
+    }
+  }
+  items.push(...trimItems);
+  if (views.length > 0 && report.q.roof) {
+    const fills = views.flatMap((v) => v.view.pieces.flatMap((p) => (p.type === "wall" && !p.shared ? [p.backgroundColour ?? (p.background === "unclad" ? "#eef0f2" : CLADDING_FILL[p.background]), ...p.faces.map((f) => f.colour ?? (f.kind === "parging" ? "#dfe1e5" : CLADDING_FILL[f.kind]))] : [])));
+    items.push(roofLegendItem(report.exterior.roof.material, roofTone(fills)));
   }
   if (items.length > 0) {
     const legend = drawing(input, createElement(CladdingLegend, { items }));
@@ -412,7 +452,7 @@ function elevationPages(doc: jsPDF, input: ReportPdfInput, part: Part): void {
     about 7.5 points, as the sides are.
   */
   if (views.length > 0) {
-    const houseEl = (v: (typeof views)[number], fontFeet: number) => createElement(HouseElevationDrawing, { view: v.view, fontFeet });
+    const houseEl = (v: (typeof views)[number], fontFeet: number) => createElement(HouseElevationDrawing, { view: v.view, fontFeet, roof: report.exterior.roof.material ?? null });
     const fitOf = (fontFor: (v: (typeof views)[number]) => number) =>
       views.map((v) => {
         const made = drawing(input, houseEl(v, fontFor(v)));

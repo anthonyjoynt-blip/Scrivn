@@ -4,7 +4,7 @@ import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { formatFeetInches } from "@/lib/sketch";
 import { CLADDING_KINDS, CLADDING_LABEL, type ExteriorOpeningKind, type ExteriorShape, type ExteriorSide, formatOpeningSize, formatPitch, OPENING_LABEL, type RoofRise, type SidePhoto } from "@/lib/exterior";
 import { fillOutside, type PhotoPixels, squareFrame, type SquareFrame, squareUp } from "@/lib/exteriorPhoto";
-import { applyTrace, type RoofPicks, roofPicksAtFirst, type ShapePicks, shapePicksAtFirst, type SideTrace, snapTrace, type TraceProposals, type TraceRequest, type TraceResponse } from "@/lib/exteriorTrace";
+import { applyTrace, type RoofPicks, roofPicksAtFirst, type ShapePicks, shapePicksAtFirst, type SideTrace, snapTrace, type TraceProposals, type TraceRequest, type TraceResponse, trimPicksAtFirst, withSwatches } from "@/lib/exteriorTrace";
 import { type DoorCandidate, doorCandidates, doorLabel, withSizeDoors } from "@/lib/exteriorScale";
 import { camerasAt, grayOf, type ProposedRoof } from "@/lib/roofPhotoRead";
 import { LOWER_ROOF_WORDS, PHOTO_PIECE_LABEL, type PhotoPiece, type ProposedPiece, type ProposedStoreys, type ResolvedPhotoPiece, UPPER_SHOWN_WORDS } from "@/lib/roofPhotoShapes";
@@ -210,7 +210,8 @@ async function snapped(answer: TraceResponse, squared: Squared, lengthFeet: numb
     bitmap.close();
     const { data, width, height } = ctx.getImageData(0, 0, canvas.width, canvas.height);
     const g = grayOf({ data, width, height, channels: 4 });
-    return { ...answer, proposals: snapTrace(answer.proposals, squared.frame, g, lengthFeet, camerasAt(squared.used)) };
+    // Each shape's and trim's colour off the same picture (2026-10-17): drawing only.
+    return { ...answer, proposals: withSwatches(snapTrace(answer.proposals, squared.frame, g, lengthFeet, camerasAt(squared.used)), { data, width, height, channels: 4 }, squared.frame) };
   } catch {
     return answer;
   }
@@ -235,6 +236,8 @@ type Picks = {
   doors: Record<string, { on: boolean; size: number }>;
   /** The roof's shapes (2026-10-15): dormers and turrets, and what stands over the side. */
   roofShapes: ShapePicks;
+  /** The trim (2026-10-17): each surround and column by its key, ticked or not. */
+  trims: Record<string, boolean>;
 };
 
 function allPicked(p: TraceProposals, doors: DoorCandidate[]): Picks {
@@ -245,7 +248,42 @@ function allPicked(p: TraceProposals, doors: DoorCandidate[]): Picks {
     roof: roofPicksAtFirst(p.roof),
     doors: Object.fromEntries(doors.map((d) => [d.key, { on: true, size: 0 }])),
     roofShapes: shapePicksAtFirst(p),
+    trims: Object.fromEntries(trimPicksAtFirst(p).map((k) => [k, true])),
   };
+}
+
+/** The trim proposal an off_wall box was read into (2026-10-17), by its key; undefined for a thing in front of the wall. */
+function trimBox(p: TraceProposals, i: number): string | undefined {
+  return (p.trims ?? []).find((t) => t.from.includes(i))?.key ?? (p.columns ?? []).find((c) => c.from.includes(i))?.key;
+}
+
+const TRIM_INK = "#7c3aed";
+
+/** The trim read off the photo, each ticked or not (2026-10-17): a surround with the opening it goes round, a column. */
+function TrimPicks({ p, picks, onPicks }: { p: TraceProposals; picks: Picks; onPicks: (p: Picks) => void }) {
+  const trims = p.trims ?? [];
+  const columns = p.columns ?? [];
+  if (trims.length === 0 && columns.length === 0) return null;
+  const row = (key: string, label: string, note: string) => (
+    <div className="exterior-row" key={key}>
+      <input type="checkbox" aria-label={`Use ${label}`} checked={picks.trims?.[key] ?? false} onChange={() => onPicks({ ...picks, trims: { ...picks.trims, [key]: !(picks.trims?.[key] ?? false) } })} />
+      <span className="exterior-row-label">{label}</span>
+      <span className="exterior-row-note">{note}</span>
+    </div>
+  );
+  return (
+    <div className="exterior-rows">
+      {trims.map((t, i) => {
+        const at = p.openings.findIndex((o) => o.key === t.openingKey);
+        const x = t.trim;
+        const sizes = [`${formatFeetInches(x.leftFeet)} / ${formatFeetInches(x.rightFeet)} sides`, x.topFeet > 0 ? `${formatFeetInches(x.topFeet)} head` : "no head", x.bottomFeet > 0 ? `${formatFeetInches(x.bottomFeet)} sill` : "", x.keystone ? "keystone" : ""].filter(Boolean).join(", ");
+        return row(t.key, `Surround ${i + 1}`, `round opening ${at + 1} (it goes on with it) · ${sizes}${x.unsure ? ` · ${x.unsure}` : ""}`);
+      })}
+      {columns.map((c, i) =>
+        row(c.key, `${c.column.kind === "column" ? "Column" : "Pilaster"} ${i + 1}`, `${formatOpeningSize(c.column.widthFeet, c.column.heightFeet)}, ${formatFeetInches(c.column.fromLeftFeet)} from the left${c.column.base ? ", base" : ""}${c.column.cap ? ", cap" : ""}${c.column.unsure ? ` · ${c.column.unsure}` : ""}`),
+      )}
+    </div>
+  );
 }
 
 /** The trace over the elevation: ticked proposals solid, the rest dashed; what stands in front boxed. */
@@ -255,14 +293,22 @@ function traceOverlay(p: TraceProposals, picks: Picks): ReactNode {
   const fs = 0.55;
   return (
     <g pointerEvents="none">
-      {p.offWall.map((b, i) => (
-        <g key={`off-${i}`}>
-          <rect x={b.x0} y={-b.y1} width={b.x1 - b.x0} height={b.y1 - b.y0} fill={IN_FRONT} fillOpacity={0.08} stroke={IN_FRONT} strokeWidth={1.5} strokeDasharray="5 4" {...stroke} />
-          <text x={b.x0 + 0.15} y={-b.y1 + fs * 1.1} fontSize={fs} fill={IN_FRONT} fontFamily="system-ui, sans-serif">
-            {b.what}
-          </text>
-        </g>
-      ))}
+      {p.offWall.map((b, i) => {
+        // The trim read off the photo (2026-10-17): its box, solid when ticked.
+        const key = trimBox(p, i);
+        if (key) {
+          const on = picks.trims?.[key] ?? false;
+          return <rect key={`trim-${i}`} x={b.x0} y={-b.y1} width={b.x1 - b.x0} height={b.y1 - b.y0} fill="none" stroke={TRIM_INK} strokeWidth={on ? 2 : 1} strokeDasharray={on ? undefined : "4 4"} {...stroke} />;
+        }
+        return (
+          <g key={`off-${i}`}>
+            <rect x={b.x0} y={-b.y1} width={b.x1 - b.x0} height={b.y1 - b.y0} fill={IN_FRONT} fillOpacity={0.08} stroke={IN_FRONT} strokeWidth={1.5} strokeDasharray="5 4" {...stroke} />
+            <text x={b.x0 + 0.15} y={-b.y1 + fs * 1.1} fontSize={fs} fill={IN_FRONT} fontFamily="system-ui, sans-serif">
+              {b.what}
+            </text>
+          </g>
+        );
+      })}
       {p.shapes.map((s) => (
         <polygon key={s.key} points={pts(s.polygon)} fill="none" stroke={TRACE} strokeWidth={picks.shapes[s.key]?.on ? 2.2 : 1} strokeDasharray={picks.shapes[s.key]?.on ? undefined : "4 4"} {...stroke} />
       ))}
@@ -454,6 +500,9 @@ export function SideElevation({
       wallTop: picks.wallTop,
       roof: picks.roof,
       roofShapes: picks.roofShapes,
+      trims: Object.entries(picks.trims ?? {})
+        .filter(([, on]) => on)
+        .map(([k]) => k),
     };
     // Each door ticked, at the size picked for it: a check on the house's sizes, kept on the side.
     const kept = doors.flatMap((d) => {
@@ -797,7 +846,8 @@ function TracePanel({
     Object.keys(rs.pieces).length > 0 ||
     rs.upper !== undefined ||
     rs.floorLine !== undefined ||
-    rs.lowerRoof !== undefined;
+    rs.lowerRoof !== undefined ||
+    Object.values(picks.trims ?? {}).some(Boolean);
   const topLine = top
     ? [
         top.eaveLeftFeet !== null ? `${formatFeetInches(top.eaveLeftFeet)} at the left end` : null,
@@ -866,7 +916,17 @@ function TracePanel({
           {c}
         </p>
       ))}
-      {p.offWall.length > 0 && <p className="field-note">In front of the wall, not traced (orange): {p.offWall.map((b) => b.what).join("; ")}.</p>}
+      <TrimPicks p={p} picks={picks} onPicks={onPicks} />
+      {p.offWall.some((_, i) => !trimBox(p, i)) && (
+        <p className="field-note">
+          In front of the wall, not traced (orange):{" "}
+          {p.offWall
+            .filter((_, i) => !trimBox(p, i))
+            .map((b) => b.what)
+            .join("; ")}
+          .
+        </p>
+      )}
       {p.notes && <p className="field-note">The trace&apos;s own notes: {p.notes}</p>}
       {p.roof && <RoofReads roof={p.roof} picks={picks.roof} onPicks={(roof) => onPicks({ ...picks, roof })} />}
       <RoofShapes pieces={p.pieces ?? []} storeys={p.storeys} picks={rs} pieceOnRoof={pieceOnRoof} onPicks={(roofShapes) => onPicks({ ...picks, roofShapes })} />

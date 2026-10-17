@@ -91,7 +91,7 @@ function paintWall(wall: Wall3D): { canvas: HTMLCanvasElement; minV: number; max
     g.closePath();
   };
   // A wall shared with the neighbour's home (2026-10-17): bare grey, the house cut there.
-  g.fillStyle = wall.shared ? PARTY_FILL : wall.background === "unclad" ? COLORS.unclad : CLADDING_FILL[wall.background];
+  g.fillStyle = wall.shared ? PARTY_FILL : (wall.backgroundColour ?? (wall.background === "unclad" ? COLORS.unclad : CLADDING_FILL[wall.background]));
   g.fillRect(0, 0, canvas.width, canvas.height);
   // Under the ground it was measured from, the foundation: shown only where the ground round the house is lower.
   if (wall.grade && wall.grade.length >= 2) {
@@ -102,7 +102,8 @@ function paintWall(wall: Wall3D): { canvas: HTMLCanvasElement; minV: number; max
   for (const f of wall.faces) {
     if (f.poly.length < 3) continue;
     path(f.poly);
-    g.fillStyle = f.kind === "parging" ? COLORS.parging : CLADDING_FILL[f.kind];
+    // In its colour off the photo where it has one (2026-10-17): the owner's dark stucco dark.
+    g.fillStyle = f.colour ?? (f.kind === "parging" ? COLORS.parging : CLADDING_FILL[f.kind]);
     g.fill();
     const course = f.kind === "parging" ? undefined : COURSE_FEET[f.kind];
     if (course && course * ppf >= 4) {
@@ -176,6 +177,36 @@ function cuttable(wall: Wall3D) {
   }
   return kept;
 }
+
+/**
+ * A wall's trim as raised pieces (2026-10-17): each piece a prism - its face standing out of the wall from w0 to w1, its
+ * edges round it back to the wall (or, for a column standing clear, to its back) - in triangles, by colour.
+ */
+function trimParts(wall: Wall3D, out: Map<string, number[]>) {
+  const w3 = (u: number, v: number, w: number) => [wall.origin[0] + wall.along[0] * u + wall.out[0] * w, v, wall.origin[2] + wall.along[2] * u + wall.out[2] * w];
+  for (const t of wall.trim ?? []) {
+    if (t.poly.length < 3 || t.w1 - t.w0 < 1e-3) continue;
+    const key = t.colour ?? TRIM_WHITE;
+    const tris = out.get(key) ?? [];
+    const p = t.poly;
+    // The face, a fan (every piece is convex), and its back where it stands clear.
+    for (let i = 1; i + 1 < p.length; i++) {
+      const [a, b, c] = [p[0] as Pt, p[i] as Pt, p[i + 1] as Pt];
+      tris.push(...w3(a.x, a.y, t.w1), ...w3(b.x, b.y, t.w1), ...w3(c.x, c.y, t.w1));
+      if (t.w0 > 1e-3) tris.push(...w3(a.x, a.y, t.w0), ...w3(c.x, c.y, t.w0), ...w3(b.x, b.y, t.w0));
+    }
+    // Its edges, back to the wall.
+    for (let i = 0; i < p.length; i++) {
+      const a = p[i] as Pt;
+      const b = p[(i + 1) % p.length] as Pt;
+      tris.push(...w3(a.x, a.y, t.w0), ...w3(b.x, b.y, t.w0), ...w3(b.x, b.y, t.w1), ...w3(a.x, a.y, t.w0), ...w3(b.x, b.y, t.w1), ...w3(a.x, a.y, t.w1));
+    }
+    out.set(key, tris);
+  }
+}
+
+/** Trim with no colour read off a photo: white. */
+const TRIM_WHITE = "#f7f6f2";
 
 /** Triangles for what goes in the openings, by what each piece is made of. */
 type Parts = Record<"reveal" | "glass" | "door" | "garage" | "frame" | "groove", number[]>;
@@ -271,6 +302,7 @@ export default function Exterior3D({ exterior, onClose, name }: Props) {
 
       // ---- The walls, each painted with its cladding, its openings cut through -------------------
       const parts: Parts = { reveal: [], glass: [], door: [], garage: [], frame: [], groove: [] };
+      const trims = new Map<string, number[]>();
       const photographed: { wall: Wall3D; paint: ReturnType<typeof paintWall>; texture: import("three").CanvasTexture }[] = [];
       for (const wall of model.walls) {
         if (wall.outline.length < 3 || wall.length < 0.05) continue;
@@ -295,8 +327,11 @@ export default function Exterior3D({ exterior, onClose, name }: Props) {
         textures.push(texture);
         scene.add(new THREE.Mesh(geometry, standard(0xffffff, { map: texture })));
         openingParts(wall, cut, parts);
+        trimParts(wall, trims);
         if (wall.photos.some((p) => p.scanId || p.claimPhotoId)) photographed.push({ wall, paint, texture });
       }
+      // The trim, raised, in its colours (2026-10-17): surrounds, keystones, pilasters, porch columns.
+      for (const [colour, tris] of trims) mesh(tris, standard(new THREE.Color(colour).getHex()));
       mesh(parts.reveal, standard(COLORS.reveal));
       mesh(parts.glass, standard(COLORS.glass, { roughness: 0.18, metalness: 0.35 }));
       mesh(parts.door, standard(COLORS.door));

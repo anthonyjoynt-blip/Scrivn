@@ -1,0 +1,932 @@
+{
+ "format": "scrivn-finish/1",
+ "sides": {
+  "0": {
+   "at": "2026-10-16T20:00:00.000Z",
+   "photos": [
+    916,
+    917
+   ],
+   "scaleAt": 1,
+   "roofRead": {
+    "at": "2026-10-16T20:00:00.000Z",
+    "over": "hip"
+   },
+   "said": [],
+   "walls": {
+    "taken": true,
+    "shapes": [
+     {
+      "kind": "stucco",
+      "polygon": [
+       {
+        "x": 0,
+        "y": 0
+       },
+       {
+        "x": 13.3537,
+        "y": 0
+       },
+       {
+        "x": 13.3537,
+        "y": 9.5
+       },
+       {
+        "x": 0,
+        "y": 9.5
+       }
+      ],
+      "colour": "#252e37"
+     }
+    ],
+    "openings": [
+     {
+      "kind": "garage",
+      "widthFeet": 9,
+      "heightFeet": 7.79,
+      "sillFeet": 0,
+      "fromLeftFeet": 2.42,
+      "trim": {
+       "leftFeet": 0.65,
+       "rightFeet": 0.62,
+       "topFeet": 0.64,
+       "bottomFeet": 0,
+       "material": "stucco",
+       "keystone": {
+        "widthFeet": 0.87,
+        "heightFeet": 0.99
+       },
+       "from": "photo",
+       "colour": "#8897a0"
+      }
+     }
+    ],
+    "wallTop": null,
+    "columns": [
+     {
+      "kind": "pilaster",
+      "fromLeftFeet": -0.03,
+      "widthFeet": 0.73,
+      "depthFeet": 0.73,
+      "outFeet": 0.31,
+      "footFeet": 0,
+      "heightFeet": 9.5,
+      "base": {
+       "heightFeet": 1.25,
+       "outFeet": 0.28
+      },
+      "cap": {
+       "heightFeet": 0.8,
+       "outFeet": 0.28
+      },
+      "material": "stucco",
+      "from": "photo",
+      "colour": "#8c9ca8"
+     }
+    ]
+   }
+  },
+  "2": {
+   "at": "2026-10-16T20:00:00.000Z",
+   "photos": [
+    915,
+    914
+   ],
+   "scaleAt": 1,
+   "roofRead": {
+    "at": "2026-10-16T20:00:00.000Z",
+    "over": "gable"
+   },
+   "said": [],
+   "walls": {
+    "taken": true,
+    "shapes": [
+     {
+      "kind": "stucco",
+      "polygon": [
+       {
+        "x": 0,
+        "y": 0
+       },
+       {
+        "x": 13.4744,
+        "y": 0
+       },
+       {
+        "x": 13.4744,
+        "y": 9.5
+       },
+       {
+        "x": 6.7372,
+        "y": 13.2001
+       },
+       {
+        "x": 0,
+        "y": 9.5
+       }
+      ],
+      "colour": "#293948"
+     }
+    ],
+    "openings": [
+     {
+      "kind": "garage",
+      "widthFeet": 9,
+      "heightFeet": 7.799999999999999,
+      "sillFeet": 0,
+      "fromLeftFeet": 2.010042888716567,
+      "trim": {
+       "leftFeet": 0.7,
+       "rightFeet": 0.71,
+       "topFeet": 0.65,
+       "bottomFeet": 0,
+       "material": "stucco",
+       "keystone": {
+        "widthFeet": 0.81,
+        "heightFeet": 0.99
+       },
+       "from": "photo",
+       "colour": "#7e909e"
+      }
+     }
+    ],
+    "wallTop": null,
+    "columns": [
+     {
+      "kind": "pilaster",
+      "fromLeftFeet": -0.28,
+      "widthFeet": 0.7,
+      "depthFeet": 0.73,
+      "outFeet": 0.31,
+      "footFeet": 0,
+      "heightFeet": 9.5,
+      "base": {
+       "heightFeet": 1.25,
+       "outFeet": 0.28
+      },
+      "cap": {
+       "heightFeet": 0.8,
+       "outFeet": 0.28
+      },
+      "material": "stucco",
+      "from": "photo",
+      "colour": "#7f91a0"
+     },
+     {
+      "kind": "pilaster",
+      "fromLeftFeet": 12.56,
+      "widthFeet": 0.74,
+      "depthFeet": 0.73,
+      "outFeet": 0.31,
+      "footFeet": 0,
+      "heightFeet": 9.5,
+      "base": {
+       "heightFeet": 1.25,
+       "outFeet": 0.28
+      },
+      "cap": {
+       "heightFeet": 0.8,
+       "outFeet": 0.28
+      },
+      "material": "stucco",
+      "from": "photo",
+      "colour": "#687a8c"
+     }
+    ]
+   }
+  },
+  "3": {
+   "at": "2026-10-16T20:00:00.000Z",
+   "photos": [
+    913
+   ],
+   "scaleAt": 1,
+   "roofRead": {
+    "at": "2026-10-16T20:00:00.000Z",
+    "over": "eave"
+   },
+   "said": [],
+   "walls": {
+    "taken": true,
+    "shapes": [
+     {
+      "kind": "parging",
+      "polygon": [
+       {
+        "x": 0,
+        "y": 6.3999
+       },
+       {
+        "x": 20.9974,
+        "y": 4.3232
+       },
+       {
+        "x": 24.6063,
+        "y": 4.3232
+       },
+       {
+        "x": 24.6063,
+        "y": 3.7398
+       },
+       {
+        "x": 25.5062,
+        "y": 3.7398
+       },
+       {
+        "x": 25.5062,
+        "y": 3.1565
+       },
+       {
+        "x": 26.4062,
+        "y": 3.1565
+       },
+       {
+        "x": 26.4062,
+        "y": 2.5732
+       },
+       {
+        "x": 50,
+        "y": 2.5732
+       },
+       {
+        "x": 70.5722,
+        "y": 0
+       },
+       {
+        "x": 70.5722,
+        "y": 0.6667
+       },
+       {
+        "x": 50,
+        "y": 3.2398
+       },
+       {
+        "x": 36,
+        "y": 3.2398
+       },
+       {
+        "x": 36,
+        "y": 4.9898
+       },
+       {
+        "x": 20.9974,
+        "y": 4.9898
+       },
+       {
+        "x": 0,
+        "y": 7.0666
+       }
+      ]
+     },
+     {
+      "kind": "stucco",
+      "polygon": [
+       {
+        "x": 0,
+        "y": 7.0666
+       },
+       {
+        "x": 20.9974,
+        "y": 4.9898
+       },
+       {
+        "x": 36,
+        "y": 4.9898
+       },
+       {
+        "x": 36,
+        "y": 3.2398
+       },
+       {
+        "x": 50,
+        "y": 3.2398
+       },
+       {
+        "x": 70.5722,
+        "y": 0.6667
+       },
+       {
+        "x": 70.5722,
+        "y": 15.8999
+       },
+       {
+        "x": 0,
+        "y": 15.8999
+       }
+      ]
+     }
+    ],
+    "openings": [
+     {
+      "kind": "door",
+      "widthFeet": 3,
+      "heightFeet": 6.669999999999999,
+      "sillFeet": 4.323262197473993,
+      "fromLeftFeet": 21.399999999999995,
+      "trim": {
+       "leftFeet": 0.67,
+       "rightFeet": 0.67,
+       "topFeet": 0.58,
+       "bottomFeet": 0,
+       "material": "stucco",
+       "unsure": "seen only edge-on from the side yard: its widths taken as the house's other surrounds",
+       "from": "photo"
+      }
+     },
+     {
+      "kind": "window",
+      "widthFeet": 4.5,
+      "heightFeet": 3.999999999999999,
+      "sillFeet": 10.699999999999998,
+      "fromLeftFeet": 33.5,
+      "trim": {
+       "leftFeet": 0.67,
+       "rightFeet": 0.67,
+       "topFeet": 0.58,
+       "bottomFeet": 0.67,
+       "material": "stucco",
+       "unsure": "seen only edge-on from the side yard: its widths taken as the house's other surrounds",
+       "from": "photo"
+      }
+     },
+     {
+      "kind": "window",
+      "widthFeet": 4.5,
+      "heightFeet": 3.999999999999999,
+      "sillFeet": 10.4,
+      "fromLeftFeet": 47.199999999999996,
+      "trim": {
+       "leftFeet": 0.67,
+       "rightFeet": 0.67,
+       "topFeet": 0.58,
+       "bottomFeet": 0.67,
+       "material": "stucco",
+       "unsure": "seen only edge-on from the side yard: its widths taken as the house's other surrounds",
+       "from": "photo"
+      }
+     },
+     {
+      "kind": "window",
+      "widthFeet": 4.5,
+      "heightFeet": 2.4999999999999996,
+      "sillFeet": 3.9999999999999996,
+      "fromLeftFeet": 36,
+      "trim": {
+       "leftFeet": 0.67,
+       "rightFeet": 0.67,
+       "topFeet": 0.58,
+       "bottomFeet": 0.67,
+       "material": "stucco",
+       "unsure": "seen only edge-on from the side yard: its widths taken as the house's other surrounds",
+       "from": "photo"
+      }
+     },
+     {
+      "kind": "window",
+      "widthFeet": 4.5,
+      "heightFeet": 2.4999999999999996,
+      "sillFeet": 3.3,
+      "fromLeftFeet": 43.5,
+      "trim": {
+       "leftFeet": 0.67,
+       "rightFeet": 0.67,
+       "topFeet": 0.58,
+       "bottomFeet": 0.67,
+       "material": "stucco",
+       "unsure": "seen only edge-on from the side yard: its widths taken as the house's other surrounds",
+       "from": "photo"
+      }
+     }
+    ],
+    "wallTop": null
+   }
+  },
+  "4": {
+   "at": "2026-10-16T20:00:00.000Z",
+   "photos": [
+    910,
+    911
+   ],
+   "scaleAt": 1,
+   "roofRead": {
+    "at": "2026-10-16T20:00:00.000Z",
+    "over": "gable"
+   },
+   "said": [],
+   "walls": {
+    "taken": true,
+    "shapes": [
+     {
+      "kind": "stucco",
+      "polygon": [
+       {
+        "x": 0,
+        "y": 0
+       },
+       {
+        "x": 22.1572,
+        "y": 0
+       },
+       {
+        "x": 22.1572,
+        "y": 15.8999
+       },
+       {
+        "x": 11.0787,
+        "y": 20.3999
+       },
+       {
+        "x": 0,
+        "y": 15.8999
+       }
+      ],
+      "colour": "#737570"
+     }
+    ],
+    "openings": [
+     {
+      "kind": "window",
+      "widthFeet": 4.9,
+      "heightFeet": 4.1499999999999995,
+      "sillFeet": 9.999999999999998,
+      "fromLeftFeet": 1.43,
+      "trim": {
+       "leftFeet": 0.71,
+       "rightFeet": 0.68,
+       "topFeet": 0.58,
+       "bottomFeet": 0.8,
+       "material": "stucco",
+       "from": "photo",
+       "colour": "#e2e1dc"
+      }
+     },
+     {
+      "kind": "window",
+      "widthFeet": 5.8,
+      "heightFeet": 2.8,
+      "sillFeet": 1.2,
+      "fromLeftFeet": 5.53,
+      "trim": {
+       "leftFeet": 0.69,
+       "rightFeet": 0.75,
+       "topFeet": 0.58,
+       "bottomFeet": 0.79,
+       "material": "stucco",
+       "from": "photo",
+       "colour": "#e8e9e6"
+      }
+     },
+     {
+      "kind": "window",
+      "widthFeet": 6,
+      "heightFeet": 3.3,
+      "sillFeet": 11,
+      "fromLeftFeet": 12.03,
+      "trim": {
+       "leftFeet": 0.55,
+       "rightFeet": 0.65,
+       "topFeet": 0.43,
+       "bottomFeet": 0.71,
+       "material": "stucco",
+       "from": "photo",
+       "colour": "#eff2ef"
+      }
+     }
+    ],
+    "wallTop": null
+   }
+  },
+  "6": {
+   "at": "2026-10-16T20:00:00.000Z",
+   "photos": [
+    909
+   ],
+   "scaleAt": 1,
+   "roofRead": {
+    "at": "2026-10-16T20:00:00.000Z",
+    "over": "eave"
+   },
+   "said": [],
+   "walls": {
+    "taken": true,
+    "shapes": [
+     {
+      "kind": "parging",
+      "polygon": [
+       {
+        "x": 0,
+        "y": 0
+       },
+       {
+        "x": 15.273,
+        "y": 0
+       },
+       {
+        "x": 15.273,
+        "y": 7.5
+       },
+       {
+        "x": 0,
+        "y": 7.5
+       }
+      ],
+      "colour": "#665e4e"
+     },
+     {
+      "kind": "stucco",
+      "polygon": [
+       {
+        "x": 0,
+        "y": 7.5
+       },
+       {
+        "x": 15.273,
+        "y": 7.5
+       },
+       {
+        "x": 15.273,
+        "y": 16
+       },
+       {
+        "x": 0,
+        "y": 16
+       }
+      ],
+      "colour": "#585e61"
+     }
+    ],
+    "openings": [
+     {
+      "kind": "window",
+      "widthFeet": 5.88,
+      "heightFeet": 7.199999999999998,
+      "sillFeet": 7.499999999999999,
+      "fromLeftFeet": 7.093524329796405
+     }
+    ],
+    "wallTop": null
+   }
+  },
+  "8": {
+   "at": "2026-10-16T20:00:00.000Z",
+   "photos": [
+    908
+   ],
+   "scaleAt": 1,
+   "roofRead": {
+    "at": "2026-10-16T20:00:00.000Z",
+    "over": "eave"
+   },
+   "said": [],
+   "walls": {
+    "taken": true,
+    "shapes": [
+     {
+      "kind": "parging",
+      "polygon": [
+       {
+        "x": 0,
+        "y": 0
+       },
+       {
+        "x": 11.4551,
+        "y": 0
+       },
+       {
+        "x": 11.4551,
+        "y": 7.5
+       },
+       {
+        "x": 0,
+        "y": 7.5
+       }
+      ],
+      "colour": "#1a1b1c"
+     },
+     {
+      "kind": "stucco",
+      "polygon": [
+       {
+        "x": 0,
+        "y": 7.5
+       },
+       {
+        "x": 11.4551,
+        "y": 7.5
+       },
+       {
+        "x": 11.4551,
+        "y": 16.5
+       },
+       {
+        "x": 0,
+        "y": 16.5
+       }
+      ],
+      "colour": "#1e1f23"
+     }
+    ],
+    "openings": [
+     {
+      "kind": "door",
+      "widthFeet": 3.1199999999999997,
+      "heightFeet": 6.749999999999999,
+      "sillFeet": 7.499999999999999,
+      "fromLeftFeet": 0.4126014780684635
+     },
+     {
+      "kind": "window",
+      "widthFeet": 4.95,
+      "heightFeet": 6.749999999999999,
+      "sillFeet": 7.499999999999999,
+      "fromLeftFeet": 4.8459133747386804
+     }
+    ],
+    "wallTop": null
+   }
+  },
+  "9": {
+   "at": "2026-10-16T20:00:00.000Z",
+   "photos": [
+    906,
+    903
+   ],
+   "scaleAt": 1,
+   "roofRead": {
+    "at": "2026-10-16T20:00:00.000Z",
+    "over": "gable"
+   },
+   "said": [],
+   "walls": {
+    "taken": true,
+    "shapes": [
+     {
+      "kind": "parging",
+      "polygon": [
+       {
+        "x": 0,
+        "y": 0
+       },
+       {
+        "x": 29.2028,
+        "y": 1.5
+       },
+       {
+        "x": 29.2028,
+        "y": 3.5
+       },
+       {
+        "x": 0,
+        "y": 3.5
+       }
+      ],
+      "colour": "#88816e"
+     },
+     {
+      "kind": "stucco",
+      "polygon": [
+       {
+        "x": 0,
+        "y": 3.5
+       },
+       {
+        "x": 29.2028,
+        "y": 3.5
+       },
+       {
+        "x": 29.2028,
+        "y": 15.5
+       },
+       {
+        "x": 15.9406,
+        "y": 20.6001
+       },
+       {
+        "x": 0,
+        "y": 14
+       }
+      ],
+      "colour": "#80827e"
+     }
+    ],
+    "openings": [
+     {
+      "kind": "window",
+      "widthFeet": 2.28,
+      "heightFeet": 5.379999999999999,
+      "sillFeet": 8.32,
+      "fromLeftFeet": 2.51649575809963
+     },
+     {
+      "kind": "window",
+      "widthFeet": 4.55,
+      "heightFeet": 1.7999999999999996,
+      "sillFeet": 1.04,
+      "fromLeftFeet": 4.409999999999999
+     }
+    ],
+    "wallTop": null
+   }
+  },
+  "10": {
+   "at": "2026-10-16T20:00:00.000Z",
+   "photos": [
+    901
+   ],
+   "scaleAt": 1,
+   "roofRead": {
+    "at": "2026-10-16T20:00:00.000Z",
+    "over": "eave"
+   },
+   "said": [],
+   "walls": {
+    "taken": true,
+    "shapes": [
+     {
+      "kind": "stucco",
+      "polygon": [
+       {
+        "x": 0,
+        "y": 0
+       },
+       {
+        "x": 22.0574,
+        "y": 0
+       },
+       {
+        "x": 22.0574,
+        "y": 8.6001
+       },
+       {
+        "x": 0,
+        "y": 8.6001
+       }
+      ],
+      "colour": "#324150"
+     }
+    ],
+    "openings": [
+     {
+      "kind": "window",
+      "widthFeet": 3.3599999999999994,
+      "heightFeet": 3.2199999999999993,
+      "sillFeet": 3.4199999999999995,
+      "fromLeftFeet": 4.28,
+      "trim": {
+       "leftFeet": 0.57,
+       "rightFeet": 0.57,
+       "topFeet": 0,
+       "bottomFeet": 0.5,
+       "material": "stucco",
+       "gapFeet": 0.4,
+       "upFeet": 1.96,
+       "unsure": "partly hidden by the porch railing",
+       "from": "photo",
+       "colour": "#768898"
+      }
+     },
+     {
+      "kind": "door",
+      "widthFeet": 3.1399999999999997,
+      "heightFeet": 6.669999999999999,
+      "sillFeet": 0,
+      "fromLeftFeet": 11.669999999999998
+     },
+     {
+      "kind": "window",
+      "widthFeet": 1.63,
+      "heightFeet": 3.8000000000000003,
+      "sillFeet": 2.8,
+      "fromLeftFeet": 15.18
+     }
+    ],
+    "wallTop": null,
+    "columns": [
+     {
+      "kind": "pilaster",
+      "fromLeftFeet": -0.76,
+      "widthFeet": 0.9,
+      "depthFeet": 0.9,
+      "outFeet": 0.45,
+      "footFeet": 0,
+      "heightFeet": 8.6,
+      "base": {
+       "heightFeet": 0.95,
+       "outFeet": 0.2
+      },
+      "cap": {
+       "heightFeet": 0.9,
+       "outFeet": 0.2
+      },
+      "material": "stucco",
+      "from": "photo",
+      "colour": "#8396a2"
+     },
+     {
+      "kind": "column",
+      "fromLeftFeet": 10.95,
+      "widthFeet": 0.94,
+      "depthFeet": 0.94,
+      "outFeet": 3.33,
+      "footFeet": 0,
+      "heightFeet": 8.6,
+      "base": {
+       "heightFeet": 0.95,
+       "outFeet": 0.2
+      },
+      "cap": {
+       "heightFeet": 0.9,
+       "outFeet": 0.2
+      },
+      "material": "stucco",
+      "from": "photo",
+      "colour": "#7e92a4"
+     },
+     {
+      "kind": "column",
+      "fromLeftFeet": 18.35,
+      "widthFeet": 0.94,
+      "depthFeet": 0.94,
+      "outFeet": 3.33,
+      "footFeet": 0,
+      "heightFeet": 8.6,
+      "base": {
+       "heightFeet": 0.95,
+       "outFeet": 0.2
+      },
+      "cap": {
+       "heightFeet": 0.9,
+       "outFeet": 0.2
+      },
+      "material": "stucco",
+      "from": "photo",
+      "colour": "#758694"
+     }
+    ]
+   }
+  },
+  "11": {
+   "at": "2026-10-16T20:00:00.000Z",
+   "photos": [
+    902
+   ],
+   "scaleAt": 1,
+   "roofRead": {
+    "at": "2026-10-16T20:00:00.000Z",
+    "over": "eave"
+   },
+   "said": [],
+   "walls": {
+    "taken": true,
+    "shapes": [
+     {
+      "kind": "stucco",
+      "polygon": [
+       {
+        "x": 0,
+        "y": 0
+       },
+       {
+        "x": 24.8077,
+        "y": 0
+       },
+       {
+        "x": 24.8077,
+        "y": 9.3501
+       },
+       {
+        "x": 0,
+        "y": 9.3501
+       }
+      ],
+      "colour": "#313740"
+     }
+    ],
+    "openings": [
+     {
+      "kind": "window",
+      "widthFeet": 2.62,
+      "heightFeet": 3.18,
+      "sillFeet": 3.43,
+      "fromLeftFeet": 17.349999999999998,
+      "trim": {
+       "leftFeet": 0.72,
+       "rightFeet": 0.74,
+       "topFeet": 0.54,
+       "bottomFeet": 0.74,
+       "material": "stucco",
+       "keystone": {
+        "widthFeet": 0.9,
+        "heightFeet": 0.85
+       },
+       "from": "photo",
+       "colour": "#dadbd6"
+      }
+     }
+    ],
+    "wallTop": null
+   }
+  }
+ },
+ "note": "The owner's trim, read by eye and edge profiles off his squared side photos (2026-10-17, no API): each side's walls as the photo route reads them, the surrounds on their openings and the columns; colours by Scrivn's withSwatches."
+}
