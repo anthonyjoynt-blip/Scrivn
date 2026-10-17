@@ -3,8 +3,9 @@
 import type { ReactNode } from "react";
 import type { ExteriorRoof } from "@/lib/exterior";
 import type { RoofPlan } from "@/lib/roof";
-import { checkRows, type RoofProposal, withNotchAnswer, withRoofChecked, withWingAnswer } from "@/lib/roofCheck";
-import { Choice, listOf } from "./exteriorFields";
+import { checkRows, type RoofProposal, type WingDrop, withNotchAnswer, withRoofChecked, withWingAnswer, withWingDrop } from "@/lib/roofCheck";
+import { formatFeetInches } from "@/lib/sketch";
+import { Choice, FeetField, listOf } from "./exteriorFields";
 
 /**
  * The roof check (2026-10-16, lib/roofCheck.ts): beside the roof as drawn, each part the outline and
@@ -24,6 +25,7 @@ export function RoofParts({
   readOnly,
   nameOf,
   decksOnly = false,
+  drops = {},
   onUpdate,
 }: {
   plan: RoofPlan;
@@ -32,9 +34,11 @@ export function RoofParts({
   readOnly: boolean;
   nameOf: (id: string) => string;
   decksOnly?: boolean;
+  /** Each lower roof's eave under the eave of the roof it meets (lib/roofCheck.ts `wingDrops`). */
+  drops?: Record<string, WingDrop>;
   onUpdate: (f: (roof: ExteriorRoof) => ExteriorRoof) => void;
 }) {
-  const rows = checkRows(plan, roof, proposal, nameOf, decksOnly);
+  const rows = checkRows(plan, roof, proposal, nameOf, decksOnly, drops);
   const wings = plan.shape === "wings" ? rows.wings : [];
   if (rows.notches.length === 0 && wings.length === 0) return null;
   return (
@@ -53,15 +57,30 @@ export function RoofParts({
       ))}
       {wings.length > 0 && <span className="exterior-row-label">Parts of the roof</span>}
       {wings.map((row) => (
-        <Choice
-          key={row.key}
-          label={row.label}
-          hint={row.fixed ?? (row.proposed ? `Proposed. ${row.proposed}` : undefined)}
-          value={row.value}
-          readOnly={readOnly || row.fixed !== null}
-          options={row.options}
-          onChange={(v) => onUpdate((r) => withWingAnswer(r, plan, row.sideId, v))}
-        />
+        <div key={row.key} className="exterior-rows">
+          <Choice
+            label={row.label}
+            hint={row.fixed ?? (row.proposed ? `Proposed. ${row.proposed}` : undefined)}
+            value={row.value}
+            readOnly={readOnly || row.fixed !== null}
+            options={row.options}
+            onChange={(v) => onUpdate((r) => withWingAnswer(r, plan, row.sideId, v))}
+          />
+          {row.drop && (
+            // How much lower: one level for the house's roofs, what the 3D view and the elevations draw it at.
+            <FeetField
+              id={`drop-${row.sideId}`}
+              label="Its eave under the other roof's"
+              value={row.drop.source === "typed" ? row.drop.feet : null}
+              placeholder={row.drop.source === "typed" ? "" : `${formatFeetInches(row.drop.feet)} ${row.drop.source === "walls" ? "where the walls meet" : "assumed"}`}
+              readOnly={readOnly}
+              allowZero
+              nullable
+              note={row.drop.source === "assumed" ? `Nothing measured it: type it, or leave the ${formatFeetInches(row.drop.feet)} it is drawn at.` : undefined}
+              onCommit={(v) => onUpdate((r) => withWingDrop(r, row.sideId, v))}
+            />
+          )}
+        </div>
       ))}
       {wings.length > 0 && (
         <p className="field-note">Lower: a roof of its own, stopping at the wall with step flashing and siding between - under the other roof&rsquo;s eave, or under a gable of it (a garage tied in lower).</p>
@@ -78,6 +97,7 @@ export function RoofCheckPanel({
   plan,
   roof,
   proposal,
+  drops,
   endsFrom,
   readOnly,
   nameOf,
@@ -87,6 +107,7 @@ export function RoofCheckPanel({
   plan: RoofPlan;
   roof: ExteriorRoof;
   proposal: RoofProposal | null;
+  drops: Record<string, WingDrop>;
   /** Each end's side, and whether a photo, the estimator or nothing set it. */
   endsFrom: (sideId: string) => "said" | "photo" | "guess";
   readOnly: boolean;
@@ -102,7 +123,7 @@ export function RoofCheckPanel({
     <section className="roof-check" aria-label="Roof check">
       <h4 className="exterior-subhead">Roof check</h4>
       <p className="field-note">The roof as the outline and the photos give it. Look at the plan, and press only what is wrong; the rest is built as it stands.</p>
-      <RoofParts plan={plan} roof={roof} proposal={proposal} readOnly={readOnly} nameOf={nameOf} decksOnly onUpdate={onUpdate} />
+      <RoofParts plan={plan} roof={roof} proposal={proposal} readOnly={readOnly} nameOf={nameOf} decksOnly drops={drops} onUpdate={onUpdate} />
       {plan.ends.length > 0 && (
         <div className="exterior-rows">
           <span className="exterior-row-label">Ends of the roof</span>
@@ -121,7 +142,7 @@ export function RoofCheckPanel({
       {additions}
       {!readOnly && (
         <div className="exterior-row">
-          <button type="button" className="btn-primary" onClick={() => onUpdate((r) => withRoofChecked(r, plan, guessed, new Date().toISOString()))}>
+          <button type="button" className="btn-primary" onClick={() => onUpdate((r) => withRoofChecked(r, plan, guessed, new Date().toISOString(), drops))}>
             Looks right
           </button>
           <span className="field-note">Keeps every part as it is now.</span>

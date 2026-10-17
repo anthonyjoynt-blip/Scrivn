@@ -21,6 +21,14 @@
  * falls to the back the rear walls stand taller and their ground lower, which is what the ground drawn
  * round the house (`ground`) follows.
  *
+ * A roof set LOWER against a wall (a garage) is the exception (2026-10-16): its eave stands its drop under
+ * the eave of the roof it meets - typed on the roof check, else as the walls measure it where they meet,
+ * else an assumed 1'6" (lib/roofCheck.ts `wingDrops`) - not at the middle of its own walls' readings. Each
+ * wall's heights are from its own ground, and on a lot that falls to the back the house's rear walls read
+ * 15'11" against the garage's 9'6": the owner's garage was drawn 6'5" under his house ("It is reading the
+ * garage too low, the gap between the roofs is too great"). The garage's walls then stand their readings
+ * under that eave, which is where the ground in front of them is.
+ *
  * A side tapped on the phone has every height from one level and its eaves "worked out from the
  * shapes: the highest corner over each bottom corner" (lib/exteriorImport.ts): its higher eave is the
  * one the roof sits on, a lower one being a shape that stops short of it.
@@ -48,6 +56,7 @@ import {
   type Exterior,
   exteriorFootprint,
   exteriorPitch,
+  exteriorWingDrops,
   formatPitch,
   type ExteriorOpeningKind,
   type ExteriorSide,
@@ -60,7 +69,9 @@ import {
   UPPER_STOREY_FEET,
   upperFootprint,
 } from "./exterior";
+import { parentLayerOf, type WingDrop } from "./roofCheck";
 import { pieceCount, pieceCounts } from "./roofPieces";
+import { formatFeetInches } from "./sketch";
 import { buildRoof, eaveAboveDrip, polygonArea, type Pt, roofBaseAlongWall, roofHeightAt, type RoofInput, type RoofPlan, roofRiseAlongWall, type RoofSection, upperOverhang } from "./roof";
 
 export type V3 = [number, number, number];
@@ -367,6 +378,22 @@ export function exteriorModel(exterior: Exterior): ExteriorModelResult {
         })
       : [];
   const eaves = eaveLevels(sides, built, ov, uppers);
+  // A lower roof: its drop under the eave of the roof it meets, one level for the house's roofs (see the doc above).
+  if (built && input && !twoStorey) {
+    const drops = exteriorWingDrops(exterior, input, built);
+    const lower = built.sections.filter((s) => s.role === "wing" && s.layer > 0 && drops[s.key.slice("wing:".length)]).sort((a, b) => a.layer - b.layer);
+    for (const w of lower) {
+      const sideId = w.key.slice("wing:".length);
+      const drop = drops[sideId] as WingDrop;
+      const parent = parentLayerOf(built.sections, w);
+      if (parent === null || eaves[parent] === undefined) continue;
+      eaves[w.layer] = (eaves[parent] as number) - drop.feet;
+      if (drop.source === "assumed") {
+        const name = byId.get(sideId)?.name.trim() || "a side";
+        notes.push(`The roof out to ${name} is drawn ${formatFeetInches(drop.feet)} under the eave of the roof it meets: assumed, as nothing measured it. Type it on the roof check.`);
+      }
+    }
+  }
   const eaveOf = (layer: number) => eaves[layer] ?? (eaves[0] as number);
   // Each roof's drip line in the view: its eave less the eave's height above the drip line. The floor line has no roof.
   const dripOf = (layer: number) => (layer === FLOOR_LINE ? eaveOf(layer) : eaveOf(layer) - (built ? eaveAboveDrip(built, layer, ov) : 0));

@@ -400,6 +400,11 @@ export function exteriorReport(exterior: Exterior, meta: ReportMeta): ExteriorRe
         });
       if (parts.length > 0) assumed.push(`The roof's parts as proposed off the outline and the photos, not yet checked: ${parts.join("; ")}. Check them on the roof plan.`);
     }
+    // A lower roof's eave under the roof it meets (2026-10-16, lib/roofCheck.ts `wingDrops`): what the views stand it at.
+    for (const [id, d] of Object.entries(q.wingDrops)) {
+      if (d.source === "assumed") assumed.push(`The roof out to ${nameOf(id)} sits ${ft(d.feet)} under the eave of the roof it meets: Scrivn's assumption, as nothing measured it. Type it on the roof check.`);
+      else sources.push(`The roof out to ${nameOf(id)}: ${ft(d.feet)} under the eave of the roof it meets, ${d.source === "typed" ? "as set on the roof check" : "as its walls and the other roof's measure where they meet"}.`);
+    }
     const taken = r.pieces.list.filter((x) => x.figures.missing.length === 0);
     if (taken.length > 0) sources.push(`Roof pieces: ${taken.map((x) => pieceLine(x.piece, x.figures, r.pitch)).join("; ")}.`);
     if (r.gutter.downspoutsCounted && r.gutter.downspouts > 0) assumed.push(`Downspouts: ${r.gutter.downspouts}, one for each ${FEET_PER_DOWNSPOUT}' of eavestrough run or part of one, counted by rule.`);

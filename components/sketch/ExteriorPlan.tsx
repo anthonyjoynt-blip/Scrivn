@@ -1142,7 +1142,7 @@ export function PlanPane({
 
       <div className="exterior-fields">
         {checking && plan.shape !== "other" && (
-          <RoofCheckPanel plan={plan} roof={roof} proposal={proposal} endsFrom={endsFrom} readOnly={readOnly} nameOf={nameOf} additions={additions} onUpdate={updateRoof} />
+          <RoofCheckPanel plan={plan} roof={roof} proposal={proposal} drops={q.wingDrops} endsFrom={endsFrom} readOnly={readOnly} nameOf={nameOf} additions={additions} onUpdate={updateRoof} />
         )}
         <SidesList exterior={exterior} q={q} readOnly={readOnly} showTurns={false} onOpenSide={onOpenSide} onChange={onChange} />
         <ExteriorSizes exterior={exterior} readOnly={readOnly} onChange={onChange} />
@@ -1275,7 +1275,7 @@ function RoofShapeFields({
           </select>
         </label>
       )}
-      {!partsAbove && <RoofParts plan={plan} roof={roof} proposal={proposal} readOnly={readOnly} nameOf={nameOf} onUpdate={onUpdate} />}
+      {!partsAbove && <RoofParts plan={plan} roof={roof} proposal={proposal} readOnly={readOnly} nameOf={nameOf} drops={q.wingDrops} onUpdate={onUpdate} />}
       {plan.shape === "L" && plan.wingEnds.length > 0 && (
         <Choice
           label="A wing's roof lower, stopping at the wall"

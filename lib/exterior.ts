@@ -45,7 +45,7 @@ import {
   type RoofBreak,
   upperOverhang,
 } from "./roof";
-import { isLegacyRoof, proposeRoof, type RoofProposal } from "./roofCheck";
+import { isLegacyRoof, proposeRoof, type RoofProposal, type WingDrop, wingDrops } from "./roofCheck";
 import { PIECE_LENGTH_KEYS, pieceCount, pieceCounts, type PieceFigures, pieceFigures, pieceFromPhotos, ROOF_PIECE_LABEL, type RoofPiece } from "./roofPieces";
 import { type PhotoPiece, type ResolvedPhotoPiece, resolvePhotoPiece, type UpperShown } from "./roofPhotoShapes";
 import type { PhotoRouteState } from "./photoRoute";
@@ -536,6 +536,12 @@ export interface ExteriorRoof {
   answered?: string[];
   /** When the estimator said the roof's parts are right on the roof check; absent or null until then. */
   checkedAt?: string | null;
+  /**
+   * How far each lower roof's eave is under the eave of the roof it meets, feet, typed on the roof check
+   * (2026-10-16), by the side its free end stands over. Absent: as the walls measure it where they meet,
+   * else an assumed 1'6" (lib/roofCheck.ts `wingDrops`).
+   */
+  wingDrops?: Record<string, number>;
   /**
    * No longer used: waste is the estimator's to add (owner, 10-12: "just want real values"). Kept
    * optional so an exterior saved with it still loads.
@@ -1910,21 +1916,34 @@ function saidRoofInput(exterior: Exterior, footprint: Footprint, pitch: number, 
 }
 
 /**
- * Each side's wall top as measured, for the roof check: its two eaves above its own grade. A side whose
- * height came from the sides beside it, or that has none, says nothing - nor, on the photo route, one
- * still at the route's 10' it starts every side at, neither read off its photo nor typed (session A, 10-16:
- * the route sets no eave of its own, so a read garage would otherwise stand "lower" than placeholder walls).
+ * Each side's eave as measured above the ground under each of its ends, left and right (2026-10-16): where
+ * two walls meet at a corner the ground under them is the same, so there their eaves compare - whatever
+ * ground each wall's own heights are from. A side whose height came from the sides beside it, or that has
+ * none, says nothing - nor, on the photo route, one still at the route's 10' it starts every side at,
+ * neither read off its photo nor typed (session A, 10-16).
  */
-function measuredWallTops(exterior: Exterior): Record<string, number[]> {
-  const out: Record<string, number[]> = {};
+export function measuredSideEnds(exterior: Exterior): Record<string, [number, number]> {
+  const out: Record<string, [number, number]> = {};
   const placeholders = exterior.source?.kind === "photos";
   for (const s of exterior.sides) {
-    if (s.wallTopFrom === "neighbours") continue;
+    if (s.wallTopFrom === "neighbours" || s.eaveLeftFeet == null || s.lengthFeet <= 0) continue;
     if (placeholders && s.wallTopFrom !== "photo" && s.eaveLeftFeet === DEFAULT_EAVE_FEET && s.eaveRightFeet === DEFAULT_EAVE_FEET) continue;
-    const tops = [s.eaveLeftFeet, s.eaveRightFeet].filter((v): v is number => typeof v === "number" && Number.isFinite(v) && v > 0);
-    if (tops.length > 0) out[s.id] = tops;
+    const right = s.eaveRightFeet ?? s.eaveLeftFeet;
+    // Heights from one level: the eave is the higher reading, as the 3D view takes it - a lower one is a stray tap.
+    const [l, r] = s.heightsFrom === "level" ? [Math.max(s.eaveLeftFeet, right), Math.max(s.eaveLeftFeet, right)] : [s.eaveLeftFeet, right];
+    const above = (x: number, eave: number) => zFromGrade(s, x, eave) - groundAt(s, x);
+    const ends: [number, number] = [above(0, l), above(s.lengthFeet, r)];
+    if (ends.every((v) => Number.isFinite(v) && v > 0)) out[s.id] = ends;
   }
   return out;
+}
+
+/**
+ * Each lower roof's eave under the eave of the roof it meets, on the roof [plan] built from [input]
+ * (lib/roofCheck.ts `wingDrops`): typed, else measured where their walls meet, else an assumed 1'6".
+ */
+export function exteriorWingDrops(exterior: Exterior, input: RoofInput, plan: RoofPlan): Record<string, WingDrop> {
+  return wingDrops(input, plan, { ends: measuredSideEnds(exterior) }, exterior.roof.wingDrops ?? {});
 }
 
 /**
@@ -1956,7 +1975,7 @@ export function roofProposal(exterior: Exterior): RoofProposal | null {
     const footprint = exteriorFootprint(exterior);
     if (footprint.closes) {
       got = proposeRoof(saidRoofInput(exterior, footprint, proposalPitch(exterior), exterior.roof.ridgeAlong), {
-        wallTops: measuredWallTops(exterior),
+        ends: measuredSideEnds(exterior),
         garageSides: exterior.sides.filter((s) => s.openings.some((o) => o.kind === "garage")).map((s) => s.id),
         answered: exterior.roof.answered ?? [],
       });
@@ -2408,6 +2427,8 @@ export interface ExteriorQuantities {
   rises: Record<string, RoofRise>;
   /** What each upper-floor side stands on, above the floor line, where a lower roof meets it. */
   bases: Record<string, RoofRise>;
+  /** Each lower roof's eave under the eave of the roof it meets, by the side its free end stands over (`exteriorWingDrops`). */
+  wingDrops: Record<string, WingDrop>;
   cladding: CladdingTotal[];
   openings: { kind: ExteriorOpeningKind; widthFeet: number; heightFeet: number; count: number }[];
   totals: {
@@ -2426,12 +2447,14 @@ export function exteriorQuantities(exterior: Exterior): ExteriorQuantities {
   const pitch = exteriorPitch(exterior);
   const upper = upperFootprint(exterior, footprint);
   let roof: RoofPlan | null = null;
+  let wingDropsBuilt: Record<string, WingDrop> = {};
   const rises: Record<string, RoofRise> = {};
   const bases: Record<string, RoofRise> = {};
   let floorSoffitSquareFeet = 0;
   if (footprint.closes && pitch.value !== null) {
     const input = roofInput(exterior, footprint, pitch.value);
     roof = buildRoof(input);
+    if (!input.upper) wingDropsBuilt = exteriorWingDrops(exterior, input, roof);
     // Stood out past the main floor's walls no further than a cantilever, the upper floor has an underside to clad.
     if (input.upper && roof.sections.some((s) => s.floor === "upper")) floorSoffitSquareFeet = upperOverhang(input).squareFeet;
     if (roof.shape !== "other") {
@@ -2510,6 +2533,7 @@ export function exteriorQuantities(exterior: Exterior): ExteriorQuantities {
     sides,
     rises,
     bases,
+    wingDrops: wingDropsBuilt,
     cladding: [...byKind.values()],
     openings: [...openingGroups.values()],
     totals: {
