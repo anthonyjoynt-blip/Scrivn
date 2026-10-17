@@ -103,6 +103,13 @@ export interface ExteriorOpening {
   fromLeftFeet: number;
   /** Read off the side's photo by Finish exterior on the phone (2026-10-15, lib/exteriorFinish.ts), not tapped. */
   from?: "photo";
+  /**
+   * What hid part of it in its photo, in the trace's words (2026-10-16): a railing, a deck, plants, a car.
+   * Its kind is then a guess, asked on "Check these" (lib/exteriorCheck.ts). Absent: nothing did, or it was tapped.
+   */
+  hiddenBy?: string;
+  /** The estimator said what it is (2026-10-16): on "Check these", or by changing its kind. No longer a guess off a photo. */
+  confirmed?: true;
 }
 
 /** A gable as measured: the peak, and where along the wall it is. */

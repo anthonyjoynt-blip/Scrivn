@@ -30,6 +30,7 @@ import {
   SIDING_KINDS,
 } from "./exterior";
 import { exteriorModel } from "./exterior3d";
+import { checkNotes } from "./exteriorCheck";
 import { NOT_SCALED, scaleOf, sizesFrom } from "./exteriorScale";
 import { COMPASS, COMPASS_WORD, type Compass, type HouseView, houseView } from "./exteriorViews";
 import type { RoofLineKind, RoofPlan, RoofSection } from "./roof";
@@ -622,7 +623,8 @@ export function exteriorReport(exterior: Exterior, meta: ReportMeta): ExteriorRe
 
   // A length worked out from the photos and further out than it should be: named to tape (2026-10-16).
   const toTape = every.filter((s) => lengthToCheck(s) !== undefined).map((s) => `${s.name.trim() || "Side"}: ${ft(s.lengthFeet)} ${plusMinus(s)}, worked out from the photos, not taped. Tape it to be sure.`);
-  const notes = [...toTape, ...(roof?.notes ?? [])];
+  // What a photo couldn't settle and nobody answered on "Check these" (2026-10-16, lib/exteriorCheck.ts): a part-hidden opening, an assumed drop.
+  const notes = [...toTape, ...checkNotes(exterior, q), ...(roof?.notes ?? [])];
 
   // ---- The house from each compass point: the 3D model, square-on ----
   const model = exteriorModel(exterior);

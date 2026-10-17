@@ -826,7 +826,7 @@ function ChosenOpening({ o, n, readOnly, onSet, onRemove, onDone }: { o: Exterio
         <strong>
           {OPENING_LABEL[o.kind]} {n}
         </strong>
-        <select aria-label={`${OPENING_LABEL[o.kind]} ${n}: kind`} value={o.kind} disabled={readOnly} onChange={(e) => onSet((x) => ({ ...x, kind: e.target.value as ExteriorOpeningKind }))}>
+        <select aria-label={`${OPENING_LABEL[o.kind]} ${n}: kind`} value={o.kind} disabled={readOnly} onChange={(e) => onSet((x) => ({ ...x, kind: e.target.value as ExteriorOpeningKind, confirmed: true }))}>
           {(Object.keys(OPENING_LABEL) as ExteriorOpeningKind[]).map((k) => (
             <option key={k} value={k}>
               {OPENING_LABEL[k]}
@@ -873,7 +873,7 @@ function OpeningRow({
   return (
     <>
       <Cell label={name}>
-        <select aria-label={`${name}: kind`} className={picked ? "exterior-picked" : undefined} value={o.kind} disabled={readOnly} onFocus={onPick} onChange={(e) => onSet((x) => ({ ...x, kind: e.target.value as ExteriorOpeningKind }))}>
+        <select aria-label={`${name}: kind`} className={picked ? "exterior-picked" : undefined} value={o.kind} disabled={readOnly} onFocus={onPick} onChange={(e) => onSet((x) => ({ ...x, kind: e.target.value as ExteriorOpeningKind, confirmed: true }))}>
           {(Object.keys(OPENING_LABEL) as ExteriorOpeningKind[]).map((k) => (
             <option key={k} value={k}>
               {OPENING_LABEL[k]}

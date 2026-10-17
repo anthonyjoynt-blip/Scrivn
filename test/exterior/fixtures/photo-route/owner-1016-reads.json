@@ -434,6 +434,136 @@
     ],
     "notes": "The west gable; parging above the grade, stucco above it to the soffit."
    }
+  },
+  "C7-C8": {
+   "photo": "p9",
+   "frame": {
+    "alongMinM": -2.5,
+    "alongMaxM": 4.7441465578378805,
+    "upMinM": -0.6,
+    "upMaxM": 7.048,
+    "ppm": 209.2050209205021,
+    "width": 1516,
+    "height": 1600
+   },
+   "wire": {
+    "materials": [
+     {
+      "material": "stucco",
+      "polygon": [
+       [
+        523,
+        1210
+       ],
+       [
+        1392,
+        1210
+       ],
+       [
+        1392,
+        478
+       ],
+       [
+        523,
+        478
+       ]
+      ],
+      "partly_hidden_by": "the deck, its glass railing and stairs, a grill and a planter"
+     },
+     {
+      "material": "parging",
+      "polygon": [
+       [
+        523,
+        1474
+       ],
+       [
+        1392,
+        1474
+       ],
+       [
+        1392,
+        1210
+       ],
+       [
+        523,
+        1210
+       ]
+      ],
+      "partly_hidden_by": "the deck stairs and plants"
+     }
+    ],
+    "openings": [
+     {
+      "kind": "window",
+      "left": 926,
+      "right": 1359,
+      "top": 510,
+      "bottom": 943,
+      "measured_to": "frame",
+      "leaf": [],
+      "partly_hidden_by": "deck railing and a planter"
+     }
+    ],
+    "wall_top": [
+     [
+      523,
+      478
+     ],
+     [
+      1392,
+      478
+     ]
+    ],
+    "off_wall": [
+     {
+      "what": "deck glass railing",
+      "box": [
+       262,
+       728,
+       1280,
+       1055
+      ]
+     },
+     {
+      "what": "deck",
+      "box": [
+       262,
+       1040,
+       1440,
+       1120
+      ]
+     },
+     {
+      "what": "deck stairs",
+      "box": [
+       1070,
+       735,
+       1440,
+       1600
+      ]
+     },
+     {
+      "what": "grill under a cover",
+      "box": [
+       380,
+       668,
+       690,
+       1045
+      ]
+     },
+     {
+      "what": "planter",
+      "box": [
+       765,
+       813,
+       1145,
+       1040
+      ]
+     }
+    ],
+    "notes": "The rear wall behind the covered deck: stucco above the deck to the soffit, parging below it. The tall three-pane unit's foot is behind the deck's glass railing."
+   }
   }
  }
 }

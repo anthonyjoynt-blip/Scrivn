@@ -8,7 +8,9 @@
  * answers in the squared image's own pixels and the code turns them into the side's frame, which
  * is exact at a known pixels-a-metre. What the test found wanting is written into the prompt: a
  * garage door was traced to its stucco surround, so the door itself is now asked for in so many
- * words.
+ * words. A tall glass unit whose foot a deck railing hid was read as French doors (the owner, 10-16:
+ * "Its a window not a door"), so a door now needs what makes it one in the photo, and what hid
+ * part of an opening is asked for: the photo route's "Check these" asks about those.
  *
  * Shared by the route (the prompt, the schema) and the editor (the proposals, applying them); no
  * server-only code here.
@@ -181,7 +183,7 @@ Scale: ${frame.ppm.toFixed(1)} pixels per metre, the same across and up.
 
 Trace, in pixels:
 1. materials: each cladding material on this wall as a closed polygon (corners in order, not repeating the first). Include parging (the cement coat over the foundation) down to the ground. If a material runs on past the wall's ends (over a covered deck, up a gable), follow it. Say what hides any part of it, or "" when nothing does.
-2. openings: every window, door, patio door and garage door on this wall. A window or door: to the outer edge of its trim, or of its frame where it has no trim; say which. A garage door: the door itself - the panels that move, from their bottom edge to their top edge and side to side - never the trim, jamb or stucco surround framing it; its measured_to is "door_itself". For a door (not a patio door or a garage door) also give leaf: the door leaf itself - the slab that swings, from its hinge edge to its latch edge and from its bottom edge to its top edge, inside the frame and its stops, sidelights left out - as [x0, y0, x1, y1]; [] for every other opening, and for a door whose leaf you cannot see whole.
+2. openings: every window, door, patio door and garage door on this wall. Call an opening a door, a patio door or a garage door only when the photo shows what makes it one: a handle, hinges, a threshold, or a step, deck, path or driveway meeting its foot. Tall glass whose foot is hidden - by a railing, a deck, plants, a car - is a window. Say what hides any part of an opening, or "" when nothing does. A window or door: to the outer edge of its trim, or of its frame where it has no trim; say which. A garage door: the door itself - the panels that move, from their bottom edge to their top edge and side to side - never the trim, jamb or stucco surround framing it; its measured_to is "door_itself". For a door (not a patio door or a garage door) also give leaf: the door leaf itself - the slab that swings, from its hinge edge to its latch edge and from its bottom edge to its top edge, inside the frame and its stops, sidelights left out - as [x0, y0, x1, y1]; [] for every other opening, and for a door whose leaf you cannot see whole.
 3. wall_top: the line where the wall's cladding meets the soffit, left to right, including any gable peak, as a polyline.
 4. off_wall: everything in front of the wall that hides part of it, as boxes [x0, y0, x1, y1].
 5. roof: the roof's edge over this wall. The fascia and the soffit stand out in front of the wall, so they show larger than the wall and set off from it: trace them where they show in this image, and the code works out how far out they stand.
@@ -570,6 +572,8 @@ export function applyTrace(side: ExteriorSide, proposals: TraceProposals, picks:
       const o = proposals.openings.find((p) => p.key === key);
       if (!o) return [];
       const opening: ExteriorOpening = { id: newSketchId("opening"), kind, widthFeet: o.widthFeet, heightFeet: o.heightFeet, sillFeet: o.sillFeet, fromLeftFeet: o.fromLeftFeet };
+      // What hid part of it rides along (2026-10-16): its kind is asked on "Check these".
+      if (o.hiddenBy) opening.hiddenBy = o.hiddenBy;
       return [opening];
     });
   }

@@ -83,6 +83,8 @@ export interface PhotoRouteInput {
 export interface PhotoRouteState extends PhotoRouteInput {
   format: typeof PHOTO_ROUTE_FORMAT;
   measured?: RouteMeasured | null;
+  /** "Check these" rows closed by "Looks right" (2026-10-16, lib/exteriorCheck.ts), by their keys. */
+  checksClosed?: string[];
 }
 
 /** A measure, as kept: enough to show it again and to lay the photos on the sides, not the solve itself. */
