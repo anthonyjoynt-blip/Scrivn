@@ -12,7 +12,7 @@
 import { DEFAULT_RADIAL_K, levelPhotos, type LevelResult, type PhotoCamera, type PhotoLines } from "./photoRouteLens";
 import { grayFrom, lineSegments, type Gray, type Segment } from "./photoRouteLines";
 import { uprightEdges } from "./photoRouteEdges";
-import { type CornerTap, numberCorners, type PhotoRouteInput, type RoutePhotoData, type RouteSolution, solveRoute, type SolveRouteOptions } from "./photoRoute";
+import { type CornerTap, numberCorners, type PhotoRouteInput, proposeCorners, type RoutePhotoData, type RouteSolution, solveRoute, type SolveRouteOptions } from "./photoRoute";
 
 export interface PhotoPixelsIn {
   id: string;
@@ -92,7 +92,7 @@ export function measureRoute(
   buildingId: string,
   pixels: PhotoPixelsIn[],
   opts: { lines?: { gray: Gray; segments: Segment[] }[]; solve?: SolveRouteOptions } = {},
-): { prepared: PreparedPhotos; solution: RouteSolution; firstK: number; corners: CornerTap[] } {
+): { prepared: PreparedPhotos; solution: RouteSolution; firstK: number; corners: CornerTap[]; proposals: CornerTap[] } {
   const lines = opts.lines ?? pixels.map(photoLines);
   const first = preparePhotos(input, pixels, lines);
   // The corners the user did not number, numbered on the shape drawn; then again on the shape measured.
@@ -102,5 +102,8 @@ export function measureRoute(
   const k = rough.solution.k;
   const prepared = Math.abs(k - first.level.k) < 0.003 ? first : preparePhotos(once, pixels, lines, { k });
   const corners = numberCorners(once, buildingId, prepared.data, rough.corners);
-  return { prepared, solution: solveRoute(withCorners(corners), buildingId, prepared.data, opts.solve), firstK: first.level.k, corners };
+  const solution = solveRoute(withCorners(corners), buildingId, prepared.data, opts.solve);
+  // The corners the measure expects on each placed photo and nobody tapped, for the user to keep (2026-10-17).
+  const proposals = proposeCorners(withCorners(corners), buildingId, prepared.data, solution);
+  return { prepared, solution, firstK: first.level.k, corners, proposals };
 }

@@ -32,7 +32,7 @@ const FIXTURE = join(here, "fixtures", "photo-route", "owner-1016.json");
 async function load() {
   const outDir = mkdtempSync(join(tmpdir(), "photo-route-"));
   const entry = join(outDir, "entry.ts");
-  writeFileSync(entry, ["photoRoute.ts", "photoRouteLens.ts", "photoRouteLines.ts", "photoRouteEdges.ts", "photoRouteSolve.ts", "photoRouteData.ts", "photoRouteExterior.ts", "exteriorPhoto.ts", "exterior.ts", "exteriorTrace.ts", "exteriorReport.ts", "exteriorCheck.ts"].map((f) => `export * from "${lib(f)}";`).join("\n"));
+  writeFileSync(entry, ["photoRoute.ts", "photoRouteLens.ts", "photoRouteLines.ts", "photoRouteEdges.ts", "photoRouteSolve.ts", "photoRouteData.ts", "photoRouteExterior.ts", "exteriorPhoto.ts", "exterior.ts", "exteriorTrace.ts", "exteriorReport.ts", "exteriorCheck.ts", "photoRouteCoverage.ts"].map((f) => `export * from "${lib(f)}";`).join("\n"));
   await build({ entryPoints: [entry], bundle: true, format: "esm", platform: "node", outfile: join(outDir, "entry.mjs"), alias: { "@": root }, logLevel: "silent" });
   const mod = await import(pathToFileURL(join(outDir, "entry.mjs")).href);
   rmSync(outDir, { recursive: true, force: true });
@@ -270,5 +270,104 @@ check("every photo with two or more corners is placed", all.unplaced.every((u) =
 check("the porch hold-out from the doors is within 5%", Math.abs(porch / 263 - 1) < 0.05, `${porch.toFixed(1)}"`);
 check("the bump-out hold-out from the doors is within 5%", Math.abs(bump / 22.1667 - 1) < 0.05, ftin(bump));
 check("with all tapes, the taped sides come out as taped", Math.abs(all.sides[10].lengthFeet * 12 - 263) < 1 && Math.abs(all.sides[4].lengthFeet - 22.1667) < 0.1);
+// ── 10-17: what to take next, and the corners Scrivn marks (lib/photoRouteCoverage.ts, proposeCorners) ──────────────
+// The same photos and tapes; what the user does, counted, and what it measures, against today's route and the README.
+const HOLD = { withoutTapes: ["porch", "bump-out"] };
+const used = [...new Set(b.corners.map((c) => `p${c.photo}`))].filter((id) => input.buildings[0].corners.filter((c) => c.photo === id).length >= 2);
+const singlesIds = [...new Set(b.corners.map((c) => `p${c.photo}`))].filter((id) => !used.includes(id));
+// Inputs, each tap or keystroke-entry once: the shape (its corners and the tap that closes it); a tape on a photo (its
+// drag and its pick, the "Draw a tape" mode once for all); a wall's length (pick the side, type it, add it; the mode once).
+const lineTapes = b.tapes.filter((t) => t.kind === "line").length;
+const sideTapes = b.tapes.filter((t) => t.kind === "side").length;
+const tapeInputs = (withSides) => (lineTapes ? 1 + 2 * lineTapes : 0) + (withSides && sideTapes ? 1 + 3 * sideTapes : 0);
+const shapeInputs = b.outline.length + 1;
+const beforeFixes = wrong.length;
+const before = (withSides) => shapeInputs + b.corners.length + new Set(b.corners.map((c) => c.photo)).size + beforeFixes + tapeInputs(withSides) + 1;
+
+// The flow now, on the photos as he took them: the corners tapped as today, but only on the photos that show two or more
+// (a photo with one corner can't be placed - the checklist says so - and today's route places none of them from it); the
+// leftmost named, Scrivn numbering the rest, its mistakes put right by the user (each a tap on the shape, counted);
+// Measure; then "Looks right" keeps every corner Scrivn marked on the placed photos, and measures again.
+const truthOfTap = (c) => input.buildings[0].corners.find((t) => t.photo === c.photo && Math.abs(t.x - c.x) < 1e-6 && Math.abs(t.y - c.y) < 1e-6)?.corner;
+const tapsOn = (id) => input.buildings[0].corners.filter((c) => c.photo === id);
+const flowInput = (named) => ({
+  ...input,
+  buildings: input.buildings.map((bb) => ({
+    ...bb,
+    corners: used.flatMap((id) => {
+      const mine = tapsOn(id);
+      const left = mine.reduce((a, c) => (c.x < a.x ? c : a));
+      return mine.map((c) => (named && c === left ? { photo: c.photo, x: c.x, y: c.y, corner: c.corner, by: "user" } : { photo: c.photo, x: c.x, y: c.y, corner: -1 }));
+    }),
+  })),
+});
+/** Numbered as the pane does, then each wrong number put right by the user; then Measure, Looks right, Measure. */
+const flow = (inp) => {
+  const numbered = x.numberCorners(inp, "main", prepared.data);
+  const fixes = numbered.filter((c) => c.corner !== truthOfTap(c)).length;
+  const fixed = { ...inp, buildings: inp.buildings.map((bb) => ({ ...bb, corners: numbered.map((c) => (c.corner === truthOfTap(c) ? c : { photo: c.photo, x: c.x, y: c.y, corner: truthOfTap(c), by: "user" })) })) };
+  const m1 = x.measureRoute(fixed, "main", pixels, { lines, solve: HOLD });
+  const kept = { ...fixed, buildings: fixed.buildings.map((bb) => ({ ...bb, corners: [...m1.corners.filter((c) => !c.proposed), ...m1.proposals.map((c) => ({ photo: c.photo, x: c.x, y: c.y, corner: c.corner, by: "app" }))] })) };
+  const m2 = x.measureRoute(kept, "main", pixels, { lines, solve: HOLD });
+  return { m1, m2, marks: m1.proposals.length, fixes, right: numbered.length - fixes, taps: numbered.length };
+};
+const usedTaps = used.reduce((s, id) => s + tapsOn(id).length, 0);
+const now = flow(flowInput(true));
+const after = (withSides, names, fixes) => shapeInputs + usedTaps + names + fixes + 1 + 1 + tapeInputs(withSides);
+console.log(`\n  The flow of 10-17 on his photos as taken: the ${usedTaps} corners tapped on the ${used.length} photos that show two or more, the leftmost named; the ${singlesIds.length} with one corner (${singlesIds.join(", ")}) left alone; ${now.fixes} numbers put right; Measure; Scrivn marked ${now.marks} more corners; Looks right.`);
+console.log(`    inputs, the two garage doors as the tapes: before ${before(false)}, now ${after(false, used.length, now.fixes)}; with the porch and bump-out tapes too: before ${before(true)}, now ${after(true, used.length, now.fixes)}`);
+console.log(`      (before: shape ${shapeInputs}, ${b.corners.length} corner taps, ${new Set(b.corners.map((c) => c.photo)).size} names, ${beforeFixes} fixes, tapes ${tapeInputs(true)}, Measure 1; now: shape ${shapeInputs}, ${usedTaps} taps, ${used.length} names, ${now.fixes} fixes, Measure 1, Looks right 1, tapes ${tapeInputs(false)} or ${tapeInputs(true)})`);
+
+// The shot list: the same photos as if each had been taken from the checklist for the corner nearest its middle - so it
+// names its own, and nobody names any.
+const shotInput = flowInput(false);
+shotInput.photos = input.photos.map((p) => {
+  if (!used.includes(p.id)) return p;
+  const d = prepared.data.find((q) => q.id === p.id);
+  const mid = tapsOn(p.id).reduce((a, c) => (Math.abs(c.x - d.camera.width / 2) < Math.abs(a.x - d.camera.width / 2) ? c : a));
+  return { ...p, shot: { kind: "corner", index: mid.corner } };
+});
+const shot = flow(shotInput);
+console.log(`    the same photos taken from the checklist (each for the corner nearest its middle): ${shot.right} of ${shot.taps} taps numbered right with no name given, ${shot.fixes} put right; inputs ${after(false, 0, shot.fixes)} with the doors as the tapes, ${after(true, 0, shot.fixes)} with all four`);
+
+// Accuracy: the sides against the README, today's route with the doors only, and the flow now.
+const pctOff = (sides) => sides.map((s, i) => (README[i][2] === "tape" ? null : Math.abs(s.lengthFeet / README[i][1] - 1) * 100)).filter((v) => v !== null);
+const mean = (v) => v.reduce((s, q) => s + q, 0) / v.length;
+console.log("\n  Side                              README   today (doors)        now (doors)");
+doors.sides.forEach((s, i) => {
+  const q = now.m2.solution.sides[i];
+  console.log(`  ${String(i + 1).padStart(2)} ${README[i][0].padEnd(30)} ${ftin(README[i][1]).padStart(7)}   ${ftin(s.lengthFeet).padStart(7)} ±${String(s.plusMinusPct).padEnd(3)}  ${ftin(q.lengthFeet).padStart(7)} ±${q.plusMinusPct}`);
+});
+const porchNow = now.m2.solution.sides[10].lengthFeet * 12;
+const bumpNow = now.m2.solution.sides[4].lengthFeet;
+console.log(`    hold-outs from the doors: porch ${porch.toFixed(1)}" today, ${porchNow.toFixed(1)}" now (263"); bump-out ${ftin(bump)} today, ${ftin(bumpNow)} now (22'2")`);
+console.log(`    mean |off the README| (untaped sides): today ${mean(pctOff(doors.sides)).toFixed(1)}%, now ${mean(pctOff(now.m2.solution.sides)).toFixed(1)}%`);
+check("the flow of 10-17: the hold-outs from the doors within 5%", Math.abs(porchNow / 263 - 1) < 0.05 && Math.abs(bumpNow / 22.1667 - 1) < 0.05, `${porchNow.toFixed(1)}", ${ftin(bumpNow)}`);
+check("the flow of 10-17: no further off the README on the whole than today", mean(pctOff(now.m2.solution.sides)) <= mean(pctOff(doors.sides)) + 0.5);
+check("the flow of 10-17 asks fewer inputs", after(true, used.length, now.fixes) < before(true) && after(false, 0, shot.fixes) < after(false, used.length, now.fixes), `${before(true)} -> ${after(true, used.length, now.fixes)}; from the checklist ${after(true, 0, shot.fixes)}`);
+check("photos taken from the checklist name their own corners, nine in ten at least", shot.right >= 0.9 * shot.taps, `${shot.right}/${shot.taps}`);
+
+// What to take next: on all 18, and without the three photos at 45 degrees to a corner (#6, #7, #14).
+const coverageOf = (sol, corners) => {
+  const rec = x.measuredFrom(sol, prepared.data, "t");
+  return x.routeCoverage({ ring: rec.corners, views: x.viewsFromMeasure(rec), taps: corners.filter((c) => !c.proposed), shots: [], measured: true });
+};
+const fullCov = coverageOf(doors, input.buildings[0].corners);
+console.log(`\n  What to take next, all 18 photos (${fullCov.items.length}):`);
+fullCov.items.forEach((it) => console.log(`    - ${it.words}`));
+const drop = ["p6", "p7", "p14"];
+const less = { photos: input.photos.filter((p) => !drop.includes(p.id)), buildings: input.buildings.map((bb) => ({ ...bb, corners: bb.corners.filter((c) => !drop.includes(c.photo)), tapes: bb.tapes.filter((t) => t.kind !== "line" || !drop.includes(t.photo)) })) };
+const lessRun = x.measureRoute(less, "main", pixels.filter((p) => !drop.includes(p.id)), { lines: lines.filter((_, i) => !drop.includes(pixels[i].id)), solve: HOLD });
+const lessCov = coverageOf(lessRun.solution, lessRun.corners);
+console.log(`  Without #6, #7 and #14 (${lessCov.items.length}):`);
+lessCov.items.forEach((it) => console.log(`    - ${it.words}`));
+const thinNow = lessCov.corners.filter((c, k) => c.photos.length < 2 && fullCov.corners[k].photos.length >= 2).map((c) => c.index);
+const wallsLost = lessCov.walls.filter((w, k) => w.both.length === 0 && fullCov.walls[k].both.length > 0).map((w) => w.from);
+const named = (kind, k) => lessCov.items.some((it) => it.kind === kind && (kind === "corner-seen" ? it.corner === k : it.wall === k));
+console.log(`    corners now thin: ${thinNow.map((k) => k + 1).join(", ")}; walls with no photo of both corners now: ${wallsLost.map((k) => `${k + 1}-${((k + 1) % 12) + 1}`).join(", ")}`);
+console.log(`    ± with and without them: ${doors.sides.map((s, i) => `${i + 1}: ${s.plusMinusPct}->${lessRun.solution.sides[i].plusMinusPct}`).join(", ")}`);
+check("without the 45-degree photos the checklist names each corner and wall now thin", thinNow.length > 0 && wallsLost.length > 0 && thinNow.every((k) => named("corner-seen", k)) && wallsLost.every((k) => named("wall-both", k)), `corners ${thinNow.map((k) => k + 1)}, walls ${wallsLost}`);
+check("and the ± widens on the walls they held", wallsLost.every((k) => (lessRun.solution.sides[k].plusMinusPct ?? 0) > (doors.sides[k].plusMinusPct ?? 0)), wallsLost.map((k) => `${doors.sides[k].plusMinusPct}->${lessRun.solution.sides[k].plusMinusPct}`).join(", "));
+
 console.log(`\n${passed.length} passed, ${failures.length} failed (${((Date.now() - t0) / 1000).toFixed(0)} s)`);
 process.exit(failures.length ? 1 : 0);
