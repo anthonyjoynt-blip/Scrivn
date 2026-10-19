@@ -1,22 +1,22 @@
 import QRCode from "qrcode";
 import { MarketingShell } from "@/components/marketing/MarketingShell";
 import { appUrl } from "@/lib/deviceCodes";
+import { ASSUMED_PITCH } from "@/lib/exterior";
 import {
   AccountSheet,
   CaptureScreen,
   ClosetStep,
+  CornerTapes,
   DoorSheet,
   DropAsk,
-  ExteriorRound,
-  ExteriorSide,
   HowtoArt,
   JoinRooms,
+  MeasureCard,
   MoistureRoom,
+  PhotoShots,
   ReportDialog,
-  PhotoRouteScreen,
   ReviewScreen,
   Ring,
-  RoofScreen,
   SpinDots,
   SpinPlace,
 } from "@/components/scanGuide/Figures";
@@ -30,27 +30,22 @@ import "./scan-guide.css";
  * the end.
  *
  * Every button and line quoted here is the app's own word (res/values/strings.xml, Copy.kt,
- * Instructions.kt, and for the outside of the house Exterior.kt and MainActivity's exterior lines);
- * when the app's wording changes, this page changes with it. The drawings in public/scan-guide are
- * the app's how-to pictures (scripts/howto-svgs.py); the screens are drawn in
+ * Instructions.kt); when the app's wording changes, this page changes with it. The drawings in
+ * public/scan-guide are the app's how-to pictures (scripts/howto-svgs.py); the screens are drawn in
  * components/scanGuide/Figures.tsx.
  *
  * Brought up to Scan 0.1.157 on 2026-10-14: the two chip rows, levels, moisture as you go, door
- * types, the 360 step at the end, the Exterior sketch, the Account screen and free scans, and what
- * happens with no signal. What Scrivn does with a scan is told in Scrivn's own Help.
+ * types, the 360 step at the end, the Account screen and free scans, and what happens with no
+ * signal. What Scrivn does with a scan is told in Scrivn's own Help.
  *
- * Finish exterior added on 2026-10-15 (Scan 0.1.169, RoofReview.kt, ExteriorFinish.kt): the roof read off the side photos,
- * the Roof screen, and the exterior report that Share makes on an exterior capture (docs/exterior-report.md).
- *
- * The photo route added later on 2026-10-15 (Scan GuidedExterior.kt): Exterior sketch asks "Photos (recommended)" or "Tap it
- * yourself", and on the photo route a card over the chip bar says each step - since the owner's 18:02 walk, a lap of corners
- * and then 4 to 8 photos of the house, each laid on every wall it sees, then Finish, Walls, Accept. The card's words are quoted
- * here as GuidedExterior.prompt and GuidedWalk have them.
+ * The outside of the house since 2026-10-19: PHOTOS ONLY, in Scrivn, not Scan (Scan's Exterior sketch is put away). The
+ * section teaches Scrivn's "From photos" (components/sketch/PhotoRoute.tsx, TeamMeasure.tsx, RoofCheck.tsx, QuickBox.tsx)
+ * in its own words; the old lap of corner taps, the Sizes card and Finish exterior on the phone are gone from this page.
  */
 export const metadata = {
   title: "Scrivn Scan — Tester Guide",
   description:
-    "How to measure rooms and the outside of a house with Scrivn Scan, map moisture as you go, tips that make the numbers right, and how to send us a scan that went wrong.",
+    "How to measure rooms with Scrivn Scan, measure the outside of a house from photos in Scrivn, map moisture as you go, tips that make the numbers right, and how to send us a scan that went wrong.",
 };
 
 const SECTIONS = [
@@ -67,7 +62,7 @@ const SECTIONS = [
   ["drops", "When tracking drops"],
   ["review", "Review: check it, tape it"],
   ["spins", "360° photos"],
-  ["exterior", "The outside of the house"],
+  ["exterior", "Outside of the house: from photos"],
   ["account", "Your account and free scans"],
   ["scrivn", "Sending to Scrivn (optional)"],
   ["signal", "No signal"],
@@ -136,8 +131,8 @@ export default async function ScanGuidePage() {
           <h1>Measure a room by tapping its corners</h1>
           <p>
             Scrivn Scan turns your Android phone into a measuring tool. Stand in the middle of a room, tap each corner, and it draws
-            the floor plan with every wall, door, window and cabinet on it. It maps wet walls and floors as you go, and it measures
-            the outside of the house side by side. Thank you for testing it. This page shows how it works, what gets the best numbers,
+            the floor plan with every wall, door, window and cabinet on it. It maps wet walls and floors as you go. The outside of the
+            house is measured in Scrivn, from photos. Thank you for testing it. This page shows how it works, what gets the best numbers,
             and how to send us a scan that came out wrong. That last part is what helps us most.
           </p>
         </header>
@@ -166,9 +161,8 @@ export default async function ScanGuidePage() {
                 Another floor: hold <B>Add room</B>.
               </li>
               <li>
-                Outside: <B>Start</B> → <B>Exterior sketch</B> → <B>Photos (recommended)</B>. Walk round tapping each wall&apos;s two
-                bottom corners, then take 4 to 8 photos of the house, sideways. After <B>Stop</B>, <B>Finish exterior</B> reads the walls
-                and the roof off the photos, and <B>Share</B> makes the exterior report (<See id="exterior" />).
+                Outside: that&apos;s Scrivn, not Scan. With the phone&apos;s camera, sideways: each wall straight on, each corner at 45°.
+                Tape the back wall. Then in the claim, <B>Exterior</B> → <B>From photos</B> (<See id="exterior" />).
               </li>
               <li>
                 Anything wrong? On the plan, tap <B>Report a problem</B> and tell us. Did the room twice? Report after the second run;
@@ -318,8 +312,8 @@ export default async function ScanGuidePage() {
               <div>
                 <ol className="sg-steps">
                   <li>
-                    Press <B>Start</B>. It asks what you are capturing: <B>Sketch only</B>, <B>Sketch + walk-through</B> if you also want
-                    360° photos of the rooms, or <B>Exterior sketch</B> for the outside of the house (<See id="exterior" />).
+                    Press <B>Start</B>. It asks what you are capturing: <B>Sketch only</B>, or <B>Sketch + walk-through</B> if you also
+                    want 360° photos of the rooms. The outside of the house is done in Scrivn (<See id="exterior" />).
                   </li>
                   <li>
                     Hold the phone up and walk a few steps around the room, not on the spot, until the ring turns green. When you start a
@@ -743,325 +737,153 @@ export default async function ScanGuidePage() {
             </div>
           </Section>
 
-          <Section id="exterior" title="The outside of the house">
+          <Section id="exterior" title="Outside of the house: from photos">
             <p>
-              <B>Exterior sketch</B> measures the outside walls one side at a time: each side&apos;s length and heights, the cladding on
-              it (stucco, vinyl, brick and the rest) with its area, and its windows and doors. <strong>You don&apos;t tap the
-              roof</strong>: at the end, <B>Finish exterior</B> reads it off the side photos, and <B>Share</B> makes a report of the
-              whole outside. It is a capture of its own: the rooms inside are a separate capture.
-            </p>
-            <p>
-              <B>Start</B> → <B>Exterior sketch</B> asks how: <B>Photos (recommended): tap each wall&apos;s two corners round the
-              house, then a few photos of it</B>, or <B>Tap it yourself: draw each material</B>. The one you picked last is ticked.
+              The outside isn&apos;t measured in Scan. It&apos;s done in <strong>Scrivn</strong>, from photos taken with the phone&apos;s own
+              camera, on any phone, iPhone too. Take the photos and a tape or two on site. Then in the claim, tap a few corners on the
+              photos, and Scrivn works out every wall&apos;s length, the roof and the exterior report.
             </p>
             <div className="sg-split">
               <div>
-                <h3 className="sg-h3">From photos: a lap of corners, then a few photos</h3>
-                <p>
-                  The first time, a card shows the route in three lines. Then a card over the chips says what to do next, in big
-                  words. It follows what you have done: Undo takes it back a step. <strong>Nothing on it is required</strong>: every
-                  step has its way on as a button on the card, and <B>Stop</B> always leads to Finish.
-                </p>
-                <ol className="sg-steps">
-                  <li>
-                    <strong>The lap.</strong> <Q>Tap the bottom-left corner of this wall</Q>, standing 1 to 3 m (3 to 10 ft) back: the
-                    wall&apos;s own corner, where the siding meets the floor, not the posts or the deck edge. Then{" "}
-                    <Q>Now the bottom-right corner</Q>, and <Q>Next side: walk round the corner</Q>: press <B>Next side</B>, or just tap
-                    the next wall&apos;s bottom-left corner. Every wall, every jog. No photos yet.
-                  </li>
-                  <li>
-                    <strong>The tape.</strong> When the walls meet all the way round:{" "}
-                    <Q>Tape one wall, or type the garage door&apos;s width</Q>. <B>Tape a wall</B> lists the walls, shortest first;
-                    the ones marked <Q>easy alone</Q> (20 ft or under) you can tape without help. Run the tape along the bottom,
-                    between the two corners you tapped, and type it (<Q>18&apos;4</Q>, <Q>220&quot;</Q>). Or{" "}
-                    <B>Garage door width</B>: 8&apos;, 9&apos;, 10&apos;, 12&apos;, 16&apos;, 18&apos; or another width. Either one
-                    scales the whole house: the corners and every photo read. <B>Skip – no tape</B> goes straight on: the sizes are
-                    then the phone&apos;s own, and Stop offers the tape again.
-                  </li>
-                  <li>
-                    <strong>The photos.</strong> Then the card goes on to the photos. <B>Photos</B> on the card or the chips
-                    starts them any time. <Q>Turn the phone sideways</Q>, then{" "}
-                    <Q>Take 4 to 8 photos from wherever you can see the most of the house</Q>: the front, the garage, each end you can
-                    get to, the back. A photo from a corner covers both walls. Press <B>Photo</B>, or a volume key.
-                  </li>
-                  <li>
-                    Each photo is laid on every wall it sees, and its line says which: <Q>Photo 3 · covers: Front, Front 2, Left</Q>.
-                    The card keeps count: <Q>Seen so far: 9 of 12 walls. Not yet: Left 2, Rear 2, Left 3 and 1 more.</Q> A wall seen
-                    only down its length, more than about 80&deg; off square, isn&apos;t counted as seen: too stretched to read.{" "}
-                    <strong>Long-press Photo</strong> for what the photos cover so far.
-                  </li>
-                  <li>
-                    <B>Stop</B> shows the only checklist there is, as advice: how many walls were walked and seen, and the walls no
-                    photo saw (their height comes from the walls beside them). With no tape and no garage door it says so plainly,{" "}
-                    <Q>Not scaled to a tape – sizes are the phone&apos;s own. Tape a wall to scale it.</Q>, with{" "}
-                    <B>Tape a wall</B> right there. The report says the same. A walk short of closing says so:{" "}
-                    <Q>4 walls walked – walk the rest to build the roof, or Finish with the walls only</Q>, with <B>Walk the rest</B> or{" "}
-                    <B>Finish with the walls only</B>. Both work.
-                  </li>
-                  <li>
-                    Then the Roof screen: the button to press is filled and the line over it says why: <B>Finish</B> reads each wall a
-                    photo sees, then <B>Walls</B>, then <B>Accept</B> (below). Then <Q>Done: Send takes it to Scrivn</Q>.
-                  </li>
-                </ol>
-                <p className="sg-note">
-                  <strong>A wall no photo saw</strong> - a tiny jog, a side yard - takes its height from the walls beside it, a level
-                  eave at the lower of their two corners, marked as such on the roof screen and in the report:{" "}
-                  <Q>Not seen in a photo, height from the walls beside them</Q>. No windows or doors on it unless you add them by
-                  hand. If no gable was shot square enough for the pitch, it says so: the pitch is Scan&apos;s own measure, or 4/12
-                  assumed until you type it.
-                </p>
-                <p className="sg-note">
-                  <strong>A tape and the garage door both?</strong> The tape stands for the house: it measures the lap itself. The
-                  garage door checks the photo of its own wall, and where the two differ by more than 3% that wall&apos;s heights
-                  and openings follow the door (a 9&apos; door read as 9&apos;8&quot; is put back to 9&apos;). The roof screen names
-                  it. With no tape, the door scales the whole house. A door typed that no photo saw is said, and the sizes stay as
-                  they were.
-                </p>
-                <p className="sg-note">
-                  <strong>A covered deck or porch?</strong> Tap the wall&apos;s own corners behind it, where the siding meets the
-                  deck floor, and photograph it from back far enough that the main roof edge shows over the porch roof. Porch roofs
-                  aren&apos;t read off the photos yet: add them in Scrivn&apos;s roof plan.
-                </p>
-                <p className="sg-note">
-                  <strong>Something a photo can&apos;t see?</strong> A window behind a bush, say: <B>Add by hand</B> →{" "}
-                  <B>Window</B>, <B>Door</B> or <B>Material</B>, tapped as below. What you tap wins over the photos. If tracking
-                  drops, the card says so and asks for a corner again, then carries on where it was.
-                </p>
-              </div>
-              <div>
-                <figure className="sg-fig sg-phonefig">
-                  <PhotoRouteScreen />
-                  <figcaption>The lap: a wall&apos;s two corners tapped, and the card with the next step.</figcaption>
-                </figure>
-                <figure className="sg-fig sg-phonefig">
-                  <PhotoRouteScreen step="sizes" />
-                  <figcaption>The lap closed: tape a wall, type the garage door, or skip.</figcaption>
-                </figure>
-              </div>
-            </div>
-            <div className="sg-split">
-              <div>
-                <h3 className="sg-h3">Tap it yourself: each side</h3>
-                <ol className="sg-steps">
-                  <li>
-                    Press <B>Start</B> → <B>Exterior sketch</B> → <B>Tap it yourself</B>. It asks <Q>What are you tapping?</Q>: pick the main cladding (
-                    <B>Stucco</B>, <B>Vinyl</B>, <B>Wood shake</B>, <B>EIFS</B>, <B>Wood</B>, <B>Fibre cement</B>, <B>Brick</B>,{" "}
-                    <B>Stone</B>, <B>Metal</B>) or <B>Parging</B>. The chips are now that material, <B>Window</B>, <B>Door</B> and{" "}
-                    <B>Photo</B>, and <B>Next side</B> takes Add room&apos;s place.
-                  </li>
-                  <li>
-                    Start at the front. Stand <strong>1 to 3 m (3 to 10 ft) from the wall</strong> and tap a{" "}
-                    <strong>bottom corner of the siding or stucco: at the top of the parging, not the ground</strong>. Then along the
-                    bottom to its next corner: the other end, or where the bottom steps. Those two fix the wall, so they are read by the
-                    depth camera and need you that close: <Q>Front: wall fixed, 34&apos;3&quot; between them.</Q>
-                  </li>
-                  <li>
-                    Step back until you can see the whole side. Aim at each corner of the material in turn: along the bottom where it
-                    steps, up the end, over the top (the eave, or a gable&apos;s peak), down the other end, and{" "}
-                    <strong>back to the first corner to close it</strong>: <Q>Stucco closed: 412 SF. Windows and doors, another material, or Next side.</Q>{" "}
-                    These taps are aimed at the wall the first two fixed, so the ring is green as soon as tracking is good.
-                  </li>
-                  <li>
-                    <strong>Another material:</strong> press the material chip again and pick it, the parging say, then tap round it the
-                    same way, down to the ground. A corner within about 6&quot; of one already tapped lands on it (
-                    <Q>on the corner already there</Q>), so the stucco&apos;s bottom and the parging&apos;s top are one line. Tap the main
-                    cladding first and an accent (a stone wainscot) after: where two shapes overlap, the one tapped later counts there.
-                  </li>
-                  <li>
-                    <B>Window</B>: two opposite corners of its <strong>opening in the siding or stucco, not the frame or the glass</strong>:
-                    bottom-left, then top-right. <Q>Window 1: 3&apos;0&quot; × 4&apos;6&quot;, sill 3&apos;2&quot;.</Q>
-                  </li>
-                  <li>
-                    <B>Door</B>: a bottom corner of its opening at the threshold, then the opposite top corner. Tap a garage door the same
-                    way; a door 7&frac12; ft wide or more goes to Scrivn as a garage door.
-                  </li>
-                  <li>
-                    <strong>A bottom that steps</strong> (the grade falls away, a walk-out): tap along the bottom as it runs, corner by
-                    corner. The first two fix the wall but needn&apos;t be its ends; the side&apos;s ends are its furthest bottom corners.
-                  </li>
-                  <li>
-                    <B>Photo</B>: step back until the whole side is on the screen, both ends, the bottom and the roof edge over it, hold
-                    still and press it. The first press shows how; press again to take it. Turn the phone on its side for a wide wall. A
-                    side too long or too tight for one photo takes two or three, each of a part. The line says what is out of frame:{" "}
-                    <Q>Photo 1 of Front kept · the whole side is in it</Q>, and what to retake:{" "}
-                    <Q>the ends of the roof edge are cut off – step back a little</Q>. Where two roofs meet is worth a photo too.
-                  </li>
-                  <li>
-                    <strong>Long-press Photo</strong> for the list of photos the house still needs, ticked off as they come in: every
-                    side whole, each gable square-on, one eave corner, each outside corner where a hip may be, and a tape or a door for
-                    the sizes.
-                  </li>
-                  <li>
-                    <strong>On a gable end</strong>, take one photo facing the wall straight on, from two or three steps to one side of
-                    the peak, the peak and both slopes of the roof edge in view: Scrivn reads the roof&apos;s pitch and how far the rake
-                    stands out from it. Then, once for the
-                    house, at a corner where the roof edge ends plainly (not over a porch, a deck or a lower roof), step out past the corner
-                    and take one more from the gable side at about 45&deg;, the end of the roof edge near the middle of the screen: that
-                    gives the eave overhang. The first photo of a gable shows a card that says so.
-                  </li>
-                  <li>
-                    <B>Next side</B>, and walk round to it, either way round the house. If the side you are leaving is missing a photo, it
-                    reminds you once, with what is missing: <Q>No photo of Front yet · step back so all of it is in view and press Photo – or Next side again</Q>. Then
-                    the new side&apos;s two bottom corners: <Q>Next side – tap its two bottom corners, 1-3 m from the wall.</Q>
-                  </li>
-                </ol>
-              </div>
-              <figure className="sg-fig">
-                <ExteriorSide />
-                <figcaption>
-                  One side face-on: its two bottom corners first, then round the stucco to close it; a window and a door at two opposite
-                  corners of their openings.
-                </figcaption>
-              </figure>
-            </div>
-            <div className="sg-split">
-              <div>
-                <h3 className="sg-h3">Round the house</h3>
+                <h3 className="sg-h3">Taking the photos</h3>
                 <ul className="sg-list">
                   <li>
-                    Scan names the sides by which way they face: <strong>Front</strong>, then <strong>Right</strong>,{" "}
-                    <strong>Rear</strong> and <strong>Left</strong> (and <em>Front 2</em> for a second front-facing wall). Rename one on
-                    the plan.
+                    <strong>Sideways, on the 1x lens.</strong> The normal camera, held landscape. Not the wide lens, and no zoom.
                   </li>
                   <li>
-                    <strong>A hidden corner doesn&apos;t matter.</strong> Each side taps its own bottom corners, and the house corner is
-                    where two sides&apos; bottom lines cross. Behind a deck or a hedge, tap any point on the wall&apos;s bottom line
-                    within about 13 ft of the corner, a deck post on the line say.
+                    <strong>Each wall straight on, both corners in.</strong> Step back until the whole wall fits, corner to corner, the
+                    ground to the roof edge.
                   </li>
                   <li>
-                    <strong>Closing the lap:</strong> there&apos;s no button. When the last side&apos;s bottom line meets the first
-                    side&apos;s, the footprint closes by itself.
+                    <strong>Each outside corner at 45°</strong>, both walls in. These are the photos that hold the measurement together:
+                    they tie each wall to the next.
                   </li>
                   <li>
-                    <strong>Check it on the plan</strong> (tap the mini-map): it shows one side at a time, face-on, with <B>‹</B>{" "}
-                    <B>›</B> to go round, its name to rename it, <B>Undo last</B>, <B>Roof</B> (below) and <B>Close</B>. Under it, the
-                    side&apos;s length, heights, areas, windows and doors, and the footprint:{" "}
-                    <Q>Footprint: 3 corners joined – go on round</Q> until it closes, then{" "}
-                    <Q>Footprint closed: 4 sides, 1640 SF</Q>.
+                    <strong>Each gable square-on</strong>, the peak and both slopes of the roof edge in it.
                   </li>
                   <li>
-                    <strong>Tape one side</strong>, the longest you can run a tape along, corner to corner at the bottom. On the plan, tap
-                    that side&apos;s length and type it: <Q>Every length and height on every side scales to it.</Q> One tape scales the
-                    whole house. The plan says where the sizes come from, the phone&apos;s own measure or the tape, and says so when
-                    the tape is more than 3% from the phone: check the tape, and that side&apos;s two bottom corners.
+                    <strong>A tight side yard?</strong> If you can&apos;t step back far enough, take 2 or 3 photos along it, each overlapping the
+                    last.
+                  </li>
+                  <li>Walk round the house one way, so the photos follow each other.</li>
+                </ul>
+                <h3 className="sg-h3">Tapes</h3>
+                <ul className="sg-list">
+                  <li>
+                    <strong>The garage door counts as one.</strong> A 9&prime; or 16&prime; door is a single tap in Scrivn. If it might be
+                    another size, tape it.
                   </li>
                   <li>
-                    <strong>If tracking drops</strong> it asks for a bottom corner again: <Q>Tracking restarted – tap the Front&apos;s left
-                    bottom corner again (Undo skips it).</Q> Tap it where it was. If the map turned, it asks for the side&apos;s other
-                    bottom corner too, then <Q>Linked – go on.</Q>
+                    <strong>Add one tape along the back wall</strong>, corner to corner.
                   </li>
                   <li>
-                    <B>Stop</B> when you are round. With photos still missing, Stop says which, once: <B>Take them</B> or{" "}
-                    <B>Stop anyway</B>.
+                    <strong>Plus any wall Scrivn flags</strong> after Measure, under <Q>A tape would help</Q>.
+                  </li>
+                  <li>
+                    <strong>Door heights are not a good ruler.</strong> Doors vary too much. Use a tape or the garage door.
                   </li>
                 </ul>
               </div>
               <figure className="sg-fig">
-                <ExteriorRound />
-                <figcaption>Seen from above: each side&apos;s own two corners; the house corners are where the lines cross.</figcaption>
+                <PhotoShots />
+                <figcaption>Where to stand, seen from above: each wall straight on, each corner at 45°.</figcaption>
               </figure>
             </div>
             <div className="sg-split">
               <div>
-                <h3 className="sg-h3">Finish exterior: the roof</h3>
+                <h3 className="sg-h3">In Scrivn</h3>
                 <ol className="sg-steps">
                   <li>
-                    After <B>Stop</B>, an exterior with side photos asks once: <Q>Finish the exterior</Q>. <B>Finish exterior</B> sends each
-                    side&apos;s photos to Scrivn, which reads the roof off them: a gable&apos;s pitch, how far the eave and the rake stand
-                    out, and gable or hip at that end. It takes about half a minute a side:{" "}
-                    <Q>Reading the roof off the photos – 2 of 4 sides done. About half a minute a side.</Q>
+                    <strong>Exterior, then From photos.</strong> On the claim, <B>Create sketch</B> (or <B>Edit sketch</B>), then{" "}
+                    <B>Exterior</B> at the top, then <B>From photos</B>.
                   </li>
                   <li>
-                    It needs <strong>signal and your Scrivn account</strong> (<See id="account" />). It counts as this capture&apos;s scan:
-                    sending or sharing it afterwards doesn&apos;t count again.
+                    <strong>Pick the home type</strong>: <B>Detached</B>, <B>Semi-detached</B>, <B>Townhouse, end unit</B> or{" "}
+                    <B>Townhouse, middle unit</B>. Then draw its shape: tap each corner of the house on the small plan, going round it,
+                    then the first one again. Street side at the bottom. Rough is fine: the photos set the sizes.
                   </li>
                   <li>
-                    Then the <strong>Roof</strong> screen opens: Scrivn&apos;s roof plan, to scale, with <strong>Gable</strong> or{" "}
-                    <strong>Hip</strong> at each end. Under it, in words: the squares, the pitch and where it came from (from photos,
-                    typed, from the gables the phone measured, or assumed), the overhangs and where they came from, the ends, each roof
-                    line&apos;s length, what each side&apos;s photo said, what is assumed, and anything to <Q>Check</Q>.
+                    <strong>Add the photos.</strong> <B>Choose photos</B> takes them from the phone&apos;s gallery; <B>Take a photo</B>{" "}
+                    opens the camera. <Q>What to take next</Q> then shows, in orange on the plan, any corner or wall still short of a
+                    photo, with <B>Take it</B>. It is advice only.
                   </li>
                   <li>
-                    <B>Accept</B> when it looks right: the title reads <Q>Roof · accepted</Q>. <B>Pitch</B> types the pitch as the rise in 12
-                    (<Q>5</Q> or <Q>5/12</Q>): <Q>A pitch typed wins over the photos.</Q> <B>Use the photos</B> in the same box takes it
-                    off again. <B>Ends</B> lists each end of the roof: tap one to switch it between gable and hip. A change after Accept
-                    takes the acceptance back.
+                    <strong>Tap the corners.</strong> On each photo, tap each corner of the house where it meets the ground. The first
+                    one on a photo asks which corner it is: tap it on the plan. Scrivn numbers the rest. Tap a number to change it.
                   </li>
                   <li>
-                    <B>Walls</B> lists each photographed side with its walls read off the photo, in words and drawn: the siding,
-                    windows, doors, garage doors and the wall top, wherever nothing was tapped. What you tapped wins. Untick{" "}
-                    <B>Keep the walls read off its photo</B> to keep only a side&apos;s taps, or <B>Keep all</B> /{" "}
-                    <B>Set all aside</B>. A side with only its two corners and nothing read is not counted, and the screen says which.
+                    <strong>Draw the tapes.</strong> <B>Draw a tape</B>, then drag across the garage door, end to end, and tap{" "}
+                    <B>9′ garage door</B> or <B>16′ garage door</B>, or type what you taped. For a wall, <B>A wall&apos;s length</B>:
+                    tap the side on the plan and type it.
                   </li>
                   <li>
-                    <B>Later</B> is fine. <B>Roof</B> on the plan shows the roof any time, during the walk too, and its <B>Finish</B>, after
-                    Stop, reads any side not read yet. A side is read once, and again only if it is photographed again or the tape
-                    changes.
+                    <strong>Measure.</strong> <B>Measure the house</B> gives each side&apos;s length and how sure it is (±).
+                    Scrivn then marks more corners, dashed, where the measure puts them. Tap a wrong one to take it away or renumber
+                    it. <B>Looks right</B> keeps the rest and measures again.
+                  </li>
+                  <li>
+                    <strong>Check these.</strong> Only what the photos couldn&apos;t show for sure: is that tall glass a window or a
+                    door? How far does the garage roof sit under the house&apos;s? One tap each. <B>Looks right</B> closes it, and
+                    anything left stays as read.
+                  </li>
+                  <li>
+                    <strong>The roof check</strong>, on <B>Plan &amp; roof</B>. The roof is drawn from the shape and the photos. Press
+                    only what is wrong: <B>Gable</B> or <B>Hip</B> at an end, <B>+ Porch roof</B>, <B>+ Cross gable</B>. Then{" "}
+                    <B>Looks right</B>. The pitch says assumed, {ASSUMED_PITCH}/12, until you type it.
+                  </li>
+                  <li>
+                    <strong>The report.</strong> Each side opens face-on with its photo behind it, for its windows, doors and siding.{" "}
+                    <B>Exterior report (PDF)</B> on the claim: the four elevations, the roof plan, the photos and every measurement.
+                    Stucco trim (surrounds, keystones, columns) is counted apart from the field stucco.
                   </li>
                 </ol>
-                <p className="sg-note">
-                  <strong>No signal, or not signed in?</strong> It says so, and the roof stays as it is:{" "}
-                  <Q>No signal: the roof stays as it is (4/12 assumed where nothing measured it). Press Finish again when there is signal.</Q>{" "}
-                  Pitch, Ends, Accept and the report still work.
+              </div>
+              <div className="sg-figs">
+                <figure className="sg-fig">
+                  <CornerTapes />
+                  <figcaption>On a photo: the corners tapped at the ground, and a tape across the garage door.</figcaption>
+                </figure>
+                <figure className="sg-fig">
+                  <MeasureCard />
+                  <figcaption>After Measure: each side with its ±, and the wall a tape would fix.</figcaption>
+                </figure>
+              </div>
+            </div>
+            <h3 className="sg-h3">Or: Send to Scrivn team to measure</h3>
+            <ul className="sg-list">
+              <li>
+                Beside Measure, <B>Send to Scrivn team to measure</B>. One photo is enough to send; the shape, corners and tapes help
+                but aren&apos;t needed. Add a note if you like (<Q>e.g. the side yard is too tight for a photo</Q>), then <B>Send</B>.
+              </li>
+              <li>
+                We measure it from that claim&apos;s outside photos, tapes and note, and see nothing else. Meanwhile the Exterior says{" "}
+                <Q>Sent to the Scrivn team – it&apos;ll show here when it&apos;s measured.</Q> Photos still on the phone go when there&apos;s
+                signal. <B>Withdraw</B> takes it back.
+              </li>
+              <li>
+                When it&apos;s done you get an email, and the Exterior says <Q>Measured –</Q> <B>Use it</B>. Use it puts our
+                measurements in. Your photos and tapes stay.
+              </li>
+            </ul>
+            <div className="sg-cards sg-cards-2">
+              <div className="sg-card">
+                <h3>A shed or a garage</h3>
+                <p>
+                  <B>+ Add building</B> at the top of the Exterior, then <B>Shed</B>, <B>Detached garage</B> or <B>Workshop</B> (or type a
+                  name). For a simple building, <B>Quick box</B>: its two lengths, the wall height, the roof, the siding, its doors and
+                  windows. Or <B>From photos</B>, like the house. Each building gets its own pages in the report.
                 </p>
               </div>
-              <figure className="sg-fig sg-phonefig">
-                <RoofScreen />
-                <figcaption>The Roof screen: Scrivn&apos;s roof plan, where its sizes came from, and what you can change.</figcaption>
-              </figure>
+              <div className="sg-card">
+                <h3>Townhouses and semis</h3>
+                <p>
+                  Pick the home type first. Shared walls show grey on the plan, marked <em>shared</em>: they aren&apos;t photographed or
+                  counted. Tap a wall to change it. Then <B>Where this home ends</B>: on a front or back photo, tap where this home ends
+                  at the ground, often a downspout, a trim line or where the colour changes. A middle unit: tape the depth once, front
+                  wall to back.
+                </p>
+              </div>
             </div>
-            <h3 className="sg-h3">The exterior report, and Send</h3>
-            <ul className="sg-list">
-              <li>
-                <B>Share</B> on an exterior capture makes the <strong>exterior report</strong>:{" "}
-                <Q>A PDF of the outside of the house: every elevation to scale, the footprint and roof plan, the side photos, and every measurement in tables</Q>.
-                Add a job name or address if you like. It is saved to <em>Download/Scrivn Scan</em> and the share sheet opens. No
-                signal needed.
-              </li>
-              <li>
-                In it: a cover with the house in a few lines, where every number came from, what is assumed and what to check; the
-                footprint with every wall; the roof plan with every line&apos;s length and each slope&apos;s pitch and area; each side
-                face-on with every dimension under it; the side photos, two to a page, with what was read off each; and tables of the
-                walls, openings, roof lines, squares, soffit, fascia, eavestrough, corners and trim. The roof is the one on the Roof
-                screen. Each drawing has its scale and a 10 ft bar, and prints to scale at 100%.
-              </li>
-              <li>
-                <B>Send</B> puts the exterior into a claim with its photos and the roof as you left it, no storey asked:{" "}
-                <Q>Sent to Scrivn: the exterior (4 sides) as a new claim</Q>. No photo is read twice.
-              </li>
-            </ul>
-            <h3 className="sg-h3">What Scrivn does with it</h3>
-            <ul className="sg-list">
-              <li>
-                The exterior opens in the claim&apos;s sketch, in <strong>Exterior</strong>: the plan and roof first, then each side
-                face-on and to scale, with its cladding areas before and after openings, trim and corners.
-              </li>
-              <li>
-                <strong>The roof</strong> is built from the footprint. With no pitch typed, read off a gable&apos;s photo or tapped up
-                to a gable&apos;s peak, it is drawn at an <strong>assumed 4/12</strong>, marked assumed on the plan, the scope and the
-                documents until you change it. Gable or hip at each end, porches, cross gables and lower roofs are set there, and every roof line has its
-                length. It is a roof estimate from the footprint and pitch, not an aerial roof report. A roof finished on the phone
-                comes in as the Roof screen showed it.
-              </li>
-              <li>
-                Each side&apos;s photo is squared up behind its elevation. <strong>AI trace</strong> reads the cladding, windows and
-                doors off it for you to tick and put on the side, and the roof&apos;s edge: a gable&apos;s pitch from its two slopes,
-                how far the rake and the eave stand out, and whether the roof is a gable or a hip there. Each is its own tick; what you
-                tick fills the roof <strong>from photos</strong>, and anything you type wins over it.
-              </li>
-              <li>
-                <strong>Sizes</strong>, on Plan &amp; roof, says what the sizes are from: the phone&apos;s own measure, the tape, or a
-                garage door or door of a standard size that AI trace found (tick it there as a check). Two of them more than 3% apart
-                are flagged, and a tap takes the sizes from another; a tape can be typed there too.
-              </li>
-              <li>There is a 3D view of the house, siding and roof.</li>
-              <li>
-                The claim makes the same exterior report: <strong>Exterior report (PDF)</strong>, beside the drying log.
-              </li>
-              <li>
-                No Scan? The outside can be drawn by hand in Scrivn, side by side or corner by corner. Scrivn&apos;s Help shows how.
-              </li>
-            </ul>
           </Section>
 
           <Section id="account" title="Your account and free scans">
@@ -1096,12 +918,11 @@ export default async function ScanGuidePage() {
                 <h3 className="sg-h3">Free scans</h3>
                 <ul className="sg-list">
                   <li>
-                    <strong>A scan is one capture</strong>: everything from Start to the next Start, all its rooms, levels and exterior.
+                    <strong>A scan is one capture</strong>: everything from Start to the next Start, all its rooms and levels.
                   </li>
                   <li>
-                    It counts <strong>once</strong>, the first time it leaves the phone: sent to Scrivn, shared, or its photos read by{" "}
-                    <B>Finish exterior</B>. Sending it again, or sharing it after sending it, doesn&apos;t count again. A phone with no
-                    account isn&apos;t counted at all.
+                    It counts <strong>once</strong>, the first time it leaves the phone: sent to Scrivn or shared. Sending it again, or
+                    sharing it after sending it, doesn&apos;t count again. A phone with no account isn&apos;t counted at all.
                   </li>
                   <li>
                     A Scrivn account with no plan has <strong>3 a month</strong>. Any Scrivn plan, or the Scan plan, is unlimited.
@@ -1136,8 +957,8 @@ export default async function ScanGuidePage() {
                   </li>
                   <li>
                     The rooms go over with their names, ceilings, doors (and their kind), windows, cabinets and fixtures; the wet lines,
-                    readings and painted floors and ceilings; every level as its own storey; the exterior, its side photos and its roof;
-                    and the walk&apos;s 360° photos for a walk-through capture.
+                    readings and painted floors and ceilings; every level as its own storey; and the walk&apos;s 360° photos for a
+                    walk-through capture.
                   </li>
                   <li>
                     <B>Open in Scrivn</B> takes you to the claim&apos;s sketch. Scrivn may offer to fill in closets and spaces between rooms
@@ -1161,15 +982,11 @@ export default async function ScanGuidePage() {
                 <h3>In Scan</h3>
                 <ul className="sg-list">
                   <li>
-                    <strong>Measuring needs no signal.</strong> Rooms, levels, moisture, the exterior, 360s, Review and the tape all work
-                    on the phone alone.
+                    <strong>Measuring needs no signal.</strong> Rooms, levels, moisture, 360s, Review and the tape all work on the phone
+                    alone.
                   </li>
                   <li>
-                    <B>Share</B> works too, the exterior report included. Signed in, it is counted when the signal is back.
-                  </li>
-                  <li>
-                    <B>Finish exterior</B> needs signal to read the photos. Without it the roof stays as it is (4/12 assumed where nothing
-                    measured it); press <B>Finish</B> on the Roof screen when the signal is back.
+                    <B>Share</B> works too. Signed in, it is counted when the signal is back.
                   </li>
                   <li>
                     <B>Send</B> lists the claims the phone last saw (<Q>Send to which claim? (no signal – the list from …)</Q>), or{" "}
@@ -1196,6 +1013,10 @@ export default async function ScanGuidePage() {
                   <li>
                     The sketch, the moisture map, the drying log and the exterior all work offline. Photos are kept on the device and
                     upload by themselves.
+                  </li>
+                  <li>
+                    <B>From photos</B> measures on the device, so the outside needs no signal either. <B>Send to Scrivn team to measure</B>{" "}
+                    waits for signal and goes by itself.
                   </li>
                   <li>
                     Reading the walkthrough, generating the documents and AI trace wait for signal, then run by themselves. Reading a
@@ -1276,17 +1097,10 @@ export default async function ScanGuidePage() {
                 </p>
               </div>
               <div className="sg-tip">
-                <h3>Outside: the opening, not the frame</h3>
+                <h3>Outside: the corners at 45°</h3>
                 <p>
-                  Windows tapped on the frame or the glass came in 4 to 6 in short. Aim at the corners of the opening in the stucco or
-                  siding.
-                </p>
-              </div>
-              <div className="sg-tip">
-                <h3>Outside: one photo and one tape</h3>
-                <p>
-                  Take a photo of every side with the whole side in it, and tape one side corner to corner. The tape sets the scale of
-                  every side, and the photos let Scrivn check each one and read the roof.
+                  The photo of each outside corner is what ties one wall to the next. Skip them and the walls come out loose. Then tape
+                  the back wall, and any wall Scrivn flags (<See id="exterior" />).
                 </p>
               </div>
             </div>
@@ -1354,10 +1168,8 @@ export default async function ScanGuidePage() {
                 <strong>A wet line can&apos;t be changed after its box is closed.</strong> <B>Undo</B> it and tap it again.
               </li>
               <li>
-                <strong>Finish exterior is new.</strong> If its roof is off, tell us the side and what the pitch or overhang really is.
-                The phone can&apos;t set aside one photo&apos;s read: when two disagree (two eave overhangs far apart, say), the Roof
-                screen says so under <Q>Check</Q> and draws the roof between them. Set the odd one aside, or type the overhang, in
-                Scrivn.
+                <strong>The outside from photos is new.</strong> If a wall comes out wrong, tell us which and what your tape says, or
+                send it to the Scrivn team to measure.
               </li>
             </ul>
             <p>

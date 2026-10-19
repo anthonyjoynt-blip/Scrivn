@@ -15,8 +15,9 @@ import { FaqAccordion, type FaqEntry } from "@/components/marketing/FaqAccordion
  *
  * The Scrivn Scan section (2026-10-14) is not from the mockup: the questions a tester or a buyer
  * asks about the phone app, each answered from the code — offline mode (lib/deviceClaims.ts, Scan's
- * SendQueue), the exterior (Scan's Exterior.kt, lib/exterior.ts's ASSUMED_PITCH; Finish exterior and
- * the exterior report since 2026-10-15, docs/exterior-report.md), the free scans
+ * SendQueue), the exterior (since 2026-10-19 photos only, in Scrivn: components/sketch/PhotoRoute.tsx,
+ * Send to Scrivn team in TeamMeasure.tsx, other buildings in lib/buildings.ts; lib/exterior.ts's
+ * ASSUMED_PITCH), the free scans
  * (lib/scanAllowanceRules.ts), deleting (lib/accountDeletion.ts) — and where the data lives word for
  * word from PRIVACY.md. Keep them true when any of those change.
  */
@@ -28,7 +29,7 @@ export const metadata = {
 const GENERAL: FaqEntry[] = [
   {
     q: "What is Scrivn?",
-    a: "Scrivn takes the notes or dictation from a property walkthrough and turns them into a complete, formatted scope and inspection report — asking about anything missing before generating the final documents. Its phone app, Scrivn Scan, measures the rooms and the outside of the house for the sketch.",
+    a: "Scrivn takes the notes or dictation from a property walkthrough and turns them into a complete, formatted scope and inspection report — asking about anything missing before generating the final documents. Its phone app, Scrivn Scan, measures the rooms for the sketch, and Scrivn measures the outside of the house from photos.",
   },
   {
     q: "What types of losses does Scrivn support?",
@@ -70,16 +71,33 @@ const SCAN: FaqEntry[] = [
     q: "Can I measure the outside of a house?",
     a: (
       <>
-        Yes. Scrivn Scan&rsquo;s Exterior sketch measures the outside one side at a time: each wall&rsquo;s length and heights, the cladding on
-        it with its area, and its windows and doors, with a photo of each side. You tap the walls, not the roof: Finish exterior reads the roof
-        off the photos, and Share makes the exterior report. In Scrivn you can also draw the outside by hand from a few taped lengths. The{" "}
-        <Link href="/scan-guide#exterior">Scrivn Scan guide</Link> shows how.
+        Yes, in Scrivn, from photos. Take a photo of each wall straight on and each outside corner at 45&deg;, and tape a wall. Then in the
+        claim&rsquo;s sketch, Exterior, then From photos: tap the corners on the photos, and Scrivn works out every wall&rsquo;s length, the roof
+        and the exterior report. The <Link href="/scan-guide#exterior">guide</Link> shows how.
       </>
     ),
   },
   {
+    q: "Do I need Scrivn Scan for the outside?",
+    a: "No, just the phone's camera. The outside is measured in Scrivn, which runs in the browser on any phone, iPhone included. Scan is for the rooms inside.",
+  },
+  {
+    // lib/photoRoute.ts: each side's ± (lengthPlusMinusPct), and tapeAdvice for any side over 5%. The 2-4% is the owner's house, 10-16.
+    q: "How accurate is the outside?",
+    a: "About ±2–4% on walls the photos see well. Scrivn shows each wall's ± and flags the rest for a tape: one tape along that wall fixes it.",
+  },
+  {
+    // PRIVACY.md, "Sending an exterior to the Scrivn team", said plainly.
+    q: "What does Send to Scrivn team do with my photos?",
+    a: "Our staff use them to measure the outside for you. They see that claim's exterior photos, the tapes and other inputs you entered with them, and your note, and nothing else of the claim. The measurements come back to the claim, where you choose whether to use them. Our working copies are deleted once the measurements are returned, or within 30 days. The request itself, with the measurements returned, is kept with the claim and deleted with it.",
+  },
+  {
+    q: "Can I add a shed or garage?",
+    a: "Yes. + Add building in the Exterior: a shed, a detached garage or a workshop, measured from photos or as a quick box (two lengths, the wall height, the roof). Each is roofed like the house, with its own lines on the scope and its own pages in the exterior report.",
+  },
+  {
     q: "Does Scrivn make roof reports?",
-    a: `It makes a roof estimate, not an aerial roof report. From the house's footprint and the pitch, Scrivn works out the roof area in squares (no waste added), the ridge, hips, valleys, eaves, rakes and flashing, and the eavestrough. Nothing is measured from satellite or drone images. The pitch, the overhangs and gable or hip at each end are read off the side photos (AI trace in Scrivn, or Finish exterior in Scrivn Scan), or typed. Until something gives the pitch, the roof is drawn at an assumed ${ASSUMED_PITCH}/12, and it says so on the scope and the documents. If you have a roof measurement report, upload it on the exterior sketch and Scrivn reads its totals for you to accept. The exterior report, a PDF from the claim or from Scrivn Scan's Share, has every elevation, the roof plan, the side photos and every measurement.`,
+    a: `It makes a roof estimate, not an aerial roof report. From the house's footprint and the pitch, Scrivn works out the roof area in squares (no waste added), the ridge, hips, valleys, eaves, rakes and flashing, and the eavestrough. Nothing is measured from satellite or drone images. Gable or hip at each end, porches and lower roofs are set with a few taps on the roof check. Until the pitch is typed, the roof is drawn at an assumed ${ASSUMED_PITCH}/12, and it says so on the scope and the documents. If you have a roof measurement report, upload it on the exterior sketch and Scrivn reads its totals for you to accept. The exterior report, a PDF from the claim, has every elevation, the roof plan, the side photos and every measurement.`,
   },
   {
     q: "Can Scrivn export an ESX file for Xactimate?",
@@ -88,7 +106,7 @@ const SCAN: FaqEntry[] = [
   {
     // lib/scanAllowanceRules.ts: counted per capture, once, when it first leaves the phone; refused only once BILLING_ENABLED.
     q: "How many free scans do I get?",
-    a: `With a Scrivn account and no plan, ${SCAN_PLAN.freeScansPerMonth} scans a month; any Scrivn plan, or the Scan plan, has unlimited scans. A scan is one capture — all its rooms, levels and exterior — counted once, the first time it's sent to Scrivn, shared, or its roof read off the photos. A phone with no account isn't counted. While Scrivn Scan is in testing, scans are counted but none are refused.`,
+    a: `With a Scrivn account and no plan, ${SCAN_PLAN.freeScansPerMonth} scans a month; any Scrivn plan, or the Scan plan, has unlimited scans. A scan is one capture — all its rooms and levels — counted once, the first time it's sent to Scrivn or shared. A phone with no account isn't counted. While Scrivn Scan is in testing, scans are counted but none are refused.`,
   },
 ];
 

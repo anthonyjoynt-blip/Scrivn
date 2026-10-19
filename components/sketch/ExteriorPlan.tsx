@@ -134,7 +134,7 @@ const lengthOf = (text: string): number | null => {
 
 export function ExteriorStart({ readOnly, onStart }: { readOnly: boolean; onStart: (exterior: Exterior) => void }) {
   // "the house", or the other building being measured (2026-10-16): "the shed".
-  const { the, isHouse } = useExteriorSubject();
+  const { the } = useExteriorSubject();
   const [eave, setEave] = useState<number | null>(DEFAULT_EAVE_FEET);
   const [front, setFront] = useState("");
   const [shape, setShape] = useState<"rectangle" | "L" | null>(null);
@@ -234,8 +234,6 @@ export function ExteriorStart({ readOnly, onStart }: { readOnly: boolean; onStar
         </div>
         <FeetField id="ext-start-eave" label="Eave height, from grade" value={eave} onCommit={setEave} note="Every side starts at this; change any side after." />
       </div>
-      {/* A scan always lands on the house (2026-10-16): on another building, nothing to say about one. */}
-      {isHouse && <p className="field-note">A Scrivn Scan exterior comes in from the phone, or through Import scan on the Sketch view.</p>}
     </div>
   );
 }

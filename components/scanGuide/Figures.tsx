@@ -2,7 +2,8 @@
  * The tester guide's own drawings (/scan-guide): the screens of Scrivn Scan, drawn rather than
  * photographed so nobody's house is in them and so they stay true when the camera image would not.
  * Every label in them is the app's own word (res/values/strings.xml). The how-to drawings the app
- * itself shows are in public/scan-guide (scripts/howto-svgs.py).
+ * itself shows are in public/scan-guide (scripts/howto-svgs.py). The outside of the house is Scrivn's
+ * own, from photos (2026-10-19): PhotoShots, CornerTapes and MeasureCard use PhotoRoute.tsx's words.
  *
  * Static SVG, no state: each figure is described in words by the guide around it, so the drawings
  * are aria-hidden and the text carries the meaning.
@@ -409,281 +410,188 @@ export function ClosetStep() {
   );
 }
 
-/** A numbered tap, as the guide marks the order of taps. */
-function TapMark({ x, y, label, colour = NAVY }: { x: number; y: number; label: string; colour?: string }) {
-  return (
-    <g>
-      <circle cx={x} cy={y} r={9} fill={colour} stroke={PAPER} strokeWidth={1.5} />
-      <text x={x} y={y + 3.8} textAnchor="middle" fontSize={10.5} fontWeight={700} fill={colour === AMBER ? NAVY_DARK : PAPER}>
-        {label}
-      </text>
-    </g>
-  );
+/** A phone held sideways at (x, y), its back to (tx, ty): a small landscape phone, long side across the view. */
+function Cam({ x, y, tx, ty, colour }: { x: number; y: number; tx: number; ty: number; colour: string }) {
+  const turn = (Math.atan2(ty - y, tx - x) * 180) / Math.PI + 90;
+  return <rect x={x - 8} y={y - 4.5} width={16} height={9} rx={2} fill={colour} stroke={PAPER} strokeWidth={1.5} transform={`rotate(${turn.toFixed(1)} ${x} ${y})`} />;
+}
+
+/** What a photo taken from (x, y) takes in: a cone to two points on the walls. */
+function Cone({ x, y, a, b, colour, strong = false }: { x: number; y: number; a: [number, number]; b: [number, number]; colour: string; strong?: boolean }) {
+  return <polygon points={`${x},${y} ${a[0]},${a[1]} ${b[0]},${b[1]}`} fill={colour} fillOpacity={strong ? 0.28 : 0.12} stroke={colour} strokeOpacity={0.7} strokeWidth={1} />;
 }
 
 /**
- * One side of the house face-on, as Exterior sketch taps it (Exterior.kt): its two bottom corners first, at the top of
- * the parging and read by depth from 1-3 m; then, aimed, round the stucco and back to the first corner to close it; the
- * parging under it sharing its corners; a window and a door at two opposite corners of their openings. Under it, the
- * exterior capture's row of chips. The roof edge is drawn but never tapped: Scan measures the siding only.
+ * Where to stand for the photo route (Scrivn's "From photos", 2026-10-16; the shot list is lib/photoRouteCoverage.ts):
+ * the house from above, the street at the bottom. Each wall straight on with both its corners in, each outside corner at
+ * 45 degrees with both walls in, and a side yard too tight to step back in done as overlapping photos along it.
  */
-export function ExteriorSide() {
+export function PhotoShots() {
+  // The house: x 110-250, y 96-186. A fence 40 px off its left wall: the tight side.
+  const straight: { at: [number, number]; a: [number, number]; b: [number, number] }[] = [
+    { at: [180, 262], a: [110, 186], b: [250, 186] },
+    { at: [322, 141], a: [250, 96], b: [250, 186] },
+    { at: [180, 24], a: [110, 96], b: [250, 96] },
+    { at: [84, 124], a: [110, 96], b: [110, 152] },
+    { at: [84, 158], a: [110, 130], b: [110, 186] },
+  ];
+  const corners: { at: [number, number]; a: [number, number]; b: [number, number] }[] = [
+    { at: [296, 232], a: [250, 140], b: [204, 186] },
+    { at: [64, 232], a: [110, 140], b: [156, 186] },
+    { at: [296, 50], a: [250, 142], b: [204, 96] },
+    { at: [64, 50], a: [110, 142], b: [156, 96] },
+  ];
   return (
-    <svg viewBox="0 0 360 330" aria-hidden="true" className="sg-svg">
-      <rect x={0} y={0} width={360} height={330} rx={10} fill="#f7f9fb" />
-      <polyline points="22,106 180,36 338,106" fill="none" stroke={GREY} strokeWidth={3} strokeLinecap="round" strokeLinejoin="round" />
-      <polygon points="40,206 320,206 320,102 180,46 40,102" fill="#ece6da" stroke={NAVY} strokeWidth={2.5} strokeLinejoin="round" />
-      <polygon points="40,206 320,206 320,228 40,228" fill="#cbc5ba" stroke={NAVY} strokeWidth={2} />
-      <line x1={8} y1={228} x2={352} y2={228} stroke="#8d8577" strokeWidth={1.5} />
-      <text x={180} y={98} textAnchor="middle" fontSize={13} fontWeight={700} fill={MUTED}>
-        Stucco
-      </text>
-      <text x={300} y={221} textAnchor="end" fontSize={10.5} fontWeight={600} fill={INK}>
-        Parging
-      </text>
-      {/* a window and a door: their openings in the stucco */}
-      <rect x={72} y={118} width={56} height={56} fill="#dfe8f1" stroke={NAVY} strokeWidth={1.5} />
-      <rect x={226} y={128} width={40} height={78} fill="#e8eef4" stroke={NAVY} strokeWidth={1.5} />
-      <TapMark x={72} y={174} label="a" colour={AMBER} />
-      <TapMark x={128} y={118} label="b" colour={AMBER} />
-      <TapMark x={226} y={206} label="a" colour={AMBER} />
-      <TapMark x={266} y={128} label="b" colour={AMBER} />
-      {/* the stucco, round: 1 and 2 fix the wall, 3-5 are aimed, then 1 again closes it */}
-      <path d="M48,108 C70,150 70,170 48,196" fill="none" stroke={NAVY} strokeWidth={1.2} strokeDasharray="3 3" />
-      <TapMark x={40} y={206} label="1" />
-      <TapMark x={320} y={206} label="2" />
-      <TapMark x={320} y={102} label="3" />
-      <TapMark x={180} y={46} label="4" />
-      <TapMark x={40} y={102} label="5" />
-      <text x={14} y={250} fontSize={10.5} fill={INK}>
-        1, 2: bottom corners, 1–3 m away · 3–5: aimed, then 1 again to close
-      </text>
-      <text x={14} y={265} fontSize={10.5} fill={INK}>
-        a, b: two opposite corners of a window&apos;s or a door&apos;s opening
-      </text>
-      <rect x={0} y={276} width={360} height={54} rx={10} fill="rgba(18,40,63,0.92)" />
-      <Chip x={12} y={290} w={54} label="Stucco" lit />
-      <Chip x={70} y={290} w={50} label="Window" />
-      <Chip x={124} y={290} w={40} label="Door" />
-      <Chip x={168} y={290} w={46} label="Photo" />
-      <Chip x={276} y={290} w={72} label="Next side" />
-    </svg>
-  );
-}
-
-/**
- * The lap round the house, seen from above with the front at the bottom (Exterior.footprint): each side taps its own
- * two bottom corners, and a house corner is where two sides' bottom lines cross - so a deck that hides a corner does
- * not matter, the rear's taps stop at the deck and the crossing still finds the corner.
- */
-export function ExteriorRound() {
-  const stretch = (x1: number, y1: number, x2: number, y2: number) => (
-    <g>
-      <line x1={x1} y1={y1} x2={x2} y2={y2} stroke={NAVY} strokeWidth={5} strokeLinecap="round" />
-      <circle cx={x1} cy={y1} r={4.5} fill={NAVY} />
-      <circle cx={x2} cy={y2} r={4.5} fill={NAVY} />
-    </g>
-  );
-  return (
-    <svg viewBox="0 0 360 260" aria-hidden="true" className="sg-svg">
-      <rect x={0} y={0} width={360} height={260} rx={10} fill="#f7f9fb" />
-      {/* the deck at the rear right, hiding that corner */}
-      <rect x={196} y={20} width={84} height={42} fill="#efe4d0" stroke="#c9b48e" strokeWidth={1.5} />
-      <text x={238} y={36} textAnchor="middle" fontSize={10.5} fill={MUTED}>
-        deck
-      </text>
-      {/* where the lines are carried on to cross */}
-      <path d="M80,62 L280,62 L280,182 L80,182 Z" fill="none" stroke={AMBER} strokeWidth={1.5} strokeDasharray="4 4" />
-      {stretch(84, 182, 276, 182)}
-      {stretch(280, 178, 280, 70)}
-      {stretch(84, 62, 192, 62)}
-      {stretch(80, 66, 80, 178)}
-      {[
-        [80, 62],
-        [280, 62],
-        [280, 182],
-        [80, 182],
-      ].map(([x, y]) => (
-        <circle key={`${x},${y}`} cx={x} cy={y} r={6} fill="none" stroke={AMBER} strokeWidth={2.5} />
+    <svg viewBox="0 0 360 340" aria-hidden="true" className="sg-svg">
+      <rect x={0} y={0} width={360} height={340} rx={10} fill="#f7f9fb" />
+      {corners.map((c) => (
+        <Cone key={`k${c.at}`} x={c.at[0]} y={c.at[1]} a={c.a} b={c.b} colour={AMBER} strong />
       ))}
-      <text x={180} y={204} textAnchor="middle" fontSize={12} fontWeight={700} fill={NAVY}>
-        1 Front
+      {straight.map((c) => (
+        <Cone key={`s${c.at}`} x={c.at[0]} y={c.at[1]} a={c.a} b={c.b} colour={NAVY} />
+      ))}
+      <line x1={70} y1={90} x2={70} y2={192} stroke="#a8875a" strokeWidth={2.5} strokeDasharray="5 4" />
+      <text x={60} y={141} textAnchor="middle" fontSize={10} fill={MUTED} transform="rotate(-90 60 141)">
+        fence
       </text>
-      <text x={290} y={126} fontSize={12} fontWeight={700} fill={NAVY}>
-        2 Right
+      <rect x={110} y={96} width={140} height={90} fill="#ece6da" stroke={NAVY} strokeWidth={2.5} />
+      <text x={180} y={138} textAnchor="middle" fontSize={11} fontWeight={700} fill={NAVY}>
+        the house, from above
       </text>
-      <text x={138} y={52} textAnchor="middle" fontSize={12} fontWeight={700} fill={NAVY}>
-        3 Rear
+      <text x={180} y={154} textAnchor="middle" fontSize={10} fill={MUTED}>
+        street at the bottom
       </text>
-      <text x={70} y={126} textAnchor="end" fontSize={12} fontWeight={700} fill={NAVY}>
-        4 Left
+      {corners.map((c) => (
+        <Cam key={`kc${c.at}`} x={c.at[0]} y={c.at[1]} tx={(c.a[0] + c.b[0]) / 2} ty={(c.a[1] + c.b[1]) / 2} colour={AMBER} />
+      ))}
+      {straight.map((c) => (
+        <Cam key={`sc${c.at}`} x={c.at[0]} y={c.at[1]} tx={(c.a[0] + c.b[0]) / 2} ty={(c.a[1] + c.b[1]) / 2} colour={NAVY} />
+      ))}
+      {/* the legend */}
+      <rect x={14} y={286} width={14} height={9} rx={2} fill={NAVY} />
+      <text x={36} y={294} fontSize={11} fill={INK}>
+        Each wall straight on, both corners in
       </text>
-      <text x={180} y={128} textAnchor="middle" fontSize={11} fill={MUTED}>
-        seen from above
+      <rect x={14} y={303} width={14} height={9} rx={2} fill={AMBER} />
+      <text x={36} y={311} fontSize={11} fill={INK}>
+        Each outside corner at 45°, both walls in
       </text>
-      <line x1={14} y1={226} x2={34} y2={226} stroke={NAVY} strokeWidth={5} strokeLinecap="round" />
-      <text x={42} y={230} fontSize={10.5} fill={INK}>
-        each side&apos;s two bottom corners, as tapped
-      </text>
-      <circle cx={24} cy={245} r={5} fill="none" stroke={AMBER} strokeWidth={2.5} />
-      <text x={42} y={249} fontSize={10.5} fill={INK}>
-        a house corner: where two sides&apos; lines cross
+      <rect x={14} y={320} width={14} height={9} rx={2} fill={NAVY} />
+      <text x={36} y={328} fontSize={11} fill={INK}>
+        A tight side yard: 2 or 3 photos, overlapping
       </text>
     </svg>
   );
 }
 
 /**
- * The photo route's capture screen on the lap (Scan 2026-10-15, GuidedExterior.kt): a wall with its two bottom corners tapped,
- * and the card over the chip bar with the next step - which side, the step in big words, the small print - then Photo (lit, a photo
- * is the step) and Add by hand, and Undo · ? · Next side. The words are the app's own.
+ * A photo on the photo route (components/sketch/PhotoRoute.tsx, "3. The corners, and the tapes"): the house's corners
+ * tapped where they meet the ground, numbered, and a tape dragged across the garage door, end to end. Under it, what a tap
+ * on the photo does: Tap corners, Draw a tape, A wall's length.
  */
-export function PhotoRouteScreen({ step = "lap" }: { step?: "lap" | "sizes" }) {
-  const sizes = step === "sizes";
+export function CornerTapes() {
   return (
-    <svg viewBox="0 0 300 600" aria-hidden="true" className="sg-svg sg-phone">
+    <svg viewBox="0 0 360 252" aria-hidden="true" className="sg-svg">
       <defs>
-        <linearGradient id="sg-sky" x1="0" y1="0" x2="0" y2="1">
+        <linearGradient id="sg-photo-sky" x1="0" y1="0" x2="0" y2="1">
           <stop offset="0" stopColor="#cfe0ee" />
           <stop offset="1" stopColor="#eef3f7" />
         </linearGradient>
       </defs>
-      <rect x={8} y={8} width={284} height={584} rx={38} fill={NAVY_DARK} />
-      <rect x={20} y={30} width={260} height={540} rx={26} fill="url(#sg-sky)" />
-      {/* the wall the camera sees: a gable, a window, a door, the ground */}
-      <polygon points="40,150 150,92 260,150" fill="#8d7f6c" />
-      <polygon points="52,150 248,150 248,286 52,286" fill="#ece6da" stroke="#b9ad9b" strokeWidth={1} />
-      <rect x={76} y={176} width={44} height={42} fill="#dfe8f1" stroke="#8d8577" strokeWidth={1.2} />
-      <rect x={186} y={214} width={30} height={72} fill="#e8eef4" stroke="#8d8577" strokeWidth={1.2} />
-      <rect x={20} y={286} width={260} height={50} fill="#9fb08a" />
-      {/* its two bottom corners, tapped */}
-      <circle cx={52} cy={286} r={6} fill={GREEN} stroke={PAPER} strokeWidth={2} />
-      <circle cx={248} cy={286} r={6} fill={GREEN} stroke={PAPER} strokeWidth={2} />
-      {/* Stop, the mini-map */}
-      <rect x={32} y={44} width={58} height={30} rx={15} fill="rgba(18,40,63,0.85)" />
-      <text x={61} y={64} textAnchor="middle" fontSize={12} fontWeight={600} fill={PAPER}>
-        Stop
+      <rect x={10} y={10} width={340} height={191} rx={8} fill="url(#sg-photo-sky)" />
+      {/* the front of a house, straight on: a hip roof, a window, a door, a garage door */}
+      <polygon points="48,104 312,104 262,60 98,60" fill="#7d7266" />
+      <rect x={60} y={104} width={240} height={68} fill="#ece6da" stroke="#b9ad9b" strokeWidth={1} />
+      <rect x={82} y={118} width={50} height={34} fill="#dfe8f1" stroke="#8d8577" strokeWidth={1.2} />
+      <rect x={146} y={124} width={22} height={48} fill="#e8eef4" stroke="#8d8577" strokeWidth={1.2} />
+      <rect x={186} y={122} width={92} height={50} fill="#f4f1ea" stroke="#8d8577" strokeWidth={1.2} />
+      {[132, 142, 152, 162].map((y) => (
+        <line key={y} x1={186} y1={y} x2={278} y2={y} stroke="#cfc7b8" strokeWidth={1} />
+      ))}
+      <path d="M10,172 L350,172 L350,193 Q350,201 342,201 L18,201 Q10,201 10,193 Z" fill="#9fb08a" />
+      {/* the tape, across the garage door */}
+      <line x1={186} y1={166} x2={278} y2={166} stroke={AMBER} strokeWidth={3.5} />
+      <line x1={186} y1={159} x2={186} y2={173} stroke={AMBER} strokeWidth={3} />
+      <line x1={278} y1={159} x2={278} y2={173} stroke={AMBER} strokeWidth={3} />
+      <rect x={186} y={86} width={92} height={22} rx={11} fill={PAPER} stroke={AMBER} strokeWidth={2} />
+      <text x={232} y={101} textAnchor="middle" fontSize={11} fontWeight={700} fill={NAVY_DARK}>
+        Garage door 9′
       </text>
-      <rect x={196} y={44} width={70} height={70} rx={8} fill={PAPER} stroke={NAVY} strokeWidth={1} />
-      <line x1={210} y1={96} x2={252} y2={96} stroke={NAVY} strokeWidth={2.4} strokeLinecap="round" />
-      {/* the ring, green on tracking alone while a corner is the step */}
-      {!sizes && <circle cx={150} cy={214} r={20} fill="none" stroke={GREEN} strokeWidth={4.5} />}
-      {sizes ? (
-        <>
-          {/* the card once the lap closes: the sizes, before the photos - a tape, the garage door, or skip */}
-          <rect x={30} y={296} width={240} height={180} rx={16} fill="rgba(11,13,16,0.82)" />
-          <text x={44} y={314} fontSize={10} fontWeight={700} fill={GREEN}>
-            Sizes
+      <line x1={232} y1={108} x2={232} y2={159} stroke={AMBER} strokeWidth={1.2} strokeDasharray="3 3" />
+      {/* the two corners, tapped where they meet the ground, numbered */}
+      {(
+        [
+          [60, 172, "1"],
+          [300, 172, "2"],
+        ] as const
+      ).map(([x, y, n]) => (
+        <g key={n}>
+          <circle cx={x} cy={y} r={9} fill={NAVY} stroke={PAPER} strokeWidth={2} />
+          <text x={x} y={y + 4} textAnchor="middle" fontSize={11} fontWeight={700} fill={PAPER}>
+            {n}
           </text>
-          {["Tape one wall, or type the", "garage door\u2019s width"].map((t, i) => (
-            <text key={t} x={44} y={336 + i * 18} fontSize={14} fontWeight={700} fill={PAPER}>
-              {t}
-            </text>
-          ))}
-          {["Either one scales the whole house: the", "corners and every photo read. Easy to", "tape alone: Left 2 (6\u20322\u2033)."].map((t, i) => (
-            <text key={t} x={44} y={374 + i * 13} fontSize={9.5} fill="#c9d1d9">
-              {t}
-            </text>
-          ))}
-          <Chip x={44} y={412} w={104} label="Tape a wall" lit />
-          <Chip x={152} y={412} w={104} label="Garage door width" size={9.5} />
-          <Chip x={44} y={444} w={212} label="Skip – no tape" />
-        </>
-      ) : (
-        <>
-          {/* the card on the lap: the wall's two corners in, on round the house */}
-          <rect x={30} y={318} width={240} height={158} rx={16} fill="rgba(11,13,16,0.82)" />
-          <text x={44} y={336} fontSize={10} fontWeight={700} fill={GREEN}>
-            Side 1 of the house
-          </text>
-          {["Next side: walk round", "the corner"].map((t, i) => (
-            <text key={t} x={44} y={358 + i * 18} fontSize={14} fontWeight={700} fill={PAPER}>
-              {t}
-            </text>
-          ))}
-          {["Then tap its bottom-left corner. No photos", "yet – they come after the lap."].map((t, i) => (
-            <text key={t} x={44} y={398 + i * 13} fontSize={9.5} fill="#c9d1d9">
-              {t}
-            </text>
-          ))}
-          <Chip x={44} y={434} w={104} label="Next side" lit />
-          <Chip x={152} y={434} w={104} label="Photos" />
-        </>
-      )}
-      {/* the chip bar: Photos and Add by hand, then Undo · ? · Next side */}
-      <rect x={20} y={482} width={260} height={88} fill="rgba(18,40,63,0.92)" />
-      <Chip x={30} y={490} w={116} label="Photos" />
-      <Chip x={154} y={490} w={116} label="Add by hand" />
-      <Chip x={30} y={528} w={48} label="Undo" />
-      <Chip x={135} y={528} w={30} label="?" />
-      <Chip x={198} y={528} w={72} label="Next side" />
+        </g>
+      ))}
+      <Btn x={10} y={216} w={98} h={28} label="Tap corners" on />
+      <Btn x={114} y={216} w={98} h={28} label="Draw a tape" />
+      <Btn x={218} y={216} w={132} h={28} label="A wall's length" />
     </svg>
   );
 }
 
-/** An end's pill on Scrivn's roof plan (exteriorDrawings END_INK): a gable in its rakes' colour, a hip in its hips'. */
-function EndPill({ x, y, kind }: { x: number; y: number; kind: "gable" | "hip" }) {
-  const ink = kind === "hip" ? { stroke: "#6d28d9", fill: "#f5f3ff" } : { stroke: "#b45309", fill: "#fff7ed" };
-  const label = kind === "hip" ? "Hip" : "Gable";
-  const w = kind === "hip" ? 30 : 42;
-  return (
-    <g>
-      <rect x={x - w / 2} y={y - 10} width={w} height={20} rx={10} fill={ink.fill} stroke={ink.stroke} strokeWidth={1.5} />
-      <text x={x} y={y + 4} textAnchor="middle" fontSize={10.5} fontWeight={700} fill={ink.stroke}>
-        {label}
-      </text>
-    </g>
-  );
-}
-
 /**
- * The Roof screen after Finish exterior (RoofReview, roof_overlay): Scrivn's roof plan with Gable or Hip at each end, the
- * lines under it (ExteriorFinish.lines, worded as the engine words them), then Finish · Pitch · Ends and Accept · Close.
- * Finish is greyed, as the app greys it, once every photographed side has been read. The line colours are the roof plan's
- * (exteriorDrawings LINE_STYLE).
+ * The photo route's "4. Measure" after a measure (PhotoRoute.tsx Results): each side's length and how sure it is, a taped
+ * side said so, a loose one in orange with the tape that would fix it, and the two buttons - Measure again, and Send to
+ * Scrivn team to measure. The house of PhotoShots: its left side, in the tight yard, seen only from along it.
  */
-export function RoofScreen() {
-  const lines = [
-    "11.5 SQ · pitch 5/12 (from photos)",
-    "Pitch: 5/12, read off the gable photos of Left",
-    "Overhangs: eave 1'11\" (from photos) ·",
-    "rake 2'2\" (from photos)",
-    "Ends: Left gable (photo) · Right hip",
-    "Ridge 24'2\" · Hip 40'2\" · Eave 104' · Rake 30'1\"",
-    "Left: a gable end, pitch 5/12 (slopes 5.0 …",
-    "Front: eave overhang 1'11\"",
-    "Assumed: Downspouts: 5, one for each 35' …",
+export function MeasureCard() {
+  const rows: [string, string, string, boolean][] = [
+    ["Front (corners 1–2)", "42′6″", "2%", false],
+    ["Right (corners 2–3)", "30′1″", "3%", false],
+    ["Rear (corners 3–4)", "42′4″", "taped", false],
+    ["Left (corners 4–1)", "30′3″", "9%", true],
   ];
+  const WEAK = "#c2410c";
   return (
-    <svg viewBox="0 0 300 600" aria-hidden="true" className="sg-svg sg-phone">
-      <rect x={8} y={8} width={284} height={584} rx={38} fill={NAVY_DARK} />
-      <rect x={20} y={30} width={260} height={540} rx={26} fill={PAPER} />
-      <text x={36} y={70} fontSize={19} fontWeight={700} fill={NAVY}>
-        Roof
+    <svg viewBox="0 0 360 262" aria-hidden="true" className="sg-svg">
+      <rect x={1} y={1} width={358} height={260} rx={10} fill={PAPER} stroke="#d7dee6" strokeWidth={1.5} />
+      <text x={18} y={30} fontSize={15} fontWeight={700} fill={INK}>
+        4. Measure
       </text>
-      {/* the roof plan: a gable over Left, a hip over Right */}
-      <rect x={80} y={100} width={150} height={110} fill="#f2f5f8" />
-      <line x1={80} y1={100} x2={230} y2={100} stroke="#1a1d23" strokeWidth={2} />
-      <line x1={80} y1={210} x2={230} y2={210} stroke="#1a1d23" strokeWidth={2} />
-      <line x1={230} y1={100} x2={230} y2={210} stroke="#1a1d23" strokeWidth={2} />
-      <line x1={80} y1={100} x2={80} y2={210} stroke="#b45309" strokeWidth={2.5} />
-      <line x1={80} y1={155} x2={175} y2={155} stroke="#b91c1c" strokeWidth={3} />
-      <line x1={175} y1={155} x2={230} y2={100} stroke="#6d28d9" strokeWidth={2.5} />
-      <line x1={175} y1={155} x2={230} y2={210} stroke="#6d28d9" strokeWidth={2.5} />
-      <EndPill x={52} y={155} kind="gable" />
-      <EndPill x={256} y={155} kind="hip" />
-      {lines.map((line, i) => (
-        <text key={line} x={34} y={262 + i * 17} fontSize={10} fill={INK}>
-          {line}
-        </text>
+      <text x={18} y={50} fontSize={10.5} fill={MUTED}>
+        Measured from 9 of 9 photos and 2 tapes.
+      </text>
+      <text x={18} y={74} fontSize={10.5} fontWeight={700} fill={INK}>
+        Side
+      </text>
+      <text x={250} y={74} textAnchor="end" fontSize={10.5} fontWeight={700} fill={INK}>
+        Length
+      </text>
+      <text x={330} y={74} textAnchor="end" fontSize={10.5} fontWeight={700} fill={INK}>
+        ±
+      </text>
+      {rows.map(([side, len, pm, weak], i) => (
+        <g key={side}>
+          <line x1={18} y1={81 + i * 22} x2={342} y2={81 + i * 22} stroke="#e3e8ee" strokeWidth={1} />
+          <text x={18} y={96 + i * 22} fontSize={11} fill={INK}>
+            {side}
+          </text>
+          <text x={250} y={96 + i * 22} textAnchor="end" fontSize={11} fill={INK}>
+            {len}
+          </text>
+          <text x={330} y={96 + i * 22} textAnchor="end" fontSize={11} fontWeight={weak ? 700 : 400} fill={weak ? WEAK : INK}>
+            {pm}
+          </text>
+        </g>
       ))}
-      <g opacity={0.4}>
-        <Btn x={34} y={470} w={70} h={32} label="Finish" />
-      </g>
-      <Btn x={113} y={470} w={70} h={32} label="Pitch" />
-      <Btn x={192} y={470} w={70} h={32} label="Ends" />
-      <Btn x={34} y={514} w={110} h={34} label="Accept" />
-      <Btn x={156} y={514} w={110} h={34} label="Close" on />
+      <text x={18} y={188} fontSize={11.5} fontWeight={700} fill={INK}>
+        A tape would help
+      </text>
+      <text x={18} y={204} fontSize={10.5} fill={MUTED}>
+        Left: ±9%: it was only seen from along it (a side yard…
+      </text>
+      <Btn x={18} y={218} w={110} h={30} label="Measure again" on />
+      <Btn x={136} y={218} w={206} h={30} label="Send to Scrivn team to measure" />
     </svg>
   );
 }
