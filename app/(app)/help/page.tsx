@@ -16,7 +16,8 @@ import Link from "next/link";
  * Static: no claim data, nothing fetched. It renders inside the signed-in shell because that is
  * where somebody reading it already is, and it is linked from the footer of every page in the tool.
  * Brought up to date 2026-10-14: the exterior, the drying log, photos with spoken captions, Update
- * scope, and the phone's Account screen.
+ * scope, and the phone's Account screen. 2026-10-19: the outside is From photos, in Scrivn
+ * (components/sketch/PhotoRoute.tsx), not on the phone.
  */
 export const metadata = {
   title: "Help — Scrivn",
@@ -191,9 +192,54 @@ export default function HelpPage() {
         <p>
           <strong>Exterior</strong> is the third view of the sketch: the house from outside, for siding, stucco, roofing,
           soffit, fascia and eavestrough. It has a strip across the top: <strong>Plan &amp; roof</strong> first, then
-          every side in order round the house. A Scrivn Scan exterior lands here when it is sent from the phone, or
-          through <strong>Import scan</strong> on the Sketch view; anything can also be drawn by hand.
+          every side in order round the house. Measure it <strong>From photos</strong>, or draw it by hand. A shed or a
+          detached garage: <strong>+ Add building</strong>, then <strong>Quick box</strong> or <strong>From photos</strong>.
         </p>
+
+        <div className="help-figure">
+          <Art label="The front of a house in a photo: its two corners tapped at the ground and a tape across the garage door">
+            <path d="M18,48 L80,20 L142,48" className="help-rule" />
+            <path d="M28,90 L28,48 L132,48 L132,90 Z" className="help-wall" />
+            <rect x="40" y="58" width="22" height="18" className="help-block" />
+            <rect x="84" y="60" width="38" height="30" className="help-block" />
+            <path d="M84,84 L122,84" className="help-dash" />
+            <circle cx="28" cy="90" r="3.5" className="help-mark" />
+            <circle cx="132" cy="90" r="3.5" className="help-mark" />
+          </Art>
+          <div>
+            <h3>From photos</h3>
+            <p>
+              Photos from the phone&rsquo;s own camera, held sideways on the 1x lens: each wall straight on with both
+              corners in, each outside corner at 45&deg;, each gable square-on. Then a tape or two: the garage door, the
+              back wall.
+            </p>
+            <ol className="help-steps">
+              <li>
+                Pick the home (detached, semi-detached, a townhouse end or middle unit) and tap its shape on the small
+                plan, street side at the bottom. A wall shared with the neighbour is grey and not counted.
+              </li>
+              <li>
+                <strong>Choose photos</strong> or <strong>Take a photo</strong>. <strong>What to take next</strong> shows
+                in orange what the photos still miss.
+              </li>
+              <li>
+                On each photo, tap the house&rsquo;s corners where they meet the ground; the first one asks which corner it
+                is. <strong>Draw a tape</strong> across the garage door, and <strong>A wall&rsquo;s length</strong> for a
+                wall you taped.
+              </li>
+              <li>
+                <strong>Measure the house</strong>: each side&rsquo;s length, its &plusmn;, and which walls a tape would
+                help. <strong>Looks right</strong> keeps the corners Scrivn marked. Then <strong>Check these</strong> and
+                the <strong>Roof check</strong> on Plan &amp; roof, a few taps each.
+              </li>
+            </ol>
+            <p>
+              Or <strong>Send to Scrivn team to measure</strong>, beside Measure: we measure it from the photos, tapes and
+              your note, and it comes back as <strong>Measured &ndash; Use it</strong>. The{" "}
+              <Link href="/scan-guide#exterior">guide</Link> has the photos to take, step by step.
+            </p>
+          </div>
+        </div>
 
         <div className="help-figure">
           <Art label="An outline of a house tapped corner by corner, with its roof ridge and a gable end">
@@ -209,8 +255,8 @@ export default function HelpPage() {
             <path d="M134,71 L150,71" className="help-rule" />
           </Art>
           <div>
-            <h3>Drawing the outline</h3>
-            <p>An empty exterior offers three ways in:</p>
+            <h3>Drawing it by hand</h3>
+            <p>Or draw the outline, three ways:</p>
             <ul className="help-steps">
               <li>
                 <strong>Tap the corners</strong> of the house on the plan, going round it, then the first corner again.
@@ -314,11 +360,11 @@ export default function HelpPage() {
 
         <h3>Photos and AI trace</h3>
         <p>
-          A side photographed in Scrivn Scan shows its photo squared up behind the elevation — <strong>Photo</strong>,{" "}
-          <strong>Photo faded</strong> or <strong>No photo</strong>. <strong>AI trace</strong> reads the cladding, the
-          windows and doors and the wall top off that photo; tick what you want and press{" "}
-          <strong>Put the ticked ones on this side</strong>. It needs signal (with none it waits and runs by itself), and
-          the photo comes only from a scan sent from the phone, not from an imported file.
+          A side measured from photos shows its photo squared up behind the elevation — <strong>Photo</strong>,{" "}
+          <strong>Photo faded</strong> or <strong>No photo</strong> — to put its windows, doors and siding on over it.{" "}
+          <strong>AI trace</strong> reads the cladding, the windows and doors and the wall top off that photo; tick what you
+          want and press <strong>Put the ticked ones on this side</strong>. It needs signal (with none it waits and runs by
+          itself).
         </p>
 
         <h3>In the scope, and in 3D</h3>
@@ -480,8 +526,8 @@ export default function HelpPage() {
           </Art>
           <div>
             <p>
-              <strong>Scrivn Scan</strong> measures a room by tapping its corners, and the outside of the house side by
-              side, and sends it straight into a claim. It is a separate app on the phone, for Android.
+              <strong>Scrivn Scan</strong> measures a room by tapping its corners, and sends it straight into a claim. It
+              is a separate app on the phone, for Android.
             </p>
             <p>
               <strong>Connecting it.</strong> On the phone, tap <strong>Account</strong> → <strong>Sign in</strong> with
@@ -493,7 +539,7 @@ export default function HelpPage() {
             <p>
               <strong>Sending.</strong> Send lists your claims — pick one, or start a new claim, pick the storey, and
               the rooms arrive with their names, their ceilings, their doors and everything on their walls; each level as
-              a storey of its own; the moisture marked on the phone; the exterior and its side photos; and the walk&rsquo;s
+              a storey of its own; the moisture marked on the phone; and the walk&rsquo;s
               360° photos. Scrivn opens at that claim&rsquo;s sketch. With no signal, the phone keeps the scan and sends it
               on its own later.
             </p>
@@ -503,8 +549,8 @@ export default function HelpPage() {
               to.
             </p>
             <p className="field-note">
-              How to capture a room — where to stand, how corners read, ceilings, cabinets, stairs, wet walls, the
-              outside — is in the phone app itself: <strong>More… → How to use this app</strong>, and{" "}
+              How to capture a room — where to stand, how corners read, ceilings, cabinets, stairs, wet walls —
+              is in the phone app itself: <strong>More… → How to use this app</strong>, and{" "}
               <strong>Walk me through a room</strong> the first time. The <Link href="/scan-guide">Scrivn Scan guide</Link>{" "}
               has all of it in one place.
             </p>
@@ -558,8 +604,8 @@ export default function HelpPage() {
 
           <dt>A side&rsquo;s photo isn&rsquo;t there</dt>
           <dd>
-            Side photos come only with a scan sent from the phone; an exported file brings no photos. Send the exterior
-            from Scan to see them.
+            Side photos come with From photos, or with a scan sent from the phone; an imported scan file brings no
+            photos.
           </dd>
         </dl>
         <p className="field-note">

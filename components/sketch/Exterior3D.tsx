@@ -520,7 +520,7 @@ export default function Exterior3D({ exterior, onClose, name }: Props) {
             className={`option-btn${showPhotos ? " selected" : ""}`}
             aria-pressed={showPhotos}
             onClick={() => setShowPhotos((v) => !v)}
-            title={showPhotos ? "Show the cladding as measured" : "Lay each side's photos from Scrivn Scan on its wall"}
+            title={showPhotos ? "Show the cladding as measured" : "Lay each side's photo on its wall"}
           >
             Photos
           </button>
