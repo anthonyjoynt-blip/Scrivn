@@ -198,7 +198,7 @@ function FaceTexture({ poly, kind, label, unit, spec, ink: inkAs }: { poly: Pt[]
 /**
  * An opening drawn as what it is (2026-10-16): its trim round it, then a window's frame, glass and the
  * split a slider or a hung sash shows (a wide window slides, a tall one hangs: the shape says which); a
- * door's panels and knob, a pair of doors' glass; a garage door's sections and panels.
+ * door's panels and knob, a pair of doors' glass; a garage door's sections and panels; a roll-up door's slats.
  */
 /** The trim drawn round an opening, feet: 4", less on a small one. */
 function openingTrim(rect: { x0: number; x1: number; y0: number; y1: number }): number {
@@ -309,6 +309,11 @@ function OpeningGlyph({
       });
       parts.push(knob("k", x1 - f - lw * 0.12));
     }
+  } else if (opening.kind === "rollup") {
+    // A roll-up door (2026-10-19): narrow slats right across, about 3" each, and the bar along its foot.
+    const n = Math.max(6, Math.round(h / 0.25));
+    for (let k = 1; k < n; k++) parts.push(<line key={`s${k}`} x1={x0} x2={x1} y1={Y(y0 + (k * h) / n)} y2={Y(y0 + (k * h) / n)} stroke="#8a9099" strokeWidth={0.5} {...stroke} />);
+    parts.push(box("bar", x0, y0, x1, y0 + Math.min(0.25, h * 0.05), "#d1d5db", "#4b5563", 0.8));
   } else {
     // A garage door: its sections, each of panels.
     const rows = Math.max(3, Math.round(h / 1.9));

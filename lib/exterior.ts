@@ -36,6 +36,7 @@ import {
   polygonArea,
   type Pt,
   type RoofAddition,
+  splitLevels,
   roofBaseAlongWall,
   type RoofEndKind,
   type RoofInput,
@@ -88,9 +89,13 @@ export interface CladdingBand {
   top: number | "eave" | null;
 }
 
-export type ExteriorOpeningKind = "window" | "door" | "garage";
+/**
+ * A roll-up door (2026-10-19): an overhead door of narrow slats that coils into a hood over its head - the owner's
+ * shed has a 5' one. A garage door lifts in panelled sections.
+ */
+export type ExteriorOpeningKind = "window" | "door" | "garage" | "rollup";
 
-export const OPENING_LABEL: Record<ExteriorOpeningKind, string> = { window: "Window", door: "Door", garage: "Garage door" };
+export const OPENING_LABEL: Record<ExteriorOpeningKind, string> = { window: "Window", door: "Door", garage: "Garage door", rollup: "Roll-up door" };
 
 export interface ExteriorOpening {
   id: string;
@@ -277,15 +282,24 @@ export interface ExteriorSide {
   columns?: SideColumn[];
 }
 
-/** The kind of home, as a label (2026-10-17): the sides' `shared` flags are what is counted. Absent: by the flags. */
-export type HomeType = "detached" | "semi" | "town_end" | "town_middle";
+/**
+ * The kind of home, as a label (2026-10-17): the sides' `shared` flags are what is counted. Absent: by the flags. A
+ * split-level and an up/down duplex (2026-10-19) are labels for the cover too: a split-level's sections are measured by
+ * their own walls' heights (`splitLevels`), and a duplex is one building, its two units not split.
+ */
+export type HomeType = "detached" | "semi" | "town_end" | "town_middle" | "split" | "duplex_updown";
 
 export const HOME_TYPE_LABEL: Record<HomeType, string> = {
   detached: "Detached",
   semi: "Semi-detached",
   town_end: "Townhouse, end unit",
   town_middle: "Townhouse, middle unit",
+  split: "Split-level",
+  duplex_updown: "Duplex (up/down)",
 };
+
+/** A home that shares a wall with its neighbour's by its kind: a semi or a townhouse. */
+export const isAttachedHome = (type: HomeType | undefined): boolean => type === "semi" || type === "town_end" || type === "town_middle";
 
 const sharedCache = new WeakMap<Exterior, { sides: ExteriorSide[]; upper: UpperFloor | undefined; got: Set<string> }>();
 
@@ -344,9 +358,13 @@ export function homeTypeWords(exterior: Exterior): string | null {
   // The main floor's walls named: an upper floor's on them goes without saying.
   const mainShared = exterior.sides.filter((s) => s.shared === true);
   const shared = mainShared.length > 0 ? mainShared : sharedSides(exterior);
-  if (shared.length === 0) return null;
+  if (shared.length === 0) {
+    if (exterior.homeType === "split") return "Split-level: its parts stand at different floor levels, each under its own roof, each wall to its own height.";
+    if (exterior.homeType === "duplex_updown") return "Duplex (up/down): two units, one over the other, measured as one building.";
+    return null;
+  }
   const main = mainShared.length;
-  const type = exterior.homeType && exterior.homeType !== "detached" ? HOME_TYPE_LABEL[exterior.homeType] : main >= 2 ? "Attached on both sides" : "Attached on one side";
+  const type = isAttachedHome(exterior.homeType) ? HOME_TYPE_LABEL[exterior.homeType as HomeType] : main >= 2 ? "Attached on both sides" : "Attached on one side";
   const wallOf = (s: ExteriorSide) => {
     const name = s.name.trim() || "Side";
     return `the ${name}${/\bwall$/i.test(name) ? "" : " wall"}`;
@@ -2601,13 +2619,33 @@ export function roofProposal(exterior: Exterior): RoofProposal | null {
     if (footprint.closes) {
       got = proposeRoof(saidRoofInput(exterior, footprint, proposalPitch(exterior), exterior.roof.ridgeAlong ?? ridgeAcrossParty(exterior)), {
         ends: measuredSideEnds(exterior),
-        garageSides: exterior.sides.filter((s) => s.openings.some((o) => o.kind === "garage")).map((s) => s.id),
+        garageSides: exterior.sides.filter((s) => s.openings.some((o) => o.kind === "garage" || o.kind === "rollup")).map((s) => s.id),
         answered: exterior.roof.answered ?? [],
       });
     }
   }
   proposalCache.set(exterior, { roof: exterior.roof, sides: exterior.sides, upper: exterior.upper, got });
   return got;
+}
+
+/**
+ * A two-storey house's floor line and a split-level's lower roofs over it (2026-10-19, `splitLevels`), off the main
+ * sides' eave readings - a side read level takes its higher, as the 3D view reads it - on the roof [plan] built.
+ */
+export function splitLevelHeights(exterior: Exterior, footprint: Footprint, plan: RoofPlan): { floorLine: number | null; lifts: Record<number, number> } {
+  if (!exterior.upper || !footprint.closes) return { floorLine: null, lifts: {} };
+  const byId = new Map(exterior.sides.map((s) => [s.id, s]));
+  return splitLevels(
+    footprint.corners,
+    plan.sections,
+    footprint.sideIds.map((id) => {
+      const s = byId.get(id);
+      if (!s || s.eaveLeftFeet == null) return null;
+      const right = s.eaveRightFeet ?? s.eaveLeftFeet;
+      const high = Math.max(s.eaveLeftFeet, right);
+      return s.heightsFrom === "level" ? [high, high] : [s.eaveLeftFeet, right];
+    }),
+  );
 }
 
 /** The roof's input: the overhangs and ends as typed, else read off the photos; each part's pitch, and any break, as typed, else its gable photo's. */
@@ -2671,8 +2709,8 @@ export function trimTotals(sides: SideQuantities[]): TrimTotals | null {
       columns.set(key, g);
     }
   }
-  // Windows, doors, garage doors; pilasters before columns, as the house is walked.
-  const ORDER: Record<ExteriorOpeningKind, number> = { window: 0, door: 1, garage: 2 };
+  // Windows, doors, garage doors, roll-up doors; pilasters before columns, as the house is walked.
+  const ORDER: Record<ExteriorOpeningKind, number> = { window: 0, door: 1, garage: 2, rollup: 3 };
   const list = [...surrounds.values()].sort((a, b) => a.label.localeCompare(b.label) || ORDER[a.openingKind] - ORDER[b.openingKind]);
   const cols = [...columns.values()].sort((a, b) => a.label.localeCompare(b.label) || (a.kind === b.kind ? 0 : a.kind === "pilaster" ? -1 : 1));
   return {
@@ -2926,11 +2964,20 @@ export function roofingQuantities(exterior: Exterior, roof: RoofPlan | null, pit
         : 0;
   const downspouts = counted ? byRule : Math.max(0, Math.round(R.downspouts as number));
   // Each run down from its own eave: the eave height of the side under it, by length; with no runs, the sides' own.
+  // An upper floor's side reads its eave from the floor line (2026-10-19): its run comes down from the floor line and that.
+  const upperById = new Map((exterior.upper?.sides ?? []).map((s) => [s.id, s]));
+  const floorLine = upperById.size > 0 && roof ? splitLevelHeights(exterior, exteriorFootprint(exterior), roof).floorLine : null;
+  const runEave = (id: string): number | null => {
+    const up = upperById.get(id);
+    if (!up) return sideEave(sideById.get(id));
+    const h = sideEave(up);
+    return h !== null && floorLine !== null ? floorLine + h : null;
+  };
   let heightFeet = 0;
   let heightOver = 0;
   for (const run of runs) {
     for (const e of run.edges) {
-      const h = sideEave(e.sideId !== null ? sideById.get(e.sideId) : undefined);
+      const h = e.sideId !== null ? runEave(e.sideId) : null;
       if (h === null) continue;
       heightFeet += h * e.planFeet;
       heightOver += e.planFeet;
@@ -3151,12 +3198,13 @@ export function exteriorQuantities(exterior: Exterior): ExteriorQuantities {
       // Two storeys: an upper side's gable is the house's roof's, and it stands on the floor line or a lower roof.
       if (input.upper && upper?.closes) {
         const m = upper.corners.length;
+        const { lifts } = splitLevelHeights(exterior, footprint, roof);
         upper.sideIds.forEach((id, i) => {
           const a = upper.corners[i] as Pt;
           const b = upper.corners[(i + 1) % m] as Pt;
           const rise = roofRiseAlongWall(input, a, b, "upper");
           if (rise.some((r) => r.rise > 1e-6)) rises[id] = rise;
-          const base = roofBaseAlongWall(input, a, b);
+          const base = roofBaseAlongWall(input, a, b, lifts);
           if (base.length >= 2) bases[id] = base;
         });
       }
@@ -3526,7 +3574,7 @@ export function exteriorScopeLines(exterior: Exterior | undefined): ExteriorScop
 }
 
 /** A surround by the kind of opening it goes round: "window surrounds". */
-export const SURROUND_WORDS: Record<ExteriorOpeningKind, string> = { window: "window surrounds", door: "door surrounds", garage: "garage door surrounds" };
+export const SURROUND_WORDS: Record<ExteriorOpeningKind, string> = { window: "window surrounds", door: "door surrounds", garage: "garage door surrounds", rollup: "roll-up door surrounds" };
 
 /**
  * The trim's scope lines (2026-10-17), each its own: "Stucco trim – window surrounds – 9 – 112.4 LF (68.0 SF)",

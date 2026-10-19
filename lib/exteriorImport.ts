@@ -111,7 +111,7 @@ function claddingOf(raw: unknown): { kind: CladdingKind; label?: string } {
 }
 
 function openingKind(raw: unknown): ExteriorOpeningKind {
-  return raw === "door" || raw === "garage" ? raw : "window";
+  return raw === "door" || raw === "garage" || raw === "rollup" ? raw : "window";
 }
 
 /** A height in metres within reason, or null. */

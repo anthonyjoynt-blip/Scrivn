@@ -66,6 +66,7 @@ import {
   type RoofRise,
   pieceWords,
   roofInput,
+  splitLevelHeights,
   type HouseColours,
   houseColours,
   type SidePhoto,
@@ -130,6 +131,8 @@ export interface Wall3D {
   photos: SidePhoto[];
   /** A party wall, shared with the neighbour's home (2026-10-17): drawn bare - the neighbour's home stands against it. */
   shared?: true;
+  /** A two-storey house's main-floor wall standing to the floor line, under no roof (2026-10-19): its top is no eave. */
+  toFloorLine?: true;
 }
 
 /** A piece of trim in its wall's frame: its face in (u, v), from w0 to w1 out of the wall. */
@@ -283,8 +286,9 @@ function eaveLevels(sides: { side: ExteriorSide; stretches: Stretch[] }[], plan:
     readings.set(first.layer, [...(readings.get(first.layer) ?? []), r[0]]);
     readings.set(last.layer, [...(readings.get(last.layer) ?? []), r[1]]);
   }
-  // Two storeys: the main floor's walls all stand to the floor line, the house's eave the upper sides' readings over it.
-  const floor = uppers.length > 0 ? (median([...readings.values()].flat()) ?? DEFAULT_EAVE_FEET) : null;
+  // Two storeys: the main floor's walls stand to the floor line - those under no lower roof say where it is, as a split-level's
+  // one-storey section stands its own eave (2026-10-19) - and the house's eave is the upper sides' readings over it.
+  const floor = uppers.length > 0 ? (median(readings.get(FLOOR_LINE) ?? []) ?? median([...readings.values()].flat()) ?? DEFAULT_EAVE_FEET) : null;
   const upperReadings = uppers.flatMap(({ side }) => eaveReadings(side, true) ?? []);
   const e0 = floor !== null ? floor + (median(upperReadings) ?? UPPER_STOREY_FEET) : (median(readings.get(0) ?? []) ?? median([...readings.values()].flat()) ?? DEFAULT_EAVE_FEET);
   const out: Record<number, number> = { 0: e0 };
@@ -399,12 +403,13 @@ export function exteriorModel(exterior: Exterior): ExteriorModelResult {
     return { side, a, b, stretches: stretchesOf(input, built, a, b, "main", twoStorey) };
   });
   const upperById = new Map((exterior.upper?.sides ?? []).map((s) => [s.id, s]));
+  const lifts = twoStorey && built ? splitLevelHeights(exterior, footprint, built).lifts : {};
   const uppers =
     twoStorey && upperFp && input
       ? upperFp.sideIds.map((id, i) => {
           const a = upperFp.corners[i] as Pt;
           const b = upperFp.corners[(i + 1) % upperFp.corners.length] as Pt;
-          return { side: upperById.get(id) as ExteriorSide, a, b, stretches: stretchesOf(input, built, a, b, "upper", true), base: roofBaseAlongWall(input, a, b) };
+          return { side: upperById.get(id) as ExteriorSide, a, b, stretches: stretchesOf(input, built, a, b, "upper", true), base: roofBaseAlongWall(input, a, b, lifts) };
         })
       : [];
   const eaves = eaveLevels(sides, built, ov, uppers);
@@ -481,6 +486,7 @@ export function exteriorModel(exterior: Exterior): ExteriorModelResult {
       side,
       frame,
       L,
+      toFloorLine: twoStorey && stretches.every((s) => s.layer === FLOOR_LINE),
       frameV,
       top: dedupe(top),
       grade: lift(groundUnder(side, faces.grade)),
@@ -510,6 +516,7 @@ export function exteriorModel(exterior: Exterior): ExteriorModelResult {
     photos: p.side.photos ?? [],
     ...(p.trim && !sharedIds.has(p.side.id) ? { trim: p.trim } : {}),
     ...(sharedIds.has(p.side.id) ? { shared: true as const, faces: [], openings: [], background: "unclad" as const, photos: [] } : {}),
+    ...(p.toFloorLine ? { toFloorLine: true as const } : {}),
   }));
 
   // ---- The upper floor's walls: on the floor line, or on the lower roof against them, up to the house's roof ----

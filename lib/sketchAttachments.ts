@@ -46,6 +46,19 @@ const WHOLE_PLAN_DESCRIPTION: Record<string, string> = {
 export const EXTERIOR_RENDERS: SketchRender[] = ["roof", "elevations"];
 
 /**
+ * Another building's two pictures (2026-10-19, lib/buildings.ts): `roof@<its id>` and `elevations@<its id>`, named for it
+ * ("Shed – roof plan"). The house's keep their plain ids, so a claim with no other building attaches what it always has.
+ */
+export function buildingRender(render: "roof" | "elevations", buildingId: string): SketchRender {
+  return `${render}@${buildingId}`;
+}
+
+export function parseBuildingRender(render: SketchRender): { render: "roof" | "elevations"; buildingId: string } | null {
+  const m = /^(roof|elevations)@(.+)$/.exec(render);
+  return m ? { render: m[1] as "roof" | "elevations", buildingId: m[2] as string } : null;
+}
+
+/**
  * A render id, split into what it draws and which storey — `clean:1` is the plan of the level above.
  * A bare `clean` means every level there is, which on a single-storey claim is the only one.
  */
@@ -56,10 +69,19 @@ export function parseRender(render: SketchRender): { base: string; level: number
   return { base, level: parsed !== null && Number.isFinite(parsed) ? parsed : null };
 }
 
-/** `thumbnails` supplies the names for per-surface renders; the two whole-plan ones are fixed. */
-export function sketchRenderLabel(render: SketchRender, thumbnails: SurfaceThumbnail[] = [], sketch: Pick<Sketch, "levelNames"> | null = null): string {
+/** `thumbnails` supplies the names for per-surface renders, and `sketch` the storeys' and the other buildings'; the whole-plan ones are fixed. */
+export function sketchRenderLabel(
+  render: SketchRender,
+  thumbnails: SurfaceThumbnail[] = [],
+  sketch: (Pick<Sketch, "levelNames"> & Partial<Pick<Sketch, "buildings">>) | null = null,
+): string {
   const direct = WHOLE_PLAN_LABEL[render];
   if (direct) return direct;
+  const building = parseBuildingRender(render);
+  if (building) {
+    const name = sketch?.buildings?.find((b) => b.id === building.buildingId)?.name?.trim() || "Building";
+    return `${name} – ${building.render === "roof" ? "roof plan" : "elevations"}`;
+  }
   const { base, level } = parseRender(render);
   const wholePlan = WHOLE_PLAN_LABEL[base];
   if (wholePlan && level !== null) return `${wholePlan} — ${levelName(sketch, level)}`;
@@ -67,6 +89,8 @@ export function sketchRenderLabel(render: SketchRender, thumbnails: SurfaceThumb
 }
 
 export function sketchRenderDescription(render: SketchRender, thumbnails: SurfaceThumbnail[] = []): string {
+  const building = parseBuildingRender(render);
+  if (building) return building.render === "roof" ? (WHOLE_PLAN_DESCRIPTION.roof as string) : "Every side of the building to scale: cladding, openings, gables and heights.";
   const whole = WHOLE_PLAN_DESCRIPTION[render] ?? WHOLE_PLAN_DESCRIPTION[parseRender(render).base];
   if (whole) return whole;
   const thumbnail = thumbnailFor(thumbnails, render);
@@ -92,30 +116,36 @@ export interface SketchAttachments {
    * Initial Site Report only, by the owner's choice; the other documents never carry photos).
    */
   photosLeftOut?: boolean;
+  /** The other buildings' pictures already ticked by default (2026-10-19), by render id: each is ticked once, as the house's are. */
+  buildingsDefaulted?: SketchRender[];
 }
 
 /**
  * The exterior's pictures ticked the first time there are any to draw: the owner (10-12) wants the
  * roof plan "included in the scope doc", and "everything should make it onto the sketch book and
  * other docs". So both go on the inspection report and the scope document, the roof plan on the
- * Roofing order and both on the Siding order - once. After that the ticks are the PM's.
+ * Roofing order and both on the Siding order - once. After that the ticks are the PM's. Each other
+ * building's pictures the same, once each, the first time it has them (2026-10-19).
  */
 export function withExteriorDefaults(selection: SketchAttachments, available: SketchRender[]): SketchAttachments {
-  if (selection.exteriorDefaulted) return selection;
-  const exterior = EXTERIOR_RENDERS.filter((r) => available.includes(r));
-  if (exterior.length === 0) return selection;
   const add = (list: SketchRender[] | undefined, renders: SketchRender[]) => [...(list ?? []), ...renders.filter((r) => !(list ?? []).includes(r))];
-  return {
-    ...selection,
-    inspectionReport: add(selection.inspectionReport, exterior),
-    scopeDocument: add(selection.scopeDocument, exterior),
+  const tick = (s: SketchAttachments, renders: SketchRender[]): SketchAttachments => ({
+    ...s,
+    inspectionReport: add(s.inspectionReport, renders),
+    scopeDocument: add(s.scopeDocument, renders),
     workOrders: {
-      ...selection.workOrders,
-      ROOFING: add(selection.workOrders.ROOFING, exterior.filter((r) => r === "roof")),
-      SIDING: add(selection.workOrders.SIDING, exterior),
+      ...s.workOrders,
+      ROOFING: add(s.workOrders.ROOFING, renders.filter((r) => r === "roof" || parseBuildingRender(r)?.render === "roof")),
+      SIDING: add(s.workOrders.SIDING, renders),
     },
-    exteriorDefaulted: true,
-  };
+  });
+  let next = selection;
+  const exterior = EXTERIOR_RENDERS.filter((r) => available.includes(r));
+  if (!selection.exteriorDefaulted && exterior.length > 0) next = { ...tick(next, exterior), exteriorDefaulted: true };
+  const done = selection.buildingsDefaulted ?? [];
+  const fresh = available.filter((r) => parseBuildingRender(r) && !done.includes(r));
+  if (fresh.length > 0) next = { ...tick(next, fresh), buildingsDefaulted: [...done, ...fresh] };
+  return next;
 }
 
 /**
@@ -214,5 +244,6 @@ export function pruneAttachments(selection: SketchAttachments, available: Sketch
     workOrders,
     ...(selection.exteriorDefaulted ? { exteriorDefaulted: true } : {}),
     ...(selection.photosLeftOut ? { photosLeftOut: true } : {}),
+    ...(selection.buildingsDefaulted ? { buildingsDefaulted: selection.buildingsDefaulted } : {}),
   };
 }

@@ -52,6 +52,10 @@ async function load() {
             `export { adoptScan } from "${lib("lib/scanInbox.ts")}";`,
             `export { generationRequest } from "${lib("lib/claimGeneration.ts")}";`,
             `export { pdfSafe } from "${lib("lib/svgPdf.ts")}";`,
+            `export { buildingRenders, exteriorPictureSvg, exteriorRenders } from "${lib("components/sketch/exteriorImages.tsx")}";`,
+            `export { availableRenders, defaultSketchAttachments, pruneAttachments, sketchRenderDescription, sketchRenderLabel, toggleAttachment, withExteriorDefaults } from "${lib("lib/sketchAttachments.ts")}";`,
+            `export { ElevationDrawing } from "${lib("components/sketch/exteriorDrawings.tsx")}";`,
+            `export { createElement } from "react";`,
           ]
         : []),
     ].join("\n"),
@@ -578,6 +582,79 @@ await test("names: unique among the claim's, never House; a name in a sentence",
   assert(x.uniqueName("Shed", ["Shed"]) === "Shed 2" && x.uniqueName("shed", ["Shed", "Shed 2"]) === "shed 3" && x.uniqueName("House", []) === "House 2", "unique");
   assert(x.uniqueName("  ", []) === "Building", "blank");
   assert(x.subjectWords(null) === "the house" && x.subjectWords("Shed") === "the shed" && x.subjectWords("Detached garage") === "the detached garage" && x.subjectWords("Barn B") === "the Barn B", "in a sentence");
+});
+
+console.log("\nhis shed's roll-up door, and the other buildings' pictures on the documents (10-19)");
+
+/** His shed as measured from 7 photos and one tape on 10-17: 16'3" x 12'4", one slope, metal; its 5' door a roll-up. */
+const measured = fixture("shed-1017.json");
+/** The same shed with its door the garage door it was drawn as before roll-ups. */
+const asGarage = { ...measured, sides: measured.sides.map((s) => ({ ...s, openings: s.openings.map((o) => (o.kind === "rollup" ? { ...o, kind: "garage" } : o)) })) };
+const slats = (svg) => (svg.match(/stroke="#8a9099" stroke-width="0.5"/g) ?? []).length;
+
+await test("his shed: its 5' door a roll-up - named, counted and drawn as one - and nothing else about the shed changes", () => {
+  const door = measured.sides[0].openings.find((o) => o.id === "shed-rollup");
+  assert(door.kind === "rollup", door.kind);
+  const q = x.exteriorQuantities(measured);
+  assert(JSON.stringify(q).replace(/"kind":"rollup"/g, '"kind":"garage"') === JSON.stringify(x.exteriorQuantities(asGarage)), "the quantities, but for the door's kind");
+  assert(JSON.stringify(x.exteriorScopeLines(allInScope(measured))) === JSON.stringify(x.exteriorScopeLines(allInScope(asGarage))), "the scope lines");
+  const words = (r) => JSON.stringify({ facts: r.facts, sources: r.sources, assumed: r.assumed, notes: r.notes, sides: r.sides.map((s) => [s.heading, s.dims]), tables: r.tables, roof: r.roof });
+  const now = x.exteriorReport(measured, META);
+  assert(now.facts.find((f) => f.label === "Openings").value === "1 window · 1 door · 1 roll-up door", JSON.stringify(now.facts.find((f) => f.label === "Openings")));
+  assert(words(now).includes("Roll-up door 1") && !words(now).includes("Garage door"), "named");
+  // The door's own words only: the side keeps its name, "Front (roll-up door)".
+  const asWas = (t) => t.replace(/\(roll-up door\)/g, "(SIDE)").replace(/Roll-up door/g, "Garage door").replace(/roll-up door/g, "garage door").replace(/\(SIDE\)/g, "(roll-up door)");
+  assert(asWas(words(now)) === words(x.exteriorReport(asGarage, META)), "the report's words, but for the door's");
+  // Drawn as slats, about 3" each up its 6'2", not a garage door's panelled sections.
+  const front = measured.sides[0];
+  const draw = (e) => svgOf(x.createElement(x.ElevationDrawing, { side: e.sides[0], rise: x.exteriorQuantities(e).rises[front.id] ?? null, base: null }));
+  assert(slats(draw(measured)) === Math.round(door.heightFeet / 0.25) - 1 && slats(draw(asGarage)) === 0, `${slats(draw(measured))} slats`);
+});
+
+const workshop = { ...shed, id: "building-workshop", name: "Workshop" };
+const both = [measured, workshop];
+
+await test("a claim with no other building attaches what it always has: the house's two pictures, by their plain ids", () => {
+  assert(x.buildingRenders(undefined).length === 0 && x.buildingRenders([]).length === 0, "nothing more");
+  const available = x.availableRenders(false, false, [], [], [...x.exteriorRenders(house), ...x.buildingRenders(undefined)]);
+  assert(available.join() === "roof,elevations", available.join());
+  const first = x.withExteriorDefaults(x.pruneAttachments(x.defaultSketchAttachments(), available), available);
+  assert(
+    JSON.stringify(first) === JSON.stringify({ inspectionReport: ["roof", "elevations"], scopeDocument: ["roof", "elevations"], workOrders: { ROOFING: ["roof"], SIDING: ["roof", "elevations"] }, exteriorDefaulted: true }),
+    JSON.stringify(first),
+  );
+  assert(x.withExteriorDefaults(first, available) === first, "and once only");
+  assert(x.sketchRenderLabel("roof") === "Roof plan" && x.sketchRenderLabel("elevations") === "Elevations", "named as ever");
+});
+
+await test("each other building's roof plan and elevations go on as the house's, named for it, ticked once each", () => {
+  const renders = x.buildingRenders(both);
+  assert(renders.join() === "roof@building-shed,elevations@building-shed,roof@building-workshop,elevations@building-workshop", renders.join());
+  const sketch = { levelNames: undefined, buildings: both };
+  assert(x.sketchRenderLabel("roof@building-shed", [], sketch) === "Shed – roof plan" && x.sketchRenderLabel("elevations@building-workshop", [], sketch) === "Workshop – elevations", "named");
+  assert(x.sketchRenderLabel("roof@gone", [], sketch) === "Building – roof plan" && /building/.test(x.sketchRenderDescription("elevations@building-shed")), "a building gone, and its description");
+  const available = x.availableRenders(false, false, [], [], [...x.exteriorRenders(house), ...x.buildingRenders([measured])]);
+  const first = x.withExteriorDefaults(x.pruneAttachments(x.defaultSketchAttachments(), available), available);
+  assert(first.scopeDocument.join() === "roof,elevations,roof@building-shed,elevations@building-shed", first.scopeDocument.join());
+  assert(first.workOrders.ROOFING.join() === "roof,roof@building-shed" && first.workOrders.SIDING.length === 4, JSON.stringify(first.workOrders));
+  // Unticked, the shed's roof plan stays off; a building added later is ticked, once.
+  const off = x.toggleAttachment(first, { kind: "scopeDocument" }, "roof@building-shed");
+  const more = [...available, ...x.buildingRenders([workshop])];
+  const later = x.withExteriorDefaults(x.pruneAttachments(off, more), more);
+  assert(!later.scopeDocument.includes("roof@building-shed") && later.scopeDocument.includes("roof@building-workshop"), later.scopeDocument.join());
+  assert(x.withExteriorDefaults(later, more) === later, "once each");
+});
+
+await test("a building's pictures are its own drawings, headed with its name; the house's are headed as ever", () => {
+  const houseRoof = x.exteriorPictureSvg(house, "roof", undefined, svgOf);
+  const houseSides = x.exteriorPictureSvg(house, "elevations", undefined, svgOf);
+  assert(houseRoof.svg.includes(">Roof plan</text>") && houseSides.svg.includes(">Elevations</text>") && !houseRoof.svg.includes(" – roof plan"), "the house's");
+  const shedRoof = x.exteriorPictureSvg(measured, "roof", "Shed", svgOf);
+  const shedSides = x.exteriorPictureSvg(measured, "elevations", "Shed", svgOf);
+  assert(shedRoof.svg.includes(">Shed – roof plan</text>") && shedSides.svg.includes(">Shed – elevations</text>"), "the shed's");
+  // The shed's own: its four walls, its roll-up drawn in slats.
+  for (const s of measured.sides) assert(shedSides.svg.includes(`>${s.name} · `), `${s.name} on its elevations`);
+  assert(slats(shedSides.svg) > 0, "its roll-up in slats");
 });
 
 console.log(`\n${passed} passed, ${failures.length} failed`);

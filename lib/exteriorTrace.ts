@@ -185,7 +185,7 @@ Scale: ${frame.ppm.toFixed(1)} pixels per metre, the same across and up.
 
 Trace, in pixels:
 1. materials: each cladding material on this wall as a closed polygon (corners in order, not repeating the first). Include parging (the cement coat over the foundation) down to the ground. If a material runs on past the wall's ends (over a covered deck, up a gable), follow it. Say what hides any part of it, or "" when nothing does.
-2. openings: every window, door, patio door and garage door on this wall. Call an opening a door, a patio door or a garage door only when the photo shows what makes it one: a handle, hinges, a threshold, or a step, deck, path or driveway meeting its foot. Tall glass whose foot is hidden - by a railing, a deck, plants, a car - is a window. Say what hides any part of an opening, or "" when nothing does. A window or door: to the outer edge of its trim, or of its frame where it has no trim; say which. Its trim is the narrow casing round its frame: a wide surround of stucco, foam or another colour than the wall is not, and goes in off_wall (4). A garage door: the door itself - the panels that move, from their bottom edge to their top edge and side to side - never the trim, jamb or stucco surround framing it; its measured_to is "door_itself". For a door (not a patio door or a garage door) also give leaf: the door leaf itself - the slab that swings, from its hinge edge to its latch edge and from its bottom edge to its top edge, inside the frame and its stops, sidelights left out - as [x0, y0, x1, y1]; [] for every other opening, and for a door whose leaf you cannot see whole.
+2. openings: every window, door, patio door and garage door on this wall. Call an opening a door, a patio door or a garage door only when the photo shows what makes it one: a handle, hinges, a threshold, or a step, deck, path or driveway meeting its foot. Tall glass whose foot is hidden - by a railing, a deck, plants, a car - is a window. Say what hides any part of an opening, or "" when nothing does. A window or door: to the outer edge of its trim, or of its frame where it has no trim; say which. Its trim is the narrow casing round its frame: a wide surround of stucco, foam or another colour than the wall is not, and goes in off_wall (4). A garage door: the door itself - the panels that move, from their bottom edge to their top edge and side to side - never the trim, jamb or stucco surround framing it; its measured_to is "door_itself". A roll-up door is a garage_door here too, but tell it from a sectional garage door: a roll-up's curtain is narrow horizontal slats, a few inches each, often with a hood or box across its top, where a sectional door has three to five tall panelled sections; for a roll-up, also put a box in off_wall (4) round its hood, or round the door itself where no hood shows, its what starting "roll-up". For a door (not a patio door or a garage door) also give leaf: the door leaf itself - the slab that swings, from its hinge edge to its latch edge and from its bottom edge to its top edge, inside the frame and its stops, sidelights left out - as [x0, y0, x1, y1]; [] for every other opening, and for a door whose leaf you cannot see whole.
 3. wall_top: the line where the wall's cladding meets the soffit, left to right, including any gable peak, as a polyline.
 4. off_wall: everything in front of the wall that hides part of it, as boxes [x0, y0, x1, y1]. The wall's own trim goes here too, each piece its own box, its what starting with one of these words, then its material ("surround, stucco"), and ending "partly hidden by ..." when something hides part of it:
    - "surround": a raised band round a window or door, often another colour than the wall: its outer edges, the opening inside it traced on its own in (2). Add "open top" when it has no head and its sides run on up.
@@ -262,6 +262,8 @@ export interface ProposedOpening {
   box?: FeetBox;
   /** A door's leaf, the slab that swings, as traced: its size check. Null for any other opening; absent from a trace made before 2026-10-15. */
   leaf?: FeetBox | null;
+  /** A roll-up door (2026-10-19): the off_wall box that said so, by place in `offWall` (`readRollups`). Absent on any other opening. */
+  rollupFrom?: number;
 }
 
 /** A box on the side, feet along from its left end and up from its level. */
@@ -466,7 +468,8 @@ export function traceProposals(wire: TraceWire, frame: SquareFrame, lengthFeet: 
     return [{ what: String(b.what ?? "").trim() || "something", x0: a.x, x1: c.x, y0: a.y, y1: c.y }];
   });
 
-  // The wall's own trim (2026-10-17), off the boxes the prompt asks it in.
+  // A roll-up door (2026-10-19) and the wall's own trim (2026-10-17), off the boxes the prompt asks them in.
+  readRollups(offWall, openings);
   const trim = readTrim(offWall, openings, shapes, checks);
 
   return {
@@ -482,6 +485,35 @@ export function traceProposals(wire: TraceWire, frame: SquareFrame, lengthFeet: 
     notes: (wire.notes ?? "").trim(),
     checks,
   };
+}
+
+// ---------------------------------------------------------------------------------------------
+// A roll-up door, read through off_wall (2026-10-19)
+// ---------------------------------------------------------------------------------------------
+
+/*
+  The opening's kind is a schema enum, and the schema is at the grammar's limit, so a roll-up comes as a garage_door with an
+  off_wall box whose words start "roll-up", round its hood or the door itself. The door that box sits on - across most of its
+  width, from its foot up to a little over its head - is the roll-up. `traced` stays the AI's own word.
+*/
+const ROLLUP_WORD = /^\s*roll[- ]?up\b/i;
+/** A roll-up's hood sits over its head: up to this far above it. */
+const HOOD_ABOVE_FEET = 2;
+
+function readRollups(offWall: TraceProposals["offWall"], openings: ProposedOpening[]): void {
+  offWall.forEach((b, i) => {
+    if (!ROLLUP_WORD.test(b.what)) return;
+    const door = openings.find((o) => {
+      if (o.kind === "window" || o.rollupFrom !== undefined) return false;
+      const r = o.box ?? { x0: o.fromLeftFeet, x1: o.fromLeftFeet + o.widthFeet, y0: o.sillFeet, y1: o.sillFeet + o.heightFeet };
+      const across = Math.min(b.x1, r.x1) - Math.max(b.x0, r.x0);
+      return across > 0.5 * Math.min(b.x1 - b.x0, r.x1 - r.x0) && b.y1 > r.y0 && b.y0 < r.y1 + HOOD_ABOVE_FEET;
+    });
+    if (door) {
+      door.kind = "rollup";
+      door.rollupFrom = i;
+    }
+  });
 }
 
 // ---------------------------------------------------------------------------------------------

@@ -6,7 +6,7 @@ import Konva from "konva";
 import SketchCanvas from "./SketchCanvas";
 import { PIXELS_PER_FOOT, type Sketch, freeWallsOf, freeWallsOnLevel, roomBounds, roomsOnLevel } from "@/lib/sketch";
 import { type MoistureMap, emptyMoistureMap } from "@/lib/moisture";
-import { type SketchRender, parseRender } from "@/lib/sketchAttachments";
+import { type SketchRender, parseBuildingRender, parseRender } from "@/lib/sketchAttachments";
 import { type SurfaceThumbnail, thumbnailFor } from "@/lib/surfaceThumbnails";
 import { type ExteriorRender, renderExteriorImage } from "./exteriorImages";
 
@@ -181,6 +181,15 @@ async function withStage<T>(
   }
 }
 
+/** Another building's picture (2026-10-19), by its `buildingRender` id; null for any other render, or a building gone. */
+async function buildingImage(sketch: Sketch, render: SketchRender, format: "png" | "jpeg"): Promise<SketchImage | null | undefined> {
+  const which = parseBuildingRender(render);
+  if (!which) return undefined;
+  const building = sketch.buildings?.find((b) => b.id === which.buildingId);
+  const image = await renderExteriorImage(building, which.render, format, building?.name?.trim() || "Building");
+  return image ? { ...image, render } : null;
+}
+
 /** Renders one sketch image. Returns null when there is nothing to draw. */
 export async function renderSketchImage(
   sketch: Sketch,
@@ -190,6 +199,8 @@ export async function renderSketchImage(
 ): Promise<SketchImage | null> {
   // The outside of the house is drawn by its own drawings, not the plan's canvas.
   if (render === "roof" || render === "elevations") return renderExteriorImage(sketch.exterior, render as ExteriorRender);
+  const building = await buildingImage(sketch, render, "png");
+  if (building !== undefined) return building;
   return withStage(
     sketch,
     moisture,
@@ -221,6 +232,8 @@ export async function renderSketchImage(
  */
 export async function renderSketchJpeg(sketch: Sketch, moisture: MoistureMap, render: SketchRender): Promise<SketchImage | null> {
   if (render === "roof" || render === "elevations") return renderExteriorImage(sketch.exterior, render as ExteriorRender, "jpeg");
+  const building = await buildingImage(sketch, render, "jpeg");
+  if (building !== undefined) return building;
   return withStage(sketch, moisture, render, (stage, frame) => {
     const width = Math.round(frame.width * PIXEL_RATIO);
     const height = Math.round(frame.height * PIXEL_RATIO);

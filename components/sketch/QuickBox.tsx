@@ -78,7 +78,7 @@ export function QuickBoxStart({ readOnly, onStart }: { readOnly: boolean; onStar
         </div>
       ))}
       <div className="exterior-row">
-        {(["door", "window", "garage"] as const).map((kind) => (
+        {(["door", "window", "garage", "rollup"] as const).map((kind) => (
           <button key={kind} type="button" className="btn-secondary" onClick={() => add(kind)}>
             + {OPENING_LABEL[kind]}
           </button>

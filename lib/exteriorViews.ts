@@ -54,6 +54,10 @@ export interface ViewWall {
   facing: number;
   /** A party wall (2026-10-17): drawn bare and marked "Shared wall" - the neighbour's home stands against it. */
   shared?: true;
+  /** A two-storey house's main wall standing to the floor line (2026-10-19): its top is the floor line, not an eave. */
+  toFloorLine?: true;
+  /** An upper wall standing on a lower roof: how many of the outline's points are its bottom (`Wall3D.bottomPoints`). */
+  bottomPoints?: number;
 }
 
 export interface ViewRoof {
@@ -232,6 +236,8 @@ export function houseView(model: ExteriorModel3D, compass: Compass): HouseView {
       grade: w.grade && w.grade.length >= 2 ? w.grade.map(at) : null,
       facing,
       ...(w.shared ? { shared: true as const } : {}),
+      ...(w.toFloorLine ? { toFloorLine: true as const } : {}),
+      ...(!(w.grade && w.grade.length >= 2) && w.bottomPoints !== undefined ? { bottomPoints: w.bottomPoints } : {}),
     });
   }
 
@@ -332,14 +338,19 @@ export function houseView(model: ExteriorModel3D, compass: Compass): HouseView {
   const widest = [...walls]
     .filter((w) => w.sideId !== null)
     .sort((p, q) => Math.max(...q.outline.map((v) => v.x)) - Math.min(...q.outline.map((v) => v.x)) - (Math.max(...p.outline.map((v) => v.x)) - Math.min(...p.outline.map((v) => v.x))));
-  for (const w of widest.slice(0, 2)) {
-    // A wall's eave: the lowest of its top, where the roof's underside meets it.
-    const bottom = w.grade ? w.grade.length : 2;
-    const top = w.outline.slice(bottom);
-    if (top.length === 0) continue;
-    const y = Math.min(...top.map((p) => p.y));
-    if (!levels.some((l) => Math.abs(l.y - y) < 0.5)) levels.push({ label: "Eave", y });
+  // A wall's eave: the lowest of its top, where the roof's underside meets it.
+  const topOf = (w: ViewWall): number | null => {
+    const top = w.outline.slice(w.grade ? w.grade.length : (w.bottomPoints ?? 2));
+    return top.length === 0 ? null : Math.min(...top.map((p) => p.y));
+  };
+  for (const w of widest.filter((x) => !x.toFloorLine).slice(0, 2)) {
+    const y = topOf(w);
+    if (y !== null && !levels.some((l) => Math.abs(l.y - y) < 0.5)) levels.push({ label: "Eave", y });
   }
+  // A two-storey house's floor line where a main wall stands to it (2026-10-19): said as what it is.
+  const floor = widest.find((x) => x.toFloorLine);
+  const floorY = floor ? topOf(floor) : null;
+  if (floorY !== null && !levels.some((l) => Math.abs(l.y - floorY) < 0.5)) levels.push({ label: "Floor line", y: floorY });
   if (roofs.length > 0 && !levels.some((l) => Math.abs(l.y - topY) < 0.5)) levels.push({ label: "Top of roof", y: topY });
   levels.sort((p, q) => p.y - q.y);
   return { compass, pieces, ground: dedupeX(ground), minX, maxX, topY, groundY, sides, levels, party };

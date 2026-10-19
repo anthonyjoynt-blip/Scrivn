@@ -499,7 +499,17 @@ export function exteriorReport(exterior: Exterior, meta: ReportMeta): ExteriorRe
   }, 0);
   if (q.cladding.length > 0) facts.push({ label: "Cladding", value: q.cladding.map((c) => `${c.label} ${sf(c.netSquareFeet)} net`).join(" · ") + (photoNet > 0.5 ? ` (${sf(photoNet)} of it read off photos)` : "") });
   const count = (k: ExteriorOpening["kind"]) => every.reduce((n, s) => n + s.openings.filter((o) => o.kind === k).length, 0);
-  facts.push({ label: "Openings", value: [plural(count("window"), "window"), plural(count("door"), "door"), plural(count("garage"), "garage door")].join(" · ") });
+  // A roll-up door (2026-10-19) is said only where there is one, and then "0 garage doors" is not.
+  const rollups = count("rollup");
+  facts.push({
+    label: "Openings",
+    value: [
+      plural(count("window"), "window"),
+      plural(count("door"), "door"),
+      ...(count("garage") > 0 || rollups === 0 ? [plural(count("garage"), "garage door")] : []),
+      ...(rollups > 0 ? [plural(rollups, "roll-up door")] : []),
+    ].join(" · "),
+  });
   // The trim (2026-10-17), in a line: the owner's "differentiate these in the report".
   if (q.trim) {
     const t = q.trim;

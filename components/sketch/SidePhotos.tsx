@@ -257,6 +257,9 @@ function trimBox(p: TraceProposals, i: number): string | undefined {
   return (p.trims ?? []).find((t) => t.from.includes(i))?.key ?? (p.columns ?? []).find((c) => c.from.includes(i))?.key;
 }
 
+/** An off_wall box that said an opening is a roll-up door (2026-10-19): not a thing in front of the wall either. */
+const rollupBox = (p: TraceProposals, i: number) => p.openings.some((o) => o.rollupFrom === i);
+
 const TRIM_INK = "#7c3aed";
 
 /** The trim read off the photo, each ticked or not (2026-10-17): a surround with the opening it goes round, a column. */
@@ -300,6 +303,7 @@ function traceOverlay(p: TraceProposals, picks: Picks): ReactNode {
           const on = picks.trims?.[key] ?? false;
           return <rect key={`trim-${i}`} x={b.x0} y={-b.y1} width={b.x1 - b.x0} height={b.y1 - b.y0} fill="none" stroke={TRIM_INK} strokeWidth={on ? 2 : 1} strokeDasharray={on ? undefined : "4 4"} {...stroke} />;
         }
+        if (rollupBox(p, i)) return null;
         return (
           <g key={`off-${i}`}>
             <rect x={b.x0} y={-b.y1} width={b.x1 - b.x0} height={b.y1 - b.y0} fill={IN_FRONT} fillOpacity={0.08} stroke={IN_FRONT} strokeWidth={1.5} strokeDasharray="5 4" {...stroke} />
@@ -917,11 +921,11 @@ function TracePanel({
         </p>
       ))}
       <TrimPicks p={p} picks={picks} onPicks={onPicks} />
-      {p.offWall.some((_, i) => !trimBox(p, i)) && (
+      {p.offWall.some((_, i) => !trimBox(p, i) && !rollupBox(p, i)) && (
         <p className="field-note">
           In front of the wall, not traced (orange):{" "}
           {p.offWall
-            .filter((_, i) => !trimBox(p, i))
+            .filter((_, i) => !trimBox(p, i) && !rollupBox(p, i))
             .map((b) => b.what)
             .join("; ")}
           .

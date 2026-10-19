@@ -230,11 +230,13 @@ function openingParts(wall: Wall3D, cut: ReturnType<typeof cuttable>, parts: Par
     const pane = o.kind === "window" ? parts.glass : o.kind === "door" ? parts.door : parts.garage;
     flat(pane, x0, y0, x1, y1, -D);
     const w = -D + 0.02;
-    if (o.kind === "garage") {
-      // Four sections, a groove between each.
-      for (let k = 1; k < 4; k++) {
-        const y = y0 + ((y1 - y0) * k) / 4;
-        flat(parts.groove, x0, y - 0.03, x1, y + 0.03, w);
+    if (o.kind === "garage" || o.kind === "rollup") {
+      // A garage door's four sections, a groove between each; a roll-up's slats, about 3" each.
+      const n = o.kind === "garage" ? 4 : Math.max(6, Math.round((y1 - y0) / 0.25));
+      const g = o.kind === "garage" ? 0.03 : 0.01;
+      for (let k = 1; k < n; k++) {
+        const y = y0 + ((y1 - y0) * k) / n;
+        flat(parts.groove, x0, y - g, x1, y + g, w);
       }
       continue;
     }

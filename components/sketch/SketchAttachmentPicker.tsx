@@ -105,6 +105,7 @@ export function SketchAttachmentToggle({
   selection,
   thumbnails,
   levelNames,
+  buildings,
   target,
   onChange,
 }: {
@@ -113,6 +114,8 @@ export function SketchAttachmentToggle({
   thumbnails: SurfaceThumbnail[];
   /** The storeys' names (`Sketch.levelNames`), for a per-level plan's label. */
   levelNames?: Sketch["levelNames"];
+  /** The other buildings (`Sketch.buildings`), for their pictures' labels: "Shed – roof plan". */
+  buildings?: Sketch["buildings"];
   target: AttachmentTarget;
   onChange: (next: SketchAttachments) => void;
 }) {
@@ -132,7 +135,7 @@ export function SketchAttachmentToggle({
             title={sketchRenderDescription(render, thumbnails)}
             onClick={() => onChange(toggleAttachment(selection, target, render))}
           >
-            {sketchRenderLabel(render, thumbnails, { levelNames })}
+            {sketchRenderLabel(render, thumbnails, { levelNames, buildings })}
           </button>
         ))}
       </div>

@@ -5,6 +5,7 @@ import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { allSides, elevationFaces, type Exterior, exteriorQuantities, formatPitch, lengthToCheck, pieceLine, ROOF_TOTAL_KEYS, ROOF_TOTAL_LABEL, type RoofTotalKey, houseColours, sharedOf, sourceWords, trimShapes } from "@/lib/exterior";
 import { sizesFrom } from "@/lib/exteriorScale";
+import { buildingRender, type SketchRender } from "@/lib/sketchAttachments";
 import { formatQuantity } from "@/lib/sketchQuantities";
 import { lineTotals, textWidthEm } from "@/lib/roofLabels";
 import { CladdingLegend, ElevationDrawing, elevationFontFeet, LINE_STYLE, type LegendItem, RoofPlanDrawing } from "./exteriorDrawings";
@@ -42,6 +43,16 @@ export function exteriorRenders(exterior: Exterior | undefined): ExteriorRender[
   if (q.sides.some((s) => s.complete)) out.push("elevations");
   return out;
 }
+
+/**
+ * Each other building's pictures (2026-10-19, lib/buildings.ts): its roof plan and its elevations, as the house's, by
+ * `buildingRender` ids - named for it on the documents ("Shed – roof plan").
+ */
+export function buildingRenders(buildings: Exterior[] | undefined): SketchRender[] {
+  return (buildings ?? []).flatMap((b) => (b.id ? exteriorRenders(b).map((r) => buildingRender(r, b.id as string)) : []));
+}
+
+type Markup = (element: ReturnType<typeof createElement>) => string;
 
 /** A React element as SVG markup, rendered off screen (the exterior report draws from it too, lib/exteriorReportPdf.ts). */
 export function markup(element: ReturnType<typeof createElement>): string {
@@ -95,7 +106,7 @@ async function rasterize(svg: string, width: number, height: number, format: "pn
   return format === "png" ? canvas.toDataURL("image/png") : canvas.toDataURL("image/jpeg", 0.94);
 }
 
-function roofSvg(exterior: Exterior): { svg: string; width: number; height: number } | null {
+function roofSvg(exterior: Exterior, name: string | undefined, markup: Markup): { svg: string; width: number; height: number } | null {
   const q = exteriorQuantities(exterior);
   const plan = q.roof;
   const r = q.roofing;
@@ -179,7 +190,7 @@ function roofSvg(exterior: Exterior): { svg: string; width: number; height: numb
   const svg = [
     `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${height}" viewBox="0 0 ${WIDTH} ${height}">`,
     `<rect width="${WIDTH}" height="${height}" fill="#ffffff"/>`,
-    label(40, 44, "Roof plan", 30, 700),
+    label(40, 44, name ? `${name} – roof plan` : "Roof plan", 30, 700),
     label(40, 78, `${r.byPitch.length > 1 || r.curved ? [...r.byPitch.map((b) => `${formatPitch(b.pitch)}${b.assumed ? " (assumed)" : b.fromPhotos ? " (from photos)" : ""}`), ...(r.curved ? ["curved"] : [])].join(" and ") : `${formatPitch(r.pitch)}${r.pitchAssumed ? " (assumed)" : r.pitchFromPhotos ? " (from photos)" : ""}`} · ${which} · ${formatQuantity(r.areaSquareFeet)} SF (${r.squares.toFixed(2)} SQ${r.from.squareFeet !== "drawing" ? `, ${sourceWords(r.from.squareFeet)}` : ""}) · to scale, front at the bottom`, 20),
     `<g transform="translate(40 ${top})">${drawing}</g>`,
     legend,
@@ -190,7 +201,7 @@ function roofSvg(exterior: Exterior): { svg: string; width: number; height: numb
   return { svg, width: WIDTH, height };
 }
 
-function elevationsSvg(exterior: Exterior): { svg: string; width: number; height: number } | null {
+function elevationsSvg(exterior: Exterior, name: string | undefined, markup: Markup): { svg: string; width: number; height: number } | null {
   const q = exteriorQuantities(exterior);
   // Every side, the upper floor's after the main floor's, each standing on what it stands on.
   const sides = allSides(exterior)
@@ -218,7 +229,7 @@ function elevationsSvg(exterior: Exterior): { svg: string; width: number; height
   // What the sizes are from (2026-10-15, lib/exteriorScale.ts), for a house the phone measured: under the title.
   const from = sizesFrom(exterior);
   let y = from ? 96 : 70;
-  const parts: string[] = [label(40, 44, "Elevations", 30, 700), from ? label(40, 78, `Sizes from ${from}.`, 20) : ""];
+  const parts: string[] = [label(40, 44, name ? `${name} – elevations` : "Elevations", 30, 700), from ? label(40, 78, `Sizes from ${from}.`, 20) : ""];
   // The materials as the faces show them (2026-10-16): a swatch of each, as on the report.
   const items: LegendItem[] = [];
   const trimItems: LegendItem[] = [];
@@ -259,10 +270,18 @@ function elevationsSvg(exterior: Exterior): { svg: string; width: number; height
   return { svg, width: WIDTH, height };
 }
 
+/**
+ * One exterior picture as SVG, or null when there is nothing to draw. [name]: another building's (2026-10-19), which heads
+ * its picture; the house's has none. [toMarkup] is for the tests, which have no document to render into.
+ */
+export function exteriorPictureSvg(exterior: Exterior, render: ExteriorRender, name?: string, toMarkup: Markup = markup): { svg: string; width: number; height: number } | null {
+  return render === "roof" ? roofSvg(exterior, name, toMarkup) : elevationsSvg(exterior, name, toMarkup);
+}
+
 /** One exterior picture, or null when there is nothing to draw. */
-export async function renderExteriorImage(exterior: Exterior | undefined, render: ExteriorRender, format: "png" | "jpeg" = "png"): Promise<ExteriorImage | null> {
+export async function renderExteriorImage(exterior: Exterior | undefined, render: ExteriorRender, format: "png" | "jpeg" = "png", name?: string): Promise<ExteriorImage | null> {
   if (!exterior) return null;
-  const built = render === "roof" ? roofSvg(exterior) : elevationsSvg(exterior);
+  const built = exteriorPictureSvg(exterior, render, name);
   if (!built) return null;
   const dataUrl = await rasterize(built.svg, built.width, built.height, format);
   return dataUrl ? { render, dataUrl, width: built.width, height: built.height } : null;
