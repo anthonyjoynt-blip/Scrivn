@@ -222,7 +222,7 @@ function wallsOf(raw: unknown): FinishWalls | undefined {
   const openings = (Array.isArray(raw.openings) ? raw.openings : [])
     .filter(isObject)
     .map((o) => ({
-      kind: (o.kind === "door" || o.kind === "garage" ? o.kind : "window") as ExteriorOpeningKind,
+      kind: (o.kind === "door" || o.kind === "garage" || o.kind === "rollup" ? o.kind : "window") as ExteriorOpeningKind,
       widthFeet: num(o.widthFeet) ?? 0,
       heightFeet: num(o.heightFeet) ?? 0,
       sillFeet: Math.max(0, num(o.sillFeet) ?? 0),

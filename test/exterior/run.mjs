@@ -6106,5 +6106,175 @@ test("the roof on the elevations: shingles with their tab cuts, metal with its s
   assert(x.roofTextureOf("tile").texture === "plain" && x.roofTextureOf(null).texture === "shingles", "plain, and shingles when unsaid");
 });
 
+console.log("\nsplit-levels, up/down duplexes and roll-up doors (10-19)");
+
+const F5 = 13 / 12;
+/** A side clad in vinyl from the grade to its eave, level all along. */
+const levelSide = (id, name, lengthFeet, turn, eave) => side({ id, name, lengthFeet, turn, base: "grade", baseLeftFeet: 0, baseRightFeet: 0, eaveLeftFeet: eave, eaveRightFeet: eave, bands: [{ id: `b-${id}`, kind: "vinyl", top: null }] });
+
+/**
+ * A side-split: the two-storey section 26 wide x 30 deep at the left, its main walls 9' to the floor line and its upper floor
+ * 8'6" over it; the living section 24 wide x 22 deep at its right, 4' back from its front and from its back, half a level
+ * up - its walls [living] to its eave (12'6": 3'6" over the floor line). 5/12, 1'4" eaves, 1' rakes; the house's ridge
+ * front to back (along the 30); the living section's own gable roof running out from the two-storey section's right wall.
+ */
+function sideSplit(living = ft(12, 6)) {
+  const e = exterior(
+    [
+      levelSide("front2", "Front, two-storey", 26, "outside", 9),
+      levelSide("step", "Front step", 4, "inside", 9),
+      levelSide("frontL", "Front, living", 24, "outside", living),
+      levelSide("right", "Right", 22, "outside", living),
+      levelSide("rearL", "Rear, living", 24, "inside", living),
+      levelSide("rearStep", "Rear step", 4, "outside", 9),
+      levelSide("rear2", "Rear, two-storey", 26, "outside", 9),
+      levelSide("left", "Left", 30, "outside", 9),
+    ],
+    { pitch: 5, eaveOverhangFeet: ft(1, 4), rakeOverhangFeet: 1 },
+  );
+  e.homeType = "split";
+  e.upper = {
+    sides: [
+      levelSide("uFront", "Upper front", 26, "outside", ft(8, 6)),
+      levelSide("uRight", "Upper right", 30, "outside", ft(8, 6)),
+      levelSide("uRear", "Upper rear", 26, "outside", ft(8, 6)),
+      levelSide("uLeft", "Upper left", 30, "outside", ft(8, 6)),
+    ],
+    at: { sideId: "front2", dx: 0, dy: 0 },
+  };
+  e.scope = { roofing: true, sides: x.allSides(e).map((s) => s.id), soffitFascia: true, eavestrough: true };
+  return e;
+}
+
+/** The levels a compass view says, as (label, feet over its ground). */
+const levelsOf = (model, compass) => {
+  const v = x.houseView(model, compass);
+  return v.levels.map((l) => [l.label, Math.round((l.y - v.groundY) * 12) / 12]);
+};
+
+test("a side-split: the living section's roof half a level up, against the two-storey section's wall, and its walls their own height", () => {
+  const e = sideSplit();
+  const q = roofOf(e);
+  const r = q.roofing;
+  assert(q.roof.note === null, q.roof.note);
+  // The living section, 24 out from the wall and 22 along it, is deeper than half its width: its ridge runs out from the wall.
+  assert(q.roof.lowerRoofs.map((l) => `${l.sideId}:${l.kind}`).join() === "right:tent", JSON.stringify(q.roof.lowerRoofs));
+  // Its walls read 12'6" against the floor line's 9': it stands 3'6" up.
+  const levels = x.splitLevels(x.exteriorFootprint(e).corners, q.roof.sections, x.exteriorFootprint(e).sideIds.map((id) => { const s = e.sides.find((t) => t.id === id); return [s.eaveLeftFeet, s.eaveRightFeet]; }));
+  near(levels.floorLine, 9, "the floor line");
+  assert(JSON.stringify(levels.lifts) === JSON.stringify({ 1: 3.5 }), JSON.stringify(levels.lifts));
+  // The roof: the house's 28'8" x 32' (eaves 1'4" past the 26, rakes 1' past the 30) = 917.33, and the living section's 25 x
+  // 24'8" (its wall to its rake 1' past the right wall; eaves 1'4" past its front and back) = 616.67 - under the house's
+  // eave overhang where they meet, as built - each x 13/12 at 5/12.
+  near(r.areaSquareFeet, (28 + 2 / 3) * 32 * F5 + 25 * (24 + 2 / 3) * F5, "area");
+  near(r.squares, 16.62, "squares", 0.005);
+  near(r.ridgeFeet, 32 + 25, "the house's ridge and the living section's, out from the wall");
+  near(r.eaveFeet, 2 * 32 + 2 * 25, "eaves");
+  // Rakes: the house's two gable ends, 14'4" a slope; the living section's one, 12'4" a slope.
+  near(r.rakeFeet, 4 * (14 + 1 / 3) * F5 + 2 * (12 + 1 / 3) * F5, "rakes");
+  near(r.stepFeet, 2 * (12 + 1 / 3) * F5, "step flashing: the living roof's two slopes up the two-storey section's wall");
+  near(r.valleyFeet + r.hipFeet + r.headwallFeet, 0, "no valleys, hips or headwall");
+  // The walls: the main floor at its own heights - 9' under the upper floor, 12'6" the living section, its gable 22 x 4'7"/2.
+  const sf = (id) => q.sides.find((s) => s.sideId === id).grossSquareFeet;
+  near(sf("front2"), 26 * 9, "the two-storey front to the floor line");
+  near(sf("frontL"), 24 * 12.5, "the living front to its own eave");
+  near(sf("right"), 22 * 12.5 + (22 * (11 * 5 / 12)) / 2, "the living section's gable end");
+  near(sf("uFront"), 26 * 8.5 + (26 * (13 * 5 / 12)) / 2, "the upper front and the house's gable");
+  // The upper right stands on the floor line past the living section (its 4' steps) and on its roof over it: 3'6" up at its
+  // walls and 3'6" + 4'7" at its ridge. Its 30 x 8'6" less 22 x 3'6" and the 22 x 4'7"/2 roof triangle.
+  near(sf("uRight"), 30 * 8.5 - 22 * 3.5 - (22 * (11 * 5 / 12)) / 2, "the upper right over the living roof");
+  const base = q.bases.uRight;
+  near(Math.max(...base.map((b) => b.rise)), 3.5 + 11 * 5 / 12, "the living roof's ridge on the upper right wall");
+  assert(base.some((b) => Math.abs(b.t - 4 / 30) < 1e-9 && Math.abs(b.rise - 3.5) < 1e-5) && base.some((b) => Math.abs(b.t - 4 / 30) < 1e-9 && Math.abs(b.rise) < 1e-9), "a step up at the living section's front wall");
+  near(q.totals.grossSquareFeet, 2 * 26 * 9 + 2 * 4 * 9 + 2 * 24 * 12.5 + 22 * 12.5 + 30 * 9 + (22 * 55 / 12) / 2 + 2 * (26 * 8.5 + (26 * 65 / 12) / 2) + 30 * 8.5 + (30 * 8.5 - 77 - (22 * 55 / 12) / 2), "every wall");
+  // The downspouts hang from each eave: the house's two runs at 9' + 8'6", the living section's at 12'6", by length.
+  const lines = x.exteriorScopeLines(e);
+  const eave = (64 * 17.5 + 50 * 12.5) / 114;
+  assert(lines.siding.includes(`Remove & replace downspouts – 4 – ${(4 * eave * 1.15).toFixed(1)} LF (eave height + 15%)`), lines.siding.join(" | "));
+  assert(lines.roofing.includes("Step flashing – 26.7 LF (a lower roof's slopes against the wall)"), lines.roofing.join(" | "));
+  // The report's cover says what it is.
+  const facts = x.exteriorReport(e, { title: "Split", date: "Oct 19, 2026", madeWith: "Scrivn" }).facts;
+  assert(facts[0].label === "Home" && facts[0].value.startsWith("Split-level:"), JSON.stringify(facts[0]));
+  // In 3D the upper right wall stands on the living roof: its foot at 12'6" + 4'7" at the ridge, its top the house's 17'6" eave.
+  const model = x.exteriorModel(e).model;
+  const uRight = model.walls.find((w) => w.id === "uRight");
+  const foot = uRight.outline.slice(0, uRight.bottomPoints);
+  const groundAt = Math.min(...model.walls.filter((w) => w.grade).flatMap((w) => w.grade.map((g) => g.y)));
+  near(Math.max(...foot.map((p) => p.y)) - groundAt, 12.5 + 55 / 12, "its foot on the living roof's ridge", 1e-6);
+  // Each view says each level for what it is: the floor line is no eave.
+  assert(JSON.stringify(levelsOf(model, "south")) === JSON.stringify([["Floor line", 9], ["Eave", 12.5], ["Eave", 17.5], ["Top of roof", levelsOf(model, "south")[3][1]]]), JSON.stringify(levelsOf(model, "south")));
+  assert(JSON.stringify(levelsOf(model, "east").slice(0, 3)) === JSON.stringify([["Floor line", 9], ["Eave", 12.5], ["Eave", 17.5]]), JSON.stringify(levelsOf(model, "east")));
+});
+
+test("a side-split read within a foot of the floor line is one floor: no lift", () => {
+  const q = roofOf(sideSplit(ft(9, 6)));
+  // The living roof from the floor line: the upper right less its triangle alone, from the living section's walls.
+  near(q.sides.find((s) => s.sideId === "uRight").grossSquareFeet, 30 * 8.5 - (22 * (11 * 5 / 12)) / 2, "the upper right");
+});
+
+test("an up/down duplex: one building, two storeys, nothing split", () => {
+  const e = exterior(
+    [levelSide("front", "Front", 40, "outside", 9), levelSide("right", "Right", 28, "outside", 9), levelSide("rear", "Rear", 40, "outside", 9), levelSide("left", "Left", 28, "outside", 9)],
+    { pitch: 6, eaveOverhangFeet: ft(1, 4), rakeOverhangFeet: 1 },
+  );
+  e.homeType = "duplex_updown";
+  e.upper = {
+    sides: [levelSide("uFront", "Upper front", 40, "outside", 9), levelSide("uRight", "Upper right", 28, "outside", 9), levelSide("uRear", "Upper rear", 40, "outside", 9), levelSide("uLeft", "Upper left", 28, "outside", 9)],
+    at: { sideId: "front", dx: 0, dy: 0 },
+  };
+  e.scope = { roofing: true, sides: x.allSides(e).map((s) => s.id), soffitFascia: true, eavestrough: true };
+  const q = roofOf(e);
+  const r = q.roofing;
+  assert(q.roof.lowerRoofs.length === 0 && q.roof.sections.length === 1, "one roof, over the upper floor");
+  // 42 x 30'8" at 6/12: the ridge along the 40, 7' up over the 14.
+  near(r.areaSquareFeet, 42 * (28 + 8 / 3) * F6, "area");
+  near(r.squares, 14.4, "squares", 0.005);
+  near(r.ridgeFeet, 42, "ridge");
+  near(r.eaveFeet, 84, "eaves");
+  near(r.rakeFeet, 4 * (14 + 4 / 3) * F6, "rakes");
+  near(q.totals.grossSquareFeet, 2 * (40 * 9) * 2 + 2 * (28 * 9) * 2 + 2 * ((28 * 7) / 2), "two storeys of walls and the two gables");
+  const lines = x.exteriorScopeLines(e);
+  // The downspouts from the eave, 9' + 9' up - not the main floor's 9'.
+  assert(lines.siding.includes(`Remove & replace downspouts – 4 – ${(4 * 18 * 1.15).toFixed(1)} LF (eave height + 15%)`), lines.siding.join(" | "));
+  assert(lines.roofing.includes("High roof charge – two storeys or more – 14.40 SQ (the roof over the upper floor)"), lines.roofing.join(" | "));
+  const facts = x.exteriorReport(e, { title: "Duplex", date: "Oct 19, 2026", madeWith: "Scrivn" }).facts;
+  assert(facts[0].label === "Home" && facts[0].value === "Duplex (up/down): two units, one over the other, measured as one building.", JSON.stringify(facts[0]));
+  const model = x.exteriorModel(e).model;
+  for (const c of ["south", "east", "north", "west"]) assert(JSON.stringify(levelsOf(model, c).slice(0, 2)) === JSON.stringify([["Floor line", 9], ["Eave", 18]]), `${c}: ${JSON.stringify(levelsOf(model, c))}`);
+  // A duplex or a split-level shares no wall: none proposed on the photo route's shape, none asked on the plan.
+  const box = [{ x: 0, y: 0 }, { x: 40, y: 0 }, { x: 40, y: 28 }, { x: 0, y: 28 }];
+  assert(x.defaultShared(box, "duplex_updown").length === 0 && x.defaultShared(box, "split").length === 0 && x.defaultShared(box, "semi").length === 1, "nothing shared");
+  assert(x.homeTypeWords({ ...e, homeType: undefined }) === null, "a detached house has no Home fact");
+});
+
+test("a roll-up door: its own kind, named, drawn and read as one; nothing else about the openings changes", () => {
+  assert(x.OPENING_LABEL.rollup === "Roll-up door" && x.SURROUND_WORDS.rollup === "roll-up door surrounds", "named");
+  // The trace: a garage_door with a "roll-up" box round its hood over its head is a roll-up; the AC unit stays in front of the wall.
+  const withHood = { ...wire, off_wall: [...wire.off_wall, { what: "roll-up hood, metal", box: [515, 310, 795, 345] }] };
+  const p = x.traceProposals(withHood, traceFrame, 8 * M);
+  const door = p.openings.find((o) => o.traced === "garage door");
+  assert(door.kind === "rollup" && door.rollupFrom === 1, JSON.stringify(door));
+  assert(p.openings.filter((o) => o.kind === "rollup").length === 1 && p.openings.find((o) => o.traced === "window").kind === "window", "only the door under it");
+  // Its size is no garage door's: no size check off it.
+  assert(x.doorCandidates(p.openings, 1).every((d) => d.key !== door.key), "not a size check");
+  // Over a window it is nothing; without one, the garage door stays a garage door - the recorded answers' case.
+  const overWindow = x.traceProposals({ ...wire, off_wall: [{ what: "roll-up shutter", box: [250, 360, 350, 380] }] }, traceFrame, 8 * M);
+  assert(overWindow.openings.every((o) => o.kind !== "rollup"), "a window is not a roll-up door");
+  assert(x.traceProposals(wire, traceFrame, 8 * M).openings.some((o) => o.kind === "garage"), "a garage door as before");
+  // The recording round-trips: the box comes back in off_wall and reads as the roll-up again.
+  const back = x.traceProposals(rec.wireFromProposals(p, traceFrame, x), traceFrame, 8 * M);
+  assert(back.openings.find((o) => o.traced === "garage door").kind === "rollup", "recorded and read back");
+  assert(/roll-up/.test(x.traceUserMessage(traceFrame, { name: "Front", lengthM: 8, bottomLeftM: 0, bottomRightM: 0, leftEndInPhoto: true, rightEndInPhoto: true })), "the prompt says how to tell one");
+  // The report: named "Roll-up door 1", counted on the cover without a "0 garage doors".
+  const shed = { ...rect(16, 12, { pitch: 3 }, 8), scope: { roofing: true, sides: [], soffitFascia: false, eavestrough: false } };
+  shed.sides[0].openings = [{ id: "ru", kind: "rollup", widthFeet: 5, heightFeet: 6, sillFeet: 0, fromLeftFeet: 9 }];
+  const rep = x.exteriorReport(shed, { title: "Shed", date: "Oct 19, 2026", madeWith: "Scrivn" });
+  assert(rep.facts.find((f) => f.label === "Openings").value === "0 windows · 0 doors · 1 roll-up door", JSON.stringify(rep.facts.find((f) => f.label === "Openings")));
+  assert(JSON.stringify(rep.tables).includes("Roll-up door 1"), "the openings table");
+  // A roll-up off the ground with nothing at its foot is asked about, as a door is.
+  shed.sides[0].openings[0] = { ...shed.sides[0].openings[0], sillFeet: 3, from: "photo" };
+  assert(x.exteriorChecks(shed, x.exteriorQuantities(shed)).some((c) => c.key === "opening:ru"), "checked like a door");
+});
+
 console.log(`\n${passed.length} passed, ${failures.length} failed`);
 if (failures.length > 0) process.exit(1);

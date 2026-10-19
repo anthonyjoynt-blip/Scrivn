@@ -94,12 +94,13 @@ export interface DoorCandidate {
 /**
  * The trace's doors that can check the sizes: a garage door traced to the door itself, and a door
  * whose leaf was traced - each read back to the phone's own measure (the sizes over the house's
- * [factor]). One no size doors are sold in fits is left out. A trace from before 2026-10-15 has none.
+ * [factor]). One no size doors are sold in fits is left out, and so is a roll-up door: its sizes are not a garage
+ * door's. A trace from before 2026-10-15 has none.
  */
 export function doorCandidates(openings: ProposedOpening[], factor: number): DoorCandidate[] {
   const out: DoorCandidate[] = [];
   for (const o of openings) {
-    const garage = o.traced === "garage door" && o.measuredTo === "door itself";
+    const garage = o.traced === "garage door" && o.measuredTo === "door itself" && o.kind !== "rollup";
     const box = garage ? o.box : o.traced === "door" ? o.leaf : null;
     if (!box || !(factor > 0)) continue;
     const kind: DoorKind = garage ? "garage" : "door";

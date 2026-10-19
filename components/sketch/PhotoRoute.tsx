@@ -1,7 +1,7 @@
 "use client";
 
 import { type PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState } from "react";
-import { defaultRoof, type Exterior, type ExteriorOpening, type ExteriorOpeningKind, type ExteriorSide, exteriorQuantities, HOME_TYPE_LABEL, type HomeType, OPENING_LABEL, openingRect } from "@/lib/exterior";
+import { defaultRoof, type Exterior, type ExteriorOpening, type ExteriorOpeningKind, type ExteriorSide, exteriorQuantities, HOME_TYPE_LABEL, type HomeType, isAttachedHome, OPENING_LABEL, openingRect } from "@/lib/exterior";
 import { type CheckRow, openChecks, withCheckDrop, withChecksClosed, withOpeningKind, withTrimAnswer } from "@/lib/exteriorCheck";
 import { frameX, frameY } from "@/lib/exteriorPhoto";
 import { exifTakenAt } from "@/lib/exifTime";
@@ -122,7 +122,7 @@ export function PhotoRoutePane({ exterior, readOnly, onChange }: { exterior: Ext
   const route = exterior.photoRoute ?? emptyPhotoRoute();
   const main = mainOf(route);
   // A semi or a townhouse (2026-10-17): its walls shared with the neighbours, by the outline's side index.
-  const attached = !!main.homeType && main.homeType !== "detached";
+  const attached = isAttachedHome(main.homeType);
   const sharedSides = new Set(main.shared ?? []);
   const change: RouteChange = (f) => onChange((e) => withRoute(e, f));
   const [selected, setSelected] = useState<string | null>(route.photos[0]?.id ?? null);

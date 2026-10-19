@@ -104,7 +104,7 @@ import {
   pruneAttachments,
   withExteriorDefaults,
 } from "@/lib/sketchAttachments";
-import { exteriorRenders } from "@/components/sketch/exteriorImages";
+import { buildingRenders, exteriorRenders } from "@/components/sketch/exteriorImages";
 import { exteriorReportFile, hasExteriorReport } from "@/components/sketch/exteriorReportDoc";
 import { ExteriorReportSection } from "@/components/ExteriorReportSection";
 import { type SketchImage, dataUrlToBlob, downloadDataUrl, renderSketchImages, renderSketchJpeg } from "@/components/sketch/renderSketchImage";
@@ -636,8 +636,8 @@ export default function Home() {
     `lib/surfaceThumbnails.ts`. Recomputed as the scope fills in, so a wall that stops being cut
     stops being offered and `pruneAttachments` drops it if it had already been ticked.
   */
-  /** The outside of the house's pictures, when it has something to draw - see components/sketch/exteriorImages.tsx. */
-  const exteriorPictures = useMemo(() => exteriorRenders(sketch.exterior), [sketch.exterior]);
+  /** The outside of the house's pictures, when it has something to draw, then each other building's - see components/sketch/exteriorImages.tsx. */
+  const exteriorPictures = useMemo(() => [...exteriorRenders(sketch.exterior), ...buildingRenders(sketch.buildings)], [sketch.exterior, sketch.buildings]);
   const thumbnails = useMemo(
     () => surfaceThumbnails(extraction, sketch, moisture, scopeMarks),
     [extraction, sketch, moisture, scopeMarks],
@@ -2201,6 +2201,7 @@ export default function Home() {
                   selection={sketchAttachments}
               thumbnails={thumbnails}
               levelNames={sketch.levelNames}
+              buildings={sketch.buildings}
                   target={{ kind: "inspectionReport" }}
                   onChange={setSketchAttachments}
                 />
@@ -2265,6 +2266,7 @@ export default function Home() {
                 selection={sketchAttachments}
               thumbnails={thumbnails}
               levelNames={sketch.levelNames}
+              buildings={sketch.buildings}
                 target={{ kind: "scopeDocument" }}
                 onChange={setSketchAttachments}
               />
@@ -2443,6 +2445,7 @@ export default function Home() {
                     selection={sketchAttachments}
               thumbnails={thumbnails}
               levelNames={sketch.levelNames}
+              buildings={sketch.buildings}
                     target={{ kind: "workOrder", trade: wo.trade }}
                     onChange={setSketchAttachments}
                   />

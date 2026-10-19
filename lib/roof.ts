@@ -3325,9 +3325,10 @@ export function roofRiseAlongWall(input: RoofInput, from: Pt, to: Pt, storey: "m
  * What an upper-floor wall stands on, along it from its start corner to its end, as (fraction along,
  * feet above the floor line) at every bend: a lower roof, where one meets the wall - its underside
  * there above its own eave, the main floor's - and the floor line itself (0) where the wall stands on
- * the main floor's wall below. The bottom of an upper side's cladding.
+ * the main floor's wall below. The bottom of an upper side's cladding. [lifts]: a split-level's lower
+ * roofs whose eaves stand over the floor line, by layer (`splitLevels`), over the walls they stand on.
  */
-export function roofBaseAlongWall(input: RoofInput, from: Pt, to: Pt): { t: number; rise: number }[] {
+export function roofBaseAlongWall(input: RoofInput, from: Pt, to: Pt, lifts: Record<number, number> = {}): { t: number; rise: number }[] {
   const built = roofSections(input);
   const len = Math.hypot(to.x - from.x, to.y - from.y);
   if (!built || !input.upper || len < 1e-9) return [];
@@ -3340,13 +3341,22 @@ export function roofBaseAlongWall(input: RoofInput, from: Pt, to: Pt): { t: numb
     const own = lower.filter((s) => s.layer === layer);
     return { own, surface: new Surface(own) };
   });
+  // Broken where each lower roof's walls end, so its slope rises from its wall and not from its drip line out past it - and a
+  // lifted one stands its lift over the floor line over its own walls only, not out under its overhang.
+  const lowerWalls = lower.flatMap((s) => (s.wall ? [s.wall] : []));
   const ts = uniqSorted(
-    roofs.flatMap((r) => r.surface.breaks(o, d)),
+    [
+      ...roofs.flatMap((r) => r.surface.breaks(o, d)),
+      ...lowerWalls.flatMap((w) => [
+        ...(Math.abs(d.x) > EPS ? [(w.x0 - o.x) / d.x, (w.x1 - o.x) / d.x] : []),
+        ...(Math.abs(d.y) > EPS ? [(w.y0 - o.y) / d.y, (w.y1 - o.y) / d.y] : []),
+      ]),
+    ],
     0,
     len,
   );
   const at = (t: number): Pt => ({ x: o.x + d.x * t, y: o.y + d.y * t });
-  /** The highest lower roof over a point by the wall, above its own eave; 0 with none. */
+  /** The highest lower roof over a point by the wall, above its own eave and any lift; 0 with none. */
   const baseIn = (m: Pt, p: Pt): number => {
     let best = 0;
     for (const r of roofs) {
@@ -3354,7 +3364,8 @@ export function roofBaseAlongWall(input: RoofInput, from: Pt, to: Pt): { t: numb
       const z = r.surface.z(p.x, p.y);
       const section = r.own.find((s) => inside(s, m.x, m.y)) ?? r.own[0];
       if (z === null || !section) continue;
-      best = Math.max(best, z - oe * (section.pitch / 12));
+      const lift = section.wall && inside(section.wall, m.x, m.y) ? (lifts[section.layer] ?? 0) : 0;
+      best = Math.max(best, lift + z - oe * (section.pitch / 12));
     }
     return best;
   };
@@ -3373,6 +3384,46 @@ export function roofBaseAlongWall(input: RoofInput, from: Pt, to: Pt): { t: numb
     push(t1, baseIn(m, at(t1 - e)));
   }
   return out.some((p) => p.rise > 1e-6) ? out : [];
+}
+
+/** A lower roof's walls reading this much or more over the floor line's stand a split level up; less is the same floor read a little off. */
+export const SPLIT_LEVEL_FEET = 1;
+
+/**
+ * A two-storey house's floor line, and a split-level's lower roofs over it (2026-10-19): how far each lower roof's eave
+ * stands over the floor line, by layer - a side-split's or back-split's one-storey section, half a storey up from the floor
+ * line its two-storey section's main walls stand to. [corners] and [sections]: the main floor's outline and the roof built
+ * on it; [eaves]: each main-floor side's eave readings, in the outline's order (null unread). A side is under the lower roof
+ * whose walls its middle is on, else it stands to the floor line; each is the middle of its readings. Only a lift of
+ * `SPLIT_LEVEL_FEET` or more counts, and none under the floor line. Nothing for one storey.
+ */
+export function splitLevels(corners: Pt[], sections: RoofSection[], eaves: (number[] | null)[]): { floorLine: number | null; lifts: Record<number, number> } {
+  if (!sections.some((s) => s.floor === "upper")) return { floorLine: null, lifts: {} };
+  const lower = sections.filter((s) => s.floor === "main" && s.wall);
+  const FLOOR = -1;
+  const readings = new Map<number, number[]>();
+  const n = corners.length;
+  corners.forEach((a, i) => {
+    const b = corners[(i + 1) % n] as Pt;
+    const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    const layer = Math.min(...lower.filter((s) => inside(s.wall as Rect, mid.x, mid.y)).map((s) => s.layer), Infinity);
+    const key = Number.isFinite(layer) ? layer : FLOOR;
+    readings.set(key, [...(readings.get(key) ?? []), ...(eaves[i] ?? [])]);
+  });
+  const middle = (v: number[] | undefined) => {
+    if (!v || v.length === 0) return null;
+    const s = [...v].sort((p, q) => p - q);
+    const m = Math.floor(s.length / 2);
+    return s.length % 2 ? (s[m] as number) : ((s[m - 1] as number) + (s[m] as number)) / 2;
+  };
+  const floor = middle(readings.get(FLOOR));
+  const lifts: Record<number, number> = {};
+  if (floor === null) return { floorLine: null, lifts };
+  for (const [layer, v] of readings) {
+    const own = middle(v);
+    if (layer !== FLOOR && own !== null && own - floor >= SPLIT_LEVEL_FEET - 1e-9) lifts[layer] = own - floor;
+  }
+  return { floorLine: floor, lifts };
 }
 
 /**

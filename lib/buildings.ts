@@ -143,11 +143,12 @@ export interface QuickBox {
   openings: QuickOpening[];
 }
 
-/** What a door, window or garage door starts at when added: the house's sizes (components/sketch/ExteriorSide.tsx), a 9' garage door. */
+/** What a door, window or garage door starts at when added: the house's sizes (components/sketch/ExteriorSide.tsx), a 9' garage door, a 6' roll-up. */
 export const QUICK_OPENING_SIZE: Record<ExteriorOpeningKind, { w: number; h: number }> = {
   door: { w: 3, h: 6 + 8 / 12 },
   window: { w: 3, h: 4 },
   garage: { w: 9, h: 7 },
+  rollup: { w: 6, h: 7 },
 };
 
 /** A window's top stands at a door's: 6'8" (lower under a wall shorter than that). */

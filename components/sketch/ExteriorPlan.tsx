@@ -33,6 +33,7 @@ import {
   ROOF_MATERIAL_LABEL,
   roofProposal,
   HOME_TYPE_LABEL,
+  isAttachedHome,
   type HomeType,
   sharedOf,
   sharedSides,
@@ -666,7 +667,7 @@ function SidesList({ exterior, q, readOnly, showTurns, onOpenSide, onChange }: {
           ))}
         </select>
       </label>
-      {exterior.homeType && exterior.homeType !== "detached" && !exterior.sides.some((s) => s.shared) && (
+      {isAttachedHome(exterior.homeType) && !exterior.sides.some((s) => s.shared) && (
         <p className="field-note">Open each wall shared with the neighbour and set it shared: it is then not counted, and the roof stops at it.</p>
       )}
     </div>

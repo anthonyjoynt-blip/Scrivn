@@ -158,7 +158,7 @@ export async function summary(capture: CaptureInput, finishRaw: unknown, host: E
     const anyPhoto = fromPhoto.shapes || fromPhoto.openings > 0 || fromPhoto.wallTop;
     const cladding = sq ? sq.bands.map((b) => `${b.label.toLowerCase()} ${Math.round(b.netSquareFeet)} SF net`).join(", ") : "";
     const count = (k: string) => s.openings.filter((o) => o.kind === k).length;
-    const openings = [count("window") ? `${count("window")} window${count("window") === 1 ? "" : "s"}` : "", count("door") ? `${count("door")} door${count("door") === 1 ? "" : "s"}` : "", count("garage") ? `${count("garage")} garage door${count("garage") === 1 ? "" : "s"}` : ""].filter(Boolean).join(", ");
+    const openings = [count("window") ? `${count("window")} window${count("window") === 1 ? "" : "s"}` : "", count("door") ? `${count("door")} door${count("door") === 1 ? "" : "s"}` : "", count("garage") ? `${count("garage")} garage door${count("garage") === 1 ? "" : "s"}` : "", count("rollup") ? `${count("rollup")} roll-up door${count("rollup") === 1 ? "" : "s"}` : ""].filter(Boolean).join(", ");
     const heights = s.eaveLeftFeet != null ? `eave ${formatFeetInches(s.eaveLeftFeet)}${s.eaveRightFeet != null && Math.abs(s.eaveRightFeet - s.eaveLeftFeet) > 1 / 24 ? `/${formatFeetInches(s.eaveRightFeet)}` : ""}${s.gable ? `, peak ${formatFeetInches(s.gable.peakFeet)}` : ""}` : "";
     const what = [cladding, openings, heights].filter(Boolean).join(" · ");
     const words = s.wallTopFrom === "neighbours" && sq?.complete

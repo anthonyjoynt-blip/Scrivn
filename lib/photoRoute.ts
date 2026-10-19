@@ -22,7 +22,7 @@
  * `RouteBuilding`; photos and their lens are shared, so a shed can later be tapped in the same photos.
  */
 
-import type { HomeType } from "./exterior";
+import { type HomeType, isAttachedHome } from "./exterior";
 import type { Pt } from "./roof";
 import { fromLevel, type PhotoCamera, levelAxes, planBearing, toLevel } from "./photoRouteLens";
 import { snapToEdge, type UprightEdge } from "./photoRouteEdges";
@@ -448,7 +448,7 @@ const NEIGHBOUR_FEET = 40;
  * townhouse both its outermost side walls. A tap on a wall changes it. None for a detached home.
  */
 export function defaultShared(outline: Pt[], homeType: HomeType | undefined): number[] {
-  if (!homeType || homeType === "detached" || outline.length < 4) return [];
+  if (!isAttachedHome(homeType) || outline.length < 4) return [];
   const n = outline.length;
   const runsBack = outline.map((a, i) => {
     const b = outline[(i + 1) % n] as Pt;

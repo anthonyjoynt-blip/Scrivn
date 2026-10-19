@@ -1,0 +1,764 @@
+{
+ "sides": [
+  {
+   "id": "side-shed-front",
+   "name": "Front (roll-up door)",
+   "lengthFeet": 16.260220561022955,
+   "turn": "outside",
+   "base": "grade",
+   "baseLeftFeet": 0,
+   "baseRightFeet": 0,
+   "eaveLeftFeet": 7.238908020875744,
+   "eaveRightFeet": 7.238908020875744,
+   "gable": null,
+   "bands": [
+    {
+     "id": "band-shed-front",
+     "kind": "metal",
+     "top": null
+    }
+   ],
+   "openings": [
+    {
+     "id": "shed-window",
+     "kind": "window",
+     "widthFeet": 3.010813981199852,
+     "heightFeet": 2.4991038418147262,
+     "sillFeet": 3.522154933111949,
+     "fromLeftFeet": 3.5074645377057307
+    },
+    {
+     "id": "shed-rollup",
+     "kind": "rollup",
+     "widthFeet": 5.261839872261758,
+     "heightFeet": 6.149557623676001,
+     "sillFeet": 0,
+     "fromLeftFeet": 9.691709926538644
+    }
+   ],
+   "lengthPlusMinusPct": 6,
+   "photos": [
+    {
+     "n": 904,
+     "scanId": null,
+     "claimPhotoId": "shed-photo-4",
+     "camera": {
+      "width": 1761,
+      "height": 1321,
+      "fx": 1167.8952,
+      "fy": 1167.8952,
+      "cx": 880.5,
+      "cy": 660.5,
+      "k": -0.022
+     },
+     "toPhoto": [
+      223.9609711057261,
+      4.718741709721183,
+      327.5559186061424,
+      21.19547543827161,
+      -196.91645590881296,
+      910.5719250283071,
+      0.030272123966886375,
+      0.005213455298930734,
+      0.9171637497786485
+     ],
+     "inView": {
+      "fromM": 0,
+      "toM": 4.956115226999797,
+      "leftEnd": true,
+      "rightEnd": true,
+      "top": true
+     }
+    },
+    {
+     "n": 905,
+     "scanId": null,
+     "claimPhotoId": "shed-photo-5",
+     "camera": {
+      "width": 1706,
+      "height": 1279,
+      "fx": 1131.4192,
+      "fy": 1131.4192,
+      "cx": 853,
+      "cy": 639.5,
+      "k": -0.022
+     },
+     "toPhoto": [
+      16.727257150576918,
+      -2.9320920758686517,
+      513.2308150383182,
+      -74.72001215820949,
+      -170.2715884135715,
+      1046.6214336004534,
+      -0.11288844877251764,
+      0.00041384290359290556,
+      1.2791233156015411
+     ],
+     "inView": {
+      "fromM": 0,
+      "toM": 4.956115226999797,
+      "leftEnd": true,
+      "rightEnd": true,
+      "top": true
+     }
+    }
+   ],
+   "roofRead": {
+    "at": "2026-10-17T15:40:00.000Z",
+    "rakeOverhangFeet": 0.8459206359944166
+   }
+  },
+  {
+   "id": "side-shed-right",
+   "name": "Right (pad side)",
+   "lengthFeet": 12.321220896936977,
+   "turn": "outside",
+   "base": "grade",
+   "baseLeftFeet": 0,
+   "baseRightFeet": 0,
+   "eaveLeftFeet": 7.238908020875744,
+   "eaveRightFeet": 7.238908020875744,
+   "gable": null,
+   "bands": [
+    {
+     "id": "band-shed-right",
+     "kind": "metal",
+     "top": null
+    }
+   ],
+   "openings": [],
+   "lengthPlusMinusPct": 6,
+   "photos": [
+    {
+     "n": 906,
+     "scanId": null,
+     "claimPhotoId": "shed-photo-6",
+     "camera": {
+      "width": 1701,
+      "height": 1276,
+      "fx": 1128.1032,
+      "fy": 1128.1032,
+      "cx": 850.5,
+      "cy": 638,
+      "k": -0.022
+     },
+     "toPhoto": [
+      255.76595511940937,
+      -12.253359611523651,
+      453.1898309643972,
+      8.72600496001548,
+      -241.1472509427373,
+      904.1617624616147,
+      0.024495840846060282,
+      -0.007393357684681091,
+      0.9650928718102543
+     ],
+     "inView": {
+      "fromM": 0,
+      "toM": 3.755508129386391,
+      "leftEnd": true,
+      "rightEnd": true,
+      "top": true
+     }
+    },
+    {
+     "n": 907,
+     "scanId": null,
+     "claimPhotoId": "shed-photo-7",
+     "camera": {
+      "width": 1929,
+      "height": 1447,
+      "fx": 1279.3128,
+      "fy": 1279.3128,
+      "cx": 964.5,
+      "cy": 723.5,
+      "k": -0.022
+     },
+     "toPhoto": [
+      197.47505764044556,
+      8.529462182937058,
+      236.90090411647915,
+      -58.984112513501294,
+      -282.7657240863887,
+      1290.0497167419278,
+      -0.0769923981374442,
+      0.00841341203793232,
+      1.1319526704961642
+     ],
+     "inView": {
+      "fromM": 0,
+      "toM": 3.755508129386391,
+      "leftEnd": true,
+      "rightEnd": true,
+      "top": true
+     }
+    }
+   ],
+   "pitchMeasured": 2.070288392963443,
+   "roofRead": {
+    "at": "2026-10-17T15:40:00.000Z",
+    "rakeOverhangFeet": 0.8953769278812671,
+    "eaveOverhangFeet": 0.9850178728182535
+   }
+  },
+  {
+   "id": "side-shed-rear",
+   "name": "Rear (fence side)",
+   "lengthFeet": 16.260220561022955,
+   "turn": "outside",
+   "base": "grade",
+   "baseLeftFeet": 0,
+   "baseRightFeet": 0,
+   "eaveLeftFeet": 7.238908020875744,
+   "eaveRightFeet": 7.238908020875744,
+   "gable": null,
+   "bands": [
+    {
+     "id": "band-shed-rear",
+     "kind": "metal",
+     "top": null
+    }
+   ],
+   "openings": [],
+   "lengthPlusMinusPct": 6,
+   "wallTopFrom": "neighbours"
+  },
+  {
+   "id": "side-shed-left",
+   "name": "Left (man door)",
+   "lengthFeet": 12.321220896936977,
+   "turn": "outside",
+   "base": "grade",
+   "baseLeftFeet": 0,
+   "baseRightFeet": 0,
+   "eaveLeftFeet": 7.238908020875744,
+   "eaveRightFeet": 7.238908020875744,
+   "gable": null,
+   "bands": [
+    {
+     "id": "band-shed-left",
+     "kind": "metal",
+     "top": null
+    }
+   ],
+   "openings": [
+    {
+     "id": "shed-mandoor",
+     "kind": "door",
+     "widthFeet": 3.0306411071818844,
+     "heightFeet": 6.8958967146801475,
+     "sillFeet": 0,
+     "fromLeftFeet": 8.65400433640404
+    }
+   ],
+   "lengthPlusMinusPct": 6,
+   "photos": [
+    {
+     "n": 901,
+     "scanId": null,
+     "claimPhotoId": "shed-photo-1",
+     "camera": {
+      "width": 1827,
+      "height": 1370,
+      "fx": 1211.6664,
+      "fy": 1211.6664,
+      "cx": 913.5,
+      "cy": 685,
+      "k": -0.022
+     },
+     "toPhoto": [
+      374.0090945687312,
+      -14.04021066197342,
+      379.9802086351382,
+      64.36418092656075,
+      -313.91200508786864,
+      1011.2085769094361,
+      0.10657029352361592,
+      -0.012985322828896771,
+      0.8193651824038285
+     ],
+     "inView": {
+      "fromM": 0,
+      "toM": 3.755508129386391,
+      "leftEnd": true,
+      "rightEnd": true,
+      "top": true
+     }
+    },
+    {
+     "n": 903,
+     "scanId": null,
+     "claimPhotoId": "shed-photo-3",
+     "camera": {
+      "width": 1745,
+      "height": 1309,
+      "fx": 1157.284,
+      "fy": 1157.284,
+      "cx": 872.5,
+      "cy": 654.5,
+      "k": -0.022
+     },
+     "toPhoto": [
+      141.65887600711562,
+      -18.130810610629712,
+      272.79329909469743,
+      -70.33672655037779,
+      -276.88921622896174,
+      1201.5585372412404,
+      -0.10940839373780635,
+      -0.013129431776998914,
+      1.2251362037182179
+     ],
+     "inView": {
+      "fromM": 0,
+      "toM": 3.755508129386391,
+      "leftEnd": true,
+      "rightEnd": true,
+      "top": true
+     }
+    },
+    {
+     "n": 902,
+     "scanId": null,
+     "claimPhotoId": "shed-photo-2",
+     "camera": {
+      "width": 1697,
+      "height": 1273,
+      "fx": 1125.4504,
+      "fy": 1125.4504,
+      "cx": 848.5,
+      "cy": 636.5,
+      "k": -0.022
+     },
+     "toPhoto": [
+      373.3697872091362,
+      -33.414875324374314,
+      649.9103451445876,
+      46.25528876240011,
+      -325.7277112781522,
+      908.4237794605446,
+      0.10470730451674624,
+      -0.02990667254563071,
+      0.8482454421590577
+     ],
+     "inView": {
+      "fromM": 0,
+      "toM": 3.755508129386391,
+      "leftEnd": true,
+      "rightEnd": true,
+      "top": true
+     }
+    }
+   ],
+   "pitchMeasured": 2.070288392963443,
+   "roofRead": {
+    "at": "2026-10-17T15:40:00.000Z",
+    "rakeOverhangFeet": 0.8953769278812671,
+    "eaveOverhangFeet": 0.9850178728182535
+   }
+  }
+ ],
+ "roof": {
+  "pitch": null,
+  "eaveOverhangFeet": 1.3333333333333333,
+  "rakeOverhangFeet": 1,
+  "ridgeAlong": null,
+  "ends": {},
+  "downspouts": null,
+  "oneSlopeTo": "side-shed-rear"
+ },
+ "scope": {
+  "roofing": true,
+  "sides": [
+   "side-shed-front",
+   "side-shed-right",
+   "side-shed-rear",
+   "side-shed-left"
+  ],
+  "soffitFascia": true,
+  "eavestrough": true
+ },
+ "source": {
+  "kind": "photos",
+  "by": "photos",
+  "captureId": null,
+  "scanId": null,
+  "receivedAt": "2026-10-17T15:40:00.000Z",
+  "notes": [
+   "Measured from 7 of 7 photos and 1 tape."
+  ],
+  "walkClosed": true
+ },
+ "photoRoute": {
+  "format": "scrivn-photo-route/1",
+  "photos": [
+   {
+    "id": "shed-photo-1",
+    "width": 1827,
+    "height": 1370,
+    "focalPrior": null,
+    "takenAt": null
+   },
+   {
+    "id": "shed-photo-2",
+    "width": 1697,
+    "height": 1273,
+    "focalPrior": null,
+    "takenAt": null
+   },
+   {
+    "id": "shed-photo-3",
+    "width": 1745,
+    "height": 1309,
+    "focalPrior": null,
+    "takenAt": null
+   },
+   {
+    "id": "shed-photo-4",
+    "width": 1761,
+    "height": 1321,
+    "focalPrior": null,
+    "takenAt": null
+   },
+   {
+    "id": "shed-photo-5",
+    "width": 1706,
+    "height": 1279,
+    "focalPrior": null,
+    "takenAt": null
+   },
+   {
+    "id": "shed-photo-6",
+    "width": 1701,
+    "height": 1276,
+    "focalPrior": null,
+    "takenAt": null
+   },
+   {
+    "id": "shed-photo-7",
+    "width": 1929,
+    "height": 1447,
+    "focalPrior": null,
+    "takenAt": null
+   }
+  ],
+  "buildings": [
+   {
+    "id": "shed",
+    "name": "Shed",
+    "outline": [
+     {
+      "x": 0,
+      "y": 0
+     },
+     {
+      "x": 16.260220561022955,
+      "y": 0
+     },
+     {
+      "x": 16.260220561022955,
+      "y": 12.321220896936977
+     },
+     {
+      "x": 0,
+      "y": 12.321220896936977
+     }
+    ],
+    "corners": [],
+    "tapes": [
+     {
+      "id": "tape-rollup",
+      "kind": "line",
+      "photo": "shed-photo-4",
+      "a": [
+       990.5,
+       780
+      ],
+      "b": [
+       1266,
+       776
+      ],
+      "feet": 5,
+      "what": "garage"
+     }
+    ]
+   }
+  ],
+  "measured": {
+   "at": "2026-10-17T15:40:00.000Z",
+   "building": "shed",
+   "focalOverWidth": 0.6632,
+   "k": -0.022,
+   "rms": 1.3292571960693165,
+   "corners": [
+    {
+     "x": 0,
+     "y": 0
+    },
+    {
+     "x": 16.260220561022955,
+     "y": 0
+    },
+    {
+     "x": 16.260220561022955,
+     "y": 12.321220896936977
+    },
+    {
+     "x": 0,
+     "y": 12.321220896936977
+    }
+   ],
+   "sides": [
+    {
+     "from": 0,
+     "lengthFeet": 16.260220561022955,
+     "plusMinusPct": 6,
+     "taped": false,
+     "photos": 2
+    },
+    {
+     "from": 1,
+     "lengthFeet": 12.321220896936977,
+     "plusMinusPct": 6,
+     "taped": false,
+     "photos": 3
+    },
+    {
+     "from": 2,
+     "lengthFeet": 16.260220561022955,
+     "plusMinusPct": 6,
+     "taped": false,
+     "photos": 0
+    },
+    {
+     "from": 3,
+     "lengthFeet": 12.321220896936977,
+     "plusMinusPct": 6,
+     "taped": false,
+     "photos": 3
+    }
+   ],
+   "cameras": [
+    {
+     "photo": "shed-photo-1",
+     "at": [
+      -11.114832555902503,
+      13.107627576989266
+     ],
+     "quadrant": 1,
+     "yawTweakDeg": 25.045310443879202,
+     "heightFeet": 5.3477463516850126,
+     "placedBy": "corners"
+    },
+    {
+     "photo": "shed-photo-2",
+     "at": [
+      -9.245805024926112,
+      15.252837160233932
+     ],
+     "quadrant": 1,
+     "yawTweakDeg": 22.58827793041104,
+     "heightFeet": 4.979998941906951,
+     "placedBy": "corners"
+    },
+    {
+     "photo": "shed-photo-3",
+     "at": [
+      -10.362344359944908,
+      -4.378122305590547
+     ],
+     "quadrant": 1,
+     "yawTweakDeg": -28.150077355563553,
+     "heightFeet": 5.606011389375608,
+     "placedBy": "corners"
+    },
+    {
+     "photo": "shed-photo-4",
+     "at": [
+      4.611021093088773,
+      -18.783685785439104
+     ],
+     "quadrant": 0,
+     "yawTweakDeg": 10.163384025168597,
+     "heightFeet": 4.458669824748121,
+     "placedBy": "corners"
+    },
+    {
+     "photo": "shed-photo-5",
+     "at": [
+      28.274862827907256,
+      -10.07225253236758
+     ],
+     "quadrant": 3,
+     "yawTweakDeg": 41.51197789207578,
+     "heightFeet": 4.106164709458239,
+     "placedBy": "corners"
+    },
+    {
+     "photo": "shed-photo-6",
+     "at": [
+      31.712754644338627,
+      3.413643602103429
+     ],
+     "quadrant": 3,
+     "yawTweakDeg": 6.709894158121017,
+     "heightFeet": 4.398419310898422,
+     "placedBy": "corners"
+    },
+    {
+     "photo": "shed-photo-7",
+     "at": [
+      28.582580620522755,
+      14.783184964332746
+     ],
+     "quadrant": 3,
+     "yawTweakDeg": -19.937483001260944,
+     "heightFeet": 4.745077752661613,
+     "placedBy": "corners"
+    }
+   ],
+   "unplaced": [],
+   "advice": [
+    {
+     "from": 0,
+     "why": "One tape along a wall would check the roll-up door's scale."
+    }
+   ],
+   "counts": {
+    "cornerBearings": 0,
+    "edgeBearings": 74,
+    "edgePoints": 0,
+    "tapes": 1
+   },
+   "lenses": {
+    "shed-photo-1": {
+     "f": 1211.6664,
+     "k": -0.022,
+     "R": [
+      -0.4236573209460413,
+      -0.9057944683215434,
+      -0.007131308920218626,
+      -0.04364599423690285,
+      0.028276396980804308,
+      -0.9986468207333644,
+      0.9047704137491983,
+      -0.42277278357514525,
+      -0.051513802735074776
+     ],
+     "width": 1827,
+     "height": 1370
+    },
+    "shed-photo-2": {
+     "f": 1125.4504,
+     "k": -0.022,
+     "R": [
+      -0.38661292051230955,
+      -0.9218741832389239,
+      -0.026046880245231774,
+      -0.09058968167391995,
+      0.06606734656600888,
+      -0.9936944275238464,
+      0.917782087026741,
+      -0.38181552613178754,
+      -0.10905477860940271
+     ],
+     "width": 1697,
+     "height": 1273
+    },
+    "shed-photo-3": {
+     "f": 1157.284,
+     "k": -0.022,
+     "R": [
+      0.47039708598809393,
+      -0.8821053757775228,
+      -0.024833193880459126,
+      -0.06155835295631479,
+      -0.004728517394716247,
+      -0.998092285464903,
+      0.8803051463414349,
+      0.47102839314381334,
+      -0.05652523487029412
+     ],
+     "width": 1745,
+     "height": 1309
+    },
+    "shed-photo-4": {
+     "f": 1167.8952,
+     "k": -0.022,
+     "R": [
+      0.9843049425971679,
+      -0.17647484338728425,
+      0.0006400236084702221,
+      0.005990135734011776,
+      0.029785503463768827,
+      -0.99953836447497,
+      0.17637431290489558,
+      0.9838543862964901,
+      0.030375126542661023
+     ],
+     "width": 1761,
+     "height": 1321
+    },
+    "shed-photo-5": {
+     "f": 1131.4192,
+     "k": -0.022,
+     "R": [
+      0.6626140791917685,
+      0.7487133267617321,
+      -0.019259708882119086,
+      -0.014820138808773697,
+      -0.012602996285898033,
+      -0.9998107460766293,
+      -0.7488143598666714,
+      0.6627741084366506,
+      0.002745112651549947
+     ],
+     "width": 1706,
+     "height": 1279
+    },
+    "shed-photo-6": {
+     "f": 1128.1032,
+     "k": -0.022,
+     "R": [
+      0.11768791736046164,
+      0.9927306581056097,
+      -0.025207034029421593,
+      0.032043912693085375,
+      -0.02916656286599506,
+      -0.9990608085947031,
+      -0.9925334965464264,
+      0.116769653882279,
+      -0.03524352657634727
+     ],
+     "width": 1701,
+     "height": 1276
+    },
+    "shed-photo-7": {
+     "f": 1279.3128,
+     "k": -0.022,
+     "R": [
+      -0.3409440051306281,
+      0.9400825106298281,
+      0.0014347729455580494,
+      -0.03549442845923945,
+      -0.011347765818728872,
+      -0.9993054456767835,
+      -0.9394132907905007,
+      -0.34075812744356104,
+      0.037236644146854236
+     ],
+     "width": 1929,
+     "height": 1447
+    }
+   },
+   "sideIds": [
+    "side-shed-front",
+    "side-shed-right",
+    "side-shed-rear",
+    "side-shed-left"
+   ]
+  }
+ },
+ "id": "building-shed",
+ "name": "Shed"
+}

@@ -59,7 +59,7 @@ import { type PhotoOpacity, SideElevation } from "./SidePhotos";
 
 type Tool = "select" | ExteriorOpeningKind;
 
-const DEFAULT_SIZE: Record<ExteriorOpeningKind, { w: number; h: number }> = { window: { w: 3, h: 4 }, door: { w: 3, h: 6 + 8 / 12 }, garage: { w: 16, h: 7 } };
+const DEFAULT_SIZE: Record<ExteriorOpeningKind, { w: number; h: number }> = { window: { w: 3, h: 4 }, door: { w: 3, h: 6 + 8 / 12 }, garage: { w: 16, h: 7 }, rollup: { w: 6, h: 7 } };
 const inch = (v: number) => Math.round(v * 12) / 12;
 const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo), Math.max(lo, hi));
 
