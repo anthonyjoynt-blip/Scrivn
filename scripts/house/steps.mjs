@@ -20,6 +20,13 @@ import { cornerAt, draftInputs, ensureDir, loadPixels, nn, photoOf, readJson, ro
 import { contactSheet, griddedSide, measuredPlanPng, photoSheet, tapStrip, zoomPng } from "./sheets.mjs";
 import { cornerIndex, cornerName, ftin, sideIndex, sideName } from "./words.mjs";
 
+/**
+ * A corner's edge marked at its top and its foot: within this of one column of the levelled photo, or it is likely not one
+ * edge. A photo's levelling is itself off by half a degree or so, which leans its uprights 5-10 px over a wall's height;
+ * the measure reads each edge where it crosses the horizon, which that leaning moves least.
+ */
+const EDGE_TOLERANCE_PX = 15;
+
 const secs = (t0) => `${((Date.now() - t0) / 1000).toFixed(1)} s`;
 const pct = (v) => `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`;
 const hhmmss = (ms) => (ms ? new Date(ms).toTimeString().slice(0, 8) : "?");
@@ -80,16 +87,18 @@ function marksFor(h, inputs, p, { candidates = {}, numbered = null, proposals = 
   const n = inputs.shape?.outline?.length ?? 0;
   const own = (inputs.corners ?? []).filter((c) => photoOf(h, c.photo)?.n === p.n);
   const taps = [];
+  const checks = [];
   for (const c of own) {
     const xy = cornerAt(c, candidates[p.n]);
     if (!xy) continue;
     const given = c.corner === undefined || c.corner === null ? -1 : (cornerIndex(c.corner, n) ?? -1);
     const app = numbered?.find((q) => q.photo === p.id && Math.abs(q.x - xy[0]) < 1e-6 && Math.abs(q.y - xy[1]) < 1e-6);
     taps.push({ x: xy[0], y: xy[1], corner: given >= 0 ? given : (app?.corner ?? -1), named: given >= 0 && !c.kept });
+    if (Array.isArray(c.edge)) checks.push({ a: c.edge[0], b: c.edge[1], text: "" });
   }
   for (const q of proposals.filter((q) => q.photo === p.id)) taps.push({ x: q.x, y: q.y, corner: q.corner, proposed: true });
   const tapes = (inputs.tapes ?? []).flatMap((t) => (t.on ?? []).filter((o) => photoOf(h, o.photo)?.n === p.n && o.a && o.b).map((o) => ({ a: o.a, b: o.b, text: `${t.id} ${ftin(Number(t.feet))}` })));
-  const checks = (inputs.checks ?? []).filter((k) => photoOf(h, k.photo)?.n === p.n && k.a && k.b).map((k) => ({ a: k.a, b: k.b, text: `${k.what ?? "check"}${k.feet ? ` ${ftin(Number(k.feet))}?` : ""}` }));
+  checks.push(...(inputs.checks ?? []).filter((k) => photoOf(h, k.photo)?.n === p.n && k.a && k.b).map((k) => ({ a: k.a, b: k.b, text: `${k.what ?? "check"}${k.feet ? ` ${ftin(Number(k.feet))}?` : ""}` })));
   return { candidates: withCandidates ? (candidates[p.n] ?? []) : [], taps, tapes, checks };
 }
 
@@ -249,19 +258,43 @@ export async function check(h) {
   for (const p of problems.filter((q) => !q.startsWith("tape"))) out.push(`✗ ${p}`);
   for (const k of inputs.checks ?? []) if (!photoOf(h, k.photo) || !k.a || !k.b) out.push(`✗ check "${k.what ?? ""}": needs photo, a and b.`);
   await writeSheets(h, x, inputs, pixels, { candidates, numbered });
-  // Each photo's corners close up, with where the snap puts them: the corners' places at a glance.
+  // Each photo's corners close up: a corner given as its edge at its top and its foot (both on the line marked: one upright
+  // edge in the levelled photo, or said); a tap at its foot, with where the snap puts it. The corners' places at a glance.
   const tapsDir = ensureDir(statePath(h, "taps"));
   for (const f of readdirSync(tapsDir)) if (f.endsWith(".png")) rmSync(join(tapsDir, f));
   for (const [i, p] of h.photos.entries()) {
     const d = prepared.data[i];
-    const mine = numbered.filter((c) => c.photo === p.id).sort((a, c) => a.x - c.x);
+    const mine = (inputs.corners ?? []).filter((c) => photoOf(h, c.photo)?.n === p.n && !(inputs.leaveOut ?? []).some((r) => photoOf(h, r)?.n === p.n));
     if (!mine.length || !d.camera) continue;
-    const given = (c) => (inputs.corners ?? []).some((q) => photoOf(h, q.photo)?.n === p.n && q.corner != null && cornerIndex(q.corner, n) === c.corner);
-    const taps = mine.map((c) => {
-      const s = x.snapToEdge(d.gray, d.camera, c.x, c.y);
-      return { x: c.x, y: c.y, corner: c.corner, named: given(c), snapped: s.onEdge ? [s.x, s.y] : null, words: `${c.corner >= 0 ? cornerName(c.corner) : "?"} ${s.onEdge ? `snaps ${s.x - c.x >= 0 ? "+" : ""}${(s.x - c.x).toFixed(1)} px` : "no edge: as tapped"}` };
-    });
-    writeFileSync(join(tapsDir, `${nn(p.n)}.png`), await tapStrip(pixels[i], taps, `#${p.n} ${p.file}: each corner close up - red where tapped, green where it snaps`));
+    const looks = [];
+    for (const c of mine) {
+      const at = cornerAt(c, candidates[p.n]);
+      if (!at) continue;
+      const app = numbered.find((q) => q.photo === p.id && Math.abs(q.x - at[0]) < 1e-6 && Math.abs(q.y - at[1]) < 1e-6);
+      const k = c.corner != null ? cornerIndex(c.corner, n) : (app?.corner ?? -1);
+      const name = k != null && k >= 0 ? cornerName(k) : "?";
+      const named = c.corner != null;
+      if (Array.isArray(c.edge)) {
+        const [top, foot] = c.edge[0][1] <= c.edge[1][1] ? c.edge : [c.edge[1], c.edge[0]];
+        const lt = x.toLevel(d.camera, top[0], top[1]);
+        const lf = x.toLevel(d.camera, foot[0], foot[1]);
+        const du = lf[0] - lt[0];
+        if (Math.abs(du) > EDGE_TOLERANCE_PX) {
+          // Where each end would be, upright from the other: one of them is on the corner.
+          const footFromTop = x.fromLevel(d.camera, lt[0], lf[1]);
+          const topFromFoot = x.fromLevel(d.camera, lf[0], lt[1]);
+          out.push(`✗ #${p.n} ${name}: its edge's top and foot are ${Math.abs(du).toFixed(1)} px apart in the levelled photo - likely not one upright edge. Upright from the top, the foot is at x ${footFromTop ? footFromTop[0].toFixed(0) : "?"}; from the foot, the top at x ${topFromFoot ? topFromFoot[0].toFixed(0) : "?"}. Look at both ends again.`);
+        }
+        looks.push({ x: top[0], y: top[1], corner: k ?? -1, named, line: [top, foot], words: `${name} top` });
+        looks.push({ x: foot[0], y: foot[1], corner: k ?? -1, named, line: [top, foot], words: `${name} foot · ${du >= 0 ? "+" : ""}${du.toFixed(1)} px off upright` });
+      } else if (c.exact) {
+        looks.push({ x: at[0], y: at[1], corner: k ?? -1, named, words: `${name} exact` });
+      } else {
+        const sn = x.snapToEdge(d.gray, d.camera, at[0], at[1]);
+        looks.push({ x: at[0], y: at[1], corner: k ?? -1, named, snapped: sn.onEdge ? [sn.x, sn.y] : null, words: `${name} ${sn.onEdge ? `snaps ${sn.x - at[0] >= 0 ? "+" : ""}${(sn.x - at[0]).toFixed(1)} px` : "no edge: as tapped"}` });
+      }
+    }
+    writeFileSync(join(tapsDir, `${nn(p.n)}.png`), await tapStrip(pixels[i], looks, `#${p.n} ${p.file}: each corner close up - red where put, green where a tap snaps, violet an edge marked`));
   }
   const ready = !out.some((l) => l.startsWith("✗"));
   out.push(ready ? "Ready to measure. Look at the sheets first: each C-number where Scrivn put it (cyan), each tape on its jambs." : "Fix what is marked ✗, then check again (the sheets are drawn with Scrivn's numbers: cyan = numbered by Scrivn, green = named by you, red = no number).");
@@ -303,13 +336,19 @@ export function lineOnPhoto(x, sol, data, photoId, a, b, { snap = false } = {}) 
 
 // ── measure ──────────────────────────────────────────────────────────────────────────────────────
 
-/** The proposed corners the session set aside: "14:C9" is C9 on photo 14. */
-function dropped(h, inputs, q) {
+/** Whether a mark names this proposed corner: "14:C9" is C9 on photo 14. */
+function names(h, list, q) {
   const p = h.photos.find((ph) => ph.id === q.photo);
-  return (inputs.dropProposed ?? []).some((s) => {
+  return (list ?? []).some((s) => {
     const m = /^#?(\d+)\s*:\s*(C?\d+)$/i.exec(String(s).trim());
     return m && Number(m[1]) === p?.n && cornerIndex(m[2]) === q.corner;
   });
+}
+
+/** The corners Scrivn marked that the session keeps: those it listed ("9:C7"), or with true every one (the app's "Looks right") less those set aside. */
+function kept(h, inputs, q) {
+  if (Array.isArray(inputs.keepProposed)) return names(h, inputs.keepProposed, q);
+  return inputs.keepProposed === true && !names(h, inputs.dropProposed, q);
 }
 
 /**
@@ -359,8 +398,8 @@ export async function measure(h) {
   let m = x.measureRoute(input, "main", pixels, { lines });
   let keptMarks = [];
   // "Looks right": the corners Scrivn marked on the placed photos kept (less those set aside), and measured again.
-  if (inputs.keepProposed) {
-    keptMarks = m.proposals.filter((q) => !dropped(h, inputs, q));
+  if (inputs.keepProposed === true || (Array.isArray(inputs.keepProposed) && inputs.keepProposed.length)) {
+    keptMarks = m.proposals.filter((q) => kept(h, inputs, q));
     const again = { ...input, buildings: [{ ...input.buildings[0], corners: [...m.corners.filter((c) => !c.proposed), ...keptMarks.map((q) => ({ photo: q.photo, x: q.x, y: q.y, corner: q.corner, by: "app" }))] }] };
     m = x.measureRoute(again, "main", pixels, { lines });
   }
@@ -374,12 +413,18 @@ export async function measure(h) {
   const sideIds = ext.photoRoute.measured.sideIds;
   // The session's names for the sides, the home's type and which way its front faces.
   const names = inputs.shape?.names ?? {};
+  // What the building is clad in and stands on, when said (a metal shed on a slab: no parging): every side, till its walls are read.
+  const cladding = inputs.house?.cladding;
+  const onGrade = inputs.house?.base === "grade";
   ext = {
     ...ext,
     sides: ext.sides.map((s) => {
       const i = sideIds.indexOf(s.id);
       const named = names[sideName(i, n)];
-      return named ? { ...s, name: named } : s;
+      let side = named ? { ...s, name: named } : s;
+      if (cladding) side = { ...side, bands: side.bands.map((b) => ({ ...b, kind: cladding })) };
+      if (onGrade) side = { ...side, base: "grade", baseLeftFeet: 0, baseRightFeet: 0 };
+      return side;
     }),
     ...(Number.isFinite(inputs.house?.frontFacesDeg) ? { frontFacesDeg: inputs.house.frontFacesDeg } : {}),
   };
@@ -416,11 +461,24 @@ export async function measure(h) {
   });
   writeFileSync(statePath(h, "plan.png"), await measuredPlanPng(sol.corners, sol.sides, camsOnPlan, advice, `${inputs.house?.name ?? basename(h.dir)} - measured from ${sol.cameras.length} of ${h.photos.length} photos and ${input.buildings[0].tapes.length} tapes`, shared));
   const inputsShown = { ...inputs, corners: (inputs.corners ?? []).concat(keptMarks.map((q) => ({ photo: fileOf(q.photo).n, x: q.x, y: q.y, corner: cornerName(q.corner), kept: true }))) };
-  await writeSheets(h, x, inputsShown, pixels, { candidates, numbered: corners, proposals: inputs.keepProposed ? [] : proposals, solution: sol, data: prepared.data, dir: "measured", outline: sol.corners });
+  // The corners Scrivn marks and nobody has kept, each close up: the checkpoint before keeping any.
+  const open = proposals.filter((q) => !keptMarks.some((k) => k.photo === q.photo && k.corner === q.corner));
+  await writeSheets(h, x, inputsShown, pixels, { candidates, numbered: corners, proposals: open, solution: sol, data: prepared.data, dir: "measured", outline: sol.corners });
+  const marksDir = ensureDir(statePath(h, "marks"));
+  for (const f of readdirSync(marksDir)) if (f.endsWith(".png")) rmSync(join(marksDir, f));
+  for (const [i, p] of h.photos.entries()) {
+    const mine = open.filter((q) => q.photo === p.id);
+    if (!mine.length) continue;
+    const looks = mine.map((q) => ({ x: q.x, y: q.y, corner: q.corner, proposed: true, words: `${p.n}:${cornerName(q.corner)}?` }));
+    writeFileSync(join(marksDir, `${nn(p.n)}.png`), await tapStrip(pixels[i], looks, `#${p.n} ${p.file}: corners Scrivn marks - keep only one on its corner ("${p.n}:C#" in keepProposed)`, { half: 110 }));
+  }
 
   // Accuracy: each tape held out in turn; and the checks (door heights) as a sanity check, with every tape in.
   const t1 = Date.now();
-  const hold = holdOuts(x, h, inputs, input, corners, prepared.data, tapeParts, n);
+  // On the session's own corners only: a kept mark is where the measure with every tape put that corner, so it would
+  // carry the tape held out into the solve meant to predict it.
+  const own = corners.filter((c) => !keptMarks.some((k) => k.photo === c.photo && Math.abs(k.x - c.x) < 1e-6 && Math.abs(k.y - c.y) < 1e-6));
+  const hold = holdOuts(x, h, inputs, input, own, prepared.data, tapeParts, n);
   const checks = (inputs.checks ?? []).flatMap((k) => {
     const p = photoOf(h, k.photo);
     if (!p || !k.a || !k.b) return [];
@@ -462,6 +520,7 @@ export async function measure(h) {
   md.push("", "## Accuracy: each tape held out in turn", "");
   if (hold.note) md.push(hold.note);
   else {
+    if (keptMarks.length) md.push(`On the session's own corners: the ${keptMarks.length} kept mark${keptMarks.length === 1 ? " was" : "s were"} made with every tape in, so ${keptMarks.length === 1 ? "it is" : "they are"} left out here.`, "");
     md.push("| Tape held out | Taped | Predicted from the rest | Error | How |", "|---|---|---|---|---|");
     for (const r of hold.rows) md.push(`| ${r.id} ${r.said} | ${ftin(r.taped)} | ${r.predicted !== null ? ftin(r.predicted) : "-"} | ${r.errorPct !== null ? pct(r.errorPct) : "-"} | ${r.each.map((e) => `${e.feet !== null ? ftin(e.feet) : "-"} (${e.where})`).join("; ")}; scaled by ${r.from.join(", ")} |`);
     const errs = hold.rows.filter((r) => r.errorPct !== null).map((r) => Math.abs(r.errorPct));
@@ -481,7 +540,8 @@ export async function measure(h) {
     for (const p of leftOut) md.push(`- #${p.n} ${p.file}: left out by the session (inputs.json leaveOut).`);
     for (const u of sol.unplaced) md.push(`- #${fileOf(u.photo).n} ${fileOf(u.photo).file}: ${u.why}`);
   }
-  if (!inputs.keepProposed && proposals.length) md.push("", `## Corners Scrivn marks (${proposals.length}, pink dashed on measured/NN.png)`, "", `${proposals.map((q) => `#${fileOf(q.photo).n}:${cornerName(q.corner)}`).join(", ")}. Look at each; set "keepProposed": true to keep them ("Looks right"), with any wrong one in "dropProposed" ("14:C9"), and measure again.`);
+  if (open.length) md.push("", `## Corners Scrivn marks (${open.length}, close up in marks/NN.png)`, "", `${open.map((q) => `${fileOf(q.photo).n}:${cornerName(q.corner)}`).join(", ")}. Each is where the measure puts that corner, so a wrong measure marks it wrong. Look at each close up, list those on their corner in "keepProposed" and measure again.`);
+  if (keptMarks.length) md.push("", `Kept marks: ${keptMarks.map((q) => `${fileOf(q.photo).n}:${cornerName(q.corner)}`).join(", ")}.`);
   const timesNow = { measure: (tMeasure - t0) / 1000, holdOuts: (tHold - t1) / 1000 };
   md.push("", "## Files", "", "- plan.png: the measured plan, every placed photo; measured/NN.png: each photo with its corners and where it stood.", `- sides/: ${Object.keys(frames).length} sides squared up for reading (and a grid copy each); frames.json.`, "- measured.json: the exterior as measured (no walls read yet).");
   md.push("", `Machine time: measure ${timesNow.measure.toFixed(1)} s, hold-outs ${timesNow.holdOuts.toFixed(1)} s.`);
@@ -498,7 +558,7 @@ export async function measure(h) {
   for (const a of sol.advice) out.push(`  a tape would help: ${sideName(a.from, n)} ${nameOf(a.from)}: ${a.why}`);
   for (const p of (inputs.leaveOut ?? []).map((ref) => photoOf(h, ref)).filter(Boolean)) out.push(`  not used: #${p.n}: left out (leaveOut).`);
   for (const u of sol.unplaced) out.push(`  not used: #${fileOf(u.photo).n}: ${u.why}`);
-  if (!inputs.keepProposed && proposals.length) out.push(`  Scrivn marks ${proposals.length} more corners (pink on measured/NN.png): keepProposed to keep them.`);
+  if (open.length) out.push(`  Scrivn marks ${open.length} more corners (close up in marks/NN.png): list each on its corner in keepProposed.`);
   out.push(`Wrote results.md, plan.png, measured/ sheets, ${Object.keys(frames).length} sides in sides/, measured.json.`);
   out.push(`Machine time: ${timed(h, "measure", t0)} s (the measure ${timesNow.measure.toFixed(1)} s, hold-outs ${timesNow.holdOuts.toFixed(1)} s).`);
   return out;
@@ -570,6 +630,24 @@ async function withRead(x, side, r, was, pixelsOf, at) {
 
 /** A "Check these" row in a line, as the pane words it: what, and why it is asked. */
 const checkWords = (c) => (c.kind === "drop" ? `${c.title}: ${c.question}` : `${c.title} - ${c.words}`);
+
+/**
+ * A side with its eave over its left and/or right end set (null: as it was), its faces' tops stretched to them: a face
+ * read off the photo up to the old eave reaches the new one, in proportion along the side.
+ */
+function withEaves(side, left, right) {
+  const L0 = side.eaveLeftFeet;
+  const R0 = side.eaveRightFeet;
+  const sl = left !== null && L0 > 0 ? left / L0 : 1;
+  const sr = right !== null && R0 > 0 ? right / R0 : 1;
+  const at = (xFt) => sl + (sr - sl) * Math.max(0, Math.min(1, xFt / (side.lengthFeet || 1)));
+  return {
+    ...side,
+    eaveLeftFeet: left ?? L0,
+    eaveRightFeet: right ?? R0,
+    ...(side.shapes ? { shapes: side.shapes.map((sh) => ({ ...sh, polygon: sh.polygon.map((pt) => ({ x: pt.x, y: pt.y * at(pt.x) })) })) } : {}),
+  };
+}
 
 const PITCH = (v) => {
   if (typeof v === "number") return v;
@@ -696,6 +774,18 @@ export async function report(h) {
     const done = await withRead(x, side, r, was, pixelsOf, at);
     ext = { ...ext, sides: ext.sides.map((s) => (s.id === done.side.id ? done.side : s)) };
     out.push(`  read ${key} ${side.name}: ${done.words}`);
+  }
+  // Walls' heights taped (a level wall's top over the ground): that side's top, and the ends of the sides either side.
+  for (const t of inputs.heights ?? []) {
+    const i = sideIndex(t.side, n);
+    const feet = Number(t.feet);
+    if (i === null || !(feet > 0)) {
+      out.push(`  height "${t.said ?? t.side}": no side ${t.side} or no length - left out`);
+      continue;
+    }
+    const set = { [sideIds[i]]: [feet, feet], [sideIds[(i - 1 + n) % n]]: [null, feet], [sideIds[(i + 1) % n]]: [feet, null] };
+    ext = { ...ext, sides: ext.sides.map((sd) => (sd.id in set ? withEaves(sd, set[sd.id][0], set[sd.id][1]) : sd)) };
+    out.push(`  height ${sideName(i, n)} set to ${ftin(feet)} ("${t.said ?? ""}")`);
   }
   // The home, as said.
   if (inputs.house?.homeType && inputs.house.homeType !== "detached") ext = { ...ext, homeType: inputs.house.homeType };

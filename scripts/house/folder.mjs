@@ -150,6 +150,8 @@ export function draftInputs(h) {
       homeType: h.house.homeType ?? main?.homeType ?? "detached",
       shared: (main?.shared ?? []).map((i) => sideName(i, n)),
       frontFacesDeg: h.house.frontFacesDeg,
+      cladding: null,
+      base: null,
       notes: [...h.house.notes, ...(h.request?.request?.note ? [`The tester's note: ${h.request.request.note}`] : [])],
     },
     shape: { from: main?.outline?.length >= 4 ? "tester" : "placeholder", outline, names: {} },
@@ -205,7 +207,10 @@ export function routeInput(h, inputs, candidates = {}) {
       continue;
     }
     const by = c.by === "tester's phone" ? "app" : corner >= 0 ? "user" : undefined;
-    corners.push({ photo: p.id, corner, x: at[0], y: at[1], ...(by ? { by } : {}), ...(c.party ? { party: true } : {}) });
+    // Put on the edge from a close-up (an edge, or said exact): taken as placed, not snapped onto a rib beside it.
+    const exact = c.exact === true || Array.isArray(c.edge);
+    const top = Array.isArray(c.edge) ? (c.edge[0][1] < c.edge[1][1] ? c.edge[0] : c.edge[1]).map(Number) : null;
+    corners.push({ photo: p.id, corner, x: at[0], y: at[1], ...(by ? { by } : {}), ...(c.party ? { party: true } : {}), ...(exact ? { exact: true } : {}), ...(top ? { top } : {}) });
   }
   const tapes = [];
   const tapeParts = {};
@@ -239,7 +244,8 @@ export function routeInput(h, inputs, candidates = {}) {
       }
       if (out.has(p.id)) return;
       const id = on.length === 1 ? t.id : `${t.id}#${k + 1}`;
-      tapes.push({ id, kind: "line", photo: p.id, a: o.a.map(Number), b: o.b.map(Number), feet: Number(t.feet), what: ["garage", "door", "window", "wall", "other"].includes(t.what) ? t.what : "other" });
+      const exact = t.exact === true || o.exact === true;
+      tapes.push({ id, kind: "line", photo: p.id, a: o.a.map(Number), b: o.b.map(Number), feet: Number(t.feet), what: ["garage", "door", "window", "wall", "other"].includes(t.what) ? t.what : "other", ...(exact ? { exact: true } : {}) });
       tapeParts[t.id].push(id);
     });
   }
@@ -258,6 +264,8 @@ export function routeInput(h, inputs, candidates = {}) {
  * ground). Null when neither is there.
  */
 export function cornerAt(c, cands = []) {
+  // The corner's edge, its top and its foot: the foot is the tap.
+  if (Array.isArray(c.edge) && c.edge.length === 2) return lowerEnd(c.edge);
   if (Number.isFinite(c.x) && Number.isFinite(c.y)) return [c.x, c.y];
   if (!c.pick) return null;
   const cand = cands.find((q) => q.pick === String(c.pick).toLowerCase());
@@ -265,6 +273,9 @@ export function cornerAt(c, cands = []) {
   if (!Number.isFinite(c.y) || !cand.top || Math.abs(cand.top[1] - cand.y) < 1) return [cand.x, Number.isFinite(c.y) ? c.y : cand.y];
   return [cand.x + ((c.y - cand.y) * (cand.top[0] - cand.x)) / (cand.top[1] - cand.y), c.y];
 }
+
+/** Of two points along an upright edge, the one lower in the photo: where it meets the ground. */
+export const lowerEnd = (edge) => (edge[0][1] >= edge[1][1] ? edge[0] : edge[1]).map(Number);
 
 /** A two-digit name for a photo's files: 03 for photo 3. */
 export const nn = (n) => p2(n);

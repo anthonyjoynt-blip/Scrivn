@@ -70,6 +70,18 @@ export interface CornerTap {
    */
   party?: true;
   /**
+   * Put on the corner's edge already, to the pixel (2026-10-20): by someone working from a close-up, not a finger. It is
+   * taken as placed, not snapped: on ribbed metal or board-and-batten the strongest edge within the snap's reach is
+   * often a rib beside the corner. The app's own taps never set it.
+   */
+  exact?: true;
+  /**
+   * With `exact`: the corner's edge marked from its foot (x, y) up to here, on one upright edge. Its column is read where
+   * that edge crosses the photo's horizon, which a small error in the photo's levelling moves least (a tilt of half a
+   * degree moves the foot's column 5 px or more); the foot still says how high the camera stood.
+   */
+  top?: [number, number];
+  /**
    * Marked by Scrivn after a measure (2026-10-17, `proposeCorners`): where this corner of the shape should be on
    * this photo, seen from where the photo was placed, on the edge nearest. Left out of the solve until the user
    * keeps it ("Looks right"); a tap on it takes it away.
@@ -84,7 +96,8 @@ export type TapeWhat = "garage" | "door" | "window" | "wall" | "other";
  * jambs, a window's trim - on one wall), or a wall's length typed from corner to corner.
  */
 export type RouteTape =
-  | { id: string; kind: "line"; photo: string; a: [number, number]; b: [number, number]; feet: number; what: TapeWhat }
+  /** `exact`: its ends were put where the tape's ends were, to the pixel (a door's opening inside its trim): not snapped, as `CornerTap.exact`. */
+  | { id: string; kind: "line"; photo: string; a: [number, number]; b: [number, number]; feet: number; what: TapeWhat; exact?: true }
   | { id: string; kind: "side"; /** The side from outline corner `from` to the next. */ from: number; feet: number };
 
 export interface RouteBuilding {
@@ -275,6 +288,20 @@ export function columnBearing(cam: PhotoCamera, u: number): number {
   return Math.atan2(a * xl[0] + zl[0], a * xl[2] + zl[2]);
 }
 
+/** A tap on a corner as the solve reads it: snapped onto its edge, or taken as placed when it is `exact` (its column at the horizon when its edge's `top` is given). */
+function tapOnEdge(gray: Gray, cam: PhotoCamera, t: Pick<CornerTap, "x" | "y" | "exact" | "top">): { u: number; v: number; onEdge: boolean; px: [number, number] } {
+  const [u0, v] = toLevel(cam, t.x, t.y);
+  if (t.exact && t.top) {
+    const [ut, vt] = toLevel(cam, t.top[0], t.top[1]);
+    // Along the edge in the level image, to the horizon's row (the middle row of a level image).
+    const along = Math.abs(v - vt) < 1 ? 0.5 : (v - cam.height / 2) / (v - vt);
+    return { u: u0 + (ut - u0) * along, v, onEdge: true, px: [t.x, t.y] };
+  }
+  if (t.exact) return { u: u0, v, onEdge: true, px: [t.x, t.y] };
+  const s = snapToEdge(gray, cam, t.x, t.y);
+  return { u: s.u, v, onEdge: s.onEdge, px: [s.x, s.y] };
+}
+
 // ── The corners' numbers ─────────────────────────────────────────────────────────────────────────
 
 /**
@@ -313,9 +340,8 @@ export function numberCorners(input: PhotoRouteInput, buildingId: string, data: 
     const idx = out.map((c, i) => (c.photo === id && !c.proposed ? i : -1)).filter((i) => i >= 0);
     const snapped = idx.map((i) => {
       const t = out[i] as CornerTap;
-      const s = snapToEdge(d.gray, d.camera as PhotoCamera, t.x, t.y);
-      const [, v] = toLevel(d.camera as PhotoCamera, t.x, t.y);
-      return { photo: id, corner: t.corner, u: s.u, v, bearing: columnBearing(d.camera as PhotoCamera, s.u), onEdge: s.onEdge, px: [s.x, s.y] as [number, number] };
+      const s = tapOnEdge(d.gray, d.camera as PhotoCamera, t);
+      return { photo: id, corner: t.corner, ...s, bearing: columnBearing(d.camera as PhotoCamera, s.u) };
     });
     // Left to right in the photo.
     const order = snapped.map((_, k) => k).sort((p, q) => (snapped[p] as SnappedTap).u - (snapped[q] as SnappedTap).u);
@@ -361,7 +387,7 @@ export function numberCorners(input: PhotoRouteInput, buildingId: string, data: 
         if (labels.some((l, k) => (out[job.idx[k] as number] as CornerTap).party && !party.has(l))) continue;
         const taps = job.snapped.map((t, k) => ({ ...t, corner: labels[k] as number }));
         const cam = (byId.get(job.id) as RoutePhotoData).camera as PhotoCamera;
-        for (const p of placementsFromCorners(taps, ring, shared)) {
+        for (const p of placementsFromCorners(taps, ring, shared, cam)) {
           const skipped = g.reduce((s, v) => s + v - 1, 0);
           const walk = near.length ? Math.min(...near.map((x) => Math.hypot(x.at[0] - p.at[0], x.at[1] - p.at[1]))) / 30 : 0;
           // Corners this camera would see plainly - in the picture, ahead, nothing of the house in the way - that were not tapped.
@@ -516,6 +542,13 @@ export function neighbourBlocks(C: Pt, P: Pt, ring: Pt[], shared: Set<number> | 
 
 /** Where a photo held in the hand is taken from, feet over the ground at the corner it shows: what places a photo with one corner along that corner's ray. */
 const HAND_HEIGHT_FEET: [number, number] = [3, 7.5];
+/**
+ * The heights a placement from corners may put the camera at, over the ground at each corner tapped, feet:
+ * crouching to standing on a deck or a step. Two corners fit any of the four quarter-turns; one that puts the camera
+ * a foot off the ground, or twenty feet up, is not where the photo was taken (2026-10-20, the shed's #1: placed
+ * beside the corner it showed, at 0.6 ft).
+ */
+const PLACED_HEIGHT_FEET: [number, number] = [1.5, 15];
 /** And about this high: the hand-height prior every camera is held to, loosely (lib/photoRouteSolve.ts `heights`). */
 const HAND_FEET = 5;
 const HAND_SD_FEET = 2.5;
@@ -598,9 +631,8 @@ export function solveRoute(input: PhotoRouteInput, buildingId: string, data: Rou
     if (!(t.corner >= 0 && t.corner < n)) continue;
     const d = byId.get(t.photo);
     if (!d?.camera) continue;
-    const s = snapToEdge(d.gray, d.camera, t.x, t.y);
-    const [, v] = toLevel(d.camera, t.x, t.y);
-    taps.push({ photo: t.photo, corner: t.corner, u: s.u, v, bearing: columnBearing(d.camera, s.u), onEdge: s.onEdge, px: [s.x, s.y] });
+    const s = tapOnEdge(d.gray, d.camera, t);
+    taps.push({ photo: t.photo, corner: t.corner, ...s, bearing: columnBearing(d.camera, s.u) });
   }
 
   // 2. The walls from the shape drawn, and each camera placed from its corners on it.
@@ -617,7 +649,7 @@ export function solveRoute(input: PhotoRouteInput, buildingId: string, data: Rou
       continue;
     }
     if (mine.length >= 2) {
-      const list = placementsFromCorners(mine, b.outline, new Set(b.shared ?? []));
+      const list = placementsFromCorners(mine, b.outline, new Set(b.shared ?? []), d.camera);
       if (list.length) candidates.set(id, list);
       else unplaced.push({ photo: id, why: "Its corners do not fit the shape drawn: check which corners they are." });
     }
@@ -770,14 +802,16 @@ export function solveRoute(input: PhotoRouteInput, buildingId: string, data: Rou
       if (!d?.camera || !c) continue;
       const yaw = sol.input.cameras.some((x) => x.id === t.photo) ? sol.camera(t.photo).yaw : 0;
       for (const [k, end] of [["a", t.a], ["b", t.b]] as const) {
-        const s = snapToEdge(d.gray, d.camera, end[0], end[1], { above: 60, below: 60 });
+        const s = t.exact ? { u: toLevel(d.camera, end[0], end[1])[0], x: end[0], y: end[1] } : snapToEdge(d.gray, d.camera, end[0], end[1], { above: 60, below: 60 });
         const bearing = columnBearing(d.camera, s.u);
         const dir = planDirection(bearing, c.quadrant, yaw);
         const hit = castRay({ x: c.at[0], y: c.at[1] }, dir, ring);
         if (!hit) continue;
         // The end is on an edge other photos saw too (a door's jamb): it is that tied point, seen from all of them.
         const own = edgePoints.find((q) => q.side === hit.side && q.obs.some((o) => o.photo === t.photo && Math.abs(((d.edges[o.index] as UprightEdge).u) - s.u) < 2));
-        const near = own ?? edgePoints.find((q) => q.side === hit.side && !q.obs.some((o) => o.photo === t.photo) && Math.abs(q.along - hit.along) < 0.2);
+        // Else one other photos tied within 0.2 ft of it: the jamb a finger's drag was meant for. Not for an end put to the pixel:
+        // a trimmed opening's edges stand closer than that (2026-10-20, the shed's roll-up: inner edge joined to the trim's outer).
+        const near = own ?? (t.exact ? undefined : edgePoints.find((q) => q.side === hit.side && !q.obs.some((o) => o.photo === t.photo) && Math.abs(q.along - hit.along) < 0.2));
         tapeEnds.push({ tape: t.id, point: near?.id ?? `tape:${t.id}:${k}`, photo: t.photo, side: hit.side, bearing, at: [c.at[0] + dir[0] * hit.t, c.at[1] + dir[1] * hit.t], seen: !!own, px: [s.x, s.y] });
       }
     }
@@ -876,15 +910,19 @@ interface Placement {
   /** Misfit of its corners' bearings (radians squared), and how badly it sees the walls between them (0 face-on). */
   err: number;
   slant: number;
+  /** The camera's heights over the ground its corners tapped below the horizon imply, feet, lowest and highest; null with none. */
+  heights: [number, number] | null;
 }
 
 /**
  * Where a camera may have stood, from two or more of its corners on the shape drawn: each of the four
  * quarter-turns tried and the camera resected for it, kept when it sees its corners ahead, from outside
  * the house, with nothing of the house in the way, and faces every wall that runs between two of them.
- * Two corners fit any quarter-turn exactly, so there are often two answers: `chooseByWalk` picks.
+ * Two corners fit any quarter-turn exactly, so there are often two answers: `chooseByWalk` picks. Given the photo's
+ * [cam], a placement putting the camera at a height no photo is taken from (`PLACED_HEIGHT_FEET`, off any corner tapped
+ * below the horizon) is dropped, as long as another is not.
  */
-function placementsFromCorners(mine: SnappedTap[], outline: Pt[], shared: Set<number> = new Set()): Placement[] {
+function placementsFromCorners(mine: SnappedTap[], outline: Pt[], shared: Set<number> = new Set(), cam?: PhotoCamera): Placement[] {
   const out: Placement[] = [];
   const n = outline.length;
   for (let q = 0; q < 4; q++) {
@@ -933,9 +971,27 @@ function placementsFromCorners(mine: SnappedTap[], outline: Pt[], shared: Set<nu
       slant += 1 - f;
     }
     if (!faces) continue;
-    out.push({ quadrant: q, at, err, slant });
+    out.push({ quadrant: q, at, err, slant, heights: cam ? placedHeights(cam, mine, outline, q, at) : null });
   }
-  return out;
+  const plausible = (p: Placement) => p.heights === null || (p.heights[0] >= PLACED_HEIGHT_FEET[0] && p.heights[1] <= PLACED_HEIGHT_FEET[1]);
+  return out.some(plausible) ? out.filter(plausible) : out;
+}
+
+/**
+ * The camera's height over the ground at each corner tapped below the horizon, placed at [at] on quadrant [q]: the lowest
+ * and the highest, feet. Every one is where a corner meets the ground (or a deck, which reads a little lower), so a
+ * placement right is about five feet at each; null with none below the horizon.
+ */
+function placedHeights(cam: PhotoCamera, mine: SnappedTap[], outline: Pt[], q: number, at: [number, number]): [number, number] | null {
+  const { zl } = levelAxes(cam);
+  const zg = planDirection(Math.atan2(zl[0], zl[2]), q, 0);
+  const hs = mine
+    .filter((t) => t.v > cam.height / 2)
+    .map((t) => {
+      const P = outline[t.corner] as Pt;
+      return ((t.v - cam.height / 2) / cam.f) * ((P.x - at[0]) * zg[0] + (P.y - at[1]) * zg[1]);
+    });
+  return hs.length ? [Math.min(...hs), Math.max(...hs)] : null;
 }
 
 /**
