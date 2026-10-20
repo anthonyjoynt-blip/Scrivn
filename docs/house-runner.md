@@ -56,7 +56,8 @@ It levels every photo and estimates the lens, finds each photo's **corner candid
 
 **The tapes** (`tapes`):
 - a wall's length: `"side": "C5-C6"`;
-- a line on a photo: `"on": [{"photo": 15, "a": [497, 900], "b": [868, 900]}]`, one entry for each alike thing it covers (both garage doors). Put the ends on the jambs at mid-height. **Say in a `note` what the ends are on** when it could be either (a roll-up door's curtain or its frame): on the shed that choice moved the whole scale by 15%.
+- a line on a photo: `"on": [{"photo": 15, "a": [497, 900], "b": [868, 900]}]`, one entry for each alike thing it covers (both garage doors). Put the ends on the jambs at mid-height. **Ask what was taped** when it could be either (a door's opening, its curtain or across its trim): on the shed that choice moved the whole scale by up to 15%.
+- **Each end snaps to the strongest upright edge within 14 px** (as on the phone), so check where it lands (`zoom`, or `lineOnPhoto`): on the shed's narrow trim the right end jumped to a rib 8 px past it and set the shed 7% small. When the edge taped can't hold an end (a weak edge beside strong ones), put the end on a nearby edge that does, and carry the tape's length across by the photo's own ratio of the two spans on the solved house (the shed's tape in `fixtures/house-runner/shed-1017-inputs.json` says how).
 - `"skip": true` leaves a tape out.
 
 **Checks** (`checks`), optional: a line on a photo you expect a length for, as a sanity check, never a tape: `{"photo": 3, "a": [698, 515], "b": [712, 1073], "feet": 6.6667, "what": "man door slab (usually 6'8\")"}`. With one tape these are the only cross-check there is.
@@ -135,6 +136,6 @@ Each step prints its machine time and keeps it in `scrivn/times.json`. On the ow
 ## The proof (2026-10-20)
 
 - **The owner's house** (C:/Users/Anthony/Desktop/House Photos, tapes porch 263", garage doors 9', bump-out 22'2"): each tape held out in turn, predicted from the other two: doors +0.5%, bump-out −0.6%, porch −0.3%. Machine time 62 s (prepare 15, check 15, measure 28, report 4). The fixture's own 10-16 taps through the runner reproduce `test:exterior:photos`'s all-tapes table to the inch. All three tapes run across the house: the depth is unchecked, and the bump-out's west side reads 8'2" ±7% against the proof's 5'6".
-- **The shed** (C:/Users/Anthony/Desktop/Shed photos, roll-up door 5'): 15'8" x 12'3" (the 10-17 bundle solve: 16'3" x 12'4", ±6%), rms 0.84; one tape, so no hold-out; the man door's slab reads 6'0" against the usual 6'8" (−9%), which says the one tape may set it small; a wall's length would settle it. Its walls read by eye off `sides/`: window 3'0" x 2'6" and man door 3'0" x 6'10", as the 10-17 session read them.
+- **The shed** (C:/Users/Anthony/Desktop/Shed photos, roll-up door 5', the clear opening between its trim): 16'10" x 13'5" (the 10-17 bundle solve: 16'3" x 12'4", ±6%); one tape, so no hold-out; the man door's slab reads 6'7" against the usual 6'8". Walls read by eye off `sides/`: front eave 9'9", the rear 7'7", one slope at 2/12 to the rear, 3.01 SQ. A first run whose tape end had snapped to a rib past the trim set it 7% small (15'8" x 12'3", the door 6'0").
 - **A pulled request** made from the owner's photos (`test/exterior/houseRequestFolder.mjs`): prepare starts from the tester's shape, 30 taps and 4 tapes; measure lands every side within its ± of `test:exterior:photos`, and holds each of the 4 tapes out.
 - `npm run test:exterior:house` runs all three (about two minutes).
