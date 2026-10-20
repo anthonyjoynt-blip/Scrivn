@@ -1,6 +1,6 @@
-import type { ReactNode } from "react";
+import type { ReactElement, ReactNode } from "react";
 import { roofTextureOf, textureMarks, textureOf, type TextureSpec } from "@/lib/claddingTexture";
-import { COMPASS_WORD, type HouseView } from "@/lib/exteriorViews";
+import { type HouseView, northOnPlan } from "@/lib/exteriorViews";
 import { formatFeetInches } from "@/lib/sketch";
 import {
   bandLabel,
@@ -717,7 +717,7 @@ export function houseViewFontFeet(view: HouseView): number {
 }
 
 /**
- * The whole house seen square-on from one compass point (2026-10-16): lib/exteriorViews.ts's pieces drawn
+ * The whole house seen square-on from one side (2026-10-16): lib/exteriorViews.ts's pieces drawn
  * back to front - each wall that faces the view with its cladding's marks, windows and doors as on its own
  * elevation, the roof's slopes with their shingle courses, the fascia and the posts - standing on the
  * ground as the nearest wall meets it. Under it the overall width; to its right the main levels, each
@@ -759,7 +759,7 @@ export function HouseElevationDrawing({ view, fontFeet, size, roof }: { view: Ho
   const scaleFeet = width >= 30 ? 10 : 5;
   const lx = view.maxX + fs * 0.8 + shift;
   return (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox={`${vx} ${vy} ${vw} ${vh}`} width={size?.width} height={size?.height} role="img" aria-label={`${COMPASS_WORD[view.compass]} elevation of the house, to scale`}>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox={`${vx} ${vy} ${vw} ${vh}`} width={size?.width} height={size?.height} role="img" aria-label={`${view.title} of the house, to scale`}>
       <rect x={vx} y={vy} width={vw} height={vh} fill="#ffffff" />
       {view.pieces.map((p, i) => {
         if (p.type === "post") {
@@ -926,6 +926,7 @@ export function RoofPlanDrawing({
   fontScale = 1,
   section = null,
   upper = null,
+  frontFacesDeg,
   size,
 }: {
   plan: RoofPlan;
@@ -950,6 +951,8 @@ export function RoofPlanDrawing({
   section?: string | null;
   /** A two-storey house's upper floor, drawn over the main floor's walls. */
   upper?: Pt[] | null;
+  /** Which way the front faces, clockwise from north (`Exterior.frontFacesDeg`): a north arrow, only when known. */
+  frontFacesDeg?: number;
   size?: Size;
 }) {
   const corners = footprint.corners;
@@ -1084,9 +1087,10 @@ export function RoofPlanDrawing({
   const half = (b: LabelBox) => (b.angle === 0 ? { x: b.width / 2, y: b.height / 2 } : { x: b.height / 2, y: b.width / 2 });
   const framed = [...sideNames.map((n) => n.box), ...endPills.map((p) => p.box)];
   const fx0 = Math.min(minX - pad, ...framed.map((b) => b.x - half(b).x - fs * 0.3));
-  const fx1 = Math.max(maxX + pad, ...framed.map((b) => b.x + half(b).x + fs * 0.3));
-  const fy0 = Math.min(minY - pad, ...framed.map((b) => b.y - half(b).y - fs * 0.3));
   const fy1 = Math.max(maxY + pad, ...framed.map((b) => b.y + half(b).y + fs * 0.3));
+  const north = northArrowAt(Math.max(maxX + pad, ...framed.map((b) => b.x + half(b).x + fs * 0.3)), fy1, fs, frontFacesDeg);
+  const fx1 = north.right;
+  const fy0 = Math.min(minY - pad, ...framed.map((b) => b.y - half(b).y - fs * 0.3), north.bottom);
 
   return (
     <svg
@@ -1231,7 +1235,42 @@ export function RoofPlanDrawing({
           </g>
         );
       })}
+      {north.arrow}
     </svg>
+  );
+}
+
+/**
+ * A north arrow (2026-10-20) in the top right of a plan whose frame ended at [right] and [top]: only when the front's
+ * bearing is known - never guessed. Its frame's new right edge and the lowest it reaches; with no bearing, nothing
+ * drawn and the frame as it was.
+ */
+function northArrowAt(right: number, top: number, fs: number, frontFacesDeg: number | undefined): { right: number; bottom: number; arrow: ReactElement | null } {
+  if (frontFacesDeg === undefined) return { right, bottom: Infinity, arrow: null };
+  const reach = fs * 2.8;
+  const c = { x: right + reach, y: top - reach };
+  return { right: c.x + reach + fs * 0.3, bottom: c.y - reach, arrow: <NorthArrow at={c} fs={fs} frontFacesDeg={frontFacesDeg} /> };
+}
+
+/** The arrow, pointing north on the plan, about [fs] x 2.8 from [at] to the "N" past its tip. */
+function NorthArrow({ at, fs, frontFacesDeg }: { at: Pt; fs: number; frontFacesDeg: number }) {
+  const n = northOnPlan(frontFacesDeg);
+  const e = { x: -n.y, y: n.x };
+  const L = fs * 1.4;
+  const w = fs * 0.55;
+  const P = (along: number, across: number): Pt => ({ x: at.x + n.x * along + e.x * across, y: at.y + n.y * along + e.y * across });
+  const pts = (ps: Pt[]) => ps.map((p) => `${p.x},${-p.y}`).join(" ");
+  const tip = P(L, 0);
+  const notch = P(-L * 0.45, 0);
+  const letter = P(L + fs * 0.85, 0);
+  return (
+    <g pointerEvents="none" aria-label="North">
+      <polygon points={pts([tip, P(-L, w), notch])} fill="#ffffff" stroke={INK} strokeWidth={1} strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+      <polygon points={pts([tip, notch, P(-L, -w)])} fill={INK} stroke={INK} strokeWidth={1} strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+      <text x={letter.x} y={-letter.y + fs * 0.36} fontSize={fs} fontWeight={700} textAnchor="middle" fill={INK} fontFamily={FONT}>
+        N
+      </text>
+    </g>
   );
 }
 
@@ -1356,6 +1395,7 @@ export function FootprintDrawing({
   upper = null,
   size,
   fontFeet,
+  frontFacesDeg,
 }: {
   footprint: Footprint;
   nameOf: (id: string) => string;
@@ -1368,6 +1408,8 @@ export function FootprintDrawing({
   size?: Size;
   /** The lettering, feet: a page drawn to a fixed scale sets it; left out, 3% of the house. */
   fontFeet?: number;
+  /** Which way the front faces, clockwise from north (`Exterior.frontFacesDeg`): a north arrow, only when known. */
+  frontFacesDeg?: number;
 }) {
   const corners = footprint.corners;
   const n = corners.length;
@@ -1395,9 +1437,10 @@ export function FootprintDrawing({
   const pad = fs * 1.5;
   const boxes = names.map((m) => m.box);
   const fx0 = Math.min(minX - pad, ...boxes.map((b) => b.x - half(b).x - fs * 0.3));
-  const fx1 = Math.max(maxX + pad, ...boxes.map((b) => b.x + half(b).x + fs * 0.3));
-  const fy0 = Math.min(minY - pad, ...boxes.map((b) => b.y - half(b).y - fs * 0.3));
   const fy1 = Math.max(maxY + pad, ...boxes.map((b) => b.y + half(b).y + fs * 0.3));
+  const north = northArrowAt(Math.max(maxX + pad, ...boxes.map((b) => b.x + half(b).x + fs * 0.3)), fy1, fs, frontFacesDeg);
+  const fx1 = north.right;
+  const fy0 = Math.min(minY - pad, ...boxes.map((b) => b.y - half(b).y - fs * 0.3), north.bottom);
   return (
     <svg xmlns="http://www.w3.org/2000/svg" viewBox={`${fx0} ${Y(fy1)} ${fx1 - fx0} ${fy1 - fy0}`} width={size?.width} height={size?.height} role="img" aria-label="Footprint, to scale">
       <rect x={fx0} y={Y(fy1)} width={fx1 - fx0} height={fy1 - fy0} fill="#ffffff" />
@@ -1420,6 +1463,7 @@ export function FootprintDrawing({
           </g>
         </g>
       ))}
+      {north.arrow}
     </svg>
   );
 }

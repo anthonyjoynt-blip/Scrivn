@@ -72,6 +72,7 @@ import {
   withoutUpper,
   withUpperSideLength,
 } from "@/lib/exteriorPlan";
+import { bearingWords, FRONT_FACES_CHOICES, frontFacesOf, normalDeg } from "@/lib/exteriorViews";
 import type { Pt, RoofAddition, RoofPlan } from "@/lib/roof";
 import { withWingAnswer } from "@/lib/roofCheck";
 import { textWidthEm } from "@/lib/roofLabels";
@@ -670,8 +671,60 @@ function SidesList({ exterior, q, readOnly, showTurns, onOpenSide, onChange }: {
       {isAttachedHome(exterior.homeType) && !exterior.sides.some((s) => s.shared) && (
         <p className="field-note">Open each wall shared with the neighbour and set it shared: it is then not counted, and the roof stops at it.</p>
       )}
+      <FrontFaces exterior={exterior} readOnly={readOnly} onChange={onChange} />
     </div>
   );
+}
+
+/**
+ * Which way the front faces (2026-10-20, the owner: "fix the front label to north"): one tap, never asked and never in
+ * the way. Set, the report names its four views north, south, east and west and the plans get a north arrow; not set,
+ * the views are the front, back and sides. A bearing between the eight (his house's 16 degrees) shows on its nearest.
+ */
+function FrontFaces({ exterior, readOnly, onChange }: { exterior: Exterior; readOnly: boolean; onChange: Change }) {
+  const deg = frontFacesOf(exterior);
+  const near = deg === undefined ? null : (FRONT_FACES_CHOICES.reduce((a, b) => (turnBetween(b.deg, deg) < turnBetween(a.deg, deg) ? b : a)).deg as number);
+  const set = (v: number | null) =>
+    onChange((x) => {
+      const { frontFacesDeg: _was, ...rest } = x;
+      return v === null ? rest : { ...rest, frontFacesDeg: v };
+    });
+  return (
+    <div className="exterior-field">
+      <span className="exterior-field-label" id="ext-front-faces">
+        Front faces
+      </span>
+      <div className="option-group exterior-compass" role="group" aria-labelledby="ext-front-faces">
+        {FRONT_FACES_CHOICES.map((c) => (
+          <button
+            key={c.deg}
+            type="button"
+            className={`option-btn${near === c.deg ? " selected" : ""}`}
+            aria-pressed={near === c.deg}
+            aria-label={`Front faces ${c.words}`}
+            disabled={readOnly}
+            onClick={() => near !== c.deg && set(c.deg)}
+          >
+            {c.label}
+          </button>
+        ))}
+        <button type="button" className={`option-btn${deg === undefined ? " selected" : ""}`} aria-pressed={deg === undefined} disabled={readOnly} onClick={() => deg !== undefined && set(null)}>
+          Not set
+        </button>
+      </div>
+      <p className="field-note">
+        {deg === undefined
+          ? "For the report: its views are named front, back and sides until this is set."
+          : `The report names its views by the way each wall faces${deg % 45 !== 0 ? ` (the front faces ${bearingWords(deg)})` : ""}.`}
+      </p>
+    </div>
+  );
+}
+
+/** How far apart two bearings are, the short way round, in degrees. */
+function turnBetween(a: number, b: number): number {
+  const d = normalDeg(a - b);
+  return Math.min(d, 360 - d);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1161,6 +1214,7 @@ export function PlanPane({
           fontScale={narrow ? 1.45 : 1}
           section={mode === "pitch" ? sectionKey : null}
           upper={q.upperFootprint?.closes ? q.upperFootprint.corners : null}
+          frontFacesDeg={frontFacesOf(exterior)}
         />
         {mode === "pitch" && sectionKey && <SectionPitch exterior={exterior} plan={plan} sectionKey={sectionKey} readOnly={readOnly} nameOf={nameOf} onUpdate={updateRoof} />}
         <RoofLegend plan={plan} ridgeVent={(roof.ridgeVents ?? []).length > 0} upper={q.upperFootprint?.closes === true} />

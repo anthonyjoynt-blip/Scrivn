@@ -489,9 +489,12 @@ export function parseScanExterior(input: unknown, meta: { scanId?: string | null
 
   const outer = asObject(input);
   const captureId = typeof part.capture_id === "string" ? part.capture_id : isObject(outer) && typeof outer.capture_id === "string" ? outer.capture_id : null;
+  // Which way the front faces, when the capture says (2026-10-20): degrees clockwise from north.
+  const facing = num(part.front_faces_deg);
   let exterior: Exterior = {
     sides: finishedSides,
     roof: finishedRoof,
+    ...(facing !== null ? { frontFacesDeg: ((facing % 360) + 360) % 360 } : {}),
     scale,
     source: {
       kind: "scan",

@@ -3,6 +3,7 @@
  "source": "photos",
  "capture_id": "photos-only-1016",
  "captured_at": "2026-10-16T18:54:00Z",
+ "front_faces_deg": 16,
  "scale": 1,
  "taped": {
   "side": 4,
@@ -202,7 +203,7 @@
  "sides": [
   {
    "index": 0,
-   "name": "Garage front, west bay",
+   "name": "Garage front, left bay",
    "cladding": "stucco",
    "length_m": 4.0702,
    "left_joined": true,
@@ -424,7 +425,7 @@
   },
   {
    "index": 2,
-   "name": "Garage front, east bay",
+   "name": "Garage front, right bay",
    "cladding": "stucco",
    "length_m": 4.107,
    "left_joined": true,
@@ -594,7 +595,7 @@
   },
   {
    "index": 3,
-   "name": "East side wall",
+   "name": "Right side wall",
    "cladding": "stucco",
    "length_m": 21.5104,
    "left_joined": true,
@@ -1017,7 +1018,7 @@
   },
   {
    "index": 5,
-   "name": "Bump-out west side",
+   "name": "Bump-out left side",
    "cladding": "stucco",
    "length_m": 1.6732,
    "left_joined": true,
@@ -1527,7 +1528,7 @@
   },
   {
    "index": 9,
-   "name": "West gable wall",
+   "name": "Left gable wall",
    "cladding": "stucco",
    "length_m": 8.901,
    "left_joined": true,
@@ -1981,6 +1982,6 @@
  "links": [],
  "taps": [],
  "notes": [
-  "Built from 15 phone photos (10-16, 12:49-12:54) and 3 tapes, no AR taps: 9'0\" garage doors, 263\" porch (keystone wall to the west porch post), 22'2\" rear bump-out."
+  "Built from 15 phone photos (10-16, 12:49-12:54) and 3 tapes, no AR taps: 9'0\" garage doors, 263\" porch (keystone wall to the left porch post), 22'2\" rear bump-out."
  ]
 }

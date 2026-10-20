@@ -393,11 +393,11 @@ await test("the shed's report section: its own plan, roof plan, four elevations,
   assert(r.sources.includes("Pitch: 6/12, typed.") && r.sources.includes("Roof ends: Front gable (set by the estimator), Rear gable (set by the estimator)."), r.sources.join(" | "));
   assert(r.sources[0] === "Sizes: as drawn and typed in Scrivn." && r.sources[1] === "Walls, heights, materials and openings: as entered in Scrivn.", r.sources.join(" | "));
   assert(!r.assumed.some((a) => /roof ends|pitch/i.test(a)) && r.assumed.some((a) => a.startsWith("The eave overhang, 1'4\": Scrivn's default.")), r.assumed.join(" | "));
-  // The four sides, each with every dimension; the four compass views; the roof plan's words.
+  // The four sides, each with every dimension; the four views, front, sides and back (no bearing on the shed); the roof plan's words.
   assert(JSON.stringify(r.sides.map((s) => s.heading)) === JSON.stringify(["Front · 12' · 74 SF net", "Right · 16' · 122 SF net", "Rear · 12' · 114 SF net", "Left · 16' · 128 SF net"]), JSON.stringify(r.sides.map((s) => s.heading)));
   assert(r.sides[0].dims.some((d) => d.startsWith("Door 1: 6' × 6'8\", at the bottom, 3' from the left end")), r.sides[0].dims.join(" | "));
   assert(r.sides[1].dims.some((d) => d.startsWith("Window 1: 2' × 3', sill 3'8\" up, 7' from the left end")), r.sides[1].dims.join(" | "));
-  assert(r.views.length === 4 && r.views.map((v) => v.view.compass).join() === "south,east,north,west", r.views.map((v) => v.heading).join(" | "));
+  assert(r.views.length === 4 && r.views.map((v) => v.view.from).join() === "front,right,back,left" && r.views.map((v) => v.heading).join(" | ") === "Front elevation | Right side elevation | Back elevation | Left side elevation", r.views.map((v) => v.heading).join(" | "));
   assert(r.roof && r.roof.title === "6/12 · 2.95 SQ (295 SF) · eave overhang 1'4\", rake 1' · front at the bottom" && r.roof.slopes === "A 148 SF at 6/12 (Right) · B 148 SF at 6/12 (Left)", JSON.stringify(r.roof));
   // Typed with a tape: no photos, nothing to check.
   assert(r.photos.length === 0 && r.notes.length === 0, JSON.stringify(r.notes));
@@ -463,7 +463,7 @@ await test("the report PDF: the house's pages, then the shed's section, every pa
   assert(shedPages.every((p) => foot(p).startsWith("Exterior report · The owner's house · Shed · page ")), JSON.stringify(shedPages.map(foot)));
   assert(pages.slice(0, firstShed).every((p) => /^Exterior report · The owner's house · page \d+ of \d+$/.test(foot(p))), JSON.stringify(pages.slice(0, firstShed).map(foot)));
   const all = shedPages.flat();
-  for (const w of ["South elevation \xb7 the front", "East elevation \xb7 to the right of the front", "North elevation \xb7 the back", "West elevation \xb7 to the left of the front", "Each side", "Footprint", "Walls by side and material", "Roof lines"]) assert(all.includes(w), `the shed's section has no "${w}"`);
+  for (const w of ["Front elevation", "Right side elevation", "Back elevation", "Left side elevation", "Each side", "Footprint", "Walls by side and material", "Roof lines"]) assert(all.includes(w), `the shed's section has no "${w}"`);
   // The cover lists the buildings, and their totals.
   const cover = pages[0];
   assert(cover.includes("The buildings on this claim") && cover.includes("All buildings") && cover.includes("Shed") && cover.includes("2.95"), JSON.stringify(cover.slice(0, 60)));
