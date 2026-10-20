@@ -1,10 +1,9 @@
 import "server-only";
 import { createAdminClient } from "./supabase/admin";
 import { isEmailConfigured, sendEmail } from "./email/send";
-import { isBillingSchemaMissing } from "./usageState";
-import { TRIAL_CLAIM_LIMIT } from "./plans";
-import { MIN_PASSWORD_LENGTH, looksLikeEmail, normaliseEmail } from "./guardRules";
-import { guardSignup, hashForGuard } from "./requestGuard";
+import { MIN_PASSWORD_LENGTH, looksLikeEmail } from "./guardRules";
+import { guardSignup } from "./requestGuard";
+import { MAX_COMPANY_NAME_LENGTH, MAX_FULL_NAME_LENGTH, accountMetadata, makeAccount } from "./accountMaking";
 import { ConfirmSignupEmail } from "@/emails/ConfirmSignup";
 import { AccountExistsEmail } from "@/emails/AccountExists";
 
@@ -29,7 +28,9 @@ import { AccountExistsEmail } from "@/emails/AccountExists";
  *
  * NEXT_PUBLIC_SIGNUPS_OPEN, exactly as the sign-up page reads it: closed unless it is "true". The
  * phone asks the same question (`signupsOpen`), so it shows the invitation sentence instead of a form
- * while it is closed, and opening sign-up on the website opens it in the app too.
+ * while it is closed, and opening sign-up on the website opens it in the app too. While it is shut,
+ * we give testers accounts from this machine with `node scripts/add-tester.mjs` (lib/testerAccounts.ts),
+ * which makes the same account through the same steps (lib/accountMaking.ts) and leaves the gate alone.
  *
  * ── Who already has an account ───────────────────────────────────────────────────────────────────
  *
@@ -92,7 +93,7 @@ function validate(input: SignupInput): { email: string; fullName: string; compan
   if (input.password.length < MIN_PASSWORD_LENGTH) throw new SignupInvalidError(`Password must be at least ${MIN_PASSWORD_LENGTH} characters.`);
   if (input.password.length > 72) throw new SignupInvalidError("Password must be 72 characters or fewer.");
   if (fullName === "") throw new SignupInvalidError("Enter your name.");
-  if (fullName.length > 120 || companyName.length > 160) throw new SignupInvalidError("That name is too long.");
+  if (fullName.length > MAX_FULL_NAME_LENGTH || companyName.length > MAX_COMPANY_NAME_LENGTH) throw new SignupInvalidError("That name is too long.");
   return { email, fullName, companyName };
 }
 
@@ -121,17 +122,13 @@ export async function createAccount(input: SignupInput): Promise<void> {
   const admin = createAdminClient();
   const next = safeNextPath(input.next, input.forScan ? "/scan/ready" : "/claim");
 
-  const created = await admin.auth.admin.createUser({
-    email,
-    password: input.password,
-    email_confirm: false,
-    user_metadata: { full_name: fullName, company_name: companyName },
-  });
+  // The user, and through the trigger their profile, organization and membership, and the trial
+  // check — the same steps as a tester's account (lib/accountMaking.ts).
+  const made = await makeAccount(admin, { email, password: input.password, emailConfirmed: false, fullName, companyName });
 
-  if (created.error) {
-    if (created.error.code !== "email_exists" && created.error.status !== 422) throw new Error(`could not make the account: ${created.error.message}`);
+  if (!made.made) {
     // Already there. Unconfirmed: its confirmation again. Confirmed: "you already have one".
-    const again = await admin.auth.admin.generateLink({ type: "signup", email, password: input.password, options: { data: { full_name: fullName, company_name: companyName }, redirectTo: `${input.origin}${next}` } });
+    const again = await admin.auth.admin.generateLink({ type: "signup", email, password: input.password, options: { data: accountMetadata(fullName, companyName), redirectTo: `${input.origin}${next}` } });
     if (again.error || !again.data.properties?.hashed_token) {
       const ok = await deliver(
         email,
@@ -149,21 +146,7 @@ export async function createAccount(input: SignupInput): Promise<void> {
     return;
   }
 
-  const userId = created.data.user.id;
-
-  // One free trial per mailbox: an address that has had one before starts with it spent.
-  try {
-    const { data: seen, error } = await admin.rpc("trial_email_seen", { email_hash: hashForGuard("trial-email", normaliseEmail(email)) });
-    if (error && !isBillingSchemaMissing(error)) console.error("[signup] could not check the trial address:", error.message);
-    if (seen === true) {
-      const { error: spendError } = await admin.from("organizations").update({ trial_claims_used: TRIAL_CLAIM_LIMIT }).eq("personal_for", userId);
-      if (spendError) console.error("[signup] could not mark the repeat trial spent:", spendError.message);
-    }
-  } catch (err) {
-    console.error("[signup] the trial check failed:", err);
-  }
-
-  const link = await admin.auth.admin.generateLink({ type: "signup", email, password: input.password, options: { data: { full_name: fullName, company_name: companyName }, redirectTo: `${input.origin}${next}` } });
+  const link = await admin.auth.admin.generateLink({ type: "signup", email, password: input.password, options: { data: accountMetadata(fullName, companyName), redirectTo: `${input.origin}${next}` } });
   const hashed = link.data?.properties?.hashed_token;
   if (link.error || !hashed) throw new Error(`could not make the confirmation link: ${link.error?.message ?? "no token"}`);
   const url = confirmUrl(input.origin, next, hashed);

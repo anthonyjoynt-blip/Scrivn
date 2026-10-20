@@ -86,7 +86,14 @@ export interface Attachment {
  */
 export type SendResult = { ok: true } | { ok: false; reason: string };
 
-export async function sendEmail(params: { to: string | string[]; subject: string; react: ReactElement; attachments?: Attachment[]; replyTo?: string }): Promise<SendResult> {
+/**
+ * `react` for the app's usual designed email; `text` instead for a plain-text message with no HTML
+ * part at all — the tester welcome (lib/testerAccounts.ts), which by the owner's rule for Canada
+ * names scrivn.ca as plain words and carries no links.
+ */
+type EmailBody = { react: ReactElement; text?: never } | { text: string; react?: never };
+
+export async function sendEmail(params: { to: string | string[]; subject: string; attachments?: Attachment[]; replyTo?: string } & EmailBody): Promise<SendResult> {
   if (!isEmailConfigured()) {
     console.warn("[email] RESEND_API_KEY not set — skipping send:", params.subject);
     return { ok: false, reason: "Email is not configured on this deployment." };
@@ -97,7 +104,7 @@ export async function sendEmail(params: { to: string | string[]; subject: string
       from: FROM,
       to: Array.isArray(params.to) ? params.to : [params.to],
       subject: params.subject,
-      react: params.react,
+      ...(params.react ? { react: params.react } : { text: params.text ?? "" }),
       ...(params.attachments ? { attachments: params.attachments } : {}),
       ...(params.replyTo ? { replyTo: params.replyTo } : {}),
     });

@@ -46,9 +46,32 @@ email itself (Resend), with the same `/auth/confirm` link Supabase's template ca
 
 The admin API is not subject to it, and with it off the public anon key (in every page's JavaScript)
 can make no account at all, so nothing gets round the guard. Opening sign-up is
-`NEXT_PUBLIC_SIGNUPS_OPEN=true` in Vercel and a redeploy, nothing in Supabase. Add testers by hand as
-before (**Authentication → Users → Add user**). The first time sign-up opens, make one account on
+`NEXT_PUBLIC_SIGNUPS_OPEN=true` in Vercel and a redeploy, nothing in Supabase. Give testers accounts
+with the script below, not the dashboard's Add user. The first time sign-up opens, make one account on
 scrivn.ca and check the confirmation email arrives and its link signs you in.
+
+### Giving a tester an account (while sign-up is shut)
+
+From this machine (it needs the service-role key and `RESEND_API_KEY` in `.env.local`):
+
+    node scripts/add-tester.mjs jane@example.com --name "Jane Smith" --company "Smith Restoration"
+    node scripts/list-testers.mjs
+
+- The account is the same as a sign-up's, made by the same steps (`lib/accountMaking.ts`): the user,
+  their profile, their own organization (named after `--company`, else after `--name`, as sign-up
+  does) with them as owner, and the one-trial-per-mailbox check.
+- It is made with the email confirmed and **no password**. No password passes through us: they get one
+  plain-text email from no-reply@scrivn.ca, no links, telling them to go to scrivn.ca/forgot-password,
+  set a password, then try Exterior → From photos or Scrivn Scan. The words are `testerEmail` in
+  `lib/testerAccounts.ts`. `--no-email` sends nothing; the script prints what to tell them.
+- `--dry-run` reads only: it says what it would make and prints the email.
+- Safe to run twice: an address that already has an account, however it was made, is reported and
+  left exactly as it is. A typo in an option, a bad address or a missing key stops it before anything.
+- `list-testers` finds them by the mark the script leaves in each account's app_metadata
+  (`invited_by: "add-tester"`), with company, when made, and whether they have signed in.
+- If production sets `GUARD_HASH_SECRET`, put the same value in `.env.local`, so the trial check hashes
+  the address as the site does.
+- Tested by `npm run test:testers`, against the local Supabase stand-in and a stand-in for Resend.
 
 ### The guard (b-guard)
 
@@ -93,5 +116,5 @@ Turning it on needs migrations `0011_org_billing.sql` and `0012_teams.sql` appli
 other steps in `TEAMS.md`.
 
 It meets sign-up in one place: **an invited person needs an account.** While
-`NEXT_PUBLIC_SIGNUPS_OPEN` is off, make one for them in Supabase (Authentication → Users → Add user)
-with the address the invitation went to. They then open the link and sign in.
+`NEXT_PUBLIC_SIGNUPS_OPEN` is off, make one for them with `node scripts/add-tester.mjs` and the address
+the invitation went to. They set a password with Forgot password, then open the link and sign in.
