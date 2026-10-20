@@ -22,7 +22,8 @@ by AI added 2026-10-15 (paste the AI processing section again). Exteriors measur
 added 2026-10-17 (paste the new section, Sending an exterior to the Scrivn team, after Photos and
 location; and paste Working without a connection again). Finish exterior taken out of AI processing
 2026-10-19, when Scan's AR exterior was hidden (paste AI processing again; if AR_EXTERIOR is ever turned
-back on in Scan, put it back).
+back on in Scan, put it back). Accounts we set up for testers added 2026-10-20 (paste the new section,
+Accounts we set up for you, before Deleting your account).
 
 ## Generator answers (Canada, October 2026)
 
@@ -96,6 +97,10 @@ Your account, and your claims, photos and scans, are stored in Canada. To run Sc
 
 Claims, photos and scans are kept until the company deletes them, or for 24 months after the company's account closes. Claims and photos can be deleted in the app; deleting a claim deletes its photos and scans with it.
 
+**Accounts we set up for you**
+
+While Scrivn is by invitation, we may set up an account for you when you, or the person who invited you to try Scrivn, ask us to, using the name, email address and company name we are given. We send that address one email saying how to choose your password; we never choose or see it. If you did not expect that email, you can ignore it, or write to privacy@scrivn.ca and we will delete the account.
+
 **Deleting your account**
 
 You can delete your account yourself, in Scrivn Scan (Account, then Delete account) or at scrivn.ca/account/delete, or by emailing privacy@scrivn.ca from the address on the account. You'll be asked for your password. Deleting your account deletes at once your sign-in, your name and contact details, the phones linked to your account, and problem reports you sent from Scan while signed in. If nobody else is in your company's account, it also deletes the company's claims, photos, scans, letterhead and logo, and cancels its subscription straight away (the time already paid for is not refunded). If other people are in your company's account, you leave it, and the claims stay with the company. We keep payment records, which Stripe holds as tax law requires, and a one-way scrambled copy of your email address (see below).
@@ -144,6 +149,13 @@ To protect accounts and limit abuse, Scrivn counts attempts to create an account
   email address, name and purchase history collected (account management, and app functionality for
   purchases), user IDs and app interactions (the scan count) collected for app functionality, data
   deletion available in the app and at scrivn.ca/account/delete — see SCAN_ACCOUNTS.md.
+- **Accounts we set up** (2026-10-20): `scripts/add-tester.mjs` (`lib/testerAccounts.ts`), run by us from
+  our own machine, makes the same account as sign-up (`lib/accountMaking.ts`: name, email, company; the
+  trial hash as for any account) with the email confirmed and no password, marks it in the auth user's
+  app_metadata (`invited_by: "add-tester"` and when), and sends one plain-text email from
+  no-reply@scrivn.ca through Resend. The person sets the password themselves with Forgot password. New
+  because the name and address come from someone other than the person, and they get an email they did
+  not ask for themselves.
 - **Site photos** (2026-10-14): the camera and the Photos panel are `components/photos/*`; a photo is
   redrawn to about 2,000 px on a canvas before it is kept (`lib/photoImage.ts`), which is why no GPS
   or other EXIF data is stored. Pictures are in the private `claim-photos` bucket (0015), written only

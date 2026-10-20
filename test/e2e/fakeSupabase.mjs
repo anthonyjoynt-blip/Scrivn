@@ -74,6 +74,7 @@ export async function startFakeSupabase({ port = 54329, log = false } = {}) {
   for (const m of migrationFiles(root)) await s.applyMigration(m);
   await s.sql(`alter table auth.users add column if not exists encrypted_password text`);
   await s.sql(`alter table auth.users add column if not exists last_sign_in_at timestamptz`);
+  await s.sql(`alter table auth.users add column if not exists raw_app_meta_data jsonb not null default '{}'::jsonb`);
 
   const db = s.db;
   let queue = Promise.resolve();
@@ -121,7 +122,7 @@ export async function startFakeSupabase({ port = 54329, log = false } = {}) {
   /* ── Users ── */
 
   async function userRow(id) {
-    const { rows } = await db.query(`select id, email, email_confirmed_at, raw_user_meta_data, created_at, last_sign_in_at, encrypted_password from auth.users where id = $1`, [id]);
+    const { rows } = await db.query(`select id, email, email_confirmed_at, raw_user_meta_data, raw_app_meta_data, created_at, last_sign_in_at, encrypted_password from auth.users where id = $1`, [id]);
     return rows[0] ?? null;
   }
   async function userByEmail(email) {
@@ -140,7 +141,8 @@ export async function startFakeSupabase({ port = 54329, log = false } = {}) {
       confirmed_at: iso(u.email_confirmed_at),
       phone: "",
       last_sign_in_at: iso(u.last_sign_in_at),
-      app_metadata: { provider: "email", providers: ["email"] },
+      // As GoTrue: the admin's marks, with the provider it adds itself.
+      app_metadata: { ...(u.raw_app_meta_data ?? {}), provider: "email", providers: ["email"] },
       user_metadata: u.raw_user_meta_data ?? {},
       identities: [],
       created_at: iso(u.created_at),
@@ -148,13 +150,14 @@ export async function startFakeSupabase({ port = 54329, log = false } = {}) {
       is_anonymous: false,
     };
   }
-  async function createUserRow({ email, password, confirmed, meta }) {
+  async function createUserRow({ email, password, confirmed, meta, appMeta }) {
     const id = randomUUID();
-    await db.query(`insert into auth.users (id, email, email_confirmed_at, raw_user_meta_data, encrypted_password) values ($1, $2, $3, $4, $5)`, [
+    await db.query(`insert into auth.users (id, email, email_confirmed_at, raw_user_meta_data, raw_app_meta_data, encrypted_password) values ($1, $2, $3, $4, $5, $6)`, [
       id,
       email,
       confirmed ? new Date().toISOString() : null,
       JSON.stringify(meta ?? {}),
+      JSON.stringify(appMeta ?? {}),
       password ? hashPassword(password) : null,
     ]);
     return userRow(id);
@@ -283,8 +286,21 @@ export async function startFakeSupabase({ port = 54329, log = false } = {}) {
         const email = String(body?.email ?? "").trim();
         if (!email) return authError(res, 400, "validation_failed", "email required");
         if (await userByEmail(email)) return authError(res, 422, "email_exists", "A user with this email address has already been registered");
-        const u = await createUserRow({ email, password: body?.password, confirmed: body?.email_confirm === true, meta: body?.user_metadata });
+        const u = await createUserRow({ email, password: body?.password, confirmed: body?.email_confirm === true, meta: body?.user_metadata, appMeta: body?.app_metadata });
         return send(res, 200, userJson(u));
+      }
+      if (rest === "users" && req.method === "GET") {
+        // GoTrue's list: oldest first, a page at a time, the total and the next page in headers.
+        const page = Math.max(1, Number(url.searchParams.get("page")) || 1);
+        const perPage = Math.max(1, Number(url.searchParams.get("per_page")) || 50);
+        const { rows } = await db.query(`select id from auth.users order by created_at, id limit $1 offset $2`, [perPage, (page - 1) * perPage]);
+        const total = Number((await db.query(`select count(*)::int as n from auth.users`)).rows[0].n);
+        const users = [];
+        for (const r of rows) users.push(userJson(await userRow(r.id)));
+        const links = [];
+        if (page * perPage < total) links.push(`</admin/users?page=${page + 1}&per_page=${perPage}>; rel="next"`);
+        links.push(`</admin/users?page=${Math.max(1, Math.ceil(total / perPage))}&per_page=${perPage}>; rel="last"`);
+        return send(res, 200, { users, aud: "authenticated" }, { "x-total-count": String(total), link: links.join(", ") });
       }
       const m = /^users\/([0-9a-f-]{36})$/.exec(rest);
       if (m && req.method === "GET") {
