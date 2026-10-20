@@ -14,6 +14,7 @@
  */
 
 import { COLUMN_LABEL, type Exterior, type ExteriorOpening, type ExteriorOpeningKind, type ExteriorQuantities, type ExteriorSide, formatOpeningSize, groundAt, OPENING_LABEL, openingRect } from "./exterior";
+import { type DeckCheckItem, deckChecks, deckInFront } from "./decks";
 import { withWingDrop } from "./roofCheck";
 import { formatFeetInches } from "./sketch";
 
@@ -51,6 +52,20 @@ export type CheckRow =
     }
   | {
       key: string;
+      /**
+       * A deck read off the photos (2026-10-20, lib/decks.ts `deckChecks`): what no photo shows - its framing - and anything
+       * read unsure. Kept as read with a tap; its posts with a count typed.
+       */
+      kind: "deck";
+      deckId: string;
+      item: DeckCheckItem;
+      title: string;
+      words: string;
+      count?: number;
+      feet?: number;
+    }
+  | {
+      key: string;
       kind: "drop";
       /** The lower roof's side, as `roof.wingDrops` keys it. */
       sideId: string;
@@ -72,6 +87,8 @@ function offPhoto(exterior: Exterior, o: ExteriorOpening): boolean {
 function deckAtFoot(exterior: Exterior, q: ExteriorQuantities, side: ExteriorSide, o: ExteriorOpening): boolean {
   if ((q.roof?.notches ?? []).some((k) => k.covered && k.sideIds.includes(side.id))) return true;
   const mid = o.fromLeftFeet + o.widthFeet / 2;
+  // A deck or porch put on in front of it (2026-10-20, lib/decks.ts).
+  if (deckInFront(exterior, side.id, mid, q.footprint)) return true;
   return (exterior.roof.additions ?? []).some((a) => a.kind === "porch" && a.sideId === side.id && mid >= a.fromFeet && mid <= a.toFeet);
 }
 
@@ -129,6 +146,8 @@ export function exteriorChecks(exterior: Exterior, q: ExteriorQuantities): Check
       question: garage ? "How much lower is the garage's eave than the house's?" : `How much lower is the roof over ${side ? sideName(side) : "it"} than the one it meets?`,
     });
   }
+  // The decks read off the photos (2026-10-20): their framing, and what was read unsure.
+  for (const d of deckChecks(exterior)) rows.push({ ...d, kind: "deck" });
   return rows;
 }
 
@@ -210,6 +229,7 @@ export function checkNotes(exterior: Exterior, q: ExteriorQuantities): string[] 
       noted.add(key);
       return [trimNote(trim.get(key) ?? [r])];
     }
+    if (r.kind === "deck") return [`${r.title}: ${r.words.replace(/\.$/, "")}.`];
     if (r.kind === "drop") {
       return r.garage
         ? `The garage's eave is drawn ${formatFeetInches(r.feet)} under the house's: assumed, as nothing measured it. Measure how much lower it is.`

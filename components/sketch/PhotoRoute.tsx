@@ -15,9 +15,11 @@ import { measureRoute, type PhotoPixelsIn, photoLines } from "@/lib/photoRouteDa
 import { exifFocal35, focalOverWidth } from "@/lib/photoRouteExif";
 import { exteriorFromRoute, measuredFrom } from "@/lib/photoRouteExterior";
 import type { Pt } from "@/lib/roof";
-import { formatFeetInches, parseFeetInches } from "@/lib/sketch";
+import { formatFeetInches, newSketchId, parseFeetInches } from "@/lib/sketch";
 import { FootprintDraw } from "./ExteriorPlan";
-import { Choice, FeetField } from "./exteriorFields";
+import { decksOf, uniqueDeckName, withDeckAdded, withDeckAnswer, withDeckChange, withDeckDepth } from "@/lib/decks";
+import { deckFromPhotos, type DeckPhotoTap } from "@/lib/deckPhotos";
+import { Choice, CountInput, FeetField } from "./exteriorFields";
 import { claimPhotoUrl, useExteriorPhotos } from "./exteriorPhotoAccess";
 import { useExteriorSubject } from "./exteriorSubject";
 import styles from "./PhotoRoute.module.css";
@@ -522,7 +524,134 @@ export function PhotoRoutePane({ exterior, readOnly, onChange }: { exterior: Ext
         )}
         {measured && <CheckThese exterior={exterior} readOnly={readOnly} onChange={onChange} />}
       </section>
+
+      {measured && <DeckSection exterior={exterior} route={route} urls={urls} readOnly={readOnly} onChange={onChange} />}
     </div>
+  );
+}
+
+/** Which point a deck tap is, in words, and its short mark on the photo. */
+const DECK_POINTS: { point: string; words: string; mark: string }[] = [
+  { point: "corner:0", words: "Its left outer corner, at the ground", mark: "L" },
+  { point: "corner:1", words: "Its right outer corner, at the ground", mark: "R" },
+  { point: "top:0", words: "Its top over the left corner", mark: "L↑" },
+  { point: "top:1", words: "Its top over the right corner", mark: "R↑" },
+];
+
+/**
+ * 5. Decks (2026-10-20, lib/deckPhotos.ts): a deck on the same photos, placed by the cameras the measure just placed. The
+ * wall it stands against, then on each photo that shows them its two outer corners where they meet the ground (a post's
+ * foot), and its top over one of them - left and right as you face that wall from outside. The rest is the house's: from
+ * its outer edge back to the walls, a covered corner filled. Its railings, stairs and posts are put in on the Decks tab.
+ */
+function DeckSection({ exterior, route, urls, readOnly, onChange }: { exterior: Exterior; route: PhotoRouteState; urls: Map<string, string>; readOnly: boolean; onChange: (f: (e: Exterior) => Exterior) => void }) {
+  const m = route.measured as NonNullable<PhotoRouteState["measured"]>;
+  const placed = route.photos.filter((p) => m.cameras.some((c) => c.photo === p.id));
+  const [draft, setDraft] = useState<{ side: number | null; deckId: string | null; name: string; taps: DeckPhotoTap[]; point: string } | null>(null);
+  const [photoId, setPhotoId] = useState<string | null>(placed[0]?.id ?? null);
+  const [why, setWhy] = useState<string[]>([]);
+  const onPhotos = decksOf(exterior).filter((d) => d.from === "photos");
+  const photo = placed.find((p) => p.id === photoId) ?? null;
+  const sideName = (i: number) => exterior.sides.find((s) => s.id === m.sideIds?.[i])?.name ?? `Side ${i + 1}`;
+  const markOf = (point: string) => DECK_POINTS.find((p) => p.point === point)?.mark ?? "?";
+
+  function place() {
+    if (!draft || draft.side === null) return;
+    const prev = draft.deckId ? (decksOf(exterior).find((d) => d.id === draft.deckId) ?? null) : null;
+    const made = deckFromPhotos(m, draft.side, draft.taps, prev, { id: draft.deckId ?? newSketchId("deck"), name: draft.name });
+    setWhy(made.why);
+    const deck = made.deck;
+    if (!deck) return;
+    onChange((e) => (decksOf(e).some((d) => d.id === deck.id) ? withDeckChange(e, deck.id, () => deck) : withDeckAdded(e, deck)));
+    setDraft(null);
+  }
+
+  return (
+    <section>
+      <h3>5. Decks</h3>
+      <p className="field-note">A deck or porch on these photos: its corners tapped as the house&rsquo;s are. Its railings, stairs and posts go in on the Decks tab.</p>
+      {onPhotos.map((d) => (
+        <div key={d.id} className={styles.row}>
+          <span>
+            {d.name}
+            {d.sideId ? ` · against ${exterior.sides.find((s) => s.id === d.sideId)?.name ?? "a wall"}` : ""} · {(d.taps ?? []).length} tap{(d.taps ?? []).length === 1 ? "" : "s"}
+          </span>
+          {!readOnly && !draft && (
+            <button
+              type="button"
+              className="link-button"
+              onClick={() => setDraft({ side: m.sideIds ? m.sideIds.indexOf(d.sideId ?? "") : null, deckId: d.id, name: d.name, taps: [...(d.taps ?? [])], point: "corner:0" })}
+            >
+              Tap it again
+            </button>
+          )}
+        </div>
+      ))}
+      {!readOnly && !draft && (
+        <button type="button" className="btn-secondary" onClick={() => setDraft({ side: null, deckId: null, name: uniqueDeckName("Deck", decksOf(exterior).map((d) => d.name)), taps: [], point: "corner:0" })}>
+          + A deck on these photos
+        </button>
+      )}
+      {draft && draft.side === null && (
+        <>
+          <p className="field-note">Tap the wall it stands against.</p>
+          <ShapePlan outline={m.corners} highlight={null} pick={(k, kind) => kind === "side" && setDraft({ ...draft, side: k })} taped={new Set()} />
+        </>
+      )}
+      {draft && draft.side !== null && (
+        <>
+          <p className="field-note">
+            Against {sideName(draft.side)}. Left and right as you face it from outside. Tap each on every photo that shows it: two photos place a corner.
+          </p>
+          <div className="option-group" role="group" aria-label="What a tap on the photo is">
+            {DECK_POINTS.map((p) => (
+              <button key={p.point} type="button" className={`option-btn${draft.point === p.point ? " selected" : ""}`} aria-pressed={draft.point === p.point} onClick={() => setDraft({ ...draft, point: p.point })}>
+                {p.words} ({draft.taps.filter((t) => t.point === p.point).length})
+              </button>
+            ))}
+          </div>
+          <div className={styles.thumbs}>
+            {placed.map((p) => (
+              <button key={p.id} type="button" className={`${styles.thumb} ${p.id === photoId ? styles.thumbOn : ""}`} onClick={() => setPhotoId(p.id)}>
+                {urls.get(p.id) ? <img src={urls.get(p.id)} alt={`Photo ${route.photos.indexOf(p) + 1}`} /> : <span className="field-note">waiting</span>}
+                {draft.taps.some((t) => t.photo === p.id) && <span className={styles.badge}>{draft.taps.filter((t) => t.photo === p.id).length}</span>}
+              </button>
+            ))}
+          </div>
+          {photo && (
+            <PhotoTaps
+              url={urls.get(photo.id) ?? null}
+              width={photo.width}
+              height={photo.height}
+              taps={[]}
+              tapes={[]}
+              line={null}
+              mode="deck"
+              selected={null}
+              onTap={(x, y) => setDraft({ ...draft, taps: [...draft.taps.filter((t) => !(t.photo === photo.id && t.point === draft.point)), { photo: photo.id, point: draft.point, x, y }] })}
+              onPickTap={() => {}}
+              onLine={() => {}}
+              deckTaps={draft.taps.filter((t) => t.photo === photo.id).map((t) => ({ x: t.x, y: t.y, label: markOf(t.point) }))}
+            />
+          )}
+          <div className={styles.row}>
+            <button type="button" className="btn-primary" disabled={draft.taps.filter((t) => t.point.startsWith("corner:")).length < 2} onClick={place}>
+              Place the deck
+            </button>
+            <button type="button" className="btn-secondary" onClick={() => (setDraft(null), setWhy([]))}>
+              Cancel
+            </button>
+          </div>
+        </>
+      )}
+      {why.length > 0 && (
+        <ul className="field-note">
+          {why.map((w) => (
+            <li key={w}>{w}</li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
 
@@ -592,6 +721,10 @@ const TRIM_OPTIONS: ["keep" | "away", string][] = [
   ["keep", "Keep it"],
   ["away", "Take it away"],
 ];
+const DECK_OPTIONS: ["open" | "seen", string][] = [
+  ["open", "Not seen yet"],
+  ["seen", "Seen: as read"],
+];
 
 /**
  * "Check these" (2026-10-16, lib/exteriorCheck.ts): only what a photo couldn't settle - an opening it hid
@@ -632,6 +765,46 @@ function CheckRowView({ exterior, row, readOnly, onChange }: { exterior: Exterio
         allowZero
         nullable
         onCommit={(v) => v !== null && onChange((e) => withCheckDrop(e, row.sideId, v))}
+      />
+    );
+  }
+  if (row.kind === "deck") {
+    // A deck read off the photos (2026-10-20): what no photo shows, kept as read with a tap; its posts counted; its depth taped.
+    if (row.item === "depth") {
+      return (
+        <FeetField
+          id={`check-${row.key}`}
+          label={`${row.title}. ${row.words}`}
+          value={null}
+          placeholder={`${formatFeetInches(row.feet ?? 0)} from the photos`}
+          readOnly={readOnly}
+          onCommit={(v) => v !== null && onChange((e) => withDeckDepth(e, row.deckId, v))}
+        />
+      );
+    }
+    if (row.item === "posts") {
+      return (
+        <div className="exterior-row">
+          <span>
+            {row.title}. {row.words} How many?
+          </span>
+          <CountInput label={`${row.title}: how many posts`} value={row.count ?? 0} readOnly={readOnly} onCommit={(v) => onChange((e) => withDeckAnswer(e, row.deckId, row.item, v))} />
+          {!readOnly && (
+            <button type="button" className="link-button" onClick={() => onChange((e) => withDeckAnswer(e, row.deckId, row.item, row.count))}>
+              That&rsquo;s right
+            </button>
+          )}
+        </div>
+      );
+    }
+    return (
+      <Choice
+        label={row.title}
+        hint={row.words}
+        value="open"
+        readOnly={readOnly}
+        options={DECK_OPTIONS}
+        onChange={(v) => v === "seen" && onChange((e) => withDeckAnswer(e, row.deckId, row.item))}
       />
     );
   }
@@ -894,6 +1067,7 @@ function PhotoTaps({
   onTap,
   onPickTap,
   onLine,
+  deckTaps = [],
 }: {
   url: string | null;
   width: number;
@@ -901,11 +1075,13 @@ function PhotoTaps({
   taps: { c: CornerTap; i: number }[];
   tapes: Extract<RouteTape, { kind: "line" }>[];
   line: { a: [number, number]; b: [number, number] } | null;
-  mode: "corners" | "ends" | "tape" | "wall" | null;
+  mode: "corners" | "ends" | "tape" | "wall" | "deck" | null;
   selected: number | null;
   onTap: (x: number, y: number) => void;
   onPickTap: (i: number) => void;
   onLine: (a: [number, number], b: [number, number]) => void;
+  /** A deck's taps on this photo (2026-10-20): each with its short label. */
+  deckTaps?: { x: number; y: number; label: string }[];
 }) {
   const svg = useRef<SVGSVGElement | null>(null);
   const [drag, setDrag] = useState<{ a: [number, number]; b: [number, number] } | null>(null);
@@ -938,7 +1114,7 @@ function PhotoTaps({
           start.current = null;
           if (!s || !mode) return;
           const moved = Math.hypot(e.clientX - s.x, e.clientY - s.y);
-          if ((mode === "corners" || mode === "ends") && moved < 10) onTap(...toPhoto(e));
+          if ((mode === "corners" || mode === "ends" || mode === "deck") && moved < 10) onTap(...toPhoto(e));
           if (mode === "tape") {
             const b = toPhoto(e);
             setDrag(null);
@@ -955,6 +1131,14 @@ function PhotoTaps({
           </g>
         ))}
         {shown && <line x1={shown.a[0]} y1={shown.a[1]} x2={shown.b[0]} y2={shown.b[1]} stroke="#ea580c" strokeWidth={r / 3} strokeDasharray={`${r} ${r / 2}`} />}
+        {deckTaps.map((t, k) => (
+          <g key={`deck-${k}`} pointerEvents="none">
+            <rect x={t.x - r} y={t.y - r} width={r * 2} height={r * 2} fill="#b45309" stroke="#fff" strokeWidth={r / 5} />
+            <text x={t.x} y={t.y + r * 0.42} fontSize={r * 1.1} textAnchor="middle" fill="#fff">
+              {t.label}
+            </text>
+          </g>
+        ))}
         {taps.map(({ c, i }) => (
           <g
             key={i}

@@ -1,0 +1,85 @@
+{
+ "format": "scrivn-deck-reads/1",
+ "about": "The owner's two decks, read off his 10-16 photos (C:/Users/Anthony/Desktop/House Photos) by a Claude session looking at zoomed crops on a pixel grid, 2026-10-20. No API. Taps are in the stored photos' pixels; photo ids as owner-1016-route.json (p8 = 20261016_125113.jpg). The decks are in the frame of their wall on the 10-16 capture house (photos-only-1016.json): x along the wall from its left end as you face it from outside, y out from it. The rear deck's depth is from his bump-out tape (6'0\") less what the photos show of the deck stopping short of the bump-out's back wall (1'2\"): the route's own rear-wall line reads the bump-out 8'2\", 2'2\" long against the tape, so its depth for the deck (7'1\") is not used.",
+ "photos": { "p6": "20261016_125032.jpg", "p7": "20261016_125106.jpg", "p8": "20261016_125113.jpg", "p9": "20261016_125116.jpg", "p15": "20261016_125335.jpg", "p16": "20261016_125340.jpg", "p17": "20261016_125348.jpg" },
+ "taps": {
+  "rear": {
+   "outerWestCornerPost": [["p8", 1684, 1262], ["p7", 990, 1370]],
+   "outerWestCornerEdge": [["p8", 1712, 1262], ["p7", 1005, 1300]],
+   "postOnWestEdge": [["p8", 1550, 1183], ["p7", 1167, 1268], ["p6", 237, 1240]],
+   "postByStair": [["p8", 868, 1240], ["p7", 75, 1268]],
+   "railEndAtBumpOut": [["p8", 128, 860], ["p9", 996, 680]],
+   "bumpOutCorner": [["p8", 92, 700], ["p9", 972, 650]],
+   "onOuterEdge": [["railEndAtBumpOut", "p8", 128, 860], ["glassPost", "p8", 389, 860], ["stairLeftPost", "p8", 665, 948], ["gateEnd", "p8", 742, 948], ["stairRightPost", "p8", 863, 935], ["glassPost", "p8", 1229, 935], ["cornerPost", "p8", 1684, 938]],
+   "heights": [["topOverWestCorner", "p8", 1684, 938, 1684, 1262], ["topOverPostOnWestEdge", "p7", 1167, 893, 1167, 1268], ["privacyScreenAtWall", "p6", 765, 585, 765, 925], ["glassRailAtCorner", "p8", 1660, 700, 1660, 930]]
+  },
+  "porch": {
+   "leftColumn": [["p16", 310, 810], ["p17", 430, 795]],
+   "rightColumn": [["p16", 545, 805], ["p17", 650, 790]],
+   "frontWestPost": [["p15", 140, 820], ["p17", 22, 790]],
+   "westCornerColumn": [["p15", 217, 800], ["p17", 55, 790]],
+   "onFrontEdge": [["stairLeftRail", "p17", 483, 800], ["stairRightRail", "p17", 603, 790], ["stairLeftRail", "p16", 343, 830], ["stairRightRail", "p16", 490, 822], ["leftColumn", "p17", 430, 805], ["rightColumn", "p17", 650, 800], ["railEndAtKeystoneWall", "p17", 722, 790]],
+   "heights": [["topAtLeftColumn", "p16", 310, 822, 310, 926], ["topAtLeftColumn", "p17", 430, 812, 430, 912], ["topAtRightColumn", "p16", 545, 818, 545, 930], ["topAtRightColumn", "p17", 650, 800, 650, 900], ["railAtLeftColumn", "p17", 330, 745, 330, 812]]
+  }
+ },
+ "decks": [
+  {
+   "id": "deck-rear",
+   "name": "Rear deck",
+   "sideName": "Rear wall",
+   "fromLeftFeet": 0,
+   "toFeet": 26.73,
+   "depthFeet": 4.85,
+   "heightFeet": 7.5,
+   "heightOutFeet": 4.8,
+   "decking": "composite",
+   "railings": [
+    { "id": "rail-rear-1", "edge": 0, "toFeet": 10.53, "kind": "glass", "heightFeet": 3.67, "from": "photo" },
+    { "id": "rail-rear-2", "edge": 0, "fromFeet": 14.06, "kind": "glass", "heightFeet": 3.67, "from": "photo" },
+    { "id": "rail-rear-3", "edge": 1, "toFeet": 6.24, "kind": "glass", "heightFeet": 3.67, "from": "photo" }
+   ],
+   "stairs": [{ "id": "stair-rear", "edge": 0, "atFeet": 12.3, "widthFeet": 3.5, "risers": 8, "railing": { "kind": "aluminum", "sides": 2 }, "gate": true, "from": "photo" }],
+   "posts": { "count": 3, "sizeInches": 6, "material": "aluminum", "at": [{ "x": 26.48, "y": 4.6 }, { "x": 26.48, "y": -1.39 }, { "x": 14.06, "y": 4.6 }], "from": "photo", "unsure": "the underside of its east part is in shadow in every photo: 3 posts are seen" },
+   "screens": [{ "id": "screen-rear", "kind": "privacy", "edge": 1, "fromFeet": 6.24, "toFeet": 13.96, "heightFeet": 5.69, "material": "wood", "from": "photo" }],
+   "from": "photos",
+   "taps": [
+    { "photo": "p8", "point": "corner:1", "x": 1684, "y": 1262 },
+    { "photo": "p7", "point": "corner:1", "x": 990, "y": 1370 },
+    { "photo": "p8", "point": "corner:0", "x": 128, "y": 860 },
+    { "photo": "p9", "point": "corner:0", "x": 996, "y": 680 },
+    { "photo": "p8", "point": "top:1", "x": 1684, "y": 938 }
+   ]
+  },
+  {
+   "id": "deck-porch",
+   "name": "Front porch",
+   "sideName": "Front wall behind the porch",
+   "fromLeftFeet": 0,
+   "toFeet": 22.06,
+   "depthFeet": 4.75,
+   "heightFeet": 3.75,
+   "topOnWallFeet": 0,
+   "decking": "wood",
+   "deckingRead": { "from": "photo", "unsure": "its boards are painted dark: wood by its worn treads (#2, #18)" },
+   "railings": [
+    { "id": "rail-porch-1", "edge": 0, "toFeet": 11.35, "kind": "aluminum", "heightFeet": 2.5, "from": "photo", "unsure": "its height was read off photos taken 47' away" },
+    { "id": "rail-porch-2", "edge": 0, "fromFeet": 19.27, "kind": "aluminum", "heightFeet": 2.5, "from": "photo" },
+    { "id": "rail-porch-3", "edge": 3, "kind": "aluminum", "heightFeet": 2.5, "from": "photo" }
+   ],
+   "stairs": [{ "id": "stair-porch", "edge": 0, "atFeet": 15.1, "widthFeet": 4.5, "risers": 5, "railing": { "kind": "aluminum", "sides": 2 }, "from": "photo", "unsure": "its treads are worn and dark: 5 risers counted on #2 and #16" }],
+   "posts": null,
+   "screens": [
+    { "id": "skirt-porch-1", "kind": "skirting", "edge": 0, "toFeet": 12.85, "heightFeet": 3, "material": "wood", "from": "photo" },
+    { "id": "skirt-porch-2", "kind": "skirting", "edge": 0, "fromFeet": 17.35, "heightFeet": 3, "material": "wood", "from": "photo" },
+    { "id": "skirt-porch-3", "kind": "skirting", "edge": 3, "heightFeet": 3, "material": "wood", "from": "photo" }
+   ],
+   "from": "photos",
+   "taps": [
+    { "photo": "p15", "point": "corner:0", "x": 140, "y": 820 },
+    { "photo": "p17", "point": "corner:0", "x": 22, "y": 790 },
+    { "photo": "p17", "point": "corner:1", "x": 722, "y": 790 },
+    { "photo": "p16", "point": "top:0", "x": 310, "y": 822 }
+   ]
+  }
+ ]
+}

@@ -29,6 +29,7 @@ import {
   type SideRoofRead,
 } from "./exterior";
 import type { CallUsage } from "./anthropic";
+import type { DeckingKind, RailingKind, ScreenKind, ScreenMaterial } from "./decks";
 import { frameAlongM, frameUpM, frameX, frameY, OUTSIDE_PHOTO_GREY, type SquareFrame } from "./exteriorPhoto";
 import { polygonArea, type Pt } from "./roof";
 import { type CameraAt, gableSlopes, type Gray, type ProposedRoof, readRoof, readRoofLines, ROOF_EDGE_ENDS, ROOF_OVER_WALL, type RoofLines, type RoofWire, snapRoof } from "./roofPhotoRead";
@@ -192,6 +193,12 @@ Trace, in pixels:
    - "keystone": the block over a surround's head, at the middle of the opening.
    - "pilaster": a flat column against the wall; "column": a column standing clear of the wall, a porch column - each from its foot to its top. "base" and "cap": a column's or pilaster's base and cap, where they stand out wider than it.
    None of these is a material in (1): the wall's material runs on behind them. A column standing clear of the wall is counted, not taken as wall hidden.
+   A deck or porch in front of the wall is not the wall either, and its decking, rim and skirting are never a material in (1). Each of its pieces its own box, its what starting with one of these words, then its kind or material, and ending "partly hidden by ..." when something hides part of it:
+   - "deck": the deck's edge across this wall, from the top of its decking down to the bottom of its rim board; then its decking, "composite", "wood" or "membrane", if you can tell.
+   - "railing": each run of railing along the deck's edge, from the decking up to its top rail; then "glass", "aluminum pickets", "wood" or "cable". "gate": a gate in it.
+   - "stair": each flight of stairs, from the decking down to the ground, then its risers counted ("stair, 8 risers").
+   - "post": each post under the deck, from the ground up to the rim.
+   - "privacy screen" or "skirting": a screen standing on the deck, or skirting closing in under it; then its material ("privacy screen, wood", "skirting, lattice").
 5. roof: the roof's edge over this wall. The fascia and the soffit stand out in front of the wall, so they show larger than the wall and set off from it: trace them where they show in this image, and the code works out how far out they stand.
    - over_wall: "gable" if the wall rises to a peak under the roof; "hip_end" if the wall's top is level and the roof above it slopes up and back, with a hip rising from each end; "eave" if the wall's top is level and the roof slopes up and back to a ridge along the wall, or up to an upper storey's wall standing back above it; "none" if no roof edge is over this wall; "unclear" if you can't tell.
    - rake_left, rake_right: on a gable, the bottom edge of the fascia (the rake board) along each slope, where the soffit under the rake meets it - from the foot of the rake up to the peak on the left, from the peak down to its foot on the right, with a point every metre or so. Not the line where the soffit meets the wall (that is wall_top), not the shingles. [] when there is no gable.
@@ -306,6 +313,8 @@ export interface TraceProposals {
    */
   trims?: ProposedTrim[];
   columns?: ProposedColumn[];
+  /** A deck in front of the wall (2026-10-20), off the off_wall boxes whose words start "deck", "railing", "stair"... Absent with none. */
+  deck?: ProposedDeck;
   /** What the trace was unsure of, in its words. */
   notes: string;
   /** The test's own checks: an eave level end to end. A gable's two slopes are the roof's (`roof.checks`). */
@@ -471,6 +480,8 @@ export function traceProposals(wire: TraceWire, frame: SquareFrame, lengthFeet: 
   // A roll-up door (2026-10-19) and the wall's own trim (2026-10-17), off the boxes the prompt asks them in.
   readRollups(offWall, openings);
   const trim = readTrim(offWall, openings, shapes, checks);
+  // A deck in front of the wall (2026-10-20): its pieces, as they show on the wall's plane.
+  const deck = readDeck(offWall);
 
   return {
     shapes,
@@ -482,8 +493,76 @@ export function traceProposals(wire: TraceWire, frame: SquareFrame, lengthFeet: 
     ...(storeys !== undefined ? { storeys } : {}),
     ...(trim.trims.length > 0 ? { trims: trim.trims } : {}),
     ...(trim.columns.length > 0 ? { columns: trim.columns } : {}),
+    ...(deck ? { deck } : {}),
     notes: (wire.notes ?? "").trim(),
     checks,
+  };
+}
+
+// ---------------------------------------------------------------------------------------------
+// A deck in front of the wall, read through off_wall (2026-10-20)
+// ---------------------------------------------------------------------------------------------
+
+/*
+  As the trim is (the schema is at the grammar's limit): each piece of a deck an off_wall box whose words start with what it
+  is - "deck" (its edge: decking and rim), "railing" and its kind, "gate", "stair" and its risers, "post", "privacy screen" or
+  "skirting" and its material. The boxes are as they show ON THE WALL'S PLANE: a deck stands out in front of it, so they show
+  larger than they are, until lib/decks.ts `withDeckRead` takes the swelling off at the deck's own distance out.
+*/
+const DECK_WORD = /^\s*(deck|railing|gate|stairs?|post|privacy screen|skirting)\b/i;
+
+export interface ProposedDeck {
+  /** The deck's edge across the wall: the top of its decking to the bottom of its rim. */
+  rim: FeetBox | null;
+  decking: DeckingKind | null;
+  railings: { kind: RailingKind; label?: string; box: FeetBox; hiddenBy?: string }[];
+  gates: number;
+  stairs: { risers: number | null; box: FeetBox; hiddenBy?: string }[];
+  posts: FeetBox[];
+  screens: { kind: ScreenKind; material: ScreenMaterial; label?: string; box: FeetBox; hiddenBy?: string }[];
+  /** The off_wall boxes it was read from, by place in `offWall`. */
+  from: number[];
+}
+
+function railingKindOf(words: string): { kind: RailingKind; label?: string } {
+  const t = words.toLowerCase();
+  if (/glass/.test(t)) return { kind: "glass" };
+  if (/cable|wire/.test(t)) return { kind: "cable" };
+  if (/picket|alumin|metal|spindle|baluster/.test(t)) return { kind: "aluminum" };
+  if (/wood|cedar/.test(t)) return { kind: "wood" };
+  const rest = t.replace(/^\s*railing\s*,?\s*/, "").replace(/,?\s*partly hidden by.*$/, "").trim();
+  return rest ? { kind: "other", label: rest } : { kind: "aluminum" };
+}
+
+function screenMaterialOf(words: string): { material: ScreenMaterial; label?: string } {
+  const t = words.toLowerCase();
+  if (/lattice/.test(t)) return { material: "lattice" };
+  if (/vinyl|pvc/.test(t)) return { material: "vinyl" };
+  if (/composite/.test(t)) return { material: "composite" };
+  if (/alumin|metal/.test(t)) return { material: "aluminum" };
+  if (/wood|cedar|board/.test(t)) return { material: "wood" };
+  return { material: "other" };
+}
+
+function readDeck(offWall: TraceProposals["offWall"]): ProposedDeck | null {
+  const items = offWall.map((b, i) => ({ ...b, i, word: DECK_WORD.exec(b.what)?.[1]?.toLowerCase() })).filter((b) => b.word);
+  if (items.length === 0) return null;
+  const box = (b: (typeof items)[number]): FeetBox => ({ x0: b.x0, x1: b.x1, y0: b.y0, y1: b.y1 });
+  const hidden = (w: string) => {
+    const h = hiddenIn(w);
+    return h ? { hiddenBy: h } : {};
+  };
+  const rim = items.find((b) => b.word === "deck");
+  const deckingWords = rim?.what.toLowerCase() ?? "";
+  return {
+    rim: rim ? box(rim) : null,
+    decking: /composite/.test(deckingWords) ? "composite" : /membrane|vinyl/.test(deckingWords) ? "membrane" : /wood|cedar/.test(deckingWords) ? "wood" : null,
+    railings: items.filter((b) => b.word === "railing").map((b) => ({ ...railingKindOf(b.what), box: box(b), ...hidden(b.what) })),
+    gates: items.filter((b) => b.word === "gate").length,
+    stairs: items.filter((b) => b.word === "stair" || b.word === "stairs").map((b) => ({ risers: Number(/(\d+)\s*risers?/i.exec(b.what)?.[1]) || null, box: box(b), ...hidden(b.what) })),
+    posts: items.filter((b) => b.word === "post").map(box),
+    screens: items.filter((b) => b.word === "privacy screen" || b.word === "skirting").map((b) => ({ kind: b.word === "skirting" ? ("skirting" as const) : ("privacy" as const), ...screenMaterialOf(b.what), box: box(b), ...hidden(b.what) })),
+    from: items.map((b) => b.i),
   };
 }
 

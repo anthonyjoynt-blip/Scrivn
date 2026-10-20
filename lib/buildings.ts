@@ -5,10 +5,12 @@ import {
   type Exterior,
   type ExteriorOpening,
   type ExteriorOpeningKind,
+  exteriorQuantities,
   type ExteriorScopeLines,
   exteriorScopeLines,
   rectangleExterior,
 } from "./exterior";
+import { deckScopeLines } from "./decks";
 import { exteriorReport, type ExteriorReport, type ReportMeta, type ReportTable } from "./exteriorReport";
 import type { RoofEndKind } from "./roof";
 import { formatFeetInches, newSketchId, type Sketch } from "./sketch";
@@ -224,9 +226,21 @@ export function namedScopeLines(name: string, lines: ExteriorScopeLines): Exteri
   return { roofing: lines.roofing.map(tag), siding: lines.siding.map(tag) };
 }
 
+/**
+ * An exterior's scope lines with its decks' (2026-10-20, lib/decks.ts) after the siding crew's: the exterior crew builds
+ * them, and there is no deck work order of its own. A deck is on the scope only when ticked; with none, the lines as
+ * they always were.
+ */
+export function exteriorLinesWithDecks(exterior: Exterior | undefined): ExteriorScopeLines {
+  const lines = exteriorScopeLines(exterior);
+  if (!exterior || (exterior.scope?.decks ?? []).length === 0) return lines;
+  const decks = deckScopeLines(exterior, exteriorQuantities(exterior).roof);
+  return decks.length > 0 ? { ...lines, siding: [...lines.siding, ...decks] } : lines;
+}
+
 /** A building's own scope lines as they go on the scope: named for it. The house's as they always were. */
 export function buildingScopeLines(exterior: Exterior | undefined): ExteriorScopeLines {
-  const lines = exteriorScopeLines(exterior);
+  const lines = exteriorLinesWithDecks(exterior);
   return exterior?.id ? namedScopeLines(buildingName(exterior), lines) : lines;
 }
 
@@ -235,9 +249,9 @@ export function buildingScopeLines(exterior: Exterior | undefined): ExteriorScop
  * each building's in the order they were added, each named for its building. Only what was ticked, as ever.
  */
 export function siteScopeLines(house: Exterior | undefined, buildings: Exterior[] | undefined): ExteriorScopeLines {
-  const out = exteriorScopeLines(house);
+  const out = exteriorLinesWithDecks(house);
   for (const b of buildings ?? []) {
-    const lines = namedScopeLines(buildingName(b), exteriorScopeLines(b));
+    const lines = namedScopeLines(buildingName(b), exteriorLinesWithDecks(b));
     out.roofing.push(...lines.roofing);
     out.siding.push(...lines.siding);
   }

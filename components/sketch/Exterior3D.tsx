@@ -52,6 +52,26 @@ const COLORS = {
   post: 0xf4f3ef,
 };
 
+/** A deck's pieces in 3D (2026-10-20), by what they are and what they are made of: glass you see through, pickets half so. */
+const DECKING_3D: Record<string, number> = { composite: 0x7c6857, wood: 0xb9935f, membrane: 0x8d939a, other: 0x9a8f80 };
+const SCREEN_3D: Record<string, number> = { wood: 0xb5824f, vinyl: 0xf4f4f1, lattice: 0xe9dcc4, composite: 0x7c6857, aluminum: 0xc9ced4, other: 0xd8d2c6 };
+const DECK_LOOK: Record<string, (material: string) => { color: number; opacity?: number }> = {
+  top: (m) => ({ color: DECKING_3D[m] ?? DECKING_3D.composite as number }),
+  tread: (m) => ({ color: DECKING_3D[m] ?? DECKING_3D.composite as number }),
+  landing: (m) => ({ color: DECKING_3D[m] ?? DECKING_3D.composite as number }),
+  riser: (m) => ({ color: DECKING_3D[m] ?? DECKING_3D.composite as number }),
+  rim: () => ({ color: 0xf4f4f2 }),
+  post: (m) => ({ color: m === "wood" ? 0xc9a678 : m === "concrete" ? 0xc7c7c2 : 0xf4f3ef }),
+  railPost: () => ({ color: 0xf8f8f6 }),
+  rail: () => ({ color: 0xf8f8f6 }),
+  glass: () => ({ color: 0xbcd6e6, opacity: 0.35 }),
+  pickets: () => ({ color: 0xf8f8f6, opacity: 0.55 }),
+  cable: () => ({ color: 0x6b7280, opacity: 0.3 }),
+  stringer: () => ({ color: 0xc9a678 }),
+  screen: (m) => ({ color: SCREEN_3D[m] ?? SCREEN_3D.other as number }),
+  skirting: (m) => ({ color: SCREEN_3D[m] ?? SCREEN_3D.other as number }),
+};
+
 /** The roof's colour by its material; muted, as the cladding is. */
 const ROOF_COLOR: Record<RoofMaterial | "unknown", number> = {
   three_tab: 0x5e6266,
@@ -390,6 +410,27 @@ export default function Exterior3D({ exterior, onClose, name }: Props) {
         g.translate(p.x, p.y0 + h / 2, p.z);
         geometries.push(g);
         scene.add(new THREE.Mesh(g, standard(COLORS.post)));
+      }
+
+      // ---- The decks (2026-10-20, lib/decks.ts): each flat piece, by what it is ------------------------
+      const deckTris = new Map<string, number[]>();
+      for (const part of model.decks ?? []) {
+        const key = `${part.kind}|${part.material ?? ""}`;
+        const out = deckTris.get(key) ?? [];
+        const pts = part.poly;
+        if (part.kind === "top" && pts.length > 4) {
+          // Its decking may be an L round a covered corner: cut into triangles as a shape, not as a fan.
+          const flat = pts.map((v) => new THREE.Vector2(v[0], v[2]));
+          for (const [i, j, k] of THREE.ShapeUtils.triangulateShape(flat, [])) out.push(...(pts[i as number] as number[]), ...(pts[j as number] as number[]), ...(pts[k as number] as number[]));
+        } else {
+          for (let k = 1; k + 1 < pts.length; k++) out.push(...(pts[0] as number[]), ...(pts[k] as number[]), ...(pts[k + 1] as number[]));
+        }
+        deckTris.set(key, out);
+      }
+      for (const [key, tris] of deckTris) {
+        const [kind, material] = key.split("|") as [string, string];
+        const look = DECK_LOOK[kind]?.(material) ?? { color: 0xdddddd };
+        mesh(tris, standard(look.color, look.opacity !== undefined ? { transparent: true, opacity: look.opacity, depthWrite: false } : {}));
       }
 
       // ---- The ground, through each side's ground line, fading out at its edge ---------------------
