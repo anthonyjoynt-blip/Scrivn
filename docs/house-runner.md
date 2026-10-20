@@ -44,12 +44,14 @@ It levels every photo and estimates the lens, finds each photo's **corner candid
 **The corners** (`corners`): one entry per corner seen on a photo, **where the wall meets the ground** (the foot of the corner, on the wall's bottom edge, not below it on the grass or the pad):
 
 ```json
-{"photo": 6, "x": 780, "y": 1150, "corner": "C10"},
+{"photo": 5, "edge": [[826.5, 300], [838, 945]], "corner": "C2"},
 {"photo": 6, "x": 1340, "y": 1010},
 {"photo": 3, "pick": "c", "y": 1000, "corner": "C10"}
 ```
 
-- `x`, `y` in the photo's own pixels (the sheet's grid), or `pick` a candidate's letter; `pick` with a `y` follows that edge down to the ground row you give.
+- **Give each corner as its edge** (`edge`: a point high up the corner and its foot, each read off a `zoom` close-up at 4-10x), wherever you can. It is taken exactly as placed (`exact`) and read where it crosses the photo's horizon, which a half-degree error in the photo's levelling moves least. Read the corner where its trim's outer edge is (the building's outside), not the siding's edge an inch or two in.
+- A plain `x`, `y` (the foot alone) is snapped onto the strongest edge within 14 px, as a finger's tap on the phone is. That suits stucco; on ribbed metal, board-and-batten or any corner with a trim, the strongest edge nearby is often a rib or the trim's other edge. **The shed's first pass, read off the sheets and snapped, had corners 10-28 px off the corner and depth +9.5%.** Add `"exact": true` to a foot you placed from a close-up.
+- `pick` a candidate's letter; `pick` with a `y` follows that edge down to the ground row you give.
 - **Name at least one corner on each photo** (`"corner": "C10"`); Scrivn numbers the rest as the next corners round the house, left to right. **Name every one on a photo that skips a corner** (one hidden behind a wing or a porch): Scrivn's numbering assumes they run on.
 - A pilaster or a post at a corner: tap the edge standing at the corner. The 10-16 proof found these read fine at a few pixels.
 - A photo showing one corner only can still be listed, but it seldom places (below). The photos that place best show a corner at 45 degrees with both walls in.
@@ -57,7 +59,7 @@ It levels every photo and estimates the lens, finds each photo's **corner candid
 **The tapes** (`tapes`):
 - a wall's length: `"side": "C5-C6"`;
 - a line on a photo: `"on": [{"photo": 15, "a": [497, 900], "b": [868, 900]}]`, one entry for each alike thing it covers (both garage doors). Put the ends on the jambs at mid-height. **Ask what was taped** when it could be either (a door's opening, its curtain or across its trim): on the shed that choice moved the whole scale by up to 15%.
-- **Each end snaps to the strongest upright edge within 14 px** (as on the phone), so check where it lands (`zoom`, or `lineOnPhoto`): on the shed's narrow trim the right end jumped to a rib 8 px past it and set the shed 7% small. When the edge taped can't hold an end (a weak edge beside strong ones), put the end on a nearby edge that does, and carry the tape's length across by the photo's own ratio of the two spans on the solved house (the shed's tape in `fixtures/house-runner/shed-1017-inputs.json` says how).
+- **Put the ends where the tape's ends were, from a 10x zoom, and add `"exact": true`**: then they are not snapped (a snap jumps to the strongest edge within 14 px: on the shed, a rib past the trim) and not merged with an edge other photos tied within 0.2 ft (on the shed, the trim's outer edge 1.6" from its inner). On a 5' tape seen from 20 ft, 1 px is 0.4% of the house: the shed's opening read at 1264 instead of 1269 was 2% on its width. Without `exact` the ends are a finger's drag, snapped and joined, as on the phone.
 - `"skip": true` leaves a tape out.
 
 **Checks** (`checks`), optional: a line on a photo you expect a length for, as a sanity check, never a tape: `{"photo": 3, "a": [698, 515], "b": [712, 1073], "feet": 6.6667, "what": "man door slab (usually 6'8\")"}`. With one tape these are the only cross-check there is.
@@ -67,7 +69,8 @@ It levels every photo and estimates the lens, finds each photo's **corner candid
 It reads `inputs.json` exactly as the route will, and says plainly what is missing (✗ lines). It numbers the corners, places each photo on the shape from its corners alone, and lists which photos face a tape's wall. Then it draws:
 
 - `scrivn/contact.png` and `sheets/NN.png` with the numbers: **green** named by you, **cyan** numbered by Scrivn, **red** no number. Check every cyan number against the photo and the shape beside it. On the owner's house Scrivn numbered #17 C11, C12, C1 from one name, where the garage's pilasters are C1 and C4.
-- `scrivn/taps/NN.png`: **each corner close up**, red where you put it, green where Scrivn's snap moves it. The red cross must sit on the corner's foot. If a crop shows only grass or pad, the tap is off: on the shed, a first pass read off the sheets was 40-70 px low on every corner, and the rms was 3.2 instead of 0.6.
+- `scrivn/taps/NN.png`: **each corner close up**: an edge at its top and its foot (violet, the line you marked), a foot alone with where Scrivn's snap moves it (green). The marks must sit on the corner. If a crop shows only grass or pad, the tap is off: on the shed, a first pass read off the sheets was 40-70 px low on every corner, and the rms was 3.2 instead of 0.6.
+- An edge whose top and foot land more than 15 px apart in the levelled photo is ✗: check says where each end would be, upright from the other; look at both and move the one that is off.
 - `zoom <photo> x,y x,y ...` gives the same close look anywhere, with where a tap there would snap.
 
 Fix, `check` again, until it says **Ready to measure**.
@@ -83,16 +86,16 @@ It runs the route's measure (lines, lens, levelling, the plan bundle solve with 
 - `measured.json`: the exterior as measured.
 
 Look at `plan.png` and each `measured/NN.png`:
-- **Every camera where the photo was taken?** A photo placed from one corner, or from two (four quarter-turns fit two corners; the walk order picks), can land wrong: the owner's #1 and the shed's #1 both did. Put such a photo in `"leaveOut": [1]`. With #1 left in, the house's bump-out hold-out was −6.9%; left out, −0.6%.
+- **Every camera where the photo was taken?** A photo placed from one corner can land wrong: the owner's #1 did, placed south of the garage. Put such a photo in `"leaveOut": [1]`. (Two corners fit four placements; one putting the camera at an impossible height is now dropped, which placed the shed's #1 right.)
 - **Each squared side in `sides/`** (the grid copies): the wall's foot should sit on the dashed green ground line, its ends on the dashed green ends. A side sheared or floating off the line has a corner numbered wrong on its photo: the shed's #7 was numbered one corner off (C3 C4 for C2 C3), and since two corners fit any of four placements the solve could not object; its rear wall came out sheared.
-- **Scrivn's marks** (pink): the corners each placed photo should show that nobody tapped. Keep them all with `"keepProposed": true` ("Looks right"), less any wrong one in `"dropProposed": ["14:C9"]`, and measure again. They tightened every ± on the house.
+- **Scrivn's marks**, close up in `marks/NN.png`: where the measure puts each corner a placed photo should show and nobody tapped. **A mark is where the measure thinks the corner is, so a wrong measure marks it wrong.** Keep one only when it sits on the corner's own edge in the photo, by name: `"keepProposed": ["9:C7"]`, and measure again. Never all at once: on the owner's house 11 of 13 sat on a deck railing, a bush, a bench, open driveway or a bin. Keeping them all set the bump-out's west side to 8'2" ±7% (taped 6'0"), a wrong answer made to look sure. A mark on a hidden corner (behind a pilaster) is the measure's own projection: not an observation, leave it.
 
 ### 6. Read the accuracy table
 
-- **Each tape held out in turn**: the house solved from the other tapes, the held-out one predicted (a wall's from its side, a line's from its own photo's view), against the tape.
+- **Each tape held out in turn**: the house solved from the other tapes, the held-out one predicted (a wall's from its side, a line's from its own photo's view), against the tape. It runs on your own corners only: a kept mark was made by a measure with every tape in and would carry the held-out tape back in (the owner's house showed ±0.6% that way; on his own taps it is 2-4%).
 - **With one tape** there is nothing to hold out; the checks (door heights) are the only cross-check, labelled a sanity check: doors vary (the proof's two doors differed by 5%).
-- **The tapes' directions**: when every tape runs the same way (across the front, say), nothing checks the other way, and results.md says so. On the owner's house all three tapes run across; the hold-outs were within 1% while the bump-out's west side (front to back) read 8'2" ±7% against the proof's 5'6". A tape on a side running the other way checks it.
-- The ± are the solve's own, about twice its sd. After Looks right they can be optimistic on a side no tape reaches: trust the advice list.
+- **The tapes' directions**: when every tape runs the same way (across the front, say), nothing checks the other way, and results.md says so. A tape on a side running the other way checks it.
+- **The ± are the solve's own**, about twice its sd, and they are honest when no mark was kept unseen: the shed's depth from its one door tape read 12'11" ±10% (taped 12'3"), the house's bump-out side 8'3" ±35% (taped 6'0": its inside corner shows in no photo). With two or three corners a photo, a box's depth rests on each photo's turn, which its vanishing points give to about a degree. **A side with ± over 5% wants a tape: the advice names it.**
 
 ### 7. Read the walls: `reads.json`
 
@@ -111,6 +114,8 @@ For each side in `sides/` (read the grid copy; write in the plain image's pixels
 The rules are the trace prompt's (`traceUserMessage` in `lib/exteriorTrace.ts`): materials as polygons; openings to their trim's outer edge (a garage door to the door itself); the wall top where the cladding meets the soffit, peak included; trim, pilasters and columns as `off_wall` boxes whose words start `surround`, `keystone`, `pilaster`, `column`, `base`, `cap` (a roll-up door: a box whose words start `roll-up`); `roof.over_wall` gable / hip_end / eave. `frame` may be left out: `sides/frames.json`'s is used. A side may be skipped. Model: `test/exterior/fixtures/photo-route/owner-1016-reads.json`.
 
 Walls read before on the same house as a Finish block can be laid on instead: `node scripts/house/finishReads.mjs <folder> <finish.json> <capture.json>` (the owner's house: `test/exterior/fixtures/photos-only-1016-trim.json` on `photos-only-1016.json`).
+
+**What the building is**, in `inputs.json` `house`: `"cladding": "metal"` puts every side's band in that material till its walls are read; `"base": "grade"` takes the default 8" of parging off (a shed on a slab). **A wall's height taped** goes in `heights`: `[{"side": "C3-C4", "feet": 7.333, "said": "low wall 88 in"}]` sets that level wall's top and the ends of the sides either side, their read faces stretched to it. **A one-slope roof**: every eave is the low wall's (Scrivn's roof makes the high wall's extra), so set each eave to it and leave the faces and wall tops out of the reads, as the shed's `fixtures/house-runner/shed-1017-reads.json`.
 
 ### 8. The roof: `roof.json`, then `report`
 
@@ -131,11 +136,30 @@ Wings: `tie` / `lower` / `gable`; notches: `open` / `covered`; material: `three_
 
 ## Times
 
-Each step prints its machine time and keeps it in `scrivn/times.json`. On the owner's 18 photos: prepare 14 s, check 14 s, measure 24-35 s (two measures with Looks right, hold-outs 2-8 s), report 4 s. The session's look is the rest: the contact sheet, 15 sheets and tap strips, a few zooms, and the measured sheets.
+Each step prints its machine time and keeps it in `scrivn/times.json`. On the owner's 18 photos: prepare 14 s, check 14 s, measure 24-35 s (two measures with Looks right, hold-outs 2-8 s), report 4 s. The session's look is the rest: the contact sheet, the sheets, a zoom per corner edge, the tap strips and the marks.
+
+## One report for a site
+
+`node scripts/house/site.mjs <out.pdf> <house folder> <shed folder>:Shed ...`: each folder's `scrivn/exterior.json` as one claim (Scrivn's `siteReport`), each building its own section with its own side photos.
 
 ## The proof (2026-10-20)
 
-- **The owner's house** (C:/Users/Anthony/Desktop/House Photos, tapes porch 263", garage doors 9', bump-out 22'2"): each tape held out in turn, predicted from the other two: doors +0.5%, bump-out −0.6%, porch −0.3%. Machine time 62 s (prepare 15, check 15, measure 28, report 4). The fixture's own 10-16 taps through the runner reproduce `test:exterior:photos`'s all-tapes table to the inch. All three tapes run across the house: the depth is unchecked, and the bump-out's west side reads 8'2" ±7% against the proof's 5'6".
-- **The shed** (C:/Users/Anthony/Desktop/Shed photos, roll-up door 5', the clear opening between its trim): 16'10" x 13'5" (the 10-17 bundle solve: 16'3" x 12'4", ±6%); one tape, so no hold-out; the man door's slab reads 6'7" against the usual 6'8". Walls read by eye off `sides/`: front eave 9'9", the rear 7'7", one slope at 2/12 to the rear, 3.01 SQ. A first run whose tape end had snapped to a rib past the trim set it 7% small (15'8" x 12'3", the door 6'0").
-- **A pulled request** made from the owner's photos (`test/exterior/houseRequestFolder.mjs`): prepare starts from the tester's shape, 30 taps and 4 tapes; measure lands every side within its ± of `test:exterior:photos`, and holds each of the 4 tapes out.
-- `npm run test:exterior:house` runs all three (about two minutes).
+**First pass, then his tapes held out.** The owner then taped the shed (195" x 147", low wall 88") and the bump-out (6'0").
+
+| | Tape | 10-17 by hand | First pass | Now, tapes held out |
+|---|---|---|---|---|
+| Shed width | 16'3" | 16'3" | 16'10" (+3.6%) | 16'5" (+1.0%) |
+| Shed depth | 12'3" | 12'4" | 13'5" (+9.5%) | 12'11" (+5.4%, said ±10%) |
+| Shed low wall | 7'4" | 7'3" | 7'7" | 7'6" (+2%) |
+| House bump-out | 6'0" | 5'6" (proof) | 8'2" ±7% (+36%) | 8'3" ±35%: unmeasured, tape asked |
+
+**What was wrong**, each now fixed or said:
+- **The shed's corners**: read off the sheets at the foot, then snapped onto ribs: 10-28 px off. Now each is its edge, from close-ups, taken exactly (`exact` in lib/photoRoute.ts) and read at the horizon.
+- **The shed's tape**: its ends snapped to a rib and to the trim's outer edge, and one was merged with an edge tied 1.6" away. Exact tape ends do neither.
+- **The shed's #1**: two corners fit four placements, and the walk order picked one with the camera a foot off the ground beside C1. A placement implying a camera height off 1.5-15 ft is now dropped when another isn't (lib/photoRoute.ts).
+- **The house's marks**: 11 of 13 kept with "Looks right" were on no corner, one set the bump-out side. Marks are now kept by name, each close up, and hold-outs never use them.
+- **Still a limit**: the shed's depth and the bump-out side are not held to 1-2% by these photos, and the route says so (±10%, ±35%). Tried and dropped: level lines turning each photo exactly, and refusing ties on repeating edges (ribs). The two together held the shed's depth to 2% but the second doubled the house when only its doors gave the scale.
+
+**The house's three tapes held out** on its own taps (no mark): garage doors −2.1%, bump-out gable +4.1%, porch −1.8%. **With his tapes in**: the shed 16'3" x 12'3", 7'4" low wall, one 2/12 metal slope, 2.70 SQ; the house 32.35 SQ, 2,192 SF net. `Exterior report - house and shed (10-20).pdf` beside ScopeAssistantWeb: 31 pages, house with trim and compass, the shed with its roll-up door and metal roof.
+
+`npm run test:exterior:house` runs the house, a pulled request made from his photos, the shed with his tapes held out then in, and the two in one report (about three minutes).

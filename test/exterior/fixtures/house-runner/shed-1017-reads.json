@@ -1,57 +1,34 @@
 {
  "format": "scrivn-house-runner-reads/1",
- "about": "The owner's shed: its walls read by a Claude session off the runner's squared sides at the opening's scale (10-20), by eye on the grid copies. Front: metal, a window and the roll-up door (the door itself; its white frame an off_wall box, no hood); left: the man door to its trim; right: plain. No API.",
+ "about": "The owner's shed, its walls read by a Claude session off the runner's squared sides with every tape in (10-20): front metal with a window and the roll-up door (the door itself; its white frame an off_wall box, no hood); left the man door to its trim; right plain. No API. Its faces and wall tops are left to Scrivn's one-slope roof (every eave the low wall's, taped), as the 10-17 shed was.",
  "sides": {
   "C1-C2": {
    "frame": {
-    "alongMinM": -1.5728990327109917,
-    "alongMaxM": 7.631421613489754,
+    "alongMinM": -1.5573912405483128,
+    "alongMaxM": 7.453053564144924,
     "upMinM": -0.6,
-    "upMaxM": 5.524021510305149,
-    "ppm": 173.83140608649154,
+    "upMaxM": 5.432526224896175,
+    "ppm": 177.5716998084949,
     "width": 1600,
-    "height": 1065
+    "height": 1071
    },
    "wire": {
-    "materials": [
-     {
-      "material": "metal",
-      "polygon": [
-       [
-        272,
-        960
-       ],
-       [
-        1165,
-        960
-       ],
-       [
-        1165,
-        445
-       ],
-       [
-        272,
-        445
-       ]
-      ],
-      "partly_hidden_by": ""
-     }
-    ],
+    "materials": [],
     "openings": [
      {
       "kind": "window",
-      "left": 467,
-      "right": 637,
-      "top": 620,
-      "bottom": 763,
+      "left": 465,
+      "right": 633,
+      "top": 625,
+      "bottom": 765,
       "measured_to": "trim",
       "leaf": [],
       "partly_hidden_by": ""
      },
      {
       "kind": "garage_door",
-      "left": 817,
-      "right": 1077,
+      "left": 808,
+      "right": 1070,
       "top": 628,
       "bottom": 948,
       "measured_to": "door_itself",
@@ -59,24 +36,15 @@
       "partly_hidden_by": ""
      }
     ],
-    "wall_top": [
-     [
-      272,
-      445
-     ],
-     [
-      1165,
-      445
-     ]
-    ],
+    "wall_top": [],
     "off_wall": [
      {
       "what": "roll-up door, its frame (no hood)",
       "box": [
-       808,
+       798,
        615,
-       1096,
-       952
+       1090,
+       953
       ]
      }
     ],
@@ -85,116 +53,52 @@
   },
   "C4-C1": {
    "frame": {
-    "alongMinM": -1.8742510449694623,
-    "alongMaxM": 5.986898614653627,
+    "alongMinM": -0.9462857365847429,
+    "alongMaxM": 6.234084377673502,
     "upMinM": -0.6,
-    "upMaxM": 4.798410979462245,
-    "ppm": 203.532570842407,
+    "upMaxM": 4.319589501449884,
+    "ppm": 222.82973921119176,
     "width": 1600,
-    "height": 1099
+    "height": 1096
    },
    "wire": {
-    "materials": [
-     {
-      "material": "metal",
-      "polygon": [
-       [
-        380,
-        975
-       ],
-       [
-        1212,
-        975
-       ],
-       [
-        1212,
-        368
-       ],
-       [
-        380,
-        506
-       ]
-      ],
-      "partly_hidden_by": ""
-     }
-    ],
+    "materials": [],
     "openings": [
      {
       "kind": "door",
-      "left": 960,
-      "right": 1160,
-      "top": 520,
-      "bottom": 975,
+      "left": 790,
+      "right": 1002,
+      "top": 497,
+      "bottom": 960,
       "measured_to": "trim",
       "leaf": [
-       1000,
-       545,
-       1145,
-       965
+       805,
+       515,
+       958,
+       940
       ],
       "partly_hidden_by": ""
      }
     ],
-    "wall_top": [
-     [
-      380,
-      506
-     ],
-     [
-      1212,
-      368
-     ]
-    ],
+    "wall_top": [],
     "off_wall": [],
-    "notes": "The wall top slopes up to the front: one slope draining to the rear. The wall shows from x 415; its rear corner is at 380 on this measure: carried to it."
+    "notes": "The wall top slopes up to the front."
    }
   },
   "C2-C3": {
    "frame": {
-    "alongMinM": -2.0154889365439344,
-    "alongMaxM": 6.3340608445757605,
+    "alongMinM": -1.8270426618236524,
+    "alongMaxM": 5.516946716765293,
     "upMinM": -0.6,
-    "upMaxM": 4.529437187112712,
-    "ppm": 191.62709869913922,
+    "upMaxM": 3.9799996042577384,
+    "ppm": 217.8652388393595,
     "width": 1600,
-    "height": 983
+    "height": 998
    },
    "wire": {
-    "materials": [
-     {
-      "material": "metal",
-      "polygon": [
-       [
-        388,
-        862
-       ],
-       [
-        1200,
-        862
-       ],
-       [
-        1200,
-        370
-       ],
-       [
-        388,
-        240
-       ]
-      ],
-      "partly_hidden_by": ""
-     }
-    ],
+    "materials": [],
     "openings": [],
-    "wall_top": [
-     [
-      388,
-      240
-     ],
-     [
-      1200,
-      370
-     ]
-    ],
+    "wall_top": [],
     "off_wall": [],
     "notes": "Plain; the wall top slopes down to the rear."
    }

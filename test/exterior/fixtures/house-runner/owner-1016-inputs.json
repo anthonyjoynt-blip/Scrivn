@@ -294,10 +294,10 @@
   }
  ],
  "checks": [],
- "keepProposed": true,
+ "keepProposed": [],
  "dropProposed": [],
  "leaveOut": [
   1
  ],
- "about": "The owner's house (C:/Users/Anthony/Desktop/House Photos, 18 photos of 10-16) as a Claude session filled in the house runner's inputs.json on 10-20: the shape on a 1 ft grid, 30 corner taps (one named a photo; #17 named in full after check showed Scrivn numbering it C11 C12 C1), his three tapes, #1 left out (placed from its one corner south of the garage), Scrivn's marks kept. The taps were re-entered with the 10-16 fixture's list in view: 25 of 30 snap to its very spots. No API."
+ "about": "The owner's house (C:/Users/Anthony/Desktop/House Photos, 18 photos of 10-16) as a Claude session filled in the house runner's inputs.json on 10-20: the shape on a 1 ft grid, 30 corner taps (one named a photo; #17 named in full after check showed Scrivn numbering it C11 C12 C1), his three tapes, #1 left out (placed from its one corner south of the garage). None of Scrivn's 13 marks kept: 11 sit on no corner (railing glass, a bush, a bench, open driveway, a bin) and the 2 by the bay-step pilaster are the measure's own projection of a hidden corner. No API."
 }

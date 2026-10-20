@@ -20,6 +20,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runStep } from "../../scripts/house/run.mjs";
 import { readsFromFinish } from "../../scripts/house/finishReads.mjs";
+import { siteReportPdf } from "../../scripts/house/site.mjs";
 import { lengthsIn, parseHouse, parseTapes } from "../../scripts/house/words.mjs";
 import { makeRequestFolder } from "./houseRequestFolder.mjs";
 
@@ -73,6 +74,8 @@ console.log("\n  tapes.txt and house.txt");
 }
 
 const summary = [];
+let houseDir = null;
+let shedDir = null;
 
 // ── 2. The owner's house ──────────────────────────────────────────────────────────────────────────
 if (!existsSync(PHOTOS)) {
@@ -102,7 +105,11 @@ if (!existsSync(PHOTOS)) {
   const meas = await timed(dir, "measure");
   const res = json(join(dir, "scrivn", "results.json"));
   console.log(meas.lines.slice(0, 18).map((l) => `      ${l}`).join("\n"));
-  check("each of his three tapes held out in turn is predicted within 2% by the other two", res.holdOuts.length === 3 && res.holdOuts.every((r) => Math.abs(r.errorPct) < 2), res.holdOuts.map((r) => `${r.id} ${r.errorPct.toFixed(1)}%`).join(", "));
+  // On his own taps alone (no mark of Scrivn's kept: none was on a corner it could see), each held out in turn.
+  check("each of his three tapes held out in turn is predicted within 5% by the other two", res.holdOuts.length === 3 && res.holdOuts.every((r) => Math.abs(r.errorPct) < 5), res.holdOuts.map((r) => `${r.id} ${r.errorPct.toFixed(1)}%`).join(", "));
+  const bump = res.sides.find((sd) => sd.side === "C6-C7");
+  check("the bump-out's west side, whose inner corner no photo shows, is said unmeasured (± 30% or more) and a tape asked for", bump.plusMinusPct >= 30 && res.advice.some((a) => a.from === 5), `${bump.lengthFeet.toFixed(2)} ft ±${bump.plusMinusPct}%`);
+  check("Scrivn's marks are offered close up, one image a photo, none kept unasked", readdirSync(join(dir, "scrivn", "marks")).length >= 5 && res.kept === 0);
   check("all three run across the house: results say nothing checks its depth", /none runs front to back/.test(res.depthNote ?? ""));
   check("measure writes the plan, a squared side for each side with a photo (and its grid), the measured exterior", existsSync(join(dir, "scrivn", "plan.png")) && Object.keys(json(join(dir, "scrivn", "sides", "frames.json")).sides).length === 11 && existsSync(join(dir, "scrivn", "measured.json")) && readdirSync(join(dir, "scrivn", "sides")).filter((f) => f.endsWith(" grid.png")).length === 11);
   const pct = (name) => res.sides.find((s) => s.name === name);
@@ -123,6 +130,7 @@ if (!existsSync(PHOTOS)) {
   check("report: the PDF with its side photos, the elevations named by the compass", pages >= 15 && (pdf.match(/DCTDecode/g) ?? []).length >= 5 && /North elevation/.test(pdf), `${pages} pages`);
   check("exterior.json is a photos exterior that would open in a claim", ext.source?.kind === "photos" && ext.sides.length === 12 && ext.roof?.checkedAt);
   summary.push(`house: prepare ${prep.seconds.toFixed(0)} s, check ${chk.seconds.toFixed(0)} s, measure ${meas.seconds.toFixed(0)} s, report ${rep.seconds.toFixed(0)} s; hold-outs ${res.holdOuts.map((r) => `${r.id} ${r.errorPct >= 0 ? "+" : ""}${r.errorPct.toFixed(1)}%`).join(", ")}`);
+  houseDir = dir;
 
   // ── 3. A pulled request made from the same photos ─────────────────────────────────────────────
   console.log("\n  A pulled Send-to-team request from the same photos");
@@ -158,15 +166,46 @@ if (!existsSync(SHED)) {
   const res = json(join(dir, "scrivn", "results.json"));
   console.log(meas.lines.slice(0, 9).map((l) => `      ${l}`).join("\n"));
   const [front, right] = res.sides;
-  // The 5' is the opening between the roll-up's trim (the owner, 10-20): the front within the 10-17 bundle solve's ±6%,
-  // the depth within the route's own ±10% (no tape runs that way).
-  check("the shed's front within the 10-17 bundle solve's ±6% of 16'3\", its depth within its ±10% of 12'4\"", Math.abs(front.lengthFeet / 16.26 - 1) < 0.06 && Math.abs(right.lengthFeet / 12.32 - 1) < 0.1, `${front.lengthFeet.toFixed(2)} x ${right.lengthFeet.toFixed(2)}`);
+  // His tapes of 10-20, held out: 195" across the front, 147" deep. The 5' is the opening between the roll-up's trim.
+  check("the shed's front within 2% of his 195\" tape, from the roll-up's 5' alone", Math.abs(front.lengthFeet / (195 / 12) - 1) < 0.02, `${front.lengthFeet.toFixed(2)} ft`);
+  check("its depth within the ± the route gives it of his 147\" tape (no tape runs that way: a tape along a side is asked)", Math.abs(right.lengthFeet / (147 / 12) - 1) * 100 <= right.plusMinusPct && res.advice.some((a) => a.from === 1 || a.from === 3), `${right.lengthFeet.toFixed(2)} ft ±${right.plusMinusPct}%`);
   check("one tape: no hold-out, said so; the door check instead, a sanity check: the man door's slab within 3% of 6'8\"", res.holdOuts.length === 0 && /nothing to hold it out against/.test(res.holdNote) && res.checks.length === 1 && Math.abs(res.checks[0].got / (6 + 8 / 12) - 1) < 0.03 && /sanity check/.test(readFileSync(join(dir, "scrivn", "results.md"), "utf8")), `man door ${res.checks[0]?.got?.toFixed(2)} ft`);
-  check("the shed's rms as the house's: its corners on their feet", res.rms < 1, res.rms.toFixed(2));
+  check("every photo with two corners placed, #1 too (a placement putting the camera a foot off the ground is dropped)", res.cameras === 6, `${res.cameras} placed`);
+  // His tapes in (10-20): the walls read, the roof one slope of metal, one report with the house.
+  const T = json(FX("house-runner/tapes-1020.json"));
+  const fin = json(join(dir, "scrivn", "inputs.json"));
+  writeFileSync(join(dir, "scrivn", "inputs.json"), JSON.stringify({ ...fin, tapes: [...fin.tapes, ...T.shed.tapes], heights: T.shed.heights }, null, 1));
+  await runStep(dir, "measure");
+  const fres = json(join(dir, "scrivn", "results.json"));
+  check("with his tapes in, the shed is 16'3\" by 12'3\"", Math.abs(fres.sides[0].lengthFeet - 195 / 12) < 0.05 && Math.abs(fres.sides[1].lengthFeet - 147 / 12) < 0.05);
+  const reads = json(FX("house-runner/shed-1017-reads.json"));
+  const frames = json(join(dir, "scrivn", "sides", "frames.json")).sides;
+  for (const k of Object.keys(reads.sides)) if (frames[k]) reads.sides[k].frame = frames[k].frame;
+  writeFileSync(join(dir, "scrivn", "reads.json"), JSON.stringify(reads, null, 1));
+  copyFileSync(FX("house-runner/shed-1017-roof.json"), join(dir, "scrivn", "roof.json"));
+  const srep = await runStep(dir, "report");
+  const sext = json(join(dir, "scrivn", "exterior.json"));
+  const sq = /roof ([\d.]+) SQ/.exec(srep.join("\n"));
+  check("the shed's report: metal walls and a one-slope metal roof, every eave at his low wall's 7'4\", a roll-up door", sext.roof.material === "metal" && sext.roof.oneSlopeTo && sext.sides.every((sd) => sd.bands.every((b) => b.kind === "metal") && sd.base === "grade") && sext.sides.some((sd) => sd.openings.some((o) => o.kind === "rollup")) && sext.sides.every((sd) => Math.abs(sd.eaveLeftFeet - 88 / 12) < 1e-6 && Math.abs(sd.eaveRightFeet - 88 / 12) < 1e-6), sq?.[0]);
+  shedDir = dir;
   summary.push(`shed: prepare ${prep.seconds.toFixed(0)} s, measure ${meas.seconds.toFixed(0)} s; ${front.lengthFeet.toFixed(2)} x ${right.lengthFeet.toFixed(2)} ft`);
 }
 
-rmSync(work, { recursive: true, force: true });
+// ── 5. One report for the house and the shed ─────────────────────────────────────────────────────
+if (houseDir && shedDir) {
+  console.log("\n  The house and the shed in one report");
+  const out = join(work, "site.pdf");
+  const { pages, site } = await siteReportPdf(out, houseDir, [{ dir: shedDir, name: "Shed" }], { title: "The owner's house and shed", date: "Oct 20, 2026" });
+  const pdf = readFileSync(out).toString("latin1");
+  check("one PDF, the shed its own section after the house's, its photos and the house's both in", site.buildings.length === 1 && pages > 25 && /Shed · Roof plan/.test(pdf) && (pdf.match(/DCTDecode/g) ?? []).length >= 8, `${pages} pages`);
+}
+
+// Windows can hold a file the photos were read from a moment longer: retried, and said if it stays.
+try {
+  rmSync(work, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
+} catch {
+  console.log(`  (the temp copies stay at ${work}: Windows still holds a file there)`);
+}
 console.log(`\n  ${summary.join("\n  ")}`);
 console.log(`\n  house runner: ${passed.length} passed, ${failures.length} failed (${((Date.now() - t0) / 1000).toFixed(0)} s)`);
 for (const f of failures) console.log(`  FAILED: ${f}`);
