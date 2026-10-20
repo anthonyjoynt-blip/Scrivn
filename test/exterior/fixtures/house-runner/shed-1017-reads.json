@@ -1,0 +1,39 @@
+{
+ "format": "scrivn-house-runner-reads/1",
+ "about": "The owner's shed: its walls read by a Claude session off the runner's squared sides (10-20), by eye on the grid copies. Front: metal ribs, a window and the roll-up door (the door itself; its white frame an off_wall box, no hood); left: the man door to its trim; right: plain. The rear had no photo face-on enough to square. No API.",
+ "sides": {
+  "C1-C2": {
+   "frame": {"alongMinM": -1.480640452606474, "alongMaxM": 7.233223073975654, "upMinM": -0.6, "upMaxM": 5.123809132057764, "ppm": 183.61545313615605, "width": 1600, "height": 1051},
+   "wire": {
+    "materials": [{"material": "metal", "polygon": [[271, 940], [1149, 940], [1149, 432], [271, 432]], "partly_hidden_by": ""}],
+    "openings": [
+     {"kind": "window", "left": 465, "right": 632, "top": 609, "bottom": 748, "measured_to": "trim", "leaf": [], "partly_hidden_by": ""},
+     {"kind": "garage_door", "left": 808, "right": 1062, "top": 615, "bottom": 927, "measured_to": "door_itself", "leaf": [], "partly_hidden_by": ""}
+    ],
+    "wall_top": [[271, 432], [1149, 432]],
+    "off_wall": [{"what": "roll-up door, its frame (no hood)", "box": [800, 602, 1082, 930]}],
+    "notes": "The high side of a one-slope roof."
+   }
+  },
+  "C4-C1": {
+   "frame": {"alongMinM": -1.7631706468445782, "alongMaxM": 5.601493553226612, "upMinM": -0.6, "upMaxM": 4.489795055916956, "ppm": 217.25362576402787, "width": 1600, "height": 1106},
+   "wire": {
+    "materials": [{"material": "metal", "polygon": [[415, 975], [1210, 975], [1210, 372], [415, 500]], "partly_hidden_by": ""}],
+    "openings": [{"kind": "door", "left": 962, "right": 1160, "top": 522, "bottom": 975, "measured_to": "trim", "leaf": [1000, 545, 1145, 965], "partly_hidden_by": ""}],
+    "wall_top": [[415, 500], [1210, 372]],
+    "off_wall": [],
+    "notes": "The wall top slopes up to the front: a one-slope roof draining to the rear."
+   }
+  },
+  "C2-C3": {
+   "frame": {"alongMinM": -1.8258098558047169, "alongMaxM": 5.783453592195552, "upMinM": -0.6, "upMaxM": 4.135123669122704, "ppm": 210.27002297055225, "width": 1600, "height": 996},
+   "wire": {
+    "materials": [{"material": "metal", "polygon": [[388, 858], [1188, 858], [1188, 398], [388, 243]], "partly_hidden_by": ""}],
+    "openings": [],
+    "wall_top": [[388, 243], [1188, 398]],
+    "off_wall": [],
+    "notes": "Plain; the wall top slopes down to the rear."
+   }
+  }
+ }
+}
