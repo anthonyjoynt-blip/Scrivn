@@ -1,0 +1,303 @@
+{
+ "format": "scrivn-house-runner/1",
+ "house": {
+  "name": "The owner's house",
+  "homeType": "detached",
+  "shared": [],
+  "frontFacesDeg": 16,
+  "notes": []
+ },
+ "shape": {
+  "from": "session",
+  "outline": [
+   [
+    0,
+    0
+   ],
+   [
+    12,
+    0
+   ],
+   [
+    12,
+    -2
+   ],
+   [
+    25,
+    -2
+   ],
+   [
+    25,
+    62
+   ],
+   [
+    5,
+    62
+   ],
+   [
+    5,
+    56
+   ],
+   [
+    -10,
+    56
+   ],
+   [
+    -10,
+    46
+   ],
+   [
+    -20,
+    46
+   ],
+   [
+    -20,
+    20
+   ],
+   [
+    0,
+    20
+   ]
+  ],
+  "names": {
+   "C1-C2": "Garage front, left bay",
+   "C2-C3": "Bay step",
+   "C3-C4": "Garage front, right bay",
+   "C4-C5": "Right side wall",
+   "C5-C6": "Rear bump-out gable",
+   "C6-C7": "Bump-out left side",
+   "C7-C8": "Rear wall",
+   "C8-C9": "Covered-deck side",
+   "C9-C10": "Covered-deck back wall",
+   "C10-C11": "Left gable wall",
+   "C11-C12": "Front wall behind the porch",
+   "C12-C1": "Keystone wall"
+  }
+ },
+ "corners": [
+  {
+   "photo": 1,
+   "y": 1040,
+   "corner": "C11",
+   "x": 191.2
+  },
+  {
+   "photo": 2,
+   "x": 1670,
+   "y": 1120,
+   "corner": "C1"
+  },
+  {
+   "photo": 3,
+   "y": 1000,
+   "corner": "C10",
+   "x": 493.1
+  },
+  {
+   "photo": 6,
+   "x": 780,
+   "y": 1150,
+   "corner": "C10"
+  },
+  {
+   "photo": 6,
+   "x": 1340,
+   "y": 1010
+  },
+  {
+   "photo": 7,
+   "x": 490,
+   "y": 520,
+   "corner": "C8"
+  },
+  {
+   "photo": 7,
+   "x": 1290,
+   "y": 1260
+  },
+  {
+   "photo": 7,
+   "x": 1400,
+   "y": 1150
+  },
+  {
+   "photo": 8,
+   "x": 45,
+   "y": 1190,
+   "corner": "C6"
+  },
+  {
+   "photo": 8,
+   "x": 940,
+   "y": 860
+  },
+  {
+   "photo": 8,
+   "x": 1430,
+   "y": 640
+  },
+  {
+   "photo": 9,
+   "x": 390,
+   "y": 985,
+   "corner": "C5"
+  },
+  {
+   "photo": 9,
+   "x": 955,
+   "y": 985
+  },
+  {
+   "photo": 10,
+   "x": 990,
+   "y": 975,
+   "corner": "C6"
+  },
+  {
+   "photo": 11,
+   "x": 565,
+   "y": 860,
+   "corner": "C4"
+  },
+  {
+   "photo": 11,
+   "x": 790,
+   "y": 1150
+  },
+  {
+   "photo": 12,
+   "x": 515,
+   "y": 900,
+   "corner": "C4"
+  },
+  {
+   "photo": 13,
+   "x": 1255,
+   "y": 1000,
+   "corner": "C5"
+  },
+  {
+   "photo": 14,
+   "x": 170,
+   "y": 1235,
+   "corner": "C3"
+  },
+  {
+   "photo": 14,
+   "x": 1130,
+   "y": 1345
+  },
+  {
+   "photo": 14,
+   "x": 1515,
+   "y": 1045
+  },
+  {
+   "photo": 15,
+   "x": 210,
+   "y": 960,
+   "corner": "C11"
+  },
+  {
+   "photo": 15,
+   "x": 380,
+   "y": 1000
+  },
+  {
+   "photo": 15,
+   "x": 1565,
+   "y": 1050
+  },
+  {
+   "photo": 16,
+   "x": 630,
+   "y": 1000,
+   "corner": "C1"
+  },
+  {
+   "photo": 16,
+   "x": 1260,
+   "y": 990
+  },
+  {
+   "photo": 16,
+   "x": 1825,
+   "y": 975
+  },
+  {
+   "photo": 17,
+   "x": 60,
+   "y": 960,
+   "corner": "C11"
+  },
+  {
+   "photo": 17,
+   "x": 1005,
+   "y": 935,
+   "corner": "C1"
+  },
+  {
+   "photo": 17,
+   "x": 1765,
+   "y": 905,
+   "corner": "C4"
+  }
+ ],
+ "tapes": [
+  {
+   "id": "t1",
+   "said": "garage doors 9' wide",
+   "feet": 9,
+   "what": "garage",
+   "kind": "line",
+   "count": 2,
+   "on": [
+    {
+     "photo": 15,
+     "a": [
+      497,
+      900
+     ],
+     "b": [
+      868,
+      900
+     ]
+    },
+    {
+     "photo": 15,
+     "a": [
+      1028,
+      900
+     ],
+     "b": [
+      1452,
+      900
+     ]
+    }
+   ]
+  },
+  {
+   "id": "t2",
+   "said": "rear wall with the hose (bump-out gable) 22'2\"",
+   "feet": 22.1667,
+   "what": "wall",
+   "kind": "side",
+   "side": "C5-C6"
+  },
+  {
+   "id": "t3",
+   "said": "porch 263 in (keystone wall to the inside of the west porch post)",
+   "feet": 21.9167,
+   "what": "wall",
+   "kind": "side",
+   "side": "C11-C12"
+  }
+ ],
+ "checks": [],
+ "keepProposed": true,
+ "dropProposed": [],
+ "leaveOut": [
+  1
+ ],
+ "about": "The owner's house (C:/Users/Anthony/Desktop/House Photos, 18 photos of 10-16) as a Claude session filled in the house runner's inputs.json on 10-20: the shape on a 1 ft grid, 30 corner taps (one named a photo; #17 named in full after check showed Scrivn numbering it C11 C12 C1), his three tapes, #1 left out (placed from its one corner south of the garage), Scrivn's marks kept. The taps were re-entered with the 10-16 fixture's list in view: 25 of 30 snap to its very spots. No API."
+}

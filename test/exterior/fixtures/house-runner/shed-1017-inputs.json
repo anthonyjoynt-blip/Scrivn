@@ -1,0 +1,166 @@
+{
+ "format": "scrivn-house-runner/1",
+ "house": {
+  "name": "The owner's shed",
+  "homeType": "detached",
+  "shared": [],
+  "frontFacesDeg": null,
+  "notes": []
+ },
+ "shape": {
+  "from": "session",
+  "outline": [
+   [
+    0,
+    0
+   ],
+   [
+    16,
+    0
+   ],
+   [
+    16,
+    12
+   ],
+   [
+    0,
+    12
+   ]
+  ],
+  "names": {
+   "C1-C2": "Front (roll-up door)",
+   "C2-C3": "Right (pad side)",
+   "C3-C4": "Rear (fence side)",
+   "C4-C1": "Left (man door)"
+  }
+ },
+ "corners": [
+  {
+   "photo": 1,
+   "x": 448,
+   "y": 1215,
+   "corner": "C4"
+  },
+  {
+   "photo": 1,
+   "x": 1452,
+   "y": 1035
+  },
+  {
+   "photo": 2,
+   "x": 757,
+   "y": 1068,
+   "corner": "C4"
+  },
+  {
+   "photo": 3,
+   "x": 198,
+   "y": 985,
+   "corner": "C4"
+  },
+  {
+   "photo": 3,
+   "x": 999,
+   "y": 1135
+  },
+  {
+   "photo": 3,
+   "x": 1258,
+   "y": 838
+  },
+  {
+   "photo": 4,
+   "x": 357,
+   "y": 990,
+   "corner": "C1"
+  },
+  {
+   "photo": 4,
+   "x": 1351,
+   "y": 958
+  },
+  {
+   "photo": 5,
+   "x": 392,
+   "y": 845,
+   "corner": "C1"
+  },
+  {
+   "photo": 5,
+   "x": 801,
+   "y": 905
+  },
+  {
+   "photo": 5,
+   "x": 1253,
+   "y": 835
+  },
+  {
+   "photo": 6,
+   "x": 452,
+   "y": 935,
+   "corner": "C2"
+  },
+  {
+   "photo": 6,
+   "x": 1327,
+   "y": 905
+  },
+  {
+   "photo": 7,
+   "x": 196,
+   "y": 1150,
+   "corner": "C2"
+  },
+  {
+   "photo": 7,
+   "x": 1172,
+   "y": 1255
+  }
+ ],
+ "tapes": [
+  {
+   "id": "t1",
+   "said": "roll-up door 5' wide",
+   "feet": 5,
+   "what": "garage",
+   "kind": "line",
+   "count": 1,
+   "on": [
+    {
+     "photo": 4,
+     "a": [
+      984,
+      822
+     ],
+     "b": [
+      1267,
+      822
+     ]
+    }
+   ],
+   "note": "Ends on the outer edges of the door's white frame, as the 10-17 shed session took them; inside the frame (the curtain alone) would scale the shed 15% bigger."
+  }
+ ],
+ "checks": [
+  {
+   "photo": 3,
+   "a": [
+    698,
+    515
+   ],
+   "b": [
+    712,
+    1073
+   ],
+   "feet": 6.6667,
+   "what": "man door slab height (a slab is usually 6'8\")"
+  }
+ ],
+ "leaveOut": [
+  1
+ ],
+ "keepProposed": false,
+ "dropProposed": [],
+ "about": "The owner's shed (C:/Users/Anthony/Desktop/Shed photos, 7 photos of 10-17) as a Claude session filled in the house runner's inputs.json on 10-20, by eye on the sheets and then corrected on the taps/ close-ups (the first pass was 40-70 px low on every corner); #1 left out (placed on top of C1 from its two corners); the roll-up door's 5' on the outer edges of its frame. #7 renumbered C2 C3 after its squared rear wall came out sheared (its long wall is the pad side; the rear only recedes edge-on). No API."
+}

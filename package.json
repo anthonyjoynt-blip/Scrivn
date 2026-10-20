@@ -55,7 +55,8 @@
     "test:photos:browser": "node test/photos/browser/run.mjs",
     "test:photos:routes": "node test/photos/routes.mjs",
     "test:photos:live": "node test/photos/notesLive.mjs",
-    "test:exterior:engine": "node test/exterior/engine.mjs"
+    "test:exterior:engine": "node test/exterior/engine.mjs",
+    "test:exterior:house": "node test/exterior/houseRunner.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "latest",

@@ -1,0 +1,10 @@
+{
+ "about": "The owner's answers on the roof check (10-16, roof-check-handover.md): the garage lower under a gable of the house, the porch roof 4'10\" out with a gable over the door; the pitch he taped on 10-14.",
+ "pitch": "5/12",
+ "wings": { "C1-C2": "gable" },
+ "additions": [
+  { "kind": "porch", "side": "C11-C12", "depthFeet": 4.8333 },
+  { "kind": "gable", "side": "C11-C12", "overDoor": true }
+ ],
+ "looksRight": true
+}
