@@ -36,7 +36,7 @@
  *   * the drawings and the report as a customer document (10-16): the owner's side yard stepping down
  *     with its parging, the ground off a parging's bottom at its corners' own x, the ± on a length worked
  *     out from photos, a photos-only house said as one, every wall's name beside its own wall, and each
- *     cladding's marks (lib/claddingTexture.ts); the house from each compass point (lib/exteriorViews.ts)
+ *     cladding's marks (lib/claddingTexture.ts); the house from each side, named by the compass when known (lib/exteriorViews.ts)
  */
 
 import { build } from "esbuild";
@@ -4866,7 +4866,7 @@ function ownersTaps(e) {
   const front = sideStarting(e, "Front wall behind");
   const fp = x.exteriorFootprint(e);
   const feet = fp.lengthsFeet[fp.sideIds.indexOf(front.id)];
-  let roof = x.withWingAnswer(e.roof, roofOf(e).roof, sideStarting(e, "Garage front, west").id, "gable");
+  let roof = x.withWingAnswer(e.roof, roofOf(e).roof, sideStarting(e, "Garage front, left").id, "gable");
   roof = x.withAddition(roof, "porch", front.id, feet);
   roof = { ...roof, additions: roof.additions.map((a) => ({ ...a, depthFeet: ft(4, 10) })) };
   roof = x.withAddition(roof, "gable", front.id, feet, front.openings.find((o) => o.kind === "door"));
@@ -4889,17 +4889,17 @@ test("his house off photos, nothing pressed: the deck under the roof, the house'
   // Each end as the photos show it; the east wall, eaves over the garage and bump-out either side of the house's gable, is no hip.
   const ends = Object.fromEntries(plan.ends.map((en) => [en.sideId, en.kind]));
   assert(
-    ends[named("West gable")] === "gable" && ends[named("East side")] === "gable" && ends[named("Garage front, west")] === "hip" && ends[named("Garage front, east")] === "gable" && ends[named("Rear bump-out")] === "gable",
+    ends[named("Left gable")] === "gable" && ends[named("Right side")] === "gable" && ends[named("Garage front, left")] === "hip" && ends[named("Garage front, right")] === "gable" && ends[named("Rear bump-out")] === "gable",
     JSON.stringify(plan.ends),
   );
   assert(!(named("Rear wall") in ends), "no end, and no hip, over the rear wall");
-  near(plan.ends.find((en) => en.sideId === named("East side")).share, 38.3 / 70.57, "the house's gable over half the east wall", 0.01);
+  near(plan.ends.find((en) => en.sideId === named("Right side")).share, 38.3 / 70.57, "the house's gable over half the east wall", 0.01);
   // The garage is not proposed lower (2026-10-16): its walls meet the house's only where the keystone wall meets the front wall,
   // and that wall's heights are from the porch deck - it reads the garage 9" HIGHER. The house's rear walls read 15'11" from the
   // back yard, 6'5" below the driveway: compared, they had put the garage 5'4" lower (the owner: "the gap between the roofs is
   // too great"). So every part ties in until he says otherwise.
   assert(plan.wings.every((w) => !w.lower), JSON.stringify(plan.wings));
-  near(x.measuredDrop(x.roofInput(e, q.footprint, 5), named("Garage front, west"), { ends: x.measuredSideEnds(e) }), 8.6 - 9.35, "at the keystone corner, the porch deck's 8'7\" against the garage's 9'4\"", 0.01);
+  near(x.measuredDrop(x.roofInput(e, q.footprint, 5), named("Garage front, left"), { ends: x.measuredSideEnds(e) }), 8.6 - 9.35, "at the keystone corner, the porch deck's 8'7\" against the garage's 9'4\"", 0.01);
   assert(plan.notches.filter((k) => k.covered).map((k) => k.sideIds.join()).join("|") === [named("Covered-deck side"), named("Covered-deck back")].join(), "the deck alone under the roof");
   // Said so, part by part, on the check: proposed, with why.
   const p = x.roofProposal(e).proposed;
@@ -4935,9 +4935,9 @@ test("his taps - the garage lower under a gable, a porch roof 4'10\" out, a gabl
   const typed = roofOf({ ...e, roof: { ...e.roof, eaveOverhangFeet: 2, rakeOverhangFeet: ft(1, 10), overhangSource: { eave: "typed", rake: "typed" } } });
   near(typed.roofing.squares, 35.62, "at the claim's overhangs", 0.005);
   // Looks right: every part answered as built, the guessed east gable the estimator's; nothing left to propose, the roof the same.
-  assert(e.roof.checkedAt && e.roof.ends[sideStarting(e, "East side").id] === "gable", JSON.stringify(e.roof.ends));
+  assert(e.roof.checkedAt && e.roof.ends[sideStarting(e, "Right side").id] === "gable", JSON.stringify(e.roof.ends));
   assert(x.roofProposal(e).proposed.length === 0, JSON.stringify(x.roofProposal(e).proposed));
-  assert(plan.wings.find((w) => w.sideId === sideStarting(e, "Garage front, west").id).gable, "the garage still under its gable");
+  assert(plan.wings.find((w) => w.sideId === sideStarting(e, "Garage front, left").id).gable, "the garage still under its gable");
   // The gable over the door: over the door and 2' either side of it, on the porch's slope.
   const door = sideStarting(e, "Front wall behind").openings.find((o) => o.kind === "door");
   const gable = e.roof.additions.find((a) => a.kind === "gable");
@@ -4945,7 +4945,7 @@ test("his taps - the garage lower under a gable, a porch roof 4'10\" out, a gabl
   near(gable.toFeet, door.fromLeftFeet + door.widthFeet + 2, "to", 1e-9);
   assert(plan.sections.some((s) => s.role === "porch") && plan.sections.some((s) => s.role === "gable" && s.key === gable.id), "a porch and the door's gable");
   // The garage's drop: nothing measured it, so the assumed 1'6", kept by Looks right as his.
-  const garage = sideStarting(e, "Garage front, west").id;
+  const garage = sideStarting(e, "Garage front, left").id;
   assert(e.roof.wingDrops?.[garage] === 1.5 && q.wingDrops[garage].source === "typed", JSON.stringify(q.wingDrops));
 });
 
@@ -4956,7 +4956,7 @@ test("one level for the house's roofs: the garage 1'6\" under the house's eave i
   const m = x.exteriorModel(e).model;
   near(m.eaves[0], 15.9, "the house's eave", 0.01);
   near(m.eaves[0] - m.eaves[1], 1.5, "the garage's 1'6\" under it", 1e-9);
-  const south = x.houseView(m, "south");
+  const south = x.houseView(m, "front");
   const levels = south.levels.filter((l) => l.label === "Eave").map((l) => l.y - south.groundY);
   // Over the driveway: the garage's eave 9'6"; the house's 11' - its porch eave 2' under that, about level with the garage's.
   assert(levels.length === 2, JSON.stringify(south.levels));
@@ -4964,23 +4964,23 @@ test("one level for the house's roofs: the garage 1'6\" under the house's eave i
   near(levels[1], 11, "the house's eave over the driveway", 0.01);
   assert(levels.every((y) => y < 12), "no 15'11\" eave on the front");
   // Typed on the check as he measures it - 1'10" - and every view follows.
-  const garage = sideStarting(e, "Garage front, west").id;
+  const garage = sideStarting(e, "Garage front, left").id;
   const typed = { ...e, roof: x.withWingDrop(e.roof, garage, ft(1, 10)) };
   const t = x.exteriorModel(typed).model;
   near(t.eaves[0] - t.eaves[1], ft(1, 10), "1'10\" as typed", 1e-9);
-  const ts = x.houseView(t, "south");
+  const ts = x.houseView(t, "front");
   near(Math.max(...ts.levels.filter((l) => l.label === "Eave").map((l) => l.y - ts.groundY)), 9.5 + ft(1, 10), "the house's eave 1'10\" over the garage's", 0.01);
   // The report says where the drop came from: assumed until typed.
   const said = (ex) => x.exteriorReport(ex, { title: "t", date: "d", madeWith: "m" });
   const assumedNow = { ...e, roof: { ...e.roof, wingDrops: {} } };
-  assert(said(assumedNow).assumed.some((a) => a === "The roof out to Garage front, west bay sits 1'6\" under the eave of the roof it meets: Scrivn's assumption, as nothing measured it. Type it on the roof check."), said(assumedNow).assumed.join(" | "));
-  assert(said(typed).sources.some((a) => a === "The roof out to Garage front, west bay: 1'10\" under the eave of the roof it meets, as set on the roof check."), said(typed).sources.join(" | "));
+  assert(said(assumedNow).assumed.some((a) => a === "The roof out to Garage front, left bay sits 1'6\" under the eave of the roof it meets: Scrivn's assumption, as nothing measured it. Type it on the roof check."), said(assumedNow).assumed.join(" | "));
+  assert(said(typed).sources.some((a) => a === "The roof out to Garage front, left bay: 1'10\" under the eave of the roof it meets, as set on the roof check."), said(typed).sources.join(" | "));
 });
 
 test("an answer stands over a proposal, and a roof from before the check is left as it was", () => {
   const e = photoRouteHouse();
   const plan = roofOf(e).roof;
-  const garage = sideStarting(e, "Garage front, west").id;
+  const garage = sideStarting(e, "Garage front, left").id;
   // Said to tie in: it ties in, and the deck stays proposed.
   const tied = { ...e, roof: x.withWingAnswer(e.roof, plan, garage, "tie") };
   const t = roofOf(tied).roof;
@@ -5008,17 +5008,17 @@ test("on the photo route, a side still at the route's 10' says nothing, and only
   // Nothing read: every wall at the route's 10' - no step to go on, nothing proposed lower; the deck still is, off the outline.
   assert(wingsProposed(route).length === 0 && x.roofProposal(route).proposed.some((p) => p.value === "covered"), JSON.stringify(x.roofProposal(route).proposed));
   // The garage read 9'2" against walls still at 10': no read of the house, nothing to compare.
-  assert(wingsProposed(read(route, "Garage front, west", ft(9, 2))).length === 0, "the house unread");
+  assert(wingsProposed(read(route, "Garage front, left", ft(9, 2))).length === 0, "the house unread");
   // Session A's partial reads (10-16): the west gable read 18'2", the bump-out 15'5", the garage 9'2" - walls that meet the
   // garage's at no corner, each from its own ground: nothing proposed. The bump-out is no garage, never lower.
-  const partial = read(read(read(route, "West gable", ft(18, 2)), "Rear bump-out", ft(15, 5)), "Garage front, west", ft(9, 2));
+  const partial = read(read(read(route, "Left gable", ft(18, 2)), "Rear bump-out", ft(15, 5)), "Garage front, left", ft(9, 2));
   assert(wingsProposed(partial).length === 0, JSON.stringify(x.roofProposal(partial).proposed));
   // The keystone wall (the garage's side) and the front wall it meets at a corner, both read over the one ground there: the
   // garage's eave 1'10" under the house's - proposed lower, under a gable on the house, that much under it.
   const corner = read(read(partial, "Keystone", ft(9, 4)), "Front wall behind", ft(11, 2));
-  assert(wingsProposed(corner).join() === id("Garage front, west"), JSON.stringify(x.roofProposal(corner).proposed));
+  assert(wingsProposed(corner).join() === id("Garage front, left"), JSON.stringify(x.roofProposal(corner).proposed));
   const q = roofOf(corner);
-  const garage = q.roof.wings.find((w) => w.sideId === id("Garage front, west"));
+  const garage = q.roof.wings.find((w) => w.sideId === id("Garage front, left"));
   assert(garage.lower && garage.gable, "the garage lower, under a gable on the house");
   assert(q.wingDrops[garage.sideId].source === "walls" && Math.abs(q.wingDrops[garage.sideId].feet - ft(1, 10)) < 1e-9, JSON.stringify(q.wingDrops));
 });
@@ -5069,7 +5069,7 @@ const owner = x.parseScanExterior(photosOnly).exterior;
 const sideNamed = (e, n) => e.sides.find((s) => s.name === n);
 
 test("the owner's side yard steps: the ground and the parging step down at the stairs past the side door, not one sloped band", () => {
-  const east = sideStarting(owner, "East side wall");
+  const east = sideStarting(owner, "Right side wall");
   const grade = x.elevationFaces(east).grade;
   // Three 7" risers, each upright: two points at one x.
   const risers = grade.map((p, i) => (i > 0 && Math.abs(p.x - grade[i - 1].x) < 1e-9 ? grade[i - 1].y - p.y : null)).filter((d) => d !== null);
@@ -5091,7 +5091,7 @@ test("the owner's side yard steps: the ground and the parging step down at the s
 
 test("a parging bottom is the ground end to end, at the corners' own x: a slope stays a slope, a step stays upright", () => {
   // The west gable's parging was tapped sloping up 1'6" to the right; read at a rounded x, the corner was missed and the ground came out level.
-  const west = sideStarting(owner, "West gable wall");
+  const west = sideStarting(owner, "Left gable wall");
   near(x.groundAt(west, west.lengthFeet), 0.4572 / 0.3048, "the ground rises 1'6\" to its right end", 1e-6);
   near(x.groundAt(west, west.lengthFeet / 2), 0.2286 / 0.3048, "and halfway along, halfway up", 1e-6);
   // A step at an x with more places than a millionth: still upright, and at that x.
@@ -5118,21 +5118,21 @@ test("the report of a photos-only house: walls read off the photos, the ± on th
   assert(
     JSON.stringify(check) ===
       JSON.stringify([
-        "East side wall: 70'7\" ±6%, worked out from the photos, not taped. Tape it to be sure.",
+        "Right side wall: 70'7\" ±6%, worked out from the photos, not taped. Tape it to be sure.",
         "Covered-deck side: 9'1\" ±12%, worked out from the photos, not taped. Tape it to be sure.",
-        "West gable wall: 29'2\" ±11%, worked out from the photos, not taped. Tape it to be sure.",
+        "Left gable wall: 29'2\" ±11%, worked out from the photos, not taped. Tape it to be sure.",
       ]),
     JSON.stringify(check),
   );
   assert(sideStarting(owner, "Rear bump-out gable").lengthPlusMinusPct === undefined && sideStarting(owner, "Bay step").lengthPlusMinusPct === 4, "the field as the file gives it");
   const by = (n) => r.sides.find((s) => s.side.name === n);
-  assert(by("East side wall").heading.startsWith("East side wall · 70'7\" ±6% · "), by("East side wall").heading);
+  assert(by("Right side wall").heading.startsWith("Right side wall · 70'7\" ±6% · "), by("Right side wall").heading);
   assert(by("Bay step").heading === "Bay step · 2' · 19 SF net", by("Bay step").heading);
-  const first = by("East side wall").dims[0];
+  const first = by("Right side wall").dims[0];
   assert(first.includes("±6% (worked out from the photos: to check)") && first.includes("eave 9'6\" above the ground at the left, 15'11\" at the right") && first.endsWith("the ground falls 6'5\" from left to right, in steps"), first);
-  assert(by("West gable wall").dims[0].includes("the ground rises 1'6\" from left to right") && !by("West gable wall").dims[0].includes("in steps"), by("West gable wall").dims[0]);
+  assert(by("Left gable wall").dims[0].includes("the ground rises 1'6\" from left to right") && !by("Left gable wall").dims[0].includes("in steps"), by("Left gable wall").dims[0]);
   // The side door on its landing is at the bottom, not 4'4" up; a basement window over the lower walk 1'5" up.
-  const dims = by("East side wall").dims;
+  const dims = by("Right side wall").dims;
   assert(dims.some((d) => d.startsWith("Door 1: 3' × 6'8\", at the bottom")) && dims.some((d) => d.startsWith("Window 2: 4'6\" × 2'6\", sill 1'5\" up")), dims.join(" | "));
   // A level side's heights are as they were.
   assert(by("Keystone wall").dims[0] === "24'10\" long · eave 9'4\" at the left, 9'4\" at the right", by("Keystone wall").dims[0]);
@@ -5163,7 +5163,7 @@ test("every wall's name beside its own wall: none over another or across the hou
   }
   // Most sit right beside their walls: the 5'6" bump-out side's name is three times its wall, and still beside it.
   assert(names.filter((m) => m.leader !== null).length <= 4, names.filter((m) => m.leader).map((m) => m.id).join(", "));
-  const step = names[walls.findIndex((w) => w.name === "Bump-out west side")];
+  const step = names[walls.findIndex((w) => w.name === "Bump-out left side")];
   assert(step.leader === null, JSON.stringify(step));
 });
 
@@ -5204,48 +5204,98 @@ test("each cladding drawn as it looks, every mark on its face: lap lines at thei
   assert(cut.length === 1 && Math.abs(cut[0][0].x + 1) < 1e-9 && Math.abs(cut[0][1].x - 1) < 1e-9, JSON.stringify(cut));
 });
 
-test("the house from each compass point: a 40' x 30' gable at 6/12 - front and back square-on under their slopes, the gable ends under the roof's profile", () => {
+test("the house from each side: a 40' x 30' gable at 6/12 - front and back square-on under their slopes, the gable ends under the roof's profile", () => {
   const m = x.exteriorModel(rect(40, 30, { pitch: 6 }));
   assert(m.ok, m.reason);
-  const views = Object.fromEntries(x.COMPASS.map((c) => [c, x.houseView(m.model, c)]));
-  // Each compass point shows its own side: the plan's front is south, east to its right.
-  assert(JSON.stringify(x.COMPASS.map((c) => views[c].sides.map((s) => s.name))) === JSON.stringify([["Front"], ["Right"], ["Rear"], ["Left"]]), JSON.stringify(x.COMPASS.map((c) => views[c].sides)));
-  near(views.south.maxX - views.south.minX, 40, "the front's width", 1e-6);
-  near(views.east.maxX - views.east.minX, 30, "the right gable's width", 1e-6);
+  const views = Object.fromEntries(x.VIEWS.map((c) => [c, x.houseView(m.model, c)]));
+  // Each view shows its own side: the front, the right side, the back, the left side.
+  assert(JSON.stringify(x.VIEWS.map((c) => views[c].sides.map((s) => s.name))) === JSON.stringify([["Front"], ["Right"], ["Rear"], ["Left"]]), JSON.stringify(x.VIEWS.map((c) => views[c].sides)));
+  near(views.front.maxX - views.front.minX, 40, "the front's width", 1e-6);
+  near(views.right.maxX - views.right.minX, 30, "the right gable's width", 1e-6);
   // The front: its one slope facing it, and the fascia along its eave. A gable end: both slopes edge-on, drawn as the roof's profile.
   const kinds = (v) => v.pieces.filter((p) => p.type === "roof").map((p) => p.kind);
-  assert(kinds(views.south).filter((k) => k === "slope").length === 1 && kinds(views.south).includes("fascia"), kinds(views.south).join());
-  assert(!kinds(views.east).includes("slope") && kinds(views.east).filter((k) => k === "edge").length === 2, kinds(views.east).join());
+  assert(kinds(views.front).filter((k) => k === "slope").length === 1 && kinds(views.front).includes("fascia"), kinds(views.front).join());
+  assert(!kinds(views.right).includes("slope") && kinds(views.right).filter((k) => k === "edge").length === 2, kinds(views.right).join());
   // Heights from the ground: the eave 10'; the roof's top 15' of run at 6/12 over it, and the roof's 6" thickness: 18'.
-  for (const c of x.COMPASS) {
+  for (const c of x.VIEWS) {
     near(views[c].groundY, 0, `${c}: the ground`, 1e-6);
     near(views[c].topY, 18, `${c}: the roof's top`, 1e-6);
   }
-  assert(JSON.stringify(views.south.levels.map((l) => [l.label, Math.round(l.y * 1e6) / 1e6])) === JSON.stringify([["Eave", 10], ["Top of roof", 18]]), JSON.stringify(views.south.levels));
+  assert(JSON.stringify(views.front.levels.map((l) => [l.label, Math.round(l.y * 1e6) / 1e6])) === JSON.stringify([["Eave", 10], ["Top of roof", 18]]), JSON.stringify(views.front.levels));
   // The gable end's wall up to the roof's underside at the ridge: 17'6".
-  const gable = views.east.pieces.find((p) => p.type === "wall");
+  const gable = views.right.pieces.find((p) => p.type === "wall");
   near(Math.max(...gable.outline.map((p) => p.y)), 17.5, "the gable's peak", 1e-6);
   // Drawn back to front.
-  for (const c of x.COMPASS) for (let i = 1; i < views[c].pieces.length; i++) assert(views[c].pieces[i].depth <= views[c].pieces[i - 1].depth + 1e-9, `${c}: piece ${i} out of order`);
+  for (const c of x.VIEWS) for (let i = 1; i < views[c].pieces.length; i++) assert(views[c].pieces[i].depth <= views[c].pieces[i - 1].depth + 1e-9, `${c}: piece ${i} out of order`);
+  // No bearing, no compass (2026-10-20): the front, the right side, the back and the left side - never a guess that the front is south.
+  assert(JSON.stringify(x.VIEWS.map((c) => views[c].title)) === JSON.stringify(["Front elevation", "Right side elevation", "Back elevation", "Left side elevation"]), JSON.stringify(x.VIEWS.map((c) => views[c].title)));
+  const r = x.exteriorReport(rect(40, 30, { pitch: 6 }), { title: "t", date: "d", madeWith: "m" });
+  assert(JSON.stringify(r.views.map((v) => v.heading)) === JSON.stringify(["Front elevation", "Right side elevation", "Back elevation", "Left side elevation"]), JSON.stringify(r.views.map((v) => v.heading)));
 });
 
-test("the owner's house from each compass point: the front's three walls, the side yard's steps from the east", () => {
+test("which way the front faces names the four views: 16 gives North for the front, 100 East, 200 South; halfway, the one clockwise", () => {
+  const e = rect(40, 30, { pitch: 6 });
+  const m = x.exteriorModel(e).model;
+  const titles = (deg) => x.VIEWS.map((c) => x.houseView(m, c, deg).title.replace(" elevation", ""));
+  assert(titles(16).join() === "North,West,South,East", titles(16).join());
+  assert(titles(100).join() === "East,North,West,South", titles(100).join());
+  assert(titles(200).join() === "South,East,North,West", titles(200).join());
+  assert(titles(180).join() === "South,East,North,West", "a front facing south: east to its right, as before");
+  assert(titles(45).join() === "East,North,West,South" && titles(315).join() === "North,West,South,East", `${titles(45)} / ${titles(315)}`);
+  // Only the names: the views are the same drawing, square to the house, whichever way it faces.
+  const strip = (v) => JSON.stringify({ ...v, title: undefined });
+  for (const c of x.VIEWS) assert(strip(x.houseView(m, c, 16)) === strip(x.houseView(m, c)) && strip(x.houseView(m, c, 100)) === strip(x.houseView(m, c)), `${c}: drawn the same`);
+  // The report: its name, then where it is on the house.
+  const r = x.exteriorReport({ ...e, frontFacesDeg: 100 }, { title: "t", date: "d", madeWith: "m" });
+  assert(JSON.stringify(r.views.map((v) => v.heading)) === JSON.stringify(["East elevation · the front", "North elevation · to the right of the front", "West elevation · the back", "South elevation · to the left of the front"]), JSON.stringify(r.views.map((v) => v.heading)));
+  // Every number the same as with none: the bearing names, it measures nothing.
+  const q = (ex) => JSON.stringify(x.exteriorQuantities(ex));
+  assert(q({ ...e, frontFacesDeg: 100 }) === q(e), "the quantities");
+  assert(JSON.stringify(x.exteriorScopeLines({ ...e, frontFacesDeg: 100 })) === JSON.stringify(x.exteriorScopeLines(e)), "the scope lines");
+  // The compass of any wall on the plan, and north on it, for a front facing 16: the front faces 16, its right 286, the back 196.
+  near(x.planFacesDeg({ x: 0, y: -1 }, 16), 16, "the front", 1e-9);
+  near(x.planFacesDeg({ x: 1, y: 0 }, 16), 286, "the right side", 1e-9);
+  near(x.planFacesDeg({ x: 0, y: 1 }, 16), 196, "the back", 1e-9);
+  near(x.planFacesDeg(x.northOnPlan(16), 16), 0, "north on the plan faces north", 1e-9);
+  near(x.planFacesDeg(x.northOnPlan(100), 100), 0, "and for 100", 1e-9);
+  // In words, for the report's Elevations page.
+  const words = [16, 100, 200, 340, 45, 0].map(x.bearingWords);
+  assert(JSON.stringify(words) === JSON.stringify(["16° east of north", "10° south of east", "20° west of south", "20° west of north", "northeast", "north"]), words.join(" | "));
+  // Not set, or not a number: none; any number of turns, 0 up to 360.
+  assert(x.frontFacesOf({}) === undefined && x.frontFacesOf({ frontFacesDeg: Number.NaN }) === undefined && x.frontFacesOf({ frontFacesDeg: -90 }) === 270 && x.frontFacesOf({ frontFacesDeg: 376 }) === 16, "absent is unknown");
+});
+
+test("a capture's front_faces_deg comes in as the exterior's frontFacesDeg; none, none", () => {
+  const raw = fixture("scan-exterior-v2-sample.json");
+  assert(x.parseScanExterior(raw).exterior.frontFacesDeg === undefined, "none");
+  assert(x.parseScanExterior({ ...raw, front_faces_deg: 376 }).exterior.frontFacesDeg === 16, "turned into 0-360");
+  assert(x.parseScanExterior({ ...raw, front_faces_deg: "north" }).exterior.frontFacesDeg === undefined, "a word is not a bearing");
+});
+
+test("the owner's house from each side: the front's three walls, the side yard's steps; his front faces north, so the side yard is the West", () => {
   const m = x.exteriorModel(owner);
   assert(m.ok, m.reason);
-  const view = (c) => x.houseView(m.model, c);
-  const south = view("south");
-  assert(JSON.stringify(south.sides.map((s) => s.name)) === JSON.stringify(["Front wall behind the porch", "Garage front, west bay", "Garage front, east bay"]), JSON.stringify(south.sides));
-  const east = view("east");
-  assert(east.sides.map((s) => s.name).join() === "East side wall", JSON.stringify(east.sides));
-  near(east.maxX - east.minX, sideNamed(owner, "East side wall").lengthFeet, "the east wall's whole length", 1e-6);
+  assert(owner.frontFacesDeg === 16, "his front faces 16 degrees east of north (fitted to the open building footprint, 10-19)");
+  const view = (c) => x.houseView(m.model, c, owner.frontFacesDeg);
+  const front = view("front");
+  assert(front.title === "North elevation" && JSON.stringify(front.sides.map((s) => s.name)) === JSON.stringify(["Front wall behind the porch", "Garage front, left bay", "Garage front, right bay"]), JSON.stringify([front.title, front.sides]));
+  // The long side-yard wall, on the right as you face the front: the West elevation.
+  const side = view("right");
+  assert(side.title === "West elevation" && side.sides.map((s) => s.name).join() === "Right side wall", JSON.stringify([side.title, side.sides]));
+  near(side.maxX - side.minX, sideNamed(owner, "Right side wall").lengthFeet, "the side-yard wall's whole length", 1e-6);
   // Its ground, front on the left, steps three times by the side door: three 7" risers.
-  const risers = east.ground.filter((p, i) => i > 0 && p.x - east.ground[i - 1].x < 1e-3 && east.ground[i - 1].y - p.y > 0.4);
-  assert(risers.length === 3, JSON.stringify(east.ground.map((p) => [Math.round(p.x * 100) / 100, Math.round(p.y * 100) / 100])));
-  for (const c of ["north", "west"]) assert(view(c).sides.length >= 3, `${c}: ${JSON.stringify(view(c).sides)}`);
-  // The report gives them first, by compass point, each saying what it shows.
+  const risers = side.ground.filter((p, i) => i > 0 && p.x - side.ground[i - 1].x < 1e-3 && side.ground[i - 1].y - p.y > 0.4);
+  assert(risers.length === 3, JSON.stringify(side.ground.map((p) => [Math.round(p.x * 100) / 100, Math.round(p.y * 100) / 100])));
+  for (const c of ["back", "left"]) assert(view(c).sides.length >= 3, `${c}: ${JSON.stringify(view(c).sides)}`);
+  // The back the South; the porch's side, on the left, the East - the front wall behind the porch seen end-on from it.
+  assert(view("back").title === "South elevation" && view("left").title === "East elevation", `${view("back").title} / ${view("left").title}`);
+  assert(view("left").sides.some((s) => s.name === "Left gable wall"), JSON.stringify(view("left").sides));
+  // The report gives them first, by compass point, each saying what it shows: the front is the North elevation.
   const r = x.exteriorReport(owner, { title: "t", date: "d", madeWith: "m" });
-  assert(JSON.stringify(r.views.map((v) => v.heading)) === JSON.stringify(["South elevation · the front", "East elevation · to the right of the front", "North elevation · the back", "West elevation · to the left of the front"]), JSON.stringify(r.views.map((v) => v.heading)));
-  assert(r.views[1].shows === "Shows East side wall.", r.views[1].shows);
+  assert(JSON.stringify(r.views.map((v) => v.heading)) === JSON.stringify(["North elevation · the front", "West elevation · to the right of the front", "South elevation · the back", "East elevation · to the left of the front"]), JSON.stringify(r.views.map((v) => v.heading)));
+  assert(r.views[1].shows === "Shows Right side wall.", r.views[1].shows);
+  // No name of his says a compass point, so none can contradict the compass.
+  assert(owner.sides.every((s) => !/(north|south|east|west)/i.test(s.name)), owner.sides.map((s) => s.name).join(" | "));
   // No footprint, no views: the sides alone.
   const open = x.exteriorReport(exterior([ownersSide()]), { title: "t", date: "d", madeWith: "m" });
   assert(open.views.length === 0, "no views without a footprint");
@@ -5266,9 +5316,9 @@ test("the report: the roof's parts as proposed are assumed until checked - the d
   // The deck answered on the check and the garage set lower: nothing left proposed, the garage's drop said to be assumed.
   const plan = roofOf(e).roof;
   const deck = plan.notches.find((k) => k.covered);
-  const half = { ...e, roof: x.withWingAnswer(x.withNotchAnswer(e.roof, plan, deck, "covered"), plan, sideStarting(e, "Garage front, west").id, "gable") };
+  const half = { ...e, roof: x.withWingAnswer(x.withNotchAnswer(e.roof, plan, deck, "covered"), plan, sideStarting(e, "Garage front, left").id, "gable") };
   const said = x.exteriorReport(half, { title: "t", date: "d", madeWith: "m" }).assumed;
-  assert(!said.some((a) => a.startsWith("The roof's parts as proposed")) && said.some((a) => a.startsWith("The roof out to Garage front, west bay sits 1'6\" under")), said.join(" | "));
+  assert(!said.some((a) => a.startsWith("The roof's parts as proposed")) && said.some((a) => a.startsWith("The roof out to Garage front, left bay sits 1'6\" under")), said.join(" | "));
   // A house drawn by hand proposes nothing.
   assert(!x.exteriorReport(rect(40, 30, { pitch: 6 }), { title: "t", date: "d", madeWith: "m" }).assumed.some((a) => a.startsWith("The roof's parts")), "nothing proposed");
 });
@@ -5321,7 +5371,7 @@ function checkHouse() {
   const e = photoRouteHouse();
   const rear = sideStarting(e, "Rear wall");
   const sides = e.sides.map((s) => (s.id !== rear.id ? s : { ...s, openings: s.openings.map((o) => ({ ...o, hiddenBy: "deck railing" })) }));
-  return { ...e, sides, roof: x.withWingAnswer(e.roof, roofOf(e).roof, sideStarting(e, "Garage front, west").id, "gable") };
+  return { ...e, sides, roof: x.withWingAnswer(e.roof, roofOf(e).roof, sideStarting(e, "Garage front, left").id, "gable") };
 }
 const WINDOW_LINE = `Rear wall: a window 5'11" × 7'2", read off a photo that hid part of it (deck railing). Check it is a window.`;
 const DROP_LINE = `The garage's eave is drawn 1'6" under the house's: assumed, as nothing measured it. Measure how much lower it is.`;
@@ -5333,7 +5383,7 @@ test("his house: two rows - the back wall's window behind the railing, and the g
   const [win, drop] = rows;
   assert(win.kind === "opening" && win.why === "hidden" && win.sideId === sideStarting(e, "Rear wall").id && win.openingKind === "window", JSON.stringify(win));
   assert(win.title === `Rear wall: window 5'11" × 7'2"` && win.words === "Part of it is hidden in the photo (deck railing).", `${win.title} / ${win.words}`);
-  assert(drop.kind === "drop" && drop.garage && drop.sideId === sideStarting(e, "Garage front, west").id && drop.feet === 1.5, JSON.stringify(drop));
+  assert(drop.kind === "drop" && drop.garage && drop.sideId === sideStarting(e, "Garage front, left").id && drop.feet === 1.5, JSON.stringify(drop));
   assert(drop.question === "How much lower is the garage's eave than the house's?", drop.question);
   // Not asked: the side door, 4'4" over the level but at the top of the side yard's steps (on the ground there); the deck door
   // 7'6" up, the deck under the roof at its foot. Said open, the deck's door is asked: 7'6" up with nothing under it.
@@ -5505,14 +5555,14 @@ test("attached homes in 3D and on the elevations: the party wall bare, the cut a
   const wall = m.walls.find((w) => w.sideId === "left");
   assert(wall.shared && wall.faces.length === 0 && wall.openings.length === 0, "bare");
   // From the front the Left wall is edge-on: the cut, the neighbour's home to the left.
-  const south = x.houseView(m, "south");
+  const south = x.houseView(m, "front");
   assert(south.party.length === 1 && south.party[0].side === -1 && Math.abs(south.party[0].x - south.minX) < 1e-6, JSON.stringify(south.party));
   // From the west it faces the viewer: drawn, marked shared.
-  const west = x.houseView(m, "west");
+  const west = x.houseView(m, "left");
   assert(west.pieces.some((p) => p.type === "wall" && p.shared), "the shared wall seen from the west");
   // A detached home: no cut, and no wall marked.
   const d = x.exteriorModel(attached(24, 40, "left", [], undefined)).model;
-  assert(x.houseView(d, "south").party.length === 0 && d.walls.every((w) => !w.shared), "nothing for a detached home");
+  assert(x.houseView(d, "front").party.length === 0 && d.walls.every((w) => !w.shared), "nothing for a detached home");
 });
 
 test("two storeys on a shared wall: the upper floor's side over it is shared with nothing more set, and the roof is cut the same", () => {
@@ -6067,7 +6117,7 @@ test("the owner's house on the report and the scope: its own facts, tables and l
   for (const want of ["Stucco trim – window surrounds", "Stucco trim – door surrounds", "Stucco trim – garage door surrounds", "Stucco trim – keystones", "Pilasters – stucco wrap", "Columns – stucco wrap", "Columns – caps", "Columns – bases"]) assert(totals.includes(want), `${want} in ${totals.join(" | ")}`);
   // The east wall's five, seen only edge-on, in one note; the porch window's band behind the railing in its own. Check these asks each.
   const notes = r.notes.filter((n) => /surrounds? round/.test(n));
-  assert(notes.length === 2 && notes.some((n) => /^East side wall: the surrounds round 5 openings - .* \(seen only edge-on/.test(n)) && notes.some((n) => /porch railing/.test(n)), notes.join(" | "));
+  assert(notes.length === 2 && notes.some((n) => /^Right side wall: the surrounds round 5 openings - .* \(seen only edge-on/.test(n)) && notes.some((n) => /porch railing/.test(n)), notes.join(" | "));
   assert(x.exteriorChecks(e, x.exteriorQuantities(e)).filter((c) => c.kind === "trim").length === 6, "six to tap on Check these");
   const lines = x.exteriorScopeLines({ ...e, scope: { roofing: false, sides: e.sides.map((s) => s.id), soffitFascia: false, eavestrough: false } }).siding;
   assert(lines.some((l) => /^Stucco trim – window surrounds – 9 – /.test(l)) && lines.some((l) => /^Columns – stucco wrap – 2 – /.test(l)) && lines.some((l) => /^Pilasters – stucco caps – 4$/.test(l)), lines.join("\n"));
@@ -6081,12 +6131,12 @@ test("the owner's house drawn: one dark stucco and white trim round the house, t
   // Every stucco face one colour, the bay step's too - no photo read it.
   const faces = model.walls.flatMap((w) => w.faces.filter((f) => f.kind === "stucco"));
   assert(faces.length > 0 && faces.every((f) => f.colour === c.faces.stucco), "one stucco");
-  const south = x.houseView(model, "south");
+  const south = x.houseView(model, "front");
   const trimmedWalls = south.pieces.filter((p) => p.type === "wall" && p.trim?.length);
-  assert(trimmedWalls.length >= 3, `${trimmedWalls.length} walls with trim facing south`);
-  for (const compass of ["south", "east", "west"]) {
-    const v = x.houseView(model, compass);
-    assert(v.pieces.some((p) => p.type === "column"), `the porch's columns from the ${compass}`);
+  assert(trimmedWalls.length >= 3, `${trimmedWalls.length} walls with trim on the front`);
+  for (const from of ["front", "right", "left"]) {
+    const v = x.houseView(model, from);
+    assert(v.pieces.some((p) => p.type === "column"), `the porch's columns from the ${from}`);
   }
   // A house with no colour read is drawn as it always was.
   assert(x.houseColours(ownerPlain()) === null && x.exteriorModel(ownerPlain()).model.walls.every((w) => !w.backgroundColour && !w.trim), "nothing new on the plain house");
@@ -6146,9 +6196,9 @@ function sideSplit(living = ft(12, 6)) {
   return e;
 }
 
-/** The levels a compass view says, as (label, feet over its ground). */
-const levelsOf = (model, compass) => {
-  const v = x.houseView(model, compass);
+/** The levels a view says, as (label, feet over its ground). */
+const levelsOf = (model, from) => {
+  const v = x.houseView(model, from);
   return v.levels.map((l) => [l.label, Math.round((l.y - v.groundY) * 12) / 12]);
 };
 
@@ -6202,8 +6252,8 @@ test("a side-split: the living section's roof half a level up, against the two-s
   const groundAt = Math.min(...model.walls.filter((w) => w.grade).flatMap((w) => w.grade.map((g) => g.y)));
   near(Math.max(...foot.map((p) => p.y)) - groundAt, 12.5 + 55 / 12, "its foot on the living roof's ridge", 1e-6);
   // Each view says each level for what it is: the floor line is no eave.
-  assert(JSON.stringify(levelsOf(model, "south")) === JSON.stringify([["Floor line", 9], ["Eave", 12.5], ["Eave", 17.5], ["Top of roof", levelsOf(model, "south")[3][1]]]), JSON.stringify(levelsOf(model, "south")));
-  assert(JSON.stringify(levelsOf(model, "east").slice(0, 3)) === JSON.stringify([["Floor line", 9], ["Eave", 12.5], ["Eave", 17.5]]), JSON.stringify(levelsOf(model, "east")));
+  assert(JSON.stringify(levelsOf(model, "front")) === JSON.stringify([["Floor line", 9], ["Eave", 12.5], ["Eave", 17.5], ["Top of roof", levelsOf(model, "front")[3][1]]]), JSON.stringify(levelsOf(model, "front")));
+  assert(JSON.stringify(levelsOf(model, "right").slice(0, 3)) === JSON.stringify([["Floor line", 9], ["Eave", 12.5], ["Eave", 17.5]]), JSON.stringify(levelsOf(model, "right")));
 });
 
 test("a side-split read within a foot of the floor line is one floor: no lift", () => {
@@ -6240,7 +6290,7 @@ test("an up/down duplex: one building, two storeys, nothing split", () => {
   const facts = x.exteriorReport(e, { title: "Duplex", date: "Oct 19, 2026", madeWith: "Scrivn" }).facts;
   assert(facts[0].label === "Home" && facts[0].value === "Duplex (up/down): two units, one over the other, measured as one building.", JSON.stringify(facts[0]));
   const model = x.exteriorModel(e).model;
-  for (const c of ["south", "east", "north", "west"]) assert(JSON.stringify(levelsOf(model, c).slice(0, 2)) === JSON.stringify([["Floor line", 9], ["Eave", 18]]), `${c}: ${JSON.stringify(levelsOf(model, c))}`);
+  for (const c of x.VIEWS) assert(JSON.stringify(levelsOf(model, c).slice(0, 2)) === JSON.stringify([["Floor line", 9], ["Eave", 18]]), `${c}: ${JSON.stringify(levelsOf(model, c))}`);
   // A duplex or a split-level shares no wall: none proposed on the photo route's shape, none asked on the plan.
   const box = [{ x: 0, y: 0 }, { x: 40, y: 0 }, { x: 40, y: 28 }, { x: 0, y: 28 }];
   assert(x.defaultShared(box, "duplex_updown").length === 0 && x.defaultShared(box, "split").length === 0 && x.defaultShared(box, "semi").length === 1, "nothing shared");

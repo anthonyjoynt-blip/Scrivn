@@ -5,6 +5,7 @@ import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { allSides, elevationFaces, type Exterior, exteriorQuantities, formatPitch, lengthToCheck, pieceLine, ROOF_TOTAL_KEYS, ROOF_TOTAL_LABEL, type RoofTotalKey, houseColours, sharedOf, sourceWords, trimShapes } from "@/lib/exterior";
 import { sizesFrom } from "@/lib/exteriorScale";
+import { frontFacesOf } from "@/lib/exteriorViews";
 import { buildingRender, type SketchRender } from "@/lib/sketchAttachments";
 import { formatQuantity } from "@/lib/sketchQuantities";
 import { lineTotals, textWidthEm } from "@/lib/roofLabels";
@@ -129,6 +130,8 @@ function roofSvg(exterior: Exterior, name: string | undefined, markup: Markup): 
     },
     // A wall shared with the neighbour's home (2026-10-17), hatched as on the report.
     shared: sharedOf(exterior),
+    // A north arrow when the front's bearing is known (2026-10-20).
+    frontFacesDeg: frontFacesOf(exterior),
   };
   const planW = WIDTH - 80;
   const planH = Math.round(planW / aspect(markup(createElement(RoofPlanDrawing, props))));

@@ -834,6 +834,13 @@ export interface Exterior {
   /** Semi-detached, a townhouse's end or middle unit (2026-10-17): a label; the sides' `shared` flags are the truth. */
   homeType?: HomeType;
   /**
+   * Which way the front faces (2026-10-20): its compass bearing, degrees clockwise from north (the front is the first
+   * side, along the plan's bottom). It names the report's four views north, south, east and west, and puts a north
+   * arrow on the plans (lib/exteriorViews.ts). Absent: not known - the views are the front, back and sides. Another
+   * building has its own.
+   */
+  frontFacesDeg?: number;
+  /**
    * Being typed in side by side round the house and not yet back at the start (2026-10-13): the last
    * side's corner is not known until the next is added, so there is no footprint until it is closed.
    */

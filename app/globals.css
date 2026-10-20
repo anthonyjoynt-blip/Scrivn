@@ -3339,6 +3339,14 @@ button:disabled {
   font-weight: 600;
   color: var(--text-muted);
 }
+/* Front faces (2026-10-20): eight compass points and Not set, small enough to sit in a row or two on a phone. */
+.exterior-compass {
+  gap: 6px;
+}
+.exterior-compass .option-btn {
+  padding: 7px 10px;
+  min-width: 44px;
+}
 .exterior-field input,
 .exterior-field select,
 .exterior-row select,

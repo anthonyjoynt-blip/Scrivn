@@ -7,27 +7,109 @@ import type { Pt } from "./roof";
  * The house's four elevations (2026-10-16, the owner: "consider 4 main elevation views for n/s/e/w. the
  * individual sides and shapes are fine to include but an overview of the full face on view would be nice
  * as well"): the 3D model (lib/exterior3d.ts, the walls already standing up to the roof) looked at
- * square-on from each compass point, drawn as an architect's elevation sheet draws it.
+ * square-on from each side, drawn as an architect's elevation sheet draws it.
  *
  * An orthographic view: what is nearer covers what is behind, drawn back to front - each wall that
  * faces the view with its cladding and openings, each slope of the roof that faces it, the fascia, the
  * posts. A wall or a slope turned away is behind the house and is left out; one seen edge-on draws nothing.
  *
- * The compass: the plan's front, along its bottom, is SOUTH - Scrivn has no bearing for a house - so the
- * south elevation is the front, the north the back, and east is to the right of the front.
+ * Which way they are named (2026-10-20, the owner: "fix the front label to north"): the views are always square to
+ * the house - from in front of it, from its right, from behind it and from its left, as you face its front from
+ * outside - and are named by the compass only when the exterior says which way its front faces
+ * (`Exterior.frontFacesDeg`). Then each is named by the way its wall faces, to the nearest of north, east, south
+ * and west: his front faces 16 degrees east of north, so its view is the North elevation and his long side-yard
+ * wall, on the right, the West. Without it they are the Front, Right side, Back and Left side elevations: before
+ * 2026-10-20 the front was taken to be south, which named his house's every view wrong.
  *
  * Feet. In a view, x runs left to right as the viewer sees it, y is up as the model has it.
  */
 
-export type Compass = "south" | "east" | "north" | "west";
+/** Which side of the house a view is from, as you face the house's front from outside. */
+export type ViewFrom = "front" | "right" | "back" | "left";
 
 /** In the order an elevation sheet gives them: the front, round to the right. */
-export const COMPASS: Compass[] = ["south", "east", "north", "west"];
+export const VIEWS: ViewFrom[] = ["front", "right", "back", "left"];
 
-export const COMPASS_WORD: Record<Compass, string> = { south: "South", east: "East", north: "North", west: "West" };
+const VIEW_WORD: Record<ViewFrom, string> = { front: "Front", right: "Right side", back: "Back", left: "Left side" };
 
-/** The way the viewer looks, in plan (x right, y to the back): from the south they look north. */
-const LOOKS: Record<Compass, Pt> = { south: { x: 0, y: 1 }, east: { x: -1, y: 0 }, north: { x: 0, y: -1 }, west: { x: 1, y: 0 } };
+export type Compass = "north" | "east" | "south" | "west";
+
+/** Clockwise from north. */
+const COMPASS_ROUND: Compass[] = ["north", "east", "south", "west"];
+
+export const COMPASS_WORD: Record<Compass, string> = { north: "North", east: "East", south: "South", west: "West" };
+
+/**
+ * The one-tap choices for which way the front faces (the exterior editor, 2026-10-20): degrees clockwise from north.
+ * "Not set" is none of them: the exterior has no `frontFacesDeg`.
+ */
+export const FRONT_FACES_CHOICES: { deg: number; label: string; words: string }[] = [
+  { deg: 0, label: "N", words: "north" },
+  { deg: 45, label: "NE", words: "northeast" },
+  { deg: 90, label: "E", words: "east" },
+  { deg: 135, label: "SE", words: "southeast" },
+  { deg: 180, label: "S", words: "south" },
+  { deg: 225, label: "SW", words: "southwest" },
+  { deg: 270, label: "W", words: "west" },
+  { deg: 315, label: "NW", words: "northwest" },
+];
+
+/** Degrees from 0 up to 360. */
+export function normalDeg(deg: number): number {
+  return ((deg % 360) + 360) % 360;
+}
+
+/** Which way an exterior's front faces, 0 up to 360 clockwise from north; undefined when not set. */
+export function frontFacesOf(exterior: { frontFacesDeg?: number }): number | undefined {
+  const d = exterior.frontFacesDeg;
+  return typeof d === "number" && Number.isFinite(d) ? normalDeg(d) : undefined;
+}
+
+/** How far each view's wall faces round from the front's: the right side a quarter anticlockwise of it, as a map has it. */
+const TURN: Record<ViewFrom, number> = { front: 0, right: -90, back: 180, left: 90 };
+
+/** The way the wall a view looks at faces, clockwise from north, for a front facing [frontFacesDeg]. */
+export function viewFacesDeg(from: ViewFrom, frontFacesDeg: number): number {
+  return normalDeg(frontFacesDeg + TURN[from]);
+}
+
+/**
+ * The way a direction on the plan faces, clockwise from north (the plan: x to the right of the front, y to the back,
+ * the front facing -y). The plan is the map turned, never mirrored.
+ */
+export function planFacesDeg(dir: Pt, frontFacesDeg: number): number {
+  return normalDeg(frontFacesDeg + 180 + (Math.atan2(dir.x, dir.y) * 180) / Math.PI);
+}
+
+/** North on the plan, a unit direction (x to the right of the front, y to the back). */
+export function northOnPlan(frontFacesDeg: number): Pt {
+  const r = (frontFacesDeg * Math.PI) / 180;
+  return { x: Math.sin(r), y: -Math.cos(r) };
+}
+
+/** The nearest of north, east, south and west; halfway between, the one clockwise (northeast is east). */
+export function compassOf(deg: number): Compass {
+  return COMPASS_ROUND[Math.round(Math.round(normalDeg(deg) * 1e6) / 1e6 / 90) % 4] as Compass;
+}
+
+/** "Front elevation" with no bearing; "North elevation" for a front facing 16 degrees. */
+export function viewTitle(from: ViewFrom, frontFacesDeg?: number): string {
+  return frontFacesDeg === undefined ? `${VIEW_WORD[from]} elevation` : `${COMPASS_WORD[compassOf(viewFacesDeg(from, frontFacesDeg))]} elevation`;
+}
+
+/** "north", "northeast", or "16° east of north": which way a bearing faces, in words. */
+export function bearingWords(deg: number): string {
+  const d = normalDeg(Math.round(deg));
+  const eight = FRONT_FACES_CHOICES.find((c) => c.deg === d);
+  if (eight) return eight.words;
+  const c = Math.round(d / 90) % 4;
+  const off = normalDeg(d - c * 90);
+  const signed = off > 180 ? off - 360 : off;
+  return `${Math.abs(signed)}° ${COMPASS_ROUND[(c + (signed > 0 ? 1 : 3)) % 4]} of ${COMPASS_ROUND[c]}`;
+}
+
+/** The way the viewer looks, in plan (x right, y to the back): from in front they look to the back. */
+const LOOKS: Record<ViewFrom, Pt> = { front: { x: 0, y: 1 }, right: { x: -1, y: 0 }, back: { x: 0, y: -1 }, left: { x: 1, y: 0 } };
 
 /** A wall seen nearer than this to edge-on is not drawn: it would be a sliver. */
 const FACING = 0.2;
@@ -94,7 +176,9 @@ export interface ViewColumn {
 export type ViewPiece = ViewWall | ViewRoof | ViewPost | ViewColumn;
 
 export interface HouseView {
-  compass: Compass;
+  from: ViewFrom;
+  /** "North elevation" when the front's bearing is known, else "Front elevation" (`viewTitle`). */
+  title: string;
   /** Back to front: the order they are drawn in. */
   pieces: ViewPiece[];
   /** The ground as the view sees it at the foot of the house, left to right: each stretch the nearest wall's. */
@@ -159,9 +243,9 @@ function yAt(line: Pt[], x: number): number {
   return last.y;
 }
 
-/** The house seen from [compass]. */
-export function houseView(model: ExteriorModel3D, compass: Compass): HouseView {
-  const look = LOOKS[compass];
+/** The house seen from [from]: named by the compass when [frontFacesDeg], the way its front faces, is known. */
+export function houseView(model: ExteriorModel3D, from: ViewFrom, frontFacesDeg?: number): HouseView {
+  const look = LOOKS[from];
   // The viewer's right hand: the way they look, turned a quarter clockwise.
   const right = { x: look.y, y: -look.x };
   const sx = (p: Pt) => p.x * right.x + p.y * right.y;
@@ -353,7 +437,7 @@ export function houseView(model: ExteriorModel3D, compass: Compass): HouseView {
   if (floorY !== null && !levels.some((l) => Math.abs(l.y - floorY) < 0.5)) levels.push({ label: "Floor line", y: floorY });
   if (roofs.length > 0 && !levels.some((l) => Math.abs(l.y - topY) < 0.5)) levels.push({ label: "Top of roof", y: topY });
   levels.sort((p, q) => p.y - q.y);
-  return { compass, pieces, ground: dedupeX(ground), minX, maxX, topY, groundY, sides, levels, party };
+  return { from, title: viewTitle(from, frontFacesDeg), pieces, ground: dedupeX(ground), minX, maxX, topY, groundY, sides, levels, party };
 }
 
 /**

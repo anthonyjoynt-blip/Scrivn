@@ -17,6 +17,7 @@ import {
 } from "@/components/sketch/exteriorDrawings";
 import { allSides, elevationFaces, type Exterior, houseColours, lengthToCheck, sharedOf, trimShapes } from "./exterior";
 import { type ExteriorReport, LINE_WORD, type ReportTable, roofPlanCaption } from "./exteriorReport";
+import { bearingWords, frontFacesOf } from "./exteriorViews";
 import { type Letterhead, letterheadInkColor } from "./letterhead";
 import { drawLetterhead, drawPhotoPages, drawTables, LETTERHEAD_HEIGHT, PAGE_MARGIN, type PdfPhoto } from "./pdf";
 import { paintSvg, parseSvg, pdfSafe, svgViewBox } from "./svgPdf";
@@ -176,7 +177,7 @@ function fitFootprint(input: ReportPdfInput, part: Part, w: number, h: number): 
   const plusMinus = plusMinusOf(report.exterior);
   // Each scale tried with the lettering it gives, so the names that widen the frame are in what is measured.
   for (const [ptPerFt, text] of SCALES) {
-    const made = drawing(input, createElement(FootprintDrawing, { footprint: fp, nameOf, approx, plusMinus, shared: sharedOf(report.exterior), upper, fontFeet: 8 / ptPerFt }));
+    const made = drawing(input, createElement(FootprintDrawing, { footprint: fp, nameOf, approx, plusMinus, shared: sharedOf(report.exterior), upper, fontFeet: 8 / ptPerFt, frontFacesDeg: frontFacesOf(report.exterior) }));
     if (made.box.width * ptPerFt <= w && made.box.height * ptPerFt <= h - 24) return { made, ptPerFt, text };
   }
   return null;
@@ -305,6 +306,7 @@ function roofPage(doc: jsPDF, input: ReportPdfInput, part: Part): void {
     approx: (id: string) => report.exterior.sides.find((s) => s.id === id)?.lengthFrom === "drawn",
     plusMinus: plusMinusOf(report.exterior),
     shared: sharedOf(report.exterior),
+    frontFacesDeg: frontFacesOf(report.exterior),
   };
   // Room under it for the legend, the slopes and the notes.
   const below = 64 + roof.notes.length * 22;
@@ -406,11 +408,15 @@ function elevationPages(doc: jsPDF, input: ReportPdfInput, part: Part): void {
 
   doc.addPage();
   const views = report.views;
+  // Named by the compass only when the front's bearing is known (2026-10-20): never guessed.
+  const facing = frontFacesOf(report.exterior);
   let y = heading(
     doc,
     titled(part, "Elevations"),
     views.length > 0
-      ? `The whole ${part.name ? "building" : "house"} square-on from each side, then each side on its own, to scale. The plan's front is taken as south: no compass bearing is measured.`
+      ? `The whole ${part.name ? "building" : "house"} square-on from each side, then each side on its own, to scale. ${
+          facing === undefined ? "No compass direction is set, so the views are the front, the back and the sides as you face the front." : `Each view is named by the way its wall faces: the front faces ${bearingWords(facing)}.`
+        }`
       : "Each side as seen from outside, left to right, to scale: heights from the ground under each end, every opening's size over it, the length under it.",
   );
   // The materials, as the faces show them (2026-10-16): a swatch of each with its name - in its colour off the photos,
@@ -446,7 +452,7 @@ function elevationPages(doc: jsPDF, input: ReportPdfInput, part: Part): void {
   }
 
   /*
-    The house from the south, east, north and west first (2026-10-16, the owner: "an overview of the full
+    The house from the front, right, back and left first (2026-10-16, the owner: "an overview of the full
     face on view would be nice as well"), all four at ONE standard scale - the largest at which each fits
     the page's width and about 300 points - so they compare as an architect's sheet does. Lettered at
     about 7.5 points, as the sides are.
