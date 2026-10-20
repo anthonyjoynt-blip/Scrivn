@@ -1,0 +1,47 @@
+{
+ "about": "The owner's tapes of 10-20, held out until the runner's first pass was done (the comparison in docs/house-runner.md).",
+ "shed": {
+  "tapes": [
+   {
+    "id": "t2",
+    "said": "outside, the front wall with the roll-up: 195 in",
+    "feet": 16.25,
+    "what": "wall",
+    "kind": "side",
+    "side": "C1-C2"
+   },
+   {
+    "id": "t3",
+    "said": "outside, the end walls: 147 in",
+    "feet": 12.25,
+    "what": "wall",
+    "kind": "side",
+    "side": "C2-C3"
+   }
+  ],
+  "heights": [
+   {
+    "side": "C3-C4",
+    "feet": 7.333333333333333,
+    "said": "low wall 88 in (the rear wall)"
+   },
+   {
+    "side": "C1-C2",
+    "feet": 7.333333333333333,
+    "said": "every eave of a one-slope roof is the low wall's; the roof makes the rest"
+   }
+  ]
+ },
+ "house": {
+  "tapes": [
+   {
+    "id": "t4",
+    "said": "the bump out at the back is 6' (just right of the 3 windows on the rear)",
+    "feet": 6,
+    "what": "wall",
+    "kind": "side",
+    "side": "C6-C7"
+   }
+  ]
+ }
+}

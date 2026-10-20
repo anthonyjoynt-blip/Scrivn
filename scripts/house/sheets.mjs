@@ -283,7 +283,8 @@ export async function tapStrip(px, taps, title, { half = 100, marks = {} } = {})
   for (const t of taps) {
     const points = [{ x: t.x, y: t.y, colour: "#ff3355" }];
     if (t.snapped) points.push({ x: t.snapped[0], y: t.snapped[1], colour: "#39ff14" });
-    const png = await zoomPng(px, t.x, t.y, half, { ...marks, points }, CROP);
+    const checks = t.line ? [{ a: t.line[0], b: t.line[1], text: "" }] : [];
+    const png = await zoomPng(px, t.x, t.y, half, { ...marks, points, checks: [...(marks.checks ?? []), ...checks] }, CROP);
     const meta = await sharp(png).metadata();
     const tag = `<svg xmlns="http://www.w3.org/2000/svg" width="${meta.width}" height="${meta.height}">${label(meta.width / 2, meta.height - 6, t.words, t.corner < 0 ? C.unnumbered : t.named ? C.named : C.numbered, { size: 15, w: meta.width, h: meta.height, anchor: "middle" })}</svg>`;
     crops.push(await sharp(png).composite([{ input: Buffer.from(tag), left: 0, top: 0 }]).png().toBuffer());
