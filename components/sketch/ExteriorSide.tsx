@@ -1,6 +1,6 @@
 "use client";
 
-import { type PointerEvent, type ReactNode, useRef, useState } from "react";
+import { type PointerEvent, type ReactNode, useMemo, useRef, useState } from "react";
 import { formatFeetInches, newSketchId } from "@/lib/sketch";
 import {
   bandLabel,
@@ -34,7 +34,11 @@ import {
 import { MIN_SIDE_FEET, sideChain, withSideLength, withUpperSideLength } from "@/lib/exteriorPlan";
 import { surroundWords } from "@/lib/exteriorReport";
 import { scaleOf } from "@/lib/exteriorScale";
-import type { SideTrace } from "@/lib/exteriorTrace";
+import type { ProposedDeck, SideTrace } from "@/lib/exteriorTrace";
+import { decksOf, withDeckRead } from "@/lib/decks";
+import { exteriorModel } from "@/lib/exterior3d";
+import { decksOnSide } from "@/lib/exteriorViews";
+import type { CameraAt } from "@/lib/roofPhotoRead";
 import type { Pt } from "@/lib/roof";
 import type { ElevationView } from "./exteriorDrawings";
 import { Cell, Choice, CountInput, FeetField, FeetInput, lf, sf } from "./exteriorFields";
@@ -127,6 +131,12 @@ export function SidePane({
   /** The side as a drag leaves it, until the drag ends and it is put on the side. */
   const [dragged, setDragged] = useState<ExteriorSide | null>(null);
   const [confirmRemove, setConfirmRemove] = useState(false);
+  // The decks in front of it (2026-10-20), drawn over it as the report draws them; none, nothing worked out.
+  const deckPieces = useMemo(() => {
+    if (decksOf(exterior).length === 0) return [];
+    const m = exteriorModel(exterior);
+    return m.ok ? decksOnSide(m.model, side.id) : [];
+  }, [exterior, side.id]);
   const press = useRef<Press | null>(null);
   const apply = useRef<((s: ExteriorSide) => ExteriorSide) | null>(null);
 
@@ -402,6 +412,8 @@ export function SidePane({
           roofAssumed={q.pitch.source === "assumed"}
           scaleFactor={scaleOf(exterior)?.factor ?? null}
           pieceOnRoof={photoPieceOnRoof(exterior, q.roof, q.roof?.pitch ?? q.pitch.value ?? 0, side.id)}
+          {...(deckPieces.length > 0 ? { decks: deckPieces } : {})}
+          {...(decksOf(exterior).some((d) => d.sideId === side.id) ? { onDeckRead: (read: ProposedDeck, cameraAt: CameraAt | null) => onChange((e) => withDeckRead(e, side.id, read, cameraAt).exterior) } : {})}
           caption={
             <figcaption className="field-note">
               {nameOf(side)} elevation, to scale, seen from outside.

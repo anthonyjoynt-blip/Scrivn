@@ -17,7 +17,9 @@ import {
   type SideQuantities,
   trimLines,
 } from "@/lib/exterior";
+import { decksOf, decksQuantities, decksWithoutSide } from "@/lib/decks";
 import { roofWithoutSides, withSideAfter } from "@/lib/exteriorPlan";
+import { DecksPane } from "./DecksPane";
 import { isOldTapeNote, scaleFlags, sizesLine } from "@/lib/exteriorScale";
 import { buildingKeyOf } from "@/lib/exteriorRequests";
 import { newSketchId } from "@/lib/sketch";
@@ -325,6 +327,8 @@ export function ExteriorEditor({
     const at = list.findIndex((s) => s.id === id);
     change((prev) => ({
       ...prev,
+      // A deck against it keeps its place, free-standing (2026-10-20): nothing measured goes with the wall.
+      ...(prev.decks ? { decks: decksWithoutSide(prev, id) } : {}),
       sides: prev.sides.filter((s) => s.id !== id),
       ...(prev.upper ? { upper: { ...prev.upper, sides: prev.upper.sides.filter((s) => s.id !== id) } } : {}),
       roof: roofWithoutSides(prev.roof, (x) => x === id),
@@ -344,9 +348,15 @@ export function ExteriorEditor({
               Photos
             </button>
           )}
-          <button type="button" className={`option-btn${current === null && view !== "photos" ? " selected" : ""}`} aria-pressed={current === null && view !== "photos"} onClick={() => setView("plan")}>
+          <button type="button" className={`option-btn${current === null && view !== "photos" && view !== "decks" ? " selected" : ""}`} aria-pressed={current === null && view !== "photos" && view !== "decks"} onClick={() => setView("plan")}>
             Plan &amp; roof
           </button>
+          {/* Decks and porches (2026-10-20, lib/decks.ts): their own tab, once there is an outline to stand them against. */}
+          {(q.footprint.closes || decksOf(exterior).length > 0) && (
+            <button type="button" className={`option-btn${view === "decks" ? " selected" : ""}`} aria-pressed={view === "decks"} onClick={() => setView("decks")}>
+              Decks{decksOf(exterior).length > 0 ? ` (${decksOf(exterior).length})` : ""}
+            </button>
+          )}
           {allSides(exterior).map((s) => (
             <button key={s.id} type="button" className={`option-btn${view === s.id ? " selected" : ""}`} aria-pressed={view === s.id} onClick={() => setView(s.id)}>
               {s.name.trim() || "Side"}
@@ -376,6 +386,8 @@ export function ExteriorEditor({
       {view === "photos" && exterior.photoRoute ? (
         // Taps and tapes are the route's own inputs, not a change to what was measured: the plain updater.
         <PhotoRoutePane exterior={exterior} readOnly={readOnly} onChange={(f) => onChange((prev) => (prev ? f(prev) : prev))} />
+      ) : view === "decks" ? (
+        <DecksPane exterior={exterior} readOnly={readOnly} onChange={change} />
       ) : current ? (
         <SidePane
           key={current.id}
@@ -479,6 +491,16 @@ function ExteriorScopePicker({
         )}
         {tick("Soffit & fascia", scope.soffitFascia, noRoof, () => onChange((s) => ({ ...s, soffitFascia: !s.soffitFascia })), "soffit", ask?.soffitFascia)}
         {tick("Eavestrough & downspouts", scope.eavestrough, noRoof, () => onChange((s) => ({ ...s, eavestrough: !s.eavestrough })), "trough", ask?.eavestrough)}
+        {/* Each deck (2026-10-20): its lines go on with the siding crew's, as the exterior crew builds it. */}
+        {decksOf(exterior).map((d) =>
+          tick(
+            d.name,
+            (scope.decks ?? []).includes(d.id),
+            false,
+            () => onChange((s) => ({ ...s, decks: (s.decks ?? []).includes(d.id) ? (s.decks ?? []).filter((x) => x !== d.id) : [...(s.decks ?? []), d.id] })),
+            `deck-${d.id}`,
+          ),
+        )}
       </div>
       {noRoof && <p className="field-note">Roofing, soffit, fascia and eavestrough need the roof: the outline closed round the house, or its totals typed on the plan.</p>}
       {all.length > 0 && <pre className="document-text exterior-lines">{all.map((l) => `- ${l}`).join("\n")}</pre>}
@@ -579,6 +601,17 @@ function ExteriorTotals({ exterior, q }: { exterior: Exterior; q: ExteriorQuanti
               )}
             </>
           )}
+          {/* The decks (2026-10-20): each its area, and its railings by kind. */}
+          {decksQuantities(exterior, q.roof).map((d) => (
+            <tr key={d.deck.id}>
+              <th scope="row">{d.name}</th>
+              <td>
+                {sf(d.areaSquareFeet)}
+                {d.railingByKind.length > 0 ? `, ${d.railingByKind.map((r) => `${r.label} ${lf(r.feet)}`).join(", ")}` : ""}
+                {d.stairs.length > 0 ? `, ${d.stairs.map((s) => `${Math.round(s.stair.risers)} risers`).join(", ")}` : ""}
+              </td>
+            </tr>
+          ))}
           {r && (
             <>
               <tr>

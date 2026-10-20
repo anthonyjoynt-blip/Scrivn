@@ -50,6 +50,7 @@ import { isLegacyRoof, proposeRoof, type RoofProposal, type WingDrop, wingDrops 
 import { PIECE_LENGTH_KEYS, pieceCount, pieceCounts, type PieceFigures, pieceFigures, pieceFromPhotos, ROOF_PIECE_LABEL, type RoofPiece } from "./roofPieces";
 import { type PhotoPiece, type ResolvedPhotoPiece, resolvePhotoPiece, type UpperShown } from "./roofPhotoShapes";
 import type { PhotoRouteState } from "./photoRoute";
+import type { Deck } from "./decks";
 
 export type CladdingKind = "stucco" | "vinyl" | "wood_shake" | "eifs" | "wood" | "fibre_cement" | "brick" | "stone" | "metal" | "other";
 
@@ -820,6 +821,8 @@ export interface ExteriorScope {
   sides: string[];
   soffitFascia: boolean;
   eavestrough: boolean;
+  /** Decks whose lines the scope prices, by id (2026-10-20, lib/decks.ts). Absent: none. */
+  decks?: string[];
 }
 
 export interface Exterior {
@@ -848,6 +851,11 @@ export interface Exterior {
   roof: ExteriorRoof;
   /** A two-storey house's upper floor (2026-10-14). Absent: one storey, or two measured as tall sides. */
   upper?: UpperFloor;
+  /**
+   * Its decks and porches (2026-10-20, lib/decks.ts): each against a side or free-standing, measured off the same photos
+   * or typed in the quick-deck box. Absent: none - the exterior as it always was.
+   */
+  decks?: Deck[];
   /** Optional so an exterior drawn before the scope existed loads; absent reads as nothing in scope. */
   scope?: ExteriorScope;
   /**

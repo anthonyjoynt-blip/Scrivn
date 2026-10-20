@@ -23,6 +23,8 @@ import {
 import { polygonArea, type Pt, type RoofLineKind, type RoofPlan, type RoofSection } from "@/lib/roof";
 import { facetLabels, type LabelBox, lineTotals, placeWallNames, roofLineLabels, type SideName, textWidthEm, type WallToName } from "@/lib/roofLabels";
 import { formatQuantity } from "@/lib/sketchQuantities";
+import type { DeckPlanShape } from "@/lib/decks";
+import { deckGroundAbove, deckObstacles, DeckPiece, type DeckPieceDrawn, DeckPieces, DeckPlanMarks, DeckPlanNames, deckPlanReach, groundUnderDecks } from "./deckDrawings";
 
 /**
  * The exterior's two drawings, to scale: one side's elevation, and the roof plan. Kept apart from
@@ -516,6 +518,7 @@ export function ElevationDrawing({
   editor,
   roofAssumed = false,
   colours = null,
+  decks,
 }: {
   side: ExteriorSide;
   rise: RoofRise | null;
@@ -530,11 +533,24 @@ export function ElevationDrawing({
   base?: RoofRise | null;
   /** The house's colours (2026-10-17, `houseColours`): each material in one colour round the house. Absent: each face's own read. */
   colours?: HouseColours | null;
+  /** The decks in front of it (2026-10-20, lib/exteriorViews.ts `decksOnSide`), in its frame, back to front. Absent: none. */
+  decks?: DeckPieceDrawn[];
 }) {
   const { shape, faces, bandLines, grade, openings, fromShapes } = elevationFaces(side, rise, base);
   const L = Math.max(1, shape.lengthFeet);
   const eaveZ = shape.eaveZ;
-  const view = elevationView(side, rise, reach, fontFeet, base);
+  // A deck in front reaches past the wall's ends and down to its own ground.
+  const deckPts = (decks ?? []).flatMap((d) => d.poly);
+  const reachAll: ElevationReach | undefined =
+    deckPts.length > 0
+      ? {
+          minX: Math.min(...deckPts.map((p) => p.x), ...(reach ? [reach.minX] : [])),
+          maxX: Math.max(...deckPts.map((p) => p.x), ...(reach ? [reach.maxX] : [])),
+          minZ: Math.min(...deckPts.map((p) => p.y), ...(reach ? [reach.minZ] : [])),
+          maxZ: Math.max(...deckPts.map((p) => p.y), ...(reach ? [reach.maxZ] : [])),
+        }
+      : reach;
+  const view = elevationView(side, rise, reachAll, fontFeet, base);
   // An upper-floor side stands on the main floor and its lower roofs, not on the ground.
   const upper = shape.bottomLine !== undefined || base !== null;
   const { ext, groundZ, vx, vw, vy, vh } = view;
@@ -547,7 +563,10 @@ export function ElevationDrawing({
   const labels: ReactNode[] = [];
   const g0 = grade[0] as Pt;
   const gN = grade[grade.length - 1] as Pt;
-  const ground = [{ x: vx, y: g0.y }, ...grade, { x: vx + vw, y: gN.y }];
+  // Stepped down under a deck standing lower than the wall's own ground (a porch whose wall was measured from it).
+  const ground = groundUnderDecks([{ x: vx, y: g0.y }, ...grade, { x: vx + vw, y: gN.y }], decks ?? []);
+  // A deck's ground higher than the wall's (a lawn up from a walk-out's low ground): dashed, in front, where its stairs land.
+  const deckLawn = decks && decks.length > 0 ? deckGroundAbove(ground, decks) : null;
   // Drawn as it looks, not over the side's photo: there the photo is the look.
   const textured = !seeThrough;
 
@@ -666,6 +685,8 @@ export function ElevationDrawing({
         <OpeningGlyph key={opening.id} opening={opening} rect={rect} fs={fs} seeThrough={seeThrough} labelZ={sizeAt.get(opening.id) ?? rect.y1} plain={surrounded.has(opening.id)} plate={darkWall} />
       ))}
       {trimClear.length > 0 && <TrimDrawn pieces={trimClear} fs={fs} textured={textured} opacity={seeThrough ? 0.35 : 1} />}
+      {decks && decks.length > 0 && <DeckPieces pieces={decks} fs={fs} />}
+      {deckLawn && <line x1={deckLawn.x0} x2={deckLawn.x1} y1={Y(deckLawn.y)} y2={Y(deckLawn.y)} stroke="#5b4630" strokeWidth={2} strokeDasharray="6 3" {...stroke} />}
       <polyline points={pts(ground)} fill="none" stroke={upper ? "#4b5563" : "#5b4630"} strokeWidth={2} {...stroke} />
       {/* Where the wall stands, when the cladding runs past it. */}
       {fromShapes && (ext.minX < -1e-6 || ext.maxX > L + 1e-6) && (
@@ -762,6 +783,8 @@ export function HouseElevationDrawing({ view, fontFeet, size, roof }: { view: Ho
     <svg xmlns="http://www.w3.org/2000/svg" viewBox={`${vx} ${vy} ${vw} ${vh}`} width={size?.width} height={size?.height} role="img" aria-label={`${view.title} of the house, to scale`}>
       <rect x={vx} y={vy} width={vw} height={vh} fill="#ffffff" />
       {view.pieces.map((p, i) => {
+        // A deck's piece (2026-10-20): glass, pickets, risers, posts and screens as they look.
+        if (p.type === "deck") return <DeckPiece key={`deck-${i}`} piece={p} fs={fs} />;
         if (p.type === "post") {
           return <rect key={`post-${i}`} x={p.x0} y={Y(p.y1)} width={p.x1 - p.x0} height={p.y1 - p.y0} fill="#ffffff" stroke="#374151" strokeWidth={0.9} {...stroke} />;
         }
@@ -928,9 +951,12 @@ export function RoofPlanDrawing({
   upper = null,
   frontFacesDeg,
   size,
+  decks,
 }: {
   plan: RoofPlan;
   footprint: Footprint;
+  /** Its decks (2026-10-20): drawn under the roof, so the part the roof covers is hidden as it is from above. Absent: none. */
+  decks?: DeckPlanShape[];
   nameOf: (id: string) => string;
   slopes?: string[] | null;
   edges?: string[] | null;
@@ -1077,20 +1103,23 @@ export function RoofPlanDrawing({
   const sideNames = placeWallNames(
     walls.map(({ id, i, a, b, len, out, reach }) => ({ id, a, b, out, name: shared?.(id) ? `${nameOf(id)} · Shared wall` : nameOf(id), length: lengthWords(id, footprint.lengthsFeet[i] ?? len, approx, plusMinus), clear: shared?.(id) ? Math.max(reach, fs * 0.85) : reach })),
     nameEm,
-    { boxes: endPills.map((p) => p.box), polygons: [...roofPolys, corners] },
+    { boxes: endPills.map((p) => p.box), polygons: [...roofPolys, corners, ...deckObstacles(decks)] },
     sidesOpen ? fs * 0.45 : 0,
   );
   const facetTags = facetLabels(plan, fs);
   const obstacles: LabelBox[] = [...facetTags.map((f) => f.box), ...sideNames.map((n) => n.box), ...endPills.map((p) => p.box)];
   const labels = roofLineLabels(plan, fs * 0.62, obstacles);
-  // The frame takes in every name and pill, one stepped further out than the margin included.
+  // The frame takes in every name and pill, one stepped further out than the margin included - and the decks (2026-10-20).
   const half = (b: LabelBox) => (b.angle === 0 ? { x: b.width / 2, y: b.height / 2 } : { x: b.height / 2, y: b.width / 2 });
   const framed = [...sideNames.map((n) => n.box), ...endPills.map((p) => p.box)];
-  const fx0 = Math.min(minX - pad, ...framed.map((b) => b.x - half(b).x - fs * 0.3));
-  const fy1 = Math.max(maxY + pad, ...framed.map((b) => b.y + half(b).y + fs * 0.3));
-  const north = northArrowAt(Math.max(maxX + pad, ...framed.map((b) => b.x + half(b).x + fs * 0.3)), fy1, fs, frontFacesDeg);
+  const deckReach = decks && decks.length > 0 ? deckPlanReach(decks) : null;
+  const dx = deckReach ? [deckReach.minX - fs, deckReach.maxX + fs] : [];
+  const dy = deckReach ? [deckReach.minY - fs, deckReach.maxY + fs] : [];
+  const fx0 = Math.min(minX - pad, ...framed.map((b) => b.x - half(b).x - fs * 0.3), ...dx);
+  const fy1 = Math.max(maxY + pad, ...framed.map((b) => b.y + half(b).y + fs * 0.3), ...dy);
+  const north = northArrowAt(Math.max(maxX + pad, ...framed.map((b) => b.x + half(b).x + fs * 0.3), ...dx), fy1, fs, frontFacesDeg);
   const fx1 = north.right;
-  const fy0 = Math.min(minY - pad, ...framed.map((b) => b.y - half(b).y - fs * 0.3), north.bottom);
+  const fy0 = Math.min(minY - pad, ...framed.map((b) => b.y - half(b).y - fs * 0.3), north.bottom, ...dy);
 
   return (
     <svg
@@ -1103,6 +1132,7 @@ export function RoofPlanDrawing({
       aria-label="Roof plan, to scale"
     >
       <rect x={fx0} y={Y(fy1)} width={fx1 - fx0} height={fy1 - fy0} fill="#ffffff" />
+      {decks && decks.length > 0 && <DeckPlanMarks shapes={decks} fs={fs} names={false} />}
       {plan.facets.length === 0 && plan.shape !== "other" &&
         plan.outlineRects.map((r, i) => <rect key={i} x={r.x0} y={Y(r.y1)} width={r.x1 - r.x0} height={r.y1 - r.y0} fill={CHOSEN_FILL} />)}
       {plan.shape === "other" && <polygon points={plan.edges.map((l) => `${l.a.x},${Y(l.a.y)}`).join(" ")} fill={CHOSEN_FILL} />}
@@ -1396,6 +1426,7 @@ export function FootprintDrawing({
   size,
   fontFeet,
   frontFacesDeg,
+  decks,
 }: {
   footprint: Footprint;
   nameOf: (id: string) => string;
@@ -1410,9 +1441,12 @@ export function FootprintDrawing({
   fontFeet?: number;
   /** Which way the front faces, clockwise from north (`Exterior.frontFacesDeg`): a north arrow, only when known. */
   frontFacesDeg?: number;
+  /** Its decks (2026-10-20, lib/decks.ts `deckPlanShapes`): drawn outside it. Absent: none. */
+  decks?: DeckPlanShape[];
 }) {
   const corners = footprint.corners;
   const n = corners.length;
+  const deckReach = decks && decks.length > 0 ? deckPlanReach(decks) : null;
   const xs = corners.map((p) => p.x);
   const ys = corners.map((p) => p.y);
   const minX = Math.min(...xs);
@@ -1432,19 +1466,24 @@ export function FootprintDrawing({
     const out = { x: (b.y - a.y) / len, y: -(b.x - a.x) / len };
     return { id, a, b, out, name: shared?.(id) ? `${nameOf(id)} · Shared wall` : nameOf(id), length: lengthWords(id, footprint.lengthsFeet[i] ?? len, approx, plusMinus), clear: shared?.(id) ? fs * 0.85 : fs * 0.25 } satisfies WallToName;
   });
-  const names = placeWallNames(walls, nameEm, { boxes: [areaBox], polygons: [corners] });
+  const names = placeWallNames(walls, nameEm, { boxes: [areaBox], polygons: [corners, ...deckObstacles(decks)] });
   const half = (b: LabelBox) => (b.angle === 0 ? { x: b.width / 2, y: b.height / 2 } : { x: b.height / 2, y: b.width / 2 });
   const pad = fs * 1.5;
   const boxes = names.map((m) => m.box);
-  const fx0 = Math.min(minX - pad, ...boxes.map((b) => b.x - half(b).x - fs * 0.3));
-  const fy1 = Math.max(maxY + pad, ...boxes.map((b) => b.y + half(b).y + fs * 0.3));
-  const north = northArrowAt(Math.max(maxX + pad, ...boxes.map((b) => b.x + half(b).x + fs * 0.3)), fy1, fs, frontFacesDeg);
+  // The decks reach past the house (2026-10-20): the frame takes them in.
+  const dx = deckReach ? [deckReach.minX - pad, deckReach.maxX + pad] : [];
+  const dy = deckReach ? [deckReach.minY - pad, deckReach.maxY + pad] : [];
+  const fx0 = Math.min(minX - pad, ...boxes.map((b) => b.x - half(b).x - fs * 0.3), ...dx);
+  const fy1 = Math.max(maxY + pad, ...boxes.map((b) => b.y + half(b).y + fs * 0.3), ...dy);
+  const north = northArrowAt(Math.max(maxX + pad, ...boxes.map((b) => b.x + half(b).x + fs * 0.3), ...dx), fy1, fs, frontFacesDeg);
   const fx1 = north.right;
-  const fy0 = Math.min(minY - pad, ...boxes.map((b) => b.y - half(b).y - fs * 0.3), north.bottom);
+  const fy0 = Math.min(minY - pad, ...boxes.map((b) => b.y - half(b).y - fs * 0.3), north.bottom, ...dy);
   return (
     <svg xmlns="http://www.w3.org/2000/svg" viewBox={`${fx0} ${Y(fy1)} ${fx1 - fx0} ${fy1 - fy0}`} width={size?.width} height={size?.height} role="img" aria-label="Footprint, to scale">
       <rect x={fx0} y={Y(fy1)} width={fx1 - fx0} height={fy1 - fy0} fill="#ffffff" />
+      {decks && decks.length > 0 && <DeckPlanMarks shapes={decks} fs={fs} names={false} />}
       <polygon points={corners.map((p) => `${p.x},${Y(p.y)}`).join(" ")} fill="#f4efe4" stroke={INK} strokeWidth={2} strokeLinejoin="round" {...stroke} />
+      {decks && decks.length > 0 && <DeckPlanNames shapes={decks} fs={fs} />}
       {upper && upper.length > 2 && <polygon points={upper.map((p) => `${p.x},${Y(p.y)}`).join(" ")} fill="none" stroke="#1b3a5c" strokeWidth={1.6} strokeDasharray="9 4" {...stroke} />}
       {walls.filter((w) => shared?.(w.id)).map((w) => (
         <PartyMark key={`party-${w.id}`} a={w.a} b={w.b} out={w.out} fs={fs} />

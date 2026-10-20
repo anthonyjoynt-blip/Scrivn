@@ -75,6 +75,7 @@ import {
   UPPER_STOREY_FEET,
   upperFootprint,
 } from "./exterior";
+import { deckGeometry, deckName, deckOuterGround, type DeckPart, deckParts, decksOf, deckTopOnWall, deckWallAlong } from "./decks";
 import { parentLayerOf, type WingDrop } from "./roofCheck";
 import { pieceCount, pieceCounts } from "./roofPieces";
 import { formatFeetInches } from "./sketch";
@@ -194,6 +195,10 @@ export interface ExteriorModel3D {
   bounds: { minX: number; maxX: number; minY: number; maxY: number; minZ: number; maxZ: number };
   /** What the view can't show as the model has it, in the estimator's words. */
   notes: string[];
+  /** The decks (2026-10-20, lib/decks.ts): each piece flat - decking, rim, posts, railings, stairs, screens. Absent with none. */
+  decks?: DeckPart[];
+  /** Each deck's ground at its outer edge, by its id: where its stairs land and its outer posts stand (`deckOuterGround`). */
+  deckGrounds?: Record<string, number>;
 }
 
 export type ExteriorModelResult = { ok: true; model: ExteriorModel3D } | { ok: false; reason: string };
@@ -723,6 +728,23 @@ export function exteriorModel(exterior: Exterior): ExteriorModelResult {
   }
   for (const post of posts) post.y0 = groundAt(samples, post.x, post.z);
 
+  // ---- The decks (2026-10-20, lib/decks.ts): each stood on its wall's own heights, its ground falling away under it ----
+  const deckList = decksOf(exterior);
+  const deckParts3d: DeckPart[] = [];
+  const deckGrounds: Record<string, number> = {};
+  for (const d of deckList) {
+    const geom = deckGeometry(exterior, d, footprint);
+    if (!geom) {
+      notes.push(`${deckName(d)} isn't drawn: the wall it stands against isn't on the outline.`);
+      continue;
+    }
+    const p = d.sideId ? prepared.find((x) => x.side.id === d.sideId) : undefined;
+    const c = geom.plan.reduce((s, q) => ({ x: s.x + q.x / geom.plan.length, y: s.y + q.y / geom.plan.length }), { x: 0, y: 0 });
+    const top = p ? deckTopOnWall(d, p.side, p.frameV, deckWallAlong(d)) : groundAt(samples, c.x, -c.y) + d.heightFeet;
+    deckParts3d.push(...deckParts(d, geom, top));
+    deckGrounds[d.id] = deckOuterGround(d, top);
+  }
+
   // ---- How far it all reaches ----------------------------------------------------------------------
   let minX = Infinity;
   let maxX = -Infinity;
@@ -742,6 +764,7 @@ export function exteriorModel(exterior: Exterior): ExteriorModelResult {
     for (const q of w.outline) grow(w.origin[0] + w.along[0] * q.x, Math.max(q.y, lowest), w.origin[2] + w.along[2] * q.x);
   }
   if (roof) for (let i = 0; i < roof.top.length; i += 3) grow(roof.top[i] as number, roof.top[i + 1] as number, roof.top[i + 2] as number);
+  for (const part of deckParts3d) for (const v of part.poly) grow(v[0], v[1], v[2]);
   const span = Math.max(maxX - minX, maxZ - minZ, 10);
   const margin = Math.max(25, span * 0.75);
   const step = Math.max(1, (span + 2 * margin) / 60);
@@ -750,7 +773,7 @@ export function exteriorModel(exterior: Exterior): ExteriorModelResult {
   const ground: Ground3D = { x0: minX - margin, z0: minZ - margin, step, nx, nz, heights: [] };
   for (let j = 0; j < nz; j++) for (let i = 0; i < nx; i++) ground.heights.push(groundAt(samples, ground.x0 + i * step, ground.z0 + j * step));
 
-  return { ok: true, model: { walls, roof, posts, ceilings, ground, eaves, bounds: { minX, maxX, minY, maxY, minZ, maxZ }, notes } };
+  return { ok: true, model: { walls, roof, posts, ceilings, ground, eaves, bounds: { minX, maxX, minY, maxY, minZ, maxZ }, notes, ...(deckParts3d.length > 0 ? { decks: deckParts3d, deckGrounds } : {}) } };
 }
 
 /** A side's trim as prisms in its wall's frame (2026-10-17), lifted as its faces are; undefined with none. */

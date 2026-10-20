@@ -38,6 +38,22 @@ import {
   type SideRoofRead,
   SIDING_KINDS,
 } from "./exterior";
+import {
+  coveredShare,
+  DECKING_LABEL,
+  deckLines,
+  type DeckPlanShape,
+  deckPlanShapes,
+  type DeckQuantities,
+  decksQuantities,
+  POST_MATERIAL_LABEL,
+  postHeightWords,
+  railingWords,
+  riseWords,
+  SCREEN_LABEL,
+  screenGroups,
+  stairWords,
+} from "./decks";
 import { exteriorModel } from "./exterior3d";
 import { checkNotes } from "./exteriorCheck";
 import { NOT_SCALED, scaleOf, sizesFrom } from "./exteriorScale";
@@ -142,6 +158,25 @@ export interface ExteriorReport {
   tables: ReportTable[];
   /** The roof plan's title line, its legend and its slopes; null with no roof drawn. */
   roof: { title: string; legend: { kind: RoofLineKind; feet: number }[]; slopes: string; notes: string[] } | null;
+  /** Its decks and porches (2026-10-20, lib/decks.ts): each with its plan, its facts and its lines, and their tables. Absent with none. */
+  decks?: ReportDecks;
+}
+
+/** One deck in the report: its plan, its facts in a few lines, and its lines as the scope prices it. */
+export interface ReportDeck {
+  q: DeckQuantities;
+  shape: DeckPlanShape;
+  /** "Rear deck · 312 SF · 7'6" up". */
+  heading: string;
+  facts: ReportFact[];
+  lines: string[];
+}
+
+export interface ReportDecks {
+  list: ReportDeck[];
+  /** Where their numbers came from, a sentence each. */
+  sources: string[];
+  tables: ReportTable[];
 }
 
 const ft = formatFeetInches;
@@ -339,6 +374,15 @@ export function exteriorReport(exterior: Exterior, meta: ReportMeta): ExteriorRe
   /** Where a wall, a height or an opening came from when nothing marks it: photos, taps on the phone, or typed in Scrivn. */
   const ownFrom = photosOnly ? "photo" : scanned ? "tapped" : "entered";
 
+  // Its decks (2026-10-20): what each covers of the roof is the roof's own, counted there.
+  const deckQs = decksQuantities(exterior, plan);
+  /** A side's line for each deck against it: "The Rear deck stands against it: 15'3" of ledger." */
+  const deckAgainst = (sideId: string): string[] =>
+    deckQs.flatMap((dq) => {
+      const feet = (dq.geometry?.edges ?? []).reduce((s, e) => s + e.against.filter((g) => g.sideId === sideId).reduce((t, g) => t + (g.toFeet - g.fromFeet), 0), 0);
+      return feet > 0.05 ? [`${dq.name} against it: ${ft(feet)} of ledger, its top ${ft(dq.heightFeet)} off the ground.`] : [];
+    });
+
   // ---- The sides, each with every dimension ----
   const sharedIds = sharedSideIds(exterior);
   const sides: ReportSide[] = every.map((side, i) => {
@@ -367,6 +411,7 @@ export function exteriorReport(exterior: Exterior, meta: ReportMeta): ExteriorRe
       ...(side.fixtures ?? []).filter((f) => f.count > 0).map((f) => `${f.kind === "other" ? f.label?.trim() || "Other" : SIDE_FIXTURE_LABEL[f.kind]}: ${f.count} (${f.action === "replace" ? "replace" : "detach & reset"})`),
       ...(side.roofRead ? [`Roof read off its photo: ${roofReadWords(side.roofRead).join(", ") || "nothing taken"}.`] : []),
       ...(!sq.complete ? ["Not every height of this side was measured: its area is not counted."] : []),
+      ...deckAgainst(side.id),
     ];
     return {
       side,
@@ -525,6 +570,13 @@ export function exteriorReport(exterior: Exterior, meta: ReportMeta): ExteriorRe
         ...(t.keystones > 0 ? [plural(t.keystones, "keystone")] : []),
         ...(cols > 0 ? [`${plural(cols, "column or pilaster", "columns and pilasters")} (${sf(wrap)} wrap)`] : []),
       ].join(" · "),
+    });
+  }
+  // The decks (2026-10-20), a line: each by its name, its area and how high it stands.
+  if (deckQs.length > 0) {
+    facts.push({
+      label: deckQs.length === 1 ? "Deck" : "Decks",
+      value: deckQs.map((d) => `${d.name} ${sf(d.areaSquareFeet)}, ${heightWords(d)}${coveredShare(d) ? (d.openSquareFeet < 0.5 ? ", under the roof" : `, ${sf(d.coveredSquareFeet)} of it under the roof`) : ""}`).join(" · "),
     });
   }
   if (r && plan) {
@@ -799,7 +851,156 @@ export function exteriorReport(exterior: Exterior, meta: ReportMeta): ExteriorRe
           shows: `Shows ${listWords(view.sides.map((s) => s.name))}.`,
         }))
     : [];
-  return { meta, exterior, q, facts, sources, assumed, notes, sides, views, photos, tables, roof };
+  const decks = deckQs.length > 0 ? deckReport(exterior, deckQs, plan) : null;
+  if (decks) {
+    sources.push(...decks.sources);
+    // A stair's treads at the usual going, nobody having measured one: said.
+    const assumedRun = deckQs.flatMap((d) => d.stairs.filter((s) => s.stair.runFeet === undefined).map(() => d.name));
+    if (assumedRun.length > 0) assumed.push(`${listWords([...new Set(assumedRun)])}: the stairs' treads are drawn ${ft(10 / 12)} deep, the usual going; nothing measured one.`);
+  }
+  return { meta, exterior, q, facts, sources, assumed, notes, sides, views, photos, tables, roof, ...(decks ? { decks } : {}) };
+}
+
+/** A deck's height in words: "7'6" up", or "7'6" up at the wall, 4'10" at its outer edge" where the ground steps under it. */
+function heightWords(d: DeckQuantities): string {
+  const out = d.deck.heightOutFeet;
+  return out !== undefined && Math.abs(out - d.heightFeet) > 1 / 24 ? `${ft(d.heightFeet)} up at the wall, ${ft(out)} at its outer edge` : `${ft(d.heightFeet)} up`;
+}
+
+/**
+ * The decks' part of the report (2026-10-20): each deck with its plan, its facts and its lines, then the tables of them all -
+ * the platforms, the railings, the stairs, what is under them, and every line as the scope prices it once the deck is ticked.
+ */
+function deckReport(exterior: Exterior, deckQs: DeckQuantities[], plan: RoofPlan | null): ReportDecks {
+  const shapes = deckPlanShapes(exterior, plan);
+  const sideName = (id: string | null) => (id ? allSides(exterior).find((s) => s.id === id)?.name.trim() || "Side" : null);
+  const list: ReportDeck[] = deckQs.flatMap((dq) => {
+    const shape = shapes.find((s) => s.id === dq.deck.id);
+    if (!shape) return [];
+    const d = dq.deck;
+    const g = dq.geometry;
+    const ledgers = (g?.edges ?? []).flatMap((e) => e.against.map((a) => `${a.name} ${ft(a.toFeet - a.fromFeet)}`));
+    const facts: ReportFact[] = [
+      { label: "Where", value: d.sideId ? `Against the ${sideName(d.sideId)}${ledgers.length > 0 ? `; its ledger along ${listWords(ledgers)}` : ""}` : "Free-standing" },
+      {
+        label: "Platform",
+        value: `${sf(dq.areaSquareFeet)} · ${ft(dq.heightFeet)} up${d.heightOutFeet !== undefined && Math.abs(d.heightOutFeet - d.heightFeet) > 1 / 24 ? `, ${ft(d.heightOutFeet)} at its outer edge` : ""}${coveredShare(dq) ? ` · ${sf(dq.coveredSquareFeet)} under the house's roof (in the roof's squares, not again here)` : dq.coveredSquareFeet > 0.5 ? ` · open to the sky but for the eave's overhang over ${sf(dq.coveredSquareFeet)}` : " · open to the sky"}`,
+      },
+      { label: "Decking", value: `${d.decking === "other" && d.deckingLabel ? d.deckingLabel : DECKING_LABEL[d.decking]}${d.deckingRead?.unsure && !d.deckingRead.confirmed ? " (to check)" : ""}` },
+      ...(dq.railingByKind.length > 0 ? [{ label: "Railings", value: dq.railingByKind.map((r) => `${r.label} ${lf(r.feet)}${r.gates > 0 ? `, ${plural(r.gates, "gate")}` : ""}`).join(" · ") }] : []),
+      ...(dq.stairs.length > 0 ? [{ label: "Stairs", value: dq.stairs.map((s) => stairWords(s)).join(" · ") }] : []),
+      {
+        label: "Under it",
+        value:
+          [
+            dq.posts.count > 0 ? `${plural(dq.posts.count, "post")} (${Math.round(dq.posts.sizeInches)}×${Math.round(dq.posts.sizeInches)}${dq.posts.material ? ` ${POST_MATERIAL_LABEL[dq.posts.material].toLowerCase()}` : ""}, ${postHeightWords(dq)})` : "",
+            ...dq.beams.map((b) => `a beam ${ft(b.lengthFeet)}${b.size ? ` (${b.size})` : ""}`),
+            ...screenGroups(dq).map((g) => `${SCREEN_LABEL[g.kind].toLowerCase()}, ${g.material}, ${sf(g.squareFeet)}`),
+          ]
+            .filter(Boolean)
+            .join(" · ") || "Nothing read",
+      },
+    ];
+    return [{ q: dq, shape, heading: `${dq.name} · ${sf(dq.areaSquareFeet)} · ${heightWords(dq)}`, facts, lines: deckLines(dq) }];
+  });
+  const sources: string[] = [];
+  const fromPhotos = deckQs.filter((d) => d.deck.from === "photos");
+  if (fromPhotos.length > 0) {
+    const taps = fromPhotos.reduce((n, d) => n + (d.deck.taps?.length ?? 0), 0);
+    const photos = new Set(fromPhotos.flatMap((d) => (d.deck.taps ?? []).map((t) => t.photo))).size;
+    sources.push(
+      `${listWords(fromPhotos.map((d) => d.name))}: placed off the photos by the photo route's own cameras${taps > 0 ? ` (${plural(taps, "tap")} on ${plural(photos, "photo")})` : ""}; railings, stairs, posts and screens read off the photos. Each ledger is worked out from where it meets the walls.`,
+    );
+  }
+  const typed = deckQs.filter((d) => d.deck.from !== "photos");
+  if (typed.length > 0) sources.push(`${listWords(typed.map((d) => d.name))}: as entered in Scrivn${typed.some((d) => d.deck.from === "quick") ? " (the quick-deck box)" : ""}. Each ledger is worked out from where it meets the walls.`);
+  const tables: ReportTable[] = [];
+  tables.push({
+    caption: "Decks",
+    columns: [
+      { title: "Deck", weight: 1.6 },
+      { title: "Against", weight: 1.8 },
+      { title: "Area SF", weight: 0.9, align: "center" },
+      { title: "Under the roof SF", weight: 1.1, align: "center" },
+      { title: "Height", weight: 0.9, align: "center" },
+      { title: "Decking", weight: 1.5 },
+      { title: "Ledger LF", weight: 0.9, align: "center" },
+      { title: "Rim LF", weight: 0.9, align: "center" },
+    ],
+    rows: list.map((x) => [x.q.name, x.q.deck.sideId ? sideName(x.q.deck.sideId) ?? "-" : "Free-standing", one(x.q.areaSquareFeet), one(x.q.coveredSquareFeet), ft(x.q.heightFeet), DECKING_LABEL[x.q.deck.decking], one(x.q.ledgerFeet), one(x.q.rimFeet)]),
+    note: "Area on the plan, real, no waste. What the house's roof covers is in the roof's squares already: it is not roofed again. The decking is never counted as wall.",
+  });
+  const railRows = list.flatMap((x) => {
+    const edges = x.q.geometry?.edges ?? [];
+    return x.q.railings
+      .filter((r) => r.lengthFeet > 0.05)
+      .map((r, k) => [k === 0 ? x.q.name : "", r.stairId ? "down the stairs" : edges[r.edge]?.name ?? "-", r.label.charAt(0).toUpperCase() + r.label.slice(1), r.stairId ? "-" : ft(r.heightFeet), one(r.lengthFeet), r.gates > 0 ? String(r.gates) : "-"]);
+  });
+  if (railRows.length > 0) {
+    tables.push({
+      caption: "Deck railings",
+      columns: [
+        { title: "Deck", weight: 1.6 },
+        { title: "Where", weight: 2 },
+        { title: "Railing", weight: 2.4 },
+        { title: "Height", weight: 0.9, align: "center" },
+        { title: "LF", weight: 0.8, align: "center" },
+        { title: "Gates", weight: 0.7, align: "center" },
+      ],
+      rows: railRows,
+      note: "Each run along its edge; a stair's along its slope.",
+    });
+  }
+  const stairRows = list.flatMap((x) =>
+    x.q.stairs.map((s, k) => [
+      k === 0 ? x.q.name : "",
+      x.q.geometry?.edges[s.stair.edge]?.name ?? "-",
+      ft(s.stair.widthFeet),
+      String(Math.round(s.stair.risers)),
+      riseWords(s.riseFeet),
+      ft(s.totalRunFeet),
+      s.stair.landing && s.landingSquareFeet > 0 ? `${ft(s.stair.landing.depthFeet)} deep` : "-",
+      s.stair.railing && s.stair.railing.sides > 0 ? `${railingWords(s.stair.railing.kind, s.stair.railing.label)}, ${s.stair.railing.sides === 2 ? "both sides" : "one side"}` : "none",
+    ]),
+  );
+  if (stairRows.length > 0) {
+    tables.push({
+      caption: "Deck stairs",
+      columns: [
+        { title: "Deck", weight: 1.4 },
+        { title: "Off", weight: 1.6 },
+        { title: "Width", weight: 0.8, align: "center" },
+        { title: "Risers", weight: 0.8, align: "center" },
+        { title: "Each", weight: 0.8, align: "center" },
+        { title: "Run", weight: 0.8, align: "center" },
+        { title: "Landing", weight: 1, align: "center" },
+        { title: "Railing", weight: 2.2 },
+      ],
+      rows: stairRows,
+      note: "Each flight straight out from its edge: its rise is the deck's height, shared over its risers.",
+    });
+  }
+  tables.push({
+    caption: "Under the decks",
+    columns: [
+      { title: "Deck", weight: 1.6 },
+      { title: "Posts", weight: 2 },
+      { title: "Beams", weight: 1.6 },
+      { title: "Screens and skirting", weight: 3 },
+    ],
+    rows: list.map((x) => [
+      x.q.name,
+      x.q.posts.count > 0 ? `${x.q.posts.count} × ${Math.round(x.q.posts.sizeInches)}×${Math.round(x.q.posts.sizeInches)}, ${postHeightWords(x.q)}` : "-",
+      x.q.beams.length > 0 ? x.q.beams.map((b) => `${ft(b.lengthFeet)}${b.size ? ` ${b.size}` : ""}`).join(", ") : "not seen",
+      x.q.screens.length > 0 ? screenGroups(x.q).map((g) => `${SCREEN_LABEL[g.kind]} ${g.material} ${ft(g.lengthFeet)}${g.heights.length === 1 ? ` × ${ft(g.heights[0] as number)}` : " long"} = ${one(g.squareFeet)} SF`).join("; ") : "-",
+    ]),
+  });
+  tables.push({
+    caption: "Deck lines",
+    columns: [{ title: "As the scope prices each deck once it is ticked", weight: 1 }],
+    rows: list.flatMap((x) => x.lines.map((l) => [l])),
+  });
+  return { list, sources, tables };
 }
 
 /** Each line's word in the legend and the facts: Scrivn's own (components/sketch/exteriorDrawings.tsx `LINE_STYLE`). */

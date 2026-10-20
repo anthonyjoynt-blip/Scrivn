@@ -5,10 +5,12 @@ import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { allSides, elevationFaces, type Exterior, exteriorQuantities, formatPitch, lengthToCheck, pieceLine, ROOF_TOTAL_KEYS, ROOF_TOTAL_LABEL, type RoofTotalKey, houseColours, sharedOf, sourceWords, trimShapes } from "@/lib/exterior";
 import { sizesFrom } from "@/lib/exteriorScale";
-import { frontFacesOf } from "@/lib/exteriorViews";
+import { decksOnSide, frontFacesOf } from "@/lib/exteriorViews";
 import { buildingRender, type SketchRender } from "@/lib/sketchAttachments";
 import { formatQuantity } from "@/lib/sketchQuantities";
 import { lineTotals, textWidthEm } from "@/lib/roofLabels";
+import { decksOf, deckPlanShapes } from "@/lib/decks";
+import { exteriorModel } from "@/lib/exterior3d";
 import { CladdingLegend, ElevationDrawing, elevationFontFeet, LINE_STYLE, type LegendItem, RoofPlanDrawing } from "./exteriorDrawings";
 
 /**
@@ -132,6 +134,8 @@ function roofSvg(exterior: Exterior, name: string | undefined, markup: Markup): 
     shared: sharedOf(exterior),
     // A north arrow when the front's bearing is known (2026-10-20).
     frontFacesDeg: frontFacesOf(exterior),
+    // Its decks (2026-10-20), under the roof as from above; none, as it always was.
+    ...(decksOf(exterior).length > 0 ? { decks: deckPlanShapes(exterior, plan) } : {}),
   };
   const planW = WIDTH - 80;
   const planH = Math.round(planW / aspect(markup(createElement(RoofPlanDrawing, props))));
@@ -220,14 +224,20 @@ function elevationsSvg(exterior: Exterior, name: string | undefined, markup: Mar
   const roofAssumed = q.pitch.source === "assumed";
   // Each material in one colour round the house, off its photos (2026-10-17).
   const colours = houseColours(exterior);
-  const boxes = sides.map(({ side }) => viewBox(markup(createElement(ElevationDrawing, { side, rise: q.rises[side.id] ?? null, base: q.bases[side.id] ?? null, fontFeet, roofAssumed, colours }))));
+  // The decks in front of each side (2026-10-20): none, and the sheet is as it always was.
+  const model = decksOf(exterior).length > 0 ? exteriorModel(exterior) : null;
+  const deckOf = (sideId: string) => {
+    const pieces = model?.ok ? decksOnSide(model.model, sideId) : [];
+    return pieces.length > 0 ? { decks: pieces } : {};
+  };
+  const boxes = sides.map(({ side }) => viewBox(markup(createElement(ElevationDrawing, { side, rise: q.rises[side.id] ?? null, base: q.bases[side.id] ?? null, fontFeet, roofAssumed, colours, ...deckOf(side.id) }))));
   const scale = Math.min(...boxes.map((b) => cellW / b.width));
   const cells = sides.map(({ side, sq }, i) => {
     const rise = q.rises[side.id] ?? null;
     const box = boxes[i] as { width: number; height: number };
     const w = Math.round(box.width * scale);
     const h = Math.round(box.height * scale);
-    return { side, sq, h, drawing: markup(createElement(ElevationDrawing, { side, rise, base: q.bases[side.id] ?? null, fontFeet, roofAssumed, colours, size: { width: w, height: h } })) };
+    return { side, sq, h, drawing: markup(createElement(ElevationDrawing, { side, rise, base: q.bases[side.id] ?? null, fontFeet, roofAssumed, colours, size: { width: w, height: h }, ...deckOf(side.id) })) };
   });
   // What the sizes are from (2026-10-15, lib/exteriorScale.ts), for a house the phone measured: under the title.
   const from = sizesFrom(exterior);

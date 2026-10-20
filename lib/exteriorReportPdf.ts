@@ -15,9 +15,12 @@ import {
   RoofPlanDrawing,
   roofTone,
 } from "@/components/sketch/exteriorDrawings";
+import { DeckPlanDrawing } from "@/components/sketch/deckDrawings";
+import type { DeckPlanShape } from "./decks";
 import { allSides, elevationFaces, type Exterior, houseColours, lengthToCheck, sharedOf, trimShapes } from "./exterior";
+import { exteriorModel } from "./exterior3d";
 import { type ExteriorReport, LINE_WORD, type ReportTable, roofPlanCaption } from "./exteriorReport";
-import { bearingWords, frontFacesOf } from "./exteriorViews";
+import { bearingWords, decksOnSide, frontFacesOf } from "./exteriorViews";
 import { type Letterhead, letterheadInkColor } from "./letterhead";
 import { drawLetterhead, drawPhotoPages, drawTables, LETTERHEAD_HEIGHT, PAGE_MARGIN, type PdfPhoto } from "./pdf";
 import { paintSvg, parseSvg, pdfSafe, svgViewBox } from "./svgPdf";
@@ -109,6 +112,12 @@ function plusMinusOf(exterior: Exterior) {
   };
 }
 
+/** The decks as the plans draw them (2026-10-20); undefined with none, so a house without one draws as it always did. */
+function deckShapesOf(report: ExteriorReport): DeckPlanShape[] | undefined {
+  const list = report.decks?.list ?? [];
+  return list.length > 0 ? list.map((d) => d.shape) : undefined;
+}
+
 /** The largest standard scale at which [w] x [h] feet fit [boxW] x [boxH] points; the smallest if none does. */
 export function standardScale(w: number, h: number, boxW: number, boxH: number): [number, string] {
   for (const s of SCALES) if (w * s[0] <= boxW && h * s[0] <= boxH) return s;
@@ -176,8 +185,9 @@ function fitFootprint(input: ReportPdfInput, part: Part, w: number, h: number): 
   const upper = report.q.upperFootprint?.closes ? report.q.upperFootprint.corners : null;
   const plusMinus = plusMinusOf(report.exterior);
   // Each scale tried with the lettering it gives, so the names that widen the frame are in what is measured.
+  const decks = deckShapesOf(report);
   for (const [ptPerFt, text] of SCALES) {
-    const made = drawing(input, createElement(FootprintDrawing, { footprint: fp, nameOf, approx, plusMinus, shared: sharedOf(report.exterior), upper, fontFeet: 8 / ptPerFt, frontFacesDeg: frontFacesOf(report.exterior) }));
+    const made = drawing(input, createElement(FootprintDrawing, { footprint: fp, nameOf, approx, plusMinus, shared: sharedOf(report.exterior), upper, fontFeet: 8 / ptPerFt, frontFacesDeg: frontFacesOf(report.exterior), ...(decks ? { decks } : {}) }));
     if (made.box.width * ptPerFt <= w && made.box.height * ptPerFt <= h - 24) return { made, ptPerFt, text };
   }
   return null;
@@ -307,6 +317,7 @@ function roofPage(doc: jsPDF, input: ReportPdfInput, part: Part): void {
     plusMinus: plusMinusOf(report.exterior),
     shared: sharedOf(report.exterior),
     frontFacesDeg: frontFacesOf(report.exterior),
+    ...(deckShapesOf(report) ? { decks: deckShapesOf(report) } : {}),
   };
   // Room under it for the legend, the slopes and the notes.
   const below = 64 + roof.notes.length * 22;
@@ -382,7 +393,13 @@ function elevationPages(doc: jsPDF, input: ReportPdfInput, part: Part): void {
   const roofAssumed = report.q.pitch.source === "assumed";
   // Each material in one colour round the house, off its photos (2026-10-17): none read, as it always was.
   const colours = houseColours(report.exterior);
-  const el = (s: (typeof sides)[number], fontFeet: number) => createElement(ElevationDrawing, { side: s.side, rise: s.rise, base: s.base, fontFeet, roofAssumed, ...(colours ? { colours } : {}) });
+  // The decks in front of each side (2026-10-20): none, and the side draws as it always did.
+  const model = report.decks ? exteriorModel(report.exterior) : null;
+  const deckOf = (sideId: string) => {
+    const pieces = model?.ok ? decksOnSide(model.model, sideId) : [];
+    return pieces.length > 0 ? { decks: pieces } : {};
+  };
+  const el = (s: (typeof sides)[number], fontFeet: number) => createElement(ElevationDrawing, { side: s.side, rise: s.rise, base: s.base, fontFeet, roofAssumed, ...(colours ? { colours } : {}), ...deckOf(s.side.id) });
   /*
     Each side at the largest standard scale that fits the page's width and a third of its height, up
     to 3/16" = 1'-0" - one scale for a whole house would draw a 10 ft return at the scale its 66 ft side
@@ -557,6 +574,59 @@ function elevationPages(doc: jsPDF, input: ReportPdfInput, part: Part): void {
   }
 }
 
+/**
+ * The decks (2026-10-20, lib/decks.ts): each on its own plan, to scale, with every edge's length and its facts under it;
+ * then their tables - the platforms, railings, stairs, what is under them, and every line as the scope prices it.
+ */
+function deckPages(doc: jsPDF, input: ReportPdfInput, part: Part): void {
+  const decks = part.report.decks;
+  if (!decks || decks.list.length === 0) return;
+  doc.addPage();
+  let y = heading(doc, titled(part, "Decks"), "Each deck on its own plan, to scale: every edge's length, its ledger against the house said so, its railings by kind, its stairs going down and its posts. What the house's roof covers is the roof's.");
+  const fp = part.report.q.footprint;
+  for (const d of decks.list) {
+    // At the largest standard scale that fits the width and about 260 points, lettered about 7.5 points.
+    let made = drawing(input, createElement(DeckPlanDrawing, { footprint: fp, shape: d.shape }));
+    let [ptPerFt, text] = standardScale(made.box.width, made.box.height, CONTENT_W, 260);
+    for (let pass = 0; pass < 2; pass++) {
+      made = drawing(input, createElement(DeckPlanDrawing, { footprint: fp, shape: d.shape, fontFeet: 7.5 / ptPerFt }));
+      const next = standardScale(made.box.width, made.box.height, CONTENT_W, 260);
+      if (next[0] === ptPerFt) break;
+      [ptPerFt, text] = next;
+    }
+    const dh = made.box.height * ptPerFt;
+    const dw = made.box.width * ptPerFt;
+    setText(doc, 9, "normal", INK);
+    const factLines = d.facts.reduce((n, f) => n + (doc.splitTextToSize(pdfSafe(f.value), CONTENT_W - 92) as string[]).length, 0);
+    if (y + 18 + dh + 30 + factLines * 12 > BOTTOM - 14) {
+      doc.addPage();
+      y = heading(doc, titled(part, "Decks"), "Continued.");
+    }
+    setText(doc, 10.5, "bold", NAVY);
+    doc.text(pdfSafe(d.heading), PAGE_MARGIN, y + 2);
+    y += 10;
+    paintSvg(doc, made.svg, PAGE_MARGIN + (CONTENT_W - dw) / 2, y, ptPerFt, { pixel: PIXEL });
+    y += dh + 8;
+    scaleBar(doc, PAGE_MARGIN, y, ptPerFt, text);
+    y += 24;
+    for (const f of d.facts) {
+      setText(doc, 7.5, "bold", MUTED);
+      doc.text(f.label.toUpperCase(), PAGE_MARGIN, y);
+      setText(doc, 9, "normal", INK);
+      y = para(doc, f.value, PAGE_MARGIN + 92, y, CONTENT_W - 92, 11.5) + 2;
+    }
+    doc.setDrawColor(225, 229, 234);
+    doc.setLineWidth(0.5);
+    doc.line(PAGE_MARGIN, y + 2, PAGE_W - PAGE_MARGIN, y + 2);
+    y += 18;
+  }
+  if (y + 120 > BOTTOM - 14) {
+    doc.addPage();
+    y = heading(doc, titled(part, "Decks"), "Continued.");
+  }
+  drawTables(doc, decks.tables, y - 6, CONTENT_W, BOTTOM);
+}
+
 function photoPages(doc: jsPDF, part: Part): void {
   const images = part.photos;
   const printed: PdfPhoto[] = [];
@@ -588,6 +658,7 @@ function buildingSection(doc: jsPDF, input: ReportPdfInput, part: Part): void {
   coverBody(doc, input, part, y + 4);
   roofPage(doc, input, part);
   elevationPages(doc, input, part);
+  deckPages(doc, input, part);
   photoPages(doc, part);
   tablePages(doc, part);
 }
@@ -618,6 +689,7 @@ export function exteriorReportPdf(input: ReportPdfInput): jsPDF {
   if (house) {
     roofPage(doc, input, house);
     elevationPages(doc, input, house);
+    deckPages(doc, input, house);
     photoPages(doc, house);
     tablePages(doc, house);
   }

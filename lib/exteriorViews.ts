@@ -1,3 +1,4 @@
+import type { DeckPartKind } from "./decks";
 import type { CladdingKind, ExteriorOpeningKind, TrimPart } from "./exterior";
 import type { ExteriorModel3D, V3, Wall3D, WallFaceKind } from "./exterior3d";
 import { POST_SIZE_FEET } from "./exterior3d";
@@ -173,7 +174,23 @@ export interface ViewColumn {
   colour?: string;
 }
 
-export type ViewPiece = ViewWall | ViewRoof | ViewPost | ViewColumn;
+/**
+ * A flat piece of a deck (2026-10-20, lib/decks.ts): its rim, a post's face, a railing's glass or pickets and cap, a
+ * stair's riser or stringer, a screen - each where it is, seen square-on. Level pieces (the decking, a tread) are edge-on
+ * in an elevation and not drawn.
+ */
+export interface ViewDeck {
+  type: "deck";
+  deckId: string;
+  kind: DeckPartKind;
+  depth: number;
+  poly: Pt[];
+  /** How squarely it faces the view, 0 to 1. */
+  facing: number;
+  material?: string;
+}
+
+export type ViewPiece = ViewWall | ViewRoof | ViewPost | ViewColumn | ViewDeck;
 
 export interface HouseView {
   from: ViewFrom;
@@ -377,14 +394,43 @@ export function houseView(model: ExteriorModel3D, from: ViewFrom, frontFacesDeg?
     pieces.push({ type: "post", depth: depthOf(at), x0: c - POST_SIZE_FEET / 2, x1: c + POST_SIZE_FEET / 2, y0: p.y0, y1: p.y1 });
   }
 
-  // Back to front; at one depth a wall before the roof over it, a post or column last.
-  const order = { wall: 0, roof: 1, post: 2, column: 2 } as const;
+  // ---- Decks (2026-10-20): each upright piece that isn't edge-on; a panel seen from either side -----------------
+  const TWO_SIDED = new Set<DeckPartKind>(["glass", "pickets", "cable", "rail", "screen", "skirting", "stringer"]);
+  const deckSpans = new Map<string, { x0: number; x1: number; y: number; depth: number }>();
+  for (const part of model.decks ?? []) {
+    if (!part.normal) continue;
+    const toward = -(part.normal.x * look.x + part.normal.y * look.y);
+    const seen = TWO_SIDED.has(part.kind) ? Math.abs(toward) : toward;
+    if (seen < 0.12) continue;
+    const flat = project(part.poly);
+    if (Math.abs(area2(flat)) < 1e-4) continue;
+    const depth = Math.min(...part.poly.map((v) => depthOf(plan(v))));
+    pieces.push({ type: "deck", deckId: part.deckId, kind: part.kind, depth, poly: flat, facing: seen, ...(part.material ? { material: part.material } : {}) });
+    // Where the deck stands in the view, and its ground: the foot of its lowest piece.
+    const s = deckSpans.get(part.deckId) ?? { x0: Infinity, x1: -Infinity, y: Infinity, depth: Infinity };
+    for (const p of flat) {
+      s.x0 = Math.min(s.x0, p.x);
+      s.x1 = Math.max(s.x1, p.x);
+      s.y = Math.min(s.y, p.y);
+    }
+    s.depth = Math.min(s.depth, depth);
+    deckSpans.set(part.deckId, s);
+  }
+  // Its ground is where the deck says, at its outer edge - the lawn its stairs land on, a porch's walk - not its lowest piece.
+  for (const [id, s] of deckSpans) {
+    const y = model.deckGrounds?.[id];
+    if (y !== undefined) s.y = y;
+  }
+
+  // Back to front; at one depth a wall before the roof over it, a post or column last, a deck in front of the wall it is on.
+  const order = { wall: 0, roof: 1, post: 2, column: 2, deck: 3 } as const;
   pieces.sort((p, q) => q.depth - p.depth || order[p.type] - order[q.type]);
 
-  // ---- The ground at the foot of the house: under each x, the nearest wall's ------------------------
+  // ---- The ground at the foot of the house: under each x, the nearest wall's - or a deck's in front of it ---------
   const walls = pieces.filter((p): p is ViewWall => p.type === "wall");
   const grounded = walls.filter((w) => w.grade !== null);
-  const xs = [...new Set(grounded.flatMap((w) => (w.grade as Pt[]).map((p) => Math.round(p.x * 1e6) / 1e6)))].sort((a, b) => a - b);
+  const spans = [...deckSpans.values()];
+  const xs = [...new Set([...grounded.flatMap((w) => (w.grade as Pt[]).map((p) => Math.round(p.x * 1e6) / 1e6)), ...spans.flatMap((s) => [Math.round(s.x0 * 1e6) / 1e6, Math.round(s.x1 * 1e6) / 1e6])])].sort((a, b) => a - b);
   const nearestAt = (x: number) => {
     let best: ViewWall | null = null;
     for (const w of grounded) {
@@ -401,12 +447,20 @@ export function houseView(model: ExteriorModel3D, from: ViewFrom, frontFacesDeg?
     // Either side of each corner, so a step stays a step and one wall hands over to the next.
     for (const e of [-1e-4, 1e-4]) {
       const w = nearestAt(x + e);
+      const d = spans.filter((s) => x + e >= s.x0 - 1e-9 && x + e <= s.x1 + 1e-9).sort((a, b) => a.depth - b.depth)[0];
+      // A deck in front of the wall stands on its own ground, nearer the viewer: a porch's walk under a wall measured from
+      // the porch, a lawn higher than the ground at the walls. A deck behind the house, or past its walls, changes nothing.
+      if (d && w && d.depth < w.depth - 1e-6) {
+        ground.push({ x: x + e, y: d.y });
+        continue;
+      }
       if (!w) continue;
       const g = [...(w.grade as Pt[])].sort((a, b) => a.x - b.x);
       ground.push({ x: x + e, y: yAt(g, x + e) });
     }
   }
-  const allX = walls.flatMap((w) => w.outline.map((p) => p.x));
+  // The decks reach past the walls only by what shows: a stair running out past the house's end is in the view.
+  const allX = [...walls.flatMap((w) => w.outline.map((p) => p.x)), ...pieces.filter((p): p is ViewDeck => p.type === "deck").flatMap((p) => p.poly.map((q) => q.x))];
   const minX = allX.length > 0 ? Math.min(...allX) : 0;
   const maxX = allX.length > 0 ? Math.max(...allX) : 1;
   const roofs = pieces.filter((p): p is ViewRoof => p.type === "roof");
@@ -438,6 +492,53 @@ export function houseView(model: ExteriorModel3D, from: ViewFrom, frontFacesDeg?
   if (roofs.length > 0 && !levels.some((l) => Math.abs(l.y - topY) < 0.5)) levels.push({ label: "Top of roof", y: topY });
   levels.sort((p, q) => p.y - q.y);
   return { from, title: viewTitle(from, frontFacesDeg), pieces, ground: dedupeX(ground), minX, maxX, topY, groundY, sides, levels, party };
+}
+
+/** A deck's piece on one side's own drawing: in the side's frame (x along from its left end, y up from its level). */
+export interface SideDeckPiece {
+  kind: DeckPartKind;
+  poly: Pt[];
+  /** How far out from the wall it stands: what is drawn first is furthest back. */
+  out: number;
+  facing: number;
+  material?: string;
+  /** Its deck's ground at its outer edge, in the side's frame: where its stairs land. */
+  ground?: number;
+}
+
+/**
+ * The decks in front of one side (2026-10-20), seen square-on from outside it, as its own elevation draws them: each
+ * upright piece standing out from the wall, in the side's frame. Empty with none.
+ */
+export function decksOnSide(model: ExteriorModel3D, sideId: string): SideDeckPiece[] {
+  const parts = model.decks ?? [];
+  const w = model.walls.find((x) => x.sideId === sideId);
+  if (!w || parts.length === 0) return [];
+  const o = plan(w.origin);
+  const along = { x: w.along[0], y: -w.along[2] };
+  const out = { x: w.out[0], y: -w.out[2] };
+  const TWO_SIDED = new Set<DeckPartKind>(["glass", "pickets", "cable", "rail", "screen", "skirting", "stringer"]);
+  const pieces: SideDeckPiece[] = [];
+  for (const part of parts) {
+    if (!part.normal) continue;
+    const toward = part.normal.x * out.x + part.normal.y * out.y;
+    const seen = TWO_SIDED.has(part.kind) ? Math.abs(toward) : toward;
+    if (seen < 0.12) continue;
+    const pts = part.poly.map((v) => {
+      const p = plan(v);
+      const d = { x: p.x - o.x, y: p.y - o.y };
+      return { x: d.x * along.x + d.y * along.y, y: v[1] - w.frameV, w: d.x * out.x + d.y * out.y };
+    });
+    const far = Math.max(...pts.map((p) => p.w));
+    // In front of the wall only: a deck round the corner is another side's.
+    if (far < 0.05) continue;
+    const poly = pts.map((p) => ({ x: p.x, y: p.y }));
+    if (Math.abs(area2(poly)) < 1e-4) continue;
+    const ground = model.deckGrounds?.[part.deckId];
+    pieces.push({ kind: part.kind, poly, out: Math.min(...pts.map((p) => p.w)), facing: seen, ...(part.material ? { material: part.material } : {}), ...(ground !== undefined ? { ground: ground - w.frameV } : {}) });
+  }
+  // Nearest the wall first: what stands further out is drawn over it.
+  return pieces.sort((p, q) => p.out - q.out);
 }
 
 /**

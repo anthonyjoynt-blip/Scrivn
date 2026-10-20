@@ -4,12 +4,13 @@ import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { formatFeetInches } from "@/lib/sketch";
 import { CLADDING_KINDS, CLADDING_LABEL, type ExteriorOpeningKind, type ExteriorShape, type ExteriorSide, formatOpeningSize, formatPitch, OPENING_LABEL, type RoofRise, type SidePhoto } from "@/lib/exterior";
 import { fillOutside, type PhotoPixels, squareFrame, type SquareFrame, squareUp } from "@/lib/exteriorPhoto";
-import { applyTrace, type RoofPicks, roofPicksAtFirst, type ShapePicks, shapePicksAtFirst, type SideTrace, snapTrace, type TraceProposals, type TraceRequest, type TraceResponse, trimPicksAtFirst, withSwatches } from "@/lib/exteriorTrace";
+import { applyTrace, type ProposedDeck, type RoofPicks, roofPicksAtFirst, type ShapePicks, shapePicksAtFirst, type SideTrace, snapTrace, type TraceProposals, type TraceRequest, type TraceResponse, trimPicksAtFirst, withSwatches } from "@/lib/exteriorTrace";
 import { type DoorCandidate, doorCandidates, doorLabel, withSizeDoors } from "@/lib/exteriorScale";
-import { camerasAt, grayOf, type ProposedRoof } from "@/lib/roofPhotoRead";
+import { type CameraAt, camerasAt, grayOf, type ProposedRoof } from "@/lib/roofPhotoRead";
 import { LOWER_ROOF_WORDS, PHOTO_PIECE_LABEL, type PhotoPiece, type ProposedPiece, type ProposedStoreys, type ResolvedPhotoPiece, UPPER_SHOWN_WORDS } from "@/lib/roofPhotoShapes";
 import { formatQuantity } from "@/lib/sketchQuantities";
 import { ElevationDrawing, type ElevationReach, type ElevationView } from "./exteriorDrawings";
+import type { DeckPieceDrawn } from "./deckDrawings";
 import { setTraceAside, useSideTrace, waitForSignalToTrace } from "@/lib/aiJobs";
 import { traceRequestFor } from "@/lib/exteriorFinish";
 import { isNetworkFailure, netFetch } from "@/lib/connectivity";
@@ -238,6 +239,8 @@ type Picks = {
   roofShapes: ShapePicks;
   /** The trim (2026-10-17): each surround and column by its key, ticked or not. */
   trims: Record<string, boolean>;
+  /** The deck in front (2026-10-20): its pieces put on the deck against this side, ticked or not. */
+  deck?: boolean;
 };
 
 function allPicked(p: TraceProposals, doors: DoorCandidate[]): Picks {
@@ -249,13 +252,39 @@ function allPicked(p: TraceProposals, doors: DoorCandidate[]): Picks {
     doors: Object.fromEntries(doors.map((d) => [d.key, { on: true, size: 0 }])),
     roofShapes: shapePicksAtFirst(p),
     trims: Object.fromEntries(trimPicksAtFirst(p).map((k) => [k, true])),
+    deck: !!p.deck,
   };
+}
+
+/** The deck read off the photo (2026-10-20), in a row: ticked, it goes on the deck against this side. */
+function DeckPick({ p, picks, onPicks, canApply }: { p: TraceProposals; picks: Picks; onPicks: (p: Picks) => void; canApply: boolean }) {
+  const d = p.deck;
+  if (!d) return null;
+  const parts = [
+    d.railings.length > 0 ? `${d.railings.length} run${d.railings.length === 1 ? "" : "s"} of ${[...new Set(d.railings.map((r) => r.kind))].join(" and ")} railing` : "",
+    ...d.stairs.map((s) => `a stair${s.risers ? `, ${s.risers} risers` : ""}`),
+    d.posts.length > 0 ? `${d.posts.length} post${d.posts.length === 1 ? "" : "s"}` : "",
+    ...d.screens.map((s) => s.kind === "skirting" ? "skirting" : "a privacy screen"),
+    d.decking ? `${d.decking} decking` : "",
+  ].filter(Boolean);
+  return (
+    <div className="exterior-rows">
+      <div className="exterior-row">
+        <input type="checkbox" aria-label="Use the deck in front" checked={(picks.deck ?? false) && canApply} disabled={!canApply} onChange={() => onPicks({ ...picks, deck: !(picks.deck ?? false) })} />
+        <span className="exterior-row-label">Deck in front</span>
+        <span className="exterior-row-note">{canApply ? parts.join(", ") : "Put the deck in first (the Decks tab or the photos): a square-on photo can't say how far out it is."}</span>
+      </div>
+    </div>
+  );
 }
 
 /** The trim proposal an off_wall box was read into (2026-10-17), by its key; undefined for a thing in front of the wall. */
 function trimBox(p: TraceProposals, i: number): string | undefined {
   return (p.trims ?? []).find((t) => t.from.includes(i))?.key ?? (p.columns ?? []).find((c) => c.from.includes(i))?.key;
 }
+
+/** An off_wall box that is a piece of the deck in front (2026-10-20): listed as the deck, not as a thing in front of the wall. */
+const deckBox = (p: TraceProposals, i: number) => !!p.deck?.from.includes(i);
 
 /** An off_wall box that said an opening is a roll-up door (2026-10-19): not a thing in front of the wall either. */
 const rollupBox = (p: TraceProposals, i: number) => p.openings.some((o) => o.rollupFrom === i);
@@ -401,7 +430,13 @@ export function SideElevation({
   roofAssumed = false,
   scaleFactor = null,
   pieceOnRoof,
+  decks,
+  onDeckRead,
 }: {
+  /** The decks in front of it (2026-10-20, lib/exteriorViews.ts `decksOnSide`): drawn over it. */
+  decks?: DeckPieceDrawn[];
+  /** A deck read off its photo put on the deck against it (lib/decks.ts `withDeckRead`); absent: no deck to put it on. */
+  onDeckRead?: (read: ProposedDeck, cameraAt: CameraAt | null) => void;
   side: ExteriorSide;
   rise: RoofRise | null;
   /** An upper-floor side: what it stands on. */
@@ -515,6 +550,8 @@ export function SideElevation({
       return m ? [{ kind: d.kind, widthFeet: m.size.widthFeet, heightFeet: m.size.heightFeet, phone: d.phone }] : [];
     });
     onUpdate((s) => withSizeDoors(applyTrace(s, live.proposals, chosen), kept));
+    // The deck in front (2026-10-20), ticked: on the deck against this side, each piece at the deck's own distance out.
+    if (live.proposals.deck && picks.deck && onDeckRead) onDeckRead(live.proposals.deck, camerasAt(photos));
     onTrace(undefined);
   }
 
@@ -530,6 +567,7 @@ export function SideElevation({
         seeThrough={showPhoto}
         editor={editor}
         roofAssumed={roofAssumed}
+        {...(decks && decks.length > 0 ? { decks } : {})}
       />
       {caption}
       {photos.length > 0 && (
@@ -583,7 +621,7 @@ export function SideElevation({
           </button>
         </div>
       )}
-      {live && picks && !readOnly && <TracePanel trace={live} picks={picks} doors={doors} pieceOnRoof={pieceOnRoof} onPicks={setPicks} onUse={use} onDiscard={() => onTrace(undefined)} />}
+      {live && picks && !readOnly && <TracePanel trace={live} picks={picks} doors={doors} pieceOnRoof={pieceOnRoof} onPicks={setPicks} onUse={use} onDiscard={() => onTrace(undefined)} canDeck={!!onDeckRead} />}
       {!live && <RoofReadLine side={side} readOnly={readOnly} pieceOnRoof={pieceOnRoof} onUpdate={onUpdate} />}
     </>
   );
@@ -828,7 +866,10 @@ function TracePanel({
   onPicks,
   onUse,
   onDiscard,
+  canDeck = false,
 }: {
+  /** A deck stands against this side to put a deck read on (2026-10-20). */
+  canDeck?: boolean;
   trace: SideTrace;
   picks: Picks;
   doors: DoorCandidate[];
@@ -851,7 +892,8 @@ function TracePanel({
     rs.upper !== undefined ||
     rs.floorLine !== undefined ||
     rs.lowerRoof !== undefined ||
-    Object.values(picks.trims ?? {}).some(Boolean);
+    Object.values(picks.trims ?? {}).some(Boolean) ||
+    (!!picks.deck && canDeck && !!p.deck);
   const topLine = top
     ? [
         top.eaveLeftFeet !== null ? `${formatFeetInches(top.eaveLeftFeet)} at the left end` : null,
@@ -921,11 +963,12 @@ function TracePanel({
         </p>
       ))}
       <TrimPicks p={p} picks={picks} onPicks={onPicks} />
-      {p.offWall.some((_, i) => !trimBox(p, i) && !rollupBox(p, i)) && (
+      <DeckPick p={p} picks={picks} onPicks={onPicks} canApply={canDeck} />
+      {p.offWall.some((_, i) => !trimBox(p, i) && !rollupBox(p, i) && !deckBox(p, i)) && (
         <p className="field-note">
           In front of the wall, not traced (orange):{" "}
           {p.offWall
-            .filter((_, i) => !trimBox(p, i) && !rollupBox(p, i))
+            .filter((_, i) => !trimBox(p, i) && !rollupBox(p, i) && !deckBox(p, i))
             .map((b) => b.what)
             .join("; ")}
           .

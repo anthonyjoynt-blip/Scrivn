@@ -3257,6 +3257,15 @@ button:disabled {
 .exterior-quick-opening .exterior-feet {
   width: 5rem;
 }
+/* A deck's own plan on the Decks tab (2026-10-20): the deck at a glance, never more than a screenful. */
+.exterior-deck-plan svg {
+  display: block;
+  width: 100%;
+  max-height: 260px;
+}
+.exterior-decks .exterior-deck {
+  margin-bottom: 1rem;
+}
 .sketch-card-phone .exterior-strip-tabs {
   flex-wrap: nowrap;
   overflow-x: auto;
