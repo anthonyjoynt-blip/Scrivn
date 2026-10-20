@@ -158,8 +158,10 @@ if (!existsSync(SHED)) {
   const res = json(join(dir, "scrivn", "results.json"));
   console.log(meas.lines.slice(0, 9).map((l) => `      ${l}`).join("\n"));
   const [front, right] = res.sides;
-  check("the shed within the 10-17 bundle solve's ±6%: 16'3\" by 12'4\"", Math.abs(front.lengthFeet / 16.26 - 1) < 0.06 && Math.abs(right.lengthFeet / 12.32 - 1) < 0.06, `${front.lengthFeet.toFixed(2)} x ${right.lengthFeet.toFixed(2)}`);
-  check("one tape: no hold-out, said so; the door check given instead, labelled a sanity check", res.holdOuts.length === 0 && /nothing to hold it out against/.test(res.holdNote) && res.checks.length === 1 && res.checks[0].got > 5.5 && res.checks[0].got < 7.5 && /sanity check/.test(readFileSync(join(dir, "scrivn", "results.md"), "utf8")), `man door ${res.checks[0]?.got?.toFixed(2)} ft`);
+  // The 5' is the opening between the roll-up's trim (the owner, 10-20): the front within the 10-17 bundle solve's ±6%,
+  // the depth within the route's own ±10% (no tape runs that way).
+  check("the shed's front within the 10-17 bundle solve's ±6% of 16'3\", its depth within its ±10% of 12'4\"", Math.abs(front.lengthFeet / 16.26 - 1) < 0.06 && Math.abs(right.lengthFeet / 12.32 - 1) < 0.1, `${front.lengthFeet.toFixed(2)} x ${right.lengthFeet.toFixed(2)}`);
+  check("one tape: no hold-out, said so; the door check instead, a sanity check: the man door's slab within 3% of 6'8\"", res.holdOuts.length === 0 && /nothing to hold it out against/.test(res.holdNote) && res.checks.length === 1 && Math.abs(res.checks[0].got / (6 + 8 / 12) - 1) < 0.03 && /sanity check/.test(readFileSync(join(dir, "scrivn", "results.md"), "utf8")), `man door ${res.checks[0]?.got?.toFixed(2)} ft`);
   check("the shed's rms as the house's: its corners on their feet", res.rms < 1, res.rms.toFixed(2));
   summary.push(`shed: prepare ${prep.seconds.toFixed(0)} s, measure ${meas.seconds.toFixed(0)} s; ${front.lengthFeet.toFixed(2)} x ${right.lengthFeet.toFixed(2)} ft`);
 }

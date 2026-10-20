@@ -122,7 +122,7 @@
   {
    "id": "t1",
    "said": "roll-up door 5' wide",
-   "feet": 5,
+   "feet": 5.2531,
    "what": "garage",
    "kind": "line",
    "count": 1,
@@ -130,16 +130,16 @@
     {
      "photo": 4,
      "a": [
-      984,
+      996,
       822
      ],
      "b": [
-      1267,
+      1277,
       822
      ]
     }
    ],
-   "note": "Ends on the outer edges of the door's white frame, as the 10-17 shed session took them; inside the frame (the curtain alone) would scale the shed 15% bigger."
+   "note": "The owner (10-20): 5' is the clear opening between the white trim's inner edges (x 991 to 1264 at row 822 on #4). The route snaps a tape end to the strongest edge within 14 px, and the right inner edge sits between the slats' end and the trim's outer edge, so it cannot hold there: the tape runs 991 to the snap-stable edge at 1277, its length the opening's 5'0\" times that span over the opening's, both measured in the wall's plane on the solved shed (1.0506)."
   }
  ],
  "checks": [
@@ -162,5 +162,5 @@
  ],
  "keepProposed": false,
  "dropProposed": [],
- "about": "The owner's shed (C:/Users/Anthony/Desktop/Shed photos, 7 photos of 10-17) as a Claude session filled in the house runner's inputs.json on 10-20, by eye on the sheets and then corrected on the taps/ close-ups (the first pass was 40-70 px low on every corner); #1 left out (placed on top of C1 from its two corners); the roll-up door's 5' on the outer edges of its frame. #7 renumbered C2 C3 after its squared rear wall came out sheared (its long wall is the pad side; the rear only recedes edge-on). No API."
+ "about": "The owner's shed (C:/Users/Anthony/Desktop/Shed photos, 7 photos of 10-17) as a Claude session filled in the house runner's inputs.json on 10-20, by eye on the sheets and then corrected on the taps/ close-ups (the first pass was 40-70 px low on every corner); #1 left out (placed on top of C1 from its two corners); the roll-up door's 5' is the clear opening between its white trim's inner edges (the owner, 10-20). #7 renumbered C2 C3 after its squared rear wall came out sheared (its long wall is the pad side; the rear only recedes edge-on). No API."
 }
