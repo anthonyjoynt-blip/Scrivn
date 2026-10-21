@@ -24,6 +24,17 @@ import {
   OPENING_TOP_LABEL,
   WINDOW_TYPE_LABEL,
   type ApplianceBay,
+  type BeamType,
+  type BlockKind,
+  type FireplaceDetail,
+  type FireplaceFinish,
+  type FireplaceFuel,
+  BEAM_TYPE_LABEL,
+  BLOCK_KIND_LABEL,
+  FIREPLACE_FINISH_LABEL,
+  FIREPLACE_FUEL_LABEL,
+  blockDefaultLabel,
+  blockKind,
   type CabinetDoors,
   type Countertop,
   type CountertopMaterial,
@@ -285,7 +296,7 @@ function FixtureFields({
       {(FIXTURE_IS_BUILT_IN[fixture.fixtureType] || fixture.fixtureType === "hood") && (
         <MeasureField
           id="fixture-height"
-          label={fixture.fixtureType === "tubShower" ? "Surround height" : "Height"}
+          label={fixture.fixtureType === "tubShower" || fixture.fixtureType === "fireplace" ? "Surround height" : "Height"}
           hint={fixture.fixtureType === "hood" ? "How tall the hood is, from its underside up - to the ceiling for a custom box." : "How far up the wall it covers. Used for the wall-area deduction."}
           valueFeet={fixture.heightFeet}
           onCommit={(feet) => onChange({ ...fixture, heightFeet: feet })}
@@ -311,6 +322,9 @@ function FixtureFields({
             ))}
           </select>
         </div>
+      )}
+      {fixture.fixtureType === "fireplace" && (
+        <FireplaceFields detail={fixture.fireplace} onChange={(detail) => onChange(detail ? { ...fixture, fireplace: detail } : withoutField(fixture, "fireplace"))} />
       )}
       {fixture.fixtureType === "hood" && (
         <>
@@ -465,6 +479,38 @@ function DoorStyleFields({ door, onChange }: { door: DoorSymbol; onChange: (next
         ]}
         value={door.exterior}
         onChange={(exterior) => onChange(exterior === undefined ? withoutField(door, "exterior") : { ...door, exterior })}
+      />
+    </>
+  );
+}
+
+/** A fireplace's surround finish and fuel, each left unsaid until somebody says (`FireplaceDetail`). */
+function FireplaceFields({ detail, onChange }: { detail: FireplaceDetail | undefined; onChange: (next: FireplaceDetail | undefined) => void }) {
+  const set = (next: FireplaceDetail) => onChange(Object.keys(next).length > 0 ? next : undefined);
+  return (
+    <>
+      <div className="question">
+        <label className="prompt" htmlFor="fireplace-finish">
+          Surround faced with
+        </label>
+        <select
+          id="fireplace-finish"
+          value={detail?.finish ?? ""}
+          onChange={(e) => set(e.target.value === "" ? withoutField(detail ?? {}, "finish") : { ...detail, finish: e.target.value as FireplaceFinish })}
+        >
+          <option value="">Not said</option>
+          {(Object.keys(FIREPLACE_FINISH_LABEL) as FireplaceFinish[]).map((finish) => (
+            <option key={finish} value={finish}>
+              {FIREPLACE_FINISH_LABEL[finish]}
+            </option>
+          ))}
+        </select>
+      </div>
+      <ChoiceRow
+        label="Fuel"
+        choices={(Object.keys(FIREPLACE_FUEL_LABEL) as FireplaceFuel[]).map((fuel) => [fuel, FIREPLACE_FUEL_LABEL[fuel]])}
+        value={detail?.fuel}
+        onChange={(fuel) => set(fuel === undefined ? withoutField(detail ?? {}, "fuel") : { ...detail, fuel })}
       />
     </>
   );
@@ -731,15 +777,61 @@ export function FreeCabinetPanel({
   onChange: (next: FreeCabinet) => void;
   onDelete: () => void;
 }) {
+  const beam = blockKind(cabinet) === "beam";
+  const fireplace = blockKind(cabinet) === "fireplace";
   return (
     <div className="sketch-panel-body">
       <div className="question">
         <label className="prompt" htmlFor="island-label">
           Label
         </label>
-        <input id="island-label" type="text" value={cabinet.label} placeholder="e.g. Island" onChange={(e) => onChange({ ...cabinet, label: e.target.value })} />
+        <input id="island-label" type="text" value={cabinet.label} placeholder={`e.g. ${blockDefaultLabel(cabinet)}`} onChange={(e) => onChange({ ...cabinet, label: e.target.value })} />
       </div>
 
+      {/*
+        WHAT IT IS (2026-10-21): a cabinet, a fireplace, or a beam overhead - one block, as a corner fireplace already
+        was, rather than a tool of its own for each. The owner's corner fireplace was tapped as a 1.14 m cabinet.
+      */}
+      <div className="question">
+        <label className="prompt">What it is</label>
+        <div className="option-group" role="group" aria-label="What the block is">
+          {(Object.keys(BLOCK_KIND_LABEL) as BlockKind[]).map((kind) => (
+            <button
+              key={kind}
+              type="button"
+              className={`option-btn${kind === blockKind(cabinet) ? " selected" : ""}`}
+              aria-pressed={kind === blockKind(cabinet)}
+              onClick={() => onChange(kind === "cabinet" ? withoutField(cabinet, "kind") : { ...cabinet, kind })}
+            >
+              {BLOCK_KIND_LABEL[kind]}
+            </button>
+          ))}
+        </div>
+        {beam && <p className="field-note">Overhead: its length runs along the beam, its width across it. It takes nothing off the floor or the walls; its wrap is priced on its own.</p>}
+      </div>
+
+      {beam && (
+        <>
+          <ChoiceRow
+            label="Kind"
+            choices={(Object.keys(BEAM_TYPE_LABEL) as BeamType[]).map((type) => [type, BEAM_TYPE_LABEL[type]])}
+            value={cabinet.beam?.type}
+            onChange={(type) => onChange({ ...cabinet, beam: type === undefined ? withoutField(cabinet.beam ?? {}, "type") : { ...cabinet.beam, type } })}
+          />
+          <MeasureField
+            id="beam-drop"
+            label="Drops below the ceiling"
+            hint="Ceiling to the underside of the beam. Empty if nobody measured it."
+            valueFeet={cabinet.beam?.dropFeet ?? null}
+            onCommit={(feet) => onChange({ ...cabinet, beam: { ...cabinet.beam, dropFeet: feet } })}
+            onClear={() => onChange({ ...cabinet, beam: withoutField(cabinet.beam ?? {}, "dropFeet") })}
+          />
+        </>
+      )}
+
+      {fireplace && <FireplaceFields detail={cabinet.fireplace} onChange={(detail) => onChange(detail ? { ...cabinet, fireplace: detail } : withoutField(cabinet, "fireplace"))} />}
+
+      {!beam && !fireplace && (
       <div className="question">
         <label className="prompt">Cabinet type</label>
         <div className="option-group" role="group" aria-label="Cabinet tier">
@@ -756,16 +848,17 @@ export function FreeCabinetPanel({
           ))}
         </div>
       </div>
+      )}
 
       <MeasureField
         id="island-width"
-        label="Width"
+        label={beam ? "Length" : "Width"}
         valueFeet={cabinet.widthFeet}
         onCommit={(feet) => onChange({ ...cabinet, widthFeet: feet, widthPx: feet * PIXELS_PER_FOOT })}
       />
       <MeasureField
         id="island-depth"
-        label="Depth"
+        label={beam ? "Width across" : "Depth"}
         valueFeet={cabinet.depthFeet}
         onCommit={(feet) => onChange({ ...cabinet, depthFeet: feet, depthPx: feet * PIXELS_PER_FOOT })}
       />
@@ -778,6 +871,7 @@ export function FreeCabinetPanel({
         for on 2026-09-24: "I would rather the walls remain as square corners and then the corner
         unit gets placed in much like a cabinet might, just a block."
       */}
+      {!beam && (
       <div className="question">
         <label className="prompt">Shape</label>
         <div className="option-group" role="group" aria-label="Block shape">
@@ -800,6 +894,7 @@ export function FreeCabinetPanel({
           </p>
         )}
       </div>
+      )}
 
       {/*
         TURN, in quarters and in eighths. Quarters walk a corner unit round the four corners of a
@@ -829,18 +924,25 @@ export function FreeCabinetPanel({
         cabinet's height is: a seeded height is a measurement nobody took, presented as one, and the
         wall behind a block is deducted only when somebody says how tall it is.
       */}
+      {!beam && (
+        <>
       <MeasureField
         id="island-height"
-        label="Height"
+        label={fireplace ? "Surround height" : "Height"}
         valueFeet={cabinet.heightFeet ?? null}
         onCommit={(feet) => onChange({ ...cabinet, heightFeet: feet })}
       />
       <p className="field-note">
-        Only used to take the wall behind the block out of the wall area, and only when that deduction is switched on. Leave
-        it empty if nobody measured it.
+        {fireplace
+          ? "How high its surround is faced - to the ceiling if it runs there. Priced as the surround's face, and takes the wall behind it out of the wall area when that deduction is on."
+          : "Only used to take the wall behind the block out of the wall area, and only when that deduction is switched on. Leave it empty if nobody measured it."}
       </p>
+        </>
+      )}
 
       {/* Its doors and its top (2026-10-21), as on a wall run - an island's countertop is usually the bigger number. */}
+      {!beam && !fireplace && (
+        <>
       <ChoiceRow
         label="Doors"
         choices={(Object.keys(CABINET_DOORS_LABEL) as CabinetDoors[]).map((doors) => [doors, CABINET_DOORS_LABEL[doors]])}
@@ -853,6 +955,8 @@ export function FreeCabinetPanel({
           againstWall
           onChange={(countertop) => onChange(countertop ? { ...cabinet, countertop } : withoutField(cabinet, "countertop"))}
         />
+      )}
+        </>
       )}
 
       <div className="actions-row">

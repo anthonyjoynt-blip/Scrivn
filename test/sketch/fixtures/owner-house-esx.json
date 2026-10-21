@@ -1,0 +1,833 @@
+{
+  "rooms": [
+    {
+      "id": "kit",
+      "name": "Kitchen",
+      "level": 0,
+      "vertices": [
+        {
+          "id": "kit-w0",
+          "x": 0,
+          "y": 0
+        },
+        {
+          "id": "kit-w1",
+          "x": 168,
+          "y": 0
+        },
+        {
+          "id": "kit-w2",
+          "x": 168,
+          "y": 144
+        },
+        {
+          "id": "kit-w3",
+          "x": 0,
+          "y": 144
+        }
+      ],
+      "ceilingHeightFeet": 8,
+      "ceilingType": "flat",
+      "ceilingPeakFeet": null,
+      "stairs": null,
+      "parentRoomId": null,
+      "nestingOptOut": false,
+      "symbols": [
+        {
+          "id": "kit-run",
+          "type": "cabinet",
+          "wallId": "kit-w0",
+          "t": 0.4,
+          "widthFraction": 0.1,
+          "widthFeet": 11,
+          "label": "",
+          "tier": "base",
+          "depthFeet": 2,
+          "heightFeet": 3,
+          "countertop": {
+            "material": "granite",
+            "backsplashFeet": 0.3333333333333333
+          }
+        },
+        {
+          "id": "kit-hutch",
+          "type": "cabinet",
+          "wallId": "kit-w0",
+          "t": 0.16,
+          "widthFraction": 0.1,
+          "widthFeet": 2.25,
+          "label": "Hutch",
+          "tier": "wall",
+          "depthFeet": 1.1666666666666667,
+          "heightFeet": 2.25,
+          "bottomFeet": 3,
+          "doors": "glass"
+        },
+        {
+          "id": "kit-sink-win",
+          "type": "window",
+          "wallId": "kit-w0",
+          "t": 0.55,
+          "widthFraction": 0.1,
+          "widthFeet": 5,
+          "heightFeet": 3.5,
+          "sillFeet": 3.5,
+          "windowType": "casement",
+          "units": 3,
+          "grids": false
+        },
+        {
+          "id": "kit-oven",
+          "type": "cabinet",
+          "wallId": "kit-w1",
+          "t": 0.13,
+          "widthFraction": 0.1,
+          "widthFeet": 2.5,
+          "label": "",
+          "tier": "full",
+          "depthFeet": 2,
+          "heightFeet": 8,
+          "bay": "wall-oven"
+        },
+        {
+          "id": "kit-fridge",
+          "type": "cabinet",
+          "wallId": "kit-w1",
+          "t": 0.36,
+          "widthFraction": 0.1,
+          "widthFeet": 3,
+          "label": "",
+          "tier": "full",
+          "depthFeet": 2,
+          "heightFeet": 8,
+          "bay": "fridge",
+          "bayHeightFeet": 6
+        },
+        {
+          "id": "kit-pantry",
+          "type": "cabinet",
+          "wallId": "kit-w1",
+          "t": 0.565,
+          "widthFraction": 0.1,
+          "widthFeet": 2,
+          "label": "Pantry",
+          "tier": "full",
+          "depthFeet": 2,
+          "heightFeet": 8
+        },
+        {
+          "id": "kit-range",
+          "type": "fixture",
+          "wallId": "kit-w1",
+          "t": 0.79,
+          "widthFraction": 0.1,
+          "widthFeet": 2.5,
+          "fixtureType": "range",
+          "label": "",
+          "depthFeet": 2.5,
+          "heightFeet": 3,
+          "showerShape": "rectangular"
+        },
+        {
+          "id": "kit-hood",
+          "type": "fixture",
+          "wallId": "kit-w1",
+          "t": 0.79,
+          "widthFraction": 0.1,
+          "widthFeet": 2.5,
+          "fixtureType": "hood",
+          "label": "",
+          "depthFeet": 1.6666666666666665,
+          "heightFeet": 2.5,
+          "showerShape": "rectangular",
+          "hoodType": "custom",
+          "bottomFeet": 5.5
+        },
+        {
+          "id": "kit-deck",
+          "type": "door",
+          "wallId": "kit-w2",
+          "t": 0.5,
+          "widthFraction": 0.1,
+          "widthFeet": 3,
+          "doorType": "swing",
+          "leaves": "single",
+          "heightFeet": 6.666666666666667,
+          "flipX": false,
+          "flipY": false,
+          "exterior": true,
+          "doorStyle": "full-lite",
+          "lites": 15
+        }
+      ],
+      "freeCabinets": [
+        {
+          "id": "kit-island",
+          "x": 48,
+          "y": 60,
+          "widthPx": 72,
+          "depthPx": 36,
+          "widthFeet": 6,
+          "depthFeet": 3,
+          "label": "Island",
+          "tier": "base",
+          "heightFeet": 3,
+          "countertop": {
+            "material": "quartz",
+            "overhangFeet": 0.75,
+            "waterfallEnds": 1
+          }
+        }
+      ],
+      "missingWalls": [
+        "kit-w3"
+      ],
+      "ceilingFinish": "drywall"
+    },
+    {
+      "id": "liv",
+      "name": "Living",
+      "level": 0,
+      "vertices": [
+        {
+          "id": "liv-w0",
+          "x": -196,
+          "y": 0
+        },
+        {
+          "id": "liv-w1",
+          "x": -4,
+          "y": 0
+        },
+        {
+          "id": "liv-w2",
+          "x": -4,
+          "y": 216
+        },
+        {
+          "id": "liv-w3",
+          "x": -52,
+          "y": 216
+        },
+        {
+          "id": "liv-w4",
+          "x": -196,
+          "y": 216
+        }
+      ],
+      "ceilingHeightFeet": 7.583333333333333,
+      "ceilingType": "vaulted",
+      "ceilingPeakFeet": 11.583333333333334,
+      "stairs": null,
+      "parentRoomId": null,
+      "nestingOptOut": false,
+      "symbols": [
+        {
+          "id": "liv-arch1",
+          "type": "door",
+          "wallId": "liv-w0",
+          "t": 0.4,
+          "widthFraction": 0.1,
+          "widthFeet": 2,
+          "doorType": "opening",
+          "leaves": "single",
+          "heightFeet": 6.583333333333333,
+          "flipX": false,
+          "flipY": false,
+          "sillFeet": 3.1666666666666665,
+          "topShape": "round"
+        },
+        {
+          "id": "liv-arch2",
+          "type": "door",
+          "wallId": "liv-w0",
+          "t": 0.6,
+          "widthFraction": 0.1,
+          "widthFeet": 2,
+          "doorType": "opening",
+          "leaves": "single",
+          "heightFeet": 6.583333333333333,
+          "flipX": false,
+          "flipY": false,
+          "sillFeet": 3.1666666666666665,
+          "topShape": "round"
+        },
+        {
+          "id": "liv-picture",
+          "type": "window",
+          "wallId": "liv-w4",
+          "t": 0.5,
+          "widthFraction": 0.1,
+          "widthFeet": 5,
+          "heightFeet": 5,
+          "sillFeet": 2,
+          "windowType": "picture",
+          "grids": false
+        }
+      ],
+      "freeCabinets": [
+        {
+          "id": "liv-fireplace",
+          "x": 0,
+          "y": 0,
+          "widthPx": 45,
+          "depthPx": 45,
+          "widthFeet": 3.75,
+          "depthFeet": 3.75,
+          "label": "",
+          "tier": "base",
+          "kind": "fireplace",
+          "shape": "triangle",
+          "heightFeet": 7.583333333333333,
+          "fireplace": {
+            "finish": "stone",
+            "fuel": "gas"
+          }
+        }
+      ],
+      "missingWalls": [
+        "liv-w1"
+      ],
+      "wallDetails": {
+        "liv-w0": {
+          "crown": true,
+          "plantLedgeFeet": 7.583333333333333
+        },
+        "liv-w3": {
+          "heightFeet": 3.1666666666666665,
+          "cap": "wood"
+        }
+      }
+    },
+    {
+      "id": "rec",
+      "name": "Rec room",
+      "level": -1,
+      "vertices": [
+        {
+          "id": "rec-w0",
+          "x": 0,
+          "y": 480
+        },
+        {
+          "id": "rec-w1",
+          "x": 240,
+          "y": 480
+        },
+        {
+          "id": "rec-w2",
+          "x": 240,
+          "y": 648
+        },
+        {
+          "id": "rec-w3",
+          "x": 0,
+          "y": 648
+        }
+      ],
+      "ceilingHeightFeet": 8.333333333333334,
+      "ceilingType": "flat",
+      "ceilingPeakFeet": null,
+      "stairs": null,
+      "parentRoomId": null,
+      "nestingOptOut": false,
+      "symbols": [
+        {
+          "id": "rec-win",
+          "type": "window",
+          "wallId": "rec-w0",
+          "t": 0.3,
+          "widthFraction": 0.1,
+          "widthFeet": 4,
+          "heightFeet": 2,
+          "sillFeet": 4.5,
+          "windowType": "slider"
+        },
+        {
+          "id": "rec-bar",
+          "type": "cabinet",
+          "wallId": "rec-w1",
+          "t": 0.5,
+          "widthFraction": 0.1,
+          "widthFeet": 8,
+          "label": "Bar",
+          "tier": "base",
+          "depthFeet": 2,
+          "heightFeet": 3,
+          "countertop": {
+            "backsplashFeet": 0.3333333333333333
+          }
+        },
+        {
+          "id": "rec-shelves",
+          "type": "cabinet",
+          "wallId": "rec-w1",
+          "t": 0.5,
+          "widthFraction": 0.1,
+          "widthFeet": 6,
+          "label": "Bar shelves",
+          "tier": "wall",
+          "depthFeet": 0.8333333333333334,
+          "heightFeet": 1,
+          "bottomFeet": 4.5,
+          "doors": "open"
+        },
+        {
+          "id": "rec-door",
+          "type": "door",
+          "wallId": "rec-w2",
+          "t": 0.85,
+          "widthFraction": 0.1,
+          "widthFeet": 2.6666666666666665,
+          "doorType": "swing",
+          "leaves": "single",
+          "heightFeet": 6.666666666666667,
+          "flipX": false,
+          "flipY": false,
+          "doorStyle": "panel",
+          "exterior": false
+        }
+      ],
+      "freeCabinets": [
+        {
+          "id": "rec-beam",
+          "x": 0,
+          "y": 84,
+          "widthPx": 240,
+          "depthPx": 13,
+          "widthFeet": 20,
+          "depthFeet": 1.0833333333333333,
+          "label": "",
+          "tier": "base",
+          "kind": "beam",
+          "beam": {
+            "type": "beam",
+            "dropFeet": 0.9166666666666666
+          }
+        }
+      ],
+      "ceilingFinish": "textured"
+    },
+    {
+      "id": "bed2",
+      "name": "Bedroom 2",
+      "level": -1,
+      "vertices": [
+        {
+          "id": "bed2-w0",
+          "x": 252,
+          "y": 480
+        },
+        {
+          "id": "bed2-w1",
+          "x": 384,
+          "y": 480
+        },
+        {
+          "id": "bed2-w2",
+          "x": 384,
+          "y": 600
+        },
+        {
+          "id": "bed2-w3",
+          "x": 252,
+          "y": 600
+        }
+      ],
+      "ceilingHeightFeet": 7.166666666666667,
+      "ceilingType": "flat",
+      "ceilingPeakFeet": null,
+      "stairs": null,
+      "parentRoomId": null,
+      "nestingOptOut": false,
+      "symbols": [
+        {
+          "id": "bed2-win",
+          "type": "window",
+          "wallId": "bed2-w1",
+          "t": 0.5,
+          "widthFraction": 0.1,
+          "widthFeet": 4,
+          "heightFeet": 2,
+          "sillFeet": 4.5,
+          "windowType": "slider"
+        },
+        {
+          "id": "bed2-door",
+          "type": "door",
+          "wallId": "bed2-w2",
+          "t": 0.3,
+          "widthFraction": 0.1,
+          "widthFeet": 2.6666666666666665,
+          "doorType": "swing",
+          "leaves": "single",
+          "heightFeet": 6.666666666666667,
+          "flipX": false,
+          "flipY": false,
+          "doorStyle": "panel",
+          "exterior": false
+        }
+      ],
+      "freeCabinets": [],
+      "wallDetails": {
+        "bed2-w1": {
+          "ledge": {
+            "heightFeet": 3.4166666666666665,
+            "depthFeet": 0.3333333333333333
+          }
+        }
+      }
+    },
+    {
+      "id": "bath",
+      "name": "Bathroom",
+      "level": -1,
+      "vertices": [
+        {
+          "id": "bath-w0",
+          "x": 396,
+          "y": 480
+        },
+        {
+          "id": "bath-w1",
+          "x": 456,
+          "y": 480
+        },
+        {
+          "id": "bath-w2",
+          "x": 456,
+          "y": 576
+        },
+        {
+          "id": "bath-w3",
+          "x": 396,
+          "y": 576
+        }
+      ],
+      "ceilingHeightFeet": 7.5,
+      "ceilingType": "flat",
+      "ceilingPeakFeet": null,
+      "stairs": null,
+      "parentRoomId": null,
+      "nestingOptOut": false,
+      "symbols": [
+        {
+          "id": "bath-tub",
+          "type": "fixture",
+          "wallId": "bath-w0",
+          "t": 0.5,
+          "widthFraction": 0.1,
+          "widthFeet": 5,
+          "fixtureType": "tubShower",
+          "label": "",
+          "depthFeet": 2.6666666666666665,
+          "heightFeet": 6.333333333333333,
+          "showerShape": "rectangular",
+          "surround": "one-piece"
+        },
+        {
+          "id": "bath-vanity",
+          "type": "cabinet",
+          "wallId": "bath-w1",
+          "t": 0.5,
+          "widthFraction": 0.1,
+          "widthFeet": 3.1666666666666665,
+          "label": "Vanity",
+          "tier": "base",
+          "depthFeet": 1.75,
+          "heightFeet": 2.8333333333333335,
+          "countertop": {
+            "material": "granite",
+            "backsplashFeet": 0.3333333333333333
+          }
+        },
+        {
+          "id": "bath-toilet",
+          "type": "fixture",
+          "wallId": "bath-w3",
+          "t": 0.6,
+          "widthFraction": 0.1,
+          "widthFeet": 1.6666666666666665,
+          "fixtureType": "toilet",
+          "label": "",
+          "depthFeet": 2.5,
+          "heightFeet": 2.5,
+          "showerShape": "rectangular"
+        },
+        {
+          "id": "bath-door",
+          "type": "door",
+          "wallId": "bath-w2",
+          "t": 0.5,
+          "widthFraction": 0.1,
+          "widthFeet": 2.5,
+          "doorType": "swing",
+          "leaves": "single",
+          "heightFeet": 6.666666666666667,
+          "flipX": false,
+          "flipY": false,
+          "doorStyle": "panel",
+          "exterior": false
+        }
+      ],
+      "freeCabinets": []
+    },
+    {
+      "id": "store",
+      "name": "Storage",
+      "level": -1,
+      "vertices": [
+        {
+          "id": "store-w0",
+          "x": 468,
+          "y": 480
+        },
+        {
+          "id": "store-w1",
+          "x": 564,
+          "y": 480
+        },
+        {
+          "id": "store-w2",
+          "x": 564,
+          "y": 600
+        },
+        {
+          "id": "store-w3",
+          "x": 468,
+          "y": 600
+        }
+      ],
+      "ceilingHeightFeet": 7.25,
+      "ceilingType": "flat",
+      "ceilingPeakFeet": null,
+      "stairs": null,
+      "parentRoomId": null,
+      "nestingOptOut": false,
+      "symbols": [
+        {
+          "id": "store-door",
+          "type": "door",
+          "wallId": "store-w2",
+          "t": 0.5,
+          "widthFraction": 0.1,
+          "widthFeet": 2.5,
+          "doorType": "swing",
+          "leaves": "single",
+          "heightFeet": 6.666666666666667,
+          "flipX": false,
+          "flipY": false,
+          "doorStyle": "slab"
+        }
+      ],
+      "freeCabinets": [],
+      "ceilingFinish": "suspended"
+    },
+    {
+      "id": "util",
+      "name": "Utility",
+      "level": -1,
+      "vertices": [
+        {
+          "id": "util-w0",
+          "x": 576,
+          "y": 480
+        },
+        {
+          "id": "util-w1",
+          "x": 696,
+          "y": 480
+        },
+        {
+          "id": "util-w2",
+          "x": 696,
+          "y": 600
+        },
+        {
+          "id": "util-w3",
+          "x": 576,
+          "y": 600
+        }
+      ],
+      "ceilingHeightFeet": 8,
+      "ceilingType": "flat",
+      "ceilingPeakFeet": null,
+      "stairs": null,
+      "parentRoomId": null,
+      "nestingOptOut": false,
+      "symbols": [
+        {
+          "id": "util-furnace",
+          "type": "fixture",
+          "wallId": "util-w0",
+          "t": 0.25,
+          "widthFraction": 0.1,
+          "widthFeet": 2,
+          "fixtureType": "furnace",
+          "label": "",
+          "depthFeet": 2.5,
+          "heightFeet": 4.5,
+          "showerShape": "rectangular"
+        },
+        {
+          "id": "util-furnace2",
+          "type": "fixture",
+          "wallId": "util-w0",
+          "t": 0.55,
+          "widthFraction": 0.1,
+          "widthFeet": 2,
+          "fixtureType": "furnace",
+          "label": "",
+          "depthFeet": 2.5,
+          "heightFeet": 4.5,
+          "showerShape": "rectangular"
+        },
+        {
+          "id": "util-heater",
+          "type": "fixture",
+          "wallId": "util-w1",
+          "t": 0.3,
+          "widthFraction": 0.1,
+          "widthFeet": 2,
+          "fixtureType": "waterHeater",
+          "label": "",
+          "depthFeet": 2,
+          "heightFeet": 5,
+          "showerShape": "rectangular"
+        },
+        {
+          "id": "util-door",
+          "type": "door",
+          "wallId": "util-w2",
+          "t": 0.5,
+          "widthFraction": 0.1,
+          "widthFeet": 2.6666666666666665,
+          "doorType": "swing",
+          "leaves": "single",
+          "heightFeet": 6.666666666666667,
+          "flipX": false,
+          "flipY": false
+        }
+      ],
+      "freeCabinets": [],
+      "unfinished": true,
+      "ceilingFinish": "open-joists"
+    },
+    {
+      "id": "office",
+      "name": "Office",
+      "level": -1,
+      "vertices": [
+        {
+          "id": "office-w0",
+          "x": 708,
+          "y": 480
+        },
+        {
+          "id": "office-w1",
+          "x": 852,
+          "y": 480
+        },
+        {
+          "id": "office-w2",
+          "x": 852,
+          "y": 612
+        },
+        {
+          "id": "office-w3",
+          "x": 708,
+          "y": 612
+        }
+      ],
+      "ceilingHeightFeet": 8.166666666666666,
+      "ceilingType": "flat",
+      "ceilingPeakFeet": null,
+      "stairs": null,
+      "parentRoomId": null,
+      "nestingOptOut": false,
+      "symbols": [
+        {
+          "id": "office-tower1",
+          "type": "cabinet",
+          "wallId": "office-w0",
+          "t": 0.15,
+          "widthFraction": 0.1,
+          "widthFeet": 3,
+          "label": "Bookcase",
+          "tier": "full",
+          "depthFeet": 1.3333333333333333,
+          "heightFeet": 7,
+          "doors": "open"
+        },
+        {
+          "id": "office-tower2",
+          "type": "cabinet",
+          "wallId": "office-w0",
+          "t": 0.85,
+          "widthFraction": 0.1,
+          "widthFeet": 3,
+          "label": "Bookcase",
+          "tier": "full",
+          "depthFeet": 1.3333333333333333,
+          "heightFeet": 7,
+          "doors": "open"
+        },
+        {
+          "id": "office-win",
+          "type": "window",
+          "wallId": "office-w0",
+          "t": 0.5,
+          "widthFraction": 0.1,
+          "widthFeet": 4,
+          "heightFeet": 2,
+          "sillFeet": 4.5,
+          "windowType": "slider"
+        },
+        {
+          "id": "office-bridge",
+          "type": "cabinet",
+          "wallId": "office-w0",
+          "t": 0.5,
+          "widthFraction": 0.1,
+          "widthFeet": 6,
+          "label": "Bridge shelf",
+          "tier": "wall",
+          "depthFeet": 1.3333333333333333,
+          "heightFeet": 1,
+          "bottomFeet": 6.666666666666667,
+          "doors": "open"
+        },
+        {
+          "id": "office-door",
+          "type": "door",
+          "wallId": "office-w2",
+          "t": 0.2,
+          "widthFraction": 0.1,
+          "widthFeet": 2.6666666666666665,
+          "doorType": "swing",
+          "leaves": "single",
+          "heightFeet": 6.666666666666667,
+          "flipX": false,
+          "flipY": false,
+          "doorStyle": "panel",
+          "exterior": false
+        }
+      ],
+      "freeCabinets": [],
+      "wallDetails": {
+        "office-w2": {
+          "wainscot": {
+            "heightFeet": 3,
+            "type": "panel"
+          }
+        }
+      }
+    }
+  ],
+  "levels": [
+    -1
+  ],
+  "levelNames": {
+    "-1": "Basement"
+  }
+}

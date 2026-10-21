@@ -22,6 +22,7 @@
 
 import {
   blockCorners,
+  blockKind,
   blockShape,
   COUNTERTOP_DEFAULT_OVERHANG_FEET,
   fridgeBayHeightFeet,
@@ -586,6 +587,13 @@ function roomCabinets(room: SketchRoom, levelRooms: Sketch["rooms"], sketch: Ske
   for (const block of room.freeCabinets ?? []) {
     const corners = blockCorners(block, room);
     if (corners.length < 3) continue;
+    // A beam hangs from the ceiling by its drop (2026-10-21) - drawn 9" deep when nobody measured it.
+    if (blockKind(block) === "beam") {
+      const ceiling = ceilingModel(room).low;
+      const drop = Math.min(ceiling, block.beam?.dropFeet != null && block.beam.dropFeet > 0 ? block.beam.dropFeet : 0.75);
+      out.push({ kind: "cabinet", roomId: room.id, level, points: corners.map((p) => pt(p.x, p.y)), y0: baseY + ceiling - drop, y1: baseY + ceiling });
+      continue;
+    }
     const [y0, y1] = cabinetHeights(block.tier, block.heightFeet);
     out.push({ kind: "cabinet", roomId: room.id, level, points: corners.map((p) => pt(p.x, p.y)), y0: baseY + y0, y1: baseY + y1 });
     if (block.countertop && blockShape(block) !== "triangle" && block.depthFeet != null) {
@@ -599,6 +607,29 @@ function roomCabinets(room: SketchRoom, levelRooms: Sketch["rooms"], sketch: Ske
 
 /** A countertop slab's thickness in the 3D view: an inch and a half. */
 const COUNTERTOP_THICKNESS_FEET = 1.5 / 12;
+
+/** A wall's ledge along its bottom (`WallDetail.ledge`, 2026-10-21): a step as deep as it stands out, up to its top. */
+function roomLedges(room: SketchRoom, levelRooms: Sketch["rooms"], level: number, baseY: number, out: Prism[]): void {
+  for (const wall of wallsOf(room)) {
+    const ledge = room.wallDetails?.[wall.id]?.ledge;
+    if (!ledge || ledge.depthFeet <= 0 || ledge.heightFeet <= 0 || wall.lengthPx <= EPS) continue;
+    const ix = -(wall.y2 - wall.y1) / wall.lengthPx;
+    const iy = (wall.x2 - wall.x1) / wall.lengthPx;
+    const d = ledge.depthFeet * PIXELS_PER_FOOT;
+    for (const [lo, hi] of ownWallRuns(room, wall.id, levelRooms)) {
+      const a = { x: wall.x1 + (wall.x2 - wall.x1) * lo, y: wall.y1 + (wall.y2 - wall.y1) * lo };
+      const b = { x: wall.x1 + (wall.x2 - wall.x1) * hi, y: wall.y1 + (wall.y2 - wall.y1) * hi };
+      out.push({
+        kind: "wall",
+        roomId: room.id,
+        level,
+        points: [pt(a.x, a.y), pt(b.x, b.y), pt(b.x + ix * d, b.y + iy * d), pt(a.x + ix * d, a.y + iy * d)],
+        y0: baseY,
+        y1: baseY + ledge.heightFeet,
+      });
+    }
+  }
+}
 
 /** A flight as steps: each tread a block up to its own height, climbing (or descending) the way it is drawn. */
 function stairSteps(room: SketchRoom, level: number, baseY: number, out: Prism[]): void {
@@ -655,6 +686,7 @@ export function houseModel(sketch: Sketch): HouseModel {
     roomWalls(room, levelRooms, sketch, level, baseY, prisms);
     missingWallFaces(room, levelRooms, level, baseY, prisms);
     roomCabinets(room, levelRooms, sketch, level, baseY, prisms);
+    roomLedges(room, levelRooms, level, baseY, prisms);
     const points = room.vertices.map((v) => pt(v.x, v.y));
     const depth = nestingDepth(room, levelRooms);
     const y = baseY + 0.01 * depth;

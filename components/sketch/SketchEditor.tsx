@@ -38,6 +38,8 @@ import {
   roomAcross,
   withMissingWall,
   withWallDetail,
+  blockKind,
+  BLOCK_KIND_LABEL,
   closetBehindDoor,
   closetsOwed,
   withClosetsBehind,
@@ -129,7 +131,7 @@ import {
 } from "@/lib/sketchWalls";
 import { type BlockTurnRun, carriedWithRoom, roomTurnForPress, roomTurnStepDeg, turnBlockInRun, turnRoomInSketch } from "@/lib/sketchTurn";
 import { FreeCabinetPanel, SymbolPanel } from "./SymbolPanel";
-import { WallDetailFields } from "./WallDetailFields";
+import { RoomFinishFields, WallDetailFields } from "./WallDetailFields";
 import { type Obstacle, conformedDragWall, obstaclesFor, placeNewRoom, pullRoomFromWall, viewCentredOn, wallDragMeetsWall } from "@/lib/roomPlacement";
 import { QuantitiesPanel } from "./QuantitiesPanel";
 import { ExteriorSite } from "./ExteriorEditor";
@@ -2075,7 +2077,7 @@ export function SketchEditor({
             : tool === "pull"
               ? wallNotice ?? "Drag out from a wall to pull the next room off it, or in for a closet inside — same wall, same doors. A tap pulls a 12' room out."
             : tool === "island"
-              ? "Tap open floor inside the room to drop a free-standing cabinet."
+              ? "Tap open floor inside the room to drop a free-standing cabinet - or a fireplace, or a beam overhead: say which in its panel."
               : tool === "break"
                 ? "Tap a wall where you want a new corner, then drag that corner or either half of the wall to shape it."
                 : tool === "fixture"
@@ -2927,7 +2929,8 @@ export function SketchEditor({
             </>
           ) : selectedIsland ? (
             <>
-              <h3 className="sketch-panel-title">Island</h3>
+              {/* Named for what the block is (2026-10-21): an island, a fireplace, a beam. */}
+              <h3 className="sketch-panel-title">{blockKind(selectedIsland) === "cabinet" ? "Island" : BLOCK_KIND_LABEL[blockKind(selectedIsland)]}</h3>
               <FreeCabinetPanel
                 room={selectedRoom}
                 cabinet={selectedIsland}
@@ -3195,6 +3198,8 @@ export function SketchEditor({
               </>
             )}
           </div>
+          {/* Its finish: the ceiling's, unfinished walls, crown all round - see `RoomFinishFields`. */}
+          {!selectedSymbol && !selectedIsland && <RoomFinishFields room={selectedRoom} onChange={(update) => updateRoom(selectedRoom.id, update)} />}
             </>
           )}
 

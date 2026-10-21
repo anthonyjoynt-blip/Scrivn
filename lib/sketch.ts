@@ -76,7 +76,19 @@ export const SYMBOL_LABEL: Record<SymbolType, string> = {
  * ESX export: the owner's basement bathroom has a wall-to-wall one-piece unit, his kitchen a
  * wood-clad hood box.
  */
-export type FixtureType = "toilet" | "sink" | "shower" | "tub" | "tubShower" | "fridge" | "range" | "dishwasher" | "hood";
+export type FixtureType =
+  | "toilet"
+  | "sink"
+  | "shower"
+  | "tub"
+  | "tubShower"
+  | "fridge"
+  | "range"
+  | "dishwasher"
+  | "hood"
+  | "fireplace"
+  | "furnace"
+  | "waterHeater";
 
 export const FIXTURE_LABEL: Record<FixtureType, string> = {
   toilet: "Toilet",
@@ -88,6 +100,9 @@ export const FIXTURE_LABEL: Record<FixtureType, string> = {
   range: "Range",
   dishwasher: "Dishwasher",
   hood: "Range hood",
+  fireplace: "Fireplace",
+  furnace: "Furnace",
+  waterHeater: "Water heater",
 };
 
 /** A shower is either a rectangular enclosure or the corner (neo-angle) kind. */
@@ -107,6 +122,10 @@ export const FIXTURE_DEFAULT_FEET: Record<FixtureType, { width: number; depth: n
   range: { width: 2.5, depth: 2.5 },
   dishwasher: { width: 2, depth: 2 },
   hood: { width: 2.5, depth: 1.67 },
+  // A fireplace against a wall: its hearth's footprint.
+  fireplace: { width: 5, depth: 1.5 },
+  furnace: { width: 2, depth: 2.5 },
+  waterHeater: { width: 2, depth: 2 },
 };
 
 /**
@@ -127,6 +146,11 @@ export const FIXTURE_IS_BUILT_IN: Record<FixtureType, boolean> = {
   dishwasher: false,
   // Hung on the wall over the range, not standing on the floor or covering finish anybody prices.
   hood: false,
+  // Its surround is built on the wall, its hearth on the floor: the finish behind it is not the wall's.
+  fireplace: true,
+  // Mechanical equipment stands in front of a wall that is still there.
+  furnace: false,
+  waterHeater: false,
 };
 
 /** Plan-view door conventions. Each draws differently — see DoorGlyph in SketchCanvas.tsx. */
@@ -168,6 +192,19 @@ export const CEILING_TYPE_LABEL: Record<CeilingType, string> = {
   flat: "Flat",
   sloped: "Sloped",
   vaulted: "Vaulted",
+};
+
+/** What a ceiling is finished with (`SketchRoom.ceilingFinish`). Xactimate prices each differently. */
+export type CeilingFinish = "drywall" | "textured" | "popcorn" | "plaster" | "suspended" | "wood" | "open-joists";
+
+export const CEILING_FINISH_LABEL: Record<CeilingFinish, string> = {
+  drywall: "Drywall (smooth)",
+  textured: "Drywall, textured",
+  popcorn: "Popcorn / acoustic",
+  plaster: "Plaster",
+  suspended: "Suspended (T-bar)",
+  wood: "Wood / tongue and groove",
+  "open-joists": "Open joists (unfinished)",
 };
 
 /** Base (floor-standing) vs wall (upper) cabinets — they differ in depth and in how they're drawn. */
@@ -291,6 +328,10 @@ export const FIXTURE_DEFAULT_HEIGHT_FEET: Record<FixtureType, number> = {
   range: 3,
   dishwasher: 2.9,
   hood: 1.5,
+  // A fireplace's height is its surround's: a mantel at 4'6" unless somebody says it runs to the ceiling.
+  fireplace: 4.5,
+  furnace: 4.5,
+  waterHeater: 5,
 };
 
 /** Ceilings are 8' unless told otherwise, which is the overwhelming majority of what gets scoped. */
@@ -486,7 +527,37 @@ export interface FixtureSymbol extends SymbolBase {
   hoodType?: HoodType;
   /** A hood's height off the floor to its underside. Absent or null is 5'6", 30" over a 36" counter. */
   bottomFeet?: number | null;
+  /** A fireplace's surround and fuel - see `FireplaceDetail`. Its surround's height is `heightFeet`. */
+  fireplace?: FireplaceDetail;
 }
+
+/**
+ * A fireplace beyond its footprint (2026-10-21): what its surround is faced with and what it burns.
+ * The surround's height is the fireplace's own height - to the ceiling for the owner's corner one.
+ */
+export interface FireplaceDetail {
+  finish?: FireplaceFinish;
+  fuel?: FireplaceFuel;
+}
+
+export type FireplaceFinish = "stone" | "brick" | "tile" | "drywall" | "wood" | "stucco";
+
+export const FIREPLACE_FINISH_LABEL: Record<FireplaceFinish, string> = {
+  stone: "Stone",
+  brick: "Brick",
+  tile: "Tile",
+  drywall: "Drywall",
+  wood: "Wood",
+  stucco: "Stucco",
+};
+
+export type FireplaceFuel = "gas" | "wood" | "electric";
+
+export const FIREPLACE_FUEL_LABEL: Record<FireplaceFuel, string> = {
+  gas: "Gas",
+  wood: "Wood",
+  electric: "Electric",
+};
 
 /** What lines the walls round a tub or a shower. */
 export type SurroundType = "one-piece" | "panels" | "tile" | "solid-surface";
@@ -605,10 +676,67 @@ export interface Block {
   countertop?: Countertop;
   /** Its doors, as on a wall run (`CabinetDoors`); absent is not said. */
   doors?: CabinetDoors;
+  /**
+   * WHAT the block is (2026-10-21) - see `BlockKind`. Absent is a cabinet, which is every block drawn
+   * before. The owner's corner fireplace was tapped as a 1.14 m cabinet for want of anything else.
+   */
+  kind?: BlockKind;
+  /** A fireplace block's surround and fuel; its surround's height is `heightFeet`. */
+  fireplace?: FireplaceDetail;
+  /** A beam block's kind and how far it drops below the ceiling - see `CeilingBeam`. */
+  beam?: CeilingBeam;
 }
 
 /** See `Block.shape`. */
 export type BlockShape = "rectangle" | "triangle";
+
+/**
+ * What a block is. A FIREPLACE stands on the floor like a cabinet, its height its surround's. A BEAM
+ * is overhead - a beam, a duct bulkhead, a soffit - drawn where it runs: its width is its LENGTH along
+ * the run, its depth its width across, and it drops from the ceiling (`CeilingBeam.dropFeet`). It
+ * stands on no floor, takes no base and hides no wall.
+ */
+export type BlockKind = "cabinet" | "fireplace" | "beam";
+
+export const BLOCK_KIND_LABEL: Record<BlockKind, string> = {
+  cabinet: "Cabinet",
+  fireplace: "Fireplace",
+  beam: "Beam / bulkhead",
+};
+
+/** A beam, a bulkhead or a soffit under the ceiling: what it is and how far it comes down. */
+export interface CeilingBeam {
+  type?: BeamType;
+  /** How far below the ceiling its underside is; absent or null is not measured. */
+  dropFeet?: number | null;
+}
+
+export type BeamType = "beam" | "bulkhead" | "soffit";
+
+export const BEAM_TYPE_LABEL: Record<BeamType, string> = {
+  beam: "Beam",
+  bulkhead: "Bulkhead (duct)",
+  soffit: "Soffit",
+};
+
+/** What a block is, a cabinet when it does not say. */
+export function blockKind(block: Block): BlockKind {
+  return block.kind ?? "cabinet";
+}
+
+/** What a block is called when nobody labelled it: an island, a fireplace, a beam (or bulkhead, or soffit). */
+export function blockDefaultLabel(block: Block): string {
+  const kind = blockKind(block);
+  if (kind === "fireplace") return "Fireplace";
+  if (kind === "beam") return block.beam?.type === "bulkhead" ? "Bulkhead" : block.beam?.type === "soffit" ? "Soffit" : "Beam";
+  return "Island";
+}
+
+/** Whether a block stands on the floor - everything but a beam, and of a cabinet only what its tier says. */
+export function blockStandsOnFloor(block: Block): boolean {
+  const kind = blockKind(block);
+  return kind === "beam" ? false : kind === "fireplace" ? true : standsOnFloor(block.tier);
+}
 
 /**
  * The old name for a `Block`, from when the only one was a kitchen island.
@@ -795,6 +923,17 @@ export interface SketchRoom {
    * Optional because sketches saved before it existed have no such field; absent is every wall plain.
    */
   wallDetails?: Record<string, WallDetail>;
+  /**
+   * What the ceiling is finished with (2026-10-21) - the owner's storage room has a suspended T-bar
+   * ceiling, his utility room open joists. Absent is not said, never assumed drywall.
+   */
+  ceilingFinish?: CeilingFinish;
+  /**
+   * The room is UNFINISHED: its walls open studs or bare foundation, as the owner's utility room is.
+   * A wall can say otherwise (`WallDetail.unfinished`); the ceiling says its own (`ceilingFinish`).
+   * Absent is finished, or not said.
+   */
+  unfinished?: boolean;
   symbols: SketchSymbol[];
   /** Cabinets standing in open floor rather than against a wall — see `FreeCabinet`. */
   freeCabinets: FreeCabinet[];
@@ -816,6 +955,41 @@ export interface WallDetail {
   heightFeet?: number | null;
   /** What tops a half wall; absent is not said. */
   cap?: WallCap;
+  /** Crown moulding along the top of this wall. Absent is none, or not said. */
+  crown?: boolean;
+  /** A plant ledge - the flat top of a wall open above it, under a vault - at this height off the floor. Absent is none. */
+  plantLedgeFeet?: number | null;
+  /** Wainscot on this wall, to its height; absent is none. */
+  wainscot?: Wainscot;
+  /** A ledge or knee-wall step along the bottom of the wall - a foundation ledge under a basement window. Absent is none. */
+  ledge?: WallLedge;
+  /**
+   * An unfinished wall - open studs, bare block - or, false, a finished one in a room marked
+   * unfinished (`SketchRoom.unfinished`). Absent is as its room is.
+   */
+  unfinished?: boolean;
+}
+
+/** Wainscot: how high it runs and what it is. */
+export interface Wainscot {
+  heightFeet: number;
+  type?: WainscotType;
+}
+
+export type WainscotType = "panel" | "beadboard" | "board-batten" | "tile" | "wood";
+
+export const WAINSCOT_TYPE_LABEL: Record<WainscotType, string> = {
+  panel: "Raised / flat panel",
+  beadboard: "Beadboard",
+  "board-batten": "Board and batten",
+  tile: "Tile",
+  wood: "Wood plank",
+};
+
+/** A ledge along the bottom of a wall: the height of its top and how far it stands out from the wall above it. */
+export interface WallLedge {
+  heightFeet: number;
+  depthFeet: number;
 }
 
 /** What finishes the top of a half wall. */
@@ -4350,27 +4524,85 @@ export function symbolWidthFeet(symbol: SketchSymbol, room: SketchRoom, rooms: S
  */
 export function openingSquareFeetOnWall(room: SketchRoom, wallId: string, rooms: SketchRoom[] = []): number {
   const ceiling = room.ceilingHeightFeet ?? DEFAULT_CEILING_HEIGHT_FEET;
-  // Nor where the wall is missing: an opening left there when the wall was taken out is no hole in anything.
+  return openingsInWall(room, wallId, rooms).reduce((sum, { symbol, widthFeet }) => {
+    // Width by height for a plain one; less the wall under a pass-through's sill and beside a shaped top.
+    const face = openingFaceSquareFeet(symbol, widthFeet, ceiling);
+    return face == null ? sum : sum + face;
+  }, 0);
+}
+
+/**
+ * The doors and windows through one wall, as `openingSquareFeetOnWall` counts them: this room's own,
+ * and another room's across a partition for the stretch of it in THIS wall - a door straddling the
+ * corner where two rooms meet a third is half a hole in each of their walls - and none where the wall
+ * is missing, since an opening left there when the wall was taken out is no hole in anything. Each
+ * with its width in this wall. Without `rooms`, only this room's own.
+ */
+export function openingsInWall(room: SketchRoom, wallId: string, rooms: SketchRoom[] = []): { symbol: DoorSymbol | WindowSymbol; widthFeet: number }[] {
   const missing = missingWallRuns(room, wallId, rooms);
   const standing = (t: number) => !missing.some(([lo, hi]) => t >= lo && t <= hi);
   const wall = wallById(room, wallId);
   const own = room.symbols.filter((symbol) => symbol.wallId === wallId && standing(symbol.t)).map((symbol) => ({ room, symbol, widthCap: Infinity }));
-  // A shared door counts for the stretch of it that lies in THIS wall: a door straddling the corner
-  // where two rooms meet a third is half a hole in each of their walls, not a whole one in both.
   const shared =
     rooms.length > 0
       ? openingsSharedWith(room, rooms)
           .filter((s) => s.wallId === wallId && (!wall || wall.lengthPx <= 0 || standing((s.fromPx + s.toPx) / 2 / wall.lengthPx)))
           .map((s) => ({ room: s.room, symbol: s.symbol, widthCap: (s.toPx - s.fromPx) / PIXELS_PER_FOOT }))
       : [];
-  return [...own, ...shared].reduce((sum, { room: owner, symbol, widthCap }) => {
-    if (symbol.type !== "door" && symbol.type !== "window") return sum;
+  const out: { symbol: DoorSymbol | WindowSymbol; widthFeet: number }[] = [];
+  for (const { room: owner, symbol, widthCap } of [...own, ...shared]) {
+    if (symbol.type !== "door" && symbol.type !== "window") continue;
     const width = symbolWidthFeet(symbol, owner);
-    if (width == null) return sum;
-    // Width by height for a plain one; less the wall under a pass-through's sill and beside a shaped top.
-    const face = openingFaceSquareFeet(symbol, Math.min(width, widthCap), ceiling);
-    return face == null ? sum : sum + face;
-  }, 0);
+    if (width != null) out.push({ symbol, widthFeet: Math.min(width, widthCap) });
+  }
+  return out;
+}
+
+/** Is this wall unfinished (open studs, bare block)? Its own say (`WallDetail.unfinished`), else its room's. */
+export function wallUnfinished(room: SketchRoom, wallId: string): boolean {
+  return room.wallDetails?.[wallId]?.unfinished ?? room.unfinished === true;
+}
+
+/**
+ * The wainscot along one wall (`WallDetail.wainscot`), or null when it has none: its length - the
+ * wall's own stretches, less every opening it stops at (a door, a window whose sill is under the
+ * wainscot's top) - and its area, less the part of each opening inside its height.
+ */
+export function wainscotOnWall(room: SketchRoom, wallId: string, rooms: SketchRoom[] = []): { feet: number; squareFeet: number } | null {
+  const wainscot = room.wallDetails?.[wallId]?.wainscot;
+  const wall = wallById(room, wallId);
+  if (!wainscot || !wall || wainscot.heightFeet <= 0) return null;
+  const h = wainscot.heightFeet;
+  const run = ownWallRuns(room, wallId, rooms).reduce((sum, r) => sum + wallRunFeet(wall, r), 0);
+  let feet = run;
+  let squareFeet = run * h;
+  for (const { symbol, widthFeet } of openingsInWall(room, wallId, rooms)) {
+    const span = openingSpan(symbol);
+    if (!span || span.bottomFeet >= h) continue;
+    feet -= widthFeet;
+    squareFeet -= widthFeet * (Math.min(span.apexFeet, h) - span.bottomFeet);
+  }
+  return { feet: Math.max(0, feet), squareFeet: Math.max(0, squareFeet) };
+}
+
+/**
+ * A beam, bulkhead or soffit block (`BlockKind` "beam") measured: its run, LF, and the drywall that
+ * wraps it, SF - its underside and its two sides, less a side flush against a wall it runs along.
+ * Null square feet when its drop was never measured: a face of unknown height is not a measurement.
+ */
+export function beamMeasure(block: Block, room: SketchRoom): { feet: number; squareFeet: number | null } {
+  const feet = block.widthFeet ?? block.widthPx / PIXELS_PER_FOOT;
+  const across = block.depthFeet ?? block.depthPx / PIXELS_PER_FOOT;
+  const drop = block.beam?.dropFeet;
+  if (drop == null || drop <= 0) return { feet, squareFeet: null };
+  const touching = blockWallContacts(block, room).reduce((sum, c) => sum + c.feet, 0);
+  const sides = touching >= feet * 0.9 ? 1 : 2;
+  return { feet, squareFeet: feet * (across + sides * drop) };
+}
+
+/** The face of a fireplace's surround - its width across the room by its height - or null with no height. */
+export function fireplaceSurroundSquareFeet(widthFeet: number, heightFeet: number | null | undefined): number | null {
+  return heightFeet != null && heightFeet > 0 ? widthFeet * heightFeet : null;
 }
 
 /**
@@ -6724,6 +6956,12 @@ export interface SketchWallOutput {
   parentWallFeet?: number;
   /** Its half-wall stretches (`halfWallRuns`): length, height and cap; absent when it is full height. */
   halfWall?: { feet: number; heightFeet: number; cap: WallCap | null }[];
+  /** Its trim and finish (`WallDetail`), each present only when said. */
+  crown?: boolean;
+  plantLedgeFeet?: number;
+  wainscot?: { heightFeet: number; type?: WainscotType; feet: number; squareFeet: number };
+  ledge?: WallLedge;
+  unfinished?: boolean;
 }
 
 export interface SketchSymbolOutput {
@@ -6763,6 +7001,7 @@ export interface SketchSymbolOutput {
   /** Fixture details, present only when said. */
   surround?: SurroundType;
   hoodType?: HoodType;
+  fireplace?: FireplaceDetail;
   /** Stairs only. */
   treadCount?: number;
   riseFeet?: number | null;
@@ -6782,6 +7021,10 @@ export interface SketchFreeCabinetOutput {
   heightFeet?: number;
   doors?: CabinetDoors;
   countertop?: CountertopOutput;
+  /** What the block is when it is not a cabinet, with its details (`BlockKind`). */
+  kind?: BlockKind;
+  fireplace?: FireplaceDetail;
+  beam?: { type?: BeamType; dropFeet?: number; lengthFeet: number; wrapSquareFeet: number | null };
 }
 
 /** A countertop as output: what was said about it, and its numbers (`countertopMeasure`). */
@@ -6797,11 +7040,42 @@ export interface CountertopOutput {
   backsplashSquareFeet: number;
 }
 
-/** A block's details as output, each only when said - a block drawn before them adds nothing. */
-function blockDetailOutput(block: Block, room: SketchRoom, rooms: SketchRoom[]): Pick<SketchFreeCabinetOutput, "heightFeet" | "doors" | "countertop"> {
-  const top = block.countertop ? roomCountertops(room, rooms).find((t) => t.id === block.id) : undefined;
+/** A wall's trim and finish as output (`WallDetail`), each only when said - a plain wall adds nothing. */
+function wallTrimOutput(room: SketchRoom, wallId: string, rooms: SketchRoom[]): Pick<SketchWallOutput, "crown" | "plantLedgeFeet" | "wainscot" | "ledge" | "unfinished"> {
+  const d = room.wallDetails?.[wallId];
+  if (!d) return {};
+  const wainscot = d.wainscot ? wainscotOnWall(room, wallId, rooms) : null;
   return {
-    ...(block.heightFeet != null && (block.countertop || block.doors) ? { heightFeet: round2(block.heightFeet) } : {}),
+    ...(d.crown ? { crown: true } : {}),
+    ...(d.plantLedgeFeet != null && d.plantLedgeFeet > 0 ? { plantLedgeFeet: round2(d.plantLedgeFeet) } : {}),
+    ...(d.wainscot && wainscot
+      ? { wainscot: { heightFeet: round2(d.wainscot.heightFeet), ...(d.wainscot.type ? { type: d.wainscot.type } : {}), feet: round2(wainscot.feet), squareFeet: round2(wainscot.squareFeet) } }
+      : {}),
+    ...(d.ledge ? { ledge: { heightFeet: round2(d.ledge.heightFeet), depthFeet: round2(d.ledge.depthFeet) } } : {}),
+    ...(d.unfinished !== undefined ? { unfinished: d.unfinished } : {}),
+  };
+}
+
+/** A block's details as output, each only when said - a block drawn before them adds nothing. */
+function blockDetailOutput(block: Block, room: SketchRoom, rooms: SketchRoom[]): Pick<SketchFreeCabinetOutput, "heightFeet" | "doors" | "countertop" | "kind" | "fireplace" | "beam"> {
+  const top = block.countertop ? roomCountertops(room, rooms).find((t) => t.id === block.id) : undefined;
+  const kind = blockKind(block);
+  if (kind === "beam") {
+    const m = beamMeasure(block, room);
+    const drop = block.beam?.dropFeet;
+    return {
+      kind,
+      beam: {
+        ...(block.beam?.type ? { type: block.beam.type } : {}),
+        ...(drop != null && drop > 0 ? { dropFeet: round2(drop) } : {}),
+        lengthFeet: round2(m.feet),
+        wrapSquareFeet: m.squareFeet == null ? null : round2(m.squareFeet),
+      },
+    };
+  }
+  return {
+    ...(kind === "fireplace" ? { kind, ...(block.fireplace ? { fireplace: { ...block.fireplace } } : {}) } : {}),
+    ...(block.heightFeet != null && (block.countertop || block.doors || kind === "fireplace") ? { heightFeet: round2(block.heightFeet) } : {}),
     ...(block.doors ? { doors: block.doors } : {}),
     ...(top ? { countertop: countertopOutput(top.top, top.measure) } : {}),
   };
@@ -6832,6 +7106,9 @@ export interface SketchRoomOutput {
   ceilingHeightFeet: number | null;
   ceilingType: CeilingType;
   ceilingPeakFeet: number | null;
+  /** What the ceiling is finished with, and whether the room is unfinished - each present only when said. */
+  ceilingFinish?: CeilingFinish;
+  unfinished?: boolean;
   /** Present only for a stair room. */
   stairs: { treadCount: number; runFeet: number | null; widthFeet: number | null; riseFeet: number; riserFeet: number | null; direction: "up" | "down" } | null;
   walls: SketchWallOutput[];
@@ -6867,6 +7144,8 @@ export function sketchOutput(sketch: Sketch): SketchRoomOutput[] {
     ceilingHeightFeet: room.ceilingHeightFeet == null ? null : round2(room.ceilingHeightFeet),
     ceilingType: room.stairs ? "sloped" : room.ceilingType,
     ceilingPeakFeet: room.stairs ? round2(stairCeiling(room).peakFeet) : room.ceilingPeakFeet == null ? null : round2(room.ceilingPeakFeet),
+    ...(room.ceilingFinish ? { ceilingFinish: room.ceilingFinish } : {}),
+    ...(room.unfinished !== undefined ? { unfinished: room.unfinished } : {}),
     stairs: room.stairs
       ? (() => {
           const f = stairFlight(room);
@@ -6888,7 +7167,7 @@ export function sketchOutput(sketch: Sketch): SketchRoomOutput[] {
         const missingFeet = round2(missingWallRuns(room, wall.id, sketch.rooms).reduce((sum, run) => sum + wallRunFeet(wall, run), 0));
         const parentWallFeet = round2(onParentWallRuns(room, wall.id, sketch.rooms).reduce((sum, run) => sum + wallRunFeet(wall, run), 0));
         const halfWall = halfWallRuns(room, wall.id, sketch.rooms).map((h) => ({ feet: round2(wallRunFeet(wall, h.run)), heightFeet: round2(h.heightFeet), cap: h.cap }));
-        return { ...(missingFeet > 0 ? { missingFeet } : {}), ...(parentWallFeet > 0 ? { parentWallFeet } : {}), ...(halfWall.length > 0 ? { halfWall } : {}) };
+        return { ...(missingFeet > 0 ? { missingFeet } : {}), ...(parentWallFeet > 0 ? { parentWallFeet } : {}), ...(halfWall.length > 0 ? { halfWall } : {}), ...wallTrimOutput(room, wall.id, sketch.rooms) };
       })(),
     })),
     symbols: room.symbols.map((symbol) => {
@@ -6939,6 +7218,7 @@ export function sketchOutput(sketch: Sketch): SketchRoomOutput[] {
           ...(symbol.surround ? { surround: symbol.surround } : {}),
           ...(symbol.hoodType ? { hoodType: symbol.hoodType } : {}),
           ...(symbol.fixtureType === "hood" ? { bottomFeet: round2(symbol.bottomFeet ?? HOOD_DEFAULT_BOTTOM_FEET) } : {}),
+          ...(symbol.fixtureType === "fireplace" ? { heightFeet: round2(symbol.heightFeet), ...(symbol.fireplace ? { fireplace: { ...symbol.fireplace } } : {}) } : {}),
         };
       }
       const top = symbol.countertop ? roomCountertops(room, sketch.rooms).find((t) => t.id === symbol.id) : undefined;
@@ -6977,7 +7257,7 @@ export function sketchOutput(sketch: Sketch): SketchRoomOutput[] {
       const fromLeft = Math.min(...footprint.map((p) => p.x)) - Math.min(...outline.map((p) => p.x));
       const fromTop = Math.min(...footprint.map((p) => p.y)) - Math.min(...outline.map((p) => p.y));
       return {
-        label: cabinet.label.trim() || "Island",
+        label: cabinet.label.trim() || blockDefaultLabel(cabinet),
         tier: cabinet.tier,
         widthFeet: cabinet.widthFeet == null ? null : round2(cabinet.widthFeet),
         depthFeet: cabinet.depthFeet == null ? null : round2(cabinet.depthFeet),
@@ -7038,6 +7318,8 @@ export function sketchSummaryText(sketch: Sketch): string {
             : ` to ${formatFeetInches(room.ceilingPeakFeet)} (${room.ceilingType})`;
         lines.push(`  Ceiling height — ${formatFeetInches(room.ceilingHeightFeet)}${shape}`);
       }
+      if (room.ceilingFinish) lines.push(`  Ceiling finish — ${CEILING_FINISH_LABEL[room.ceilingFinish]}`);
+      if (room.unfinished) lines.push("  Unfinished walls");
 
       if (room.stairs) {
         const s = room.stairs;
@@ -7057,7 +7339,17 @@ export function sketchSummaryText(sketch: Sketch): string {
             return wall.lengthFeet != null && h.feet >= wall.lengthFeet - 0.01 ? `, ${what}` : `, ${formatFeetInches(h.feet)} of it a ${what}`;
           })
           .join("");
-        lines.push(`  Wall ${wall.wall} — ${wall.lengthLabel}${notes}${half}`);
+        const trim = [
+          wall.crown ? "crown" : "",
+          wall.plantLedgeFeet != null ? `plant ledge at ${formatFeetInches(wall.plantLedgeFeet)}` : "",
+          wall.wainscot ? `wainscot ${formatFeetInches(wall.wainscot.heightFeet)} high${wall.wainscot.type ? ` (${WAINSCOT_TYPE_LABEL[wall.wainscot.type].toLowerCase()})` : ""}` : "",
+          wall.ledge ? `ledge ${formatFeetInches(wall.ledge.heightFeet)} high, ${formatSmallDimension(wall.ledge.depthFeet)} deep` : "",
+          wall.unfinished === true ? "unfinished" : wall.unfinished === false ? "finished" : "",
+        ]
+          .filter((t) => t !== "")
+          .map((t) => `, ${t}`)
+          .join("");
+        lines.push(`  Wall ${wall.wall} — ${wall.lengthLabel}${notes}${half}${trim}`);
       }
 
       for (const symbol of room.symbols) {
@@ -7105,6 +7397,8 @@ export function sketchSummaryText(sketch: Sketch): string {
           if (symbol.heightFeet != null) parts.push(`${formatFeetInches(symbol.heightFeet)} high`);
           if (symbol.hoodType) parts.push(HOOD_TYPE_LABEL[symbol.hoodType].toLowerCase());
           if (symbol.bottomFeet != null) parts.push(`underside at ${formatFeetInches(symbol.bottomFeet)}`);
+          if (symbol.fireplace?.finish) parts.push(`${FIREPLACE_FINISH_LABEL[symbol.fireplace.finish].toLowerCase()} surround`);
+          if (symbol.fireplace?.fuel) parts.push(FIREPLACE_FUEL_LABEL[symbol.fireplace.fuel].toLowerCase());
         }
         lines.push(parts.join(", "));
         if (symbol.countertop) lines.push(countertopLine(symbol.countertop));
@@ -7123,6 +7417,19 @@ export function sketchSummaryText(sketch: Sketch): string {
             ? "free-standing"
             : `free-standing, ${formatFeetInches(island.fromLeftFeet)} from left wall, ${formatFeetInches(island.fromTopFeet)} from top wall`;
         const doors = island.doors ? `, ${island.doors === "open" ? "open shelving" : `${CABINET_DOORS_LABEL[island.doors].toLowerCase()} doors`}` : "";
+        if (island.kind === "beam" && island.beam) {
+          const b = island.beam;
+          const across = island.depthFeet == null ? "" : ` x ${formatFeetInches(island.depthFeet)} wide`;
+          const drop = b.dropFeet == null ? ", drop not measured" : `, drops ${formatSmallDimension(b.dropFeet)}${b.wrapSquareFeet == null ? "" : `, wrap ${formatQuantityText(b.wrapSquareFeet)} SF`}`;
+          lines.push(`  ${island.label} — ${b.type ? BEAM_TYPE_LABEL[b.type].toLowerCase() : "beam"} overhead, ${formatFeetInches(b.lengthFeet)} long${across}${drop}`);
+          continue;
+        }
+        if (island.kind === "fireplace") {
+          const fp = island.fireplace;
+          const said = [fp?.finish ? `${FIREPLACE_FINISH_LABEL[fp.finish].toLowerCase()} surround` : "", fp?.fuel ? FIREPLACE_FUEL_LABEL[fp.fuel].toLowerCase() : "", island.heightFeet != null ? `${formatFeetInches(island.heightFeet)} high` : "surround height not said"].filter((t) => t !== "");
+          lines.push(`  ${island.label} — fireplace, ${where}, ${size}, ${said.join(", ")}`);
+          continue;
+        }
         lines.push(`  ${island.label} — ${where}, ${size}, ${CABINET_TIER_LABEL[island.tier].toLowerCase()}${doors}`);
         if (island.countertop) lines.push(countertopLine(island.countertop));
       }
@@ -7139,7 +7446,7 @@ function countertopLine(top: CountertopOutput): string {
   parts.push(`${formatFeetInches(top.lengthFeet)} x ${formatFeetInches(top.depthFeet)}`);
   if (top.waterfallEnds > 0) parts.push(`${top.waterfallEnds} waterfall end${top.waterfallEnds === 1 ? "" : "s"}`);
   parts.push(`${formatQuantityText(top.squareFeet)} SF`);
-  if (top.backsplashFeet != null) parts.push(`backsplash ${formatFeetInches(top.backsplashFeet)} high, ${formatQuantityText(top.backsplashLengthFeet)} LF`);
+  if (top.backsplashFeet != null) parts.push(`backsplash ${formatSmallDimension(top.backsplashFeet)} high, ${formatQuantityText(top.backsplashLengthFeet)} LF`);
   return parts.join(", ");
 }
 

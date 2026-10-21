@@ -12,7 +12,7 @@
  */
 
 import { build } from "esbuild";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -349,7 +349,220 @@ export async function runEsxItemChecks() {
     assert(/Tub\/shower .*one-piece unit surround, 6' high/.test(s.sketchSummaryText({ rooms: [r] })), s.sketchSummaryText({ rooms: [r] }));
   });
 
+  /* ── trim and finish ──────────────────────────────────────────────────────────────────────────── */
+
+  test("crown runs the walls that have it, and stops at a half wall", () => {
+    let r = room("l", 0, 0, 16, 12);
+    for (const w of s.wallsOf(r)) r = s.withWallDetail(r, w.id, { crown: true });
+    r = s.withWallDetail(r, "l-v2", { heightFeet: 3 });
+    near(q({ rooms: [r] }, r).details.crownFeet, 56 - 16, "56' round, less the 16' half wall");
+  });
+
+  test("wainscot stops at a door, and at a window whose sill is below its top", () => {
+    const r = s.withWallDetail(
+      room("o", 0, 0, 12, 10, { symbols: [door("d", "o-v0", 0.25, 3), windowAt("w1", "o-v0", 0.7, 3, { sillFeet: 2, heightFeet: 4 }), windowAt("w2", "o-v1", 0.5, 3, { sillFeet: 4 })] }),
+      "o-v0",
+      { wainscot: { heightFeet: 3, type: "panel" } },
+    );
+    const w = s.wainscotOnWall(r, "o-v0", [r]);
+    // 12' less the 3' door and the 3' window: 6 LF. 12 x 3 less the door's 3 x 3 and the window's 3 x 1.
+    near(w.feet, 6, "6 LF");
+    near(w.squareFeet, 36 - 9 - 3, "24 SF");
+    const d = q({ rooms: [r] }, r).details;
+    near(d.wainscotFeet, 6, "and in the details");
+    assert(s.sketchOutput({ rooms: [r] })[0].walls[0].wainscot?.type === "panel", "its type in the output");
+  });
+
+  test("a ledge, a plant ledge and an unfinished wall are measured, and W stays the surface", () => {
+    let r = room("b", 0, 0, 12, 10, { ceilingHeightFeet: 7 + 2 / 12 });
+    const plainW = q({ rooms: [r] }, r).wallArea;
+    r = s.withWallDetail(r, "b-v0", { ledge: { heightFeet: 3 + 5 / 12, depthFeet: 4 / 12 } });
+    r = s.withWallDetail(r, "b-v1", { plantLedgeFeet: 8 });
+    r = { ...r, unfinished: true };
+    r = s.withWallDetail(r, "b-v3", { unfinished: false });
+    const qq = q({ rooms: [r] }, r);
+    near(qq.details.ledgeFeet, 12, "12 LF of ledge");
+    near(qq.details.ledgeTopSquareFeet, 4, "and 4 SF of its top");
+    near(qq.details.plantLedgeFeet, 10, "10 LF of plant ledge");
+    near(qq.details.unfinishedWallSquareFeet, (12 + 10 + 12) * (7 + 2 / 12), "three walls unfinished, the fourth said finished");
+    near(qq.wallArea, plainW, "W is the wall's surface either way");
+  });
+
+  test("a ceiling finish is said with its square feet; none is never assumed", () => {
+    const r = room("s", 0, 0, 10, 8, { ceilingFinish: "suspended" });
+    const d = q({ rooms: [r] }, r).details;
+    assert(d.ceilingFinish === "suspended", "suspended");
+    near(d.ceilingFinishSquareFeet, 80, "over its 80 SF");
+    assert(q({ rooms: [room("t", 0, 0, 10, 8)] }, room("t", 0, 0, 10, 8)).details.ceilingFinish === null, "and a room that says nothing has none");
+    assert(s.roomDetailLines(d).some((l) => /Ceiling, Suspended \(T-bar\) 80.0 SF/.test(l)), JSON.stringify(s.roomDetailLines(d)));
+  });
+
+  /* ── beams and fireplaces ─────────────────────────────────────────────────────────────────────── */
+
+  const block = (id, xFt, yFt, wFt, dFt, extra = {}) => ({ id, x: xFt * FT, y: yFt * FT, widthPx: wFt * FT, depthPx: dFt * FT, widthFeet: wFt, depthFeet: dFt, label: "", tier: "base", ...extra });
+
+  test("a beam takes nothing off the floor and is wrapped on its sides and underside", () => {
+    const beam = block("bm", 0, 6, 20, 1.1, { kind: "beam", beam: { type: "beam", dropFeet: 0.9 } });
+    const r = room("rec", 0, 0, 20, 14, { freeCabinets: [beam] });
+    const qd = s.roomQuantities(r, { rooms: [r] }, DEDUCT);
+    near(qd.deductions.floorSquareFeet + qd.deductions.perimeterFeet + qd.deductions.wallSquareFeet, 0, "nothing deducted");
+    near(qd.details.beamFeet, 20, "20 LF");
+    near(qd.details.beamSquareFeet, 20 * (1.1 + 2 * 0.9), "bottom and two sides");
+    const out = s.sketchOutput({ rooms: [r] })[0].freeCabinets[0];
+    assert(out.kind === "beam" && out.beam.dropFeet === 0.9 && out.label === "Beam", JSON.stringify(out));
+    const prism = s.houseModel({ rooms: [r] }).prisms.find((p) => p.kind === "cabinet");
+    near(prism.y0, 8 - 0.9, "it hangs from the ceiling in 3D");
+  });
+
+  test("a soffit along a wall is wrapped on one side only", () => {
+    const soffit = block("sf", 0, 0, 12, 1.5, { kind: "beam", beam: { type: "soffit", dropFeet: 1 } });
+    const r = room("k", 0, 0, 12, 10, { freeCabinets: [soffit] });
+    near(s.beamMeasure(soffit, r).squareFeet, 12 * (1.5 + 1), "underside and the room side");
+  });
+
+  test("a beam nobody measured the drop of has its run and no wrap", () => {
+    const beam = block("bm", 0, 6, 20, 1.1, { kind: "beam" });
+    const r = room("rec", 0, 0, 20, 14, { freeCabinets: [beam] });
+    const d = q({ rooms: [r] }, r).details;
+    near(d.beamFeet, 20, "20 LF");
+    near(d.beamSquareFeet, 0, "no SF");
+    assert(s.roomDetailLines(d).some((l) => /drop not measured/.test(l)), "and says so");
+  });
+
+  test("a corner fireplace: its surround is the long face by its height, and it stands on the floor", () => {
+    const fp = block("fp", 0, 0, 3.5, 3.5, { kind: "fireplace", shape: "triangle", angleDeg: 0, heightFeet: 8, fireplace: { finish: "stone", fuel: "gas" } });
+    const r = room("liv", 0, 0, 16, 14, { freeCabinets: [fp] });
+    const qd = s.roomQuantities(r, { rooms: [r] }, DEDUCT);
+    near(qd.details.fireplaceSurroundSquareFeet, Math.hypot(3.5, 3.5) * 8, "the hypotenuse by 8'");
+    near(qd.details.fireplaces, 1, "one fireplace");
+    near(qd.deductions.floorSquareFeet, (3.5 * 3.5) / 2, "its triangle of floor");
+    const out = s.sketchOutput({ rooms: [r] })[0].freeCabinets[0];
+    assert(out.kind === "fireplace" && out.fireplace.finish === "stone" && out.heightFeet === 8 && out.label === "Fireplace", JSON.stringify(out));
+    assert(/Fireplace — fireplace, .*stone surround, gas, 8' high/.test(s.sketchSummaryText({ rooms: [r] })), s.sketchSummaryText({ rooms: [r] }));
+  });
+
+  test("a fireplace on a wall, a furnace and a water heater are fixtures of their own", () => {
+    const r = room("u", 0, 0, 12, 10, {
+      symbols: [
+        fixture("fp", "u-v0", 0.5, "fireplace", { heightFeet: 4.5, fireplace: { finish: "brick" } }),
+        fixture("fu", "u-v1", 0.3, "furnace"),
+        fixture("wh", "u-v1", 0.7, "waterHeater"),
+      ],
+    });
+    const qd = s.roomQuantities(r, { rooms: [r] }, DEDUCT);
+    near(qd.details.fireplaceSurroundSquareFeet, 5 * 4.5, "5' wide by 4'6\"");
+    near(qd.deductions.floorSquareFeet, 5 * 1.5, "only the fireplace's hearth comes off the floor");
+    const labels = s.sketchOutput({ rooms: [r] })[0].symbols.map((x) => x.label);
+    assert(JSON.stringify(labels) === JSON.stringify(["Fireplace", "Furnace", "Water heater"]), JSON.stringify(labels));
+  });
+
+  /* ── the owner's house: the golden sketch ──────────────────────────────────────────────────────── */
+  /*
+    His kitchen + living and his basement with every item from the 10-21 list, sized from the
+    interior test (fixtures/owner-house-esx.json, made by fixtures/owner-house-esx.make.mjs). The
+    numbers below are worked by hand; the golden file pins the whole output, so any change to what
+    the export would read shows up here. UPDATE_GOLDEN=1 rewrites it - only when the change is meant.
+  */
+  const house = JSON.parse(readFileSync(join(here, "fixtures", "owner-house-esx.json"), "utf8"));
+  const byName = (name) => house.rooms.find((r) => r.name === name);
+  const detailsOf = (name) => q(house, byName(name)).details;
+
+  test("the owner's house holds every item on the list", () => {
+    const text = JSON.stringify(house);
+    for (const field of [
+      '"sillFeet":3.1666', '"topShape":"round"', '"exterior":true', '"doorStyle":"full-lite"', '"lites":15', '"windowType":"casement"', '"units":3',
+      '"heightFeet":3.1666', '"cap":"wood"', '"crown":true', '"plantLedgeFeet"', '"wainscot"', '"ledge"', '"unfinished":true',
+      '"bottomFeet":3', '"doors":"glass"', '"doors":"open"', '"bay":"fridge"', '"bay":"wall-oven"', '"countertop"', '"waterfallEnds":1', '"overhangFeet":0.75',
+      '"fixtureType":"hood"', '"hoodType":"custom"', '"fixtureType":"tubShower"', '"surround":"one-piece"', '"kind":"fireplace"', '"finish":"stone"',
+      '"kind":"beam"', '"dropFeet"', '"ceilingFinish":"suspended"', '"ceilingFinish":"open-joists"', '"fixtureType":"furnace"', '"fixtureType":"waterHeater"',
+    ]) {
+      assert(text.includes(field), `the sketch carries ${field}`);
+    }
+  });
+
+  test("the kitchen: countertops on the run and the island, backsplash, and the bays", () => {
+    const d = detailsOf("Kitchen");
+    // The run 11' x 2'1", stopping short of the tall wall's corner (a run tapped into it is drawn and priced
+    // to it - the corner fill of 2026-09-24); the island 6' x 3'9" with one waterfall end 3'9" x 3'.
+    const run = s.symbolWidthFeet(byName("Kitchen").symbols[0], byName("Kitchen"), house.rooms);
+    near(run, 11, "the run as drawn");
+    near(d.countertopSquareFeet, 11 * (2 + 1 / 12) + 6 * 3.75 + 3.75 * 3, "56.7 SF of top");
+    near(d.countertopFeet, 17, "17 LF");
+    near(d.backsplashSquareFeet, 11 * (4 / 12), "a 4\" splash along the run");
+    const out = s.sketchOutput(house).find((r) => r.name === "Kitchen");
+    const labels = out.symbols.map((x) => x.label);
+    assert(labels.includes("Wall oven") && labels.includes("Fridge bay") && labels.includes("Range hood") && labels.includes("Hutch"), JSON.stringify(labels));
+  });
+
+  test("the living room: two arched pass-throughs, the stair rail half wall, crown, plant ledge and the corner fireplace", () => {
+    const liv = byName("Living");
+    // Each 2' x (6'7" - 3'2"): 2' to its spring 1' under the top, then a half circle of 1' radius.
+    near(s.openingSquareFeetOnWall(liv, "liv-w0", house.rooms), 2 * (2 * (6 + 7 / 12 - 3 - 2 / 12 - 1) + Math.PI / 2), "the two holes, not the wall under them");
+    const d = detailsOf("Living");
+    near(d.halfWallFeet, 12, "12' of half wall");
+    near(d.crownFeet, 16, "crown along the 16' wall");
+    near(d.plantLedgeFeet, 16, "and the plant ledge");
+    near(d.fireplaceSurroundSquareFeet, Math.hypot(3.75, 3.75) * (7 + 7 / 12), "the fireplace's face to the ceiling");
+  });
+
+  test("the basement: the beam, the ledge, the tub/shower, the T-bar, the unfinished utility room, the office", () => {
+    near(detailsOf("Rec room").beamSquareFeet, 20 * (13 / 12 + 2 * (11 / 12)), "the beam's wrap, 20' long");
+    near(detailsOf("Rec room").countertopFeet, 8, "the bar top");
+    near(detailsOf("Bedroom 2").ledgeTopSquareFeet, 10 * (4 / 12), "the foundation ledge's top");
+    const bath = s.roomQuantities(byName("Bathroom"), house, DEDUCT);
+    near(bath.deductions.wallSquareFeet, 5 * (6 + 4 / 12) + (3 + 2 / 12) * (2 + 10 / 12), "the tub/shower's surround and the vanity behind them");
+    assert(detailsOf("Storage").ceilingFinish === "suspended", "the storage room's T-bar");
+    near(detailsOf("Utility").unfinishedWallSquareFeet, 40 * 8 - (2 + 8 / 12) * (6 + 8 / 12), "every wall of the utility room, less its door");
+    near(detailsOf("Office").wainscotSquareFeet, 12 * 3 - (2 + 8 / 12) * 3, "wainscot along the door wall, less the door");
+  });
+
+  test("the owner's house reads exactly as the golden file says", () => {
+    const actual = JSON.parse(
+      JSON.stringify({
+        output: s.sketchOutput(house),
+        quantities: Object.fromEntries(house.rooms.map((r) => [r.name, roundAll(q(house, r))])),
+        summary: s.sketchSummaryText(house).split("\n"),
+      }),
+    );
+    const path = join(here, "fixtures", "owner-house-esx.expected.json");
+    if (process.env.UPDATE_GOLDEN === "1") writeFileSync(path, JSON.stringify(actual, null, 2) + "\n");
+    const expected = JSON.parse(readFileSync(path, "utf8"));
+    const a = JSON.stringify(actual, null, 1).split("\n");
+    const e = JSON.stringify(expected, null, 1).split("\n");
+    const first = a.findIndex((line, i) => line !== e[i]);
+    assert(first < 0 && a.length === e.length, `differs from the golden file at line ${first + 1}:\n      expected ${e[first]}\n      actual   ${a[first]}`);
+  });
+
+  test("a sketch saved before any of this loads to the same output and numbers", () => {
+    // The golden house with every 2026-10-21 field taken off is a sketch from before: it must read as one.
+    const NEW = ["sillFeet", "topShape", "springFeet", "exterior", "doorStyle", "lites", "windowType", "units", "grids", "wallDetails", "ceilingFinish", "unfinished",
+      "bottomFeet", "doors", "bay", "bayHeightFeet", "countertop", "surround", "hoodType", "fireplace", "kind", "beam"];
+    const strip = (v) => (Array.isArray(v) ? v.map(strip) : v && typeof v === "object" ? Object.fromEntries(Object.entries(v).filter(([k]) => !NEW.includes(k)).map(([k, x]) => [k, strip(x)])) : v);
+    const old = strip(house);
+    // Doors' sills were never stored before; windows always had one - put theirs back.
+    for (const r of old.rooms) for (const sym of r.symbols) if (sym.type === "window") sym.sillFeet = house.rooms.find((h) => h.id === r.id).symbols.find((x) => x.id === sym.id).sillFeet;
+    for (const r of old.rooms) {
+      const qq = q(old, r);
+      assert(JSON.stringify(qq.details) === JSON.stringify(s.emptyDetailQuantities()), `${r.name} has no details`);
+      // Only what could have been drawn before: the fixture kinds from 2026-10-21 are new themselves.
+      const NEW_KINDS = ["Range hood", "Tub/shower", "Fireplace", "Furnace", "Water heater"];
+      for (const sym of s.sketchOutput(old).find((o) => o.name === r.name).symbols.filter((x) => !NEW_KINDS.includes(x.label))) {
+        for (const key of ["topShape", "springFeet", "exterior", "doorStyle", "lites", "windowType", "units", "grids", "bottomFeet", "doors", "bay", "bayHeightFeet", "countertop", "surround", "hoodType", "fireplace"]) {
+          assert(!(key in sym), `${r.name}: ${sym.label} says nothing of ${key}`);
+        }
+      }
+    }
+  });
+
   return { passed, failures };
+}
+
+/** Every number in a quantities object to two places, so the golden file is not at the mercy of the last bit of a float. */
+function roundAll(value) {
+  if (typeof value === "number") return Math.round(value * 100) / 100;
+  if (Array.isArray(value)) return value.map(roundAll);
+  if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, roundAll(v)]));
+  return value;
 }
 
 /* ── standalone ─────────────────────────────────────────────────────────────────────────────────── */

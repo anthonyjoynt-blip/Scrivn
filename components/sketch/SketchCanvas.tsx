@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef } from "react";
+import { type ReactNode, useMemo, useRef } from "react";
 import { Arc, Circle, Ellipse, Group, Layer, Line, Path, Rect, Shape, Stage, Text } from "react-konva";
 import { DEHU_COLOR, DEHU_GLYPH, GLYPH_EDGE, MOVER_AIR_COLOR, MOVER_COLOR, MOVER_GLYPH } from "@/lib/equipmentGlyphs";
 // A value import, not a type: the room label measures its name with a Konva.Text — see `RoomLabel`.
@@ -74,6 +74,9 @@ import {
   wallHandleRadii,
   wallStrokePx,
   wallsOf,
+  wallUnfinished,
+  blockKind,
+  blockDefaultLabel,
   outerWallFaces,
   roomsWallsMayNotCover,
   flushWallStretches,
@@ -144,6 +147,8 @@ const COLORS = {
   highlightWall: "#c0392b",
   highlightCeiling: "rgba(192, 57, 43, 0.16)",
   cabinet: "#e8eef4",
+  /* A fireplace block (2026-10-21): warm, so it is never read as cabinetry beside a run. */
+  fireplace: "#efe2d3",
   // Was #f4f7fa, a 2% step off white — visible on a desktop monitor and invisible on a phone.
   subRoom: "#dfe9f2",
   /*
@@ -1555,6 +1560,7 @@ function RoomShape({
       )}
       <MissingWalls room={room} rooms={rooms} zoom={zoom} />
       <HalfWalls room={room} rooms={rooms} wallStroke={wallStroke} />
+      <WallTrim room={room} rooms={rooms} wallStroke={wallStroke} zoom={zoom} />
       {/* A wall a thumbnail picks out: over the wall where it stands, outside the face.
           Heavier as well as coloured: a thumbnail is read small and printed, sometimes in
           greyscale, where colour alone stops carrying. */}
@@ -2749,6 +2755,59 @@ function HalfWalls({ room, rooms, wallStroke }: { room: SketchRoom; rooms: Sketc
   );
 }
 
+/** How far apart the studs of an unfinished wall are drawn: 16", the usual spacing. */
+const STUD_SPACING_PX = 16;
+
+/**
+ * A wall's trim and finish (`WallDetail`, 2026-10-21), drawn the way a plan says such things: a LEDGE
+ * along the bottom as the strip of floor it takes; WAINSCOT as a thin line just inside the face;
+ * CROWN and a PLANT LEDGE, overhead, as dotted lines inside it; an UNFINISHED wall as its open studs
+ * across the band. Each along the wall's own stretches only, never over a missing one.
+ */
+function WallTrim({ room, rooms, wallStroke, zoom }: { room: SketchRoom; rooms: SketchRoom[]; wallStroke: number; zoom: number }) {
+  if (room.stairs) return null;
+  const nodes: ReactNode[] = [];
+  for (const wall of wallsOf(room)) {
+    if (wall.lengthPx <= 0) continue;
+    const detail = room.wallDetails?.[wall.id];
+    const unfinished = wallUnfinished(room, wall.id);
+    if (!detail && !unfinished) continue;
+    // Into the room: the wall's direction turned +90 degrees, a room being clockwise.
+    const ix = -(wall.y2 - wall.y1) / wall.lengthPx;
+    const iy = (wall.x2 - wall.x1) / wall.lengthPx;
+    const at = (t: number, inset: number) => {
+      const p = pointOnWall(wall, t);
+      return { x: p.x + ix * inset, y: p.y + iy * inset };
+    };
+    const line = (key: string, lo: number, hi: number, inset: number, extra: Record<string, unknown>) => {
+      const a = at(lo, inset);
+      const b = at(hi, inset);
+      nodes.push(<Line key={key} points={[a.x, a.y, b.x, b.y]} stroke={COLORS.symbol} listening={false} {...extra} />);
+    };
+    ownWallRuns(room, wall.id, rooms).forEach(([lo, hi], k) => {
+      const key = `${wall.id}:${k}`;
+      if (detail?.ledge && detail.ledge.depthFeet > 0) {
+        const d = detail.ledge.depthFeet * PIXELS_PER_FOOT;
+        const [a, b, c, e] = [at(lo, 0), at(hi, 0), at(hi, d), at(lo, d)];
+        nodes.push(<Line key={`${key}:ledge`} points={[a.x, a.y, b.x, b.y, c.x, c.y, e.x, e.y]} closed fill={COLORS.cabinet} stroke={COLORS.symbol} strokeWidth={0.8 / zoom} listening={false} />);
+      }
+      if (detail?.wainscot) line(`${key}:wainscot`, lo, hi, 2.5, { strokeWidth: 0.9 / zoom });
+      if (detail?.crown) line(`${key}:crown`, lo, hi, 5, { strokeWidth: 1 / zoom, dash: [1.5 / zoom, 2.5 / zoom] });
+      if (detail?.plantLedgeFeet != null) line(`${key}:plant`, lo, hi, 7.5, { strokeWidth: 1 / zoom, dash: [6 / zoom, 2 / zoom, 1.5 / zoom, 2 / zoom] });
+      if (unfinished) {
+        // Studs across the band, which is built outward from the face.
+        const from = lo * wall.lengthPx;
+        const to = hi * wall.lengthPx;
+        for (let s = Math.ceil(from / STUD_SPACING_PX) * STUD_SPACING_PX; s <= to; s += STUD_SPACING_PX) {
+          const a = at(s / wall.lengthPx, 0);
+          nodes.push(<Line key={`${key}:stud:${s}`} points={[a.x, a.y, a.x - ix * wallStroke, a.y - iy * wallStroke]} stroke={COLORS.fill} strokeWidth={1.2 / zoom} listening={false} />);
+        }
+      }
+    });
+  }
+  return <>{nodes}</>;
+}
+
 /**
  * A room's walls, Xactimate's way: the band between its inside faces (the room's own outline) and
  * its outer faces 4" out (`outerWallFaces`), mitred at every corner.
@@ -3030,7 +3089,10 @@ function FreeCabinetShape({
   const bounds = roomBounds(room);
   const x = bounds.minX + cabinet.x;
   const y = bounds.minY + cabinet.y;
-  const upper = cabinet.tier === "wall";
+  const kind = blockKind(cabinet);
+  // A beam is overhead (2026-10-21): dashed as an upper is, with a line down its middle; a fireplace is filled warm.
+  const beam = kind === "beam";
+  const upper = beam || (kind === "cabinet" && cabinet.tier === "wall");
   const angle = blockAngleDeg(cabinet);
   const triangle = blockShape(cabinet) === "triangle";
 
@@ -3079,11 +3141,13 @@ function FreeCabinetShape({
       <Line
         points={points}
         closed
-        fill={upper ? undefined : COLORS.cabinet}
+        // A beam keeps a clear fill so a tap anywhere on it selects it.
+        fill={beam ? "rgba(0,0,0,0)" : upper ? undefined : kind === "fireplace" ? COLORS.fireplace : COLORS.cabinet}
         stroke={selected ? COLORS.selected : COLORS.symbol}
         strokeWidth={(selected ? 2.5 : 1.5) / zoom}
         dash={upper ? [5 / zoom, 3 / zoom] : undefined}
       />
+      {beam && !triangle && <Line points={[0, depth / 2, width, depth / 2]} stroke={COLORS.symbol} strokeWidth={0.8 / zoom} dash={[8 / zoom, 3 / zoom]} listening={false} />}
       {/*
         Its top (2026-10-21): the overhang on its front - the stool side of an island, the side its depth runs to -
         and a heavy line down each waterfall end.
@@ -3105,7 +3169,7 @@ function FreeCabinetShape({
         y={depth / 2 - 6 / zoom}
         width={width}
         align="center"
-        text={cabinet.label || "Island"}
+        text={cabinet.label || blockDefaultLabel(cabinet)}
         fontSize={10 / zoom}
         fill={COLORS.symbol}
         listening={false}
@@ -3494,6 +3558,30 @@ function FixtureGlyph({ fixture, x0, w, depth }: { fixture: FixtureSymbol; x0: n
           <Rect x={x0 + w * 0.06} y={depth * 0.12} width={w * 0.88} height={depth * 0.76} cornerRadius={Math.min(w, depth) * 0.16} {...stroke} />
           <Line points={[x0, depth, x0, 0, x0 + w, 0, x0 + w, depth]} stroke={COLORS.symbol} strokeWidth={3} listening={false} />
           <Circle x={x0 + w * 0.14} y={depth * 0.5} radius={Math.min(w, depth) * 0.07} {...stroke} />
+        </>
+      );
+    // A fireplace on a wall (2026-10-21): its hearth, the firebox at the back, warm as a fireplace block is.
+    case "fireplace":
+      return (
+        <>
+          <Rect x={x0} y={0} width={w} height={depth} fill={COLORS.fireplace} {...stroke} />
+          <Line points={[x0 + w * 0.22, 0, x0 + w * 0.3, depth * 0.55, x0 + w * 0.7, depth * 0.55, x0 + w * 0.78, 0]} {...stroke} />
+        </>
+      );
+    // Mechanical equipment: a furnace's box with its fan, a water heater's round tank.
+    case "furnace":
+      return (
+        <>
+          {outline}
+          <Circle x={cx} y={depth * 0.5} radius={Math.min(w, depth) * 0.3} {...stroke} />
+          <Line points={[cx - Math.min(w, depth) * 0.3, depth * 0.5, cx + Math.min(w, depth) * 0.3, depth * 0.5]} {...stroke} />
+        </>
+      );
+    case "waterHeater":
+      return (
+        <>
+          <Circle x={cx} y={depth * 0.5} radius={Math.min(w, depth) * 0.46} fill={COLORS.fill} {...stroke} />
+          <Circle x={cx} y={depth * 0.5} radius={Math.min(w, depth) * 0.14} {...stroke} />
         </>
       );
     // A range hood hangs overhead: dashed, as everything over the floor is, and crossed.
