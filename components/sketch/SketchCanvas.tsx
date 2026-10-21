@@ -40,6 +40,7 @@ import {
   roomLabelAnchor,
   clampZoom,
   missingWallGaps,
+  halfWallRuns,
   onParentWallRuns,
   openParent,
   ownMissingRuns,
@@ -1552,6 +1553,7 @@ function RoomShape({
         ),
       )}
       <MissingWalls room={room} rooms={rooms} zoom={zoom} />
+      <HalfWalls room={room} rooms={rooms} wallStroke={wallStroke} />
       {/* A wall a thumbnail picks out: over the wall where it stands, outside the face.
           Heavier as well as coloured: a thumbnail is read small and printed, sometimes in
           greyscale, where colour alone stops carrying. */}
@@ -2629,7 +2631,7 @@ function SymbolShape({
         <Group y={band.centrePx}>
           <Rect x={x0} y={-band.thicknessPx / 2 - 0.5} width={w} height={band.thicknessPx + 1} fill={COLORS.fill} listening={false} />
           {symbol.type === "door" && <DoorGlyph door={symbol} room={room} x0={x0} x1={x1} w={w} />}
-          {symbol.type === "window" && <WindowGlyph x0={x0} x1={x1} />}
+          {symbol.type === "window" && <WindowGlyph x0={x0} x1={x1} units={symbol.units} />}
         </Group>
       )}
       {symbol.type === "cabinet" && <CabinetGlyph cabinet={symbol} x0={x0} w={w} depth={cabinetDepthPx(symbol)} flip={flip} />}
@@ -2708,6 +2710,39 @@ function MissingWalls({ room, rooms, zoom }: { room: SketchRoom; rooms: SketchRo
             />
           );
         }),
+      )}
+    </>
+  );
+}
+
+/**
+ * A room's HALF WALLS (`halfWallRuns`, 2026-10-21) drawn hollow: the band keeps its two faces and is
+ * light down the middle, the way a low wall is told from a full one on a plan cut above it. Drawn by
+ * each room over its own band, so one half wall reads the same from both sides.
+ */
+function HalfWalls({ room, rooms, wallStroke }: { room: SketchRoom; rooms: SketchRoom[]; wallStroke: number }) {
+  if (room.stairs) return null;
+  return (
+    <>
+      {wallsOf(room).flatMap((wall) =>
+        wall.lengthPx <= 0
+          ? []
+          : halfWallRuns(room, wall.id, rooms).map((half, i) => {
+              // The middle of the band, which is built outward from the face: the wall's direction turned -90 degrees.
+              const ox = ((wall.y2 - wall.y1) / wall.lengthPx) * (wallStroke / 2);
+              const oy = (-(wall.x2 - wall.x1) / wall.lengthPx) * (wallStroke / 2);
+              const a = pointOnWall(wall, half.run[0]);
+              const b = pointOnWall(wall, half.run[1]);
+              return (
+                <Line
+                  key={`half:${wall.id}:${i}`}
+                  points={[a.x + ox, a.y + oy, b.x + ox, b.y + oy]}
+                  stroke={COLORS.fill}
+                  strokeWidth={wallStroke * 0.45}
+                  listening={false}
+                />
+              );
+            }),
       )}
     </>
   );
@@ -3122,7 +3157,18 @@ function Jambs({ x0, x1 }: { x0: number; x1: number }) {
  */
 function DoorGlyph({ door, room, x0, x1, w }: { door: DoorSymbol; room: SketchRoom; x0: number; x1: number; w: number }) {
   // A missing wall: the opening is cut, the jambs are marked, and nothing swings.
-  if (door.doorType === "opening") return <Jambs x0={x0} x1={x1} />;
+  if (door.doorType === "opening") {
+    // A PASS-THROUGH (2026-10-21): the wall under its sill seen from above, a light band between the jambs.
+    if (door.sillFeet) {
+      return (
+        <>
+          <Rect x={x0} y={-2.5} width={w} height={5} fill={COLORS.cabinet} stroke={COLORS.symbol} strokeWidth={0.8} listening={false} />
+          <Jambs x0={x0} x1={x1} />
+        </>
+      );
+    }
+    return <Jambs x0={x0} x1={x1} />;
+  }
 
   const double = door.leaves === "double";
   // The two world-space mirrors resolved into what the glyph needs on this particular wall.
@@ -3249,12 +3295,17 @@ function SlideArrow({ from, to, y }: { from: number; to: number; y: number }) {
   );
 }
 
-/** A window: the wall breaks, and the opening is filled with two parallel lines. */
-function WindowGlyph({ x0, x1 }: { x0: number; x1: number }) {
+/** A window: the wall breaks, and the opening is filled with two parallel lines - crossed by a mullion between each of its units. */
+function WindowGlyph({ x0, x1, units = 1 }: { x0: number; x1: number; units?: number }) {
+  const n = Math.max(1, Math.min(12, Math.round(units)));
   return (
     <>
       <Line points={[x0, -2, x1, -2]} stroke={COLORS.symbol} strokeWidth={1.5} listening={false} />
       <Line points={[x0, 2, x1, 2]} stroke={COLORS.symbol} strokeWidth={1.5} listening={false} />
+      {Array.from({ length: n - 1 }, (_, k) => {
+        const x = x0 + ((x1 - x0) * (k + 1)) / n;
+        return <Line key={k} points={[x, -2, x, 2]} stroke={COLORS.symbol} strokeWidth={1.5} listening={false} />;
+      })}
       <Jambs x0={x0} x1={x1} />
     </>
   );

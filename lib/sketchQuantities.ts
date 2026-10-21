@@ -5,6 +5,7 @@ import {
   ceilingSpanPx,
   type FreeWall,
   freeWallsOf,
+  halfWallRuns,
   MIN_VERTICES,
   PIXELS_PER_FOOT,
   type Sketch,
@@ -112,6 +113,26 @@ export interface RoomQuantities {
   ceilingSteps: { faceSquareFeet: number; wallSquareFeet: number };
   /** Null when the room has no ceiling height, which makes wall area unknowable. */
   ceilingHeightFeet: number | null;
+  /** The details an estimate prices apart from the five - see `RoomDetailQuantities`. */
+  details: RoomDetailQuantities;
+}
+
+/**
+ * The details a room's walls and fittings carry, measured (2026-10-21, for the ESX export to come):
+ * every one zero in a room that has none, which is every room drawn before them.
+ *
+ * Already in the five where they change one - a half wall's lower face is in W, a pass-through's
+ * wall under its sill is not taken out of it - and listed here as the lines an estimator prices.
+ */
+export interface RoomDetailQuantities {
+  /** Half walls (`halfWallRuns`): their length, which is also the length of their caps, LF. */
+  halfWallFeet: number;
+  /** How much less wall the half walls have than full-height walls would, SF - already out of W. */
+  halfWallReductionSquareFeet: number;
+}
+
+export function emptyDetailQuantities(): RoomDetailQuantities {
+  return { halfWallFeet: 0, halfWallReductionSquareFeet: 0 };
 }
 
 /** Polygon area in square pixels, via the shoelace formula. */
@@ -275,6 +296,7 @@ export function roomQuantities(room: SketchRoom, sketch: Sketch, options: Quanti
     deductions: { perimeterFeet: 0, floorSquareFeet: 0, wallSquareFeet: 0, openingSquareFeet: 0 },
     ceilingSteps: { faceSquareFeet: 0, wallSquareFeet: 0 },
     ceilingHeightFeet,
+    details: emptyDetailQuantities(),
   };
   // A room with fewer than three corners encloses nothing; everything below would divide by it.
   if (room.vertices.length < MIN_VERTICES) return empty;
@@ -366,12 +388,29 @@ export function roomQuantities(room: SketchRoom, sketch: Sketch, options: Quanti
     profile.meanHeightFeet == null ? 0 : partitions.reduce((sum, run) => sum + 2 * run.lengthFeet * Math.min(run.heightFeet ?? Infinity, profile.meanHeightFeet as number), 0);
 
   const steps = ceilingSteps(room, sketch.rooms);
-  const grossWallArea = (profile.meanHeightFeet == null ? 0 : perimeter * profile.meanHeightFeet) + partitionWallArea + steps.faceSquareFeet + steps.wallSquareFeet;
+
+  /*
+    HALF WALLS (`halfWallRuns`, 2026-10-21): along a stair rail wall or a pony wall the face stops at
+    the wall's own top, and no ceiling line runs along it - the ceiling carries on over the open part
+    to the room across. Only this room's face: the room across counts its own, seeing the same half
+    wall. A face of unknown height takes nothing off, as everywhere else here.
+  */
+  const details = emptyDetailQuantities();
+  for (const wall of wallsOf(room)) {
+    for (const half of halfWallRuns(room, wall.id, sketch.rooms)) {
+      const feet = wallRunFeet(wall, half.run);
+      details.halfWallFeet += feet;
+      if (profile.meanHeightFeet != null) details.halfWallReductionSquareFeet += feet * Math.max(0, profile.meanHeightFeet - half.heightFeet);
+    }
+  }
+
+  const grossWallArea =
+    (profile.meanHeightFeet == null ? 0 : perimeter * profile.meanHeightFeet) + partitionWallArea + steps.faceSquareFeet + steps.wallSquareFeet - details.halfWallReductionSquareFeet;
   const ceilingSurface = outlineArea * profile.surfaceFactor;
   const grossPerimeterFloor = perimeter + partitionFloorFeet;
 
   return {
-    perimeterCeiling: perimeter + partitionCeilingFeet,
+    perimeterCeiling: Math.max(0, perimeter + partitionCeilingFeet - details.halfWallFeet),
     perimeterFloor: Math.max(0, grossPerimeterFloor - perimeterDeduction),
     floorArea: Math.max(0, outlineArea - floorDeduction),
     wallArea: Math.max(0, grossWallArea - wallDeduction - openings),
@@ -385,6 +424,7 @@ export function roomQuantities(room: SketchRoom, sketch: Sketch, options: Quanti
     },
     ceilingSteps: steps,
     ceilingHeightFeet,
+    details,
   };
 }
 

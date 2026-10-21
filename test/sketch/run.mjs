@@ -32,6 +32,7 @@ import { runTurnChecks } from "./turn.mjs";
 import { runPanoramaChecks } from "./panorama.mjs";
 import { runSpotStillsChecks } from "./spotStills.mjs";
 import { runRoomNamePlaceChecks } from "./roomNamePlace.mjs";
+import { runEsxItemChecks } from "./esxItems.mjs";
 import { runMoistureTagChecks } from "./moistureTags.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -234,6 +235,15 @@ if (roomNames.failures.length > 0) {
   process.exit(1);
 }
 console.log(`  Room names: ok (${roomNames.passed.length} checks — a small room is never covered by its own name)`);
+
+// The details a future ESX export needs: pass-throughs, half walls, cabinets, counters, trim, ceilings.
+const esxItems = await runEsxItemChecks();
+if (esxItems.failures.length > 0) {
+  console.error(`\n  ESX items: ${esxItems.passed.length} passed, ${esxItems.failures.length} FAILED\n`);
+  for (const failure of esxItems.failures) console.error(`    ✗ ${failure}\n`);
+  process.exit(1);
+}
+console.log(`  ESX items: ok (${esxItems.passed.length} checks — every detail is data, and a sketch from before keeps its numbers)`);
 
 await build({
   entryPoints: [join(here, "entry.tsx")],

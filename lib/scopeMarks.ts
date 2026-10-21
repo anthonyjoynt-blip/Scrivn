@@ -1,4 +1,4 @@
-import { type Sketch, type SketchRoom, openingSquareFeetOnWall, wallById, wallsOf } from "./sketch";
+import { type Sketch, type SketchRoom, wallById, wallFaceSquareFeet, wallsOf } from "./sketch";
 import { type MoistureMap, emptyMoistureMap, paintedFloorSquareFeet, roomMoisture, setRoomMoisture } from "./moisture";
 
 /**
@@ -103,8 +103,8 @@ export function fullWallSquareFeet(mark: ScopeMark, sketch: Sketch): number {
       through: it is editor state about a readout, and a scope line should not change because
       somebody was comparing numbers.
     */
-    const gross = wall.lengthFeet * (room.ceilingHeightFeet ?? 8);
-    return sum + Math.max(0, gross - openingSquareFeetOnWall(room, wall.id, sketch.rooms));
+    // A half wall is painted to its own top, not the ceiling (`wallFaceSquareFeet`); a plain wall as before.
+    return sum + wallFaceSquareFeet(room, wall.id, sketch.rooms);
   }, 0);
 }
 

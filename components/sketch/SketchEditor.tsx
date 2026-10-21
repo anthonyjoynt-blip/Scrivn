@@ -37,6 +37,7 @@ import {
   openParent,
   roomAcross,
   withMissingWall,
+  withWallDetail,
   closetBehindDoor,
   closetsOwed,
   withClosetsBehind,
@@ -128,6 +129,7 @@ import {
 } from "@/lib/sketchWalls";
 import { type BlockTurnRun, carriedWithRoom, roomTurnForPress, roomTurnStepDeg, turnBlockInRun, turnRoomInSketch } from "@/lib/sketchTurn";
 import { FreeCabinetPanel, SymbolPanel } from "./SymbolPanel";
+import { WallDetailFields } from "./WallDetailFields";
 import { type Obstacle, conformedDragWall, obstaclesFor, placeNewRoom, pullRoomFromWall, viewCentredOn, wallDragMeetsWall } from "@/lib/roomPlacement";
 import { QuantitiesPanel } from "./QuantitiesPanel";
 import { ExteriorSite } from "./ExteriorEditor";
@@ -3285,6 +3287,15 @@ export function SketchEditor({
                     onToggle={(next) => onChange((prev) => ({ ...prev, rooms: withMissingWall(prev.rooms, selectedRoom.id, tappedWall.wallId, next) }))}
                   />
                 </div>
+              )}
+              {/* What else the wall is - a half wall's height and cap - see `WallDetail`. */}
+              {tappedWallHere && tappedWall && (
+                <WallDetailFields
+                  room={selectedRoom}
+                  wallId={tappedWall.wallId}
+                  rooms={sketch.rooms}
+                  onPatch={(patch) => updateRoom(selectedRoom.id, (room) => withWallDetail(room, tappedWall.wallId, patch))}
+                />
               )}
               {squareable.length > 0 && (
                 <div className="question">

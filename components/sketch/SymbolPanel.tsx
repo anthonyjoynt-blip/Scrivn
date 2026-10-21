@@ -14,9 +14,15 @@ import {
   type DoorLeaves,
   type DoorSymbol,
   type DoorType,
+  type DoorStyle,
+  type OpeningTop,
   type SketchRoom,
   type SketchSymbol,
   type WindowSymbol,
+  type WindowType,
+  DOOR_STYLE_LABEL,
+  OPENING_TOP_LABEL,
+  WINDOW_TYPE_LABEL,
   CABINET_DEFAULT_DEPTH_FEET,
   PIXELS_PER_FOOT,
   CABINET_DEFAULT_HEIGHT_FEET,
@@ -107,7 +113,8 @@ function DoorFields({ door, onChange }: { door: DoorSymbol; onChange: (next: Ske
               type="button"
               className={`option-btn${door.doorType === type ? " selected" : ""}`}
               aria-pressed={door.doorType === type}
-              onClick={() => onChange({ ...door, doorType: type })}
+              // A sill belongs to a pass-through: a door hung in the hole goes to the floor again.
+              onClick={() => onChange(type === "opening" ? { ...door, doorType: type } : withoutField({ ...door, doorType: type }, "sillFeet"))}
             >
               {DOOR_TYPE_LABEL[type]}
             </button>
@@ -149,6 +156,24 @@ function DoorFields({ door, onChange }: { door: DoorSymbol; onChange: (next: Ske
         valueFeet={door.heightFeet}
         onCommit={(feet) => onChange({ ...door, heightFeet: feet })}
       />
+
+      {/*
+        A PASS-THROUGH is an opening with wall under it (2026-10-21): the owner's arched openings off the living room
+        start about 3'2" up. Left empty, the opening runs to the floor, as it always did.
+      */}
+      {door.doorType === "opening" && (
+        <MeasureField
+          id="door-sill"
+          label="Sill height (pass-through)"
+          hint="Leave empty for an opening to the floor. Set it for a pass-through - the wall under it stays wall."
+          valueFeet={door.sillFeet ?? null}
+          onCommit={(feet) => onChange({ ...door, sillFeet: feet })}
+          onClear={() => onChange(withoutField(door, "sillFeet"))}
+        />
+      )}
+      <TopShapeFields symbol={door} onChange={onChange} />
+
+      {door.doorType !== "opening" && <DoorStyleFields door={door} onChange={onChange} />}
 
       {/* An opening has no leaf, so nothing to hand or swing. */}
       {door.doorType !== "opening" && (
@@ -270,7 +295,196 @@ function WindowFields({ window: win, onChange }: { window: WindowSymbol; onChang
         valueFeet={win.sillFeet}
         onCommit={(feet) => onChange({ ...win, sillFeet: feet })}
       />
+      {/* How it opens, how many units, grids - what Xactimate prices a window by besides its size (2026-10-21). */}
+      <div className="question">
+        <label className="prompt" htmlFor="win-type">
+          Window type
+        </label>
+        <select
+          id="win-type"
+          value={win.windowType ?? ""}
+          onChange={(e) => onChange(e.target.value === "" ? withoutField(win, "windowType") : { ...win, windowType: e.target.value as WindowType })}
+        >
+          <option value="">Not said</option>
+          {(Object.keys(WINDOW_TYPE_LABEL) as WindowType[]).map((type) => (
+            <option key={type} value={type}>
+              {WINDOW_TYPE_LABEL[type]}
+            </option>
+          ))}
+        </select>
+      </div>
+      <CountField
+        id="win-units"
+        label="Units in the frame"
+        hint="A triple casement is 3: three units, two mullions between them."
+        value={win.units ?? null}
+        onCommit={(count) => onChange(count == null || count <= 1 ? withoutField(win, "units") : { ...win, units: count })}
+      />
+      <ChoiceRow
+        label="Grids in the glass"
+        choices={[
+          [true, "Grids"],
+          [false, "None"],
+        ]}
+        value={win.grids}
+        onChange={(grids) => onChange(grids === undefined ? withoutField(win, "grids") : { ...win, grids })}
+      />
+      <TopShapeFields symbol={win} onChange={onChange} />
     </>
+  );
+}
+
+/**
+ * The top of a door, an opening or a window: flat, a segmental arch, or a half round - and where its
+ * curve starts, which is left empty unless somebody measured it (`openingTopRiseFeet` assumes).
+ */
+function TopShapeFields({ symbol, onChange }: { symbol: DoorSymbol | WindowSymbol; onChange: (next: SketchSymbol) => void }) {
+  const shape = symbol.topShape ?? "flat";
+  return (
+    <>
+      <div className="question">
+        <label className="prompt">Top</label>
+        <div className="option-group" role="group" aria-label="Top shape">
+          {(Object.keys(OPENING_TOP_LABEL) as OpeningTop[]).map((top) => (
+            <button
+              key={top}
+              type="button"
+              className={`option-btn${shape === top ? " selected" : ""}`}
+              aria-pressed={shape === top}
+              onClick={() => onChange(top === "flat" ? withoutField(withoutField(symbol, "topShape"), "springFeet") : { ...symbol, topShape: top })}
+            >
+              {OPENING_TOP_LABEL[top]}
+            </button>
+          ))}
+        </div>
+      </div>
+      {shape !== "flat" && (
+        <MeasureField
+          id="top-spring"
+          label="Curve starts at"
+          hint={`Height off the floor where the ${shape === "round" ? "half round" : "arch"} springs from the sides. Empty: ${shape === "round" ? "half the width below the top" : "a sixth of the width below the top"}.`}
+          valueFeet={symbol.springFeet ?? null}
+          onCommit={(feet) => onChange({ ...symbol, springFeet: feet })}
+          onClear={() => onChange(withoutField(symbol, "springFeet"))}
+        />
+      )}
+    </>
+  );
+}
+
+/** A door's leaf: its style, its panes of glass, and whether it is an outside door. Each can be left unsaid. */
+function DoorStyleFields({ door, onChange }: { door: DoorSymbol; onChange: (next: SketchSymbol) => void }) {
+  const glazed = door.doorStyle === "half-lite" || door.doorStyle === "full-lite" || door.doorStyle === "french";
+  return (
+    <>
+      <ChoiceRow
+        label="Door style"
+        choices={(Object.keys(DOOR_STYLE_LABEL) as DoorStyle[]).map((style) => [style, DOOR_STYLE_LABEL[style]])}
+        value={door.doorStyle}
+        onChange={(doorStyle) => onChange(doorStyle === undefined ? withoutField(withoutField(door, "doorStyle"), "lites") : { ...door, doorStyle })}
+      />
+      {glazed && (
+        <CountField
+          id="door-lites"
+          label="Lites (panes of glass per leaf)"
+          value={door.lites ?? null}
+          onCommit={(count) => onChange(count == null ? withoutField(door, "lites") : { ...door, lites: count })}
+        />
+      )}
+      <ChoiceRow
+        label="Inside or outside"
+        choices={[
+          [false, "Interior"],
+          [true, "Exterior"],
+        ]}
+        value={door.exterior}
+        onChange={(exterior) => onChange(exterior === undefined ? withoutField(door, "exterior") : { ...door, exterior })}
+      />
+    </>
+  );
+}
+
+/** The symbol without one of its optional fields: "not said", which saves as nothing at all. */
+function withoutField<T extends object, K extends keyof T>(value: T, key: K): T {
+  const next = { ...value };
+  delete next[key];
+  return next;
+}
+
+/**
+ * A row of choices where the chosen one can be tapped again to unsay it - for the details that are
+ * optional, so that "not said" stays possible and is never confused with a choice.
+ */
+export function ChoiceRow<V extends string | boolean>({
+  label,
+  choices,
+  value,
+  onChange,
+}: {
+  label: string;
+  choices: [V, string][];
+  value: V | undefined;
+  onChange: (next: V | undefined) => void;
+}) {
+  return (
+    <div className="question">
+      <label className="prompt">{label}</label>
+      <div className="option-group" role="group" aria-label={label}>
+        {choices.map(([choice, text]) => (
+          <button
+            key={String(choice)}
+            type="button"
+            className={`option-btn${value === choice ? " selected" : ""}`}
+            aria-pressed={value === choice}
+            onClick={() => onChange(value === choice ? undefined : choice)}
+          >
+            {text}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** A whole number - lites, units, waterfall ends. Empty is "not said". */
+export function CountField({ id, label, hint, value, onCommit }: { id: string; label: string; hint?: string; value: number | null; onCommit: (count: number | null) => void }) {
+  const [draft, setDraft] = useState(value == null ? "" : String(value));
+  useEffect(() => setDraft(value == null ? "" : String(value)), [value]);
+  function commit() {
+    const raw = draft.trim();
+    if (raw === "") {
+      onCommit(null);
+      return;
+    }
+    const n = Math.round(Number(raw));
+    if (!Number.isFinite(n) || n < 0) {
+      setDraft(value == null ? "" : String(value));
+      return;
+    }
+    onCommit(n);
+  }
+  return (
+    <div className="question">
+      <label className="prompt" htmlFor={id}>
+        {label}
+      </label>
+      <input
+        id={id}
+        type="text"
+        inputMode="numeric"
+        autoComplete="off"
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            commit();
+          }
+        }}
+      />
+      {hint && <p className="field-note">{hint}</p>}
+    </div>
   );
 }
 
@@ -474,18 +688,21 @@ export function FreeCabinetPanel({
  * halfway through). It commits on blur and on Enter, and re-syncs whenever the underlying value
  * changes from elsewhere — dragging a handle, for instance.
  */
-function MeasureField({
+export function MeasureField({
   id,
   label,
   hint,
   valueFeet,
   onCommit,
+  onClear,
 }: {
   id: string;
   label: string;
   hint?: string;
   valueFeet: number | null;
   onCommit: (feet: number) => void;
+  /** When given, an emptied field means "not said" and calls this; without it, emptying puts the value back. */
+  onClear?: () => void;
 }) {
   const [draft, setDraft] = useState(valueFeet == null ? "" : formatFeetInches(valueFeet));
   const [invalid, setInvalid] = useState(false);
@@ -497,6 +714,11 @@ function MeasureField({
 
   function commit() {
     if (draft.trim() === "") {
+      if (onClear && valueFeet != null) {
+        setInvalid(false);
+        onClear();
+        return;
+      }
       setDraft(valueFeet == null ? "" : formatFeetInches(valueFeet));
       setInvalid(false);
       return;

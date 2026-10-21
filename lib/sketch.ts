@@ -279,7 +279,67 @@ export interface DoorSymbol extends SymbolBase {
    */
   flipX: boolean;
   flipY: boolean;
+  /*
+    ── What a future Xactimate ESX export needs (2026-10-21) ──────────────────────────────────────
+    The owner: "we will want to be able to capture and get the structured data from to turn into an
+    xactimate esx". Every field below is optional, and absent means NOT SAID - never a default dressed
+    up as a measurement. A sketch saved before them loads, draws and measures exactly as it did. See
+    docs/sketch-esx-map.md for what each maps to.
+  */
+  /**
+   * How far above the floor the hole starts, for a PASS-THROUGH: an opening cut through a wall at
+   * counter height, with wall under it (the owner's two arched openings off the living room, about
+   * 3'2" up). Absent or null: the opening goes to the floor, as every door does. The editor offers it
+   * on an opening only; the wall under it is wall area (`openingFaceSquareFeet`).
+   */
+  sillFeet?: number | null;
+  /** The shape of the top - see `OpeningTop`. Absent is flat. `heightFeet` is always the highest point. */
+  topShape?: OpeningTop;
+  /** Where the curve of an arched or round top starts, in feet off the floor; null or absent works it out (`openingSpringFeet`). */
+  springFeet?: number | null;
+  /** An outside door (entry, patio, garage man-door) rather than one between rooms; absent is not said. */
+  exterior?: boolean;
+  /** The leaf - see `DoorStyle`. Absent is not said. */
+  doorStyle?: DoorStyle;
+  /** Panes of glass in each leaf (a 15-lite patio door); null or absent is not counted. */
+  lites?: number | null;
 }
+
+/**
+ * The top of an opening, door or window. "arch" is a segmental arch - a flat curve springing from
+ * the jambs; "round" a half round, or a half ellipse when its spring height says so.
+ */
+export type OpeningTop = "flat" | "arch" | "round";
+
+export const OPENING_TOP_LABEL: Record<OpeningTop, string> = {
+  flat: "Flat",
+  arch: "Arch",
+  round: "Half round",
+};
+
+/** A door leaf as an estimator orders one. */
+export type DoorStyle = "slab" | "panel" | "half-lite" | "full-lite" | "french";
+
+export const DOOR_STYLE_LABEL: Record<DoorStyle, string> = {
+  slab: "Slab (flush)",
+  panel: "Panel",
+  "half-lite": "Half-lite",
+  "full-lite": "Full-lite",
+  french: "French",
+};
+
+/** How a window opens. Xactimate prices windows by this and by size. */
+export type WindowType = "picture" | "casement" | "awning" | "slider" | "single-hung" | "double-hung" | "hopper";
+
+export const WINDOW_TYPE_LABEL: Record<WindowType, string> = {
+  picture: "Picture (fixed)",
+  casement: "Casement",
+  awning: "Awning",
+  slider: "Slider",
+  "single-hung": "Single hung",
+  "double-hung": "Double hung",
+  hopper: "Hopper",
+};
 
 export interface WindowSymbol extends SymbolBase {
   type: "window";
@@ -287,6 +347,15 @@ export interface WindowSymbol extends SymbolBase {
   heightFeet: number | null;
   /** Sill height: how far up from the finished floor the opening starts. */
   sillFeet: number | null;
+  /** How it opens - see `WindowType`. Absent is not said. (Optional, as every field from 2026-10-21 is; see `DoorSymbol`.) */
+  windowType?: WindowType;
+  /** Units side by side in the one frame - a triple casement is 3, with 2 mullions between. Absent is one. */
+  units?: number;
+  /** Grids (muntins) in the glass; absent is not said. */
+  grids?: boolean;
+  /** As on a door: the top's shape, and where its curve starts in feet off the floor. The height runs to the top's highest point. */
+  topShape?: OpeningTop;
+  springFeet?: number | null;
 }
 
 export interface CabinetSymbol extends SymbolBase {
@@ -586,10 +655,46 @@ export interface SketchRoom {
    * on a flight of stairs, whose two ends are open unless said otherwise (`missingWallMarks`).
    */
   missingWalls?: string[];
+  /**
+   * What a wall is beyond its length, by wall id (the corner it starts at) - see `WallDetail`: a half
+   * wall's height and cap (2026-10-21). Kept by id the way `missingWalls` is, so a Break carries a
+   * wall's details onto both halves (`insertVertexOnWall`) and joining them keeps the first half's.
+   *
+   * Optional because sketches saved before it existed have no such field; absent is every wall plain.
+   */
+  wallDetails?: Record<string, WallDetail>;
   symbols: SketchSymbol[];
   /** Cabinets standing in open floor rather than against a wall — see `FreeCabinet`. */
   freeCabinets: FreeCabinet[];
 }
+
+/**
+ * One wall of a room beyond its length - what the plan's line cannot say and an estimate needs.
+ *
+ * Every field optional, absent meaning a plain wall to the ceiling. A wall whose height changes
+ * part-way is two walls: Break it where the height changes and give each piece its own.
+ */
+export interface WallDetail {
+  /**
+   * A HALF WALL: stops at this height off the floor, open above - the stair rail wall, a pony wall
+   * between kitchen and living room. Absent or null is full height. Its face counts to this height
+   * and no ceiling line runs along it (`roomQuantities`). One wall seen from both rooms, as a missing
+   * wall is: the room across a partition sees its stretch the same height (`halfWallRuns`).
+   */
+  heightFeet?: number | null;
+  /** What tops a half wall; absent is not said. */
+  cap?: WallCap;
+}
+
+/** What finishes the top of a half wall. */
+export type WallCap = "drywall" | "wood" | "stone" | "tile";
+
+export const WALL_CAP_LABEL: Record<WallCap, string> = {
+  drywall: "Drywall (wrapped)",
+  wood: "Wood cap",
+  stone: "Stone / solid surface",
+  tile: "Tile",
+};
 
 /**
  * A wall drawn on its own, not as the side of a room.
@@ -1609,6 +1714,147 @@ export function roomAcross(room: SketchRoom, wall: WallGeometry, run: [number, n
     if (facing) return other;
   }
   return openParent(room, rooms);
+}
+
+/* ── Wall details (2026-10-21) ──────────────────────────────────────────────────────────────────── */
+
+function withoutKey<T>(record: Record<string, T>, key: string): Record<string, T> {
+  const rest = { ...record };
+  delete rest[key];
+  return rest;
+}
+
+/** One wall's details (`wallDetails`), empty for a plain wall. */
+export function wallDetailOf(room: SketchRoom, wallId: string): WallDetail {
+  return room.wallDetails?.[wallId] ?? {};
+}
+
+/**
+ * The room with one wall's details changed. A field set to null or undefined goes, and so does a
+ * `crown` of false, so a wall put back to plain leaves nothing behind - and a room with no detail
+ * left loses the field altogether, saving exactly as a sketch drawn before it did.
+ */
+export function withWallDetail(room: SketchRoom, wallId: string, patch: Partial<WallDetail>): SketchRoom {
+  const next: Record<string, unknown> = { ...wallDetailOf(room, wallId), ...patch };
+  for (const key of Object.keys(next)) {
+    if (next[key] === undefined || next[key] === null || (key === "crown" && next[key] === false)) delete next[key];
+  }
+  const others = room.wallDetails ? withoutKey(room.wallDetails, wallId) : {};
+  const all = Object.keys(next).length > 0 ? { ...others, [wallId]: next as WallDetail } : others;
+  if (Object.keys(all).length > 0) return { ...room, wallDetails: all };
+  const rest = { ...room };
+  delete rest.wallDetails;
+  return rest;
+}
+
+/** The parts of `run` that lie in any of `within`, as fractions. */
+function intersectRuns(run: [number, number], within: [number, number][]): [number, number][] {
+  const out: [number, number][] = [];
+  for (const [lo, hi] of within) {
+    const a = Math.max(run[0], lo);
+    const b = Math.min(run[1], hi);
+    if (b - a > 1e-6) out.push([a, b]);
+  }
+  return out;
+}
+
+/** A stretch of half wall: where it runs along a wall, as fractions, its height and its cap. */
+export interface HalfWallRun {
+  run: [number, number];
+  heightFeet: number;
+  cap: WallCap | null;
+}
+
+/**
+ * The stretches of a wall that are a HALF WALL (`WallDetail.heightFeet`): the whole wall when this
+ * room marks it, else where it faces another room's half wall across one partition - one wall, seen
+ * from both rooms, as a missing wall and a door are. Only where the wall is this room's to count
+ * (`ownWallRuns`): a missing stretch has no wall at any height.
+ */
+export function halfWallRuns(room: SketchRoom, wallId: string, rooms: SketchRoom[]): HalfWallRun[] {
+  const wall = wallById(room, wallId);
+  if (!wall || wall.lengthPx <= 0) return [];
+  const marked: HalfWallRun[] = [];
+  const own = room.wallDetails?.[wallId];
+  if (own?.heightFeet != null && own.heightFeet > 0) {
+    marked.push({ run: [0, 1], heightFeet: own.heightFeet, cap: own.cap ?? null });
+  } else {
+    for (const other of rooms) {
+      if (other.id === room.id || !other.wallDetails || roomLevel(other) !== roomLevel(room)) continue;
+      for (const theirs of wallsOf(other)) {
+        const detail = other.wallDetails[theirs.id];
+        if (detail?.heightFeet == null || detail.heightFeet <= 0) continue;
+        const f = facingAcross(wall, theirs);
+        if (f) marked.push({ run: [f.from / wall.lengthPx, f.to / wall.lengthPx], heightFeet: detail.heightFeet, cap: detail.cap ?? null });
+      }
+    }
+  }
+  if (marked.length === 0) return [];
+  const standing = ownWallRuns(room, wallId, rooms);
+  return marked.flatMap((m) => intersectRuns(m.run, standing).map((run) => ({ ...m, run })));
+}
+
+/* ── Opening faces: sills and shaped tops (2026-10-21) ──────────────────────────────────────────── */
+
+/** How far the curve of a shaped top rises when nobody said: a half round's is half its width, an arch's a sixth. */
+const ARCH_DEFAULT_RISE_OF_WIDTH = 1 / 6;
+
+/**
+ * The rise of an opening's shaped top, in feet: from where its curve starts (its spring) up to its
+ * highest point. Zero for a flat top. From `springFeet` when given, else half the width for a half
+ * round and a sixth of it for a segmental arch - a guess, said as one in docs/sketch-esx-map.md.
+ * Never more than the opening is tall.
+ */
+export function openingTopRiseFeet(shape: OpeningTop | undefined, widthFeet: number, bottomFeet: number, apexFeet: number, springFeet: number | null | undefined): number {
+  if (!shape || shape === "flat") return 0;
+  const rise = springFeet != null ? apexFeet - springFeet : shape === "round" ? widthFeet / 2 : widthFeet * ARCH_DEFAULT_RISE_OF_WIDTH;
+  return Math.max(0, Math.min(Math.max(0, apexFeet - bottomFeet), rise));
+}
+
+/** Area of a shaped top over its spring line, in square feet: a half ellipse for a round top, a circular segment for an arch. */
+function topAreaSquareFeet(shape: OpeningTop, widthFeet: number, riseFeet: number): number {
+  if (shape === "flat" || widthFeet <= 0 || riseFeet <= 0) return 0;
+  // A half round, or an "arch" sprung higher than a half circle can be: a half ellipse.
+  if (shape === "round" || riseFeet >= widthFeet / 2) return (Math.PI * widthFeet * riseFeet) / 4;
+  // A segmental arch: the segment of a circle cut off by the chord across the jambs.
+  const r = (widthFeet * widthFeet) / 4 / (2 * riseFeet) + riseFeet / 2;
+  const theta = 2 * Math.asin(Math.min(1, widthFeet / (2 * r)));
+  return ((r * r) / 2) * (theta - Math.sin(theta));
+}
+
+/**
+ * The bottom and the top of an opening's hole, in feet off the floor: a door from the floor (or a
+ * pass-through's sill) to its head; a window from its sill (the floor when none is recorded) up its
+ * height. Null for a window with no height - unknown, never guessed.
+ */
+export function openingSpan(symbol: DoorSymbol | WindowSymbol): { bottomFeet: number; apexFeet: number } | null {
+  if (symbol.type === "door") {
+    const bottomFeet = Math.max(0, symbol.sillFeet ?? 0);
+    return { bottomFeet, apexFeet: Math.max(bottomFeet, symbol.heightFeet) };
+  }
+  if (symbol.heightFeet == null) return null;
+  const bottomFeet = Math.max(0, symbol.sillFeet ?? 0);
+  return { bottomFeet, apexFeet: bottomFeet + Math.max(0, symbol.heightFeet) };
+}
+
+/**
+ * The wall an opening takes out, in square feet, under a ceiling of `ceilingFeet` - or null when its
+ * height is not known. A flat-topped one is its width by its height, exactly as it always was; a
+ * PASS-THROUGH leaves the wall under its sill; a shaped top leaves the wall either side of its curve.
+ */
+export function openingFaceSquareFeet(symbol: DoorSymbol | WindowSymbol, widthFeet: number, ceilingFeet: number): number | null {
+  const span = openingSpan(symbol);
+  if (!span) return null;
+  const shape = symbol.topShape ?? "flat";
+  if (shape === "flat") {
+    // A window is its height, capped at the ceiling, as before its sill took any part in this.
+    const tall = symbol.type === "window" ? Math.min(span.apexFeet - span.bottomFeet, ceilingFeet) : Math.min(span.apexFeet, ceilingFeet) - span.bottomFeet;
+    return widthFeet * Math.max(0, tall);
+  }
+  const apex = Math.min(span.apexFeet, ceilingFeet);
+  const tall = Math.max(0, apex - span.bottomFeet);
+  const rise = Math.min(tall, openingTopRiseFeet(shape, widthFeet, span.bottomFeet, span.apexFeet, symbol.springFeet));
+  return widthFeet * (tall - rise) + topAreaSquareFeet(shape, widthFeet, rise);
 }
 
 /**
@@ -2981,6 +3227,9 @@ export function insertVertexOnWall(room: SketchRoom, wallId: string, t: number):
   vertices.splice(index + 1, 0, inserted);
   // Both halves of a missing wall are missing.
   const missingWalls = room.missingWalls?.includes(wallId) ? { missingWalls: [...room.missingWalls, inserted.id] } : {};
+  // And both halves keep the wall's details - a Break is how a wall whose height changes is split.
+  const detail = room.wallDetails?.[wallId];
+  const wallDetails = detail ? { wallDetails: { ...room.wallDetails, [inserted.id]: { ...detail } } } : {};
 
   // The original wall keeps its id and becomes the first half; the new vertex starts the second.
   const symbols = room.symbols.map((symbol) => {
@@ -2990,7 +3239,7 @@ export function insertVertexOnWall(room: SketchRoom, wallId: string, t: number):
       : { ...symbol, wallId: inserted.id, t: Math.min(1, (symbol.t - clamped) / (1 - clamped)) };
   });
 
-  return { ...room, vertices, symbols, ...missingWalls };
+  return { ...room, vertices, symbols, ...missingWalls, ...wallDetails };
 }
 
 /**
@@ -3011,7 +3260,9 @@ export function removeVertex(room: SketchRoom, vertexId: string): SketchRoom {
 
   const vertices = room.vertices.filter((v) => v.id !== vertexId);
   // The joined wall is the one before the corner, missing or not; the one after it is gone.
-  const merged: SketchRoom = room.missingWalls?.includes(vertexId) ? { ...room, vertices, missingWalls: room.missingWalls.filter((id) => id !== vertexId) } : { ...room, vertices };
+  const unmissed: SketchRoom = room.missingWalls?.includes(vertexId) ? { ...room, vertices, missingWalls: room.missingWalls.filter((id) => id !== vertexId) } : { ...room, vertices };
+  // The joined wall keeps the details of the wall before the corner; the one after it is gone.
+  const merged: SketchRoom = room.wallDetails && vertexId in room.wallDetails ? { ...unmissed, wallDetails: withoutKey(room.wallDetails, vertexId) } : unmissed;
   const mergedWall = wallById(merged, prev.id);
 
   if (!removedWall || !survivingWall || !mergedWall || mergedWall.lengthPx <= 0) {
@@ -3887,12 +4138,26 @@ export function openingSquareFeetOnWall(room: SketchRoom, wallId: string, rooms:
           .map((s) => ({ room: s.room, symbol: s.symbol, widthCap: (s.toPx - s.fromPx) / PIXELS_PER_FOOT }))
       : [];
   return [...own, ...shared].reduce((sum, { room: owner, symbol, widthCap }) => {
-    const height = symbol.type === "door" ? symbol.heightFeet : symbol.type === "window" ? symbol.heightFeet : null;
-    if (height == null) return sum;
+    if (symbol.type !== "door" && symbol.type !== "window") return sum;
     const width = symbolWidthFeet(symbol, owner);
     if (width == null) return sum;
-    return sum + Math.min(width, widthCap) * Math.min(height, ceiling);
+    // Width by height for a plain one; less the wall under a pass-through's sill and beside a shaped top.
+    const face = openingFaceSquareFeet(symbol, Math.min(width, widthCap), ceiling);
+    return face == null ? sum : sum + face;
   }, 0);
+}
+
+/**
+ * One wall's face in square feet, floor to ceiling - or to a half wall's top along its stretches
+ * (`halfWallRuns`) - less its openings. What painting a marked wall covers (`fullWallSquareFeet`).
+ * A plain wall is its length by the room's ceiling height less its openings, as it always was.
+ */
+export function wallFaceSquareFeet(room: SketchRoom, wallId: string, rooms: SketchRoom[] = []): number {
+  const wall = wallById(room, wallId);
+  if (!wall?.lengthFeet) return 0;
+  const ceiling = room.ceilingHeightFeet ?? DEFAULT_CEILING_HEIGHT_FEET;
+  const lowered = halfWallRuns(room, wallId, rooms).reduce((sum, h) => sum + wallRunFeet(wall, h.run) * Math.max(0, ceiling - h.heightFeet), 0);
+  return Math.max(0, wall.lengthFeet * ceiling - lowered - openingSquareFeetOnWall(room, wallId, rooms));
 }
 
 /** The same across every wall of a room. */
@@ -6225,6 +6490,8 @@ export interface SketchWallOutput {
   missingFeet?: number;
   /** How much of it is the wall of the room an open sub-room is part of (`onParentWallRuns`); absent when none. */
   parentWallFeet?: number;
+  /** Its half-wall stretches (`halfWallRuns`): length, height and cap; absent when it is full height. */
+  halfWall?: { feet: number; heightFeet: number; cap: WallCap | null }[];
 }
 
 export interface SketchSymbolOutput {
@@ -6238,9 +6505,20 @@ export interface SketchSymbolOutput {
   /** Door only. */
   doorType?: DoorType;
   leaves?: DoorLeaves;
-  /** Doors, openings and windows all carry a head height; only a window has a sill. */
+  /** Doors, openings and windows all carry a head height; a window has a sill, and so does a pass-through. */
   heightFeet?: number | null;
   sillFeet?: number | null;
+  /** A shaped top and where its curve starts, off the floor - present only when not flat. */
+  topShape?: OpeningTop;
+  springFeet?: number;
+  /** Door only, each present only when said. */
+  exterior?: boolean;
+  doorStyle?: DoorStyle;
+  lites?: number;
+  /** Window only, each present only when said. */
+  windowType?: WindowType;
+  units?: number;
+  grids?: boolean;
   /** Cabinet only. */
   tier?: CabinetTier;
   depthFeet?: number;
@@ -6327,7 +6605,8 @@ export function sketchOutput(sketch: Sketch): SketchRoomOutput[] {
       ...(() => {
         const missingFeet = round2(missingWallRuns(room, wall.id, sketch.rooms).reduce((sum, run) => sum + wallRunFeet(wall, run), 0));
         const parentWallFeet = round2(onParentWallRuns(room, wall.id, sketch.rooms).reduce((sum, run) => sum + wallRunFeet(wall, run), 0));
-        return { ...(missingFeet > 0 ? { missingFeet } : {}), ...(parentWallFeet > 0 ? { parentWallFeet } : {}) };
+        const halfWall = halfWallRuns(room, wall.id, sketch.rooms).map((h) => ({ feet: round2(wallRunFeet(wall, h.run)), heightFeet: round2(h.heightFeet), cap: h.cap }));
+        return { ...(missingFeet > 0 ? { missingFeet } : {}), ...(parentWallFeet > 0 ? { parentWallFeet } : {}), ...(halfWall.length > 0 ? { halfWall } : {}) };
       })(),
     })),
     symbols: room.symbols.map((symbol) => {
@@ -6341,11 +6620,31 @@ export function sketchOutput(sketch: Sketch): SketchRoomOutput[] {
       };
 
       if (symbol.type === "door") {
-        const label = symbol.doorType === "opening" ? "Opening (no door)" : `${DOOR_LEAVES_LABEL[symbol.leaves]} ${DOOR_TYPE_LABEL[symbol.doorType].toLowerCase()} door`;
-        return { ...common, label, doorType: symbol.doorType, leaves: symbol.leaves, heightFeet: symbol.heightFeet };
+        const label = symbol.doorType === "opening" ? (symbol.sillFeet ? "Pass-through (no door)" : "Opening (no door)") : `${DOOR_LEAVES_LABEL[symbol.leaves]} ${DOOR_TYPE_LABEL[symbol.doorType].toLowerCase()} door`;
+        return {
+          ...common,
+          label,
+          doorType: symbol.doorType,
+          leaves: symbol.leaves,
+          heightFeet: symbol.heightFeet,
+          ...(symbol.sillFeet ? { sillFeet: round2(symbol.sillFeet) } : {}),
+          ...topOutput(symbol, width),
+          ...(symbol.exterior !== undefined ? { exterior: symbol.exterior } : {}),
+          ...(symbol.doorStyle ? { doorStyle: symbol.doorStyle } : {}),
+          ...(symbol.lites != null ? { lites: symbol.lites } : {}),
+        };
       }
       if (symbol.type === "window") {
-        return { ...common, label: "Window", heightFeet: symbol.heightFeet, sillFeet: symbol.sillFeet };
+        return {
+          ...common,
+          label: symbol.windowType ? `${WINDOW_TYPE_LABEL[symbol.windowType]} window` : "Window",
+          heightFeet: symbol.heightFeet,
+          sillFeet: symbol.sillFeet,
+          ...topOutput(symbol, width),
+          ...(symbol.windowType ? { windowType: symbol.windowType } : {}),
+          ...(symbol.units != null ? { units: symbol.units } : {}),
+          ...(symbol.grids !== undefined ? { grids: symbol.grids } : {}),
+        };
       }
       if (symbol.type === "fixture") {
         const shape = symbol.fixtureType === "shower" && symbol.showerShape === "corner" ? "Corner shower" : FIXTURE_LABEL[symbol.fixtureType];
@@ -6393,6 +6692,24 @@ function round2(n: number): number {
 }
 
 /**
+ * Where an opening's shaped top starts to curve, in feet off the floor - `springFeet` when somebody
+ * said, else what `openingTopRiseFeet` assumes. Null for a flat top.
+ */
+export function openingSpringFeet(symbol: DoorSymbol | WindowSymbol, widthFeet: number | null): number | null {
+  if (!symbol.topShape || symbol.topShape === "flat") return null;
+  const span = openingSpan(symbol);
+  if (!span || widthFeet == null) return symbol.springFeet ?? null;
+  return span.apexFeet - openingTopRiseFeet(symbol.topShape, widthFeet, span.bottomFeet, span.apexFeet, symbol.springFeet);
+}
+
+/** A shaped top as output: its shape and its spring; nothing at all for a flat one. */
+function topOutput(symbol: DoorSymbol | WindowSymbol, widthFeet: number | null): { topShape?: OpeningTop; springFeet?: number } {
+  if (!symbol.topShape || symbol.topShape === "flat") return {};
+  const spring = openingSpringFeet(symbol, widthFeet);
+  return spring == null ? { topShape: symbol.topShape } : { topShape: symbol.topShape, springFeet: round2(spring) };
+}
+
+/**
  * A plain-text rendering of the sketch data, for the on-screen summary.
  *
  * Kept next to `sketchOutput` so the two can't drift: if a field is added to the output it should
@@ -6430,7 +6747,13 @@ export function sketchSummaryText(sketch: Sketch): string {
         const part = (feet: number | undefined, whole: string, some: string) =>
           feet == null ? "" : wall.lengthFeet != null && feet >= wall.lengthFeet - 0.01 ? `, ${whole}` : `, ${formatFeetInches(feet)} ${some}`;
         const notes = part(wall.missingFeet, "missing wall", "of it a missing wall") + part(wall.parentWallFeet, `on ${room.withinRoom}'s wall`, `of it on ${room.withinRoom}'s wall`);
-        lines.push(`  Wall ${wall.wall} — ${wall.lengthLabel}${notes}`);
+        const half = (wall.halfWall ?? [])
+          .map((h) => {
+            const what = `half wall ${formatFeetInches(h.heightFeet)} high${h.cap ? `, ${WALL_CAP_LABEL[h.cap].toLowerCase()}` : ""}`;
+            return wall.lengthFeet != null && h.feet >= wall.lengthFeet - 0.01 ? `, ${what}` : `, ${formatFeetInches(h.feet)} of it a ${what}`;
+          })
+          .join("");
+        lines.push(`  Wall ${wall.wall} — ${wall.lengthLabel}${notes}${half}`);
       }
 
       for (const symbol of room.symbols) {
@@ -6451,6 +6774,18 @@ export function sketchSummaryText(sketch: Sketch): string {
         if (symbol.type === "door" && symbol.heightFeet != null) {
           const standard = Math.abs(symbol.heightFeet - DEFAULT_DOOR_HEIGHT_FEET) < 1 / 24;
           if (symbol.doorType === "opening" || !standard) parts.push(`${formatFeetInches(symbol.heightFeet)} high`);
+          if (symbol.sillFeet) parts.push(`sill ${formatFeetInches(symbol.sillFeet)}`);
+        }
+        // The details from 2026-10-21, each only when said.
+        if (symbol.topShape) parts.push(`${OPENING_TOP_LABEL[symbol.topShape].toLowerCase()} top${symbol.springFeet == null ? "" : ` from ${formatFeetInches(symbol.springFeet)}`}`);
+        if (symbol.type === "door") {
+          if (symbol.doorStyle) parts.push(DOOR_STYLE_LABEL[symbol.doorStyle].toLowerCase());
+          if (symbol.lites != null) parts.push(`${symbol.lites} lite${symbol.lites === 1 ? "" : "s"}`);
+          if (symbol.exterior !== undefined) parts.push(symbol.exterior ? "exterior" : "interior");
+        }
+        if (symbol.type === "window") {
+          if (symbol.units != null && symbol.units > 1) parts.push(`${symbol.units} units`);
+          if (symbol.grids !== undefined) parts.push(symbol.grids ? "grids" : "no grids");
         }
         if (symbol.type === "cabinet" && symbol.depthFeet != null) {
           parts.push(`${formatFeetInches(symbol.depthFeet)} deep`);

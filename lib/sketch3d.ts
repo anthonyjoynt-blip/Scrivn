@@ -23,6 +23,7 @@
 import {
   blockCorners,
   ceilingRiseDegOf,
+  halfWallRuns,
   missingWallRuns,
   openParent,
   ownWallRuns,
@@ -323,6 +324,9 @@ function bandsOver(symbol: SketchSymbol, ceiling: number): [number, number][] {
   const bands: [number, number][] = [];
   if (symbol.type === "door") {
     const head = Math.min(ceiling, symbol.heightFeet > 0 ? symbol.heightFeet : DOOR_HEAD_FEET);
+    // A pass-through keeps the wall under its sill (2026-10-21). Its shaped top is cut square at its highest point.
+    const sill = Math.max(0, Math.min(head, symbol.sillFeet ?? 0));
+    if (sill > EPS) bands.push([0, sill]);
     if (head < ceiling - EPS) bands.push([head, ceiling]);
   } else if (symbol.type === "window") {
     const sill = Math.max(0, Math.min(ceiling, symbol.sillFeet ?? WINDOW_SILL_FEET));
@@ -471,10 +475,13 @@ function roomWalls(room: SketchRoom, levelRooms: Sketch["rooms"], sketch: Sketch
     for (const s of shared) if (s.wallId === wall.id) holes.push({ from: Math.min(s.fromPx, s.toPx), to: Math.max(s.fromPx, s.toPx), symbol: s.symbol });
     // Where the ceiling over this wall changes pitch: a piece between two of these has a straight top.
     const pitchBreaks = ceil.breaks(wall.x1, wall.y1, wall.x2, wall.y2).map((t) => t * L);
+    // Half walls (2026-10-21): the piece stops at the half wall's own top.
+    const halves = halfWallRuns(room, wall.id, levelRooms).map((h) => ({ from: h.run[0] * L, to: h.run[1] * L, top: h.heightFeet }));
     for (const [r0, r1] of ranges) {
       const cuts = [r0, r1];
       for (const h of holes) for (const s of [h.from, h.to]) if (s > r0 + EPS && s < r1 - EPS) cuts.push(s);
       for (const s of pitchBreaks) if (s > r0 + EPS && s < r1 - EPS) cuts.push(s);
+      for (const h of halves) for (const s of [h.from, h.to]) if (s > r0 + EPS && s < r1 - EPS) cuts.push(s);
       cuts.sort((a, b) => a - b);
       for (let k = 0; k + 1 < cuts.length; k++) {
         const a = cuts[k] as number;
@@ -489,8 +496,9 @@ function roomWalls(room: SketchRoom, levelRooms: Sketch["rooms"], sketch: Sketch
         const footprint = [pt(ia.x, ia.y), pt(ib.x, ib.y), pt(ob.x, ob.y), pt(oa.x, oa.y)];
         // Under a slope the piece's lowest ceiling decides what the openings leave; a band that
         // reaches the ceiling then follows it, point by point.
-        const tops = sloped ? [ia, ib, ob, oa].map((p) => ceil.at(p.x, p.y)) : null;
-        const ceiling = tops ? Math.min(...tops) : ceil.low;
+        const half = halves.find((h) => h.from <= mid && mid <= h.to);
+        const tops = sloped && !half ? [ia, ib, ob, oa].map((p) => ceil.at(p.x, p.y)) : null;
+        const ceiling = half ? Math.min(half.top, sloped ? Math.min(...[ia, ib, ob, oa].map((p) => ceil.at(p.x, p.y))) : ceil.low) : tops ? Math.min(...tops) : ceil.low;
         const bands = hole ? bandsOver(hole.symbol, ceiling) : ([[0, ceiling]] as [number, number][]);
         for (const [y0, y1] of bands) {
           const follows = tops != null && Math.abs(y1 - ceiling) < EPS && Math.max(...tops) > ceiling + EPS;
