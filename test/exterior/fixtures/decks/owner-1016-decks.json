@@ -1,6 +1,6 @@
 {
  "format": "scrivn-deck-reads/1",
- "about": "The owner's two decks, read off his 10-16 photos (C:/Users/Anthony/Desktop/House Photos) by a Claude session looking at zoomed crops on a pixel grid, 2026-10-20. No API. Taps are in the stored photos' pixels; photo ids as owner-1020-house.json's route (p8 = 20261016_125113.jpg). The decks are in the frame of their wall on that house (the runner's, his four tapes in): x along the wall from its left end as you face it from outside, y out from it. The rear deck squares off with the bump-out (his word, 10-20): its rim on the bump-out's back face, 6'0\" out from the rear wall (his tape; on this house the photos cross its outer corner 5.96' out), from the bump-out's west side to the left gable wall's line, and back to the covered corner's back wall. Its posts, the stair and the railings' ends are where the photos cross or meet its rim on this house. Its heights (7'6\" at the walls, 4'10\" over the lawn at its outer corner, glass 3'8\", screen 5'8\") are as read on the route before the bump-out tape: on this one #6 sits 7' from where it stood before and the screen's reads scatter (4'11\" by #7, 7'1\" by #6). The porch runs the whole front wall behind it: his 263\" tape.",
+ "about": "The owner's two decks, read off his 10-16 photos (C:/Users/Anthony/Desktop/House Photos) by a Claude session looking at zoomed crops on a pixel grid, 2026-10-20. No API. Taps are in the stored photos' pixels; photo ids as owner-1020-house.json's route (p8 = 20261016_125113.jpg). The decks are in the frame of their wall on that house (the runner's, his five tapes in): x along the wall from its left end as you face it from outside, y out from it. The rear deck squares off with the bump-out (his word, 10-20): its rim on the bump-out's back face, 6'0\" out from the rear wall (his tape; on this house the photos cross its outer corner 5.60' out, 5.96' before the covered-deck side was taped), from the bump-out's west side to the left gable wall's line, and back to the covered corner's back wall. Its posts, the stair and the railings' ends are where the photos cross or meet its rim on this house. Its heights (7'6\" at the walls, 4'10\" over the lawn at its outer corner, glass 3'8\", screen 5'8\") are as read on the route before the bump-out tape: since, #6 sits 7' from where it stood and the screen's reads scatter (5'3\" by #7, 6'9\" to 6'11\" by #6); the outer corner reads 4'7\", the glass 3'6\". The porch runs the whole front wall behind it: his 263\" tape.",
  "photos": { "p6": "20261016_125032.jpg", "p7": "20261016_125106.jpg", "p8": "20261016_125113.jpg", "p9": "20261016_125116.jpg", "p15": "20261016_125335.jpg", "p16": "20261016_125340.jpg", "p17": "20261016_125348.jpg" },
  "taps": {
   "rear": {
@@ -28,19 +28,19 @@
    "name": "Rear deck",
    "sideName": "Rear wall",
    "fromLeftFeet": 0,
-   "toFeet": 26.603446387426,
+   "toFeet": 26.615921966569,
    "depthFeet": 6,
    "heightFeet": 7.5,
    "heightOutFeet": 4.8,
    "decking": "composite",
    "railings": [
-    { "id": "rail-rear-1", "edge": 0, "toFeet": 10.98, "kind": "glass", "heightFeet": 3.67, "from": "photo" },
-    { "id": "rail-rear-2", "edge": 0, "fromFeet": 14.31, "kind": "glass", "heightFeet": 3.67, "from": "photo" },
-    { "id": "rail-rear-3", "edge": 1, "toFeet": 4.9, "kind": "glass", "heightFeet": 3.67, "from": "photo" }
+    { "id": "rail-rear-1", "edge": 0, "toFeet": 10.88, "kind": "glass", "heightFeet": 3.67, "from": "photo" },
+    { "id": "rail-rear-2", "edge": 0, "fromFeet": 14.19, "kind": "glass", "heightFeet": 3.67, "from": "photo" },
+    { "id": "rail-rear-3", "edge": 1, "toFeet": 5.64, "kind": "glass", "heightFeet": 3.67, "from": "photo" }
    ],
-   "stairs": [{ "id": "stair-rear", "edge": 0, "atFeet": 12.645, "widthFeet": 3.33, "risers": 8, "railing": { "kind": "aluminum", "sides": 2 }, "gate": true, "from": "photo" }],
-   "posts": { "count": 3, "sizeInches": 6, "material": "aluminum", "at": [{ "x": 26.16, "y": 5.66 }, { "x": 26.12, "y": 1.1 }, { "x": 14.3, "y": 5.86 }], "from": "photo", "unsure": "the underside of its east part is in shadow in every photo: 3 posts are seen" },
-   "screens": [{ "id": "screen-rear", "kind": "privacy", "edge": 1, "fromFeet": 4.9, "heightFeet": 5.69, "material": "wood", "from": "photo" }],
+   "stairs": [{ "id": "stair-rear", "edge": 0, "atFeet": 12.535, "widthFeet": 3.31, "risers": 8, "railing": { "kind": "aluminum", "sides": 2 }, "gate": true, "from": "photo" }],
+   "posts": { "count": 3, "sizeInches": 6, "material": "aluminum", "at": [{ "x": 26.13, "y": 5.3 }, { "x": 26.12, "y": 0.36 }, { "x": 14.21, "y": 6 }], "from": "photo", "unsure": "the underside of its east part is in shadow in every photo: 3 posts are seen" },
+   "screens": [{ "id": "screen-rear", "kind": "privacy", "edge": 1, "fromFeet": 5.64, "heightFeet": 5.69, "material": "wood", "from": "photo" }],
    "from": "photos",
    "confirmed": ["depth"],
    "taps": [
@@ -56,7 +56,7 @@
    "name": "Front porch",
    "sideName": "Front wall behind the porch",
    "fromLeftFeet": 0,
-   "toFeet": 21.916064220895,
+   "toFeet": 21.916181218512,
    "depthFeet": 4.75,
    "heightFeet": 3.75,
    "topOnWallFeet": 0,
