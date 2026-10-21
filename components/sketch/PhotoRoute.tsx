@@ -16,7 +16,8 @@ import { measureRoute, type PhotoPixelsIn, photoLines } from "@/lib/photoRouteDa
 import { exifFocal35, focalOverWidth } from "@/lib/photoRouteExif";
 import { exteriorFromRoute, measuredFrom } from "@/lib/photoRouteExterior";
 import type { Pt } from "@/lib/roof";
-import { formatFeetInches, newSketchId, parseFeetInches } from "@/lib/sketch";
+import { formatFeetInches, newSketchId } from "@/lib/sketch";
+import { FeetInchesInput } from "./FeetInchesInput";
 import { FootprintDraw } from "./ExteriorPlan";
 import { decksOf, uniqueDeckName, withDeckAdded, withDeckAnswer, withDeckChange, withDeckDepth } from "@/lib/decks";
 import { deckFromPhotos, type DeckPhotoTap } from "@/lib/deckPhotos";
@@ -1285,8 +1286,7 @@ function PhotoTaps({
 
 function TapeForm({ onCancel, onDone }: { onCancel: () => void; onDone: (what: TapeWhat, feet: number) => void }) {
   const [what, setWhat] = useState<TapeWhat>("garage");
-  const [text, setText] = useState("");
-  const feet = parseFeetInches(text);
+  const [feet, setFeet] = useState<number | null>(null);
   return (
     <div className={styles.card}>
       <div className={styles.row}>
@@ -1305,10 +1305,8 @@ function TapeForm({ onCancel, onDone }: { onCancel: () => void; onDone: (what: T
         ))}
       </div>
       <div className={styles.row}>
-        <label>
-          Its length{" "}
-          <input type="text" inputMode="decimal" value={text} onChange={(e) => setText(e.target.value)} placeholder={`e.g. 3'2"`} size={10} />
-        </label>
+        <span>Its length </span>
+        <FeetInchesInput label="Its length" onChange={setFeet} />
         <button type="button" className="btn-primary" disabled={feet === null || !(feet > 0)} onClick={() => feet && onDone(what, feet)}>
           Add the tape
         </button>
@@ -1321,14 +1319,11 @@ function TapeForm({ onCancel, onDone }: { onCancel: () => void; onDone: (what: T
 }
 
 function WallTapeForm({ onCancel, onDone }: { onCancel: () => void; onDone: (feet: number) => void }) {
-  const [text, setText] = useState("");
-  const feet = parseFeetInches(text);
+  const [feet, setFeet] = useState<number | null>(null);
   return (
     <div className={`${styles.card} ${styles.row}`}>
-      <label>
-        The side&rsquo;s length, corner to corner{" "}
-        <input type="text" inputMode="decimal" value={text} onChange={(e) => setText(e.target.value)} placeholder={`e.g. 22'2"`} size={10} autoFocus />
-      </label>
+      <span>The side&rsquo;s length, corner to corner </span>
+      <FeetInchesInput label="The side's length" autoFocus onChange={setFeet} />
       <button type="button" className="btn-primary" disabled={feet === null || !(feet > 0)} onClick={() => feet && onDone(feet)}>
         Add the tape
       </button>

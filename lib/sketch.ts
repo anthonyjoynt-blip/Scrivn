@@ -1619,6 +1619,22 @@ export function parseFeetInches(raw: string): number | null {
   return null;
 }
 
+/**
+ * A length from a phone's three boxes: feet, inches and an eighth (components/sketch/FeetInchesInput.tsx).
+ *
+ * A phone's number keypad has no ' or ", so one typed box can't take 5'10¾" there: the owner, 10-21,
+ * "i couldnt put in feet and inches just straight numbers". Inches may run past 12, since a window is
+ * often taped in inches alone (70¾" is 0 ft, 70 in, ¾). Null while nothing is typed, or on anything
+ * that isn't a number.
+ */
+export function feetFromParts(feet: string, inches: string, eighths: number): number | null {
+  const ft = feet.trim() === "" ? 0 : Number(feet.trim());
+  const inch = inches.trim() === "" ? 0 : Number(inches.trim());
+  if (!Number.isFinite(ft) || !Number.isFinite(inch) || ft < 0 || inch < 0) return null;
+  const total = ft + (inch + eighths / 8) / 12;
+  return total > 0 ? total : null;
+}
+
 // ---------------------------------------------------------------------------------------------
 // Geometry
 // ---------------------------------------------------------------------------------------------

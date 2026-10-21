@@ -63,7 +63,7 @@ async function load() {
       `export * from "${lib("claddingTexture.ts")}";`,
       `export * from "${lib("exteriorViews.ts")}";`,
       `export { exteriorReport } from "${lib("exteriorReport.ts")}";`,
-      `export { formatFeetInches } from "${lib("sketch.ts")}";`,
+      `export { feetFromParts, formatFeetInches } from "${lib("sketch.ts")}";`,
       `export { availableTrades, buildWorkOrders } from "${lib("workOrders.ts")}";`,
       `export { emptyClaimInfo } from "${lib("claimInfo.ts")}";`,
       `export { documentGenerationUserMessage, DOCUMENT_GENERATION_SYSTEM_PROMPT, SCOPE_ONLY_SYSTEM_PROMPT } from "${lib("documentGenerationPrompt.ts")}";`,
@@ -6403,6 +6403,16 @@ test("a size estimated on site the measure disagrees with is worth a look: the w
   assert(side && flags.length === 1 && flags[0].side === side.from, JSON.stringify(flags));
   assert(/^The .* wall was estimated on site at about 30', but the photos make it \d+'(\d+")?: \d+% longer, more than the estimate's ±20%\. Tape it to see which is right\.$/.test(flags[0].words), flags[0].words);
   assert(x.checkEstimate(36, { feet: 30, plusMinusPct: 20 }).disagrees === false && x.checkEstimate(36.1, { feet: 30, plusMinusPct: 20 }).disagrees === true && x.checkEstimate(23.9, { feet: 30, plusMinusPct: 0 }).disagrees === true, "±20% when none is said, past it disagrees");
+});
+
+test("a tape typed on a phone: feet, inches past 12 and an eighth, none of which needs a ' or \" (10-21)", () => {
+  // His window, taped in inches alone: 70¾" = 0 ft, 70 in, 6 eighths = 5.8958'. His garage door, 9 ft. 5'10¾" the same window.
+  near(x.feetFromParts("", "70", 6), 70.75 / 12, "70¾ in");
+  near(x.feetFromParts("9", "", 0), 9, "9 ft");
+  near(x.feetFromParts("5", "10", 6), 70.75 / 12, "5 ft 10¾ in");
+  near(x.feetFromParts("", "", 4), 0.5 / 12, "½ in alone");
+  assert(x.feetFromParts("", "", 0) === null, "nothing typed is nothing");
+  assert(x.feetFromParts("5'", "", 0) === null && x.feetFromParts("-2", "", 0) === null, "not a number, or below zero, is nothing");
 });
 
 console.log(`\n${passed.length} passed, ${failures.length} failed`);
