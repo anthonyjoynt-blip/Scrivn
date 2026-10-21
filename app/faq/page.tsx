@@ -71,10 +71,10 @@ const SCAN: FaqEntry[] = [
     q: "Can I measure the outside of a house?",
     a: (
       <>
-        Yes, in Scrivn, from photos. In the claim&rsquo;s sketch, Exterior, then From photos: Scrivn walks you round the house a step at a
-        time, the front, each corner at 45&deg;, each side straight on, and something measured on the way (a garage door, or a window across
-        its frame). Then send it to the Scrivn team to measure, or tap the corners on the photos yourself, and Scrivn works out every
-        wall&rsquo;s length, the roof and the exterior report. The <Link href="/scan-guide#exterior">guide</Link> shows how.
+        Yes, in Scrivn, from photos. Take a photo of each wall straight on and every outside corner at 45&deg;, the back ones too, and tape
+        the long side wall front to back. Then in the
+        claim&rsquo;s sketch, Exterior, then From photos: tap the corners on the photos, and Scrivn works out every wall&rsquo;s length, the roof
+        and the exterior report. The <Link href="/scan-guide#exterior">guide</Link> shows how.
       </>
     ),
   },

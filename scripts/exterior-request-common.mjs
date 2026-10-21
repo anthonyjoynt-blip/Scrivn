@@ -116,19 +116,6 @@ export async function listWaiting(db) {
 }
 
 /**
- * A photo's place on the walk round the house (2026-10-21, lib/photoRouteWalk.ts `WalkTag`), as the tester was asked for
- * it: "the front", "corner 3 at 45°", "side 2 straight on", "the wall before inside corner 4". Corner k is the shape's
- * corner k as the plan numbers them; side k runs from corner k to the next; the front from the last corner to corner 1.
- */
-export function walkWords(tag) {
-  if (!tag || typeof tag !== "object") return null;
-  if (tag.role === "front") return "the front";
-  if (tag.role === "side") return `side ${tag.k} straight on (corner ${tag.k} to the next)`;
-  if (tag.role === "corner") return tag.corner === "inside" ? `the wall before inside corner ${tag.k}` : `corner ${tag.k} at 45°`;
-  return null;
-}
-
-/**
  * One request pulled to dir/<id>/: its photos at the size Scrivn keeps them, named as the phone names a photo
  * (as C:/Users/Anthony/Desktop/House Photos is), and request.json with the route's inputs, the tapes and the note.
  * Marked measuring, unless it is past that. A photo Scrivn does not have yet is said, not fatal: pull again later.
@@ -161,8 +148,7 @@ export async function pullRequest(db, prefix, { dir = join(ROOT, FOLDER), now = 
     used.add(name);
     const file = `${name}.jpg`;
     writeFileSync(join(folder, file), Buffer.from(await blob.arrayBuffer()));
-    const walked = walkWords(routePhotos.get(id)?.walk);
-    photos.push({ n: photos.length + 1, file, id, width: rec?.width ?? routePhotos.get(id)?.width ?? null, height: rec?.height ?? routePhotos.get(id)?.height ?? null, takenAt: taken ? new Date(taken).toISOString() : null, ...(walked ? { walk: walked } : {}) });
+    photos.push({ n: photos.length + 1, file, id, width: rec?.width ?? routePhotos.get(id)?.width ?? null, height: rec?.height ?? routePhotos.get(id)?.height ?? null, takenAt: taken ? new Date(taken).toISOString() : null });
   }
   const fileOf = new Map(photos.map((p) => [p.id, p.file]));
   const tapes = (row.route?.buildings ?? []).flatMap((b) =>

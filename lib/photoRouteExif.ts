@@ -59,8 +59,8 @@ function fromTiff(view: DataView, tiff: number, end: number): number | null {
   return f35 !== null && f35 >= 10 && f35 <= 300 ? f35 : null;
 }
 
-/** f over the picture's long side (its width held sideways) from a 35 mm equivalent focal, for a picture of that shape. */
+/** f over the picture's width from a 35 mm equivalent focal, for a picture of that shape. */
 export function focalOverWidth(f35: number, width: number, height: number): number {
-  // The 35 mm equivalent is across the diagonal; held upright, a photo's focal is still over its long side (lib/photoRouteLens.ts).
-  return (f35 / 43.27) * (Math.hypot(width, height) / Math.max(width, height));
+  // The 35 mm equivalent is across the diagonal; the width is the picture's own, landscape or not.
+  return (f35 / 43.27) * (Math.hypot(width, height) / width);
 }

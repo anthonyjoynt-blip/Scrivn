@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState } from "react";
 import { defaultRoof, type Exterior, type ExteriorOpening, type ExteriorOpeningKind, type ExteriorSide, exteriorQuantities, HOME_TYPE_LABEL, type HomeType, isAttachedHome, OPENING_LABEL, openingRect } from "@/lib/exterior";
 import { type CheckRow, openChecks, withCheckDrop, withChecksClosed, withOpeningKind, withTrimAnswer } from "@/lib/exteriorCheck";
 import { frameX, frameY } from "@/lib/exteriorPhoto";
@@ -9,15 +9,14 @@ import { onDeviceChange } from "@/lib/deviceClaims";
 import { keepPhotoFile, sendWaitingPhotos } from "@/lib/devicePhotos";
 import { preparePhoto } from "@/lib/photoImage";
 import { addPhoto, type ClaimPhoto, EXTERIOR_ROOM } from "@/lib/photos";
-import { type CornerTap, defaultShared, emptyPhotoRoute, type PhotoRouteState, planMapping, type RoutePhoto, type RouteShot, type RouteTape, shotNumbers } from "@/lib/photoRoute";
+import { type CornerTap, defaultShared, emptyPhotoRoute, type PhotoRouteState, planMapping, type RoutePhoto, type RouteShot, type RouteTape, type TapeWhat } from "@/lib/photoRoute";
 import { routeSanity } from "@/lib/photoRouteSanity";
 import { routeCoverage, viewsFromMeasure } from "@/lib/photoRouteCoverage";
 import { measureRoute, type PhotoPixelsIn, photoLines } from "@/lib/photoRouteData";
 import { exifFocal35, focalOverWidth } from "@/lib/photoRouteExif";
 import { exteriorFromRoute, measuredFrom } from "@/lib/photoRouteExterior";
-import { newWalk, walkActive, walkPhotos, walkPhotoWords, walkTapWords, withWalk } from "@/lib/photoRouteWalk";
 import type { Pt } from "@/lib/roof";
-import { formatFeetInches, newSketchId } from "@/lib/sketch";
+import { formatFeetInches, newSketchId, parseFeetInches } from "@/lib/sketch";
 import { FootprintDraw } from "./ExteriorPlan";
 import { decksOf, uniqueDeckName, withDeckAdded, withDeckAnswer, withDeckChange, withDeckDepth } from "@/lib/decks";
 import { deckFromPhotos, type DeckPhotoTap } from "@/lib/deckPhotos";
@@ -27,8 +26,6 @@ import { useExteriorSubject } from "./exteriorSubject";
 import styles from "./PhotoRoute.module.css";
 import { squaredWallPhoto } from "./SidePhotos";
 import { SendToTeam } from "./TeamMeasure";
-import { PhotoTaps, TapeForm, WallTapeForm, WHAT_LABEL } from "./photoRouteParts";
-import { PhotoWalk } from "./PhotoWalk";
 
 /**
  * Measuring the outside of the house from photos (2026-10-16): the pane over lib/photoRoute.ts. One
@@ -45,11 +42,9 @@ import { PhotoWalk } from "./PhotoWalk";
  *
  * Nothing waits on anything: a photo with one corner, a side never seen, no tape at all - it measures
  * what it can and says plainly what would make it better.
- *
- * The way in (2026-10-21) is the walk round the house (PhotoWalk.tsx): the photos taken one prompted step at a time, the
- * shape drawn from the lap, each photo's corners named by what it was taken for. Once round, the steps above follow
- * below the walk's end; "Add photos my own way" sets the walk aside for them.
  */
+
+const WHAT_LABEL: Record<TapeWhat, string> = { garage: "Garage door", door: "Door", window: "Window", wall: "Wall", other: "Other" };
 
 type RouteChange = (f: (route: PhotoRouteState) => PhotoRouteState) => void;
 
@@ -80,10 +75,9 @@ export function PhotoRouteStart({ readOnly, onStart }: { readOnly: boolean; onSt
     <div className={`exterior-start-way ${styles.card}`}>
       <h4 className="exterior-subhead">Measure it from photos</h4>
       <p className="field-note">
-        Scrivn walks you round {the}, a step at a time: a photo of the front, each corner and each side, and a measurement or two. Then the Scrivn team measures it, or you do here:
-        every wall&rsquo;s length, and how sure it is of each.
+        Photos of {the} from all round it, the corners tapped on them, and a tape or two: Scrivn works out every wall&rsquo;s length, and how sure it is of each.
       </p>
-      <button type="button" className="btn-primary" onClick={() => onStart({ sides: [], roof: defaultRoof(), photoRoute: { ...emptyPhotoRoute(), walk: newWalk() } })}>
+      <button type="button" className="btn-primary" onClick={() => onStart({ sides: [], roof: defaultRoof(), photoRoute: emptyPhotoRoute() })}>
         From photos
       </button>
     </div>
@@ -98,7 +92,7 @@ function TakeCard() {
       <ul>
         <li>Use the normal 1x camera, held sideways.</li>
         <li>One photo of each wall, straight on, with both its corners, the ground and the roof edge in it.</li>
-        <li>One photo at 45 degrees to every outside corner, the back ones and any behind a porch too: step back until both whole walls fit, their far corners in too.</li>
+        <li>One photo at 45 degrees to every outside corner, the back ones and any behind a porch too, both walls in frame.</li>
         <li>Each gable end square-on.</li>
         <li>Walk round {the} in one direction, so the photos follow each other.</li>
         <li>One tape front to back: the long side wall, front corner to back corner.</li>
@@ -144,11 +138,6 @@ export function PhotoRoutePane({ exterior, readOnly, onChange }: { exterior: Ext
   const [mode, setMode] = useState<"corners" | "ends" | "tape" | "wall">("corners");
   const [line, setLine] = useState<{ a: [number, number]; b: [number, number] } | null>(null);
   const [wallSide, setWallSide] = useState<number | null>(null);
-  /** The walk's shape, shown faint while the shape is drawn again by hand. */
-  const [walkGuide, setWalkGuide] = useState<Pt[] | null>(null);
-  /** Where "Measure it here" at the walk's end goes: the corners on the photos, or the shape when the walk didn't close. */
-  const tapsRef = useRef<HTMLElement | null>(null);
-  const shapeRef = useRef<HTMLElement | null>(null);
 
   // Each photo's picture: this phone's copy or Scrivn's link; asked again when the phone's store changes (a photo uploaded).
   const [storeTick, setStoreTick] = useState(0);
@@ -181,30 +170,7 @@ export function PhotoRoutePane({ exterior, readOnly, onChange }: { exterior: Ext
 
   const photo = route.photos.find((p) => p.id === selected) ?? null;
   const tapsHere = main.corners.map((c, i) => ({ c, i })).filter(({ c }) => c.photo === selected);
-  // A photo of the walk (or taken from the list) names its own corners: shown on each tap as it's made, not "?" until Measure.
-  const tapsShown = (() => {
-    if (!photo?.shot || main.outline.length < 3) return tapsHere;
-    const mine = tapsHere.filter(({ c }) => !c.proposed);
-    const guess = shotNumbers(photo.shot, mine.map(({ c }) => c), photo.width, main.outline.length, !!photo.walk);
-    const at = new Map(mine.map(({ i }, k) => [i, guess[k] as number]));
-    return tapsHere.map(({ c, i }) => ({ c: c.corner < 0 && (at.get(i) ?? -1) >= 0 ? { ...c, corner: at.get(i) as number } : c, i }));
-  })();
   const claimExterior = (access?.photos.items ?? []).filter((p) => p.room === EXTERIOR_ROOM && !route.photos.some((q) => q.id === p.id));
-
-  /** A photo file kept as one of the claim's Exterior photos (on this phone first, sent when there's signal): its place on the route. */
-  async function keepFile(file: File, shot?: RouteShot): Promise<RoutePhoto | null> {
-    if (!access) return null;
-    const head = await file.slice(0, 256 * 1024).arrayBuffer();
-    const takenAt = exifTakenAt(head) ?? (file.lastModified || Date.now());
-    const f35 = exifFocal35(head);
-    const prepared = await preparePhoto(file);
-    const now = Date.now();
-    const id = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function" ? crypto.randomUUID() : `${now.toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
-    const record: ClaimPhoto = { id, room: EXTERIOR_ROOM, roomName: "Exterior", takenAt, caption: "", captionBy: null, width: prepared.width, height: prepared.height, source: "gallery", editedAt: now };
-    await keepPhotoFile(access.claimIdNow(), id, prepared.full, prepared.thumb);
-    access.onPhotosChange((p) => addPhoto(p, record));
-    return { id, width: prepared.width, height: prepared.height, takenAt, focalPrior: f35 ? focalOverWidth(f35, prepared.width, prepared.height) : null, ...(shot ? { shot } : {}) };
-  }
 
   async function addFiles(files: File[], shot?: RouteShot) {
     if (!access) return;
@@ -213,8 +179,16 @@ export function PhotoRoutePane({ exterior, readOnly, onChange }: { exterior: Ext
     try {
       for (const [i, file] of files.entries()) {
         setBusy(`Keeping photo ${i + 1} of ${files.length}…`);
-        const p = await keepFile(file, shot);
-        if (p) added.push(p);
+        const head = await file.slice(0, 256 * 1024).arrayBuffer();
+        const takenAt = exifTakenAt(head) ?? (file.lastModified || Date.now());
+        const f35 = exifFocal35(head);
+        const prepared = await preparePhoto(file);
+        const now = Date.now();
+        const id = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function" ? crypto.randomUUID() : `${now.toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+        const record: ClaimPhoto = { id, room: EXTERIOR_ROOM, roomName: "Exterior", takenAt, caption: "", captionBy: null, width: prepared.width, height: prepared.height, source: "gallery", editedAt: now };
+        await keepPhotoFile(access.claimIdNow(), id, prepared.full, prepared.thumb);
+        access.onPhotosChange((p) => addPhoto(p, record));
+        added.push({ id, width: prepared.width, height: prepared.height, takenAt, focalPrior: f35 ? focalOverWidth(f35, prepared.width, prepared.height) : null, ...(shot ? { shot } : {}) });
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "A photo could not be kept.");
@@ -226,22 +200,6 @@ export function PhotoRoutePane({ exterior, readOnly, onChange }: { exterior: Ext
       if (!selected) setSelected(added[0]?.id ?? null);
       access.onCheckpoint?.();
       void sendWaitingPhotos();
-    }
-  }
-
-  /** One photo for the walk (PhotoWalk.tsx), which puts it in its step. */
-  async function keepForWalk(file: File): Promise<RoutePhoto | null> {
-    setError(null);
-    try {
-      const p = await keepFile(file);
-      if (p) {
-        if (!selected) setSelected(p.id);
-        void sendWaitingPhotos();
-      }
-      return p;
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "The photo could not be kept.");
-      return null;
     }
   }
 
@@ -257,9 +215,8 @@ export function PhotoRoutePane({ exterior, readOnly, onChange }: { exterior: Ext
     const index = main.corners.length;
     // In "Where this home ends", the tap is the party line: a corner of a shared wall.
     change((r) => withMain(r, (b) => ({ ...b, corners: [...b.corners, { photo: selected, corner: -1, x, y, ...(mode === "ends" ? { party: true as const } : {}) }] })));
-    // The first corner on a photo: which is it? The app numbers the rest from it. A photo of the walk, or taken from the
-    // list, names its own (lib/photoRoute.ts shotNames): nothing to ask.
-    if (first && !photo?.shot) setPicking(index);
+    // The first corner on a photo: which is it? The app numbers the rest from it.
+    if (first) setPicking(index);
   }
 
   function setCorner(index: number, corner: number) {
@@ -336,66 +293,9 @@ export function PhotoRoutePane({ exterior, readOnly, onChange }: { exterior: Ext
     return <p className="field-note">Open this claim to measure the outside from photos: the photos are kept with the claim.</p>;
   }
 
-  // The walk round the house (2026-10-21): the way in for a route just started - or one from before it, still empty -
-  // until it is set aside ("Add photos my own way"). Walking, it is all the pane shows; once round, its end sits on top.
-  const walk = route.walk ?? null;
-  const walkOrder = walk ? walkPhotos(walk) : [];
-  const fresh = !walk && route.photos.length === 0 && main.outline.length === 0;
-  const walking = walk ? walkActive(route) && !walk.closed : fresh;
-  const walkDone = !!walk && walkActive(route) && !!walk.closed;
-  const measureHere = () => {
-    const first = walkOrder.find(({ photo }) => main.corners.filter((c) => c.photo === photo && !c.proposed).length < 2) ?? walkOrder[0];
-    if (first) setSelected(first.photo);
-    setMode("corners");
-    setTimeout(() => (main.outline.length >= 4 ? tapsRef.current : shapeRef.current)?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
-  };
-  const walkCard = (
-    <PhotoWalk
-      route={route}
-      urls={urls}
-      readOnly={readOnly}
-      isHouse={isHouse}
-      the={the}
-      change={change}
-      keep={keepForWalk}
-      checkpoint={() => access.onCheckpoint?.()}
-      onOwnWay={() => change((r) => ({ ...r, walk: { ...(r.walk ?? newWalk()), own: true } }))}
-      send={<SendToTeam exterior={exterior} readOnly={readOnly} apply={(f) => onChange((e) => f(e))} primary />}
-      onMeasureHere={measureHere}
-    />
-  );
-  if (walking) {
-    return (
-      <div className={styles.pane}>
-        {walkCard}
-        {error && <p className="sketch-length-error">{error}</p>}
-      </div>
-    );
-  }
-  // A photo's place on the walk, short, on its thumbnail.
-  const walkMark = (p: RoutePhoto) => (!p.walk ? null : p.walk.role === "front" ? "Front" : p.walk.role === "side" ? `Side ${p.walk.k}` : `C${p.walk.k}${p.walk.corner === "inside" ? " in" : ""}`);
-  const walkAt = photo ? walkOrder.findIndex((w) => w.photo === photo.id) : -1;
-
   return (
     <div className={styles.pane}>
-      {walkDone && walkCard}
-      {walk?.own && !readOnly && (
-        <p className="field-note">
-          <button
-            type="button"
-            className="link-button"
-            onClick={() =>
-              change((r) => {
-                const { own: _own, ...rest } = r.walk ?? newWalk();
-                return { ...r, walk: rest };
-              })
-            }
-          >
-            Back to the step-by-step walk
-          </button>
-        </p>
-      )}
-      {main.outline.length < 4 && !walkDone && <TakeCard />}
+      {main.outline.length < 4 && <TakeCard />}
 
       <section>
         <h3>1. The photos</h3>
@@ -406,7 +306,6 @@ export function PhotoRoutePane({ exterior, readOnly, onChange }: { exterior: Ext
               <button key={p.id} type="button" className={`${styles.thumb} ${p.id === selected ? styles.thumbOn : ""}`} onClick={() => setSelected(p.id)} title={`Photo ${i + 1}`}>
                 {urls.get(p.id) ? <img src={urls.get(p.id)} alt={`Photo ${i + 1}`} /> : <span className="field-note">waiting</span>}
                 {n > 0 && <span className={styles.badge}>{n}</span>}
-                {walkMark(p) && <span className={styles.role}>{walkMark(p)}</span>}
               </button>
             );
           })}
@@ -432,7 +331,7 @@ export function PhotoRoutePane({ exterior, readOnly, onChange }: { exterior: Ext
         <CoverageList route={route} exterior={exterior} readOnly={readOnly} onTake={(files, shot) => void addFiles(files, shot)} />
       </section>
 
-      <section ref={shapeRef}>
+      <section>
         <h3>2. {The}&rsquo;s shape</h3>
         {isHouse && (
           <div className="option-group" role="group" aria-label="The home">
@@ -456,19 +355,7 @@ export function PhotoRoutePane({ exterior, readOnly, onChange }: { exterior: Ext
           ) : (
             <>
               <p className="field-note">Tap each corner of {the} in turn, going round it, then the first one again. The street side at the bottom. Rough is fine: the photos set the sizes.</p>
-              <FootprintDraw
-                guide={walkGuide ?? undefined}
-                onClose={(ring) =>
-                  change((r) => {
-                    // Drawn by hand: no longer the walk's rough shape; the walk's photos are laid on it if its turns agree.
-                    const drawn = withMain(r, (b) => {
-                      const { outlineFrom: _from, ...rest } = b;
-                      return { ...rest, outline: ring, shared: defaultShared(ring, b.homeType), corners: b.corners.map((c) => ({ ...c, corner: -1, by: undefined })) };
-                    });
-                    return drawn.walk ? withWalk(drawn, drawn.walk) : drawn;
-                  })
-                }
-              />
+              <FootprintDraw onClose={(ring) => change((r) => withMain(r, (b) => ({ ...b, outline: ring, shared: defaultShared(ring, b.homeType), corners: b.corners.map((c) => ({ ...c, corner: -1, by: undefined })) })))} />
             </>
           )
         ) : (
@@ -499,16 +386,7 @@ export function PhotoRoutePane({ exterior, readOnly, onChange }: { exterior: Ext
                   type="button"
                   className="btn-secondary"
                   onClick={() => {
-                    if (window.confirm("Draw the shape again? The corners tapped stay; their numbers are cleared.")) {
-                      // The walk's shape stays faint behind the drawing, to draw over at the right sizes.
-                      setWalkGuide(main.outlineFrom === "walk" ? main.outline : null);
-                      change((r) =>
-                        withMain(r, (b) => {
-                          const { outlineFrom: _from, ...rest } = b;
-                          return { ...rest, outline: [], corners: b.corners.map((c) => ({ ...c, corner: -1, by: undefined })) };
-                        }),
-                      );
-                    }
+                    if (window.confirm("Draw the shape again? The corners tapped stay; their numbers are cleared.")) change((r) => withMain(r, (b) => ({ ...b, outline: [], corners: b.corners.map((c) => ({ ...c, corner: -1, by: undefined })) })));
                   }}
                 >
                   Draw the shape again
@@ -520,29 +398,8 @@ export function PhotoRoutePane({ exterior, readOnly, onChange }: { exterior: Ext
       </section>
 
       {photo && main.outline.length >= 4 && (
-        <section ref={tapsRef}>
+        <section>
           <h3>3. The corners, and the tapes</h3>
-          {photo.walk && walk && (
-            <div className={styles.ask}>
-              <p>
-                <strong>
-                  Photo {route.photos.indexOf(photo) + 1}: {walkPhotoWords(photo.walk, walk)}.
-                </strong>{" "}
-                {walkTapWords(photo.walk, attached)}
-              </p>
-              {!readOnly && walkAt >= 0 && (
-                <div className={styles.row}>
-                  {walkAt + 1 < walkOrder.length ? (
-                    <button type="button" className="btn-secondary" onClick={() => setSelected((walkOrder[walkAt + 1] as { photo: string }).photo)}>
-                      Next photo: {walkPhotoWords((walkOrder[walkAt + 1] as (typeof walkOrder)[number]).tag, walk)}
-                    </button>
-                  ) : (
-                    <span className="field-note">That&rsquo;s the last photo of the walk: Measure, below.</span>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
           {!readOnly && (
             <div className="option-group" role="group" aria-label="What a tap on the photo does">
               {(
@@ -563,9 +420,7 @@ export function PhotoRoutePane({ exterior, readOnly, onChange }: { exterior: Ext
             {mode === "ends"
               ? "On a front or back photo, tap where this home ends, at the ground: the party line, often a downspout, a trim line, or where the siding or colour changes. What's past it is the neighbour's and isn't measured."
               : mode === "corners"
-              ? photo.shot
-                ? "Scrivn numbers the corners from what this photo was taken for. Tap a number to change it."
-                : `Tap each corner of ${the} you can see, where it meets the ground. The first one on each photo asks which corner it is; Scrivn numbers the rest. Tap a number to change it.`
+              ? `Tap each corner of ${the} you can see, where it meets the ground. The first one on each photo asks which corner it is; Scrivn numbers the rest. Tap a number to change it.`
               : mode === "tape"
                 ? "Drag across what you taped, end to end: a garage door, a window, a door. Then say how long it is."
                 : "Tap a side of the shape above, then type its length as you taped it, corner to corner."}
@@ -603,7 +458,7 @@ export function PhotoRoutePane({ exterior, readOnly, onChange }: { exterior: Ext
             url={urls.get(photo.id) ?? null}
             width={photo.width}
             height={photo.height}
-            taps={tapsShown}
+            taps={tapsHere}
             tapes={main.tapes.filter((t): t is Extract<RouteTape, { kind: "line" }> => t.kind === "line" && t.photo === photo.id)}
             line={line}
             mode={readOnly ? null : mode}
@@ -1305,3 +1160,182 @@ function ShapePlan({
     </svg>
   );
 }
+
+/** A photo with its corner taps (numbered, or ? until numbered) and its tapes, taking taps and drags in its own pixels. */
+function PhotoTaps({
+  url,
+  width,
+  height,
+  taps,
+  tapes,
+  line,
+  mode,
+  selected,
+  onTap,
+  onPickTap,
+  onLine,
+  deckTaps = [],
+}: {
+  url: string | null;
+  width: number;
+  height: number;
+  taps: { c: CornerTap; i: number }[];
+  tapes: Extract<RouteTape, { kind: "line" }>[];
+  line: { a: [number, number]; b: [number, number] } | null;
+  mode: "corners" | "ends" | "tape" | "wall" | "deck" | null;
+  selected: number | null;
+  onTap: (x: number, y: number) => void;
+  onPickTap: (i: number) => void;
+  onLine: (a: [number, number], b: [number, number]) => void;
+  /** A deck's taps on this photo (2026-10-20): each with its short label. */
+  deckTaps?: { x: number; y: number; label: string }[];
+}) {
+  const svg = useRef<SVGSVGElement | null>(null);
+  const [drag, setDrag] = useState<{ a: [number, number]; b: [number, number] } | null>(null);
+  const start = useRef<{ x: number; y: number; px: [number, number] } | null>(null);
+  const toPhoto = (e: ReactPointerEvent): [number, number] => {
+    const el = svg.current;
+    if (!el) return [0, 0];
+    const box = el.getBoundingClientRect();
+    return [((e.clientX - box.left) / box.width) * width, ((e.clientY - box.top) / box.height) * height];
+  };
+  const r = width / 90;
+  const shown = drag ?? line;
+  return (
+    <div className={styles.photoBox}>
+      {url ? <img src={url} alt="The photo, to tap the corners on" draggable={false} /> : <div style={{ aspectRatio: `${width} / ${height}`, background: "#e7e5e4" }} />}
+      <svg
+        ref={svg}
+        className={styles.overlay}
+        viewBox={`0 0 ${width} ${height}`}
+        onPointerDown={(e) => {
+          if (!mode || mode === "wall") return;
+          start.current = { x: e.clientX, y: e.clientY, px: toPhoto(e) };
+          if (mode === "tape") (e.target as Element).setPointerCapture?.(e.pointerId);
+        }}
+        onPointerMove={(e) => {
+          if (mode === "tape" && start.current) setDrag({ a: start.current.px, b: toPhoto(e) });
+        }}
+        onPointerUp={(e) => {
+          const s = start.current;
+          start.current = null;
+          if (!s || !mode) return;
+          const moved = Math.hypot(e.clientX - s.x, e.clientY - s.y);
+          if ((mode === "corners" || mode === "ends" || mode === "deck") && moved < 10) onTap(...toPhoto(e));
+          if (mode === "tape") {
+            const b = toPhoto(e);
+            setDrag(null);
+            if (Math.hypot(b[0] - s.px[0], b[1] - s.px[1]) > width / 60) onLine(s.px, b);
+          }
+        }}
+      >
+        {tapes.map((t) => (
+          <g key={t.id}>
+            <line x1={t.a[0]} y1={t.a[1]} x2={t.b[0]} y2={t.b[1]} stroke="#15803d" strokeWidth={r / 3} />
+            <text x={(t.a[0] + t.b[0]) / 2} y={(t.a[1] + t.b[1]) / 2 - r} fontSize={r * 1.6} textAnchor="middle" fill="#15803d" stroke="#fff" strokeWidth={r / 6} paintOrder="stroke">
+              {formatFeetInches(t.feet)}
+            </text>
+          </g>
+        ))}
+        {shown && <line x1={shown.a[0]} y1={shown.a[1]} x2={shown.b[0]} y2={shown.b[1]} stroke="#ea580c" strokeWidth={r / 3} strokeDasharray={`${r} ${r / 2}`} />}
+        {deckTaps.map((t, k) => (
+          <g key={`deck-${k}`} pointerEvents="none">
+            <rect x={t.x - r} y={t.y - r} width={r * 2} height={r * 2} fill="#b45309" stroke="#fff" strokeWidth={r / 5} />
+            <text x={t.x} y={t.y + r * 0.42} fontSize={r * 1.1} textAnchor="middle" fill="#fff">
+              {t.label}
+            </text>
+          </g>
+        ))}
+        {taps.map(({ c, i }) => (
+          <g
+            key={i}
+            style={{ cursor: "pointer" }}
+            onPointerDown={(e) => {
+              e.stopPropagation();
+              onPickTap(i);
+            }}
+          >
+            <line
+              x1={c.x}
+              y1={c.party ? 0 : c.y - r * 6}
+              x2={c.x}
+              y2={c.y}
+              stroke={selected === i ? "#ea580c" : c.party ? "#7c3aed" : "#0891b2"}
+              strokeWidth={r / 4}
+              strokeDasharray={c.proposed ? `${r / 1.5} ${r / 2.5}` : undefined}
+            />
+            <circle
+              cx={c.x}
+              cy={c.y}
+              r={r}
+              fill={c.proposed ? "rgba(8,145,178,0.35)" : selected === i ? "#ea580c" : c.corner >= 0 ? "#0891b2" : "#78716c"}
+              stroke={c.proposed ? (selected === i ? "#ea580c" : "#0891b2") : "#fff"}
+              strokeWidth={r / 5}
+              strokeDasharray={c.proposed ? `${r / 2} ${r / 3}` : undefined}
+            />
+            <text x={c.x} y={c.y + r * 0.42} fontSize={r * 1.2} textAnchor="middle" fill="#fff" stroke={c.proposed ? "#0e7490" : undefined} strokeWidth={c.proposed ? r / 8 : undefined} paintOrder="stroke">
+              {c.corner >= 0 ? c.corner + 1 : "?"}
+            </text>
+          </g>
+        ))}
+      </svg>
+    </div>
+  );
+}
+
+function TapeForm({ onCancel, onDone }: { onCancel: () => void; onDone: (what: TapeWhat, feet: number) => void }) {
+  const [what, setWhat] = useState<TapeWhat>("garage");
+  const [text, setText] = useState("");
+  const feet = parseFeetInches(text);
+  return (
+    <div className={styles.card}>
+      <div className={styles.row}>
+        <button type="button" className="btn-secondary" onClick={() => onDone("garage", 9)}>
+          9&prime; garage door
+        </button>
+        <button type="button" className="btn-secondary" onClick={() => onDone("garage", 16)}>
+          16&prime; garage door
+        </button>
+      </div>
+      <div className="option-group" role="group" aria-label="What was taped">
+        {(Object.keys(WHAT_LABEL) as TapeWhat[]).map((w) => (
+          <button key={w} type="button" className={`option-btn${what === w ? " selected" : ""}`} aria-pressed={what === w} onClick={() => setWhat(w)}>
+            {WHAT_LABEL[w]}
+          </button>
+        ))}
+      </div>
+      <div className={styles.row}>
+        <label>
+          Its length{" "}
+          <input type="text" inputMode="decimal" value={text} onChange={(e) => setText(e.target.value)} placeholder={`e.g. 3'2"`} size={10} />
+        </label>
+        <button type="button" className="btn-primary" disabled={feet === null || !(feet > 0)} onClick={() => feet && onDone(what, feet)}>
+          Add the tape
+        </button>
+        <button type="button" className="link-button" onClick={onCancel}>
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function WallTapeForm({ onCancel, onDone }: { onCancel: () => void; onDone: (feet: number) => void }) {
+  const [text, setText] = useState("");
+  const feet = parseFeetInches(text);
+  return (
+    <div className={`${styles.card} ${styles.row}`}>
+      <label>
+        The side&rsquo;s length, corner to corner{" "}
+        <input type="text" inputMode="decimal" value={text} onChange={(e) => setText(e.target.value)} placeholder={`e.g. 22'2"`} size={10} autoFocus />
+      </label>
+      <button type="button" className="btn-primary" disabled={feet === null || !(feet > 0)} onClick={() => feet && onDone(feet)}>
+        Add the tape
+      </button>
+      <button type="button" className="link-button" onClick={onCancel}>
+        Cancel
+      </button>
+    </div>
+  );
+}
+

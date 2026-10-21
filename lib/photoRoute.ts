@@ -27,7 +27,6 @@ import type { Pt } from "./roof";
 import { fromLevel, type PhotoCamera, levelAxes, planBearing, toLevel } from "./photoRouteLens";
 import { snapToEdge, type UprightEdge } from "./photoRouteEdges";
 import { formatFeetInches } from "./sketch";
-import { isWalkShape, type RouteWalk, type WalkTag } from "./photoRouteWalk";
 import type { Gray } from "./photoRouteLines";
 import { planDirection, resect, type SolveBearing, type SolveCamera, type SolveDistance, type SolvePoint, type SolveWall, solvePlan, type Solution } from "./photoRouteSolve";
 
@@ -58,26 +57,10 @@ export interface RoutePhoto {
    * tapped on a porch deck or a step throws off.
    */
   standAt?: [number, number];
-  /**
-   * Its place on the walk round the house (2026-10-21, lib/photoRouteWalk.ts): the front, side k or corner k (outside or
-   * inside, and at an inside corner which wall). Set by the walk as each photo is taken; with the lap closed it also sets
-   * `shot`, on the shape the lap makes.
-   */
-  walk?: WalkTag;
 }
 
-/**
- * What a photo was taken for, from the checklist: a corner (outline index) at 45 degrees, or a wall (outline side index)
- * straight on; or (2026-10-21, the walk's front) a run of walls straight on, from corner `index` round to corner `to` -
- * the whole front, steps and all, its leftmost corner `index` and its rightmost `to`; or the wall before or after the
- * walk's inside corner `index`.
- */
-export type RouteShot =
-  | { kind: "corner"; index: number }
-  | { kind: "wall"; index: number }
-  | { kind: "run"; index: number; to: number }
-  /** The walk's inside corner (2026-10-21): a wall either side of it straight on, the inside corner tapped first, then the wall's other end. */
-  | { kind: "inside"; index: number; wall: "before" | "after" };
+/** What a photo was taken for, from the checklist: a corner (outline index) at 45 degrees, or a wall (outline side index) straight on. */
+export type RouteShot = { kind: "corner"; index: number } | { kind: "wall"; index: number };
 
 /** A corner of the house tapped on a photo, where it meets the ground: its index on the building's outline. */
 export interface CornerTap {
@@ -175,8 +158,6 @@ export interface RouteBuilding {
   tapes: RouteTape[];
   /** Sides' lengths estimated on site, by eye: held loosely, never as tapes. */
   estimates?: RouteEstimate[];
-  /** "walk": the shape is the one the walk round the house made (2026-10-21, `lapOutline`): its turns as walked, its sizes rough. */
-  outlineFrom?: "walk";
 }
 
 export interface PhotoRouteInput {
@@ -190,8 +171,6 @@ export interface PhotoRouteState extends PhotoRouteInput {
   measured?: RouteMeasured | null;
   /** "Check these" rows closed by "Looks right" (2026-10-16, lib/exteriorCheck.ts), by their keys. */
   checksClosed?: string[];
-  /** The walk round the house (2026-10-21, lib/photoRouteWalk.ts): the step-by-step way in, as far as it has gone. */
-  walk?: RouteWalk;
 }
 
 /** A measure, as kept: enough to show it again and to lay the photos on the sides, not the solve itself. */
@@ -421,7 +400,6 @@ export function numberCorners(input: PhotoRouteInput, buildingId: string, data: 
   const party = partyCorners(n, shared);
   const time = new Map(input.photos.map((p, i) => [p.id, p.takenAt ?? i]));
   const shotOf = new Map(input.photos.filter((p) => p.shot).map((p) => [p.id, p.shot as RouteShot]));
-  const walkedPhotos = new Set(input.photos.filter((p) => p.walk).map((p) => p.id));
   const photoIds = [...new Set(out.map((c) => c.photo))];
   const chosen = new Map<string, [number, number]>();
   type Job = { id: string; idx: number[]; snapped: SnappedTap[] };
@@ -447,11 +425,7 @@ export function numberCorners(input: PhotoRouteInput, buildingId: string, data: 
     // A photo from the checklist names its own: the tap nearest its middle is the corner it was taken for, or its two end
     // taps the corners of the wall. The user's own number stands over it; where the shot fits no placement, it is dropped.
     const shot = shotOf.get(job.id);
-    // A photo of the walk round the house is what the walk says it is: its names stand even where the shape - rough, from
-    // the lap - fits no placement; the app numbers only the taps they leave (2026-10-21: fitted freely on the lap's shape,
-    // 31 of 83 taps on a walk of the owner's house came out wrong).
-    const walked = !!shot && walkedPhotos.has(job.id);
-    const fromShot = user.some((c) => c >= 0) || !shot ? null : shotNames(shot, job.snapped, cameraWidth(byId.get(job.id)), n, job.idx, walked);
+    const fromShot = user.some((c) => c >= 0) || !shot ? null : shotNames(shot, job.snapped, cameraWidth(byId.get(job.id)), n);
     if (m < 2) {
       const only = job.idx[0] as number;
       if ((user[0] as number) >= 0) continue;
@@ -462,13 +436,6 @@ export function numberCorners(input: PhotoRouteInput, buildingId: string, data: 
       continue;
     }
     if (user.every((c) => c >= 0)) continue;
-    if (walked && fromShot && fromShot.every((c) => c >= 0)) {
-      job.idx.forEach((i, k) => {
-        (out[i] as CornerTap).corner = fromShot[k] as number;
-        (out[i] as CornerTap).by = "app";
-      });
-      continue;
-    }
     let userSet = fromShot ?? user;
     // The photos either side in time that are placed.
     const t0 = time.get(job.id) ?? 0;
@@ -477,7 +444,7 @@ export function numberCorners(input: PhotoRouteInput, buildingId: string, data: 
     const gaps = (k: number): number[][] => (k === 0 ? [[]] : gaps(k - 1).flatMap((g) => [1, 2, 3].map((x) => [...g, x])));
     for (let attempt = 0; attempt < 2 && !best; attempt++) {
     if (attempt === 1) {
-      if (userSet === user || walked) break;
+      if (userSet === user) break;
       userSet = user;
     }
     for (const g of gaps(m - 1)) {
@@ -501,14 +468,6 @@ export function numberCorners(input: PhotoRouteInput, buildingId: string, data: 
       }
     }
     }
-    if (!best && walked && fromShot) {
-      job.idx.forEach((i, k) => {
-        if ((fromShot[k] as number) < 0 || ((out[i] as CornerTap).by === "user" && (out[i] as CornerTap).corner >= 0)) return;
-        (out[i] as CornerTap).corner = fromShot[k] as number;
-        (out[i] as CornerTap).by = "app";
-      });
-      continue;
-    }
     if (!best) continue;
     job.idx.forEach((i, k) => {
       const t = out[i] as CornerTap;
@@ -524,60 +483,24 @@ export function numberCorners(input: PhotoRouteInput, buildingId: string, data: 
 const cameraWidth = (d: RoutePhotoData | undefined) => d?.camera?.width ?? 0;
 
 /**
- * The corners a photo from the checklist names, left to right as its taps run (-1 for a tap it does not name):
- *
- *   a corner at 45 degrees: the tap nearest its middle that corner; and on a photo of the walk round the house (`walked`),
- *     the taps beside it either way the far ends of its two walls (2026-10-21: the walk asks for just those - a 45 shows the
- *     wall walked to the corner on its left, the one on from it on its right. The checklist asks for every corner in sight,
- *     and on the owner's 10-16 photos the ones beside it were the far ends 18 times in 24);
- *   a wall straight on: its leftmost and rightmost taps, the wall's two corners as seen from outside;
- *   a run (the walk's front): its leftmost and rightmost taps, the run's two ends - and every tap in order when there are
- *     as many as the run has corners;
- *   an inside corner's wall: by the order they were tapped (`order`, each tap's place in the photo's taps), as the walk
- *     asks - the inside corner first, then the wall's other end.
+ * The corners a photo from the checklist names, left to right as its taps run: a corner shot the tap nearest its
+ * middle; a wall shot its leftmost and rightmost taps (the wall's two corners, left to right as seen from outside).
+ * -1 for a tap it does not name.
  */
-function shotNames(shot: RouteShot, snapped: { u: number }[], width: number, n: number, order: number[] = snapped.map((_, i) => i), walked = false): number[] {
+function shotNames(shot: RouteShot, snapped: { u: number }[], width: number, n: number): number[] {
   const out = snapped.map(() => -1);
-  const mod = (k: number) => ((k % n) + n) % n;
   if (snapped.length === 0) return out;
   if (shot.kind === "corner") {
     let k = 0;
     snapped.forEach((t, i) => {
       if (Math.abs(t.u - width / 2) < Math.abs((snapped[k] as { u: number }).u - width / 2)) k = i;
     });
-    out[k] = mod(shot.index);
-    if (walked && k > 0) out[k - 1] = mod(shot.index - 1);
-    if (walked && k < snapped.length - 1) out[k + 1] = mod(shot.index + 1);
-    return out;
-  }
-  if (shot.kind === "inside") {
-    const byTap = snapped.map((_, i) => i).sort((p, q) => (order[p] as number) - (order[q] as number));
-    out[byTap[0] as number] = mod(shot.index);
-    if (byTap.length > 1) out[byTap[1] as number] = mod(shot.wall === "before" ? shot.index - 1 : shot.index + 1);
+    out[k] = ((shot.index % n) + n) % n;
     return out;
   }
   if (snapped.length < 2) return out;
-  if (shot.kind === "run") {
-    const len = mod(shot.to - shot.index) + 1;
-    if (snapped.length === len) return snapped.map((_, i) => mod(shot.index + i));
-    out[0] = mod(shot.index);
-    out[snapped.length - 1] = mod(shot.to);
-    return out;
-  }
-  out[0] = mod(shot.index);
-  out[snapped.length - 1] = mod(shot.index + 1);
-  return out;
-}
-
-/**
- * The numbers a photo's shot gives its taps, in the order they were tapped, before any measure (2026-10-21): what the pane
- * shows on a photo of the walk as each corner is tapped. Left to right by where each was tapped; -1 for one it doesn't name.
- */
-export function shotNumbers(shot: RouteShot, taps: { x: number }[], width: number, n: number, walked = false): number[] {
-  const order = taps.map((_, i) => i).sort((p, q) => (taps[p] as { x: number }).x - (taps[q] as { x: number }).x);
-  const names = shotNames(shot, order.map((i) => ({ u: (taps[i] as { x: number }).x })), width, n, order, walked);
-  const out = taps.map(() => -1);
-  order.forEach((i, k) => (out[i] = names[k] as number));
+  out[0] = ((shot.index % n) + n) % n;
+  out[snapped.length - 1] = (shot.index + 1) % n;
   return out;
 }
 
@@ -721,16 +644,6 @@ const LENS_K_SD = 0.015;
 const YAW_SD_DEG = 1;
 /** A tape's sd, feet: a quarter inch, as the proof's 0.02 ft. */
 const TAPE_SD_FEET = 0.02;
-/**
- * How loosely a side is held to the shape the walk round the house made (2026-10-21, `RouteBuilding.outlineFrom`), one sd
- * as a fraction of its length there: the lap knows the turns, not the sizes - a step to a notch is taken 8' whether it is
- * 2' or 25'. Held at the drawn shape's 35%, a walk of the owner's house (made up from its true shape, every photo the
- * walk asks for, the corners tapped as it asks; test:exterior) came out 15-16% off on average; at 2x, 1.6% (1.9% with the
- * taps 1.5 px off). His own 10-16 photos with the lap's shape in place of the one he drew - not taken as a walk, six of
- * them showing one corner - still need the drawn shape: the porch and bump-out came within 2-5%, the depth 15-20% short.
- */
-export const WALK_HOLD = 2;
-
 /** A size estimated on site, one sd: half its ±, as the route's own ± is two sd; never under 3". */
 const estimateSd = (e: RouteEstimate): number => Math.max(0.25, (e.feet * Math.max(1, e.plusMinusPct || ESTIMATE_PLUS_MINUS_PCT)) / 200);
 
@@ -776,8 +689,6 @@ export interface SolveRouteOptions {
   skipTap?: (t: CornerTap) => boolean;
   /** Work out the best places of the photos still waiting for where the user stood (on by default; the measure's first, rough solve skips it). */
   guesses?: boolean;
-  /** How loosely each side is held to the shape drawn, one sd as a fraction of its drawn length: 0.35, or `WALK_HOLD` for the walk's shape. */
-  holdPct?: number;
 }
 
 /**
@@ -924,13 +835,12 @@ export function solveRoute(input: PhotoRouteInput, buildingId: string, data: Rou
   };
 
   /**
-   * Each side held, loosely, to its length as drawn (35%; the walk's shape, its sizes rough, at `WALK_HOLD`): what the photos say outweighs it a hundred to
+   * Each side held, loosely, to its length as drawn (35%): what the photos say outweighs it a hundred to
    * one wherever they say anything, but where they say little - a wall no photo faced, or the house's
    * depth before the wall edges are tied - the solve stays near the shape the user knows, rather than
    * folding up. With no tape at all it is also the only size the house has (said: `unscaled`). A side estimated
    * on site is held to that instead: said at the house, it knows better than a shape drawn on a phone.
    */
-  const hold = opts.holdPct ?? (isWalkShape(b) ? WALK_HOLD : 0.35);
   const scaleHold = (inp: ReturnType<typeof build>): ReturnType<typeof build>["input"] => {
     const drawn: SolveDistance[] = [];
     for (let i = 0; i < n; i++) {
@@ -938,7 +848,7 @@ export function solveRoute(input: PhotoRouteInput, buildingId: string, data: Rou
       const prev = walls[(i - 1 + n) % n] as SolveWall;
       const next = walls[(i + 1) % n] as SolveWall;
       const feet = segLen(b.outline[i] as Pt, b.outline[(i + 1) % n] as Pt);
-      drawn.push({ id: `drawn:${i}`, a: `wall:${prev.id}`, b: `wall:${next.id}`, axis: prev.axis, feet, sdFeet: Math.max(1, feet * hold) });
+      drawn.push({ id: `drawn:${i}`, a: `wall:${prev.id}`, b: `wall:${next.id}`, axis: prev.axis, feet, sdFeet: Math.max(1, feet * 0.35) });
     }
     return { ...inp.input, distances: [...inp.input.distances, ...drawn] };
   };

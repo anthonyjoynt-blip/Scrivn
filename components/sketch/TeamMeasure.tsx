@@ -192,7 +192,7 @@ export function TeamMeasureStatus({ exterior, building, readOnly, apply, onUsed 
  * "Send to Scrivn team to measure", beside Measure on the photo route. With one already with us for this building,
  * the line saying so instead.
  */
-export function SendToTeam({ exterior, readOnly, apply, primary = false }: { exterior: Exterior; readOnly: boolean; apply: ApplyTeam; /** The main way on (the end of the walk round the house). */ primary?: boolean }) {
+export function SendToTeam({ exterior, readOnly, apply }: { exterior: Exterior; readOnly: boolean; apply: ApplyTeam }) {
   const access = useExteriorPhotos();
   const { name, the } = useExteriorSubject();
   const building = buildingKeyOf(exterior);
@@ -205,7 +205,7 @@ export function SendToTeam({ exterior, readOnly, apply, primary = false }: { ext
   const photoIds = (exterior.photoRoute?.photos ?? []).map((p) => p.id);
   if (!open) {
     return (
-      <button type="button" className={primary ? "btn-primary" : "btn-secondary"} disabled={photoIds.length === 0} title={photoIds.length === 0 ? "Add the photos first" : undefined} onClick={() => setOpen(true)}>
+      <button type="button" className="btn-secondary" disabled={photoIds.length === 0} title={photoIds.length === 0 ? "Add the photos first" : undefined} onClick={() => setOpen(true)}>
         Send to Scrivn team to measure
       </button>
     );

@@ -40,7 +40,7 @@ export function measuredFrom(sol: RouteSolution, data: RoutePhotoData[], at: str
   return {
     at,
     building: sol.building,
-    focalOverWidth: anyCam ? anyCam.f / Math.max(anyCam.width, anyCam.height) : 0,
+    focalOverWidth: anyCam ? anyCam.f / anyCam.width : 0,
     k: sol.solution.k,
     rms: sol.rms,
     corners: sol.corners.map((p) => ({ x: p.x, y: p.y })),
