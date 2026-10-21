@@ -192,7 +192,7 @@ const jpeg = (n) => Buffer.from([0xff, 0xd8, 0xff, 0xe0, n, n, n]);
   stored.set(`claim-photos/${acme}/${claim2}/${P[1]}.jpg`, jpeg(2));
   const R3 = randomUUID();
   as(owen, "owen@acme.test");
-  await post(claim2, { id: R3, building: "house", photoIds: P, route: { ...route1(P), buildings: [{ id: "main", outline: [], corners: [], tapes: [{ id: "g", kind: "line", photo: P[1], a: [1, 2], b: [3, 4], feet: 9, what: "garage" }] }] }, note: "Hose on the right" });
+  await post(claim2, { id: R3, building: "house", photoIds: P, route: { ...route1(P), buildings: [{ id: "main", outline: [], corners: [], tapes: [{ id: "g", kind: "line", photo: P[1], a: [1, 2], b: [3, 4], feet: 9, what: "garage" }] }], walk: { stops: [{ kind: "front", photos: [P[0]], measure: "done", measures: [{ id: "walk-w1", what: "window", feet: 5.9, photo: P[0], near: [500, 600] }, { id: "g", what: "garage", feet: 9, photo: P[1] }] }, { kind: "corner", photos: [P[1]] }, { kind: "side", photos: [], skipped: ["photo"], measure: "done", measures: [{ id: "walk-s1", what: "wall", feet: 68.5 }] }] } }, note: "Hose on the right" });
 
   const lines = await listWaiting(service);
   check(lines.length === 1 && lines[0].startsWith(R3.slice(0, 8)) && /sent/.test(lines[0]) && /owen@acme\.test/.test(lines[0]) && /Hose on the right/.test(lines[0]), `the list says what waits: ${lines[0]}`);
@@ -204,6 +204,9 @@ const jpeg = (n) => Buffer.from([0xff, 0xd8, 0xff, 0xe0, n, n, n]);
   check(readdirSync(folder).sort().join(",") === "20261016_125000.jpg,20261016_125001.jpg,request.json", `named as the phone names them, when they were taken (${readdirSync(folder).join(", ")})`);
   check(readFileSync(join(folder, "20261016_125001.jpg")).equals(jpeg(2)), "at the size Scrivn keeps them, byte for byte");
   check(doc.request.note === "Hose on the right" && doc.request.sentBy === "owen@acme.test" && doc.route.buildings[0].tapes.length === 1 && doc.tapes[0].onPhoto === "20261016_125001.jpg" && doc.tapes[0].feet === 9, "request.json: the note, who sent it, the route's inputs, the tapes by photo file");
+  // Typed on the walk (10-21): what and how long, its photo and the rough tap - ours to place; the one already a tape not twice.
+  const typed = doc.tapes.filter((t) => t.typed);
+  check(typed.length === 2 && typed[0].what === "window" && typed[0].onPhoto === "20261016_125000.jpg" && typed[0].near.join() === "500,600" && typed[1].what === "wall" && typed[1].feet === 68.5 && !("onPhoto" in typed[1]), `request.json: the measurements typed on the walk, to place (${JSON.stringify(typed)})`);
   check((await rowOf(R3)).status === "measuring" && (await rowOf(R3)).measuring_at !== null, "and the request is marked measuring");
   check(!JSON.stringify(doc).includes("Owner house"), "nothing of the claim but its exterior photos comes with it (not the customer's name)");
   check((await listWaiting(service))[0].includes("measuring"), "the list shows it being measured");

@@ -116,6 +116,33 @@ export async function listWaiting(db) {
 }
 
 /**
+ * A photo's place on the walk round the house (2026-10-21, lib/photoRouteWalk.ts `WalkTag`), as the tester was asked for
+ * it: "the front", "corner 3 at 45°", "side 2 straight on", "the wall before inside corner 4". Corner k is the shape's
+ * corner k as the plan numbers them; side k runs from corner k to the next; the front from the last corner to corner 1.
+ */
+export function walkWords(tag) {
+  if (!tag || typeof tag !== "object") return null;
+  if (tag.role === "front") return "the front";
+  if (tag.role === "side") return `side ${tag.k} straight on (corner ${tag.k} to the next)`;
+  if (tag.role === "corner" && tag.corner === "joined") return `${tag.wall === "after" ? "the wall on from" : "the wall walked up to"} corner ${tag.k}, at an angle from where the home meets the neighbour's there`;
+  if (tag.role === "corner") return tag.corner === "inside" ? `the wall before inside corner ${tag.k}` : `corner ${tag.k} at 45°`;
+  return null;
+}
+
+/**
+ * The measurements typed on the walk (2026-10-21, lib/photoRouteWalk.ts WalkMeasure) that are no tape of the route yet:
+ * what, how long, the photo it is on and maybe one rough tap on it - ours to place exactly.
+ */
+export function typedMeasures(route, fileOf = new Map()) {
+  const taped = new Set((route?.buildings ?? []).flatMap((b) => (b.tapes ?? []).map((t) => t.id)));
+  return (route?.walk?.stops ?? []).flatMap((s) =>
+    (s.measures ?? [])
+      .filter((m) => !taped.has(m.id))
+      .map((m) => ({ building: "main", what: m.what, feet: m.feet, typed: true, ...(m.photo ? { onPhoto: fileOf.get(m.photo) ?? m.photo } : {}), ...(Array.isArray(m.near) ? { near: m.near } : {}) })),
+  );
+}
+
+/**
  * One request pulled to dir/<id>/: its photos at the size Scrivn keeps them, named as the phone names a photo
  * (as C:/Users/Anthony/Desktop/House Photos is), and request.json with the route's inputs, the tapes and the note.
  * Marked measuring, unless it is past that. A photo Scrivn does not have yet is said, not fatal: pull again later.
@@ -148,12 +175,13 @@ export async function pullRequest(db, prefix, { dir = join(ROOT, FOLDER), now = 
     used.add(name);
     const file = `${name}.jpg`;
     writeFileSync(join(folder, file), Buffer.from(await blob.arrayBuffer()));
-    photos.push({ n: photos.length + 1, file, id, width: rec?.width ?? routePhotos.get(id)?.width ?? null, height: rec?.height ?? routePhotos.get(id)?.height ?? null, takenAt: taken ? new Date(taken).toISOString() : null });
+    const walked = walkWords(routePhotos.get(id)?.walk);
+    photos.push({ n: photos.length + 1, file, id, width: rec?.width ?? routePhotos.get(id)?.width ?? null, height: rec?.height ?? routePhotos.get(id)?.height ?? null, takenAt: taken ? new Date(taken).toISOString() : null, ...(walked ? { walk: walked } : {}) });
   }
   const fileOf = new Map(photos.map((p) => [p.id, p.file]));
   const tapes = (row.route?.buildings ?? []).flatMap((b) =>
     (b.tapes ?? []).map((t) => (t.kind === "line" ? { building: b.id, what: t.what, feet: t.feet, onPhoto: fileOf.get(t.photo) ?? t.photo, a: t.a, b: t.b } : { building: b.id, what: "side", feet: t.feet, fromCorner: t.from + 1 })),
-  );
+  ).concat(typedMeasures(row.route, fileOf));
   const sentBy = await emailOf(db, row.user_id);
   const doc = {
     format: REQUEST_FORMAT,
