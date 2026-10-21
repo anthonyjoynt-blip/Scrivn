@@ -110,8 +110,11 @@ export type RouteTape =
 
 /**
  * A side's length as someone at the house judged it by eye (2026-10-21): "the bump-out sticks out about 6'", "the back
- * wall is about 15'". Never a tape: the side is held to it loosely, its ± read as the route reads its own (about two sd),
- * and still worked out from the photos and marked to check.
+ * wall is about 15'". Never a tape. By default it only checks the measure (`use` "check"): the solve is left as the
+ * photos and tapes make it, and a side the measure puts further from what was said than its ± is said to disagree, with
+ * a tape asked for. Held ("hold"), the side is held to it loosely instead, its ± read as the route reads its own (about
+ * two sd), and still worked out from the photos and marked to check. Blind run E and the owner's own house (10-21) showed
+ * why "check" is the default: held, a guess fixed a side the photos had 100% out, but dragged one they had right 15%.
  */
 export interface RouteEstimate {
   id: string;
@@ -120,10 +123,27 @@ export interface RouteEstimate {
   feet: number;
   /** How far it may be out, ± percent: 20 when the person said nothing. */
   plusMinusPct: number;
+  /** "check" (the default): compared with the measure, which it never moves; "hold": held in the solve, loosely. */
+  use?: "check" | "hold";
 }
 
 /** A rough size's ± when none was said: someone standing at the house gets a wall within about a fifth by eye. */
 export const ESTIMATE_PLUS_MINUS_PCT = 20;
+
+/** A side's length against what was estimated on site: how far off, and whether past the estimate's ±. */
+export function checkEstimate(lengthFeet: number, e: Pick<RouteEstimate, "feet" | "plusMinusPct">): EstimateCheck {
+  const pm = e.plusMinusPct > 0 ? e.plusMinusPct : ESTIMATE_PLUS_MINUS_PCT;
+  const off = (lengthFeet / e.feet - 1) * 100;
+  return { feet: e.feet, plusMinusPct: pm, offPct: Math.round(off * 10) / 10, disagrees: Math.abs(off) > pm };
+}
+
+/**
+ * A measure and a size estimated on site that disagree, in words, from "estimated": "estimated on site at about 7', but
+ * the photos make it 12'0": 71% longer, more than the estimate's ±20%. Tape it to see which is right."
+ */
+export function estimateDisagreement(lengthFeet: number, c: EstimateCheck): string {
+  return `estimated on site at about ${formatFeetInches(c.feet)}, but the photos make it ${formatFeetInches(lengthFeet)}: ${Math.round(Math.abs(c.offPct))}% ${c.offPct > 0 ? "longer" : "shorter"}, more than the estimate's ±${c.plusMinusPct}%. Tape it to see which is right.`;
+}
 
 export interface RouteBuilding {
   id: string;
@@ -200,8 +220,24 @@ export interface RouteSide {
   taped: boolean;
   /** How many photos saw it face-on enough to measure along it. */
   photos: number;
-  /** Estimated on site (`RouteEstimate`), untaped: what was said, which held it loosely. Its length and ± are still the measure's. */
+  /** Estimated on site and held (`RouteEstimate` use "hold"), untaped: what was said, which held it loosely. Its length and ± are still the measure's. */
   estimated?: { feet: number; plusMinusPct: number };
+  /**
+   * Estimated on site to check the measure by (`RouteEstimate` use "check", the default), untaped: what was said, how
+   * far the measure is off it (percent of what was said), and whether that is past its ±. Disagreeing, one of the two
+   * is wrong and a tape on the side settles which. The length and ± are the measure's, unmoved.
+   */
+  estimateCheck?: EstimateCheck;
+}
+
+/** A side's measure against a size estimated on site (`RouteSide.estimateCheck`). */
+export interface EstimateCheck {
+  feet: number;
+  plusMinusPct: number;
+  /** The measure off what was said, percent of what was said: + longer. */
+  offPct: number;
+  /** Off by more than the estimate's ±. */
+  disagrees: boolean;
 }
 
 export interface RouteCamera {
@@ -646,7 +682,7 @@ export interface SolveRouteOptions {
   wallEdges?: boolean;
   /** Leave these tapes out (for the hold-out tests). */
   withoutTapes?: string[];
-  /** Leave the sizes estimated on site out (to show what they changed). */
+  /** Leave the sizes estimated on site out, held or checked (to show what they changed). */
   withoutEstimates?: boolean;
   /** For the tests: no wall edges tied on these sides, and these corner taps left out. */
   skipSides?: number[];
@@ -666,9 +702,17 @@ export function solveRoute(input: PhotoRouteInput, buildingId: string, data: Rou
   const n = b.outline.length;
   const byId = new Map(data.map((d) => [d.id, d]));
   const tapes = b.tapes.filter((t) => !(opts.withoutTapes ?? []).includes(t.id));
-  // One estimate a side (the last said), on a side no tape measures.
+  // One estimate a side (the last said), on a side no tape measures: held in the solve, or (the default) only checked against it.
   const estimates = new Map<number, RouteEstimate>();
-  if (!opts.withoutEstimates) for (const e of b.estimates ?? []) if (e.from >= 0 && e.from < n && e.feet > 0 && !tapes.some((t) => t.kind === "side" && t.from === e.from)) estimates.set(e.from, e);
+  const checks = new Map<number, RouteEstimate>();
+  if (!opts.withoutEstimates) {
+    for (const e of b.estimates ?? []) {
+      if (!(e.from >= 0 && e.from < n && e.feet > 0) || tapes.some((t) => t.kind === "side" && t.from === e.from)) continue;
+      estimates.delete(e.from);
+      checks.delete(e.from);
+      (e.use === "hold" ? estimates : checks).set(e.from, e);
+    }
+  }
   const unplaced: { photo: string; why: string }[] = [];
 
   // 1. Every corner tap snapped onto its edge: a bearing, and its row in the level image.
@@ -981,7 +1025,17 @@ export function solveRoute(input: PhotoRouteInput, buildingId: string, data: Rou
     // The proof's ± ran about twice the formal sd (its variants' spread); never under 2%.
     const pct = taped ? null : Math.max(2, Math.round(((2 * sd) / Math.max(L, 0.1)) * 100));
     const said = estimates.get(i);
-    sides.push({ from: i, lengthFeet: L, plusMinusPct: pct, sdFeet: sd, taped, photos: sideObs.get(i)?.size ?? 0, ...(said ? { estimated: { feet: said.feet, plusMinusPct: said.plusMinusPct } } : {}) });
+    const toCheck = taped ? undefined : checks.get(i);
+    sides.push({
+      from: i,
+      lengthFeet: L,
+      plusMinusPct: pct,
+      sdFeet: sd,
+      taped,
+      photos: sideObs.get(i)?.size ?? 0,
+      ...(said ? { estimated: { feet: said.feet, plusMinusPct: said.plusMinusPct } } : {}),
+      ...(toCheck ? { estimateCheck: checkEstimate(L, toCheck) } : {}),
+    });
   }
   const cameras: RouteCamera[] = [...cams].filter(([id]) => sol.input.cameras.some((c) => c.id === id)).map(([id, c]) => ({
     photo: id,
@@ -1590,8 +1644,8 @@ export const planMapping = sketchToSolved;
 export const placeSteps = { placeByEdges, tiedPoints };
 
 /**
- * Which sides want a tape, and why, in plain words: any whose ± is over 5%. Advice only: nothing waits
- * on it.
+ * Which sides want a tape, and why, in plain words: any whose ± is over 5%, and any whose measure disagrees with what
+ * was estimated on site. Advice only: nothing waits on it.
  */
 function tapeAdvice(sides: RouteSide[], ring: Pt[], cameras: RouteCamera[], taps: SnappedTap[], points: { side: number; obs: EdgeObs[] }[], shared: Set<number> = new Set()): { from: number; why: string }[] {
   const n = ring.length;
@@ -1637,6 +1691,14 @@ function tapeAdvice(sides: RouteSide[], ring: Pt[], cameras: RouteCamera[], taps
     else why = "the photos round it do not hold it to better than that";
     const said = s.estimated ? ` Estimated on site at about ${formatFeetInches(s.estimated.feet)}, which holds it only loosely.` : "";
     out.push({ from: i, why: `±${s.plusMinusPct}%: ${why}.${said} A tape along it fixes it.` });
+  }
+  // A measure and the size estimated on site that disagree: one of them is wrong, whatever the measure's ±.
+  for (const s of sides) {
+    if (s.taped || !s.estimateCheck?.disagrees) continue;
+    const words = estimateDisagreement(s.lengthFeet, s.estimateCheck);
+    const had = out.find((a) => a.from === s.from);
+    if (had) had.why = `${had.why} It was ${words}`;
+    else out.push({ from: s.from, why: `±${s.plusMinusPct}%: it was ${words}` });
   }
   return out;
 }

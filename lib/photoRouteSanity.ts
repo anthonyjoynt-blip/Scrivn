@@ -9,17 +9,19 @@
  *   * a camera solved where nobody could have stood: inside the house, under the ground or high in the air, in the
  *     neighbour's home, or seeing a corner through a wall;
  *   * an outline that won't close square: a side solved to nothing, or the wrong way round from the shape drawn;
- *   * the depth only as drawn: no tape and too few photos tying the back of the house to its front.
+ *   * the depth only as drawn: no tape and too few photos tying the back of the house to its front;
+ *   * a side the measure puts further from what was estimated on site than the estimate's ± (2026-10-21, `RouteEstimate`
+ *     use "check"): one of the two is wrong, and a tape settles which.
  *
  * From the exterior alone (the route's measure kept on it), so the app and the test-house runner say the same.
  */
 
 import { type Exterior, type ExteriorOpeningKind, type ExteriorSide, OPENING_LABEL } from "./exterior";
-import { castRayToSides, inNeighbour, PHOTO_ROUTE_FORMAT } from "./photoRoute";
+import { castRayToSides, estimateDisagreement, inNeighbour, PHOTO_ROUTE_FORMAT } from "./photoRoute";
 import type { Pt } from "./roof";
 import { formatFeetInches } from "./sketch";
 
-export type SanityKind = "eaves" | "opening" | "camera" | "outline" | "depth";
+export type SanityKind = "eaves" | "opening" | "camera" | "outline" | "depth" | "estimate";
 
 export interface SanityFlag {
   key: string;
@@ -190,6 +192,12 @@ export function routeSanity(exterior: Exterior): SanityFlag[] {
       side: longest.from,
       words: `The house's depth is only good to ±${longest.plusMinusPct}% (${wallWords(longest.from)}, ${formatFeetInches(longest.lengthFeet)}): too little ties its back to its front. One tape of that side wall, front corner to back corner, measures it; or tap its far corners on the photos that show them.`,
     });
+  }
+
+  // Sizes estimated on site that the measure disagrees with: the measure is not moved, a tape is asked for.
+  for (const s of m.sides) {
+    if (s.taped || shared.has(s.from) || !s.estimateCheck?.disagrees) continue;
+    flags.push({ key: `estimate:${s.from}`, kind: "estimate", side: s.from, words: `${cap(wallWords(s.from))} was ${estimateDisagreement(s.lengthFeet, s.estimateCheck)}` });
   }
   return flags;
 }
