@@ -31,6 +31,7 @@ async function load() {
       `export * from "${p("lib", "sketchQuantities.ts")}";`,
       `export * from "${p("lib", "sketch3d.ts")}";`,
       `export * from "${p("lib", "scopeMarks.ts")}";`,
+      `export { pullRoomFromWall } from "${p("lib", "roomPlacement.ts")}";`,
     ].join("\n"),
   );
   const outfile = join(outDir, "sketch.mjs");
@@ -121,27 +122,38 @@ export async function runEsxItemChecks() {
     near(q({ rooms: [r] }, r).wallArea, 44 * 8 - 7, "W keeps the wall under it", 1e-9);
   });
 
-  test("a half-round top takes out the half circle, not the square round it", () => {
-    const pass = door("p", "a-v0", 0.5, 2, { doorType: "opening", sillFeet: 3 + 2 / 12, topShape: "round" });
+  test("a round arch takes out the half circle, not the square round it", () => {
+    const pass = door("p", "a-v0", 0.5, 2, { doorType: "opening", sillFeet: 3 + 2 / 12, topShape: "round-arch" });
     // Up to the spring (6'8" less 1') is 2 x 2.5 = 5; the half circle of radius 1 is pi/2.
     near(s.openingSquareFeet(room("a", 0, 0, 12, 10, { symbols: [pass] })), 5 + Math.PI / 2, "rectangle plus half circle");
     near(s.openingSpringFeet(pass, 2), 5 + 8 / 12, "it springs half its width below the top");
   });
 
-  test("an arch's segment is less than a half round and more than nothing", () => {
-    const arch = door("p", "a-v0", 0.5, 3, { doorType: "opening", topShape: "arch", springFeet: 6 + 2 / 12 });
+  test("a flat arch's segment is less than a round arch and more than nothing", () => {
+    const arch = door("p", "a-v0", 0.5, 3, { doorType: "opening", topShape: "flat-arch", springFeet: 6 + 2 / 12 });
     const face = s.openingSquareFeet(room("a", 0, 0, 12, 10, { symbols: [arch] }));
     const square = 3 * (6 + 8 / 12);
     const below = 3 * (6 + 2 / 12);
     // A 3' chord with a 6" rise: r = 2.5', the segment about 1.02 SF.
     near(face - below, 1.0217, "the segment over the spring line", 0.002);
     assert(face < square && face > below, "between the spring and the square top");
+    near(s.openingSpringFeet({ ...arch, springFeet: null }, 3), 6 + 8 / 12 - 0.5, "unsaid, a flat arch rises a sixth of its width");
   });
 
-  test("a window's shaped top counts from its sill up its height", () => {
-    const w = windowAt("w", "a-v1", 0.5, 3, { heightFeet: 5, sillFeet: 2, topShape: "round" });
-    // 3 x (5 - 1.5) + pi * 3 * 1.5 / 4.
-    near(s.openingSquareFeet(room("a", 0, 0, 12, 10, { symbols: [w] })), 3 * 3.5 + (Math.PI * 3 * 1.5) / 4, "rectangle plus half circle");
+  test("arches are openings' alone: a door or a window with one stored is square", () => {
+    const swing = door("d", "a-v0", 0.5, 3, { topShape: "round-arch" });
+    near(s.openingSquareFeet(room("a", 0, 0, 12, 10, { symbols: [swing] })), 3 * (6 + 8 / 12), "the door, width by height");
+    const win = windowAt("w", "a-v1", 0.5, 3, { topShape: "round-arch" });
+    near(s.openingSquareFeet(room("a", 0, 0, 12, 10, { symbols: [win] })), 12, "the window, width by height");
+    const out = s.sketchOutput({ rooms: [room("a", 0, 0, 12, 10, { symbols: [swing, win] })] })[0].symbols;
+    assert(!("topShape" in out[0]) && !("topShape" in out[1]), JSON.stringify(out));
+  });
+
+  test("the day-old names read across: arch is a flat arch, round a round arch, flat square", () => {
+    const at = (topShape) => s.openingTop(door("p", "a-v0", 0.5, 2, { doorType: "opening", topShape }));
+    assert(at("arch") === "flat-arch" && at("round") === "round-arch" && at("flat") === "square" && at(undefined) === "square", "mapped");
+    const old = door("p", "a-v0", 0.5, 2, { doorType: "opening", topShape: "round" });
+    assert(s.sketchOutput({ rooms: [room("a", 0, 0, 12, 10, { symbols: [old] })] })[0].symbols[0].topShape === "round-arch", "and saved out under its new name");
   });
 
   test("the 3D wall stands under a pass-through's sill", () => {
@@ -223,17 +235,17 @@ export async function runEsxItemChecks() {
 
   test("a pass-through and a half wall are said in the summary", () => {
     const r = s.withWallDetail(
-      room("a", 0, 0, 12, 10, { symbols: [door("p", "a-v0", 0.5, 2, { doorType: "opening", sillFeet: 3 + 2 / 12, topShape: "arch" })] }),
+      room("a", 0, 0, 12, 10, { symbols: [door("p", "a-v0", 0.5, 2, { doorType: "opening", sillFeet: 3 + 2 / 12, topShape: "flat-arch" })] }),
       "a-v2",
       { heightFeet: 3, cap: "wood" },
     );
     const text = s.sketchSummaryText({ rooms: [r] });
-    assert(/Pass-through \(no door\).*sill 3'2", arch top/.test(text), text);
+    assert(/Pass-through \(no door\).*sill 3'2", flat arch from 6'4"/.test(text), text);
     assert(/Wall 3 — 12', half wall 3' high, wood cap/.test(text), text);
   });
 
   test("everything new survives a save and a load", () => {
-    const r = s.withWallDetail(room("a", 0, 0, 12, 10, { symbols: [door("p", "a-v0", 0.5, 2, { doorType: "opening", sillFeet: 3, topShape: "round", springFeet: 5.5 })] }), "a-v1", { heightFeet: 3 });
+    const r = s.withWallDetail(room("a", 0, 0, 12, 10, { symbols: [door("p", "a-v0", 0.5, 2, { doorType: "opening", sillFeet: 3, topShape: "round-arch", springFeet: 5.5 })] }), "a-v1", { heightFeet: 3 });
     const back = JSON.parse(JSON.stringify({ rooms: [r] }));
     near(q(back, back.rooms[0]).wallArea, q({ rooms: [r] }, r).wallArea, "the same wall area", 1e-9);
   });
@@ -397,36 +409,96 @@ export async function runEsxItemChecks() {
     assert(s.roomDetailLines(d).some((l) => /Ceiling, Suspended \(T-bar\) 80.0 SF/.test(l)), JSON.stringify(s.roomDetailLines(d)));
   });
 
-  /* ── beams and fireplaces ─────────────────────────────────────────────────────────────────────── */
+  /* ── beams: a header over a missing wall, or a ceiling area ───────────────────────────────────── */
+  /*
+    The owner, 10-21: "the beam here is better off being drawn as a missing wall, so its just the top
+    of the opening. so opening height would change. if its wide enough itd become a small subroom
+    with a different ceiling height. thats how id draw it in xactimate myself."
+  */
+
+  // Two rooms a partition apart: the left's right wall (l-v1) faces the right's left wall (r-v3).
+  const pair = (left = {}, right = {}) => [room("l", 0, 0, 12, 10, left), room("r", 12 + 4 / 12, 0, 10, 10, right)];
+
+  test("a missing wall with no opening height is what it always was", () => {
+    const [l, r] = pair({ missingWalls: ["l-v1"] });
+    const before = q({ rooms: [l, r] }, l);
+    near(before.details.headerFeet, 0, "no header");
+    near(before.wallArea, 34 * 8, "three walls of wall");
+    near(before.perimeterCeiling, 34, "and their ceiling line");
+  });
+
+  test("a beam over a missing wall: the strip above the opening is wall on both faces", () => {
+    const [l0, r] = pair({ missingWalls: ["l-v1"] });
+    const l = s.withWallDetail(l0, "l-v1", { openingHeightFeet: 7 });
+    const ql = q({ rooms: [l, r] }, l);
+    const qr = q({ rooms: [l, r] }, r);
+    near(ql.details.headerFeet, 10, "10 LF of header");
+    near(ql.details.headerSquareFeet, 10, "10' x 1' on its own face");
+    near(ql.wallArea, 34 * 8 + 10, "in W");
+    near(ql.perimeterCeiling, 34 + 10, "it meets the ceiling");
+    near(ql.perimeterFloor, 34, "and has no base");
+    near(qr.details.headerSquareFeet, 10, "the room across counts its own face, set from the other side");
+    assert(s.missingWallHeaders(r, "r-v3", [l, r])[0]?.openingHeightFeet === 7, "one opening, seen from both rooms");
+  });
+
+  test("one missing wall has one opening: it is held by the wall that was made missing", () => {
+    const [l, r] = pair({ missingWalls: ["l-v1"] });
+    const fromRight = s.missingWallMarker(r, "r-v3", [l, r]);
+    assert(fromRight?.roomId === "l" && fromRight.wallId === "l-v1", `from the other side it is the left room's (${JSON.stringify(fromRight)})`);
+    assert(s.missingWallMarker(l, "l-v1", [l, r])?.roomId === "l", "and from its own side");
+    assert(s.missingWallMarker(l, "l-v0", [l, r]) === null, "a standing wall has none");
+  });
+
+  test("under a header the step between two ceilings is not counted twice", () => {
+    const [l0, r] = pair({ missingWalls: ["l-v1"], ceilingHeightFeet: 9 }, { ceilingHeightFeet: 8 });
+    const stepOnly = q({ rooms: [l0, r] }, l0);
+    near(stepOnly.ceilingSteps.faceSquareFeet, 10, "without a header: the 1' step, in the higher room");
+    const l = s.withWallDetail(l0, "l-v1", { openingHeightFeet: 7 });
+    const ql = q({ rooms: [l, r] }, l);
+    const qr = q({ rooms: [l, r] }, r);
+    near(ql.ceilingSteps.faceSquareFeet, 0, "the step is part of the header now");
+    near(ql.details.headerSquareFeet, 20, "the higher room's face: 9' down to 7'");
+    near(qr.details.headerSquareFeet, 10, "the lower room's: 8' down to 7'");
+  });
+
+  test("a header is drawn in 3D from the opening up to the higher ceiling, once", () => {
+    const [l0, r] = pair({ missingWalls: ["l-v1"] });
+    const l = s.withWallDetail(l0, "l-v1", { openingHeightFeet: 7 });
+    const beams = s.houseModel({ rooms: [l, r] }).prisms.filter((pr) => pr.kind === "wall" && Math.abs(pr.y0 - 7) < 1e-6);
+    assert(beams.length === 1 && Math.abs(beams[0].y1 - 8) < 1e-6, `one header 7' to 8' (${JSON.stringify(beams.map((b) => [b.y0, b.y1]))})`);
+  });
+
+  test("a header is said in the output and the summary", () => {
+    const [l0, r] = pair({ missingWalls: ["l-v1"] });
+    const l = s.withWallDetail(l0, "l-v1", { openingHeightFeet: 7 + 5 / 12 });
+    const wall = s.sketchOutput({ rooms: [l, r] })[0].walls[1];
+    assert(wall.header?.[0]?.openingHeightFeet === 7.42 && wall.header[0].feet === 10, JSON.stringify(wall));
+    assert(/Wall 2 — 10', missing wall, opening 7'5" high under a header/.test(s.sketchSummaryText({ rooms: [l, r] })), s.sketchSummaryText({ rooms: [l, r] }));
+    assert(s.roomDetailLines(q({ rooms: [l, r] }, l).details).some((line) => /^Header over an opening 10.0 LF, 5.8 SF of W$/.test(line)), "and in the Details");
+  });
+
+  test("a wide beam or a bulkhead is a ceiling area: pulled in off the wall, ticked, its ceiling lowered", () => {
+    const rec = room("rec", 0, 0, 20, 14);
+    // Pull room, dragged 2' in off the top wall: a strip along it, a sub-room of the rec room by where it lies.
+    const pulled = s.pullRoomFromWall(rec, "rec-v0", -24, { obstacles: [], rooms: [rec] });
+    assert(pulled, "the pull lands");
+    const rooms = s.withDerivedParents([rec, { ...pulled, name: "Bulkhead", ceilingZone: true, ceilingHeightFeet: 7 }]);
+    const zone = rooms[1];
+    assert(zone.parentRoomId === "rec" && s.isCeilingZone(zone, rooms), "a ceiling area of the rec room");
+    const qRec = s.roomQuantities(rooms[0], { rooms }, OPTIONS);
+    near(qRec.ceilingSteps.faceSquareFeet, 20 * 1, "its long face, 20' by the 1' step, is wall in the rec room");
+    const areas = s.roomAreasForEstimate({ rooms }, (n) => n.toLowerCase());
+    near(areas.rec.floorSquareFeet, 280, "and the estimate keeps the rec room's whole floor");
+    assert(!("bulkhead" in areas), "the bulkhead is not a room of its own in the estimate");
+  });
+
+  /* ── fireplaces ───────────────────────────────────────────────────────────────────────────────── */
 
   const block = (id, xFt, yFt, wFt, dFt, extra = {}) => ({ id, x: xFt * FT, y: yFt * FT, widthPx: wFt * FT, depthPx: dFt * FT, widthFeet: wFt, depthFeet: dFt, label: "", tier: "base", ...extra });
 
-  test("a beam takes nothing off the floor and is wrapped on its sides and underside", () => {
-    const beam = block("bm", 0, 6, 20, 1.1, { kind: "beam", beam: { type: "beam", dropFeet: 0.9 } });
-    const r = room("rec", 0, 0, 20, 14, { freeCabinets: [beam] });
-    const qd = s.roomQuantities(r, { rooms: [r] }, DEDUCT);
-    near(qd.deductions.floorSquareFeet + qd.deductions.perimeterFeet + qd.deductions.wallSquareFeet, 0, "nothing deducted");
-    near(qd.details.beamFeet, 20, "20 LF");
-    near(qd.details.beamSquareFeet, 20 * (1.1 + 2 * 0.9), "bottom and two sides");
-    const out = s.sketchOutput({ rooms: [r] })[0].freeCabinets[0];
-    assert(out.kind === "beam" && out.beam.dropFeet === 0.9 && out.label === "Beam", JSON.stringify(out));
-    const prism = s.houseModel({ rooms: [r] }).prisms.find((p) => p.kind === "cabinet");
-    near(prism.y0, 8 - 0.9, "it hangs from the ceiling in 3D");
-  });
-
-  test("a soffit along a wall is wrapped on one side only", () => {
-    const soffit = block("sf", 0, 0, 12, 1.5, { kind: "beam", beam: { type: "soffit", dropFeet: 1 } });
-    const r = room("k", 0, 0, 12, 10, { freeCabinets: [soffit] });
-    near(s.beamMeasure(soffit, r).squareFeet, 12 * (1.5 + 1), "underside and the room side");
-  });
-
-  test("a beam nobody measured the drop of has its run and no wrap", () => {
-    const beam = block("bm", 0, 6, 20, 1.1, { kind: "beam" });
-    const r = room("rec", 0, 0, 20, 14, { freeCabinets: [beam] });
-    const d = q({ rooms: [r] }, r).details;
-    near(d.beamFeet, 20, "20 LF");
-    near(d.beamSquareFeet, 0, "no SF");
-    assert(s.roomDetailLines(d).some((l) => /drop not measured/.test(l)), "and says so");
+  test("a block stored as a beam reads as a cabinet: a beam is a header or a ceiling area now", () => {
+    const old = block("bm", 0, 6, 20, 1.1, { kind: "beam", beam: { dropFeet: 0.9 } });
+    assert(s.blockKind(old) === "cabinet" && s.blockDefaultLabel(old) === "Island", "a cabinet");
   });
 
   test("a corner fireplace: its surround is the long face by its height, and it stands on the floor", () => {
@@ -470,11 +542,11 @@ export async function runEsxItemChecks() {
   test("the owner's house holds every item on the list", () => {
     const text = JSON.stringify(house);
     for (const field of [
-      '"sillFeet":3.1666', '"topShape":"round"', '"exterior":true', '"doorStyle":"full-lite"', '"lites":15', '"windowType":"casement"', '"units":3',
+      '"sillFeet":3.1666', '"topShape":"round-arch"', '"exterior":true', '"doorStyle":"full-lite"', '"lites":15', '"windowType":"casement"', '"units":3',
       '"heightFeet":3.1666', '"cap":"wood"', '"crown":true', '"plantLedgeFeet"', '"wainscot"', '"ledge"', '"unfinished":true',
       '"bottomFeet":3', '"doors":"glass"', '"doors":"open"', '"bay":"fridge"', '"bay":"wall-oven"', '"countertop"', '"waterfallEnds":1', '"overhangFeet":0.75',
       '"fixtureType":"hood"', '"hoodType":"custom"', '"fixtureType":"tubShower"', '"surround":"one-piece"', '"kind":"fireplace"', '"finish":"stone"',
-      '"kind":"beam"', '"dropFeet"', '"ceilingFinish":"suspended"', '"ceilingFinish":"open-joists"', '"fixtureType":"furnace"', '"fixtureType":"waterHeater"',
+      '"openingHeightFeet"', '"ceilingFinish":"suspended"', '"ceilingFinish":"open-joists"', '"fixtureType":"furnace"', '"fixtureType":"waterHeater"',
     ]) {
       assert(text.includes(field), `the sketch carries ${field}`);
     }
@@ -506,7 +578,9 @@ export async function runEsxItemChecks() {
   });
 
   test("the basement: the beam, the ledge, the tub/shower, the T-bar, the unfinished utility room, the office", () => {
-    near(detailsOf("Rec room").beamSquareFeet, 20 * (13 / 12 + 2 * (11 / 12)), "the beam's wrap, 20' long");
+    // The beam is the missing wall between the rec room and its play area, the opening 11" under the 8'4" ceiling.
+    near(detailsOf("Rec room").headerSquareFeet, 12 * (11 / 12), "the header's face in the rec room, 12' long");
+    near(detailsOf("Play area").headerSquareFeet, 12 * (11 / 12), "and in the play area");
     near(detailsOf("Rec room").countertopFeet, 8, "the bar top");
     near(detailsOf("Bedroom 2").ledgeTopSquareFeet, 10 * (4 / 12), "the foundation ledge's top");
     const bath = s.roomQuantities(byName("Bathroom"), house, DEDUCT);
@@ -536,7 +610,7 @@ export async function runEsxItemChecks() {
   test("a sketch saved before any of this loads to the same output and numbers", () => {
     // The golden house with every 2026-10-21 field taken off is a sketch from before: it must read as one.
     const NEW = ["sillFeet", "topShape", "springFeet", "exterior", "doorStyle", "lites", "windowType", "units", "grids", "wallDetails", "ceilingFinish", "unfinished",
-      "bottomFeet", "doors", "bay", "bayHeightFeet", "countertop", "surround", "hoodType", "fireplace", "kind", "beam"];
+      "bottomFeet", "doors", "bay", "bayHeightFeet", "countertop", "surround", "hoodType", "fireplace", "kind"];
     const strip = (v) => (Array.isArray(v) ? v.map(strip) : v && typeof v === "object" ? Object.fromEntries(Object.entries(v).filter(([k]) => !NEW.includes(k)).map(([k, x]) => [k, strip(x)])) : v);
     const old = strip(house);
     // Doors' sills were never stored before; windows always had one - put theirs back.

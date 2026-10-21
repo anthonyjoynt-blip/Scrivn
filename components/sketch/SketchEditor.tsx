@@ -38,6 +38,8 @@ import {
   roomAcross,
   withMissingWall,
   withWallDetail,
+  missingWallHeaders,
+  underHeader,
   blockKind,
   BLOCK_KIND_LABEL,
   closetBehindDoor,
@@ -2077,7 +2079,7 @@ export function SketchEditor({
             : tool === "pull"
               ? wallNotice ?? "Drag out from a wall to pull the next room off it, or in for a closet inside — same wall, same doors. A tap pulls a 12' room out."
             : tool === "island"
-              ? "Tap open floor inside the room to drop a free-standing cabinet - or a fireplace, or a beam overhead: say which in its panel."
+              ? "Tap open floor inside the room to drop a free-standing cabinet - or a fireplace: say which in its panel."
               : tool === "break"
                 ? "Tap a wall where you want a new corner, then drag that corner or either half of the wall to shape it."
                 : tool === "fixture"
@@ -2929,7 +2931,7 @@ export function SketchEditor({
             </>
           ) : selectedIsland ? (
             <>
-              {/* Named for what the block is (2026-10-21): an island, a fireplace, a beam. */}
+              {/* Named for what the block is (2026-10-21): an island or a fireplace. */}
               <h3 className="sketch-panel-title">{blockKind(selectedIsland) === "cabinet" ? "Island" : BLOCK_KIND_LABEL[blockKind(selectedIsland)]}</h3>
               <FreeCabinetPanel
                 room={selectedRoom}
@@ -3300,6 +3302,7 @@ export function SketchEditor({
                   wallId={tappedWall.wallId}
                   rooms={sketch.rooms}
                   onPatch={(patch) => updateRoom(selectedRoom.id, (room) => withWallDetail(room, tappedWall.wallId, patch))}
+                  onPatchWall={(roomId, wallId, patch) => updateRoom(roomId, (room) => withWallDetail(room, wallId, patch))}
                 />
               )}
               {squareable.length > 0 && (
@@ -3894,12 +3897,16 @@ function MissingWallTick({
   const across = roomAcross(room, wall, run, rooms);
   const step = across && across.ceilingHeightFeet != null && room.ceilingHeightFeet != null ? room.ceilingHeightFeet - across.ceilingHeightFeet : null;
   const acrossName = across ? across.name.trim() || "the room across" : null;
+  // Under a beam (2026-10-21): the wall above the opening still stands - see `missingWallHeaders`.
+  const header = missing ? underHeader(missingWallHeaders(room, wallId, rooms), run) : undefined;
   const note = decided
     ? `Set by "Ceiling area only" on ${room.name.trim() || "this room"}. Untick that in its settings to choose its walls one by one.`
     : !missing
       ? brief
         ? null
         : "No wall here: open to the space beside it, for a lower ceiling or a bulkhead between two rooms. Drawn dashed, with no wall area or base."
+      : header
+        ? `Open${acrossName ? ` to ${acrossName}` : ""} under a header at ${formatFeetInches(header.openingHeightFeet)}: no base, and the strip above the opening counts as wall on both sides.`
       : step == null || Math.abs(step) < 1 / 24
         ? `Open${acrossName ? ` to ${acrossName}` : ""}: no wall area or base${acrossName ? ", and the ceilings meet level" : ""}.`
         : `Open to ${acrossName}: the ${formatFeetInches(Math.abs(step))} face where the ceilings meet counts as wall area in ${step > 0 ? room.name.trim() || "this room" : acrossName}.`;

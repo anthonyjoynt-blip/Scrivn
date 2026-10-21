@@ -235,7 +235,7 @@
           "flipX": false,
           "flipY": false,
           "sillFeet": 3.1666666666666665,
-          "topShape": "round"
+          "topShape": "round-arch"
         },
         {
           "id": "liv-arch2",
@@ -250,7 +250,7 @@
           "flipX": false,
           "flipY": false,
           "sillFeet": 3.1666666666666665,
-          "topShape": "round"
+          "topShape": "round-arch"
         },
         {
           "id": "liv-picture",
@@ -321,6 +321,11 @@
         },
         {
           "id": "rec-w3",
+          "x": 96,
+          "y": 648
+        },
+        {
+          "id": "rec-w4",
           "x": 0,
           "y": 648
         }
@@ -375,8 +380,8 @@
         {
           "id": "rec-door",
           "type": "door",
-          "wallId": "rec-w2",
-          "t": 0.85,
+          "wallId": "rec-w3",
+          "t": 0.5,
           "widthFraction": 0.1,
           "widthFeet": 2.6666666666666665,
           "doorType": "swing",
@@ -388,24 +393,63 @@
           "exterior": false
         }
       ],
-      "freeCabinets": [
+      "freeCabinets": [],
+      "ceilingFinish": "textured",
+      "missingWalls": [
+        "rec-w2"
+      ],
+      "wallDetails": {
+        "rec-w2": {
+          "openingHeightFeet": 7.416666666666667
+        }
+      }
+    },
+    {
+      "id": "play",
+      "name": "Play area",
+      "level": -1,
+      "vertices": [
         {
-          "id": "rec-beam",
-          "x": 0,
-          "y": 84,
-          "widthPx": 240,
-          "depthPx": 13,
-          "widthFeet": 20,
-          "depthFeet": 1.0833333333333333,
-          "label": "",
-          "tier": "base",
-          "kind": "beam",
-          "beam": {
-            "type": "beam",
-            "dropFeet": 0.9166666666666666
-          }
+          "id": "play-w0",
+          "x": 96,
+          "y": 652
+        },
+        {
+          "id": "play-w1",
+          "x": 240,
+          "y": 652
+        },
+        {
+          "id": "play-w2",
+          "x": 240,
+          "y": 772
+        },
+        {
+          "id": "play-w3",
+          "x": 96,
+          "y": 772
         }
       ],
+      "ceilingHeightFeet": 8.333333333333334,
+      "ceilingType": "flat",
+      "ceilingPeakFeet": null,
+      "stairs": null,
+      "parentRoomId": null,
+      "nestingOptOut": false,
+      "symbols": [
+        {
+          "id": "play-win",
+          "type": "window",
+          "wallId": "play-w2",
+          "t": 0.5,
+          "widthFraction": 0.1,
+          "widthFeet": 4,
+          "heightFeet": 2,
+          "sillFeet": 4.5,
+          "windowType": "slider"
+        }
+      ],
+      "freeCabinets": [],
       "ceilingFinish": "textured"
     },
     {

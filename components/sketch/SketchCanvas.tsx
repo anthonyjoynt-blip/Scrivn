@@ -41,6 +41,9 @@ import {
   clampZoom,
   missingWallGaps,
   halfWallRuns,
+  missingWallHeaders,
+  WALL_THICKNESS_PX,
+  underHeader,
   onParentWallRuns,
   openParent,
   ownMissingRuns,
@@ -2702,22 +2705,25 @@ function MissingWalls({ room, rooms, zoom }: { room: SketchRoom; rooms: SketchRo
   if (room.stairs) return null;
   return (
     <>
-      {wallsOf(room).flatMap((wall) =>
-        ownMissingRuns(room, wall.id, rooms).map(([lo, hi], i) => {
+      {wallsOf(room).flatMap((wall) => {
+        const headers = missingWallHeaders(room, wall.id, rooms);
+        return ownMissingRuns(room, wall.id, rooms).flatMap(([lo, hi], i) => {
           const a = pointOnWall(wall, lo);
           const b = pointOnWall(wall, hi);
-          return (
-            <Line
-              key={`${wall.id}:${i}`}
-              points={[a.x, a.y, b.x, b.y]}
-              stroke={COLORS.wall}
-              strokeWidth={1.5 / zoom}
-              dash={MISSING_WALL_DASH.map((d) => d / zoom)}
-              listening={false}
-            />
-          );
-        }),
-      )}
+          const dashed = { stroke: COLORS.wall, strokeWidth: 1.5 / zoom, dash: MISSING_WALL_DASH.map((d) => d / zoom), listening: false as const };
+          const lines = [<Line key={`${wall.id}:${i}`} points={[a.x, a.y, b.x, b.y]} {...dashed} />];
+          /*
+            Under a HEADER (2026-10-21) - a beam over the opening, `missingWallHeaders` - a second dashed line along the
+            wall's outer face, so the pair reads as the beam overhead, the drafting sign for one.
+          */
+          if (underHeader(headers, [lo, hi]) && wall.lengthPx > 0) {
+            const ox = ((wall.y2 - wall.y1) / wall.lengthPx) * WALL_THICKNESS_PX;
+            const oy = (-(wall.x2 - wall.x1) / wall.lengthPx) * WALL_THICKNESS_PX;
+            lines.push(<Line key={`${wall.id}:${i}:header`} points={[a.x + ox, a.y + oy, b.x + ox, b.y + oy]} {...dashed} />);
+          }
+          return lines;
+        });
+      })}
     </>
   );
 }
@@ -3090,9 +3096,8 @@ function FreeCabinetShape({
   const x = bounds.minX + cabinet.x;
   const y = bounds.minY + cabinet.y;
   const kind = blockKind(cabinet);
-  // A beam is overhead (2026-10-21): dashed as an upper is, with a line down its middle; a fireplace is filled warm.
-  const beam = kind === "beam";
-  const upper = beam || (kind === "cabinet" && cabinet.tier === "wall");
+  // A fireplace (2026-10-21) is filled warm.
+  const upper = kind === "cabinet" && cabinet.tier === "wall";
   const angle = blockAngleDeg(cabinet);
   const triangle = blockShape(cabinet) === "triangle";
 
@@ -3141,13 +3146,11 @@ function FreeCabinetShape({
       <Line
         points={points}
         closed
-        // A beam keeps a clear fill so a tap anywhere on it selects it.
-        fill={beam ? "rgba(0,0,0,0)" : upper ? undefined : kind === "fireplace" ? COLORS.fireplace : COLORS.cabinet}
+        fill={upper ? undefined : kind === "fireplace" ? COLORS.fireplace : COLORS.cabinet}
         stroke={selected ? COLORS.selected : COLORS.symbol}
         strokeWidth={(selected ? 2.5 : 1.5) / zoom}
         dash={upper ? [5 / zoom, 3 / zoom] : undefined}
       />
-      {beam && !triangle && <Line points={[0, depth / 2, width, depth / 2]} stroke={COLORS.symbol} strokeWidth={0.8 / zoom} dash={[8 / zoom, 3 / zoom]} listening={false} />}
       {/*
         Its top (2026-10-21): the overhang on its front - the stool side of an island, the side its depth runs to -
         and a heavy line down each waterfall end.

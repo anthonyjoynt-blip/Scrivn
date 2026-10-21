@@ -227,7 +227,7 @@
           "leaves": "single",
           "heightFeet": 6.583333333333333,
           "sillFeet": 3.17,
-          "topShape": "round",
+          "topShape": "round-arch",
           "springFeet": 5.58
         },
         {
@@ -240,7 +240,7 @@
           "leaves": "single",
           "heightFeet": 6.583333333333333,
           "sillFeet": 3.17,
-          "topShape": "round",
+          "topShape": "round-arch",
           "springFeet": 5.58
         },
         {
@@ -277,7 +277,7 @@
       "name": "Rec room",
       "withinRoom": null,
       "ceilingZone": false,
-      "wallCount": 4,
+      "wallCount": 5,
       "ceilingHeightFeet": 8.33,
       "ceilingType": "flat",
       "ceilingPeakFeet": null,
@@ -296,11 +296,23 @@
         },
         {
           "wall": 3,
-          "lengthFeet": 20,
-          "lengthLabel": "20'"
+          "lengthFeet": 12,
+          "lengthLabel": "12'",
+          "missingFeet": 12,
+          "header": [
+            {
+              "feet": 12,
+              "openingHeightFeet": 7.42
+            }
+          ]
         },
         {
           "wall": 4,
+          "lengthFeet": 8,
+          "lengthLabel": "8'"
+        },
+        {
+          "wall": 5,
           "lengthFeet": 14,
           "lengthLabel": "14'"
         }
@@ -351,8 +363,8 @@
         },
         {
           "type": "door",
-          "wall": 3,
-          "offsetFeet": 17,
+          "wall": 4,
+          "offsetFeet": 4,
           "widthFeet": 2.67,
           "label": "Single swing door",
           "doorType": "swing",
@@ -363,23 +375,61 @@
         }
       ],
       "sharedOpenings": [],
-      "freeCabinets": [
+      "freeCabinets": []
+    },
+    {
+      "name": "Play area",
+      "withinRoom": null,
+      "ceilingZone": false,
+      "wallCount": 4,
+      "ceilingHeightFeet": 8.33,
+      "ceilingType": "flat",
+      "ceilingPeakFeet": null,
+      "ceilingFinish": "textured",
+      "stairs": null,
+      "walls": [
         {
-          "label": "Beam",
-          "tier": "base",
-          "widthFeet": 20,
-          "depthFeet": 1.08,
-          "fromLeftFeet": 0,
-          "fromTopFeet": 7,
-          "kind": "beam",
-          "beam": {
-            "type": "beam",
-            "dropFeet": 0.92,
-            "lengthFeet": 20,
-            "wrapSquareFeet": 58.33
-          }
+          "wall": 1,
+          "lengthFeet": 12,
+          "lengthLabel": "12'",
+          "missingFeet": 12,
+          "header": [
+            {
+              "feet": 12,
+              "openingHeightFeet": 7.42
+            }
+          ]
+        },
+        {
+          "wall": 2,
+          "lengthFeet": 10,
+          "lengthLabel": "10'"
+        },
+        {
+          "wall": 3,
+          "lengthFeet": 12,
+          "lengthLabel": "12'"
+        },
+        {
+          "wall": 4,
+          "lengthFeet": 10,
+          "lengthLabel": "10'"
         }
-      ]
+      ],
+      "symbols": [
+        {
+          "type": "window",
+          "wall": 3,
+          "offsetFeet": 6,
+          "widthFeet": 4,
+          "label": "Slider window",
+          "heightFeet": 2,
+          "sillFeet": 4.5,
+          "windowType": "slider"
+        }
+      ],
+      "sharedOpenings": [],
+      "freeCabinets": []
     },
     {
       "name": "Bedroom 2",
@@ -791,8 +841,8 @@
         "unfinishedWallSquareFeet": 0,
         "ceilingFinish": "drywall",
         "ceilingFinishSquareFeet": 168,
-        "beamFeet": 0,
-        "beamSquareFeet": 0,
+        "headerFeet": 0,
+        "headerSquareFeet": 0,
         "fireplaceSurroundSquareFeet": 0,
         "fireplaces": 0
       }
@@ -835,22 +885,22 @@
         "unfinishedWallSquareFeet": 0,
         "ceilingFinish": null,
         "ceilingFinishSquareFeet": 0,
-        "beamFeet": 0,
-        "beamSquareFeet": 0,
+        "headerFeet": 0,
+        "headerSquareFeet": 0,
         "fireplaceSurroundSquareFeet": 40.22,
         "fireplaces": 1
       }
     },
     "Rec room": {
       "perimeterCeiling": 68,
-      "perimeterFloor": 68,
+      "perimeterFloor": 56,
       "floorArea": 280,
-      "wallArea": 540.89,
+      "wallArea": 451.89,
       "ceilingArea": 280,
       "gross": {
-        "perimeterFloor": 68,
+        "perimeterFloor": 56,
         "floorArea": 280,
-        "wallArea": 566.67
+        "wallArea": 477.67
       },
       "deductions": {
         "perimeterFeet": 0,
@@ -879,8 +929,52 @@
         "unfinishedWallSquareFeet": 0,
         "ceilingFinish": "textured",
         "ceilingFinishSquareFeet": 280,
-        "beamFeet": 20,
-        "beamSquareFeet": 58.33,
+        "headerFeet": 12,
+        "headerSquareFeet": 11,
+        "fireplaceSurroundSquareFeet": 0,
+        "fireplaces": 0
+      }
+    },
+    "Play area": {
+      "perimeterCeiling": 44,
+      "perimeterFloor": 32,
+      "floorArea": 120,
+      "wallArea": 269.67,
+      "ceilingArea": 120,
+      "gross": {
+        "perimeterFloor": 32,
+        "floorArea": 120,
+        "wallArea": 277.67
+      },
+      "deductions": {
+        "perimeterFeet": 0,
+        "floorSquareFeet": 0,
+        "wallSquareFeet": 0,
+        "openingSquareFeet": 8
+      },
+      "ceilingSteps": {
+        "faceSquareFeet": 0,
+        "wallSquareFeet": 0
+      },
+      "ceilingHeightFeet": 8.33,
+      "details": {
+        "halfWallFeet": 0,
+        "halfWallReductionSquareFeet": 0,
+        "countertopFeet": 0,
+        "countertopSquareFeet": 0,
+        "backsplashFeet": 0,
+        "backsplashSquareFeet": 0,
+        "crownFeet": 0,
+        "plantLedgeFeet": 0,
+        "wainscotFeet": 0,
+        "wainscotSquareFeet": 0,
+        "ledgeFeet": 0,
+        "ledgeTopSquareFeet": 0,
+        "unfinishedWallSquareFeet": 0,
+        "ceilingFinish": "textured",
+        "ceilingFinishSquareFeet": 120,
+        "headerFeet": 12,
+        "headerSquareFeet": 11,
         "fireplaceSurroundSquareFeet": 0,
         "fireplaces": 0
       }
@@ -923,8 +1017,8 @@
         "unfinishedWallSquareFeet": 0,
         "ceilingFinish": null,
         "ceilingFinishSquareFeet": 0,
-        "beamFeet": 0,
-        "beamSquareFeet": 0,
+        "headerFeet": 0,
+        "headerSquareFeet": 0,
         "fireplaceSurroundSquareFeet": 0,
         "fireplaces": 0
       }
@@ -967,8 +1061,8 @@
         "unfinishedWallSquareFeet": 0,
         "ceilingFinish": null,
         "ceilingFinishSquareFeet": 0,
-        "beamFeet": 0,
-        "beamSquareFeet": 0,
+        "headerFeet": 0,
+        "headerSquareFeet": 0,
         "fireplaceSurroundSquareFeet": 0,
         "fireplaces": 0
       }
@@ -1011,8 +1105,8 @@
         "unfinishedWallSquareFeet": 0,
         "ceilingFinish": "suspended",
         "ceilingFinishSquareFeet": 80,
-        "beamFeet": 0,
-        "beamSquareFeet": 0,
+        "headerFeet": 0,
+        "headerSquareFeet": 0,
         "fireplaceSurroundSquareFeet": 0,
         "fireplaces": 0
       }
@@ -1055,8 +1149,8 @@
         "unfinishedWallSquareFeet": 302.22,
         "ceilingFinish": "open-joists",
         "ceilingFinishSquareFeet": 100,
-        "beamFeet": 0,
-        "beamSquareFeet": 0,
+        "headerFeet": 0,
+        "headerSquareFeet": 0,
         "fireplaceSurroundSquareFeet": 0,
         "fireplaces": 0
       }
@@ -1099,8 +1193,8 @@
         "unfinishedWallSquareFeet": 0,
         "ceilingFinish": null,
         "ceilingFinishSquareFeet": 0,
-        "beamFeet": 0,
-        "beamSquareFeet": 0,
+        "headerFeet": 0,
+        "headerSquareFeet": 0,
         "fireplaceSurroundSquareFeet": 0,
         "fireplaces": 0
       }
@@ -1134,24 +1228,33 @@
     "  Wall 3 — 4'",
     "  Wall 4 — 12', half wall 3'2\" high, wood cap",
     "  Wall 5 — 18'",
-    "  Pass-through (no door) — wall 1, 6'5\" from corner, 2' wide, 6'7\" high, sill 3'2\", half round top from 5'7\"",
-    "  Pass-through (no door) — wall 1, 9'7\" from corner, 2' wide, 6'7\" high, sill 3'2\", half round top from 5'7\"",
+    "  Pass-through (no door) — wall 1, 6'5\" from corner, 2' wide, 6'7\" high, sill 3'2\", round arch from 5'7\"",
+    "  Pass-through (no door) — wall 1, 9'7\" from corner, 2' wide, 6'7\" high, sill 3'2\", round arch from 5'7\"",
     "  Picture (fixed) window — wall 5, 9' from corner, 5' wide, 5' high, sill 2', no grids",
     "  Fireplace — fireplace, free-standing, 0' from left wall, 0' from top wall, 3'9\" x 3'9\", stone surround, gas, 7'7\" high",
     "",
-    "Rec room",
+    "Rec room (5-sided)",
     "  Ceiling height — 8'4\"",
     "  Ceiling finish — Drywall, textured",
     "  Wall 1 — 20'",
     "  Wall 2 — 14'",
-    "  Wall 3 — 20'",
-    "  Wall 4 — 14'",
+    "  Wall 3 — 12', missing wall, opening 7'5\" high under a header",
+    "  Wall 4 — 8'",
+    "  Wall 5 — 14'",
     "  Slider window — wall 1, 6' from corner, 4' wide, 2' high, sill 4'6\"",
     "  Bar — wall 2, 7' from corner, 8' wide, 2' deep, lower / base, 3' high from 0'",
     "    Countertop — material not said, 8' x 2'1\", 16.7 SF, backsplash 4\" high, 8.0 LF",
     "  Bar shelves — wall 2, 7' from corner, 6' wide, 0'10\" deep, upper / wall, 1' high from 4'6\", open shelving",
-    "  Single swing door — wall 3, 17' from corner, 2'8\" wide, panel, interior",
-    "  Beam — beam overhead, 20' long x 1'1\" wide, drops 11\", wrap 58.3 SF",
+    "  Single swing door — wall 4, 4' from corner, 2'8\" wide, panel, interior",
+    "",
+    "Play area",
+    "  Ceiling height — 8'4\"",
+    "  Ceiling finish — Drywall, textured",
+    "  Wall 1 — 12', missing wall, opening 7'5\" high under a header",
+    "  Wall 2 — 10'",
+    "  Wall 3 — 12'",
+    "  Wall 4 — 10'",
+    "  Slider window — wall 3, 6' from corner, 4' wide, 2' high, sill 4'6\"",
     "",
     "Bedroom 2",
     "  Ceiling height — 7'2\"",
