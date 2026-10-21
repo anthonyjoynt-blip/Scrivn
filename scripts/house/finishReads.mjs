@@ -7,8 +7,7 @@
  *
  *   node scripts/house/finishReads.mjs <folder> <finish.json> <capture.json>      writes <folder>/scrivn/reads.json
  *
- * The owner's house: test/exterior/fixtures/photos-only-1016-trim.json (the trim build's reads, 10-17) on
- * photos-only-1016.json. The capture's sides are in the outline's order (side k runs from C(k+1)).
+ * The capture's sides are in the outline's order (side k runs from C(k+1)).
  */
 import { readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";

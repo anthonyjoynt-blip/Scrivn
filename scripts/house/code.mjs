@@ -33,6 +33,8 @@ export async function scrivn() {
       `export { exteriorReportBytes } from "${lib("exteriorReportPdf.ts")}";`,
       `export { asBuilding, siteReport, siteScopeLines } from "${lib("buildings.ts")}";`,
       `export { checkTeamResult } from "${lib("exteriorRequests.ts")}";`,
+      `export { decksOf, decksQuantities, deckLines, deckChecks, outlineToWalls, ringInSideFrame, withDeckAdded, withDeckDepth, withDeckRead } from "${lib("decks.ts")}";`,
+      `export { deckFromPhotos, placeDeckPoints } from "${lib("deckPhotos.ts")}";`,
       `export { jpegSize } from "${lib("scanEngine.ts")}";`,
       `export { formatFeetInches } from "${lib("sketch.ts")}";`,
       `export { FootprintDrawing, RoofPlanDrawing } from "${comp("exteriorDrawings.tsx")}";`,
