@@ -14,7 +14,6 @@ import {
   type ExteriorRoof,
   FEET_PER_DOWNSPOUT,
   formatPitch,
-  lShapeExterior,
   lowerRoofsFromPhotos,
   photoFloorLine,
   photoNotes,
@@ -26,7 +25,6 @@ import {
   photoSectionBreaks,
   photoSectionPitches,
   pieceLine,
-  rectangleExterior,
   resolvedOverhang,
   ridgeAcrossParty,
   ridgeFromPhotos,
@@ -139,19 +137,12 @@ export function ExteriorStart({ readOnly, onStart }: { readOnly: boolean; onStar
   const { the } = useExteriorSubject();
   const [eave, setEave] = useState<number | null>(DEFAULT_EAVE_FEET);
   const [front, setFront] = useState("");
-  const [shape, setShape] = useState<"rectangle" | "L" | null>(null);
-  const [width, setWidth] = useState<number | null>(null);
-  const [depth, setDepth] = useState<number | null>(null);
-  const [notchWidth, setNotchWidth] = useState<number | null>(null);
-  const [notchDepth, setNotchDepth] = useState<number | null>(null);
 
   if (readOnly) {
     return <p className="field-note">No exterior has been measured on this claim. Unlock the sketch to start one.</p>;
   }
   const eaveFeet = eave ?? DEFAULT_EAVE_FEET;
   const frontFeet = lengthOf(front);
-  const lValid = width !== null && depth !== null && notchWidth !== null && notchDepth !== null && notchWidth < width && notchDepth < depth;
-  const shapeReady = width !== null && depth !== null && (shape === "rectangle" || lValid);
   const startWalking = () => frontFeet !== null && onStart(startWalk(frontFeet, eaveFeet));
 
   return (
@@ -179,53 +170,6 @@ export function ExteriorStart({ readOnly, onStart }: { readOnly: boolean; onStar
               Start with the front
             </button>
           </div>
-        </div>
-        <div className="exterior-start-way">
-          <h4 className="exterior-subhead">Or start from a shape</h4>
-          <div className="option-group" role="group" aria-label="Shape of the house">
-            {(
-              [
-                ["rectangle", "Rectangle"],
-                ["L", "L-shape"],
-              ] as const
-            ).map(([value, label]) => (
-              <button key={value} type="button" className={`option-btn${shape === value ? " selected" : ""}`} aria-pressed={shape === value} onClick={() => setShape(shape === value ? null : value)}>
-                {label}
-              </button>
-            ))}
-          </div>
-          {shape && (
-            <>
-              <div className="exterior-grid">
-                <FeetField id="ext-start-width" label="Width (the front)" value={width} onCommit={setWidth} />
-                <FeetField id="ext-start-depth" label="Depth (the sides)" value={depth} onCommit={setDepth} />
-                {shape === "L" && (
-                  <>
-                    <FeetField id="ext-start-nw" label="Notch width (rear right)" value={notchWidth} onCommit={setNotchWidth} />
-                    <FeetField id="ext-start-nd" label="Notch depth" value={notchDepth} onCommit={setNotchDepth} />
-                  </>
-                )}
-              </div>
-              {shape === "L" && width !== null && depth !== null && notchWidth !== null && notchDepth !== null && !lValid && (
-                <p className="sketch-length-error">The notch has to be smaller than the house both ways.</p>
-              )}
-              <button
-                type="button"
-                className="btn-secondary"
-                disabled={!shapeReady}
-                onClick={() => {
-                  if (!shapeReady) return;
-                  onStart(
-                    shape === "rectangle"
-                      ? rectangleExterior(width as number, depth as number, eaveFeet)
-                      : lShapeExterior(width as number, depth as number, notchWidth as number, notchDepth as number, eaveFeet),
-                  );
-                }}
-              >
-                {shape === "rectangle" ? "Start with 4 sides" : "Start with 6 sides"}
-              </button>
-            </>
-          )}
         </div>
         <div className="exterior-start-way">
           <h4 className="exterior-subhead">Or type the roof&rsquo;s totals</h4>

@@ -265,12 +265,8 @@ export default function HelpPage() {
               </li>
               <li>
                 <strong>Go round it side by side</strong>: type the front&rsquo;s length, <strong>Start with the front</strong>,
-                then add each next side round to the right with its corner (outside, or inside for the inside of an L)
+                then add each next side round to the right with its corner (outside, or inside where the wall turns in)
                 and its length, as you tape it.
-              </li>
-              <li>
-                <strong>Start from a shape</strong>: Rectangle or L-shape, with its width and depth (and the notch for an
-                L).
               </li>
             </ul>
             <p>
