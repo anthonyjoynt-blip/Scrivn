@@ -39,6 +39,7 @@ export function PhotoTaps({
   onPickTap,
   onLine,
   deckTaps = [],
+  rings = [],
 }: {
   url: string | null;
   width: number;
@@ -53,6 +54,8 @@ export function PhotoTaps({
   onLine: (a: [number, number], b: [number, number]) => void;
   /** A deck's taps on this photo (2026-10-20): each with its short label. */
   deckTaps?: { x: number; y: number; label: string }[];
+  /** Where a measurement typed on the walk was tapped, roughly (2026-10-21): a ring to drag its line across. */
+  rings?: { x: number; y: number }[];
 }) {
   const svg = useRef<SVGSVGElement | null>(null);
   const [drag, setDrag] = useState<{ a: [number, number]; b: [number, number] } | null>(null);
@@ -100,6 +103,9 @@ export function PhotoTaps({
               {formatFeetInches(t.feet)}
             </text>
           </g>
+        ))}
+        {rings.map((p, k) => (
+          <circle key={`ring-${k}`} cx={p.x} cy={p.y} r={r * 3} fill="none" stroke="#ea580c" strokeWidth={r / 3} pointerEvents="none" />
         ))}
         {shown && <line x1={shown.a[0]} y1={shown.a[1]} x2={shown.b[0]} y2={shown.b[1]} stroke="#ea580c" strokeWidth={r / 3} strokeDasharray={`${r} ${r / 2}`} />}
         {deckTaps.map((t, k) => (

@@ -79,7 +79,7 @@ async function load() {
       `export * from "${lib("exteriorCheck.ts")}";`,
       `export { cornerPlace, routeCoverage, viewsFromMeasure } from "${lib("photoRouteCoverage.ts")}";`,
       `export { checkEstimate, defaultShared, numberCorners, partyCorners, shotNumbers, solveRoute, WALK_HOLD } from "${lib("photoRoute.ts")}";`,
-      `export { alignLap, facingWords, isWalkShape, lapCloses, walkPhotoWords, lapOutline, lapProblem, lapTurns, newWalk, ringTurns, walkBack, walkClose, walkHasMeasure, walkMeasured, walkPhotos, walkShot, walkSkip, walkStep, walkSummary, walkTake, walkTurn, withoutPhotos, withWalk } from "${lib("photoRouteWalk.ts")}";`,
+      `export { alignLap, facingWords, isWalkShape, lapCloses, walkPhotoWords, lapOutline, lapProblem, lapTurns, newWalk, ringTurns, measureWords, walkAddMeasure, walkBack, walkClose, walkHasMeasure, walkHomeType, walkMeasured, walkMeasures, walkPhotos, walkRemoveMeasure, walkShot, walkSkip, walkStep, walkSummary, walkTake, walkTurn, walkUnplaced, withoutPhotos, withWalk } from "${lib("photoRouteWalk.ts")}";`,
       `export { exteriorFromRoute, measuredFrom } from "${lib("photoRouteExterior.ts")}";`,
       `export { routeSanity } from "${lib("photoRouteSanity.ts")}";`,
       `export { focalOverWidth } from "${lib("photoRouteExif.ts")}";`,
@@ -6451,13 +6451,13 @@ test("the walk's steps in order: the front and something on it measured, then co
 });
 
 test("passed by - a side too tight to get back from, a corner's 45, a measurement - and Back takes each back, photos with it", () => {
-  const { w } = walkThrough(["front", "skip", "c1", "skip", "skip"]);
-  // The right side too tight: no photo, no measurement asked; corner 2 then passed by too.
+  const { w } = walkThrough(["front", "skip", "c1", "skip", "skip", "skip"]);
+  // The right side too tight: no photo, its length asked and passed by; corner 2 then passed by too.
   assert(x.walkStep(w).kind === "side" && x.walkStep(w).k === 2, JSON.stringify(x.walkStep(w)));
   assert(w.stops[2].kind === "side" && w.stops[2].skipped.join() === "photo" && w.stops[3].skipped.join() === "photo", JSON.stringify(w.stops));
   const b1 = x.walkBack(w);
   assert(x.walkStep(b1.walk).kind === "corner" && x.walkStep(b1.walk).k === 2 && b1.dropped.length === 0, JSON.stringify(x.walkStep(b1.walk)));
-  const b2 = x.walkBack(x.walkBack(b1.walk).walk);
+  const b2 = x.walkBack(x.walkBack(x.walkBack(b1.walk).walk).walk);
   assert(x.walkStep(b2.walk).kind === "corner" && x.walkStep(b2.walk).k === 1 && b2.dropped.join() === "c1", `${JSON.stringify(x.walkStep(b2.walk))} ${b2.dropped}`);
   // A measurement passed by is asked again; the front taken back goes with its photo.
   const front = x.walkBack(x.walkBack(b2.walk).walk);
@@ -6487,7 +6487,7 @@ test("an L, six corners, one inside: its shape from the lap, numbered as walked;
   const len = ring.map((p, i) => Math.hypot(ring[(i + 1) % 6].x - p.x, ring[(i + 1) % 6].y - p.y));
   assert(len.every((L) => L >= 2) && len[2] < 12 && len[3] < 12 && len[0] > 25, len.map((L) => L.toFixed(1)).join());
   // The left side's back part too tight: then the inside corner asks for that wall, from wherever it can be taken.
-  const tight = walkThrough(["front", "skip", "c1", "s1", "skip", "c2", "s2", "skip", "c3", "skip", "inside"]).w;
+  const tight = walkThrough(["front", "skip", "c1", "s1", "skip", "c2", "s2", "skip", "c3", "skip", "skip", "inside"]).w;
   assert(JSON.stringify(x.walkStep(tight)) === JSON.stringify({ kind: "inside", k: 4, wall: "before" }), JSON.stringify(x.walkStep(tight)));
   const took = x.walkTake(tight, "w4");
   assert(x.walkStep(took).kind === "side" && JSON.stringify(x.walkPhotos(took).pop().tag) === JSON.stringify({ role: "corner", k: 4, corner: "inside", wall: "before" }), JSON.stringify(x.walkPhotos(took)));
@@ -6542,7 +6542,7 @@ test("eight corners with two inside, and other laps: each closes and turns as wa
 });
 
 test("one measurement at least: none until a tape is put in, and the walk's end counts what it has", () => {
-  const { w } = walkThrough(["front", "skip", "c1", "s1", "skip", "c2", "skip", "c3", "s3", "skip", "c4", "close"]);
+  const { w } = walkThrough(["front", "skip", "c1", "s1", "skip", "c2", "skip", "skip", "c3", "s3", "skip", "c4", "close"]);
   const base = { format: "scrivn-photo-route/1", photos: x.walkPhotos(w).map((p) => ({ id: p.photo, width: 800, height: 600 })), buildings: [{ id: "main", outline: [], corners: [], tapes: [] }], measured: null };
   const route = x.withWalk(base, w);
   assert(!x.walkHasMeasure(route), "no tape yet");
@@ -6736,7 +6736,7 @@ function walkPhotosOf(truth, noisePx = 0) {
     if (k === n) break;
     const [a, b] = [truth[c], truth[(c + 1) % n]];
     // A wall too short to stand back from (the 2' bay step, the bump-out's 5'6" side) passed by.
-    if (Math.hypot(b.x - a.x, b.y - a.y) < 6) w = x.walkSkip(w);
+    if (Math.hypot(b.x - a.x, b.y - a.y) < 6) w = x.walkSkip(x.walkSkip(w));
     else {
       straightOn(`s${k}`, c);
       w = x.walkSkip(x.walkTake(w, `s${k}`));
@@ -6806,6 +6806,99 @@ test("the owner's house walked as the walk asks (made-up photos, its true shape)
     assert(tightMean > 2 * mean && tightMean > 8, `held at 35%: mean ${tightMean.toFixed(1)}%`);
     console.log(`      taps ${noisePx}px off: ${sol.cameras.length} photos placed, sides off ${mean.toFixed(1)}% on average (held at 35%: ${tightMean.toFixed(1)}%), the side-yard wall ${off[0].toFixed(1)}%`);
   }
+});
+
+console.log("\nthe walk's measurements typed, not drawn (10-21, second build)");
+
+const walkRoute = (w, main = {}) => x.withWalk({ format: "scrivn-photo-route/1", photos: x.walkPhotos(w).map((p) => ({ id: p.photo, width: 800, height: 600 })), buildings: [{ id: "main", outline: [], corners: [], tapes: [], ...main }], measured: null }, w);
+
+test("did you measure anything here: asked at the front and every side, a side too tight for a photo asked its length; typed, one tap at most, never a line", () => {
+  // The front: the step names its photo. A garage door typed with a rough tap on it.
+  let w = x.walkTake(x.newWalk(), "front");
+  assert(JSON.stringify(x.walkStep(w)) === '{"kind":"measure","stop":0,"role":"front","k":0,"photo":"front"}', JSON.stringify(x.walkStep(w)));
+  w = x.walkAddMeasure(w, 0, { id: "walk-g", what: "garage", feet: 16, photo: "front", near: [412, 380] });
+  assert(x.walkStep(w).kind === "measure", "still at it: something else can be measured here");
+  w = x.walkMeasured(w);
+  assert(w.stops[0].measure === "done" && x.walkStep(w).kind === "corner", JSON.stringify(w.stops[0]));
+  // A side too tight to photograph: its length asked, with no photo to tap on.
+  w = x.walkSkip(x.walkTake(w, "c1"));
+  assert(JSON.stringify(x.walkStep(w)) === '{"kind":"measure","stop":2,"role":"side","k":1,"photo":null}', JSON.stringify(x.walkStep(w)));
+  w = x.walkMeasured(x.walkAddMeasure(w, 2, { id: "walk-w", what: "wall", feet: 68.5 }));
+  // Passed by with nothing in: "skipped", not "done".
+  w = x.walkTake(w, "c2");
+  w = x.walkMeasured(x.walkTake(w, "s2"));
+  assert(w.stops[4].measure === "skipped" && x.walkStep(w).kind === "corner", JSON.stringify(w.stops[4]));
+  // No size, no measurement.
+  assert(x.walkAddMeasure(w, 4, { id: "walk-0", what: "window", feet: 0 }) === w, "a size of nothing is not put in");
+  const all = x.walkMeasures(w).map(({ m, kind, k }) => `${kind}${k}:${x.measureWords(m)}`);
+  assert(all.join() === "front0:Garage door 16',side1:Wall 68'6\"", all.join());
+  assert(x.measureWords({ what: "window", feet: 70.75 / 12 }) === "Window 5'10¾\"" && x.measureWords({ what: "door", feet: 0.375 }) === "Door 0'4½\"", "to the eighth typed, not rounded to the inch");
+  // Taken out, wherever it is; Back from the corner after it asks the side again, its measurement still there.
+  assert(x.walkMeasures(x.walkRemoveMeasure(w, "walk-g")).length === 1, "removed");
+  const back = x.walkBack(x.walkBack(x.walkBack(x.walkBack(w).walk).walk).walk).walk;
+  assert(x.walkStep(back).kind === "measure" && x.walkStep(back).stop === 2 && back.stops[2].measures.length === 1, JSON.stringify(x.walkStep(back)));
+  // Back past it takes the side and its measurement with it.
+  assert(x.walkMeasures(x.walkBack(back).walk).length === 1, "the wall's length went with its side");
+});
+
+test("one measurement before finishing: a garage door typed counts; until its ends are placed it is no tape, and the walk says so", () => {
+  const steps = ["front", "skip", "c1", "s1", "skip", "c2", "s2", "skip", "c3", "s3", "skip", "c4", "close"];
+  const { w } = walkThrough(steps);
+  assert(!x.walkHasMeasure(walkRoute(w)), "nothing measured");
+  const typed = x.walkAddMeasure(w, 0, { id: "walk-g", what: "garage", feet: 9, photo: "front" });
+  const route = walkRoute(typed);
+  assert(x.walkHasMeasure(route) && route.buildings[0].tapes.length === 0, "the garage door counts, and is no tape yet");
+  assert(x.walkUnplaced(route).map(({ m }) => m.id).join() === "walk-g", "its ends to place");
+  assert(x.walkSummary(route).measures === 1, JSON.stringify(x.walkSummary(route)));
+  // Placed on a bigger screen (the route's "Place it"): a line tape with the measurement's id, and nothing left to place.
+  const placed = { ...route, buildings: [{ ...route.buildings[0], tapes: [{ id: "walk-g", kind: "line", photo: "front", a: [300, 400], b: [520, 400], feet: 9, what: "garage" }] }] };
+  assert(x.walkUnplaced(placed).length === 0 && x.walkSummary(placed).measures === 1, "placed: counted once");
+});
+
+test("a wall's length typed on the walk is its side's tape once the lap closes: a side's own wall, a plain front; a front with steps waits to be placed", () => {
+  // A rectangle: the right side (walk side 1) taped 68'6" with no photo, the front 40' corner to corner.
+  let { w } = walkThrough(["front", "skip", "c1", "skip", "skip", "c2", "s2", "skip", "c3", "s3", "skip", "c4"]);
+  w = x.walkAddMeasure(w, 0, { id: "walk-f", what: "wall", feet: 40, photo: "front" });
+  w = x.walkAddMeasure(w, 2, { id: "walk-r", what: "wall", feet: 68.5 });
+  const open = walkRoute(w);
+  assert(open.buildings[0].tapes.length === 0, "lap not closed: no side yet");
+  const closed = walkRoute(x.walkClose(w));
+  const tapes = closed.buildings[0].tapes.map((t) => `${t.id}:${t.kind}:${t.from}:${t.feet}`).sort();
+  // Walk side 1 is outline side 0 (corner 1 to 2); the front the last side, 3.
+  assert(tapes.join() === "walk-f:side:3:40,walk-r:side:0:68.5", tapes.join());
+  assert(x.walkUnplaced(closed).length === 0, "nothing to place");
+  // Made again each time, not piled up; and gone when the lap opens again.
+  const again = x.withWalk(closed, closed.walk);
+  assert(again.buildings[0].tapes.length === 2, JSON.stringify(again.buildings[0].tapes));
+  const reopened = x.withWalk(closed, x.walkBack(closed.walk).walk);
+  assert(reopened.buildings[0].tapes.length === 0, "opened: no side tapes");
+  // The owner's twelve: the front a run of walls, so its wall's length isn't put on any one of them.
+  const turns = [1, 1, 1, -1, 1, -1, 1, 1, -1, 1, -1, 1];
+  const steps = ["front", "skip"];
+  turns.forEach((t, i) => {
+    steps.push(t < 0 ? "inside" : `c${i + 1}`);
+    if (i < 11) steps.push(`s${i + 1}`, "skip");
+  });
+  steps.push("close");
+  const run = walkThrough(steps).w;
+  const r12 = walkRoute(x.walkAddMeasure(run, 0, { id: "walk-f", what: "wall", feet: 48.9, photo: "front" }));
+  assert(r12.buildings[0].tapes.length === 0 && x.walkUnplaced(r12).length === 1, "a front with steps: to place");
+});
+
+test("no home type asked: a corner said to join the neighbour's is a semi, two a middle townhouse, none detached", () => {
+  const semi = walkThrough(["front", "skip", "joined", "a1", "a2", "s2", "skip", "c3", "s3", "skip", "c4", "close"]).w;
+  const r1 = walkRoute(semi);
+  assert(r1.buildings[0].homeType === "semi" && JSON.stringify(r1.buildings[0].shared) === "[0]", JSON.stringify(r1.buildings[0]));
+  const middle = walkThrough(["front", "skip", "joined", "fR", "bR", "back", "skip", "joined", "bL", "fL", "close"]).w;
+  const r2 = walkRoute(middle);
+  assert(r2.buildings[0].homeType === "town_middle" && JSON.stringify(r2.buildings[0].shared) === "[0,2]", JSON.stringify(r2.buildings[0]));
+  // Taken back to before the joined corner: no longer attached.
+  const backed = x.withWalk(r1, walkThrough(["front", "skip"]).w);
+  assert(backed.buildings[0].homeType === "semi", "no corner yet: as it was");
+  const detached = x.withWalk(r1, walkThrough(["front", "skip", "c1", "s1"]).w);
+  assert(detached.buildings[0].homeType === "detached", detached.buildings[0].homeType);
+  // An end unit said so stays one; a split-level is the house's own say.
+  assert(x.walkHomeType(semi, "town_end") === "town_end" && x.walkHomeType(walkThrough(["front", "skip", "c1"]).w, "split") === "split", "kept");
 });
 
 console.log(`\n${passed.length} passed, ${failures.length} failed`);

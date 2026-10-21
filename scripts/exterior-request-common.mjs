@@ -124,8 +124,22 @@ export function walkWords(tag) {
   if (!tag || typeof tag !== "object") return null;
   if (tag.role === "front") return "the front";
   if (tag.role === "side") return `side ${tag.k} straight on (corner ${tag.k} to the next)`;
+  if (tag.role === "corner" && tag.corner === "joined") return `${tag.wall === "after" ? "the wall on from" : "the wall walked up to"} corner ${tag.k}, at an angle from where the home meets the neighbour's there`;
   if (tag.role === "corner") return tag.corner === "inside" ? `the wall before inside corner ${tag.k}` : `corner ${tag.k} at 45°`;
   return null;
+}
+
+/**
+ * The measurements typed on the walk (2026-10-21, lib/photoRouteWalk.ts WalkMeasure) that are no tape of the route yet:
+ * what, how long, the photo it is on and maybe one rough tap on it - ours to place exactly.
+ */
+export function typedMeasures(route, fileOf = new Map()) {
+  const taped = new Set((route?.buildings ?? []).flatMap((b) => (b.tapes ?? []).map((t) => t.id)));
+  return (route?.walk?.stops ?? []).flatMap((s) =>
+    (s.measures ?? [])
+      .filter((m) => !taped.has(m.id))
+      .map((m) => ({ building: "main", what: m.what, feet: m.feet, typed: true, ...(m.photo ? { onPhoto: fileOf.get(m.photo) ?? m.photo } : {}), ...(Array.isArray(m.near) ? { near: m.near } : {}) })),
+  );
 }
 
 /**
@@ -167,7 +181,7 @@ export async function pullRequest(db, prefix, { dir = join(ROOT, FOLDER), now = 
   const fileOf = new Map(photos.map((p) => [p.id, p.file]));
   const tapes = (row.route?.buildings ?? []).flatMap((b) =>
     (b.tapes ?? []).map((t) => (t.kind === "line" ? { building: b.id, what: t.what, feet: t.feet, onPhoto: fileOf.get(t.photo) ?? t.photo, a: t.a, b: t.b } : { building: b.id, what: "side", feet: t.feet, fromCorner: t.from + 1 })),
-  );
+  ).concat(typedMeasures(row.route, fileOf));
   const sentBy = await emailOf(db, row.user_id);
   const doc = {
     format: REQUEST_FORMAT,

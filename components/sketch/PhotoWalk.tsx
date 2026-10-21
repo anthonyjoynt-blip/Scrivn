@@ -1,8 +1,7 @@
 "use client";
 
-import { type ReactNode, useState } from "react";
-import { HOME_TYPE_LABEL, type HomeType, isAttachedHome } from "@/lib/exterior";
-import { defaultShared, type PhotoRouteState, type RouteBuilding, type RoutePhoto, type RouteTape, type TapeWhat } from "@/lib/photoRoute";
+import { type ReactNode, useEffect, useRef, useState } from "react";
+import type { PhotoRouteState, RoutePhoto, TapeWhat } from "@/lib/photoRoute";
 import {
   facingWords,
   insideWalls,
@@ -10,15 +9,21 @@ import {
   lapOutline,
   lapProblem,
   lapTurns,
+  measureWords,
+  newMeasureId,
   newWalk,
   type RouteWalk,
+  walkAddMeasure,
   walkBack,
   walkClose,
   walkHasMeasure,
   walkHeading,
+  type WalkMeasure,
   walkMeasured,
+  walkMeasures,
   walkPhotos,
   walkPhotoWords,
+  walkRemoveMeasure,
   walkSharedSides,
   walkSkip,
   walkStep,
@@ -31,14 +36,20 @@ import {
   withWalk,
 } from "@/lib/photoRouteWalk";
 import type { Pt } from "@/lib/roof";
+import { FeetInchesInput } from "./FeetInchesInput";
 import styles from "./PhotoRoute.module.css";
-import { PhotoTaps, TapeForm } from "./photoRouteParts";
+import { WHAT_HINT, WHAT_LABEL } from "./photoRouteParts";
 
 /**
  * The walk round the house (2026-10-21, lib/photoRouteWalk.ts): the photo route's way in, one card at a time, sized for a
- * phone held at the house. The front, something on it measured; then round the house from the front's right-hand corner:
- * each corner at 45 degrees (an inside corner: the walls either side), each side straight on if there's room, something on
- * it measured if there's something; until back where it started. Then Send to Scrivn team, or measure it here.
+ * phone held at the house. The front; then round the house from the front's right-hand corner, each corner at 45 degrees
+ * (an inside corner: the walls either side; one meeting the neighbour's: the open wall at an angle), each side straight on
+ * if there's room; at the front and each side "Did you measure anything here?"; until "Finished". Then Send to Scrivn team,
+ * or measure it here. Nothing is asked up front: no shape, no kind of home.
+ *
+ * Nothing is drawn on a photo here (the first walk was pulled 10-21: dragging a line across a garage door on a phone was
+ * "borderline impossible"). A measurement is what it was and its size, typed, with one tap on the photo roughly on it if
+ * they like; the Scrivn team, or the route on a bigger screen, places its ends.
  *
  * Every step is kept on the route as it is taken (`PhotoRouteState.walk`), and each photo is a claim photo like any other,
  * so a walk half done waits on the phone through a reload or no signal and picks up at the step it was on.
@@ -49,12 +60,11 @@ type RouteChange = (f: (route: PhotoRouteState) => PhotoRouteState) => void;
 /** A side too tight to step back from (2026-10-21, as Hover asks): upright before giving up on it. */
 const UPRIGHT = "No room to step back? Turn the phone upright, still on the 1x lens, to get the wall in top to bottom. Only if it still won't fit: Can't get back far enough.";
 
-const emptyMain = (): RouteBuilding => ({ id: "main", outline: [], corners: [], tapes: [] });
-const mainOf = (r: PhotoRouteState): RouteBuilding => r.buildings.find((b) => b.id === "main") ?? emptyMain();
-const withMain = (r: PhotoRouteState, f: (b: RouteBuilding) => RouteBuilding): PhotoRouteState => {
-  const b = f(mainOf(r));
-  return { ...r, buildings: r.buildings.some((x) => x.id === "main") ? r.buildings.map((x) => (x.id === "main" ? b : x)) : [b, ...r.buildings] };
-};
+/** What can be measured on a photo of the front or a side; a 45's photo shows two walls, so not "the wall"; no photo, the wall alone. */
+const ON_A_SIDE: TapeWhat[] = ["garage", "window", "door", "wall"];
+const ON_A_CORNER: TapeWhat[] = ["garage", "window", "door"];
+const NO_PHOTO: TapeWhat[] = ["wall"];
+
 /** The route's walk changed, its photos' tags and (lap closed) the shape with it. */
 const walked = (r: PhotoRouteState, f: (w: RouteWalk) => RouteWalk): PhotoRouteState => withWalk(r, f(r.walk ?? newWalk()));
 
@@ -62,7 +72,6 @@ export function PhotoWalk({
   route,
   urls,
   readOnly,
-  isHouse,
   the,
   change,
   keep,
@@ -74,7 +83,6 @@ export function PhotoWalk({
   route: PhotoRouteState;
   urls: Map<string, string>;
   readOnly: boolean;
-  isHouse: boolean;
   /** "the house", or "the shed". */
   the: string;
   change: RouteChange;
@@ -91,22 +99,52 @@ export function PhotoWalk({
 }) {
   const walk = route.walk ?? newWalk();
   const step = walkStep(walk);
-  const main = mainOf(route);
-  const attached = isAttachedHome(main.homeType);
   const [busy, setBusy] = useState(false);
-  const [line, setLine] = useState<{ a: [number, number]; b: [number, number] } | null>(null);
   /** "Back where you started?" answered yes on a lap that doesn't close: what the corners make of it, to finish anyway or walk on. */
   const [problem, setProblem] = useState<string | null>(null);
   /** At a side facing the street: "No, it's more of the front" said, so the side is taken like any other. */
   const [moreFront, setMoreFront] = useState(false);
-  /** The photo a measurement is being put on at the end, when none was put in on the way round. */
-  const [measureOn, setMeasureOn] = useState<string | null>(null);
+  /** "Finished" said with nothing measured yet: one measurement asked for first. */
+  const [needMeasure, setNeedMeasure] = useState(false);
+  /** At a measure step with something measured already: "Something else measured here" opens the form again. */
+  const [adding, setAdding] = useState(false);
+  /** A measurement half put in (what it is picked): "No, nothing measured here" stands aside till it's added or cancelled. */
+  const [picking, setPicking] = useState(false);
+  // The photo just taken, shown from its own file at once: the pane's copy comes from the phone's store a moment later
+  // (10-21, at phone size: the measure card stood a few seconds with no photo on it).
+  const [fresh, setFresh] = useState<Map<string, string>>(new Map());
+  const made = useRef<string[]>([]);
+  useEffect(() => () => made.current.forEach((u) => URL.revokeObjectURL(u)), []);
+  const urlOf = (id: string) => urls.get(id) ?? fresh.get(id) ?? null;
+  const showNow = (id: string, file: File) => {
+    const u = URL.createObjectURL(file);
+    made.current.push(u);
+    setFresh((m) => new Map(m).set(id, u));
+  };
 
   const act = (f: (r: PhotoRouteState) => PhotoRouteState) => {
-    setLine(null);
     setProblem(null);
     setMoreFront(false);
+    setNeedMeasure(false);
+    setAdding(false);
+    setPicking(false);
     change(f);
+    checkpoint();
+  };
+
+  /** A measurement typed at a stop; the card stays where it is. */
+  const addMeasure = (stop: number, m: Omit<WalkMeasure, "id">) => {
+    setAdding(false);
+    setPicking(false);
+    change((r) => walked(r, (w) => walkAddMeasure(w, stop, { ...m, id: newMeasureId() })));
+    checkpoint();
+  };
+  const removeMeasure = (id: string) => {
+    change((r) => {
+      const next = walked(r, (w) => walkRemoveMeasure(w, id));
+      // A line already placed for it goes with it.
+      return { ...next, buildings: next.buildings.map((b) => (b.id === "main" ? { ...b, tapes: b.tapes.filter((t) => t.id !== id) } : b)) };
+    });
     checkpoint();
   };
 
@@ -116,7 +154,9 @@ export function PhotoWalk({
     setBusy(true);
     const p = await keep(file);
     setBusy(false);
-    if (p) act((r) => walked({ ...r, photos: [...r.photos, p] }, (w) => walkTake(w, p.id)));
+    if (!p) return;
+    showNow(p.id, file);
+    act((r) => walked({ ...r, photos: [...r.photos, p] }, (w) => walkTake(w, p.id)));
   }
 
   /** The photo just taken taken again: the new one in its place, the old one's taps and tapes gone with it. */
@@ -127,13 +167,23 @@ export function PhotoWalk({
     const p = await keep(file);
     setBusy(false);
     if (!p) return;
+    showNow(p.id, file);
     act((r) => {
       const at = r.photos.findIndex((q) => q.id === oldId);
       const base = withoutPhotos(r, [oldId]);
       const photos = [...base.photos];
       photos.splice(at < 0 ? photos.length : at, 0, p);
       const w = r.walk ?? newWalk();
-      return withWalk({ ...base, photos }, { ...w, stops: w.stops.map((s) => (s.photos.includes(oldId) ? { ...s, photos: s.photos.map((x) => (x === oldId ? p.id : x)) } : s)) });
+      // Its measurements stay, on the new photo; a tap made on the old one says nothing of the new.
+      const onNew = (m: WalkMeasure): WalkMeasure => {
+        if (m.photo !== oldId) return m;
+        const { near: _near, ...rest } = m;
+        return { ...rest, photo: p.id };
+      };
+      return withWalk(
+        { ...base, photos },
+        { ...w, stops: w.stops.map((s) => (s.photos.includes(oldId) ? { ...s, photos: s.photos.map((x) => (x === oldId ? p.id : x)), ...(s.measures ? { measures: s.measures.map(onNew) } : {}) } : s)) },
+      );
     });
   }
 
@@ -143,12 +193,15 @@ export function PhotoWalk({
       return withWalk(withoutPhotos(r, dropped), w);
     });
 
-  const addTape = (photo: string, what: TapeWhat, feet: number, done: boolean) =>
-    act((r) => {
-      const t: RouteTape = { id: `tape-${Date.now().toString(36)}`, kind: "line", photo, a: (line as NonNullable<typeof line>).a, b: (line as NonNullable<typeof line>).b, feet, what };
-      const next = withMain(r, (b) => ({ ...b, tapes: [...b.tapes, t] }));
-      return done ? walked(next, walkMeasured) : next;
-    });
+  /** "Finished": one measurement first, then the lap closed - or, if its corners don't close, what they make of it. */
+  const finish = () => {
+    if (!walkHasMeasure(route)) {
+      setNeedMeasure(true);
+      return;
+    }
+    if (lapCloses(walk)) act((r) => walked(r, walkClose));
+    else setProblem(lapProblem(walk));
+  };
 
   // The photo the last step took, to see it and take it again.
   const lastPhoto = (() => {
@@ -186,7 +239,7 @@ export function PhotoWalk({
       )}
       {lastPhoto && (
         <span className={styles.walkLast}>
-          {urls.get(lastPhoto.photo) ? <img src={urls.get(lastPhoto.photo)} alt="" /> : null}
+          {urlOf(lastPhoto.photo) ? <img src={urlOf(lastPhoto.photo) as string} alt="" /> : null}
           <span className="field-note">Last: {walkPhotoWords(lastPhoto.tag, walk)}.</span>
           {!readOnly && (
             <label className="link-button">
@@ -209,30 +262,16 @@ export function PhotoWalk({
     return `${walkPhotos(walk).length} photo${walkPhotos(walk).length === 1 ? "" : "s"} so far${c ? `, ${c} corner${c === 1 ? "" : "s"}` : ""}`;
   })();
 
+  const oneNeeded = !walkHasMeasure(route) && <p className="field-note">One measurement is needed before you finish: it sets every size. A garage door counts.</p>;
+
   if (step.kind === "front") {
     return (
       <div className={`${styles.card} ${styles.walk}`}>
         {head("The front", "Walk round, step 1")}
         <p>
-          Scrivn walks you round {the}: the front, then each corner and each side in turn, a photo at each and a measurement where you have one. Use the normal 1x camera, held
-          sideways.
+          Scrivn walks you round {the}: the front, then each corner and each side in turn, a photo at each, and anything you&rsquo;ve measured typed in as you go. Use the normal 1x
+          camera, held sideways.
         </p>
-        {isHouse && (
-          <div className="option-group" role="group" aria-label="The home">
-            {(Object.keys(HOME_TYPE_LABEL) as HomeType[]).map((k) => (
-              <button
-                key={k}
-                type="button"
-                className={`option-btn${(main.homeType ?? "detached") === k ? " selected" : ""}`}
-                aria-pressed={(main.homeType ?? "detached") === k}
-                disabled={readOnly}
-                onClick={() => change((r) => withMain(r, (b) => ({ ...b, homeType: k, shared: defaultShared(b.outline, k) })))}
-              >
-                {HOME_TYPE_LABEL[k]}
-              </button>
-            ))}
-          </div>
-        )}
         <LapSketch walk={walk} step={step} />
         <p className={styles.walkSay}>Stand back across from the front, straight on, so all of it is in: both front corners, the ground and the roof edge.</p>
         {takeButtons("Take the front")}
@@ -243,41 +282,46 @@ export function PhotoWalk({
 
   if (step.kind === "measure") {
     const stop = walk.stops[step.stop];
-    const photoId = stop?.photos[0] ?? "";
-    const photo = route.photos.find((p) => p.id === photoId);
+    const photo = step.photo ? (route.photos.find((p) => p.id === step.photo) ?? null) : null;
     const where = step.role === "front" ? "the front" : `the ${facingWords(walkHeading({ stops: walk.stops.slice(0, step.stop) }))}`;
-    const tapes = main.tapes.filter((t): t is Extract<RouteTape, { kind: "line" }> => t.kind === "line" && t.photo === photoId);
+    const here = stop?.measures ?? [];
     return (
       <div className={`${styles.card} ${styles.walk}`}>
-        {head(`Measure something on ${where}`, step.role === "front" ? "Walk round, step 2" : `Side ${step.k}`)}
-        <p className={styles.walkSay}>
-          Drag a line across something you&rsquo;ve measured, or know the size of: a garage door, or a window or a door across its frame, edge to edge. Then say how long it is.
-          {step.role === "side" ? " The whole wall, corner to corner, is best of all if you have a long tape." : ""}
-        </p>
-        {photo && (
-          <PhotoTaps
-            url={urls.get(photo.id) ?? null}
-            width={photo.width}
-            height={photo.height}
-            taps={[]}
-            tapes={tapes}
-            line={line}
-            mode={readOnly ? null : "tape"}
-            selected={null}
-            onTap={() => {}}
-            onPickTap={() => {}}
-            onLine={(a, b) => setLine({ a, b })}
+        {head(photo ? `Did you measure anything on ${where}?` : `Did you tape ${where}?`, step.role === "front" ? "Walk round, step 2" : `Side ${step.k} · ${count}`)}
+        {!photo && <p className="field-note">No photo of it, so only its length, if you taped it.</p>}
+        <MeasureList items={here} readOnly={readOnly} onRemove={removeMeasure} />
+        {!readOnly && (here.length === 0 || adding) && (
+          <MeasureForm
+            key={`${step.stop}-${here.length}`}
+            photo={photo}
+            url={photo ? urlOf(photo.id) : null}
+            kinds={photo ? ON_A_SIDE : NO_PHOTO}
+            onAdd={(m) => addMeasure(step.stop, m)}
+            onPicking={setPicking}
+            onCancel={here.length > 0 ? () => (setAdding(false), setPicking(false)) : undefined}
           />
         )}
-        {line && <TapeForm initial={step.role === "front" ? "garage" : "window"} onCancel={() => setLine(null)} onDone={(what, feet) => addTape(photoId, what, feet, true)} />}
-        {!readOnly && !line && (
-          <div className={styles.row}>
-            <button type="button" className="btn-secondary" onClick={() => act((r) => walked(r, walkSkip))}>
-              {step.role === "front" && !walkHasMeasure(route) ? "Skip for now" : tapes.length ? "Next" : "Skip: nothing to measure here"}
-            </button>
+        {!readOnly && !picking && (
+          <div className={styles.walkNext}>
+            {here.length > 0 ? (
+              <>
+                <button type="button" className={`btn-primary ${styles.walkBig}`} onClick={() => act((r) => walked(r, walkMeasured))}>
+                  Next
+                </button>
+                {!adding && (
+                  <button type="button" className="link-button" onClick={() => setAdding(true)}>
+                    Something else measured here
+                  </button>
+                )}
+              </>
+            ) : (
+              <button type="button" className={`btn-secondary ${styles.walkBig}`} onClick={() => act((r) => walked(r, walkMeasured))}>
+                {photo ? "No, nothing measured here" : "No: on to the next corner"}
+              </button>
+            )}
           </div>
         )}
-        {step.role === "front" && !walkHasMeasure(route) && <p className="field-note">One measurement at least is needed somewhere on the walk: it sets every size.</p>}
+        {oneNeeded}
         {footer}
       </div>
     );
@@ -297,7 +341,7 @@ export function PhotoWalk({
       return (
         <div className={`${styles.card} ${styles.walk}`}>
           {head(far ? `Corner ${step.k}: the other end of the shared wall` : `Corner ${step.k}: where your home meets the neighbour's`, `${count}`)}
-          {!far && <TurnChoice turn={turn} attached={attached} readOnly={readOnly} onTurn={(t) => act((r) => walked(r, (w) => walkTurn(w, t)))} />}
+          {!far && <TurnChoice turn={turn} readOnly={readOnly} onTurn={(t) => act((r) => walked(r, (w) => walkTurn(w, t)))} />}
           <LapSketch walk={walk} step={step} />
           <p className={styles.walkSay}>
             {far ? `Go round to the ${wall}. ` : "No 45° photo here: the neighbour's home is in the way. "}
@@ -319,7 +363,7 @@ export function PhotoWalk({
       <div className={`${styles.card} ${styles.walk}`}>
         {head(`Corner ${step.k}`, `${count}`)}
         <p>{step.k === 1 ? "Walk to the front's right-hand corner." : `Walk on along the ${facingWords(h)} to the next corner.`}</p>
-        <TurnChoice turn={turn} attached={attached} readOnly={readOnly} onTurn={(t) => act((r) => walked(r, (w) => walkTurn(w, t)))} />
+        <TurnChoice turn={turn} readOnly={readOnly} onTurn={(t) => act((r) => walked(r, (w) => walkTurn(w, t)))} />
         <LapSketch walk={walk} step={step} />
         <p className={styles.walkSay}>
           Step back from the corner until both whole walls fit, with the far corner of each in the photo too: three corners in all, this one near the middle, about 45° to both
@@ -345,7 +389,7 @@ export function PhotoWalk({
     return (
       <div className={`${styles.card} ${styles.walk}`}>
         {head(`Inside corner ${step.k}`, `${count}`)}
-        {nothingYet && <TurnChoice turn="inside" attached={attached} readOnly={readOnly} onTurn={(t) => act((r) => walked(r, (w) => walkTurn(w, t)))} />}
+        {nothingYet && <TurnChoice turn="inside" readOnly={readOnly} onTurn={(t) => act((r) => walked(r, (w) => walkTurn(w, t)))} />}
         <LapSketch walk={walk} step={step} />
         <p className={styles.walkSay}>
           A 45° photo doesn&rsquo;t show an inside corner: the walls either side do. The wall you walked along to it had no photo, so take it now, from wherever you can, with this corner in
@@ -373,10 +417,24 @@ export function PhotoWalk({
     const afterInside = lastStop?.kind === "corner" && lastStop.turn === "inside" ? corners : null;
     // Facing the street again after going round: most likely the front, reached from its left end.
     const atFront = h % 4 === 0 && h !== 0 && corners >= 3;
-    const finish = () => {
-      if (lapCloses(walk)) act((r) => walked(r, walkClose));
-      else setProblem(lapProblem(walk));
-    };
+    if (needMeasure) {
+      return (
+        <div className={`${styles.card} ${styles.walk}`}>
+          {head("One measurement first", `${count}`)}
+          <MeasureAnywhere route={route} urlOf={urlOf} readOnly={readOnly} onAdd={addMeasure} onRemove={removeMeasure} />
+          {!readOnly && (
+            <div className={styles.walkNext}>
+              <button type="button" className={`btn-primary ${styles.walkBig}`} disabled={!walkHasMeasure(route)} onClick={finish}>
+                Finished
+              </button>
+              <button type="button" className="link-button" onClick={() => setNeedMeasure(false)}>
+                Back to the walk
+              </button>
+            </div>
+          )}
+        </div>
+      );
+    }
     if (problem) {
       return (
         <div className={`${styles.card} ${styles.walk}`}>
@@ -399,17 +457,18 @@ export function PhotoWalk({
     if (atFront && !moreFront && !readOnly) {
       return (
         <div className={`${styles.card} ${styles.walk}`}>
-          {head("Back where you started?", `${count}`)}
+          {head("Back at the front?", `${count}`)}
           <LapSketch walk={walk} step={step} outline={lapCloses(walk) ? (lapOutline(lapTurns(walk)) ?? undefined) : undefined} shared={walkSharedSides(walk)} />
-          <p className={styles.walkSay}>Does the wall from here run to corner 1, the first corner you took? Then the walk round is done: the front photo has that wall.</p>
-          <div className={styles.row}>
-            <button type="button" className="btn-primary" onClick={finish}>
-              Yes: finish the walk
+          <p className={styles.walkSay}>Does the wall from here run to corner 1, the first corner you took? Then you&rsquo;re round: the front photo has that wall.</p>
+          <div className={styles.walkNext}>
+            <button type="button" className={`btn-primary ${styles.walkBig}`} onClick={finish}>
+              Yes: finished
             </button>
             <button type="button" className="btn-secondary" onClick={() => setMoreFront(true)}>
               No, there&rsquo;s more to go
             </button>
           </div>
+          {oneNeeded}
           {footer}
         </div>
       );
@@ -429,11 +488,13 @@ export function PhotoWalk({
             <button type="button" className="btn-secondary" onClick={() => act((r) => walked(r, walkSkip))}>
               Can&rsquo;t get back far enough
             </button>
-            {!atFront && corners >= 3 && (
-              <button type="button" className="link-button" onClick={finish}>
-                Back where I started
-              </button>
-            )}
+          </div>
+        )}
+        {!readOnly && !atFront && corners >= 3 && (
+          <div className={styles.row}>
+            <button type="button" className="btn-secondary" onClick={finish}>
+              Finished: I&rsquo;m back at the front
+            </button>
           </div>
         )}
         {footer}
@@ -444,9 +505,7 @@ export function PhotoWalk({
   // The end of the walk.
   const sum = walkSummary(route);
   const closes = lapCloses(walk);
-  const needMeasure = !walkHasMeasure(route);
-  const measurable = walkPhotos(walk).filter((p) => p.tag.role !== "corner" || p.tag.corner === "inside");
-  const on = route.photos.find((p) => p.id === measureOn) ?? null;
+  const typed = walkMeasures(walk);
   return (
     <div className={`${styles.card} ${styles.walk}`}>
       {head(`Round ${the}: done`, "The end of the walk")}
@@ -456,35 +515,27 @@ export function PhotoWalk({
         {sum.measures === 1 ? "" : "s"}
         {sum.sidesSkipped ? `; ${sum.sidesSkipped} side${sum.sidesSkipped === 1 ? "" : "s"} too tight for a photo` : ""}.
       </p>
+      {typed.length > 0 && <p className="field-note">Measured: {typed.map(({ m, stop }) => `${measureWords(m)} (${stopWords(walk, stop)})`).join("; ")}.</p>}
       {closes ? (
         <>
-          <LapSketch walk={walk} step={step} outline={main.outline} shared={main.shared ?? []} />
+          <LapSketch walk={walk} step={step} outline={route.buildings.find((b) => b.id === "main")?.outline} shared={route.buildings.find((b) => b.id === "main")?.shared ?? []} />
           <p className="field-note">The shape your walk makes. Its sizes are rough until it&rsquo;s measured: the photos and your measurements set them.</p>
         </>
       ) : (
         <p className="field-note">The corners don&rsquo;t make a closed shape, so it isn&rsquo;t drawn from the walk: draw it below, or the Scrivn team will.</p>
       )}
-      {needMeasure && !readOnly ? (
-        <div className={styles.ask}>
-          <p>One measurement is needed: it sets every size. Pick a photo and drag across something you&rsquo;ve measured or know the size of.</p>
-          <div className={styles.thumbs}>
-            {measurable.map(({ photo, tag }) => (
-              <button key={photo} type="button" className={`${styles.thumb} ${photo === measureOn ? styles.thumbOn : ""}`} onClick={() => (setMeasureOn(photo), setLine(null))} title={walkPhotoWords(tag, walk)}>
-                {urls.get(photo) ? <img src={urls.get(photo)} alt={walkPhotoWords(tag, walk)} /> : <span className="field-note">waiting</span>}
-              </button>
-            ))}
-          </div>
-          {on && (
-            <PhotoTaps url={urls.get(on.id) ?? null} width={on.width} height={on.height} taps={[]} tapes={[]} line={line} mode="tape" selected={null} onTap={() => {}} onPickTap={() => {}} onLine={(a, b) => setLine({ a, b })} />
-          )}
-          {on && line && <TapeForm onCancel={() => setLine(null)} onDone={(what, feet) => addTape(on.id, what, feet, false)} />}
-        </div>
+      {!walkHasMeasure(route) && !readOnly ? (
+        <MeasureAnywhere route={route} urlOf={urlOf} readOnly={readOnly} onAdd={addMeasure} onRemove={removeMeasure} />
       ) : (
         !readOnly && (
           <>
-            <p className={styles.walkSay}>Send it to the Scrivn team to measure, or measure it here: tap the corners on each photo, then Measure.</p>
+            <p className={styles.walkSay}>Send it to the Scrivn team: they place each measurement on its photo exactly, and measure {the}.</p>
+            <div className={styles.walkNext}>{send}</div>
+            <p className="field-note">
+              Or measure it here: tap the corners on each photo, and drag each measurement&rsquo;s line across it on its photo. That part is easiest on a computer or a tablet: on a
+              phone the photos are small.
+            </p>
             <div className={styles.row}>
-              {send}
               <button type="button" className="btn-secondary" onClick={onMeasureHere}>
                 Measure it here
               </button>
@@ -503,12 +554,225 @@ export function PhotoWalk({
   );
 }
 
-/** Outside (the default), inside, or - an attached home - joined to the neighbour's here. One tap, before the photo. */
-function TurnChoice({ turn, attached, readOnly, onTurn }: { turn: WalkTurn; attached: boolean; readOnly: boolean; onTurn: (t: WalkTurn) => void }) {
+/** A stop of the walk in words: "the front", "the right side", "corner 2". */
+function stopWords(walk: RouteWalk, stop: number): string {
+  const s = walk.stops[stop];
+  if (!s) return "";
+  if (s.kind === "front") return "the front";
+  if (s.kind === "side") return `the ${facingWords(walkHeading({ stops: walk.stops.slice(0, stop) }))}`;
+  return `corner ${walk.stops.slice(0, stop + 1).filter((x) => x.kind === "corner").length}`;
+}
+
+/** What was measured at a stop, each with Remove. */
+function MeasureList({ items, readOnly, onRemove }: { items: WalkMeasure[]; readOnly: boolean; onRemove: (id: string) => void }) {
+  if (items.length === 0) return null;
+  return (
+    <ul className={styles.walkMeasured}>
+      {items.map((m) => (
+        <li key={m.id}>
+          <strong>{measureWords(m)}</strong>
+          <span className="field-note">{m.what === "wall" ? "" : m.near ? " tapped on the photo" : " not tapped: fine"}</span>
+          {!readOnly && (
+            <button type="button" className="link-button" onClick={() => onRemove(m.id)}>
+              Remove
+            </button>
+          )}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/**
+ * One measurement, typed: what it was, its size (a garage door's 9' or 16' one tap, else feet, inches and an eighth), and -
+ * if they like - one tap on the photo roughly on it. No line to drag (the first walk's was "borderline impossible" on a phone).
+ */
+function MeasureForm({
+  photo,
+  url,
+  kinds,
+  onAdd,
+  onPicking,
+  onCancel,
+}: {
+  photo: RoutePhoto | null;
+  url: string | null;
+  kinds: TapeWhat[];
+  onAdd: (m: Omit<WalkMeasure, "id">) => void;
+  /** What it is picked (true) or unpicked: the card's "No, nothing measured here" stands aside meanwhile. */
+  onPicking?: (picking: boolean) => void;
+  /** Shown as Cancel beside the form when there's somewhere to go back to (something measured here already). */
+  onCancel?: () => void;
+}) {
+  const [what, setWhat] = useState<TapeWhat | null>(kinds.length === 1 ? (kinds[0] as TapeWhat) : null);
+  const [chip, setChip] = useState<number | null>(null);
+  const [typed, setTyped] = useState<number | null>(null);
+  /** The boxes cleared when a garage door size is tapped, and the other way round. */
+  const [boxes, setBoxes] = useState(0);
+  const [near, setNear] = useState<[number, number] | null>(null);
+  const feet = chip ?? typed;
+  const pick = (w: TapeWhat | null) => {
+    setWhat(w);
+    setChip(null);
+    setTyped(null);
+    setNear(null);
+    setBoxes((n) => n + 1);
+    if (kinds.length > 1) onPicking?.(w !== null);
+  };
+  return (
+    <div className={styles.walkForm}>
+      {kinds.length > 1 && (
+        <div className="option-group" role="group" aria-label="What you measured">
+          {kinds.map((k) => (
+            <button key={k} type="button" className={`option-btn${what === k ? " selected" : ""}`} aria-pressed={what === k} onClick={() => pick(k)}>
+              {WHAT_LABEL[k]}
+            </button>
+          ))}
+        </div>
+      )}
+      {what && (
+        <>
+          <p className="field-note">{what === "wall" ? "The whole wall, corner to corner." : WHAT_HINT[what]}</p>
+          {what === "garage" && (
+            <div className={styles.row} role="group" aria-label="The garage door's width">
+              {[9, 16].map((f) => (
+                <button
+                  key={f}
+                  type="button"
+                  className={`option-btn${chip === f ? " selected" : ""}`}
+                  aria-pressed={chip === f}
+                  onClick={() => {
+                    setChip(f);
+                    setTyped(null);
+                    setBoxes((n) => n + 1);
+                  }}
+                >
+                  {f}&prime; door
+                </button>
+              ))}
+              <span className="field-note">or type it:</span>
+            </div>
+          )}
+          <FeetInchesInput
+            key={`${what}-${boxes}`}
+            label={what === "garage" ? "Its width" : what === "wall" ? "The wall's length" : "Its size"}
+            onChange={(f) => {
+              setTyped(f);
+              if (f !== null) setChip(null);
+            }}
+          />
+          {photo && what !== "wall" && (
+            <>
+              <p className="field-note">If you like, tap it on the photo, roughly. Close is fine: we place it exactly.</p>
+              <NearTap url={url} width={photo.width} height={photo.height} near={near} onTap={setNear} />
+            </>
+          )}
+          <button type="button" className={`btn-primary ${styles.walkBig}`} disabled={!(feet !== null && feet > 0)} onClick={() => feet && onAdd({ what, feet, ...(photo ? { photo: photo.id } : {}), ...(near && what !== "wall" ? { near } : {}) })}>
+            {feet ? `Add it: ${measureWords({ what, feet })}` : "Add it"}
+          </button>
+        </>
+      )}
+      {(onCancel || (what && kinds.length > 1)) && (
+        <button type="button" className={`link-button ${styles.walkCancel}`} onClick={() => (onCancel ? onCancel() : pick(null))}>
+          Cancel
+        </button>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The photo, a tap on it marking roughly where: one tap, no drag, so a swipe still scrolls the page past it. The mark is
+ * where to look for what was measured, never its ends.
+ */
+function NearTap({ url, width, height, near, onTap }: { url: string | null; width: number; height: number; near: [number, number] | null; onTap: (p: [number, number]) => void }) {
+  return (
+    <div
+      className={styles.nearBox}
+      // Waiting for its picture, the box keeps the photo's shape across the card rather than shrinking to nothing.
+      style={url ? undefined : { width: "100%" }}
+      onClick={(e) => {
+        const box = e.currentTarget.getBoundingClientRect();
+        if (box.width === 0 || box.height === 0) return;
+        onTap([Math.round(((e.clientX - box.left) / box.width) * width), Math.round(((e.clientY - box.top) / box.height) * height)]);
+      }}
+    >
+      {url ? <img src={url} alt="The photo: tap roughly on what you measured" draggable={false} /> : <div style={{ width: "100%", aspectRatio: `${width} / ${height}`, background: "#e7e5e4" }} />}
+      {near && <span className={styles.nearMark} style={{ left: `${(near[0] / width) * 100}%`, top: `${(near[1] / height) * 100}%` }} aria-hidden />}
+    </div>
+  );
+}
+
+/**
+ * One measurement asked for before the walk can finish (or at its end, if it was taken away): a photo of the walk picked,
+ * then the measurement as at a side - or a side too tight to photograph, its length.
+ */
+function MeasureAnywhere({
+  route,
+  urlOf,
+  readOnly,
+  onAdd,
+  onRemove,
+}: {
+  route: PhotoRouteState;
+  urlOf: (id: string) => string | null;
+  readOnly: boolean;
+  onAdd: (stop: number, m: Omit<WalkMeasure, "id">) => void;
+  onRemove: (id: string) => void;
+}) {
+  const walk = route.walk ?? newWalk();
+  const [on, setOn] = useState<{ stop: number; photo: string | null } | null>(null);
+  const shots = walkPhotos(walk);
+  const bare = walk.stops.flatMap((s, i) => (s.kind === "side" && !s.shared && s.photos.length === 0 ? [i] : []));
+  const done = walkMeasures(walk);
+  const photo = on?.photo ? (route.photos.find((p) => p.id === on.photo) ?? null) : null;
+  const stopKind = on ? walk.stops[on.stop]?.kind : undefined;
+  return (
+    <div className={styles.ask}>
+      <p>One measurement sets every size, so one is needed before you finish. Pick a photo with something on it you measured or know the size of: a garage door counts.</p>
+      <MeasureList items={done.map(({ m }) => m)} readOnly={readOnly} onRemove={onRemove} />
+      {!readOnly && (
+        <>
+          <div className={styles.thumbs}>
+            {shots.map(({ photo: id, tag, stop }) => (
+              <button key={id} type="button" className={`${styles.thumb} ${id === on?.photo ? styles.thumbOn : ""}`} onClick={() => setOn({ stop, photo: id })} title={walkPhotoWords(tag, walk)}>
+                {urlOf(id) ? <img src={urlOf(id) as string} alt={walkPhotoWords(tag, walk)} /> : <span className="field-note">waiting</span>}
+              </button>
+            ))}
+          </div>
+          {bare.length > 0 && (
+            <div className={styles.row}>
+              {bare.map((i) => (
+                <button key={i} type="button" className={`option-btn${on?.stop === i && !on.photo ? " selected" : ""}`} onClick={() => setOn({ stop: i, photo: null })}>
+                  {stopWords(walk, i)}: its length
+                </button>
+              ))}
+            </div>
+          )}
+          {on && (
+            <MeasureForm
+              key={`${on.stop}-${on.photo ?? "none"}-${done.length}`}
+              photo={photo}
+              url={photo ? urlOf(photo.id) : null}
+              kinds={!photo ? NO_PHOTO : stopKind === "corner" ? ON_A_CORNER : ON_A_SIDE}
+              onAdd={(m) => {
+                onAdd(on.stop, m);
+                setOn(null);
+              }}
+            />
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+/** Outside (the default), inside, or where this home meets the neighbour's - the wall on from it shared. One tap, before the photo. */
+function TurnChoice({ turn, readOnly, onTurn }: { turn: WalkTurn; readOnly: boolean; onTurn: (t: WalkTurn) => void }) {
   const options: [WalkTurn, string][] = [
     ["outside", "Outside corner"],
     ["inside", "Inside corner"],
-    ...(attached ? ([["joined", "Joined to the neighbour"]] as [WalkTurn, string][]) : []),
+    ["joined", "Joins the neighbour"],
   ];
   return (
     <>
@@ -520,8 +784,8 @@ function TurnChoice({ turn, attached, readOnly, onTurn }: { turn: WalkTurn; atta
         ))}
       </div>
       <p className="field-note">
-        Outside: the corner sticks out towards you. Inside: it&rsquo;s tucked in, two walls meeting in a notch.
-        {attached ? " Joined: your home meets the neighbour's here, and the wall after it is shared." : ""}
+        Outside: the corner sticks out towards you. Inside: it&rsquo;s tucked in, two walls meeting in a notch. Joins the neighbour: your home meets the neighbour&rsquo;s here, and the
+        wall on from it is shared: no photo of it.
       </p>
     </>
   );

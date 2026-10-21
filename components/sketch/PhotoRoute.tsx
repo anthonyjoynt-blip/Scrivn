@@ -15,7 +15,7 @@ import { routeCoverage, viewsFromMeasure } from "@/lib/photoRouteCoverage";
 import { measureRoute, type PhotoPixelsIn, photoLines } from "@/lib/photoRouteData";
 import { exifFocal35, focalOverWidth } from "@/lib/photoRouteExif";
 import { exteriorFromRoute, measuredFrom } from "@/lib/photoRouteExterior";
-import { newWalk, walkActive, walkPhotos, walkPhotoWords, walkTapWords, withWalk } from "@/lib/photoRouteWalk";
+import { measureWords, newWalk, walkActive, walkPhotos, walkPhotoWords, walkTapWords, walkUnplaced, withWalk } from "@/lib/photoRouteWalk";
 import type { Pt } from "@/lib/roof";
 import { formatFeetInches, newSketchId } from "@/lib/sketch";
 import { FootprintDraw } from "./ExteriorPlan";
@@ -27,7 +27,7 @@ import { useExteriorSubject } from "./exteriorSubject";
 import styles from "./PhotoRoute.module.css";
 import { squaredWallPhoto } from "./SidePhotos";
 import { SendToTeam } from "./TeamMeasure";
-import { PhotoTaps, TapeForm, WallTapeForm, WHAT_LABEL } from "./photoRouteParts";
+import { PhotoTaps, TapeForm, WallTapeForm, WHAT_HINT, WHAT_LABEL } from "./photoRouteParts";
 import { PhotoWalk } from "./PhotoWalk";
 
 /**
@@ -144,6 +144,8 @@ export function PhotoRoutePane({ exterior, readOnly, onChange }: { exterior: Ext
   const [mode, setMode] = useState<"corners" | "ends" | "tape" | "wall">("corners");
   const [line, setLine] = useState<{ a: [number, number]; b: [number, number] } | null>(null);
   const [wallSide, setWallSide] = useState<number | null>(null);
+  /** A measurement typed on the walk being placed: its line dragged on its photo, or (a wall's length) its side picked. */
+  const [placing, setPlacing] = useState<string | null>(null);
   /** The walk's shape, shown faint while the shape is drawn again by hand. */
   const [walkGuide, setWalkGuide] = useState<Pt[] | null>(null);
   /** Where "Measure it here" at the walk's end goes: the corners on the photos, or the shape when the walk didn't close. */
@@ -354,7 +356,6 @@ export function PhotoRoutePane({ exterior, readOnly, onChange }: { exterior: Ext
       route={route}
       urls={urls}
       readOnly={readOnly}
-      isHouse={isHouse}
       the={the}
       change={change}
       keep={keepForWalk}
@@ -372,6 +373,23 @@ export function PhotoRoutePane({ exterior, readOnly, onChange }: { exterior: Ext
       </div>
     );
   }
+  // What was measured on the walk, typed, and not yet a tape: its line to drag on its photo, here on a bigger screen (the
+  // phone never asks for it), or a wall's side to pick.
+  const unplaced = walk ? walkUnplaced(route) : [];
+  const placingM = unplaced.find((u) => u.m.id === placing)?.m ?? null;
+  const startPlacing = (m: (typeof unplaced)[number]["m"]) => {
+    setPlacing(m.id);
+    setLine(null);
+    setPicking(null);
+    if (m.what === "wall" || !m.photo) {
+      setMode("wall");
+      setWallSide(null);
+      shapeRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    } else {
+      setSelected(m.photo);
+      setMode("tape");
+    }
+  };
   // A photo's place on the walk, short, on its thumbnail.
   const walkMark = (p: RoutePhoto) => (!p.walk ? null : p.walk.role === "front" ? "Front" : p.walk.role === "side" ? `Side ${p.walk.k}` : `C${p.walk.k}${p.walk.corner === "inside" ? " in" : ""}`);
   const walkAt = photo ? walkOrder.findIndex((w) => w.photo === photo.id) : -1;
@@ -481,7 +499,9 @@ export function PhotoRoutePane({ exterior, readOnly, onChange }: { exterior: Ext
                   ? (k, kind) =>
                       picking !== null && kind === "corner"
                         ? setCorner(picking, k)
-                        : kind === "side" && mode === "wall"
+                        : kind === "side" && mode === "wall" && placingM
+                          ? (addTape({ id: placingM.id, kind: "side", from: k, feet: placingM.feet }), setPlacing(null), setMode("corners"))
+                          : kind === "side" && mode === "wall"
                           ? setWallSide(k)
                           : kind === "side" && attached && picking === null
                             ? change((r) => withMain(r, (b) => ({ ...b, shared: (b.shared ?? []).includes(k) ? (b.shared ?? []).filter((i) => i !== k) : [...(b.shared ?? []), k].sort((p, q) => p - q) })))
@@ -522,6 +542,35 @@ export function PhotoRoutePane({ exterior, readOnly, onChange }: { exterior: Ext
       {photo && main.outline.length >= 4 && (
         <section ref={tapsRef}>
           <h3>3. The corners, and the tapes</h3>
+          {unplaced.length > 0 && !readOnly && (
+            <div className={styles.ask}>
+              <p>
+                <strong>Measured on the walk, to place:</strong> drag each one&rsquo;s line across it on its photo, end to end; a wall&rsquo;s length, tap its side on the shape. Easiest on a
+                computer or a tablet.
+              </p>
+              <ul className={styles.walkMeasured}>
+                {unplaced.map(({ m }) => (
+                  <li key={m.id}>
+                    <strong>{measureWords(m)}</strong>
+                    <span className="field-note">{m.photo ? `photo ${route.photos.findIndex((p) => p.id === m.photo) + 1}` : "no photo"}</span>
+                    <button type="button" className={placing === m.id ? "btn-primary" : "btn-secondary"} onClick={() => startPlacing(m)}>
+                      {placing === m.id ? "Placing it…" : m.what === "wall" || !m.photo ? "Tap its side" : "Place it"}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              {placingM && (
+                <p className="field-note">
+                  {placingM.what === "wall" || !placingM.photo
+                    ? `${measureWords(placingM)}: tap its side on the shape above.`
+                    : `${measureWords(placingM)}: drag across it on this photo. ${WHAT_HINT[placingM.what]}${placingM.near ? " The ring is where it was tapped at the house." : ""}`}{" "}
+                  <button type="button" className="link-button" onClick={() => (setPlacing(null), setMode("corners"))}>
+                    Cancel
+                  </button>
+                </p>
+              )}
+            </div>
+          )}
           {photo.walk && walk && (
             <div className={styles.ask}>
               <p>
@@ -560,7 +609,9 @@ export function PhotoRoutePane({ exterior, readOnly, onChange }: { exterior: Ext
             </div>
           )}
           <p className="field-note">
-            {mode === "ends"
+            {placingM && mode === "tape" && placingM.photo === photo.id
+              ? `Placing ${measureWords(placingM)}: drag across it, end to end. ${WHAT_HINT[placingM.what]}`
+              : mode === "ends"
               ? "On a front or back photo, tap where this home ends, at the ground: the party line, often a downspout, a trim line, or where the siding or colour changes. What's past it is the neighbour's and isn't measured."
               : mode === "corners"
               ? photo.shot
@@ -610,7 +661,15 @@ export function PhotoRoutePane({ exterior, readOnly, onChange }: { exterior: Ext
             selected={picking}
             onTap={addTap}
             onPickTap={(i) => setPicking(i)}
-            onLine={(a, b) => setLine({ a, b })}
+            onLine={(a, b) => {
+              // A measurement typed on the walk takes the line as it is: what and how long were said at the house.
+              if (placingM && placingM.what !== "wall" && placingM.photo === photo.id) {
+                addTape({ id: placingM.id, kind: "line", photo: photo.id, a, b, feet: placingM.feet, what: placingM.what });
+                setPlacing(null);
+                setMode("corners");
+              } else setLine({ a, b });
+            }}
+            rings={unplaced.flatMap(({ m }) => (m.photo === photo.id && m.near ? [{ x: m.near[0], y: m.near[1] }] : []))}
           />
           {placed.size > 0 && !placed.has(photo.id) && measured && (
             <p className={styles.weak}>{measured.unplaced.find((u) => u.photo === photo.id)?.why ?? "Not used in the last measure."}</p>
@@ -662,6 +721,12 @@ export function PhotoRoutePane({ exterior, readOnly, onChange }: { exterior: Ext
           </div>
         )}
         {!ready && <p className="field-note">Measuring needs the shape drawn and two photos at least with two corners each.</p>}
+        {unplaced.length > 0 && (
+          <p className="field-note">
+            {unplaced.length === 1 ? "One measurement" : `${unplaced.length} measurements`} from the walk {unplaced.length === 1 ? "isn't" : "aren't"} placed yet (3, above), so{" "}
+            {unplaced.length === 1 ? "it isn't" : "they aren't"} used: place {unplaced.length === 1 ? "it" : "them"} first, or Send to Scrivn team and we place {unplaced.length === 1 ? "it" : "them"}.
+          </p>
+        )}
         {busy && <p className="field-note">{busy}</p>}
         {error && <p className="sketch-length-error">{error}</p>}
         {measured && <Results exterior={exterior} route={route} />}

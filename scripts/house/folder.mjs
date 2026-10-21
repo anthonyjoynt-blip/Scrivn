@@ -137,6 +137,22 @@ export function draftInputs(h) {
     if (t.kind === "side") tapes.push({ id: t.id, said: `the tester's tape: ${sideName(t.from, n)}`, feet: t.feet, what: "wall", kind: "side", side: sideName(t.from, n) });
     else if (nOf.has(t.photo)) tapes.push({ id: t.id, said: `the tester's tape: a ${t.what} on photo ${nOf.get(t.photo)}`, feet: t.feet, what: t.what, kind: "line", on: [{ photo: nOf.get(t.photo), a: t.a.map(round1), b: t.b.map(round1) }] });
   }
+  // Measured on the walk round the house, typed on the phone (2026-10-21, lib/photoRouteWalk.ts WalkMeasure): what and how
+  // long, the photo it's on, and maybe one rough tap on it ("near") - never its ends, which are ours to place
+  // (`tape w1 3 = x,y x,y`). A wall's length the walk laid on its side is a tape of the route already, above.
+  const taped = new Set((main?.tapes ?? []).map((t) => t.id));
+  let w = 0;
+  for (const s of route?.walk?.stops ?? []) {
+    for (const m of s.measures ?? []) {
+      if (taped.has(m.id) || !(Number(m.feet) > 0)) continue;
+      w += 1;
+      const n = m.photo ? nOf.get(m.photo) : undefined;
+      const near = n && Array.isArray(m.near) ? { photo: n, x: round1(m.near[0]), y: round1(m.near[1]) } : null;
+      const said = `the tester's measurement, typed on the walk: ${m.what === "wall" ? "a wall's length, corner to corner" : `a ${m.what === "garage" ? "garage door" : m.what}`}${n ? ` on photo ${n}` : ", no photo"}${near ? `, tapped roughly at ${near.x},${near.y}` : ""}`;
+      if (m.what === "wall") tapes.push({ id: `w${w}`, walk: m.id, said, feet: m.feet, what: "wall", kind: "side", side: null });
+      else tapes.push({ id: `w${w}`, walk: m.id, said, feet: m.feet, what: m.what, kind: "line", on: [], ...(near ? { near } : {}) });
+    }
+  }
   for (const t of tapesRead.tapes) {
     const id = tapes.some((q) => q.id === t.id) ? `${t.id}-words` : t.id;
     if (t.kind === "side") tapes.push({ id, said: t.said, feet: round4(t.feet), what: t.what, kind: "side", side: null });

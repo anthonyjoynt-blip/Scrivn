@@ -4,7 +4,7 @@
  * sides drifting 10-35%), and a photo at 45 degrees to every outside corner with a measurement on each side as the
  * capture that holds. So the walk asks for exactly that, in order:
  *
- *   the front, straight on, and something on it measured (a garage door; a window or a door across its frame);
+ *   the front, straight on, and anything on it measured, typed (a garage door; a window or a door across its frame);
  *   then round the house in one direction, the front's right-hand corner first: each corner at 45 degrees - or, at an
  *   inside corner, where no 45 shows it, the walls either side of it, which are the sides' own photos (the wall before it
  *   asked for there only when its side had no room for one) - and each side straight on if there's room to get back,
@@ -12,7 +12,16 @@
  *
  * Where the home meets the neighbour's (a semi, a townhouse) there is no corner to stand at 45 degrees to: the walk asks
  * instead for the open wall at an angle from that end, the whole wall and both its ends in - so a middle townhouse gets
- * two angled photos of its front and two of its back, as Hover asks for (2026-10-21).
+ * two angled photos of its front and two of its back, as Hover asks for (2026-10-21). Nothing is asked up front: no shape,
+ * no kind of home (the owner, 10-21: "rather just next corner, next elevation until you say finished"). A corner said to
+ * meet the neighbour's is where a shared wall is, and the home's type follows from how many there are (`walkHomeType`).
+ *
+ * A measurement is typed, never drawn (2026-10-21: a line dragged across a garage door on a photo the size of a phone was
+ * "borderline impossible" on the owner's phone, and the first walk was pulled for it). At the front and at each side,
+ * "Did you measure anything here?": what it was, its size in feet, inches and an eighth, and - if they like - one tap on
+ * the photo roughly on it (`WalkMeasure`). Its ends are placed afterwards: by the Scrivn team for a walk sent to them (the
+ * house runner's `tape tN P = ...`), or in the route on a bigger screen. A wall's length needs no ends: once the lap
+ * closes it is that side's tape (`withWalk`). One measurement at least before the walk can finish.
  *
  * The lap says the house's shape: how many corners, and at each whether the walk went round the outside of the house or
  * into a notch. That is the outline (`lapOutline`), its sizes rough until measured, so nobody draws it by hand; and each
@@ -26,15 +35,32 @@
  * is the outline's last, from the last corner round to corner 1.
  */
 
-import type { HomeType } from "./exterior";
-import type { CornerTap, PhotoRouteState, RouteBuilding, RoutePhoto, RouteShot, RouteTape } from "./photoRoute";
+import { type HomeType, isAttachedHome } from "./exterior";
+import type { CornerTap, PhotoRouteState, RouteBuilding, RoutePhoto, RouteShot, RouteTape, TapeWhat } from "./photoRoute";
 import type { Pt } from "./roof";
+import { formatFeetInches } from "./sketch";
 
 /** A corner as walked: round the outside of the house, into a notch, or (an attached home) where it meets the neighbour's. */
 export type WalkTurn = "outside" | "inside" | "joined";
 
 /** What can be passed by at a stop: its photo; at an inside corner, the wall before it. */
 export type WalkPart = "photo" | "before" | "after";
+
+/**
+ * A measurement typed on the walk (2026-10-21): what was measured and its size, on the stop's photo, with at most one rough
+ * tap on it. Not a tape until its ends are placed (a `RouteTape` "line" with this id), except a wall's length on the front
+ * or a side, which is that side's tape once the lap closes (`withWalk`: a "side" tape with this id).
+ */
+export interface WalkMeasure {
+  /** "walk-...": the tape made of it keeps it. */
+  id: string;
+  what: TapeWhat;
+  feet: number;
+  /** The photo it is on: the stop's. None for a wall too tight to photograph ("Can't get back far enough"). */
+  photo?: string;
+  /** One tap on the photo, roughly on what was measured (its pixels): where to look, never its ends. */
+  near?: [number, number];
+}
 
 /** One stop of the walk, as done. */
 export interface WalkStop {
@@ -47,8 +73,10 @@ export interface WalkStop {
   skipped?: WalkPart[];
   /** A side shared with the neighbour's home: not photographed, not measured. */
   shared?: true;
-  /** A front's or a side's measurement: put in, or passed by. */
+  /** A front's or a side's "Did you measure anything here?": answered with a measurement or more, or passed by. */
   measure?: "done" | "skipped";
+  /** What was measured here, typed (`WalkMeasure`). */
+  measures?: WalkMeasure[];
   /**
    * Put in by the walk with the stop before it - a joined corner's shared wall and the neighbour's far corner, once the
    * joined corner's own photo is taken or passed by - and taken out with it.
@@ -82,7 +110,8 @@ export interface WalkTag {
 /** Where the walk is: what the card asks for next. */
 export type WalkStep =
   | { kind: "front" }
-  | { kind: "measure"; stop: number; role: "front" | "side"; k: number }
+  /** "Did you measure anything here?" at the front or a side: on its photo, or (a side too tight for one) its length only. */
+  | { kind: "measure"; stop: number; role: "front" | "side"; k: number; photo: string | null }
   | { kind: "corner"; k: number }
   | { kind: "inside"; k: number; wall: "before" | "after" }
   | { kind: "side"; k: number }
@@ -141,7 +170,7 @@ export function walkStep(walk: RouteWalk): WalkStep {
   const i = stops.length - 1;
   const k = stopNumbers(walk)[i] as number;
   if (last.kind === "front" || last.kind === "side") {
-    if (last.photos.length > 0 && !last.measure) return { kind: "measure", stop: i, role: last.kind, k };
+    if (!last.shared && !last.measure) return { kind: "measure", stop: i, role: last.kind, k, photo: last.photos[0] ?? null };
     return { kind: "corner", k: k + 1 };
   }
   const prev = stops[i - 1];
@@ -203,13 +232,53 @@ export function walkSkip(walk: RouteWalk): RouteWalk {
   return walk;
 }
 
-/** The measurement step done: a measurement was put in on its photo. */
+/** "Did you measure anything here?" answered: "done" with a measurement or more put in, else passed by. */
 export function walkMeasured(walk: RouteWalk): RouteWalk {
   const step = walkStep(walk);
   if (step.kind !== "measure") return walk;
   const stops = [...walk.stops];
-  stops[step.stop] = { ...(stops[step.stop] as WalkStop), measure: "done" };
+  const s = stops[step.stop] as WalkStop;
+  stops[step.stop] = { ...s, measure: (s.measures ?? []).length ? "done" : "skipped" };
   return withStops(walk, stops);
+}
+
+/** A measurement typed at stop `stop`: the measure step's, or - one asked for before finishing - any stop's photo. */
+export function walkAddMeasure(walk: RouteWalk, stop: number, m: WalkMeasure): RouteWalk {
+  const s = walk.stops[stop];
+  if (!s || !(m.feet > 0)) return walk;
+  const stops = [...walk.stops];
+  stops[stop] = { ...s, measures: [...(s.measures ?? []), m] };
+  return withStops(walk, stops);
+}
+
+/** A measurement taken out, wherever it is. */
+export function walkRemoveMeasure(walk: RouteWalk, id: string): RouteWalk {
+  return withStops(
+    walk,
+    walk.stops.map((s) => (s.measures?.some((m) => m.id === id) ? { ...s, measures: s.measures.filter((m) => m.id !== id) } : s)),
+  );
+}
+
+/** Every measurement of the walk, with its stop and that stop's number and kind, in the order walked. */
+export function walkMeasures(walk: RouteWalk): { m: WalkMeasure; stop: number; kind: WalkStop["kind"]; k: number }[] {
+  const nums = stopNumbers(walk);
+  return walk.stops.flatMap((s, i) => (s.measures ?? []).map((m) => ({ m, stop: i, kind: s.kind, k: nums[i] as number })));
+}
+
+/** A new measurement's id: "walk-", so the side tape a wall's length makes is known as the walk's (`withWalk`). */
+export function newMeasureId(): string {
+  return `walk-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+}
+
+/**
+ * The home's type from the walk: a corner said to meet the neighbour's is where a shared wall is - one, a semi (or an end
+ * townhouse, if already said so); two or more, a middle townhouse. None: as it was, unless that was an attached home.
+ */
+export function walkHomeType(walk: RouteWalk, was: HomeType | undefined): HomeType | undefined {
+  const joined = walk.stops.filter((s) => s.kind === "corner" && s.turn === "joined" && !s.auto).length;
+  if (joined >= 2) return "town_middle";
+  if (joined === 1) return was === "town_end" ? "town_end" : "semi";
+  return isAttachedHome(was) ? "detached" : was;
 }
 
 /**
@@ -535,10 +604,14 @@ export function walkShot(tag: WalkTag, walk: RouteWalk, shift = 0): RouteShot | 
  * with the neighbour, and each photo's `shot` on the shape. A shape that changes clears the corners' numbers, as drawing
  * it again does; the photos' shots name them again.
  */
-export function withWalk(route: PhotoRouteState, walk: RouteWalk, homeType?: HomeType): PhotoRouteState {
+export function withWalk(route: PhotoRouteState, walk: RouteWalk): PhotoRouteState {
   const tags = new Map(walkPhotos(walk).map((p) => [p.photo, p.tag]));
-  const main = route.buildings.find((b) => b.id === "main") ?? { id: "main", outline: [], corners: [], tapes: [] };
-  let b: RouteBuilding = homeType ? { ...main, homeType } : main;
+  const main: RouteBuilding = route.buildings.find((b) => b.id === "main") ?? { id: "main", outline: [], corners: [], tapes: [] };
+  // The home's type is the walk's to say once it has a corner: a corner meeting the neighbour's is a shared wall.
+  const homeType = walk.stops.some((s) => s.kind === "corner") ? walkHomeType(walk, main.homeType) : main.homeType;
+  const { homeType: _was, ...untyped } = main;
+  // A wall's length typed on the walk is its side's tape once the lap is laid on the shape: made again each time.
+  let b: RouteBuilding = { ...untyped, ...(homeType ? { homeType } : {}), tapes: main.tapes.filter((t) => !(t.kind === "side" && t.id.startsWith("walk-"))) };
   let shift: number | null = null;
   const turns = lapTurns(walk);
   if (walk.closed && lapCloses(walk)) {
@@ -554,7 +627,7 @@ export function withWalk(route: PhotoRouteState, walk: RouteWalk, homeType?: Hom
       const m = turns.length;
       const nums = stopNumbers(walk);
       const shared = walk.stops.flatMap((s, i) => (s.kind === "side" && s.shared ? [(((nums[i] as number) - 1 + (shift as number)) % m + m) % m] : []));
-      b = { ...b, shared: shared.sort((p, q) => p - q) };
+      b = { ...b, shared: shared.sort((p, q) => p - q), tapes: [...b.tapes, ...wallTapes(walk, shift, new Set(b.tapes.map((t) => t.id)))] };
     }
   }
   const photos = route.photos.map((p): RoutePhoto => {
@@ -572,6 +645,21 @@ export function withWalk(route: PhotoRouteState, walk: RouteWalk, homeType?: Hom
   });
   const buildings = route.buildings.some((x) => x.id === "main") ? route.buildings.map((x) => (x.id === "main" ? b : x)) : [b, ...route.buildings];
   return { ...route, walk, photos, buildings };
+}
+
+/**
+ * The walls' lengths typed on the walk as side tapes, the walk's corner k at outline corner k - 1 + shift: a side's its own
+ * wall; the front's the front, when the front is one wall (a front with steps in it is a run of walls: which one was meant
+ * waits for its ends to be placed). A measurement already a tape (its line placed) stands as it is.
+ */
+function wallTapes(walk: RouteWalk, shift: number, taped: Set<string>): RouteTape[] {
+  const m = lapTurns(walk).length;
+  const front = walkShot({ role: "front", k: 0 }, walk, shift);
+  return walkMeasures(walk).flatMap(({ m: w, kind, k }): RouteTape[] => {
+    if (w.what !== "wall" || taped.has(w.id)) return [];
+    const from = kind === "side" ? (((k - 1 + shift) % m) + m) % m : kind === "front" && front?.kind === "wall" ? front.index : null;
+    return from === null ? [] : [{ id: w.id, kind: "side", from, feet: w.feet }];
+  });
 }
 
 /**
@@ -613,10 +701,35 @@ export function walkSharedSides(walk: RouteWalk): number[] {
   return walk.stops.flatMap((s, i) => (s.kind === "side" && s.shared && m > 0 ? [((((nums[i] as number) - 1) % m) + m) % m] : []));
 }
 
-/** At least one measurement in the walk: what sets the size. Send and Measure wait for it. */
+/** At least one measurement, typed on the walk or a tape: what sets the size. The walk doesn't finish without one. */
 export function walkHasMeasure(route: PhotoRouteState): boolean {
-  return route.buildings.some((b) => b.id === "main" && b.tapes.length > 0);
+  return walkMeasures(route.walk ?? newWalk()).length > 0 || route.buildings.some((b) => b.id === "main" && b.tapes.length > 0);
 }
+
+/** The walk's measurements not a tape yet: a line still to place on its photo (a wall's length is its side's tape). */
+export function walkUnplaced(route: PhotoRouteState): { m: WalkMeasure; stop: number; kind: WalkStop["kind"]; k: number }[] {
+  const tapes = new Set(route.buildings.find((b) => b.id === "main")?.tapes.map((t) => t.id) ?? []);
+  return walkMeasures(route.walk ?? newWalk()).filter(({ m }) => !tapes.has(m.id));
+}
+
+/** A measurement in words, to the eighth it was typed to: "Garage door 16'", "Wall 68'6"", "Window 5'11¾"". */
+export function measureWords(m: Pick<WalkMeasure, "what" | "feet">): string {
+  return `${MEASURE_LABEL[m.what]} ${feetInchesEighths(m.feet)}`;
+}
+
+const EIGHTHS = ["", "⅛", "¼", "⅜", "½", "⅝", "¾", "⅞"];
+
+/** Feet, inches and an eighth: 5'11¾", 9', 0'4½". formatFeetInches rounds to the inch, which would show 5'11¾" as 6'. */
+export function feetInchesEighths(feet: number): string {
+  if (!Number.isFinite(feet) || feet < 0) return formatFeetInches(feet);
+  const total = Math.round(feet * 96);
+  const ft = Math.floor(total / 96);
+  const inch = Math.floor((total % 96) / 8);
+  const e = total % 8;
+  return inch === 0 && e === 0 ? `${ft}'` : `${ft}'${inch}${EIGHTHS[e]}"`;
+}
+
+const MEASURE_LABEL: Record<TapeWhat, string> = { garage: "Garage door", door: "Door", window: "Window", wall: "Wall", other: "Other" };
 
 /** The walk in numbers, for the end of it: photos, corners (inside and joined), sides passed by, measurements. */
 export function walkSummary(route: PhotoRouteState): { photos: number; corners: number; inside: number; joined: number; sidesSkipped: number; measures: number } {
@@ -628,7 +741,7 @@ export function walkSummary(route: PhotoRouteState): { photos: number; corners: 
     inside: corners.filter((s) => s.turn === "inside").length,
     joined: corners.filter((s) => s.turn === "joined").length,
     sidesSkipped: walk.stops.filter((s) => s.kind === "side" && !s.shared && s.photos.length === 0).length,
-    measures: route.buildings.find((b) => b.id === "main")?.tapes.length ?? 0,
+    measures: new Set([...walkMeasures(walk).map(({ m }) => m.id), ...(route.buildings.find((b) => b.id === "main")?.tapes.map((t) => t.id) ?? [])]).size,
   };
 }
 

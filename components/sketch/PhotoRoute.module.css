@@ -283,3 +283,84 @@
   object-fit: cover;
   border-radius: 4px;
 }
+
+/* The walk's chips and buttons: finger-sized at the house. */
+.walk :global(.option-btn) {
+  min-height: 44px;
+}
+
+/* "Next" / "No, nothing measured here": full width, the way on. */
+.walkNext {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.5rem;
+}
+
+.walkNext :global(.link-button) {
+  align-self: center;
+  min-height: 44px;
+}
+
+/* A measurement typed on the walk: what, its size, maybe one tap on the photo. */
+.walkForm {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--border, #e7e5e4);
+  border-radius: 8px;
+  background: #fafaf9;
+}
+
+.walkMeasured {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.walkMeasured li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.75rem;
+  padding: 0.35rem 0;
+  border-bottom: 1px solid var(--border, #e7e5e4);
+}
+
+.walkCancel {
+  align-self: center;
+  min-height: 44px;
+}
+
+/* The photo taking one rough tap: a swipe still scrolls past it (no drag here). */
+.nearBox {
+  position: relative;
+  align-self: center;
+  max-width: 100%;
+  line-height: 0;
+  touch-action: manipulation;
+  cursor: crosshair;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.nearBox img {
+  display: block;
+  max-width: 100%;
+  max-height: 55vh;
+  width: auto;
+  height: auto;
+  border-radius: 6px;
+}
+
+.nearMark {
+  position: absolute;
+  width: 34px;
+  height: 34px;
+  margin: -17px 0 0 -17px;
+  border: 3px solid #ea580c;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px #fff, inset 0 0 0 2px #fff;
+  pointer-events: none;
+}

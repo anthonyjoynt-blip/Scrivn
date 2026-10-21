@@ -215,28 +215,30 @@ export default function HelpPage() {
             </p>
             <ol className="help-steps">
               <li>
-                <strong>The front</strong>, straight on, both corners in. Pick the home first: detached, semi-detached, a
-                townhouse end or middle unit.
+                <strong>The front</strong>, straight on, both corners in. Nothing to pick first.
               </li>
               <li>
-                <strong>Measure something on it</strong>: drag a line across a garage door (<strong>9&prime;</strong> or{" "}
-                <strong>16&prime;</strong> is one tap), or a window or door across its frame, edge to edge, and type its
-                length. The walk needs one measurement somewhere; more help.
+                <strong>Did you measure anything on it?</strong> Say what (a garage door, a window, a door, a wall) and type
+                its size: <strong>9&prime;</strong> or <strong>16&prime;</strong> is one tap for a garage door, anything
+                else in feet, inches and an eighth. A tap on the photo, roughly on it, if you like: close is fine, it&rsquo;s
+                placed exactly later. Nothing is drawn on the phone. The walk needs one measurement before you finish.
               </li>
               <li>
                 Round the house from the front&rsquo;s right-hand corner: each <strong>corner</strong> at 45&deg;, stepped
                 back until both whole walls fit with their far corners (say <strong>Inside corner</strong> where the walls
                 meet in a notch: no photo there), then each <strong>side</strong> straight on (upright if it&rsquo;s too
-                tight to step back, or <strong>Can&rsquo;t get back far enough</strong>), with a measurement if there is
-                one. An L-shape is just more corners. A semi or a townhouse: <strong>Joined to the neighbour</strong> where
-                the homes meet, and the open wall at an angle from that end; the shared wall is skipped.
+                tight to step back, or <strong>Can&rsquo;t get back far enough</strong>, then its length if you taped it),
+                with anything you measured on it. An L-shape is just more corners. Where your home meets the
+                neighbour&rsquo;s, say <strong>Joins the neighbour</strong> at that corner, and take the open wall at an
+                angle from that end; the shared wall is skipped.
               </li>
               <li>
-                <strong>Back where you started?</strong> <strong>Yes: finish the walk</strong>. The shape comes from your
-                corners. Then <strong>Send to Scrivn team to measure</strong>, or <strong>Measure it here</strong>: tap the
-                corners on each photo (Scrivn numbers them by what each was taken for), <strong>Measure the house</strong>{" "}
-                for each side&rsquo;s length and &plusmn;, then <strong>Check these</strong> and the{" "}
-                <strong>Roof check</strong> on Plan &amp; roof.
+                <strong>Finished</strong> when you&rsquo;re back at the front. The shape comes from your corners. Then{" "}
+                <strong>Send to Scrivn team to measure</strong> (we place each measurement exactly), or{" "}
+                <strong>Measure it here</strong>, easiest on a computer or a tablet: tap the corners on each photo (Scrivn
+                numbers them by what each was taken for), drag each measurement&rsquo;s line on its photo,{" "}
+                <strong>Measure the house</strong> for each side&rsquo;s length and &plusmn;, then{" "}
+                <strong>Check these</strong> and the <strong>Roof check</strong> on Plan &amp; roof.
               </li>
             </ol>
             <p>
