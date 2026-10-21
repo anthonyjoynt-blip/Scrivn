@@ -432,5 +432,39 @@ check("where he stood moves neither the lens nor the numbers Scrivn gives the co
 check("and the garage bays move under 2% for it", frontOf(bareRun.solution).every((v, i) => Math.abs(frontOf(bareStoodRun.solution)[i] / v - 1) < 0.02), `${frontOf(bareRun.solution).map(ftin).join(", ")} -> ${frontOf(bareStoodRun.solution).map(ftin).join(", ")}`);
 check("his own measure: each flag names a photo, corner or wall", hisFlags.every((f) => /photo \d+|corner \d+|wall/i.test(f.words)), hisFlags.map((f) => f.words).join(" | "));
 
+// ── 10-21: sizes estimated on site (lib/photoRoute.ts RouteEstimate) ─────────────────────────────────────────────────
+// "The bump-out sticks out about 7'": a side held loosely to what someone at the house judged by eye, never a tape. Doors
+// only, as above: an estimate 17% over his 6'0" bump-out side; one 19% under on the side-yard wall the photos hold.
+console.log("\n  Sizes estimated on site (doors only):");
+const withEstimates = (list) => ({ ...input, buildings: input.buildings.map((bb) => ({ ...bb, estimates: list })) });
+const bumpEst = x.solveRoute(withEstimates([{ id: "e1", from: 5, feet: 7, plusMinusPct: 20 }]), "main", prepared.data, HOLD);
+const yardEst = x.solveRoute(withEstimates([{ id: "e1", from: 3, feet: 57, plusMinusPct: 20 }]), "main", prepared.data, HOLD);
+const tapedEst = x.solveRoute(withEstimates([{ id: "e1", from: 4, feet: 26, plusMinusPct: 20 }]), "main", prepared.data);
+const sB = bumpEst.sides[5];
+console.log(`    bump-out side, about 7': ${ftin(doors.sides[5].lengthFeet)} ±${doors.sides[5].plusMinusPct}% -> ${ftin(sB.lengthFeet)} ±${sB.plusMinusPct}%; the rest moved at most ${Math.max(...bumpEst.sides.map((s, i) => (i === 5 ? 0 : Math.abs(s.lengthFeet / doors.sides[i].lengthFeet - 1) * 100))).toFixed(1)}%`);
+console.log(`    side-yard wall, about 57': ${ftin(doors.sides[3].lengthFeet)} ±${doors.sides[3].plusMinusPct}% -> ${ftin(yardEst.sides[3].lengthFeet)} ±${yardEst.sides[3].plusMinusPct}%`);
+check(
+  "an estimate holds its side loosely: never taped, still with a ±, said as estimated, and pulled toward it",
+  !sB.taped && sB.plusMinusPct !== null && sB.estimated?.feet === 7 && Math.abs(sB.lengthFeet - 7) <= Math.abs(doors.sides[5].lengthFeet - 7) + 1e-6 && bumpEst.unscaled === false,
+  `${ftin(doors.sides[5].lengthFeet)} -> ${ftin(sB.lengthFeet)}, ${JSON.stringify(sB.estimated)}`,
+);
+// Not "the photos outweigh it": here they hold the side-yard wall to ±17% though it is right to 0.1%, and a guess 19% short
+// drags it most of the way (70'6" -> 60'3", 2026-10-21). An estimate helps only where the photos are further out than it is.
+check(
+  "an estimate lands between what the photos say and the guess, never past the guess",
+  [[yardEst.sides[3], doors.sides[3], 57], [sB, doors.sides[5], 7]].every(([s, d, g]) => (s.lengthFeet - d.lengthFeet) * (s.lengthFeet - g) <= 1e-6),
+  `${ftin(doors.sides[3].lengthFeet)} -> ${ftin(yardEst.sides[3].lengthFeet)} (about 57'); ${ftin(doors.sides[5].lengthFeet)} -> ${ftin(sB.lengthFeet)} (about 7')`,
+);
+check("a tape on the same side stands: the estimate is not used", tapedEst.sides[4].taped && !tapedEst.sides[4].estimated && Math.abs(tapedEst.sides[4].lengthFeet - all.sides[4].lengthFeet) < 0.01, `${ftin(tapedEst.sides[4].lengthFeet)}`);
+const estExt = x.exteriorFromRoute(undefined, { format: "scrivn-photo-route/1", ...withEstimates([{ id: "e1", from: 5, feet: 7, plusMinusPct: 20 }]), measured: null }, x.measuredFrom(bumpEst, prepared.data, "2026-10-21T13:00:00.000Z"));
+const estSideId = estExt?.photoRoute?.measured?.sideIds?.[5];
+const estSide = estExt?.sides.find((s) => s.id === estSideId);
+const estReport = estExt ? JSON.stringify(x.exteriorReport(estExt, { title: "The owner's house", date: "Oct 21, 2026", madeWith: "Scrivn" })) : "";
+check(
+  "the exterior keeps it as estimated on site, and the report says so beside that side and in its notes",
+  estSide?.lengthEstimatedFeet === 7 && estSide.lengthPlusMinusPct !== undefined && /estimated on site at about 7'/.test(estReport) && /1 side estimated on site/.test(estExt.source.notes.join(" ")),
+  `${estSide?.name}: ${estSide?.lengthEstimatedFeet}; ${estExt?.source.notes.join(" ")}`,
+);
+
 console.log(`\n${passed.length} passed, ${failures.length} failed (${((Date.now() - t0) / 1000).toFixed(0)} s)`);
 process.exit(failures.length ? 1 : 0);

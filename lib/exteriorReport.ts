@@ -352,6 +352,11 @@ function plusMinus(side: ExteriorSide): string {
   return pct === undefined ? "" : `±${Math.max(1, Math.round(pct))}%`;
 }
 
+/** A side whose length was estimated on site by eye (2026-10-21): said so beside it, never as a tape. */
+function estimatedWords(side: ExteriorSide): string {
+  return side.lengthEstimatedFeet ? `estimated on site at about ${ft(side.lengthEstimatedFeet)}` : "";
+}
+
 /** What a side's walls came from, each part: read off its photo by Finish exterior (2026-10-15), else tapped or entered. */
 function wallsFromPhoto(side: ExteriorSide): { shapes: boolean; openings: number; wallTop: boolean } {
   return { shapes: (side.shapes ?? []).some((x) => x.from === "photo"), openings: side.openings.filter((o) => o.from === "photo").length, wallTop: side.wallTopFrom === "photo" };
@@ -400,11 +405,12 @@ export function exteriorReport(exterior: Exterior, meta: ReportMeta): ExteriorRe
       ground,
     ].filter(Boolean);
     const pm = plusMinus(side);
+    const est = estimatedWords(side);
     const shapeFrom = new Set((side.shapes ?? []).filter((x) => x.from === "photo").map((x) => x.id));
     const colNames = columnNames(side);
     const colQ = new Map((sq.trim?.columns ?? []).map((c) => [c.id, c]));
     const dims = [
-      `${side.lengthFrom === "drawn" ? "About " : ""}${ft(sq.lengthFeet)} long${side.lengthFrom === "drawn" ? " (drawn, not measured)" : ""}${pm ? ` ${pm} (worked out from the photos: to check)` : ""}${heights.length > 0 ? ` · ${heights.join(", ")}${side.wallTopFrom === "photo" ? " (from photo)" : side.wallTopFrom === "neighbours" ? ` (from the sides beside it: ${(side.photos ?? []).length === 0 ? "not seen in a photo" : "its photo didn't show the top"})` : ""}` : ""}${side.base === "parging" ? ` · parging ${ft(side.baseLeftFeet)} / ${ft(side.baseRightFeet)}` : ""}`,
+      `${side.lengthFrom === "drawn" ? "About " : ""}${ft(sq.lengthFeet)} long${side.lengthFrom === "drawn" ? " (drawn, not measured)" : ""}${pm ? ` ${pm} (worked out from the photos${est ? ` and ${est}` : ""}: to check)` : est ? ` (${est}, not taped)` : ""}${heights.length > 0 ? ` · ${heights.join(", ")}${side.wallTopFrom === "photo" ? " (from photo)" : side.wallTopFrom === "neighbours" ? ` (from the sides beside it: ${(side.photos ?? []).length === 0 ? "not seen in a photo" : "its photo didn't show the top"})` : ""}` : ""}${side.base === "parging" ? ` · parging ${ft(side.baseLeftFeet)} / ${ft(side.baseRightFeet)}` : ""}`,
       ...sq.bands.map((b) => `${b.label}: ${sf(b.grossSquareFeet)} gross, ${sf(b.openingSquareFeet)} of openings, ${b.trimSquareFeet ? `${sf(b.trimSquareFeet)} of trim, ` : ""}${sf(b.netSquareFeet)} net${shapeFrom.has(b.bandId) ? " (from photo)" : ""}`),
       ...[...side.openings].sort((a, b) => a.fromLeftFeet - b.fromLeftFeet).map((o) => openingLine(side, o, names.get(o.id) ?? OPENING_LABEL[o.kind])),
       ...[...(side.columns ?? [])].sort((a, b) => a.fromLeftFeet - b.fromLeftFeet).map((c) => columnLine(c, colNames.get(c.id) ?? COLUMN_LABEL[c.kind], colQ.get(c.id))),
@@ -835,7 +841,7 @@ export function exteriorReport(exterior: Exterior, meta: ReportMeta): ExteriorRe
   }
 
   // A length worked out from the photos and further out than it should be: named to tape (2026-10-16).
-  const toTape = every.filter((s) => lengthToCheck(s) !== undefined).map((s) => `${s.name.trim() || "Side"}: ${ft(s.lengthFeet)} ${plusMinus(s)}, worked out from the photos, not taped. Tape it to be sure.`);
+  const toTape = every.filter((s) => lengthToCheck(s) !== undefined).map((s) => `${s.name.trim() || "Side"}: ${ft(s.lengthFeet)} ${plusMinus(s)}, worked out from the photos${s.lengthEstimatedFeet ? ` and ${estimatedWords(s)}` : ""}, not taped. Tape it to be sure.`);
   // What a photo couldn't settle and nobody answered on "Check these" (2026-10-16, lib/exteriorCheck.ts): a part-hidden opening, an assumed drop.
   const notes = [...toTape, ...checkNotes(exterior, q), ...(roof?.notes ?? [])];
 

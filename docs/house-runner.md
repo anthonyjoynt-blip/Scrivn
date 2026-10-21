@@ -28,6 +28,7 @@ node scripts/house/run.mjs <folder> zoom 7 1290,1260 1400,1150 --half 100     # 
   porch 90 in
   ```
   Lengths: `31'4"`, `31' 4 1/2"`, `31 ft 4 in`, `90"`, `90 in`, `16'`, `6.5 m`, `650 cm`. Door, window, garage or roll-up words make a **line on a photo** (its two ends placed on the photo); wall, side, front, rear, porch, gable words make a **wall's length**, corner to corner. "doors" or "both" means the same tape across each.
+  A line that says its size **roughly** (`about`, `roughly`, `approx`, `estimate`, `guess`, `by eye`, `or so`, `~`, `-ish`) is a **size estimated on site**, never a tape: `the bump-out sticks out about 6'`, `back wall about 15' (±20%)`. Its ± is 20% unless said. It goes in `inputs.json` `estimates`, not `tapes`.
 - `house.txt` (optional), a line each: `semi-detached` / `end townhouse` / `townhouse` / `side-split` / `duplex`; `front faces north` (or `NE`, `200`, `unknown`); `name: 52 Elm St`; anything else is kept as a note.
 - A pulled request has none of these: its `request.json` carries the tester's photos, shape, corner taps and tapes, and the draft starts from them. Read the tester's note: tapes in words go into `inputs.json` by hand.
 
@@ -68,6 +69,8 @@ It levels every photo and estimates the lens, finds each photo's **corner candid
 - a line on a photo: `"on": [{"photo": 4, "a": [310, 760], "b": [655, 760]}]`, one entry for each alike thing it covers (both garage doors). Put the ends on the jambs at mid-height. **Ask what was taped** when it could be either (a door's opening, its curtain or across its trim): on a small building that choice moves the whole scale by up to 15%.
 - **Put the ends where the tape's ends were, from a close-up, and add `"exact": true`**: then they are not snapped and not merged with an edge other photos tied within 0.2 ft. On a 5' tape seen from 20 ft, 1 px is 0.4% of the house. Without `exact` the ends are a finger's drag, snapped and joined, as on the phone.
 - `"skip": true` leaves a tape out.
+
+**Sizes estimated on site** (`estimates`), optional: what someone at the house judged by eye, a side each: `{"id": "e1", "said": "the bump-out sticks out about 6'", "feet": 6, "plusMinusPct": 20, "side": "C8-C9"}`. The side is held to it loosely (its ± read as two sd, as the route's own ±), in place of the length the shape drew; the photos outweigh it wherever they hold the side. It is never a tape: never held out, never "taped" in results.md (it reads "estimated on site"), and the report says "estimated on site" beside that side. A tape on the same side stands and the estimate is not used. `"skip": true` leaves one out. results.md shows **What the estimates changed**: every side with them and without them.
 
 **Checks** (`checks`), optional: a line on a photo you expect a length for, as a sanity check, never a tape: `{"photo": 3, "a": [698, 515], "b": [712, 1073], "feet": 6.6667, "what": "man door slab (usually 6'8\")"}`. With one tape these are the only cross-check there is.
 
@@ -126,7 +129,7 @@ It runs the route's measure (lines, lens, levelling, the plan bundle solve with 
 ### 6. Read the accuracy table
 
 - **Each tape held out in turn**: the house solved from the other tapes, the held-out one predicted (a wall's from its side, a line's from its own photo's view), against the tape. It runs on your own corners only: a kept mark was made by a measure with every tape in and would carry the held-out tape back in.
-- **With one tape** there is nothing to hold out; the checks (door heights) are the only cross-check, labelled a sanity check: doors vary by a few percent.
+- **With one tape** there is nothing to hold out; the checks (door heights) are the only cross-check, labelled a sanity check: doors vary by a few percent. With sizes estimated on site, that one tape is held out against them (the estimates stay in every hold-out, named under "scaled by").
 - **The tapes' directions**: when every tape runs the same way (across the front, say), nothing checks the other way, and results.md says so. A tape on a side running the other way checks it.
 - **The ± are the solve's own**, about twice its sd. With two or three corners a photo, a box's depth rests on each photo's turn, which its vanishing points give to about a degree; a side whose inside corner shows in no photo reads ±30% or more. **A side with ± over 5% wants a tape: the advice names it.**
 

@@ -26,6 +26,7 @@ import { type HomeType, isAttachedHome } from "./exterior";
 import type { Pt } from "./roof";
 import { fromLevel, type PhotoCamera, levelAxes, planBearing, toLevel } from "./photoRouteLens";
 import { snapToEdge, type UprightEdge } from "./photoRouteEdges";
+import { formatFeetInches } from "./sketch";
 import type { Gray } from "./photoRouteLines";
 import { planDirection, resect, type SolveBearing, type SolveCamera, type SolveDistance, type SolvePoint, type SolveWall, solvePlan, type Solution } from "./photoRouteSolve";
 
@@ -107,6 +108,23 @@ export type RouteTape =
   | { id: string; kind: "line"; photo: string; a: [number, number]; b: [number, number]; feet: number; what: TapeWhat; exact?: true }
   | { id: string; kind: "side"; /** The side from outline corner `from` to the next. */ from: number; feet: number };
 
+/**
+ * A side's length as someone at the house judged it by eye (2026-10-21): "the bump-out sticks out about 6'", "the back
+ * wall is about 15'". Never a tape: the side is held to it loosely, its ± read as the route reads its own (about two sd),
+ * and still worked out from the photos and marked to check.
+ */
+export interface RouteEstimate {
+  id: string;
+  /** The side from outline corner `from` to the next. */
+  from: number;
+  feet: number;
+  /** How far it may be out, ± percent: 20 when the person said nothing. */
+  plusMinusPct: number;
+}
+
+/** A rough size's ± when none was said: someone standing at the house gets a wall within about a fifth by eye. */
+export const ESTIMATE_PLUS_MINUS_PCT = 20;
+
 export interface RouteBuilding {
   id: string;
   name?: string;
@@ -118,6 +136,8 @@ export interface RouteBuilding {
   outline: Pt[];
   corners: CornerTap[];
   tapes: RouteTape[];
+  /** Sides' lengths estimated on site, by eye: held loosely, never as tapes. */
+  estimates?: RouteEstimate[];
 }
 
 export interface PhotoRouteInput {
@@ -180,6 +200,8 @@ export interface RouteSide {
   taped: boolean;
   /** How many photos saw it face-on enough to measure along it. */
   photos: number;
+  /** Estimated on site (`RouteEstimate`), untaped: what was said, which held it loosely. Its length and ± are still the measure's. */
+  estimated?: { feet: number; plusMinusPct: number };
 }
 
 export interface RouteCamera {
@@ -586,6 +608,8 @@ const LENS_K_SD = 0.015;
 const YAW_SD_DEG = 1;
 /** A tape's sd, feet: a quarter inch, as the proof's 0.02 ft. */
 const TAPE_SD_FEET = 0.02;
+/** A size estimated on site, one sd: half its ±, as the route's own ± is two sd; never under 3". */
+const estimateSd = (e: RouteEstimate): number => Math.max(0.25, (e.feet * Math.max(1, e.plusMinusPct || ESTIMATE_PLUS_MINUS_PCT)) / 200);
 
 interface SnappedTap {
   photo: string;
@@ -622,6 +646,8 @@ export interface SolveRouteOptions {
   wallEdges?: boolean;
   /** Leave these tapes out (for the hold-out tests). */
   withoutTapes?: string[];
+  /** Leave the sizes estimated on site out (to show what they changed). */
+  withoutEstimates?: boolean;
   /** For the tests: no wall edges tied on these sides, and these corner taps left out. */
   skipSides?: number[];
   skipTap?: (t: CornerTap) => boolean;
@@ -640,6 +666,9 @@ export function solveRoute(input: PhotoRouteInput, buildingId: string, data: Rou
   const n = b.outline.length;
   const byId = new Map(data.map((d) => [d.id, d]));
   const tapes = b.tapes.filter((t) => !(opts.withoutTapes ?? []).includes(t.id));
+  // One estimate a side (the last said), on a side no tape measures.
+  const estimates = new Map<number, RouteEstimate>();
+  if (!opts.withoutEstimates) for (const e of b.estimates ?? []) if (e.from >= 0 && e.from < n && e.feet > 0 && !tapes.some((t) => t.kind === "side" && t.from === e.from)) estimates.set(e.from, e);
   const unplaced: { photo: string; why: string }[] = [];
 
   // 1. Every corner tap snapped onto its edge: a bearing, and its row in the level image.
@@ -721,6 +750,12 @@ export function solveRoute(input: PhotoRouteInput, buildingId: string, data: Rou
       const next = walls[(t.from + 1) % n] as SolveWall;
       distances.push({ id: t.id, a: `wall:${prev.id}`, b: `wall:${next.id}`, axis: prev.axis, feet: t.feet, sdFeet: TAPE_SD_FEET });
     }
+    // A size estimated on site: the same wall-to-wall length, held as loosely as it was said.
+    for (const e of estimates.values()) {
+      const prev = walls[(e.from - 1 + n) % n] as SolveWall;
+      const next = walls[(e.from + 1) % n] as SolveWall;
+      distances.push({ id: `estimate:${e.id}`, a: `wall:${prev.id}`, b: `wall:${next.id}`, axis: prev.axis, feet: e.feet, sdFeet: estimateSd(e) });
+    }
     for (const e of tapeEnds) {
       const wall = walls[e.side] as SolveWall;
       if (!points.some((p) => p.id === e.point)) points.push({ id: e.point, e: wall.axis === "E" ? wall.id : null, n: wall.axis === "N" ? wall.id : null, guess: e.at });
@@ -738,7 +773,7 @@ export function solveRoute(input: PhotoRouteInput, buildingId: string, data: Rou
       distances.push({ id: t.id, a: ea.point, b: eb.point, axis, feet: t.feet, sdFeet: TAPE_SD_FEET });
     }
     // Without a tape nothing sizes the house: its perimeter is held, loosely, to the one drawn.
-    const hasScale = distances.length > 0;
+    const hasScale = distances.some((d) => !d.id.startsWith("estimate:"));
     // Each camera's hand height, from the corner tapped lowest in it: the one most likely tapped at the ground (one shown over a deck is tapped higher).
     const heights: { camera: string; point: string; drop: number; forward: number; feet: number; sdFeet: number }[] = [];
     for (const [id] of placedCams) {
@@ -759,11 +794,13 @@ export function solveRoute(input: PhotoRouteInput, buildingId: string, data: Rou
    * Each side held, loosely, to its length as drawn (35%): what the photos say outweighs it a hundred to
    * one wherever they say anything, but where they say little - a wall no photo faced, or the house's
    * depth before the wall edges are tied - the solve stays near the shape the user knows, rather than
-   * folding up. With no tape at all it is also the only size the house has (said: `unscaled`).
+   * folding up. With no tape at all it is also the only size the house has (said: `unscaled`). A side estimated
+   * on site is held to that instead: said at the house, it knows better than a shape drawn on a phone.
    */
   const scaleHold = (inp: ReturnType<typeof build>): ReturnType<typeof build>["input"] => {
     const drawn: SolveDistance[] = [];
     for (let i = 0; i < n; i++) {
+      if (estimates.has(i)) continue;
       const prev = walls[(i - 1 + n) % n] as SolveWall;
       const next = walls[(i + 1) % n] as SolveWall;
       const feet = segLen(b.outline[i] as Pt, b.outline[(i + 1) % n] as Pt);
@@ -943,7 +980,8 @@ export function solveRoute(input: PhotoRouteInput, buildingId: string, data: Rou
     const taped = tapedSides.has(i);
     // The proof's ± ran about twice the formal sd (its variants' spread); never under 2%.
     const pct = taped ? null : Math.max(2, Math.round(((2 * sd) / Math.max(L, 0.1)) * 100));
-    sides.push({ from: i, lengthFeet: L, plusMinusPct: pct, sdFeet: sd, taped, photos: sideObs.get(i)?.size ?? 0 });
+    const said = estimates.get(i);
+    sides.push({ from: i, lengthFeet: L, plusMinusPct: pct, sdFeet: sd, taped, photos: sideObs.get(i)?.size ?? 0, ...(said ? { estimated: { feet: said.feet, plusMinusPct: said.plusMinusPct } } : {}) });
   }
   const cameras: RouteCamera[] = [...cams].filter(([id]) => sol.input.cameras.some((c) => c.id === id)).map(([id, c]) => ({
     photo: id,
@@ -1597,7 +1635,8 @@ function tapeAdvice(sides: RouteSide[], ring: Pt[], cameras: RouteCamera[], taps
     else if (endsSeen < 2) why = `only ${endsSeen === 1 ? "one of its corners was" : "neither of its corners was"} tapped on a photo`;
     else if (edges === 0) why = "nothing on it (a window or door edge) was seen in two photos";
     else why = "the photos round it do not hold it to better than that";
-    out.push({ from: i, why: `±${s.plusMinusPct}%: ${why}. A tape along it fixes it.` });
+    const said = s.estimated ? ` Estimated on site at about ${formatFeetInches(s.estimated.feet)}, which holds it only loosely.` : "";
+    out.push({ from: i, why: `±${s.plusMinusPct}%: ${why}.${said} A tape along it fixes it.` });
   }
   return out;
 }

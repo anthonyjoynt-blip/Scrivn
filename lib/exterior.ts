@@ -226,6 +226,11 @@ export interface ExteriorSide {
    * Absent: taped, typed, drawn or measured by the phone.
    */
   lengthPlusMinusPct?: number;
+  /**
+   * Estimated on site (2026-10-21, lib/photoRoute.ts `RouteEstimate`): someone at the house judged it about this long, by
+   * eye, and the photos' measure held it there loosely. Never a tape: the report says so beside its length.
+   */
+  lengthEstimatedFeet?: number;
   /** The corner at this side's RIGHT end, facing it from outside: an outside corner, or an inside one (the inside of an L). */
   turn: SideTurn;
   /** Where the cladding starts: the top of the parging (the usual), or the grade itself. */
