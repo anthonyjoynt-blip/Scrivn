@@ -77,6 +77,7 @@ async function load() {
       `export { cornerPlace, routeCoverage, viewsFromMeasure } from "${lib("photoRouteCoverage.ts")}";`,
       `export { defaultShared, numberCorners, partyCorners, solveRoute } from "${lib("photoRoute.ts")}";`,
       `export { exteriorFromRoute, measuredFrom } from "${lib("photoRouteExterior.ts")}";`,
+      `export { routeSanity } from "${lib("photoRouteSanity.ts")}";`,
       `export { applyScanFinish, readScanFinish, wallsFrom } from "${lib("exteriorFinish.ts")}";`,
       `export * from "${lib("exterior3d.ts")}";`,
       `export * from "${lib("exteriorPlan.ts")}";`,
@@ -5679,11 +5680,17 @@ test("a clean four-sided house photographed to the checklist: no warnings", () =
 
 test("before a measure the list is the photos to take, ticked off as they're taken from it", () => {
   const none = x.routeCoverage({ ring: RECT, views: [], taps: [], shots: [], measured: false });
-  assert(none.items.length === 8 && none.items.filter((i) => i.kind === "corner-45").length === 4 && none.items.filter((i) => i.kind === "wall-straight").length === 4, none.items.map((i) => i.words).join(" | "));
-  assert(none.items[0].words === "Corner 1 (front left): stand at the front left, at 45° to its two walls, both walls in.", none.items[0].words);
+  // Four corners at 45, four walls straight on, and (2026-10-20) the one tape front to back.
+  assert(none.items.length === 9 && none.items.filter((i) => i.kind === "corner-45").length === 4 && none.items.filter((i) => i.kind === "wall-straight").length === 4, none.items.map((i) => i.words).join(" | "));
+  assert(none.items[0].words === "Corner 1 (front left): stand at the front left, at 45° to its two walls, both walls in frame.", none.items[0].words);
+  assert(none.items[8].key === "front-back-tape" && none.items[8].words === "One tape front to back: the long side wall, front corner to back corner. It holds the house's depth, which the photos alone can leave loose.", none.items[8].words);
   assert(none.items[4].words === "The wall from corner 1 to 2: straight on from the street, both corners in.", none.items[4].words);
   const shots = [...RECT.map((_, k) => ({ photo: `c${k}`, shot: { kind: "corner", index: k } })), ...RECT.map((_, i) => ({ photo: `w${i}`, shot: { kind: "wall", index: i } }))];
-  assert(x.routeCoverage({ ring: RECT, views: [], taps: [], shots, measured: false }).items.length === 0, "all eight taken");
+  assert(x.routeCoverage({ ring: RECT, views: [], taps: [], shots, measured: false, depthTaped: true }).items.length === 0, "all eight taken, and the depth taped");
+  // Measured, the front-to-back tape is asked only while the depth is loose.
+  const views = [...cornerShots, ...wallShots];
+  assert(x.routeCoverage({ ring: RECT, views, taps: [], shots: [], measured: true, depthPlusMinusPct: 3 }).items.length === 0, "a depth to ±3% wants no tape");
+  assert(x.routeCoverage({ ring: RECT, views, taps: [], shots: [], measured: true, depthPlusMinusPct: 17 }).items.map((i) => i.key).join() === "front-back-tape", "a depth to ±17% does");
   // A gable is asked square on, its peak in; a named wall by its name.
   const g = x.routeCoverage({ ring: RECT, views: [], taps: [], shots: [], measured: false, gables: [1], wallName: (i) => (i === 1 ? "Right" : null) });
   assert(g.items.some((i) => i.kind === "gable" && i.words === "The Right wall (corners 2 to 3), a gable: straight on from the right side, both corners and its peak in."), g.items.map((i) => i.words).join(" | "));
@@ -5692,7 +5699,7 @@ test("before a measure the list is the photos to take, ticked off as they're tak
 test("one photo left out: the checklist says which corner and from where; a photo the measure couldn't place counts for nothing", () => {
   // The 45-degree photo of the back-right corner (3) gone: it's still in three photos, but none looks at it at 45.
   const less = x.routeCoverage({ ring: RECT, views: [...cornerShots.filter((v) => v.photo !== "corner2"), ...wallShots], taps: [], shots: [], measured: true });
-  assert(less.items.length === 1 && less.items[0].words === "No photo looks at corner 3 (back right) at 45°: take one from the back right, both walls in.", less.items.map((i) => i.words).join(" | "));
+  assert(less.items.length === 1 && less.items[0].words === "No photo looks at corner 3 (back right) at 45°: take one from the back right, both walls in frame.", less.items.map((i) => i.words).join(" | "));
   // Only the front's two photos: the back corners in none, the back wall with no photo of both its ends.
   const front = x.routeCoverage({ ring: RECT, views: [cornerShots[0], wallShots[0]], taps: [{ photo: "unplaced", corner: 2 }], shots: [], measured: true });
   const words = front.items.map((i) => i.words);
@@ -5809,7 +5816,9 @@ test("the checklist never asks for the shared wall, nor a 45 where the home ends
   const after = x.routeCoverage({ ring: m.corners, views: x.viewsFromMeasure(m), taps: input.buildings[0].corners, shots: [], measured: true, shared: [1] });
   assert(!after.items.some((i) => i.wall === 1 || (i.kind === "corner-45" && (i.corner === 1 || i.corner === 2))), after.items.map((i) => i.words).join(" | "));
   // The end unit's open side gives the depth: no depth tape asked.
-  assert(!after.items.some((i) => i.kind === "depth-tape") && !before.items.some((i) => i.kind === "depth-tape"), "no depth tape for a semi");
+  // The end unit's open side gives the depth: not the shared-wall tape, but the one tape front to back, asked as of any house.
+  assert(!after.items.some((i) => i.key === "depth-tape") && !before.items.some((i) => i.key === "depth-tape"), "no shared-wall depth tape for a semi");
+  assert(before.items.some((i) => i.key === "front-back-tape"), "the front-to-back tape asked");
 });
 
 // A middle townhouse, 18' x 36', both side walls shared; drawn rough at 20' x 30'. Only its front and back can be seen.
@@ -6324,6 +6333,58 @@ test("a roll-up door: its own kind, named, drawn and read as one; nothing else a
   // A roll-up off the ground with nothing at its foot is asked about, as a door is.
   shed.sides[0].openings[0] = { ...shed.sides[0].openings[0], sillFeet: 3, from: "photo" };
   assert(x.exteriorChecks(shed, x.exteriorQuantities(shed)).some((c) => c.key === "opening:ru"), "checked like a door");
+});
+
+console.log("\nsanity checks on a house measured from photos (10-20)");
+
+/** The made-up 24' x 40' house above, detached, measured off its five photos: the front taped, and the depth when [depth]. */
+function sanityHouse(depth) {
+  const shots = semiShots.map(([id, at, look, seen]) => [id, at, look, seen.map(({ c }) => ({ c }))]);
+  const tapes = [{ id: "front", kind: "side", from: 0, feet: 24 }, ...(depth ? [{ id: "depth", kind: "side", from: 3, feet: 40 }] : [])];
+  const { input, data } = synRoute(SEMI, SEMI_DRAWN, undefined, shots, tapes);
+  return landOf(input, data, x.solveRoute(input, "main", data)).ext;
+}
+
+test("a clean house measured from photos, its depth taped: nothing worth a look", () => {
+  const flags = x.routeSanity(sanityHouse(true));
+  assert(flags.length === 0, flags.map((f) => f.words).join(" | "));
+});
+
+test("each check names what to look at: the eaves at a corner, a door's size, a camera nobody could have stood at", () => {
+  const ext = sanityHouse(true);
+  const m = ext.photoRoute.measured;
+  const ids = m.sideIds;
+  // The eaves round corner 2 (the front wall's right end, the right wall's left end): 9'6" and 11'0". A door 3' x 5' on the front.
+  const sides = ext.sides.map((s) =>
+    s.id === ids[0]
+      ? { ...s, eaveRightFeet: 9.5, openings: [...s.openings, { id: "d5", kind: "door", widthFeet: 3, heightFeet: 5, sillFeet: 0, fromLeftFeet: 10 }] }
+      : s.id === ids[1]
+        ? { ...s, eaveLeftFeet: 11 }
+        : s,
+  );
+  // Photo 1 (the front) 1'2" under the ground; photo 3 (the left) inside the house.
+  const cameras = m.cameras.map((c) => (c.photo === "front" ? { ...c, heightFeet: -1.2 } : c.photo === "left" ? { ...c, at: [10, 20] } : c));
+  const flags = x.routeSanity({ ...ext, sides, photoRoute: { ...ext.photoRoute, measured: { ...m, cameras } } });
+  const words = flags.map((f) => f.words);
+  const name = (i) => ext.sides.find((s) => s.id === ids[i]).name;
+  assert(words.includes(`Corner 2: the eaves either side disagree by 1'6" (9'6" on the ${name(0)} wall, 11' on the ${name(1)} wall). One of the photos is placed or read wrong: look at photo 1 and photo 5.`) || words.some((w) => /^Corner 2: the eaves either side disagree by 1'6" \(9'6" on the .* wall, 11' on the .* wall\)\. One of the photos is placed or read wrong/.test(w)), words.join(" | "));
+  assert(words.some((w) => /^Door on the .* wall reads 3' wide by 5' tall: a door is about 6'8" tall\. Check the wall's photo is placed right/.test(w)), words.join(" | "));
+  assert(words.includes("Photo 1 works out 1'2\" under the ground at the corners tapped on it: check each is tapped where the corner meets the ground (not on a deck or a step), and where it was placed."), words.join(" | "));
+  assert(words.includes("Photo 3 works out to have been taken from inside the house: check the corners tapped on it and their numbers."), words.join(" | "));
+  assert(flags.filter((f) => f.kind === "camera").every((f) => f.photo), "each camera flag names its photo");
+});
+
+test("an outline that won't close square, and a depth only loosely tied, are said - and Measure is never stopped", () => {
+  const ext = sanityHouse(true);
+  const m = ext.photoRoute.measured;
+  // The front wall solved the wrong way round: its right-hand corner west of its left.
+  const corners = m.corners.map((p, i) => (i === 1 ? { x: -5, y: p.y } : p));
+  const flipped = x.routeSanity({ ...ext, photoRoute: { ...ext.photoRoute, measured: { ...m, corners } } });
+  assert(flipped.some((f) => f.kind === "outline" && f.side === 0 && /came out the wrong way round\. Check the numbers of corners 1 and 2 on photo 1, photo 2/.test(f.words)), flipped.map((f) => f.words).join(" | "));
+  // Untaped front to back, and the depth to ±18%: one tape of the long side wall is asked.
+  const loose = { ...m, sides: m.sides.map((s) => (s.from === 3 || s.from === 1 ? { ...s, taped: false, plusMinusPct: 18 } : s)) };
+  const depth = x.routeSanity({ ...ext, photoRoute: { ...ext.photoRoute, measured: loose } }).filter((f) => f.kind === "depth");
+  assert(depth.length === 1 && /^The house's depth is only good to ±18% \(the .* wall, 40'\): too little ties its back to its front\. One tape of that side wall, front corner to back corner, measures it/.test(depth[0].words), JSON.stringify(depth));
 });
 
 console.log(`\n${passed.length} passed, ${failures.length} failed`);

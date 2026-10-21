@@ -9,7 +9,8 @@ import { onDeviceChange } from "@/lib/deviceClaims";
 import { keepPhotoFile, sendWaitingPhotos } from "@/lib/devicePhotos";
 import { preparePhoto } from "@/lib/photoImage";
 import { addPhoto, type ClaimPhoto, EXTERIOR_ROOM } from "@/lib/photos";
-import { type CornerTap, defaultShared, emptyPhotoRoute, type PhotoRouteState, type RoutePhoto, type RouteShot, type RouteTape, type TapeWhat } from "@/lib/photoRoute";
+import { type CornerTap, defaultShared, emptyPhotoRoute, type PhotoRouteState, planMapping, type RoutePhoto, type RouteShot, type RouteTape, type TapeWhat } from "@/lib/photoRoute";
+import { routeSanity } from "@/lib/photoRouteSanity";
 import { routeCoverage, viewsFromMeasure } from "@/lib/photoRouteCoverage";
 import { measureRoute, type PhotoPixelsIn, photoLines } from "@/lib/photoRouteData";
 import { exifFocal35, focalOverWidth } from "@/lib/photoRouteExif";
@@ -91,9 +92,10 @@ function TakeCard() {
       <ul>
         <li>Use the normal 1x camera, held sideways.</li>
         <li>One photo of each wall, straight on, with both its corners, the ground and the roof edge in it.</li>
-        <li>One photo of each outside corner from 45 degrees, so both walls show.</li>
+        <li>One photo at 45 degrees to every outside corner, the back ones and any behind a porch too, both walls in frame.</li>
         <li>Each gable end square-on.</li>
         <li>Walk round {the} in one direction, so the photos follow each other.</li>
+        <li>One tape front to back: the long side wall, front corner to back corner.</li>
       </ul>
     </div>
   );
@@ -468,6 +470,14 @@ export function PhotoRoutePane({ exterior, readOnly, onChange }: { exterior: Ext
           {placed.size > 0 && !placed.has(photo.id) && measured && (
             <p className={styles.weak}>{measured.unplaced.find((u) => u.photo === photo.id)?.why ?? "Not used in the last measure."}</p>
           )}
+          {measured && !readOnly && main.corners.filter((c) => c.photo === photo.id && !c.proposed).length <= 1 && (!placed.has(photo.id) || photo.standAt) && (
+            <StandPicker
+              drawn={main.outline}
+              measured={measured}
+              photo={photo}
+              onPick={(at) => change((r) => ({ ...r, photos: r.photos.map((p) => (p.id === photo.id ? { ...p, standAt: at } : p)) }))}
+            />
+          )}
           {line && <TapeForm onCancel={() => setLine(null)} onDone={(what, feet) => (addTape({ id: `tape-${Date.now().toString(36)}`, kind: "line", photo: photo.id, a: line.a, b: line.b, feet, what }), setLine(null))} />}
           {mode === "wall" && wallSide !== null && (
             <WallTapeForm
@@ -510,6 +520,7 @@ export function PhotoRoutePane({ exterior, readOnly, onChange }: { exterior: Ext
         {busy && <p className="field-note">{busy}</p>}
         {error && <p className="sketch-length-error">{error}</p>}
         {measured && <Results exterior={exterior} route={route} />}
+        {measured && <WorthALook exterior={exterior} />}
         {measured && marks.length > 0 && (
           <div className={styles.card}>
             <p>
@@ -890,6 +901,63 @@ function OpeningCrop({ side, opening }: { side: ExteriorSide; opening: ExteriorO
   return <canvas ref={ref} className={styles.crop} role="img" aria-label={`The ${OPENING_LABEL[opening.kind].toLowerCase()} on ${side.name}, from its photo`} />;
 }
 
+/** The ± on the house's depth: its longest wall running back from the street, not shared. Null before a measure. */
+function depthPm(m: PhotoRouteState["measured"], shared: number[]): number | null {
+  if (!m) return null;
+  const n = m.corners.length;
+  const back = m.sides.filter((s) => {
+    const A = m.corners[s.from] as Pt;
+    const B = m.corners[(s.from + 1) % n] as Pt;
+    return Math.abs(B.x - A.x) < Math.abs(B.y - A.y) && !shared.includes(s.from);
+  });
+  const longest = back.reduce<(typeof back)[number] | null>((a, s) => (!a || s.lengthFeet > a.lengthFeet ? s : a), null);
+  return longest?.plusMinusPct ?? null;
+}
+
+/**
+ * Where you stood (2026-10-20, every photo counts): a photo with one corner, or none, is placed once the user says - one
+ * tap on the plan. Scrivn's best places off its window and door edges are marked to tap, or anywhere else; Measure
+ * again then puts it there, on its corner's line, and holds it there loosely.
+ */
+function StandPicker({ drawn, measured, photo, onPick }: { drawn: Pt[]; measured: NonNullable<PhotoRouteState["measured"]>; photo: RoutePhoto; onPick: (at: [number, number]) => void }) {
+  if (drawn.length < 3 || measured.corners.length !== drawn.length) return null;
+  const toDrawn = planMapping(measured.corners, drawn);
+  const spots = measured.doubtful?.find((d) => d.photo === photo.id)?.spots ?? [];
+  const marks: { at: Pt; label: string; current?: boolean }[] = spots.map((s, i) => {
+    const [x, y] = toDrawn(s.at);
+    return { at: { x, y }, label: String(i + 1) };
+  });
+  if (photo.standAt) marks.push({ at: { x: photo.standAt[0], y: photo.standAt[1] }, label: "you", current: true });
+  return (
+    <div className={styles.ask}>
+      <p>
+        Where did you stand for this photo? Tap the plan.
+        {spots.length > 0 ? ` Scrivn's best guess${spots.length === 1 ? " is" : "es are"} numbered: tap ${spots.length === 1 ? "it" : "one"}, or anywhere else.` : ""}
+        {photo.standAt ? " Measure again to put it there." : ""}
+      </p>
+      <div className={styles.askPlan}>
+        <ShapePlan outline={drawn} pick={null} highlight={null} taped={new Set()} around={0.75} spot={{ marks, pick: (p) => onPick([p.x, p.y]) }} />
+      </div>
+    </div>
+  );
+}
+
+/** What the measure says is worth a look (lib/photoRouteSanity.ts): each names the corner or photo. Advice only. */
+function WorthALook({ exterior }: { exterior: Exterior }) {
+  const flags = routeSanity(exterior);
+  if (flags.length === 0) return null;
+  return (
+    <>
+      <h4 className="exterior-subhead">Worth a look</h4>
+      <ul className="field-note">
+        {flags.map((f) => (
+          <li key={f.key}>{f.words}</li>
+        ))}
+      </ul>
+    </>
+  );
+}
+
 /**
  * What to take next (2026-10-17, lib/photoRouteCoverage.ts): live from the shape and the photos so far - before
  * a measure, the corners tapped on them; after one, what each placed photo sees. A small plan with what is thin
@@ -919,6 +987,7 @@ function CoverageList({ route, exterior, readOnly, onTake }: { route: PhotoRoute
       const b = ring[(t.from + 1) % ring.length];
       return !!a && !!b && Math.abs(b.x - a.x) < Math.abs(b.y - a.y);
     }),
+    depthPlusMinusPct: depthPm(m, main.shared ?? []),
   });
   // In orange: each corner and wall the list asks a photo of.
   const thin = {
@@ -980,6 +1049,8 @@ function ShapePlan({
   thin,
   shared,
   pickCorners = true,
+  around,
+  spot,
 }: {
   outline: Pt[];
   pick: ((k: number, kind: "corner" | "side") => void) | null;
@@ -991,6 +1062,10 @@ function ShapePlan({
   shared?: Set<number>;
   /** Whether a corner is being picked (orange, tappable); otherwise only the sides take taps. */
   pickCorners?: boolean;
+  /** The plan round the house as well, this much of its size each way (where photos are taken from). */
+  around?: number;
+  /** A spot to tap anywhere on the plan (where you stood), with marks to show: Scrivn's best places, the one said. */
+  spot?: { marks: { at: Pt; label: string; current?: boolean }[]; pick: (p: Pt) => void };
 }) {
   const xs = outline.map((p) => p.x);
   const ys = outline.map((p) => p.y);
@@ -999,16 +1074,37 @@ function ShapePlan({
   const y0 = Math.min(...ys);
   const y1 = Math.max(...ys);
   const span = Math.max(x1 - x0, y1 - y0, 1);
-  const pad = span * 0.12;
+  const pad = span * (around ?? 0.12);
+  // Dots and words sized to the view, not the house: the plan round the house (where you stood) draws them as large.
+  const size = (span + 2 * pad) / 1.24;
+  const svgRef = useRef<SVGSVGElement | null>(null);
+  // A tap anywhere: the plan point under it (a mark tapped near enough is taken whole).
+  const onSpot = (e: { clientX: number; clientY: number }) => {
+    const svg = svgRef.current;
+    const ctm = svg?.getScreenCTM();
+    if (!spot || !svg || !ctm) return;
+    const q = new DOMPoint(e.clientX, e.clientY).matrixTransform(ctm.inverse());
+    const at = { x: q.x + x0 - pad, y: y1 + pad - q.y };
+    const near = spot.marks.find((m) => !m.current && Math.hypot(m.at.x - at.x, m.at.y - at.y) < size * 0.06);
+    spot.pick(near ? near.at : at);
+  };
   const W = x1 - x0 + 2 * pad;
   const H = y1 - y0 + 2 * pad;
   // Plan y is up; the SVG's is down.
   const P = (p: Pt) => ({ x: p.x - x0 + pad, y: y1 - p.y + pad });
-  const r = span * 0.035;
+  const r = size * 0.035;
   const n = outline.length;
   return (
-    <svg className={styles.plan} viewBox={`0 0 ${W} ${H}`} role="img" aria-label="The house's shape, its corners numbered">
-      <polygon points={outline.map((p) => `${P(p).x},${P(p).y}`).join(" ")} fill="rgba(8,145,178,0.08)" stroke="#0891b2" strokeWidth={span * 0.008} />
+    <svg
+      ref={svgRef}
+      className={styles.plan}
+      viewBox={`0 0 ${W} ${H}`}
+      role="img"
+      aria-label="The house's shape, its corners numbered"
+      onClick={spot ? onSpot : undefined}
+      style={spot ? { cursor: "crosshair" } : undefined}
+    >
+      <polygon points={outline.map((p) => `${P(p).x},${P(p).y}`).join(" ")} fill="rgba(8,145,178,0.08)" stroke="#0891b2" strokeWidth={size * 0.008} />
       {outline.map((a, i) => {
         const b = outline[(i + 1) % n] as Pt;
         const A = P(a);
@@ -1022,17 +1118,17 @@ function ShapePlan({
               x2={B.x}
               y2={B.y}
               stroke={highlight === i || thin?.walls.has(i) ? "#ea580c" : taped.has(i) ? "#15803d" : shared?.has(i) ? "#a8a29e" : "transparent"}
-              strokeWidth={span * 0.02}
-              strokeDasharray={thin?.walls.has(i) && highlight !== i ? `${span * 0.03} ${span * 0.02}` : undefined}
+              strokeWidth={size * 0.02}
+              strokeDasharray={thin?.walls.has(i) && highlight !== i ? `${size * 0.03} ${size * 0.02}` : undefined}
             />
-            {pick && <line x1={A.x} y1={A.y} x2={B.x} y2={B.y} stroke="transparent" strokeWidth={span * 0.06} style={{ cursor: "pointer" }} onClick={() => pick(i, "side")} />}
+            {pick && <line x1={A.x} y1={A.y} x2={B.x} y2={B.y} stroke="transparent" strokeWidth={size * 0.06} style={{ cursor: "pointer" }} onClick={() => pick(i, "side")} />}
             {taped.has(i) && (
-              <text x={mid.x} y={mid.y} fontSize={span * 0.04} textAnchor="middle" fill="#15803d">
+              <text x={mid.x} y={mid.y} fontSize={size * 0.04} textAnchor="middle" fill="#15803d">
                 taped
               </text>
             )}
             {shared?.has(i) && !taped.has(i) && (
-              <text x={mid.x} y={mid.y} fontSize={span * 0.04} textAnchor="middle" fill="#78716c" stroke="#fff" strokeWidth={span * 0.006} paintOrder="stroke">
+              <text x={mid.x} y={mid.y} fontSize={size * 0.04} textAnchor="middle" fill="#78716c" stroke="#fff" strokeWidth={size * 0.006} paintOrder="stroke">
                 shared
               </text>
             )}
@@ -1046,6 +1142,17 @@ function ShapePlan({
             <circle cx={q.x} cy={q.y} r={r} fill={(pick && pickCorners) || thin?.corners.has(i) ? "#ea580c" : "#0891b2"} />
             <text x={q.x} y={q.y + r * 0.4} fontSize={r * 1.15} textAnchor="middle" fill="#fff">
               {i + 1}
+            </text>
+          </g>
+        );
+      })}
+      {spot?.marks.map((m, i) => {
+        const q = P(m.at);
+        return (
+          <g key={`spot${i}`} pointerEvents="none">
+            <circle cx={q.x} cy={q.y} r={r * 1.3} fill={m.current ? "#7c3aed" : "#ffffff"} stroke={m.current ? "#7c3aed" : "#ea580c"} strokeWidth={size * 0.006} />
+            <text x={q.x} y={q.y + r * 0.45} fontSize={r * (m.current ? 0.9 : 1.3)} textAnchor="middle" fill={m.current ? "#ffffff" : "#ea580c"}>
+              {m.label}
             </text>
           </g>
         );

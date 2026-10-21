@@ -49,6 +49,13 @@ export interface RoutePhoto {
    * corner, or its two end taps that wall's corners.
    */
   shot?: RouteShot;
+  /**
+   * Where the user stood for it (2026-10-20, every photo counts), tapped on the shape as drawn (plan feet, rough): asked of
+   * a photo with one corner, or none, that its edges could not place for sure. The photo is then put on its corner's ray
+   * nearest there, or searched round there, and held there loosely - in place of the hand-height guess, which a corner
+   * tapped on a porch deck or a step throws off.
+   */
+  standAt?: [number, number];
 }
 
 /** What a photo was taken for, from the checklist: a corner (outline index) at 45 degrees, or a wall (outline side index) straight on. */
@@ -138,6 +145,8 @@ export interface RouteMeasured {
   sides: Omit<RouteSide, "sdFeet">[];
   cameras: RouteCamera[];
   unplaced: { photo: string; why: string }[];
+  /** Photos with one corner or none that wait for where the user stood, with Scrivn's best places for each (solved frame). */
+  doubtful?: RouteSolution["doubtful"];
   advice: { from: number; why: string }[];
   counts: RouteSolution["counts"];
   /** Each placed photo's lens and turn as measured: what lays it on a side again (lib/photoRouteExterior.ts). */
@@ -182,7 +191,7 @@ export interface RouteCamera {
   /** The camera's height over the ground at the corners tapped in it, feet; null when none was. */
   heightFeet: number | null;
   /** How it was placed: from two or more corners, or from one corner and the wall edges it shares with the others. */
-  placedBy: "corners" | "one-corner";
+  placedBy: "corners" | "one-corner" | "edges" | "stood";
 }
 
 export interface RouteSolution {
@@ -193,6 +202,8 @@ export interface RouteSolution {
   cameras: RouteCamera[];
   /** Photos that could not be placed, and why, in plain words. */
   unplaced: { photo: string; why: string }[];
+  /** Of those, the ones with one corner or none whose edges point to more than one place: where each could have been taken from. Tapping where you stood places it. */
+  doubtful: { photo: string; spots: { at: [number, number]; score: number }[] }[];
   /** Bearings used: the corners tapped and the wall edges found. */
   counts: { cornerBearings: number; edgeBearings: number; edgePoints: number; tapes: number };
   /** RMS of the bearings in sd (sd 2 px). */
@@ -202,7 +213,8 @@ export interface RouteSolution {
   /** Which sides want a tape and why: advice, never a block. */
   advice: { from: number; why: string }[];
   /** The wall edges tied across photos: which side, how far along it, and the photos that saw it. */
-  edgePoints: { id: string; side: number; along: number; photos: string[] }[];
+  /** Each with the heights its photos saw it between (median, ft over their ground) and which side of it is lighter. */
+  edgePoints: { id: string; side: number; along: number; photos: string[]; zLow: number; zHigh: number; polarity: 1 | -1 }[];
   /** For the tests and the drawings: the solve itself. */
   solution: Solution;
 }
@@ -543,6 +555,13 @@ export function neighbourBlocks(C: Pt, P: Pt, ring: Pt[], shared: Set<number> | 
 /** Where a photo held in the hand is taken from, feet over the ground at the corner it shows: what places a photo with one corner along that corner's ray. */
 const HAND_HEIGHT_FEET: [number, number] = [3, 7.5];
 /**
+ * The same, for placing a photo by its edges: wider, as a corner tapped where it shows - on a porch deck, at the top of
+ * a step - reads the camera lower than it was over the ground (the owner's #1: tapped on the porch, 2'6" up).
+ */
+const PLACE_HAND_FEET: [number, number] = [1.5, 8.5];
+/** A photo placed by its edges whose own bearings then fit worse than this (rms, in sd) was put in the wrong place. */
+const PLACED_FIT_SD = 2.5;
+/**
  * The heights a placement from corners may put the camera at, over the ground at each corner tapped, feet:
  * crouching to standing on a deck or a step. Two corners fit any of the four quarter-turns; one that puts the camera
  * a foot off the ground, or twenty feet up, is not where the photo was taken (2026-10-20, the shed's #1: placed
@@ -606,6 +625,8 @@ export interface SolveRouteOptions {
   /** For the tests: no wall edges tied on these sides, and these corner taps left out. */
   skipSides?: number[];
   skipTap?: (t: CornerTap) => boolean;
+  /** Work out the best places of the photos still waiting for where the user stood (on by default; the measure's first, rough solve skips it). */
+  guesses?: boolean;
 }
 
 /**
@@ -639,6 +660,9 @@ export function solveRoute(input: PhotoRouteInput, buildingId: string, data: Rou
   const { walls, corners } = outlineWalls(b.outline);
   const roughPerimeter = b.outline.reduce((s, p, i) => s + segLen(p, b.outline[(i + 1) % n] as Pt), 0);
   const cams = new Map<string, { quadrant: number; at: [number, number]; placedBy: RouteCamera["placedBy"] }>();
+  // Where the user stood for each photo placed that way, on the shape as solved now; and the doubtful ones' best places.
+  const standPrior = new Map<string, [number, number]>();
+  const doubt = new Map<string, { at: [number, number]; score: number }[]>();
   const photosWithTaps = [...new Set(taps.map((t) => t.photo))];
   const candidates = new Map<string, Placement[]>();
   for (const id of input.photos.map((p) => p.id)) {
@@ -674,7 +698,8 @@ export function solveRoute(input: PhotoRouteInput, buildingId: string, data: Rou
     const cameras: SolveCamera[] = [];
     for (const [id, c] of placedCams) {
       const d = byId.get(id) as RoutePhotoData;
-      cameras.push({ id, quadrant: c.quadrant, guess: c.at, yawSdDeg: YAW_SD_DEG });
+      const stood = standPrior.get(id);
+      cameras.push({ id, quadrant: c.quadrant, guess: c.at, yawSdDeg: YAW_SD_DEG, ...(stood ? { prior: { at: stood, sdFeet: STOOD_SD_FEET } } : {}) });
       for (const t of taps.filter((x) => x.photo === id)) bearings.push({ camera: id, point: `c${t.corner}`, bearing: t.bearing, sd: CORNER_SD / (d.camera as PhotoCamera).f, bearingAt: atK(d.camera as PhotoCamera, t.px) });
     }
     for (const p of edgePoints) {
@@ -717,6 +742,7 @@ export function solveRoute(input: PhotoRouteInput, buildingId: string, data: Rou
     // Each camera's hand height, from the corner tapped lowest in it: the one most likely tapped at the ground (one shown over a deck is tapped higher).
     const heights: { camera: string; point: string; drop: number; forward: number; feet: number; sdFeet: number }[] = [];
     for (const [id] of placedCams) {
+      if (standPrior.has(id)) continue;
       const cam = (byId.get(id) as RoutePhotoData).camera as PhotoCamera;
       const mine = taps.filter((t) => t.photo === id && t.v > cam.height / 2 + 0.02 * cam.f).sort((a, b) => a.v - b.v);
       const t = mine[mine.length - 1];
@@ -724,7 +750,9 @@ export function solveRoute(input: PhotoRouteInput, buildingId: string, data: Rou
       const { zl } = levelAxes(cam);
       heights.push({ camera: id, point: `c${t.corner}`, drop: (t.v - cam.height / 2) / cam.f, forward: Math.atan2(zl[0], zl[2]), feet: HAND_FEET, sdFeet: HAND_SD_FEET });
     }
-    return { input: { walls: wallsNow, points, cameras, bearings, distances, lens: lensPrior, heights }, hasScale };
+    // A camera nothing ties yet (a photo placed by its edges, before they are tied in the next round) waits out this solve.
+    const seen = new Set(bearings.map((x) => x.camera));
+    return { input: { walls: wallsNow, points, cameras: cameras.filter((c) => seen.has(c.id)), bearings, distances, lens: lensPrior, heights: heights.filter((h) => seen.has(h.camera)) }, hasScale };
   };
 
   /**
@@ -780,20 +808,52 @@ export function solveRoute(input: PhotoRouteInput, buildingId: string, data: Rou
   // The shift two photos may disagree by along a wall, round by round, as the cameras settle.
   const SEARCH = [2, 1, 0.5, 0.3, 0.2];
   const TOL = [0.15, 0.12, 0.1, 0.08, 0.08];
-  const rounds = opts.wallEdges === false ? 1 : SEARCH.length;
+  let rounds = opts.wallEdges === false ? 1 : SEARCH.length;
+  // Photos placed where the user stood this round: their edges tied in the next. (Not searched any wider than the
+  // round's: on the owner's house a wider search for them tied posts and railings as jambs, and the depth came out 7% short.)
+  let fresh = new Set<string>();
+  // Photos put back out after their bearings didn't fit: not tried again.
+  const misfit = new Set<string>();
   for (let round = 0; round < rounds; round++) {
-    const placedNow = new Map([...cams].filter(([id]) => sol.input.cameras.some((c) => c.id === id) || round === 0));
+    // Placed by their corners and in the last solve; or placed by their edges since, to have those tied this round.
+    const placedNow = new Map([...cams].filter(([id, c]) => sol.input.cameras.some((x) => x.id === id) || round === 0 || c.placedBy !== "corners"));
     const obs = opts.wallEdges === false ? [] : wallObservations(placedNow, byId, ring, sol, camHeight).filter((o) => !(b.shared ?? []).includes(o.side));
-    edgePoints = opts.wallEdges === false ? [] : tieEdges(obs, SEARCH[round] as number, TOL[round] as number).filter((q) => !(opts.skipSides ?? []).includes(q.side));
-    // Photos with one corner: placed along that corner's ray where their wall edges meet the others' (once there are some to meet).
-    for (const id of input.photos.map((p) => p.id)) {
-      if (cams.has(id) || opts.wallEdges === false || round === 0) continue;
+    const at = Math.min(round, SEARCH.length - 1);
+    edgePoints = opts.wallEdges === false ? [] : tieEdges(obs, SEARCH[at] as number, TOL[at] as number).filter((q) => !(opts.skipSides ?? []).includes(q.side));
+    fresh = new Set();
+    // Photos with one corner, or none (2026-10-20, every photo counts): where their upright edges repeat the edges the
+    // placed photos tied, each at its own height, is worked out - but not taken on its own. On the owner's house the
+    // edges of #1 pointed, surely and self-consistently, to a place twice as far out as it was taken from (the porch's
+    // posts and railings, seen from out front as the front photos saw them), and it shortened the house 8%; #2's, as
+    // surely, to its true place. Nothing in the edges told the two apart. So a photo is placed once the user says where
+    // they stood (one tap on the plan, Scrivn's best places shown); until then its best places are listed (`doubtful`).
+    const tied = opts.wallEdges === false || round === 0 ? [] : tiedPoints([...edgePoints].sort((p, q) => q.obs.length - p.obs.length), ring);
+    const shared = new Set(b.shared ?? []);
+    const toSolved = sketchToSolved(b.outline, ring);
+    // The stand spots as the shape is solved now.
+    for (const id of standPrior.keys()) {
+      const said = input.photos.find((p) => p.id === id)?.standAt;
+      if (said) standPrior.set(id, toSolved(said));
+    }
+    for (const p of input.photos) {
+      const id = p.id;
+      if (cams.has(id) || misfit.has(id) || opts.wallEdges === false || round === 0) continue;
       const d = byId.get(id);
       const mine = taps.filter((t) => t.photo === id);
-      if (!d?.camera || mine.length !== 1) continue;
-      const placed = placeByOneCorner(mine[0] as SnappedTap, d, ring, edgePoints, sol);
-      if (placed) cams.set(id, { ...placed, placedBy: "one-corner" });
+      if (!d?.camera || mine.length > 1) continue;
+      // Only where the user said they stood: the others' best places are worked out once, after the last round.
+      if (!p.standAt) continue;
+      const spot = toSolved(p.standAt);
+      // With a corner: on that corner's ray, nearest there. With none: searched round there.
+      const placed = mine[0] ? nearestOnRay(mine[0], ring, spot, shared) : placeByEdges(null, d, ring, tied, shared, undefined, { at: { x: spot[0], y: spot[1] }, radius: STOOD_SEARCH_FEET });
+      if (!placed) continue;
+      cams.set(id, { quadrant: placed.quadrant, at: placed.at, placedBy: "stood" });
+      standPrior.set(id, spot);
+      fresh.add(id);
     }
+    // One placed in the last round has its edges tied in one more.
+    if (fresh.size > 0 && round === rounds - 1 && rounds < SEARCH.length + 2) rounds++;
+
     // Tapes on photos: each end on the wall its ray meets.
     tapeEnds = [];
     for (const t of lineTapes) {
@@ -825,18 +885,45 @@ export function solveRoute(input: PhotoRouteInput, buildingId: string, data: Rou
       edgePoints = edgePoints.map((p) => ({ ...p, obs: p.obs.filter((o) => !bad.has(`${o.photo}|${p.id}`)) })).filter((p) => p.obs.length >= 2);
       sol = solvePlan(scaleHold(build(edgePoints, tapeEnds, cams, ring)));
     }
+    // A photo placed by its edges, once its bearings are in, fitting them badly: it was put in the wrong place.
+    for (const [id, c] of cams) {
+      if (c.placedBy === "corners") continue;
+      const res = sol.input.bearings.map((bb, i) => (bb.camera === id ? (sol.residuals[i] as number) : NaN)).filter((r) => Number.isFinite(r));
+      if (res.length < 3) continue;
+      const rms = Math.sqrt(res.reduce((s, r) => s + r * r, 0) / res.length);
+      if (rms > PLACED_FIT_SD) {
+        cams.delete(id);
+        misfit.add(id);
+      }
+    }
     ring = solvedCorners(sol, n);
     update();
+  }
+  // The photos still waiting with one corner or none: their best places off their edges, for the user to say which.
+  if (opts.wallEdges !== false && opts.guesses !== false) {
+    const tiedNow = tiedPoints([...edgePoints].sort((p, q) => q.obs.length - p.obs.length), ring);
+    const sharedNow = new Set(b.shared ?? []);
+    for (const p of input.photos) {
+      if (cams.has(p.id)) continue;
+      const d = byId.get(p.id);
+      const mine = taps.filter((t) => t.photo === p.id);
+      if (!d?.camera || mine.length > 1) continue;
+      const guess = placeByEdges(mine[0] ?? null, d, ring, tiedNow, sharedNow);
+      if (guess && guess.spots.length) doubt.set(p.id, guess.spots);
+    }
   }
   for (const id of new Set(b.corners.filter((c) => !c.proposed).map((c) => c.photo))) {
     if (!cams.has(id) && !unplaced.some((u) => u.photo === id)) {
       const k = taps.filter((t) => t.photo === id).length;
       unplaced.push({
         photo: id,
-        why:
-          k === 0
-            ? "No corner of the house tapped on it."
-            : "It shows one corner, and one corner can't say where you stood; too few of its window or door edges match the other photos to place it that way. A photo at 45° to that corner, both walls in, would.",
+        why: misfit.has(id)
+          ? "Its window and door edges pointed to a place they then didn't fit. Tap where you stood for it on the plan."
+          : doubt.has(id)
+            ? "Its window and door edges fit more than one place. Tap where you stood for it on the plan."
+            : k === 0
+              ? "No corner of the house tapped on it."
+              : "It shows one corner, and too few of its window or door edges match the other photos to say where you stood. Tap where you stood for it on the plan, or take one at 45° to that corner, both walls in.",
       });
     }
   }
@@ -874,13 +961,19 @@ export function solveRoute(input: PhotoRouteInput, buildingId: string, data: Rou
     sides,
     cameras,
     unplaced,
+    doubtful: [...doubt].filter(([id]) => !cams.has(id)).map(([photo, spots]) => ({ photo, spots })),
     counts: { cornerBearings, edgeBearings, edgePoints: edgePoints.length, tapes: tapes.length },
     rms: sol.rms,
     unscaled: !scaled,
     advice: tapeAdvice(sides, ring, cameras, taps, edgePoints, new Set(b.shared ?? [])),
-    edgePoints: edgePoints.map((q) => ({ id: q.id, side: q.side, along: sol.input.points.some((x) => x.id === q.id) ? alongOf(sol, q.id, ring, q.side) : q.along, photos: q.obs.map((o) => o.photo) })),
+    edgePoints: edgePoints.map((q) => ({ id: q.id, side: q.side, along: sol.input.points.some((x) => x.id === q.id) ? alongOf(sol, q.id, ring, q.side) : q.along, photos: q.obs.map((o) => o.photo), zLow: medianOf(q.obs.map((o) => o.zLow)), zHigh: medianOf(q.obs.map((o) => o.zHigh)), polarity: (q.obs[0] as EdgeObs).polarity })),
     solution: sol,
   };
+}
+
+function medianOf(v: number[]): number {
+  const s = [...v].sort((a, b) => a - b);
+  return s.length ? (s[Math.floor(s.length / 2)] as number) : 0;
 }
 
 function alongOf(sol: Solution, id: string, ring: Pt[], side: number): number {
@@ -1191,58 +1284,272 @@ function matchShift(P: EdgeObs[], Q: EdgeObs[], d: number, tol: number): [EdgeOb
   return out;
 }
 
-/**
- * A photo with one corner tapped: somewhere along that corner's ray (each quarter-turn tried), where
- * the most of its wall edges land on the points the other photos have already tied. Null when no
- * place lines up at least four.
- */
-function placeByOneCorner(tap: SnappedTap, d: RoutePhotoData, ring: Pt[], points: { id: string; side: number; obs: EdgeObs[]; along: number }[], sol: Solution): { quadrant: number; at: [number, number] } | null {
-  void sol;
-  const cam = d.camera as PhotoCamera;
-  const P = ring[tap.corner] as Pt;
+/** A wall edge two or more photos tied, where the solve put it: on its wall, at its height, light on one side. */
+interface TiedPoint {
+  side: number;
+  at: Pt;
+  zLow: number;
+  zHigh: number;
+  polarity: 1 | -1;
+}
+
+/** The tied wall edges as points on the plan, each at the middle of the heights its photos saw it at. */
+function tiedPoints(points: { side: number; obs: EdgeObs[]; along: number }[], ring: Pt[]): TiedPoint[] {
   const n = ring.length;
-  let best: { quadrant: number; at: [number, number]; score: number } | null = null;
-  let second = 0;
-  // How far below the level camera's horizon the corner's foot was tapped: at distance t along the ray
-  // the camera then stood (v - cy) / f * depth over the ground there.
+  const med = (v: number[]) => {
+    const s = [...v].sort((a, b) => a - b);
+    return s[Math.floor(s.length / 2)] as number;
+  };
+  return points.flatMap((p) => {
+    const A = ring[p.side] as Pt;
+    const B = ring[(p.side + 1) % n] as Pt;
+    const L = segLen(A, B) || 1;
+    const first = p.obs[0];
+    if (!first) return [];
+    return [{ side: p.side, at: { x: A.x + ((B.x - A.x) / L) * p.along, y: A.y + ((B.y - A.y) / L) * p.along }, zLow: med(p.obs.map((o) => o.zLow)), zHigh: med(p.obs.map((o) => o.zHigh)), polarity: first.polarity }];
+  });
+}
+
+/** Most tied edges a photo may be asked to repeat, the strongest: more add time, not a better answer. */
+const PLACE_POINTS_MAX = 80;
+/** A photo with one corner is placed where at least this many tied edges land on its own; one with none, this many. */
+const PLACE_MIN_ONE = 5;
+const PLACE_MIN_NONE = 7;
+/** And by this many more than anywhere else it could have stood (four feet off, or another quarter-turn). */
+const PLACE_MARGIN_ONE = 2;
+const PLACE_MARGIN_NONE = 3;
+
+/**
+ * A photo with one corner, or none (2026-10-20, every photo counts): placed where its upright edges best repeat
+ * the wall edges the placed photos tied - each tied edge seen from there landing on one of its own, on the same
+ * column (to a few inches), light on the same side, at the same height and as tall. Heights are what make it
+ * work: from too near a wall every edge would read far taller than it is. With one corner the camera is on that
+ * corner's ray and held 3 to 7.5 ft up; with none it is searched round the house. Each quarter-turn is tried, and
+ * a degree of turn either way on top of the vanishing points. Null when no place lines up enough of them, or two
+ * places do equally: the photo is then left out, and said so.
+ */
+function placeByEdges(
+  tap: SnappedTap | null,
+  d: RoutePhotoData,
+  ring: Pt[],
+  tied: TiedPoint[],
+  shared: Set<number>,
+  trace?: (poses: { q: number; dyaw: number; h: number; C: Pt; s: number; v: number }[]) => void,
+  near?: { at: Pt; radius: number },
+): { quadrant: number; at: [number, number]; score: number; confident: boolean; spots: { at: [number, number]; score: number }[] } | null {
+  const cam = d.camera as PhotoCamera;
+  const n = ring.length;
+  if (tied.length < (tap ? PLACE_MIN_ONE : PLACE_MIN_NONE)) return null;
+  const pts = tied.slice(0, PLACE_POINTS_MAX);
+  const W = cam.width;
+  const f = cam.f;
+  const cy = cam.height / 2;
   const { zl } = levelAxes(cam);
-  const drop = (tap.v - cam.height / 2) / cam.f;
+  const b0 = Math.atan2(zl[0], zl[2]);
+  const edges = d.edges.map((e, i) => ({ ...e, i })).sort((a, b) => a.u - b.u);
+  const firstAt = (u: number) => {
+    let lo = 0;
+    let hi = edges.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if ((edges[mid] as { u: number }).u < u) lo = mid + 1;
+      else hi = mid;
+    }
+    return lo;
+  };
+  const sides = ring.map((A, i) => {
+    const B = ring[(i + 1) % n] as Pt;
+    return { A, nrm: outward(A, B) };
+  });
+  /** How many tied edges a camera at C (quarter-turn q, turned dyaw more, h ft up) sees land on its own. */
+  /** How many tied edges the last pose scored should have seen at all. */
+  let lastSeen = 0;
+  const score = (C: Pt, q: number, dyaw: number, h: number): number => {
+    const Z = GDIR_PLAN[q] as [number, number];
+    const X: [number, number] = [Z[1], -Z[0]];
+    const cs = Math.cos(dyaw);
+    const sn = Math.sin(dyaw);
+    const used = new Set<number>();
+    let got = 0;
+    let seen = 0;
+    for (const p of pts) {
+      const s = sides[p.side] as { A: Pt; nrm: Pt };
+      if ((C.x - s.A.x) * s.nrm.x + (C.y - s.A.y) * s.nrm.y <= 0.5) continue;
+      const v0 = p.at.x - C.x;
+      const v1 = p.at.y - C.y;
+      const dist = Math.hypot(v0, v1);
+      if (dist < 4) continue;
+      // Its column in the photo: planDirection with this quarter-turn and turn, run backwards.
+      const l0 = cs * v0 - sn * v1;
+      const l1 = sn * v0 + cs * v1;
+      const off = Math.atan2(l0 * X[0] + l1 * X[1], l0 * Z[0] + l1 * Z[1]) - b0;
+      if (Math.cos(off) < 0.25) continue;
+      const u = W / 2 + f * Math.tan(off);
+      if (u < 0.02 * W || u > 0.98 * W) continue;
+      const hit = castRay(C, [v0 / dist, v1 / dist], ring);
+      if (!hit || hit.side !== p.side || Math.abs(hit.t - dist) > 0.5) continue;
+      if (shared.size && neighbourBlocks(C, p.at, ring, shared)) continue;
+      seen++;
+      const depth = dist * Math.cos(off);
+      const top = cy - (f * (p.zHigh - h)) / depth;
+      const bottom = cy - (f * (p.zLow - h)) / depth;
+      const tall = bottom - top;
+      const tol = 2.5 + (f * 0.3) / depth;
+      for (let k = firstAt(u - tol); k < edges.length; k++) {
+        const e = edges[k] as UprightEdge & { i: number };
+        if (e.u > u + tol) break;
+        if (used.has(e.i) || e.polarity !== p.polarity) continue;
+        const seen = e.vBottom - e.vTop;
+        const overlap = Math.min(bottom, e.vBottom) - Math.max(top, e.vTop);
+        if (overlap < 0.3 * Math.min(seen, tall) || seen < 0.35 * tall || seen > 2.8 * tall) continue;
+        used.add(e.i);
+        got++;
+        break;
+      }
+    }
+    lastSeen = seen;
+    return got;
+  };
+  type Pose = { q: number; dyaw: number; h: number; C: Pt; s: number; v: number };
+  const poses: Pose[] = [];
+  const DY = [-1, -0.5, 0, 0.5, 1].map((dg) => (dg * Math.PI) / 180);
+  const okSpot = (C: Pt) => !insideRing(C, ring) && !(shared.size && inNeighbour(C, ring, shared)) && (!near || Math.hypot(C.x - near.at.x, C.y - near.at.y) <= near.radius);
+  if (tap) {
+    const P = ring[tap.corner] as Pt;
+    const drop = (tap.v - cy) / f;
+    for (let q = 0; q < 4; q++) {
+      for (const dyaw of DY) {
+        const dir = planDirection(tap.bearing, q, dyaw);
+        const zg = planDirection(b0, q, dyaw);
+        const ahead = dir[0] * zg[0] + dir[1] * zg[1];
+        if (ahead <= 0.2) continue;
+        for (let t = 5; t <= 150; t += t < 40 ? 0.25 : 0.5) {
+          const C = { x: P.x - dir[0] * t, y: P.y - dir[1] * t };
+          if (!okSpot(C)) continue;
+          // Held in the hand, 3 to 7.5 ft over the ground at the corner it shows.
+          const h = drop > 0.005 ? drop * t * ahead : HAND_FEET;
+          if (drop > 0.005 && (h < PLACE_HAND_FEET[0] || h > PLACE_HAND_FEET[1])) continue;
+          const back = castRay(C, dir, ring);
+          if (back && back.t < t - 0.5) continue;
+          if (shared.size && neighbourBlocks(C, P, ring, shared)) continue;
+          const s = score(C, q, dyaw, h);
+          poses.push({ q, dyaw, h, C, s, v: lastSeen });
+        }
+      }
+    }
+  } else {
+    // No corner: round the house on a 3 ft grid, then the best few again on a finer one.
+    const xs = ring.map((p) => p.x);
+    const ys = ring.map((p) => p.y);
+    const x0 = Math.min(...xs) - 70;
+    const x1 = Math.max(...xs) + 70;
+    const y0 = Math.min(...ys) - 70;
+    const y1 = Math.max(...ys) + 70;
+    const coarse: Pose[] = [];
+    for (let q = 0; q < 4; q++)
+      for (const dyaw of DY)
+        for (const h of [4, 6])
+          for (let x = x0; x <= x1; x += 3)
+            for (let y = y0; y <= y1; y += 3) {
+              const C = { x, y };
+              if (!okSpot(C)) continue;
+              const s = score(C, q, dyaw, h);
+              if (s >= 3) coarse.push({ q, dyaw, h, C, s, v: lastSeen });
+            }
+    coarse.sort((a, b) => b.s - a.s);
+    const seeds = coarse.slice(0, 12);
+    for (const sd of seeds) {
+      for (let dx = -2; dx <= 2; dx += 0.5)
+        for (let dy = -2; dy <= 2; dy += 0.5)
+          for (const ddy of [-0.25, 0, 0.25].map((dg) => (dg * Math.PI) / 180))
+            for (const h of [sd.h - 1, sd.h, sd.h + 1]) {
+              const C = { x: sd.C.x + dx, y: sd.C.y + dy };
+              if (!okSpot(C)) continue;
+              const s = score(C, sd.q, sd.dyaw + ddy, h);
+              poses.push({ q: sd.q, dyaw: sd.dyaw + ddy, h, C, s, v: lastSeen });
+            }
+    }
+    poses.push(...coarse);
+  }
+  if (poses.length === 0) return null;
+  poses.sort((a, b) => b.s - a.s);
+  trace?.(poses);
+  const best = poses[0] as Pose;
+  // A rival: another quarter-turn, or a place 8 ft or more away (a few feet along the same ray is the same answer).
+  const second = poses.find((p) => p.q !== best.q || Math.hypot(p.C.x - best.C.x, p.C.y - best.C.y) > 8);
+  const min = tap ? PLACE_MIN_ONE : PLACE_MIN_NONE;
+  const margin = tap ? PLACE_MARGIN_ONE : PLACE_MARGIN_NONE;
+  // The best places a few feet apart, for the user to say which (or neither).
+  const spots: { at: [number, number]; score: number }[] = [];
+  for (const p of poses) {
+    if (spots.length >= 3 || p.s < 2) break;
+    if (spots.some((s) => Math.hypot(s.at[0] - p.C.x, s.at[1] - p.C.y) < 8)) continue;
+    spots.push({ at: [p.C.x, p.C.y], score: p.s });
+  }
+  if (best.s < 2) return null;
+  const confident = best.s >= min && !(second && best.s < second.s + margin);
+  // Fits one place clearly: that one first and alone; else its best few.
+  return { quadrant: best.q, at: [best.C.x, best.C.y], score: best.s, confident, spots: confident ? spots.slice(0, 1) : spots };
+}
+
+/** A stand spot is held this loosely (one sd, ft): it is tapped on a rough shape. */
+const STOOD_SD_FEET = 8;
+/** A photo with no corner and a stand spot is searched this far round it. */
+const STOOD_SEARCH_FEET = 12;
+
+/**
+ * A point on the shape as drawn on the shape as solved, axis by axis: each corner's drawn x goes to its solved x (and
+ * y to y), and anything between goes between - so a stand spot tapped beside the drawn garage lands beside the solved one.
+ */
+function sketchToSolved(drawn: Pt[], solved: Pt[]): (p: [number, number]) => [number, number] {
+  const axis = (pick: (q: Pt) => number) => {
+    const pairs = drawn.map((q, i) => [pick(q), pick(solved[i] as Pt)] as [number, number]).sort((a, b) => a[0] - b[0]);
+    const merged: [number, number][] = [];
+    for (const [a, s] of pairs) {
+      const last = merged[merged.length - 1];
+      if (last && Math.abs(last[0] - a) < 1e-6) last[1] = (last[1] + s) / 2;
+      else merged.push([a, s]);
+    }
+    return (v: number): number => {
+      if (merged.length === 1) return v - (merged[0] as [number, number])[0] + (merged[0] as [number, number])[1];
+      let k = 1;
+      while (k < merged.length - 1 && (merged[k] as [number, number])[0] < v) k++;
+      const [a0, s0] = merged[k - 1] as [number, number];
+      const [a1, s1] = merged[k] as [number, number];
+      return s0 + ((v - a0) * (s1 - s0)) / (a1 - a0 || 1);
+    };
+  };
+  const fx = axis((q) => q.x);
+  const fy = axis((q) => q.y);
+  return (p) => [fx(p[0]), fy(p[1])];
+}
+
+/**
+ * A photo with one corner and a stand spot: on that corner's ray, for the quarter-turn whose ray passes nearest the
+ * spot, as near it as the ray goes - outside the house, the corner the first thing it sees.
+ */
+function nearestOnRay(tap: SnappedTap, ring: Pt[], spot: [number, number], shared: Set<number>): { quadrant: number; at: [number, number]; score: number; confident: boolean; spots: { at: [number, number]; score: number }[] } | null {
+  const P = ring[tap.corner] as Pt;
+  let best: { quadrant: number; at: [number, number]; off: number } | null = null;
   for (let q = 0; q < 4; q++) {
     const dir = planDirection(tap.bearing, q, 0);
-    const zg = planDirection(Math.atan2(zl[0], zl[2]), q, 0);
-    const ahead = dir[0] * zg[0] + dir[1] * zg[1];
-    for (let t = 6; t <= 120; t += 0.25) {
-      const C = { x: P.x - dir[0] * t, y: P.y - dir[1] * t };
-      if (insideRing(C, ring)) continue;
-      // A photo held in the hand is taken 3 to 7.5 ft over the ground at the corner it shows (a step or a slope
-      // either way): a place along the ray that puts the camera higher or lower is not where it stood.
-      const h = drop * t * ahead;
-      if (drop > 0.005 && (h < HAND_HEIGHT_FEET[0] || h > HAND_HEIGHT_FEET[1])) continue;
-      // The corner itself must be the first thing the ray meets (no wall in the way).
-      const back = castRay(C, dir, ring);
-      if (back && back.t < t - 0.5) continue;
-      let score = 0;
-      for (const e of d.edges) {
-        const de = planDirection(columnBearing(cam, e.u), q, 0);
-        const hit = castRay(C, de, ring);
-        if (!hit) continue;
-        const A = ring[hit.side] as Pt;
-        const B = ring[(hit.side + 1) % n] as Pt;
-        const nrm = outward(A, B);
-        if ((C.x - A.x) * nrm.x + (C.y - A.y) * nrm.y <= 0) continue;
-        if (points.some((p) => p.side === hit.side && Math.abs(p.along - hit.along) < 0.15 && p.obs[0]?.polarity === e.polarity)) score++;
-      }
-      // A camera held higher or lower than the hand usually holds one scores the worse for it.
-      if (drop > 0.005) score -= 1.5 * Math.max(0, Math.abs(drop * t * ahead - HAND_FEET) - 0.75);
-      if (!best || score > best.score) {
-        if (best && Math.hypot(best.at[0] - C.x, best.at[1] - C.y) > 3) second = Math.max(second, best.score);
-        best = { quadrant: q, at: [C.x, C.y], score };
-      } else if (Math.hypot(best.at[0] - C.x, best.at[1] - C.y) > 3) second = Math.max(second, score);
-    }
+    const t = (P.x - spot[0]) * dir[0] + (P.y - spot[1]) * dir[1];
+    if (t < 4) continue;
+    const C = { x: P.x - dir[0] * t, y: P.y - dir[1] * t };
+    if (insideRing(C, ring) || (shared.size && inNeighbour(C, ring, shared))) continue;
+    const back = castRay(C, dir, ring);
+    if (back && back.t < t - 0.5) continue;
+    const off = Math.hypot(C.x - spot[0], C.y - spot[1]);
+    if (!best || off < best.off) best = { quadrant: q, at: [C.x, C.y], off };
   }
-  if (!best || best.score < 6 || best.score < second + 3) return null;
-  return { quadrant: best.quadrant, at: best.at };
+  return best ? { quadrant: best.quadrant, at: best.at, score: 0, confident: true, spots: [] } : null;
 }
+
+/** A point on one shape on another of the same corners, axis by axis: the drawn shape to the solved and back (the pane's stand spots). */
+export const planMapping = sketchToSolved;
+
+/** For the tests: where placeByEdges would put a photo, and the tied points it had. */
+export const placeSteps = { placeByEdges, tiedPoints };
 
 /**
  * Which sides want a tape, and why, in plain words: any whose ± is over 5%. Advice only: nothing waits
@@ -1251,8 +1558,19 @@ function placeByOneCorner(tap: SnappedTap, d: RoutePhotoData, ring: Pt[], points
 function tapeAdvice(sides: RouteSide[], ring: Pt[], cameras: RouteCamera[], taps: SnappedTap[], points: { side: number; obs: EdgeObs[] }[], shared: Set<number> = new Set()): { from: number; why: string }[] {
   const n = ring.length;
   const out: { from: number; why: string }[] = [];
+  // No tape front to back, and the depth loose: that tape first (2026-10-20: both blind runs of the owner's house picked it).
+  const runsBack = (i: number) => {
+    const A = ring[i] as Pt;
+    const B = ring[(i + 1) % n] as Pt;
+    return Math.abs(B.x - A.x) < Math.abs(B.y - A.y);
+  };
+  const back = sides.filter((s) => runsBack(s.from) && !shared.has(s.from));
+  const longest = back.reduce<RouteSide | null>((a, s) => (!a || s.lengthFeet > a.lengthFeet ? s : a), null);
+  if (longest && !sides.some((s) => s.taped && runsBack(s.from)) && (longest.plusMinusPct ?? 0) > 5) {
+    out.push({ from: longest.from, why: `±${longest.plusMinusPct}%: no tape runs front to back. One along this wall, front corner to back corner, holds the house's depth - the most useful tape there is.` });
+  }
   for (const s of sides) {
-    if (s.taped || (s.plusMinusPct ?? 0) <= 5) continue;
+    if (s.taped || (s.plusMinusPct ?? 0) <= 5 || s === longest && out.length > 0) continue;
     const i = s.from;
     // A party wall: no photo sees along it; it is the home's depth.
     if (shared.has(i)) {
@@ -1349,6 +1667,9 @@ const GDIR_PLAN: [number, number][] = [
   [0, -1],
   [-1, 0],
 ];
+
+/** The first side a ray meets, for the sanity checks (lib/photoRouteSanity.ts). */
+export { castRay as castRayToSides };
 
 /** For the tests: the steps inside `solveRoute`. */
 export const routeSteps = { wallObservations, tieEdges, castRay, placementsFromCorners, chooseByWalk, matchShift };

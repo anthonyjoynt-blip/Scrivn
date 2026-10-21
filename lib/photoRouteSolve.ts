@@ -48,6 +48,8 @@ export interface SolveCamera {
   guess: [number, number];
   /** How far its turn may stray from its vanishing points: the prior's sd, degrees. */
   yawSdDeg: number;
+  /** Where the user said the photo was taken from, held loosely (2026-10-20): a photo with one corner, or none. */
+  prior?: { at: [number, number]; sdFeet: number };
 }
 
 export interface SolveBearing {
@@ -185,7 +187,8 @@ export function solvePlan(input: SolveInput, opts: { maxIterations?: number } = 
   const residual = (x: Float64Array): Float64Array => {
     void 0;
     const hs = input.heights ?? [];
-    const out = new Float64Array(bearings.length + input.cameras.length + input.distances.length + (input.lens ? 1 : 0) + hs.length);
+    const priors = input.cameras.filter((c) => c.prior);
+    const out = new Float64Array(bearings.length + input.cameras.length + input.distances.length + (input.lens ? 1 : 0) + hs.length + 2 * priors.length);
     let i = 0;
     for (const b of bearings) {
       const cam = camById.get(b.camera) as SolveCamera;
@@ -213,6 +216,14 @@ export function solvePlan(input: SolveInput, opts: { maxIterations?: number } = 
       const depth = (P[0] - at[0]) * z[0] + (P[1] - at[1]) * z[1];
       out[hAt + j] = (hh.drop * depth - hh.feet) / hh.sdFeet;
     });
+    // Where the user said each was taken from, last.
+    let pAt = hAt + hs.length;
+    for (const c of priors) {
+      const pr = c.prior as { at: [number, number]; sdFeet: number };
+      const { at } = camera(c.id, x);
+      out[pAt++] = (at[0] - pr.at[0]) / pr.sdFeet;
+      out[pAt++] = (at[1] - pr.at[1]) / pr.sdFeet;
+    }
     for (const dd of input.distances) {
       const A = end(dd.a, dd.axis, x);
       const B = end(dd.b, dd.axis, x);

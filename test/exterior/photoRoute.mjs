@@ -32,7 +32,7 @@ const FIXTURE = join(here, "fixtures", "photo-route", "owner-1016.json");
 async function load() {
   const outDir = mkdtempSync(join(tmpdir(), "photo-route-"));
   const entry = join(outDir, "entry.ts");
-  writeFileSync(entry, ["photoRoute.ts", "photoRouteLens.ts", "photoRouteLines.ts", "photoRouteEdges.ts", "photoRouteSolve.ts", "photoRouteData.ts", "photoRouteExterior.ts", "exteriorPhoto.ts", "exterior.ts", "exteriorTrace.ts", "exteriorReport.ts", "exteriorCheck.ts", "photoRouteCoverage.ts"].map((f) => `export * from "${lib(f)}";`).join("\n"));
+  writeFileSync(entry, ["photoRoute.ts", "photoRouteLens.ts", "photoRouteLines.ts", "photoRouteEdges.ts", "photoRouteSolve.ts", "photoRouteData.ts", "photoRouteExterior.ts", "exteriorPhoto.ts", "exterior.ts", "exteriorTrace.ts", "exteriorReport.ts", "exteriorCheck.ts", "photoRouteCoverage.ts", "photoRouteSanity.ts"].map((f) => `export * from "${lib(f)}";`).join("\n"));
   await build({ entryPoints: [entry], bundle: true, format: "esm", platform: "node", outfile: join(outDir, "entry.mjs"), alias: { "@": root }, logLevel: "silent" });
   const mod = await import(pathToFileURL(join(outDir, "entry.mjs")).href);
   rmSync(outDir, { recursive: true, force: true });
@@ -368,6 +368,56 @@ console.log(`    corners now thin: ${thinNow.map((k) => k + 1).join(", ")}; wall
 console.log(`    ± with and without them: ${doors.sides.map((s, i) => `${i + 1}: ${s.plusMinusPct}->${lessRun.solution.sides[i].plusMinusPct}`).join(", ")}`);
 check("without the 45-degree photos the checklist names each corner and wall now thin", thinNow.length > 0 && wallsLost.length > 0 && thinNow.every((k) => named("corner-seen", k)) && wallsLost.every((k) => named("wall-both", k)), `corners ${thinNow.map((k) => k + 1)}, walls ${wallsLost}`);
 check("and the ± widens on the walls they held", wallsLost.every((k) => (lessRun.solution.sides[k].plusMinusPct ?? 0) > (doors.sides[k].plusMinusPct ?? 0)), wallsLost.map((k) => `${doors.sides[k].plusMinusPct}->${lessRun.solution.sides[k].plusMinusPct}`).join(", "));
+
+// ── 10-20: every photo counts (lib/photoRoute.ts placeByEdges, standAt; lib/photoRouteSanity.ts) ─────────────────────
+// Two blind runs of the house runner came out 22-24% short front to back: 8-10 of the 18 photos never placed. Here: the
+// 9' garage doors the only tape; which photos are placed, and how deep the house comes out against the truth (70'7");
+// then with where he stood for the six one-corner photos (fixtures/photo-route/owner-1016-stood.json, one tap each on
+// the shape as drawn); then the blind runs' likely slip - the far corners of the side yard untapped - and what is said.
+console.log("\n  Every photo counts (doors only):");
+const STOOD = JSON.parse(readFileSync(join(here, "fixtures", "photo-route", "owner-1016-stood.json"), "utf8")).standAt;
+const DEPTH = 70 + 7 / 12;
+const depthOf = (sol) => {
+  const ys = sol.corners.map((p) => p.y);
+  return Math.max(...ys) - Math.min(...ys);
+};
+const sayRun = (name, sol) => {
+  const side = sol.sides[3].lengthFeet;
+  const depth = depthOf(sol);
+  console.log(`    ${name}: ${sol.cameras.length} of ${input.photos.length} placed (${sol.cameras.map((c) => `${c.photo}${c.placedBy === "corners" ? "" : ` ${c.placedBy}`}`).join(", ")}); side-yard wall ${ftin(side)} ±${sol.sides[3].plusMinusPct}% (${((side / DEPTH - 1) * 100).toFixed(1)}%), depth ${ftin(depth)} (${((depth / DEPTH - 1) * 100).toFixed(1)}%) against 70'7"`);
+  for (const d of sol.doubtful) console.log(`      ${d.photo} waits for where he stood; best guesses ${d.spots.map((s) => `(${s.at.map((v) => v.toFixed(0)).join(", ")})`).join(" ")}`);
+  return { side, depth };
+};
+const sanityOf = (sol, inp) => {
+  const st = { format: "scrivn-photo-route/1", ...inp, measured: null };
+  const e = x.exteriorFromRoute(undefined, st, x.measuredFrom(sol, prepared.data, "2026-10-20T13:00:00.000Z"));
+  return e ? x.routeSanity(e) : [];
+};
+const tStood = Date.now();
+const plain = sayRun("his taps, no stand spots", doors);
+const stoodInput = { ...input, photos: input.photos.map((p) => (STOOD[p.id.slice(1)] ? { ...p, standAt: STOOD[p.id.slice(1)] } : p)) };
+const stood = x.measureRoute(stoodInput, "main", pixels, { lines, solve: HOLD }).solution;
+const withStood = sayRun("and where he stood for the six one-corner photos", stood);
+// The blind runs' likely slip: corner 5 not tapped on #14, nor corner 4 on #11 - the far ends of the side yard.
+const blindInput = { ...input, buildings: input.buildings.map((bb) => ({ ...bb, corners: bb.corners.filter((c) => !((c.photo === "p14" && c.corner === 4) || (c.photo === "p11" && c.corner === 3))) })) };
+const blind = x.measureRoute(blindInput, "main", pixels, { lines, solve: HOLD }).solution;
+const blindRun = sayRun("the side yard's far corners untapped (corner 5 on #14, 4 on #11)", blind);
+const blindFlags = sanityOf(blind, blindInput);
+const hisFlags = sanityOf(doors, input);
+console.log(`    worth a look, his taps: ${hisFlags.map((f) => f.words).join(" | ") || "nothing"}`);
+console.log(`    worth a look, far corners untapped: ${blindFlags.map((f) => f.words).join(" | ") || "nothing"}`);
+console.log(`    (${((Date.now() - tStood) / 1000).toFixed(0)} s)`);
+check("doors only, the depth and the side-yard wall within 3% of 70'7\"", Math.abs(plain.depth / DEPTH - 1) < 0.03 && Math.abs(plain.side / DEPTH - 1) < 0.03, `${ftin(plain.depth)}, ${ftin(plain.side)}`);
+check("no one-corner photo is placed by itself - each waits for where he stood, named", doors.cameras.every((c) => c.placedBy === "corners" || c.placedBy === "stood") && singlesIds.every((id) => doors.unplaced.some((u) => u.photo === id && /Tap where you stood for it on the plan/.test(u.why))), doors.unplaced.map((u) => u.photo).join(", "));
+check("where he stood places all six one-corner photos", Object.keys(STOOD).every((n) => stood.cameras.some((c) => c.photo === `p${n}` && c.placedBy === "stood")), stood.cameras.map((c) => `${c.photo} ${c.placedBy}`).join(", "));
+check("with them, the depth and the side-yard wall still within 3%", Math.abs(withStood.depth / DEPTH - 1) < 0.03 && Math.abs(withStood.side / DEPTH - 1) < 0.03, `${ftin(withStood.depth)}, ${ftin(withStood.side)}`);
+check("with them, the porch and bump-out hold-outs still within 5%", Math.abs((stood.sides[10].lengthFeet * 12) / 263 - 1) < 0.05 && Math.abs(stood.sides[4].lengthFeet / 22.1667 - 1) < 0.05, `${(stood.sides[10].lengthFeet * 12).toFixed(1)}", ${ftin(stood.sides[4].lengthFeet)}`);
+check(
+  "with the side yard's far corners untapped, the loose depth is said on that wall, with the tape that fixes it - and nothing is stopped",
+  blindFlags.some((f) => f.kind === "depth" && f.side === 3),
+  `${ftin(blindRun.depth)}; ${blindFlags.map((f) => f.kind).join(", ")}`,
+);
+check("his own measure: each flag names a photo, corner or wall", hisFlags.every((f) => /photo \d+|corner \d+|wall/i.test(f.words)), hisFlags.map((f) => f.words).join(" | "));
 
 console.log(`\n${passed.length} passed, ${failures.length} failed (${((Date.now() - t0) / 1000).toFixed(0)} s)`);
 process.exit(failures.length ? 1 : 0);

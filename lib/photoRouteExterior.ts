@@ -47,6 +47,7 @@ export function measuredFrom(sol: RouteSolution, data: RoutePhotoData[], at: str
     sides: sol.sides.map(({ sdFeet: _sd, ...rest }) => rest),
     cameras: sol.cameras,
     unplaced: sol.unplaced,
+    doubtful: sol.doubtful,
     advice: sol.advice,
     counts: sol.counts,
     lenses,

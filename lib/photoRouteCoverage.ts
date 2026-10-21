@@ -6,7 +6,9 @@
  *
  *   * each corner should be in two photos at least;
  *   * each wall should have one photo with both its corners in (what measures it);
- *   * each outside corner should have a photo at 45 degrees to it, both walls in;
+ *   * each outside corner should have a photo at 45 degrees to it, both walls in - the back ones and any behind a porch too;
+ *   * one tape front to back (2026-10-20): the long side wall, front corner to back corner. Both blind runs of the
+ *     owner's house picked it as the single most useful tape - their depths came out 22% short without it;
  *   * each wall a few feet long or more should have one photo straight on, both corners in;
  *   * a gable wall should have one square on, its peak in.
  *
@@ -52,8 +54,10 @@ export interface CoverageInput {
   wallName?: (side: number) => string | null;
   /** Walls shared with a neighbour's home (2026-10-17): never asked for, and the neighbour's home hides what is past them. */
   shared?: number[];
-  /** A tape on a wall running back from the street (the depth), for a home whose depth no photo can see. */
+  /** A tape on a wall running back from the street (the depth). */
   depthTaped?: boolean;
+  /** After a measure: the ± on the house's depth (its longest wall running back), percent. The front-to-back tape is asked while it's over 5%. */
+  depthPlusMinusPct?: number | null;
 }
 
 export type CoverageKind = "corner-seen" | "wall-both" | "corner-45" | "wall-straight" | "gable" | "depth-tape";
@@ -161,6 +165,10 @@ function depthHidden(ring: Pt[], shared: Set<number>): boolean {
 }
 
 const DEPTH_WORDS = "Tape the depth once, front wall to back wall – along the fence or inside: no photo can see it past the neighbours' homes.";
+/** The one tape worth more than any other: front to back. */
+const FRONT_BACK_WORDS = "One tape front to back: the long side wall, front corner to back corner. It holds the house's depth, which the photos alone can leave loose.";
+/** After a measure, the depth's ± over this, untaped, and the front-to-back tape is still asked. */
+const DEPTH_ASK_PCT = 5;
 
 /** The angle, degrees, between the way a photo looked at P and direction d out of the house there. */
 function angleOff(v: CoverageView, P: Pt, d: Pt): number {
@@ -221,7 +229,7 @@ function shotList(ring: Pt[], shots: { shot: RouteShot }[], gables: Set<number>,
       key: `corner-45:${k}`,
       kind: "corner-45",
       corner: k,
-      words: `${cornerWords(ring, k)}: stand ${standWords(bisector(ring, k)).replace(/^from /, "at ")}, at 45° to its two walls, both walls in.`,
+      words: `${cornerWords(ring, k)}: stand ${standWords(bisector(ring, k)).replace(/^from /, "at ")}, at 45° to its two walls, both walls in frame.`,
       shot: { kind: "corner", index: k },
     });
   });
@@ -238,8 +246,25 @@ function shotList(ring: Pt[], shots: { shot: RouteShot }[], gables: Set<number>,
       shot: { kind: "wall", index: i },
     });
   });
-  if (depthHidden(ring, shared) && !depthTaped) items.push(depthItem(ring, shared));
+  if (!depthTaped) items.push(depthHidden(ring, shared) ? depthItem(ring, shared) : frontBackItem(ring, shared));
   return items;
+}
+
+/** The front-to-back tape: along the longest wall running back that isn't shared. */
+function frontBackItem(ring: Pt[], shared: Set<number>): CoverageItem {
+  const n = ring.length;
+  let wall = 0;
+  let best = -1;
+  ring.forEach((A, i) => {
+    const B = ring[(i + 1) % n] as Pt;
+    if (!runsBack(A, B) || shared.has(i)) return;
+    const L = segLen(A, B);
+    if (L > best) {
+      best = L;
+      wall = i;
+    }
+  });
+  return { key: "front-back-tape", kind: "depth-tape", words: FRONT_BACK_WORDS, shot: { kind: "wall", index: wall } };
 }
 
 /** The depth to tape: about no wall a photo can be taken of, so none is marked for it. */
@@ -351,7 +376,7 @@ export function routeCoverage(inp: CoverageInput): Coverage {
       key: `corner-45:${c.index}`,
       kind: "corner-45",
       corner: c.index,
-      words: `No photo looks at ${cornerWords(ring, c.index).replace(/^Corner/, "corner")} at 45°: take one ${standWords(bisector(ring, c.index))}, both walls in.`,
+      words: `No photo looks at ${cornerWords(ring, c.index).replace(/^Corner/, "corner")} at 45°: take one ${standWords(bisector(ring, c.index))}, both walls in frame.`,
       shot: { kind: "corner", index: c.index },
     });
   }
@@ -369,7 +394,10 @@ export function routeCoverage(inp: CoverageInput): Coverage {
       shot: { kind: "wall", index: w.from },
     });
   }
-  if (depthHidden(ring, shared) && !inp.depthTaped) items.push(depthItem(ring, shared));
+  if (!inp.depthTaped) {
+    if (depthHidden(ring, shared)) items.push(depthItem(ring, shared));
+    else if ((inp.depthPlusMinusPct ?? 0) > DEPTH_ASK_PCT) items.push(frontBackItem(ring, shared));
+  }
   return { corners, walls, items };
 }
 
