@@ -11,7 +11,13 @@ import {
   WALL_CAP_LABEL,
   formatFeetInches,
   halfWallRuns,
+  isCeilingZone,
+  missingWallMarker,
+  missingWallMarks,
+  missingWallRuns,
+  wallById,
   wallDetailOf,
+  wallRunFeet,
   wallUnfinished,
   wallsOf,
   withWallDetail,
@@ -25,23 +31,51 @@ import { MeasureField } from "./SymbolPanel";
  * Every field can be left empty, which is a plain wall to the ceiling.
  *
  * A wall whose height changes part-way is two walls: Break it there and give each piece its own.
+ *
+ * A MISSING wall has one field of its own instead: its opening height, for a beam or a header over the
+ * opening (`WallDetail.openingHeightFeet`) - how the owner draws a beam in Xactimate. A wider beam or a
+ * bulkhead is a ceiling area, and the note under the field says how to draw one.
  */
 export function WallDetailFields({
   room,
   wallId,
   rooms,
   onPatch,
+  onPatchWall,
 }: {
   room: SketchRoom;
   wallId: string;
   rooms: SketchRoom[];
   onPatch: (patch: Partial<WallDetail>) => void;
+  /** Patches another room's wall: a missing wall's opening is held by the room that made it missing. */
+  onPatchWall: (roomId: string, wallId: string, patch: Partial<WallDetail>) => void;
 }) {
   const detail = wallDetailOf(room, wallId);
   // Half because the room across a partition marked it: one wall, so it is said here too.
   const fromAcross = detail.heightFeet == null ? halfWallRuns(room, wallId, rooms)[0] : undefined;
+  // Missing from this side or the other - but a ceiling area's sides are steps, and its ceiling is their height.
+  const missing = !isCeilingZone(room, rooms) && missingWallRuns(room, wallId, rooms).length > 0;
+  // One missing wall, one opening: its height is held on the wall that was marked missing, from whichever side.
+  const marker = missing ? missingWallMarker(room, wallId, rooms) : null;
+  const markerRoom = marker ? rooms.find((r) => r.id === marker.roomId) ?? room : room;
+  const opening = marker ? wallDetailOf(markerRoom, marker.wallId).openingHeightFeet ?? null : null;
+  const openingField = missing && marker && (
+    <MeasureField
+      id="wall-opening-height"
+      label="Opening height"
+      hint={`${markerRoom.id === room.id ? "" : `One opening with ${markerRoom.name.trim() || "the room across"}: set from either side. `}Empty: open to the ceiling. For a beam or header over the opening, the height to its underside: the wall above counts on both sides. A beam wider than about a foot, or a bulkhead, is better drawn as a ceiling area: Pull room in off the wall (or draw it with Wall), make it a sub-room, tick Ceiling area only and give it its lower ceiling.`}
+      valueFeet={opening}
+      onCommit={(feet) => onPatchWall(marker.roomId, marker.wallId, { openingHeightFeet: feet })}
+      onClear={() => onPatchWall(marker.roomId, marker.wallId, { openingHeightFeet: null })}
+    />
+  );
+  // A wall missing from end to end, from either side, has nothing else to say: no face to trim, no half height.
+  const wall = wallById(room, wallId);
+  const missingFeet = wall ? missingWallRuns(room, wallId, rooms).reduce((sum, run) => sum + wallRunFeet(wall, run), 0) : 0;
+  if (missing && wall && (missingWallMarks(room).includes(wallId) || missingFeet >= wall.lengthFeet - 0.01)) return <>{openingField}</>;
   return (
     <>
+      {openingField}
       <MeasureField
         id="wall-half-height"
         label="Half wall height"

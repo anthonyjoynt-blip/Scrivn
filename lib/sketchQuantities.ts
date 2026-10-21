@@ -1,5 +1,4 @@
 import {
-  beamMeasure,
   blockFloorAreaFeet,
   blockKind,
   blockShape,
@@ -17,6 +16,8 @@ import {
   type FreeWall,
   freeWallsOf,
   halfWallRuns,
+  missingWallHeaders,
+  underHeader,
   MIN_VERTICES,
   PIXELS_PER_FOOT,
   type Sketch,
@@ -162,9 +163,13 @@ export interface RoomDetailQuantities {
   /** What the ceiling is finished with, when said, and how much of it - the ceiling area, C. */
   ceilingFinish: CeilingFinish | null;
   ceilingFinishSquareFeet: number;
-  /** Beams, bulkheads and soffits: their run, LF, and the drywall wrapping them, SF (only those with a drop). */
-  beamFeet: number;
-  beamSquareFeet: number;
+  /**
+   * HEADERS over missing walls (`missingWallHeaders`): a beam between two spaces, drawn as a missing wall with an
+   * opening height. Their run, LF, and this room's face of the strip over the opening, SF - already in W, as the
+   * room across counts its own face.
+   */
+  headerFeet: number;
+  headerSquareFeet: number;
   /** The face of each fireplace's surround, width by height, SF; and how many fireplaces. */
   fireplaceSurroundSquareFeet: number;
   fireplaces: number;
@@ -187,8 +192,8 @@ export function emptyDetailQuantities(): RoomDetailQuantities {
     unfinishedWallSquareFeet: 0,
     ceilingFinish: null,
     ceilingFinishSquareFeet: 0,
-    beamFeet: 0,
-    beamSquareFeet: 0,
+    headerFeet: 0,
+    headerSquareFeet: 0,
     fireplaceSurroundSquareFeet: 0,
     fireplaces: 0,
   };
@@ -317,9 +322,12 @@ function ceilingSteps(room: SketchRoom, rooms: SketchRoom[]): { faceSquareFeet: 
   const own = height(room);
   if (own == null) return { faceSquareFeet, wallSquareFeet };
 
-  // Its own missing walls, wherever the room across is lower.
+  // Its own missing walls, wherever the room across is lower - not under a header, whose strip each room counts on
+  // its own face (`missingWallHeaders`, below in `roomQuantities`), and which already holds this step.
   for (const wall of room.stairs ? [] : wallsOf(room)) {
+    const headers = missingWallHeaders(room, wall.id, rooms);
     for (const run of missingWallRuns(room, wall.id, rooms)) {
+      if (underHeader(headers, run)) continue;
       const across = roomAcross(room, wall, run, rooms);
       const theirs = across && !across.stairs ? height(across) : null;
       if (theirs != null && own > theirs) faceSquareFeet += wallRunFeet(wall, run) * (own - theirs);
@@ -332,10 +340,13 @@ function ceilingSteps(room: SketchRoom, rooms: SketchRoom[]): { faceSquareFeet: 
     const theirs = height(sub);
     if (theirs == null) continue;
     for (const wall of wallsOf(sub)) {
-      if (own > theirs) {
-        for (const run of missingWallRuns(sub, wall.id, rooms)) {
-          if (roomAcross(sub, wall, run, rooms) === room) faceSquareFeet += wallRunFeet(wall, run) * (own - theirs);
-        }
+      // Under a header the face this room sees runs from the opening up to its own ceiling.
+      const headers = missingWallHeaders(sub, wall.id, rooms);
+      for (const run of missingWallRuns(sub, wall.id, rooms)) {
+        if (roomAcross(sub, wall, run, rooms) !== room) continue;
+        const header = underHeader(headers, run);
+        if (header) faceSquareFeet += wallRunFeet(wall, run) * Math.max(0, own - header.openingHeightFeet);
+        else if (own > theirs) faceSquareFeet += wallRunFeet(wall, run) * (own - theirs);
       }
       for (const run of onParentWallRuns(sub, wall.id, rooms)) wallSquareFeet += wallRunFeet(wall, run) * (theirs - own);
     }
@@ -418,8 +429,6 @@ export function roomQuantities(room: SketchRoom, sketch: Sketch, options: Quanti
        nullable here on purpose — a seeded height is a measurement nobody took.
   */
   for (const block of room.freeCabinets) {
-    // A beam is overhead: no floor, no base, no wall behind it (2026-10-21). Its wrap is a detail of its own.
-    if (blockKind(block) === "beam") continue;
     const onFloor = blockStandsOnFloor(block);
     if (options.deductFromFloorArea && onFloor) {
       floorDeduction += blockFloorAreaFeet(block, room);
@@ -473,8 +482,28 @@ export function roomQuantities(room: SketchRoom, sketch: Sketch, options: Quanti
     details.backsplashSquareFeet += measure.backsplashSquareFeet;
   }
 
+  /*
+    HEADERS (2026-10-21): where a wall is missing under a beam or header (`missingWallHeaders`), the wall above the
+    opening still stands - its face, from the opening up to this room's ceiling, is wall area here, and the room
+    across counts its own. It meets the ceiling, so it carries a ceiling line; there is no base under it.
+  */
+  if (profile.meanHeightFeet != null && !room.stairs) {
+    for (const wall of wallsOf(room)) {
+      for (const header of missingWallHeaders(room, wall.id, sketch.rooms)) {
+        const feet = wallRunFeet(wall, header.run);
+        details.headerFeet += feet;
+        details.headerSquareFeet += feet * Math.max(0, profile.meanHeightFeet - header.openingHeightFeet);
+      }
+    }
+  }
+
   const grossWallArea =
-    (profile.meanHeightFeet == null ? 0 : perimeter * profile.meanHeightFeet) + partitionWallArea + steps.faceSquareFeet + steps.wallSquareFeet - details.halfWallReductionSquareFeet;
+    (profile.meanHeightFeet == null ? 0 : perimeter * profile.meanHeightFeet) +
+    partitionWallArea +
+    steps.faceSquareFeet +
+    steps.wallSquareFeet -
+    details.halfWallReductionSquareFeet +
+    details.headerSquareFeet;
   const ceilingSurface = outlineArea * profile.surfaceFactor;
   const grossPerimeterFloor = perimeter + partitionFloorFeet;
 
@@ -511,14 +540,9 @@ export function roomQuantities(room: SketchRoom, sketch: Sketch, options: Quanti
     details.ceilingFinishSquareFeet = Math.max(0, ceilingSurface);
   }
 
-  // BEAMS AND FIREPLACES: a beam's run and wrap; a fireplace's surround, width by height.
+  // FIREPLACES: the surround, width by height.
   for (const block of room.freeCabinets) {
-    const kind = blockKind(block);
-    if (kind === "beam") {
-      const beam = beamMeasure(block, room);
-      details.beamFeet += beam.feet;
-      details.beamSquareFeet += beam.squareFeet ?? 0;
-    } else if (kind === "fireplace") {
+    if (blockKind(block) === "fireplace") {
       details.fireplaces += 1;
       const w = block.widthFeet ?? block.widthPx / PIXELS_PER_FOOT;
       const d = block.depthFeet ?? block.depthPx / PIXELS_PER_FOOT;
@@ -535,7 +559,7 @@ export function roomQuantities(room: SketchRoom, sketch: Sketch, options: Quanti
   }
 
   return {
-    perimeterCeiling: Math.max(0, perimeter + partitionCeilingFeet - details.halfWallFeet),
+    perimeterCeiling: Math.max(0, perimeter + partitionCeilingFeet - details.halfWallFeet + details.headerFeet),
     perimeterFloor: Math.max(0, grossPerimeterFloor - perimeterDeduction),
     floorArea: Math.max(0, outlineArea - floorDeduction),
     wallArea: Math.max(0, grossWallArea - wallDeduction - openings),
@@ -575,7 +599,7 @@ export function roomDetailLines(details: RoomDetailQuantities): string[] {
   if (some(details.ledgeFeet)) lines.push(`Ledge ${formatQuantity(details.ledgeFeet)} LF, top ${formatQuantity(details.ledgeTopSquareFeet)} SF`);
   if (some(details.unfinishedWallSquareFeet)) lines.push(`Unfinished wall ${formatQuantity(details.unfinishedWallSquareFeet)} SF of W`);
   if (details.ceilingFinish) lines.push(`Ceiling, ${CEILING_FINISH_LABEL[details.ceilingFinish]} ${formatQuantity(details.ceilingFinishSquareFeet)} SF`);
-  if (some(details.beamFeet)) lines.push(`Beam / bulkhead ${formatQuantity(details.beamFeet)} LF${some(details.beamSquareFeet) ? `, wrap ${formatQuantity(details.beamSquareFeet)} SF` : ", drop not measured"}`);
+  if (some(details.headerFeet)) lines.push(`Header over an opening ${formatQuantity(details.headerFeet)} LF, ${formatQuantity(details.headerSquareFeet)} SF of W`);
   if (details.fireplaces > 0) {
     lines.push(`Fireplace${details.fireplaces > 1 ? ` x${details.fireplaces}` : ""}${some(details.fireplaceSurroundSquareFeet) ? `, surround ${formatQuantity(details.fireplaceSurroundSquareFeet)} SF` : ", surround height not said"}`);
   }

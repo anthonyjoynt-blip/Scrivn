@@ -74,8 +74,8 @@ const living = room("liv", "Living", 0, [[L, 0], [-4 / 12, 0], [-4 / 12, 18], [-
     "liv-w3": { heightFeet: ft(3, 2), cap: "wood" },
   },
   symbols: [
-    door("liv-arch1", "liv-w0", 0.4, 2, { doorType: "opening", heightFeet: ft(6, 7), sillFeet: ft(3, 2), topShape: "round" }),
-    door("liv-arch2", "liv-w0", 0.6, 2, { doorType: "opening", heightFeet: ft(6, 7), sillFeet: ft(3, 2), topShape: "round" }),
+    door("liv-arch1", "liv-w0", 0.4, 2, { doorType: "opening", heightFeet: ft(6, 7), sillFeet: ft(3, 2), topShape: "round-arch" }),
+    door("liv-arch2", "liv-w0", 0.6, 2, { doorType: "opening", heightFeet: ft(6, 7), sillFeet: ft(3, 2), topShape: "round-arch" }),
     win("liv-picture", "liv-w4", 0.5, 5, 5, 2, { windowType: "picture", grids: false }),
   ],
   freeCabinets: [
@@ -86,17 +86,27 @@ const living = room("liv", "Living", 0, [[L, 0], [-4 / 12, 0], [-4 / 12, 18], [-
 /* ── Basement ───────────────────────────────────────────────────────────────────────────────────── */
 
 const B = 40; // the basement is drawn below the main floor's plan
-const rec = box("rec", "Rec room", -1, 0, B, 20, 14, {
+// The rec room and its play area, the beam between them: the AI read it running from the end of W6 to the C4 corner, in
+// line with the play area's wall - the line where the two spaces meet. 13" wide and 11" down, it is drawn as the owner
+// draws a beam in Xactimate: the wall between them missing, its opening 11" under the 8'4" ceiling. The rec room's
+// bottom wall is broken where the play area starts, so only that stretch is missing.
+const rec = room("rec", "Rec room", -1, [[0, B], [20, B], [20, B + 14], [8, B + 14], [0, B + 14]], {
   ceilingHeightFeet: ft(8, 4),
   ceilingFinish: "textured",
+  missingWalls: ["rec-w2"],
+  wallDetails: { "rec-w2": { openingHeightFeet: ft(7, 5) } },
   symbols: [
     win("rec-win", "rec-w0", 0.3, 4, 2, ft(4, 6), { windowType: "slider" }),
     cab("rec-bar", "rec-w1", 0.5, 8, "base", 2, 3, { label: "Bar", countertop: { backsplashFeet: ft(0, 4) } }),
     cab("rec-shelves", "rec-w1", 0.5, 6, "wall", ft(0, 10), 1, { label: "Bar shelves", bottomFeet: ft(4, 6), doors: "open" }),
-    door("rec-door", "rec-w2", 0.85, ft(2, 8), { doorStyle: "panel", exterior: false }),
+    door("rec-door", "rec-w3", 0.5, ft(2, 8), { doorStyle: "panel", exterior: false }),
   ],
-  // The beam across the room: 13" wide, 11" down, wall to wall.
-  freeCabinets: [blk("rec-beam", 0, 7, 20, ft(1, 1), { kind: "beam", beam: { type: "beam", dropFeet: ft(0, 11) } })],
+});
+
+const play = box("play", "Play area", -1, 8, B + 14 + 4 / 12, 12, 10, {
+  ceilingHeightFeet: ft(8, 4),
+  ceilingFinish: "textured",
+  symbols: [win("play-win", "play-w2", 0.5, 4, 2, ft(4, 6), { windowType: "slider" })],
 });
 
 const bedroom = box("bed2", "Bedroom 2", -1, 21, B, 11, 10, {
@@ -144,7 +154,7 @@ const office = box("office", "Office", -1, 59, B, 12, 11, {
   ],
 });
 
-const sketch = { rooms: [kitchen, living, rec, bedroom, bath, storage, utility, office], levels: [-1], levelNames: { "-1": "Basement" } };
+const sketch = { rooms: [kitchen, living, rec, play, bedroom, bath, storage, utility, office], levels: [-1], levelNames: { "-1": "Basement" } };
 const out = join(repo, "test", "sketch", "fixtures", "owner-house-esx.json");
 writeFileSync(out, JSON.stringify(sketch, null, 2) + "\n");
 console.log(`wrote ${out}`);

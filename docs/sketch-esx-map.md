@@ -26,7 +26,7 @@ tub/shower.
 | Field | Means | Likely Xactimate idea | Check |
 |---|---|---|---|
 | door `sillFeet` (on an `opening`) | A pass-through. The hole starts this high, with wall under it. | A sketch opening with a height off the floor, or a missing wall with a sill. | Can an X1 opening carry a sill height? If not, a wall line item for the face under it. |
-| `topShape` flat / arch / round, `springFeet` | The top's shape and where its curve starts. `heightFeet` is the highest point. | The arched-opening drywall/trim line items (an arch kit or wrap), priced each. | Whether Xactimate's sketch subtracts an arched area or a rectangle. |
+| `topShape` square / flat-arch / round-arch, `springFeet` (on an `opening` only) | Square, a flat arch or a round arch, in the owner's words, and where the curve starts. Blank: a flat arch rises 1/6 of its width, a round arch half. `heightFeet` is the highest point. Doors and windows have no arch. The day-old values `arch` and `round` read across. | The arched-opening drywall/trim line items (an arch kit or wrap), priced each. | Whether Xactimate's sketch subtracts an arched area or a rectangle. |
 | door `doorStyle` slab / panel / half-lite / full-lite / French | The leaf. | Door line items by style: flush slab, panel, full-lite exterior, French pair. | The exact item each style maps to, interior vs exterior. |
 | door `lites` | Panes of glass per leaf (a 15-lite door). | Part of the French or lite door item description. | Whether lite count prices or only describes. |
 | door `exterior` | An outside door. | Exterior door items vs interior pre-hung. | An entry door vs a patio swing door. |
@@ -38,6 +38,7 @@ tub/shower.
 
 | Field | Means | Likely Xactimate idea | Check |
 |---|---|---|---|
+| `openingHeightFeet` (on a missing wall) | The opening's height under a beam or header. The strip above is wall on both faces: each room counts its own face, from the opening up to its own ceiling. It adds to PC (it meets the ceiling), not to PF. Absent is open to the ceiling, as every missing wall drawn before. | A missing wall with an opening height, which is how the owner draws a beam in Xactimate. | How X1 stores a missing wall's opening height in the ESX. |
 | `heightFeet`, `cap` | A half or pony wall. Its face stops here, no ceiling line runs along it, and the room across a partition sees it too. Break a wall where its height changes. | A wall of its own height in the sketch (or a separate half-wall sketch item), plus a cap item (wood cap / drywall wrap). | How X1 holds a half wall on a room's outline. |
 | `crown` | Crown along the top of the wall. | Crown moulding, per LF. | Profile size isn't recorded. |
 | `plantLedgeFeet` | A plant ledge at this height. | A ledge/shelf finish-carpentry item, per LF. | Which item; depth isn't recorded (it's the wall's). |
@@ -63,12 +64,12 @@ tub/shower.
 | fixture `fireplace`, block `kind: "fireplace"`, `fireplace.finish` / `fuel`, `heightFeet` | A fireplace on a wall, or a corner one. Its surround's face is width (a corner one's long face) × height. | Fireplace items (gas insert, wood masonry); stone/brick/tile veneer per SF for the surround. | Whether the surround is veneer SF or part of the fireplace item. |
 | fixture `furnace`, `waterHeater` | Mechanical equipment, as fixtures. | HVAC and plumbing items (detach and reset, or replace). | Size and capacity aren't recorded. |
 
-## Ceilings (`SketchRoom`, `Block.kind: "beam"`)
+## Ceilings and beams (`SketchRoom`)
 
 | Field | Means | Likely Xactimate idea | Check |
 |---|---|---|---|
 | `ceilingFinish` drywall / textured / popcorn / plaster / suspended / wood / open-joists | What the ceiling is. | Ceiling drywall plus texture; acoustic (popcorn) texture; suspended grid and tile; T&G paneling; none for open joists. All per SF of C. | Item names; acoustic vs suspended categories. |
-| block `kind: "beam"`, `beam.type` beam / bulkhead / soffit, `beam.dropFeet` | Overhead: length along it, width across, drop from the ceiling. Wrap = length × (width + 2 × drop), one side less against a wall. | Beam or soffit wrap (drywall and finish) per LF or SF. Or a ceiling-zone subroom, as Scrivn already draws a bulkhead area. | Which form X1 expects: a subroom or an item. |
+| Beams and bulkheads: no field of their own | The owner: "the beam here is better off being drawn as a missing wall, so its just the top of the opening ... if its wide enough itd become a small subroom with a different ceiling height". A beam between two spaces is a missing wall with `openingHeightFeet` (above). A wide beam or a bulkhead is a ceiling area (`ceilingZone`): Pull room in off the wall, or draw it with Wall, make it a sub-room, tick Ceiling area only and give it its lower ceiling. Its step faces are wall in the higher room. | Xactimate's missing wall with an opening height; a subroom with its own ceiling height. | Nothing new to map: both are sketch forms X1 already has. |
 
 ## Quantities
 
@@ -78,7 +79,7 @@ tub/shower.
   - wainscot LF and SF;
   - ledge LF and top SF;
   - countertop and backsplash LF and SF;
-  - beam LF and wrap SF;
+  - header over an opening, LF and this room's face of it, SF (already in W);
   - fireplace surround SF;
   - unfinished wall SF;
   - ceiling finish SF.
@@ -86,7 +87,7 @@ tub/shower.
   - W is net of pass-throughs (the wall under the sill and beside a shaped top stays) and of half walls.
   - PC loses half walls.
   - A fridge bay takes no floor or base.
-  - A beam takes nothing off the floor or walls.
+  - W and PC gain each header's strip over a missing wall.
 - **Painting a marked wall** (`fullWallSquareFeet`) stops at a half wall's top.
 - **Not sent yet:** the generated scope document (the AI prompt) gets none of this. That's a separate choice.
 

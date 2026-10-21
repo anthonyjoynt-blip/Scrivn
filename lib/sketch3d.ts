@@ -22,13 +22,15 @@
 
 import {
   blockCorners,
-  blockKind,
   blockShape,
   COUNTERTOP_DEFAULT_OVERHANG_FEET,
   fridgeBayHeightFeet,
   ceilingRiseDegOf,
   halfWallRuns,
   missingWallRuns,
+  missingWallHeaders,
+  missingWallMarks,
+  underHeader,
   openParent,
   ownWallRuns,
   roomAcross,
@@ -410,8 +412,33 @@ function missingWallFaces(room: SketchRoom, levelRooms: Sketch["rooms"], level: 
     // Inward: the wall's direction turned +90 degrees on a y-down page, the other way from `roomWalls`' outward.
     const nx = -(wall.y2 - wall.y1) / wall.lengthPx;
     const ny = (wall.x2 - wall.x1) / wall.lengthPx;
+    const headers = missingWallHeaders(room, wall.id, levelRooms);
+    const marked = missingWallMarks(room).includes(wall.id);
     for (const [lo, hi] of missingWallRuns(room, wall.id, levelRooms)) {
       const across = roomAcross(room, wall, [lo, hi], levelRooms);
+      /*
+        Under a HEADER (2026-10-21): the beam over the opening, from its height up to the higher ceiling, the wall's
+        thickness out from this room's face - built by the room that made the wall missing, so once.
+      */
+      const header = underHeader(headers, [lo, hi]);
+      if (header) {
+        if (!marked) continue;
+        const top = Math.max(own, across ? ceilingModel(across).low : own);
+        if (top <= header.openingHeightFeet + EPS) continue;
+        const a = { x: wall.x1 + (wall.x2 - wall.x1) * lo, y: wall.y1 + (wall.y2 - wall.y1) * lo };
+        const b = { x: wall.x1 + (wall.x2 - wall.x1) * hi, y: wall.y1 + (wall.y2 - wall.y1) * hi };
+        const t = WALL_THICKNESS_PX;
+        out.push({
+          kind: "wall",
+          roomId: room.id,
+          level,
+          // Its room's face first, then outward the wall's thickness, as a wall's is wound.
+          points: [pt(a.x, a.y), pt(b.x, b.y), pt(b.x - nx * t, b.y - ny * t), pt(a.x - nx * t, a.y - ny * t)],
+          y0: baseY + header.openingHeightFeet,
+          y1: baseY + top,
+        });
+        continue;
+      }
       if (!across) continue;
       const theirs = ceilingModel(across).low;
       if (Math.abs(own - theirs) < EPS || (own > theirs && across !== parent)) continue;
@@ -587,13 +614,6 @@ function roomCabinets(room: SketchRoom, levelRooms: Sketch["rooms"], sketch: Ske
   for (const block of room.freeCabinets ?? []) {
     const corners = blockCorners(block, room);
     if (corners.length < 3) continue;
-    // A beam hangs from the ceiling by its drop (2026-10-21) - drawn 9" deep when nobody measured it.
-    if (blockKind(block) === "beam") {
-      const ceiling = ceilingModel(room).low;
-      const drop = Math.min(ceiling, block.beam?.dropFeet != null && block.beam.dropFeet > 0 ? block.beam.dropFeet : 0.75);
-      out.push({ kind: "cabinet", roomId: room.id, level, points: corners.map((p) => pt(p.x, p.y)), y0: baseY + ceiling - drop, y1: baseY + ceiling });
-      continue;
-    }
     const [y0, y1] = cabinetHeights(block.tier, block.heightFeet);
     out.push({ kind: "cabinet", roomId: room.id, level, points: corners.map((p) => pt(p.x, p.y)), y0: baseY + y0, y1: baseY + y1 });
     if (block.countertop && blockShape(block) !== "triangle" && block.depthFeet != null) {

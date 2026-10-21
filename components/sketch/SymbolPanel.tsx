@@ -22,14 +22,13 @@ import {
   type WindowType,
   DOOR_STYLE_LABEL,
   OPENING_TOP_LABEL,
+  openingTop,
   WINDOW_TYPE_LABEL,
   type ApplianceBay,
-  type BeamType,
   type BlockKind,
   type FireplaceDetail,
   type FireplaceFinish,
   type FireplaceFuel,
-  BEAM_TYPE_LABEL,
   BLOCK_KIND_LABEL,
   FIREPLACE_FINISH_LABEL,
   FIREPLACE_FUEL_LABEL,
@@ -141,7 +140,8 @@ function DoorFields({ door, onChange }: { door: DoorSymbol; onChange: (next: Ske
               className={`option-btn${door.doorType === type ? " selected" : ""}`}
               aria-pressed={door.doorType === type}
               // A sill belongs to a pass-through: a door hung in the hole goes to the floor again.
-              onClick={() => onChange(type === "opening" ? { ...door, doorType: type } : withoutField({ ...door, doorType: type }, "sillFeet"))}
+              // And so does an arch: a door hung in the hole has a door's top.
+              onClick={() => onChange(type === "opening" ? { ...door, doorType: type } : withoutField(withoutField(withoutField({ ...door, doorType: type }, "sillFeet"), "topShape"), "springFeet"))}
             >
               {DOOR_TYPE_LABEL[type]}
             </button>
@@ -198,7 +198,8 @@ function DoorFields({ door, onChange }: { door: DoorSymbol; onChange: (next: Ske
           onClear={() => onChange(withoutField(door, "sillFeet"))}
         />
       )}
-      <TopShapeFields symbol={door} onChange={onChange} />
+      {/* Arches belong to openings (the owner, 10-21): "arches are openings and either a flat arch or round arch". */}
+      {door.doorType === "opening" && <TopShapeFields symbol={door} onChange={onChange} />}
 
       {door.doorType !== "opening" && <DoorStyleFields door={door} onChange={onChange} />}
 
@@ -409,7 +410,6 @@ function WindowFields({ window: win, onChange }: { window: WindowSymbol; onChang
         value={win.grids}
         onChange={(grids) => onChange(grids === undefined ? withoutField(win, "grids") : { ...win, grids })}
       />
-      <TopShapeFields symbol={win} onChange={onChange} />
     </>
   );
 }
@@ -418,8 +418,8 @@ function WindowFields({ window: win, onChange }: { window: WindowSymbol; onChang
  * The top of a door, an opening or a window: flat, a segmental arch, or a half round - and where its
  * curve starts, which is left empty unless somebody measured it (`openingTopRiseFeet` assumes).
  */
-function TopShapeFields({ symbol, onChange }: { symbol: DoorSymbol | WindowSymbol; onChange: (next: SketchSymbol) => void }) {
-  const shape = symbol.topShape ?? "flat";
+function TopShapeFields({ symbol, onChange }: { symbol: DoorSymbol; onChange: (next: SketchSymbol) => void }) {
+  const shape = openingTop(symbol);
   return (
     <>
       <div className="question">
@@ -431,18 +431,18 @@ function TopShapeFields({ symbol, onChange }: { symbol: DoorSymbol | WindowSymbo
               type="button"
               className={`option-btn${shape === top ? " selected" : ""}`}
               aria-pressed={shape === top}
-              onClick={() => onChange(top === "flat" ? withoutField(withoutField(symbol, "topShape"), "springFeet") : { ...symbol, topShape: top })}
+              onClick={() => onChange(top === "square" ? withoutField(withoutField(symbol, "topShape"), "springFeet") : { ...symbol, topShape: top })}
             >
               {OPENING_TOP_LABEL[top]}
             </button>
           ))}
         </div>
       </div>
-      {shape !== "flat" && (
+      {shape !== "square" && (
         <MeasureField
           id="top-spring"
           label="Curve starts at"
-          hint={`Height off the floor where the ${shape === "round" ? "half round" : "arch"} springs from the sides. Empty: ${shape === "round" ? "half the width below the top" : "a sixth of the width below the top"}.`}
+          hint={`Height off the floor where the ${shape === "round-arch" ? "round arch" : "flat arch"} springs from the sides. Empty: ${shape === "round-arch" ? "half the width below the top" : "a sixth of the width below the top"}.`}
           valueFeet={symbol.springFeet ?? null}
           onCommit={(feet) => onChange({ ...symbol, springFeet: feet })}
           onClear={() => onChange(withoutField(symbol, "springFeet"))}
@@ -777,7 +777,6 @@ export function FreeCabinetPanel({
   onChange: (next: FreeCabinet) => void;
   onDelete: () => void;
 }) {
-  const beam = blockKind(cabinet) === "beam";
   const fireplace = blockKind(cabinet) === "fireplace";
   return (
     <div className="sketch-panel-body">
@@ -789,8 +788,9 @@ export function FreeCabinetPanel({
       </div>
 
       {/*
-        WHAT IT IS (2026-10-21): a cabinet, a fireplace, or a beam overhead - one block, as a corner fireplace already
-        was, rather than a tool of its own for each. The owner's corner fireplace was tapped as a 1.14 m cabinet.
+        WHAT IT IS (2026-10-21): a cabinet or a fireplace - one block, as a corner fireplace already was, rather than a
+        tool of its own. The owner's corner fireplace was tapped as a 1.14 m cabinet. A beam is not a block: it is a
+        missing wall's opening height, or a ceiling area (see `BlockKind`).
       */}
       <div className="question">
         <label className="prompt">What it is</label>
@@ -807,31 +807,11 @@ export function FreeCabinetPanel({
             </button>
           ))}
         </div>
-        {beam && <p className="field-note">Overhead: its length runs along the beam, its width across it. It takes nothing off the floor or the walls; its wrap is priced on its own.</p>}
       </div>
-
-      {beam && (
-        <>
-          <ChoiceRow
-            label="Kind"
-            choices={(Object.keys(BEAM_TYPE_LABEL) as BeamType[]).map((type) => [type, BEAM_TYPE_LABEL[type]])}
-            value={cabinet.beam?.type}
-            onChange={(type) => onChange({ ...cabinet, beam: type === undefined ? withoutField(cabinet.beam ?? {}, "type") : { ...cabinet.beam, type } })}
-          />
-          <MeasureField
-            id="beam-drop"
-            label="Drops below the ceiling"
-            hint="Ceiling to the underside of the beam. Empty if nobody measured it."
-            valueFeet={cabinet.beam?.dropFeet ?? null}
-            onCommit={(feet) => onChange({ ...cabinet, beam: { ...cabinet.beam, dropFeet: feet } })}
-            onClear={() => onChange({ ...cabinet, beam: withoutField(cabinet.beam ?? {}, "dropFeet") })}
-          />
-        </>
-      )}
 
       {fireplace && <FireplaceFields detail={cabinet.fireplace} onChange={(detail) => onChange(detail ? { ...cabinet, fireplace: detail } : withoutField(cabinet, "fireplace"))} />}
 
-      {!beam && !fireplace && (
+      {!fireplace && (
       <div className="question">
         <label className="prompt">Cabinet type</label>
         <div className="option-group" role="group" aria-label="Cabinet tier">
@@ -852,13 +832,13 @@ export function FreeCabinetPanel({
 
       <MeasureField
         id="island-width"
-        label={beam ? "Length" : "Width"}
+        label="Width"
         valueFeet={cabinet.widthFeet}
         onCommit={(feet) => onChange({ ...cabinet, widthFeet: feet, widthPx: feet * PIXELS_PER_FOOT })}
       />
       <MeasureField
         id="island-depth"
-        label={beam ? "Width across" : "Depth"}
+        label="Depth"
         valueFeet={cabinet.depthFeet}
         onCommit={(feet) => onChange({ ...cabinet, depthFeet: feet, depthPx: feet * PIXELS_PER_FOOT })}
       />
@@ -871,7 +851,6 @@ export function FreeCabinetPanel({
         for on 2026-09-24: "I would rather the walls remain as square corners and then the corner
         unit gets placed in much like a cabinet might, just a block."
       */}
-      {!beam && (
       <div className="question">
         <label className="prompt">Shape</label>
         <div className="option-group" role="group" aria-label="Block shape">
@@ -894,7 +873,6 @@ export function FreeCabinetPanel({
           </p>
         )}
       </div>
-      )}
 
       {/*
         TURN, in quarters and in eighths. Quarters walk a corner unit round the four corners of a
@@ -924,8 +902,6 @@ export function FreeCabinetPanel({
         cabinet's height is: a seeded height is a measurement nobody took, presented as one, and the
         wall behind a block is deducted only when somebody says how tall it is.
       */}
-      {!beam && (
-        <>
       <MeasureField
         id="island-height"
         label={fireplace ? "Surround height" : "Height"}
@@ -937,11 +913,9 @@ export function FreeCabinetPanel({
           ? "How high its surround is faced - to the ceiling if it runs there. Priced as the surround's face, and takes the wall behind it out of the wall area when that deduction is on."
           : "Only used to take the wall behind the block out of the wall area, and only when that deduction is switched on. Leave it empty if nobody measured it."}
       </p>
-        </>
-      )}
 
       {/* Its doors and its top (2026-10-21), as on a wall run - an island's countertop is usually the bigger number. */}
-      {!beam && !fireplace && (
+      {!fireplace && (
         <>
       <ChoiceRow
         label="Doors"
