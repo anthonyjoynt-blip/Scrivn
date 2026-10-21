@@ -1,0 +1,180 @@
+{
+ "format": "house-runner-decks/1",
+ "about": "His two decks as inputs.json decks for the house runner (scripts/house/decks.mjs), from fixtures/decks/owner-1016-decks.json: the same taps (p8 is photo 8), edges by name, parts as read there. Sides as owner-1016-inputs.json numbers them.",
+ "decks": [
+  {
+   "name": "Rear deck",
+   "side": "C7-C8",
+   "taps": [
+    {
+     "photo": 8,
+     "point": "corner:1",
+     "x": 1684,
+     "y": 1262
+    },
+    {
+     "photo": 7,
+     "point": "corner:1",
+     "x": 990,
+     "y": 1370
+    },
+    {
+     "photo": 8,
+     "point": "corner:0",
+     "x": 128,
+     "y": 860
+    },
+    {
+     "photo": 9,
+     "point": "corner:0",
+     "x": 996,
+     "y": 680
+    },
+    {
+     "photo": 8,
+     "point": "top:1",
+     "x": 1684,
+     "y": 938
+    }
+   ],
+   "depthFeet": 6,
+   "heightFeet": 7.5,
+   "heightOutFeet": 4.8,
+   "decking": "composite",
+   "railings": [
+    {
+     "edge": "outer",
+     "kind": "glass",
+     "heightFeet": 3.67,
+     "toFeet": 10.88
+    },
+    {
+     "edge": "outer",
+     "kind": "glass",
+     "heightFeet": 3.67,
+     "fromFeet": 14.19
+    },
+    {
+     "edge": "right",
+     "kind": "glass",
+     "heightFeet": 3.67,
+     "toFeet": 5.64
+    }
+   ],
+   "stairs": [
+    {
+     "edge": "outer",
+     "atFeet": 12.535,
+     "widthFeet": 3.31,
+     "risers": 8,
+     "railing": {
+      "kind": "aluminum",
+      "sides": 2
+     },
+     "gate": true
+    }
+   ],
+   "posts": {
+    "count": 3,
+    "sizeInches": 6,
+    "material": "aluminum"
+   },
+   "screens": [
+    {
+     "kind": "privacy",
+     "edge": "right",
+     "fromFeet": 5.64,
+     "heightFeet": 5.69,
+     "material": "wood"
+    }
+   ]
+  },
+  {
+   "name": "Front porch",
+   "side": "C11-C12",
+   "taps": [
+    {
+     "photo": 15,
+     "point": "corner:0",
+     "x": 140,
+     "y": 820
+    },
+    {
+     "photo": 17,
+     "point": "corner:0",
+     "x": 22,
+     "y": 790
+    },
+    {
+     "photo": 17,
+     "point": "corner:1",
+     "x": 722,
+     "y": 790
+    },
+    {
+     "photo": 16,
+     "point": "top:0",
+     "x": 310,
+     "y": 822
+    }
+   ],
+   "depthFeet": 4.75,
+   "heightFeet": 3.75,
+   "topOnWallFeet": 0,
+   "decking": "wood",
+   "railings": [
+    {
+     "edge": "outer",
+     "kind": "aluminum",
+     "heightFeet": 2.5,
+     "toFeet": 11.35
+    },
+    {
+     "edge": "outer",
+     "kind": "aluminum",
+     "heightFeet": 2.5,
+     "fromFeet": 19.27
+    },
+    {
+     "edge": "left",
+     "kind": "aluminum",
+     "heightFeet": 2.5
+    }
+   ],
+   "stairs": [
+    {
+     "edge": "outer",
+     "atFeet": 15.1,
+     "widthFeet": 4.5,
+     "risers": 5,
+     "railing": {
+      "kind": "aluminum",
+      "sides": 2
+     }
+    }
+   ],
+   "screens": [
+    {
+     "kind": "skirting",
+     "edge": "outer",
+     "toFeet": 12.85,
+     "heightFeet": 3,
+     "material": "wood"
+    },
+    {
+     "kind": "skirting",
+     "edge": "outer",
+     "fromFeet": 17.35,
+     "heightFeet": 3,
+     "material": "wood"
+    },
+    {
+     "kind": "skirting",
+     "edge": "left",
+     "heightFeet": 3,
+     "material": "wood"
+    }
+   ]
+  }
+ ]
+}

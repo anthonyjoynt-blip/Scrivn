@@ -1,10 +1,11 @@
 /**
  * The test-house runner (scripts/house/run.mjs, docs/house-runner.md) end to end, no API:
  *
- *   1. tapes.txt and house.txt read as the owner writes them;
+ *   1. tapes.txt and house.txt read as the owner writes them, and the review's fixes as a session writes them;
  *   2. the owner's house (C:/Users/Anthony/Desktop/House Photos, or PHOTO_ROUTE_PHOTOS) with his three tapes: prepare,
- *      the session's inputs (fixtures/house-runner/owner-1016-inputs.json), check, measure - each tape held out in turn -
- *      the trim build's reads laid on the squared sides, his roof answers, the report;
+ *      the session's inputs (fixtures/house-runner/owner-1016-inputs.json), check and its review (only what is in
+ *      doubt), a fix round, measure - each tape held out in turn, his two decks placed - and its review, the trim
+ *      build's reads laid on the squared sides, his roof answers, the report with the decks' lines;
  *   3. a pulled Send-to-team request made from the same photos (houseRequestFolder.mjs): prepare starts from the
  *      tester's own shape, taps and tapes, and measure lands within the ± of test:exterior:photos's table;
  *   4. the shed (C:/Users/Anthony/Desktop/Shed photos, or SHED_PHOTOS) with its one tape: no hold-out, said so, and the
@@ -22,6 +23,7 @@ import { runStep } from "../../scripts/house/run.mjs";
 import { readsFromFinish } from "../../scripts/house/finishReads.mjs";
 import { siteReportPdf } from "../../scripts/house/site.mjs";
 import { lengthsIn, parseHouse, parseTapes } from "../../scripts/house/words.mjs";
+import { parseFixes } from "../../scripts/house/review.mjs";
 import { makeRequestFolder } from "./houseRequestFolder.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -71,6 +73,11 @@ console.log("\n  tapes.txt and house.txt");
   const house = parseHouse("semi-detached\nfront faces NE\nname: 52 Elm St\nstucco, two storeys");
   check("house.txt: the home's type, the front's bearing, its name and notes", house.homeType === "semi" && house.frontFacesDeg === 45 && house.name === "52 Elm St" && house.notes.includes("stucco, two storeys"));
   check("front faces unknown is no bearing", parseHouse("front faces unknown").frontFacesDeg === null);
+  const fx = parseFixes(`# a comment\n#3 C10 ok\n3 C10 = c\n3 C10 = 496,1000\n3 C10 = 490,600 496,1000\n3 C10 ~ 1300,1010\n3 ? = 1340,1010\n3 C10 -> C9\n3 C10 drop\n3 out\nkeep 9:C7 15:C3\ntape t1#2 15 = 497,900 868,900\ntape t2 side C5-C6\ndeck back 6 corner:0 = 1210,980\n3 C10 maybe`);
+  check(
+    "fixes.txt: each kind of fix read, a comment skipped, #3 a photo, ~ a snapped tap, = exact, a line it can't read said",
+    fx.length === 14 && fx[0].kind === "ok" && fx[0].photo === 3 && fx[1].pick === "c" && fx[2].at && !fx[2].snap && fx[3].edge?.length === 2 && fx[4].snap === true && fx[5].name === "?" && fx[6].to === "C9" && fx[7].kind === "drop" && fx[8].kind === "photo-out" && fx[9].marks.length === 2 && fx[10].id === "t1#2" && fx[11].side === "C5-C6" && fx[12].deck === "back" && fx[12].point === "corner:0" && Boolean(fx[13].error),
+  );
 }
 
 const summary = [];
@@ -102,6 +109,20 @@ if (!existsSync(PHOTOS)) {
   const wrong = await runStep(dir, "check");
   check("check shows Scrivn's numbers: #17 with only C11 named reads C11 C12 C1 (its pilasters are C1 and C4)", wrong.some((l) => /#17 C11 C12 C1\b/.test(l)), wrong.find((l) => l.includes("#17")));
   writeFileSync(join(dir, "scrivn", "inputs.json"), JSON.stringify(inputs, null, 1));
+  // The review: only what is in doubt, on one sheet, answered in one fixes.txt.
+  const rv = await runStep(dir, "check");
+  const rvText = readFileSync(join(dir, "scrivn", "review.txt"), "utf8");
+  const rvItems = rvText.split("\n").filter((l) => /^R\d+/.test(l));
+  check("check's review: review.png and review.txt, fewer items than corners, his garage doors' four tape ends among them", existsSync(join(dir, "scrivn", "review.png")) && rvItems.length > 0 && rvItems.length < inputs.corners.length && rvItems.filter((l) => /tape t1#\d [ab]/.test(l)).length === 4 && existsSync(join(dir, "scrivn", "numbered.json")), `${rvItems.length} in doubt of ${inputs.corners.length} corners`);
+  const refused = await runStep(dir, "fix", ["tape t1 ok", "3 C10 maybe"]);
+  check("fix: a line it can't read changes nothing", refused.some((l) => l.startsWith("✗")) && !json(join(dir, "scrivn", "inputs.json")).tapes[0].ok);
+  writeFileSync(join(dir, "scrivn", "fixes.txt"), "# his tape ends, as placed\ntape t1 ok\n");
+  const fixed = await runStep(dir, "fix");
+  const rv2 = readFileSync(join(dir, "scrivn", "review.txt"), "utf8");
+  check("fix: fixes.txt into inputs.json, kept in fixes-done/, and the review again without what was answered", json(join(dir, "scrivn", "inputs.json")).tapes[0].ok === true && readdirSync(join(dir, "scrivn", "fixes-done")).length === 1 && !existsSync(join(dir, "scrivn", "fixes.txt")) && !/tape t1/.test(rv2) && fixed.some((l) => /^Review: /.test(l)), fixed[0]);
+  // His two decks (fixtures/house-runner/owner-1016-decks.json), placed on the house as measured.
+  const decksIn = json(FX("house-runner/owner-1016-decks.json")).decks;
+  writeFileSync(join(dir, "scrivn", "inputs.json"), JSON.stringify({ ...inputs, decks: decksIn }, null, 1));
   const meas = await timed(dir, "measure");
   const res = json(join(dir, "scrivn", "results.json"));
   console.log(meas.lines.slice(0, 18).map((l) => `      ${l}`).join("\n"));
@@ -110,6 +131,17 @@ if (!existsSync(PHOTOS)) {
   const bump = res.sides.find((sd) => sd.side === "C6-C7");
   check("the bump-out's west side, whose inner corner no photo shows, is said unmeasured (± 30% or more) and a tape asked for", bump.plusMinusPct >= 30 && res.advice.some((a) => a.from === 5), `${bump.lengthFeet.toFixed(2)} ft ±${bump.plusMinusPct}%`);
   check("Scrivn's marks are offered close up, one image a photo, none kept unasked", readdirSync(join(dir, "scrivn", "marks")).length >= 5 && res.kept === 0);
+  const mrv = readFileSync(join(dir, "scrivn", "review.txt"), "utf8");
+  check("measure's review: Scrivn's marks and the photos not placed, on review.png", existsSync(join(dir, "scrivn", "review.png")) && /^Measure/.test(mrv) && /mark \d+:C\d+/.test(mrv) && /not placed/.test(mrv));
+  const mext = json(join(dir, "scrivn", "measured.json"));
+  const rearDeck = (mext.decks ?? []).find((d) => d.name === "Rear deck");
+  const porch = (mext.decks ?? []).find((d) => d.name === "Front porch");
+  const span = (d) => Math.max(...d.outline.map((q) => q.x)) - Math.min(...d.outline.map((q) => q.x));
+  check(
+    "his two decks placed off their taps: the rear deck 6'0\" out (his tape) and along the rear wall to the gable's line, the porch along the whole front wall, their railings, stairs and screens on their edges",
+    rearDeck && porch && Math.abs(Math.max(...rearDeck.outline.map((q) => q.y)) - 6) < 0.05 && Math.abs(span(rearDeck) - 26.6) < 1 && Math.abs(span(porch) - 263 / 12) < 0.5 && rearDeck.railings.length === 3 && rearDeck.stairs.length === 1 && rearDeck.screens.length === 1 && porch.screens.length === 3 && /## Decks/.test(readFileSync(join(dir, "scrivn", "results.md"), "utf8")),
+    rearDeck && porch ? `rear ${span(rearDeck).toFixed(2)} ft along, porch ${span(porch).toFixed(2)} ft` : "not placed",
+  );
   check("all three run across the house: results say nothing checks its depth", /none runs front to back/.test(res.depthNote ?? ""));
   check("measure writes the plan, a squared side for each side with a photo (and its grid), the measured exterior", existsSync(join(dir, "scrivn", "plan.png")) && Object.keys(json(join(dir, "scrivn", "sides", "frames.json")).sides).length === 11 && existsSync(join(dir, "scrivn", "measured.json")) && readdirSync(join(dir, "scrivn", "sides")).filter((f) => f.endsWith(" grid.png")).length === 11);
   const pct = (name) => res.sides.find((s) => s.name === name);
@@ -129,6 +161,7 @@ if (!existsSync(PHOTOS)) {
   check("report: the trim counted, Check these asks about the porch window's surround behind the railing", /SF of trim/.test(md) && /surround round the window .*porch railing/i.test(md));
   check("report: the PDF with its side photos, the elevations named by the compass", pages >= 15 && (pdf.match(/DCTDecode/g) ?? []).length >= 5 && /North elevation/.test(pdf), `${pages} pages`);
   check("exterior.json is a photos exterior that would open in a claim", ext.source?.kind === "photos" && ext.sides.length === 12 && ext.roof?.checkedAt);
+  check("report: the decks' lines (decking, glass railing, stairs, privacy screen, skirting) and Check these under them", /## Decks/.test(md) && /Rear deck – composite decking/.test(md) && /Rear deck – glass railing/.test(md) && /Rear deck – stairs – 8 risers/.test(md) && /privacy screen/.test(md) && /Front porch – skirting/.test(md) && (ext.decks ?? []).length === 2);
   summary.push(`house: prepare ${prep.seconds.toFixed(0)} s, check ${chk.seconds.toFixed(0)} s, measure ${meas.seconds.toFixed(0)} s, report ${rep.seconds.toFixed(0)} s; hold-outs ${res.holdOuts.map((r) => `${r.id} ${r.errorPct >= 0 ? "+" : ""}${r.errorPct.toFixed(1)}%`).join(", ")}`);
   houseDir = dir;
 

@@ -13,11 +13,13 @@
  *            check and Check these said, the customer report PDF, exterior.json.
  */
 import sharp from "sharp";
-import { existsSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { basename, join, relative } from "node:path";
 import { scrivn } from "./code.mjs";
 import { cornerAt, draftInputs, ensureDir, loadPixels, nn, photoOf, readJson, routeInput, statePath, writeJson } from "./folder.mjs";
-import { contactSheet, griddedSide, measuredPlanPng, photoSheet, tapStrip, zoomPng } from "./sheets.mjs";
+import { contactSheet, griddedSide, measuredPlanPng, photoSheet, reviewPages, tapStrip, zoomPng } from "./sheets.mjs";
+import { applyFixes, checkDoubts, measureDoubts, parseFixes, reviewLines } from "./review.mjs";
+import { placeDecks } from "./decks.mjs";
 import { cornerIndex, cornerName, ftin, sideIndex, sideName } from "./words.mjs";
 
 /**
@@ -128,6 +130,20 @@ async function writeSheets(h, x, inputs, pixels, { candidates, numbered = null, 
   }
   writeFileSync(statePath(h, dir === "sheets" ? "contact.png" : `${dir}-contact.png`), await contactSheet(items, ring));
   return out;
+}
+
+/**
+ * The review written: review.png (review-2.png ...) and review.txt, the items in doubt; the old pages taken away first.
+ * Returns the lines for the console.
+ */
+async function writeReview(h, items, pixelsAll, marksOf, title) {
+  for (const f of readdirSync(h.state)) if (/^review(-\d+)?\.png$/.test(f)) rmSync(statePath(h, f));
+  const pixelsOf = async (n) => pixelsAll[h.photos.findIndex((p) => p.n === n)];
+  const pages = await reviewPages(items, pixelsOf, marksOf, title);
+  pages.forEach((png, i) => writeFileSync(statePath(h, i === 0 ? "review.png" : `review-${i + 1}.png`), png));
+  const lines = reviewLines(items);
+  writeFileSync(statePath(h, "review.txt"), `${title}\n${lines.join("\n")}\n`);
+  return lines;
 }
 
 // ── prepare ──────────────────────────────────────────────────────────────────────────────────────
@@ -258,6 +274,12 @@ export async function check(h) {
   for (const p of problems.filter((q) => !q.startsWith("tape"))) out.push(`✗ ${p}`);
   for (const k of inputs.checks ?? []) if (!photoOf(h, k.photo) || !k.a || !k.b) out.push(`✗ check "${k.what ?? ""}": needs photo, a and b.`);
   await writeSheets(h, x, inputs, pixels, { candidates, numbered });
+  // What Scrivn numbered each tap, for the fixes to name them by; and the review: only what is in doubt.
+  writeJson(statePath(h, "numbered.json"), numbered.map((c) => ({ photo: h.photos.find((p) => p.id === c.photo)?.n, x: c.x, y: c.y, corner: c.corner >= 0 ? cornerName(c.corner) : null })));
+  const doubts = checkDoubts(x, h, inputs, { candidates, numbered, quick, data: prepared.data, n });
+  const review = await writeReview(h, doubts, pixels, (pn) => marksFor(h, inputs, h.photos.find((p) => p.n === pn), { candidates, numbered }), "Check: the corners and tape ends in doubt");
+  out.push(`Review: ${doubts.length} in doubt of ${numbered.length} corners and ${(inputs.tapes ?? []).filter((t) => t.kind === "line").reduce((s2, t) => s2 + 2 * (t.on ?? []).length, 0)} tape ends - review.png${doubts.length > 18 ? ` (and ${Math.ceil(doubts.length / 18) - 1} more)` : ""}; the rest on contact.png. Answer in scrivn/fixes.txt, then: run.mjs <folder> fix`);
+  out.push(...review.map((l) => `  ${l}`));
   // Each photo's corners close up: a corner given as its edge at its top and its foot (both on the line marked: one upright
   // edge in the levelled photo, or said); a tap at its foot, with where the snap puts it. The corners' places at a glance.
   const tapsDir = ensureDir(statePath(h, "taps"));
@@ -428,6 +450,10 @@ export async function measure(h) {
     }),
     ...(Number.isFinite(inputs.house?.frontFacesDeg) ? { frontFacesDeg: inputs.house.frontFacesDeg } : {}),
   };
+  // The decks, on the house as measured.
+  const deckRun = placeDecks(x, h, inputs, ext, n);
+  ext = deckRun.exterior;
+  const placedDecks = deckRun.placed.filter((d) => d.deck).map((d) => ({ name: d.name, placing: d.placing, taps: d.taps }));
   writeJson(statePath(h, "measured.json"), ext);
   const nameOf = (i) => ext.sides.find((s) => s.id === sideIds[i])?.name ?? sideName(i, n);
   const fileOf = (id) => h.photos.find((p) => p.id === id);
@@ -474,6 +500,7 @@ export async function measure(h) {
   }
 
   // Accuracy: each tape held out in turn; and the checks (door heights) as a sanity check, with every tape in.
+  // (The review of the measure is written once the hold-outs are in, below.)
   const t1 = Date.now();
   // On the session's own corners only: a kept mark is where the measure with every tape put that corner, so it would
   // carry the tape held out into the solve meant to predict it.
@@ -502,6 +529,10 @@ export async function measure(h) {
         ? "Every tape runs across the house (along its front): none runs front to back, so nothing here checks its depth. A tape along a side running front to back would."
         : "Every tape runs front to back: none runs across the house, so nothing here checks its width. A tape along the front or back would."
       : null;
+
+  // The review of the measure: what it disagrees with, Scrivn's marks, photos not placed, tapes the others don't agree with.
+  const mDoubts = measureDoubts(x, h, inputs, { sol, corners, proposals: open, hold, decks: placedDecks });
+  const mReview = await writeReview(h, mDoubts, pixels, (pn) => marksFor(h, inputsShown, h.photos.find((p) => p.n === pn), { candidates, numbered: corners }), "Measure: what to look at");
 
   // results.md
   const tapes = input.buildings[0].tapes;
@@ -535,6 +566,10 @@ export async function measure(h) {
   for (const a of sol.advice) md.push(`- ${sideName(a.from, n)} ${nameOf(a.from)}: ${a.why}`);
   if (!sol.advice.length) md.push("- None: every side is held well enough.");
   const leftOut = (inputs.leaveOut ?? []).map((ref) => photoOf(h, ref)).filter(Boolean);
+  if (deckRun.placed.length) {
+    md.push("", "## Decks", "");
+    for (const d of deckRun.placed) md.push(`- ${d.deck ? d.words : `${d.name}: not placed`}${d.why.length ? ` (${d.why.join("; ")})` : ""}`);
+  }
   if (sol.unplaced.length || leftOut.length) {
     md.push("", "## Photos not used", "");
     for (const p of leftOut) md.push(`- #${p.n} ${p.file}: left out by the session (inputs.json leaveOut).`);
@@ -559,6 +594,8 @@ export async function measure(h) {
   for (const p of (inputs.leaveOut ?? []).map((ref) => photoOf(h, ref)).filter(Boolean)) out.push(`  not used: #${p.n}: left out (leaveOut).`);
   for (const u of sol.unplaced) out.push(`  not used: #${fileOf(u.photo).n}: ${u.why}`);
   if (open.length) out.push(`  Scrivn marks ${open.length} more corners (close up in marks/NN.png): list each on its corner in keepProposed.`);
+  for (const d of deckRun.placed) out.push(`  deck: ${d.deck ? d.words : `${d.name}: not placed`}${d.why.length ? ` (${d.why.join("; ")})` : ""}`);
+  out.push(`Review: ${mDoubts.length} to look at - review.png${mDoubts.length > 18 ? ` (and ${Math.ceil(mDoubts.length / 18) - 1} more)` : ""}; answer in scrivn/fixes.txt.`, ...mReview.map((l) => `  ${l}`));
   out.push(`Wrote results.md, plan.png, measured/ sheets, ${Object.keys(frames).length} sides in sides/, measured.json.`);
   out.push(`Machine time: ${timed(h, "measure", t0)} s (the measure ${timesNow.measure.toFixed(1)} s, hold-outs ${timesNow.holdOuts.toFixed(1)} s).`);
   return out;
@@ -624,8 +661,9 @@ async function withRead(x, side, r, was, pixelsOf, at) {
     trims: x.trimPicksAtFirst(p),
   };
   const next = x.applyTrace(side, p, picks, at);
+  const deckRead = p.deck ?? null;
   const ops = next.openings.map((o) => `${o.kind} ${ftin(o.widthFeet)} x ${ftin(o.heightFeet)}${o.trim ? " (trim)" : ""}`).join(", ");
-  return { side: next, words: `${(next.shapes ?? []).map((s) => s.kind).join("+") || "no cladding"}; eaves ${ftin(next.eaveLeftFeet)} / ${ftin(next.eaveRightFeet)}${next.gable ? `, peak ${ftin(next.gable.peakFeet)}` : ""}; ${ops || "no openings"}${next.columns?.length ? `; ${next.columns.length} column${next.columns.length === 1 ? "" : "s"}` : ""}` };
+  return { side: next, deckRead, cams, words: `${(next.shapes ?? []).map((s) => s.kind).join("+") || "no cladding"}; eaves ${ftin(next.eaveLeftFeet)} / ${ftin(next.eaveRightFeet)}${next.gable ? `, peak ${ftin(next.gable.peakFeet)}` : ""}; ${ops || "no openings"}${next.columns?.length ? `; ${next.columns.length} column${next.columns.length === 1 ? "" : "s"}` : ""}` };
 }
 
 /** A "Check these" row in a line, as the pane words it: what, and why it is asked. */
@@ -774,6 +812,12 @@ export async function report(h) {
     const done = await withRead(x, side, r, was, pixelsOf, at);
     ext = { ...ext, sides: ext.sides.map((s) => (s.id === done.side.id ? done.side : s)) };
     out.push(`  read ${key} ${side.name}: ${done.words}`);
+    // A deck in front of it, read off the same photo (the trace's deck words): onto the deck against this side.
+    if (done.deckRead && x.decksOf(ext).some((d) => d.sideId === side.id)) {
+      const dr = x.withDeckRead(ext, side.id, done.deckRead, done.cams);
+      ext = dr.exterior;
+      out.push(`  deck read off ${key}: ${dr.words.join("; ") || "on"}`);
+    }
   }
   // Walls' heights taped (a level wall's top over the ground): that side's top, and the ends of the sides either side.
   for (const t of inputs.heights ?? []) {
@@ -824,8 +868,9 @@ export async function report(h) {
   const ok = x.checkTeamResult(ext);
   if (!ok.ok) throw new Error(`Made, but it would not open in a claim: ${ok.error}`);
   writeJson(statePath(h, "exterior.json"), ext);
-  const scoped = { ...ext, scope: { roofing: true, sides: ext.sides.map((s) => s.id), soffitFascia: true, eavestrough: true } };
+  const scoped = { ...ext, scope: { roofing: true, sides: ext.sides.map((s) => s.id), soffitFascia: true, eavestrough: true, decks: x.decksOf(ext).map((d) => d.id) } };
   const scope = x.exteriorScopeLines(scoped);
+  const deckLines = x.decksQuantities(scoped, q.roof).flatMap((dq) => x.deckLines(dq));
   const lineWords = (l) => (typeof l === "string" ? l : [l.description ?? l.label ?? l.text, l.quantity !== undefined ? `${l.quantity} ${l.unit ?? ""}` : ""].filter(Boolean).join(" - "));
   const r = q.roofing;
   const md = [
@@ -850,6 +895,7 @@ export async function report(h) {
     "## Scope lines",
     "",
     ...[...(scope.roofing ?? []), ...(scope.siding ?? [])].map((l) => `- ${lineWords(l)}`),
+    ...(deckLines.length ? ["", "## Decks", "", ...deckLines.map((l) => `- ${l}`)] : []),
   ];
   writeFileSync(statePath(h, "report.md"), `${md.join("\n")}\n`);
   out.push(`Walls ${q.totals.netSquareFeet.toFixed(1)} SF net of ${q.totals.grossSquareFeet.toFixed(1)}; roof ${r ? `${r.squares.toFixed(2)} SQ at ${x.formatPitch(q.pitch.value)} (${q.pitch.source})` : "none"}.`);
@@ -860,6 +906,32 @@ export async function report(h) {
   if (h.kind === "request") out.push(`Return it: node scripts/return-exterior-request.mjs ${h.request.request.id.slice(0, 8)} "${relative(process.cwd(), statePath(h, "exterior.json")).replace(/\\/g, "/")}"`);
   out.push(`Machine time: ${timed(h, "report", t0)} s.`);
   return out;
+}
+
+// ── fix ──────────────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Every answer at once: the fixes (scrivn/fixes.txt, or [lines]) put into inputs.json, the file kept in fixes-done/, and
+ * then check again (or measure, with [then] "measure").
+ */
+export async function fix(h, lines = [], { then = "check" } = {}) {
+  const file = statePath(h, "fixes.txt");
+  const text = lines.length ? lines.join("\n") : existsSync(file) ? readFileSync(file, "utf8") : "";
+  if (!text.trim()) return ["No fixes: write them in scrivn/fixes.txt, a line each (scripts/house/review.mjs says how), or give them as arguments."];
+  const fixes = parseFixes(text);
+  const inputs = readJson(statePath(h, "inputs.json"));
+  const numbered = readJson(statePath(h, "numbered.json"), []);
+  const candidates = readJson(statePath(h, "candidates.json"), { photos: {} }).photos;
+  const { inputs: next, said } = applyFixes(h, inputs, fixes, { numbered, candidates });
+  if (said.some((l) => l.startsWith("✗"))) return [...said, "Nothing changed: put the lines marked ✗ right and run fix again."];
+  writeJson(statePath(h, "inputs.json"), next);
+  if (!lines.length) {
+    const done = ensureDir(statePath(h, "fixes-done"));
+    writeFileSync(join(done, `${new Date().toISOString().replace(/[:.]/g, "-")}.txt`), text);
+    rmSync(file);
+  }
+  const after = then === "measure" ? await measure(h) : await check(h);
+  return [`Fixed ${fixes.length}: ${said.join("; ")}.`, ...after];
 }
 
 // ── zoom ─────────────────────────────────────────────────────────────────────────────────────

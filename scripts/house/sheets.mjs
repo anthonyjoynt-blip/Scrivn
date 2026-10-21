@@ -247,13 +247,18 @@ export async function contactSheet(items, outline) {
  * every 50) in the photo's own pixels, and the marks.
  */
 export async function zoomPng(px, x, y, half, marks = {}, size = 900) {
-  const x0 = Math.max(0, Math.round(x - half));
-  const y0 = Math.max(0, Math.round(y - half));
-  const x1 = Math.min(px.width, Math.round(x + half));
-  const y1 = Math.min(px.height, Math.round(y + half));
+  return zoomRect(px, [x - half, y - half, x + half, y + half], marks, size, size);
+}
+
+/** A crop of the rectangle [x0, y0, x1, y1] of a photo, as zoomPng's, fitted in [maxW] x [maxH]. */
+export async function zoomRect(px, rect, marks = {}, maxW = 900, maxH = 900) {
+  const x0 = Math.max(0, Math.round(rect[0]));
+  const y0 = Math.max(0, Math.round(rect[1]));
+  const x1 = Math.min(px.width, Math.round(rect[2]));
+  const y1 = Math.min(px.height, Math.round(rect[3]));
   const w = x1 - x0;
   const h = y1 - y0;
-  const s = size / Math.max(w, h);
+  const s = Math.min(maxW / w, maxH / h);
   const W = Math.round(w * s);
   const H = Math.round(h * s);
   const img = await sharp(px.data, { raw: { width: px.width, height: px.height, channels: px.channels } }).extract({ left: x0, top: y0, width: w, height: h }).resize(W, H, { kernel: "nearest" }).png().toBuffer();
@@ -297,6 +302,72 @@ export async function tapStrip(px, taps, title, { half = 100, marks = {} } = {})
   const parts = [{ input: Buffer.from(head), left: 0, top: 0 }];
   crops.forEach((c, i) => parts.push({ input: c, left: 6 + (i % COLS) * (CROP + 6), top: HEAD + 6 + Math.floor(i / COLS) * (CROP + 6) }));
   return sharp({ create: { width: W, height: H, channels: 3, background: "#101316" } }).composite(parts).png({ compressionLevel: 9 }).toBuffer();
+}
+
+/** Words wrapped to lines of about [n] characters. */
+function wrap(text, n) {
+  const out = [];
+  let line = "";
+  for (const w of String(text).split(/\s+/)) {
+    if ((line + " " + w).trim().length > n && line) {
+      out.push(line);
+      line = w;
+    } else line = (line + " " + w).trim();
+  }
+  if (line) out.push(line);
+  return out;
+}
+
+/**
+ * The review: each item in doubt a tight crop round where to look (its candidates lettered, the tap red, where the snap
+ * puts it green, an edge or a tape's line drawn), headed with its name as a fix names it and the reason under it. A
+ * corner's crop runs up its wall from its foot. Eighteen a page. [pixelsOf(n)]: photo n's pixels; [marksOf(n)]: what to draw on it.
+ */
+export async function reviewPages(items, pixelsOf, marksOf, title) {
+  const CW = 250;
+  const CH = 380;
+  const CAP = 64;
+  const PER = 18;
+  const COLS = 6;
+  const pages = [];
+  for (let p0 = 0; p0 < items.length; p0 += PER) {
+    const page = items.slice(p0, p0 + PER);
+    const tiles = [];
+    for (const [i, it] of page.entries()) {
+      let img;
+      if (it.photo != null && it.x != null) {
+        const px = await pixelsOf(it.photo);
+        const base = marksOf(it.photo);
+        const points = [{ x: it.x, y: it.y, colour: it.proposed ? C.proposed : "#ff3355" }];
+        if (it.snapped) points.push({ x: it.snapped[0], y: it.snapped[1], colour: "#39ff14" });
+        const extra = [...(it.line ? [{ a: it.line[0], b: it.line[1], text: "" }] : [])];
+        const tapes = it.tape ? [{ a: it.tape[0], b: it.tape[1], text: "" }] : [];
+        // A corner is judged by its edge above its foot: the crop runs up the wall from it. A tape's end, round it.
+        const rect = it.kind === "tape" ? [it.x - 40, it.y - 60, it.x + 40, it.y + 60] : [it.x - 85, it.y - 300, it.x + 85, it.y + 70];
+        img = await zoomRect(px, rect, { ...base, taps: [], tapes: [...(base.tapes ?? []), ...tapes], checks: [...(base.checks ?? []), ...extra], points }, CW, CH);
+      } else {
+        img = await sharp({ create: { width: CW, height: CH, channels: 3, background: "#1b1f24" } }).png().toBuffer();
+      }
+      const meta = await sharp(img).metadata();
+      const w = meta.width;
+      const lines = wrap(it.why, 36).slice(0, 3);
+      const cap = `<svg xmlns="http://www.w3.org/2000/svg" width="${CW}" height="${CAP}"><rect width="100%" height="100%" fill="#101316"/>${lines.map((l, k) => `<text x="4" y="${16 + k * 17}" font-family="${FONT}" font-size="13" fill="#f0f0f0">${esc(l)}</text>`).join("")}</svg>`;
+      const head = label(4, 22, `R${p0 + i + 1} ${it.title}`, it.kind === "mark" ? C.proposed : it.kind === "tape" ? C.tape : "#ffffff", { size: 16, w, h: meta.height });
+      const tile = await sharp({ create: { width: CW, height: CH + CAP, channels: 3, background: "#101316" } })
+        .composite([{ input: img, left: 0, top: 0 }, { input: Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${meta.height}">${head}</svg>`), left: 0, top: 0 }, { input: Buffer.from(cap), left: 0, top: CH }])
+        .png()
+        .toBuffer();
+      tiles.push(tile);
+    }
+    const rows = Math.ceil(tiles.length / COLS);
+    const W = COLS * (CW + 6) + 6;
+    const H = HEAD + rows * (CH + CAP + 6) + 6;
+    const headSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${HEAD}"><text x="8" y="23" font-family="${FONT}" font-size="16" font-weight="600" fill="#ffffff">${esc(`${title} (${p0 + 1}-${p0 + page.length} of ${items.length})`)}</text></svg>`;
+    const parts = [{ input: Buffer.from(headSvg), left: 0, top: 0 }];
+    tiles.forEach((t, i) => parts.push({ input: t, left: 6 + (i % COLS) * (CW + 6), top: HEAD + 6 + Math.floor(i / COLS) * (CH + CAP + 6) }));
+    pages.push(await sharp({ create: { width: W, height: H, channels: 3, background: "#101316" } }).composite(parts).png({ compressionLevel: 9 }).toBuffer());
+  }
+  return pages;
 }
 
 /** The measured plan, big: each side with its length and ±, taped sides yellow, sides wanting a tape orange, every placed photo. */

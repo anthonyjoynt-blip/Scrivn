@@ -1,6 +1,6 @@
 /**
  * The house runner's plain-words inputs (scripts/house/run.mjs): tapes.txt, one tape a line as the owner says it
- * ("garage door 9'", "rear wall with the hose 22'2\"", "porch 263 in"), and house.txt (the home's type, which way
+ * ("garage door 16'", "back wall 31'4\"", "porch 90 in"), and house.txt (the home's type, which way
  * the front faces, notes). Each line read for what it can say; anything it can't is said back, never guessed.
  */
 
@@ -13,8 +13,8 @@ const FRAC = `(?:\\s*(\\d+)\\s*/\\s*(\\d+))?`;
 const frac = (a, b) => (a && b && Number(b) > 0 ? Number(a) / Number(b) : 0);
 
 /**
- * Every length in a line of words, in feet, in order, with where each was: 22'2", 22' 2 1/2", 22 ft 2 in,
- * 263", 263 in, 9', 9 feet, 6.5 m, 650 cm, 6500 mm.
+ * Every length in a line of words, in feet, in order, with where each was: 31'4", 31' 4 1/2", 31 ft 4 in,
+ * 90", 90 in, 16', 16 feet, 6.5 m, 650 cm, 6500 mm.
  */
 export function lengthsIn(text) {
   const found = [];
@@ -31,7 +31,7 @@ export function lengthsIn(text) {
       found.push({ feet, at: i, text: m[0].trim() });
     }
   };
-  // Feet and inches together first, so 22'2" is one length and not 22' and 2".
+  // Feet and inches together first, so 31'4" is one length and not 31' and 4".
   scan(new RegExp(`${NUM}\\s*${FT}\\s*-?\\s*${NUM}${FRAC}\\s*(?:${IN})?`, "gi"), (m) => Number(m[1]) + (Number(m[2]) + frac(m[3], m[4])) / 12);
   scan(new RegExp(`${NUM}${FRAC}\\s*${IN}(?![a-z])`, "gi"), (m) => (Number(m[1]) + frac(m[2], m[3])) / 12);
   scan(new RegExp(`${NUM}\\s*${FT}(?![a-z])`, "gi"), (m) => Number(m[1]));
@@ -119,7 +119,7 @@ export function parseHouse(text) {
   return out;
 }
 
-/** 22.1667 -> 22'2"; 21.9167 -> 21'11". */
+/** 31.3333 -> 31'4"; 7.9167 -> 7'11". */
 export function ftin(feet) {
   if (!Number.isFinite(feet)) return "?";
   const neg = feet < 0;
