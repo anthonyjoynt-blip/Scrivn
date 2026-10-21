@@ -249,10 +249,18 @@ export function routeInput(h, inputs, candidates = {}) {
       tapeParts[t.id].push(id);
     });
   }
+  // Where the user stood for a photo the measure couldn't place for sure ("standAt": {"3": [x, y]}, feet on the shape as drawn).
+  const standAt = {};
+  for (const [ref, at] of Object.entries(inputs.standAt ?? {})) {
+    const p = photoOf(h, ref);
+    if (!p) problems.push(`standAt: no photo ${ref}.`);
+    else if (!Array.isArray(at) || at.length !== 2 || !at.every((v) => Number.isFinite(Number(v)))) problems.push(`standAt ${ref}: two numbers [x, y], feet on the shape as drawn.`);
+    else standAt[p.id] = [Number(at[0]), Number(at[1])];
+  }
   const shared = (inputs.house?.shared ?? []).map((s) => sideIndex(s, n)).filter((i) => i !== null);
   const homeType = inputs.house?.homeType && inputs.house.homeType !== "detached" ? inputs.house.homeType : undefined;
   const input = {
-    photos: h.photos.map((p) => ({ id: p.id, width: p.width, height: p.height, focalPrior: p.focalPrior ?? null, takenAt: p.takenAt ?? null })),
+    photos: h.photos.map((p) => ({ id: p.id, width: p.width, height: p.height, focalPrior: p.focalPrior ?? null, takenAt: p.takenAt ?? null, ...(standAt[p.id] ? { standAt: standAt[p.id] } : {}) })),
     buildings: [{ id: "main", ...(inputs.house?.name ? { name: inputs.house.name } : {}), ...(homeType ? { homeType } : {}), ...(shared.length ? { shared } : {}), outline, corners, tapes }],
   };
   return { input, problems, tapeParts, n };

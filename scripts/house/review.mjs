@@ -20,6 +20,8 @@
  *   3 C10 -> C9                 renamed
  *   3 C10 drop                  taken out
  *   3 out / 3 in                the photo left out of the measure, or back in
+ *   3 stood = 12,-8             where you stood for photo 3 (feet on the shape as drawn); "3 stood = 1" its first
+ *                               best guess as measure printed it; "3 stood clear" forgets it
  *   keep 9:C7 15:C3             Scrivn's marks kept (unkeep to take one back)
  *   tape t1 ok                  its ends as they are
  *   tape t1 15 = 497,900 868,900       its ends on photo 15 (exact); "tape t1#2 ..." the second place it is on
@@ -106,7 +108,7 @@ export function checkDoubts(x, h, inputs, { candidates, numbered, quick, data, n
  * After the measure: the corners whose bearing the measure doesn't agree with, Scrivn's marks, photos not placed, tapes the
  * others don't agree with, deck corners crossed weakly, and the photo route's own sanity checks if it has any.
  */
-export function measureDoubts(x, h, inputs, { sol, corners, proposals, hold, decks = [] }) {
+export function measureDoubts(x, h, inputs, { sol, corners, proposals, hold, decks = [], sanity = [], doubtful = [] }) {
   const items = [];
   const S = sol.solution;
   const ofPhoto = (id) => h.photos.find((p) => p.id === id);
@@ -124,7 +126,15 @@ export function measureDoubts(x, h, inputs, { sol, corners, proposals, hold, dec
     const p = ofPhoto(q.photo);
     if (p) items.push({ photo: p.n, x: q.x, y: q.y, title: `mark ${p.n}:${cornerName(q.corner)}`, why: "Scrivn's mark: keep it only if it sits on that corner's own edge", kind: "mark", proposed: true, corner: q.corner });
   }
+  // A photo with one corner or none waits for where the user stood: its best guesses, in the shape's feet as drawn.
+  for (const d of doubtful) {
+    const p = h.photos.find((q) => q.n === d.photo);
+    const c = p ? corners.find((q) => q.photo === p.id) : null;
+    if (p) items.push({ photo: p.n, x: c?.x ?? null, y: c?.y ?? null, title: `${p.n} stood?`, why: `where did you stand? best guesses ${d.guesses.map((g, i) => `${i + 1}: (${g[0]}, ${g[1]})`).join(", ")}. "${p.n} stood = 1", or x,y on the shape`, kind: "photo" });
+  }
+  const waiting = new Set(doubtful.map((d) => d.photo));
   for (const u of sol.unplaced) {
+    if (waiting.has(ofPhoto(u.photo)?.n)) continue;
     const p = ofPhoto(u.photo);
     const c = corners.find((q) => q.photo === u.photo);
     if (p && c) items.push({ photo: p.n, x: c.x, y: c.y, title: `${p.n} not placed`, why: u.why, kind: "photo" });
@@ -144,12 +154,11 @@ export function measureDoubts(x, h, inputs, { sol, corners, proposals, hold, dec
       if (p) items.push({ photo: p.n, x: tap.x, y: tap.y, title: `deck ${d.name} ${c.point}`, why: c.photos < 2 ? "on one photo only: tap it on a second" : "its photos stood close together: sure across, not in depth", kind: "deck" });
     }
   }
-  // The photo route's own sanity checks, where it gives them (session A, 10-20): read as they come, a line each.
-  const sanity = sol.sanity ?? sol.checks ?? [];
-  for (const s of Array.isArray(sanity) ? sanity : []) {
+  // The photo route's own checks (lib/photoRouteSanity.ts, as the pane shows them): eaves, sizes, cameras, outline, depth.
+  for (const s of sanity) {
     const p = s.photo ? ofPhoto(s.photo) : null;
-    const c = p ? corners.find((q) => q.photo === p.id && (s.corner === undefined || q.corner === s.corner)) : null;
-    items.push({ photo: p?.n ?? null, x: c?.x ?? null, y: c?.y ?? null, title: `check ${s.kind ?? ""}`.trim(), why: s.words ?? s.why ?? JSON.stringify(s), kind: "sanity" });
+    const c = p ? corners.find((q) => q.photo === p.id && !q.proposed && (s.corner === undefined || q.corner === s.corner)) ?? corners.find((q) => q.photo === p.id && !q.proposed) : null;
+    items.push({ photo: p?.n ?? null, x: c?.x ?? null, y: c?.y ?? null, title: `look: ${s.kind}${p ? ` #${p.n}` : ""}`, why: s.words, kind: "sanity" });
   }
   return items;
 }
@@ -190,6 +199,10 @@ export function parseFixes(text) {
     } else if (/^\d+$/.test(w[0])) {
       const photo = Number(w[0]);
       if (w[1] === "out" || w[1] === "in") out.push({ line, kind: `photo-${w[1]}`, photo });
+      else if (w[1] === "stood" && w[2] === "clear") out.push({ line, kind: "stood", photo, clear: true });
+      else if (w[1] === "stood" && w[2] === "=" && /^\d+$/.test(w[3] ?? "")) out.push({ line, kind: "stood", photo, guess: Number(w[3]) });
+      else if (w[1] === "stood" && w[2] === "=" && pt(w[3] ?? "")) out.push({ line, kind: "stood", photo, at: pt(w[3]) });
+      else if (w[1] === "stood") out.push({ line, error: "stood: \"3 stood = x,y\" (feet on the shape), \"3 stood = 1\" (a best guess) or \"3 stood clear\"" });
       else if (w[2] === "ok") out.push({ line, kind: "ok", photo, name: w[1] });
       else if (w[2] === "drop") out.push({ line, kind: "drop", photo, name: w[1] });
       else if (w[2] === "->" && cornerIndex(w[3]) !== null) out.push({ line, kind: "rename", photo, name: w[1], to: w[3] });
@@ -212,7 +225,7 @@ export function parseFixes(text) {
  * Scrivn numbered so at the last check ([numbered]: { photo: n, x, y, corner: "C10" | null } each). Returns the inputs and
  * what each fix did.
  */
-export function applyFixes(h, inputs, fixes, { numbered = [], candidates = {} } = {}) {
+export function applyFixes(h, inputs, fixes, { numbered = [], candidates = {}, doubtful = [] } = {}) {
   const next = structuredClone(inputs);
   next.corners = next.corners ?? [];
   const n = next.shape?.outline?.length ?? 0;
@@ -250,6 +263,16 @@ export function applyFixes(h, inputs, fixes, { numbered = [], candidates = {} } 
       for (const mk of f.marks) (f.kind === "keep" ? list.add(mk) : list.delete(mk));
       next.keepProposed = [...list];
       said.push(`${f.kind === "keep" ? "kept" : "no longer kept"}: ${f.marks.join(", ")}`);
+    } else if (f.kind === "stood") {
+      const at = f.at ?? (f.guess ? doubtful.find((d) => d.photo === f.photo)?.guesses?.[f.guess - 1] : null);
+      if (!f.clear && !at) {
+        said.push(`✗ "${f.line}": no best guess ${f.guess} for #${f.photo} (measure prints them)`);
+        continue;
+      }
+      next.standAt = { ...(next.standAt ?? {}) };
+      if (f.clear) delete next.standAt[String(f.photo)];
+      else next.standAt[String(f.photo)] = at;
+      said.push(f.clear ? `#${f.photo}: where you stood forgotten` : `#${f.photo}: stood at (${at[0]}, ${at[1]})`);
     } else if (f.kind === "photo-out" || f.kind === "photo-in") {
       const s = new Set((next.leaveOut ?? []).map(Number));
       if (f.kind === "photo-out") s.add(f.photo);

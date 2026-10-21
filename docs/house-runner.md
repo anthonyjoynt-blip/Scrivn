@@ -59,7 +59,9 @@ It levels every photo and estimates the lens, finds each photo's **corner candid
 - A plain `x`, `y` (the foot alone) is snapped onto the strongest edge within 14 px, as a finger's tap on the phone is. That suits stucco; on ribbed metal, board-and-batten or any corner with a trim, the strongest edge nearby is often a rib or the trim's other edge, 10-30 px off. Add `"exact": true` to a foot you placed from a close-up.
 - **Name at least one corner on each photo** (`"corner": "C10"`); Scrivn numbers the rest as the next corners round the house, left to right. **Name every one on a photo that skips a corner** (one hidden behind a wing, a pilaster or a porch): Scrivn's numbering assumes they run on.
 - A pilaster or a post at a corner: tap the edge standing at the corner.
-- A photo showing one corner only can still be listed, but it seldom places. The photos that place best show a corner at 45 degrees with both walls in.
+- A photo showing one corner only, or none, is placed only once you say where you stood for it (`standAt`, below): its edges alone can point surely to the wrong spot. The photos that place best show a corner at 45 degrees with both walls in.
+
+**Where you stood** (`standAt`), for a photo with one corner or none: `{"3": [-30, 34]}`, feet on the shape as drawn (its frame, the street at the bottom), as near as a tap on the plan would put it. `measure` lists each photo waiting for one, with its best guesses.
 
 **The tapes** (`tapes`):
 - a wall's length: `"side": "C5-C6"`;
@@ -91,6 +93,7 @@ It reads `inputs.json` exactly as the route will, says plainly what is missing (
 3 C10 -> C9                 renamed
 3 C10 drop                  taken out
 3 out / 3 in                the photo left out of the measure, or back in
+3 stood = 1                 where you stood for #3 (measure's first best guess, or x,y on the shape as drawn)
 tape t1 ok                  its ends as they are
 tape t1 15 = 497,900 868,900       its ends on photo 15 (exact); tape t1#2 the second place it is on
 tape t2 side C5-C6          a wall's length, that side
@@ -105,12 +108,14 @@ A corner behind a glass railing, a bin or a post rarely settles from a crop: lea
 
 It runs the route's measure (lines, lens, levelling, the plan bundle solve with wall edges tied across photos), places the decks, and writes:
 
-- `review.png` again: **the corners whose bearing the measure doesn't agree with** (over 2.5 sd), **Scrivn's marks** (where the measure puts a corner a placed photo should show and nobody tapped), **photos not placed**, **a tape the others don't agree with** (held out, over 5% off), **deck corners crossed weakly**, and the photo route's own sanity checks when it gives them. Answer in `fixes.txt` and run `fix --measure`:
+- `review.png` again: **the corners whose bearing the measure doesn't agree with** (over 2.5 sd), **Scrivn's marks** (where the measure puts a corner a placed photo should show and nobody tapped), **photos not placed**, **a tape the others don't agree with** (held out, over 5% off), **deck corners crossed weakly**, **the photos waiting for where you stood** (up to three best guesses each, in feet on the shape as drawn), and **what the pane says is worth a look** (`lib/photoRouteSanity.ts`: eaves disagreeing at an outside corner, a door or window far from the usual size, a camera under the ground or inside the house, an outline that won't close, a depth nothing ties). Answer in `fixes.txt` and run `fix --measure`:
   ```
   keep 9:C7 15:C3             Scrivn's marks kept (unkeep 9:C7 takes one back)
   1 out                       a photo placed where it wasn't taken
+  3 stood = 1                 where you stood for #3: its first best guess
+  3 stood = -30,34            or the spot, feet on the shape as drawn ("3 stood clear" forgets it)
   ```
-- `results.md`: the outline with ± per side, the accuracy table, the advice, the decks, the photos not used, and the corners Scrivn marks.
+- `results.md`: the outline with ± per side, the accuracy table, the advice, the decks, **Worth a look**, **Waiting for where you stood**, the photos not used, and the corners Scrivn marks.
 - `plan.png`: the measured plan with every placed photo where the solve put it. One look: is every camera where the photo was taken? A photo placed from one corner can land wrong; leave it out (`3 out`).
 - `measured/NN.png`: each photo with its corners and where it was placed; `marks/NN.png` the marks close up.
 - `sides/`: each side's photo squared up face-on (`C1-C2 Name.png`), a grid copy (`... grid.png`: a grid every 100 px, the side's ends and ground dashed green, a foot ruler), and `frames.json`. A side sheared or floating off its green ground line has a corner numbered wrong on its photo: two corners fit any of four placements, so the solve can't object.

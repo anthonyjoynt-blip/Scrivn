@@ -133,6 +133,33 @@ async function writeSheets(h, x, inputs, pixels, { candidates, numbered = null, 
 }
 
 /**
+ * A point on the shape as solved carried back onto the shape as drawn, axis by axis between the corners (the inverse of
+ * the route's own drawn-to-solved carry, which standAt goes through).
+ */
+function solvedToDrawn(solved, drawn) {
+  const axis = (pick) => {
+    const pairs = solved.map((q, i) => [pick(q), pick(drawn[i])]).sort((a, b) => a[0] - b[0]);
+    const merged = [];
+    for (const [a, d] of pairs) {
+      const last = merged[merged.length - 1];
+      if (last && Math.abs(last[0] - a) < 0.05) last[1] = (last[1] + d) / 2;
+      else merged.push([a, d]);
+    }
+    return (v) => {
+      if (merged.length === 1) return v - merged[0][0] + merged[0][1];
+      let k = 1;
+      while (k < merged.length - 1 && merged[k][0] < v) k++;
+      const [a0, d0] = merged[k - 1];
+      const [a1, d1] = merged[k];
+      return d0 + ((v - a0) * (d1 - d0)) / (a1 - a0 || 1);
+    };
+  };
+  const fx = axis((q) => q.x);
+  const fy = axis((q) => q.y);
+  return (p) => [fx(p[0]), fy(p[1])];
+}
+
+/**
  * The review written: review.png (review-2.png ...) and review.txt, the items in doubt; the old pages taken away first.
  * Returns the lines for the console.
  */
@@ -455,6 +482,15 @@ export async function measure(h) {
   ext = deckRun.exterior;
   const placedDecks = deckRun.placed.filter((d) => d.deck).map((d) => ({ name: d.name, placing: d.placing, taps: d.taps }));
   writeJson(statePath(h, "measured.json"), ext);
+  // What the pane says is worth a look (lib/photoRouteSanity.ts): its "photo N" is #N here, route.photos being the folder's.
+  const sanity = x.routeSanity(ext);
+  // The photos waiting for where the user stood, their best guesses carried back onto the shape as drawn (standAt's frame).
+  const toDrawn = solvedToDrawn(sol.corners, input.buildings[0].outline);
+  const leftOutIds = new Set((inputs.leaveOut ?? []).map((ref) => photoOf(h, ref)?.id).filter(Boolean));
+  const doubtful = (sol.doubtful ?? []).filter((d) => !leftOutIds.has(d.photo)).map((d) => ({
+    photo: h.photos.find((p) => p.id === d.photo)?.n,
+    guesses: d.spots.slice(0, 3).map((g) => toDrawn(g.at).map((v) => Math.round(v * 2) / 2)),
+  }));
   const nameOf = (i) => ext.sides.find((s) => s.id === sideIds[i])?.name ?? sideName(i, n);
   const fileOf = (id) => h.photos.find((p) => p.id === id);
 
@@ -531,7 +567,7 @@ export async function measure(h) {
       : null;
 
   // The review of the measure: what it disagrees with, Scrivn's marks, photos not placed, tapes the others don't agree with.
-  const mDoubts = measureDoubts(x, h, inputs, { sol, corners, proposals: open, hold, decks: placedDecks });
+  const mDoubts = measureDoubts(x, h, inputs, { sol, corners, proposals: open, hold, decks: placedDecks, sanity, doubtful });
   const mReview = await writeReview(h, mDoubts, pixels, (pn) => marksFor(h, inputsShown, h.photos.find((p) => p.n === pn), { candidates, numbered: corners }), "Measure: what to look at");
 
   // results.md
@@ -539,7 +575,7 @@ export async function measure(h) {
   const md = [];
   md.push(`# ${inputs.house?.name ?? basename(h.dir)}: measured from photos`, "");
   md.push(`${now.slice(0, 16).replace("T", " ")} UTC. Scrivn's photo route (lib/photoRoute*.ts) on this machine, no API.`, "");
-  md.push(`- Photos: ${h.photos.length}; placed ${sol.cameras.length} (${sol.cameras.filter((c) => c.placedBy === "one-corner").length} by one corner). Corner taps ${corners.filter((c) => !c.proposed).length}${keptMarks.length ? ` (${keptMarks.length} of them Scrivn's marks, kept)` : ""}; wall edges tied ${sol.counts.edgePoints}.`);
+  md.push(`- Photos: ${h.photos.length}; placed ${sol.cameras.length} (${sol.cameras.filter((c) => c.placedBy === "stood").length} where you stood). Corner taps ${corners.filter((c) => !c.proposed).length}${keptMarks.length ? ` (${keptMarks.length} of them Scrivn's marks, kept)` : ""}; wall edges tied ${sol.counts.edgePoints}.`);
   md.push(`- Lens: f/W ${rec.focalOverWidth.toFixed(4)}, k ${rec.k.toFixed(4)}; rms ${sol.rms.toFixed(2)} sd.`);
   md.push(`- Tapes: ${(inputs.tapes ?? []).filter((t) => tapeParts[t.id]?.length).map((t) => `${t.id} "${t.said}"`).join("; ") || "none"}.`);
   if (sol.unscaled) md.push("- **No tape: the sizes follow the shape as drawn and are not to scale.**");
@@ -570,6 +606,14 @@ export async function measure(h) {
     md.push("", "## Decks", "");
     for (const d of deckRun.placed) md.push(`- ${d.deck ? d.words : `${d.name}: not placed`}${d.why.length ? ` (${d.why.join("; ")})` : ""}`);
   }
+  if (sanity.length) {
+    md.push("", "## Worth a look", "");
+    for (const f of sanity) md.push(`- ${f.words}`);
+  }
+  if (doubtful.length) {
+    md.push("", "## Waiting for where you stood", "", 'Each shows one corner or none, and its edges point to more than one place. Say where you stood, in feet on the shape as drawn: "standAt": {"3": [x, y]}, or "3 stood = 1" in fixes.txt for its first guess.', "");
+    for (const d of doubtful) md.push(`- #${d.photo}: best guesses ${d.guesses.map((g, i) => `${i + 1}: (${g[0]}, ${g[1]})`).join(", ")}`);
+  }
   if (sol.unplaced.length || leftOut.length) {
     md.push("", "## Photos not used", "");
     for (const p of leftOut) md.push(`- #${p.n} ${p.file}: left out by the session (inputs.json leaveOut).`);
@@ -581,7 +625,7 @@ export async function measure(h) {
   md.push("", "## Files", "", "- plan.png: the measured plan, every placed photo; measured/NN.png: each photo with its corners and where it stood.", `- sides/: ${Object.keys(frames).length} sides squared up for reading (and a grid copy each); frames.json.`, "- measured.json: the exterior as measured (no walls read yet).");
   md.push("", `Machine time: measure ${timesNow.measure.toFixed(1)} s, hold-outs ${timesNow.holdOuts.toFixed(1)} s.`);
   writeFileSync(statePath(h, "results.md"), `${md.join("\n")}\n`);
-  writeJson(statePath(h, "results.json"), { at: now, sides: sol.sides.map((s) => ({ side: sideName(s.from, n), name: nameOf(s.from), lengthFeet: s.lengthFeet, plusMinusPct: s.plusMinusPct, taped: s.taped })), holdOuts: hold.rows, holdNote: hold.note, depthNote, checks, advice: sol.advice, unplaced: sol.unplaced, proposals: proposals.map((q) => ({ photo: fileOf(q.photo).n, corner: cornerName(q.corner), x: q.x, y: q.y })), kept: keptMarks.length, lens: { focalOverWidth: rec.focalOverWidth, k: rec.k }, rms: sol.rms, cameras: sol.cameras.length });
+  writeJson(statePath(h, "results.json"), { at: now, sides: sol.sides.map((s) => ({ side: sideName(s.from, n), name: nameOf(s.from), lengthFeet: s.lengthFeet, plusMinusPct: s.plusMinusPct, taped: s.taped })), holdOuts: hold.rows, holdNote: hold.note, depthNote, checks, advice: sol.advice, unplaced: sol.unplaced, doubtful, sanity: sanity.map((f) => ({ kind: f.kind, words: f.words })), stood: sol.cameras.filter((c) => c.placedBy === "stood").length, proposals: proposals.map((q) => ({ photo: fileOf(q.photo).n, corner: cornerName(q.corner), x: q.x, y: q.y })), kept: keptMarks.length, lens: { focalOverWidth: rec.focalOverWidth, k: rec.k }, rms: sol.rms, cameras: sol.cameras.length });
 
   const out = [`Measured from ${sol.cameras.length} of ${h.photos.length} photos and ${tapes.length} tape${tapes.length === 1 ? "" : "s"}; rms ${sol.rms.toFixed(2)}; lens f/W ${rec.focalOverWidth.toFixed(3)}.`];
   for (const s of sol.sides) out.push(`  ${sideName(s.from, n).padEnd(8)} ${nameOf(s.from).slice(0, 28).padEnd(28)} ${ftin(s.lengthFeet).padStart(8)}  ${s.taped ? "taped" : `±${s.plusMinusPct}%`}`);
@@ -592,7 +636,10 @@ export async function measure(h) {
   for (const k of checks) out.push(`  check: ${k.what} on #${k.photo}: ${k.got !== null ? ftin(k.got) : "not placed"}${k.expect ? ` (expected ${ftin(k.expect)}${k.got !== null ? `, ${pct((k.got / k.expect - 1) * 100)}` : ""})` : ""}`);
   for (const a of sol.advice) out.push(`  a tape would help: ${sideName(a.from, n)} ${nameOf(a.from)}: ${a.why}`);
   for (const p of (inputs.leaveOut ?? []).map((ref) => photoOf(h, ref)).filter(Boolean)) out.push(`  not used: #${p.n}: left out (leaveOut).`);
-  for (const u of sol.unplaced) out.push(`  not used: #${fileOf(u.photo).n}: ${u.why}`);
+  const waiting = new Set(doubtful.map((d) => d.photo));
+  for (const u of sol.unplaced) if (!waiting.has(fileOf(u.photo).n)) out.push(`  not used: #${fileOf(u.photo).n}: ${u.why}`);
+  for (const d of doubtful) out.push(`  #${d.photo} waits for where you stood; best guesses ${d.guesses.map((g, i) => `${i + 1}: (${g[0]}, ${g[1]})`).join(", ")} (feet on the shape as drawn): "${d.photo} stood = 1" in fixes.txt, or x,y.`);
+  for (const f of sanity) out.push(`  worth a look: ${f.words}`);
   if (open.length) out.push(`  Scrivn marks ${open.length} more corners (close up in marks/NN.png): list each on its corner in keepProposed.`);
   for (const d of deckRun.placed) out.push(`  deck: ${d.deck ? d.words : `${d.name}: not placed`}${d.why.length ? ` (${d.why.join("; ")})` : ""}`);
   out.push(`Review: ${mDoubts.length} to look at - review.png${mDoubts.length > 18 ? ` (and ${Math.ceil(mDoubts.length / 18) - 1} more)` : ""}; answer in scrivn/fixes.txt.`, ...mReview.map((l) => `  ${l}`));
@@ -922,7 +969,8 @@ export async function fix(h, lines = [], { then = "check" } = {}) {
   const inputs = readJson(statePath(h, "inputs.json"));
   const numbered = readJson(statePath(h, "numbered.json"), []);
   const candidates = readJson(statePath(h, "candidates.json"), { photos: {} }).photos;
-  const { inputs: next, said } = applyFixes(h, inputs, fixes, { numbered, candidates });
+  const doubtful = readJson(statePath(h, "results.json"), {}).doubtful ?? [];
+  const { inputs: next, said } = applyFixes(h, inputs, fixes, { numbered, candidates, doubtful });
   if (said.some((l) => l.startsWith("✗"))) return [...said, "Nothing changed: put the lines marked ✗ right and run fix again."];
   writeJson(statePath(h, "inputs.json"), next);
   if (!lines.length) {
