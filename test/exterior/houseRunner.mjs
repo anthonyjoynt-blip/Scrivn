@@ -23,6 +23,7 @@ import { runStep } from "../../scripts/house/run.mjs";
 import { readsFromFinish } from "../../scripts/house/finishReads.mjs";
 import { siteReportPdf } from "../../scripts/house/site.mjs";
 import { lengthsIn, parseHouse, parseTapes } from "../../scripts/house/words.mjs";
+import { routeInput } from "../../scripts/house/folder.mjs";
 import { parseFixes } from "../../scripts/house/review.mjs";
 import { makeRequestFolder } from "./houseRequestFolder.mjs";
 
@@ -70,6 +71,21 @@ console.log("\n  tapes.txt and house.txt");
   check("metres become feet", near(tapes[5].feet, 6.5 / 0.3048, 1e-9));
   check("a line with no length is said back, a comment skipped", unread.length === 1 && unread[0] === "something with no length" && tapes.length === 6);
   check("22' 2 1/2\" with a fraction", near(lengthsIn(`22' 2 1/2"`)[0].feet, 22 + 2.5 / 12, 1e-9));
+  // Sizes judged by eye at the house (2026-10-21): estimates, never tapes.
+  const rough = parseTapes(`garage doors 9' wide\nthe bump-out sticks out about 6'\nrear wall with the French doors about 15' (±15%)\ndeck nook ~10'\nlong side 60'-ish\nlong side wall 68'6" (laser, give or take a few inches)`);
+  check(
+    "\"about 6'\", \"~10'\", \"60'-ish\" are sizes estimated on site, ± 20% unless said; a door's or wall's words don't make them tapes",
+    rough.estimates.length === 4 && rough.estimates[0].feet === 6 && rough.estimates[0].plusMinusPct === 20 && rough.estimates[1].feet === 15 && rough.estimates[1].plusMinusPct === 15 && rough.estimates[2].feet === 10 && rough.estimates[3].feet === 60,
+    JSON.stringify(rough.estimates),
+  );
+  check("and the tapes stay tapes (\"give or take a few inches\" is a tape)", rough.tapes.length === 2 && rough.tapes[0].what === "garage" && rough.tapes[1].kind === "side" && near(rough.tapes[1].feet, 68.5, 1e-9));
+  const est = routeInput({ photos: [] }, { shape: { outline: [[0, 0], [40, 0], [40, 30], [0, 30]] }, tapes: [{ id: "t1", said: "back 40'", feet: 40, kind: "side", side: "C3-C4" }], estimates: [{ id: "e1", said: "about 28'", feet: 28, side: "C2-C3" }, { id: "e2", said: "about 41'", feet: 41, side: "C3-C4" }, { id: "e3", said: "about 9'", feet: 9, side: null }] });
+  const estOut = est.input.buildings[0].estimates;
+  check(
+    "inputs.json estimates go to the route on their sides (± 20% unless said); one on a taped side is said and left out; one without a side asks which",
+    estOut.length === 1 && estOut[0].from === 1 && estOut[0].feet === 28 && estOut[0].plusMinusPct === 20 && est.input.buildings[0].tapes.length === 1 && est.problems.some((p) => /e2.* is taped/.test(p)) && est.problems.some((p) => /e3.*which side/.test(p)),
+    est.problems.join(" | "),
+  );
   const house = parseHouse("semi-detached\nfront faces NE\nname: 52 Elm St\nstucco, two storeys");
   check("house.txt: the home's type, the front's bearing, its name and notes", house.homeType === "semi" && house.frontFacesDeg === 45 && house.name === "52 Elm St" && house.notes.includes("stucco, two storeys"));
   check("front faces unknown is no bearing", parseHouse("front faces unknown").frontFacesDeg === null);

@@ -57,13 +57,25 @@ function howMany(words) {
   return /\b(doors|windows)\b/.test(w) ? 2 : 1;
 }
 
+/** Words that make a line a size judged by eye, not a tape: "about 6'", "roughly 15'", "~10'", "6' or so", "15'-ish", "by eye". */
+const ROUGH = /\b(?:about|roughly|approx(?:imately)?|estimated?|guess(?:ed)?|eyeball(?:ed)?|by eye|or so)\b|~|-ish\b/i;
+
+/** The ± said with a rough size ("about 6' (±20%)", "+/- 15%"), percent; null when none. */
+function plusMinusIn(line) {
+  const m = /(?:±|\+\s*\/\s*-|\+-)\s*(\d+(?:\.\d+)?)\s*%/.exec(line);
+  return m ? Number(m[1]) : null;
+}
+
 /**
  * tapes.txt: one tape a line. Blank lines and lines starting # are skipped. A line with no length is said back.
  * Each tape: its words, its feet (the first length on the line; a second is kept as `alsoFeet`, e.g. 9' x 7'), what it
  * is and how the route takes it, and how many alike it covers.
+ * A line that says its size roughly ("the bump-out sticks out about 6' (±20%)") is an estimate made on site by eye,
+ * never a tape: a side's length held loosely (lib/photoRoute.ts RouteEstimate), its ± 20% unless said.
  */
 export function parseTapes(text) {
   const tapes = [];
+  const estimates = [];
   const unread = [];
   const lines = String(text ?? "").replace(/^﻿/, "").split(/\r?\n/);
   for (const raw of lines) {
@@ -77,10 +89,14 @@ export function parseTapes(text) {
     const words = line.replace(/\s+/g, " ");
     // The words without their lengths: "window 3 ft 2 in" is one window.
     const bare = lengths.reduce((w, l) => w.replace(l.text, " "), line);
+    if (ROUGH.test(bare)) {
+      estimates.push({ id: `e${estimates.length + 1}`, said: words, feet: lengths[0].feet, plusMinusPct: plusMinusIn(line) ?? 20 });
+      continue;
+    }
     const { what, kind } = tapeKind(bare);
     tapes.push({ id: `t${tapes.length + 1}`, said: words, feet: lengths[0].feet, ...(lengths.length > 1 ? { alsoFeet: lengths.slice(1).map((l) => l.feet) } : {}), what, kind, count: kind === "line" ? howMany(bare) : 1 });
   }
-  return { tapes, unread };
+  return { tapes, estimates, unread };
 }
 
 const COMPASS = { n: 0, north: 0, ne: 45, northeast: 45, "north-east": 45, e: 90, east: 90, se: 135, southeast: 135, "south-east": 135, s: 180, south: 180, sw: 225, southwest: 225, "south-west": 225, w: 270, west: 270, nw: 315, northwest: 315, "north-west": 315 };

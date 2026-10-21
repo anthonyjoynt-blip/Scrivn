@@ -182,9 +182,10 @@ export function exteriorFromRoute(prev: Exterior | undefined, state: PhotoRouteS
     const old = before.get(id);
     // A side measured again keeps what was put on it, stretched with its new length.
     const base: ExteriorSide = old ? stretched(old, s.lengthFeet) : { ...s, id };
-    const { lengthFrom: _drawn, lengthPlusMinusPct: _pm, ...rest } = base;
+    const { lengthFrom: _drawn, lengthPlusMinusPct: _pm, lengthEstimatedFeet: _est, ...rest } = base;
     const side: ExteriorSide = { ...rest, id, name: old?.name ?? s.name, lengthFeet: s.lengthFeet, turn: s.turn, heightsFrom: "level" };
     if (measured && measured.plusMinusPct !== null) side.lengthPlusMinusPct = measured.plusMinusPct;
+    if (measured?.estimated && !measured.taped) side.lengthEstimatedFeet = measured.estimated.feet;
     // A party wall (2026-10-17): shared with the neighbour, so nothing on it counts, and no photo of it.
     // Said on the route it is the route's; a route from before says nothing, and the side keeps its own.
     const isShared = shared ? shared.has(i) : side.shared === true;
@@ -197,9 +198,10 @@ export function exteriorFromRoute(prev: Exterior | undefined, state: PhotoRouteS
   });
   const placed = m.cameras.length;
   const tapes = state.buildings.find((b) => b.id === m.building)?.tapes ?? [];
+  const estimated = m.sides.filter((s) => s.estimated && !s.taped).length;
   const notes = [
-    `Measured from ${placed} of ${state.photos.length} photo${state.photos.length === 1 ? "" : "s"} and ${tapes.length} tape${tapes.length === 1 ? "" : "s"}.`,
-    ...(tapes.length === 0 ? ["No tape: the sizes follow the shape as drawn, and are not to scale."] : []),
+    `Measured from ${placed} of ${state.photos.length} photo${state.photos.length === 1 ? "" : "s"} and ${tapes.length} tape${tapes.length === 1 ? "" : "s"}${estimated ? `, with ${estimated} side${estimated === 1 ? "" : "s"} estimated on site by eye (not taped)` : ""}.`,
+    ...(tapes.length === 0 ? [estimated ? "No tape: the sizes follow the sides estimated on site and the shape as drawn, and are not to scale." : "No tape: the sizes follow the shape as drawn, and are not to scale."] : []),
   ];
   const { homeType: _was, ...prevRest } = prev ?? ({} as Partial<Exterior>);
   const homeType = building?.homeType ?? _was;

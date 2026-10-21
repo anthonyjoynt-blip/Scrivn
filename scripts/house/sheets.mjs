@@ -154,7 +154,7 @@ export function planSvg(outline, w, h, { seen = [], cameras = [], sides = null, 
     if (advice.includes(i)) out.push(`<line x1="${X(a.x)}" y1="${Y(a.y)}" x2="${X(b.x)}" y2="${Y(b.y)}" stroke="#ff9500" stroke-width="4"/>`);
     if (sides?.[i]) {
       const sd = sides[i];
-      const text = `${sideName(i, n)} ${ftin(sd.lengthFeet)}${sd.taped ? " tape" : sd.plusMinusPct != null ? ` ±${sd.plusMinusPct}%` : ""}`;
+      const text = `${sideName(i, n)} ${ftin(sd.lengthFeet)}${sd.taped ? " tape" : sd.plusMinusPct != null ? ` ±${sd.plusMinusPct}%${sd.estimated ? " est." : ""}` : ""}`;
       out.push(label(mx + nx * off, my - ny * off + 5, text, sd.taped ? "#ffe600" : advice.includes(i) ? "#ff9500" : "#e8e8e8", { size: big ? 15 : 11, w, h, anchor: "middle" }));
     }
   }

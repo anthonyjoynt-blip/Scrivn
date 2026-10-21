@@ -142,6 +142,8 @@ export function draftInputs(h) {
     if (t.kind === "side") tapes.push({ id, said: t.said, feet: round4(t.feet), what: t.what, kind: "side", side: null });
     else tapes.push({ id, said: t.said, feet: round4(t.feet), what: t.what, kind: "line", count: t.count, on: [], ...(t.alsoFeet ? { alsoFeet: t.alsoFeet.map(round4) } : {}) });
   }
+  // Sizes judged by eye at the house ("about 6'"): each a side, held loosely - never a tape.
+  const estimates = (tapesRead.estimates ?? []).map((e) => ({ id: e.id, said: e.said, feet: round4(e.feet), plusMinusPct: e.plusMinusPct, side: null }));
   return {
     format: INPUTS_FORMAT,
     help: "docs/house-runner.md says what each part is and how to fill it in. Corners are C1, C2... as the sheets number them; a side is C5-C6.",
@@ -157,6 +159,7 @@ export function draftInputs(h) {
     shape: { from: main?.outline?.length >= 4 ? "tester" : "placeholder", outline, names: {} },
     corners,
     tapes,
+    ...(estimates.length ? { estimates } : {}),
     ...(tapesRead.unread.length ? { unread: tapesRead.unread } : {}),
     checks: [],
     leaveOut: [],
@@ -249,6 +252,19 @@ export function routeInput(h, inputs, candidates = {}) {
       tapeParts[t.id].push(id);
     });
   }
+  // Sizes estimated on site, by eye: "estimates": [{"id": "e1", "said": "...", "feet": 6, "plusMinusPct": 20, "side": "C8-C9"}].
+  const estimates = [];
+  for (const e of inputs.estimates ?? []) {
+    if (e.skip) continue;
+    if (!(Number(e.feet) > 0)) {
+      problems.push(`estimate ${e.id} (${e.said ?? ""}): no length.`);
+      continue;
+    }
+    const from = sideIndex(e.side, n);
+    if (from === null) problems.push(`estimate ${e.id} (${e.said}): which side? Set "side" to the wall it is the length of, corner to corner, e.g. "C8-C9".`);
+    else if (tapes.some((t) => t.kind === "side" && t.from === from)) problems.push(`estimate ${e.id} (${e.said}): ${sideName(from, n)} is taped; the tape stands and the estimate is not used.`);
+    else estimates.push({ id: String(e.id), from, feet: Number(e.feet), plusMinusPct: Number(e.plusMinusPct) > 0 ? Number(e.plusMinusPct) : 20 });
+  }
   // Where the user stood for a photo the measure couldn't place for sure ("standAt": {"3": [x, y]}, feet on the shape as drawn).
   const standAt = {};
   for (const [ref, at] of Object.entries(inputs.standAt ?? {})) {
@@ -261,7 +277,7 @@ export function routeInput(h, inputs, candidates = {}) {
   const homeType = inputs.house?.homeType && inputs.house.homeType !== "detached" ? inputs.house.homeType : undefined;
   const input = {
     photos: h.photos.map((p) => ({ id: p.id, width: p.width, height: p.height, focalPrior: p.focalPrior ?? null, takenAt: p.takenAt ?? null, ...(standAt[p.id] ? { standAt: standAt[p.id] } : {}) })),
-    buildings: [{ id: "main", ...(inputs.house?.name ? { name: inputs.house.name } : {}), ...(homeType ? { homeType } : {}), ...(shared.length ? { shared } : {}), outline, corners, tapes }],
+    buildings: [{ id: "main", ...(inputs.house?.name ? { name: inputs.house.name } : {}), ...(homeType ? { homeType } : {}), ...(shared.length ? { shared } : {}), outline, corners, tapes, ...(estimates.length ? { estimates } : {}) }],
   };
   return { input, problems, tapeParts, n };
 }
