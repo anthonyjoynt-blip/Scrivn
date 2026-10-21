@@ -24,6 +24,7 @@ export async function scrivn() {
     [
       ...["photoRoute.ts", "photoRouteData.ts", "photoRouteExterior.ts", "photoRouteLens.ts", "photoRouteEdges.ts", "photoRouteCoverage.ts", "exteriorPhoto.ts", "exteriorCheck.ts", "roofCheck.ts"].map((f) => `export * from "${lib(f)}";`),
       `export { exifFocal35, focalOverWidth } from "${lib("photoRouteExif.ts")}";`,
+      `export { routeSanity } from "${lib("photoRouteSanity.ts")}";`,
       `export { planDirection, resect } from "${lib("photoRouteSolve.ts")}";`,
       `export { orthogonalRing, withAddition, withRoofEnd, withOneSlope } from "${lib("exteriorPlan.ts")}";`,
       `export { allSides, exteriorQuantities, exteriorFootprint, endsFromPhotos, roofProposal, defaultRoof, formatPitch, exteriorScopeLines, houseColours, HOME_TYPE_LABEL } from "${lib("exterior.ts")}";`,

@@ -73,10 +73,10 @@ console.log("\n  tapes.txt and house.txt");
   const house = parseHouse("semi-detached\nfront faces NE\nname: 52 Elm St\nstucco, two storeys");
   check("house.txt: the home's type, the front's bearing, its name and notes", house.homeType === "semi" && house.frontFacesDeg === 45 && house.name === "52 Elm St" && house.notes.includes("stucco, two storeys"));
   check("front faces unknown is no bearing", parseHouse("front faces unknown").frontFacesDeg === null);
-  const fx = parseFixes(`# a comment\n#3 C10 ok\n3 C10 = c\n3 C10 = 496,1000\n3 C10 = 490,600 496,1000\n3 C10 ~ 1300,1010\n3 ? = 1340,1010\n3 C10 -> C9\n3 C10 drop\n3 out\nkeep 9:C7 15:C3\ntape t1#2 15 = 497,900 868,900\ntape t2 side C5-C6\ndeck back 6 corner:0 = 1210,980\n3 C10 maybe`);
+  const fx = parseFixes(`# a comment\n#3 C10 ok\n3 C10 = c\n3 C10 = 496,1000\n3 C10 = 490,600 496,1000\n3 C10 ~ 1300,1010\n3 ? = 1340,1010\n3 C10 -> C9\n3 C10 drop\n3 out\nkeep 9:C7 15:C3\ntape t1#2 15 = 497,900 868,900\ntape t2 side C5-C6\ndeck back 6 corner:0 = 1210,980\n3 C10 maybe\n3 stood = 1\n3 stood = -30,34.5\n3 stood clear`);
   check(
-    "fixes.txt: each kind of fix read, a comment skipped, #3 a photo, ~ a snapped tap, = exact, a line it can't read said",
-    fx.length === 14 && fx[0].kind === "ok" && fx[0].photo === 3 && fx[1].pick === "c" && fx[2].at && !fx[2].snap && fx[3].edge?.length === 2 && fx[4].snap === true && fx[5].name === "?" && fx[6].to === "C9" && fx[7].kind === "drop" && fx[8].kind === "photo-out" && fx[9].marks.length === 2 && fx[10].id === "t1#2" && fx[11].side === "C5-C6" && fx[12].deck === "back" && fx[12].point === "corner:0" && Boolean(fx[13].error),
+    "fixes.txt: each kind of fix read, a comment skipped, #3 a photo, ~ a snapped tap, = exact, where you stood, a line it can't read said",
+    fx.length === 17 && fx[14].guess === 1 && fx[15].at?.[0] === -30 && fx[15].at?.[1] === 34.5 && fx[16].clear === true && fx[0].kind === "ok" && fx[0].photo === 3 && fx[1].pick === "c" && fx[2].at && !fx[2].snap && fx[3].edge?.length === 2 && fx[4].snap === true && fx[5].name === "?" && fx[6].to === "C9" && fx[7].kind === "drop" && fx[8].kind === "photo-out" && fx[9].marks.length === 2 && fx[10].id === "t1#2" && fx[11].side === "C5-C6" && fx[12].deck === "back" && fx[12].point === "corner:0" && Boolean(fx[13].error),
   );
 }
 
@@ -132,7 +132,13 @@ if (!existsSync(PHOTOS)) {
   check("the bump-out's west side, whose inner corner no photo shows, is said unmeasured (± 30% or more) and a tape asked for", bump.plusMinusPct >= 30 && res.advice.some((a) => a.from === 5), `${bump.lengthFeet.toFixed(2)} ft ±${bump.plusMinusPct}%`);
   check("Scrivn's marks are offered close up, one image a photo, none kept unasked", readdirSync(join(dir, "scrivn", "marks")).length >= 5 && res.kept === 0);
   const mrv = readFileSync(join(dir, "scrivn", "review.txt"), "utf8");
-  check("measure's review: Scrivn's marks and the photos not placed, on review.png", existsSync(join(dir, "scrivn", "review.png")) && /^Measure/.test(mrv) && /mark \d+:C\d+/.test(mrv) && /not placed/.test(mrv));
+  check("measure's review: Scrivn's marks and the photos not placed or waiting for where he stood, on review.png", existsSync(join(dir, "scrivn", "review.png")) && /^Measure/.test(mrv) && /mark \d+:C\d+/.test(mrv) && /not placed|stood\?/.test(mrv));
+  // What the pane says is worth a look (lib/photoRouteSanity.ts), and the photos waiting for where he stood, with guesses.
+  check(
+    "measure prints what is worth a look (the depth nothing ties, all three tapes running across) and each photo waiting for where he stood, with best guesses on the shape as drawn",
+    res.sanity.some((f) => f.kind === "depth") && meas.lines.some((l) => /^ {2}worth a look: /.test(l)) && res.doubtful.length > 0 && res.doubtful.every((d) => d.guesses.length > 0 && d.guesses.every((g) => g.length === 2 && g.every(Number.isFinite))) && /## Worth a look/.test(readFileSync(join(dir, "scrivn", "results.md"), "utf8")),
+    `${res.sanity.length} flags; waiting ${res.doubtful.map((d) => `#${d.photo}`).join(" ")}`,
+  );
   const mext = json(join(dir, "scrivn", "measured.json"));
   const rearDeck = (mext.decks ?? []).find((d) => d.name === "Rear deck");
   const porch = (mext.decks ?? []).find((d) => d.name === "Front porch");
@@ -161,6 +167,13 @@ if (!existsSync(PHOTOS)) {
   check("report: the trim counted, Check these asks about the porch window's surround behind the railing", /SF of trim/.test(md) && /surround round the window .*porch railing/i.test(md));
   check("report: the PDF with its side photos, the elevations named by the compass", pages >= 15 && (pdf.match(/DCTDecode/g) ?? []).length >= 5 && /North elevation/.test(pdf), `${pages} pages`);
   check("exterior.json is a photos exterior that would open in a claim", ext.source?.kind === "photos" && ext.sides.length === 12 && ext.roof?.checkedAt);
+  // Where he stood for a waiting photo, by its first guess: into inputs.json's standAt, which the route takes.
+  const waitingPhoto = res.doubtful[0]?.photo;
+  if (waitingPhoto) {
+    await runStep(dir, "fix", [`${waitingPhoto} stood = 1`]);
+    const st = json(join(dir, "scrivn", "inputs.json")).standAt?.[String(waitingPhoto)];
+    check("fix: \"N stood = 1\" puts that photo's first best guess in standAt", Array.isArray(st) && st[0] === res.doubtful[0].guesses[0][0] && st[1] === res.doubtful[0].guesses[0][1], `#${waitingPhoto} at ${st}`);
+  } else check("fix: a photo waiting for where he stood", false, "none waiting");
   check("report: the decks' lines (decking, glass railing, stairs, privacy screen, skirting) and Check these under them", /## Decks/.test(md) && /Rear deck – composite decking/.test(md) && /Rear deck – glass railing/.test(md) && /Rear deck – stairs – 8 risers/.test(md) && /privacy screen/.test(md) && /Front porch – skirting/.test(md) && (ext.decks ?? []).length === 2);
   summary.push(`house: prepare ${prep.seconds.toFixed(0)} s, check ${chk.seconds.toFixed(0)} s, measure ${meas.seconds.toFixed(0)} s, report ${rep.seconds.toFixed(0)} s; hold-outs ${res.holdOuts.map((r) => `${r.id} ${r.errorPct >= 0 ? "+" : ""}${r.errorPct.toFixed(1)}%`).join(", ")}`);
   houseDir = dir;
