@@ -33,6 +33,9 @@
  *     lean-tos hipped round its outside corners and in a valley at an inside one, all the way round
  *     with two drip lines - the upper floor kept flush when a main length is typed, tall sides split
  *     at the floor line, and a cantilever's floor soffit
+ *   * the walk round the house (10-21, lib/photoRouteWalk.ts): its steps in order, what can be passed by and taken back,
+ *     L-shaped and notched laps and the shape each makes, the one measurement it needs, each photo's place on it, a semi's
+ *     joined corner, and the owner's house walked as it asks (made-up photos) through the route's own solve
  *   * the drawings and the report as a customer document (10-16): the owner's side yard stepping down
  *     with its parging, the ground off a parging's bottom at its corners' own x, the ± on a length worked
  *     out from photos, a photos-only house said as one, every wall's name beside its own wall, and each
@@ -75,9 +78,12 @@ async function load() {
       `export * from "${lib("roofCheck.ts")}";`,
       `export * from "${lib("exteriorCheck.ts")}";`,
       `export { cornerPlace, routeCoverage, viewsFromMeasure } from "${lib("photoRouteCoverage.ts")}";`,
-      `export { checkEstimate, defaultShared, numberCorners, partyCorners, solveRoute } from "${lib("photoRoute.ts")}";`,
+      `export { checkEstimate, defaultShared, numberCorners, partyCorners, shotNumbers, solveRoute, WALK_HOLD } from "${lib("photoRoute.ts")}";`,
+      `export { alignLap, facingWords, isWalkShape, lapCloses, walkPhotoWords, lapOutline, lapProblem, lapTurns, newWalk, ringTurns, walkBack, walkClose, walkHasMeasure, walkMeasured, walkPhotos, walkShot, walkSkip, walkStep, walkSummary, walkTake, walkTurn, withoutPhotos, withWalk } from "${lib("photoRouteWalk.ts")}";`,
       `export { exteriorFromRoute, measuredFrom } from "${lib("photoRouteExterior.ts")}";`,
       `export { routeSanity } from "${lib("photoRouteSanity.ts")}";`,
+      `export { focalOverWidth } from "${lib("photoRouteExif.ts")}";`,
+      `export { longSide } from "${lib("photoRouteLens.ts")}";`,
       `export { applyScanFinish, readScanFinish, wallsFrom } from "${lib("exteriorFinish.ts")}";`,
       `export * from "${lib("exterior3d.ts")}";`,
       `export * from "${lib("exteriorPlan.ts")}";`,
@@ -6413,6 +6419,393 @@ test("a tape typed on a phone: feet, inches past 12 and an eighth, none of which
   near(x.feetFromParts("", "", 4), 0.5 / 12, "½ in alone");
   assert(x.feetFromParts("", "", 0) === null, "nothing typed is nothing");
   assert(x.feetFromParts("5'", "", 0) === null && x.feetFromParts("-2", "", 0) === null, "not a number, or below zero, is nothing");
+});
+
+console.log("\nthe walk round the house (10-21)");
+
+/** A walk driven as a tester would: each entry one step - a photo id to take, "skip", a turn ("inside", "joined"), "close". */
+function walkThrough(steps) {
+  let w = x.newWalk();
+  const seen = [];
+  for (const s of steps) {
+    const at = x.walkStep(w);
+    seen.push(at.kind === "measure" ? `measure:${at.role}${at.k}` : at.kind === "front" || at.kind === "finish" ? at.kind : `${at.kind}${at.k}`);
+    if (s === "skip") w = x.walkSkip(w);
+    else if (s === "measured") w = x.walkMeasured(w);
+    else if (s === "inside" || s === "joined" || s === "outside") w = x.walkTurn(w, s);
+    else if (s === "close") w = x.walkClose(w);
+    else w = x.walkTake(w, s);
+  }
+  return { w, seen };
+}
+
+test("the walk's steps in order: the front and something on it measured, then corner, side, measurement round the house", () => {
+  const { w, seen } = walkThrough(["front", "measured", "c1", "s1", "skip", "c2", "s2", "measured", "c3", "s3", "skip", "c4", "close"]);
+  assert(seen.join(" ") === "front measure:front0 corner1 side1 measure:side1 corner2 side2 measure:side2 corner3 side3 measure:side3 corner4 side4", seen.join(" "));
+  assert(x.walkStep(w).kind === "finish" && x.lapCloses(w) && x.lapTurns(w).join() === "1,1,1,1", JSON.stringify(x.walkStep(w)));
+  // The front can't be passed by; the side the walk is at faces the way its turns say.
+  assert(x.walkSkip(x.newWalk()).stops.length === 0, "no skipping the front");
+  assert(["front", "right side", "back", "left side", "front"].every((f, h) => x.facingWords(h) === f), "facings");
+  const photos = x.walkPhotos(w).map((p) => `${p.photo}=${p.tag.role}${p.tag.k}`);
+  assert(photos.join() === "front=front0,c1=corner1,s1=side1,c2=corner2,s2=side2,c3=corner3,s3=side3,c4=corner4", photos.join());
+});
+
+test("passed by - a side too tight to get back from, a corner's 45, a measurement - and Back takes each back, photos with it", () => {
+  const { w } = walkThrough(["front", "skip", "c1", "skip", "skip"]);
+  // The right side too tight: no photo, no measurement asked; corner 2 then passed by too.
+  assert(x.walkStep(w).kind === "side" && x.walkStep(w).k === 2, JSON.stringify(x.walkStep(w)));
+  assert(w.stops[2].kind === "side" && w.stops[2].skipped.join() === "photo" && w.stops[3].skipped.join() === "photo", JSON.stringify(w.stops));
+  const b1 = x.walkBack(w);
+  assert(x.walkStep(b1.walk).kind === "corner" && x.walkStep(b1.walk).k === 2 && b1.dropped.length === 0, JSON.stringify(x.walkStep(b1.walk)));
+  const b2 = x.walkBack(x.walkBack(b1.walk).walk);
+  assert(x.walkStep(b2.walk).kind === "corner" && x.walkStep(b2.walk).k === 1 && b2.dropped.join() === "c1", `${JSON.stringify(x.walkStep(b2.walk))} ${b2.dropped}`);
+  // A measurement passed by is asked again; the front taken back goes with its photo.
+  const front = x.walkBack(x.walkBack(b2.walk).walk);
+  assert(x.walkStep(front.walk).kind === "front" && front.dropped.join() === "front", JSON.stringify(front));
+  // A closed lap opens again.
+  const done = walkThrough(["front", "skip", "c1", "s1", "skip", "c2", "s2", "skip", "c3", "s3", "skip", "c4", "close"]).w;
+  assert(x.walkStep(x.walkBack(done).walk).kind === "side", "back from the end");
+  // A turn can't be changed once its photo is in.
+  const turned = x.walkTurn(walkThrough(["front", "skip"]).w, "inside");
+  assert(x.walkStep(turned).kind === "side" && turned.stops[1].turn === "inside", "an inside corner after the front, whose photo shows it");
+  assert(x.walkTurn(x.walkTake(walkThrough(["front", "skip"]).w, "c1"), "inside").stops[1].turn === undefined, "turn not changed after the 45");
+});
+
+test("an L, six corners, one inside: its shape from the lap, numbered as walked; the inside corner asks a photo only when its wall had none", () => {
+  // Front, right side, back, the left side's back part, the notch's back (inside corner 4), the left side's front part.
+  const { w, seen } = walkThrough(["front", "skip", "c1", "s1", "skip", "c2", "s2", "skip", "c3", "s3", "skip", "inside", "s4", "skip", "c5", "s5", "skip", "c6", "close"]);
+  assert(seen.slice(11).join(" ") === "corner4 side4 measure:side4 corner5 side5 measure:side5 corner6 side6", seen.slice(11).join(" "));
+  const turns = x.lapTurns(w);
+  assert(turns.join() === "1,1,1,-1,1,1" && x.lapCloses(w), turns.join());
+  const ring = x.lapOutline(turns);
+  // The outline's corner k - 1 is the walk's corner k, so the plan's numbers are the walk's; its turns are the walk's.
+  assert(ring.length === 6 && x.ringTurns(ring).join() === turns.join(), JSON.stringify(ring));
+  // Corner 1 the front's right-hand end; the front the last side, running east into it, at the bottom.
+  const [A, B] = [ring[5], ring[0]];
+  assert(B.x - A.x > 30 && A.y === B.y && ring.every((p) => p.y >= A.y), JSON.stringify(ring));
+  // Sizes rough: a wall between outside corners long, a step to the notch short; never under 2'.
+  const len = ring.map((p, i) => Math.hypot(ring[(i + 1) % 6].x - p.x, ring[(i + 1) % 6].y - p.y));
+  assert(len.every((L) => L >= 2) && len[2] < 12 && len[3] < 12 && len[0] > 25, len.map((L) => L.toFixed(1)).join());
+  // The left side's back part too tight: then the inside corner asks for that wall, from wherever it can be taken.
+  const tight = walkThrough(["front", "skip", "c1", "s1", "skip", "c2", "s2", "skip", "c3", "skip", "inside"]).w;
+  assert(JSON.stringify(x.walkStep(tight)) === JSON.stringify({ kind: "inside", k: 4, wall: "before" }), JSON.stringify(x.walkStep(tight)));
+  const took = x.walkTake(tight, "w4");
+  assert(x.walkStep(took).kind === "side" && JSON.stringify(x.walkPhotos(took).pop().tag) === JSON.stringify({ role: "corner", k: 4, corner: "inside", wall: "before" }), JSON.stringify(x.walkPhotos(took)));
+  const back = x.walkBack(took);
+  assert(back.dropped.join() === "w4" && x.walkStep(back.walk).kind === "inside", "Back takes the wall's photo back first");
+  assert(x.walkStep(x.walkSkip(tight)).kind === "side", "or it's passed by");
+});
+
+test("eight corners with two inside, and other laps: each closes and turns as walked; one that doesn't is said, and draws nothing", () => {
+  const laps = {
+    "a U open to the back": [1, 1, 1, -1, -1, 1, 1, 1],
+    "a T": [1, -1, 1, 1, 1, 1, -1, 1],
+    "two notches": [1, 1, -1, 1, 1, -1, 1, 1],
+    "inside corners first and last": [-1, 1, 1, 1, 1, 1, 1, -1],
+    "the owner's twelve, from the garage's right-hand front corner": [1, 1, 1, -1, 1, -1, 1, 1, -1, 1, -1, 1],
+  };
+  for (const [name, turns] of Object.entries(laps)) {
+    const ring = x.lapOutline(turns);
+    assert(ring && ring.length === turns.length && x.ringTurns(ring).join() === turns.join(), `${name}: ${JSON.stringify(ring)}`);
+    const n = ring.length;
+    // Closed, counter-clockwise, no side crossing another.
+    let area = 0;
+    for (let i = 0; i < n; i++) area += ring[i].x * ring[(i + 1) % n].y - ring[(i + 1) % n].x * ring[i].y;
+    assert(area > 0, `${name}: clockwise`);
+    for (let i = 0; i < n; i++)
+      for (let j = i + 2; j < n; j++) {
+        if (i === 0 && j === n - 1) continue;
+        const [a, b, c, d] = [ring[i], ring[(i + 1) % n], ring[j], ring[(j + 1) % n]];
+        const apart = Math.max(a.x, b.x) < Math.min(c.x, d.x) || Math.max(c.x, d.x) < Math.min(a.x, b.x) || Math.max(a.y, b.y) < Math.min(c.y, d.y) || Math.max(c.y, d.y) < Math.min(a.y, b.y);
+        assert(apart, `${name}: sides ${i} and ${j} meet`);
+      }
+  }
+  assert(x.lapOutline([1, 1, 1]) === null && x.lapOutline([1, 1, 1, -1, 1]) === null, "no shape from a lap that doesn't close");
+  // Walked: 8 corners, the 4th and 5th inside, and back at the front.
+  const steps = ["front", "skip"];
+  [1, 1, 1, -1, -1, 1, 1, 1].forEach((t, i) => {
+    if (t < 0) steps.push("inside");
+    else steps.push(`c${i + 1}`);
+    if (i < 7) steps.push(`s${i + 1}`, "skip");
+  });
+  steps.push("close");
+  const { w } = walkThrough(steps);
+  assert(x.walkStep(w).kind === "finish" && x.lapTurns(w).join() === "1,1,1,-1,-1,1,1,1", x.lapTurns(w).join());
+  const route = x.withWalk({ format: "scrivn-photo-route/1", photos: x.walkPhotos(w).map((p) => ({ id: p.photo, width: 800, height: 600 })), buildings: [{ id: "main", outline: [], corners: [], tapes: [] }], measured: null }, w);
+  const b = route.buildings[0];
+  assert(b.outlineFrom === "walk" && b.outline.length === 8 && x.ringTurns(b.outline).join() === "1,1,1,-1,-1,1,1,1", JSON.stringify(b.outline));
+  // Said when it doesn't close: a corner missed.
+  const short = walkThrough(["front", "skip", "c1", "s1", "skip", "c2", "s2", "skip", "inside", "s3", "skip", "c4"]).w;
+  assert(!x.lapCloses(short) && /^That's 3 outside corners and 1 inside: a lap round a house has four more outside corners than inside ones\. A corner may be missed/.test(x.lapProblem(short)), x.lapProblem(short));
+  const open = x.withWalk({ format: "scrivn-photo-route/1", photos: [], buildings: [{ id: "main", outline: [], corners: [], tapes: [] }], measured: null }, { ...short, closed: true });
+  assert(open.buildings[0].outline.length === 0, "finished anyway: no shape drawn from it");
+});
+
+test("one measurement at least: none until a tape is put in, and the walk's end counts what it has", () => {
+  const { w } = walkThrough(["front", "skip", "c1", "s1", "skip", "c2", "skip", "c3", "s3", "skip", "c4", "close"]);
+  const base = { format: "scrivn-photo-route/1", photos: x.walkPhotos(w).map((p) => ({ id: p.photo, width: 800, height: 600 })), buildings: [{ id: "main", outline: [], corners: [], tapes: [] }], measured: null };
+  const route = x.withWalk(base, w);
+  assert(!x.walkHasMeasure(route), "no tape yet");
+  const taped = { ...route, buildings: [{ ...route.buildings[0], tapes: [{ id: "t", kind: "line", photo: "s1", a: [10, 10], b: [90, 10], feet: 3, what: "window" }] }] };
+  assert(x.walkHasMeasure(taped), "a window across its frame");
+  const sum = x.walkSummary(taped);
+  assert(JSON.stringify(sum) === JSON.stringify({ photos: 7, corners: 4, inside: 0, joined: 0, sidesSkipped: 1, measures: 1 }), JSON.stringify(sum));
+  // A photo taken back goes with its corner taps and its tapes.
+  const gone = x.withoutPhotos({ ...taped, buildings: [{ ...taped.buildings[0], corners: [{ photo: "s1", corner: -1, x: 1, y: 1 }] }] }, ["s1"]);
+  assert(!gone.photos.some((p) => p.id === "s1") && gone.buildings[0].corners.length === 0 && !x.walkHasMeasure(gone), JSON.stringify(gone.buildings[0]));
+});
+
+test("each photo tagged with its place on the walk; once round, its shot on the lap's shape - the whole front as a run when it has steps", () => {
+  // The owner's twelve corners walked from the garage's right-hand front corner: the porch wall, the keystone wall and the
+  // garage's west bay all face the street, and the walk goes on round them to the bay step before it's back.
+  const turns = [1, 1, 1, -1, 1, -1, 1, 1, -1, 1, -1, 1];
+  const steps = ["front", "skip"];
+  turns.forEach((t, i) => {
+    steps.push(t < 0 ? "inside" : `c${i + 1}`);
+    if (i < 11) steps.push(`s${i + 1}`, "skip");
+  });
+  steps.push("close");
+  const { w } = walkThrough(steps);
+  const route = x.withWalk({ format: "scrivn-photo-route/1", photos: x.walkPhotos(w).map((p) => ({ id: p.photo, width: 800, height: 600 })), buildings: [{ id: "main", outline: [], corners: [], tapes: [] }], measured: null }, w);
+  const shot = Object.fromEntries(route.photos.map((p) => [p.id, p.shot]));
+  const tag = Object.fromEntries(route.photos.map((p) => [p.id, p.walk]));
+  assert(JSON.stringify(tag.front) === '{"role":"front","k":0}' && JSON.stringify(tag.c1) === '{"role":"corner","k":1,"corner":"outside"}' && JSON.stringify(tag.s4) === '{"role":"side","k":4}', JSON.stringify(tag));
+  // The walk's corner k is the plan's corner k (index k - 1); side k its wall from corner k; the front the run from the
+  // corner where the walk first faced the street again (8, the porch's left end) round to corner 1.
+  assert(JSON.stringify(shot.c1) === '{"kind":"corner","index":0}' && JSON.stringify(shot.c12) === '{"kind":"corner","index":11}', JSON.stringify(shot));
+  assert(JSON.stringify(shot.s4) === '{"kind":"wall","index":3}' && JSON.stringify(shot.front) === '{"kind":"run","index":7,"to":0}', `${JSON.stringify(shot.s4)} ${JSON.stringify(shot.front)}`);
+  assert(!("c4" in shot) && !("c6" in shot), "the inside corners took no photo: their sides' photos show them");
+  // A rectangle's front is a plain wall shot: the last side, from corner 4 round to corner 1.
+  const rect = walkThrough(["front", "skip", "c1", "s1", "skip", "c2", "s2", "skip", "c3", "s3", "skip", "c4", "close"]).w;
+  assert(JSON.stringify(x.walkShot({ role: "front", k: 0 }, rect)) === '{"kind":"wall","index":3}', JSON.stringify(x.walkShot({ role: "front", k: 0 }, rect)));
+  // Taken back off the end of the lap, the photos keep their places but lose their shots.
+  const opened = x.withWalk(route, x.walkBack(w).walk);
+  assert(opened.photos.every((p) => p.walk && !p.shot), "no shots on an open lap");
+});
+
+test("a semi walked: at corner 1, joined to the neighbour, the front at an angle from that end; the shared wall put in, the back at an angle from its far end", () => {
+  const { w, seen } = walkThrough(["front", "skip", "joined", "a1", "a2", "s2", "skip", "c3", "s3", "skip", "c4", "close"]);
+  assert(seen.slice(2).join(" ") === "corner1 corner1 corner2 side2 measure:side2 corner3 side3 measure:side3 corner4 side4", seen.slice(2).join(" "));
+  assert(x.lapCloses(w) && x.lapTurns(w).join() === "1,1,1,1" && x.walkPhotos(w).length === 7, x.lapTurns(w).join());
+  const route = x.withWalk({ format: "scrivn-photo-route/1", photos: x.walkPhotos(w).map((p) => ({ id: p.photo, width: 800, height: 600 })), buildings: [{ id: "main", homeType: "semi", outline: [], corners: [], tapes: [] }], measured: null }, w);
+  const b = route.buildings[0];
+  // The right side (corner 1 to 2) is the neighbour's party wall.
+  assert(JSON.stringify(b.shared) === "[0]" && b.outline.length === 4, JSON.stringify(b));
+  assert([...x.partyCorners(4, b.shared)].sort().join() === "0,1", "both its ends");
+  // Each angled photo is its open wall's: the front (corner 4 round to 1), the back (corner 2 to 3).
+  const p = Object.fromEntries(route.photos.map((q) => [q.id, q]));
+  assert(JSON.stringify(p.a1.walk) === '{"role":"corner","k":1,"corner":"joined","wall":"before"}' && JSON.stringify(p.a1.shot) === '{"kind":"wall","index":3}', JSON.stringify(p.a1));
+  assert(JSON.stringify(p.a2.walk) === '{"role":"corner","k":2,"corner":"joined","wall":"after"}' && JSON.stringify(p.a2.shot) === '{"kind":"wall","index":1}', JSON.stringify(p.a2));
+  assert(x.walkPhotoWords(p.a1.walk, w) === "the front at an angle, from where it meets the neighbour's" && x.walkPhotoWords(p.a2.walk, w) === "the back at an angle, from where it meets the neighbour's", x.walkPhotoWords(p.a2.walk, w));
+  // Back: the far end's photo, then the near end's with the shared wall, then the turn.
+  const at = walkThrough(["front", "skip", "joined", "a1", "a2"]).w;
+  const b1 = x.walkBack(at);
+  assert(b1.dropped.join() === "a2" && JSON.stringify(x.walkStep(b1.walk)) === '{"kind":"corner","k":2}', JSON.stringify(x.walkStep(b1.walk)));
+  const b2 = x.walkBack(b1.walk);
+  assert(b2.dropped.join() === "a1" && b2.walk.stops.length === 2 && JSON.stringify(x.walkStep(b2.walk)) === '{"kind":"corner","k":1}', JSON.stringify(b2.walk.stops));
+  const b3 = x.walkBack(b2.walk);
+  assert(b3.walk.stops.length === 1 && x.walkStep(b3.walk).kind === "corner", JSON.stringify(b3.walk.stops));
+  // Passed by, the angled photo still puts the shared wall in.
+  const passed = x.walkSkip(walkThrough(["front", "skip", "joined"]).w);
+  assert(passed.stops.length === 4 && passed.stops[2].shared && x.walkStep(passed).k === 2, JSON.stringify(passed.stops));
+});
+
+test("a middle townhouse walked: two angled photos of the front and two of the back, as Hover asks, both side walls shared", () => {
+  const { w } = walkThrough(["front", "skip", "joined", "fR", "bR", "back", "skip", "joined", "bL", "fL", "close"]);
+  assert(x.lapCloses(w) && x.lapTurns(w).join() === "1,1,1,1", x.lapTurns(w).join());
+  const tags = x.walkPhotos(w).map((p) => `${p.photo}:${x.walkPhotoWords(p.tag, w)}`);
+  assert(
+    tags.join(" | ") ===
+      "front:the front | fR:the front at an angle, from where it meets the neighbour's | bR:the back at an angle, from where it meets the neighbour's | back:the back (side 2) | bL:the back at an angle, from where it meets the neighbour's | fL:the front at an angle, from where it meets the neighbour's",
+    tags.join(" | "),
+  );
+  const route = x.withWalk({ format: "scrivn-photo-route/1", photos: x.walkPhotos(w).map((p) => ({ id: p.photo, width: 800, height: 600 })), buildings: [{ id: "main", homeType: "town_middle", outline: [], corners: [], tapes: [] }], measured: null }, w);
+  assert(JSON.stringify(route.buildings[0].shared) === "[0,2]", JSON.stringify(route.buildings[0].shared));
+  const shots = route.photos.map((q) => `${q.id}=${q.shot.kind}${q.shot.index}`).join(" ");
+  assert(shots === "front=wall3 fR=wall3 bR=wall1 back=wall1 bL=wall1 fL=wall3", shots);
+});
+
+test("a photo turned upright has the focal of one held sideways: f over the picture's long side", () => {
+  // The same phone: 24 mm equivalent, 2000 x 1500 sideways, 1500 x 2000 upright.
+  near(x.focalOverWidth(24, 1500, 2000), x.focalOverWidth(24, 2000, 1500), "upright as sideways", 1e-12);
+  near(x.focalOverWidth(24, 2000, 1500) * 2000, (24 / 43.27) * 2500, "f in pixels from the diagonal", 1e-9);
+  assert(x.longSide({ width: 1500, height: 2000 }) === 2000 && x.longSide({ width: 2000, height: 1500 }) === 2000, "the long side");
+});
+
+test("a shape drawn by hand: the lap laid on it where its turns and its front agree; a corner more and it isn't", () => {
+  const turns = [1, 1, 1, -1, 1, 1];
+  // An L drawn starting anywhere: the front-left corner first.
+  const drawn = [{ x: 0, y: 0 }, { x: 50, y: 0 }, { x: 50, y: 35 }, { x: 10, y: 35 }, { x: 10, y: 25 }, { x: 0, y: 25 }];
+  const r = x.alignLap(turns, drawn);
+  // The walk's corner 1 (the front's right end) is the drawing's corner 1, index 1.
+  assert(r === 1, `shift ${r}`);
+  assert(x.alignLap(turns, [...drawn.slice(0, 3), { x: 30, y: 35 }, { x: 30, y: 45 }, ...drawn.slice(3)]) === null, "a corner more");
+  const { w } = walkThrough(["front", "skip", "c1", "s1", "skip", "c2", "s2", "skip", "c3", "s3", "skip", "inside", "s4", "skip", "c5", "s5", "skip", "c6", "close"]);
+  const route = x.withWalk({ format: "scrivn-photo-route/1", photos: x.walkPhotos(w).map((p) => ({ id: p.photo, width: 800, height: 600 })), buildings: [{ id: "main", outline: drawn, corners: [], tapes: [] }], measured: null }, w);
+  const shots = Object.fromEntries(route.photos.map((p) => [p.id, p.shot]));
+  assert(route.buildings[0].outline === drawn && !route.buildings[0].outlineFrom, "the drawing kept");
+  assert(JSON.stringify(shots.c1) === '{"kind":"corner","index":1}' && JSON.stringify(shots.c6) === '{"kind":"corner","index":0}' && JSON.stringify(shots.front) === '{"kind":"wall","index":0}', JSON.stringify(shots));
+  // The lap's own shape, redrawn - here by the Scrivn team, a corner moved, the mark left on - is a drawing: the walk
+  // doesn't put its rough shape back over it, and it isn't held loosely.
+  const own = x.withWalk({ ...route, buildings: [{ id: "main", outline: [], corners: [], tapes: [] }] }, w);
+  assert(x.isWalkShape(own.buildings[0]), "the lap's shape, as made");
+  const moved = own.buildings[0].outline.map((p, i) => (i === 2 ? { x: p.x + 9, y: p.y } : i === 1 ? { x: p.x + 9, y: p.y } : p));
+  const edited = { ...own, buildings: [{ ...own.buildings[0], outline: moved }] };
+  assert(!x.isWalkShape(edited.buildings[0]), "redrawn");
+  assert(x.withWalk(edited, w).buildings[0].outline === moved, "kept as redrawn");
+});
+
+test("what a photo of the walk names: a 45 its corner and its walls' far ends, a side its two, the front its ends (all, when as many), an inside wall by tap order", () => {
+  // Taps at x, in the order tapped, on a 800-wide photo of a 6-cornered shape.
+  const n = 6;
+  assert(x.shotNumbers({ kind: "corner", index: 2 }, [{ x: 400 }, { x: 100 }, { x: 700 }], 800, n, true).join() === "2,1,3", "the corner in the middle, the far end of each wall either side");
+  assert(x.shotNumbers({ kind: "corner", index: 0 }, [{ x: 420 }, { x: 760 }], 800, n, true).join() === "0,1", "and only those it shows");
+  // Taken from the checklist, which asks for every corner in sight: only the one in the middle.
+  assert(x.shotNumbers({ kind: "corner", index: 2 }, [{ x: 400 }, { x: 100 }, { x: 700 }], 800, n).join() === "2,-1,-1", "the checklist's 45");
+  assert(x.shotNumbers({ kind: "wall", index: 5 }, [{ x: 600 }, { x: 150 }], 800, n).join() === "0,5", "a side: left end, right end");
+  assert(x.shotNumbers({ kind: "run", index: 3, to: 0 }, [{ x: 50 }, { x: 300 }, { x: 500 }, { x: 750 }], 800, n).join() === "3,4,5,0", "the front: all its corners, as many as tapped");
+  assert(x.shotNumbers({ kind: "run", index: 3, to: 0 }, [{ x: 50 }, { x: 500 }, { x: 750 }], 800, n).join() === "3,-1,0", "fewer: its ends");
+  assert(x.shotNumbers({ kind: "inside", index: 3, wall: "before" }, [{ x: 700 }, { x: 100 }], 800, n).join() === "3,2", "the inside corner first, then the wall's other end");
+});
+
+/**
+ * Made-up photos of a house of known shape, taken as the walk asks, the corners tapped as it asks (the photo route's
+ * synthetic camera above: level, 5' up, the owner's lens; a blank grey, so taps stay put; no wall edges).
+ */
+function walkPhotosOf(truth, noisePx = 0) {
+  let seed = 11;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647), seed / 2147483647);
+  const noise = () => noisePx * Math.sqrt(-2 * Math.log(rnd() + 1e-12)) * Math.cos(2 * Math.PI * rnd());
+  const n = truth.length;
+  const outwardOf = (A, B) => {
+    const L = Math.hypot(B.x - A.x, B.y - A.y);
+    return { x: (B.y - A.y) / L, y: -(B.x - A.x) / L };
+  };
+  const crosses = (a, b, c, d) => {
+    const o = (p, q, r) => Math.sign((q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x));
+    return o(a, b, c) * o(a, b, d) < 0 && o(c, d, a) * o(c, d, b) < 0;
+  };
+  const photos = [];
+  const shoot = (id, at, look) => {
+    const p = synPhoto(id, at, look);
+    const C = { x: at[0], y: at[1] };
+    // The corners it shows: in the frame, ahead, nothing of the house in the way, one of its walls facing the camera.
+    const shows = (c) => {
+      const P = truth[c];
+      const t = p.tap(P);
+      if (!(t.x > 0.05 * SYN.W && t.x < 0.95 * SYN.W) || !((P.x - at[0]) * (look.x - at[0]) + (P.y - at[1]) * (look.y - at[1]) > 0)) return false;
+      for (let i = 0; i < n; i++) if (i !== c && (i + 1) % n !== c && crosses(C, P, truth[i], truth[(i + 1) % n])) return false;
+      const faces = (A, B) => {
+        const o = outwardOf(A, B);
+        return (C.x - A.x) * o.x + (C.y - A.y) * o.y > 0;
+      };
+      return faces(truth[(c - 1 + n) % n], P) || faces(P, truth[(c + 1) % n]);
+    };
+    photos.push({ id, data: p.data, tap: (P) => ({ x: p.tap(P).x + noise(), y: p.tap(P).y + noise() }), shows });
+  };
+  const turns = x.ringTurns(truth);
+  let w = x.newWalk();
+  const xs = truth.map((p) => p.x);
+  const ys = truth.map((p) => p.y);
+  const mid = (Math.min(...xs) + Math.max(...xs)) / 2;
+  shoot("front", [mid, Math.min(...ys) - 1.1 * (Math.max(...xs) - Math.min(...xs))], { x: mid, y: Math.min(...ys) });
+  w = x.walkSkip(x.walkTake(w, "front"));
+  const straightOn = (id, i) => {
+    const [a, b] = [truth[i], truth[(i + 1) % n]];
+    const L = Math.hypot(b.x - a.x, b.y - a.y);
+    const o = outwardOf(a, b);
+    const m = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    shoot(id, [m.x + o.x * Math.max(20, 1.1 * L), m.y + o.y * Math.max(20, 1.1 * L)], m);
+  };
+  for (let k = 1; k <= n; k++) {
+    const c = k - 1;
+    if (turns[c] < 0) {
+      w = x.walkTurn(w, "inside");
+      if (x.walkStep(w).kind === "inside") {
+        straightOn(`in${k}`, (c - 1 + n) % n);
+        w = x.walkTake(w, `in${k}`);
+      }
+    } else {
+      const P = truth[c];
+      const n1 = outwardOf(truth[(c - 1 + n) % n], P);
+      const n2 = outwardOf(P, truth[(c + 1) % n]);
+      const bl = Math.hypot(n1.x + n2.x, n1.y + n2.y);
+      shoot(`c${k}`, [P.x + (30 * (n1.x + n2.x)) / bl, P.y + (30 * (n1.y + n2.y)) / bl], P);
+      w = x.walkTake(w, `c${k}`);
+    }
+    if (k === n) break;
+    const [a, b] = [truth[c], truth[(c + 1) % n]];
+    // A wall too short to stand back from (the 2' bay step, the bump-out's 5'6" side) passed by.
+    if (Math.hypot(b.x - a.x, b.y - a.y) < 6) w = x.walkSkip(w);
+    else {
+      straightOn(`s${k}`, c);
+      w = x.walkSkip(x.walkTake(w, `s${k}`));
+    }
+  }
+  w = x.walkClose(w);
+  // The corners tapped on each, as the walk asks: the front's; a corner and its walls' far ends; a side's two ends; an
+  // inside corner's wall the inside corner first.
+  const asked = (tag, shot) => {
+    if (tag.role === "front") return shot.kind === "run" ? [...Array(n).keys()].filter((c) => inRun(shot, c, n)) : [shot.index, (shot.index + 1) % n];
+    if (tag.role === "side") return [tag.k - 1, tag.k % n];
+    if (tag.corner === "inside") return [tag.k - 1, (tag.k - 2 + n) % n];
+    return [tag.k - 1, (tag.k - 2 + n) % n, tag.k % n];
+  };
+  const route0 = { format: "scrivn-photo-route/1", photos: photos.map((p, i) => ({ id: p.id, width: SYN.W, height: SYN.H, takenAt: i * 10000 })), buildings: [{ id: "main", outline: [], corners: [], tapes: [] }], measured: null };
+  const route = x.withWalk(route0, w);
+  const truthOf = [];
+  const corners = route.photos.flatMap((rp) => {
+    const p = photos.find((q) => q.id === rp.id);
+    return asked(rp.walk, rp.shot)
+      .filter((c) => p.shows(c))
+      .map((c) => (truthOf.push(c), { photo: p.id, corner: -1, ...p.tap(truth[c]) }));
+  });
+  return { walk: w, route: { ...route, buildings: [{ ...route.buildings[0], corners }] }, data: photos.map((p) => p.data), truthOf };
+}
+const inRun = (shot, c, n) => {
+  for (let k = shot.index, i = 0; i < n; k = (k + 1) % n, i++) {
+    if (k === c) return true;
+    if (k === shot.to) return false;
+  }
+  return false;
+};
+
+/** The owner's house as taped (README, 10-16), from the garage's right-hand front corner round: his twelve sides. */
+const OWNER_SIDES = [70.58, 22.17, 5.5, 15.25, 9.08, 11.42, 29.17, 22.0, 24.83, 13.33, 2, 13.5];
+const OWNER_WAYS = [1, 2, 3, 2, 3, 2, 3, 0, 3, 0, 3, 0];
+const OWNER_TRUE = OWNER_SIDES.slice(0, -1).reduce(
+  (ring, L, i) => {
+    const p = ring[ring.length - 1];
+    const [dx, dy] = [[1, 0], [0, 1], [-1, 0], [0, -1]][OWNER_WAYS[i]];
+    return [...ring, { x: p.x + dx * L, y: p.y + dy * L }];
+  },
+  [{ x: 26.83, y: -2 }],
+);
+
+test("the owner's house walked as the walk asks (made-up photos, its true shape): every tap named by its photo's role, every photo placed, the sides within 3% on average", () => {
+  // Taps where the corners are, and 1.5 px off either way (about 4 px on a photo as Scrivn keeps it, 2,000 px wide).
+  for (const noisePx of [0, 1.5]) {
+    const { walk, route, data, truthOf } = walkPhotosOf(OWNER_TRUE, noisePx);
+    const b = route.buildings[0];
+    assert(x.lapCloses(walk) && b.outlineFrom === "walk" && b.outline.length === 12, "the lap closes, the shape is the walk's");
+    // Taped as the walk asks: one thing on the front, here the garage's east bay corner to corner (13'6").
+    const input = { ...route, buildings: [{ ...b, tapes: [{ id: "bay", kind: "side", from: 11, feet: 13.5 }] }] };
+    const named = x.numberCorners(input, "main", data);
+    const wrong = named.filter((c, i) => c.corner !== truthOf[i]);
+    assert(wrong.length === 0, `${wrong.length} of ${named.length} named wrong`);
+    const sol = x.solveRoute({ ...input, buildings: [{ ...input.buildings[0], corners: named }] }, "main", data);
+    assert(sol.cameras.length === route.photos.length, `${sol.cameras.length} of ${route.photos.length} placed: ${JSON.stringify(sol.unplaced)}`);
+    const off = sol.sides.map((s, i) => (s.lengthFeet / OWNER_SIDES[i] - 1) * 100);
+    const mean = off.reduce((a, e) => a + Math.abs(e), 0) / off.length;
+    // Corners alone (made-up photos have no window edges): within 5%, or 9" on a short wall, and 3% on average.
+    const bad = sol.sides.filter((s, i) => Math.abs(off[i]) > 5 && Math.abs(s.lengthFeet - OWNER_SIDES[i]) > 0.75);
+    assert(bad.length === 0 && mean < 3 && Math.abs(off[0]) < 4, `taps ${noisePx}px off: mean ${mean.toFixed(1)}%, the side-yard wall ${off[0].toFixed(1)}%: ${sol.sides.map((s, i) => `${s.lengthFeet.toFixed(2)} (${off[i].toFixed(1)}%)`).join(" ")}`);
+    // Held to the lap's rough sizes as tightly as a shape drawn by hand (35%), it isn't: why a walk's shape is held loosely.
+    const tight = x.solveRoute({ ...input, buildings: [{ ...input.buildings[0], corners: named }] }, "main", data, { holdPct: 0.35 });
+    const tightMean = tight.sides.reduce((a, s, i) => a + Math.abs(s.lengthFeet / OWNER_SIDES[i] - 1) * 100, 0) / 12;
+    assert(tightMean > 2 * mean && tightMean > 8, `held at 35%: mean ${tightMean.toFixed(1)}%`);
+    console.log(`      taps ${noisePx}px off: ${sol.cameras.length} photos placed, sides off ${mean.toFixed(1)}% on average (held at 35%: ${tightMean.toFixed(1)}%), the side-yard wall ${off[0].toFixed(1)}%`);
+  }
 });
 
 console.log(`\n${passed.length} passed, ${failures.length} failed`);

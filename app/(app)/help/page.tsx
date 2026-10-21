@@ -17,7 +17,8 @@ import Link from "next/link";
  * where somebody reading it already is, and it is linked from the footer of every page in the tool.
  * Brought up to date 2026-10-14: the exterior, the drying log, photos with spoken captions, Update
  * scope, and the phone's Account screen. 2026-10-19: the outside is From photos, in Scrivn
- * (components/sketch/PhotoRoute.tsx), not on the phone.
+ * (components/sketch/PhotoRoute.tsx), not on the phone. 2026-10-21: From photos is a walk round the house, a step at
+ * a time (components/sketch/PhotoWalk.tsx).
  */
 export const metadata = {
   title: "Help — Scrivn",
@@ -209,34 +210,39 @@ export default function HelpPage() {
           <div>
             <h3>From photos</h3>
             <p>
-              Photos from the phone&rsquo;s own camera, held sideways on the 1x lens: each wall straight on with both
-              corners in, every outside corner at 45&deg; with both walls in (the back ones too), each gable square-on.
-              Then the garage door, and one tape front to back: the long side wall, front corner to back corner.
+              Scrivn walks you round the house a step at a time, with the phone&rsquo;s own camera held sideways on the 1x
+              lens. Each step says where to stand and what to take; one photo a step, from the camera or the gallery.
             </p>
             <ol className="help-steps">
               <li>
-                Pick the home (detached, semi-detached, a townhouse end or middle unit) and tap its shape on the small
-                plan, street side at the bottom. A wall shared with the neighbour is grey and not counted.
+                <strong>The front</strong>, straight on, both corners in. Pick the home first: detached, semi-detached, a
+                townhouse end or middle unit.
               </li>
               <li>
-                <strong>Choose photos</strong> or <strong>Take a photo</strong>. <strong>What to take next</strong> shows
-                in orange what the photos still miss.
+                <strong>Measure something on it</strong>: drag a line across a garage door (<strong>9&prime;</strong> or{" "}
+                <strong>16&prime;</strong> is one tap), or a window or door across its frame, edge to edge, and type its
+                length. The walk needs one measurement somewhere; more help.
               </li>
               <li>
-                On each photo, tap the house&rsquo;s corners where they meet the ground; the first one asks which corner it
-                is. <strong>Draw a tape</strong> across the garage door, and <strong>A wall&rsquo;s length</strong> for a
-                wall you taped.
+                Round the house from the front&rsquo;s right-hand corner: each <strong>corner</strong> at 45&deg;, stepped
+                back until both whole walls fit with their far corners (say <strong>Inside corner</strong> where the walls
+                meet in a notch: no photo there), then each <strong>side</strong> straight on (upright if it&rsquo;s too
+                tight to step back, or <strong>Can&rsquo;t get back far enough</strong>), with a measurement if there is
+                one. An L-shape is just more corners. A semi or a townhouse: <strong>Joined to the neighbour</strong> where
+                the homes meet, and the open wall at an angle from that end; the shared wall is skipped.
               </li>
               <li>
-                <strong>Measure the house</strong>: each side&rsquo;s length, its &plusmn;, and which walls a tape would
-                help. <strong>Looks right</strong> keeps the corners Scrivn marked. Then <strong>Check these</strong> and
-                the <strong>Roof check</strong> on Plan &amp; roof, a few taps each.
+                <strong>Back where you started?</strong> <strong>Yes: finish the walk</strong>. The shape comes from your
+                corners. Then <strong>Send to Scrivn team to measure</strong>, or <strong>Measure it here</strong>: tap the
+                corners on each photo (Scrivn numbers them by what each was taken for), <strong>Measure the house</strong>{" "}
+                for each side&rsquo;s length and &plusmn;, then <strong>Check these</strong> and the{" "}
+                <strong>Roof check</strong> on Plan &amp; roof.
               </li>
             </ol>
             <p>
-              Or <strong>Send to Scrivn team to measure</strong>, beside Measure: we measure it from the photos, tapes and
-              your note, and it comes back as <strong>Measured &ndash; Use it</strong>. The{" "}
-              <Link href="/scan-guide#exterior">guide</Link> has the photos to take, step by step.
+              The walk is kept as you go, so no signal is fine and a half-done walk picks up where it was.{" "}
+              <strong>Add photos my own way</strong> leaves it for drawing the shape and adding photos yourself. The{" "}
+              <Link href="/scan-guide#exterior">guide</Link> has it step by step.
             </p>
           </div>
         </div>

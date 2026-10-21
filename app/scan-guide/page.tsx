@@ -41,6 +41,8 @@ import "./scan-guide.css";
  * The outside of the house since 2026-10-19: PHOTOS ONLY, in Scrivn, not Scan (Scan's Exterior sketch is put away). The
  * section teaches Scrivn's "From photos" (components/sketch/PhotoRoute.tsx, TeamMeasure.tsx, RoofCheck.tsx, QuickBox.tsx)
  * in its own words; the old lap of corner taps, the Sizes card and Finish exterior on the phone are gone from this page.
+ * Since 2026-10-21 the way in is the walk round the house (components/sketch/PhotoWalk.tsx): the section follows its
+ * steps and its own words, then measuring it yourself and Send to Scrivn team.
  */
 export const metadata = {
   title: "Scrivn Scan — Tester Guide",
@@ -161,9 +163,9 @@ export default async function ScanGuidePage() {
                 Another floor: hold <B>Add room</B>.
               </li>
               <li>
-                Outside: that&apos;s Scrivn, not Scan. With the phone&apos;s camera, sideways: each wall straight on, every corner at 45°,
-                back ones too. Tape the long side wall, front to back. Then in the claim, <B>Exterior</B> → <B>From photos</B> (
-                <See id="exterior" />).
+                Outside: that&apos;s Scrivn, not Scan. In the claim, <B>Exterior</B> → <B>From photos</B>, and Scrivn walks you round
+                the house a step at a time: the front, each corner at 45°, each side straight on, a measurement or two. Then{" "}
+                <B>Send to Scrivn team to measure</B> (<See id="exterior" />).
               </li>
               <li>
                 Anything wrong? On the plan, tap <B>Report a problem</B> and tell us. Did the room twice? Report after the second run;
@@ -741,83 +743,99 @@ export default async function ScanGuidePage() {
           <Section id="exterior" title="Outside of the house: from photos">
             <p>
               The outside isn&apos;t measured in Scan. It&apos;s done in <strong>Scrivn</strong>, from photos taken with the phone&apos;s own
-              camera, on any phone, iPhone too. Take the photos and a tape or two on site. Then in the claim, tap a few corners on the
-              photos, and Scrivn works out every wall&apos;s length, the roof and the exterior report.
+              camera, on any phone, iPhone too. Scrivn walks you round the house one step at a time: the front, then each corner and
+              each side, a photo at each and a measurement where you have one. Then send it to the Scrivn team, or measure it
+              yourself.
             </p>
             <div className="sg-split">
               <div>
-                <h3 className="sg-h3">Taking the photos</h3>
-                <ul className="sg-list">
-                  <li>
-                    <strong>Sideways, on the 1x lens.</strong> The normal camera, held landscape. Not the wide lens, and no zoom.
-                  </li>
-                  <li>
-                    <strong>Each wall straight on, both corners in.</strong> Step back until the whole wall fits, corner to corner, the
-                    ground to the roof edge.
-                  </li>
-                  <li>
-                    <strong>Every outside corner at 45°, both walls in the frame.</strong> The back corners and the corners behind a
-                    porch or deck too, not only the front. These hold the measurement together. A photo that shows just one corner helps
-                    much less.
-                  </li>
-                  <li>
-                    <strong>Each gable square-on</strong>, the peak and both slopes of the roof edge in it.
-                  </li>
-                  <li>
-                    <strong>A tight side yard?</strong> If you can&apos;t step back far enough, take 2 or 3 photos along it, each overlapping the
-                    last.
-                  </li>
-                  <li>Walk round the house one way, so the photos follow each other.</li>
-                </ul>
-                <h3 className="sg-h3">Tapes</h3>
-                <ul className="sg-list">
-                  <li>
-                    <strong>The garage door counts as one.</strong> A 9&prime; or 16&prime; door is a single tap in Scrivn. If it might be
-                    another size, tape it.
-                  </li>
-                  <li>
-                    <strong>Then one tape front to back</strong>: the long side wall, front corner to back corner, at the ground. This is
-                    the one that matters most.
-                  </li>
-                  <li>
-                    <strong>Plus any wall Scrivn flags</strong> after Measure, under <Q>A tape would help</Q>.
-                  </li>
-                  <li>
-                    <strong>Door heights are not a good ruler.</strong> Doors vary too much. Use a tape or the garage door.
-                  </li>
-                </ul>
-              </div>
-              <figure className="sg-fig">
-                <PhotoShots />
-                <figcaption>Where to stand, seen from above: each wall straight on, every corner at 45°, the back ones too.</figcaption>
-              </figure>
-            </div>
-            <div className="sg-split">
-              <div>
-                <h3 className="sg-h3">In Scrivn</h3>
+                <h3 className="sg-h3">The walk, step by step</h3>
                 <ol className="sg-steps">
                   <li>
                     <strong>Exterior, then From photos.</strong> On the claim, <B>Create sketch</B> (or <B>Edit sketch</B>), then{" "}
                     <B>Exterior</B> at the top, then <B>From photos</B>.
                   </li>
                   <li>
-                    <strong>Pick the home type</strong>: <B>Detached</B>, <B>Semi-detached</B>, <B>Townhouse, end unit</B> or{" "}
-                    <B>Townhouse, middle unit</B>. Then draw its shape: tap each corner of the house on the small plan, going round it,
-                    then the first one again. Street side at the bottom. Rough is fine: the photos set the sizes.
+                    <strong>The front.</strong> Pick the home type: <B>Detached</B>, <B>Semi-detached</B>, a townhouse and so on. Stand
+                    back across from the front, straight on, so all of it is in: both front corners, the ground and the roof edge.{" "}
+                    <B>Take the front</B>.
                   </li>
                   <li>
-                    <strong>Add the photos.</strong> <B>Choose photos</B> takes them from the phone&apos;s gallery; <B>Take a photo</B>{" "}
-                    opens the camera. <Q>What to take next</Q> then shows, in orange on the plan, any corner or wall still short of a
-                    photo, with <B>Take it</B>. It is advice only.
+                    <strong>Measure something on it.</strong> Drag a line across something you&apos;ve measured or know the size of,
+                    then say how long it is. A garage door is one tap: <B>9′ garage door</B> or <B>16′ garage door</B>. A window or a
+                    door: across its frame, edge to edge (the frame itself, not the trim or the stucco round it). <B>Skip for now</B>{" "}
+                    is fine, but the walk needs one measurement somewhere before it ends.
                   </li>
                   <li>
-                    <strong>Tap the corners.</strong> On each photo, tap each corner of the house where it meets the ground. The first
-                    one on a photo asks which corner it is: tap it on the plan. Scrivn numbers the rest. Tap a number to change it.
+                    <strong>Corner 1.</strong> Walk to the front&apos;s right-hand corner. Say what kind it is: <B>Outside corner</B>{" "}
+                    (it sticks out towards you, the usual) or <B>Inside corner</B> (tucked in, two walls meeting in a notch). Step
+                    back until both whole walls fit, with the far corner of each in the photo too: three corners in all, this one
+                    near the middle, about 45° to both walls. <B>Take corner 1</B>, or <B>Skip this corner</B>.
                   </li>
                   <li>
-                    <strong>Draw the tapes.</strong> <B>Draw a tape</B>, then drag across the garage door, end to end, and tap{" "}
-                    <B>9′ garage door</B> or <B>16′ garage door</B>, or type what you taped. For a wall, <B>A wall&apos;s length</B>:
-                    tap the side on the plan and type it.
+                    <strong>The side.</strong> Stand back from it, straight on, the whole wall in: both its corners, the ground and
+                    the roof edge. A side yard too tight to get back from? Turn the phone upright, still on the 1x lens, to get the
+                    wall in top to bottom; only if it still won&apos;t fit, <B>Can&apos;t get back far enough</B>. Then measure
+                    something on it if you can (the whole wall, corner to corner, is best of all), or skip.
+                  </li>
+                  <li>
+                    <strong>Keep going round</strong>, the same way: corner, side, corner, side. An L-shape or a bump-out is just
+                    more corners. At an inside corner there&apos;s no 45° photo: the photos of the walls either side show it. (If
+                    the wall before it was too tight for a photo, Scrivn asks for one of it now, from wherever you can.)
+                  </li>
+                  <li>
+                    <strong>Back where you started?</strong> When the wall from where you are runs back to corner 1, tap{" "}
+                    <B>Yes: finish the walk</B>. Scrivn draws the house&apos;s shape from your corners, so there&apos;s nothing to
+                    draw. If the corners don&apos;t add up (a house has four more outside corners than inside ones), it says so:{" "}
+                    <B>Keep walking</B> or <B>Finish anyway</B>.
+                  </li>
+                  <li>
+                    <strong>Send to Scrivn team to measure</strong>, at the end. That&apos;s all a tester needs to do. Or{" "}
+                    <B>Measure it here</B>: see below.
+                  </li>
+                </ol>
+                <p>
+                  Every step is saved as you take it, on the phone first: no signal is fine, and a walk half done picks up where you
+                  left it. <B>Back a step</B> and <B>Take it again</B> are on every step. <B>Add photos my own way</B> leaves the walk
+                  for the old way (draw the shape, add photos, tap corners); <B>Back to the step-by-step walk</B> returns to it.
+                </p>
+              </div>
+              <figure className="sg-fig">
+                <PhotoShots />
+                <figcaption>Where to stand, seen from above: the front and each wall straight on, every outside corner at 45°.</figcaption>
+              </figure>
+            </div>
+            <div className="sg-split">
+              <div>
+                <h3 className="sg-h3">Good photos</h3>
+                <ul className="sg-list">
+                  <li>
+                    <strong>Sideways, on the 1x lens.</strong> The normal camera, held landscape. Not the wide lens, and no zoom.
+                    Upright only for a side too tight to step back from.
+                  </li>
+                  <li>
+                    <strong>The 45° photos matter most.</strong> Step back far enough for three corners: the one you&apos;re at and
+                    the far end of each wall. They hold the measurement together, the back corners and the ones behind a porch or
+                    deck too. A photo that shows just one corner of the house helps much less.
+                  </li>
+                  <li>
+                    <strong>Each gable square-on</strong>, the peak and both slopes of the roof edge in it.
+                  </li>
+                  <li>
+                    <strong>Door heights are not a good ruler.</strong> Doors vary too much. Use a tape or the garage door.
+                  </li>
+                  <li>
+                    <strong>One tape front to back</strong>, if you have a long one: the long side wall, front corner to back corner,
+                    at the ground. Put it in as that side&apos;s measurement.
+                  </li>
+                </ul>
+                <h3 className="sg-h3">Measuring it yourself</h3>
+                <ol className="sg-steps">
+                  <li>
+                    <strong>Tap the corners.</strong> <B>Measure it here</B> opens each photo of the walk in turn, with what to tap:
+                    on a corner&apos;s photo, the corner where it meets the ground and the far end of each wall if you can see it; on
+                    a side&apos;s, its two corners. Scrivn numbers them from what each photo was taken for. Tap a number to change
+                    it. <B>Next photo</B> goes on round.
                   </li>
                   <li>
                     <strong>Measure.</strong> <B>Measure the house</B> gives each side&apos;s length and how sure it is (±).
@@ -844,7 +862,7 @@ export default async function ScanGuidePage() {
               <div className="sg-figs">
                 <figure className="sg-fig">
                   <CornerTapes />
-                  <figcaption>On a photo: the corners tapped at the ground, and a tape across the garage door.</figcaption>
+                  <figcaption>On a photo: the corners tapped at the ground, and a line across the garage door.</figcaption>
                 </figure>
                 <figure className="sg-fig">
                   <MeasureCard />
@@ -852,20 +870,20 @@ export default async function ScanGuidePage() {
                 </figure>
               </div>
             </div>
-            <h3 className="sg-h3">Or: Send to Scrivn team to measure</h3>
+            <h3 className="sg-h3">Send to Scrivn team to measure</h3>
             <ul className="sg-list">
               <li>
-                Beside Measure, <B>Send to Scrivn team to measure</B>. One photo is enough to send; the shape, corners and tapes help
-                but aren&apos;t needed. Add a note if you like (<Q>e.g. the side yard is too tight for a photo</Q>), then <B>Send</B>.
+                At the end of the walk (or beside Measure), <B>Send to Scrivn team to measure</B>. Add a note if you like (
+                <Q>e.g. the side yard is too tight for a photo</Q>), then <B>Send</B>.
               </li>
               <li>
-                We measure it from that claim&apos;s outside photos, tapes and note, and see nothing else. Meanwhile the Exterior says{" "}
-                <Q>Sent to the Scrivn team – it&apos;ll show here when it&apos;s measured.</Q> Photos still on the phone go when there&apos;s
-                signal. <B>Withdraw</B> takes it back.
+                We measure it from that claim&apos;s outside photos, measurements and note, and see nothing else. Meanwhile the Exterior
+                says <Q>Sent to the Scrivn team – it&apos;ll show here when it&apos;s measured.</Q> Photos still on the phone go when
+                there&apos;s signal. <B>Withdraw</B> takes it back.
               </li>
               <li>
                 When it&apos;s done you get an email, and the Exterior says <Q>Measured –</Q> <B>Use it</B>. Use it puts our
-                measurements in. Your photos and tapes stay.
+                measurements in. Your photos and measurements stay.
               </li>
             </ul>
             <div className="sg-cards sg-cards-2">
@@ -874,16 +892,17 @@ export default async function ScanGuidePage() {
                 <p>
                   <B>+ Add building</B> at the top of the Exterior, then <B>Shed</B>, <B>Detached garage</B> or <B>Workshop</B> (or type a
                   name). For a simple building, <B>Quick box</B>: its two lengths, the wall height, the roof, the siding, its doors and
-                  windows. Or <B>From photos</B>, like the house. Each building gets its own pages in the report.
+                  windows. Or <B>From photos</B>: the same walk round it. Each building gets its own pages in the report.
                 </p>
               </div>
               <div className="sg-card">
                 <h3>Townhouses and semis</h3>
                 <p>
-                  Pick the home type first. Shared walls show grey on the plan, marked <em>shared</em>: they aren&apos;t photographed or
-                  counted. Tap a wall to change it. Then <B>Where this home ends</B>: on a front or back photo, tap where this home ends
-                  at the ground, often a downspout, a trim line or where the colour changes. A middle unit: tape the depth once, front
-                  wall to back.
+                  Pick the home type on the first step. At the corner where your home meets the neighbour&apos;s, tap{" "}
+                  <B>Joined to the neighbour</B>. No 45° there: take the front at an angle from that end instead, the whole front in.
+                  The shared wall is skipped, not photographed or counted; at its far end, the back at an angle the same way. A middle
+                  unit ends with two angled photos of the front and two of the back. Measuring it yourself, <B>Where this home
+                  ends</B>: tap where this home ends at the ground, often a downspout, a trim line or where the colour changes.
                 </p>
               </div>
             </div>
