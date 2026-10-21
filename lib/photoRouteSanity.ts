@@ -75,7 +75,8 @@ export function routeSanity(exterior: Exterior): SanityFlag[] {
   };
   const wallWords = (i: number) => {
     const name = sideOf(i)?.name?.trim();
-    return name ? `the ${name} wall` : `the wall from corner ${i + 1} to ${((i + 1) % n) + 1}`;
+    // A name that is a wall already ("Right side wall") takes no second "wall".
+    return name ? `the ${name}${/\bwall$/i.test(name) ? "" : " wall"}` : `the wall from corner ${i + 1} to ${((i + 1) % n) + 1}`;
   };
   const photosOf = (i: number) => [...new Set((sideOf(i)?.photos ?? []).map((p) => p.claimPhotoId).filter((x): x is string => !!x))];
   const shared = new Set(building.shared ?? []);

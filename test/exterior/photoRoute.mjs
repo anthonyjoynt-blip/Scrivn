@@ -417,6 +417,19 @@ check(
   blindFlags.some((f) => f.kind === "depth" && f.side === 3),
   `${ftin(blindRun.depth)}; ${blindFlags.map((f) => f.kind).join(", ")}`,
 );
+// Where the user stood moves nothing Scrivn works out before it (2026-10-20, the runner's taps, numbered as the pane
+// numbers them): not the lens, nor the numbers it gives the corners left unnumbered. With #3 stood, the shape those were
+// numbered on once moved enough to call the garage photo's far corner the bay step's, and the house came out 65% big.
+const bareStood = { ...bare, photos: bare.photos.map((p) => (STOOD[p.id.slice(1)] ? { ...p, standAt: STOOD[p.id.slice(1)] } : p)) };
+const bareRun = x.measureRoute(bare, "main", pixels, { lines, solve: HOLD });
+const bareStoodRun = x.measureRoute(bareStood, "main", pixels, { lines, solve: HOLD });
+const numsOf = (r) => r.corners.filter((c) => !c.proposed).map((c) => `${c.photo}:${c.corner}`).join(" ");
+const frontOf = (s) => [0, 2].map((i) => s.sides[i].lengthFeet);
+console.log(`    the corners numbered by Scrivn, where he stood or not: lens ${bareRun.prepared.level.k.toFixed(4)} / ${bareStoodRun.prepared.level.k.toFixed(4)}; garage bays ${frontOf(bareRun.solution).map(ftin).join(", ")} / ${frontOf(bareStoodRun.solution).map(ftin).join(", ")}; depth ${ftin(depthOf(bareRun.solution))} / ${ftin(depthOf(bareStoodRun.solution))}; ${bareStoodRun.solution.cameras.length} placed`);
+check("where he stood moves neither the lens nor the numbers Scrivn gives the corners", numsOf(bareRun) === numsOf(bareStoodRun) && bareRun.prepared.level.k === bareStoodRun.prepared.level.k, `${numsOf(bareRun)}\n      ${numsOf(bareStoodRun)}`);
+// (Its own numbers are wrong here either way - #15's far corner called the bay step's, the bays read twice their size -
+// which is the shot list's and Looks right's to put right; what is checked is that where he stood changes none of it.)
+check("and the garage bays move under 2% for it", frontOf(bareRun.solution).every((v, i) => Math.abs(frontOf(bareStoodRun.solution)[i] / v - 1) < 0.02), `${frontOf(bareRun.solution).map(ftin).join(", ")} -> ${frontOf(bareStoodRun.solution).map(ftin).join(", ")}`);
 check("his own measure: each flag names a photo, corner or wall", hisFlags.every((f) => /photo \d+|corner \d+|wall/i.test(f.words)), hisFlags.map((f) => f.words).join(" | "));
 
 console.log(`\n${passed.length} passed, ${failures.length} failed (${((Date.now() - t0) / 1000).toFixed(0)} s)`);

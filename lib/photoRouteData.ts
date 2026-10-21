@@ -98,7 +98,11 @@ export function measureRoute(
   // The corners the user did not number, numbered on the shape drawn; then again on the shape measured.
   const withCorners = (corners: CornerTap[]): PhotoRouteInput => ({ ...input, buildings: input.buildings.map((b) => (b.id === buildingId ? { ...b, corners } : b)) });
   const once = withCorners(numberCorners(input, buildingId, first.data));
-  const rough = solveRoute(once, buildingId, first.data, { ...opts.solve, guesses: false });
+  // The lens, and the shape the rest of the corners are numbered on, from the photos placed by their corners alone: not
+  // the ones placed where the user stood, a few feet out yet (2026-10-20, the runner's taps: with #3 where he stood the
+  // rough shape moved enough to number the garage photo's far corner as the bay step's, and the house came out 65% big).
+  const byCorners = { ...once, photos: once.photos.map(({ standAt, ...p }) => (void standAt, p)) };
+  const rough = solveRoute(byCorners, buildingId, first.data, { ...opts.solve, guesses: false });
   const k = rough.solution.k;
   const prepared = Math.abs(k - first.level.k) < 0.003 ? first : preparePhotos(once, pixels, lines, { k });
   const corners = numberCorners(once, buildingId, prepared.data, rough.corners);

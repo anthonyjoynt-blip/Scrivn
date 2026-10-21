@@ -6385,6 +6385,10 @@ test("an outline that won't close square, and a depth only loosely tied, are sai
   const loose = { ...m, sides: m.sides.map((s) => (s.from === 3 || s.from === 1 ? { ...s, taped: false, plusMinusPct: 18 } : s)) };
   const depth = x.routeSanity({ ...ext, photoRoute: { ...ext.photoRoute, measured: loose } }).filter((f) => f.kind === "depth");
   assert(depth.length === 1 && /^The house's depth is only good to ±18% \(the .* wall, 40'\): too little ties its back to its front\. One tape of that side wall, front corner to back corner, measures it/.test(depth[0].words), JSON.stringify(depth));
+  // A wall named as a wall is not called a "wall wall".
+  const named = { ...ext, sides: ext.sides.map((s) => (s.id === m.sideIds[depth[0].side] ? { ...s, name: "Right side wall" } : s)), photoRoute: { ...ext.photoRoute, measured: loose } };
+  const said = x.routeSanity(named).find((f) => f.kind === "depth")?.words ?? "";
+  assert(said.includes("(the Right side wall, 40')") && !/wall wall/.test(said), said);
 });
 
 console.log(`\n${passed.length} passed, ${failures.length} failed`);
