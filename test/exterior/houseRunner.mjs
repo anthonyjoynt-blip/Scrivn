@@ -174,6 +174,13 @@ if (!existsSync(PHOTOS)) {
     const st = json(join(dir, "scrivn", "inputs.json")).standAt?.[String(waitingPhoto)];
     check("fix: \"N stood = 1\" puts that photo's first best guess in standAt", Array.isArray(st) && st[0] === res.doubtful[0].guesses[0][0] && st[1] === res.doubtful[0].guesses[0][1], `#${waitingPhoto} at ${st}`);
   } else check("fix: a photo waiting for where he stood", false, "none waiting");
+  // His five stand spots (fixtures/photo-route/owner-1016-stood.json, #1 is left out here) on these inputs: placed, and
+  // the hold-outs kept. 10-20 they once renumbered #15's far garage corner and scaled the house 1.65x (fixed in 82ab2ad).
+  const stood = json(FX("photo-route/owner-1016-stood.json")).standAt;
+  writeFileSync(join(dir, "scrivn", "inputs.json"), JSON.stringify({ ...inputs, decks: decksIn, standAt: Object.fromEntries(["2", "3", "10", "12", "13"].map((k) => [k, stood[k]])) }, null, 1));
+  await runStep(dir, "measure");
+  const sres = json(join(dir, "scrivn", "results.json"));
+  check("his five stand spots: the photos placed where he stood, each tape held out still within 5%", sres.stood >= 4 && sres.cameras >= 13 && sres.holdOuts.length === 3 && sres.holdOuts.every((r) => Math.abs(r.errorPct) < 5), `${sres.stood} where he stood, ${sres.cameras} placed; ${sres.holdOuts.map((r) => `${r.id} ${r.errorPct.toFixed(1)}%`).join(", ")}`);
   check("report: the decks' lines (decking, glass railing, stairs, privacy screen, skirting) and Check these under them", /## Decks/.test(md) && /Rear deck – composite decking/.test(md) && /Rear deck – glass railing/.test(md) && /Rear deck – stairs – 8 risers/.test(md) && /privacy screen/.test(md) && /Front porch – skirting/.test(md) && (ext.decks ?? []).length === 2);
   summary.push(`house: prepare ${prep.seconds.toFixed(0)} s, check ${chk.seconds.toFixed(0)} s, measure ${meas.seconds.toFixed(0)} s, report ${rep.seconds.toFixed(0)} s; hold-outs ${res.holdOuts.map((r) => `${r.id} ${r.errorPct >= 0 ? "+" : ""}${r.errorPct.toFixed(1)}%`).join(", ")}`);
   houseDir = dir;
