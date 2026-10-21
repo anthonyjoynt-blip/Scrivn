@@ -24,6 +24,9 @@
 import { leastSquares, type Mat3, matToRotvec, mulMtV, mulMV, norm3, rotvecToMat, type Vec3, cross3, dot3, unit3 } from "./photoRouteMath";
 import type { Segment } from "./photoRouteLines";
 
+/** A picture's long side, which the focal is taken over (f/W): its width held sideways, its height upright. */
+export const longSide = (p: { width: number; height: number }) => Math.max(p.width, p.height);
+
 /** The S25 Ultra's 1x camera, as the proof fitted it: the starting focal when a photo's file gives none. */
 export const DEFAULT_FOCAL_OVER_WIDTH = 0.664;
 /**
@@ -437,6 +440,10 @@ const MIN_PER_DIRECTION = 6;
 /**
  * Every photo's lens and turn, from its segments: first each on its own at the starting focal, then the
  * focal (as f/W), the radial term and every rotation together.
+ *
+ * W is the picture's long side (2026-10-21): a photo turned upright, as the walk round the house allows on a side
+ * too tight to step back from, has the same focal in pixels as one held sideways, not one a quarter shorter. For a
+ * photo held sideways - every photo before that - the long side is its width, and nothing changes.
  */
 export function levelPhotos(photos: PhotoLines[], opts: { fitLens?: boolean; focalOverWidth?: number; k?: number } = {}): LevelResult {
   const priors = photos.map((p) => p.focalPrior).filter((v): v is number => typeof v === "number" && v > 0.3 && v < 1.5);
@@ -453,7 +460,7 @@ export function levelPhotos(photos: PhotoLines[], opts: { fitLens?: boolean; foc
   // Each photo on its own.
   const Rs: (Mat3 | null)[] = photos.map((p, i) => {
     const segs = undistortSegs(raw[i] as Segment[], p.width, p.height, k);
-    const f = fw * p.width;
+    const f = fw * longSide(p);
     let R = firstRotation(segs, p.width, p.height, f);
     if (!R) {
       notes[i] = "Too few upright edges in it to level it.";
@@ -476,7 +483,7 @@ export function levelPhotos(photos: PhotoLines[], opts: { fitLens?: boolean; foc
       const sets = using.map((i) => {
         const p = photos[i] as PhotoLines;
         const segs = undistortSegs(raw[i] as Segment[], p.width, p.height, k);
-        const cls = classify(segs, vpsOf(Rs[i] as Mat3, fw * p.width, p.width / 2, p.height / 2), round === 0 ? 3 : 2);
+        const cls = classify(segs, vpsOf(Rs[i] as Mat3, fw * longSide(p), p.width / 2, p.height / 2), round === 0 ? 3 : 2);
         // Classified as distorted segments, fitted as undistorted ones each step.
         return { i, p, cls, rawSegs: (raw[i] as Segment[]).filter((_, j) => (cls[j] as number) >= 0), cl: Array.from(cls).filter((c) => c >= 0) };
       });
@@ -490,7 +497,7 @@ export function levelPhotos(photos: PhotoLines[], opts: { fitLens?: boolean; foc
         const out: number[] = [];
         sets.forEach((s, j) => {
           const R = fromProper(rotvecToMat([x[2 + 3 * j] as number, x[3 + 3 * j] as number, x[4 + 3 * j] as number]));
-          const V = vpsOf(R, f0 * s.p.width, s.p.width / 2, s.p.height / 2);
+          const V = vpsOf(R, f0 * longSide(s.p), s.p.width / 2, s.p.height / 2);
           const cam = { width: s.p.width, height: s.p.height, k: kk };
           s.rawSegs.forEach((g, q) => {
             const [a, b] = undistort(cam, g.x1, g.y1);
@@ -513,7 +520,7 @@ export function levelPhotos(photos: PhotoLines[], opts: { fitLens?: boolean; foc
       });
     }
   }
-  const cameras = photos.map((p, i) => (Rs[i] ? ({ width: p.width, height: p.height, f: fw * p.width, k, R: canonical(Rs[i] as Mat3) } as PhotoCamera) : null));
+  const cameras = photos.map((p, i) => (Rs[i] ? ({ width: p.width, height: p.height, f: fw * longSide(p), k, R: canonical(Rs[i] as Mat3) } as PhotoCamera) : null));
   const counts = photos.map((p, i) => {
     const cam = cameras[i];
     if (!cam) return null;

@@ -220,7 +220,7 @@ function cornerWords(ring: Pt[], k: number): string {
 function shotList(ring: Pt[], shots: { shot: RouteShot }[], gables: Set<number>, wallName: (i: number) => string, shared: Set<number>, depthTaped: boolean): CoverageItem[] {
   const n = ring.length;
   const items: CoverageItem[] = [];
-  const taken = (kind: RouteShot["kind"], index: number) => shots.some((s) => s.shot.kind === kind && s.shot.index === index);
+  const taken = (kind: "corner" | "wall", index: number) => shots.some((s) => (kind === "corner" ? s.shot.kind === "corner" && s.shot.index === index : shotWalls(s.shot, n).includes(index)));
   const party = partyCorners(n, shared);
   ring.forEach((_, k) => {
     // Where this home ends is no corner to stand at 45 degrees to: the neighbour's home is there.
@@ -273,6 +273,30 @@ function depthItem(ring: Pt[], shared: Set<number>): CoverageItem {
   return { key: "depth-tape", kind: "depth-tape", words: DEPTH_WORDS, shot: { kind: "wall", index: [...shared][0] ?? 0 } };
 }
 
+/**
+ * The corners a shot was taken to show: a corner's own; a wall's two; a run's (the walk's front) every one from its left
+ * end round to its right; an inside corner's wall its two, the inside corner one of them.
+ */
+function shotCorners(shot: RouteShot, n: number): number[] {
+  if (shot.kind === "corner") return [shot.index];
+  if (shot.kind === "wall") return [shot.index, (shot.index + 1) % n];
+  if (shot.kind === "inside") return shot.wall === "before" ? [(shot.index - 1 + n) % n, shot.index] : [shot.index, (shot.index + 1) % n];
+  const out: number[] = [];
+  for (let k = ((shot.index % n) + n) % n, i = 0; i < n; k = (k + 1) % n, i++) {
+    out.push(k);
+    if (k === ((shot.to % n) + n) % n) break;
+  }
+  return out;
+}
+
+/** The walls a shot looks at straight on: a wall's own; each of a run's; an inside corner's wall before or after it. */
+function shotWalls(shot: RouteShot, n: number): number[] {
+  if (shot.kind === "corner") return [];
+  if (shot.kind === "wall") return [shot.index];
+  if (shot.kind === "inside") return [shot.wall === "before" ? (shot.index - 1 + n) % n : shot.index];
+  return shotCorners(shot, n).slice(0, -1);
+}
+
 /** Each placed photo of a measure as what it saw: where it stood, the way it looked, and how wide. */
 export function viewsFromMeasure(m: RouteMeasured): CoverageView[] {
   return m.cameras.flatMap((c) => {
@@ -312,13 +336,7 @@ export function routeCoverage(inp: CoverageInput): Coverage {
   // Before a measure, a photo from the shot list counts for what it was taken for.
   const shotOf = new Map(inp.shots.map((s) => [s.photo, s.shot]));
   if (!inp.measured) {
-    for (const { photo, shot } of inp.shots) {
-      if (shot.kind === "corner") add(shot.index, photo);
-      else {
-        add(shot.index, photo);
-        add((shot.index + 1) % n, photo);
-      }
-    }
+    for (const { photo, shot } of inp.shots) for (const k of shotCorners(shot, n)) add(k, photo);
   }
   const corners = ring.map((P, k) => {
     const out = isOutside(ring, k);
@@ -337,7 +355,10 @@ export function routeCoverage(inp: CoverageInput): Coverage {
     const nrm = outward(A, B);
     const straight =
       inp.views.some((v) => both.includes(v.photo) && angleOff(v, mid, nrm) <= STRAIGHT_DEG) ||
-      (!inp.measured && both.some((p) => shotOf.get(p)?.kind === "wall" && shotOf.get(p)?.index === i));
+      (!inp.measured && both.some((p) => {
+        const shot = shotOf.get(p);
+        return !!shot && shot.kind !== "corner" && shotWalls(shot, n).includes(i);
+      }));
     return { from: i, feet: segLen(A, B), both, straight };
   });
 
