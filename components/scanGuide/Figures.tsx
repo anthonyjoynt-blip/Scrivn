@@ -424,7 +424,8 @@ function Cone({ x, y, a, b, colour, strong = false }: { x: number; y: number; a:
 /**
  * Where to stand for the photo route (Scrivn's "From photos", 2026-10-16; the shot list is lib/photoRouteCoverage.ts):
  * the house from above, the street at the bottom. Each wall straight on with both its corners in, each outside corner at
- * 45 degrees with both walls in, and a side yard too tight to step back in done as overlapping photos along it.
+ * 45 degrees with both walls in - the back ones too, a deck or not - and a side yard too tight to step back in done as
+ * overlapping photos along it.
  */
 export function PhotoShots() {
   // The house: x 110-250, y 96-186. A fence 40 px off its left wall: the tight side.
@@ -454,6 +455,11 @@ export function PhotoShots() {
       <text x={60} y={141} textAnchor="middle" fontSize={10} fill={MUTED} transform="rotate(-90 60 141)">
         fence
       </text>
+      {/* a deck off the back: its corner of the house still gets its 45 */}
+      <rect x={196} y={64} width={54} height={32} fill="#efe4d0" fillOpacity={0.85} stroke="#c9b48e" strokeWidth={1.5} />
+      <text x={223} y={84} textAnchor="middle" fontSize={10} fill={MUTED}>
+        deck
+      </text>
       <rect x={110} y={96} width={140} height={90} fill="#ece6da" stroke={NAVY} strokeWidth={2.5} />
       <text x={180} y={138} textAnchor="middle" fontSize={11} fontWeight={700} fill={NAVY}>
         the house, from above
@@ -474,7 +480,7 @@ export function PhotoShots() {
       </text>
       <rect x={14} y={303} width={14} height={9} rx={2} fill={AMBER} />
       <text x={36} y={311} fontSize={11} fill={INK}>
-        Each outside corner at 45°, both walls in
+        Every outside corner at 45°, the back ones too
       </text>
       <rect x={14} y={320} width={14} height={9} rx={2} fill={NAVY} />
       <text x={36} y={328} fontSize={11} fill={INK}>
@@ -547,8 +553,8 @@ export function CornerTapes() {
 export function MeasureCard() {
   const rows: [string, string, string, boolean][] = [
     ["Front (corners 1–2)", "42′6″", "2%", false],
-    ["Right (corners 2–3)", "30′1″", "3%", false],
-    ["Rear (corners 3–4)", "42′4″", "taped", false],
+    ["Right (corners 2–3)", "30′1″", "taped", false],
+    ["Rear (corners 3–4)", "42′4″", "3%", false],
     ["Left (corners 4–1)", "30′3″", "9%", true],
   ];
   const WEAK = "#c2410c";

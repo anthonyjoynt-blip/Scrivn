@@ -161,8 +161,9 @@ export default async function ScanGuidePage() {
                 Another floor: hold <B>Add room</B>.
               </li>
               <li>
-                Outside: that&apos;s Scrivn, not Scan. With the phone&apos;s camera, sideways: each wall straight on, each corner at 45°.
-                Tape the back wall. Then in the claim, <B>Exterior</B> → <B>From photos</B> (<See id="exterior" />).
+                Outside: that&apos;s Scrivn, not Scan. With the phone&apos;s camera, sideways: each wall straight on, every corner at 45°,
+                back ones too. Tape the long side wall, front to back. Then in the claim, <B>Exterior</B> → <B>From photos</B> (
+                <See id="exterior" />).
               </li>
               <li>
                 Anything wrong? On the plan, tap <B>Report a problem</B> and tell us. Did the room twice? Report after the second run;
@@ -755,8 +756,9 @@ export default async function ScanGuidePage() {
                     ground to the roof edge.
                   </li>
                   <li>
-                    <strong>Each outside corner at 45°</strong>, both walls in. These are the photos that hold the measurement together:
-                    they tie each wall to the next.
+                    <strong>Every outside corner at 45°, both walls in the frame.</strong> The back corners and the corners behind a
+                    porch or deck too, not only the front. These hold the measurement together. A photo that shows just one corner helps
+                    much less.
                   </li>
                   <li>
                     <strong>Each gable square-on</strong>, the peak and both slopes of the roof edge in it.
@@ -774,7 +776,8 @@ export default async function ScanGuidePage() {
                     another size, tape it.
                   </li>
                   <li>
-                    <strong>Add one tape along the back wall</strong>, corner to corner.
+                    <strong>Then one tape front to back</strong>: the long side wall, front corner to back corner, at the ground. This is
+                    the one that matters most.
                   </li>
                   <li>
                     <strong>Plus any wall Scrivn flags</strong> after Measure, under <Q>A tape would help</Q>.
@@ -786,7 +789,7 @@ export default async function ScanGuidePage() {
               </div>
               <figure className="sg-fig">
                 <PhotoShots />
-                <figcaption>Where to stand, seen from above: each wall straight on, each corner at 45°.</figcaption>
+                <figcaption>Where to stand, seen from above: each wall straight on, every corner at 45°, the back ones too.</figcaption>
               </figure>
             </div>
             <div className="sg-split">
@@ -1099,8 +1102,9 @@ export default async function ScanGuidePage() {
               <div className="sg-tip">
                 <h3>Outside: the corners at 45°</h3>
                 <p>
-                  The photo of each outside corner is what ties one wall to the next. Skip them and the walls come out loose. Then tape
-                  the back wall, and any wall Scrivn flags (<See id="exterior" />).
+                  The photo of each outside corner, both walls in, is what ties one wall to the next: the back corners too. Skip them
+                  and the depth comes out short. Then tape the long side wall front to back, and any wall Scrivn flags (
+                  <See id="exterior" />).
                 </p>
               </div>
             </div>

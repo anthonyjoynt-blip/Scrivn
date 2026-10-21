@@ -210,8 +210,8 @@ export default function HelpPage() {
             <h3>From photos</h3>
             <p>
               Photos from the phone&rsquo;s own camera, held sideways on the 1x lens: each wall straight on with both
-              corners in, each outside corner at 45&deg;, each gable square-on. Then a tape or two: the garage door, the
-              back wall.
+              corners in, every outside corner at 45&deg; with both walls in (the back ones too), each gable square-on.
+              Then the garage door, and one tape front to back: the long side wall, front corner to back corner.
             </p>
             <ol className="help-steps">
               <li>
