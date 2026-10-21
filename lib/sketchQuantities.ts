@@ -1,10 +1,22 @@
 import {
+  beamMeasure,
   blockFloorAreaFeet,
+  blockKind,
+  blockShape,
+  blockStandsOnFloor,
+  type CeilingFinish,
+  CEILING_FINISH_LABEL,
+  fireplaceSurroundSquareFeet,
+  openingSquareFeetOnWall,
+  wainscotOnWall,
+  wallUnfinished,
   blockWallContacts,
+  cabinetCover,
   type BlockSymbol,
   ceilingSpanPx,
   type FreeWall,
   freeWallsOf,
+  halfWallRuns,
   MIN_VERTICES,
   PIXELS_PER_FOOT,
   type Sketch,
@@ -20,6 +32,7 @@ import {
   openingSquareFeet,
   ownWallRuns,
   roomAcross,
+  roomCountertops,
   standsOnFloor,
   stairCeiling,
   stairFlight,
@@ -112,6 +125,73 @@ export interface RoomQuantities {
   ceilingSteps: { faceSquareFeet: number; wallSquareFeet: number };
   /** Null when the room has no ceiling height, which makes wall area unknowable. */
   ceilingHeightFeet: number | null;
+  /** The details an estimate prices apart from the five - see `RoomDetailQuantities`. */
+  details: RoomDetailQuantities;
+}
+
+/**
+ * The details a room's walls and fittings carry, measured (2026-10-21, for the ESX export to come):
+ * every one zero in a room that has none, which is every room drawn before them.
+ *
+ * Already in the five where they change one - a half wall's lower face is in W, a pass-through's
+ * wall under its sill is not taken out of it - and listed here as the lines an estimator prices.
+ */
+export interface RoomDetailQuantities {
+  /** Half walls (`halfWallRuns`): their length, which is also the length of their caps, LF. */
+  halfWallFeet: number;
+  /** How much less wall the half walls have than full-height walls would, SF - already out of W. */
+  halfWallReductionSquareFeet: number;
+  /** Countertops (`roomCountertops`): their run, LF, and their square feet - tops and waterfall ends. */
+  countertopFeet: number;
+  countertopSquareFeet: number;
+  /** Backsplash along the walls the tops stand against, LF and SF. */
+  backsplashFeet: number;
+  backsplashSquareFeet: number;
+  /** Crown moulding along the walls that have it - not along a half wall, which meets no ceiling - LF. */
+  crownFeet: number;
+  /** Plant ledges, LF. */
+  plantLedgeFeet: number;
+  /** Wainscot (`wainscotOnWall`): LF less the openings it stops at, SF less the openings in its height. */
+  wainscotFeet: number;
+  wainscotSquareFeet: number;
+  /** Wall ledges and knee-wall steps: their run, LF, and their tops, SF. */
+  ledgeFeet: number;
+  ledgeTopSquareFeet: number;
+  /** How much of W is unfinished wall (`wallUnfinished`) - already in W, which is the surface either way. */
+  unfinishedWallSquareFeet: number;
+  /** What the ceiling is finished with, when said, and how much of it - the ceiling area, C. */
+  ceilingFinish: CeilingFinish | null;
+  ceilingFinishSquareFeet: number;
+  /** Beams, bulkheads and soffits: their run, LF, and the drywall wrapping them, SF (only those with a drop). */
+  beamFeet: number;
+  beamSquareFeet: number;
+  /** The face of each fireplace's surround, width by height, SF; and how many fireplaces. */
+  fireplaceSurroundSquareFeet: number;
+  fireplaces: number;
+}
+
+export function emptyDetailQuantities(): RoomDetailQuantities {
+  return {
+    halfWallFeet: 0,
+    halfWallReductionSquareFeet: 0,
+    countertopFeet: 0,
+    countertopSquareFeet: 0,
+    backsplashFeet: 0,
+    backsplashSquareFeet: 0,
+    crownFeet: 0,
+    plantLedgeFeet: 0,
+    wainscotFeet: 0,
+    wainscotSquareFeet: 0,
+    ledgeFeet: 0,
+    ledgeTopSquareFeet: 0,
+    unfinishedWallSquareFeet: 0,
+    ceilingFinish: null,
+    ceilingFinishSquareFeet: 0,
+    beamFeet: 0,
+    beamSquareFeet: 0,
+    fireplaceSurroundSquareFeet: 0,
+    fireplaces: 0,
+  };
 }
 
 /** Polygon area in square pixels, via the shoelace formula. */
@@ -146,7 +226,8 @@ function blockFootprint(
   */
   const widthFeet = symbolWidthFeet(symbol, room, rooms, freeWalls);
   if (widthFeet == null) return null;
-  return { widthFeet, depthFeet: symbol.depthFeet, heightFeet: symbol.heightFeet };
+  // A fridge bay hides only the wall behind the box over the fridge - see `cabinetCover`.
+  return { widthFeet, depthFeet: symbol.depthFeet, heightFeet: symbol.type === "cabinet" ? cabinetCover(symbol).wallFeet : symbol.heightFeet };
 }
 
 /** Everything against a wall that covers what's behind it. */
@@ -154,9 +235,9 @@ function deductibleBlocks(room: SketchRoom): BlockSymbol[] {
   return room.symbols.filter((s): s is BlockSymbol => isBlockSymbol(s) && isDeductible(s));
 }
 
-/** Lower and full-height cabinets and built-in fixtures — the things that stand ON the floor. */
+/** Lower and full-height cabinets and built-in fixtures — the things that stand ON the floor. A fridge bay does not: the fridge does. */
 function floorStanding(symbols: BlockSymbol[]): BlockSymbol[] {
-  return symbols.filter((s) => (s.type === "cabinet" ? standsOnFloor(s.tier) : true));
+  return symbols.filter((s) => (s.type === "cabinet" ? cabinetCover(s).onFloor : true));
 }
 
 /**
@@ -275,6 +356,7 @@ export function roomQuantities(room: SketchRoom, sketch: Sketch, options: Quanti
     deductions: { perimeterFeet: 0, floorSquareFeet: 0, wallSquareFeet: 0, openingSquareFeet: 0 },
     ceilingSteps: { faceSquareFeet: 0, wallSquareFeet: 0 },
     ceilingHeightFeet,
+    details: emptyDetailQuantities(),
   };
   // A room with fewer than three corners encloses nothing; everything below would divide by it.
   if (room.vertices.length < MIN_VERTICES) return empty;
@@ -304,10 +386,10 @@ export function roomQuantities(room: SketchRoom, sketch: Sketch, options: Quanti
   for (const block of blocks) {
     const f = blockFootprint(block, room, sketch.rooms, freeWallsOf(sketch));
     if (!f) continue;
-    const onFloor = block.type === "cabinet" ? standsOnFloor(block.tier) : true;
+    const onFloor = block.type === "cabinet" ? cabinetCover(block).onFloor : true;
 
-    // A pantry takes up floor perimeter the same way a base run does — see `standsOnFloor`.
-    if (options.deductCabinetsFromFloorPerimeter && block.type === "cabinet" && standsOnFloor(block.tier)) {
+    // A pantry takes up floor perimeter the same way a base run does — see `standsOnFloor`. A fridge bay does not.
+    if (options.deductCabinetsFromFloorPerimeter && block.type === "cabinet" && onFloor) {
       perimeterDeduction += f.widthFeet;
     }
     if (options.deductFromFloorArea && onFloor) {
@@ -336,7 +418,9 @@ export function roomQuantities(room: SketchRoom, sketch: Sketch, options: Quanti
        nullable here on purpose — a seeded height is a measurement nobody took.
   */
   for (const block of room.freeCabinets) {
-    const onFloor = standsOnFloor(block.tier);
+    // A beam is overhead: no floor, no base, no wall behind it (2026-10-21). Its wrap is a detail of its own.
+    if (blockKind(block) === "beam") continue;
+    const onFloor = blockStandsOnFloor(block);
     if (options.deductFromFloorArea && onFloor) {
       floorDeduction += blockFloorAreaFeet(block, room);
     }
@@ -366,12 +450,92 @@ export function roomQuantities(room: SketchRoom, sketch: Sketch, options: Quanti
     profile.meanHeightFeet == null ? 0 : partitions.reduce((sum, run) => sum + 2 * run.lengthFeet * Math.min(run.heightFeet ?? Infinity, profile.meanHeightFeet as number), 0);
 
   const steps = ceilingSteps(room, sketch.rooms);
-  const grossWallArea = (profile.meanHeightFeet == null ? 0 : perimeter * profile.meanHeightFeet) + partitionWallArea + steps.faceSquareFeet + steps.wallSquareFeet;
+
+  /*
+    HALF WALLS (`halfWallRuns`, 2026-10-21): along a stair rail wall or a pony wall the face stops at
+    the wall's own top, and no ceiling line runs along it - the ceiling carries on over the open part
+    to the room across. Only this room's face: the room across counts its own, seeing the same half
+    wall. A face of unknown height takes nothing off, as everywhere else here.
+  */
+  const details = emptyDetailQuantities();
+  for (const wall of wallsOf(room)) {
+    for (const half of halfWallRuns(room, wall.id, sketch.rooms)) {
+      const feet = wallRunFeet(wall, half.run);
+      details.halfWallFeet += feet;
+      if (profile.meanHeightFeet != null) details.halfWallReductionSquareFeet += feet * Math.max(0, profile.meanHeightFeet - half.heightFeet);
+    }
+  }
+  // COUNTERTOPS: priced apart from the cabinets under them, by the square foot, and their backsplash by the foot.
+  for (const { measure } of roomCountertops(room, sketch.rooms, freeWallsOf(sketch))) {
+    details.countertopFeet += measure.lengthFeet;
+    details.countertopSquareFeet += measure.topSquareFeet + measure.waterfallSquareFeet;
+    details.backsplashFeet += measure.backsplashFeet;
+    details.backsplashSquareFeet += measure.backsplashSquareFeet;
+  }
+
+  const grossWallArea =
+    (profile.meanHeightFeet == null ? 0 : perimeter * profile.meanHeightFeet) + partitionWallArea + steps.faceSquareFeet + steps.wallSquareFeet - details.halfWallReductionSquareFeet;
   const ceilingSurface = outlineArea * profile.surfaceFactor;
   const grossPerimeterFloor = perimeter + partitionFloorFeet;
 
+  /*
+    TRIM AND FINISH, wall by wall (2026-10-21): crown along the top of a wall to the ceiling, a plant
+    ledge, wainscot less the openings it stops at, a ledge along the bottom, and how much of the
+    room's wall is unfinished - its face as W counts it, half walls and all.
+  */
+  for (const wall of wallsOf(room)) {
+    const detail = room.wallDetails?.[wall.id];
+    const own = ownWallRuns(room, wall.id, sketch.rooms).reduce((sum, run) => sum + wallRunFeet(wall, run), 0);
+    const halves = halfWallRuns(room, wall.id, sketch.rooms);
+    const halfFeet = halves.reduce((sum, h) => sum + wallRunFeet(wall, h.run), 0);
+    if (detail?.crown) details.crownFeet += Math.max(0, own - halfFeet);
+    if (detail?.plantLedgeFeet != null && detail.plantLedgeFeet > 0) details.plantLedgeFeet += own;
+    const wainscot = wainscotOnWall(room, wall.id, sketch.rooms);
+    if (wainscot) {
+      details.wainscotFeet += wainscot.feet;
+      details.wainscotSquareFeet += wainscot.squareFeet;
+    }
+    if (detail?.ledge && detail.ledge.depthFeet > 0) {
+      details.ledgeFeet += own;
+      details.ledgeTopSquareFeet += own * detail.ledge.depthFeet;
+    }
+    if (wallUnfinished(room, wall.id) && profile.meanHeightFeet != null) {
+      const mean = profile.meanHeightFeet;
+      const lowered = halves.reduce((sum, h) => sum + wallRunFeet(wall, h.run) * Math.max(0, mean - h.heightFeet), 0);
+      const holes = options.deductOpeningsFromWallArea && !open ? openingSquareFeetOnWall(room, wall.id, sketch.rooms) : 0;
+      details.unfinishedWallSquareFeet += Math.max(0, own * mean - lowered - holes);
+    }
+  }
+  if (room.ceilingFinish) {
+    details.ceilingFinish = room.ceilingFinish;
+    details.ceilingFinishSquareFeet = Math.max(0, ceilingSurface);
+  }
+
+  // BEAMS AND FIREPLACES: a beam's run and wrap; a fireplace's surround, width by height.
+  for (const block of room.freeCabinets) {
+    const kind = blockKind(block);
+    if (kind === "beam") {
+      const beam = beamMeasure(block, room);
+      details.beamFeet += beam.feet;
+      details.beamSquareFeet += beam.squareFeet ?? 0;
+    } else if (kind === "fireplace") {
+      details.fireplaces += 1;
+      const w = block.widthFeet ?? block.widthPx / PIXELS_PER_FOOT;
+      const d = block.depthFeet ?? block.depthPx / PIXELS_PER_FOOT;
+      // A corner fireplace faces the room across its long side.
+      const face = blockShape(block) === "triangle" ? Math.hypot(w, d) : w;
+      details.fireplaceSurroundSquareFeet += fireplaceSurroundSquareFeet(face, block.heightFeet) ?? 0;
+    }
+  }
+  for (const symbol of room.symbols) {
+    if (symbol.type !== "fixture" || symbol.fixtureType !== "fireplace") continue;
+    details.fireplaces += 1;
+    const width = symbolWidthFeet(symbol, room, sketch.rooms, freeWallsOf(sketch));
+    if (width != null) details.fireplaceSurroundSquareFeet += fireplaceSurroundSquareFeet(width, symbol.heightFeet) ?? 0;
+  }
+
   return {
-    perimeterCeiling: perimeter + partitionCeilingFeet,
+    perimeterCeiling: Math.max(0, perimeter + partitionCeilingFeet - details.halfWallFeet),
     perimeterFloor: Math.max(0, grossPerimeterFloor - perimeterDeduction),
     floorArea: Math.max(0, outlineArea - floorDeduction),
     wallArea: Math.max(0, grossWallArea - wallDeduction - openings),
@@ -385,12 +549,37 @@ export function roomQuantities(room: SketchRoom, sketch: Sketch, options: Quanti
     },
     ceilingSteps: steps,
     ceilingHeightFeet,
+    details,
   };
 }
 
 /** One decimal is the precision these numbers are actually good to; two implies false accuracy. */
 export function formatQuantity(value: number): string {
   return (Math.round(value * 10) / 10).toFixed(1);
+}
+
+/**
+ * A room's details as the lines an estimator prices, each only when the room has some: "Countertop
+ * 21.2 SF, 10.0 LF". Empty for a room with none, which is nearly every room. What the Quantities
+ * panel lists under its table, and what an ESX export would turn into line items.
+ */
+export function roomDetailLines(details: RoomDetailQuantities): string[] {
+  const lines: string[] = [];
+  const some = (n: number) => n > 0.05;
+  if (some(details.halfWallFeet)) lines.push(`Half wall ${formatQuantity(details.halfWallFeet)} LF (and its cap)`);
+  if (some(details.countertopSquareFeet)) lines.push(`Countertop ${formatQuantity(details.countertopSquareFeet)} SF, ${formatQuantity(details.countertopFeet)} LF`);
+  if (some(details.backsplashSquareFeet)) lines.push(`Backsplash ${formatQuantity(details.backsplashSquareFeet)} SF, ${formatQuantity(details.backsplashFeet)} LF`);
+  if (some(details.crownFeet)) lines.push(`Crown ${formatQuantity(details.crownFeet)} LF`);
+  if (some(details.plantLedgeFeet)) lines.push(`Plant ledge ${formatQuantity(details.plantLedgeFeet)} LF`);
+  if (some(details.wainscotFeet)) lines.push(`Wainscot ${formatQuantity(details.wainscotSquareFeet)} SF, ${formatQuantity(details.wainscotFeet)} LF`);
+  if (some(details.ledgeFeet)) lines.push(`Ledge ${formatQuantity(details.ledgeFeet)} LF, top ${formatQuantity(details.ledgeTopSquareFeet)} SF`);
+  if (some(details.unfinishedWallSquareFeet)) lines.push(`Unfinished wall ${formatQuantity(details.unfinishedWallSquareFeet)} SF of W`);
+  if (details.ceilingFinish) lines.push(`Ceiling, ${CEILING_FINISH_LABEL[details.ceilingFinish]} ${formatQuantity(details.ceilingFinishSquareFeet)} SF`);
+  if (some(details.beamFeet)) lines.push(`Beam / bulkhead ${formatQuantity(details.beamFeet)} LF${some(details.beamSquareFeet) ? `, wrap ${formatQuantity(details.beamSquareFeet)} SF` : ", drop not measured"}`);
+  if (details.fireplaces > 0) {
+    lines.push(`Fireplace${details.fireplaces > 1 ? ` x${details.fireplaces}` : ""}${some(details.fireplaceSurroundSquareFeet) ? `, surround ${formatQuantity(details.fireplaceSurroundSquareFeet)} SF` : ", surround height not said"}`);
+  }
+  return lines;
 }
 
 /** Every symbol that contributes to a deduction, for showing the user what was taken off. */

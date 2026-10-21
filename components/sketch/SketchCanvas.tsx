@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef } from "react";
+import { type ReactNode, useMemo, useRef } from "react";
 import { Arc, Circle, Ellipse, Group, Layer, Line, Path, Rect, Shape, Stage, Text } from "react-konva";
 import { DEHU_COLOR, DEHU_GLYPH, GLYPH_EDGE, MOVER_AIR_COLOR, MOVER_COLOR, MOVER_GLYPH } from "@/lib/equipmentGlyphs";
 // A value import, not a type: the room label measures its name with a Konva.Text — see `RoomLabel`.
@@ -40,6 +40,7 @@ import {
   roomLabelAnchor,
   clampZoom,
   missingWallGaps,
+  halfWallRuns,
   onParentWallRuns,
   openParent,
   ownMissingRuns,
@@ -64,6 +65,7 @@ import {
   symbolCentrePx,
   symbolOffsetsPx,
   PIXELS_PER_FOOT,
+  COUNTERTOP_DEFAULT_OVERHANG_FEET,
   symbolsInDrawOrder,
   tapFractionOnWall,
   cappedInset,
@@ -72,6 +74,9 @@ import {
   wallHandleRadii,
   wallStrokePx,
   wallsOf,
+  wallUnfinished,
+  blockKind,
+  blockDefaultLabel,
   outerWallFaces,
   roomsWallsMayNotCover,
   flushWallStretches,
@@ -142,6 +147,8 @@ const COLORS = {
   highlightWall: "#c0392b",
   highlightCeiling: "rgba(192, 57, 43, 0.16)",
   cabinet: "#e8eef4",
+  /* A fireplace block (2026-10-21): warm, so it is never read as cabinetry beside a run. */
+  fireplace: "#efe2d3",
   // Was #f4f7fa, a 2% step off white — visible on a desktop monitor and invisible on a phone.
   subRoom: "#dfe9f2",
   /*
@@ -1552,6 +1559,8 @@ function RoomShape({
         ),
       )}
       <MissingWalls room={room} rooms={rooms} zoom={zoom} />
+      <HalfWalls room={room} rooms={rooms} wallStroke={wallStroke} />
+      <WallTrim room={room} rooms={rooms} wallStroke={wallStroke} zoom={zoom} />
       {/* A wall a thumbnail picks out: over the wall where it stands, outside the face.
           Heavier as well as coloured: a thumbnail is read small and printed, sometimes in
           greyscale, where colour alone stops carrying. */}
@@ -2629,7 +2638,7 @@ function SymbolShape({
         <Group y={band.centrePx}>
           <Rect x={x0} y={-band.thicknessPx / 2 - 0.5} width={w} height={band.thicknessPx + 1} fill={COLORS.fill} listening={false} />
           {symbol.type === "door" && <DoorGlyph door={symbol} room={room} x0={x0} x1={x1} w={w} />}
-          {symbol.type === "window" && <WindowGlyph x0={x0} x1={x1} />}
+          {symbol.type === "window" && <WindowGlyph x0={x0} x1={x1} units={symbol.units} />}
         </Group>
       )}
       {symbol.type === "cabinet" && <CabinetGlyph cabinet={symbol} x0={x0} w={w} depth={cabinetDepthPx(symbol)} flip={flip} />}
@@ -2711,6 +2720,92 @@ function MissingWalls({ room, rooms, zoom }: { room: SketchRoom; rooms: SketchRo
       )}
     </>
   );
+}
+
+/**
+ * A room's HALF WALLS (`halfWallRuns`, 2026-10-21) drawn hollow: the band keeps its two faces and is
+ * light down the middle, the way a low wall is told from a full one on a plan cut above it. Drawn by
+ * each room over its own band, so one half wall reads the same from both sides.
+ */
+function HalfWalls({ room, rooms, wallStroke }: { room: SketchRoom; rooms: SketchRoom[]; wallStroke: number }) {
+  if (room.stairs) return null;
+  return (
+    <>
+      {wallsOf(room).flatMap((wall) =>
+        wall.lengthPx <= 0
+          ? []
+          : halfWallRuns(room, wall.id, rooms).map((half, i) => {
+              // The middle of the band, which is built outward from the face: the wall's direction turned -90 degrees.
+              const ox = ((wall.y2 - wall.y1) / wall.lengthPx) * (wallStroke / 2);
+              const oy = (-(wall.x2 - wall.x1) / wall.lengthPx) * (wallStroke / 2);
+              const a = pointOnWall(wall, half.run[0]);
+              const b = pointOnWall(wall, half.run[1]);
+              return (
+                <Line
+                  key={`half:${wall.id}:${i}`}
+                  points={[a.x + ox, a.y + oy, b.x + ox, b.y + oy]}
+                  stroke={COLORS.fill}
+                  strokeWidth={wallStroke * 0.45}
+                  listening={false}
+                />
+              );
+            }),
+      )}
+    </>
+  );
+}
+
+/** How far apart the studs of an unfinished wall are drawn: 16", the usual spacing. */
+const STUD_SPACING_PX = 16;
+
+/**
+ * A wall's trim and finish (`WallDetail`, 2026-10-21), drawn the way a plan says such things: a LEDGE
+ * along the bottom as the strip of floor it takes; WAINSCOT as a thin line just inside the face;
+ * CROWN and a PLANT LEDGE, overhead, as dotted lines inside it; an UNFINISHED wall as its open studs
+ * across the band. Each along the wall's own stretches only, never over a missing one.
+ */
+function WallTrim({ room, rooms, wallStroke, zoom }: { room: SketchRoom; rooms: SketchRoom[]; wallStroke: number; zoom: number }) {
+  if (room.stairs) return null;
+  const nodes: ReactNode[] = [];
+  for (const wall of wallsOf(room)) {
+    if (wall.lengthPx <= 0) continue;
+    const detail = room.wallDetails?.[wall.id];
+    const unfinished = wallUnfinished(room, wall.id);
+    if (!detail && !unfinished) continue;
+    // Into the room: the wall's direction turned +90 degrees, a room being clockwise.
+    const ix = -(wall.y2 - wall.y1) / wall.lengthPx;
+    const iy = (wall.x2 - wall.x1) / wall.lengthPx;
+    const at = (t: number, inset: number) => {
+      const p = pointOnWall(wall, t);
+      return { x: p.x + ix * inset, y: p.y + iy * inset };
+    };
+    const line = (key: string, lo: number, hi: number, inset: number, extra: Record<string, unknown>) => {
+      const a = at(lo, inset);
+      const b = at(hi, inset);
+      nodes.push(<Line key={key} points={[a.x, a.y, b.x, b.y]} stroke={COLORS.symbol} listening={false} {...extra} />);
+    };
+    ownWallRuns(room, wall.id, rooms).forEach(([lo, hi], k) => {
+      const key = `${wall.id}:${k}`;
+      if (detail?.ledge && detail.ledge.depthFeet > 0) {
+        const d = detail.ledge.depthFeet * PIXELS_PER_FOOT;
+        const [a, b, c, e] = [at(lo, 0), at(hi, 0), at(hi, d), at(lo, d)];
+        nodes.push(<Line key={`${key}:ledge`} points={[a.x, a.y, b.x, b.y, c.x, c.y, e.x, e.y]} closed fill={COLORS.cabinet} stroke={COLORS.symbol} strokeWidth={0.8 / zoom} listening={false} />);
+      }
+      if (detail?.wainscot) line(`${key}:wainscot`, lo, hi, 2.5, { strokeWidth: 0.9 / zoom });
+      if (detail?.crown) line(`${key}:crown`, lo, hi, 5, { strokeWidth: 1 / zoom, dash: [1.5 / zoom, 2.5 / zoom] });
+      if (detail?.plantLedgeFeet != null) line(`${key}:plant`, lo, hi, 7.5, { strokeWidth: 1 / zoom, dash: [6 / zoom, 2 / zoom, 1.5 / zoom, 2 / zoom] });
+      if (unfinished) {
+        // Studs across the band, which is built outward from the face.
+        const from = lo * wall.lengthPx;
+        const to = hi * wall.lengthPx;
+        for (let s = Math.ceil(from / STUD_SPACING_PX) * STUD_SPACING_PX; s <= to; s += STUD_SPACING_PX) {
+          const a = at(s / wall.lengthPx, 0);
+          nodes.push(<Line key={`${key}:stud:${s}`} points={[a.x, a.y, a.x - ix * wallStroke, a.y - iy * wallStroke]} stroke={COLORS.fill} strokeWidth={1.2 / zoom} listening={false} />);
+        }
+      }
+    });
+  }
+  return <>{nodes}</>;
 }
 
 /**
@@ -2994,7 +3089,10 @@ function FreeCabinetShape({
   const bounds = roomBounds(room);
   const x = bounds.minX + cabinet.x;
   const y = bounds.minY + cabinet.y;
-  const upper = cabinet.tier === "wall";
+  const kind = blockKind(cabinet);
+  // A beam is overhead (2026-10-21): dashed as an upper is, with a line down its middle; a fireplace is filled warm.
+  const beam = kind === "beam";
+  const upper = beam || (kind === "cabinet" && cabinet.tier === "wall");
   const angle = blockAngleDeg(cabinet);
   const triangle = blockShape(cabinet) === "triangle";
 
@@ -3043,17 +3141,35 @@ function FreeCabinetShape({
       <Line
         points={points}
         closed
-        fill={upper ? undefined : COLORS.cabinet}
+        // A beam keeps a clear fill so a tap anywhere on it selects it.
+        fill={beam ? "rgba(0,0,0,0)" : upper ? undefined : kind === "fireplace" ? COLORS.fireplace : COLORS.cabinet}
         stroke={selected ? COLORS.selected : COLORS.symbol}
         strokeWidth={(selected ? 2.5 : 1.5) / zoom}
         dash={upper ? [5 / zoom, 3 / zoom] : undefined}
       />
+      {beam && !triangle && <Line points={[0, depth / 2, width, depth / 2]} stroke={COLORS.symbol} strokeWidth={0.8 / zoom} dash={[8 / zoom, 3 / zoom]} listening={false} />}
+      {/*
+        Its top (2026-10-21): the overhang on its front - the stool side of an island, the side its depth runs to -
+        and a heavy line down each waterfall end.
+      */}
+      {cabinet.countertop && !triangle && (() => {
+        const reach = depth + Math.max(0, cabinet.countertop.overhangFeet ?? COUNTERTOP_DEFAULT_OVERHANG_FEET) * PIXELS_PER_FOOT;
+        const ends = cabinet.countertop.waterfallEnds ?? 0;
+        return (
+          <>
+            {reach > depth + 0.5 && <Line points={[0, depth, 0, reach, width, reach, width, depth]} stroke={COLORS.symbol} strokeWidth={0.8 / zoom} listening={false} />}
+            {ends >= 1 && <Line points={[width, 0, width, reach]} stroke={COLORS.symbol} strokeWidth={3 / zoom} listening={false} />}
+            {ends >= 2 && <Line points={[0, 0, 0, reach]} stroke={COLORS.symbol} strokeWidth={3 / zoom} listening={false} />}
+          </>
+        );
+      })()}
+      {cabinet.doors === "open" && !triangle && [0.33, 0.66].map((f) => <Line key={f} points={[0, depth * f, width, depth * f]} stroke={COLORS.symbol} strokeWidth={0.8 / zoom} listening={false} />)}
       <Text
         x={0}
         y={depth / 2 - 6 / zoom}
         width={width}
         align="center"
-        text={cabinet.label || "Island"}
+        text={cabinet.label || blockDefaultLabel(cabinet)}
         fontSize={10 / zoom}
         fill={COLORS.symbol}
         listening={false}
@@ -3122,7 +3238,18 @@ function Jambs({ x0, x1 }: { x0: number; x1: number }) {
  */
 function DoorGlyph({ door, room, x0, x1, w }: { door: DoorSymbol; room: SketchRoom; x0: number; x1: number; w: number }) {
   // A missing wall: the opening is cut, the jambs are marked, and nothing swings.
-  if (door.doorType === "opening") return <Jambs x0={x0} x1={x1} />;
+  if (door.doorType === "opening") {
+    // A PASS-THROUGH (2026-10-21): the wall under its sill seen from above, a light band between the jambs.
+    if (door.sillFeet) {
+      return (
+        <>
+          <Rect x={x0} y={-2.5} width={w} height={5} fill={COLORS.cabinet} stroke={COLORS.symbol} strokeWidth={0.8} listening={false} />
+          <Jambs x0={x0} x1={x1} />
+        </>
+      );
+    }
+    return <Jambs x0={x0} x1={x1} />;
+  }
 
   const double = door.leaves === "double";
   // The two world-space mirrors resolved into what the glyph needs on this particular wall.
@@ -3249,12 +3376,17 @@ function SlideArrow({ from, to, y }: { from: number; to: number; y: number }) {
   );
 }
 
-/** A window: the wall breaks, and the opening is filled with two parallel lines. */
-function WindowGlyph({ x0, x1 }: { x0: number; x1: number }) {
+/** A window: the wall breaks, and the opening is filled with two parallel lines - crossed by a mullion between each of its units. */
+function WindowGlyph({ x0, x1, units = 1 }: { x0: number; x1: number; units?: number }) {
+  const n = Math.max(1, Math.min(12, Math.round(units)));
   return (
     <>
       <Line points={[x0, -2, x1, -2]} stroke={COLORS.symbol} strokeWidth={1.5} listening={false} />
       <Line points={[x0, 2, x1, 2]} stroke={COLORS.symbol} strokeWidth={1.5} listening={false} />
+      {Array.from({ length: n - 1 }, (_, k) => {
+        const x = x0 + ((x1 - x0) * (k + 1)) / n;
+        return <Line key={k} points={[x, -2, x, 2]} stroke={COLORS.symbol} strokeWidth={1.5} listening={false} />;
+      })}
       <Jambs x0={x0} x1={x1} />
     </>
   );
@@ -3418,11 +3550,60 @@ function FixtureGlyph({ fixture, x0, w, depth }: { fixture: FixtureSymbol; x0: n
           <Rect x={x0 + w * 0.12} y={depth * 0.18} width={w * 0.76} height={depth * 0.64} dash={[3, 2]} {...stroke} />
         </>
       );
+    // 2026-10-21: a one-piece tub/shower is a tub with its surround up the walls round it, drawn as a heavier back and ends.
+    case "tubShower":
+      return (
+        <>
+          <Rect x={x0} y={0} width={w} height={depth} fill={COLORS.fill} {...stroke} />
+          <Rect x={x0 + w * 0.06} y={depth * 0.12} width={w * 0.88} height={depth * 0.76} cornerRadius={Math.min(w, depth) * 0.16} {...stroke} />
+          <Line points={[x0, depth, x0, 0, x0 + w, 0, x0 + w, depth]} stroke={COLORS.symbol} strokeWidth={3} listening={false} />
+          <Circle x={x0 + w * 0.14} y={depth * 0.5} radius={Math.min(w, depth) * 0.07} {...stroke} />
+        </>
+      );
+    // A fireplace on a wall (2026-10-21): its hearth, the firebox at the back, warm as a fireplace block is.
+    case "fireplace":
+      return (
+        <>
+          <Rect x={x0} y={0} width={w} height={depth} fill={COLORS.fireplace} {...stroke} />
+          <Line points={[x0 + w * 0.22, 0, x0 + w * 0.3, depth * 0.55, x0 + w * 0.7, depth * 0.55, x0 + w * 0.78, 0]} {...stroke} />
+        </>
+      );
+    // Mechanical equipment: a furnace's box with its fan, a water heater's round tank.
+    case "furnace":
+      return (
+        <>
+          {outline}
+          <Circle x={cx} y={depth * 0.5} radius={Math.min(w, depth) * 0.3} {...stroke} />
+          <Line points={[cx - Math.min(w, depth) * 0.3, depth * 0.5, cx + Math.min(w, depth) * 0.3, depth * 0.5]} {...stroke} />
+        </>
+      );
+    case "waterHeater":
+      return (
+        <>
+          <Circle x={cx} y={depth * 0.5} radius={Math.min(w, depth) * 0.46} fill={COLORS.fill} {...stroke} />
+          <Circle x={cx} y={depth * 0.5} radius={Math.min(w, depth) * 0.14} {...stroke} />
+        </>
+      );
+    // A range hood hangs overhead: dashed, as everything over the floor is, and crossed.
+    case "hood":
+      return (
+        <>
+          <Rect x={x0} y={0} width={w} height={depth} dash={[5, 3]} {...stroke} />
+          <Line points={[x0, 0, x0 + w, depth]} {...stroke} dash={[5, 3]} />
+          <Line points={[x0 + w, 0, x0, depth]} {...stroke} dash={[5, 3]} />
+        </>
+      );
   }
 }
 
 function CabinetGlyph({ cabinet, x0, w, depth, flip }: { cabinet: CabinetSymbol; x0: number; w: number; depth: number; flip: boolean }) {
   const upper = cabinet.tier === "wall";
+  // A fridge bay is a box overhead with a fridge under it: drawn as an upper is, crossed like the space it leaves.
+  const overhead = upper || cabinet.bay === "fridge";
+  const thin = { stroke: COLORS.symbol, strokeWidth: 0.8, listening: false as const };
+  const top = cabinet.countertop;
+  const reach = top ? depth + Math.max(0, top.overhangFeet ?? COUNTERTOP_DEFAULT_OVERHANG_FEET) * PIXELS_PER_FOOT : depth;
+  const fallback = cabinet.bay ? (cabinet.bay === "fridge" ? "Fridge bay" : "Oven") : upper ? "Upper" : "Cabinet";
 
   return (
     <>
@@ -3431,12 +3612,20 @@ function CabinetGlyph({ cabinet, x0, w, depth, flip }: { cabinet: CabinetSymbol;
         y={0}
         width={w}
         height={depth}
-        fill={upper ? undefined : COLORS.cabinet}
+        fill={overhead || cabinet.doors === "open" ? undefined : COLORS.cabinet}
         stroke={COLORS.symbol}
         strokeWidth={1.5}
-        dash={upper ? [5, 3] : undefined}
+        dash={overhead ? [5, 3] : undefined}
         listening={false}
       />
+      {/* 2026-10-21. Glass doors: the glass along the front. Open shelving: the shelves, no doors. */}
+      {cabinet.doors === "glass" && <Line points={[x0 + 2, depth - 2.5, x0 + w - 2, depth - 2.5]} {...thin} dash={[2, 2]} />}
+      {cabinet.doors === "open" && [0.33, 0.66].map((f) => <Line key={f} points={[x0 + 1, depth * f, x0 + w - 1, depth * f]} {...thin} />)}
+      {cabinet.bay === "fridge" && <Line points={[x0, 0, x0 + w, depth]} {...thin} />}
+      {/* A countertop's overhang, past the box; a waterfall end, a heavy line down the end. */}
+      {top && reach > depth + 0.5 && <Line points={[x0, depth, x0, reach, x0 + w, reach, x0 + w, depth]} {...thin} />}
+      {top && (top.waterfallEnds ?? 0) >= 1 && <Line points={[x0 + w, 0, x0 + w, reach]} stroke={COLORS.symbol} strokeWidth={3} listening={false} />}
+      {top && (top.waterfallEnds ?? 0) >= 2 && <Line points={[x0, 0, x0, reach]} stroke={COLORS.symbol} strokeWidth={3} listening={false} />}
       {/* Turned to read the right way up on a wall that points left, like every other figure on the
           plan — the label came out upside down along every bottom wall. Turned about its own centre,
           so it stays in the middle of the block. */}
@@ -3446,7 +3635,7 @@ function CabinetGlyph({ cabinet, x0, w, depth, flip }: { cabinet: CabinetSymbol;
           y={-5}
           width={w}
           align="center"
-          text={cabinet.label || (upper ? "Upper" : "Cabinet")}
+          text={cabinet.label || fallback}
           fontSize={9}
           fill={COLORS.symbol}
           listening={false}

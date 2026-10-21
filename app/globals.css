@@ -1996,6 +1996,20 @@ button:disabled {
   font-weight: 400;
   color: var(--text-muted);
 }
+/* The details under the table (2026-10-21): a line per room that has any, countertops, trim, beams. */
+.sketch-qty-details h4 {
+  font-size: 0.8rem;
+  margin: 14px 0 6px;
+}
+.sketch-qty-details ul {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+}
+.sketch-qty-details li {
+  margin: 3px 0;
+}
 .sketch-qty-value {
   font-weight: 600;
 }

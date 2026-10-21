@@ -22,7 +22,12 @@
 
 import {
   blockCorners,
+  blockKind,
+  blockShape,
+  COUNTERTOP_DEFAULT_OVERHANG_FEET,
+  fridgeBayHeightFeet,
   ceilingRiseDegOf,
+  halfWallRuns,
   missingWallRuns,
   openParent,
   ownWallRuns,
@@ -323,6 +328,9 @@ function bandsOver(symbol: SketchSymbol, ceiling: number): [number, number][] {
   const bands: [number, number][] = [];
   if (symbol.type === "door") {
     const head = Math.min(ceiling, symbol.heightFeet > 0 ? symbol.heightFeet : DOOR_HEAD_FEET);
+    // A pass-through keeps the wall under its sill (2026-10-21). Its shaped top is cut square at its highest point.
+    const sill = Math.max(0, Math.min(head, symbol.sillFeet ?? 0));
+    if (sill > EPS) bands.push([0, sill]);
     if (head < ceiling - EPS) bands.push([head, ceiling]);
   } else if (symbol.type === "window") {
     const sill = Math.max(0, Math.min(ceiling, symbol.sillFeet ?? WINDOW_SILL_FEET));
@@ -471,10 +479,13 @@ function roomWalls(room: SketchRoom, levelRooms: Sketch["rooms"], sketch: Sketch
     for (const s of shared) if (s.wallId === wall.id) holes.push({ from: Math.min(s.fromPx, s.toPx), to: Math.max(s.fromPx, s.toPx), symbol: s.symbol });
     // Where the ceiling over this wall changes pitch: a piece between two of these has a straight top.
     const pitchBreaks = ceil.breaks(wall.x1, wall.y1, wall.x2, wall.y2).map((t) => t * L);
+    // Half walls (2026-10-21): the piece stops at the half wall's own top.
+    const halves = halfWallRuns(room, wall.id, levelRooms).map((h) => ({ from: h.run[0] * L, to: h.run[1] * L, top: h.heightFeet }));
     for (const [r0, r1] of ranges) {
       const cuts = [r0, r1];
       for (const h of holes) for (const s of [h.from, h.to]) if (s > r0 + EPS && s < r1 - EPS) cuts.push(s);
       for (const s of pitchBreaks) if (s > r0 + EPS && s < r1 - EPS) cuts.push(s);
+      for (const h of halves) for (const s of [h.from, h.to]) if (s > r0 + EPS && s < r1 - EPS) cuts.push(s);
       cuts.sort((a, b) => a - b);
       for (let k = 0; k + 1 < cuts.length; k++) {
         const a = cuts[k] as number;
@@ -489,8 +500,9 @@ function roomWalls(room: SketchRoom, levelRooms: Sketch["rooms"], sketch: Sketch
         const footprint = [pt(ia.x, ia.y), pt(ib.x, ib.y), pt(ob.x, ob.y), pt(oa.x, oa.y)];
         // Under a slope the piece's lowest ceiling decides what the openings leave; a band that
         // reaches the ceiling then follows it, point by point.
-        const tops = sloped ? [ia, ib, ob, oa].map((p) => ceil.at(p.x, p.y)) : null;
-        const ceiling = tops ? Math.min(...tops) : ceil.low;
+        const half = halves.find((h) => h.from <= mid && mid <= h.to);
+        const tops = sloped && !half ? [ia, ib, ob, oa].map((p) => ceil.at(p.x, p.y)) : null;
+        const ceiling = half ? Math.min(half.top, sloped ? Math.min(...[ia, ib, ob, oa].map((p) => ceil.at(p.x, p.y))) : ceil.low) : tops ? Math.min(...tops) : ceil.low;
         const bands = hole ? bandsOver(hole.symbol, ceiling) : ([[0, ceiling]] as [number, number][]);
         for (const [y0, y1] of bands) {
           const follows = tops != null && Math.abs(y1 - ceiling) < EPS && Math.max(...tops) > ceiling + EPS;
@@ -546,7 +558,11 @@ function roomCabinets(room: SketchRoom, levelRooms: Sketch["rooms"], sketch: Ske
     const d = Math.max(0, symbol.depthFeet) * PIXELS_PER_FOOT;
     const a = { x: wall.x1 + ux * (c - w / 2), y: wall.y1 + uy * (c - w / 2) };
     const b = { x: wall.x1 + ux * (c + w / 2), y: wall.y1 + uy * (c + w / 2) };
-    const [y0, y1] = cabinetHeights(symbol.tier, symbol.heightFeet);
+    let [y0, y1] = cabinetHeights(symbol.tier, symbol.heightFeet);
+    // Where somebody said the box starts (2026-10-21): an upper on the counter sits on it.
+    if (symbol.bottomFeet != null) [y0, y1] = [symbol.bottomFeet, symbol.bottomFeet + (y1 - y0)];
+    // A fridge bay is the box over the fridge only.
+    if (symbol.bay === "fridge") y0 = Math.min(y1, Math.max(y0, fridgeBayHeightFeet(symbol)));
     out.push({
       kind: "cabinet",
       roomId: room.id,
@@ -555,12 +571,63 @@ function roomCabinets(room: SketchRoom, levelRooms: Sketch["rooms"], sketch: Ske
       y0: baseY + y0,
       y1: baseY + y1,
     });
+    // Its countertop: a slab on the box, out to the overhang.
+    if (symbol.countertop) {
+      const r = d + Math.max(0, symbol.countertop.overhangFeet ?? COUNTERTOP_DEFAULT_OVERHANG_FEET) * PIXELS_PER_FOOT;
+      out.push({
+        kind: "cabinet",
+        roomId: room.id,
+        level,
+        points: [pt(a.x, a.y), pt(b.x, b.y), pt(b.x + ix * r, b.y + iy * r), pt(a.x + ix * r, a.y + iy * r)],
+        y0: baseY + y1,
+        y1: baseY + y1 + COUNTERTOP_THICKNESS_FEET,
+      });
+    }
   }
   for (const block of room.freeCabinets ?? []) {
     const corners = blockCorners(block, room);
     if (corners.length < 3) continue;
+    // A beam hangs from the ceiling by its drop (2026-10-21) - drawn 9" deep when nobody measured it.
+    if (blockKind(block) === "beam") {
+      const ceiling = ceilingModel(room).low;
+      const drop = Math.min(ceiling, block.beam?.dropFeet != null && block.beam.dropFeet > 0 ? block.beam.dropFeet : 0.75);
+      out.push({ kind: "cabinet", roomId: room.id, level, points: corners.map((p) => pt(p.x, p.y)), y0: baseY + ceiling - drop, y1: baseY + ceiling });
+      continue;
+    }
     const [y0, y1] = cabinetHeights(block.tier, block.heightFeet);
     out.push({ kind: "cabinet", roomId: room.id, level, points: corners.map((p) => pt(p.x, p.y)), y0: baseY + y0, y1: baseY + y1 });
+    if (block.countertop && blockShape(block) !== "triangle" && block.depthFeet != null) {
+      // The top over the whole block and its overhang: the block deepened on its front, then turned with it.
+      const over = Math.max(0, block.countertop.overhangFeet ?? COUNTERTOP_DEFAULT_OVERHANG_FEET);
+      const top = blockCorners({ ...block, depthFeet: block.depthFeet + over, depthPx: block.depthPx + over * PIXELS_PER_FOOT }, room);
+      out.push({ kind: "cabinet", roomId: room.id, level, points: top.map((p) => pt(p.x, p.y)), y0: baseY + y1, y1: baseY + y1 + COUNTERTOP_THICKNESS_FEET });
+    }
+  }
+}
+
+/** A countertop slab's thickness in the 3D view: an inch and a half. */
+const COUNTERTOP_THICKNESS_FEET = 1.5 / 12;
+
+/** A wall's ledge along its bottom (`WallDetail.ledge`, 2026-10-21): a step as deep as it stands out, up to its top. */
+function roomLedges(room: SketchRoom, levelRooms: Sketch["rooms"], level: number, baseY: number, out: Prism[]): void {
+  for (const wall of wallsOf(room)) {
+    const ledge = room.wallDetails?.[wall.id]?.ledge;
+    if (!ledge || ledge.depthFeet <= 0 || ledge.heightFeet <= 0 || wall.lengthPx <= EPS) continue;
+    const ix = -(wall.y2 - wall.y1) / wall.lengthPx;
+    const iy = (wall.x2 - wall.x1) / wall.lengthPx;
+    const d = ledge.depthFeet * PIXELS_PER_FOOT;
+    for (const [lo, hi] of ownWallRuns(room, wall.id, levelRooms)) {
+      const a = { x: wall.x1 + (wall.x2 - wall.x1) * lo, y: wall.y1 + (wall.y2 - wall.y1) * lo };
+      const b = { x: wall.x1 + (wall.x2 - wall.x1) * hi, y: wall.y1 + (wall.y2 - wall.y1) * hi };
+      out.push({
+        kind: "wall",
+        roomId: room.id,
+        level,
+        points: [pt(a.x, a.y), pt(b.x, b.y), pt(b.x + ix * d, b.y + iy * d), pt(a.x + ix * d, a.y + iy * d)],
+        y0: baseY,
+        y1: baseY + ledge.heightFeet,
+      });
+    }
   }
 }
 
@@ -619,6 +686,7 @@ export function houseModel(sketch: Sketch): HouseModel {
     roomWalls(room, levelRooms, sketch, level, baseY, prisms);
     missingWallFaces(room, levelRooms, level, baseY, prisms);
     roomCabinets(room, levelRooms, sketch, level, baseY, prisms);
+    roomLedges(room, levelRooms, level, baseY, prisms);
     const points = room.vertices.map((v) => pt(v.x, v.y));
     const depth = nestingDepth(room, levelRooms);
     const y = baseY + 0.01 * depth;

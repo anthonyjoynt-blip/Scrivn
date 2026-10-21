@@ -14,9 +14,41 @@ import {
   type DoorLeaves,
   type DoorSymbol,
   type DoorType,
+  type DoorStyle,
+  type OpeningTop,
   type SketchRoom,
   type SketchSymbol,
   type WindowSymbol,
+  type WindowType,
+  DOOR_STYLE_LABEL,
+  OPENING_TOP_LABEL,
+  WINDOW_TYPE_LABEL,
+  type ApplianceBay,
+  type BeamType,
+  type BlockKind,
+  type FireplaceDetail,
+  type FireplaceFinish,
+  type FireplaceFuel,
+  BEAM_TYPE_LABEL,
+  BLOCK_KIND_LABEL,
+  FIREPLACE_FINISH_LABEL,
+  FIREPLACE_FUEL_LABEL,
+  blockDefaultLabel,
+  blockKind,
+  type CabinetDoors,
+  type Countertop,
+  type CountertopMaterial,
+  type HoodType,
+  type SurroundType,
+  APPLIANCE_BAY_LABEL,
+  CABINET_DEFAULT_BOTTOM_FEET,
+  CABINET_DOORS_LABEL,
+  COUNTERTOP_DEFAULT_OVERHANG_FEET,
+  COUNTERTOP_MATERIAL_LABEL,
+  FRIDGE_BAY_DEFAULT_HEIGHT_FEET,
+  HOOD_DEFAULT_BOTTOM_FEET,
+  HOOD_TYPE_LABEL,
+  SURROUND_LABEL,
   CABINET_DEFAULT_DEPTH_FEET,
   PIXELS_PER_FOOT,
   CABINET_DEFAULT_HEIGHT_FEET,
@@ -26,6 +58,7 @@ import {
   DOOR_LEAVES_LABEL,
   DOOR_TYPE_LABEL,
   formatFeetInches,
+  formatSmallDimension,
   parseFeetInches,
   symbolWidthFeet,
   withFixtureType,
@@ -107,7 +140,8 @@ function DoorFields({ door, onChange }: { door: DoorSymbol; onChange: (next: Ske
               type="button"
               className={`option-btn${door.doorType === type ? " selected" : ""}`}
               aria-pressed={door.doorType === type}
-              onClick={() => onChange({ ...door, doorType: type })}
+              // A sill belongs to a pass-through: a door hung in the hole goes to the floor again.
+              onClick={() => onChange(type === "opening" ? { ...door, doorType: type } : withoutField({ ...door, doorType: type }, "sillFeet"))}
             >
               {DOOR_TYPE_LABEL[type]}
             </button>
@@ -149,6 +183,24 @@ function DoorFields({ door, onChange }: { door: DoorSymbol; onChange: (next: Ske
         valueFeet={door.heightFeet}
         onCommit={(feet) => onChange({ ...door, heightFeet: feet })}
       />
+
+      {/*
+        A PASS-THROUGH is an opening with wall under it (2026-10-21): the owner's arched openings off the living room
+        start about 3'2" up. Left empty, the opening runs to the floor, as it always did.
+      */}
+      {door.doorType === "opening" && (
+        <MeasureField
+          id="door-sill"
+          label="Sill height (pass-through)"
+          hint="Leave empty for an opening to the floor. Set it for a pass-through - the wall under it stays wall."
+          valueFeet={door.sillFeet ?? null}
+          onCommit={(feet) => onChange({ ...door, sillFeet: feet })}
+          onClear={() => onChange(withoutField(door, "sillFeet"))}
+        />
+      )}
+      <TopShapeFields symbol={door} onChange={onChange} />
+
+      {door.doorType !== "opening" && <DoorStyleFields door={door} onChange={onChange} />}
 
       {/* An opening has no leaf, so nothing to hand or swing. */}
       {door.doorType !== "opening" && (
@@ -241,14 +293,67 @@ function FixtureFields({
         valueFeet={fixture.depthFeet}
         onCommit={(feet) => onChange({ ...fixture, depthFeet: feet })}
       />
-      {FIXTURE_IS_BUILT_IN[fixture.fixtureType] && (
+      {(FIXTURE_IS_BUILT_IN[fixture.fixtureType] || fixture.fixtureType === "hood") && (
         <MeasureField
           id="fixture-height"
-          label="Height"
-          hint="How far up the wall it covers. Used for the wall-area deduction."
+          label={fixture.fixtureType === "tubShower" || fixture.fixtureType === "fireplace" ? "Surround height" : "Height"}
+          hint={fixture.fixtureType === "hood" ? "How tall the hood is, from its underside up - to the ceiling for a custom box." : "How far up the wall it covers. Used for the wall-area deduction."}
           valueFeet={fixture.heightFeet}
           onCommit={(feet) => onChange({ ...fixture, heightFeet: feet })}
         />
+      )}
+
+      {/* The details an ESX needs (2026-10-21): what lines a tub or a shower, and what kind of hood it is. */}
+      {(fixture.fixtureType === "tub" || fixture.fixtureType === "shower" || fixture.fixtureType === "tubShower") && (
+        <div className="question">
+          <label className="prompt" htmlFor="fixture-surround">
+            Surround
+          </label>
+          <select
+            id="fixture-surround"
+            value={fixture.surround ?? ""}
+            onChange={(e) => onChange(e.target.value === "" ? withoutField(fixture, "surround") : { ...fixture, surround: e.target.value as SurroundType })}
+          >
+            <option value="">Not said</option>
+            {(Object.keys(SURROUND_LABEL) as SurroundType[]).map((surround) => (
+              <option key={surround} value={surround}>
+                {SURROUND_LABEL[surround]}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+      {fixture.fixtureType === "fireplace" && (
+        <FireplaceFields detail={fixture.fireplace} onChange={(detail) => onChange(detail ? { ...fixture, fireplace: detail } : withoutField(fixture, "fireplace"))} />
+      )}
+      {fixture.fixtureType === "hood" && (
+        <>
+          <div className="question">
+            <label className="prompt" htmlFor="fixture-hood">
+              Hood type
+            </label>
+            <select
+              id="fixture-hood"
+              value={fixture.hoodType ?? ""}
+              onChange={(e) => onChange(e.target.value === "" ? withoutField(fixture, "hoodType") : { ...fixture, hoodType: e.target.value as HoodType })}
+            >
+              <option value="">Not said</option>
+              {(Object.keys(HOOD_TYPE_LABEL) as HoodType[]).map((hood) => (
+                <option key={hood} value={hood}>
+                  {HOOD_TYPE_LABEL[hood]}
+                </option>
+              ))}
+            </select>
+          </div>
+          <MeasureField
+            id="fixture-bottom"
+            label="Underside at"
+            hint={`Height off the floor of the hood's underside. Empty is ${formatFeetInches(HOOD_DEFAULT_BOTTOM_FEET)}, 30" over the counter.`}
+            valueFeet={fixture.bottomFeet ?? null}
+            onCommit={(feet) => onChange({ ...fixture, bottomFeet: feet })}
+            onClear={() => onChange(withoutField(fixture, "bottomFeet"))}
+          />
+        </>
       )}
     </>
   );
@@ -270,7 +375,228 @@ function WindowFields({ window: win, onChange }: { window: WindowSymbol; onChang
         valueFeet={win.sillFeet}
         onCommit={(feet) => onChange({ ...win, sillFeet: feet })}
       />
+      {/* How it opens, how many units, grids - what Xactimate prices a window by besides its size (2026-10-21). */}
+      <div className="question">
+        <label className="prompt" htmlFor="win-type">
+          Window type
+        </label>
+        <select
+          id="win-type"
+          value={win.windowType ?? ""}
+          onChange={(e) => onChange(e.target.value === "" ? withoutField(win, "windowType") : { ...win, windowType: e.target.value as WindowType })}
+        >
+          <option value="">Not said</option>
+          {(Object.keys(WINDOW_TYPE_LABEL) as WindowType[]).map((type) => (
+            <option key={type} value={type}>
+              {WINDOW_TYPE_LABEL[type]}
+            </option>
+          ))}
+        </select>
+      </div>
+      <CountField
+        id="win-units"
+        label="Units in the frame"
+        hint="A triple casement is 3: three units, two mullions between them."
+        value={win.units ?? null}
+        onCommit={(count) => onChange(count == null || count <= 1 ? withoutField(win, "units") : { ...win, units: count })}
+      />
+      <ChoiceRow
+        label="Grids in the glass"
+        choices={[
+          [true, "Grids"],
+          [false, "None"],
+        ]}
+        value={win.grids}
+        onChange={(grids) => onChange(grids === undefined ? withoutField(win, "grids") : { ...win, grids })}
+      />
+      <TopShapeFields symbol={win} onChange={onChange} />
     </>
+  );
+}
+
+/**
+ * The top of a door, an opening or a window: flat, a segmental arch, or a half round - and where its
+ * curve starts, which is left empty unless somebody measured it (`openingTopRiseFeet` assumes).
+ */
+function TopShapeFields({ symbol, onChange }: { symbol: DoorSymbol | WindowSymbol; onChange: (next: SketchSymbol) => void }) {
+  const shape = symbol.topShape ?? "flat";
+  return (
+    <>
+      <div className="question">
+        <label className="prompt">Top</label>
+        <div className="option-group" role="group" aria-label="Top shape">
+          {(Object.keys(OPENING_TOP_LABEL) as OpeningTop[]).map((top) => (
+            <button
+              key={top}
+              type="button"
+              className={`option-btn${shape === top ? " selected" : ""}`}
+              aria-pressed={shape === top}
+              onClick={() => onChange(top === "flat" ? withoutField(withoutField(symbol, "topShape"), "springFeet") : { ...symbol, topShape: top })}
+            >
+              {OPENING_TOP_LABEL[top]}
+            </button>
+          ))}
+        </div>
+      </div>
+      {shape !== "flat" && (
+        <MeasureField
+          id="top-spring"
+          label="Curve starts at"
+          hint={`Height off the floor where the ${shape === "round" ? "half round" : "arch"} springs from the sides. Empty: ${shape === "round" ? "half the width below the top" : "a sixth of the width below the top"}.`}
+          valueFeet={symbol.springFeet ?? null}
+          onCommit={(feet) => onChange({ ...symbol, springFeet: feet })}
+          onClear={() => onChange(withoutField(symbol, "springFeet"))}
+        />
+      )}
+    </>
+  );
+}
+
+/** A door's leaf: its style, its panes of glass, and whether it is an outside door. Each can be left unsaid. */
+function DoorStyleFields({ door, onChange }: { door: DoorSymbol; onChange: (next: SketchSymbol) => void }) {
+  const glazed = door.doorStyle === "half-lite" || door.doorStyle === "full-lite" || door.doorStyle === "french";
+  return (
+    <>
+      <ChoiceRow
+        label="Door style"
+        choices={(Object.keys(DOOR_STYLE_LABEL) as DoorStyle[]).map((style) => [style, DOOR_STYLE_LABEL[style]])}
+        value={door.doorStyle}
+        onChange={(doorStyle) => onChange(doorStyle === undefined ? withoutField(withoutField(door, "doorStyle"), "lites") : { ...door, doorStyle })}
+      />
+      {glazed && (
+        <CountField
+          id="door-lites"
+          label="Lites (panes of glass per leaf)"
+          value={door.lites ?? null}
+          onCommit={(count) => onChange(count == null ? withoutField(door, "lites") : { ...door, lites: count })}
+        />
+      )}
+      <ChoiceRow
+        label="Inside or outside"
+        choices={[
+          [false, "Interior"],
+          [true, "Exterior"],
+        ]}
+        value={door.exterior}
+        onChange={(exterior) => onChange(exterior === undefined ? withoutField(door, "exterior") : { ...door, exterior })}
+      />
+    </>
+  );
+}
+
+/** A fireplace's surround finish and fuel, each left unsaid until somebody says (`FireplaceDetail`). */
+function FireplaceFields({ detail, onChange }: { detail: FireplaceDetail | undefined; onChange: (next: FireplaceDetail | undefined) => void }) {
+  const set = (next: FireplaceDetail) => onChange(Object.keys(next).length > 0 ? next : undefined);
+  return (
+    <>
+      <div className="question">
+        <label className="prompt" htmlFor="fireplace-finish">
+          Surround faced with
+        </label>
+        <select
+          id="fireplace-finish"
+          value={detail?.finish ?? ""}
+          onChange={(e) => set(e.target.value === "" ? withoutField(detail ?? {}, "finish") : { ...detail, finish: e.target.value as FireplaceFinish })}
+        >
+          <option value="">Not said</option>
+          {(Object.keys(FIREPLACE_FINISH_LABEL) as FireplaceFinish[]).map((finish) => (
+            <option key={finish} value={finish}>
+              {FIREPLACE_FINISH_LABEL[finish]}
+            </option>
+          ))}
+        </select>
+      </div>
+      <ChoiceRow
+        label="Fuel"
+        choices={(Object.keys(FIREPLACE_FUEL_LABEL) as FireplaceFuel[]).map((fuel) => [fuel, FIREPLACE_FUEL_LABEL[fuel]])}
+        value={detail?.fuel}
+        onChange={(fuel) => set(fuel === undefined ? withoutField(detail ?? {}, "fuel") : { ...detail, fuel })}
+      />
+    </>
+  );
+}
+
+/** The symbol without one of its optional fields: "not said", which saves as nothing at all. */
+function withoutField<T extends object, K extends keyof T>(value: T, key: K): T {
+  const next = { ...value };
+  delete next[key];
+  return next;
+}
+
+/**
+ * A row of choices where the chosen one can be tapped again to unsay it - for the details that are
+ * optional, so that "not said" stays possible and is never confused with a choice.
+ */
+export function ChoiceRow<V extends string | boolean>({
+  label,
+  choices,
+  value,
+  onChange,
+}: {
+  label: string;
+  choices: [V, string][];
+  value: V | undefined;
+  onChange: (next: V | undefined) => void;
+}) {
+  return (
+    <div className="question">
+      <label className="prompt">{label}</label>
+      <div className="option-group" role="group" aria-label={label}>
+        {choices.map(([choice, text]) => (
+          <button
+            key={String(choice)}
+            type="button"
+            className={`option-btn${value === choice ? " selected" : ""}`}
+            aria-pressed={value === choice}
+            onClick={() => onChange(value === choice ? undefined : choice)}
+          >
+            {text}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** A whole number - lites, units, waterfall ends. Empty is "not said". */
+export function CountField({ id, label, hint, value, onCommit }: { id: string; label: string; hint?: string; value: number | null; onCommit: (count: number | null) => void }) {
+  const [draft, setDraft] = useState(value == null ? "" : String(value));
+  useEffect(() => setDraft(value == null ? "" : String(value)), [value]);
+  function commit() {
+    const raw = draft.trim();
+    if (raw === "") {
+      onCommit(null);
+      return;
+    }
+    const n = Math.round(Number(raw));
+    if (!Number.isFinite(n) || n < 0) {
+      setDraft(value == null ? "" : String(value));
+      return;
+    }
+    onCommit(n);
+  }
+  return (
+    <div className="question">
+      <label className="prompt" htmlFor={id}>
+        {label}
+      </label>
+      <input
+        id={id}
+        type="text"
+        inputMode="numeric"
+        autoComplete="off"
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            commit();
+          }
+        }}
+      />
+      {hint && <p className="field-note">{hint}</p>}
+    </div>
   );
 }
 
@@ -326,7 +652,111 @@ function CabinetFields({ cabinet, onChange }: { cabinet: CabinetSymbol; onChange
         valueFeet={cabinet.heightFeet}
         onCommit={(feet) => onChange({ ...cabinet, heightFeet: feet })}
       />
+
+      {/*
+        THE DETAILS AN ESX NEEDS (2026-10-21), each left empty unless somebody says: where the box starts - the owner's
+        glass hutch sits on the counter, not 18" over it - its doors, an appliance in the run, the top on it.
+      */}
+      <MeasureField
+        id="cab-bottom"
+        label="Bottom of the box at"
+        hint={`Height off the floor where the box starts. Empty is the standard: ${formatFeetInches(CABINET_DEFAULT_BOTTOM_FEET.wall)} for an upper, the floor for the rest. An upper sitting on the counter is 3'.`}
+        valueFeet={cabinet.bottomFeet ?? null}
+        onCommit={(feet) => onChange({ ...cabinet, bottomFeet: feet })}
+        onClear={() => onChange(withoutField(cabinet, "bottomFeet"))}
+      />
+      <ChoiceRow
+        label="Doors"
+        choices={(Object.keys(CABINET_DOORS_LABEL) as CabinetDoors[]).map((doors) => [doors, CABINET_DOORS_LABEL[doors]])}
+        value={cabinet.doors}
+        onChange={(doors) => onChange(doors === undefined ? withoutField(cabinet, "doors") : { ...cabinet, doors })}
+      />
+      {cabinet.tier === "full" && (
+        <>
+          <ChoiceRow
+            label="Appliance in it"
+            choices={(Object.keys(APPLIANCE_BAY_LABEL) as ApplianceBay[]).map((bay) => [bay, APPLIANCE_BAY_LABEL[bay]])}
+            value={cabinet.bay}
+            onChange={(bay) => onChange(bay === undefined ? withoutField(withoutField(cabinet, "bay"), "bayHeightFeet") : bay === "fridge" ? { ...cabinet, bay } : withoutField({ ...cabinet, bay }, "bayHeightFeet"))}
+          />
+          {cabinet.bay === "fridge" && (
+            <MeasureField
+              id="cab-bay-height"
+              label="Fridge opening height"
+              hint={`Floor to the underside of the cabinet over the fridge. Empty is ${formatFeetInches(FRIDGE_BAY_DEFAULT_HEIGHT_FEET)}. Only the box over it counts as cabinet.`}
+              valueFeet={cabinet.bayHeightFeet ?? null}
+              onCommit={(feet) => onChange({ ...cabinet, bayHeightFeet: feet })}
+              onClear={() => onChange(withoutField(cabinet, "bayHeightFeet"))}
+            />
+          )}
+        </>
+      )}
+      {cabinet.tier === "base" && (
+        <CountertopFields top={cabinet.countertop} againstWall onChange={(countertop) => onChange(countertop ? { ...cabinet, countertop } : withoutField(cabinet, "countertop"))} />
+      )}
     </>
+  );
+}
+
+/**
+ * The top on a lower run or an island (`Countertop`): ticked on, then each detail as far as anyone
+ * knows it. Its length is the run's and its depth the box's plus the overhang, so nothing here asks
+ * for either.
+ */
+function CountertopFields({ top, againstWall, onChange }: { top: Countertop | undefined; againstWall: boolean; onChange: (next: Countertop | undefined) => void }) {
+  return (
+    <div className="question">
+      <label className="checkbox-label">
+        <input type="checkbox" checked={top !== undefined} onChange={(e) => onChange(e.target.checked ? {} : undefined)} />
+        Countertop on it
+      </label>
+      {top && (
+        <>
+          <label className="prompt" htmlFor="top-material" style={{ marginTop: 12 }}>
+            Material
+          </label>
+          <select
+            id="top-material"
+            value={top.material ?? ""}
+            onChange={(e) => onChange(e.target.value === "" ? withoutField(top, "material") : { ...top, material: e.target.value as CountertopMaterial })}
+          >
+            <option value="">Not said</option>
+            {(Object.keys(COUNTERTOP_MATERIAL_LABEL) as CountertopMaterial[]).map((material) => (
+              <option key={material} value={material}>
+                {COUNTERTOP_MATERIAL_LABEL[material]}
+              </option>
+            ))}
+          </select>
+          <MeasureField
+            id="top-overhang"
+            label="Overhang past the cabinet"
+            hint={`Empty is a ${formatSmallDimension(COUNTERTOP_DEFAULT_OVERHANG_FEET)} nosing. An island's stool overhang is often 10" to 1'.`}
+            valueFeet={top.overhangFeet ?? null}
+            onCommit={(feet) => onChange({ ...top, overhangFeet: feet })}
+            onClear={() => onChange(withoutField(top, "overhangFeet"))}
+          />
+          <ChoiceRow
+            label="Waterfall ends"
+            choices={[
+              ["1", "One end"],
+              ["2", "Both ends"],
+            ]}
+            value={top.waterfallEnds ? (String(top.waterfallEnds) as "1" | "2") : undefined}
+            onChange={(ends) => onChange(ends === undefined ? withoutField(top, "waterfallEnds") : { ...top, waterfallEnds: Number(ends) })}
+          />
+          {againstWall && (
+            <MeasureField
+              id="top-backsplash"
+              label="Backsplash height"
+              hint={`Empty for none. 4" for a standard splash; up to the uppers for a full tile one.`}
+              valueFeet={top.backsplashFeet ?? null}
+              onCommit={(feet) => onChange({ ...top, backsplashFeet: feet })}
+              onClear={() => onChange(withoutField(top, "backsplashFeet"))}
+            />
+          )}
+        </>
+      )}
+    </div>
   );
 }
 
@@ -347,15 +777,61 @@ export function FreeCabinetPanel({
   onChange: (next: FreeCabinet) => void;
   onDelete: () => void;
 }) {
+  const beam = blockKind(cabinet) === "beam";
+  const fireplace = blockKind(cabinet) === "fireplace";
   return (
     <div className="sketch-panel-body">
       <div className="question">
         <label className="prompt" htmlFor="island-label">
           Label
         </label>
-        <input id="island-label" type="text" value={cabinet.label} placeholder="e.g. Island" onChange={(e) => onChange({ ...cabinet, label: e.target.value })} />
+        <input id="island-label" type="text" value={cabinet.label} placeholder={`e.g. ${blockDefaultLabel(cabinet)}`} onChange={(e) => onChange({ ...cabinet, label: e.target.value })} />
       </div>
 
+      {/*
+        WHAT IT IS (2026-10-21): a cabinet, a fireplace, or a beam overhead - one block, as a corner fireplace already
+        was, rather than a tool of its own for each. The owner's corner fireplace was tapped as a 1.14 m cabinet.
+      */}
+      <div className="question">
+        <label className="prompt">What it is</label>
+        <div className="option-group" role="group" aria-label="What the block is">
+          {(Object.keys(BLOCK_KIND_LABEL) as BlockKind[]).map((kind) => (
+            <button
+              key={kind}
+              type="button"
+              className={`option-btn${kind === blockKind(cabinet) ? " selected" : ""}`}
+              aria-pressed={kind === blockKind(cabinet)}
+              onClick={() => onChange(kind === "cabinet" ? withoutField(cabinet, "kind") : { ...cabinet, kind })}
+            >
+              {BLOCK_KIND_LABEL[kind]}
+            </button>
+          ))}
+        </div>
+        {beam && <p className="field-note">Overhead: its length runs along the beam, its width across it. It takes nothing off the floor or the walls; its wrap is priced on its own.</p>}
+      </div>
+
+      {beam && (
+        <>
+          <ChoiceRow
+            label="Kind"
+            choices={(Object.keys(BEAM_TYPE_LABEL) as BeamType[]).map((type) => [type, BEAM_TYPE_LABEL[type]])}
+            value={cabinet.beam?.type}
+            onChange={(type) => onChange({ ...cabinet, beam: type === undefined ? withoutField(cabinet.beam ?? {}, "type") : { ...cabinet.beam, type } })}
+          />
+          <MeasureField
+            id="beam-drop"
+            label="Drops below the ceiling"
+            hint="Ceiling to the underside of the beam. Empty if nobody measured it."
+            valueFeet={cabinet.beam?.dropFeet ?? null}
+            onCommit={(feet) => onChange({ ...cabinet, beam: { ...cabinet.beam, dropFeet: feet } })}
+            onClear={() => onChange({ ...cabinet, beam: withoutField(cabinet.beam ?? {}, "dropFeet") })}
+          />
+        </>
+      )}
+
+      {fireplace && <FireplaceFields detail={cabinet.fireplace} onChange={(detail) => onChange(detail ? { ...cabinet, fireplace: detail } : withoutField(cabinet, "fireplace"))} />}
+
+      {!beam && !fireplace && (
       <div className="question">
         <label className="prompt">Cabinet type</label>
         <div className="option-group" role="group" aria-label="Cabinet tier">
@@ -372,16 +848,17 @@ export function FreeCabinetPanel({
           ))}
         </div>
       </div>
+      )}
 
       <MeasureField
         id="island-width"
-        label="Width"
+        label={beam ? "Length" : "Width"}
         valueFeet={cabinet.widthFeet}
         onCommit={(feet) => onChange({ ...cabinet, widthFeet: feet, widthPx: feet * PIXELS_PER_FOOT })}
       />
       <MeasureField
         id="island-depth"
-        label="Depth"
+        label={beam ? "Width across" : "Depth"}
         valueFeet={cabinet.depthFeet}
         onCommit={(feet) => onChange({ ...cabinet, depthFeet: feet, depthPx: feet * PIXELS_PER_FOOT })}
       />
@@ -394,6 +871,7 @@ export function FreeCabinetPanel({
         for on 2026-09-24: "I would rather the walls remain as square corners and then the corner
         unit gets placed in much like a cabinet might, just a block."
       */}
+      {!beam && (
       <div className="question">
         <label className="prompt">Shape</label>
         <div className="option-group" role="group" aria-label="Block shape">
@@ -416,6 +894,7 @@ export function FreeCabinetPanel({
           </p>
         )}
       </div>
+      )}
 
       {/*
         TURN, in quarters and in eighths. Quarters walk a corner unit round the four corners of a
@@ -445,16 +924,40 @@ export function FreeCabinetPanel({
         cabinet's height is: a seeded height is a measurement nobody took, presented as one, and the
         wall behind a block is deducted only when somebody says how tall it is.
       */}
+      {!beam && (
+        <>
       <MeasureField
         id="island-height"
-        label="Height"
+        label={fireplace ? "Surround height" : "Height"}
         valueFeet={cabinet.heightFeet ?? null}
         onCommit={(feet) => onChange({ ...cabinet, heightFeet: feet })}
       />
       <p className="field-note">
-        Only used to take the wall behind the block out of the wall area, and only when that deduction is switched on. Leave
-        it empty if nobody measured it.
+        {fireplace
+          ? "How high its surround is faced - to the ceiling if it runs there. Priced as the surround's face, and takes the wall behind it out of the wall area when that deduction is on."
+          : "Only used to take the wall behind the block out of the wall area, and only when that deduction is switched on. Leave it empty if nobody measured it."}
       </p>
+        </>
+      )}
+
+      {/* Its doors and its top (2026-10-21), as on a wall run - an island's countertop is usually the bigger number. */}
+      {!beam && !fireplace && (
+        <>
+      <ChoiceRow
+        label="Doors"
+        choices={(Object.keys(CABINET_DOORS_LABEL) as CabinetDoors[]).map((doors) => [doors, CABINET_DOORS_LABEL[doors]])}
+        value={cabinet.doors}
+        onChange={(doors) => onChange(doors === undefined ? withoutField(cabinet, "doors") : { ...cabinet, doors })}
+      />
+      {cabinet.tier === "base" && (
+        <CountertopFields
+          top={cabinet.countertop}
+          againstWall
+          onChange={(countertop) => onChange(countertop ? { ...cabinet, countertop } : withoutField(cabinet, "countertop"))}
+        />
+      )}
+        </>
+      )}
 
       <div className="actions-row">
         <button className="btn-secondary" onClick={onDelete}>
@@ -474,18 +977,21 @@ export function FreeCabinetPanel({
  * halfway through). It commits on blur and on Enter, and re-syncs whenever the underlying value
  * changes from elsewhere — dragging a handle, for instance.
  */
-function MeasureField({
+export function MeasureField({
   id,
   label,
   hint,
   valueFeet,
   onCommit,
+  onClear,
 }: {
   id: string;
   label: string;
   hint?: string;
   valueFeet: number | null;
   onCommit: (feet: number) => void;
+  /** When given, an emptied field means "not said" and calls this; without it, emptying puts the value back. */
+  onClear?: () => void;
 }) {
   const [draft, setDraft] = useState(valueFeet == null ? "" : formatFeetInches(valueFeet));
   const [invalid, setInvalid] = useState(false);
@@ -497,6 +1003,11 @@ function MeasureField({
 
   function commit() {
     if (draft.trim() === "") {
+      if (onClear && valueFeet != null) {
+        setInvalid(false);
+        onClear();
+        return;
+      }
       setDraft(valueFeet == null ? "" : formatFeetInches(valueFeet));
       setInvalid(false);
       return;
