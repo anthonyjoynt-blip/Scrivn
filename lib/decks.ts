@@ -770,7 +770,7 @@ export function deckLines(q: DeckQuantities): string[] {
   const out: string[] = [];
   const decking = d.decking === "other" && d.deckingLabel?.trim() ? `${d.deckingLabel.trim().toLowerCase()} decking` : DECKING_LABEL[d.decking].toLowerCase();
   // Said where the roof covers a real share of it - a covered deck, a porch - not where only the eave's overhang reaches over.
-  const roofed = coveredShare(q) ? ` (${num(q.coveredSquareFeet)} SF of it under the house's roof)` : "";
+  const roofed = !coveredShare(q) ? "" : q.openSquareFeet < 0.5 ? " (all of it under the house's roof)" : ` (${num(q.coveredSquareFeet)} SF of it under the house's roof)`;
   out.push(tag(`${decking} – ${num(q.areaSquareFeet)} SF${roofed}`));
   for (const r of q.railingByKind) {
     const extra = [r.stairFeet > 0.05 ? `incl. ${num(r.stairFeet)} LF on the stairs` : "", r.heights.length === 1 ? `${ft(r.heights[0] as number)} high` : "", r.gates > 0 ? plural(r.gates, "gate") : ""].filter(Boolean);
