@@ -98,7 +98,7 @@ export function measureRoute(
   // The corners the user did not number, numbered on the shape drawn; then again on the shape measured.
   const withCorners = (corners: CornerTap[]): PhotoRouteInput => ({ ...input, buildings: input.buildings.map((b) => (b.id === buildingId ? { ...b, corners } : b)) });
   const once = withCorners(numberCorners(input, buildingId, first.data));
-  const rough = solveRoute(once, buildingId, first.data, opts.solve);
+  const rough = solveRoute(once, buildingId, first.data, { ...opts.solve, guesses: false });
   const k = rough.solution.k;
   const prepared = Math.abs(k - first.level.k) < 0.003 ? first : preparePhotos(once, pixels, lines, { k });
   const corners = numberCorners(once, buildingId, prepared.data, rough.corners);

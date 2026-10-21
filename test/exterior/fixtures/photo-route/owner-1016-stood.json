@@ -1,0 +1,30 @@
+{
+ "format": "scrivn-photo-route-stood/1",
+ "about": "Where the owner stood for each of the six photos that show one corner (2026-10-20, every photo counts): his answer to the pane's 'Where did you stand for this photo?', as one tap on the shape as drawn (plan feet, the fixture owner-1016.json's outline). Taken from the 10-16 proof's solved cameras (photo-route-proof/final_geom.json), carried onto the drawn shape corner by corner along each axis - as near as a tap on a phone would put them. No API.",
+ "standAt": {
+  "1": [
+   -8.8,
+   -7.2
+  ],
+  "2": [
+   -20.2,
+   6.5
+  ],
+  "3": [
+   -30.9,
+   33.8
+  ],
+  "10": [
+   17.8,
+   91.7
+  ],
+  "12": [
+   29,
+   61.3
+  ],
+  "13": [
+   28.5,
+   13.9
+  ]
+ }
+}
