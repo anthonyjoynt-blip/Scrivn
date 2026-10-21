@@ -65,6 +65,7 @@ import {
   symbolCentrePx,
   symbolOffsetsPx,
   PIXELS_PER_FOOT,
+  COUNTERTOP_DEFAULT_OVERHANG_FEET,
   symbolsInDrawOrder,
   tapFractionOnWall,
   cappedInset,
@@ -3083,6 +3084,22 @@ function FreeCabinetShape({
         strokeWidth={(selected ? 2.5 : 1.5) / zoom}
         dash={upper ? [5 / zoom, 3 / zoom] : undefined}
       />
+      {/*
+        Its top (2026-10-21): the overhang on its front - the stool side of an island, the side its depth runs to -
+        and a heavy line down each waterfall end.
+      */}
+      {cabinet.countertop && !triangle && (() => {
+        const reach = depth + Math.max(0, cabinet.countertop.overhangFeet ?? COUNTERTOP_DEFAULT_OVERHANG_FEET) * PIXELS_PER_FOOT;
+        const ends = cabinet.countertop.waterfallEnds ?? 0;
+        return (
+          <>
+            {reach > depth + 0.5 && <Line points={[0, depth, 0, reach, width, reach, width, depth]} stroke={COLORS.symbol} strokeWidth={0.8 / zoom} listening={false} />}
+            {ends >= 1 && <Line points={[width, 0, width, reach]} stroke={COLORS.symbol} strokeWidth={3 / zoom} listening={false} />}
+            {ends >= 2 && <Line points={[0, 0, 0, reach]} stroke={COLORS.symbol} strokeWidth={3 / zoom} listening={false} />}
+          </>
+        );
+      })()}
+      {cabinet.doors === "open" && !triangle && [0.33, 0.66].map((f) => <Line key={f} points={[0, depth * f, width, depth * f]} stroke={COLORS.symbol} strokeWidth={0.8 / zoom} listening={false} />)}
       <Text
         x={0}
         y={depth / 2 - 6 / zoom}
@@ -3469,11 +3486,36 @@ function FixtureGlyph({ fixture, x0, w, depth }: { fixture: FixtureSymbol; x0: n
           <Rect x={x0 + w * 0.12} y={depth * 0.18} width={w * 0.76} height={depth * 0.64} dash={[3, 2]} {...stroke} />
         </>
       );
+    // 2026-10-21: a one-piece tub/shower is a tub with its surround up the walls round it, drawn as a heavier back and ends.
+    case "tubShower":
+      return (
+        <>
+          <Rect x={x0} y={0} width={w} height={depth} fill={COLORS.fill} {...stroke} />
+          <Rect x={x0 + w * 0.06} y={depth * 0.12} width={w * 0.88} height={depth * 0.76} cornerRadius={Math.min(w, depth) * 0.16} {...stroke} />
+          <Line points={[x0, depth, x0, 0, x0 + w, 0, x0 + w, depth]} stroke={COLORS.symbol} strokeWidth={3} listening={false} />
+          <Circle x={x0 + w * 0.14} y={depth * 0.5} radius={Math.min(w, depth) * 0.07} {...stroke} />
+        </>
+      );
+    // A range hood hangs overhead: dashed, as everything over the floor is, and crossed.
+    case "hood":
+      return (
+        <>
+          <Rect x={x0} y={0} width={w} height={depth} dash={[5, 3]} {...stroke} />
+          <Line points={[x0, 0, x0 + w, depth]} {...stroke} dash={[5, 3]} />
+          <Line points={[x0 + w, 0, x0, depth]} {...stroke} dash={[5, 3]} />
+        </>
+      );
   }
 }
 
 function CabinetGlyph({ cabinet, x0, w, depth, flip }: { cabinet: CabinetSymbol; x0: number; w: number; depth: number; flip: boolean }) {
   const upper = cabinet.tier === "wall";
+  // A fridge bay is a box overhead with a fridge under it: drawn as an upper is, crossed like the space it leaves.
+  const overhead = upper || cabinet.bay === "fridge";
+  const thin = { stroke: COLORS.symbol, strokeWidth: 0.8, listening: false as const };
+  const top = cabinet.countertop;
+  const reach = top ? depth + Math.max(0, top.overhangFeet ?? COUNTERTOP_DEFAULT_OVERHANG_FEET) * PIXELS_PER_FOOT : depth;
+  const fallback = cabinet.bay ? (cabinet.bay === "fridge" ? "Fridge bay" : "Oven") : upper ? "Upper" : "Cabinet";
 
   return (
     <>
@@ -3482,12 +3524,20 @@ function CabinetGlyph({ cabinet, x0, w, depth, flip }: { cabinet: CabinetSymbol;
         y={0}
         width={w}
         height={depth}
-        fill={upper ? undefined : COLORS.cabinet}
+        fill={overhead || cabinet.doors === "open" ? undefined : COLORS.cabinet}
         stroke={COLORS.symbol}
         strokeWidth={1.5}
-        dash={upper ? [5, 3] : undefined}
+        dash={overhead ? [5, 3] : undefined}
         listening={false}
       />
+      {/* 2026-10-21. Glass doors: the glass along the front. Open shelving: the shelves, no doors. */}
+      {cabinet.doors === "glass" && <Line points={[x0 + 2, depth - 2.5, x0 + w - 2, depth - 2.5]} {...thin} dash={[2, 2]} />}
+      {cabinet.doors === "open" && [0.33, 0.66].map((f) => <Line key={f} points={[x0 + 1, depth * f, x0 + w - 1, depth * f]} {...thin} />)}
+      {cabinet.bay === "fridge" && <Line points={[x0, 0, x0 + w, depth]} {...thin} />}
+      {/* A countertop's overhang, past the box; a waterfall end, a heavy line down the end. */}
+      {top && reach > depth + 0.5 && <Line points={[x0, depth, x0, reach, x0 + w, reach, x0 + w, depth]} {...thin} />}
+      {top && (top.waterfallEnds ?? 0) >= 1 && <Line points={[x0 + w, 0, x0 + w, reach]} stroke={COLORS.symbol} strokeWidth={3} listening={false} />}
+      {top && (top.waterfallEnds ?? 0) >= 2 && <Line points={[x0, 0, x0, reach]} stroke={COLORS.symbol} strokeWidth={3} listening={false} />}
       {/* Turned to read the right way up on a wall that points left, like every other figure on the
           plan — the label came out upside down along every bottom wall. Turned about its own centre,
           so it stays in the middle of the block. */}
@@ -3497,7 +3547,7 @@ function CabinetGlyph({ cabinet, x0, w, depth, flip }: { cabinet: CabinetSymbol;
           y={-5}
           width={w}
           align="center"
-          text={cabinet.label || (upper ? "Upper" : "Cabinet")}
+          text={cabinet.label || fallback}
           fontSize={9}
           fill={COLORS.symbol}
           listening={false}

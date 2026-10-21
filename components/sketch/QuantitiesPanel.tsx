@@ -2,7 +2,7 @@
 
 import type { Sketch } from "@/lib/sketch";
 import { formatFeetInches, isCeilingZone } from "@/lib/sketch";
-import { type QuantityOptions, formatQuantity, roomQuantities } from "@/lib/sketchQuantities";
+import { type QuantityOptions, formatQuantity, roomDetailLines, roomQuantities } from "@/lib/sketchQuantities";
 
 /**
  * The measured quantities, per room — the numbers someone actually estimates from.
@@ -105,6 +105,29 @@ export function QuantitiesPanel({
           </tbody>
         </table>
       </div>
+
+      {/*
+        THE DETAILS (2026-10-21): what the walls and fittings carry beyond the five - countertops, trim, beams - each a
+        line an estimate prices. Only rooms that have some, so a sketch without any shows nothing new at all.
+      */}
+      {(() => {
+        const rows = sketch.rooms
+          .map((room) => ({ room, lines: roomDetailLines(roomQuantities(room, sketch, options).details) }))
+          .filter((row) => row.lines.length > 0);
+        if (rows.length === 0) return null;
+        return (
+          <div className="sketch-qty-details">
+            <h4>Details</h4>
+            <ul>
+              {rows.map(({ room, lines }) => (
+                <li key={room.id}>
+                  <strong>{room.name.trim() || "Unnamed room"}</strong>: {lines.join("; ")}
+                </li>
+              ))}
+            </ul>
+          </div>
+        );
+      })()}
 
       <p className="field-note">
         LF = linear feet, SF = square feet. A struck-through figure is the gross before deductions. Wall area uses each room&rsquo;s ceiling height

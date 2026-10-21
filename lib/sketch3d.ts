@@ -22,6 +22,9 @@
 
 import {
   blockCorners,
+  blockShape,
+  COUNTERTOP_DEFAULT_OVERHANG_FEET,
+  fridgeBayHeightFeet,
   ceilingRiseDegOf,
   halfWallRuns,
   missingWallRuns,
@@ -554,7 +557,11 @@ function roomCabinets(room: SketchRoom, levelRooms: Sketch["rooms"], sketch: Ske
     const d = Math.max(0, symbol.depthFeet) * PIXELS_PER_FOOT;
     const a = { x: wall.x1 + ux * (c - w / 2), y: wall.y1 + uy * (c - w / 2) };
     const b = { x: wall.x1 + ux * (c + w / 2), y: wall.y1 + uy * (c + w / 2) };
-    const [y0, y1] = cabinetHeights(symbol.tier, symbol.heightFeet);
+    let [y0, y1] = cabinetHeights(symbol.tier, symbol.heightFeet);
+    // Where somebody said the box starts (2026-10-21): an upper on the counter sits on it.
+    if (symbol.bottomFeet != null) [y0, y1] = [symbol.bottomFeet, symbol.bottomFeet + (y1 - y0)];
+    // A fridge bay is the box over the fridge only.
+    if (symbol.bay === "fridge") y0 = Math.min(y1, Math.max(y0, fridgeBayHeightFeet(symbol)));
     out.push({
       kind: "cabinet",
       roomId: room.id,
@@ -563,14 +570,35 @@ function roomCabinets(room: SketchRoom, levelRooms: Sketch["rooms"], sketch: Ske
       y0: baseY + y0,
       y1: baseY + y1,
     });
+    // Its countertop: a slab on the box, out to the overhang.
+    if (symbol.countertop) {
+      const r = d + Math.max(0, symbol.countertop.overhangFeet ?? COUNTERTOP_DEFAULT_OVERHANG_FEET) * PIXELS_PER_FOOT;
+      out.push({
+        kind: "cabinet",
+        roomId: room.id,
+        level,
+        points: [pt(a.x, a.y), pt(b.x, b.y), pt(b.x + ix * r, b.y + iy * r), pt(a.x + ix * r, a.y + iy * r)],
+        y0: baseY + y1,
+        y1: baseY + y1 + COUNTERTOP_THICKNESS_FEET,
+      });
+    }
   }
   for (const block of room.freeCabinets ?? []) {
     const corners = blockCorners(block, room);
     if (corners.length < 3) continue;
     const [y0, y1] = cabinetHeights(block.tier, block.heightFeet);
     out.push({ kind: "cabinet", roomId: room.id, level, points: corners.map((p) => pt(p.x, p.y)), y0: baseY + y0, y1: baseY + y1 });
+    if (block.countertop && blockShape(block) !== "triangle" && block.depthFeet != null) {
+      // The top over the whole block and its overhang: the block deepened on its front, then turned with it.
+      const over = Math.max(0, block.countertop.overhangFeet ?? COUNTERTOP_DEFAULT_OVERHANG_FEET);
+      const top = blockCorners({ ...block, depthFeet: block.depthFeet + over, depthPx: block.depthPx + over * PIXELS_PER_FOOT }, room);
+      out.push({ kind: "cabinet", roomId: room.id, level, points: top.map((p) => pt(p.x, p.y)), y0: baseY + y1, y1: baseY + y1 + COUNTERTOP_THICKNESS_FEET });
+    }
   }
 }
+
+/** A countertop slab's thickness in the 3D view: an inch and a half. */
+const COUNTERTOP_THICKNESS_FEET = 1.5 / 12;
 
 /** A flight as steps: each tread a block up to its own height, climbing (or descending) the way it is drawn. */
 function stairSteps(room: SketchRoom, level: number, baseY: number, out: Prism[]): void {

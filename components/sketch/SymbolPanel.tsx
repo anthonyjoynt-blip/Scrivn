@@ -23,6 +23,21 @@ import {
   DOOR_STYLE_LABEL,
   OPENING_TOP_LABEL,
   WINDOW_TYPE_LABEL,
+  type ApplianceBay,
+  type CabinetDoors,
+  type Countertop,
+  type CountertopMaterial,
+  type HoodType,
+  type SurroundType,
+  APPLIANCE_BAY_LABEL,
+  CABINET_DEFAULT_BOTTOM_FEET,
+  CABINET_DOORS_LABEL,
+  COUNTERTOP_DEFAULT_OVERHANG_FEET,
+  COUNTERTOP_MATERIAL_LABEL,
+  FRIDGE_BAY_DEFAULT_HEIGHT_FEET,
+  HOOD_DEFAULT_BOTTOM_FEET,
+  HOOD_TYPE_LABEL,
+  SURROUND_LABEL,
   CABINET_DEFAULT_DEPTH_FEET,
   PIXELS_PER_FOOT,
   CABINET_DEFAULT_HEIGHT_FEET,
@@ -32,6 +47,7 @@ import {
   DOOR_LEAVES_LABEL,
   DOOR_TYPE_LABEL,
   formatFeetInches,
+  formatSmallDimension,
   parseFeetInches,
   symbolWidthFeet,
   withFixtureType,
@@ -266,14 +282,64 @@ function FixtureFields({
         valueFeet={fixture.depthFeet}
         onCommit={(feet) => onChange({ ...fixture, depthFeet: feet })}
       />
-      {FIXTURE_IS_BUILT_IN[fixture.fixtureType] && (
+      {(FIXTURE_IS_BUILT_IN[fixture.fixtureType] || fixture.fixtureType === "hood") && (
         <MeasureField
           id="fixture-height"
-          label="Height"
-          hint="How far up the wall it covers. Used for the wall-area deduction."
+          label={fixture.fixtureType === "tubShower" ? "Surround height" : "Height"}
+          hint={fixture.fixtureType === "hood" ? "How tall the hood is, from its underside up - to the ceiling for a custom box." : "How far up the wall it covers. Used for the wall-area deduction."}
           valueFeet={fixture.heightFeet}
           onCommit={(feet) => onChange({ ...fixture, heightFeet: feet })}
         />
+      )}
+
+      {/* The details an ESX needs (2026-10-21): what lines a tub or a shower, and what kind of hood it is. */}
+      {(fixture.fixtureType === "tub" || fixture.fixtureType === "shower" || fixture.fixtureType === "tubShower") && (
+        <div className="question">
+          <label className="prompt" htmlFor="fixture-surround">
+            Surround
+          </label>
+          <select
+            id="fixture-surround"
+            value={fixture.surround ?? ""}
+            onChange={(e) => onChange(e.target.value === "" ? withoutField(fixture, "surround") : { ...fixture, surround: e.target.value as SurroundType })}
+          >
+            <option value="">Not said</option>
+            {(Object.keys(SURROUND_LABEL) as SurroundType[]).map((surround) => (
+              <option key={surround} value={surround}>
+                {SURROUND_LABEL[surround]}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+      {fixture.fixtureType === "hood" && (
+        <>
+          <div className="question">
+            <label className="prompt" htmlFor="fixture-hood">
+              Hood type
+            </label>
+            <select
+              id="fixture-hood"
+              value={fixture.hoodType ?? ""}
+              onChange={(e) => onChange(e.target.value === "" ? withoutField(fixture, "hoodType") : { ...fixture, hoodType: e.target.value as HoodType })}
+            >
+              <option value="">Not said</option>
+              {(Object.keys(HOOD_TYPE_LABEL) as HoodType[]).map((hood) => (
+                <option key={hood} value={hood}>
+                  {HOOD_TYPE_LABEL[hood]}
+                </option>
+              ))}
+            </select>
+          </div>
+          <MeasureField
+            id="fixture-bottom"
+            label="Underside at"
+            hint={`Height off the floor of the hood's underside. Empty is ${formatFeetInches(HOOD_DEFAULT_BOTTOM_FEET)}, 30" over the counter.`}
+            valueFeet={fixture.bottomFeet ?? null}
+            onCommit={(feet) => onChange({ ...fixture, bottomFeet: feet })}
+            onClear={() => onChange(withoutField(fixture, "bottomFeet"))}
+          />
+        </>
       )}
     </>
   );
@@ -540,7 +606,111 @@ function CabinetFields({ cabinet, onChange }: { cabinet: CabinetSymbol; onChange
         valueFeet={cabinet.heightFeet}
         onCommit={(feet) => onChange({ ...cabinet, heightFeet: feet })}
       />
+
+      {/*
+        THE DETAILS AN ESX NEEDS (2026-10-21), each left empty unless somebody says: where the box starts - the owner's
+        glass hutch sits on the counter, not 18" over it - its doors, an appliance in the run, the top on it.
+      */}
+      <MeasureField
+        id="cab-bottom"
+        label="Bottom of the box at"
+        hint={`Height off the floor where the box starts. Empty is the standard: ${formatFeetInches(CABINET_DEFAULT_BOTTOM_FEET.wall)} for an upper, the floor for the rest. An upper sitting on the counter is 3'.`}
+        valueFeet={cabinet.bottomFeet ?? null}
+        onCommit={(feet) => onChange({ ...cabinet, bottomFeet: feet })}
+        onClear={() => onChange(withoutField(cabinet, "bottomFeet"))}
+      />
+      <ChoiceRow
+        label="Doors"
+        choices={(Object.keys(CABINET_DOORS_LABEL) as CabinetDoors[]).map((doors) => [doors, CABINET_DOORS_LABEL[doors]])}
+        value={cabinet.doors}
+        onChange={(doors) => onChange(doors === undefined ? withoutField(cabinet, "doors") : { ...cabinet, doors })}
+      />
+      {cabinet.tier === "full" && (
+        <>
+          <ChoiceRow
+            label="Appliance in it"
+            choices={(Object.keys(APPLIANCE_BAY_LABEL) as ApplianceBay[]).map((bay) => [bay, APPLIANCE_BAY_LABEL[bay]])}
+            value={cabinet.bay}
+            onChange={(bay) => onChange(bay === undefined ? withoutField(withoutField(cabinet, "bay"), "bayHeightFeet") : bay === "fridge" ? { ...cabinet, bay } : withoutField({ ...cabinet, bay }, "bayHeightFeet"))}
+          />
+          {cabinet.bay === "fridge" && (
+            <MeasureField
+              id="cab-bay-height"
+              label="Fridge opening height"
+              hint={`Floor to the underside of the cabinet over the fridge. Empty is ${formatFeetInches(FRIDGE_BAY_DEFAULT_HEIGHT_FEET)}. Only the box over it counts as cabinet.`}
+              valueFeet={cabinet.bayHeightFeet ?? null}
+              onCommit={(feet) => onChange({ ...cabinet, bayHeightFeet: feet })}
+              onClear={() => onChange(withoutField(cabinet, "bayHeightFeet"))}
+            />
+          )}
+        </>
+      )}
+      {cabinet.tier === "base" && (
+        <CountertopFields top={cabinet.countertop} againstWall onChange={(countertop) => onChange(countertop ? { ...cabinet, countertop } : withoutField(cabinet, "countertop"))} />
+      )}
     </>
+  );
+}
+
+/**
+ * The top on a lower run or an island (`Countertop`): ticked on, then each detail as far as anyone
+ * knows it. Its length is the run's and its depth the box's plus the overhang, so nothing here asks
+ * for either.
+ */
+function CountertopFields({ top, againstWall, onChange }: { top: Countertop | undefined; againstWall: boolean; onChange: (next: Countertop | undefined) => void }) {
+  return (
+    <div className="question">
+      <label className="checkbox-label">
+        <input type="checkbox" checked={top !== undefined} onChange={(e) => onChange(e.target.checked ? {} : undefined)} />
+        Countertop on it
+      </label>
+      {top && (
+        <>
+          <label className="prompt" htmlFor="top-material" style={{ marginTop: 12 }}>
+            Material
+          </label>
+          <select
+            id="top-material"
+            value={top.material ?? ""}
+            onChange={(e) => onChange(e.target.value === "" ? withoutField(top, "material") : { ...top, material: e.target.value as CountertopMaterial })}
+          >
+            <option value="">Not said</option>
+            {(Object.keys(COUNTERTOP_MATERIAL_LABEL) as CountertopMaterial[]).map((material) => (
+              <option key={material} value={material}>
+                {COUNTERTOP_MATERIAL_LABEL[material]}
+              </option>
+            ))}
+          </select>
+          <MeasureField
+            id="top-overhang"
+            label="Overhang past the cabinet"
+            hint={`Empty is a ${formatSmallDimension(COUNTERTOP_DEFAULT_OVERHANG_FEET)} nosing. An island's stool overhang is often 10" to 1'.`}
+            valueFeet={top.overhangFeet ?? null}
+            onCommit={(feet) => onChange({ ...top, overhangFeet: feet })}
+            onClear={() => onChange(withoutField(top, "overhangFeet"))}
+          />
+          <ChoiceRow
+            label="Waterfall ends"
+            choices={[
+              ["1", "One end"],
+              ["2", "Both ends"],
+            ]}
+            value={top.waterfallEnds ? (String(top.waterfallEnds) as "1" | "2") : undefined}
+            onChange={(ends) => onChange(ends === undefined ? withoutField(top, "waterfallEnds") : { ...top, waterfallEnds: Number(ends) })}
+          />
+          {againstWall && (
+            <MeasureField
+              id="top-backsplash"
+              label="Backsplash height"
+              hint={`Empty for none. 4" for a standard splash; up to the uppers for a full tile one.`}
+              valueFeet={top.backsplashFeet ?? null}
+              onCommit={(feet) => onChange({ ...top, backsplashFeet: feet })}
+              onClear={() => onChange(withoutField(top, "backsplashFeet"))}
+            />
+          )}
+        </>
+      )}
+    </div>
   );
 }
 
@@ -669,6 +839,21 @@ export function FreeCabinetPanel({
         Only used to take the wall behind the block out of the wall area, and only when that deduction is switched on. Leave
         it empty if nobody measured it.
       </p>
+
+      {/* Its doors and its top (2026-10-21), as on a wall run - an island's countertop is usually the bigger number. */}
+      <ChoiceRow
+        label="Doors"
+        choices={(Object.keys(CABINET_DOORS_LABEL) as CabinetDoors[]).map((doors) => [doors, CABINET_DOORS_LABEL[doors]])}
+        value={cabinet.doors}
+        onChange={(doors) => onChange(doors === undefined ? withoutField(cabinet, "doors") : { ...cabinet, doors })}
+      />
+      {cabinet.tier === "base" && (
+        <CountertopFields
+          top={cabinet.countertop}
+          againstWall
+          onChange={(countertop) => onChange(countertop ? { ...cabinet, countertop } : withoutField(cabinet, "countertop"))}
+        />
+      )}
 
       <div className="actions-row">
         <button className="btn-secondary" onClick={onDelete}>

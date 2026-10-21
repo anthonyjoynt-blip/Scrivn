@@ -69,17 +69,25 @@ export const SYMBOL_LABEL: Record<SymbolType, string> = {
   fixture: "Fixture",
 };
 
-/** Plumbing and appliances. Placed against a wall, the same way a cabinet is. */
-export type FixtureType = "toilet" | "sink" | "shower" | "tub" | "fridge" | "range" | "dishwasher";
+/**
+ * Plumbing and appliances. Placed against a wall, the same way a cabinet is.
+ *
+ * The tub/shower (a one-piece combo with its surround) and the range hood arrived 2026-10-21 for the
+ * ESX export: the owner's basement bathroom has a wall-to-wall one-piece unit, his kitchen a
+ * wood-clad hood box.
+ */
+export type FixtureType = "toilet" | "sink" | "shower" | "tub" | "tubShower" | "fridge" | "range" | "dishwasher" | "hood";
 
 export const FIXTURE_LABEL: Record<FixtureType, string> = {
   toilet: "Toilet",
   sink: "Sink",
   shower: "Shower",
   tub: "Tub",
+  tubShower: "Tub/shower",
   fridge: "Fridge",
   range: "Range",
   dishwasher: "Dishwasher",
+  hood: "Range hood",
 };
 
 /** A shower is either a rectangular enclosure or the corner (neo-angle) kind. */
@@ -94,9 +102,11 @@ export const FIXTURE_DEFAULT_FEET: Record<FixtureType, { width: number; depth: n
   sink: { width: 2, depth: 1.75 },
   shower: { width: 3, depth: 3 },
   tub: { width: 5, depth: 2.5 },
+  tubShower: { width: 5, depth: 2.5 },
   fridge: { width: 3, depth: 2.5 },
   range: { width: 2.5, depth: 2.5 },
   dishwasher: { width: 2, depth: 2 },
+  hood: { width: 2.5, depth: 1.67 },
 };
 
 /**
@@ -111,9 +121,12 @@ export const FIXTURE_IS_BUILT_IN: Record<FixtureType, boolean> = {
   sink: false,
   shower: true,
   tub: true,
+  tubShower: true,
   fridge: false,
   range: false,
   dishwasher: false,
+  // Hung on the wall over the range, not standing on the floor or covering finish anybody prices.
+  hood: false,
 };
 
 /** Plan-view door conventions. Each draws differently — see DoorGlyph in SketchCanvas.tsx. */
@@ -197,15 +210,87 @@ export const CABINET_DEFAULT_HEIGHT_FEET: Record<CabinetTier, number> = {
   full: 6,
 };
 
+/**
+ * Where the bottom of a cabinet's box stands when nobody said (2026-10-21): on the floor for a lower
+ * or a full-height one, 54" up for an upper - 18" over a 36" counter. An upper sitting ON the counter,
+ * the owner's glass hutch, is the reason a cabinet can say otherwise (`CabinetSymbol.bottomFeet`).
+ */
+export const CABINET_DEFAULT_BOTTOM_FEET: Record<CabinetTier, number> = {
+  base: 0,
+  wall: 4.5,
+  full: 0,
+};
+
+/** The doors on a cabinet box: solid, glass, or none at all - open shelving, a built-in bookcase. */
+export type CabinetDoors = "solid" | "glass" | "open";
+
+export const CABINET_DOORS_LABEL: Record<CabinetDoors, string> = {
+  solid: "Solid",
+  glass: "Glass",
+  open: "None (open shelving)",
+};
+
+/**
+ * An appliance standing IN a cabinet run, with cabinetry round it: a fridge in its bay, the box
+ * over it the only cabinet there; a wall oven in its tower, cabinet below and above.
+ */
+export type ApplianceBay = "fridge" | "wall-oven";
+
+export const APPLIANCE_BAY_LABEL: Record<ApplianceBay, string> = {
+  fridge: "Fridge bay",
+  "wall-oven": "Wall oven",
+};
+
+/** A fridge bay's opening when nobody measured it: 6' to the underside of the box over it. */
+export const FRIDGE_BAY_DEFAULT_HEIGHT_FEET = 6;
+
+/** What a countertop is made of. */
+export type CountertopMaterial = "laminate" | "granite" | "quartz" | "solid-surface" | "marble" | "butcher-block" | "tile" | "concrete" | "stainless";
+
+export const COUNTERTOP_MATERIAL_LABEL: Record<CountertopMaterial, string> = {
+  laminate: "Laminate",
+  granite: "Granite",
+  quartz: "Quartz",
+  "solid-surface": "Solid surface",
+  marble: "Marble",
+  "butcher-block": "Butcher block",
+  tile: "Tile",
+  concrete: "Concrete",
+  stainless: "Stainless steel",
+};
+
+/** A countertop's nosing past the cabinet front when nobody said: an inch. */
+export const COUNTERTOP_DEFAULT_OVERHANG_FEET = 1 / 12;
+
+/**
+ * The top on a lower run or an island, its own item (2026-10-21): an ESX prices a countertop by its
+ * material and square feet, its backsplash by the linear foot, apart from the cabinets under it.
+ * Its length is the run's (or the block's) width; its depth is the box's plus the overhang.
+ *
+ * Present means there IS a top; every field in it optional, absent meaning not said.
+ */
+export interface Countertop {
+  material?: CountertopMaterial;
+  /** How far the top stands past the cabinet front - an island's stool overhang. Absent is a 1" nosing. */
+  overhangFeet?: number | null;
+  /** Ends where the top turns down to the floor, 0 to 2. Absent is none. */
+  waterfallEnds?: number;
+  /** Backsplash height up the wall behind it; absent or null is none. */
+  backsplashFeet?: number | null;
+}
+
 /** Default fixture height, used for the wall deduction on the built-in ones. */
 export const FIXTURE_DEFAULT_HEIGHT_FEET: Record<FixtureType, number> = {
   toilet: 2.5,
   sink: 2.75,
   shower: 6,
   tub: 1.5,
+  // A tub/shower's height is its surround's: the usual 6'.
+  tubShower: 6,
   fridge: 6,
   range: 3,
   dishwasher: 2.9,
+  hood: 1.5,
 };
 
 /** Ceilings are 8' unless told otherwise, which is the overwhelming majority of what gets scoped. */
@@ -369,6 +454,20 @@ export interface CabinetSymbol extends SymbolBase {
    * finish behind it, and without a height that deduction can't be calculated at all.
    */
   heightFeet: number;
+  /*
+    The details below arrived 2026-10-21 for the ESX export (see `DoorSymbol`): each optional,
+    absent meaning not said, so every cabinet drawn before reads as it always did.
+  */
+  /** How high the bottom of the box stands - an upper on the counter is 3'. Absent or null is the tier's standard (`CABINET_DEFAULT_BOTTOM_FEET`). */
+  bottomFeet?: number | null;
+  /** Solid, glass or no doors - see `CabinetDoors`. Absent is not said. */
+  doors?: CabinetDoors;
+  /** An appliance in this stretch of the run - see `ApplianceBay`. Absent is none. */
+  bay?: ApplianceBay;
+  /** A fridge bay's opening height: the box over it runs from here to the cabinet's top. Absent or null is 6'. */
+  bayHeightFeet?: number | null;
+  /** The top on it - see `Countertop`. Absent is none, or not said. */
+  countertop?: Countertop;
 }
 
 export interface FixtureSymbol extends SymbolBase {
@@ -381,7 +480,36 @@ export interface FixtureSymbol extends SymbolBase {
   heightFeet: number;
   /** Shower only. A corner unit is drawn with its front corner cut off. */
   showerShape: ShowerShape;
+  /** A tub's, shower's or tub/shower's surround (2026-10-21) - its height is `heightFeet`. Absent is not said. */
+  surround?: SurroundType;
+  /** A range hood's kind; absent is not said. */
+  hoodType?: HoodType;
+  /** A hood's height off the floor to its underside. Absent or null is 5'6", 30" over a 36" counter. */
+  bottomFeet?: number | null;
 }
+
+/** What lines the walls round a tub or a shower. */
+export type SurroundType = "one-piece" | "panels" | "tile" | "solid-surface";
+
+export const SURROUND_LABEL: Record<SurroundType, string> = {
+  "one-piece": "One-piece unit",
+  panels: "Panel surround",
+  tile: "Tile",
+  "solid-surface": "Solid surface",
+};
+
+/** A range hood as an estimator would order one. */
+export type HoodType = "under-cabinet" | "chimney" | "custom" | "island";
+
+export const HOOD_TYPE_LABEL: Record<HoodType, string> = {
+  "under-cabinet": "Under-cabinet",
+  chimney: "Chimney (wall)",
+  custom: "Custom box",
+  island: "Island",
+};
+
+/** A range hood's underside when nobody said: 30" over a 36" counter. */
+export const HOOD_DEFAULT_BOTTOM_FEET = 5.5;
 
 export type SketchSymbol = DoorSymbol | WindowSymbol | CabinetSymbol | FixtureSymbol;
 
@@ -473,6 +601,10 @@ export interface Block {
    * when somebody says how tall the block is.
    */
   heightFeet?: number | null;
+  /** The top on an island or a bar run (2026-10-21) - see `Countertop`; absent is none, or not said. */
+  countertop?: Countertop;
+  /** Its doors, as on a wall run (`CabinetDoors`); absent is not said. */
+  doors?: CabinetDoors;
 }
 
 /** See `Block.shape`. */
@@ -4096,6 +4228,100 @@ export function cabinetDepthPx(block: BlockSymbol): number {
   return Math.max(6, block.depthFeet * PIXELS_PER_FOOT);
 }
 
+/* ── Cabinet details: mount height, bays, countertops (2026-10-21) ──────────────────────────────── */
+
+/** How high a cabinet's box starts off the floor: what it says (`bottomFeet`), else its tier's standard. */
+export function cabinetBottomFeet(cabinet: CabinetSymbol): number {
+  return cabinet.bottomFeet ?? CABINET_DEFAULT_BOTTOM_FEET[cabinet.tier];
+}
+
+/** A fridge bay's opening, floor to the underside of the box over it - never taller than the cabinet. */
+export function fridgeBayHeightFeet(cabinet: CabinetSymbol): number {
+  return Math.max(0, Math.min(cabinet.heightFeet, cabinet.bayHeightFeet ?? FRIDGE_BAY_DEFAULT_HEIGHT_FEET));
+}
+
+/**
+ * What a cabinet covers, for the deductions: whether its box stands on the floor, and how much wall
+ * stands behind its box. A FRIDGE BAY is only the box over the fridge: the floor under the fridge is
+ * floor, and the wall behind it wall. Everything else is what it always was - its tier says whether
+ * it stands on the floor (`standsOnFloor`), and it hides its whole height of wall.
+ */
+export function cabinetCover(cabinet: CabinetSymbol): { onFloor: boolean; wallFeet: number } {
+  if (cabinet.bay === "fridge") return { onFloor: false, wallFeet: Math.max(0, cabinet.heightFeet - fridgeBayHeightFeet(cabinet)) };
+  return { onFloor: standsOnFloor(cabinet.tier), wallFeet: cabinet.heightFeet };
+}
+
+/** A countertop measured: its run, its depth front to back, and its square feet - top, waterfall ends and backsplash. */
+export interface CountertopMeasure {
+  lengthFeet: number;
+  depthFeet: number;
+  topSquareFeet: number;
+  waterfallSquareFeet: number;
+  backsplashFeet: number;
+  backsplashSquareFeet: number;
+}
+
+/**
+ * A countertop's numbers on a box `lengthFeet` long and `boxDepthFeet` deep: the top is the box's
+ * depth plus its overhang (an inch when nobody said), each waterfall end the top's depth by the box's
+ * height, the backsplash as long as the box stands against wall (`againstWallFeet`) by its height.
+ * A corner (triangle) top is half its rectangle.
+ */
+export function countertopMeasure(
+  top: Countertop,
+  lengthFeet: number,
+  boxDepthFeet: number,
+  boxHeightFeet: number | null | undefined,
+  againstWallFeet: number,
+  triangle = false,
+): CountertopMeasure {
+  const depthFeet = Math.max(0, boxDepthFeet) + Math.max(0, top.overhangFeet ?? COUNTERTOP_DEFAULT_OVERHANG_FEET);
+  const ends = Math.max(0, Math.min(2, Math.round(top.waterfallEnds ?? 0)));
+  const height = boxHeightFeet != null && boxHeightFeet > 0 ? boxHeightFeet : CABINET_DEFAULT_HEIGHT_FEET.base;
+  const splash = top.backsplashFeet != null && top.backsplashFeet > 0 ? top.backsplashFeet : 0;
+  const backsplashFeet = splash > 0 ? Math.max(0, againstWallFeet) : 0;
+  return {
+    lengthFeet,
+    depthFeet,
+    topSquareFeet: lengthFeet * depthFeet * (triangle ? 0.5 : 1),
+    waterfallSquareFeet: ends * depthFeet * height,
+    backsplashFeet,
+    backsplashSquareFeet: backsplashFeet * splash,
+  };
+}
+
+/** One countertop in a room: what it sits on (a wall run or a block, by id) and its numbers. */
+export interface RoomCountertop {
+  id: string;
+  on: "cabinet" | "block";
+  label: string;
+  top: Countertop;
+  measure: CountertopMeasure;
+}
+
+/** Every countertop in a room, on its wall runs and its blocks, measured as the drawing has them. */
+export function roomCountertops(room: SketchRoom, rooms: SketchRoom[] = [], freeWalls: FreeWall[] = []): RoomCountertop[] {
+  const out: RoomCountertop[] = [];
+  for (const symbol of room.symbols) {
+    if (symbol.type !== "cabinet" || !symbol.countertop) continue;
+    const width = symbolWidthFeet(symbol, room, rooms, freeWalls);
+    if (width == null) continue;
+    out.push({ id: symbol.id, on: "cabinet", label: symbol.label.trim() || "Cabinet", top: symbol.countertop, measure: countertopMeasure(symbol.countertop, width, symbol.depthFeet, symbol.heightFeet, width) });
+  }
+  for (const block of room.freeCabinets) {
+    if (!block.countertop || block.widthFeet == null || block.depthFeet == null) continue;
+    const touching = blockWallContacts(block, room).reduce((sum, c) => sum + c.feet, 0);
+    out.push({
+      id: block.id,
+      on: "block",
+      label: block.label.trim() || "Island",
+      top: block.countertop,
+      measure: countertopMeasure(block.countertop, block.widthFeet, block.depthFeet, block.heightFeet, touching, blockShape(block) === "triangle"),
+    });
+  }
+  return out;
+}
+
 /** The symbol's real width, or null when the room has no scale to measure it against. */
 export function symbolWidthFeet(symbol: SketchSymbol, room: SketchRoom, rooms: SketchRoom[] = [], freeWalls: FreeWall[] = []): number | null {
   const wall = wallById(room, symbol.wallId);
@@ -6467,6 +6693,12 @@ export function withFixtureType(fixture: FixtureSymbol, room: SketchRoom, fixtur
     heightFeet: FIXTURE_DEFAULT_HEIGHT_FEET[fixtureType],
     widthFeet: size.width,
   };
+  // A surround belongs to a tub or a shower, a hood's kind and underside to a hood: changed to anything else, they go.
+  if (fixtureType !== "tub" && fixtureType !== "shower" && fixtureType !== "tubShower") delete resized.surround;
+  if (fixtureType !== "hood") {
+    delete resized.hoodType;
+    delete resized.bottomFeet;
+  }
   return moveSymbolAlongWall(resized, room, resized.t * (wallById(room, resized.wallId)?.lengthPx ?? 0)) as FixtureSymbol;
 }
 
@@ -6522,6 +6754,15 @@ export interface SketchSymbolOutput {
   /** Cabinet only. */
   tier?: CabinetTier;
   depthFeet?: number;
+  /** Cabinet details from 2026-10-21, each present only when said - see `CabinetSymbol`. A cabinet's height is in `heightFeet`. */
+  bottomFeet?: number;
+  doors?: CabinetDoors;
+  bay?: ApplianceBay;
+  bayHeightFeet?: number;
+  countertop?: CountertopOutput;
+  /** Fixture details, present only when said. */
+  surround?: SurroundType;
+  hoodType?: HoodType;
   /** Stairs only. */
   treadCount?: number;
   riseFeet?: number | null;
@@ -6537,6 +6778,47 @@ export interface SketchFreeCabinetOutput {
   /** Distance from the room's left/top walls to the block's near corner, in feet. */
   fromLeftFeet: number | null;
   fromTopFeet: number | null;
+  /** Details from 2026-10-21, each present only when said. */
+  heightFeet?: number;
+  doors?: CabinetDoors;
+  countertop?: CountertopOutput;
+}
+
+/** A countertop as output: what was said about it, and its numbers (`countertopMeasure`). */
+export interface CountertopOutput {
+  material?: CountertopMaterial;
+  overhangFeet: number;
+  waterfallEnds: number;
+  backsplashFeet?: number;
+  lengthFeet: number;
+  depthFeet: number;
+  squareFeet: number;
+  backsplashLengthFeet: number;
+  backsplashSquareFeet: number;
+}
+
+/** A block's details as output, each only when said - a block drawn before them adds nothing. */
+function blockDetailOutput(block: Block, room: SketchRoom, rooms: SketchRoom[]): Pick<SketchFreeCabinetOutput, "heightFeet" | "doors" | "countertop"> {
+  const top = block.countertop ? roomCountertops(room, rooms).find((t) => t.id === block.id) : undefined;
+  return {
+    ...(block.heightFeet != null && (block.countertop || block.doors) ? { heightFeet: round2(block.heightFeet) } : {}),
+    ...(block.doors ? { doors: block.doors } : {}),
+    ...(top ? { countertop: countertopOutput(top.top, top.measure) } : {}),
+  };
+}
+
+function countertopOutput(top: Countertop, measure: CountertopMeasure): CountertopOutput {
+  return {
+    ...(top.material ? { material: top.material } : {}),
+    overhangFeet: round2(top.overhangFeet ?? COUNTERTOP_DEFAULT_OVERHANG_FEET),
+    waterfallEnds: Math.max(0, Math.min(2, Math.round(top.waterfallEnds ?? 0))),
+    ...(top.backsplashFeet ? { backsplashFeet: round2(top.backsplashFeet) } : {}),
+    lengthFeet: round2(measure.lengthFeet),
+    depthFeet: round2(measure.depthFeet),
+    squareFeet: round2(measure.topSquareFeet + measure.waterfallSquareFeet),
+    backsplashLengthFeet: round2(measure.backsplashFeet),
+    backsplashSquareFeet: round2(measure.backsplashSquareFeet),
+  };
 }
 
 export interface SketchRoomOutput {
@@ -6648,9 +6930,30 @@ export function sketchOutput(sketch: Sketch): SketchRoomOutput[] {
       }
       if (symbol.type === "fixture") {
         const shape = symbol.fixtureType === "shower" && symbol.showerShape === "corner" ? "Corner shower" : FIXTURE_LABEL[symbol.fixtureType];
-        return { ...common, label: symbol.label.trim() || shape, depthFeet: round2(symbol.depthFeet) };
+        return {
+          ...common,
+          label: symbol.label.trim() || shape,
+          depthFeet: round2(symbol.depthFeet),
+          // A surround's or a hood's height is said; every other fixture's is its kind's standard and stays out, as before.
+          ...(symbol.surround || symbol.fixtureType === "tubShower" || symbol.fixtureType === "hood" ? { heightFeet: round2(symbol.heightFeet) } : {}),
+          ...(symbol.surround ? { surround: symbol.surround } : {}),
+          ...(symbol.hoodType ? { hoodType: symbol.hoodType } : {}),
+          ...(symbol.fixtureType === "hood" ? { bottomFeet: round2(symbol.bottomFeet ?? HOOD_DEFAULT_BOTTOM_FEET) } : {}),
+        };
       }
-      return { ...common, label: symbol.label.trim() || "Cabinet", tier: symbol.tier, depthFeet: round2(symbol.depthFeet) };
+      const top = symbol.countertop ? roomCountertops(room, sketch.rooms).find((t) => t.id === symbol.id) : undefined;
+      return {
+        ...common,
+        label: symbol.label.trim() || (symbol.bay ? APPLIANCE_BAY_LABEL[symbol.bay] : "Cabinet"),
+        tier: symbol.tier,
+        depthFeet: round2(symbol.depthFeet),
+        // The height and where the box starts, only once anything from 2026-10-21 is said about it: a plain run reads as before.
+        ...(symbol.bottomFeet != null || symbol.bay || symbol.doors || symbol.countertop ? { heightFeet: round2(symbol.heightFeet), bottomFeet: round2(cabinetBottomFeet(symbol)) } : {}),
+        ...(symbol.doors ? { doors: symbol.doors } : {}),
+        ...(symbol.bay ? { bay: symbol.bay } : {}),
+        ...(symbol.bay === "fridge" ? { bayHeightFeet: round2(fridgeBayHeightFeet(symbol)) } : {}),
+        ...(top ? { countertop: countertopOutput(top.top, top.measure) } : {}),
+      };
     }),
     sharedOpenings: openingsSharedWith(room, sketch.rooms).map(({ room: theirs, symbol, wallId }) => {
       const width = symbolWidthFeet(symbol, theirs, sketch.rooms);
@@ -6681,6 +6984,7 @@ export function sketchOutput(sketch: Sketch): SketchRoomOutput[] {
         // Never less than nothing: a block flush on a wall may stand a rounding error past it.
         fromLeftFeet: round2(Math.max(0, fromLeft) / PIXELS_PER_FOOT),
         fromTopFeet: round2(Math.max(0, fromTop) / PIXELS_PER_FOOT),
+        ...blockDetailOutput(cabinet, room, sketch.rooms),
       };
     }),
     };
@@ -6790,8 +7094,20 @@ export function sketchSummaryText(sketch: Sketch): string {
         if (symbol.type === "cabinet" && symbol.depthFeet != null) {
           parts.push(`${formatFeetInches(symbol.depthFeet)} deep`);
           if (symbol.tier) parts.push(CABINET_TIER_LABEL[symbol.tier].toLowerCase());
+          if (symbol.bottomFeet != null && symbol.heightFeet != null) parts.push(`${formatFeetInches(symbol.heightFeet)} high from ${formatFeetInches(symbol.bottomFeet)}`);
+          if (symbol.doors) parts.push(`${CABINET_DOORS_LABEL[symbol.doors].toLowerCase()} doors`.replace("none (open shelving) doors", "open shelving"));
+          if (symbol.bay === "fridge" && symbol.bayHeightFeet != null) parts.push(`fridge opening ${formatFeetInches(symbol.bayHeightFeet)} high`);
+          if (symbol.bay === "wall-oven") parts.push("wall oven in it");
+        }
+        if (symbol.type === "fixture") {
+          if (symbol.surround) parts.push(`${SURROUND_LABEL[symbol.surround].toLowerCase()} surround`);
+          // Only a surround's or a hood's height is in the output (`sketchOutput`); the rest are their kind's standard.
+          if (symbol.heightFeet != null) parts.push(`${formatFeetInches(symbol.heightFeet)} high`);
+          if (symbol.hoodType) parts.push(HOOD_TYPE_LABEL[symbol.hoodType].toLowerCase());
+          if (symbol.bottomFeet != null) parts.push(`underside at ${formatFeetInches(symbol.bottomFeet)}`);
         }
         lines.push(parts.join(", "));
+        if (symbol.countertop) lines.push(countertopLine(symbol.countertop));
       }
 
       // The other room's door in a shared wall: no wall there to finish from this side either.
@@ -6806,13 +7122,30 @@ export function sketchSummaryText(sketch: Sketch): string {
           island.fromLeftFeet == null || island.fromTopFeet == null
             ? "free-standing"
             : `free-standing, ${formatFeetInches(island.fromLeftFeet)} from left wall, ${formatFeetInches(island.fromTopFeet)} from top wall`;
-        lines.push(`  ${island.label} — ${where}, ${size}, ${CABINET_TIER_LABEL[island.tier].toLowerCase()}`);
+        const doors = island.doors ? `, ${island.doors === "open" ? "open shelving" : `${CABINET_DOORS_LABEL[island.doors].toLowerCase()} doors`}` : "";
+        lines.push(`  ${island.label} — ${where}, ${size}, ${CABINET_TIER_LABEL[island.tier].toLowerCase()}${doors}`);
+        if (island.countertop) lines.push(countertopLine(island.countertop));
       }
       return lines.join("\n");
     })
     .join("\n\n");
 
   return [roomText, walls.join("\n")].filter((part) => part !== "").join("\n\n");
+}
+
+/** A countertop's line under the run or block it sits on: what it is and its numbers. */
+function countertopLine(top: CountertopOutput): string {
+  const parts = [`    Countertop — ${top.material ? COUNTERTOP_MATERIAL_LABEL[top.material].toLowerCase() : "material not said"}`];
+  parts.push(`${formatFeetInches(top.lengthFeet)} x ${formatFeetInches(top.depthFeet)}`);
+  if (top.waterfallEnds > 0) parts.push(`${top.waterfallEnds} waterfall end${top.waterfallEnds === 1 ? "" : "s"}`);
+  parts.push(`${formatQuantityText(top.squareFeet)} SF`);
+  if (top.backsplashFeet != null) parts.push(`backsplash ${formatFeetInches(top.backsplashFeet)} high, ${formatQuantityText(top.backsplashLengthFeet)} LF`);
+  return parts.join(", ");
+}
+
+/** One decimal, as the quantities panel shows a figure. */
+function formatQuantityText(value: number): string {
+  return (Math.round(value * 10) / 10).toFixed(1);
 }
 
 /**

@@ -1,6 +1,7 @@
 import {
   blockFloorAreaFeet,
   blockWallContacts,
+  cabinetCover,
   type BlockSymbol,
   ceilingSpanPx,
   type FreeWall,
@@ -21,6 +22,7 @@ import {
   openingSquareFeet,
   ownWallRuns,
   roomAcross,
+  roomCountertops,
   standsOnFloor,
   stairCeiling,
   stairFlight,
@@ -129,10 +131,16 @@ export interface RoomDetailQuantities {
   halfWallFeet: number;
   /** How much less wall the half walls have than full-height walls would, SF - already out of W. */
   halfWallReductionSquareFeet: number;
+  /** Countertops (`roomCountertops`): their run, LF, and their square feet - tops and waterfall ends. */
+  countertopFeet: number;
+  countertopSquareFeet: number;
+  /** Backsplash along the walls the tops stand against, LF and SF. */
+  backsplashFeet: number;
+  backsplashSquareFeet: number;
 }
 
 export function emptyDetailQuantities(): RoomDetailQuantities {
-  return { halfWallFeet: 0, halfWallReductionSquareFeet: 0 };
+  return { halfWallFeet: 0, halfWallReductionSquareFeet: 0, countertopFeet: 0, countertopSquareFeet: 0, backsplashFeet: 0, backsplashSquareFeet: 0 };
 }
 
 /** Polygon area in square pixels, via the shoelace formula. */
@@ -167,7 +175,8 @@ function blockFootprint(
   */
   const widthFeet = symbolWidthFeet(symbol, room, rooms, freeWalls);
   if (widthFeet == null) return null;
-  return { widthFeet, depthFeet: symbol.depthFeet, heightFeet: symbol.heightFeet };
+  // A fridge bay hides only the wall behind the box over the fridge - see `cabinetCover`.
+  return { widthFeet, depthFeet: symbol.depthFeet, heightFeet: symbol.type === "cabinet" ? cabinetCover(symbol).wallFeet : symbol.heightFeet };
 }
 
 /** Everything against a wall that covers what's behind it. */
@@ -175,9 +184,9 @@ function deductibleBlocks(room: SketchRoom): BlockSymbol[] {
   return room.symbols.filter((s): s is BlockSymbol => isBlockSymbol(s) && isDeductible(s));
 }
 
-/** Lower and full-height cabinets and built-in fixtures — the things that stand ON the floor. */
+/** Lower and full-height cabinets and built-in fixtures — the things that stand ON the floor. A fridge bay does not: the fridge does. */
 function floorStanding(symbols: BlockSymbol[]): BlockSymbol[] {
-  return symbols.filter((s) => (s.type === "cabinet" ? standsOnFloor(s.tier) : true));
+  return symbols.filter((s) => (s.type === "cabinet" ? cabinetCover(s).onFloor : true));
 }
 
 /**
@@ -326,10 +335,10 @@ export function roomQuantities(room: SketchRoom, sketch: Sketch, options: Quanti
   for (const block of blocks) {
     const f = blockFootprint(block, room, sketch.rooms, freeWallsOf(sketch));
     if (!f) continue;
-    const onFloor = block.type === "cabinet" ? standsOnFloor(block.tier) : true;
+    const onFloor = block.type === "cabinet" ? cabinetCover(block).onFloor : true;
 
-    // A pantry takes up floor perimeter the same way a base run does — see `standsOnFloor`.
-    if (options.deductCabinetsFromFloorPerimeter && block.type === "cabinet" && standsOnFloor(block.tier)) {
+    // A pantry takes up floor perimeter the same way a base run does — see `standsOnFloor`. A fridge bay does not.
+    if (options.deductCabinetsFromFloorPerimeter && block.type === "cabinet" && onFloor) {
       perimeterDeduction += f.widthFeet;
     }
     if (options.deductFromFloorArea && onFloor) {
@@ -403,6 +412,13 @@ export function roomQuantities(room: SketchRoom, sketch: Sketch, options: Quanti
       if (profile.meanHeightFeet != null) details.halfWallReductionSquareFeet += feet * Math.max(0, profile.meanHeightFeet - half.heightFeet);
     }
   }
+  // COUNTERTOPS: priced apart from the cabinets under them, by the square foot, and their backsplash by the foot.
+  for (const { measure } of roomCountertops(room, sketch.rooms, freeWallsOf(sketch))) {
+    details.countertopFeet += measure.lengthFeet;
+    details.countertopSquareFeet += measure.topSquareFeet + measure.waterfallSquareFeet;
+    details.backsplashFeet += measure.backsplashFeet;
+    details.backsplashSquareFeet += measure.backsplashSquareFeet;
+  }
 
   const grossWallArea =
     (profile.meanHeightFeet == null ? 0 : perimeter * profile.meanHeightFeet) + partitionWallArea + steps.faceSquareFeet + steps.wallSquareFeet - details.halfWallReductionSquareFeet;
@@ -431,6 +447,20 @@ export function roomQuantities(room: SketchRoom, sketch: Sketch, options: Quanti
 /** One decimal is the precision these numbers are actually good to; two implies false accuracy. */
 export function formatQuantity(value: number): string {
   return (Math.round(value * 10) / 10).toFixed(1);
+}
+
+/**
+ * A room's details as the lines an estimator prices, each only when the room has some: "Countertop
+ * 21.2 SF, 10.0 LF". Empty for a room with none, which is nearly every room. What the Quantities
+ * panel lists under its table, and what an ESX export would turn into line items.
+ */
+export function roomDetailLines(details: RoomDetailQuantities): string[] {
+  const lines: string[] = [];
+  const some = (n: number) => n > 0.05;
+  if (some(details.halfWallFeet)) lines.push(`Half wall ${formatQuantity(details.halfWallFeet)} LF (and its cap)`);
+  if (some(details.countertopSquareFeet)) lines.push(`Countertop ${formatQuantity(details.countertopSquareFeet)} SF, ${formatQuantity(details.countertopFeet)} LF`);
+  if (some(details.backsplashSquareFeet)) lines.push(`Backsplash ${formatQuantity(details.backsplashSquareFeet)} SF, ${formatQuantity(details.backsplashFeet)} LF`);
+  return lines;
 }
 
 /** Every symbol that contributes to a deduction, for showing the user what was taken off. */

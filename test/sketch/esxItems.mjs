@@ -238,6 +238,117 @@ export async function runEsxItemChecks() {
     near(q(back, back.rooms[0]).wallArea, q({ rooms: [r] }, r).wallArea, "the same wall area", 1e-9);
   });
 
+  /* ── cabinets: mount height, doors, bays ─────────────────────────────────────────────────────── */
+
+  const cabinet = (id, wallId, t, widthFeet, tier, extra = {}) => ({
+    id, type: "cabinet", wallId, t, widthFraction: 0.1, widthFeet, label: "", tier,
+    depthFeet: s.CABINET_DEFAULT_DEPTH_FEET[tier], heightFeet: s.CABINET_DEFAULT_HEIGHT_FEET[tier], ...extra,
+  });
+  const DEDUCT = { deductCabinetsFromFloorPerimeter: true, deductFromFloorArea: true, deductFromWallArea: true, deductOpeningsFromWallArea: true };
+
+  test("a cabinet drawn before reads as it did: nothing new in its output", () => {
+    const r = room("k", 0, 0, 12, 10, { symbols: [cabinet("c", "k-v0", 0.5, 6, "base")] });
+    const out = s.sketchOutput({ rooms: [r] })[0].symbols[0];
+    assert(JSON.stringify(Object.keys(out).sort()) === JSON.stringify(["depthFeet", "label", "offsetFeet", "tier", "type", "wall", "widthFeet"]), JSON.stringify(out));
+  });
+
+  test("an upper sitting on the counter says so, and stands there in 3D", () => {
+    const hutch = cabinet("h", "k-v0", 0.3, 3, "wall", { bottomFeet: 3, heightFeet: 3.5, doors: "glass" });
+    const r = room("k", 0, 0, 12, 10, { symbols: [hutch] });
+    const out = s.sketchOutput({ rooms: [r] })[0].symbols[0];
+    assert(out.bottomFeet === 3 && out.heightFeet === 3.5 && out.doors === "glass", JSON.stringify(out));
+    const box = s.houseModel({ rooms: [r] }).prisms.find((p) => p.kind === "cabinet");
+    near(box.y0, 3, "its bottom on the counter");
+    near(box.y1, 6.5, "and its top 3'6\" over it");
+    assert(/3'6" high from 3', glass doors/.test(s.sketchSummaryText({ rooms: [r] })), s.sketchSummaryText({ rooms: [r] }));
+  });
+
+  test("a fridge bay is the box over the fridge: no floor, no base, only the wall behind the box", () => {
+    const bay = cabinet("f", "k-v0", 0.5, 3, "full", { heightFeet: 7.5, bay: "fridge" });
+    const pantry = cabinet("p", "k-v0", 0.5, 3, "full", { heightFeet: 7.5 });
+    const qBay = s.roomQuantities(room("k", 0, 0, 12, 10, { symbols: [bay] }), { rooms: [] }, DEDUCT);
+    const qPantry = s.roomQuantities(room("k", 0, 0, 12, 10, { symbols: [pantry] }), { rooms: [] }, DEDUCT);
+    near(qPantry.deductions.floorSquareFeet, 6, "a pantry takes 3' x 2' of floor");
+    near(qBay.deductions.floorSquareFeet, 0, "the fridge bay takes none");
+    near(qBay.deductions.perimeterFeet, 0, "nor any base");
+    near(qBay.deductions.wallSquareFeet, 3 * 1.5, "and 3' x 1'6\" of wall, over a 6' opening");
+    const box = s.houseModel({ rooms: [room("k", 0, 0, 12, 10, { symbols: [bay] })] }).prisms.find((p) => p.kind === "cabinet");
+    near(box.y0, 6, "in 3D the box starts over the opening");
+  });
+
+  test("a wall oven stays in its tower: a pantry's deductions", () => {
+    const oven = cabinet("o", "k-v0", 0.5, 2.5, "full", { heightFeet: 7, bay: "wall-oven" });
+    const q1 = s.roomQuantities(room("k", 0, 0, 12, 10, { symbols: [oven] }), { rooms: [] }, DEDUCT);
+    near(q1.deductions.floorSquareFeet, 2.5 * 2, "its floor");
+    near(q1.deductions.wallSquareFeet, 2.5 * 7, "its wall");
+    assert(s.sketchOutput({ rooms: [room("k", 0, 0, 12, 10, { symbols: [oven] })] })[0].symbols[0].label === "Wall oven", "named for the oven");
+  });
+
+  /* ── countertops ──────────────────────────────────────────────────────────────────────────────── */
+
+  test("a run's countertop: its length, its depth with the nosing, its backsplash", () => {
+    const run = cabinet("b", "k-v0", 0.5, 10, "base", { countertop: { material: "granite", backsplashFeet: 4 / 12 } });
+    const r = room("k", 0, 0, 12, 10, { symbols: [run] });
+    const d = q({ rooms: [r] }, r).details;
+    near(d.countertopFeet, 10, "10 LF of top");
+    near(d.countertopSquareFeet, 10 * (2 + 1 / 12), "10' x 2'1\"");
+    near(d.backsplashFeet, 10, "10 LF of backsplash");
+    near(d.backsplashSquareFeet, 10 * (4 / 12), "4\" high");
+    const top = s.sketchOutput({ rooms: [r] })[0].symbols[0].countertop;
+    assert(top.material === "granite" && top.depthFeet === 2.08 && top.squareFeet === 20.83, JSON.stringify(top));
+  });
+
+  test("an island's top: the stool overhang and two waterfall ends, and no backsplash off the walls", () => {
+    const island = {
+      id: "i", x: 4 * FT, y: 4 * FT, widthPx: 6 * FT, depthPx: 3 * FT, widthFeet: 6, depthFeet: 3, label: "Island", tier: "base", heightFeet: 3,
+      countertop: { material: "quartz", overhangFeet: 0.75, waterfallEnds: 2, backsplashFeet: 0.5 },
+    };
+    const r = room("k", 0, 0, 14, 12, { freeCabinets: [island] });
+    const d = q({ rooms: [r] }, r).details;
+    near(d.countertopSquareFeet, 6 * 3.75 + 2 * 3.75 * 3, "6' x 3'9\" of top and two ends 3' down");
+    near(d.backsplashFeet, 0, "no wall to splash");
+    const text = s.sketchSummaryText({ rooms: [r] });
+    assert(/Countertop — quartz, 6' x 3'9", 2 waterfall ends, 45.0 SF/.test(text), text);
+  });
+
+  test("a top on a run reaches past the box in 3D", () => {
+    const run = cabinet("b", "k-v0", 0.5, 4, "base", { countertop: { overhangFeet: 1 } });
+    const slabs = s.houseModel({ rooms: [room("k", 0, 0, 12, 10, { symbols: [run] })] }).prisms.filter((p) => p.kind === "cabinet");
+    assert(slabs.length === 2, `the box and its top (${slabs.length})`);
+    near(slabs[1].y0, 3, "the top on the box");
+    const depthOf = (p) => Math.max(...p.points.map((v) => v.z)) - Math.min(...p.points.map((v) => v.z));
+    near(depthOf(slabs[1]), 3, "3' deep: the box and a 1' overhang");
+  });
+
+  /* ── hood and tub/shower ─────────────────────────────────────────────────────────────────────── */
+
+  const fixture = (id, wallId, t, fixtureType, extra = {}) => ({
+    id, type: "fixture", wallId, t, widthFraction: 0.1, widthFeet: s.FIXTURE_DEFAULT_FEET[fixtureType].width, fixtureType, label: "",
+    depthFeet: s.FIXTURE_DEFAULT_FEET[fixtureType].depth, heightFeet: s.FIXTURE_DEFAULT_HEIGHT_FEET[fixtureType], showerShape: "rectangular", ...extra,
+  });
+
+  test("a range hood is data, and takes nothing off the floor or the wall", () => {
+    const hood = fixture("h", "k-v0", 0.5, "hood", { hoodType: "custom", heightFeet: 2.5, bottomFeet: 5.5 });
+    const r = room("k", 0, 0, 12, 10, { symbols: [hood] });
+    const qd = s.roomQuantities(r, { rooms: [r] }, DEDUCT);
+    near(qd.deductions.floorSquareFeet + qd.deductions.wallSquareFeet, 0, "nothing deducted");
+    const out = s.sketchOutput({ rooms: [r] })[0].symbols[0];
+    assert(out.hoodType === "custom" && out.bottomFeet === 5.5 && out.heightFeet === 2.5 && out.label === "Range hood", JSON.stringify(out));
+    const sink = s.withFixtureType(hood, r, "sink");
+    assert(!("hoodType" in sink) && !("bottomFeet" in sink), "made a sink, it is no longer a hood");
+  });
+
+  test("a one-piece tub/shower deducts its surround's height and says what it is", () => {
+    const combo = fixture("t", "k-v0", 0.5, "tubShower", { surround: "one-piece" });
+    const r = room("b", 0, 0, 8, 6, { symbols: [combo] });
+    const qd = s.roomQuantities(r, { rooms: [r] }, DEDUCT);
+    near(qd.deductions.wallSquareFeet, 5 * 6, "5' wide, 6' up");
+    near(qd.deductions.floorSquareFeet, 5 * 2.5, "and its floor");
+    const out = s.sketchOutput({ rooms: [r] })[0].symbols[0];
+    assert(out.surround === "one-piece" && out.heightFeet === 6 && out.label === "Tub/shower", JSON.stringify(out));
+    assert(/Tub\/shower .*one-piece unit surround, 6' high/.test(s.sketchSummaryText({ rooms: [r] })), s.sketchSummaryText({ rooms: [r] }));
+  });
+
   return { passed, failures };
 }
 
