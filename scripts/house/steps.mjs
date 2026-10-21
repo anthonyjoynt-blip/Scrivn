@@ -208,7 +208,7 @@ export async function prepare(h, { fresh = false } = {}) {
     `Corner candidates: ${Object.values(candidates).reduce((s, c) => s + c.length, 0)} on ${Object.values(candidates).filter((c) => c.length).length} photos (orange, lettered).`,
     kept ? `Kept inputs.json as it is (prepare --fresh starts it again).` : `Draft inputs.json: shape ${inputs.shape.from === "tester" ? "the tester's" : "a placeholder 40' x 30' rectangle - draw the real one"}; ${inputs.corners.length} corners${inputs.corners.length ? " (the tester's)" : ""}; ${inputs.tapes.length} tapes.`,
     ...inputs.tapes.map((t) => `  ${t.id}: "${t.said}" -> ${ftin(Number(t.feet))}, ${t.kind === "side" ? `a wall's length (${t.side ? `on ${t.side}` : "set its side"})` : `a line on a photo across ${t.count > 1 ? `each of ${t.count}` : "it"} (${t.on?.length ? `on ${t.on.map((o) => `#${o.photo}`).join(", ")}` : "place its ends"})`}`),
-    ...(inputs.estimates ?? []).map((e) => `  ${e.id}: "${e.said}" -> about ${ftin(Number(e.feet))} ±${e.plusMinusPct}%, estimated on site by eye: never a tape, held loosely (${e.side ? `on ${e.side}` : "set its side"})`),
+    ...(inputs.estimates ?? []).map((e) => `  ${e.id}: "${e.said}" -> about ${ftin(Number(e.feet))} ±${e.plusMinusPct}%, estimated on site by eye: never a tape, ${useWords(e)} (${e.side ? `on ${e.side}` : "set its side"})`),
     ...(inputs.unread ?? []).map((u) => `  not read as a tape (no length in it): "${u}"`),
     !h.tapesText && h.kind === "folder" ? "No tapes.txt: put one beside the photos, a tape a line (\"garage door 9'\"), and run prepare --fresh." : "",
     `Sheets: ${relative(h.dir, statePath(h, "sheets"))}/NN.png, contact sheet: ${relative(h.dir, statePath(h, "contact.png"))}.`,
@@ -300,10 +300,10 @@ export async function check(h) {
   for (const e of inputs.estimates ?? []) {
     if (e.skip) continue;
     const i = sideIndex(e.side, n);
-    if (i !== null) out.push(`  estimate ${e.id} "${e.said}": ${sideName(i, n)}, about ${ftin(Number(e.feet))} ±${e.plusMinusPct ?? 20}% (estimated on site, not a tape; the shape drew it ${ftin(Math.hypot(inputs.shape.outline[(i + 1) % n][0] - inputs.shape.outline[i][0], inputs.shape.outline[(i + 1) % n][1] - inputs.shape.outline[i][1]))})`);
+    if (i !== null) out.push(`  estimate ${e.id} "${e.said}": ${sideName(i, n)}, about ${ftin(Number(e.feet))} ±${e.plusMinusPct ?? 20}% (estimated on site, not a tape, ${useWords(e)}; the shape drew it ${ftin(Math.hypot(inputs.shape.outline[(i + 1) % n][0] - inputs.shape.outline[i][0], inputs.shape.outline[(i + 1) % n][1] - inputs.shape.outline[i][1]))})`);
   }
   const scaled = b.tapes.length > 0;
-  if (!scaled) out.push(`✗ No tape is in yet: without one the sizes are the shape's as drawn${b.estimates?.length ? " and the sizes estimated on site" : ""}, not to scale.`);
+  if (!scaled) out.push(`✗ No tape is in yet: without one the sizes are the shape's as drawn${b.estimates?.some((e) => e.use === "hold") ? " and the sizes estimated on site" : ""}, not to scale.`);
   for (const p of problems.filter((q) => !q.startsWith("tape"))) out.push(`${p.startsWith("estimate") && / is taped;/.test(p) ? "  " : "✗ "}${p}`);
   for (const k of inputs.checks ?? []) if (!photoOf(h, k.photo) || !k.a || !k.b) out.push(`✗ check "${k.what ?? ""}": needs photo, a and b.`);
   await writeSheets(h, x, inputs, pixels, { candidates, numbered });
@@ -414,8 +414,8 @@ function holdOuts(x, h, inputs, routeIn, corners, data, tapeParts, n) {
   const withCorners = { ...routeIn, buildings: [{ ...routeIn.buildings[0], corners }] };
   const rows = [];
   const live = (inputs.tapes ?? []).filter((t) => tapeParts[t.id]?.length);
-  // Sizes estimated on site stay in every hold-out: one tape can be held out against them alone.
-  const est = (routeIn.buildings[0].estimates ?? []).map((e) => e.id);
+  // Sizes estimated on site and held stay in every hold-out: one tape can be held out against them alone. (Checked ones scale nothing.)
+  const est = (routeIn.buildings[0].estimates ?? []).filter((e) => e.use === "hold").map((e) => e.id);
   if (live.length < 2 && !(live.length === 1 && est.length)) return { rows, note: live.length === 1 ? "One tape: it is the only scale, so there is nothing to hold it out against. The checks below (door heights, if given) are a sanity check only." : "No tape: the sizes are the shape's as drawn, not to scale." };
   for (const t of live) {
     const parts = tapeParts[t.id];
@@ -445,8 +445,16 @@ function holdOuts(x, h, inputs, routeIn, corners, data, tapeParts, n) {
 /** A side's ± in results.md: taped, or the measure's ±, and "estimated on site" when someone at the house judged it by eye. */
 function plusMinusWords(s) {
   if (s.taped) return "taped";
-  return s.estimated ? `${s.plusMinusPct}%, estimated on site (about ${ftin(s.estimated.feet)} ±${s.estimated.plusMinusPct}%)` : `${s.plusMinusPct}%`;
+  if (s.estimated) return `${s.plusMinusPct}%, estimated on site (about ${ftin(s.estimated.feet)} ±${s.estimated.plusMinusPct}%)`;
+  if (s.estimateCheck) return `${s.plusMinusPct}%; estimated on site about ${ftin(s.estimateCheck.feet)}: ${s.estimateCheck.disagrees ? "**disagrees, tape it**" : "agrees"}`;
+  return `${s.plusMinusPct}%`;
 }
+
+/** What a size estimated on site does: only checks the measure (the default), or holds its side loosely. */
+const useWords = (e) => (e.use === "hold" ? "held loosely" : "checked against the measure, which it never moves");
+
+/** A side's measure against the size estimated on site, in a line: "about 7' ±20%: +71%, disagrees - tape it". */
+const estimateCheckWords = (c) => `about ${ftin(c.feet)} ±${c.plusMinusPct}%: ${pct(c.offPct)}, ${c.disagrees ? "disagrees - tape it" : "agrees"}`;
 
 export async function measure(h) {
   const t0 = Date.now();
@@ -562,9 +570,11 @@ export async function measure(h) {
     const got = lineOnPhoto(x, sol, prepared.data, p.id, k.a, k.b);
     return [{ what: k.what ?? "check", photo: p.n, expect: Number(k.feet) || null, got: got?.feet ?? null }];
   });
-  // What the sizes estimated on site changed: the same corners solved again without them.
+  // What the sizes estimated on site and held changed: the same corners solved again without them. Checked ones change nothing.
   const estimates = input.buildings[0].estimates ?? [];
-  const without = estimates.length ? x.solveRoute({ ...input, buildings: [{ ...input.buildings[0], corners }] }, "main", prepared.data, { withoutEstimates: true }) : null;
+  const held = estimates.filter((e) => e.use === "hold");
+  const checked = sol.sides.filter((s) => s.estimateCheck);
+  const without = held.length ? x.solveRoute({ ...input, buildings: [{ ...input.buildings[0], corners }] }, "main", prepared.data, { withoutEstimates: true }) : null;
   const tHold = Date.now();
   // Which way each tape runs: across the house (along its front) or front to back. The hold-outs check only the ways taped.
   const across = (i) => Math.abs(sol.corners[(i + 1) % n].x - sol.corners[i].x) >= Math.abs(sol.corners[(i + 1) % n].y - sol.corners[i].y);
@@ -595,13 +605,20 @@ export async function measure(h) {
   md.push(`- Photos: ${h.photos.length}; placed ${sol.cameras.length} (${sol.cameras.filter((c) => c.placedBy === "stood").length} where you stood). Corner taps ${corners.filter((c) => !c.proposed).length}${keptMarks.length ? ` (${keptMarks.length} of them Scrivn's marks, kept)` : ""}; wall edges tied ${sol.counts.edgePoints}.`);
   md.push(`- Lens: f/W ${rec.focalOverWidth.toFixed(4)}, k ${rec.k.toFixed(4)}; rms ${sol.rms.toFixed(2)} sd.`);
   md.push(`- Tapes: ${(inputs.tapes ?? []).filter((t) => tapeParts[t.id]?.length).map((t) => `${t.id} "${t.said}"`).join("; ") || "none"}.`);
-  if (estimates.length) md.push(`- Estimated on site (by eye, held loosely, never a tape): ${(inputs.estimates ?? []).filter((e) => !e.skip && estimates.some((q) => q.id === String(e.id))).map((e) => `${e.id} "${e.said}" about ${ftin(Number(e.feet))} ±${e.plusMinusPct ?? 20}% on ${e.side}`).join("; ")}.`);
-  if (sol.unscaled) md.push(`- **No tape: the sizes follow the shape as drawn${estimates.length ? " and the sizes estimated on site" : ""} and are not to scale.**`);
+  const saidOf = (list) => (inputs.estimates ?? []).filter((e) => !e.skip && list.some((q) => q.id === String(e.id))).map((e) => `${e.id} "${e.said}" about ${ftin(Number(e.feet))} ±${e.plusMinusPct ?? 20}% on ${e.side}`).join("; ");
+  if (held.length) md.push(`- Estimated on site and held (by eye, held loosely, never a tape): ${saidOf(held)}.`);
+  if (estimates.length > held.length) md.push(`- Estimated on site to check the measure (by eye, never a tape; the measure is not moved): ${saidOf(estimates.filter((e) => e.use !== "hold"))}.`);
+  if (sol.unscaled) md.push(`- **No tape: the sizes follow the shape as drawn${held.length ? " and the sizes estimated on site" : ""} and are not to scale.**`);
   md.push("", "## The outline", "", "| Side | Name | Length | ± | Photos along it |", "|---|---|---|---|---|");
   for (const s of sol.sides) md.push(`| ${sideName(s.from, n)} | ${nameOf(s.from)} | ${ftin(s.lengthFeet)} | ${plusMinusWords(s)} | ${s.photos} |`);
   const xs = sol.corners.map((p) => p.x);
   const ys = sol.corners.map((p) => p.y);
   md.push("", `Across ${ftin(Math.max(...xs) - Math.min(...xs))}, deep ${ftin(Math.max(...ys) - Math.min(...ys))}.`);
+  if (checked.length) {
+    const off = checked.filter((s) => s.estimateCheck.disagrees);
+    md.push("", "## Sizes estimated on site, checked", "", `Each against the measure, which they do not move. Off by more than the estimate's ±, one of the two is wrong: tape that side. ${off.length ? `${off.length} of ${checked.length} disagree${off.length === 1 ? "s" : ""}.` : `All ${checked.length} agree.`}`, "", "| Side | Name | Estimated on site | Measured | Off | |", "|---|---|---|---|---|---|");
+    for (const s of checked) md.push(`| ${sideName(s.from, n)} | ${nameOf(s.from)} | about ${ftin(s.estimateCheck.feet)} ±${s.estimateCheck.plusMinusPct}% | ${ftin(s.lengthFeet)} ±${s.plusMinusPct}% | ${pct(s.estimateCheck.offPct)} | ${s.estimateCheck.disagrees ? "**disagrees: tape it**" : "agrees"} |`);
+  }
   if (without) {
     const wx = without.corners.map((p) => p.x);
     const wy = without.corners.map((p) => p.y);
@@ -653,10 +670,10 @@ export async function measure(h) {
   md.push("", "## Files", "", "- plan.png: the measured plan, every placed photo; measured/NN.png: each photo with its corners and where it stood.", `- sides/: ${Object.keys(frames).length} sides squared up for reading (and a grid copy each); frames.json.`, "- measured.json: the exterior as measured (no walls read yet).");
   md.push("", `Machine time: measure ${timesNow.measure.toFixed(1)} s, hold-outs ${timesNow.holdOuts.toFixed(1)} s.`);
   writeFileSync(statePath(h, "results.md"), `${md.join("\n")}\n`);
-  writeJson(statePath(h, "results.json"), { at: now, sides: sol.sides.map((s) => ({ side: sideName(s.from, n), name: nameOf(s.from), lengthFeet: s.lengthFeet, plusMinusPct: s.plusMinusPct, taped: s.taped, ...(s.estimated ? { estimated: s.estimated } : {}) })), ...(without ? { withoutEstimates: without.sides.map((s) => ({ side: sideName(s.from, n), lengthFeet: s.lengthFeet, plusMinusPct: s.plusMinusPct })) } : {}), holdOuts: hold.rows, holdNote: hold.note, depthNote, checks, advice: sol.advice, unplaced: sol.unplaced, doubtful, sanity: sanity.map((f) => ({ kind: f.kind, words: f.words })), stood: sol.cameras.filter((c) => c.placedBy === "stood").length, proposals: proposals.map((q) => ({ photo: fileOf(q.photo).n, corner: cornerName(q.corner), x: q.x, y: q.y })), kept: keptMarks.length, lens: { focalOverWidth: rec.focalOverWidth, k: rec.k }, rms: sol.rms, cameras: sol.cameras.length });
+  writeJson(statePath(h, "results.json"), { at: now, sides: sol.sides.map((s) => ({ side: sideName(s.from, n), name: nameOf(s.from), lengthFeet: s.lengthFeet, plusMinusPct: s.plusMinusPct, taped: s.taped, ...(s.estimated ? { estimated: s.estimated } : {}), ...(s.estimateCheck ? { estimateCheck: s.estimateCheck } : {}) })), estimateChecks: checked.map((s) => ({ side: sideName(s.from, n), name: nameOf(s.from), lengthFeet: s.lengthFeet, ...s.estimateCheck })), ...(without ? { withoutEstimates: without.sides.map((s) => ({ side: sideName(s.from, n), lengthFeet: s.lengthFeet, plusMinusPct: s.plusMinusPct })) } : {}), holdOuts: hold.rows, holdNote: hold.note, depthNote, checks, advice: sol.advice, unplaced: sol.unplaced, doubtful, sanity: sanity.map((f) => ({ kind: f.kind, words: f.words })), stood: sol.cameras.filter((c) => c.placedBy === "stood").length, proposals: proposals.map((q) => ({ photo: fileOf(q.photo).n, corner: cornerName(q.corner), x: q.x, y: q.y })), kept: keptMarks.length, lens: { focalOverWidth: rec.focalOverWidth, k: rec.k }, rms: sol.rms, cameras: sol.cameras.length });
 
   const out = [`Measured from ${sol.cameras.length} of ${h.photos.length} photos and ${tapes.length} tape${tapes.length === 1 ? "" : "s"}; rms ${sol.rms.toFixed(2)}; lens f/W ${rec.focalOverWidth.toFixed(3)}.`];
-  for (const s of sol.sides) out.push(`  ${sideName(s.from, n).padEnd(8)} ${nameOf(s.from).slice(0, 28).padEnd(28)} ${ftin(s.lengthFeet).padStart(8)}  ${s.taped ? "taped" : `±${s.plusMinusPct}%`}${s.estimated ? `  (estimated on site: about ${ftin(s.estimated.feet)}${without ? `; without the estimates ${ftin(without.sides[s.from].lengthFeet)}` : ""})` : ""}`);
+  for (const s of sol.sides) out.push(`  ${sideName(s.from, n).padEnd(8)} ${nameOf(s.from).slice(0, 28).padEnd(28)} ${ftin(s.lengthFeet).padStart(8)}  ${s.taped ? "taped" : `±${s.plusMinusPct}%`}${s.estimated ? `  (estimated on site: about ${ftin(s.estimated.feet)}${without ? `; without the estimates ${ftin(without.sides[s.from].lengthFeet)}` : ""})` : ""}${s.estimateCheck ? `  (estimated on site ${estimateCheckWords(s.estimateCheck)})` : ""}`);
   out.push("Each tape held out in turn:");
   if (hold.note) out.push(`  ${hold.note}`);
   for (const r of hold.rows) out.push(`  ${r.id.padEnd(4)} ${r.said.slice(0, 34).padEnd(34)} taped ${ftin(r.taped).padStart(7)}  predicted ${r.predicted !== null ? ftin(r.predicted).padStart(7) : "      -"}  ${r.errorPct !== null ? pct(r.errorPct) : ""}`);

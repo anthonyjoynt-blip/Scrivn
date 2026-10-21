@@ -25,6 +25,7 @@ import { siteReportPdf } from "../../scripts/house/site.mjs";
 import { lengthsIn, parseHouse, parseTapes } from "../../scripts/house/words.mjs";
 import { routeInput } from "../../scripts/house/folder.mjs";
 import { parseFixes } from "../../scripts/house/review.mjs";
+import { planSvg } from "../../scripts/house/sheets.mjs";
 import { makeRequestFolder } from "./houseRequestFolder.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -86,6 +87,26 @@ console.log("\n  tapes.txt and house.txt");
     estOut.length === 1 && estOut[0].from === 1 && estOut[0].feet === 28 && estOut[0].plusMinusPct === 20 && est.input.buildings[0].tapes.length === 1 && est.problems.some((p) => /e2.* is taped/.test(p)) && est.problems.some((p) => /e3.*which side/.test(p)),
     est.problems.join(" | "),
   );
+  // What an estimate is for (10-21 later): "check" (the default) compares the measure with it; "hold" holds the side to it.
+  const uses = routeInput({ photos: [] }, { shape: { outline: [[0, 0], [40, 0], [40, 30], [0, 30]] }, tapes: [], estimates: [{ id: "e1", said: "about 28'", feet: 28, side: "C2-C3", use: "hold" }, { id: "e2", said: "about 41'", feet: 41, side: "C3-C4", use: "check" }, { id: "e3", said: "about 39'", feet: 39, side: "C1-C2" }, { id: "e4", said: "about 29'", feet: 29, side: "C4-C1", use: "blend" }] });
+  const usesOut = uses.input.buildings[0].estimates;
+  check(
+    "inputs.json estimates take \"use\": hold or check, check unless said; any other is said back and left out",
+    usesOut.length === 3 && usesOut[0].use === "hold" && usesOut[1].use === "check" && usesOut[2].use === "check" && uses.problems.some((p) => /e4.*"use" is "check".*"hold"/.test(p)),
+    `${usesOut.map((e) => `${e.id} ${e.use}`).join(", ")}; ${uses.problems.join(" | ")}`,
+  );
+  check("prepare drafts a size estimated on site from tapes.txt as a check", parseTapes("garage door 9'\nbump-out about 6'").estimates.length === 1);
+  // plan.png: a side whose measure disagrees with what was said is dashed magenta, "TAPE IT" under its length; one that agrees says so.
+  const planOf = planSvg([{ x: 0, y: 0 }, { x: 40, y: 0 }, { x: 40, y: 30 }, { x: 0, y: 30 }], 1400, 1000, {
+    big: true,
+    sides: [
+      { lengthFeet: 40, plusMinusPct: null, taped: true },
+      { lengthFeet: 30, plusMinusPct: 12, taped: false, estimateCheck: { feet: 20, plusMinusPct: 20, offPct: 50, disagrees: true } },
+      { lengthFeet: 40, plusMinusPct: 4, taped: false, estimateCheck: { feet: 38, plusMinusPct: 20, offPct: 5.3, disagrees: false } },
+      { lengthFeet: 30, plusMinusPct: 12, taped: false },
+    ],
+  });
+  check("plan.png marks the disagreeing side (dashed magenta, \"said ~20'0\": TAPE IT\") and says which agree", (planOf.match(/stroke="#ff3df2" stroke-width="5" stroke-dasharray/g) ?? []).length === 1 && /said ~20'0&quot;: TAPE IT|said ~20'0": TAPE IT/.test(planOf) && /said ~38'0(&quot;|"): agrees/.test(planOf), planOf.match(/said ~[^<]*/g)?.join(" | "));
   const house = parseHouse("semi-detached\nfront faces NE\nname: 52 Elm St\nstucco, two storeys");
   check("house.txt: the home's type, the front's bearing, its name and notes", house.homeType === "semi" && house.frontFacesDeg === 45 && house.name === "52 Elm St" && house.notes.includes("stucco, two storeys"));
   check("front faces unknown is no bearing", parseHouse("front faces unknown").frontFacesDeg === null);
@@ -138,7 +159,10 @@ if (!existsSync(PHOTOS)) {
   check("fix: fixes.txt into inputs.json, kept in fixes-done/, and the review again without what was answered", json(join(dir, "scrivn", "inputs.json")).tapes[0].ok === true && readdirSync(join(dir, "scrivn", "fixes-done")).length === 1 && !existsSync(join(dir, "scrivn", "fixes.txt")) && !/tape t1/.test(rv2) && fixed.some((l) => /^Review: /.test(l)), fixed[0]);
   // His two decks (fixtures/house-runner/owner-1016-decks.json), placed on the house as measured.
   const decksIn = json(FX("house-runner/owner-1016-decks.json")).decks;
-  writeFileSync(join(dir, "scrivn", "inputs.json"), JSON.stringify({ ...inputs, decks: decksIn }, null, 1));
+  // Two sizes estimated on site, checked (the default): his bump-out "about 6'" (his tape of 10-20) on the west side no
+  // photo shows, and "about 25'" on the keystone wall (24'10" in the proof). Neither moves the measure.
+  const rough = [{ id: "e1", said: "the bump-out sticks out about 6'", feet: 6, plusMinusPct: 20, side: "C6-C7" }, { id: "e2", said: "keystone wall about 25'", feet: 25, plusMinusPct: 20, side: "C12-C1", use: "check" }];
+  writeFileSync(join(dir, "scrivn", "inputs.json"), JSON.stringify({ ...inputs, decks: decksIn, estimates: rough }, null, 1));
   const meas = await timed(dir, "measure");
   const res = json(join(dir, "scrivn", "results.json"));
   console.log(meas.lines.slice(0, 18).map((l) => `      ${l}`).join("\n"));
@@ -165,6 +189,17 @@ if (!existsSync(PHOTOS)) {
     rearDeck && porch ? `rear ${span(rearDeck).toFixed(2)} ft along, porch ${span(porch).toFixed(2)} ft` : "not placed",
   );
   check("all three run across the house: results say nothing checks its depth", /none runs front to back/.test(res.depthNote ?? ""));
+  // The sizes estimated on site, checked: listed in results.md, the disagreeing one worth a look with a tape asked, scaling nothing.
+  const resMd = readFileSync(join(dir, "scrivn", "results.md"), "utf8");
+  const [bumpCheck, keyCheck] = ["C6-C7", "C12-C1"].map((sd) => res.estimateChecks.find((c) => c.side === sd));
+  const estFlag = res.sanity.find((f) => f.kind === "estimate");
+  console.log(`      checked: ${res.estimateChecks.map((c) => `${c.side} ${c.lengthFeet.toFixed(2)} ft vs about ${c.feet}': ${c.offPct}% ${c.disagrees ? "DISAGREES" : "agrees"}`).join("; ")}`);
+  check(
+    "checked sizes: the bump-out side the photos read long disagrees with \"about 6'\" and is named to tape (results.md, worth a look, advice, the measure's lines); the keystone wall agrees with \"about 25'\"",
+    bumpCheck?.disagrees === true && keyCheck?.disagrees === false && /## Sizes estimated on site, checked/.test(resMd) && /\| C6-C7 \|.*\*\*disagrees: tape it\*\*/.test(resMd) && /\| C12-C1 \|.*\| agrees \|/.test(resMd) && /about 6'/.test(estFlag?.words ?? "") && /Tape it/.test(estFlag?.words ?? "") && res.advice.some((a) => a.from === 5 && /estimated on site at about 6'/.test(a.why)) && meas.lines.some((l) => /C6-C7 .*estimated on site about 6'0" ±20%: \+\d+\.\d%, disagrees - tape it/.test(l)),
+    estFlag?.words ?? JSON.stringify(res.estimateChecks),
+  );
+  check("checked sizes scale nothing: no hold-out is scaled by them, and nothing is solved again without them", res.holdOuts.every((r) => !r.from.some((f) => /estimate/.test(f))) && !res.withoutEstimates && !/What the estimates changed/.test(resMd));
   check("measure writes the plan, a squared side for each side with a photo (and its grid), the measured exterior", existsSync(join(dir, "scrivn", "plan.png")) && Object.keys(json(join(dir, "scrivn", "sides", "frames.json")).sides).length === 11 && existsSync(join(dir, "scrivn", "measured.json")) && readdirSync(join(dir, "scrivn", "sides")).filter((f) => f.endsWith(" grid.png")).length === 11);
   const pct = (name) => res.sides.find((s) => s.name === name);
   check("the taped sides come out as taped; the garage fronts within 4% of the proof's README", near(pct("Rear bump-out gable").lengthFeet, 22 + 2 / 12, 0.05) && near(pct("Front wall behind the porch").lengthFeet, 263 / 12, 0.05) && Math.abs(pct("Garage front, left bay").lengthFeet / (13 + 4 / 12) - 1) < 0.04 && Math.abs(pct("Garage front, right bay").lengthFeet / 13.5 - 1) < 0.04);

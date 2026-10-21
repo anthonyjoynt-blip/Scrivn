@@ -142,8 +142,8 @@ export function draftInputs(h) {
     if (t.kind === "side") tapes.push({ id, said: t.said, feet: round4(t.feet), what: t.what, kind: "side", side: null });
     else tapes.push({ id, said: t.said, feet: round4(t.feet), what: t.what, kind: "line", count: t.count, on: [], ...(t.alsoFeet ? { alsoFeet: t.alsoFeet.map(round4) } : {}) });
   }
-  // Sizes judged by eye at the house ("about 6'"): each a side, held loosely - never a tape.
-  const estimates = (tapesRead.estimates ?? []).map((e) => ({ id: e.id, said: e.said, feet: round4(e.feet), plusMinusPct: e.plusMinusPct, side: null }));
+  // Sizes judged by eye at the house ("about 6'"): each a side, checked against the measure (or held loosely) - never a tape.
+  const estimates = (tapesRead.estimates ?? []).map((e) => ({ id: e.id, said: e.said, feet: round4(e.feet), plusMinusPct: e.plusMinusPct, side: null, use: "check" }));
   return {
     format: INPUTS_FORMAT,
     help: "docs/house-runner.md says what each part is and how to fill it in. Corners are C1, C2... as the sheets number them; a side is C5-C6.",
@@ -252,7 +252,8 @@ export function routeInput(h, inputs, candidates = {}) {
       tapeParts[t.id].push(id);
     });
   }
-  // Sizes estimated on site, by eye: "estimates": [{"id": "e1", "said": "...", "feet": 6, "plusMinusPct": 20, "side": "C8-C9"}].
+  // Sizes estimated on site, by eye: "estimates": [{"id": "e1", "said": "...", "feet": 6, "plusMinusPct": 20, "side": "C8-C9", "use": "check"}].
+  // "use": "check" (the default) only compares the measure with it; "hold" holds the side to it loosely.
   const estimates = [];
   for (const e of inputs.estimates ?? []) {
     if (e.skip) continue;
@@ -260,10 +261,14 @@ export function routeInput(h, inputs, candidates = {}) {
       problems.push(`estimate ${e.id} (${e.said ?? ""}): no length.`);
       continue;
     }
+    if (e.use !== undefined && e.use !== "check" && e.use !== "hold") {
+      problems.push(`estimate ${e.id} (${e.said}): "use" is "check" (compare with the measure, the default) or "hold" (hold the side to it loosely), not "${e.use}".`);
+      continue;
+    }
     const from = sideIndex(e.side, n);
     if (from === null) problems.push(`estimate ${e.id} (${e.said}): which side? Set "side" to the wall it is the length of, corner to corner, e.g. "C8-C9".`);
     else if (tapes.some((t) => t.kind === "side" && t.from === from)) problems.push(`estimate ${e.id} (${e.said}): ${sideName(from, n)} is taped; the tape stands and the estimate is not used.`);
-    else estimates.push({ id: String(e.id), from, feet: Number(e.feet), plusMinusPct: Number(e.plusMinusPct) > 0 ? Number(e.plusMinusPct) : 20 });
+    else estimates.push({ id: String(e.id), from, feet: Number(e.feet), plusMinusPct: Number(e.plusMinusPct) > 0 ? Number(e.plusMinusPct) : 20, use: e.use === "hold" ? "hold" : "check" });
   }
   // Where the user stood for a photo the measure couldn't place for sure ("standAt": {"3": [x, y]}, feet on the shape as drawn).
   const standAt = {};

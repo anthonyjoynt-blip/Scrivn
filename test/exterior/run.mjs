@@ -75,7 +75,7 @@ async function load() {
       `export * from "${lib("roofCheck.ts")}";`,
       `export * from "${lib("exteriorCheck.ts")}";`,
       `export { cornerPlace, routeCoverage, viewsFromMeasure } from "${lib("photoRouteCoverage.ts")}";`,
-      `export { defaultShared, numberCorners, partyCorners, solveRoute } from "${lib("photoRoute.ts")}";`,
+      `export { checkEstimate, defaultShared, numberCorners, partyCorners, solveRoute } from "${lib("photoRoute.ts")}";`,
       `export { exteriorFromRoute, measuredFrom } from "${lib("photoRouteExterior.ts")}";`,
       `export { routeSanity } from "${lib("photoRouteSanity.ts")}";`,
       `export { applyScanFinish, readScanFinish, wallsFrom } from "${lib("exteriorFinish.ts")}";`,
@@ -6389,6 +6389,20 @@ test("an outline that won't close square, and a depth only loosely tied, are sai
   const named = { ...ext, sides: ext.sides.map((s) => (s.id === m.sideIds[depth[0].side] ? { ...s, name: "Right side wall" } : s)), photoRoute: { ...ext.photoRoute, measured: loose } };
   const said = x.routeSanity(named).find((f) => f.kind === "depth")?.words ?? "";
   assert(said.includes("(the Right side wall, 40')") && !/wall wall/.test(said), said);
+});
+
+test("a size estimated on site the measure disagrees with is worth a look: the wall, both lengths, a tape (10-21, use \"check\")", () => {
+  const ext = sanityHouse(true);
+  const m = ext.photoRoute.measured;
+  // The left wall (40' as measured) said "about 30'": 33% off, past its ±20%. The back said within it. The taped right wall said wrong: no check is made on a taped side.
+  const at = (i) => m.sides.find((s) => s.from === i);
+  const checks = { 1: { feet: 30, plusMinusPct: 20 }, 2: { feet: at(2).lengthFeet * 1.1, plusMinusPct: 20 } };
+  const sides = m.sides.map((s) => (checks[s.from] && !s.taped ? { ...s, estimateCheck: x.checkEstimate(s.lengthFeet, checks[s.from]) } : s));
+  const flags = x.routeSanity({ ...ext, photoRoute: { ...ext.photoRoute, measured: { ...m, sides } } }).filter((f) => f.kind === "estimate");
+  const side = sides.find((s) => s.estimateCheck?.disagrees);
+  assert(side && flags.length === 1 && flags[0].side === side.from, JSON.stringify(flags));
+  assert(/^The .* wall was estimated on site at about 30', but the photos make it \d+'(\d+")?: \d+% longer, more than the estimate's ±20%\. Tape it to see which is right\.$/.test(flags[0].words), flags[0].words);
+  assert(x.checkEstimate(36, { feet: 30, plusMinusPct: 20 }).disagrees === false && x.checkEstimate(36.1, { feet: 30, plusMinusPct: 20 }).disagrees === true && x.checkEstimate(23.9, { feet: 30, plusMinusPct: 0 }).disagrees === true, "±20% when none is said, past it disagrees");
 });
 
 console.log(`\n${passed.length} passed, ${failures.length} failed`);

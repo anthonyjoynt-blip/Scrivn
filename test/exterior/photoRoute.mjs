@@ -433,13 +433,14 @@ check("and the garage bays move under 2% for it", frontOf(bareRun.solution).ever
 check("his own measure: each flag names a photo, corner or wall", hisFlags.every((f) => /photo \d+|corner \d+|wall/i.test(f.words)), hisFlags.map((f) => f.words).join(" | "));
 
 // ── 10-21: sizes estimated on site (lib/photoRoute.ts RouteEstimate) ─────────────────────────────────────────────────
-// "The bump-out sticks out about 7'": a side held loosely to what someone at the house judged by eye, never a tape. Doors
-// only, as above: an estimate 17% over his 6'0" bump-out side; one 19% under on the side-yard wall the photos hold.
-console.log("\n  Sizes estimated on site (doors only):");
+// "The bump-out sticks out about 7'": held ("use": "hold"), a side held loosely to what someone at the house judged by eye,
+// never a tape. Doors only, as above: an estimate 17% over his 6'0" bump-out side; one 19% under on the side-yard wall the
+// photos hold.
+console.log("\n  Sizes estimated on site, held (doors only):");
 const withEstimates = (list) => ({ ...input, buildings: input.buildings.map((bb) => ({ ...bb, estimates: list })) });
-const bumpEst = x.solveRoute(withEstimates([{ id: "e1", from: 5, feet: 7, plusMinusPct: 20 }]), "main", prepared.data, HOLD);
-const yardEst = x.solveRoute(withEstimates([{ id: "e1", from: 3, feet: 57, plusMinusPct: 20 }]), "main", prepared.data, HOLD);
-const tapedEst = x.solveRoute(withEstimates([{ id: "e1", from: 4, feet: 26, plusMinusPct: 20 }]), "main", prepared.data);
+const bumpEst = x.solveRoute(withEstimates([{ id: "e1", from: 5, feet: 7, plusMinusPct: 20, use: "hold" }]), "main", prepared.data, HOLD);
+const yardEst = x.solveRoute(withEstimates([{ id: "e1", from: 3, feet: 57, plusMinusPct: 20, use: "hold" }]), "main", prepared.data, HOLD);
+const tapedEst = x.solveRoute(withEstimates([{ id: "e1", from: 4, feet: 26, plusMinusPct: 20, use: "hold" }]), "main", prepared.data);
 const sB = bumpEst.sides[5];
 console.log(`    bump-out side, about 7': ${ftin(doors.sides[5].lengthFeet)} ±${doors.sides[5].plusMinusPct}% -> ${ftin(sB.lengthFeet)} ±${sB.plusMinusPct}%; the rest moved at most ${Math.max(...bumpEst.sides.map((s, i) => (i === 5 ? 0 : Math.abs(s.lengthFeet / doors.sides[i].lengthFeet - 1) * 100))).toFixed(1)}%`);
 console.log(`    side-yard wall, about 57': ${ftin(doors.sides[3].lengthFeet)} ±${doors.sides[3].plusMinusPct}% -> ${ftin(yardEst.sides[3].lengthFeet)} ±${yardEst.sides[3].plusMinusPct}%`);
@@ -456,7 +457,7 @@ check(
   `${ftin(doors.sides[3].lengthFeet)} -> ${ftin(yardEst.sides[3].lengthFeet)} (about 57'); ${ftin(doors.sides[5].lengthFeet)} -> ${ftin(sB.lengthFeet)} (about 7')`,
 );
 check("a tape on the same side stands: the estimate is not used", tapedEst.sides[4].taped && !tapedEst.sides[4].estimated && Math.abs(tapedEst.sides[4].lengthFeet - all.sides[4].lengthFeet) < 0.01, `${ftin(tapedEst.sides[4].lengthFeet)}`);
-const estExt = x.exteriorFromRoute(undefined, { format: "scrivn-photo-route/1", ...withEstimates([{ id: "e1", from: 5, feet: 7, plusMinusPct: 20 }]), measured: null }, x.measuredFrom(bumpEst, prepared.data, "2026-10-21T13:00:00.000Z"));
+const estExt = x.exteriorFromRoute(undefined, { format: "scrivn-photo-route/1", ...withEstimates([{ id: "e1", from: 5, feet: 7, plusMinusPct: 20, use: "hold" }]), measured: null }, x.measuredFrom(bumpEst, prepared.data, "2026-10-21T13:00:00.000Z"));
 const estSideId = estExt?.photoRoute?.measured?.sideIds?.[5];
 const estSide = estExt?.sides.find((s) => s.id === estSideId);
 const estReport = estExt ? JSON.stringify(x.exteriorReport(estExt, { title: "The owner's house", date: "Oct 21, 2026", madeWith: "Scrivn" })) : "";
@@ -464,6 +465,58 @@ check(
   "the exterior keeps it as estimated on site, and the report says so beside that side and in its notes",
   estSide?.lengthEstimatedFeet === 7 && estSide.lengthPlusMinusPct !== undefined && /estimated on site at about 7'/.test(estReport) && /1 side estimated on site/.test(estExt.source.notes.join(" ")),
   `${estSide?.name}: ${estSide?.lengthEstimatedFeet}; ${estExt?.source.notes.join(" ")}`,
+);
+
+// ── 10-21: sizes estimated on site, checked (RouteEstimate use "check", the default) ───────────────────────────────────
+// Held, a wrong guess drags a side the photos had right (above). Checked, the measure is left exactly as it is and a side
+// further from what was said than its ± is named, with a tape asked for. The same four wrong guesses as held on 10-21 (each
+// 15-20% off the truth), two right ones, and one on a taped side. Doors only.
+console.log("\n  Sizes estimated on site, checked (doors only):");
+const CHECKS = [
+  { id: "c1", from: 3, feet: 57, plusMinusPct: 20, said: "side-yard wall about 57' (true 70'7\")" },
+  { id: "c2", from: 8, feet: 13.5, plusMinusPct: 20, use: "check", said: "covered-deck back wall about 13'6\" (true 11'5\")" },
+  { id: "c3", from: 9, feet: 24, plusMinusPct: 20, said: "west gable about 24' (true 29'2\")" },
+  { id: "c4", from: 5, feet: 7, plusMinusPct: 20, said: "bump-out side about 7' (true 6'0\")" },
+];
+const checkInput = withEstimates(CHECKS.map(({ said: _s, ...e }) => e));
+const checked = x.solveRoute(checkInput, "main", prepared.data, HOLD);
+const checkFlags = sanityOf(checked, checkInput);
+for (const c of CHECKS) {
+  const s = checked.sides[c.from];
+  console.log(`    ${c.said}: measured ${ftin(s.lengthFeet)} ±${s.plusMinusPct}%, ${s.estimateCheck.offPct >= 0 ? "+" : ""}${s.estimateCheck.offPct}% off it: ${s.estimateCheck.disagrees ? "DISAGREES" : "agrees"}`);
+}
+for (const f of checkFlags.filter((q) => q.kind === "estimate")) console.log(`    worth a look: ${f.words}`);
+const sameAs = (a, b) => a.sides.every((s, i) => s.lengthFeet === b.sides[i].lengthFeet && s.plusMinusPct === b.sides[i].plusMinusPct) && a.corners.every((p, k) => p.x === b.corners[k].x && p.y === b.corners[k].y) && a.rms === b.rms;
+check("checked (the default, said or not), the measure is exactly as with no estimates: every side, its ±, every corner", sameAs(checked, doors) && checked.sides.every((s) => !s.estimated), checked.sides.map((s) => ftin(s.lengthFeet)).join(" "));
+const yardCheck = checked.sides[3].estimateCheck;
+const yardFlag = checkFlags.find((f) => f.kind === "estimate" && f.side === 3);
+// A false alarm: the photos have this wall right to 0.1%; the flag asks for the tape that shows the guess was wrong.
+check(
+  "a wrong \"about 57'\" on the side-yard wall the photos have right (70'6\") disagrees: worth a look names the wall, both lengths and the tape",
+  yardCheck?.disagrees === true && Math.abs(yardCheck.offPct - (checked.sides[3].lengthFeet / 57 - 1) * 100) < 0.06 && /^The \S.* wall was estimated on site/.test(yardFlag?.words ?? "") && /about 57'/.test(yardFlag?.words ?? "") && yardFlag?.words.includes(ftin(checked.sides[3].lengthFeet).replace(/'0"$/, "'")) && /Tape it/.test(yardFlag?.words ?? ""),
+  yardFlag?.words ?? JSON.stringify(yardCheck),
+);
+check(
+  "and the advice asks for that tape, saying why",
+  checked.advice.some((a) => a.from === 3 && /estimated on site at about 57'/.test(a.why) && /Tape it to see which is right/.test(a.why)),
+  checked.advice.find((a) => a.from === 3)?.why,
+);
+check(
+  "a guess within its ± of the measure agrees: no flag, nothing added to the advice",
+  [8, 9].every((i) => checked.sides[i].estimateCheck && !checked.sides[i].estimateCheck.disagrees && !checkFlags.some((f) => f.kind === "estimate" && f.side === i) && !checked.advice.some((a) => a.from === i && /estimated on site/.test(a.why))),
+  [8, 9].map((i) => `${ftin(checked.sides[i].lengthFeet)} vs about ${ftin(checked.sides[i].estimateCheck?.feet ?? 0)}: ${checked.sides[i].estimateCheck?.offPct}%`).join("; "),
+);
+const rightGuess = x.solveRoute(withEstimates([{ id: "r1", from: 3, feet: 70, plusMinusPct: 20 }, { id: "r2", from: 5, feet: 6, plusMinusPct: 20 }]), "main", prepared.data, HOLD);
+check("right guesses (about 70', about 6') agree", rightGuess.sides[3].estimateCheck?.disagrees === false && rightGuess.sides[5].estimateCheck?.disagrees === false, `${rightGuess.sides[3].estimateCheck?.offPct}%, ${rightGuess.sides[5].estimateCheck?.offPct}%`);
+const checkedTaped = x.solveRoute(withEstimates([{ id: "t1", from: 4, feet: 26, plusMinusPct: 20 }]), "main", prepared.data);
+check("a check on a taped side is not made: the tape stands", checkedTaped.sides[4].taped && !checkedTaped.sides[4].estimateCheck && !sanityOf(checkedTaped, withEstimates([{ id: "t1", from: 4, feet: 26, plusMinusPct: 20 }])).some((f) => f.kind === "estimate"));
+const checkExt = x.exteriorFromRoute(undefined, { format: "scrivn-photo-route/1", ...checkInput, measured: null }, x.measuredFrom(checked, prepared.data, "2026-10-21T13:00:00.000Z"));
+// What the report says (its sides, notes, sources), not the exterior it carries, whose measure keeps the advice.
+const checkReport = checkExt ? JSON.stringify({ ...x.exteriorReport(checkExt, { title: "The owner's house", date: "Oct 21, 2026", madeWith: "Scrivn" }), exterior: null }) : "";
+check(
+  "a checked size is not put on the exterior or in the report as \"estimated on site\": the measure is the photos' alone",
+  checkExt && checkExt.sides.every((s) => s.lengthEstimatedFeet === undefined) && !/estimated on site/.test(checkReport) && !/estimated on site/.test(checkExt.source.notes.join(" ")) && checkExt.photoRoute.measured.sides[3].estimateCheck?.disagrees === true,
+  checkExt ? `${checkExt.sides.filter((s) => s.lengthEstimatedFeet !== undefined).length} sides estimated; report: ${checkReport.match(/.{80}estimated on site.{80}/g)?.join(" | ") ?? "-"}; notes: ${checkExt.source.notes.join(" ")}; kept: ${JSON.stringify(checkExt.photoRoute.measured.sides[3].estimateCheck)}` : "no exterior",
 );
 
 console.log(`\n${passed.length} passed, ${failures.length} failed (${((Date.now() - t0) / 1000).toFixed(0)} s)`);

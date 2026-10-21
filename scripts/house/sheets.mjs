@@ -152,10 +152,13 @@ export function planSvg(outline, w, h, { seen = [], cameras = [], sides = null, 
     const off = big ? 26 : 14;
     if (shared.includes(i)) out.push(`<line x1="${X(a.x)}" y1="${Y(a.y)}" x2="${X(b.x)}" y2="${Y(b.y)}" stroke="#888" stroke-width="6" stroke-dasharray="4 4"/>`);
     if (advice.includes(i)) out.push(`<line x1="${X(a.x)}" y1="${Y(a.y)}" x2="${X(b.x)}" y2="${Y(b.y)}" stroke="#ff9500" stroke-width="4"/>`);
+    // A size estimated on site the measure disagrees with: dashed magenta over the side, and what was said beside its length.
+    const said = sides?.[i]?.estimateCheck;
+    if (said?.disagrees) out.push(`<line x1="${X(a.x)}" y1="${Y(a.y)}" x2="${X(b.x)}" y2="${Y(b.y)}" stroke="#ff3df2" stroke-width="5" stroke-dasharray="12 6"/>`);
     if (sides?.[i]) {
       const sd = sides[i];
-      const text = `${sideName(i, n)} ${ftin(sd.lengthFeet)}${sd.taped ? " tape" : sd.plusMinusPct != null ? ` ±${sd.plusMinusPct}%${sd.estimated ? " est." : ""}` : ""}`;
-      out.push(label(mx + nx * off, my - ny * off + 5, text, sd.taped ? "#ffe600" : advice.includes(i) ? "#ff9500" : "#e8e8e8", { size: big ? 15 : 11, w, h, anchor: "middle" }));
+      const text = `${sideName(i, n)} ${ftin(sd.lengthFeet)}${sd.taped ? " tape" : sd.plusMinusPct != null ? ` ±${sd.plusMinusPct}%${sd.estimated ? " est." : ""}` : ""}${said ? ` · said ~${ftin(said.feet)}: ${said.disagrees ? "TAPE IT" : "agrees"}` : ""}`;
+      out.push(label(mx + nx * off, my - ny * off + 5, text, sd.taped ? "#ffe600" : said?.disagrees ? "#ff3df2" : advice.includes(i) ? "#ff9500" : "#e8e8e8", { size: big ? 15 : 11, w, h, anchor: "middle" }));
     }
   }
   for (const c of cameras) {
