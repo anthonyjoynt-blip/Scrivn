@@ -245,7 +245,8 @@ export default async function ScanPage() {
             <summary>Can it measure the outside of a house?</summary>
             <p>
               Not Scan: the outside is measured in <Link href="/">Scrivn</Link>, from photos taken with the phone&rsquo;s own camera, on any phone. Take each wall
-              straight on and each corner at 45&deg;, tape a wall, and Scrivn works out every wall&rsquo;s length and the exterior report. The{" "}
+              straight on and every corner at 45&deg;, back ones too, tape the long side wall front to back, and Scrivn works out every wall&rsquo;s length
+              and the exterior report. The{" "}
               <Link href="/scan-guide#exterior">guide</Link> shows how.
             </p>
           </details>

@@ -71,7 +71,8 @@ const SCAN: FaqEntry[] = [
     q: "Can I measure the outside of a house?",
     a: (
       <>
-        Yes, in Scrivn, from photos. Take a photo of each wall straight on and each outside corner at 45&deg;, and tape a wall. Then in the
+        Yes, in Scrivn, from photos. Take a photo of each wall straight on and every outside corner at 45&deg;, the back ones too, and tape
+        the long side wall front to back. Then in the
         claim&rsquo;s sketch, Exterior, then From photos: tap the corners on the photos, and Scrivn works out every wall&rsquo;s length, the roof
         and the exterior report. The <Link href="/scan-guide#exterior">guide</Link> shows how.
       </>
@@ -84,7 +85,7 @@ const SCAN: FaqEntry[] = [
   {
     // lib/photoRoute.ts: each side's ± (lengthPlusMinusPct), and tapeAdvice for any side over 5%. The 2-4% is the owner's house, 10-16.
     q: "How accurate is the outside?",
-    a: "About ±2–4% on walls the photos see well. Scrivn shows each wall's ± and flags the rest for a tape: one tape along that wall fixes it.",
+    a: "About ±2–4% on walls the photos see well. Scrivn shows each wall's ± and flags the rest for a tape: one tape along that wall fixes it. One tape front to back, along the long side wall, keeps the depth true.",
   },
   {
     // PRIVACY.md, "Sending an exterior to the Scrivn team", said plainly.
