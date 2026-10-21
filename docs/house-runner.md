@@ -65,7 +65,7 @@ It levels every photo and estimates the lens, finds each photo's **corner candid
 
 **The tapes** (`tapes`):
 - a wall's length: `"side": "C5-C6"`;
-- a line on a photo: `"on": [{"photo": 15, "a": [497, 900], "b": [868, 900]}]`, one entry for each alike thing it covers (both garage doors). Put the ends on the jambs at mid-height. **Ask what was taped** when it could be either (a door's opening, its curtain or across its trim): on a small building that choice moves the whole scale by up to 15%.
+- a line on a photo: `"on": [{"photo": 4, "a": [310, 760], "b": [655, 760]}]`, one entry for each alike thing it covers (both garage doors). Put the ends on the jambs at mid-height. **Ask what was taped** when it could be either (a door's opening, its curtain or across its trim): on a small building that choice moves the whole scale by up to 15%.
 - **Put the ends where the tape's ends were, from a close-up, and add `"exact": true`**: then they are not snapped and not merged with an edge other photos tied within 0.2 ft. On a 5' tape seen from 20 ft, 1 px is 0.4% of the house. Without `exact` the ends are a finger's drag, snapped and joined, as on the phone.
 - `"skip": true` leaves a tape out.
 
@@ -95,7 +95,7 @@ It reads `inputs.json` exactly as the route will, says plainly what is missing (
 3 out / 3 in                the photo left out of the measure, or back in
 3 stood = 1                 where you stood for #3 (measure's first best guess, or x,y on the shape as drawn)
 tape t1 ok                  its ends as they are
-tape t1 15 = 497,900 868,900       its ends on photo 15 (exact); tape t1#2 the second place it is on
+tape t1 4 = 310,760 655,760        its ends on photo 4 (exact); tape t1#2 the second place it is on
 tape t2 side C5-C6          a wall's length, that side
 # a comment
 ```
