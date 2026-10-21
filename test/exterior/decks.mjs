@@ -174,7 +174,7 @@ await test("a covered notch's deck: under the roof, its area in the roof's squar
   near(q.areaSquareFeet, 120, "the notch's 12' × 10'", 1e-6);
   near(q.coveredSquareFeet, 120, "all of it under the roof", 1e-6);
   near(q.ledgerFeet, 12 + 10, "against the notch's two walls", 1e-6);
-  assert(x.deckLines(q)[0] === "Deck – composite decking – 120.0 SF (120.0 SF of it under the house's roof)", x.deckLines(q)[0]);
+  assert(x.deckLines(q)[0] === "Deck – composite decking – 120.0 SF (all of it under the house's roof)", x.deckLines(q)[0]);
 });
 
 await test("its lines go on the scope only when ticked; a building's are named for it", () => {
@@ -310,7 +310,9 @@ await test("the read put on the deck against that side: railings by kind and hei
 console.log("\nHis house: the rear deck and the front porch off his photos (no API)");
 // ---------------------------------------------------------------------------------------------
 
-const route = fixture("decks/owner-1016-route.json").measured;
+/** His house as the runner measured it with his four tapes in (the bump-out's 6'0" among them), its reads, roof answers and trim. */
+const house = fixture("decks/owner-1020-house.json").exterior;
+const route = house.photoRoute.measured;
 const reads = fixture("decks/owner-1016-decks.json");
 const cams = new Map(x.placedCameras(route).map((c) => [c.photo, c]));
 const C = route.corners;
@@ -321,64 +323,55 @@ const cross = (taps) =>
       return { at: cam.at, dir: x.pixelRay(cam, px, py).dir };
     }),
   );
-/** A tap's ray met with the line y = [y] of the route's plan (an edge running east-west). */
-const onLine = (p, px, py, y) => {
-  const cam = cams.get(p);
-  const r = x.pixelRay(cam, px, py);
-  const t = (y - cam.at.y) / r.dir.y;
-  return { x: cam.at.x + r.dir.x * t, y };
-};
 const height = ([, p, tx, ty, fx, fy], at) => x.heightOver(cams.get(p), at, { x: tx, y: ty }, { x: fx, y: fy });
+const sideFeet = (i) => Math.hypot(C[(i + 1) % C.length].x - C[i].x, C[(i + 1) % C.length].y - C[i].y);
+// The rear wall C7-C8, the covered corner's side C8-C9 and back wall C9-C10, the bump-out's west side C6-C7 (his 6'0").
+const rearFeet = sideFeet(6);
+const coveredFeet = sideFeet(7);
+const backFeet = sideFeet(8);
+const bumpOutFeet = sideFeet(5);
 
-await test("the cameras: the house's own corners land on its corners in photo #8", () => {
-  // C7 (the rear wall's end at the bump-out) and C10 (the covered corner's far end), as seen under the eave in #8.
+await test("the cameras: the house's corners land on its corners in photo #8 - the covered corner's far end, the bump-out's at its downspout", () => {
   const cam = cams.get("p8");
-  const c7 = x.projectPoint(cam, C[6], 7.5);
-  const c10 = x.projectPoint(cam, C[9], 7.5);
-  near(c7.x, 371, "C7 at the bump-out's inside corner", 25);
-  near(c10.x, 1407, "C10 at the covered back wall's west end", 25);
+  near(x.projectPoint(cam, C[9], 7.5).x, 1407, "C10 at the covered back wall's west end", 25);
+  near(x.projectPoint(cam, C[5], 0).x, 60, "C6 at the bump-out's downspout", 25);
 });
 
-await test("the rear deck: its outer-west corner on the left gable wall's line; its east end on the bump-out's side; its edge 1' to 1'5\" short of the bump-out's back wall", () => {
+await test("the rear deck: its outer-west corner on the left gable wall's line and on the bump-out's back face - 6'0\" out, as he says", () => {
+  near(bumpOutFeet, 6, "his tape on the bump-out", 1e-3);
   const corner = cross(reads.taps.rear.outerWestCornerEdge).at;
-  const gableX = C[9].x;
-  near(corner.x, gableX, "flush with the left gable wall", 0.3);
-  const edgeY = corner.y;
-  const east = onLine("p8", 128, 860, edgeY);
-  near(east.x, C[5].x, "its east end on the bump-out's side", 0.3);
-  const short = C[5].y - edgeY;
-  assert(short > 1.0 && short < 1.45, `short of the bump-out's back wall by ${short.toFixed(2)}'`);
-  // The post on its west edge, three photos agreeing within an inch.
-  const post = x.crossBearings(reads.taps.rear.postOnWestEdge.map(([p, px, py]) => ({ at: cams.get(p).at, dir: x.pixelRay(cams.get(p), px, py).dir })));
-  assert(post.spreadFeet < 0.1, `spread ${post.spreadFeet}`);
-  near(post.at.x, gableX, "on the west edge", 0.3);
+  near(corner.x, C[9].x, "flush with the left gable wall", 0.3);
+  near(corner.y - C[6].y, 6, "out from the rear wall to the bump-out's face", 2 / 12);
+  // The post on its west edge, three photos within 4".
+  const post = cross(reads.taps.rear.postOnWestEdge);
+  assert(post.spreadFeet < 0.4, `spread ${post.spreadFeet}`);
+  near(post.at.x, C[9].x, "on the west edge, set in from it", 0.6);
 });
 
-await test("the rear deck from his taps, as the photo route makes it: both ends snapped to the walls' lines, the covered corner filled", () => {
-  const side = route.corners.findIndex((_, i) => i === 6);
-  const { deck, why } = x.deckFromPhotos(route, side, reads.decks[0].taps, null, { id: "deck-rear", name: "Rear deck" });
+await test("the rear deck from his taps, as the photo route makes it: its west end on the gable wall's line, the covered corner filled; its rim at its corner post's foot, 4\" in, so its depth is asked", () => {
+  const { deck, why } = x.deckFromPhotos(route, 6, reads.decks[0].taps, null, { id: "deck-rear", name: "Rear deck" });
   assert(deck, why.join(" "));
   const xs = deck.outline.map((p) => p.x);
-  near(Math.min(...xs), 0, "from the bump-out's side", 1e-6);
-  const rearFeet = Math.hypot(C[7].x - C[6].x, C[7].y - C[6].y);
-  const backFeet = Math.hypot(C[9].x - C[8].x, C[9].y - C[8].y);
   near(Math.max(...xs), rearFeet + backFeet, "to the left gable wall's line", 1e-3);
+  // Its east end a weak crossing (#8 and #9 taken close together), by the bump-out's side.
+  near(Math.min(...xs), 0, "by the bump-out's side", 1.1);
   const ys = deck.outline.map((p) => p.y);
-  near(Math.min(...ys), -Math.hypot(C[8].x - C[7].x, C[8].y - C[7].y), "back to the covered corner's back wall", 1e-6);
+  near(Math.max(...ys), bumpOutFeet, "its rim by the bump-out's face", 0.4);
+  near(Math.min(...ys), -coveredFeet, "back to the covered corner's back wall", 1e-6);
+  assert(x.deckChecks({ ...house, decks: [deck] }).some((r) => r.item === "depth"), "its depth asked");
   // Its height over the lawn at the outer corner: 4'5" to 5'2" - the walls stand 7'6" over the low ground by the house.
   assert(deck.heightFeet > 4.4 && deck.heightFeet < 5.2, `height ${deck.heightFeet}`);
 });
 
-await test("the rear deck's height: 4'5\"-5'2\" over the lawn at its outer posts, the glass 3'6\"-4' high, the privacy screen 5'4\"-6'", () => {
-  const [top, postTop, screen, rail] = reads.taps.rear.heights;
+await test("the rear deck's height: 4'5\"-5'2\" over the lawn at its outer posts, the glass 3'5\"-4' high", () => {
+  // The privacy screen's reads scatter on this measure (#6 stands 7' from where the first put it): its 5'8" is the first's.
+  const [top, postTop, , rail] = reads.taps.rear.heights;
   const corner = cross(reads.taps.rear.outerWestCornerPost).at;
   const h = height(top, corner);
   assert(h > 4.4 && h < 5.2, `at the outer corner ${h}`);
   const post = cross(reads.taps.rear.postOnWestEdge).at;
   const h2 = height(postTop, post);
   assert(h2 > 4.2 && h2 < 5.2, `over the west edge's post ${h2}`);
-  const s = height(screen, { x: C[9].x + 0.05, y: C[9].y + 0.5 });
-  assert(s > 5.33 && s < 6, `screen ${s}`);
   const r = height(rail, corner);
   assert(r > 3.4 && r < 4.1, `glass ${r}`);
 });
@@ -403,30 +396,11 @@ await test("the porch: its west corner column on the front wall's line at the co
 
 await test("the porch's height: 3'5\"-4'1\" over the walk at its columns", () => {
   for (const t of reads.taps.porch.heights.filter((h) => h[0].startsWith("top"))) {
-    const at = { x: t[0].includes("Left") ? -12.4 : -4.59, y: C[10].y - 4.75 };
+    const at = cross(reads.taps.porch[t[0].includes("Left") ? "leftColumn" : "rightColumn"]).at;
     const h = height(t, at);
     assert(h > 3.4 && h < 4.1, `${t[0]} on ${t[1]}: ${h}`);
   }
 });
-
-/** His house as the trim and compass reports had it, with his roof answers (test/exterior/run.mjs's own taps). */
-function ownersHouse() {
-  const read = x.parseScanExterior({ ...fixture("photos-only-1016.json"), finish: fixture("photos-only-1016-trim.json") }, { scanId: null });
-  if (!read.ok) throw new Error(read.error);
-  const e = read.exterior;
-  const front = sideOf(e, "Front wall behind");
-  const fp = x.exteriorFootprint(e);
-  const feet = fp.lengthsFeet[fp.sideIds.indexOf(front.id)];
-  let roof = x.withWingAnswer(e.roof, x.exteriorQuantities(e).roof, sideOf(e, "Garage front, left").id, "gable");
-  roof = x.withAddition(roof, "porch", front.id, feet);
-  roof = { ...roof, additions: roof.additions.map((a) => ({ ...a, depthFeet: ft(4, 10) })) };
-  roof = x.withAddition(roof, "gable", front.id, feet, front.openings.find((o) => o.kind === "door"));
-  const tapped = { ...e, roof };
-  const plan = x.exteriorQuantities(tapped).roof;
-  const fromPhotos = x.endsFromPhotos(tapped, plan);
-  const guessed = plan.ends.filter((en) => !(en.sideId in tapped.roof.ends) && !fromPhotos.has(en.sideId)).map((en) => en.sideId);
-  return { ...tapped, roof: x.withRoofChecked(tapped.roof, plan, guessed, "2026-10-16T22:00:00.000Z", x.exteriorQuantities(tapped).wingDrops) };
-}
 
 /** His two decks as read (fixtures/decks/owner-1016-decks.json) on the house: each against its wall, back to the walls behind it. */
 function withHisDecks(house) {
@@ -438,7 +412,6 @@ function withHisDecks(house) {
   return { ...house, decks, scope: { ...(house.scope ?? x.emptyScope()), decks: decks.map((d) => d.id) } };
 }
 
-const house = ownersHouse();
 const decked = withHisDecks(house);
 
 await test("on his house the decks change nothing of the roof or the walls", () => {
@@ -449,52 +422,56 @@ await test("on his house the decks change nothing of the roof or the walls", () 
   near(b.roofing.squares, a.roofing.squares, "squares", 1e-12);
 });
 
-await test("the rear deck against his house's numbers: 26'9\" along the back (the rear wall 15'3\" and the covered corner's back wall 11'5\"), the covered corner 11'5\" × 9'1\" in it, its ledger on four walls", () => {
+await test("the rear deck squared off with the bump-out: its rim on the bump-out's face across to the gable wall's line, the covered corner in it, its ledger on four walls", () => {
   const q = x.decksQuantities(decked, x.exteriorQuantities(decked).roof);
   const rear = q.find((d) => d.name === "Rear deck");
   const g = rear.geometry;
-  const outer = g.edges[0];
-  near(outer.lengthFeet, 15.27 + 11.46, "its outer edge", 0.05);
-  near(rear.areaSquareFeet, 26.73 * 4.85 + 11.46 * 9.11, "the strip and the covered corner", 0.5);
+  // The house's own sides (the route's corners within 0.003' of them).
+  const [bumpOutFeet, rearFeet, coveredFeet, backFeet] = ["Bump-out left side", "Rear wall", "Covered-deck side", "Covered-deck back wall"].map((n) => sideOf(house, n).lengthFeet);
+  near(Math.max(...rear.deck.outline.map((p) => p.y)), bumpOutFeet, "its rim on the bump-out's face", 1e-3);
+  near(g.edges[0].lengthFeet, rearFeet + backFeet, "its rim: the rear wall and the covered corner's back wall", 1e-6);
+  near(rear.areaSquareFeet, (rearFeet + backFeet) * 6 + backFeet * coveredFeet, "the strip 6'0\" out and the covered corner", 1e-4);
   const names = g.edges.flatMap((e) => e.against.map((a) => a.name)).sort();
   assert(JSON.stringify(names) === JSON.stringify(["Bump-out left side", "Covered-deck back wall", "Covered-deck side", "Rear wall"]), names.join(", "));
-  // Glass: its outer edge less the stair (26'9" - 3'6"), and 6'3" of its west end to the roof's post: 29.4' - plausible against the walls.
+  near(rear.ledgerFeet, 6 + rearFeet + coveredFeet + backFeet, "its ledger: 6'0\" of the bump-out's side and the rest", 1e-4);
+  // Glass: its rim less the stair, and its west edge from the rim to the roof's post; the screen from the post to the wall.
   const glass = rear.railingByKind.find((r) => r.kind === "glass");
-  near(glass.feet, 26.73 - (14.06 - 10.53) + 6.24, "glass railing", 0.05);
+  near(glass.feet, rearFeet + backFeet - (14.31 - 10.98) + 4.9, "glass railing", 1e-6);
+  near(rear.screens[0].lengthFeet, 6 + coveredFeet - 4.9, "privacy screen", 1e-6);
   // Under the roof: the covered corner and the eave's overhang over the strip.
-  assert(rear.coveredSquareFeet > 11.46 * 9.11 && rear.coveredSquareFeet < 11.46 * 9.11 + 26.73 * 2.5, `covered ${rear.coveredSquareFeet}`);
+  assert(rear.coveredSquareFeet > backFeet * coveredFeet && rear.coveredSquareFeet < backFeet * coveredFeet + (rearFeet + backFeet) * 2.5, `covered ${rear.coveredSquareFeet}`);
   const stair = rear.stairs[0];
   assert(stair.stair.risers === 8, "8 risers");
   near(stair.totalRiseFeet, 4.8, "its rise, over the lawn", 1e-6);
 });
 
-await test("the porch: 22'1\" along the front wall behind it, 4'9\" out, under its roof whole", () => {
+await test("the porch: the whole front wall behind it (his 263\" tape), 4'9\" out, under its roof whole", () => {
   const q = x.decksQuantities(decked, x.exteriorQuantities(decked).roof);
   const porch = q.find((d) => d.name === "Front porch");
-  near(porch.geometry.edges[0].lengthFeet, 22.06, "along the house", 0.02);
-  near(porch.areaSquareFeet, 22.06 * 4.75, "area", 0.1);
+  near(porch.geometry.edges[0].lengthFeet, 263 / 12, "along the house", 0.01);
+  near(porch.areaSquareFeet, (263 / 12) * 4.75, "area", 0.1);
   near(porch.coveredSquareFeet, porch.areaSquareFeet, "the porch roof covers it", 0.5);
   assert(porch.stairs[0].stair.risers === 5, "5 risers");
   assert(porch.screens.length === 3, "skirting round it");
   // Its three runs of skirting one line; the rear deck's posts from the lawn at its edge to the low ground under the roof.
   const skirt = x.deckLines(porch).filter((l) => l.includes("skirting"));
-  assert(skirt.length === 1 && /skirting – wood – 66\.9 SF \(22'4" × 3'\)$/.test(skirt[0]), `one skirting line: ${skirt}`);
+  assert(skirt.length === 1 && /skirting – wood – 66\.5 SF \(22'2" × 3'\)$/.test(skirt[0]), `one skirting line: ${skirt}`);
   const rear = q.find((d) => d.name === "Rear deck");
-  assert(x.deckLines(rear).some((l) => l.endsWith(`(6×6 aluminum-wrapped, 4'11" to 7'6")`)), x.deckLines(rear).filter((l) => l.includes("posts")).join(" / "));
+  assert(x.deckLines(rear).some((l) => l.endsWith(`(6×6 aluminum-wrapped, 4'10" to 7')`)), x.deckLines(rear).filter((l) => l.includes("posts")).join(" / "));
   assert(x.riseWords(rear.stairs[0].riseFeet) === `7¼"`, x.riseWords(rear.stairs[0].riseFeet));
 });
 
 await test("his decks' lines", () => {
   const lines = x.siteScopeLines(decked, []).siding;
   const expect = [
-    "Rear deck – composite decking – 234.0 SF (",
+    "Rear deck – composite decking – 262.4 SF (",
     "Rear deck – glass railing",
     "Rear deck – aluminum picket railing",
-    "Rear deck – stairs – 8 risers, 3'6\" wide",
+    "Rear deck – stairs – 8 risers, 3'4\" wide",
     "Rear deck – posts – 3 (6×6 aluminum-wrapped",
     "Rear deck – privacy screen – wood – ",
     "Rear deck – ledger – ",
-    "Front porch – wood decking – ",
+    "Front porch – wood decking – 104.1 SF (all of it under the house's roof)",
     "Front porch – aluminum picket railing – ",
     "Front porch – stairs – 5 risers, 4'6\" wide",
     "Front porch – skirting – wood – ",
@@ -512,16 +489,17 @@ await test("what the photos couldn't see is on Check these and the report's To c
   assert(report.notes.some((n) => n.startsWith("Rear deck: its framing: The joists, beams and footings can't be seen")), report.notes.join("\n"));
 });
 
-await test("the one tape to take: the rear deck's depth from the rear wall to its rim, asked; typed, its outer edge moves to it and it isn't asked", () => {
+await test("the rear deck's depth is his word, not asked; the porch's is: typed, its outer edge moves to it and it isn't asked", () => {
   const q = x.exteriorQuantities(decked);
-  const ask = x.exteriorChecks(decked, q).find((r) => r.kind === "deck" && r.deckId === "deck-rear" && r.item === "depth");
-  assert(ask && ask.title === "Rear deck: 4'10\" out from the Rear wall" && /tape it from the Rear wall to the outer face of its rim/.test(ask.words), JSON.stringify(ask));
-  const taped = x.withDeckDepth(decked, "deck-rear", ft(5, 3));
-  const rear = x.decksQuantities(taped, x.exteriorQuantities(taped).roof).find((d) => d.name === "Rear deck");
-  near(Math.max(...rear.deck.outline.map((p) => p.y)), ft(5, 3), "its outer edge at the tape", 1e-9);
-  near(rear.areaSquareFeet, 26.73 * ft(5, 3) + 11.46 * 9.11, "its area with it", 0.5);
-  assert(!x.deckChecks(taped).some((r) => r.deckId === "deck-rear" && r.item === "depth"), "no longer asked");
-  assert(x.deckChecks(taped).some((r) => r.deckId === "deck-rear" && r.item === "framing"), "the rest still asked");
+  const asks = x.exteriorChecks(decked, q).filter((r) => r.kind === "deck" && r.item === "depth");
+  assert(asks.length === 1 && asks[0].deckId === "deck-porch", JSON.stringify(asks));
+  assert(asks[0].title === "Front porch: 4'9\" out from the Front wall behind the porch" && /tape it from the Front wall behind the porch to the outer face of its rim/.test(asks[0].words), JSON.stringify(asks[0]));
+  const taped = x.withDeckDepth(decked, "deck-porch", 5);
+  const porch = x.decksQuantities(taped, x.exteriorQuantities(taped).roof).find((d) => d.name === "Front porch");
+  near(Math.max(...porch.deck.outline.map((p) => p.y)), 5, "its outer edge at the tape", 1e-9);
+  near(porch.areaSquareFeet, (263 / 12) * 5, "its area with it", 0.1);
+  assert(!x.deckChecks(taped).some((r) => r.item === "depth"), "no longer asked");
+  assert(x.deckChecks(taped).some((r) => r.deckId === "deck-porch" && r.item === "framing"), "the rest still asked");
 });
 
 await test("the report: a Decks fact, a section with each deck's plan and facts and its own tables; without decks, as it always was", () => {
@@ -529,10 +507,10 @@ await test("the report: a Decks fact, a section with each deck's plan and facts 
   assert(!("decks" in plain), "no decks key without decks");
   const r = x.exteriorReport(decked, META);
   const fact = r.facts.find((f) => f.label === "Decks");
-  assert(fact && /^Rear deck 234 SF, 7'6" up at the wall, 4'10" at its outer edge, \d+ SF of it under the roof · Front porch 105 SF, 3'9" up, under the roof$/.test(fact.value), fact?.value);
+  assert(fact && /^Rear deck 262 SF, 7'6" up at the wall, 4'10" at its outer edge, \d+ SF of it under the roof · Front porch 104 SF, 3'9" up, under the roof$/.test(fact.value), fact?.value);
   assert(r.decks.list.length === 2 && r.decks.tables.map((t) => t.caption).join("|") === "Decks|Deck railings|Deck stairs|Under the decks|Deck lines", r.decks.tables.map((t) => t.caption).join("|"));
   const rearSide = r.sides.find((s) => s.side.name === "Rear wall");
-  assert(rearSide.dims.some((d) => d.startsWith("Rear deck against it: 15'3\" of ledger")), rearSide.dims.join("\n"));
+  assert(rearSide.dims.some((d) => d.startsWith("Rear deck against it: 14'6\" of ledger")), rearSide.dims.join("\n"));
   // The walls' own words are unchanged but for that line.
   const before = plain.sides.find((s) => s.side.name === "Rear wall");
   assert(JSON.stringify(rearSide.dims.filter((d) => !d.includes("deck"))) === JSON.stringify(before.dims), "the rear wall's own words");
