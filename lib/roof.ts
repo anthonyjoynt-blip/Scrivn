@@ -146,6 +146,8 @@ type Rect = { x0: number; x1: number; y0: number; y1: number };
 /** One rectangle of roof with its ridge along `axis`. */
 export interface RoofSection {
   role: "main" | "wing" | "porch" | "gable";
+  /** Its planes this far (feet) under the layer's: a lower wing run into the roof it meets (`RoofInput.lowerWingsInto`). */
+  drop?: number;
   /**
    * What names it for its own pitch, kept when a length is retyped: "main"; a wing by the side its
    * free end stands over ("wing:<side>"); a gable over a lower wing "over-<side>"; a porch or cross
@@ -327,6 +329,14 @@ export interface RoofInput {
   lowerWings?: string[];
   /** Lower wings that stand under a gable of the roof they meet, each by the side its free end stands over. */
   wingGables?: string[];
+  /**
+   * Lower wings whose roof still runs into the slope of the roof they meet (2026-10-22, the owner's garage off his 10-21
+   * photos): its eave [wingDropsFeet] under that roof's, its ridge carried in until it meets the slope, valleys either
+   * side - no wall between. Each by the side its free end stands over; it is in `lowerWings` too.
+   */
+  lowerWingsInto?: string[];
+  /** How far such a wing's eave is under the roof it runs into, feet (else 1'6"). */
+  wingDropsFeet?: Record<string, number>;
   /** Notches the roof carries over (a covered deck), each by any one of its inner walls' sides. */
   coveredNotches?: string[];
   /** For the notes: what each side is called. */
@@ -370,6 +380,8 @@ export interface RoofWing {
   onSlope: boolean;
   /** Lower, under a gable of the roof it meets - with a strip of wall between, as the owner's garage. */
   gable: boolean;
+  /** Lower, its ridge still running into the slope of the roof it meets: no wall between (`RoofInput.lowerWingsInto`). */
+  into?: boolean;
 }
 
 /** A notch cut from the outline, which the roof can be said to carry over: a covered deck or porch. */
@@ -470,6 +482,8 @@ function sectionPlanes(s: RoofSection): Plane[] {
     const r = brk.pitch / 12 / k;
     for (const p of [...planes]) planes.push({ ...p, a: p.a * r, b: p.b * r, c: p.c * r + brk.at * (1 - r) });
   }
+  // A lower wing run into the roof it meets: every plane its drop under the layer's.
+  if (s.drop) return planes.map((p) => ({ ...p, c: p.c - (s.drop as number) }));
   return planes;
 }
 
@@ -1551,6 +1565,32 @@ interface Planned {
   forced: number;
 }
 
+/** 1'6" for 1.5 ft, to the inch: roof.ts stands on nothing else. */
+function feetInchesWords(feet: number): string {
+  const inches = Math.round(Math.max(0, feet) * 12);
+  return `${Math.floor(inches / 12)}'${inches % 12}"`;
+}
+
+/** A lower wing's drop under the roof it runs into when none is said (as the roof check assumes for a lower roof). */
+const INTO_DROP_FEET = 1.5;
+
+/**
+ * A wing tied in [drop] under the roof it meets (2026-10-22): its planes lowered, its ridge carried in only as far as it
+ * still stands over that roof's slope - shorter by the drop's run. Null when its ridge is lower than the slope at the wall.
+ */
+function intoTheSlope(input: RoofInput, tied: RoofSection, parent: RoofSection, free: string): RoofSection | null {
+  const drop = Math.max(0, input.wingDropsFeet?.[free] ?? INTO_DROP_FEET);
+  const half = tied.axis === "x" ? (tied.y1 - tied.y0) / 2 : (tied.x1 - tied.x0) / 2;
+  const ridge = riseAt(tied, half) - drop;
+  if (!(ridge > 1e-6) || !(parent.pitch > 0)) return null;
+  const reach = runTo(parent, ridge);
+  if (!Number.isFinite(reach)) return null;
+  const s: RoofSection = { ...tied, layer: parent.layer, drop };
+  if (s.lo === "tie") s.reachLo = reach;
+  if (s.hi === "tie") s.reachHi = reach;
+  return s;
+}
+
 /**
  * The sections of a main and its wings. A wing ties into the roof it stands on - its end carried
  * on into that roof by its own half-span, as an L's - unless it is said to sit lower, or has to:
@@ -1582,6 +1622,20 @@ function plannedSections(input: RoofInput, plan: Wing[], nameOf: (id: string) =>
     withPitch(s, key, pitch, parent.pitch);
     const name = free === null ? "A wing" : `The wing out to ${nameOf(free)}`;
     let why: string | null = null;
+    // Said lower, its ridge still running into the roof it meets: tied in on that roof, its planes its drop under it.
+    if (free !== null && (input.lowerWingsInto ?? []).includes(free)) {
+      const into = intoTheSlope(input, s, parent, free);
+      // Not seamless by design: where it is still under the roof's eave, that eave's edge stands over it, as a lower roof's
+      // does - it only has to reach that roof's slope with its ridge.
+      if (into) {
+        sections.push(into);
+        own.push(into);
+        out.wingEnds.push(free);
+        out.wings.push({ sideId: free, lower: true, forced: false, onSlope: !w.onEnd, gable: false, into: true });
+        continue;
+      }
+      out.notes.push(`${name} can't run into the roof it meets from ${feetInchesWords(input.wingDropsFeet?.[free] ?? INTO_DROP_FEET)} lower without a step: it is built lower, stopping at the wall.`);
+    }
     let lower = free !== null && said.includes(free);
     if (!lower) {
       // The parent's end it stands on, if it stands on one.
@@ -1598,9 +1652,15 @@ function plannedSections(input: RoofInput, plan: Wing[], nameOf: (id: string) =>
       } else if (end !== null && end !== "hip") {
         why = `${name} stands on a gable end${endSide ? ` (over ${nameOf(endSide)})` : ""}, which has no slope for it to run into: it is built lower, stopping at the wall.${endSide ? " A hip there ties it in." : ""}`;
         out.forced += 1;
+      } else if (parent.drop) {
+        // Tied into a wing that runs into the roof from lower down: at that wing's eave, its drop with it (the owner's right
+        // garage bay off the garage, 2026-10-22). That wing's own step under the roof's eave is no step of this one's.
+        s.layer = parent.layer;
+        s.drop = parent.drop;
       } else {
         s.layer = parent.layer;
-        if (!seamless([...sections.filter((x) => x.layer === s.layer), s])) {
+        // A wing run in from lower down steps under the roof's eave on purpose: no step of this wing's.
+        if (!seamless([...sections.filter((x) => x.layer === s.layer && !x.drop), s])) {
           why = `${name} can't be carried into the roof it meets without a step in that roof: it is built lower, stopping at the wall.`;
           out.unsound += 1;
         }
@@ -3312,7 +3372,7 @@ export function roofRiseAlongWall(input: RoofInput, from: Pt, to: Pt, storey: "m
     }
     const roof = under ?? (roofs[0] as (typeof roofs)[number]);
     const section = roof.own.find((s) => s.wall && inside(s.wall, m.x, m.y)) ?? roof.own[0];
-    base = oe * ((section?.pitch ?? input.pitch) / 12);
+    base = oe * ((section?.pitch ?? input.pitch) / 12) - (section?.drop ?? 0);
     const p0 = at(t0);
     const p1 = at(t1);
     push(t0, roof.surface.z(p0.x, p0.y));

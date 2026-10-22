@@ -689,7 +689,7 @@ export function ElevationDrawing({
       )}
       {trimOnWall.length > 0 && <TrimDrawn pieces={trimOnWall} fs={fs} textured={textured} opacity={seeThrough ? 0.35 : 1} />}
       {openings.map(({ opening, rect }) =>
-        opening.from === "said" ? (
+        opening.from === "said" || opening.notMeasured ? (
           // Said on site on a wall no photo faces: a common size, spaced along it - faint and dashed, not measured.
           <g key={opening.id} opacity={0.55}>
             <OpeningGlyph opening={opening} rect={rect} fs={fs} seeThrough={seeThrough} plain={surrounded.has(opening.id)} plate={darkWall} />

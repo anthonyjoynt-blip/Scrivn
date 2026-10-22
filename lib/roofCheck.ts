@@ -65,7 +65,7 @@ export interface WingDrop {
   source: "typed" | "walls" | "assumed";
 }
 
-export type WingHow = "tie" | "lower" | "gable";
+export type WingHow = "tie" | "lower" | "gable" | "into";
 export type NotchHow = "open" | "covered";
 
 export const wingKey = (sideId: string) => `wing:${sideId}`;
@@ -331,6 +331,7 @@ export function withWingAnswer(roof: ExteriorRoof, plan: RoofPlan, sideId: strin
     ...r,
     lowerWings: [...(r.lowerWings ?? []).filter((id) => id !== sideId), ...(how === "tie" ? [] : [sideId])],
     wingGables: [...(r.wingGables ?? []).filter((id) => id !== sideId), ...(how === "gable" ? [sideId] : [])],
+    lowerWingsInto: [...(r.lowerWingsInto ?? []).filter((id) => id !== sideId), ...(how === "into" ? [sideId] : [])],
     answered: [...new Set([...(r.answered ?? []), wingKey(sideId)])],
   };
 }
@@ -405,8 +406,8 @@ export function checkRows(plan: RoofPlan, roof: ExteriorRoof, proposal: RoofProp
     key: wingKey(w.sideId),
     sideId: w.sideId,
     label: `The part out to ${nameOf(w.sideId)}`,
-    value: (w.gable ? "gable" : w.lower ? "lower" : "tie") as WingHow,
-    options: [["tie", "Into the roof it meets"], ["lower", "Lower, under its eave"], ...(w.onSlope && !w.forced ? [["gable", "Lower, under a gable"]] : [])] as [WingHow, string][],
+    value: (w.into ? "into" : w.gable ? "gable" : w.lower ? "lower" : "tie") as WingHow,
+    options: [["tie", "Into the roof it meets"], ["lower", "Lower, under its eave"], ...(w.onSlope && !w.forced ? [["gable", "Lower, under a gable"], ["into", "Lower, running into the roof"]] : [])] as [WingHow, string][],
     proposed: w.forced ? null : (proposedFor([wingKey(w.sideId)])?.why ?? null),
     fixed: w.forced ? "It has to sit lower: the note under the plan says why." : null,
     drop: drops[w.sideId] ?? null,

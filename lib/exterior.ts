@@ -114,6 +114,12 @@ export interface ExteriorOpening {
    */
   from?: "photo" | "said";
   /**
+   * Counted and placed off a photo that sees its wall edge-on, or as near (2026-10-22, house G's walkway side): its size and
+   * place are not measured, only that it is there - said why ("seen edge-on only (photos 2, 3)"). Drawn faint and dashed,
+   * as one said on site is, and named on the report's "To check" until a photo of the wall straight on measures it.
+   */
+  notMeasured?: string;
+  /**
    * What hid part of it in its photo, in the trace's words (2026-10-16): a railing, a deck, plants, a car.
    * Its kind is then a guess, asked on "Check these" (lib/exteriorCheck.ts). Absent: nothing did, or it was tapped.
    */
@@ -810,6 +816,8 @@ export interface ExteriorRoof {
   lowerWings?: string[];
   /** Of those, the ones under a gable of the roof they meet (the owner's garage), by the same side. */
   wingGables?: string[];
+  /** Of those, the ones whose ridge still runs into the roof they meet, valleys either side and no wall between (2026-10-22). */
+  lowerWingsInto?: string[];
   /** Notches the roof carries over (a covered deck), each by one of its inner walls' sides. */
   coveredNotches?: string[];
   /**
@@ -1449,6 +1457,8 @@ export interface SideQuantities {
   gableSource: "measured" | "roof" | null;
   /** Its surrounds, keystones, columns and pilasters (2026-10-17); absent with none. */
   trim?: SideTrim;
+  /** Its parging drawn as shapes (2026-10-22): the area, and the run of foundation it covers. Absent with none. */
+  parging?: { squareFeet: number; linearFeet: number };
 }
 
 /** A surround round one opening, as priced. */
@@ -1498,6 +1508,18 @@ export function bandLabel(band: CladdingBand): string {
  * less every opening where it overlaps it - a window across a stucco/stone line comes out of both.
  * Parging and open shapes are not counted. The wall/gable split is the line between the two eaves.
  */
+/**
+ * A side's parging drawn as shapes (2026-10-22, the owner: parging "as a shape", its top following the grade): their
+ * area, and the run along the wall they cover. Null with none.
+ */
+function pargingOf(side: ExteriorSide): { squareFeet: number; linearFeet: number } | null {
+  const polys = (side.shapes ?? []).filter((s) => s.kind === "parging" && s.closed && s.polygon.length >= 3).map((s) => s.polygon);
+  if (polys.length === 0) return null;
+  const squareFeet = polys.reduce((sum, q) => sum + area(q), 0);
+  const linearFeet = polys.reduce((sum, q) => sum + Math.max(...q.map((p) => p.x)) - Math.min(...q.map((p) => p.x)), 0);
+  return squareFeet > 0.05 ? { squareFeet, linearFeet } : null;
+}
+
 function shapeQuantities(side: ExteriorSide, empty: SideQuantities): SideQuantities {
   const faces = (side.shapes ?? []).filter((s) => s.closed && s.kind !== "parging" && s.polygon.length >= 3);
   if (faces.length === 0) return empty;
@@ -1627,7 +1649,10 @@ export function sideQuantities(side: ExteriorSide, roofRise: RoofRise | null = n
     pitchFromGable: null,
     gableSource: null,
   };
-  if ((side.shapes ?? []).length > 0) return shapeQuantities(side, empty);
+  if ((side.shapes ?? []).length > 0) {
+    const parging = pargingOf(side);
+    return { ...shapeQuantities(side, empty), ...(parging ? { parging } : {}) };
+  }
   if (shape.eaveZ === null || shape.cladding.length < 3) return empty;
   const eaveZ = shape.eaveZ;
 
@@ -2661,6 +2686,7 @@ function saidRoofInput(exterior: Exterior, footprint: Footprint, pitch: number, 
     additions: exterior.roof.additions ?? [],
     lowerWings: exterior.roof.lowerWings ?? [],
     wingGables: exterior.roof.wingGables ?? [],
+    ...((exterior.roof.lowerWingsInto ?? []).length > 0 ? { lowerWingsInto: exterior.roof.lowerWingsInto, wingDropsFeet: exterior.roof.wingDrops ?? {} } : {}),
     coveredNotches: exterior.roof.coveredNotches ?? [],
     sideNames: Object.fromEntries(allSides(exterior).map((s) => [s.id, s.name.trim() || "Side"])),
     ...(exterior.roof.oneSlopeTo ? { oneSlope: exterior.roof.oneSlopeTo } : {}),
@@ -3632,6 +3658,13 @@ export function exteriorScopeLines(exterior: Exterior | undefined): ExteriorScop
       if (SIDING_KINDS.includes(k.kind)) wrap += k.net;
     }
     out.siding.push(...trimLines(trimTotals(sides)));
+    // Parging drawn as shapes (2026-10-22): by its area, over the run of foundation it covers.
+    const parged = sides.filter((s) => s.parging);
+    if (parged.length > 0) {
+      const sf = parged.reduce((sum, s) => sum + (s.parging?.squareFeet ?? 0), 0);
+      const lf = parged.reduce((sum, s) => sum + (s.parging?.linearFeet ?? 0), 0);
+      out.siding.push(`Parging – ${parged.map((s) => s.name).join(", ")} – ${num(sf)} SF (${num(lf)} LF of foundation)`);
+    }
     if (wrap > 0) out.siding.push(`House wrap – ${num(wrap)} SF`);
     const sidedTrim = sides
       .filter((s) => s.bands.some((b) => SIDING_KINDS.includes(b.kind) && b.netSquareFeet > 0))

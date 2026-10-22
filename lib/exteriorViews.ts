@@ -536,6 +536,10 @@ export function decksOnSide(model: ExteriorModel3D, sideId: string): SideDeckPie
     const far = Math.max(...pts.map((p) => p.w));
     // In front of the wall only: a deck round the corner is another side's.
     if (far < 0.05) continue;
+    // And along it (2026-10-22): a porch off past the end of a 2' garage step stands in front of the step's line, not of
+    // the step - it is drawn in the house's views, not in the step's own.
+    const xs = pts.map((p) => p.x);
+    if (Math.max(...xs) < 0.05 || Math.min(...xs) > w.length - 0.05) continue;
     const poly = pts.map((p) => ({ x: p.x, y: p.y }));
     if (Math.abs(area2(poly)) < 1e-4) continue;
     const ground = model.deckGrounds?.[part.deckId];

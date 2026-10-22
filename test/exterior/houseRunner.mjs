@@ -296,10 +296,17 @@ if (!existsSync(SHED)) {
   const rd = await runStep(dir, "read");
   const sheets = readdirSync(join(dir, "scrivn", "read")).filter((f) => f.endsWith(".png"));
   check("read: a sheet a side from every photo, and the checklist", sheets.length === 4 && existsSync(join(dir, "scrivn", "read.txt")) && /Photo by photo/.test(readFileSync(join(dir, "scrivn", "read.txt"), "utf8")), rd.join(" | "));
-  writeFileSync(join(dir, "scrivn", "reading.json"), JSON.stringify({ groundBySide: { "C1-C2": { mainFloorFt: 0.5 } }, sides: { "C1-C2": { openings: [{ kind: "window", offsetFt: 2, widthFt: 3, heightFt: 2.5, sillAboveMainFloorFt: 3 }], wallTopFt: [[0, 9], [16, 9]] } }, roofAnswers: { pitch: "3/12" } }));
+  writeFileSync(join(dir, "scrivn", "reading.json"), JSON.stringify({ groundBySide: { "C1-C2": { mainFloorFt: 0.5 } }, sides: { "C1-C2": { openings: [{ kind: "window", offsetFt: 2, widthFt: 3, heightFt: 2.5, sillAboveMainFloorFt: 3, surroundFt: 0.42, keystone: { widthFt: 1, heightFt: 0.8 } }], wallTopFt: [[0, 9], [16, 9]], parging: [[0, 0.5], [16, 1.5]], columns: [{ alongFt: 12, widthFt: 1.2, heightFt: 8, kind: "pilaster", cap: { outFt: 0.2, heightFt: 0.8 } }], notMeasured: "seen edge-on only", trimColour: "#f2f2ee" } }, roofAnswers: { pitch: "3/12" } }));
   const ap = await runStep(dir, "read");
   const rr = json(join(dir, "scrivn", "reads.json")).sides["C1-C2"];
-  check("read applies reading.json: the window and the wall on the front, the pitch in roof.json", rr?.wire.openings.length === 1 && rr.wire.materials.length === 1 && json(join(dir, "scrivn", "roof.json")).pitch === "3/12" && ap.some((l) => /C1-C2 .*1 opening \(1 window\), wall top 9'0" \/ 9'0"/.test(l)), ap.join(" | "));
+  check("read applies reading.json: the window and the wall on the front, the pitch in roof.json", rr?.wire.openings.length === 1 && rr.wire.materials.some((m) => m.material !== "parging") && json(join(dir, "scrivn", "roof.json")).pitch === "3/12" && ap.some((l) => /C1-C2 .*1 opening \(1 window\), wall top 9'0" \/ 9'0"/.test(l)), ap.join(" | "));
+  // What the photos show that a measure can't (10-22): the window's surround and keystone, a pilaster, the parging sloping
+  // with the ground, the side only seen edge-on, the trim's colour as seen.
+  check(
+    "read puts on the trim, a pilaster, the parging as a shape, not measured and the trim's colour",
+    rr.wire.materials.some((m) => m.material === "parging") && (rr.wire.off_wall ?? []).length >= 2 && rr.notMeasured === "seen edge-on only" && rr.trimColour === "#f2f2ee" && ap.some((l) => /C1-C2 .*parging .*, 1 surrounds, 1 column - not measured/.test(l)),
+    ap.find((l) => /C1-C2/.test(l)),
+  );
   writeFileSync(join(dir, "scrivn", "reads.json"), kept);
   copyFileSync(FX("house-runner/shed-1017-roof.json"), join(dir, "scrivn", "roof.json"));
   shedDir = dir;
