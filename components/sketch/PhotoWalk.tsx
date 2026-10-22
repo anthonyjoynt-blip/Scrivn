@@ -20,7 +20,9 @@ import {
   type WalkMeasure,
   walkMeasures,
   walkMissing,
-  walkRemoveLastCorner,
+  walkInsertCorner,
+  walkRemoveCorner,
+  walkSetTurn,
   walkRemoveMeasure,
   walkRemovePhoto,
   walkReopen,
@@ -160,11 +162,16 @@ export function PhotoWalk({
     act((r) => walked(r, (w) => walkAddCorner(w, t)));
     setOpen(null);
   };
-  const removeCorner = () =>
-    act((r) => {
-      const { walk: w, dropped } = walkRemoveLastCorner(withRingStart(r.walk ?? newWalk()));
-      return withWalk(withoutPhotos(r, dropped), w);
-    });
+  // A corner changed or taken out (2026-10-22): its photos leave the walk but stay with the route's photos, untagged.
+  const removeCorner = (stop: number) => {
+    act((r) => withWalk(r, walkRemoveCorner(withRingStart(r.walk ?? newWalk()), stop).walk));
+    setOpen(null);
+  };
+  const setTurn = (stop: number, t: WalkTurn) => act((r) => withWalk(r, walkSetTurn(withRingStart(r.walk ?? newWalk()), stop, t).walk));
+  const insertCorner = (wallStop: number, t: WalkTurn) => {
+    act((r) => walked(r, (w) => walkInsertCorner(w, wallStop, t)));
+    setOpen(wallStop + 1);
+  };
   const addMeasure = (stop: number, m: Omit<WalkMeasure, "id">) => {
     act((r) => walked(r, (w) => walkAddMeasure(w, stop, { ...m, id: newMeasureId() })));
     setMeasuring(null);
@@ -277,7 +284,7 @@ export function PhotoWalk({
       <RingSketch walk={walk} outline={lapCloses(walk) ? (lapOutline(lapTurns(walk)) ?? undefined) : undefined} selected={open} />
       <ul className={styles.ring}>
         {items.map((item) => {
-          const done = item.shared || item.photos > 0 || (item.kind === "corner" && item.turn === "inside");
+          const done = item.shared || item.again || item.photos > 0 || (item.kind === "corner" && item.turn === "inside");
           const isOpen = open === item.stop;
           const photos = walk.stops[item.stop]?.photos ?? [];
           const measures = walk.stops[item.stop]?.measures ?? [];
@@ -318,7 +325,46 @@ export function PhotoWalk({
                           Add a measurement on this wall
                         </button>
                       )}
+                      {!readOnly && (
+                        <div className={styles.ringEdit}>
+                          <span className="field-note">A corner partway along this wall (a step, a notch)? Add it here: this wall ends at it and a new one goes on.</span>
+                          <div className="option-group" role="group" aria-label="Put a corner in this wall">
+                            <button type="button" className="option-btn" onClick={() => insertCorner(item.stop, "outside")}>
+                              + Outside
+                            </button>
+                            <button type="button" className="option-btn" onClick={() => insertCorner(item.stop, "inside")}>
+                              + Inside
+                            </button>
+                            <button type="button" className="option-btn" onClick={() => insertCorner(item.stop, "joined")}>
+                              + Joins
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </>
+                  )}
+                  {item.kind === "corner" && !readOnly && (
+                    // Said wrong? Fixed where it stands: the walls either side and their photos stay.
+                    <div className={styles.ringEdit}>
+                      {!item.auto && (
+                        <div className="option-group" role="group" aria-label="What kind of corner">
+                          {(
+                            [
+                              ["outside", "Outside"],
+                              ["inside", "Inside"],
+                              ["joined", "Joins the neighbour"],
+                            ] as [WalkTurn, string][]
+                          ).map(([t, label]) => (
+                            <button key={t} type="button" className={`option-btn${item.turn === t ? " selected" : ""}`} aria-pressed={item.turn === t} onClick={() => setTurn(item.stop, t)}>
+                              {label}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                      <button type="button" className="link-button" onClick={() => removeCorner(item.stop)}>
+                        Remove this corner{item.auto ? " (and the shared wall)" : ""}
+                      </button>
+                    </div>
                   )}
                 </div>
               )}
@@ -345,7 +391,7 @@ export function PhotoWalk({
             the neighbour&rsquo;s there, and the wall on from it is shared.
           </p>
           {lastCorner && (
-            <button type="button" className="link-button" onClick={removeCorner}>
+            <button type="button" className="link-button" onClick={() => removeCorner(lastCorner.stop)}>
               Take back {lastCorner.label.toLowerCase()}
             </button>
           )}

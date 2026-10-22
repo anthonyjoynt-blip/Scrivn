@@ -431,10 +431,79 @@ export function walkAddCorner(walk: RouteWalk, turn: WalkTurn): RouteWalk {
   if (walk.closed) return walk;
   const stops = [...withRingStart(walk).stops];
   if (stops[stops.length - 1]?.kind === "corner") stops.push({ kind: "side", photos: [] });
-  stops.push({ kind: "corner", photos: [], ...(turn === "outside" ? {} : { turn }) });
-  if (turn === "joined") stops.push({ kind: "side", photos: [], shared: true, auto: true }, { kind: "corner", turn: "joined", photos: [], auto: true });
-  stops.push({ kind: "side", photos: [] });
-  return withStops(walk, stops);
+  return walkInsertCorner(withStops(walk, stops), stops.length - 1, turn);
+}
+
+/** A corner as said, with the shared wall and the neighbour's far corner a joined one brings (`walkTurn`'s). */
+function cornerStops(turn: WalkTurn): WalkStop[] {
+  return [
+    { kind: "corner", photos: [], ...(turn === "outside" ? {} : { turn }) },
+    ...(turn === "joined" ? ([{ kind: "side", photos: [], shared: true, auto: true }, { kind: "corner", turn: "joined", photos: [], auto: true }] as WalkStop[]) : []),
+  ];
+}
+
+/**
+ * A corner partway along a wall (2026-10-22): the wall `wallStop` ends at it, and a new wall goes on from it - a notch or a
+ * step found after the walls round it were said. The wall keeps its photos and measurements. The owner, 10-22, stuck at
+ * the fourth corner of a twelve-cornered house: "I've been wanting to add the elevations and each corner I could".
+ */
+export function walkInsertCorner(walk: RouteWalk, wallStop: number, turn: WalkTurn): RouteWalk {
+  const ring = withRingStart(walk);
+  const at = ring.stops[wallStop];
+  if (walk.closed || !at || at.kind === "corner" || at.shared) return walk;
+  const stops = [...ring.stops];
+  stops.splice(wallStop + 1, 0, ...cornerStops(turn), { kind: "side", photos: [] });
+  return withStops(ring, stops);
+}
+
+/** The joined corner a stop belongs to: itself, or for the neighbour's far corner the joined one the walk put it in with. */
+function cornerOwner(stops: WalkStop[], i: number): number {
+  let j = i;
+  while (j > 0 && stops[j]?.auto) j -= 1;
+  return j;
+}
+
+/** How many stops a corner takes: one, or with a joined one's shared wall and far corner, three. */
+function cornerSpan(stops: WalkStop[], j: number): number {
+  let n = 1;
+  while (stops[j + n]?.auto) n += 1;
+  return n;
+}
+
+/**
+ * A corner said as another kind (2026-10-22): outside, inside or joining the neighbour's - fixed where it stands, the walls
+ * either side and their photos kept. Joining brings its shared wall and far corner; leaving it takes them out (their photos listed).
+ */
+export function walkSetTurn(walk: RouteWalk, cornerStop: number, turn: WalkTurn): { walk: RouteWalk; dropped: string[] } {
+  const stops = [...walk.stops];
+  const j = cornerOwner(stops, cornerStop);
+  const c = stops[j];
+  if (walk.closed || !c || c.kind !== "corner") return { walk, dropped: [] };
+  const span = cornerSpan(stops, j);
+  const dropped = stops.slice(j + 1, j + span).flatMap((s) => s.photos);
+  const [first, ...chain] = cornerStops(turn);
+  const kept: WalkStop = { ...(first as WalkStop), photos: c.photos, ...(c.skipped ? { skipped: c.skipped } : {}) };
+  stops.splice(j, span, kept, ...chain);
+  return { walk: withStops(walk, stops), dropped };
+}
+
+/**
+ * A corner taken out (2026-10-22), wherever it is: the wall after it joins the wall before it, its photos and measurements
+ * with it; the corner's own photos (and a joined one's far corner's) are listed, to leave the walk.
+ */
+export function walkRemoveCorner(walk: RouteWalk, cornerStop: number): { walk: RouteWalk; dropped: string[] } {
+  const stops = [...walk.stops];
+  const j = cornerOwner(stops, cornerStop);
+  if (walk.closed || stops[j]?.kind !== "corner") return { walk, dropped: [] };
+  const span = cornerSpan(stops, j);
+  const dropped = stops.slice(j, j + span).flatMap((s) => s.photos);
+  const before = stops[j - 1] as WalkStop;
+  const after = stops[j + span];
+  const merged: WalkStop = after
+    ? { ...before, photos: [...before.photos, ...after.photos], ...(before.measures?.length || after.measures?.length ? { measures: [...(before.measures ?? []), ...(after.measures ?? [])] } : {}) }
+    : before;
+  stops.splice(j - 1, span + (after ? 2 : 1), merged);
+  return { walk: withStops(walk, stops), dropped };
 }
 
 /** The last corner said taken back, with the wall after it (a joined one's shared wall and far corner too): their photos listed. */
@@ -507,6 +576,8 @@ export interface RingItem {
   shared?: true;
   /** A corner the walk put in (the neighbour's far one). */
   auto?: true;
+  /** The wall after the last corner once they close round: the front again, what goes on it goes on the front. */
+  again?: true;
   photos: number;
   measures: number;
 }
@@ -519,7 +590,10 @@ export function ringItems(walk: RouteWalk): RingItem[] {
   const ring = withRingStart(walk);
   const nums = stopNumbers(ring);
   const closes = lapCloses(ring);
-  const facings: string[] = [];
+  // Each wall's facing, every corner said passed, photo or not.
+  const facingAt = ring.stops.map((s, i) => (s.kind === "corner" ? null : s.kind === "front" ? "front" : facingWords(ring.stops.slice(0, i).reduce((h, x) => (x.kind === "corner" ? h + quarter(turnOf(x)) : h), 0))));
+  const walls = ring.stops.flatMap((s, i) => (s.kind === "corner" ? [] : [i]));
+  const seen = new Map<string, number>();
   const items: RingItem[] = [];
   ring.stops.forEach((s, i) => {
     const k = nums[i] as number;
@@ -530,13 +604,24 @@ export function ringItems(walk: RouteWalk): RingItem[] {
       items.push({ ...base, kind: "corner", label: `Corner ${k}${how}`, turn: t, ...(s.auto ? { auto: true as const } : {}) });
       return;
     }
-    if (i === ring.stops.length - 1 && i > 0 && closes && !s.shared) return;
-    // Every corner said is passed, photo or not.
-    const facing = s.kind === "front" ? "front" : facingWords(ring.stops.slice(0, i).reduce((h, x) => (x.kind === "corner" ? h + quarter(turnOf(x)) : h), 0));
-    const again = facings.includes(facing);
-    facings.push(facing);
-    const label = `The ${facing}${again ? `, another part (wall ${k})` : ""}${s.shared ? ": shared with the neighbour" : ""}`;
-    items.push({ ...base, kind: "wall", label, ...(s.shared ? { shared: true as const } : {}) });
+    const facing = facingAt[i] as string;
+    const w = walls.indexOf(i);
+    const prev = w > 0 ? facingAt[walls[w - 1] as number] : null;
+    const next = w < walls.length - 1 ? facingAt[walls[w + 1] as number] : null;
+    let label: string;
+    // Plain names as the ring grows (2026-10-22): the four sides by the way they face, a short wall between two parts of
+    // one side a jog in it, and a side met again its next part. The wall after the last corner, once they close, is the
+    // front again, back to corner 1: what goes on it goes on the front.
+    if (i === ring.stops.length - 1 && i > 0 && closes && !s.shared) label = "The front again, back to corner 1";
+    else if (s.shared) label = `The ${facing}: shared with the neighbour`;
+    // A jog: a wall facing a side between two parts of the front or the back (a garage step, a deck notch's side).
+    else if (prev && prev === next && (prev === "front" || prev === "back") && (facing === "left side" || facing === "right side")) label = `A jog in the ${prev} (faces ${facing.replace(" side", "")})`;
+    else {
+      const n = (seen.get(facing) ?? 0) + 1;
+      seen.set(facing, n);
+      label = n === 1 ? `The ${facing}` : `The ${facing}, part ${n}`;
+    }
+    items.push({ ...base, kind: "wall", label, ...(s.shared ? { shared: true as const } : {}), ...(label === "The front again, back to corner 1" ? { again: true as const } : {}) });
   });
   return items;
 }
@@ -548,7 +633,7 @@ export function ringItems(walk: RouteWalk): RingItem[] {
 export function walkMissing(route: PhotoRouteState): string | null {
   const walk = withRingStart(route.walk ?? newWalk());
   const items = ringItems(walk);
-  const walls = items.filter((i) => i.kind === "wall" && !i.shared && i.photos === 0).map((i) => i.label.replace(/^The /, "the "));
+  const walls = items.filter((i) => i.kind === "wall" && !i.shared && !i.again && i.photos === 0).map((i) => i.label.replace(/^The /, "the ").replace(/^A /, "a "));
   const corners = items.filter((i) => i.kind === "corner" && i.turn !== "inside" && i.photos === 0).map((i) => `corner ${i.k}`);
   const out: string[] = [];
   const list = (xs: string[]) => (xs.length <= 1 ? (xs[0] ?? "") : `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}`);

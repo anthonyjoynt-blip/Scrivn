@@ -79,7 +79,7 @@ async function load() {
       `export * from "${lib("exteriorCheck.ts")}";`,
       `export { cornerPlace, routeCoverage, viewsFromMeasure } from "${lib("photoRouteCoverage.ts")}";`,
       `export { checkEstimate, columnBearing, defaultShared, facingOf, numberCorners, partyCorners, routeSteps, shotNumbers, solveRoute, WALK_HOLD } from "${lib("photoRoute.ts")}";`,
-      `export { alignLap, facingWords, isWalkShape, lapCloses, walkPhotoWords, lapOutline, lapProblem, lapTurns, newWalk, ringTurns, measureWords, ringItems, walkAddCorner, walkAddPhoto, walkFinish, walkMissing, walkRemoveLastCorner, walkRemovePhoto, walkReopen, withRingStart, walkAddMeasure, walkBack, walkClose, walkHasMeasure, walkHomeType, walkMeasured, walkMeasures, walkPhotos, walkRemoveMeasure, walkShot, walkSkip, walkStep, walkSummary, walkTake, walkTurn, walkUnplaced, withoutPhotos, withWalk } from "${lib("photoRouteWalk.ts")}";`,
+      `export { alignLap, facingWords, isWalkShape, lapCloses, walkPhotoWords, lapOutline, lapProblem, lapTurns, newWalk, ringTurns, measureWords, ringItems, walkAddCorner, walkInsertCorner, walkRemoveCorner, walkSetTurn, walkAddPhoto, walkFinish, walkMissing, walkRemoveLastCorner, walkRemovePhoto, walkReopen, withRingStart, walkAddMeasure, walkBack, walkClose, walkHasMeasure, walkHomeType, walkMeasured, walkMeasures, walkPhotos, walkRemoveMeasure, walkShot, walkSkip, walkStep, walkSummary, walkTake, walkTurn, walkUnplaced, withoutPhotos, withWalk } from "${lib("photoRouteWalk.ts")}";`,
       `export { cornerEdges } from "${lib("photoRouteFind.ts")}";`,
       `export { toLevel } from "${lib("photoRouteLens.ts")}";`,
       `export { exteriorFromRoute, measuredFrom } from "${lib("photoRouteExterior.ts")}";`,
@@ -7090,8 +7090,8 @@ test("the ring: corners said round from the front, photos on any wall or corner 
   let w = x.withRingStart(x.newWalk());
   for (const t of ["outside", "outside", "outside", "outside"]) w = x.walkAddCorner(w, t);
   const labels = x.ringItems(w).map((i) => i.label);
-  // Four outside corners close round: the wall after corner 4 is the front's own left part, not listed apart.
-  assert(labels.join(" | ") === "The front | Corner 1 | The right side | Corner 2 | The back | Corner 3 | The left side | Corner 4", labels.join(" | "));
+  // Four outside corners close round: the wall after corner 4 is the front again, listed so (never hidden: 10-22).
+  assert(labels.join(" | ") === "The front | Corner 1 | The right side | Corner 2 | The back | Corner 3 | The left side | Corner 4 | The front again, back to corner 1", labels.join(" | "));
   // Out of order: corner 3, the back twice (above and below the deck), then the front.
   const stopOf = (label) => x.ringItems(w).find((i) => i.label === label).stop;
   w = x.walkAddPhoto(w, stopOf("Corner 3"), "c3");
@@ -7131,6 +7131,41 @@ test("the ring: a corner taken back takes its wall's photos; joining the neighbo
   m = x.walkAddMeasure(m, 0, { id: "walk-a", what: "garage", feet: 9, photo: "f", near: [1, 2], tapePhoto: "tape" });
   const out = x.walkRemovePhoto(m, "f");
   assert(out.stops[0].photos.length === 0 && JSON.stringify(out.stops[0].measures[0]) === '{"id":"walk-a","what":"garage","feet":9,"tapePhoto":"tape"}', JSON.stringify(out.stops[0]));
+});
+
+test("any number of corners (10-22): the owner's twelve said round, every wall named plainly; a corner put in partway along a wall, said again as another kind, or taken out anywhere", () => {
+  // His house from the garage's right-hand front corner (the 10-22 walk stopped him at four: they closed round as said).
+  const turns = ["outside", "outside", "outside", "inside", "outside", "inside", "outside", "outside", "inside", "outside", "inside", "outside"];
+  let w = x.withRingStart(x.newWalk());
+  for (const t of turns) w = x.walkAddCorner(w, t);
+  const walls = x.ringItems(w).filter((i) => i.kind === "wall").map((i) => i.label);
+  assert(
+    walls.join(" | ") ===
+      "The front | The right side | The back | A jog in the back (faces left) | The back, part 2 | A jog in the back (faces left) | The back, part 3 | The left side | The front, part 2 | A jog in the front (faces left) | The front, part 3 | A jog in the front (faces left) | The front again, back to corner 1",
+    walls.join(" | "),
+  );
+  assert(x.lapCloses(w) && x.ringItems(w).filter((i) => i.kind === "corner").length === 12, "twelve corners, closing");
+  // Every wall and corner takes photos, the last too.
+  for (const it of x.ringItems(w)) w = x.walkAddPhoto(w, it.stop, `p${it.stop}`);
+  assert(x.walkPhotos(w).length === x.ringItems(w).length, `${x.walkPhotos(w).length} photos`);
+  // Said as four outside corners (what he did), then fixed: corner 4 said inside after all, and a corner put in partway along the back.
+  let four = x.withRingStart(x.newWalk());
+  for (let i = 0; i < 4; i++) four = x.walkAddCorner(four, "outside");
+  four = x.walkAddPhoto(four, 6, "back");
+  const c4 = x.ringItems(four).find((i) => i.label === "Corner 4").stop;
+  const fixed = x.walkSetTurn(four, c4, "inside").walk;
+  assert(x.lapTurns(fixed).join() === "1,1,1,-1" && fixed.stops[6].photos.join() === "back", JSON.stringify(x.lapTurns(fixed)));
+  const ins = x.walkInsertCorner(fixed, 4, "inside");
+  assert(ins.stops.length === fixed.stops.length + 2 && ins.stops[5].kind === "corner" && ins.stops[5].turn === "inside" && ins.stops[6].kind === "side", JSON.stringify(ins.stops.map((s) => s.kind)));
+  // Taken out anywhere: the wall after joins the wall before, photos and all; the corner's own photos listed.
+  const r = x.walkAddPhoto(x.walkAddPhoto(ins, 5, "c-in"), 6, "jog");
+  const out = x.walkRemoveCorner(r, 5);
+  assert(out.dropped.join() === "c-in" && out.walk.stops.length === fixed.stops.length && out.walk.stops[4].photos.join() === "jog", JSON.stringify(out.walk.stops.map((s) => s.photos)));
+  // Joining the neighbour, said on a corner already there: its shared wall and far corner go in; said otherwise, out again.
+  const joined = x.walkSetTurn(four, 1, "joined").walk;
+  assert(joined.stops.length === four.stops.length + 2 && joined.stops[2].shared && joined.stops[3].auto, JSON.stringify(joined.stops.map((s) => s.kind)));
+  assert(x.walkSetTurn(joined, 3, "outside").walk.stops.length === four.stops.length, "the far corner's owner said outside");
+  assert(x.walkRemoveCorner(joined, 3).walk.stops.length === four.stops.length - 2, "removing the far corner removes the joined one");
 });
 
 console.log(`\n${passed.length} passed, ${failures.length} failed`);
