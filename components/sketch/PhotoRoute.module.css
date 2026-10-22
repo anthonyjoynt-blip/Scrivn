@@ -498,3 +498,17 @@
   display: inline-flex;
   align-items: center;
 }
+
+/* A wall's or a corner's own changes (PhotoWalk.tsx, 2026-10-22): a corner put in partway along a wall, a corner's kind. */
+.ringEdit {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding-top: 0.4rem;
+  border-top: 1px dashed var(--border, #e7e5e4);
+}
+
+.ringEdit > :global(.link-button) {
+  align-self: flex-start;
+  min-height: 40px;
+}
