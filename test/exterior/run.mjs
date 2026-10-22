@@ -2301,6 +2301,24 @@ test("3D: a plain gable stands on its walls - the gable ends rise to the ridge, 
   assert(m.roof.steps.length === 0 && m.roof.gables.length === 0, "no steps, no cross gables");
 });
 
+test("3D: a corner under a rake run on past it - its reading a wall top only when the two corners are that far apart (10-22)", () => {
+  // The claim saved on 10-16: its left wall's far end is under a rake rising 3.6' above the eave, but its two readings, 18'3"
+  // and 17'11" off one level line, are both the eave's: kept as they are, the higher one sets the wall.
+  const saved = fixture("claim-saved-1016.json").sketch.exterior;
+  // Each wall's frame is the house's eave (the middle of every side's readings) less its own reading.
+  const left = (e) => model3d(e).walls.find((w) => w.name === "Left");
+  const eave = (e) => model3d(e).eaves[0];
+  near(left(saved).frameV, eave(saved) - 18.22, "read at the eave: kept", 0.01);
+  // Read as the wall's top under the rake (house G's AC side, its corners 3'11" apart): the rise taken off, the eave read. The
+  // pitch typed, so the roof over it stays as it is (else the gable's readings set it).
+  const typed = { ...saved, roof: { ...saved.roof, pitch: 6 } };
+  const side = typed.sides.find((q) => q.name === "Left");
+  const rise = Math.max(...left(typed).outline.filter((p) => p.x < 1e-6).map((p) => p.y)) - eave(typed);
+  assert(rise > 3, `the left end under a rake: ${rise}`);
+  const top = { ...typed, sides: typed.sides.map((q) => (q === side ? { ...q, eaveLeftFeet: q.eaveRightFeet + rise } : q)) };
+  near(left(top).frameV, eave(top) - side.eaveRightFeet, "read at the wall's top: the rise taken off", 0.01);
+});
+
 test("3D: hips, an L, a T and a U all sit on their walls with no crack between slopes", () => {
   soundRoof(rect(40, 30, { pitch: 6, ends: { left: "hip", right: "hip" } }), "hip");
   soundRoof(ell({ pitch: 8, ends: { left: "hip" } }), "L with a hip");
