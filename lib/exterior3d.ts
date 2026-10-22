@@ -246,6 +246,8 @@ interface Stretch {
   r0: number;
   r1: number;
   eave: number | null;
+  /** Under a wing run into the roof from lower down (`RoofSection.drop`, 2026-10-22): how far its eave is under the layer's. */
+  drop?: number;
 }
 
 function stretchesOf(input: RoofInput | null, plan: RoofPlan | null, a: Pt, b: Pt, storey: "main" | "upper" = "main", twoStorey = false): Stretch[] {
@@ -262,16 +264,21 @@ function stretchesOf(input: RoofInput | null, plan: RoofPlan | null, a: Pt, b: P
     const p = rise[k] as { t: number; rise: number; eave: number };
     const q = rise[k + 1] as { t: number; rise: number; eave: number };
     if (q.t - p.t < 1e-9) continue;
-    out.push({ t0: p.t, t1: q.t, layer: layerAt((p.t + q.t) / 2), r0: p.rise, r1: q.rise, eave: q.eave });
+    const m = mid((p.t + q.t) / 2);
+    const drop = pool.find((s) => s.drop && s.wall && insideRect(s.wall, m))?.drop ?? 0;
+    out.push({ t0: p.t, t1: q.t, layer: layerAt((p.t + q.t) / 2), r0: p.rise, r1: q.rise, eave: q.eave, ...(drop > 0 ? { drop } : {}) });
   }
   return out.length > 0 ? out : [{ t0: 0, t1: 1, layer: layerAt(0.5), r0: 0, r1: 0, eave: null }];
 }
 
 /** A side's two eave readings, as the roof sits on them: see the doc above. Null with no eave measured. */
-function eaveReadings(side: ExteriorSide, sameRoof: boolean): [number, number] | null {
+function eaveReadings(side: ExteriorSide, sameRoof: boolean, rise: [number, number] = [0, 0]): [number, number] | null {
   if (side.eaveLeftFeet == null) return null;
-  const left = side.eaveLeftFeet;
-  const right = side.eaveRightFeet ?? left;
+  // A corner under a rake that runs on past it (a gable carried over a covered deck or a porch, 2026-10-22, house G's AC
+  // side) reads the wall's top there, the roof's rise above its eave included: taken off, it is the eave's height over the
+  // ground as at any other corner. Without it that wall stood 4' under its neighbours.
+  const left = side.eaveLeftFeet - rise[0];
+  const right = (side.eaveRightFeet ?? side.eaveLeftFeet) - rise[1];
   if (side.heightsFrom === "level" && sameRoof) {
     const high = Math.max(left, right);
     return [high, high];
@@ -286,13 +293,16 @@ function eaveReadings(side: ExteriorSide, sameRoof: boolean): [number, number] |
  */
 function eaveLevels(sides: { side: ExteriorSide; stretches: Stretch[] }[], plan: RoofPlan | null, overhang: number, uppers: { side: ExteriorSide }[] = []): Record<number, number> {
   const readings = new Map<number, number[]>();
+  // A wall under a wing run into the roof from lower down (its planes dropped, `RoofSection.drop`) reads that wing's eave:
+  // raised by the drop, it says where the roof's own eave is.
+  const dropOf = (st: Stretch) => st.drop ?? 0;
   for (const { side, stretches } of sides) {
     const first = stretches[0] as Stretch;
     const last = stretches[stretches.length - 1] as Stretch;
-    const r = eaveReadings(side, first.layer === last.layer);
+    const r = eaveReadings(side, first.layer === last.layer, [first.r0, last.r1]);
     if (!r) continue;
-    readings.set(first.layer, [...(readings.get(first.layer) ?? []), r[0]]);
-    readings.set(last.layer, [...(readings.get(last.layer) ?? []), r[1]]);
+    readings.set(first.layer, [...(readings.get(first.layer) ?? []), r[0] + dropOf(first)]);
+    readings.set(last.layer, [...(readings.get(last.layer) ?? []), r[1] + dropOf(last)]);
   }
   // Two storeys: the main floor's walls stand to the floor line - those under no lower roof say where it is, as a split-level's
   // one-storey section stands its own eave (2026-10-19) - and the house's eave is the upper sides' readings over it.
@@ -456,11 +466,12 @@ export function exteriorModel(exterior: Exterior): ExteriorModelResult {
     const L = frame.length;
     const first = stretches[0] as Stretch;
     const last = stretches[stretches.length - 1] as Stretch;
-    const readings = eaveReadings(side, first.layer === last.layer);
+    const readings = eaveReadings(side, first.layer === last.layer, [first.r0, last.r1]);
     let frameV = 0;
     if (readings) {
-      const left = eaveOf(first.layer) - readings[0];
-      const right = eaveOf(last.layer) - readings[1];
+      // Under a wing run into the roof from lower down, the wing's own eave: its drop under the layer's.
+      const left = eaveOf(first.layer) - (first.drop ?? 0) - readings[0];
+      const right = eaveOf(last.layer) - (last.drop ?? 0) - readings[1];
       frameV = side.heightsFrom === "level" ? (left + right) / 2 : left;
     }
     // The roof's underside over it, stretch by stretch: each roof's eave and its rise along the wall.
@@ -500,7 +511,7 @@ export function exteriorModel(exterior: Exterior): ExteriorModelResult {
       grade: lift(groundUnder(side, faces.grade)),
       faces: wallFaces,
       background: faces.fromShapes ? ("unclad" as const) : ((bands?.[bands.length - 1]?.kind ?? "stucco") as CladdingKind),
-      openings: faces.openings.map(({ opening, rect }) => ({ id: opening.id, kind: opening.kind, x0: rect.x0, x1: rect.x1, y0: rect.y0 + frameV, y1: rect.y1 + frameV, ...(opening.from === "said" ? { said: true as const } : {}) })),
+      openings: faces.openings.map(({ opening, rect }) => ({ id: opening.id, kind: opening.kind, x0: rect.x0, x1: rect.x1, y0: rect.y0 + frameV, y1: rect.y1 + frameV, ...(opening.from === "said" || opening.notMeasured ? { said: true as const } : {}) })),
       trim: trimOf3d(side, lift, colours),
     };
   });
@@ -564,7 +575,7 @@ export function exteriorModel(exterior: Exterior): ExteriorModelResult {
           return { kind: f.kind, poly: lift(f.poly), ...(colour ? { colour } : {}) };
         }),
       background: (bands?.[bands.length - 1]?.kind ?? "stucco") as CladdingKind,
-      openings: faces.openings.map(({ opening, rect }) => ({ id: opening.id, kind: opening.kind, x0: rect.x0, x1: rect.x1, y0: rect.y0 + frameV, y1: rect.y1 + frameV, ...(opening.from === "said" ? { said: true as const } : {}) })),
+      openings: faces.openings.map(({ opening, rect }) => ({ id: opening.id, kind: opening.kind, x0: rect.x0, x1: rect.x1, y0: rect.y0 + frameV, y1: rect.y1 + frameV, ...(opening.from === "said" || opening.notMeasured ? { said: true as const } : {}) })),
       frameV,
       photos: u.side.photos ?? [],
       ...(trimOf3d(u.side, lift, colours) && !sharedIds.has(u.side.id) ? { trim: trimOf3d(u.side, lift, colours) } : {}),

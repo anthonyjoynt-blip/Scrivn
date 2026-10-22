@@ -308,7 +308,7 @@ function groundWords(side: ExteriorSide): string | null {
 
 function openingLine(side: ExteriorSide, o: ExteriorOpening, name: string): string {
   const sill = sillOf(side, o);
-  return `${name}: ${formatOpeningSize(o.widthFeet, o.heightFeet)}, ${sill > 0.04 ? `sill ${ft(sill)} up` : "at the bottom"}, ${ft(o.fromLeftFeet)} from the left end${o.from === "photo" ? " (from photo)" : o.from === "said" ? " (said on site: size and place not measured)" : ""}${o.trim ? ` · ${surroundWords(o.trim)}` : ""}`;
+  return `${name}: ${formatOpeningSize(o.widthFeet, o.heightFeet)}, ${sill > 0.04 ? `sill ${ft(sill)} up` : "at the bottom"}, ${ft(o.fromLeftFeet)} from the left end${o.from === "photo" ? " (from photo)" : o.from === "said" ? " (said on site: size and place not measured)" : ""}${o.notMeasured ? ` (not measured: ${o.notMeasured} - to check)` : ""}${o.trim ? ` · ${surroundWords(o.trim)}` : ""}`;
 }
 
 /**
@@ -704,7 +704,7 @@ export function exteriorReport(exterior: Exterior, meta: ReportMeta): ExteriorRe
     const names = openingNames(side);
     return [...side.openings]
       .sort((a, b) => a.fromLeftFeet - b.fromLeftFeet)
-      .map((o) => [side.name, names.get(o.id) ?? OPENING_LABEL[o.kind], o.from === "photo" ? "photo" : o.from === "said" ? "said on site" : ownFrom, formatOpeningSize(o.widthFeet, o.heightFeet), ft(sillOf(side, o)), ft(o.fromLeftFeet), one(o.widthFeet * o.heightFeet)]);
+      .map((o) => [side.name, names.get(o.id) ?? OPENING_LABEL[o.kind], o.notMeasured ? "not measured" : o.from === "photo" ? "photo" : o.from === "said" ? "said on site" : ownFrom, formatOpeningSize(o.widthFeet, o.heightFeet), ft(sillOf(side, o)), ft(o.fromLeftFeet), one(o.widthFeet * o.heightFeet)]);
   });
   if (openingRows.length > 0) {
     tables.push({
@@ -851,7 +851,13 @@ export function exteriorReport(exterior: Exterior, meta: ReportMeta): ExteriorRe
     const w = unseenWords(exterior, s);
     return w ? [`${s.name.trim() || "Side"}: ${w.charAt(0).toLowerCase()}${w.slice(1)} A photo of it straight on settles it.`] : [];
   });
-  const notes = [...toTape, ...unseen, ...checkNotes(exterior, q), ...(roof?.notes ?? [])];
+  // Openings counted off a photo that sees their wall edge-on (2026-10-22): there, but not measured.
+  const notMeasuredNotes = every.flatMap((s) => {
+    const list = s.openings.filter((o) => o.notMeasured);
+    if (list.length === 0) return [];
+    return [`${s.name.trim() || "Side"}: ${list.length} ${list.length === 1 ? "opening" : "openings"} not measured (${list[0]?.notMeasured}): sizes and places to check. A photo of it straight on measures them.`];
+  });
+  const notes = [...toTape, ...unseen, ...notMeasuredNotes, ...checkNotes(exterior, q), ...(roof?.notes ?? [])];
 
   // ---- The house from each side: the 3D model, square-on, named by the compass when the front's bearing is known ----
   const model = exteriorModel(exterior);

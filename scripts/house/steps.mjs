@@ -905,7 +905,11 @@ export async function report(h) {
       continue;
     }
     const done = await withRead(x, side, r, was, pixelsOf, at);
-    ext = { ...ext, sides: ext.sides.map((s) => (s.id === done.side.id ? done.side : s)) };
+    // Openings counted off a photo that sees the side edge-on: not measured, and said so (2026-10-22).
+    let read = r.notMeasured ? { ...done.side, openings: done.side.openings.map((o) => ({ ...o, notMeasured: String(r.notMeasured) })) } : done.side;
+    // The trim's colour as the reader saw it, over the one sampled off a photo (white trim reads grey in the shade).
+    if (r.trimColour) read = { ...read, openings: read.openings.map((o) => (o.trim ? { ...o, trim: { ...o.trim, colour: String(r.trimColour) } } : o)), ...(read.columns ? { columns: read.columns.map((c) => ({ ...c, colour: String(r.trimColour) })) } : {}) };
+    ext = { ...ext, sides: ext.sides.map((s) => (s.id === read.id ? read : s)) };
     out.push(`  read ${key} ${side.name}: ${done.words}`);
     // A deck in front of it, read off the same photo (the trace's deck words): onto the deck against this side.
     if (done.deckRead && x.decksOf(ext).some((d) => d.sideId === side.id)) {

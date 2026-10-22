@@ -883,6 +883,18 @@ test("tied in instead, the owner's garage has the same ridges, hips and valleys,
   near(r.stepFeet, 0, "no flashing");
 });
 
+test("lower but still running into the house's roof (10-22, house G's garage): no wall between, its planes 2' under, its ridge 2' shorter", () => {
+  const tied = roofOf(ownersRoof({ lowerWings: [], wingGables: [] }));
+  const into = roofOf(ownersRoof({ wingGables: [], lowerWingsInto: ["garageFront"], wingDrops: { garageFront: 2 } }));
+  const g = into.roof.sections.find((s) => s.drop);
+  assert(g && g.drop === 2 && g.layer === into.roof.sections[0].layer, JSON.stringify(into.roof.sections.map((s) => [s.role, s.layer, s.drop ?? 0])));
+  assert(into.roof.wings.some((w) => w.sideId === "garageFront" && w.lower && w.into), JSON.stringify(into.roof.wings));
+  assert(!/can't run into/.test(String(into.roof.note ?? "")), into.roof.note);
+  // At 12/12 its ridge, 2' lower, meets the house's front slope 2' sooner; its bay's ridge as long, dropped with it.
+  near(tied.roofing.ridgeFeet - into.roofing.ridgeFeet, 2, "the garage's ridge 2' shorter");
+  assert(into.roofing.stepFeet < 0.01, `no wall to flash: ${into.roofing.stepFeet}`);
+});
+
 test("a porch along the owner's front stops at the garage, and is flashed against its wall", () => {
   // The front, (0,0) to (20,0), carried on 6' out. At the left it runs on as the roof does there (no
   // rake overhang here); at the right it stops at the garage's left wall, an inside corner.

@@ -20,7 +20,17 @@
  *                   "sillFt": 7.5 | "sillAboveMainFloorFt": 2 | "sillAboveGarageSlabFt": 0, "photos": [3, 4],
  *                   "partlyHiddenBy": "deck railing"}],
  *     "wallTopFt": [[0, 13.8], [10.6, 18.3], [21.3, 13.8]],   the wall's top over its ground, along it (else the eave)
- *     "cladding": "stucco", "over": "gable" | "eave" | "hip_end"}}
+ *     "cladding": "stucco", "over": "gable" | "eave" | "hip_end",
+ *     "parging": 0.5 | [[0, 3.5], [24, 2]],                   its parging's top over the ground, level or along it (a step:
+ *                                                             two points at one "along"); the cladding starts on it
+ *     "columns": [{"alongFt": 0, "widthFt": 1.3, "heightFt": 9.5, "footFt": 0, "kind": "column" | "pilaster",
+ *                  "base": {"outFt": 0.2, "heightFt": 1.2}, "cap": {"outFt": 0.25, "heightFt": 0.8}}],
+ *     "notMeasured": "seen edge-on only (photos 2, 3)"}}       its openings counted and placed roughly: not measured
+ *   "trimColour": "#f4f4f1"                                      the trim's colour as seen (a side may say its own), over
+ *                                                                the one sampled off its photo
+ *   each opening may also say "surroundFt": 0.45 (a stucco surround that wide round it) or "surround": {"leftFt",
+ *   "rightFt", "topFt", "bottomFt", "material"}, and "keystone": {"widthFt": 1.2, "heightFt": 0.9}; "widthRead": false on
+ *   any of a side's openings marks the side not measured
  *   "roof": {"main": {"eaveAboveMainFloorFt": 8.3}, ...}        the reader's notes; the eave sets walls with no wallTopFt
  *   "roofAnswers": {...}                                         roof.json's own form, merged over it (pitch, wings, drops...)
  *   "decks": [...]                                               inputs.json's deck form (scripts/house/decks.mjs), in place of its decks;
@@ -154,10 +164,38 @@ function wallsOf(key, r, reading) {
   const mf = Number(g.mainFloorFt) || 0;
   const slab = Number(g.slabFt) || 0;
   const sillOf = (o) => (Number.isFinite(o.sillFt) ? o.sillFt : Number.isFinite(o.sillAboveGarageSlabFt) ? o.sillAboveGarageSlabFt + slab : Number.isFinite(o.sillAboveMainFloorFt) ? o.sillAboveMainFloorFt + mf : 0);
+  const door = (o) => o.kind === "door" || o.kind === "garage_door" || o.kind === "patio_door";
+  const trimOf = (o) => {
+    const w = Number(o.surroundFt) > 0 ? Number(o.surroundFt) : 0;
+    const sr = o.surround ?? (w > 0 ? { leftFt: w, rightFt: w, topFt: w, bottomFt: door(o) ? 0 : w } : null);
+    if (!sr && !o.keystone) return null;
+    return {
+      leftFeet: Number(sr?.leftFt) || 0,
+      rightFeet: Number(sr?.rightFt) || 0,
+      topFeet: Number(sr?.topFt) || 0,
+      bottomFeet: Number(sr?.bottomFt) || 0,
+      material: sr?.material ?? "stucco",
+      ...(o.keystone ? { keystone: { widthFeet: Number(o.keystone.widthFt), heightFeet: Number(o.keystone.heightFt) } } : {}),
+    };
+  };
   const openings = (r.openings ?? [])
     .filter((o) => KIND[o.kind] && o.widthFt > 0 && o.heightFt > 0)
-    .map((o) => ({ kind: KIND[o.kind], fromLeftFeet: Number(o.offsetFt) || 0, widthFeet: Number(o.widthFt), heightFeet: Number(o.heightFt), sillFeet: sillOf(o), ...(o.partlyHiddenBy ? { hiddenBy: String(o.partlyHiddenBy) } : {}) }));
-  return { openings, mf, eave: Number(reading.roof?.main?.eaveAboveMainFloorFt) };
+    .map((o) => {
+      const trim = trimOf(o);
+      return { kind: KIND[o.kind], fromLeftFeet: Number(o.offsetFt) || 0, widthFeet: Number(o.widthFt), heightFeet: Number(o.heightFt), sillFeet: sillOf(o), ...(o.partlyHiddenBy ? { hiddenBy: String(o.partlyHiddenBy) } : {}), ...(trim ? { trim } : {}) };
+    });
+  const columns = (r.columns ?? []).map((c) => ({
+    fromLeftFeet: Number(c.alongFt) || 0,
+    widthFeet: Number(c.widthFt) || 1,
+    heightFeet: Number(c.heightFt) || 8,
+    footFeet: Number(c.footFt) || 0,
+    kind: c.kind ?? "column",
+    material: c.material ?? "stucco",
+    ...(c.base ? { base: { outFeet: Number(c.base.outFt) || 0, heightFeet: Number(c.base.heightFt) || 0 } } : {}),
+    ...(c.cap ? { cap: { outFeet: Number(c.cap.outFt) || 0, heightFeet: Number(c.cap.heightFt) || 0 } } : {}),
+  }));
+  const notMeasured = r.notMeasured ?? ((r.openings ?? []).some((o) => o.widthRead === false) ? (r.seen ?? "seen edge-on only") : null);
+  return { openings, columns, notMeasured, mf, eave: Number(reading.roof?.main?.eaveAboveMainFloorFt) };
 }
 
 /** reading.json's answers into reads.json, roof.json and inputs.json's decks. Returns the lines to say. */
@@ -175,14 +213,22 @@ async function applyReading(x, h, reading, sheets) {
       out.push(`  ${key}: no photo shows it - not read on`);
       continue;
     }
-    const { openings, mf, eave } = wallsOf(key, r, reading);
+    const { openings, columns, notMeasured, mf, eave } = wallsOf(key, r, reading);
     const L = fr.lengthFeet;
     const top = Array.isArray(r.wallTopFt) && r.wallTopFt.length >= 2 ? r.wallTopFt.map(([a, u]) => ({ x: Number(a), y: Number(u) })) : Number.isFinite(eave) ? [{ x: 0, y: mf + eave }, { x: L, y: mf + eave }] : null;
-    const shapes = top ? [{ kind: r.cladding ?? "stucco", polygon: [{ x: top[0].x, y: 0 }, ...top, { x: top[top.length - 1].x, y: 0 }] }] : [];
-    const wire = wireOf(x, { openings, shapes, columns: [] }, r.over ? { over: r.over === "hip_end" ? "hip" : r.over } : null, fr.frame, 1);
+    // The parging: its top over the ground, level or along the wall (a step is two points at one place); the cladding on it.
+    const pt = Array.isArray(r.parging) ? r.parging.map(([a, u]) => ({ x: Number(a), y: Number(u) })) : Number(r.parging) > 0 && top ? [{ x: top[0].x, y: Number(r.parging) }, { x: top[top.length - 1].x, y: Number(r.parging) }] : null;
+    const shapes = [];
+    if (top && pt) {
+      shapes.push({ kind: "parging", polygon: [{ x: pt[0].x, y: 0 }, { x: pt[pt.length - 1].x, y: 0 }, ...[...pt].reverse()] });
+      shapes.push({ kind: r.cladding ?? "stucco", polygon: [...pt, ...[...top].reverse()] });
+    } else if (top) shapes.push({ kind: r.cladding ?? "stucco", polygon: [{ x: top[0].x, y: 0 }, ...top, { x: top[top.length - 1].x, y: 0 }] });
+    const wire = wireOf(x, { openings, shapes, columns }, r.over ? { over: r.over === "hip_end" ? "hip" : r.over } : null, fr.frame, 1);
     wire.notes = `Read from every photo of it (run.mjs read, reading.json)${r.readability ? `: ${r.readability}` : ""}.`;
-    reads.sides[key] = { frame: fr.frame, wire, ...(fr.photo ? { photo: fr.photo } : {}) };
-    out.push(`  ${key} ${fr.side ?? ""}: ${openings.length} opening${openings.length === 1 ? "" : "s"} (${["window", "door", "patio", "garage"].map((k) => [k, openings.filter((o) => o.kind === k).length]).filter(([, c]) => c).map(([k, c]) => `${c} ${k}`).join(", ") || "none"})${top ? `, wall top ${top.map((p) => ftin(p.y)).join(" / ")}` : ""}`);
+    // The trim's colour as the reader saw it (white stucco trim reads grey off a backlit photo): put on over the sampled one.
+    const trimColour = r.trimColour ?? reading.trimColour ?? null;
+    reads.sides[key] = { frame: fr.frame, wire, ...(fr.photo ? { photo: fr.photo } : {}), ...(notMeasured ? { notMeasured } : {}), ...(trimColour ? { trimColour } : {}) };
+    out.push(`  ${key} ${fr.side ?? ""}: ${openings.length} opening${openings.length === 1 ? "" : "s"} (${["window", "door", "patio", "garage"].map((k) => [k, openings.filter((o) => o.kind === k).length]).filter(([, c]) => c).map(([k, c]) => `${c} ${k}`).join(", ") || "none"})${top ? `, wall top ${top.map((p) => ftin(p.y)).join(" / ")}` : ""}${pt ? `, parging ${pt.map((p) => ftin(p.y)).join(" / ")}` : ""}${openings.some((o) => o.trim) ? `, ${openings.filter((o) => o.trim).length} surrounds` : ""}${columns.length ? `, ${columns.length} column${columns.length === 1 ? "" : "s"}` : ""}${notMeasured ? ` - not measured (${notMeasured})` : ""}`);
   }
   const readsFile = statePath(h, "reads.json");
   if (existsSync(readsFile)) writeJson(statePath(h, "reads-before-read.json"), readJson(readsFile));

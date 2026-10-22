@@ -22,6 +22,7 @@ import { exteriorModel } from "./exterior3d";
 import { type ExteriorReport, LINE_WORD, type ReportTable, roofPlanCaption } from "./exteriorReport";
 import { bearingWords, decksOnSide, frontFacesOf } from "./exteriorViews";
 import { type Letterhead, letterheadInkColor } from "./letterhead";
+import { formatFeetInches } from "./sketch";
 import { drawLetterhead, drawPhotoPages, drawTables, LETTERHEAD_HEIGHT, PAGE_MARGIN, type PdfPhoto } from "./pdf";
 import { paintSvg, parseSvg, pdfSafe, svgViewBox } from "./svgPdf";
 
@@ -76,6 +77,8 @@ const PAGE_W = 612;
 const PAGE_H = 792;
 const CONTENT_W = PAGE_W - 2 * PAGE_MARGIN;
 const BOTTOM = PAGE_H - PAGE_MARGIN;
+/** A wall shorter than this with nothing on it (a step, a short return) is drawn in the house's views only, not on its own. */
+const OWN_ELEVATION_FEET = 4;
 const NAVY: [number, number, number] = [27, 58, 92];
 const INK: [number, number, number] = [20, 20, 20];
 const MUTED: [number, number, number] = [91, 100, 114];
@@ -409,7 +412,12 @@ function elevationPages(doc: jsPDF, input: ReportPdfInput, part: Part): void {
   const boxH = 175;
   const MAX = 13.5;
   const most = SCALES.find((s) => s[0] === MAX) as [number, string];
-  const scaled = sides.map((s) => {
+  // A drawing of its own only for a real wall (2026-10-22, the owner: "theres a post of some kind on the garage step
+  // elevation?"): a step or a short return with nothing on it shows in the house's views, not as a tall bar on a page.
+  const views = report.views;
+  const ownPage = (s: (typeof sides)[number]) => views.length === 0 || s.side.lengthFeet >= OWN_ELEVATION_FEET || s.side.openings.length > 0;
+  const jogs = sides.filter((s) => !ownPage(s));
+  const scaled = sides.filter(ownPage).map((s) => {
     let made = drawing(input, el(s, elevationFontFeet(s.side, s.rise, s.base)));
     let [ptPerFt, text] = standardScale(made.box.width, made.box.height, CONTENT_W, boxH);
     if (ptPerFt > MAX) [ptPerFt, text] = most;
@@ -424,7 +432,6 @@ function elevationPages(doc: jsPDF, input: ReportPdfInput, part: Part): void {
   });
 
   doc.addPage();
-  const views = report.views;
   // Named by the compass only when the front's bearing is known (2026-10-20): never guessed.
   const facing = frontFacesOf(report.exterior);
   let y = heading(
@@ -517,18 +524,13 @@ function elevationPages(doc: jsPDF, input: ReportPdfInput, part: Part): void {
       doc.line(PAGE_MARGIN, y, PAGE_W - PAGE_MARGIN, y);
       y += 16;
     }
-    // Then each side on its own: its heading kept with the first of them.
-    const first = scaled[0];
-    setText(doc, 8.2, "normal", INK);
-    const firstNeed = first ? 16 + first.made.box.height * first.ptPerFt + 6 + first.s.dims.flatMap((d) => doc.splitTextToSize(pdfSafe(d), CONTENT_W) as string[]).length * 10 + 14 : 0;
-    if (y + 40 + firstNeed > BOTTOM - 14) {
-      doc.addPage();
-      y = heading(doc, titled(part, "Elevations"), "Continued.");
+    // Then each wall on its own, from a page of their own: the whole views first, never a wall's drawing among them.
+    doc.addPage();
+    y = heading(doc, titled(part, "Each wall"), "As seen from outside, left to right, to scale: heights from the ground under each end, every opening's size over it, the length under it. Only what stands in front of the wall is drawn with it.");
+    if (jogs.length > 0) {
+      setText(doc, 8.5, "normal", MUTED);
+      y = para(doc, `Shown in the views above, not on their own: ${jogs.map((j) => `${j.side.name.trim() || "a short return"} (${formatFeetInches(j.side.lengthFeet)})`).join(", ")} - ${jogs.length === 1 ? "a step in the wall" : "steps in the walls"} with nothing on ${jogs.length === 1 ? "it" : "them"}.`, PAGE_MARGIN, y, CONTENT_W, 10.5) + 8;
     }
-    setText(doc, 12, "bold", NAVY);
-    doc.text("Each side", PAGE_MARGIN, y + 2);
-    setText(doc, 8.5, "normal", MUTED);
-    y = para(doc, "As seen from outside, left to right, to scale: heights from the ground under each end, every opening's size over it, the length under it.", PAGE_MARGIN, y + 16, CONTENT_W, 10.5) + 8;
   }
   for (const { s, made, ptPerFt, text } of scaled) {
     const dh = made.box.height * ptPerFt;
@@ -538,7 +540,7 @@ function elevationPages(doc: jsPDF, input: ReportPdfInput, part: Part): void {
     const need = 16 + dh + 6 + lines.length * 10 + 14;
     if (y + need > BOTTOM - 14) {
       doc.addPage();
-      y = heading(doc, titled(part, "Elevations"), "Continued.");
+      y = heading(doc, titled(part, views.length > 0 ? "Each wall" : "Elevations"), "Continued.");
     }
     setText(doc, 10.5, "bold", NAVY);
     doc.text(pdfSafe(s.heading), PAGE_MARGIN, y + 2);
@@ -560,7 +562,7 @@ function elevationPages(doc: jsPDF, input: ReportPdfInput, part: Part): void {
   for (const s of shared) {
     if (y + 40 > BOTTOM - 14) {
       doc.addPage();
-      y = heading(doc, titled(part, "Elevations"), "Continued.");
+      y = heading(doc, titled(part, views.length > 0 ? "Each wall" : "Elevations"), "Continued.");
     }
     setText(doc, 10.5, "bold", NAVY);
     doc.text(pdfSafe(s.heading), PAGE_MARGIN, y + 2);
