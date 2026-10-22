@@ -1,0 +1,55 @@
+/* A wall no photo faces (UnseenWalls.tsx): the question, then None and a count of each - finger-sized on a phone. */
+.ask {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.5rem 0.75rem;
+  border-left: 4px solid #a21caf;
+  background: #fdf4ff;
+  border-radius: 0 6px 6px 0;
+}
+
+.ask p {
+  margin: 0;
+}
+
+.ask :global(.link-button) {
+  align-self: flex-start;
+  min-height: 36px;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+}
+
+.row :global(.option-btn) {
+  min-height: 44px;
+}
+
+.stepper {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.stepper :global(.btn-secondary) {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+  font-size: 1.25rem;
+  line-height: 1;
+}
+
+.stepLabel {
+  font-size: 0.9rem;
+}
+
+.count {
+  min-width: 1.6em;
+  text-align: center;
+  font-weight: 600;
+  font-size: 1.05rem;
+}

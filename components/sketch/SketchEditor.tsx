@@ -264,6 +264,7 @@ export function SketchEditor({
   startReadOnly = false,
   notice,
   photoAccess,
+  startMode,
 }: {
   sketch: Sketch;
   /** Room names already used elsewhere in this claim — offered as autocomplete so a sketch room can be matched back to the scope later. */
@@ -307,6 +308,11 @@ export function SketchEditor({
   notice?: ReactNode;
   /** The claim's site photos, for measuring the outside of the house from photos (2026-10-16, ExteriorEditor.tsx). */
   photoAccess?: ExteriorPhotoAccess;
+  /**
+   * Which view it opens on (2026-10-21): the claim page's "Outside of the house" opens it on the Exterior. Absent: the
+   * rooms, or the outside for a claim with nothing else drawn.
+   */
+  startMode?: "sketch" | "moisture" | "exterior";
 }) {
   const [tool, setTool] = useState<ToolMode>("select");
   /*
@@ -332,7 +338,7 @@ export function SketchEditor({
     landed on the empty rooms view and took the sketches for gone.
   */
   const [mode, setMode] = useState<"sketch" | "moisture" | "exterior">(() =>
-    hasAnyExterior(sketch) && sketch.rooms.length === 0 ? "exterior" : "sketch",
+    startMode ?? (hasAnyExterior(sketch) && sketch.rooms.length === 0 ? "exterior" : "sketch"),
   );
   /*
     Which building the exterior is on (2026-10-16, lib/buildings.ts): null for the house, else one of the claim's

@@ -43,6 +43,7 @@ import {
   type SideTurn,
   sourceWords,
   UPPER_STOREY_FEET,
+  unseenState,
 } from "@/lib/exterior";
 import {
   type AdditionKind,
@@ -561,6 +562,10 @@ function SidesList({ exterior, q, readOnly, showTurns, onOpenSide, onChange }: {
               {s.shared ? (
                 <span className="exterior-row-note" title="Shared with the neighbour: not counted, and the roof stops at it">
                   shared wall
+                </span>
+              ) : unseenState(exterior, s) ? (
+                <span className="exterior-row-note" title="No photo faces this wall: open it to say what windows and doors are on it">
+                  not photographed
                 </span>
               ) : null}
               {s.lengthFrom === "drawn" ? (

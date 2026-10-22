@@ -130,13 +130,16 @@ export interface ViewWall {
   background: Wall3D["background"];
   /** Its colour off the photos, where read (2026-10-17). */
   backgroundColour?: string;
-  openings: { id: string; kind: ExteriorOpeningKind; x0: number; x1: number; y0: number; y1: number }[];
+  /** `said`: said on site on a wall no photo faces (2026-10-21): drawn faint and dashed, not measured. */
+  openings: { id: string; kind: ExteriorOpeningKind; x0: number; x1: number; y0: number; y1: number; said?: true }[];
   /** The ground it stands on, left to right; null for a wall standing on a roof or a deck's ceiling. */
   grade: Pt[] | null;
   /** How squarely it faces the view: 1 square-on. Its marks are drawn a little lighter turned away. */
   facing: number;
   /** A party wall (2026-10-17): drawn bare and marked "Shared wall" - the neighbour's home stands against it. */
   shared?: true;
+  /** A wall no photo faces (2026-10-21): marked "Not photographed", never left to read as a wall with no windows. */
+  unseen?: "unknown" | "said" | "none";
   /** A two-storey house's main wall standing to the floor line (2026-10-19): its top is the floor line, not an eave. */
   toFloorLine?: true;
   /** An upper wall standing on a lower roof: how many of the outline's points are its bottom (`Wall3D.bottomPoints`). */
@@ -332,11 +335,12 @@ export function houseView(model: ExteriorModel3D, from: ViewFrom, frontFacesDeg?
       openings: w.openings.map((op) => {
         const a = at({ x: op.x0, y: op.y0 });
         const b = at({ x: op.x1, y: op.y1 });
-        return { id: op.id, kind: op.kind, x0: Math.min(a.x, b.x), x1: Math.max(a.x, b.x), y0: op.y0, y1: op.y1 };
+        return { id: op.id, kind: op.kind, x0: Math.min(a.x, b.x), x1: Math.max(a.x, b.x), y0: op.y0, y1: op.y1, ...(op.said ? { said: true as const } : {}) };
       }),
       grade: w.grade && w.grade.length >= 2 ? w.grade.map(at) : null,
       facing,
       ...(w.shared ? { shared: true as const } : {}),
+      ...(w.unseen ? { unseen: w.unseen } : {}),
       ...(w.toFloorLine ? { toFloorLine: true as const } : {}),
       ...(!(w.grade && w.grade.length >= 2) && w.bottomPoints !== undefined ? { bottomPoints: w.bottomPoints } : {}),
     });

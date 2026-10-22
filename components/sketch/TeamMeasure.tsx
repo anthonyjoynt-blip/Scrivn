@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { connection, onReconnect } from "@/lib/connectivity";
 import { newClaimId, onDeviceChange } from "@/lib/deviceClaims";
-import type { Exterior } from "@/lib/exterior";
+import { type Exterior, notPhotographedSides, withUnseenSaid } from "@/lib/exterior";
 import { buildingKeyOf, checkTeamResult, type ExteriorRequestView, isOpenRequest, MAX_REQUEST_NOTE_CHARS, withTeamMeasure } from "@/lib/exteriorRequests";
 import {
   knownRequests,
@@ -20,6 +20,7 @@ import {
 import { useExteriorPhotos } from "./exteriorPhotoAccess";
 import { useExteriorSubject } from "./exteriorSubject";
 import styles from "./TeamMeasure.module.css";
+import { type UnseenSaid, UnseenWallAsk } from "./UnseenWalls";
 
 /**
  * Send to Scrivn team (2026-10-17, lib/exteriorRequests.ts), on the Exterior: the button beside Measure on the
@@ -115,6 +116,8 @@ export function TeamMeasureStatus({ exterior, building, readOnly, apply, onUsed 
   const { waiting, known } = useTeam(claimId);
   const shown = shownFor(building, waiting, known);
   const still = useStillToUpload(shown?.kind === "waiting" ? shown.photoIds : null);
+  /** What the tester says is on each wall no photo faces, by side id: put in as the measure is used. */
+  const [said, setSaid] = useState<Record<string, UnseenSaid>>({});
   if (!shown || !claimId) return null;
 
   const withdraw = (id: string) => withdrawRequest(claimId, id);
@@ -161,12 +164,15 @@ export function TeamMeasureStatus({ exterior, building, readOnly, apply, onUsed 
       </div>
     );
   }
+  const result = checked.value;
+  // The walls no photo faces (2026-10-21): only the tester can say what's on them, so they're asked here, before it's
+  // used - nothing else is: what the photos show is ours to read.
+  const unseen = notPhotographedSides(withTeamMeasure(undefined, result, view.readyAt ?? ""));
   const use = () => {
     const mine = (exterior?.sides.length ?? 0) > 0;
     if (mine && !window.confirm("Use the Scrivn team's measurements? They replace the sides measured here. Your photos and tapes stay.")) return;
-    const result = checked.value;
     const at = new Date().toISOString();
-    apply((prev) => withTeamMeasure(prev, result, at));
+    apply((prev) => Object.entries(said).reduce((e, [sideId, s]) => (s ? withUnseenSaid(e, sideId, s) : e), withTeamMeasure(prev, result, at)));
     markApplied(claimId, view.id);
     access?.onCheckpoint?.();
     onUsed?.();
@@ -174,6 +180,17 @@ export function TeamMeasureStatus({ exterior, building, readOnly, apply, onUsed 
   return (
     <div className={`${styles.status} ${styles.ready}`} role="status">
       <p>Measured &ndash;</p>
+      {unseen.length > 0 && !readOnly && (
+        <div className={styles.unseen}>
+          <p>
+            {unseen.length === 1 ? "One wall had no photo" : `${unseen.length} walls had no photo`}, so only you can say what&rsquo;s on {unseen.length === 1 ? "it" : "them"}. Answer what you
+            know, then Use it; anything left is marked &ldquo;not photographed&rdquo;.
+          </p>
+          {unseen.map((s) => (
+            <UnseenWallAsk key={s.id} side={s} said={said[s.id] ?? null} readOnly={readOnly} onSay={(x) => setSaid((m) => ({ ...m, [s.id]: x }))} />
+          ))}
+        </div>
+      )}
       {readOnly ? (
         <p>tap &ldquo;View only&rdquo; at the top to unlock, then Use it.</p>
       ) : (

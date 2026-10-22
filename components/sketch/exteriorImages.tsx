@@ -3,7 +3,7 @@
 import { createElement } from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
-import { allSides, elevationFaces, type Exterior, exteriorQuantities, formatPitch, lengthToCheck, pieceLine, ROOF_TOTAL_KEYS, ROOF_TOTAL_LABEL, type RoofTotalKey, houseColours, sharedOf, sourceWords, trimShapes } from "@/lib/exterior";
+import { allSides, elevationFaces, type Exterior, exteriorQuantities, formatPitch, lengthToCheck, pieceLine, ROOF_TOTAL_KEYS, ROOF_TOTAL_LABEL, type RoofTotalKey, houseColours, sharedOf, sourceWords, trimShapes, unseenState } from "@/lib/exterior";
 import { sizesFrom } from "@/lib/exteriorScale";
 import { decksOnSide, frontFacesOf } from "@/lib/exteriorViews";
 import { buildingRender, type SketchRender } from "@/lib/sketchAttachments";
@@ -230,14 +230,14 @@ function elevationsSvg(exterior: Exterior, name: string | undefined, markup: Mar
     const pieces = model?.ok ? decksOnSide(model.model, sideId) : [];
     return pieces.length > 0 ? { decks: pieces } : {};
   };
-  const boxes = sides.map(({ side }) => viewBox(markup(createElement(ElevationDrawing, { side, rise: q.rises[side.id] ?? null, base: q.bases[side.id] ?? null, fontFeet, roofAssumed, colours, ...deckOf(side.id) }))));
+  const boxes = sides.map(({ side }) => viewBox(markup(createElement(ElevationDrawing, { side, rise: q.rises[side.id] ?? null, base: q.bases[side.id] ?? null, fontFeet, roofAssumed, colours, ...deckOf(side.id), unseen: unseenState(exterior, side) }))));
   const scale = Math.min(...boxes.map((b) => cellW / b.width));
   const cells = sides.map(({ side, sq }, i) => {
     const rise = q.rises[side.id] ?? null;
     const box = boxes[i] as { width: number; height: number };
     const w = Math.round(box.width * scale);
     const h = Math.round(box.height * scale);
-    return { side, sq, h, drawing: markup(createElement(ElevationDrawing, { side, rise, base: q.bases[side.id] ?? null, fontFeet, roofAssumed, colours, size: { width: w, height: h }, ...deckOf(side.id) })) };
+    return { side, sq, h, drawing: markup(createElement(ElevationDrawing, { side, rise, base: q.bases[side.id] ?? null, fontFeet, roofAssumed, colours, size: { width: w, height: h }, ...deckOf(side.id), unseen: unseenState(exterior, side) })) };
   });
   // What the sizes are from (2026-10-15, lib/exteriorScale.ts), for a house the phone measured: under the title.
   const from = sizesFrom(exterior);

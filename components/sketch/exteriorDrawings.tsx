@@ -18,6 +18,7 @@ import {
   type RoofRise,
   ROOF_MATERIAL_LABEL,
   trimShapes,
+  UNSEEN_DRAWN,
   zFromGrade,
 } from "@/lib/exterior";
 import { polygonArea, type Pt, type RoofLineKind, type RoofPlan, type RoofSection } from "@/lib/roof";
@@ -519,6 +520,7 @@ export function ElevationDrawing({
   roofAssumed = false,
   colours = null,
   decks,
+  unseen = null,
 }: {
   side: ExteriorSide;
   rise: RoofRise | null;
@@ -535,6 +537,11 @@ export function ElevationDrawing({
   colours?: HouseColours | null;
   /** The decks in front of it (2026-10-20, lib/exteriorViews.ts `decksOnSide`), in its frame, back to front. Absent: none. */
   decks?: DeckPieceDrawn[];
+  /**
+   * A wall no photo faces (2026-10-21, lib/exterior.ts `unseenState`): stamped "Not photographed", so it never reads as a
+   * wall with no windows; its openings said on site drawn dashed. Absent: a photo faces it.
+   */
+  unseen?: "unknown" | "said" | "none" | null;
 }) {
   const { shape, faces, bandLines, grade, openings, fromShapes } = elevationFaces(side, rise, base);
   const L = Math.max(1, shape.lengthFeet);
@@ -681,9 +688,17 @@ export function ElevationDrawing({
         <polyline points={pts(roofline.map((r) => ({ x: r.alongFeet, y: r.upFeet })))} fill="none" stroke="#7c2d12" strokeWidth={2} strokeDasharray="7 4" {...stroke} />
       )}
       {trimOnWall.length > 0 && <TrimDrawn pieces={trimOnWall} fs={fs} textured={textured} opacity={seeThrough ? 0.35 : 1} />}
-      {openings.map(({ opening, rect }) => (
-        <OpeningGlyph key={opening.id} opening={opening} rect={rect} fs={fs} seeThrough={seeThrough} labelZ={sizeAt.get(opening.id) ?? rect.y1} plain={surrounded.has(opening.id)} plate={darkWall} />
-      ))}
+      {openings.map(({ opening, rect }) =>
+        opening.from === "said" ? (
+          // Said on site on a wall no photo faces: a common size, spaced along it - faint and dashed, not measured.
+          <g key={opening.id} opacity={0.55}>
+            <OpeningGlyph opening={opening} rect={rect} fs={fs} seeThrough={seeThrough} plain={surrounded.has(opening.id)} plate={darkWall} />
+            <rect x={rect.x0} y={Y(rect.y1)} width={rect.x1 - rect.x0} height={rect.y1 - rect.y0} fill="none" stroke={CHECK_INK} strokeWidth={1.2} strokeDasharray="4 3" {...stroke} />
+          </g>
+        ) : (
+          <OpeningGlyph key={opening.id} opening={opening} rect={rect} fs={fs} seeThrough={seeThrough} labelZ={sizeAt.get(opening.id) ?? rect.y1} plain={surrounded.has(opening.id)} plate={darkWall} />
+        ),
+      )}
       {trimClear.length > 0 && <TrimDrawn pieces={trimClear} fs={fs} textured={textured} opacity={seeThrough ? 0.35 : 1} />}
       {decks && decks.length > 0 && <DeckPieces pieces={decks} fs={fs} />}
       {deckLawn && <line x1={deckLawn.x0} x2={deckLawn.x1} y1={Y(deckLawn.y)} y2={Y(deckLawn.y)} stroke="#5b4630" strokeWidth={2} strokeDasharray="6 3" {...stroke} />}
@@ -696,6 +711,42 @@ export function ElevationDrawing({
         </>
       )}
       {labels}
+      {unseen && (
+        // A wall no photo faces (2026-10-21): said so across it, on a plate, over whatever is drawn there.
+        <g pointerEvents="none">
+          {(() => {
+            const midZ = (Math.min(shape.bottom[0].y, shape.bottom[1].y) + (eaveZ ?? ext.topZ)) / 2;
+            const sub = UNSEEN_DRAWN[unseen];
+            const full = Math.max(textWidthEm("Not photographed") * fs * 1.15, textWidthEm(sub) * fs * 0.8) + fs;
+            // In the widest stretch of wall clear of its openings (said ones too), so the plate hides none of them.
+            const cuts = openings.map((o) => o.rect).sort((a, b) => a.x0 - b.x0);
+            let gap = { a: 0, b: L };
+            let from = 0;
+            const gaps: { a: number; b: number }[] = [];
+            for (const r of cuts) {
+              if (r.x0 - fs * 0.3 > from) gaps.push({ a: from, b: r.x0 - fs * 0.3 });
+              from = Math.max(from, r.x1 + fs * 0.3);
+            }
+            if (L > from) gaps.push({ a: from, b: L });
+            if (cuts.length > 0) gap = gaps.reduce((best, g) => (g.b - g.a > best.b - best.a ? g : best), gaps[0] ?? { a: 0, b: L });
+            const k = Math.max(0.55, Math.min(1, ((gap.b - gap.a) * 0.95) / full, (L * 0.96) / full));
+            const w = full * k;
+            const cx = Math.min(L - w / 2, Math.max(w / 2, (gap.a + gap.b) / 2));
+            const f = fs * k;
+            return (
+              <>
+                <rect x={cx - w / 2} y={Y(midZ) - f * 1.35} width={w} height={f * 2.5} rx={f * 0.3} fill="#ffffff" fillOpacity={0.9} stroke={CHECK_INK} strokeWidth={1} strokeDasharray="5 3" {...stroke} />
+                <text x={cx} y={Y(midZ) - f * 0.1} fontSize={f * 1.1} textAnchor="middle" fill={CHECK_INK} fontFamily={FONT} fontWeight={700}>
+                  Not photographed
+                </text>
+                <text x={cx} y={Y(midZ) + f * 0.85} fontSize={f * 0.8} textAnchor="middle" fill={CHECK_INK} fontFamily={FONT}>
+                  {sub}
+                </text>
+              </>
+            );
+          })()}
+        </g>
+      )}
       <line x1={0} x2={L} y1={Y(ext.lowZ - fs * 1.4)} y2={Y(ext.lowZ - fs * 1.4)} stroke={dimInk} strokeWidth={1} strokeDasharray={pm ? "5 3" : undefined} {...stroke} />
       <line x1={0} x2={0} y1={Y(ext.lowZ - fs * 0.9)} y2={Y(ext.lowZ - fs * 1.9)} stroke={dimInk} strokeWidth={1} {...stroke} />
       <line x1={L} x2={L} y1={Y(ext.lowZ - fs * 0.9)} y2={Y(ext.lowZ - fs * 1.9)} stroke={dimInk} strokeWidth={1} {...stroke} />
@@ -840,11 +891,55 @@ export function HouseElevationDrawing({ view, fontFeet, size, roof }: { view: Ho
                 </g>
               ) : null,
             )}
-            {p.openings.map((o) => (
-              <OpeningGlyph key={o.id} opening={{ kind: o.kind }} rect={o} fs={fs} seeThrough={false} />
-            ))}
+            {p.openings.map((o) =>
+              o.said ? (
+                <g key={o.id} opacity={0.55}>
+                  <OpeningGlyph opening={{ kind: o.kind }} rect={o} fs={fs} seeThrough={false} />
+                  <rect x={o.x0} y={Y(o.y1)} width={o.x1 - o.x0} height={o.y1 - o.y0} fill="none" stroke={CHECK_INK} strokeWidth={1.1} strokeDasharray="4 3" {...stroke} />
+                </g>
+              ) : (
+                <OpeningGlyph key={o.id} opening={{ kind: o.kind }} rect={o} fs={fs} seeThrough={false} />
+              ),
+            )}
             {p.trim && <TrimDrawn pieces={p.trim.map((t, k) => ({ key: `tr-${k}`, poly: t.poly, out: t.out, material: t.material, ...(t.colour ? { colour: t.colour } : {}) }))} fs={fs} textured />}
             <polygon points={pts(p.outline)} fill="none" stroke="#374151" strokeWidth={1.1} strokeLinejoin="round" {...stroke} />
+            {p.unseen &&
+              (() => {
+                // A wall no photo faces (2026-10-21): said so on it, so a bare wall never reads as one with no windows.
+                const xs = p.outline.map((q) => q.x);
+                const ys = p.outline.map((q) => q.y);
+                const [x0, x1] = [Math.min(...xs), Math.max(...xs)];
+                // Halfway up the wall to its lower end's top (the eave, not a gable's peak).
+                const topAt = (x: number) => Math.max(...p.outline.filter((q) => Math.abs(q.x - x) < 1e-6).map((q) => q.y));
+                const ground = Math.min(...ys);
+                const midY = (ground + Math.min(topAt(x0), topAt(x1))) / 2;
+                // In the widest stretch clear of its openings, as on the side's own elevation.
+                const gaps: { a: number; b: number }[] = [];
+                let from = x0;
+                for (const o of [...p.openings].sort((a, b) => a.x0 - b.x0)) {
+                  if (o.x0 - fs * 0.3 > from) gaps.push({ a: from, b: o.x0 - fs * 0.3 });
+                  from = Math.max(from, o.x1 + fs * 0.3);
+                }
+                if (x1 > from) gaps.push({ a: from, b: x1 });
+                const gap = gaps.reduce((best, g) => (g.b - g.a > best.b - best.a ? g : best), gaps[0] ?? { a: x0, b: x1 });
+                const sub = UNSEEN_DRAWN[p.unseen];
+                const full = Math.max(textWidthEm("Not photographed") * fs * 1.15, textWidthEm(sub) * fs * 0.8) + fs;
+                const k = Math.max(0.5, Math.min(1, ((gap.b - gap.a) * 0.95) / full, ((x1 - x0) * 0.96) / full));
+                const w = full * k;
+                const f = fs * k;
+                const cx = Math.min(x1 - w / 2, Math.max(x0 + w / 2, (gap.a + gap.b) / 2));
+                return (
+                  <g pointerEvents="none">
+                    <rect x={cx - w / 2} y={Y(midY) - f * 1.35} width={w} height={f * 2.5} rx={f * 0.3} fill="#ffffff" fillOpacity={0.9} stroke={CHECK_INK} strokeWidth={1} strokeDasharray="5 3" {...stroke} />
+                    <text x={cx} y={Y(midY) - f * 0.1} fontSize={f * 1.1} textAnchor="middle" fill={CHECK_INK} fontFamily={FONT} fontWeight={700}>
+                      Not photographed
+                    </text>
+                    <text x={cx} y={Y(midY) + f * 0.85} fontSize={f * 0.8} textAnchor="middle" fill={CHECK_INK} fontFamily={FONT}>
+                      {sub}
+                    </text>
+                  </g>
+                );
+              })()}
           </g>
         );
       })}

@@ -298,6 +298,8 @@ export default function Home() {
   const [showSketch, setShowSketch] = useState(false);
   /** Which door the sketch was opened by — see `openSketch`. */
   const [sketchOpensReadOnly, setSketchOpensReadOnly] = useState(false);
+  /** The view it opens on: the Exterior from "Outside of the house" (2026-10-21), else the editor's own choice. */
+  const [sketchStartMode, setSketchStartMode] = useState<"exterior" | undefined>(undefined);
   /** Which rendering of the sketch goes on which document — see `lib/sketchAttachments.ts`. */
   const [sketchAttachments, setSketchAttachments] = useState<SketchAttachments>(defaultSketchAttachments);
   /**
@@ -587,17 +589,23 @@ export default function Home() {
     of applying. Editing is one tap away on the editor's own lock.
   */
   const openSketchFromLink = useRef(false);
+  // "Your exterior measurements are ready" (2026-10-21) links straight to the outside, editable: Use it is the next tap.
+  const openOutsideFromLink = useRef(false);
   useEffect(() => {
     if (typeof window === "undefined") return;
     const params = new URL(window.location.href).searchParams;
     openSketchFromLink.current = params.get("sketch") === "1" && params.get("id") !== null;
+    openOutsideFromLink.current = params.get("outside") === "1" && params.get("id") !== null;
   }, []);
   useEffect(() => {
-    if (!openSketchFromLink.current || persistence.loading || persistence.claimId === null) return;
+    if (!(openSketchFromLink.current || openOutsideFromLink.current) || persistence.loading || persistence.claimId === null) return;
+    if (openOutsideFromLink.current) openSketch(false, "exterior");
+    else openSketch(true);
     openSketchFromLink.current = false;
-    openSketch(true);
+    openOutsideFromLink.current = false;
     const url = new URL(window.location.href);
     url.searchParams.delete("sketch");
+    url.searchParams.delete("outside");
     window.history.replaceState(null, "", url.toString());
     // `openSketch` is a plain function of this component; the two values that gate it are listed.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1008,8 +1016,9 @@ export default function Home() {
     lock state after mounting — the PM can unlock and carry on without coming back out here, which is
     the point of the lock being a toggle rather than a mode.
   */
-  function openSketch(readOnly: boolean) {
+  function openSketch(readOnly: boolean, startMode?: "exterior") {
     setSketchOpensReadOnly(readOnly);
+    setSketchStartMode(startMode);
     setShowSketch(true);
   }
 
@@ -1734,6 +1743,7 @@ export default function Home() {
           onMoistureChange={setMoisture}
           onChange={setSketch}
           startReadOnly={sketchOpensReadOnly}
+          startMode={sketchStartMode}
           photoAccess={{ claimId: persistence.claimId, claimIdNow: persistence.claimIdNow, onServer: persistence.onServer, photos, onPhotosChange: setPhotos, onCheckpoint: checkpoint }}
           onClose={() => {
             setShowSketch(false);
@@ -1776,6 +1786,22 @@ export default function Home() {
             </button>
           )}
           <span className="field-note">Optional — draw the affected rooms and their measurements.</span>
+          {/*
+            One tap to the outside (2026-10-21). The owner: "getting to the screen to see the sketch is a pain... wheres
+            the pdf report with everything in it?" It opens the sketch straight on its Exterior - the walk round the house,
+            the Scrivn team's measure and its Use it, the elevations - editable, since what is done there is the walk and
+            its answers; the exterior report sits right under it once there is anything measured.
+          */}
+          <div className="sketch-launch-outside">
+            <button className="btn-secondary" onClick={() => openSketch(false, "exterior")}>
+              Outside of the house
+            </button>
+            <span className="field-note">{hasAnyExterior(sketch) ? "Its elevations, roof and measurements; its photos." : "Measure it from photos: Scrivn walks you round it."}</span>
+          </div>
+          {/* The exterior report (2026-10-15), right under the way to the outside: there whenever the outside is measured. */}
+          {hasExteriorReport(sketch.exterior, sketch.buildings) && (
+            <ExteriorReportSection exterior={sketch.exterior} buildings={sketch.buildings} title={claim.address || claim.customerName} jobNumber={claim.jobNumber} customerName={claim.customerName} letterhead={letterhead} claimId={persistence.claimId} />
+          )}
         </div>
       )}
 
@@ -1798,10 +1824,6 @@ export default function Home() {
         />
       )}
 
-      {/* The exterior report (2026-10-15), beside the drying log for the same reason: there whenever the outside is measured. */}
-      {!showSketch && hasExteriorReport(sketch.exterior, sketch.buildings) && (
-        <ExteriorReportSection exterior={sketch.exterior} buildings={sketch.buildings} title={claim.address || claim.customerName} jobNumber={claim.jobNumber} customerName={claim.customerName} letterhead={letterhead} claimId={persistence.claimId} />
-      )}
 
       {/* Photos, beside the sketch and the drying log: optional, and not a step either. */}
       {!showSketch && (

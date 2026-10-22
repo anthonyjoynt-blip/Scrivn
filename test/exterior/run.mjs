@@ -6901,5 +6901,77 @@ test("no home type asked: a corner said to join the neighbour's is a semi, two a
   assert(x.walkHomeType(semi, "town_end") === "town_end" && x.walkHomeType(walkThrough(["front", "skip", "c1"]).w, "split") === "split", "kept");
 });
 
+console.log("\nwalls no photo faces (10-21)");
+
+/** A 40' x 30' house measured from photos: a photo laid on the front and the right side only. */
+function photoHouse() {
+  const e = x.exteriorFromOutline([P(0, 0), P(40, 0), P(40, 30), P(0, 30)]);
+  const photo = { n: 900, scanId: null, claimPhotoId: "p1", camera: { width: 2000, height: 1500, fx: 1500, fy: 1500, cx: 1000, cy: 750 }, toPhoto: [1, 0, 0, 0, 1, 0, 0, 0, 1], inView: null };
+  const front = e.sides.findIndex((s) => /front/i.test(s.name));
+  const withPhoto = new Set([front, (front + 1) % 4]);
+  return {
+    ...e,
+    source: { kind: "photos", by: "photos", captureId: null, scanId: null, receivedAt: null, notes: [], walkClosed: true },
+    sides: e.sides.map((s, i) => (withPhoto.has(i) ? { ...s, eaveLeftFeet: 9, eaveRightFeet: 9, photos: [photo] } : { ...s, eaveLeftFeet: 9, eaveRightFeet: 9 })),
+  };
+}
+
+test("a wall no photo faces is 'not photographed' on a house measured from photos - never on one from Scan or drawn, never a shared wall", () => {
+  const e = photoHouse();
+  const unseen = x.notPhotographedSides(e);
+  assert(unseen.length === 2 && unseen.every((s) => !(s.photos ?? []).length), unseen.map((s) => s.name).join());
+  assert(x.unseenState(e, unseen[0]) === "unknown" && x.unseenWords(e, unseen[0]) === "Not photographed: its windows and doors aren't known.", x.unseenWords(e, unseen[0]));
+  assert(x.notPhotographedSides({ ...e, source: { ...e.source, kind: "scan", by: undefined } }).length === 0, "a scan's openings were put in at the house");
+  assert(x.notPhotographedSides({ ...e, source: undefined }).length === 0, "nor one drawn by hand");
+  const semi = { ...e, sides: e.sides.map((s) => (s.id === unseen[0].id ? { ...s, shared: true } : s)) };
+  assert(x.notPhotographedSides(semi).length === 1, "a shared wall is the neighbour's, not unseen");
+});
+
+test("what the person at the house says is on it goes in: a common size, spaced along it, dashed and said to be not measured; None and 'not sure' too", () => {
+  const e = photoHouse();
+  const side = x.notPhotographedSides(e)[0];
+  const said = x.withUnseenSaid(e, side.id, { windows: 2, doors: 1 });
+  const s = said.sides.find((q) => q.id === side.id);
+  const put = s.openings.filter((o) => o.from === "said");
+  assert(put.length === 3 && put.map((o) => o.kind).join() === "door,window,window", put.map((o) => o.kind).join());
+  assert(put.every((o) => o.fromLeftFeet >= 0 && o.fromLeftFeet + o.widthFeet <= s.lengthFeet) && put[1].fromLeftFeet > put[0].fromLeftFeet + put[0].widthFeet, JSON.stringify(put.map((o) => o.fromLeftFeet)));
+  assert(put[0].heightFeet > 6.5 && put[0].sillFeet === 0 && put[1].sillFeet === 3 && put[1].widthFeet === 3, JSON.stringify(put[1]));
+  assert(x.unseenState(said, s) === "said" && x.unseenWords(said, s) === "Not photographed: 2 windows and a door said on site, their sizes and places not measured.", x.unseenWords(said, s));
+  // Said again, it replaces what was said; openings put in another way stay; null takes the answer back out.
+  const own = { ...said, sides: said.sides.map((q) => (q.id === side.id ? { ...q, openings: [...q.openings, { id: "mine", kind: "window", widthFeet: 5, heightFeet: 4, sillFeet: 3, fromLeftFeet: 1 }] } : q)) };
+  const again = x.withUnseenSaid(own, side.id, { windows: 1, doors: 0 }).sides.find((q) => q.id === side.id);
+  assert(again.openings.length === 2 && again.openings.some((o) => o.id === "mine"), JSON.stringify(again.openings.map((o) => o.id)));
+  const none = x.withUnseenSaid(e, side.id, { windows: 0, doors: 0 });
+  assert(x.unseenState(none, none.sides.find((q) => q.id === side.id)) === "none" && x.unseenWords(none, none.sides.find((q) => q.id === side.id)) === "Not photographed: no windows or doors, said on site.", "none");
+  const back = x.withUnseenSaid(said, side.id, null).sides.find((q) => q.id === side.id);
+  assert(back.openings.length === 0 && back.unseenSaid === undefined, "unsure: back to not known");
+  // Counted like any other opening: the wall's cladding comes down by them.
+  const q0 = x.exteriorQuantities(e).sides.find((q) => q.sideId === side.id) ?? x.exteriorQuantities(e).sides[e.sides.indexOf(side)];
+  const q1 = x.exteriorQuantities(said).sides[said.sides.findIndex((q) => q.id === side.id)];
+  assert(q1.netSquareFeet < q0.netSquareFeet - 40, `${q0.netSquareFeet} -> ${q1.netSquareFeet}`);
+});
+
+test("the report and the house's views say 'not photographed' - a bare wall never reads as one with no windows", () => {
+  const e = photoHouse();
+  const side = x.notPhotographedSides(e)[0];
+  const r = x.exteriorReport(e, { title: "t", date: "d", madeWith: "m" });
+  const rs = r.sides.find((s) => s.side.id === side.id);
+  assert(/not photographed$/.test(rs.heading) && rs.dims.includes("Not photographed: its windows and doors aren't known."), `${rs.heading} | ${rs.dims.join(" | ")}`);
+  assert(r.notes.some((n) => n === `${side.name}: not photographed: its windows and doors aren't known. A photo of it straight on settles it.`), r.notes.join(" | "));
+  assert(!r.sides.filter((s) => (s.side.photos ?? []).length).some((s) => /not photographed/.test(s.heading)), "the photographed sides say nothing");
+  const said = x.exteriorReport(x.withUnseenSaid(e, side.id, { windows: 1, doors: 0 }), { title: "t", date: "d", madeWith: "m" });
+  const line = said.sides.find((s) => s.side.id === side.id).dims.find((d) => /^Window/.test(d));
+  assert(/\(said on site: size and place not measured\)/.test(line ?? ""), line);
+  // The house from each side: the unseen walls marked on the views that show them.
+  const m = x.exteriorModel(e);
+  const walls = x.VIEWS.flatMap((v) => x.houseView(m.model, v).pieces.filter((p) => p.type === "wall"));
+  const marked = new Set(walls.filter((w) => w.unseen).map((w) => w.sideId));
+  assert(marked.size === 2 && marked.has(side.id) && walls.filter((w) => !w.unseen).every((w) => !x.notPhotographedSides(e).some((s) => s.id === w.sideId)), [...marked].join());
+  // Said on site, the openings are on the views too, marked as said (drawn faint and dashed).
+  const answered = x.exteriorModel(x.withUnseenSaid(e, side.id, { windows: 2, doors: 0 }));
+  const onView = x.VIEWS.flatMap((v) => x.houseView(answered.model, v).pieces.filter((p) => p.type === "wall" && p.sideId === side.id));
+  assert(onView.length > 0 && onView.every((w) => w.unseen === "said" && w.openings.length === 2 && w.openings.every((o) => o.said)), JSON.stringify(onView.map((w) => [w.unseen, w.openings])));
+});
+
 console.log(`\n${passed.length} passed, ${failures.length} failed`);
 if (failures.length > 0) process.exit(1);
