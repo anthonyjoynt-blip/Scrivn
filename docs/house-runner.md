@@ -8,6 +8,7 @@ node scripts/house/run.mjs <folder> check          # ~15 s: writes review.png, w
 node scripts/house/run.mjs <folder> fix            # scrivn/fixes.txt into inputs.json, then check again
 node scripts/house/run.mjs <folder> measure        # ~25-35 s, hold-outs included: review.png again
 node scripts/house/run.mjs <folder> fix --measure  # the measure's fixes, then measure again
+node scripts/house/run.mjs <folder> read           # ~15 s: every side from every photo, read.txt; reading.json's answers in
 node scripts/house/run.mjs <folder> report         # ~4 s
 node scripts/house/run.mjs <folder> zoom 7 1290,1260 1400,1150 --half 100     # close looks, any time
 ```
@@ -61,6 +62,7 @@ It levels every photo and estimates the lens, finds each photo's **corner candid
 - **An edge** (`edge`: a point high up the corner and its foot, read off a close-up) is taken exactly as placed (`exact`) and read where it crosses the photo's horizon, which a half-degree error in the photo's levelling moves least. Read the corner where its trim's outer edge is (the building's outside), not the siding's edge an inch or two in.
 - A plain `x`, `y` (the foot alone) is snapped onto the strongest edge within 14 px, as a finger's tap on the phone is. That suits stucco; on ribbed metal, board-and-batten or any corner with a trim, the strongest edge nearby is often a rib or the trim's other edge, 10-30 px off. Add `"exact": true` to a foot you placed from a close-up.
 - **Name at least one corner on each photo** (`"corner": "C10"`); Scrivn numbers the rest as the next corners round the house, left to right. **Name every one on a photo that skips a corner** (one hidden behind a wing, a pilaster or a porch): Scrivn's numbering assumes they run on.
+- **A corner shown on a deck, a porch or a step** (its foot not on the ground): add `"aboveGroundFeet": 5.5`, how far over the ground it was tapped. The camera's height is read from the corner's foot plus that, and every side squared from that photo stands its ground line there; without it the frame's ground sits at the deck (10-22, house G: photos 5 and 6, 4-5 ft off).
 - A pilaster or a post at a corner: tap the edge standing at the corner, **and the same one on every photo of it** - the pilaster's outer edge as the house's outline runs (10-21, house G: the garage's front-left pilaster was its north-west edge on one photo and its south-west edge on three; a foot apart). A porch post stands at the porch's front edge, not at the wall: the wall's corner is 4-5 ft behind it (put that on the shape, and tap it where it shows, or leave it out).
 - A photo showing one corner only, or none, is placed only once you say where you stood for it (`standAt`, below): its edges alone can point surely to the wrong spot. The photos that place best show a corner at 45 degrees with both walls in.
 
@@ -137,7 +139,11 @@ It runs the route's measure (lines, lens, levelling, the plan bundle solve with 
 - **The tapes' directions**: when every tape runs the same way (across the front, say), nothing checks the other way, and results.md says so. A tape on a side running the other way checks it.
 - **The ± are the solve's own**, about twice its sd. With two or three corners a photo, a box's depth rests on each photo's turn, which its vanishing points give to about a degree; a side whose inside corner shows in no photo reads ±30% or more. **A side with ± over 5% wants a tape: the advice names it.**
 
-### 7. Read the walls: `reads.json`
+### 7. Read the walls: `read`, then `reads.json`
+
+`run.mjs <folder> read` squares each side from **every** placed photo that sees it (not only the one `sides/` has), stacks them in `scrivn/read/<side>.png` (grid, the side's ends and ground, a foot ruler, the stretches the house hides hatched red), and writes `scrivn/read.txt`: per side every window, door, patio door and garage door (offset, width, height, sill, photos); per roof part its eave lower or not and by how much, an upper gable, the ridge carried through or dropped, the pitch; the porch and each deck (does it fill a corner?); and photo by photo, anything seen but not placed. Answer it in `scrivn/reading.json` (its form is at the top of `scripts/house/read.mjs`: openings and wall tops in feet, `groundBySide` for heights read off a floor or a slab, `roofAnswers` in roof.json's form, `decks` in inputs.json's) and run `read` again: it writes reads.json, merges roof.json and puts the decks in inputs.json (measure again when they change), then `report`. A side measure squared no photo of (seen edge-on) takes its best view here, and report puts that photo on it. On house G (10-21) a blind reading pass this way found every opening the first pass missed, the garage roof lower with its own gable, and the bump-out's eave level with the main one.
+
+Or by hand, as before: `reads.json`
 
 For each side in `sides/` (read the grid copy; write in the plain image's pixels, which are the same), write the trace's wire format (`lib/exteriorTrace.ts` `TraceWire`), keyed by the side:
 

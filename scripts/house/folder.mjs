@@ -231,7 +231,7 @@ export function routeInput(h, inputs, candidates = {}) {
     const picked = pickedEdge(c, candidates[p.n]);
     const exact = c.exact === true || Array.isArray(c.edge) || !!picked;
     const top = Array.isArray(c.edge) ? (c.edge[0][1] < c.edge[1][1] ? c.edge[0] : c.edge[1]).map(Number) : picked ? picked.top : null;
-    corners.push({ photo: p.id, corner, x: at[0], y: at[1], ...(by ? { by } : {}), ...(c.party ? { party: true } : {}), ...(exact ? { exact: true } : {}), ...(top ? { top } : {}) });
+    corners.push({ photo: p.id, corner, x: at[0], y: at[1], ...(by ? { by } : {}), ...(c.party ? { party: true } : {}), ...(exact ? { exact: true } : {}), ...(top ? { top } : {}), ...(Number(c.aboveGroundFeet) > 0 ? { aboveGround: Number(c.aboveGroundFeet) } : {}) });
   }
   const tapes = [];
   const tapeParts = {};

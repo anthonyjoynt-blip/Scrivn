@@ -7,6 +7,7 @@
  *   node scripts/house/run.mjs <folder> check               inputs.json as the route reads it; what is missing
  *   node scripts/house/run.mjs <folder> measure             outline ± per side, advice, sides/, plan, hold-outs, results.md
  *   node scripts/house/run.mjs <folder> fix [--measure]     scrivn/fixes.txt into inputs.json, then check (or measure) again
+ *   node scripts/house/run.mjs <folder> read                each side from every photo (read/), read.txt; reading.json's answers in
  *   node scripts/house/run.mjs <folder> report              reads.json + roof.json on, report.pdf, exterior.json
  *   node scripts/house/run.mjs <folder> zoom <photo> <x> <y> [half]   a close look, and where a corner tapped there snaps
  *   node scripts/house/run.mjs <folder> zoom <photo> x,y x,y ... [--half n]   several close looks in one picture
@@ -17,8 +18,9 @@
 import { pathToFileURL } from "node:url";
 import { openHouse } from "./folder.mjs";
 import { check, fix, measure, prepare, report, zoom } from "./steps.mjs";
+import { read } from "./read.mjs";
 
-const USAGE = "node scripts/house/run.mjs <folder> prepare|check|fix|measure|report|zoom [args]  (docs/house-runner.md)";
+const USAGE = "node scripts/house/run.mjs <folder> prepare|check|fix|measure|read|report|zoom [args]  (docs/house-runner.md)";
 
 export async function runStep(folder, step, args = []) {
   const h = await openHouse(folder);
@@ -34,6 +36,8 @@ export async function runStep(folder, step, args = []) {
       const then = args.includes("--measure") ? "measure" : "check";
       return fix(h, args.filter((a) => a !== "--measure"), { then });
     }
+    case "read":
+      return read(h);
     case "report":
       return report(h);
     case "zoom": {
