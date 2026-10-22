@@ -6482,6 +6482,16 @@ test("corner edges: the long step between two walls is one, put on its edge; a d
   assert(edges.filter((e) => Math.abs(e.u - 520) < 3 || Math.abs(e.u - 600) < 3).every((e) => e.weight < corner.weight), "jambs weaker");
 });
 
+test("a wall whose shape starts a hair off its end keeps its ground there: no wall drawn cut off (10-22, house G's right garage bay)", () => {
+  const e = rect(12.31, 20, { pitch: 5 }, 9.7);
+  const s0 = e.sides[0];
+  // As a read lays it: its corners a fraction of a thousandth of a foot in from the ends, a gable on top.
+  const poly = [{ x: 0.00022006916713268333, y: 0.0004 }, { x: 0.00022006916713268333, y: 9.7 }, { x: 6.15, y: 14.2 }, { x: 12.309980269114973, y: 9.7 }, { x: 12.309980269114973, y: 0.0004 }];
+  const ext = { ...e, sides: e.sides.map((s) => (s.id === s0.id ? { ...s, shapes: [{ id: "st", kind: "stucco", closed: true, polygon: poly }] } : s)) };
+  const wall = x.exteriorModel(ext).model.walls.find((w) => w.sideId === s0.id);
+  assert(wall.grade.length === 3 && Math.abs(wall.grade[0].x - 0.00022006916713268333) < 1e-12 && Math.abs(wall.grade[2].x - 12.309980269114973) < 1e-12, JSON.stringify(wall.grade));
+});
+
 test("a tape typed on a phone: feet, inches past 12 and an eighth, none of which needs a ' or \" (10-21)", () => {
   // His window, taped in inches alone: 70¾" = 0 ft, 70 in, 6 eighths = 5.8958'. His garage door, 9 ft. 5'10¾" the same window.
   near(x.feetFromParts("", "70", 6), 70.75 / 12, "70¾ in");
