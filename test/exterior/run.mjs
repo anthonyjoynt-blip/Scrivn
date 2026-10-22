@@ -78,8 +78,10 @@ async function load() {
       `export * from "${lib("roofCheck.ts")}";`,
       `export * from "${lib("exteriorCheck.ts")}";`,
       `export { cornerPlace, routeCoverage, viewsFromMeasure } from "${lib("photoRouteCoverage.ts")}";`,
-      `export { checkEstimate, defaultShared, numberCorners, partyCorners, shotNumbers, solveRoute, WALK_HOLD } from "${lib("photoRoute.ts")}";`,
+      `export { checkEstimate, columnBearing, defaultShared, facingOf, numberCorners, partyCorners, routeSteps, shotNumbers, solveRoute, WALK_HOLD } from "${lib("photoRoute.ts")}";`,
       `export { alignLap, facingWords, isWalkShape, lapCloses, walkPhotoWords, lapOutline, lapProblem, lapTurns, newWalk, ringTurns, measureWords, walkAddMeasure, walkBack, walkClose, walkHasMeasure, walkHomeType, walkMeasured, walkMeasures, walkPhotos, walkRemoveMeasure, walkShot, walkSkip, walkStep, walkSummary, walkTake, walkTurn, walkUnplaced, withoutPhotos, withWalk } from "${lib("photoRouteWalk.ts")}";`,
+      `export { cornerEdges } from "${lib("photoRouteFind.ts")}";`,
+      `export { toLevel } from "${lib("photoRouteLens.ts")}";`,
       `export { exteriorFromRoute, measuredFrom } from "${lib("photoRouteExterior.ts")}";`,
       `export { routeSanity } from "${lib("photoRouteSanity.ts")}";`,
       `export { focalOverWidth } from "${lib("photoRouteExif.ts")}";`,
@@ -6409,6 +6411,66 @@ test("a size estimated on site the measure disagrees with is worth a look: the w
   assert(side && flags.length === 1 && flags[0].side === side.from, JSON.stringify(flags));
   assert(/^The .* wall was estimated on site at about 30', but the photos make it \d+'(\d+")?: \d+% longer, more than the estimate's ±20%\. Tape it to see which is right\.$/.test(flags[0].words), flags[0].words);
   assert(x.checkEstimate(36, { feet: 30, plusMinusPct: 20 }).disagrees === false && x.checkEstimate(36.1, { feet: 30, plusMinusPct: 20 }).disagrees === true && x.checkEstimate(23.9, { feet: 30, plusMinusPct: 0 }).disagrees === true, "±20% when none is said, past it disagrees");
+});
+
+test("a photo turned well off its own level lines to fit its corners is worth a look, naming them (10-21, house G)", () => {
+  const ext = sanityHouse(true);
+  const m = ext.photoRoute.measured;
+  // Photo 3 (the left) turned 5 degrees by the solve; photo 1 a degree, as photos are.
+  const cameras = m.cameras.map((c) => (c.photo === "left" ? { ...c, yawTweakDeg: -5.2 } : c.photo === "front" ? { ...c, yawTweakDeg: 1 } : c));
+  const flags = x.routeSanity({ ...ext, photoRoute: { ...ext.photoRoute, measured: { ...m, cameras } } }).filter((f) => f.key.startsWith("camera:turn"));
+  assert(flags.length === 1 && flags[0].photo === "left", JSON.stringify(flags));
+  assert(/^Photo 3 had to be turned 5° off its own level lines to fit its corners \(corner 1, corner 4\): one of them is likely on the wrong edge/.test(flags[0].words), flags[0].words);
+});
+
+console.log("\ncorners on far-back photos (10-21)");
+
+test("a photo's facing settles a two-corner photo's quarter-turn: from the walk, or from what it was taken for", () => {
+  // The 24' x 40' box from the back-right at 45: its two back corners fit on two quarter-turns, one 100 ft round the house.
+  const p = synPhoto("br", [50, 70], { x: 24, y: 40 });
+  const mine = [1, 2].map((c) => {
+    const t = p.tap(SEMI[c]);
+    const [u, v] = x.toLevel(p.data.camera, t.x, t.y);
+    return { photo: "br", corner: c, u, v, bearing: x.columnBearing(p.data.camera, u), onEdge: true, px: [t.x, t.y] };
+  });
+  const all = x.routeSteps.placementsFromCorners(mine, SEMI, new Set(), p.data.camera);
+  assert(all.length === 2, JSON.stringify(all.map((q) => q.at)));
+  const facing = x.facingOf({ shot: { kind: "corner", index: 2 } }, SEMI);
+  near(facing[0], -Math.SQRT1_2, "corner 3's 45 looks in across it, south-west", 1e-9);
+  near(facing[1], -Math.SQRT1_2, "and south", 1e-9);
+  const one = x.routeSteps.placementsFromCorners(mine, SEMI, new Set(), p.data.camera, facing);
+  assert(one.length === 1 && Math.hypot(one[0].at[0] - 50, one[0].at[1] - 70) < 0.01, JSON.stringify(one.map((q) => q.at)));
+  // Said outright (the walk's step), the same; a wall straight on looks against its face; said nothing, nothing filtered.
+  assert(x.routeSteps.placementsFromCorners(mine, SEMI, new Set(), p.data.camera, x.facingOf({ facing: [-1, -1] }, SEMI)).length === 1, "said");
+  const front = x.facingOf({ shot: { kind: "wall", index: 0 } }, SEMI);
+  assert(Math.abs(front[0]) < 1e-9 && Math.abs(front[1] - 1) < 1e-9 && x.facingOf({}, SEMI) === null, JSON.stringify(front));
+});
+
+test("corner edges: the long step between two walls is one, put on its edge; a downspout, a fence post below the eye are not", () => {
+  // An 800 x 600 level photo: sky over row 150, grass under 450; a wall in shade (90) left of column 400, one in sun (160)
+  // right of it; a white downspout 6 px wide at 250 on the shaded wall; a dark window 520-600 on the sunlit one, rows
+  // 220-320; a white fence post 8 px wide at 200, rows 380-470, all below the eye (row 300).
+  const W = 800;
+  const H = 600;
+  const g = new Float32Array(W * H);
+  for (let v = 0; v < H; v++) {
+    for (let u = 0; u < W; u++) {
+      let c = v < 150 ? 200 : v >= 450 ? 70 : u < 400 ? 90 : 160;
+      if (v >= 150 && v < 450 && u >= 250 && u < 256) c = 230;
+      if (v >= 220 && v < 320 && u >= 520 && u < 600) c = 40;
+      if (v >= 380 && v < 470 && u >= 200 && u < 208) c = 220;
+      g[v * W + u] = c;
+    }
+  }
+  const cam = { width: W, height: H, f: 0.664 * W, k: 0, R: [1, 0, 0, 0, -1, 0, 0, 0, 1] };
+  const edges = x.cornerEdges({ data: g, width: W, height: H }, cam);
+  const corner = edges.find((e) => Math.abs(e.u - 400) < 1.5);
+  assert(corner && corner.sign === 1 && corner.vTop < 160 && corner.vBottom > 440, JSON.stringify(edges.slice(0, 4)));
+  assert(edges[0] === corner, `the strongest: ${JSON.stringify(edges[0])}`);
+  assert(!edges.some((e) => Math.abs(e.u - 253) < 8), "the downspout smoothed away");
+  assert(!edges.some((e) => Math.abs(e.u - 204) < 10), "the fence post stops below the eye");
+  // The window's jambs are long enough to offer, weaker than the corner.
+  assert(edges.filter((e) => Math.abs(e.u - 520) < 3 || Math.abs(e.u - 600) < 3).every((e) => e.weight < corner.weight), "jambs weaker");
 });
 
 test("a tape typed on a phone: feet, inches past 12 and an eighth, none of which needs a ' or \" (10-21)", () => {

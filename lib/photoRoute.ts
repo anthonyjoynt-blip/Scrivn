@@ -64,6 +64,13 @@ export interface RoutePhoto {
    * `shot`, on the shape the lap makes.
    */
   walk?: WalkTag;
+  /**
+   * Which way the camera looked, roughly, on the plan (a unit vector, x east, y north) - from the step of the walk round
+   * the house it was taken at (2026-10-21): the front looks north at the house, a corner's 45 looks in across that corner.
+   * Two corners fit a photo placed on any of four quarter-turns; one facing well away from this is not where it was taken.
+   * Absent: from `shot` on the building's shape, or not known.
+   */
+  facing?: [number, number];
 }
 
 /**
@@ -470,6 +477,7 @@ export function numberCorners(input: PhotoRouteInput, buildingId: string, data: 
       continue;
     }
     let userSet = fromShot ?? user;
+    const facing = facingOf(input.photos.find((p) => p.id === job.id), ring);
     // The photos either side in time that are placed.
     const t0 = time.get(job.id) ?? 0;
     const near = [...chosen].map(([id, at]) => ({ at, dt: Math.abs((time.get(id) ?? 0) - t0) })).sort((p, q) => p.dt - q.dt).slice(0, 2);
@@ -490,7 +498,7 @@ export function numberCorners(input: PhotoRouteInput, buildingId: string, data: 
         if (labels.some((l, k) => (out[job.idx[k] as number] as CornerTap).party && !party.has(l))) continue;
         const taps = job.snapped.map((t, k) => ({ ...t, corner: labels[k] as number }));
         const cam = (byId.get(job.id) as RoutePhotoData).camera as PhotoCamera;
-        for (const p of placementsFromCorners(taps, ring, shared, cam)) {
+        for (const p of placementsFromCorners(taps, ring, shared, cam, facing)) {
           const skipped = g.reduce((s, v) => s + v - 1, 0);
           const walk = near.length ? Math.min(...near.map((x) => Math.hypot(x.at[0] - p.at[0], x.at[1] - p.at[1]))) / 30 : 0;
           // Corners this camera would see plainly - in the picture, ahead, nothing of the house in the way - that were not tapped.
@@ -522,6 +530,48 @@ export function numberCorners(input: PhotoRouteInput, buildingId: string, data: 
 }
 
 const cameraWidth = (d: RoutePhotoData | undefined) => d?.camera?.width ?? 0;
+
+/**
+ * Which way a photo looked on the plan, roughly (unit): said (`RoutePhoto.facing`, from the walk), or from what it was
+ * taken for on [outline] - a wall straight on looks against the wall's outward face, a corner's 45 in across the corner.
+ * Null when neither is known.
+ */
+export function facingOf(photo: Pick<RoutePhoto, "facing" | "shot"> | undefined, outline: Pt[]): [number, number] | null {
+  if (!photo) return null;
+  const n = outline.length;
+  let d: [number, number] | null = null;
+  if (photo.facing) d = [photo.facing[0], photo.facing[1]];
+  else if (photo.shot && n >= 3) {
+    const nrm = (i: number) => outward(outline[((i % n) + n) % n] as Pt, outline[(((i + 1) % n) + n) % n] as Pt);
+    const shot = photo.shot;
+    if (shot.kind === "wall" || shot.kind === "inside") {
+      // A wall straight on; or a wall either side of the walk's inside corner.
+      const o = nrm(shot.kind === "wall" ? shot.index : shot.wall === "before" ? shot.index - 1 : shot.index);
+      d = [-o.x, -o.y];
+    } else if (shot.kind === "run") {
+      // A run of walls straight on (the walk's front): against their faces, each as long as it is.
+      let sx = 0;
+      let sy = 0;
+      for (let i = ((shot.index % n) + n) % n, k = 0; i !== ((shot.to % n) + n) % n && k < n; i = (i + 1) % n, k++) {
+        const o = nrm(i);
+        const L = segLen(outline[i] as Pt, outline[(i + 1) % n] as Pt);
+        sx -= o.x * L;
+        sy -= o.y * L;
+      }
+      d = [sx, sy];
+    } else {
+      const a = nrm(photo.shot.index - 1);
+      const b = nrm(photo.shot.index);
+      d = [-(a.x + b.x), -(a.y + b.y)];
+    }
+  }
+  if (!d) return null;
+  const L = Math.hypot(d[0], d[1]);
+  return L > 1e-9 ? [d[0] / L, d[1] / L] : null;
+}
+
+/** A placement may face this far from the way the photo was said to look, degrees: a 45 taken a little round the corner, a wall a little to one side. */
+const FACING_TOLERANCE_DEG = 60;
 
 /**
  * The corners a photo from the checklist names, left to right as its taps run (-1 for a tap it does not name):
@@ -835,7 +885,7 @@ export function solveRoute(input: PhotoRouteInput, buildingId: string, data: Rou
       continue;
     }
     if (mine.length >= 2) {
-      const list = placementsFromCorners(mine, b.outline, new Set(b.shared ?? []), d.camera);
+      const list = placementsFromCorners(mine, b.outline, new Set(b.shared ?? []), d.camera, facingOf(input.photos.find((p) => p.id === id), b.outline));
       if (list.length) candidates.set(id, list);
       else unplaced.push({ photo: id, why: "Its corners do not fit the shape drawn: check which corners they are." });
     }
@@ -1197,7 +1247,7 @@ interface Placement {
  * [cam], a placement putting the camera at a height no photo is taken from (`PLACED_HEIGHT_FEET`, off any corner tapped
  * below the horizon) is dropped, as long as another is not.
  */
-function placementsFromCorners(mine: SnappedTap[], outline: Pt[], shared: Set<number> = new Set(), cam?: PhotoCamera): Placement[] {
+function placementsFromCorners(mine: SnappedTap[], outline: Pt[], shared: Set<number> = new Set(), cam?: PhotoCamera, facing?: [number, number] | null): Placement[] {
   const out: Placement[] = [];
   const n = outline.length;
   for (let q = 0; q < 4; q++) {
@@ -1249,7 +1299,20 @@ function placementsFromCorners(mine: SnappedTap[], outline: Pt[], shared: Set<nu
     out.push({ quadrant: q, at, err, slant, heights: cam ? placedHeights(cam, mine, outline, q, at) : null });
   }
   const plausible = (p: Placement) => p.heights === null || (p.heights[0] >= PLACED_HEIGHT_FEET[0] && p.heights[1] <= PLACED_HEIGHT_FEET[1]);
-  return out.some(plausible) ? out.filter(plausible) : out;
+  let list = out.some(plausible) ? out.filter(plausible) : out;
+  // Taken from a step of the walk, it looked about that way (2026-10-21, house G: with one of its three corners left out,
+  // photos fitted two corners on another quarter-turn and Scrivn's marks for the third landed 200-600 px off).
+  if (facing && cam) {
+    const { zl } = levelAxes(cam);
+    const b0 = Math.atan2(zl[0], zl[2]);
+    const cos = Math.cos((FACING_TOLERANCE_DEG * Math.PI) / 180);
+    const faces = (p: Placement) => {
+      const F = planDirection(b0, p.quadrant, 0);
+      return F[0] * facing[0] + F[1] * facing[1] >= cos;
+    };
+    if (list.some(faces)) list = list.filter(faces);
+  }
+  return list;
 }
 
 /**
@@ -1802,7 +1865,7 @@ function tapeAdvice(sides: RouteSide[], ring: Pt[], cameras: RouteCamera[], taps
  * Nothing found by eye here: each mark is the measure's own prediction, shown so the user can see the
  * numbering is right and keep what is - each kept mark is one more bearing in the next measure.
  */
-export function proposeCorners(input: PhotoRouteInput, buildingId: string, data: RoutePhotoData[], sol: RouteSolution): CornerTap[] {
+export function proposeCorners(input: PhotoRouteInput, buildingId: string, data: RoutePhotoData[], sol: RouteSolution, opts: { snap?: "edge" | "none" } = {}): CornerTap[] {
   const b = input.buildings.find((x) => x.id === buildingId);
   if (!b) return [];
   const ring = sol.corners;
@@ -1845,7 +1908,7 @@ export function proposeCorners(input: PhotoRouteInput, buildingId: string, data:
       const v = Math.min(0.97 * cam.height, cam.height / 2 + (cam.f * h) / depth);
       const px = fromLevel(cam, u, v);
       if (!px || px[0] < 0 || px[1] < 0 || px[0] >= cam.width || px[1] >= cam.height) continue;
-      const s = snapToEdge(d.gray, cam, px[0], px[1]);
+      const s = opts.snap === "none" ? { onEdge: false, x: px[0], y: px[1] } : snapToEdge(d.gray, cam, px[0], px[1]);
       out.push({ photo: c.photo, corner: k, x: s.onEdge ? s.x : px[0], y: s.onEdge ? s.y : px[1], by: "app", proposed: true, ...(party.has(k) ? { party: true as const } : {}) });
     }
   }
