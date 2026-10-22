@@ -210,9 +210,11 @@ export function routeInput(h, inputs, candidates = {}) {
       continue;
     }
     const by = c.by === "tester's phone" ? "app" : corner >= 0 ? "user" : undefined;
-    // Put on the edge from a close-up (an edge, or said exact): taken as placed, not snapped onto a rib beside it.
-    const exact = c.exact === true || Array.isArray(c.edge);
-    const top = Array.isArray(c.edge) ? (c.edge[0][1] < c.edge[1][1] ? c.edge[0] : c.edge[1]).map(Number) : null;
+    // Put on the edge from a close-up (an edge, or said exact), or picked from an exact candidate: taken as placed, not
+    // snapped onto a rib beside it.
+    const picked = pickedEdge(c, candidates[p.n]);
+    const exact = c.exact === true || Array.isArray(c.edge) || !!picked;
+    const top = Array.isArray(c.edge) ? (c.edge[0][1] < c.edge[1][1] ? c.edge[0] : c.edge[1]).map(Number) : picked ? picked.top : null;
     corners.push({ photo: p.id, corner, x: at[0], y: at[1], ...(by ? { by } : {}), ...(c.party ? { party: true } : {}), ...(exact ? { exact: true } : {}), ...(top ? { top } : {}) });
   }
   const tapes = [];
@@ -278,13 +280,65 @@ export function routeInput(h, inputs, candidates = {}) {
     else if (!Array.isArray(at) || at.length !== 2 || !at.every((v) => Number.isFinite(Number(v)))) problems.push(`standAt ${ref}: two numbers [x, y], feet on the shape as drawn.`);
     else standAt[p.id] = [Number(at[0]), Number(at[1])];
   }
+  // Which way each photo looked: from the walk's step it was taken at (a pulled request), or said in inputs.json
+  // ("facing": {"3": "NE"} or {"3": [x, y]}, the plan's x east, y north). It settles a two-corner photo's quarter-turn.
+  const facing = walkFacing(h);
+  for (const [ref, said] of Object.entries(inputs.facing ?? {})) {
+    const p = photoOf(h, ref);
+    const v = facingWords(said);
+    if (!p) problems.push(`facing: no photo ${ref}.`);
+    else if (!v) problems.push(`facing ${ref}: N, NE, E, SE, S, SW, W or NW (the way the camera looked), or [x, y].`);
+    else facing[p.id] = v;
+  }
   const shared = (inputs.house?.shared ?? []).map((s) => sideIndex(s, n)).filter((i) => i !== null);
   const homeType = inputs.house?.homeType && inputs.house.homeType !== "detached" ? inputs.house.homeType : undefined;
   const input = {
-    photos: h.photos.map((p) => ({ id: p.id, width: p.width, height: p.height, focalPrior: p.focalPrior ?? null, takenAt: p.takenAt ?? null, ...(standAt[p.id] ? { standAt: standAt[p.id] } : {}) })),
+    photos: h.photos.map((p) => ({ id: p.id, width: p.width, height: p.height, focalPrior: p.focalPrior ?? null, takenAt: p.takenAt ?? null, ...(standAt[p.id] ? { standAt: standAt[p.id] } : {}), ...(facing[p.id] ? { facing: facing[p.id] } : {}) })),
     buildings: [{ id: "main", ...(inputs.house?.name ? { name: inputs.house.name } : {}), ...(homeType ? { homeType } : {}), ...(shared.length ? { shared } : {}), outline, corners, tapes, ...(estimates.length ? { estimates } : {}) }],
   };
   return { input, problems, tapeParts, n };
+}
+
+const COMPASS = { N: [0, 1], NE: [1, 1], E: [1, 0], SE: [1, -1], S: [0, -1], SW: [-1, -1], W: [-1, 0], NW: [-1, 1] };
+
+/** A way the camera looked, said as a compass point or [x, y]: a unit vector on the plan, or null. */
+function facingWords(said) {
+  const v = Array.isArray(said) ? said.map(Number) : COMPASS[String(said).trim().toUpperCase()];
+  if (!v || v.length !== 2 || !v.every(Number.isFinite)) return null;
+  const L = Math.hypot(v[0], v[1]);
+  return L > 0 ? [v[0] / L, v[1] / L] : null;
+}
+
+/**
+ * Which way each photo of a pulled request looked, from the step of the walk it was taken at (its shot on the walk's own
+ * lap-made shape: a wall straight on looks against its outward face, a corner's 45 in across the corner). The session's
+ * shape may have more corners than the lap's, but north is north on both. Photo id -> unit vector.
+ */
+export function walkFacing(h) {
+  const route = h.request?.route;
+  const lap = route?.buildings?.find((b) => b.id === h.request?.request?.building)?.outline ?? route?.buildings?.[0]?.outline;
+  const out = {};
+  if (!lap || lap.length < 3) return out;
+  const n = lap.length;
+  const nrm = (i) => {
+    const a = lap[((i % n) + n) % n];
+    const b = lap[(((i + 1) % n) + n) % n];
+    const L = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+    return [(b.y - a.y) / L, -(b.x - a.x) / L];
+  };
+  for (const p of route.photos ?? []) {
+    if (!p.shot) continue;
+    let d;
+    if (p.shot.kind === "wall") d = nrm(p.shot.index).map((v) => -v);
+    else {
+      const a = nrm(p.shot.index - 1);
+      const b = nrm(p.shot.index);
+      d = [-(a[0] + b[0]), -(a[1] + b[1])];
+    }
+    const L = Math.hypot(d[0], d[1]);
+    if (L > 1e-9) out[p.id] = [d[0] / L, d[1] / L];
+  }
+  return out;
 }
 
 /**
@@ -301,6 +355,16 @@ export function cornerAt(c, cands = []) {
   if (!cand) return null;
   if (!Number.isFinite(c.y) || !cand.top || Math.abs(cand.top[1] - cand.y) < 1) return [cand.x, Number.isFinite(c.y) ? c.y : cand.y];
   return [cand.x + ((c.y - cand.y) * (cand.top[0] - cand.x)) / (cand.top[1] - cand.y), c.y];
+}
+
+/**
+ * The candidate a corner was picked from, when that candidate is an exact edge (prepare's corner edges, 2026-10-21): its
+ * top, the corner then read along it. Null for a corner given otherwise, or picked from an older candidates.json.
+ */
+export function pickedEdge(c, cands = []) {
+  if (!c.pick || Array.isArray(c.edge) || (Number.isFinite(c.x) && Number.isFinite(c.y))) return null;
+  const cand = cands.find((q) => q.pick === String(c.pick).toLowerCase());
+  return cand?.exact && Array.isArray(cand.top) ? { top: cand.top.map(Number) } : null;
 }
 
 /** Of two points along an upright edge, the one lower in the photo: where it meets the ground. */

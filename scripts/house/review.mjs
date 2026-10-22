@@ -14,7 +14,8 @@
  *   3 C10 ok                    as it is (it is not shown again)
  *   3 C10 = c                   candidate c on photo 3 is C10 (in place of the C10 there)
  *   3 C10 = 496,1000            put at x,y (exact: from a close-up, not snapped)
- *   3 C10 ~ 1300,1010           tapped at x,y, snapped onto the edge nearest as a finger's tap is (a reading off a sheet)
+ *   3 C10 ~ 1300,1010           read off a sheet at x,y: put on the corner edge (a candidate) within 15 px of it at that row,
+ *                               exactly; with none there, snapped onto the edge nearest as a finger's tap is
  *   3 C10 = 490,600 496,1000    its edge, top then foot (exact)
  *   3 ? = 1340,1010             a corner with no name (Scrivn numbers it)
  *   3 C10 -> C9                 renamed
@@ -28,11 +29,13 @@
  *   tape t2 side C5-C6          a wall's length, that side
  *   deck back 6 corner:0 = 1210,980    a deck's tap (deck by its name, or a word of it)
  */
-import { cornerAt, photoOf } from "./folder.mjs";
+import { cornerAt, photoOf, pickedEdge } from "./folder.mjs";
 import { cornerIndex, cornerName } from "./words.mjs";
 
 /** How far a snap may move a tap, px, before the tap was likely not on the corner's edge. */
 const SNAP_MOVE_PX = 6;
+/** How far "~ x,y" reaches for a corner edge (an exact candidate) at that row, pixels: a point read off a sheet's grid labels is good to about this. */
+const SNAP_REACH_PX = 15;
 /** A faint edge, grey levels: the snap took it, but a corner is a clear step. */
 const FAINT_EDGE = 6;
 /** An edge's top and foot this far off one upright of the levelled photo, px: likely not one edge (the levelling itself is off a few). */
@@ -73,7 +76,7 @@ export function checkDoubts(x, h, inputs, { candidates, numbered, quick, data, n
             const f = x.fromLevel(d.camera, x.toLevel(d.camera, top[0], top[1])[0], x.toLevel(d.camera, foot[0], foot[1])[1]);
             why.push(`top and foot ${Math.abs(du).toFixed(0)} px off one upright (the foot would be at x ${f ? f[0].toFixed(0) : "?"})`);
           }
-        } else if (!c.exact) {
+        } else if (!c.exact && !pickedEdge(c, candidates[p.n])) {
           const s = x.snapToEdge(d.gray, d.camera, at[0], at[1]);
           if (!s.onEdge) why.push("no edge within 14 px: a tap off the corner, or a corner hidden");
           else {
@@ -212,7 +215,7 @@ export function parseFixes(text) {
         const b = pt(w[4] ?? "");
         if (a && b) out.push({ line, kind: "put", photo, name: w[1], edge: [a, b] });
         else if (a) out.push({ line, kind: "put", photo, name: w[1], at: a });
-        else if (/^[a-h]$/i.test(w[3] ?? "")) out.push({ line, kind: "put", photo, name: w[1], pick: w[3].toLowerCase() });
+        else if (/^[a-z]$/i.test(w[3] ?? "")) out.push({ line, kind: "put", photo, name: w[1], pick: w[3].toLowerCase() });
         else out.push({ line, error: "after \"=\": a candidate's letter, x,y, or x,y x,y (an edge's top then foot)" });
       } else out.push({ line, error: "not a fix (see the top of scripts/house/review.mjs)" });
     } else out.push({ line, error: "not a fix (see the top of scripts/house/review.mjs)" });
@@ -250,8 +253,20 @@ export function applyFixes(h, inputs, fixes, { numbered = [], candidates = {}, d
     delete c.edge;
     delete c.exact;
     if (f.edge) c.edge = f.edge;
+    else if (f.at && f.snap && nearEdge(f.photo, f.at)) Object.assign(c, { pick: nearEdge(f.photo, f.at), y: f.at[1] });
     else if (f.at) Object.assign(c, { x: f.at[0], y: f.at[1] }, f.snap ? {} : { exact: true });
     else if (f.pick) c.pick = f.pick;
+  };
+  // "~ x,y": the photo's corner edge (an exact candidate) within reach of x at that row, nearest: picked, so put on it exactly.
+  const nearEdge = (photo, at) => {
+    let best = null;
+    for (const q of candidates[photo] ?? []) {
+      if (!q.exact || !Array.isArray(q.top) || Math.abs(q.top[1] - q.y) < 1) continue;
+      const xq = q.x + ((at[1] - q.y) * (q.top[0] - q.x)) / (q.top[1] - q.y);
+      const d = Math.abs(xq - at[0]);
+      if (d <= SNAP_REACH_PX && (!best || d < best.d)) best = { d, pick: q.pick };
+    }
+    return best?.pick ?? null;
   };
   for (const f of fixes) {
     if (f.error) {

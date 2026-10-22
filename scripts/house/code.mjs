@@ -22,7 +22,7 @@ export async function scrivn() {
   writeFileSync(
     join(outDir, "entry.ts"),
     [
-      ...["photoRoute.ts", "photoRouteData.ts", "photoRouteExterior.ts", "photoRouteLens.ts", "photoRouteEdges.ts", "photoRouteCoverage.ts", "exteriorPhoto.ts", "exteriorCheck.ts", "roofCheck.ts"].map((f) => `export * from "${lib(f)}";`),
+      ...["photoRoute.ts", "photoRouteData.ts", "photoRouteExterior.ts", "photoRouteLens.ts", "photoRouteEdges.ts", "photoRouteCoverage.ts", "photoRouteFind.ts", "exteriorPhoto.ts", "exteriorCheck.ts", "roofCheck.ts"].map((f) => `export * from "${lib(f)}";`),
       `export { exifFocal35, focalOverWidth } from "${lib("photoRouteExif.ts")}";`,
       `export { routeSanity } from "${lib("photoRouteSanity.ts")}";`,
       `export { planDirection, resect } from "${lib("photoRouteSolve.ts")}";`,

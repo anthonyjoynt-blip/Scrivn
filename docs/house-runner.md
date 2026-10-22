@@ -34,7 +34,7 @@ node scripts/house/run.mjs <folder> zoom 7 1290,1260 1400,1150 --half 100     # 
 
 ### 2. `prepare`, then look
 
-It levels every photo and estimates the lens, finds each photo's **corner candidates** (its long upright edges reaching below eye level, lettered a–h, orange), and writes:
+It levels every photo and estimates the lens, finds each photo's **corner candidates** (its corner edges: upright edges that run long between two broad surfaces, eave to ground, with a downspout or thin trim smoothed away; up to 26 a photo, lettered a–z left to right, orange, each drawn top to foot), and writes:
 
 - `scrivn/contact.png`: every photo small, numbered #1, #2... in walk order. **Look at this first**: what each photo shows, and the house's shape.
 - `scrivn/sheets/NN.png`: each photo with a grid in its own pixels, the candidates, and the shape beside it.
@@ -54,12 +54,12 @@ It levels every photo and estimates the lens, finds each photo's **corner candid
 {"photo": 3, "pick": "c", "y": 1000, "corner": "C4"}
 ```
 
-- The quickest first pass is a candidate's letter: `pick` it off the sheet (`pick` with a `y` follows that edge down to the ground row you give). The review then shows only those in doubt.
-- **Read a position off the sheet's grid labels, never off the picture's own pixels**: the sheet is the photo scaled down (a 2000 px photo shown 1200 wide), so a point that looks to be at 600 across is at 1000. A letter avoids this; so does a fix with `~` (below), snapped as a tap.
+- The quickest first pass is a candidate's letter: `pick` it off the sheet (`pick` with a `y` follows that edge down to the ground row you give). **A pick is put on that edge exactly** (its top and foot, read where it crosses the horizon), so it needs no close-up and the review doesn't ask about it. On far-back photos the candidates hold about 85% of the corners within 10 px; the rest are hidden or have no edge (an inside corner behind a post). The candidates are every long edge, not only corners: porch and deck posts, garage door trim and pilasters are among them, and which is a corner is yours to say.
+- **Read a position off the sheet's grid labels, never off the picture's own pixels**: the sheet is the photo scaled down (a 2000 px photo shown 1200 wide), so a point that looks to be at 600 across is at 1000. A letter avoids this; so does a fix with `~` (below), which takes the candidate within 15 px of it.
 - **An edge** (`edge`: a point high up the corner and its foot, read off a close-up) is taken exactly as placed (`exact`) and read where it crosses the photo's horizon, which a half-degree error in the photo's levelling moves least. Read the corner where its trim's outer edge is (the building's outside), not the siding's edge an inch or two in.
 - A plain `x`, `y` (the foot alone) is snapped onto the strongest edge within 14 px, as a finger's tap on the phone is. That suits stucco; on ribbed metal, board-and-batten or any corner with a trim, the strongest edge nearby is often a rib or the trim's other edge, 10-30 px off. Add `"exact": true` to a foot you placed from a close-up.
 - **Name at least one corner on each photo** (`"corner": "C10"`); Scrivn numbers the rest as the next corners round the house, left to right. **Name every one on a photo that skips a corner** (one hidden behind a wing, a pilaster or a porch): Scrivn's numbering assumes they run on.
-- A pilaster or a post at a corner: tap the edge standing at the corner.
+- A pilaster or a post at a corner: tap the edge standing at the corner, **and the same one on every photo of it** - the pilaster's outer edge as the house's outline runs (10-21, house G: the garage's front-left pilaster was its north-west edge on one photo and its south-west edge on three; a foot apart). A porch post stands at the porch's front edge, not at the wall: the wall's corner is 4-5 ft behind it (put that on the shape, and tap it where it shows, or leave it out).
 - A photo showing one corner only, or none, is placed only once you say where you stood for it (`standAt`, below): its edges alone can point surely to the wrong spot. The photos that place best show a corner at 45 degrees with both walls in.
 
 **Where you stood** (`standAt`), for a photo with one corner or none: `{"3": [-30, 34]}`, feet on the shape as drawn (its frame, the street at the bottom), as near as a tap on the plan would put it. `measure` lists each photo waiting for one, with its best guesses.
@@ -92,7 +92,7 @@ It reads `inputs.json` exactly as the route will, says plainly what is missing (
 3 C10 ok                    as it is (it is not shown again)
 3 C10 = c                   candidate c on photo 3 is C10
 3 C10 = 496,1000            put at x,y (exact: not snapped)
-3 C10 ~ 1300,1010           tapped at x,y and snapped, as a finger's tap is (a point read off a sheet)
+3 C10 ~ 1300,1010           read off a sheet: the candidate within 15 px of x at that row (exact), else snapped as a tap
 3 C10 = 490,600 496,1000    its edge, top then foot (exact)
 3 ? = 1340,1010             a corner with no name (Scrivn numbers it)
 3 C10 -> C9                 renamed
@@ -113,7 +113,7 @@ A corner behind a glass railing, a bin or a post rarely settles from a crop: lea
 
 It runs the route's measure (lines, lens, levelling, the plan bundle solve with wall edges tied across photos), places the decks, and writes:
 
-- `review.png` again: **the corners whose bearing the measure doesn't agree with** (over 2.5 sd), **Scrivn's marks** (where the measure puts a corner a placed photo should show and nobody tapped), **photos not placed**, **a tape the others don't agree with** (held out, over 5% off), **deck corners crossed weakly**, **the photos waiting for where you stood** (up to three best guesses each, in feet on the shape as drawn), and **what the pane says is worth a look** (`lib/photoRouteSanity.ts`: eaves disagreeing at an outside corner, a door or window far from the usual size, a camera under the ground or inside the house, an outline that won't close, a depth nothing ties, a size estimated on site the measure disagrees with). Answer in `fixes.txt` and run `fix --measure`:
+- `review.png` again: **the corners whose bearing the measure doesn't agree with** (over 2.5 sd), **Scrivn's marks** (where the measure puts a corner a placed photo should show and nobody tapped), **photos not placed**, **a tape the others don't agree with** (held out, over 5% off), **deck corners crossed weakly**, **the photos waiting for where you stood** (up to three best guesses each, in feet on the shape as drawn), and **what the pane says is worth a look** (`lib/photoRouteSanity.ts`: eaves disagreeing at an outside corner, a door or window far from the usual size, a camera under the ground or inside the house, a photo turned more than 3° off its own level lines to fit its corners (one of them on the wrong edge or hidden), an outline that won't close, a depth nothing ties, a size estimated on site the measure disagrees with). Answer in `fixes.txt` and run `fix --measure`:
   ```
   keep 9:C7 15:C3             Scrivn's marks kept (unkeep 9:C7 takes one back)
   1 out                       a photo placed where it wasn't taken

@@ -84,7 +84,9 @@ function marksSvg(m, s, W, H, from = [0, 0]) {
       out.push(`<line x1="${xt.toFixed(1)}" y1="${yt.toFixed(1)}" x2="${x.toFixed(1)}" y2="${y.toFixed(1)}" stroke="${C.candidate}" stroke-width="2" stroke-opacity="0.8"/>`);
     }
     out.push(`<path d="M ${x.toFixed(1)} ${y.toFixed(1)} l -7 13 l 14 0 z" fill="${C.candidate}" stroke="#000" stroke-width="1"/>`);
-    out.push(label(x, y + 31, c.pick, C.candidate, { size, w: W, h: H, anchor: "middle" }));
+    // Up to 26 a photo: every other letter a row lower, so close edges' letters don't sit on each other.
+    const lower = /^[a-z]$/.test(c.pick) && (c.pick.charCodeAt(0) - 97) % 2 === 1;
+    out.push(label(x, y + (lower ? 50 : 31), c.pick, C.candidate, { size, w: W, h: H, anchor: "middle" }));
   }
   for (const t of m.tapes ?? []) {
     const [ax, ay] = P(t.a[0], t.a[1]);

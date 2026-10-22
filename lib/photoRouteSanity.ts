@@ -8,6 +8,9 @@
  *   * a door, garage door or window far from the usual size (a front door reading 5'0");
  *   * a camera solved where nobody could have stood: inside the house, under the ground or high in the air, in the
  *     neighbour's home, or seeing a corner through a wall;
+ *   * a camera turned well off its own level lines to fit its corners (2026-10-21, house G: photo 6 turned 5 degrees, and
+ *     the walkway side swung from 61'6" to 48'6", when one more corner was tapped on it): a corner on it is on the wrong
+ *     edge - a post, a pilaster or a downspout beside the corner - or is hidden;
  *   * an outline that won't close square: a side solved to nothing, or the wrong way round from the shape drawn;
  *   * the depth only as drawn: no tape and too few photos tying the back of the house to its front;
  *   * a side the measure puts further from what was estimated on site than the estimate's ± (2026-10-21, `RouteEstimate`
@@ -37,6 +40,11 @@ export interface SanityFlag {
 const EAVE_AGREE_FEET = 1;
 /** A camera this low or this high over the ground at the corners tapped on it is not where a hand held it. */
 const CAMERA_FEET: [number, number] = [1, 12];
+/**
+ * A photo's turn on top of its vanishing points past this, degrees, to fit its corners: three times what the solve allows a
+ * photo levelled from its own straight edges (lib/photoRoute.ts, YAW_SD_DEG 1).
+ */
+const CAMERA_TURN_DEG = 3;
 /** A side solved shorter than this, drawn three feet or more, has come out to nothing. */
 const SIDE_GONE_FEET = 1;
 /** The depth's ± over this, untaped: the back is hardly tied to the front. */
@@ -139,6 +147,15 @@ export function routeSanity(exterior: Exterior): SanityFlag[] {
         kind: "camera",
         photo: c.photo,
         words: `${cap(name)} works out ${c.heightFeet < 0 ? `${formatFeetInches(-c.heightFeet)} under the ground` : `${formatFeetInches(c.heightFeet)} ${c.heightFeet < CAMERA_FEET[0] ? "off" : "up off"} the ground`} at the corners tapped on it: check each is tapped where the corner meets the ground (not on a deck or a step), and where it was placed.`,
+      });
+    }
+    if (Math.abs(c.yawTweakDeg) > CAMERA_TURN_DEG) {
+      const on = tapsOf(c.photo).map((t) => t.corner + 1).sort((a, b) => a - b);
+      flags.push({
+        key: `camera:turn:${c.photo}`,
+        kind: "camera",
+        photo: c.photo,
+        words: `${cap(name)} had to be turned ${Math.round(Math.abs(c.yawTweakDeg))}° off its own level lines to fit its corners${on.length ? ` (${on.map((k) => `corner ${k}`).join(", ")})` : ""}: one of them is likely on the wrong edge - a post, a pilaster or a downspout beside the corner - or hidden behind something. Check each, or leave the doubtful one out.`,
       });
     }
     // Each corner tapped on it the first thing of the house its line of sight meets.

@@ -44,26 +44,24 @@ function timed(h, step, t0) {
 
 // ── Corner candidates ────────────────────────────────────────────────────────────────────────────
 
+/** As many candidates as a photo's sheet letters: a to z. */
+const LETTERS = "abcdefghijklmnopqrstuvwxyz";
+
 /**
- * A photo's corner candidates: its upright edges (lib/photoRouteEdges.ts, as the route finds them) that are long and
- * reach below the horizon - a corner meets the ground below eye level - the longest eight, one per stretch of the photo,
- * lettered left to right. A guess list for the session, never taken as a corner by itself.
+ * A photo's corner candidates: its corner edges (lib/photoRouteFind.ts cornerEdges: upright edges that run long between two
+ * broad surfaces, a downspout or a thin trim smoothed away first, each put on the photo's own sharp edge), the strongest 26,
+ * lettered left to right. Each is the edge's top and foot, exact: a corner picked from them is put on that edge to the
+ * pixel, with no close-up needed. A guess list for the session, never taken as a corner by itself (2026-10-21: on the far-back
+ * house G they hold 17 of the 20 hand corners within 10 px, the old long-edge letters 12; which edge is a corner, and which
+ * corner, Scrivn can't tell by itself - porch posts, garage trim and pilasters look the same).
  */
-function candidatesOf(x, cam, edges) {
+function candidatesOf(x, cam, gray) {
   if (!cam) return [];
-  const below = cam.height / 2 + 0.02 * cam.f;
-  const long = edges.filter((e) => e.vBottom > below && e.length >= 0.1 * cam.height).sort((a, b) => b.length - a.length);
-  const kept = [];
-  for (const e of long) {
-    if (kept.some((k) => Math.abs(k.u - e.u) < 0.025 * cam.width)) continue;
-    kept.push(e);
-    if (kept.length === 8) break;
-  }
-  kept.sort((a, b) => a.u - b.u);
+  const kept = x.cornerEdges(gray, cam).slice(0, LETTERS.length).sort((a, b) => a.u - b.u);
   return kept.flatMap((e, i) => {
     const foot = x.fromLevel(cam, e.u, e.vBottom);
     const top = x.fromLevel(cam, e.u, e.vTop);
-    return foot ? [{ pick: "abcdefgh"[i], x: Math.round(foot[0] * 10) / 10, y: Math.round(foot[1] * 10) / 10, top: top ? top.map((v) => Math.round(v)) : null, lengthPx: Math.round(e.length) }] : [];
+    return foot && top ? [{ pick: LETTERS[i], x: Math.round(foot[0] * 10) / 10, y: Math.round(foot[1] * 10) / 10, top: top.map((v) => Math.round(v * 10) / 10), lengthPx: Math.round(e.vBottom - e.vTop), exact: true }] : [];
   });
 }
 
@@ -191,8 +189,8 @@ export async function prepare(h, { fresh = false } = {}) {
   const candFile = statePath(h, "candidates.json");
   let candidates = !fresh && existsSync(candFile) ? readJson(candFile).photos : null;
   if (!candidates) {
-    candidates = Object.fromEntries(h.photos.map((p, i) => [p.n, candidatesOf(x, data[i].camera, data[i].edges)]));
-    writeJson(candFile, { about: "Each photo's corner candidates: its long upright edges reaching below the horizon, lettered left to right. x, y is the foot of the edge, in the photo's pixels. A corner may be given as one: {\"photo\": n, \"pick\": \"c\"}.", photos: candidates });
+    candidates = Object.fromEntries(h.photos.map((p, i) => [p.n, candidatesOf(x, data[i].camera, data[i].gray)]));
+    writeJson(candFile, { about: "Each photo's corner candidates: its corner edges (upright edges running long between two broad surfaces, eave to ground), the strongest 26, lettered left to right. x, y is the edge's foot and top its top, in the photo's pixels; exact: a corner picked from one is put on that edge to the pixel. A corner may be given as one: {\"photo\": n, \"pick\": \"c\"}.", photos: candidates });
   }
   const notesOf = (p) => {
     const i = h.photos.indexOf(p);
@@ -205,7 +203,7 @@ export async function prepare(h, { fresh = false } = {}) {
     `${h.kind === "request" ? "Pulled request" : "Folder"} ${h.dir}: ${h.photos.length} photos.`,
     `Lens: f/W ${level.focalOverWidth.toFixed(4)} (an S25 Ultra's 1x is 0.664), k ${level.k.toFixed(3)}; ${levelled} of ${h.photos.length} photos levelled.`,
     ...h.photos.flatMap((p, i) => (level.notes[i] ? [`  #${p.n} ${p.file}: ${level.notes[i]}`] : [])),
-    `Corner candidates: ${Object.values(candidates).reduce((s, c) => s + c.length, 0)} on ${Object.values(candidates).filter((c) => c.length).length} photos (orange, lettered).`,
+    `Corner candidates: ${Object.values(candidates).reduce((s, c) => s + c.length, 0)} on ${Object.values(candidates).filter((c) => c.length).length} photos (orange, lettered: each an exact edge, top to foot).`,
     kept ? `Kept inputs.json as it is (prepare --fresh starts it again).` : `Draft inputs.json: shape ${inputs.shape.from === "tester" ? "the tester's" : "a placeholder 40' x 30' rectangle - draw the real one"}; ${inputs.corners.length} corners${inputs.corners.length ? " (the tester's)" : ""}; ${inputs.tapes.length} tapes.`,
     ...inputs.tapes.map((t) => `  ${t.id}: "${t.said}" -> ${ftin(Number(t.feet))}, ${t.kind === "side" ? `a wall's length (${t.side ? `on ${t.side}` : "set its side"})` : `a line on a photo across ${t.count > 1 ? `each of ${t.count}` : "it"} (${t.on?.length ? `on ${t.on.map((o) => `#${o.photo}`).join(", ")}` : "place its ends"})`}`),
     ...(inputs.estimates ?? []).map((e) => `  ${e.id}: "${e.said}" -> about ${ftin(Number(e.feet))} ±${e.plusMinusPct}%, estimated on site by eye: never a tape, ${useWords(e)} (${e.side ? `on ${e.side}` : "set its side"})`),
