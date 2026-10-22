@@ -106,6 +106,8 @@ export function PhotoWalk({
   const [busy, setBusy] = useState(false);
   /** The wall or corner open below its row, by its stop. */
   const [open, setOpen] = useState<number | null>(null);
+  /** Finish tapped: asked once more at the bottom, so a tap landing on it as the page moves doesn't end the walk. */
+  const [finishing, setFinishing] = useState(false);
   /** "Add a measurement" open: on which wall, once picked (null: not yet). */
   const [measuring, setMeasuring] = useState<{ stop: number | null } | null>(null);
   // A photo just taken, shown from its own file at once: the pane's copy comes from the phone's store a moment later.
@@ -355,14 +357,7 @@ export function PhotoWalk({
         </button>
       )}
       {measurePanel}
-      {missing && <p className={styles.ask}>{missing}</p>}
-      {!readOnly && (
-        <div className={styles.walkNext}>
-          <button type="button" className={`${missing ? "btn-secondary" : "btn-primary"} ${styles.walkBig}`} onClick={() => act((r) => walked(r, walkFinish))}>
-            Finish
-          </button>
-        </div>
-      )}
+      {missing && !finishing && <p className={styles.ask}>{missing}</p>}
       {!readOnly && (
         <div className={styles.walkFoot}>
           <button type="button" className="link-button" onClick={onOwnWay}>
@@ -370,6 +365,31 @@ export function PhotoWalk({
           </button>
         </div>
       )}
+      {/*
+        Finish last of all, below everything whose height changes, and asked twice (2026-10-22): a tap at phone size landed
+        on it as the page moved, and in the field that ends a walk by accident.
+      */}
+      {!readOnly &&
+        (finishing ? (
+          <div className={styles.walkMeasurePanel}>
+            <strong>Finish the walk?</strong>
+            <p>{missing ?? "Every wall and corner has a photo, and there's a measurement."}</p>
+            <div className={styles.walkNext}>
+              <button type="button" className={`btn-primary ${styles.walkBig}`} onClick={() => (setFinishing(false), act((r) => walked(r, walkFinish)))}>
+                Yes, finish: on to Send
+              </button>
+              <button type="button" className={`btn-secondary ${styles.walkBig}`} onClick={() => setFinishing(false)}>
+                Not yet: back to the walk
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className={styles.walkNext}>
+            <button type="button" className={`btn-secondary ${styles.walkBig}`} onClick={() => setFinishing(true)}>
+              Finish&hellip;
+            </button>
+          </div>
+        ))}
     </div>
   );
 }
