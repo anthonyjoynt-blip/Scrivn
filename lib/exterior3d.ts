@@ -271,14 +271,33 @@ function stretchesOf(input: RoofInput | null, plan: RoofPlan | null, a: Pt, b: P
   return out.length > 0 ? out : [{ t0: 0, t1: 1, layer: layerAt(0.5), r0: 0, r1: 0, eave: null }];
 }
 
+/**
+ * How far a wall's top at one end stands over the eave line its readings are taken against (its layer's eave, less a
+ * dropped wing's drop): the roof's rise there, and the stretch's own eave over the layer's - a rake over a section at
+ * another pitch stands a little higher or lower (10-22: the claim saved on 10-16, 0.44' on its left wall).
+ */
+function topOverEave(st: Stretch, rise: number, plan: RoofPlan | null, overhang: number): number {
+  const own = plan && st.eave !== null && st.layer !== FLOOR_LINE ? st.eave + (st.drop ?? 0) - eaveAboveDrip(plan, st.layer, overhang) : 0;
+  return rise + own;
+}
+
+/** A rise between a side's two corners too small to tell a wall-top reading from an eave reading by, feet. */
+const RISE_READ_FEET = 0.5;
+
 /** A side's two eave readings, as the roof sits on them: see the doc above. Null with no eave measured. */
 function eaveReadings(side: ExteriorSide, sameRoof: boolean, rise: [number, number] = [0, 0]): [number, number] | null {
   if (side.eaveLeftFeet == null) return null;
+  const l = side.eaveLeftFeet;
+  const r = side.eaveRightFeet ?? l;
   // A corner under a rake that runs on past it (a gable carried over a covered deck or a porch, 2026-10-22, house G's AC
-  // side) reads the wall's top there, the roof's rise above its eave included: taken off, it is the eave's height over the
-  // ground as at any other corner. Without it that wall stood 4' under its neighbours.
-  const left = side.eaveLeftFeet - rise[0];
-  const right = (side.eaveRightFeet ?? side.eaveLeftFeet) - rise[1];
+  // side) can read the wall's top there, the roof's rise above its eave included: taken off, it is the eave's height over
+  // the ground as at any other corner. Without it that wall stood 4' under its neighbours. Only when the readings show it -
+  // the two corners apart by nearer the rise's difference than by nothing: a side read at its eave line at both corners
+  // (most are) keeps its readings, whatever roof the model puts over it.
+  const apart = rise[0] - rise[1];
+  const tops = Math.abs(apart) > RISE_READ_FEET && Math.abs(l - r - apart) < Math.abs(l - r);
+  const left = tops ? l - rise[0] : l;
+  const right = tops ? r - rise[1] : r;
   if (side.heightsFrom === "level" && sameRoof) {
     const high = Math.max(left, right);
     return [high, high];
@@ -299,7 +318,7 @@ function eaveLevels(sides: { side: ExteriorSide; stretches: Stretch[] }[], plan:
   for (const { side, stretches } of sides) {
     const first = stretches[0] as Stretch;
     const last = stretches[stretches.length - 1] as Stretch;
-    const r = eaveReadings(side, first.layer === last.layer, [first.r0, last.r1]);
+    const r = eaveReadings(side, first.layer === last.layer, [topOverEave(first, first.r0, plan, overhang), topOverEave(last, last.r1, plan, overhang)]);
     if (!r) continue;
     readings.set(first.layer, [...(readings.get(first.layer) ?? []), r[0] + dropOf(first)]);
     readings.set(last.layer, [...(readings.get(last.layer) ?? []), r[1] + dropOf(last)]);
@@ -466,7 +485,7 @@ export function exteriorModel(exterior: Exterior): ExteriorModelResult {
     const L = frame.length;
     const first = stretches[0] as Stretch;
     const last = stretches[stretches.length - 1] as Stretch;
-    const readings = eaveReadings(side, first.layer === last.layer, [first.r0, last.r1]);
+    const readings = eaveReadings(side, first.layer === last.layer, [topOverEave(first, first.r0, built, ov), topOverEave(last, last.r1, built, ov)]);
     let frameV = 0;
     if (readings) {
       // Under a wing run into the roof from lower down, the wing's own eave: its drop under the layer's.

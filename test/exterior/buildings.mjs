@@ -456,14 +456,14 @@ await test("the report PDF: the house's pages, then the shed's section, every pa
   assert(firstShed >= housePages, `the shed's section after the house's ${housePages} pages: at ${firstShed}`);
   const shedPages = pages.slice(firstShed);
   const heads = shedPages.map((p) => p.find((w) => /^Shed( \xb7 |$)/.test(w)) ?? "");
-  // Its own page (plan), its roof plan, its elevations (the four views and the sides), its measurements.
-  for (const h of ["Shed", "Shed \xb7 Roof plan", "Shed \xb7 Elevations", "Shed \xb7 Measurements"]) assert(heads.includes(h), `no page headed ${h}: ${JSON.stringify(heads)}`);
+  // Its own page (plan), its roof plan, its elevations (the four views), each wall on its own, its measurements.
+  for (const h of ["Shed", "Shed \xb7 Roof plan", "Shed \xb7 Elevations", "Shed \xb7 Each wall", "Shed \xb7 Measurements"]) assert(heads.includes(h), `no page headed ${h}: ${JSON.stringify(heads)}`);
   // Every page of it says whose it is at its foot - a table run on to a page of its own too; the house's pages don't.
   const foot = (p) => p.find((w) => w.startsWith("Exterior report · ")) ?? "";
   assert(shedPages.every((p) => foot(p).startsWith("Exterior report · The owner's house · Shed · page ")), JSON.stringify(shedPages.map(foot)));
   assert(pages.slice(0, firstShed).every((p) => /^Exterior report · The owner's house · page \d+ of \d+$/.test(foot(p))), JSON.stringify(pages.slice(0, firstShed).map(foot)));
   const all = shedPages.flat();
-  for (const w of ["Front elevation", "Right side elevation", "Back elevation", "Left side elevation", "Each side", "Footprint", "Walls by side and material", "Roof lines"]) assert(all.includes(w), `the shed's section has no "${w}"`);
+  for (const w of ["Front elevation", "Right side elevation", "Back elevation", "Left side elevation", "Shed \xb7 Each wall", "Footprint", "Walls by side and material", "Roof lines"]) assert(all.includes(w), `the shed's section has no "${w}"`);
   // The cover lists the buildings, and their totals.
   const cover = pages[0];
   assert(cover.includes("The buildings on this claim") && cover.includes("All buildings") && cover.includes("Shed") && cover.includes("2.95"), JSON.stringify(cover.slice(0, 60)));
