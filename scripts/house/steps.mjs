@@ -884,12 +884,17 @@ export async function report(h) {
   const reads = existsSync(readsFile) ? readJson(readsFile) : null;
   if (!reads) out.push("No reads.json: the walls are as measured (10' eaves, no openings). Read each side in sides/ and write it (docs/house-runner.md, step 5).");
   for (const [key, r] of Object.entries(reads?.sides ?? {})) {
-    const side = sideOf(key);
+    let side = sideOf(key);
     if (!side) {
       out.push(`  read ${key}: no such side on this shape - left out`);
       continue;
     }
     if (r.skip || !r.wire) continue;
+    // A side measure squared no photo of (seen edge-on), read off a view the read step made: that view's photo goes on it.
+    if (!side.photos?.length && r.photo) {
+      side = { ...side, photos: [r.photo] };
+      ext = { ...ext, sides: ext.sides.map((s) => (s.id === side.id ? side : s)) };
+    }
     if (!side.photos?.length) {
       out.push(`  read ${key}: that side has no photo now - left out`);
       continue;

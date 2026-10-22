@@ -291,6 +291,17 @@ if (!existsSync(SHED)) {
   const sext = json(join(dir, "scrivn", "exterior.json"));
   const sq = /roof ([\d.]+) SQ/.exec(srep.join("\n"));
   check("the shed's report: metal walls and a one-slope metal roof, every eave at his low wall's 7'4\", a roll-up door", sext.roof.material === "metal" && sext.roof.oneSlopeTo && sext.sides.every((sd) => sd.bands.every((b) => b.kind === "metal") && sd.base === "grade") && sext.sides.some((sd) => sd.openings.some((o) => o.kind === "rollup")) && sext.sides.every((sd) => Math.abs(sd.eaveLeftFeet - 88 / 12) < 1e-6 && Math.abs(sd.eaveRightFeet - 88 / 12) < 1e-6), sq?.[0]);
+  // The reading pass: every side from every photo, the checklist, then a reading's answers laid on (reads.json kept aside).
+  const kept = readFileSync(join(dir, "scrivn", "reads.json"), "utf8");
+  const rd = await runStep(dir, "read");
+  const sheets = readdirSync(join(dir, "scrivn", "read")).filter((f) => f.endsWith(".png"));
+  check("read: a sheet a side from every photo, and the checklist", sheets.length === 4 && existsSync(join(dir, "scrivn", "read.txt")) && /Photo by photo/.test(readFileSync(join(dir, "scrivn", "read.txt"), "utf8")), rd.join(" | "));
+  writeFileSync(join(dir, "scrivn", "reading.json"), JSON.stringify({ groundBySide: { "C1-C2": { mainFloorFt: 0.5 } }, sides: { "C1-C2": { openings: [{ kind: "window", offsetFt: 2, widthFt: 3, heightFt: 2.5, sillAboveMainFloorFt: 3 }], wallTopFt: [[0, 9], [16, 9]] } }, roofAnswers: { pitch: "3/12" } }));
+  const ap = await runStep(dir, "read");
+  const rr = json(join(dir, "scrivn", "reads.json")).sides["C1-C2"];
+  check("read applies reading.json: the window and the wall on the front, the pitch in roof.json", rr?.wire.openings.length === 1 && rr.wire.materials.length === 1 && json(join(dir, "scrivn", "roof.json")).pitch === "3/12" && ap.some((l) => /C1-C2 .*1 opening \(1 window\), wall top 9'0" \/ 9'0"/.test(l)), ap.join(" | "));
+  writeFileSync(join(dir, "scrivn", "reads.json"), kept);
+  copyFileSync(FX("house-runner/shed-1017-roof.json"), join(dir, "scrivn", "roof.json"));
   shedDir = dir;
   summary.push(`shed: prepare ${prep.seconds.toFixed(0)} s, measure ${meas.seconds.toFixed(0)} s; ${front.lengthFeet.toFixed(2)} x ${right.lengthFeet.toFixed(2)} ft`);
 }

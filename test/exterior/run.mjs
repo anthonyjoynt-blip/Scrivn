@@ -6446,6 +6446,15 @@ test("a photo's facing settles a two-corner photo's quarter-turn: from the walk,
   assert(Math.abs(front[0]) < 1e-9 && Math.abs(front[1] - 1) < 1e-9 && x.facingOf({}, SEMI) === null, JSON.stringify(front));
 });
 
+test("a corner tapped on a deck says how high: the camera's height, and the ground under its squared sides, are the ground's (10-22)", () => {
+  // The semi's left photo: its two corners tapped 3' up (on a deck), once said and once not.
+  const { input, data } = synRoute(SEMI, SEMI_DRAWN, undefined, semiShots, [{ id: "front", kind: "side", from: 0, feet: 24 }]);
+  const up = (said) => ({ ...input, buildings: [{ ...input.buildings[0], corners: input.buildings[0].corners.map((c) => (c.photo !== "left" ? c : { ...c, y: SYN.H / 2 + ((c.y - SYN.H / 2) * 2) / 5, ...(said ? { aboveGround: 3 } : {}) })) }] });
+  const h = (sol) => sol.cameras.find((c) => c.photo === "left").heightFeet;
+  near(h(x.solveRoute(up(false), "main", data)), 2, "tapped 3' up and not said: the camera reads 2' over them", 0.15);
+  near(h(x.solveRoute(up(true), "main", data)), 5, "said: 5' over the ground", 0.15);
+});
+
 test("corner edges: the long step between two walls is one, put on its edge; a downspout, a fence post below the eye are not", () => {
   // An 800 x 600 level photo: sky over row 150, grass under 450; a wall in shade (90) left of column 400, one in sun (160)
   // right of it; a white downspout 6 px wide at 250 on the shaded wall; a dark window 520-600 on the sunlit one, rows

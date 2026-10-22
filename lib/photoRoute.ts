@@ -119,6 +119,12 @@ export interface CornerTap {
    * keeps it ("Looks right"); a tap on it takes it away.
    */
   proposed?: true;
+  /**
+   * Tapped this far over the ground, feet (2026-10-22): its foot on a deck, a porch or a step, where the corner shows. The
+   * camera's height over the ground - which sets the ground line of every side squared from the photo - is read from the
+   * tap plus this. Absent: tapped where the corner meets the ground.
+   */
+  aboveGround?: number;
 }
 
 export type TapeWhat = "garage" | "door" | "window" | "wall" | "other";
@@ -440,7 +446,7 @@ export function numberCorners(input: PhotoRouteInput, buildingId: string, data: 
     const snapped = idx.map((i) => {
       const t = out[i] as CornerTap;
       const s = tapOnEdge(d.gray, d.camera as PhotoCamera, t);
-      return { photo: id, corner: t.corner, ...s, bearing: columnBearing(d.camera as PhotoCamera, s.u) };
+      return { photo: id, corner: t.corner, ...s, bearing: columnBearing(d.camera as PhotoCamera, s.u), aboveGround: t.aboveGround ?? 0 };
     });
     // Left to right in the photo.
     const order = snapped.map((_, k) => k).sort((p, q) => (snapped[p] as SnappedTap).u - (snapped[q] as SnappedTap).u);
@@ -791,6 +797,8 @@ interface SnappedTap {
   v: number;
   bearing: number;
   onEdge: boolean;
+  /** How far over the ground it was tapped, feet (`CornerTap.aboveGround`): 0 at the ground. */
+  aboveGround?: number;
   /** The snapped point in the photo, for the bearing at another k. */
   px: [number, number];
 }
@@ -865,7 +873,7 @@ export function solveRoute(input: PhotoRouteInput, buildingId: string, data: Rou
     const d = byId.get(t.photo);
     if (!d?.camera) continue;
     const s = tapOnEdge(d.gray, d.camera, t);
-    taps.push({ photo: t.photo, corner: t.corner, ...s, bearing: columnBearing(d.camera, s.u) });
+    taps.push({ photo: t.photo, corner: t.corner, ...s, bearing: columnBearing(d.camera, s.u), aboveGround: t.aboveGround ?? 0 });
   }
 
   // 2. The walls from the shape drawn, and each camera placed from its corners on it.
@@ -966,7 +974,7 @@ export function solveRoute(input: PhotoRouteInput, buildingId: string, data: Rou
       const t = mine[mine.length - 1];
       if (!t) continue;
       const { zl } = levelAxes(cam);
-      heights.push({ camera: id, point: `c${t.corner}`, drop: (t.v - cam.height / 2) / cam.f, forward: Math.atan2(zl[0], zl[2]), feet: HAND_FEET, sdFeet: HAND_SD_FEET });
+      heights.push({ camera: id, point: `c${t.corner}`, drop: (t.v - cam.height / 2) / cam.f, forward: Math.atan2(zl[0], zl[2]), feet: HAND_FEET - (t.aboveGround ?? 0), sdFeet: HAND_SD_FEET });
     }
     // A camera nothing ties yet (a photo placed by its edges, before they are tied in the next round) waits out this solve.
     const seen = new Set(bearings.map((x) => x.camera));
@@ -1020,7 +1028,7 @@ export function solveRoute(input: PhotoRouteInput, buildingId: string, data: Rou
       const { zl } = levelAxes(d.camera);
       const zg = planDirection(Math.atan2(zl[0], zl[2]), c.quadrant, yaw);
       const depth = (P.x - c.at[0]) * zg[0] + (P.y - c.at[1]) * zg[1];
-      if (depth > 1) hs.push(((t.v - d.camera.height / 2) / d.camera.f) * depth);
+      if (depth > 1) hs.push(((t.v - d.camera.height / 2) / d.camera.f) * depth + (t.aboveGround ?? 0));
     }
     if (hs.length === 0) return null;
     hs.sort((p, q) => p - q);
@@ -1327,7 +1335,7 @@ function placedHeights(cam: PhotoCamera, mine: SnappedTap[], outline: Pt[], q: n
     .filter((t) => t.v > cam.height / 2)
     .map((t) => {
       const P = outline[t.corner] as Pt;
-      return ((t.v - cam.height / 2) / cam.f) * ((P.x - at[0]) * zg[0] + (P.y - at[1]) * zg[1]);
+      return ((t.v - cam.height / 2) / cam.f) * ((P.x - at[0]) * zg[0] + (P.y - at[1]) * zg[1]) + (t.aboveGround ?? 0);
     });
   return hs.length ? [Math.min(...hs), Math.max(...hs)] : null;
 }
