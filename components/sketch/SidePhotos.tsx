@@ -432,7 +432,10 @@ export function SideElevation({
   pieceOnRoof,
   decks,
   onDeckRead,
+  unseen = null,
 }: {
+  /** A wall no photo faces (2026-10-21, lib/exterior.ts `unseenState`): stamped "Not photographed". */
+  unseen?: "unknown" | "said" | "none" | null;
   /** The decks in front of it (2026-10-20, lib/exteriorViews.ts `decksOnSide`): drawn over it. */
   decks?: DeckPieceDrawn[];
   /** A deck read off its photo put on the deck against it (lib/decks.ts `withDeckRead`); absent: no deck to put it on. */
@@ -567,6 +570,7 @@ export function SideElevation({
         seeThrough={showPhoto}
         editor={editor}
         roofAssumed={roofAssumed}
+        unseen={unseen}
         {...(decks && decks.length > 0 ? { decks } : {})}
       />
       {caption}

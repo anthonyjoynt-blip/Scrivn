@@ -107,8 +107,12 @@ export interface ExteriorOpening {
   sillFeet: number;
   /** From the side's left corner to the opening's left edge. */
   fromLeftFeet: number;
-  /** Read off the side's photo by Finish exterior on the phone (2026-10-15, lib/exteriorFinish.ts), not tapped. */
-  from?: "photo";
+  /**
+   * "photo": read off the side's photo by Finish exterior on the phone (2026-10-15, lib/exteriorFinish.ts), not tapped.
+   * "said" (2026-10-21): on a wall no photo faces, the person at the house said how many windows and doors it has
+   * (`ExteriorSide.unseenSaid`): put in at a standard size, spaced along it - its size and place not measured.
+   */
+  from?: "photo" | "said";
   /**
    * What hid part of it in its photo, in the trace's words (2026-10-16): a railing, a deck, plants, a car.
    * Its kind is then a guess, asked on "Check these" (lib/exteriorCheck.ts). Absent: nothing did, or it was tapped.
@@ -286,6 +290,12 @@ export interface ExteriorSide {
   shared?: boolean;
   /** Its columns and pilasters (2026-10-17, `SideColumn`). Absent: none. */
   columns?: SideColumn[];
+  /**
+   * A wall no photo faces (2026-10-21, `notPhotographed`): what the person at the house said is on it - so many windows and
+   * doors, both 0 for none. Absent: not asked, or not answered, and its windows and doors aren't known. The owner, of the
+   * first house the Scrivn team measured: windows and doors were missing on walls nobody photographed.
+   */
+  unseenSaid?: { windows: number; doors: number };
 }
 
 /**
@@ -348,6 +358,85 @@ export function sharedSideIds(exterior: Exterior): Set<string> {
 export function sharedSides(exterior: Exterior): ExteriorSide[] {
   const ids = sharedSideIds(exterior);
   return allSides(exterior).filter((s) => ids.has(s.id));
+}
+
+/**
+ * A wall no photo faces (2026-10-21): on an exterior measured from photos, a side - not shared - with none of them laid on
+ * it (lib/photoRouteExterior.ts lays a photo on each side it faces and shows). Its windows and doors aren't known, so it is
+ * drawn and reported "not photographed", never as a blank wall that reads as "no windows"; the person at the house is
+ * asked how many there are (`unseenSaid`). The owner, of the first house the Scrivn team measured from his walk: windows
+ * and doors were missing on walls nobody photographed. An exterior from Scan or drawn by hand is never "not photographed":
+ * its openings were put in at the house.
+ */
+export function notPhotographed(exterior: Pick<Exterior, "source" | "sides">, side: ExteriorSide): boolean {
+  // The main floor's walls: an upper floor's are seen over the roofs in the main walls' photos, never laid on their own.
+  return exterior.source?.kind === "photos" && !side.shared && (side.photos ?? []).length === 0 && exterior.sides.some((s) => s.id === side.id);
+}
+
+/** The main floor's walls no photo faces (`notPhotographed`), in order round the house. */
+export function notPhotographedSides(exterior: Exterior): ExteriorSide[] {
+  return exterior.sides.filter((s) => notPhotographed(exterior, s));
+}
+
+/** A wall no photo faces, for the drawings: "unknown" (nobody said), "said" (windows or doors said on site), "none" (said: none). Null: a photo faces it. */
+export function unseenState(exterior: Pick<Exterior, "source" | "sides">, side: ExteriorSide): "unknown" | "said" | "none" | null {
+  if (!notPhotographed(exterior, side)) return null;
+  const said = side.unseenSaid;
+  return !said ? "unknown" : said.windows + said.doors === 0 ? "none" : "said";
+}
+
+/** Under "Not photographed" on a drawing, by `unseenState`. */
+export const UNSEEN_DRAWN: Record<"unknown" | "said" | "none", string> = {
+  unknown: "windows and doors not known",
+  said: "openings said on site, not measured",
+  none: "no openings, said on site",
+};
+
+/** The size a window or door said on site is put in at (`unseenSaid`): a common one, its place and size not measured. */
+export const SAID_OPENING: Record<"window" | "door", { widthFeet: number; heightFeet: number; sillFeet: number }> = {
+  window: { widthFeet: 3, heightFeet: 4, sillFeet: 3 },
+  door: { widthFeet: 3, heightFeet: 6 + 8 / 12, sillFeet: 0 },
+};
+
+/**
+ * What the person at the house said is on a wall no photo faces, put in: so many windows and doors at a common size, spaced
+ * evenly along it (doors first), each `from: "said"`; null takes the answer back out. Openings read or put in otherwise
+ * stay. As many as fit with a foot between them: a short wall said to have more gets what fits.
+ */
+export function withUnseenSaid(exterior: Exterior, sideId: string, said: { windows: number; doors: number } | null): Exterior {
+  const sides = exterior.sides.map((s) => {
+    if (s.id !== sideId) return s;
+    const kept = s.openings.filter((o) => o.from !== "said");
+    if (!said) {
+      const { unseenSaid: _u, ...rest } = s;
+      return { ...rest, openings: kept };
+    }
+    const kinds = [...Array(Math.max(0, Math.round(said.doors))).fill("door"), ...Array(Math.max(0, Math.round(said.windows))).fill("window")] as ("door" | "window")[];
+    const fit = Math.max(0, Math.floor((s.lengthFeet - 1) / (SAID_OPENING.window.widthFeet + 1)));
+    const placed = kinds.slice(0, fit);
+    const step = s.lengthFeet / Math.max(1, placed.length);
+    const openings: ExteriorOpening[] = placed.map((k, i) => {
+      const size = SAID_OPENING[k];
+      return { id: newSketchId("opening"), kind: k, widthFeet: size.widthFeet, heightFeet: size.heightFeet, sillFeet: size.sillFeet, fromLeftFeet: Math.round((step * (i + 0.5) - size.widthFeet / 2) * 100) / 100, from: "said" };
+    });
+    return { ...s, openings: [...kept, ...openings], unseenSaid: { windows: Math.max(0, Math.round(said.windows)), doors: Math.max(0, Math.round(said.doors)) } };
+  });
+  return { ...exterior, sides };
+}
+
+/**
+ * A wall no photo faces, in words: "Not photographed: its windows and doors aren't known." / "Not photographed: 2 windows
+ * and a door said on site, their sizes and places not measured." / "Not photographed: no windows or doors, said on site."
+ * Null for a side a photo faces.
+ */
+export function unseenWords(exterior: Pick<Exterior, "source" | "sides">, side: ExteriorSide): string | null {
+  if (!notPhotographed(exterior, side)) return null;
+  const said = side.unseenSaid;
+  if (!said) return "Not photographed: its windows and doors aren't known.";
+  if (said.windows === 0 && said.doors === 0) return "Not photographed: no windows or doors, said on site.";
+  const n = (count: number, one: string, many: string) => (count === 0 ? "" : count === 1 ? one : `${count} ${many}`);
+  const what = [n(said.windows, "a window", "windows"), n(said.doors, "a door", "doors")].filter(Boolean).join(" and ");
+  return `Not photographed: ${what} said on site, ${said.windows + said.doors === 1 ? "its size and place" : "their sizes and places"} not measured.`;
 }
 
 /** For the drawings: whether a side is shared - or nothing at all for a home with none, drawn as it always was. */

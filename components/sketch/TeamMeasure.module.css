@@ -60,3 +60,11 @@
   gap: 0.5rem;
   align-items: center;
 }
+
+/* The walls no photo faces, asked before Use it (UnseenWalls.tsx): a column of their own across the line. */
+.unseen {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  flex: 1 1 100%;
+}

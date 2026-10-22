@@ -74,6 +74,7 @@ import {
   trimShapes,
   UPPER_STOREY_FEET,
   upperFootprint,
+  unseenState,
 } from "./exterior";
 import { deckGeometry, deckName, deckOuterGround, type DeckPart, deckParts, decksOf, deckTopOnWall, deckWallAlong } from "./decks";
 import { parentLayerOf, type WingDrop } from "./roofCheck";
@@ -125,13 +126,15 @@ export interface Wall3D {
   background: CladdingKind | "unclad";
   /** Its colour off the house's photos (2026-10-17, `houseColours`), where they read its material: the wall over a lower roof too. */
   backgroundColour?: string;
-  /** Windows, doors and garage doors, in (u, v). */
-  openings: { id: string; kind: ExteriorOpeningKind; x0: number; x1: number; y0: number; y1: number }[];
+  /** Windows, doors and garage doors, in (u, v). `said`: said on site on a wall no photo faces (2026-10-21), not measured. */
+  openings: { id: string; kind: ExteriorOpeningKind; x0: number; x1: number; y0: number; y1: number; said?: true }[];
   /** v of the side's own frame's zero (its heights are from there): what lays its photos on it. */
   frameV: number;
   photos: SidePhoto[];
   /** A party wall, shared with the neighbour's home (2026-10-17): drawn bare - the neighbour's home stands against it. */
   shared?: true;
+  /** A wall no photo faces (2026-10-21, `unseenState`): marked "Not photographed" on the house's views. */
+  unseen?: "unknown" | "said" | "none";
   /** A two-storey house's main-floor wall standing to the floor line, under no roof (2026-10-19): its top is no eave. */
   toFloorLine?: true;
 }
@@ -497,7 +500,7 @@ export function exteriorModel(exterior: Exterior): ExteriorModelResult {
       grade: lift(groundUnder(side, faces.grade)),
       faces: wallFaces,
       background: faces.fromShapes ? ("unclad" as const) : ((bands?.[bands.length - 1]?.kind ?? "stucco") as CladdingKind),
-      openings: faces.openings.map(({ opening, rect }) => ({ id: opening.id, kind: opening.kind, x0: rect.x0, x1: rect.x1, y0: rect.y0 + frameV, y1: rect.y1 + frameV })),
+      openings: faces.openings.map(({ opening, rect }) => ({ id: opening.id, kind: opening.kind, x0: rect.x0, x1: rect.x1, y0: rect.y0 + frameV, y1: rect.y1 + frameV, ...(opening.from === "said" ? { said: true as const } : {}) })),
       trim: trimOf3d(side, lift, colours),
     };
   });
@@ -522,6 +525,7 @@ export function exteriorModel(exterior: Exterior): ExteriorModelResult {
     ...(p.trim && !sharedIds.has(p.side.id) ? { trim: p.trim } : {}),
     ...(sharedIds.has(p.side.id) ? { shared: true as const, faces: [], openings: [], background: "unclad" as const, photos: [] } : {}),
     ...(p.toFloorLine ? { toFloorLine: true as const } : {}),
+    ...(unseenState(exterior, p.side) ? { unseen: unseenState(exterior, p.side) as "unknown" | "said" | "none" } : {}),
   }));
 
   // ---- The upper floor's walls: on the floor line, or on the lower roof against them, up to the house's roof ----
@@ -560,7 +564,7 @@ export function exteriorModel(exterior: Exterior): ExteriorModelResult {
           return { kind: f.kind, poly: lift(f.poly), ...(colour ? { colour } : {}) };
         }),
       background: (bands?.[bands.length - 1]?.kind ?? "stucco") as CladdingKind,
-      openings: faces.openings.map(({ opening, rect }) => ({ id: opening.id, kind: opening.kind, x0: rect.x0, x1: rect.x1, y0: rect.y0 + frameV, y1: rect.y1 + frameV })),
+      openings: faces.openings.map(({ opening, rect }) => ({ id: opening.id, kind: opening.kind, x0: rect.x0, x1: rect.x1, y0: rect.y0 + frameV, y1: rect.y1 + frameV, ...(opening.from === "said" ? { said: true as const } : {}) })),
       frameV,
       photos: u.side.photos ?? [],
       ...(trimOf3d(u.side, lift, colours) && !sharedIds.has(u.side.id) ? { trim: trimOf3d(u.side, lift, colours) } : {}),

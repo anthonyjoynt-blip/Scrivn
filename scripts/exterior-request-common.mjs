@@ -330,7 +330,7 @@ export async function readyMailer() {
     const sent = await mod.sendEmail({
       to,
       subject: "Your exterior measurements are ready",
-      react: mod.ExteriorReadyMessage({ what, claimUrl: `${base}/claim?id=${request.claim_id}` }),
+      react: mod.ExteriorReadyMessage({ what, claimUrl: `${base}/claim?id=${request.claim_id}&outside=1` }),
     });
     return sent.ok ? "emailed" : `not emailed: ${sent.reason}`;
   };

@@ -23,6 +23,7 @@ import {
   groundAt,
   homeTypeWords,
   sharedSideIds,
+  unseenWords,
   lengthToCheck,
   OPENING_LABEL,
   photoNotes,
@@ -307,7 +308,7 @@ function groundWords(side: ExteriorSide): string | null {
 
 function openingLine(side: ExteriorSide, o: ExteriorOpening, name: string): string {
   const sill = sillOf(side, o);
-  return `${name}: ${formatOpeningSize(o.widthFeet, o.heightFeet)}, ${sill > 0.04 ? `sill ${ft(sill)} up` : "at the bottom"}, ${ft(o.fromLeftFeet)} from the left end${o.from === "photo" ? " (from photo)" : ""}${o.trim ? ` · ${surroundWords(o.trim)}` : ""}`;
+  return `${name}: ${formatOpeningSize(o.widthFeet, o.heightFeet)}, ${sill > 0.04 ? `sill ${ft(sill)} up` : "at the bottom"}, ${ft(o.fromLeftFeet)} from the left end${o.from === "photo" ? " (from photo)" : o.from === "said" ? " (said on site: size and place not measured)" : ""}${o.trim ? ` · ${surroundWords(o.trim)}` : ""}`;
 }
 
 /**
@@ -417,6 +418,8 @@ export function exteriorReport(exterior: Exterior, meta: ReportMeta): ExteriorRe
       ...(side.fixtures ?? []).filter((f) => f.count > 0).map((f) => `${f.kind === "other" ? f.label?.trim() || "Other" : SIDE_FIXTURE_LABEL[f.kind]}: ${f.count} (${f.action === "replace" ? "replace" : "detach & reset"})`),
       ...(side.roofRead ? [`Roof read off its photo: ${roofReadWords(side.roofRead).join(", ") || "nothing taken"}.`] : []),
       ...(!sq.complete ? ["Not every height of this side was measured: its area is not counted."] : []),
+      // A wall no photo faces (2026-10-21): said so, never left to read as a wall with no windows.
+      ...(unseenWords(exterior, side) ? [unseenWords(exterior, side) as string] : []),
       ...deckAgainst(side.id),
     ];
     return {
@@ -424,7 +427,7 @@ export function exteriorReport(exterior: Exterior, meta: ReportMeta): ExteriorRe
       q: sq,
       rise: q.rises[side.id] ?? null,
       base: q.bases[side.id] ?? null,
-      heading: `${side.name.trim() || "Side"} · ${ft(sq.lengthFeet)}${pm ? ` ${pm}` : ""} · ${sf(sq.netSquareFeet)} net`,
+      heading: `${side.name.trim() || "Side"} · ${ft(sq.lengthFeet)}${pm ? ` ${pm}` : ""} · ${sf(sq.netSquareFeet)} net${unseenWords(exterior, side) ? " · not photographed" : ""}`,
       dims,
     };
   });
@@ -701,7 +704,7 @@ export function exteriorReport(exterior: Exterior, meta: ReportMeta): ExteriorRe
     const names = openingNames(side);
     return [...side.openings]
       .sort((a, b) => a.fromLeftFeet - b.fromLeftFeet)
-      .map((o) => [side.name, names.get(o.id) ?? OPENING_LABEL[o.kind], o.from === "photo" ? "photo" : ownFrom, formatOpeningSize(o.widthFeet, o.heightFeet), ft(sillOf(side, o)), ft(o.fromLeftFeet), one(o.widthFeet * o.heightFeet)]);
+      .map((o) => [side.name, names.get(o.id) ?? OPENING_LABEL[o.kind], o.from === "photo" ? "photo" : o.from === "said" ? "said on site" : ownFrom, formatOpeningSize(o.widthFeet, o.heightFeet), ft(sillOf(side, o)), ft(o.fromLeftFeet), one(o.widthFeet * o.heightFeet)]);
   });
   if (openingRows.length > 0) {
     tables.push({
@@ -843,7 +846,12 @@ export function exteriorReport(exterior: Exterior, meta: ReportMeta): ExteriorRe
   // A length worked out from the photos and further out than it should be: named to tape (2026-10-16).
   const toTape = every.filter((s) => lengthToCheck(s) !== undefined).map((s) => `${s.name.trim() || "Side"}: ${ft(s.lengthFeet)} ${plusMinus(s)}, worked out from the photos${s.lengthEstimatedFeet ? ` and ${estimatedWords(s)}` : ""}, not taped. Tape it to be sure.`);
   // What a photo couldn't settle and nobody answered on "Check these" (2026-10-16, lib/exteriorCheck.ts): a part-hidden opening, an assumed drop.
-  const notes = [...toTape, ...checkNotes(exterior, q), ...(roof?.notes ?? [])];
+  // A wall no photo faces (2026-10-21): what is on it isn't known, or was only said - a photo of it straight on settles it.
+  const unseen = every.flatMap((s) => {
+    const w = unseenWords(exterior, s);
+    return w ? [`${s.name.trim() || "Side"}: ${w.charAt(0).toLowerCase()}${w.slice(1)} A photo of it straight on settles it.`] : [];
+  });
+  const notes = [...toTape, ...unseen, ...checkNotes(exterior, q), ...(roof?.notes ?? [])];
 
   // ---- The house from each side: the 3D model, square-on, named by the compass when the front's bearing is known ----
   const model = exteriorModel(exterior);

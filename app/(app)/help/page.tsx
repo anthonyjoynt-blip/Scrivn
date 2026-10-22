@@ -115,8 +115,10 @@ export default function HelpPage() {
         <p>
           Optional, and worth it: the sketch is where the quantities come from. Wall areas, floor areas, perimeters
           and the disposal weight are all read off the drawing rather than guessed, and every one of them lands in the
-          scope. <strong>Create sketch</strong> is on the claim page. At the top of the sketch, <strong>Sketch</strong>,{" "}
-          <strong>Moisture</strong> and <strong>Exterior</strong> are three views of the same claim.
+          scope. <strong>Create sketch</strong> is on the claim page, and <strong>Outside of the house</strong> under it opens
+          the sketch straight on its Exterior, with the <strong>Exterior report (PDF)</strong> beside it once the outside is
+          measured. At the top of the sketch, <strong>Sketch</strong>, <strong>Moisture</strong> and{" "}
+          <strong>Exterior</strong> are three views of the same claim.
         </p>
 
         <div className="help-figure">

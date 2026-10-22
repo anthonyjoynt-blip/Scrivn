@@ -752,8 +752,9 @@ export default async function ScanGuidePage() {
                 <h3 className="sg-h3">The walk, step by step</h3>
                 <ol className="sg-steps">
                   <li>
-                    <strong>Exterior, then From photos.</strong> On the claim, <B>Create sketch</B> (or <B>Edit sketch</B>), then{" "}
-                    <B>Exterior</B> at the top, then <B>From photos</B>.
+                    <strong>Outside of the house, then From photos.</strong> On the claim, <B>Outside of the house</B> opens the sketch
+                    straight on its Exterior; then <B>From photos</B>. The <B>Exterior report (PDF)</B> sits right under it once the
+                    outside is measured.
                   </li>
                   <li>
                     <strong>The front.</strong> Nothing to pick first. Stand back across from the front, straight on, so all of it is
@@ -892,8 +893,11 @@ export default async function ScanGuidePage() {
                 there&apos;s signal. <B>Withdraw</B> takes it back.
               </li>
               <li>
-                When it&apos;s done you get an email, and the Exterior says <Q>Measured –</Q> <B>Use it</B>. Use it puts our
-                measurements in. Your photos and measurements stay.
+                When it&apos;s done you get an email; its link opens the claim on the outside, which says <Q>Measured –</Q>{" "}
+                <B>Use it</B>. A wall none of your photos faced asks first: <Q>no photo of this wall. Any windows or doors on it?</Q>{" "}
+                <B>None</B>, or how many of each. Nothing else is asked: what the photos show is ours to read. Use it puts our
+                measurements in, with what you said. Your photos and measurements stay. A wall still unanswered is drawn and
+                reported <Q>Not photographed</Q>, never as a bare wall; you can answer on the wall itself later.
               </li>
             </ul>
             <div className="sg-cards sg-cards-2">

@@ -17,7 +17,7 @@ import {
 } from "@/components/sketch/exteriorDrawings";
 import { DeckPlanDrawing } from "@/components/sketch/deckDrawings";
 import type { DeckPlanShape } from "./decks";
-import { allSides, elevationFaces, type Exterior, houseColours, lengthToCheck, sharedOf, trimShapes } from "./exterior";
+import { allSides, elevationFaces, type Exterior, houseColours, lengthToCheck, sharedOf, trimShapes, unseenState } from "./exterior";
 import { exteriorModel } from "./exterior3d";
 import { type ExteriorReport, LINE_WORD, type ReportTable, roofPlanCaption } from "./exteriorReport";
 import { bearingWords, decksOnSide, frontFacesOf } from "./exteriorViews";
@@ -399,7 +399,7 @@ function elevationPages(doc: jsPDF, input: ReportPdfInput, part: Part): void {
     const pieces = model?.ok ? decksOnSide(model.model, sideId) : [];
     return pieces.length > 0 ? { decks: pieces } : {};
   };
-  const el = (s: (typeof sides)[number], fontFeet: number) => createElement(ElevationDrawing, { side: s.side, rise: s.rise, base: s.base, fontFeet, roofAssumed, ...(colours ? { colours } : {}), ...deckOf(s.side.id) });
+  const el = (s: (typeof sides)[number], fontFeet: number) => createElement(ElevationDrawing, { side: s.side, rise: s.rise, base: s.base, fontFeet, roofAssumed, ...(colours ? { colours } : {}), ...deckOf(s.side.id), unseen: unseenState(report.exterior, s.side) });
   /*
     Each side at the largest standard scale that fits the page's width and a third of its height, up
     to 3/16" = 1'-0" - one scale for a whole house would draw a 10 ft return at the scale its 66 ft side

@@ -30,8 +30,11 @@ import {
   type SideQuantities,
   zFromGrade,
   sharedSideIds,
+  unseenState,
+  withUnseenSaid,
 } from "@/lib/exterior";
 import { MIN_SIDE_FEET, sideChain, withSideLength, withUpperSideLength } from "@/lib/exteriorPlan";
+import { UnseenWallAsk } from "./UnseenWalls";
 import { surroundWords } from "@/lib/exteriorReport";
 import { scaleOf } from "@/lib/exteriorScale";
 import type { ProposedDeck, SideTrace } from "@/lib/exteriorTrace";
@@ -398,8 +401,13 @@ export function SidePane({
           </div>
         )}
         <p className="field-note exterior-plan-hint">{hint}</p>
+        {/* A wall no photo faces (2026-10-21): what's on it only the person at the house can say, and it says so until they do. */}
+        {unseenState(exterior, side) && (
+          <UnseenWallAsk side={side} said={side.unseenSaid ?? null} readOnly={readOnly} onSay={(said) => onChange((e) => withUnseenSaid(e, side.id, said))} />
+        )}
         <SideElevation
           side={shown}
+          unseen={unseenState(exterior, side)}
           rise={rise}
           base={base}
           readOnly={readOnly}
