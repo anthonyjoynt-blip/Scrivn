@@ -801,7 +801,11 @@ function trimOf3d(side: ExteriorSide, lift: (poly: Pt[]) => Pt[], colours: House
 function groundUnder(side: ExteriorSide, grade: Pt[]): Pt[] {
   const shapes = (side.shapes ?? []).filter((s) => s.closed && s.polygon.length >= 3);
   if (shapes.length === 0 || shapes.some((s) => s.kind === "parging")) return grade;
-  const xs = [...new Set(shapes.flatMap((s) => s.polygon.map((p) => Math.round(p.x * 1e6) / 1e6)))].sort((a, b) => a - b);
+  // Each corner's own x (one per micro-foot): rounded, a corner a hair off it found no edge of its own shape and its ground was
+  // lost (10-22, house G: the right garage bay's left end at x 0.00022, the wall drawn cut off on the left).
+  const byKey = new Map<number, number>();
+  for (const s of shapes) for (const p of s.polygon) if (!byKey.has(Math.round(p.x * 1e6))) byKey.set(Math.round(p.x * 1e6), p.x);
+  const xs = [...byKey.values()].sort((a, b) => a - b);
   const bottom = xs.map((x) => ({ x, y: Math.min(...shapes.map((s) => lowestOver(s.polygon, x))) })).filter((p) => Number.isFinite(p.y));
   return bottom.length >= 2 ? bottom : grade;
 }

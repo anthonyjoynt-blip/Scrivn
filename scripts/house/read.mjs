@@ -23,7 +23,10 @@
  *     "cladding": "stucco", "over": "gable" | "eave" | "hip_end"}}
  *   "roof": {"main": {"eaveAboveMainFloorFt": 8.3}, ...}        the reader's notes; the eave sets walls with no wallTopFt
  *   "roofAnswers": {...}                                         roof.json's own form, merged over it (pitch, wings, drops...)
- *   "decks": [...]                                               inputs.json's deck form (scripts/house/decks.mjs), in place of its decks
+ *   "decks": [...]                                               inputs.json's deck form (scripts/house/decks.mjs), in place of its decks;
+ *                    or placed by the house itself: "alongFrom": "C4", "alongTo": "C7" (the corners it runs between, along
+ *                    its wall's line) and "outTo": "C2-C3" (out flush with that wall's face) or "depthFeet"; its taps then
+ *                    go, and "toFeet": "end" on a railing or a screen runs it to the end of its edge
  *
  * The reader's own file from house G (blind-runs/house-g-reading/reading.json) is this form, with groundBySide, wallTopFt and
  * roofAnswers added by the session. Nothing here calls an API.
@@ -195,10 +198,57 @@ async function applyReading(x, h, reading, sheets) {
   }
   if (Array.isArray(reading.decks) && reading.decks.length && reading.decks.every((d) => d.side)) {
     const inputs = readJson(statePath(h, "inputs.json"));
-    writeJson(statePath(h, "inputs.json"), { ...inputs, decks: reading.decks });
+    const ring = readJson(statePath(h, "measured.json")).photoRoute.measured.corners;
+    const decks = reading.decks.map((d) => {
+      const placed = deckBySize(d, ring);
+      if (placed.words) out.push(`  deck ${d.name ?? d.side}: ${placed.words}`);
+      return placed.deck;
+    });
+    writeJson(statePath(h, "inputs.json"), { ...inputs, decks });
     out.push(`inputs.json: ${reading.decks.length} deck${reading.decks.length === 1 ? "" : "s"} from the reading - measure again to place ${reading.decks.length === 1 ? "it" : "them"}.`);
   }
   return out;
+}
+
+/**
+ * A deck said by the house's own corners - "alongFrom"/"alongTo" (the corners it runs between, along its wall's line) and
+ * "outTo" (flush with that side's face) - as sizes against its wall on the measured outline [ring] (decks.mjs's fromFeet,
+ * toFeet, depthFeet: along from the wall's left end as you face it, out from its face). A covered notch beside it is filled
+ * back to its own wall (lib/decks.ts outlineToWalls). "toFeet": "end" on a railing or screen is its edge's end.
+ */
+export function deckBySize(d, ring) {
+  if (!d.alongFrom && !d.alongTo && !d.outTo) return { deck: d, words: null };
+  const n = ring.length;
+  const at = (name) => {
+    const k = /^C(\d+)$/i.exec(String(name ?? ""));
+    return k && Number(k[1]) >= 1 && Number(k[1]) <= n ? ring[Number(k[1]) - 1] : null;
+  };
+  const m = /^C(\d+)-C(\d+)$/i.exec(d.side);
+  const A = m ? ring[Number(m[1]) - 1] : null;
+  const B = m ? ring[Number(m[2]) - 1] : null;
+  if (!A || !B) return { deck: d, words: `no side ${d.side}` };
+  const L = Math.hypot(B.x - A.x, B.y - A.y);
+  const u = { x: (B.x - A.x) / L, y: (B.y - A.y) / L };
+  const nrm = { x: u.y, y: -u.x };
+  const along = (P) => (P.x - A.x) * u.x + (P.y - A.y) * u.y;
+  const out = (P) => (P.x - A.x) * nrm.x + (P.y - A.y) * nrm.y;
+  const from = d.alongFrom ? at(d.alongFrom) : A;
+  const to = d.alongTo ? at(d.alongTo) : B;
+  const face = d.outTo ? /^C(\d+)-C(\d+)$/i.exec(d.outTo) : null;
+  const facePt = face ? ring[Number(face[1]) - 1] : null;
+  if (!from || !to || (d.outTo && !facePt)) return { deck: d, words: `a corner in "${d.alongFrom ?? ""}", "${d.alongTo ?? ""}" or "${d.outTo ?? ""}" is not on the shape` };
+  const r2 = (v) => Math.round(v * 100) / 100;
+  const fromFeet = r2(Math.min(along(from), along(to)));
+  const toFeet = r2(Math.max(along(from), along(to)));
+  const depthFeet = r2(facePt ? out(facePt) : Number(d.depthFeet));
+  const end = (e) => (e === "outer" ? toFeet - fromFeet : depthFeet);
+  const ends = (list) => (list ?? []).map((r) => (r.toFeet === "end" ? { ...r, toFeet: r2(end(r.edge)) } : r));
+  const { taps, alongFrom, alongTo, outTo, ...rest } = d;
+  void taps;
+  return {
+    deck: { ...rest, fromFeet, toFeet, depthFeet, railings: ends(d.railings), screens: ends(d.screens), placedBy: `along ${alongFrom ?? "its left end"} to ${alongTo ?? "its right end"}, out ${outTo ? `flush with ${outTo}` : `${depthFeet}'`}` },
+    words: `${ftin(toFeet - fromFeet)} along ${d.side} (from ${ftin(fromFeet)} to ${ftin(toFeet)}), ${ftin(depthFeet)} out${outTo ? `, flush with ${outTo}'s face` : ""}`,
+  };
 }
 
 /** The checklist for reading every side off every photo, written to read.txt. */
