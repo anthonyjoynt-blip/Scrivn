@@ -15,7 +15,7 @@ import { routeCoverage, viewsFromMeasure } from "@/lib/photoRouteCoverage";
 import { measureRoute, type PhotoPixelsIn, photoLines } from "@/lib/photoRouteData";
 import { exifFocal35, focalOverWidth } from "@/lib/photoRouteExif";
 import { exteriorFromRoute, measuredFrom } from "@/lib/photoRouteExterior";
-import { measureWords, newWalk, walkActive, walkPhotos, walkPhotoWords, walkTapWords, walkUnplaced, withWalk } from "@/lib/photoRouteWalk";
+import { measureWords, newWalk, walkActive, walkMeasures, walkPhotos, walkPhotoWords, walkTapWords, walkUnplaced, withWalk } from "@/lib/photoRouteWalk";
 import type { Pt } from "@/lib/roof";
 import { formatFeetInches, newSketchId } from "@/lib/sketch";
 import { FootprintDraw } from "./ExteriorPlan";
@@ -164,7 +164,9 @@ export function PhotoRoutePane({ exterior, readOnly, onChange }: { exterior: Ext
     const made: string[] = [];
     void (async () => {
       const next = new Map<string, string>();
-      for (const p of route.photos) {
+      // The route's photos, and the walk's close-ups of a tape (2026-10-22): claim photos too, never the route's.
+      const tapes = walkMeasures(route.walk ?? newWalk()).flatMap(({ m }) => (m.tapePhoto ? [{ id: m.tapePhoto }] : []));
+      for (const p of [...route.photos, ...tapes]) {
         const u = await claimPhotoUrl(access?.claimId ?? null, p.id);
         if (u) {
           next.set(p.id, u);
@@ -179,7 +181,7 @@ export function PhotoRoutePane({ exterior, readOnly, onChange }: { exterior: Ext
     };
     // The photos' ids stand for the list.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [route.photos.map((p) => p.id).join(","), access?.claimId, storeTick]);
+  }, [route.photos.map((p) => p.id).join(","), walkMeasures(route.walk ?? newWalk()).map(({ m }) => m.tapePhoto ?? "").join(","), access?.claimId, storeTick]);
 
   const photo = route.photos.find((p) => p.id === selected) ?? null;
   const tapsHere = main.corners.map((c, i) => ({ c, i })).filter(({ c }) => c.photo === selected);
@@ -377,16 +379,18 @@ export function PhotoRoutePane({ exterior, readOnly, onChange }: { exterior: Ext
   // phone never asks for it), or a wall's side to pick.
   const unplaced = walk ? walkUnplaced(route) : [];
   const placingM = unplaced.find((u) => u.m.id === placing)?.m ?? null;
-  const startPlacing = (m: (typeof unplaced)[number]["m"]) => {
+  const startPlacing = ({ m, stop }: (typeof unplaced)[number]) => {
     setPlacing(m.id);
     setLine(null);
     setPicking(null);
-    if (m.what === "wall" || !m.photo) {
+    if (m.what === "wall") {
       setMode("wall");
       setWallSide(null);
       shapeRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     } else {
-      setSelected(m.photo);
+      // Typed with no photo (2026-10-22, "Add a measurement" any time): on its wall's first photo, or any picked below.
+      const on = m.photo ?? walk?.stops[stop]?.photos[0] ?? selected;
+      if (on) setSelected(on);
       setMode("tape");
     }
   };
@@ -549,19 +553,19 @@ export function PhotoRoutePane({ exterior, readOnly, onChange }: { exterior: Ext
                 computer or a tablet.
               </p>
               <ul className={styles.walkMeasured}>
-                {unplaced.map(({ m }) => (
-                  <li key={m.id}>
-                    <strong>{measureWords(m)}</strong>
-                    <span className="field-note">{m.photo ? `photo ${route.photos.findIndex((p) => p.id === m.photo) + 1}` : "no photo"}</span>
-                    <button type="button" className={placing === m.id ? "btn-primary" : "btn-secondary"} onClick={() => startPlacing(m)}>
-                      {placing === m.id ? "Placing it…" : m.what === "wall" || !m.photo ? "Tap its side" : "Place it"}
+                {unplaced.map((u) => (
+                  <li key={u.m.id}>
+                    <strong>{measureWords(u.m)}</strong>
+                    <span className="field-note">{u.m.photo ? `photo ${route.photos.findIndex((p) => p.id === u.m.photo) + 1}` : "on a photo of its wall"}</span>
+                    <button type="button" className={placing === u.m.id ? "btn-primary" : "btn-secondary"} onClick={() => startPlacing(u)}>
+                      {placing === u.m.id ? "Placing it…" : u.m.what === "wall" ? "Tap its side" : "Place it"}
                     </button>
                   </li>
                 ))}
               </ul>
               {placingM && (
                 <p className="field-note">
-                  {placingM.what === "wall" || !placingM.photo
+                  {placingM.what === "wall"
                     ? `${measureWords(placingM)}: tap its side on the shape above.`
                     : `${measureWords(placingM)}: drag across it on this photo. ${WHAT_HINT[placingM.what]}${placingM.near ? " The ring is where it was tapped at the house." : ""}`}{" "}
                   <button type="button" className="link-button" onClick={() => (setPlacing(null), setMode("corners"))}>
@@ -609,7 +613,7 @@ export function PhotoRoutePane({ exterior, readOnly, onChange }: { exterior: Ext
             </div>
           )}
           <p className="field-note">
-            {placingM && mode === "tape" && placingM.photo === photo.id
+            {placingM && mode === "tape" && (placingM.photo ?? photo.id) === photo.id
               ? `Placing ${measureWords(placingM)}: drag across it, end to end. ${WHAT_HINT[placingM.what]}`
               : mode === "ends"
               ? "On a front or back photo, tap where this home ends, at the ground: the party line, often a downspout, a trim line, or where the siding or colour changes. What's past it is the neighbour's and isn't measured."
@@ -663,7 +667,7 @@ export function PhotoRoutePane({ exterior, readOnly, onChange }: { exterior: Ext
             onPickTap={(i) => setPicking(i)}
             onLine={(a, b) => {
               // A measurement typed on the walk takes the line as it is: what and how long were said at the house.
-              if (placingM && placingM.what !== "wall" && placingM.photo === photo.id) {
+              if (placingM && placingM.what !== "wall" && (placingM.photo ?? photo.id) === photo.id) {
                 addTape({ id: placingM.id, kind: "line", photo: photo.id, a, b, feet: placingM.feet, what: placingM.what });
                 setPlacing(null);
                 setMode("corners");

@@ -79,7 +79,7 @@ async function load() {
       `export * from "${lib("exteriorCheck.ts")}";`,
       `export { cornerPlace, routeCoverage, viewsFromMeasure } from "${lib("photoRouteCoverage.ts")}";`,
       `export { checkEstimate, columnBearing, defaultShared, facingOf, numberCorners, partyCorners, routeSteps, shotNumbers, solveRoute, WALK_HOLD } from "${lib("photoRoute.ts")}";`,
-      `export { alignLap, facingWords, isWalkShape, lapCloses, walkPhotoWords, lapOutline, lapProblem, lapTurns, newWalk, ringTurns, measureWords, walkAddMeasure, walkBack, walkClose, walkHasMeasure, walkHomeType, walkMeasured, walkMeasures, walkPhotos, walkRemoveMeasure, walkShot, walkSkip, walkStep, walkSummary, walkTake, walkTurn, walkUnplaced, withoutPhotos, withWalk } from "${lib("photoRouteWalk.ts")}";`,
+      `export { alignLap, facingWords, isWalkShape, lapCloses, walkPhotoWords, lapOutline, lapProblem, lapTurns, newWalk, ringTurns, measureWords, ringItems, walkAddCorner, walkAddPhoto, walkFinish, walkMissing, walkRemoveLastCorner, walkRemovePhoto, walkReopen, withRingStart, walkAddMeasure, walkBack, walkClose, walkHasMeasure, walkHomeType, walkMeasured, walkMeasures, walkPhotos, walkRemoveMeasure, walkShot, walkSkip, walkStep, walkSummary, walkTake, walkTurn, walkUnplaced, withoutPhotos, withWalk } from "${lib("photoRouteWalk.ts")}";`,
       `export { cornerEdges } from "${lib("photoRouteFind.ts")}";`,
       `export { toLevel } from "${lib("photoRouteLens.ts")}";`,
       `export { exteriorFromRoute, measuredFrom } from "${lib("photoRouteExterior.ts")}";`,
@@ -7052,6 +7052,55 @@ test("the report and the house's views say 'not photographed' - a bare wall neve
   const answered = x.exteriorModel(x.withUnseenSaid(e, side.id, { windows: 2, doors: 0 }));
   const onView = x.VIEWS.flatMap((v) => x.houseView(answered.model, v).pieces.filter((p) => p.type === "wall" && p.sideId === side.id));
   assert(onView.length > 0 && onView.every((w) => w.unseen === "said" && w.openings.length === 2 && w.openings.every((o) => o.said)), JSON.stringify(onView.map((w) => [w.unseen, w.openings])));
+});
+
+console.log("\nthe walk as a ring, in any order (10-22)");
+
+test("the ring: corners said round from the front, photos on any wall or corner in any order, more of a wall as parts", () => {
+  let w = x.withRingStart(x.newWalk());
+  for (const t of ["outside", "outside", "outside", "outside"]) w = x.walkAddCorner(w, t);
+  const labels = x.ringItems(w).map((i) => i.label);
+  // Four outside corners close round: the wall after corner 4 is the front's own left part, not listed apart.
+  assert(labels.join(" | ") === "The front | Corner 1 | The right side | Corner 2 | The back | Corner 3 | The left side | Corner 4", labels.join(" | "));
+  // Out of order: corner 3, the back twice (above and below the deck), then the front.
+  const stopOf = (label) => x.ringItems(w).find((i) => i.label === label).stop;
+  w = x.walkAddPhoto(w, stopOf("Corner 3"), "c3");
+  w = x.walkAddPhoto(w, stopOf("The back"), "b1");
+  w = x.walkAddPhoto(w, stopOf("The back"), "b2");
+  w = x.walkAddPhoto(w, stopOf("The front"), "f");
+  const tags = Object.fromEntries(x.walkPhotos(w).map((p) => [p.photo, p.tag]));
+  assert(JSON.stringify(tags.b1) === '{"role":"side","k":2}' && JSON.stringify(tags.b2) === '{"role":"side","k":2,"part":true}' && tags.c3.k === 3, JSON.stringify(tags));
+  assert(x.walkPhotoWords(tags.b2, w) === "more of the back (side 2)" && x.walkShot(tags.b2, w) === null && x.walkShot(tags.b1, w).kind === "wall", "a part names no corners");
+  // What's missing, plainly; nothing forces the next step.
+  assert(x.walkMissing({ walk: w, photos: [], buildings: [{ id: "main", outline: [], corners: [], tapes: [] }] }) === "No photo yet of the right side, the left side, corner 1, corner 2 and corner 4. No measurement yet: one sets the scale for everything, one a wall is better.", x.walkMissing({ walk: w, photos: [], buildings: [{ id: "main", outline: [], corners: [], tapes: [] }] }));
+  // Finished: the ring closes round (a photo put on the wall after corner 4 is the front's), and the shape is the corners'.
+  w = x.walkAddPhoto(w, w.stops.length - 1, "f2");
+  const done = x.walkFinish(w);
+  assert(done.closed && done.stops.length === 8 && done.stops[0].photos.join() === "f,f2", JSON.stringify(done.stops.map((s) => s.photos)));
+  const route = x.withWalk({ format: "scrivn-photo-route/1", photos: ["c3", "b1", "b2", "f", "f2"].map((id) => ({ id, width: 800, height: 600 })), buildings: [{ id: "main", outline: [], corners: [], tapes: [] }], measured: null }, done);
+  assert(route.buildings[0].outlineFrom === "walk" && route.buildings[0].outline.length === 4, JSON.stringify(route.buildings[0].outline));
+  // Back to the walk: open again, the wall after the last corner there again.
+  const again = x.walkReopen(done);
+  assert(!again.closed && again.stops.length === 9 && again.stops[8].kind === "side", JSON.stringify(again.stops.map((s) => s.kind)));
+});
+
+test("the ring: a corner taken back takes its wall's photos; joining the neighbour puts in the shared wall; photos taken out; corners that don't close are said", () => {
+  let w = x.walkAddCorner(x.withRingStart(x.newWalk()), "joined");
+  assert(x.ringItems(w).map((i) => i.label).join(" | ") === "The front | Corner 1 (joins the neighbour) | The right side: shared with the neighbour | Corner 2 (the neighbour's far end) | The back", x.ringItems(w).map((i) => i.label).join(" | "));
+  w = x.walkAddPhoto(w, w.stops.length - 1, "back");
+  assert(x.walkAddPhoto(w, 2, "nope") === w, "nothing goes on a shared wall");
+  const back = x.walkRemoveLastCorner(w);
+  assert(back.walk.stops.length === 1 && back.dropped.join() === "back", JSON.stringify(back));
+  // Three corners and back to the front: said, and Finish still there.
+  let three = x.withRingStart(x.newWalk());
+  for (const t of ["outside", "outside", "outside"]) three = x.walkAddCorner(three, t);
+  assert(/Fewer than four corners so far/.test(x.walkMissing({ walk: three, photos: [], buildings: [{ id: "main", outline: [], corners: [], tapes: [{ id: "t", kind: "side", from: 0, feet: 9 }] }] })), "said");
+  assert(x.walkFinish(three).closed && x.walkFinish(three).stops.length === 7, "finished anyway, as it stands");
+  // A photo taken out leaves a measurement on it its size, not its place.
+  let m = x.walkAddPhoto(x.withRingStart(x.newWalk()), 0, "f");
+  m = x.walkAddMeasure(m, 0, { id: "walk-a", what: "garage", feet: 9, photo: "f", near: [1, 2], tapePhoto: "tape" });
+  const out = x.walkRemovePhoto(m, "f");
+  assert(out.stops[0].photos.length === 0 && JSON.stringify(out.stops[0].measures[0]) === '{"id":"walk-a","what":"garage","feet":9,"tapePhoto":"tape"}', JSON.stringify(out.stops[0]));
 });
 
 console.log(`\n${passed.length} passed, ${failures.length} failed`);

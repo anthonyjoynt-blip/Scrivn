@@ -60,6 +60,12 @@ export interface WalkMeasure {
   photo?: string;
   /** One tap on the photo, roughly on what was measured (its pixels): where to look, never its ends. */
   near?: [number, number];
+  /**
+   * A close-up of the tape on it (2026-10-22): a claim photo, kept with the claim's Exterior photos and sent to the Scrivn
+   * team, never one of the route's (it shows the tape, not the house). The owner's tape close-ups were the most useful
+   * thing he sent: the number and the tape's exact ends read off them.
+   */
+  tapePhoto?: string;
 }
 
 /** One stop of the walk, as done. */
@@ -105,6 +111,11 @@ export interface WalkTag {
    * neighbour's far corner ("after").
    */
   wall?: "before" | "after";
+  /**
+   * More of the same wall or corner (2026-10-22, the flexible walk): a photo after the first of it - part of a long wall,
+   * above or below a deck. It names no corners by its role: they are numbered as any photo's are.
+   */
+  part?: true;
 }
 
 /** Where the walk is: what the card asks for next. */
@@ -392,6 +403,162 @@ export function lapProblem(walk: RouteWalk): string | null {
     : `That's ${counted}: a lap round a house has four more outside corners than inside ones. A corner said outside may be tucked in.`;
 }
 
+// ── The ring: the walk in any order (2026-10-22) ────────────────────────────────────────────────────
+
+/*
+  The walk as a ring of walls and corners the tester fills in any order. The owner, after walking his house with the
+  step-by-step walk: "the guided elevation/next corner wont be super applicable as the elevations around the back deck are
+  tough and i might need to get pictures above and/or below the deck ... when i was taking a picture of the AC side i had to
+  go around that fence to get it, then back around to get the measurement, then back around to get the corner photo".
+
+  The ring is the same stops as the walk's: the front; then each corner as said (outside, inside, joining the neighbour's)
+  and the wall after it, round the house with it on the left. Saying the next corner adds it and the wall after it; photos
+  go on any wall or corner, as many as wanted, whenever; measurements on any wall, any time (`walkAddMeasure`). The shape
+  comes from the corners, as the lap's always did (`lapOutline`). Nothing waits on anything: Finish is there all along, with
+  what is still missing said plainly (`walkMissing`).
+*/
+
+/** The ring with its front: a walk not started yet has none. */
+export function withRingStart(walk: RouteWalk): RouteWalk {
+  return walk.stops.length > 0 ? walk : withStops(walk, [{ kind: "front", photos: [] }]);
+}
+
+/**
+ * The next corner round, and the wall after it. Joining the neighbour's, the shared wall and the neighbour's far corner go
+ * in with it (as `walkTurn` puts them in), then the open wall on from there.
+ */
+export function walkAddCorner(walk: RouteWalk, turn: WalkTurn): RouteWalk {
+  if (walk.closed) return walk;
+  const stops = [...withRingStart(walk).stops];
+  if (stops[stops.length - 1]?.kind === "corner") stops.push({ kind: "side", photos: [] });
+  stops.push({ kind: "corner", photos: [], ...(turn === "outside" ? {} : { turn }) });
+  if (turn === "joined") stops.push({ kind: "side", photos: [], shared: true, auto: true }, { kind: "corner", turn: "joined", photos: [], auto: true });
+  stops.push({ kind: "side", photos: [] });
+  return withStops(walk, stops);
+}
+
+/** The last corner said taken back, with the wall after it (a joined one's shared wall and far corner too): their photos listed. */
+export function walkRemoveLastCorner(walk: RouteWalk): { walk: RouteWalk; dropped: string[] } {
+  if (walk.closed) return { walk, dropped: [] };
+  const stops = [...walk.stops];
+  const dropped: string[] = [];
+  const pop = () => dropped.push(...((stops.pop() as WalkStop).photos ?? []));
+  if (stops[stops.length - 1]?.kind === "side" && stops.length > 1) pop();
+  if (stops[stops.length - 1]?.kind !== "corner") return { walk, dropped: [] };
+  while (stops[stops.length - 1]?.auto) pop();
+  pop();
+  return { walk: withStops(walk, stops), dropped };
+}
+
+/** A photo put on a wall or corner of the ring (`stop`), after any it has. */
+export function walkAddPhoto(walk: RouteWalk, stop: number, photo: string): RouteWalk {
+  const s = walk.stops[stop];
+  if (!s || s.shared) return walk;
+  return withStops(walk, walk.stops.map((x, i) => (i === stop ? { ...x, photos: [...x.photos, photo] } : x)));
+}
+
+/** A photo taken off the ring, wherever it is: a measurement it was on keeps its size and loses its place on it. */
+export function walkRemovePhoto(walk: RouteWalk, photo: string): RouteWalk {
+  return withStops(
+    walk,
+    walk.stops.map((s) => {
+      const measures = s.measures?.map((m) => {
+        if (m.photo !== photo) return m;
+        const { photo: _p, near: _n, ...rest } = m;
+        return rest;
+      });
+      return { ...s, photos: s.photos.filter((p) => p !== photo), ...(measures ? { measures } : {}) };
+    }),
+  );
+}
+
+/**
+ * Finished: the ring closed round to the front when its corners close (the wall being walked to is the front's left part,
+ * so whatever is on it goes on the front), or as it stands when they don't - then no shape is drawn from it.
+ */
+export function walkFinish(walk: RouteWalk): RouteWalk {
+  const stops = [...walk.stops];
+  const last = stops[stops.length - 1];
+  if (lapCloses(walk) && last?.kind === "side" && !last.shared && stops.length > 1) {
+    stops.pop();
+    const front = stops[0] as WalkStop;
+    stops[0] = { ...front, photos: [...front.photos, ...last.photos], ...(last.measures?.length ? { measures: [...(front.measures ?? []), ...last.measures] } : {}) };
+  }
+  return { ...withStops(walk, stops), closed: true };
+}
+
+/** Back to the ring from the end: open again, the wall after the last corner there to walk to. */
+export function walkReopen(walk: RouteWalk): RouteWalk {
+  const { closed: _c, ...rest } = walk;
+  const stops = [...rest.stops];
+  if (stops[stops.length - 1]?.kind === "corner") stops.push({ kind: "side", photos: [] });
+  return { ...rest, stops };
+}
+
+/** One wall or corner of the ring, for the screen. */
+export interface RingItem {
+  stop: number;
+  kind: "wall" | "corner";
+  /** Its number: corner k, or the wall after corner k (the front 0). */
+  k: number;
+  label: string;
+  turn?: WalkTurn;
+  /** The neighbour's side of a shared wall: nothing to take. */
+  shared?: true;
+  /** A corner the walk put in (the neighbour's far one). */
+  auto?: true;
+  photos: number;
+  measures: number;
+}
+
+/**
+ * The ring's walls and corners in order, named: "The front", "Corner 1", "The right side", "Corner 4 (inside)". The wall
+ * after the last corner, once the corners close, is the front's own left part: not listed apart.
+ */
+export function ringItems(walk: RouteWalk): RingItem[] {
+  const ring = withRingStart(walk);
+  const nums = stopNumbers(ring);
+  const closes = lapCloses(ring);
+  const facings: string[] = [];
+  const items: RingItem[] = [];
+  ring.stops.forEach((s, i) => {
+    const k = nums[i] as number;
+    const base = { stop: i, k, photos: s.photos.length, measures: (s.measures ?? []).length };
+    if (s.kind === "corner") {
+      const t = turnOf(s);
+      const how = s.auto ? " (the neighbour's far end)" : t === "inside" ? " (inside)" : t === "joined" ? " (joins the neighbour)" : "";
+      items.push({ ...base, kind: "corner", label: `Corner ${k}${how}`, turn: t, ...(s.auto ? { auto: true as const } : {}) });
+      return;
+    }
+    if (i === ring.stops.length - 1 && i > 0 && closes && !s.shared) return;
+    // Every corner said is passed, photo or not.
+    const facing = s.kind === "front" ? "front" : facingWords(ring.stops.slice(0, i).reduce((h, x) => (x.kind === "corner" ? h + quarter(turnOf(x)) : h), 0));
+    const again = facings.includes(facing);
+    facings.push(facing);
+    const label = `The ${facing}${again ? `, another part (wall ${k})` : ""}${s.shared ? ": shared with the neighbour" : ""}`;
+    items.push({ ...base, kind: "wall", label, ...(s.shared ? { shared: true as const } : {}) });
+  });
+  return items;
+}
+
+/**
+ * What is still missing, in plain words for beside Finish, or null when nothing is: the walls and the outside corners with
+ * no photo (an inside corner needs none: the walls either side show it), no measurement, corners that don't close round.
+ */
+export function walkMissing(route: PhotoRouteState): string | null {
+  const walk = withRingStart(route.walk ?? newWalk());
+  const items = ringItems(walk);
+  const walls = items.filter((i) => i.kind === "wall" && !i.shared && i.photos === 0).map((i) => i.label.replace(/^The /, "the "));
+  const corners = items.filter((i) => i.kind === "corner" && i.turn !== "inside" && i.photos === 0).map((i) => `corner ${i.k}`);
+  const out: string[] = [];
+  const list = (xs: string[]) => (xs.length <= 1 ? (xs[0] ?? "") : `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}`);
+  if (walls.length || corners.length) out.push(`No photo yet of ${list([...walls, ...corners])}.`);
+  if (!walkHasMeasure(route)) out.push("No measurement yet: one sets the scale for everything, one a wall is better.");
+  const t = lapTurns(walk);
+  if (!lapCloses(walk)) out.push(t.length < 4 ? "Fewer than four corners so far: say each corner round to the front." : "The corners don't close round to the front yet: a corner missed, or one said inside that sticks out.");
+  return out.length ? out.join(" ") : null;
+}
+
 // ── The shape from the lap ───────────────────────────────────────────────────────────────────────
 
 /** Plan direction of a side by its quarter turns from the front's (east). */
@@ -555,11 +722,12 @@ export function walkPhotos(walk: RouteWalk): { photo: string; tag: WalkTag; stop
   const out: { photo: string; tag: WalkTag; stop: number }[] = [];
   walk.stops.forEach((s, i) => {
     const k = nums[i] as number;
-    if (s.kind === "front") for (const p of s.photos) out.push({ photo: p, tag: { role: "front", k: 0 }, stop: i });
-    else if (s.kind === "side") for (const p of s.photos) out.push({ photo: p, tag: { role: "side", k }, stop: i });
+    // A wall's or an inside corner's photos after the first are more of it (`WalkTag.part`); a corner's 45s are each the corner.
+    const part = (j: number) => (j > 0 ? { part: true as const } : {});
+    if (s.kind === "front") s.photos.forEach((p, j) => out.push({ photo: p, tag: { role: "front", k: 0, ...part(j) }, stop: i }));
+    else if (s.kind === "side") s.photos.forEach((p, j) => out.push({ photo: p, tag: { role: "side", k, ...part(j) }, stop: i }));
     else if (turnOf(s) === "inside") {
-      const w = insideWalls(s);
-      if (w.before) out.push({ photo: w.before, tag: { role: "corner", k, corner: "inside", wall: "before" }, stop: i });
+      if (insideWalls(s).before !== null) s.photos.forEach((p, j) => out.push({ photo: p, tag: { role: "corner", k, corner: "inside", wall: "before", ...part(j) }, stop: i }));
     } else if (turnOf(s) === "joined") {
       for (const p of s.photos) out.push({ photo: p, tag: { role: "corner", k, corner: "joined", wall: s.auto ? "after" : "before" }, stop: i });
     } else for (const p of s.photos) out.push({ photo: p, tag: { role: "corner", k, corner: "outside" }, stop: i });
@@ -576,7 +744,8 @@ export function walkPhotos(walk: RouteWalk): { photo: string; tag: WalkTag; stop
 export function walkShot(tag: WalkTag, walk: RouteWalk, shift = 0): RouteShot | null {
   const t = lapTurns(walk);
   const m = t.length;
-  if (m < 4) return null;
+  // Part of a wall: which of its corners it shows isn't known, so it names none.
+  if (m < 4 || tag.part) return null;
   const at = (k: number) => (((k - 1 + shift) % m) + m) % m;
   if (tag.role === "corner" && tag.corner === "joined") {
     // The open wall, at an angle from this end: the one walked up to it, or the one on from the neighbour's far corner -
@@ -747,6 +916,7 @@ export function walkSummary(route: PhotoRouteState): { photos: number; corners: 
 
 /** What a photo of the walk is, in words: "the front", "corner 2 at 45°", "the back (side 2)", "the wall before inside corner 4". */
 export function walkPhotoWords(tag: WalkTag, walk: RouteWalk): string {
+  if (tag.part) return `more of ${walkPhotoWords({ ...tag, part: undefined }, walk)}`;
   if (tag.role === "front") return "the front";
   if (tag.role === "corner" && tag.corner === "joined") return `the ${facingWords(headingBefore(walk, tag.wall === "after" ? tag.k : tag.k - 1))} at an angle, from where it meets the neighbour's`;
   if (tag.role === "corner") return tag.corner === "inside" ? `the wall ${tag.wall === "after" ? "on from" : "up to"} inside corner ${tag.k}` : `corner ${tag.k} at 45°`;
@@ -771,6 +941,7 @@ export function headingBefore(walk: RouteWalk, k: number): number {
  * An inside corner's wall is asked for the inside corner first - its place in the photo says nothing of which it is.
  */
 export function walkTapWords(tag: WalkTag, attached: boolean): string {
+  if (tag.part) return "Tap each corner of the house you can see on it, where it meets the ground. The first asks which corner it is.";
   if (tag.role === "front") return `Tap each corner of the front you can see, where it meets the ground${attached ? ", and where this home ends" : ""}.`;
   if (tag.role === "side") return "Tap both its corners where they meet the ground.";
   if (tag.corner === "inside") return `Tap inside corner ${tag.k} first, where it meets the ground; then the wall's other corner if it's in.`;

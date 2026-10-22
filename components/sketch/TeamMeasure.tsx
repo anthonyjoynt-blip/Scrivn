@@ -19,6 +19,7 @@ import {
 } from "@/lib/exteriorRequestQueue";
 import { useExteriorPhotos } from "./exteriorPhotoAccess";
 import { useExteriorSubject } from "./exteriorSubject";
+import { newWalk, walkMeasures } from "@/lib/photoRouteWalk";
 import styles from "./TeamMeasure.module.css";
 import { type UnseenSaid, UnseenWallAsk } from "./UnseenWalls";
 
@@ -219,7 +220,9 @@ export function SendToTeam({ exterior, readOnly, apply, primary = false }: { ext
   if (readOnly || !access) return null;
   if (shownFor(building, waiting, known)) return <TeamMeasureStatus exterior={exterior} building={building} readOnly={readOnly} apply={apply} />;
 
-  const photoIds = (exterior.photoRoute?.photos ?? []).map((p) => p.id);
+  // The route's photos, and the walk's close-ups of a tape (2026-10-22): the number and its ends read off them.
+  const tapeIds = walkMeasures(exterior.photoRoute?.walk ?? newWalk()).flatMap(({ m }) => (m.tapePhoto ? [m.tapePhoto] : []));
+  const photoIds = [...new Set([...(exterior.photoRoute?.photos ?? []).map((p) => p.id), ...tapeIds])];
   if (!open) {
     return (
       <button type="button" className={primary ? "btn-primary" : "btn-secondary"} disabled={photoIds.length === 0} title={photoIds.length === 0 ? "Add the photos first" : undefined} onClick={() => setOpen(true)}>

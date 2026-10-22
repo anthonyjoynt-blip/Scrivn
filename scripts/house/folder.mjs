@@ -141,6 +141,8 @@ export function draftInputs(h) {
   // long, the photo it's on, and maybe one rough tap on it ("near") - never its ends, which are ours to place
   // (`tape w1 3 = x,y x,y`). A wall's length the walk laid on its side is a tape of the route already, above.
   const taped = new Set((main?.tapes ?? []).map((t) => t.id));
+  // A close-up of a tape (2026-10-22) shows the tape, not the house: read off, never measured as a photo of the house.
+  const tapeShots = new Set();
   let w = 0;
   for (const s of route?.walk?.stops ?? []) {
     for (const m of s.measures ?? []) {
@@ -148,7 +150,9 @@ export function draftInputs(h) {
       w += 1;
       const n = m.photo ? nOf.get(m.photo) : undefined;
       const near = n && Array.isArray(m.near) ? { photo: n, x: round1(m.near[0]), y: round1(m.near[1]) } : null;
-      const said = `the tester's measurement, typed on the walk: ${m.what === "wall" ? "a wall's length, corner to corner" : `a ${m.what === "garage" ? "garage door" : m.what}`}${n ? ` on photo ${n}` : ", no photo"}${near ? `, tapped roughly at ${near.x},${near.y}` : ""}`;
+      const tapeN = m.tapePhoto ? nOf.get(m.tapePhoto) : undefined;
+      if (tapeN) tapeShots.add(tapeN);
+      const said = `the tester's measurement, typed on the walk: ${m.what === "wall" ? "a wall's length, corner to corner" : `a ${m.what === "garage" ? "garage door" : m.what}`}${n ? ` on photo ${n}` : ", on its wall's photos"}${near ? `, tapped roughly at ${near.x},${near.y}` : ""}${tapeN ? `; the tape close up on photo ${tapeN}` : ""}`;
       if (m.what === "wall") tapes.push({ id: `w${w}`, walk: m.id, said, feet: m.feet, what: "wall", kind: "side", side: null });
       else tapes.push({ id: `w${w}`, walk: m.id, said, feet: m.feet, what: m.what, kind: "line", on: [], ...(near ? { near } : {}) });
     }
@@ -178,7 +182,7 @@ export function draftInputs(h) {
     ...(estimates.length ? { estimates } : {}),
     ...(tapesRead.unread.length ? { unread: tapesRead.unread } : {}),
     checks: [],
-    leaveOut: [],
+    leaveOut: [...tapeShots].sort((a, b) => a - b),
     keepProposed: false,
     dropProposed: [],
   };
