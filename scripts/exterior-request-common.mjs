@@ -122,6 +122,8 @@ export async function listWaiting(db) {
  */
 export function walkWords(tag) {
   if (!tag || typeof tag !== "object") return null;
+  // More of a wall or corner (2026-10-22): part of a long wall, above or below a deck - its corners not named by it.
+  if (tag.part) return `more of ${walkWords({ ...tag, part: undefined })} (part: name its corners)`;
   if (tag.role === "front") return "the front";
   if (tag.role === "side") return `side ${tag.k} straight on (corner ${tag.k} to the next)`;
   if (tag.role === "corner" && tag.corner === "joined") return `${tag.wall === "after" ? "the wall on from" : "the wall walked up to"} corner ${tag.k}, at an angle from where the home meets the neighbour's there`;
@@ -138,7 +140,16 @@ export function typedMeasures(route, fileOf = new Map()) {
   return (route?.walk?.stops ?? []).flatMap((s) =>
     (s.measures ?? [])
       .filter((m) => !taped.has(m.id))
-      .map((m) => ({ building: "main", what: m.what, feet: m.feet, typed: true, ...(m.photo ? { onPhoto: fileOf.get(m.photo) ?? m.photo } : {}), ...(Array.isArray(m.near) ? { near: m.near } : {}) })),
+      .map((m) => ({
+        building: "main",
+        what: m.what,
+        feet: m.feet,
+        typed: true,
+        ...(m.photo ? { onPhoto: fileOf.get(m.photo) ?? m.photo } : {}),
+        ...(Array.isArray(m.near) ? { near: m.near } : {}),
+        // A close-up of the tape on it (2026-10-22): the number and the tape's ends, read off it.
+        ...(m.tapePhoto ? { tapePhoto: fileOf.get(m.tapePhoto) ?? m.tapePhoto } : {}),
+      })),
   );
 }
 

@@ -212,30 +212,25 @@ export default function HelpPage() {
           <div>
             <h3>From photos</h3>
             <p>
-              Scrivn walks you round the house a step at a time, with the phone&rsquo;s own camera held sideways on the 1x
-              lens. Each step says where to stand and what to take; one photo a step, from the camera or the gallery.
+              Scrivn takes you round the house with the phone&rsquo;s own camera held sideways on the 1x
+              lens, in any order: the house&rsquo;s walls and corners in a list that ticks off as photos come in.
             </p>
             <ol className="help-steps">
               <li>
-                <strong>The front</strong>, straight on, both corners in. Nothing to pick first.
+                <strong>Say the corners</strong> round from the front&rsquo;s right-hand end: <strong>+ Outside corner</strong>,{" "}
+                <strong>+ Inside corner</strong> or <strong>+ Joins the neighbour</strong>. The shape comes from them.
               </li>
               <li>
-                <strong>Did you measure anything on it?</strong> Say what (a garage door, a window, a door, a wall) and type
-                its size: <strong>9&prime;</strong> or <strong>16&prime;</strong> is one tap for a garage door, anything
-                else in feet, inches and an eighth. A tap on the photo, roughly on it, if you like: close is fine, it&rsquo;s
-                placed exactly later. Nothing is drawn on the phone. The walk needs one measurement before you finish.
+                <strong>Tap any wall or corner</strong> to put photos on it, any order: every wall straight on, every outside
+                corner at 45&deg; with three corners in, more than one where a wall is long or broken up (above or below a deck
+                is fine).
               </li>
               <li>
-                Round the house from the front&rsquo;s right-hand corner: each <strong>corner</strong> at 45&deg;, stepped
-                back until both whole walls fit with their far corners (say <strong>Inside corner</strong> where the walls
-                meet in a notch: no photo there), then each <strong>side</strong> straight on (upright if it&rsquo;s too
-                tight to step back, or <strong>Can&rsquo;t get back far enough</strong>, then its length if you taped it),
-                with anything you measured on it. An L-shape is just more corners. Where your home meets the
-                neighbour&rsquo;s, say <strong>Joins the neighbour</strong> at that corner, and take the open wall at an
-                angle from that end; the shared wall is skipped.
+                <strong>Add a measurement</strong> any time: which wall, what, its size in feet, inches and an eighth, and a
+                close-up photo of the tape on it if you can. At least one, ideally one a wall. Nothing is drawn on the phone.
               </li>
               <li>
-                <strong>Finished</strong> when you&rsquo;re back at the front. The shape comes from your corners. Then{" "}
+                <strong>Finish</strong> whenever you&rsquo;re done: what&rsquo;s missing is said, never forced. Then{" "}
                 <strong>Send to Scrivn team to measure</strong> (we place each measurement exactly), or{" "}
                 <strong>Measure it here</strong>, easiest on a computer or a tablet: tap the corners on each photo (Scrivn
                 numbers them by what each was taken for), drag each measurement&rsquo;s line on its photo,{" "}

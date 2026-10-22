@@ -364,3 +364,137 @@
   box-shadow: 0 0 0 2px #fff, inset 0 0 0 2px #fff;
   pointer-events: none;
 }
+
+/* The walk as a ring (PhotoWalk.tsx, 2026-10-22): a row a wall or corner, ticked as its photos come in; tap to open it. */
+.ring {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--border, #e7e5e4);
+}
+
+.ring > li {
+  border-bottom: 1px solid var(--border, #e7e5e4);
+}
+
+.ringOpen {
+  background: #f8fafc;
+}
+
+.ringRow {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  min-height: 48px;
+  padding: 0.35rem 0.25rem;
+  border: 0;
+  background: none;
+  font: inherit;
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
+}
+
+.ringRow:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+
+.ringDone,
+.ringTodo {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 50%;
+  font-size: 0.85rem;
+}
+
+.ringDone {
+  background: #0891b2;
+  color: #fff;
+}
+
+.ringTodo {
+  border: 2px dashed #94a3b8;
+}
+
+.ringLabel {
+  flex: 1 1 auto;
+  font-weight: 500;
+}
+
+.ringDetail {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0 0.25rem 0.75rem 2.1rem;
+}
+
+.ringDetail p {
+  margin: 0;
+}
+
+.ringDetail > :global(.link-button) {
+  align-self: flex-start;
+  min-height: 40px;
+}
+
+.ringThumb {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+  flex: 0 0 auto;
+}
+
+.ringThumb img {
+  width: 96px;
+  height: 72px;
+  object-fit: cover;
+  border-radius: 6px;
+}
+
+.ringAdd {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.ringAdd p {
+  margin: 0;
+}
+
+.ringAdd > :global(.link-button) {
+  align-self: flex-start;
+  min-height: 40px;
+}
+
+.walkMeasurePanel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.6rem 0.75rem;
+  border: 2px solid #0891b2;
+  border-radius: 8px;
+}
+
+.walkMeasurePanel p {
+  margin: 0;
+}
+
+.walkTape {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.75rem;
+}
+
+.walkTape :global(.btn-secondary) {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+}

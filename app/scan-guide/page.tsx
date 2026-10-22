@@ -749,7 +749,7 @@ export default async function ScanGuidePage() {
             </p>
             <div className="sg-split">
               <div>
-                <h3 className="sg-h3">The walk, step by step</h3>
+                <h3 className="sg-h3">Round the house, in any order</h3>
                 <ol className="sg-steps">
                   <li>
                     <strong>Outside of the house, then From photos.</strong> On the claim, <B>Outside of the house</B> opens the sketch
@@ -757,42 +757,27 @@ export default async function ScanGuidePage() {
                     outside is measured.
                   </li>
                   <li>
-                    <strong>The front.</strong> Nothing to pick first. Stand back across from the front, straight on, so all of it is
-                    in: both front corners, the ground and the roof edge. <B>Take the front</B>.
+                    <strong>Say the corners.</strong> The list starts with the front. Under it, <B>+ Outside corner</B>,{" "}
+                    <B>+ Inside corner</B> or <B>+ Joins the neighbour</B> adds the next corner round and the wall after it: corner 1
+                    is the front&apos;s right-hand end, then on round with the house on your left. Say them as you come to them, or all
+                    at once. <B>Take back</B> undoes the last. The house&apos;s shape comes from them: nothing to draw.
                   </li>
                   <li>
-                    <strong>Did you measure anything on it?</strong> Tap what: <B>Garage door</B>, <B>Window</B>, <B>Door</B> or{" "}
-                    <B>Wall</B>. Then its size: a garage door is <B>9′ door</B> or <B>16′ door</B>, anything else typed in feet,
-                    inches (past 12 is fine: a window taped 70¾") and an eighth. A window or a door: across its frame, edge to edge
-                    (the frame itself, not the trim or the stucco round it). If you like, tap the photo roughly on it: close is fine,
-                    it&apos;s placed exactly later. <B>Add it</B>. Nothing is drawn on the phone. <B>No, nothing measured here</B> is
-                    fine, but the walk needs one measurement before you finish.
+                    <strong>Photos, any order.</strong> Tap any wall or corner in the list to put photos on it: every wall straight
+                    on, every outside corner at 45° stepped back until three corners are in, more than one where a wall is long or
+                    broken up (above or below a deck is fine: <B>Take more of this wall</B>). A tight side yard: the phone upright, on
+                    the 1x lens. Each ticks off as its photos come in; an inside corner needs none.
                   </li>
                   <li>
-                    <strong>Corner 1.</strong> Walk to the front&apos;s right-hand corner. Say what kind it is: <B>Outside corner</B>{" "}
-                    (it sticks out towards you, the usual), <B>Inside corner</B> (tucked in, two walls meeting in a notch) or{" "}
-                    <B>Joins the neighbour</B> (a semi or a townhouse: see below). Step
-                    back until both whole walls fit, with the far corner of each in the photo too: three corners in all, this one
-                    near the middle, about 45° to both walls. <B>Take corner 1</B>, or <B>Skip this corner</B>.
+                    <strong>Add a measurement</strong>, any time: which wall, what (<B>Garage door</B> with <B>9′</B>/<B>16′</B>,{" "}
+                    <B>Window</B>, <B>Door</B>, <B>Wall</B>), its size in feet, inches and an eighth, and{" "}
+                    <B>Photo of the tape on it</B> if you can: close up, the number and both ends of the tape. At least one for scale,
+                    ideally one a wall. Nothing is drawn on the phone.
                   </li>
                   <li>
-                    <strong>The side.</strong> Stand back from it, straight on, the whole wall in: both its corners, the ground and
-                    the roof edge. A side yard too tight to get back from? Turn the phone upright, still on the 1x lens, to get the
-                    wall in top to bottom; only if it still won&apos;t fit, <B>Can&apos;t get back far enough</B>. Then{" "}
-                    <B>Did you measure anything</B> on it, as at the front: the whole wall, corner to corner, is best of all. A side
-                    too tight for a photo asks just its length, if you taped it.
-                  </li>
-                  <li>
-                    <strong>Keep going round</strong>, the same way: corner, side, corner, side. An L-shape or a bump-out is just
-                    more corners. At an inside corner there&apos;s no 45° photo: the photos of the walls either side show it. (If
-                    the wall before it was too tight for a photo, Scrivn asks for one of it now, from wherever you can.)
-                  </li>
-                  <li>
-                    <strong>Finished.</strong> Back at the front (the wall from where you are runs back to corner 1), tap{" "}
-                    <B>Yes: finished</B>, or <B>Finished: I&apos;m back at the front</B> on any side after three corners. With nothing
-                    measured yet it asks for one first. Scrivn draws the house&apos;s shape from your corners, so there&apos;s nothing
-                    to draw. If the corners don&apos;t add up (a house has four more outside corners than inside ones), it says so:{" "}
-                    <B>Keep walking</B> or <B>Finish anyway</B>.
+                    <strong>Finish</strong> whenever you&apos;re done. What&apos;s still missing is said above it (walls or corners
+                    with no photo, no measurement, corners that don&apos;t close round to the front), never forced. <B>Back to the
+                    walk</B> opens it again.
                   </li>
                   <li>
                     <strong>Send to Scrivn team to measure</strong>, at the end. That&apos;s all a tester needs to do: we place each
