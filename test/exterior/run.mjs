@@ -84,7 +84,8 @@ async function load() {
       `export { holdOutTapes, lineFeet, selfCheck, worstPct } from "${lib("photoRouteCheck.ts")}";`,
       `export { fitMapOutline, frontBearing, mapWords, offRing } from "${lib("photoRouteMap.ts")}";`,
       `export { toLevel } from "${lib("photoRouteLens.ts")}";`,
-      `export { exteriorFromRoute, measuredFrom, notMeasuredAsks } from "${lib("photoRouteExterior.ts")}";`,
+      `export { closeUpsOnSides, exteriorFromRoute, measuredFrom, notMeasuredAsks, ON_FACE_SHARE, sideView } from "${lib("photoRouteExterior.ts")}";`,
+      `export { closeUpPairs, closeUpsToLay, matchesForMeasure, routeMatch, runMatchJob, tapsMatch, withCloseUpTaps, withRouteMatch } from "${lib("photoRouteCloseUps.ts")}";`,
       `export { routeSanity } from "${lib("photoRouteSanity.ts")}";`,
       `export { focalOverWidth } from "${lib("photoRouteExif.ts")}";`,
       `export { longSide } from "${lib("photoRouteLens.ts")}";`,
@@ -7509,6 +7510,144 @@ test("with a map that holds the depth, nothing is asked of it; Finish and Use it
   const sol = x.solveRoute(withMap(input, { corners: onMap(BOX, 40) }), "main", data);
   assert(sol.sides.every((q) => !q.notMeasured), JSON.stringify(sol.sides.map((q) => q.notMeasured ?? null)));
   assert(x.notMeasuredAsks(landOf(input, data, sol).ext).length === 0, "nothing to ask");
+});
+
+console.log("\nclose-ups laid on their walls (10-23)");
+
+/**
+ * The box measured from its corners, and a close-up of the front taken from nearer (made-up: no corners in it, so it
+ * sizes nothing and isn't placed): laid on the front's photo by a plain zoom - its middle on the front wall 12' along and
+ * 5' up, 2.5x nearer. What a match in code or from taps would give; the matching itself is test:exterior:photos'.
+ */
+function closeUpBox() {
+  const { input, data } = synRoute(BOX, BOX_DRAWN, "detached", [...boxShots, ["close", [12, -18], { x: 12, y: 0 }, []]], [{ id: "front", kind: "side", from: 0, feet: 40 }]);
+  const sol = x.solveRoute(input, "main", data);
+  const m = x.measuredFrom(sol, data, "2026-10-23T12:00:00.000Z");
+  const front = x.sideView(m, m.cameras.find((c) => c.photo === "front"), 0, 900);
+  const P = (a, z) => x.projectToPhoto(front.sp, a * 0.3048, z * 0.3048);
+  const mid = P(12, 5);
+  const h = [0.4, 0, mid.x - 0.4 * 400, 0, 0.4, mid.y - 0.4 * 300, 0, 0, 1];
+  const toFull = (u, v) => [0.4 * u + h[2], 0.4 * v + h[5]];
+  const grid = [100, 300, 500, 700].flatMap((u) => [100, 300, 500].map((v) => toFull(u, v)));
+  const match = (over = {}) => ({ v: 1, photo: "close", full: "front", h, by: "code", points: 12, inliers: 12, rmsPx: 0.5, zoom: 2.5, onFull: grid, words: "Laid on its wall: 12 of 12 points agree within 0.5 px, taken 2.5x nearer.", k: m.k, ...over });
+  const state = { format: "scrivn-photo-route/1", ...input, measured: null };
+  const walk = { stops: [{ kind: "front", photos: ["front", "close"], measure: "skipped" }], closed: true };
+  return { input, data, m, front, P, h, toFull, grid, match, state, walk };
+}
+const frontOf = (ext) => ext.sides.find((s) => s.id === ext.photoRoute.measured.sideIds[0]);
+
+test("a close-up laid on its wall's photo is one more photo of that side, at the wall's scale; it sizes nothing", () => {
+  const b = closeUpBox();
+  const without = x.exteriorFromRoute(undefined, b.state, b.m);
+  const laid = x.exteriorFromRoute(undefined, b.state, { ...b.m, matches: [b.match()] });
+  const sp = frontOf(laid).photos.find((p) => p.claimPhotoId === "close");
+  assert(sp && !frontOf(without).photos.some((p) => p.claimPhotoId === "close"), JSON.stringify(frontOf(laid).photos.map((p) => p.claimPhotoId)));
+  // Its middle is on the wall where it was laid: 12' along the front, 5' up.
+  const at = x.photoToElevation(sp, 400, 300);
+  near(at.alongM / 0.3048, 12, "the close-up's middle, along the front", 1e-4);
+  near(at.upM / 0.3048, 5, "the close-up's middle, up the front", 1e-4);
+  // Nothing else moves: every side's length, id and the other sides' photos as without it.
+  // Key order aside: a side made again from the one before keeps that one's order.
+  const canon = (v) => JSON.stringify(v, (_, o) => (o && typeof o === "object" && !Array.isArray(o) ? Object.fromEntries(Object.entries(o).sort(([p], [q]) => (p < q ? -1 : 1))) : o));
+  const plain = (ext) => canon(ext.sides.map((s) => ({ ...s, photos: (s.photos ?? []).filter((p) => p.claimPhotoId !== "close") })));
+  // As a match found after the measure lands (withRouteMatch): the exterior made again from the same measure, its ids kept.
+  const again = x.exteriorFromRoute(without, without.photoRoute, { ...b.m, matches: [b.match()] });
+  assert(plain(again) === plain(without) && frontOf(again).photos.some((p) => p.claimPhotoId === "close"), "the sides are as without the close-up");
+  assert(laid.source.notes.includes("1 close-up was laid exactly on its wall's photo, to read at the wall's scale; it sized nothing."), laid.source.notes.join(" | "));
+  // A measure from before close-ups (no matches), or with none laid, is the exterior it always was.
+  const all = (ext) => canon({ sides: ext.sides, notes: ext.source.notes, roof: ext.roof });
+  assert(all(x.exteriorFromRoute(without, without.photoRoute, { ...b.m, matches: [] })) === all(without), "no matches: as before");
+  assert(all(x.exteriorFromRoute(without, without.photoRoute, { ...b.m, matches: [b.match({ v: 2 })] })) === all(without), "a match of another form is not used");
+  // A photo that sized the house (its own corners), laid as a close-up too, stays where the measure put it: never twice.
+  const self = x.exteriorFromRoute(without, without.photoRoute, { ...b.m, matches: [b.match({ photo: "front", h: [1, 0, 0, 0, 1, 0, 0, 0, 1] })] });
+  const fronts = frontOf(self).photos.filter((p) => p.claimPhotoId === "front");
+  assert(fronts.length === 1 && canon(fronts[0]) === canon(frontOf(without).photos.find((p) => p.claimPhotoId === "front")), "its own placement, once");
+});
+
+test("a close-up not laid says why: not found, its wall's photo not placed, or matched something in front of the wall", () => {
+  const b = closeUpBox();
+  const why = (match) => x.closeUpsOnSides(b.state, { ...b.m, matches: [match] });
+  const unfound = why(b.match({ h: null, onFull: [], words: "No place for it holds (no points agree): tap 4 points on both." }));
+  assert(unfound.laid.length === 0 && unfound.not[0]?.kind === "unfound", JSON.stringify(unfound.not));
+  const unplaced = why(b.match({ photo: "back-left", full: "close" }));
+  assert(unplaced.laid.length === 0 && unplaced.not[0]?.kind === "unplaced" && /wasn't placed by the measure/.test(unplaced.not[0].why), JSON.stringify(unplaced.not));
+  // Its points well over the roof: on no wall's face.
+  const sky = [8, 10, 12, 14].map((a) => b.P(a, 60)).map((p) => [p.x, p.y]);
+  const high = why(b.match({ onFull: sky }));
+  assert(high.laid.length === 0 && high.not[0]?.kind === "offFace", JSON.stringify(high.not));
+  // Most of them off the face (a deck's rail in front of it, its points cast onto the yard): under ON_FACE_SHARE on it.
+  const mostlyOff = why(b.match({ onFull: [...sky, ...sky, ...b.grid.slice(0, 2)] }));
+  assert(x.ON_FACE_SHARE === 0.3 && mostlyOff.laid.length === 0 && /in front of the wall/.test(mostlyOff.not[0]?.why ?? ""), JSON.stringify(mostlyOff.not));
+  // Laid on the wall the walk says its full photo was taken of, its points on it; said wrong, where its points are.
+  const shot = (index) => ({ ...b.state, photos: b.state.photos.map((p) => (p.id === "front" ? { ...p, shot: { kind: "wall", index } } : p)) });
+  assert(x.closeUpsOnSides(shot(0), { ...b.m, matches: [b.match()] }).laid[0]?.side === 0, "the front, as the walk says");
+  assert(x.closeUpsOnSides(shot(2), { ...b.m, matches: [b.match()] }).laid[0]?.side === 0, "the back said, which the front's photo doesn't see: on the front, where its points are");
+});
+
+test("a measurement on a laid close-up more than 5% off what the wall makes it is worth a look; within 5% it isn't", () => {
+  const b = closeUpBox();
+  const ends = [
+    [100, 300],
+    [700, 300],
+  ];
+  const sp = frontOf(x.exteriorFromRoute(undefined, b.state, { ...b.m, matches: [b.match()] })).photos.find((p) => p.claimPhotoId === "close");
+  const [p, q] = ends.map(([u, v]) => x.photoToElevation(sp, u, v));
+  const onWall = Math.hypot(q.alongM - p.alongM, q.upM - p.upM) / 0.3048;
+  const flags = (feet) => {
+    const state = { ...b.state, buildings: b.state.buildings.map((bb) => ({ ...bb, tapes: [...bb.tapes, { id: "w1", kind: "line", photo: "close", a: ends[0], b: ends[1], feet, what: "window" }] })) };
+    return x.routeSanity(x.exteriorFromRoute(undefined, state, { ...b.m, matches: [b.match()] })).filter((f) => f.kind === "closeup");
+  };
+  const off = flags(onWall * 1.1);
+  assert(off.length === 1 && off[0].photo === "close" && off[0].side === 0 && /shorter \(more than 5%\)/.test(off[0].words) && /Check its ends on photo 6/.test(off[0].words), JSON.stringify(off));
+  assert(flags(onWall * 1.02).length === 0, "2% off: agrees");
+  // Not laid, nothing to check it against: no flag.
+  const state = { ...b.state, buildings: b.state.buildings.map((bb) => ({ ...bb, tapes: [...bb.tapes, { id: "w1", kind: "line", photo: "close", a: ends[0], b: ends[1], feet: onWall * 1.5, what: "window" }] })) };
+  assert(x.routeSanity(x.exteriorFromRoute(undefined, state, b.m)).every((f) => f.kind !== "closeup"), "no match, no check");
+});
+
+test("through a measure: taps lay a close-up at once, a match from before is kept at the same lens, the rest are laid in the worker", () => {
+  const b = closeUpBox();
+  const route = { ...b.state, walk: b.walk };
+  assert(JSON.stringify(x.closeUpPairs(route)) === JSON.stringify([{ photo: "close", full: "front" }]), JSON.stringify(x.closeUpPairs(route)));
+  assert(x.matchesForMeasure(route, undefined, b.m).todo.length === 1, "first time: to lay");
+  const kept = x.matchesForMeasure(route, [b.match()], b.m);
+  assert(kept.todo.length === 0 && kept.matches[0]?.h === b.match().h, "found before at this lens: kept");
+  assert(x.matchesForMeasure(route, [b.match({ k: b.m.k + 0.01 })], b.m).todo.length === 1, "found at another radial term: laid again");
+  assert(x.matchesForMeasure(route, [b.match({ h: null })], b.m).todo.length === 0, "not found before, at this lens: not tried again");
+  // Four points tapped on both: laid from them, no worker.
+  const points = [[120, 80], [690, 110], [700, 520], [90, 540]].map(([u, v]) => [u, v, ...b.toFull(u, v)]);
+  const tapped = { ...route, photos: route.photos.map((p) => (p.id === "close" ? { ...p, taps: { full: "front", points } } : p)) };
+  const byTaps = x.matchesForMeasure(tapped, [b.match({ h: null })], b.m);
+  assert(byTaps.todo.length === 0 && byTaps.matches[0]?.by === "taps" && byTaps.matches[0].h, JSON.stringify(byTaps.matches[0]));
+  const hh = byTaps.matches[0].h;
+  const w = hh[6] * 400 + hh[7] * 300 + hh[8];
+  near((hh[0] * 400 + hh[1] * 300 + hh[2]) / w, b.toFull(400, 300)[0], "the taps' plane, across", 0.01);
+  near((hh[3] * 400 + hh[4] * 300 + hh[5]) / w, b.toFull(400, 300)[1], "the taps' plane, up", 0.01);
+  assert(x.tapsMatch(tapped, b.m, { photo: "close", full: "front" }, points.slice(0, 3)).h === null, "three points: none");
+});
+
+test("a match found after the measure lands on the exterior only while that measure stands; taps laid and taken away", () => {
+  const b = closeUpBox();
+  const route = { ...b.state, walk: b.walk };
+  const ext = x.exteriorFromRoute(undefined, route, b.m);
+  assert(x.withRouteMatch(ext, "2026-10-22T00:00:00.000Z", b.match()) === ext, "an older measure's match: unchanged");
+  const after = x.withRouteMatch(ext, b.m.at, b.match());
+  assert(frontOf(after).photos.some((p) => p.claimPhotoId === "close") && after.sides.map((s) => s.id).join() === ext.sides.map((s) => s.id).join(), "laid, each side keeping its id");
+  assert(x.closeUpsToLay(after.photoRoute, after.photoRoute.measured).length === 0 && x.closeUpsToLay(ext.photoRoute, ext.photoRoute.measured).length === 1, "what's left to lay");
+  const points = [[120, 80], [690, 110], [700, 520], [90, 540]].map(([u, v]) => [u, v, ...b.toFull(u, v)]);
+  const unfound = x.withRouteMatch(ext, b.m.at, b.match({ h: null, onFull: [] }));
+  const tapped = x.withCloseUpTaps(unfound, { photo: "close", full: "front" }, points);
+  assert(tapped.photoRoute.photos.find((p) => p.id === "close").taps.points.length === 4 && x.closeUpsOnSides(tapped.photoRoute, tapped.photoRoute.measured).laid[0]?.by === "taps", "laid from the taps");
+  const untapped = x.withCloseUpTaps(tapped, { photo: "close", full: "front" }, null);
+  assert(!untapped.photoRoute.photos.find((p) => p.id === "close").taps && !frontOf(untapped).photos.some((p) => p.claimPhotoId === "close") && x.closeUpsToLay(untapped.photoRoute, untapped.photoRoute.measured).length === 1, "taps taken away: to lay again");
+});
+
+test("the worker's job: each pair started and its result sent as found, a photo it can't level said so", () => {
+  const b = closeUpBox();
+  const gray = (id) => b.data.find((d) => d.id === id).gray;
+  const said = [];
+  x.runMatchJob({ photos: { close: { gray: gray("close"), camera: null, level: { focalOverWidth: 0.664, k: 0 } }, front: { gray: gray("front"), camera: null, level: { focalOverWidth: 0.664, k: 0 } } }, pairs: [{ photo: "close", full: "front" }], k: 0 }, (msg) => said.push(msg));
+  assert(said.map((s) => s.kind).join() === "start,result,done" && said[1].match.h === null && said[1].match.v === 1 && /could not be levelled/.test(said[1].match.words), JSON.stringify(said));
 });
 
 console.log(`\n${passed.length} passed, ${failures.length} failed`);

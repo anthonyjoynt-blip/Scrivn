@@ -14,17 +14,22 @@
  *   * an outline that won't close square: a side solved to nothing, or the wrong way round from the shape drawn;
  *   * the depth only as drawn: no tape and too few photos tying the back of the house to its front;
  *   * a side the measure puts further from what was estimated on site than the estimate's ± (2026-10-21, `RouteEstimate`
- *     use "check"): one of the two is wrong, and a tape settles which.
+ *     use "check"): one of the two is wrong, and a tape settles which;
+ *   * a measurement whose ends are on a close-up laid on its wall (2026-10-23, `closeUpsOnSides`) further than 5% from what
+ *     the wall as measured makes it: its ends are off, or the wall is sized wrong by about as much.
  *
  * From the exterior alone (the route's measure kept on it), so the app and the test-house runner say the same.
  */
 
 import { type Exterior, type ExteriorOpeningKind, type ExteriorSide, OPENING_LABEL } from "./exterior";
 import { castRayToSides, estimateDisagreement, inNeighbour, PHOTO_ROUTE_FORMAT } from "./photoRoute";
+import { closeUpsOnSides } from "./photoRouteExterior";
+import { checkOnWall, DETAIL_CHECK_PCT } from "./photoRouteMatch";
+import { feetInchesEighths, measureWords } from "./photoRouteWalk";
 import type { Pt } from "./roof";
 import { formatFeetInches } from "./sketch";
 
-export type SanityKind = "eaves" | "opening" | "camera" | "outline" | "depth" | "estimate";
+export type SanityKind = "eaves" | "opening" | "camera" | "outline" | "depth" | "estimate" | "closeup";
 
 export interface SanityFlag {
   key: string;
@@ -215,6 +220,27 @@ export function routeSanity(exterior: Exterior): SanityFlag[] {
   for (const s of m.sides) {
     if (s.taped || shared.has(s.from) || !s.estimateCheck?.disagrees) continue;
     flags.push({ key: `estimate:${s.from}`, kind: "estimate", side: s.from, words: `${cap(wallWords(s.from))} was ${estimateDisagreement(s.lengthFeet, s.estimateCheck)}` });
+  }
+
+  // A measurement on a close-up laid on its wall: as long on the wall as measured, within 5%. It sized nothing, so it checks
+  // the wall's scale - or its ends are off.
+  const lines = building.tapes.filter((t): t is Extract<(typeof building.tapes)[number], { kind: "line" }> => t.kind === "line");
+  if (lines.length && (m.matches ?? []).length) {
+    const { laid } = closeUpsOnSides(route, m);
+    for (const t of lines) {
+      const c = laid.find((l) => l.photo === t.photo);
+      if (!c || shared.has(c.side)) continue;
+      const chk = checkOnWall(c.sp, t.a, t.b, t.feet);
+      if (!chk || chk.agrees) continue;
+      const on = photoNo(t.photo);
+      flags.push({
+        key: `closeup:${t.id}`,
+        kind: "closeup",
+        photo: t.photo,
+        side: c.side,
+        words: `${measureWords(t)} on ${on}, a close-up laid on ${wallWords(c.side)}: the wall as measured makes it ${feetInchesEighths(chk.feet)}, ${Math.round(Math.abs(chk.offPct))}% ${chk.offPct > 0 ? "longer" : "shorter"} (more than ${DETAIL_CHECK_PCT}%). Check its ends on ${on} are where the tape's were; if they are, ${wallWords(c.side)} is sized ${chk.offPct > 0 ? "large" : "small"} by about that much - a tape along it settles it.`,
+      });
+    }
   }
   return flags;
 }

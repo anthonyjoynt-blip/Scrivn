@@ -10,15 +10,21 @@
  *     whose `to_photo` is K R [along | up | origin], with the lens's radial term kept on the camera, so
  *     SidePhotos.tsx squares it up and the AI trace reads it as it reads a photo from Scan;
  *   * measured again, each side keeps its id, and what was put on it (openings, materials, heights)
- *     stays, stretched with its length.
+ *     stays, stretched with its length;
+ *   * each of the walk's close-ups laid on its wall's full photo (2026-10-23, `closeUpsOnSides`) is one
+ *     more photo of that side, through the full photo's own, so it is read at the wall's scale. It
+ *     sizes nothing.
  *
  * Pure: the editor and the tests make the same exterior from the same measure.
  */
 
 import { defaultRoof, type Exterior, type ExteriorSide, type SidePhoto } from "./exterior";
+import { photoOnPart } from "./exteriorPhoto";
 import { exteriorFromOutline, orthogonalRing } from "./exteriorPlan";
-import { type PhotoRouteState, type RouteCamera, type RouteMeasured, type RoutePhotoData, type RouteSolution, settleWords } from "./photoRoute";
+import { type PhotoRouteInput, type PhotoRouteState, ROUTE_MATCH_V, type RouteCamera, type RouteMatch, type RouteMeasured, type RoutePhotoData, type RouteSolution, settleWords } from "./photoRoute";
+import { shotWalls } from "./photoRouteCoverage";
 import { MAP_LOOKUP_READY } from "./photoRouteMap";
+import { detailSidePhoto, onWall } from "./photoRouteMatch";
 import type { Pt } from "./roof";
 import { formatFeetInches } from "./sketch";
 
@@ -172,6 +178,8 @@ export function exteriorFromRoute(prev: Exterior | undefined, state: PhotoRouteS
   const keptIds = state.measured?.building === m.building ? state.measured.sideIds : undefined;
   const building = state.buildings.find((b) => b.id === m.building);
   const shared = building?.shared ? new Set(building.shared) : null;
+  const closeUps = closeUpsOnSides(state, m);
+  const sized = new Set(m.cameras.filter((c) => c.role !== "detail").map((c) => c.photo));
   const sideIds: string[] = [];
   const sides: ExteriorSide[] = made.sides.map((s, k) => {
     const i = (front + k) % n;
@@ -193,7 +201,7 @@ export function exteriorFromRoute(prev: Exterior | undefined, state: PhotoRouteS
     const isShared = shared ? shared.has(i) : side.shared === true;
     if (isShared) side.shared = true;
     else delete side.shared;
-    const photos = isShared ? [] : bestPhotos(m, state, ring, i);
+    const photos = isShared ? [] : withCloseUps(bestPhotos(m, state, ring, i), closeUps.laid.filter((c) => c.side === i), sized);
     if (photos.length) side.photos = photos;
     else delete side.photos;
     return side;
@@ -217,6 +225,9 @@ export function exteriorFromRoute(prev: Exterior | undefined, state: PhotoRouteS
   const notes = [
     `Measured from ${placed} of ${state.photos.length} photo${state.photos.length === 1 ? "" : "s"} and ${tapes.length} tape${tapes.length === 1 ? "" : "s"}${estimated ? `, with ${estimated} side${estimated === 1 ? "" : "s"} estimated on site by eye (not taped)` : ""}.`,
     ...(detail ? [`${detail} more photo${detail === 1 ? " was" : "s were"} placed on it only to read the walls; they sized nothing.`] : []),
+    ...(closeUps.laid.length
+      ? [`${closeUps.laid.length} close-up${closeUps.laid.length === 1 ? " was" : "s were"} laid exactly on ${closeUps.laid.length === 1 ? "its" : "their"} wall's photo, to read at the wall's scale; ${closeUps.laid.length === 1 ? "it" : "they"} sized nothing.`]
+      : []),
     ...(m.sides.some((s) => s.notMeasured && !s.taped) ? [`Not measured: ${m.sides.filter((s) => s.notMeasured && !s.taped).length} of its sides - the photos and tapes don't hold them; each says what would measure it.`] : []),
     ...(tapes.length === 0 ? [estimated ? "No tape: the sizes follow the sides estimated on site and the shape as drawn, and are not to scale." : "No tape: the sizes follow the shape as drawn, and are not to scale."] : []),
   ];
@@ -354,6 +365,184 @@ function bestPhotos(m: RouteMeasured, state: PhotoRouteState, ring: Pt[], i: num
   const v = first.photo.inView;
   const second = scored.slice(1).find((s) => (!v?.leftEnd && s.photo.inView?.leftEnd) || (!v?.rightEnd && s.photo.inView?.rightEnd));
   return second ? [first.photo, second.photo] : [first.photo];
+}
+
+// ── Close-ups laid on their walls (2026-10-23) ───────────────────────────────────────────────────
+
+/** How finely a side is walked for what of it a photo sees. */
+const VIEW_STEPS = 60;
+
+/**
+ * Placed photo [rc] laid on outline side [i] of measure [m]: what of the side it sees (in front of it, nothing of the house
+ * in the way), and the photo as the side's (`sidePhotoFor`) - or, the side's middle out of the picture, laid on the part it
+ * sees and shifted back to the side's own frame. Null when it sees none of it. As the house runner's reading pass does it
+ * (scripts/house/read.mjs photoOnSide).
+ */
+export function sideView(m: RouteMeasured, rc: RouteCamera, i: number, n: number): { sp: SidePhoto; vis: boolean[]; lengthFeet: number } | null {
+  const ring = m.corners;
+  const A = ring[i] as Pt;
+  const B = ring[(i + 1) % ring.length] as Pt;
+  const L = Math.hypot(B.x - A.x, B.y - A.y);
+  const lens = m.lenses[rc.photo];
+  if (!(L > 0.1) || !lens) return null;
+  const nrm = { x: (B.y - A.y) / L, y: -(B.x - A.x) / L };
+  const mid = { x: (A.x + B.x) / 2, y: (A.y + B.y) / 2 };
+  const v = { x: rc.at[0] - mid.x, y: rc.at[1] - mid.y };
+  if ((v.x * nrm.x + v.y * nrm.y) / (Math.hypot(v.x, v.y) || 1) <= 0.02) return null;
+  const C = { x: rc.at[0], y: rc.at[1] };
+  const vis: boolean[] = [];
+  for (let k = 0; k <= VIEW_STEPS; k++) {
+    const t = k / VIEW_STEPS;
+    const P = { x: A.x + (B.x - A.x) * t, y: A.y + (B.y - A.y) * t };
+    vis.push((C.x - P.x) * nrm.x + (C.y - P.y) * nrm.y > 0 && !hidden(ring, i, C, P));
+  }
+  const ks = vis.map((b, k) => (b ? k : -1)).filter((k) => k >= 0);
+  if (ks.length === 0) return null;
+  let sp = sidePhotoFor(lens, rc, A, B, n, rc.photo);
+  if (!sp) {
+    const t0 = (ks[0] as number) / VIEW_STEPS;
+    const t1 = (ks[ks.length - 1] as number) / VIEW_STEPS;
+    const A2 = { x: A.x + (B.x - A.x) * t0, y: A.y + (B.y - A.y) * t0 };
+    const B2 = { x: A.x + (B.x - A.x) * t1, y: A.y + (B.y - A.y) * t1 };
+    const sp2 = t1 > t0 ? sidePhotoFor(lens, rc, A2, B2, n, rc.photo) : null;
+    if (sp2) sp = photoOnPart(sp2, -t0 * L, 0, L, (t1 - t0) * L);
+  }
+  return sp ? { sp, vis, lengthFeet: L } : null;
+}
+
+/**
+ * How many of [points] (a photo's pixels as taken) lie on the face of the side [view] lays it on: along it to 3' past its
+ * ends, from 2' under its ground to 40' up, on a stretch the photo sees. Loosely: the measured ends and heights are rough,
+ * and a trim or a rail's end past a corner is fine; points cast on past a deck's rail onto the wall behind land far along.
+ */
+function onFaceCount(view: { sp: SidePhoto; vis: boolean[]; lengthFeet: number }, points: readonly [number, number][]): number {
+  const L = view.lengthFeet;
+  let count = 0;
+  for (const [px, py] of points) {
+    const w = onWall(view.sp, px, py);
+    if (!w) continue;
+    const a = w[0] / FOOT_M;
+    const u = w[1] / FOOT_M;
+    const k = Math.max(0, Math.min(view.vis.length - 1, Math.round((a / L) * (view.vis.length - 1))));
+    if (a >= -3 && a <= L + 3 && u >= -2 && u <= 40 && view.vis[k]) count++;
+  }
+  return count;
+}
+
+/**
+ * On its side's face, at least this share of a close-up's points that agree: else it was laid on something in front of the
+ * wall or another wall. On the owner's house (10-23) close-ups laid right had 41-56% on the face, the one laid on a deck's
+ * glass rail 16% (scripts/house/match.mjs ON_FACE_SHARE).
+ */
+export const ON_FACE_SHARE = 0.3;
+
+/** A close-up laid on its side: outline side [side], and the close-up as a photo of it. */
+export interface LaidCloseUp {
+  photo: string;
+  full: string;
+  side: number;
+  sp: SidePhoto;
+  by: RouteMatch["by"];
+}
+
+/**
+ * A close-up not laid on its side, and why: no place for it found in code (or its taps hold no wall) - "unfound"; its wall's
+ * photo not placed by the measure - "unplaced"; laid on something that isn't the wall's face - "offFace".
+ */
+export interface CloseUpNotLaid {
+  photo: string;
+  full: string;
+  kind: "unfound" | "unplaced" | "offFace";
+  why: string;
+}
+
+/**
+ * The walk's close-ups on their sides, from the matches the measure keeps (`RouteMeasured.matches`, 2026-10-23): each laid on
+ * the wall its matched points are on - the wall its full photo was taken of, when the walk says (`RoutePhoto.shot`) and they
+ * are on it, else whichever holds the most - and kept only with ON_FACE_SHARE of them on that wall's face as measured. Laid, it is a photo of that side
+ * through the full photo's own `to_photo` (`detailSidePhoto`), so whatever it shows is at the wall's scale. It never sizes
+ * anything. The rest, each with why not, in words.
+ */
+export function closeUpsOnSides(state: PhotoRouteInput, m: RouteMeasured): { laid: LaidCloseUp[]; not: CloseUpNotLaid[] } {
+  const laid: LaidCloseUp[] = [];
+  const not: CloseUpNotLaid[] = [];
+  const n = m.corners.length;
+  if (n < 3) return { laid, not };
+  const shared = new Set(state.buildings.find((b) => b.id === m.building)?.shared ?? []);
+  const nameOf = (id: string) => `photo ${state.photos.findIndex((p) => p.id === id) + 1}`;
+  // Taps first: what the user laid stands over what code found.
+  const matches = (m.matches ?? []).filter((x) => x.v === ROUTE_MATCH_V).sort((a, b) => (a.by === b.by ? 0 : a.by === "taps" ? -1 : 1));
+  for (const x of matches) {
+    if (laid.some((l) => l.photo === x.photo) || not.some((q) => q.photo === x.photo)) continue;
+    const detail = state.photos.find((p) => p.id === x.photo);
+    const fullAt = state.photos.findIndex((p) => p.id === x.full);
+    if (!detail || fullAt < 0) continue;
+    if (!x.h) {
+      not.push({ photo: x.photo, full: x.full, kind: "unfound", why: x.words });
+      continue;
+    }
+    const rc = m.cameras.find((c) => c.photo === x.full);
+    if (!rc) {
+      not.push({ photo: x.photo, full: x.full, kind: "unplaced", why: `Its wall's photo (${nameOf(x.full)}) wasn't placed by the measure, so there is no wall to lay it on yet.` });
+      continue;
+    }
+    // The wall the walk says its full photo was taken of, when its points are on it; else whichever wall holds most of them
+    // (a straight-on photo from far back shows the walls stepped back beside it too).
+    const shot = state.photos[fullAt]?.shot;
+    const walls = new Set(shot ? shotWalls(shot, n).filter((i) => i >= 0 && i < n) : []);
+    const bestOf = (which: (i: number) => boolean) => {
+      let b: { i: number; count: number; view: NonNullable<ReturnType<typeof sideView>> } | null = null;
+      for (let i = 0; i < n; i++) {
+        if (shared.has(i) || !which(i)) continue;
+        const view = sideView(m, rc, i, 900 + fullAt);
+        if (!view) continue;
+        const count = onFaceCount(view, x.onFull);
+        if (count > 0 && (!b || count > b.count)) b = { i, count, view };
+      }
+      return b;
+    };
+    const said = walls.size ? bestOf((i) => walls.has(i)) : null;
+    const best = said && said.count / Math.max(1, x.onFull.length) >= ON_FACE_SHARE ? said : bestOf(() => true);
+    if (!best) {
+      not.push({ photo: x.photo, full: x.full, kind: "offFace", why: "Its points are on no wall the measure has: tap 4 points on both, on the wall's face." });
+      continue;
+    }
+    const share = best.count / Math.max(1, x.onFull.length);
+    if (share < ON_FACE_SHARE) {
+      not.push({
+        photo: x.photo,
+        full: x.full,
+        kind: "offFace",
+        why: `It matched something in front of the wall - a rail, a post - not the wall itself (${Math.round(share * 100)}% of its points are on it): tap 4 points on both, on the wall's face.`,
+      });
+      continue;
+    }
+    const lens = m.lenses[x.photo];
+    const sp = detailSidePhoto(
+      best.view.sp,
+      { h: x.h },
+      { width: detail.width, height: detail.height, f: lens?.f ?? m.focalOverWidth * Math.max(detail.width, detail.height), k: lens?.k ?? m.k },
+      900 + state.photos.indexOf(detail),
+      x.photo,
+      best.view.lengthFeet * FOOT_M,
+    );
+    if (!sp) {
+      not.push({ photo: x.photo, full: x.full, kind: "offFace", why: "Laid on its wall's photo, but the wall is behind it there: tap 4 points on both, on the wall's face." });
+      continue;
+    }
+    laid.push({ photo: x.photo, full: x.full, side: best.i, sp, by: x.by });
+  }
+  return { laid, not };
+}
+
+/**
+ * A side's photos with the close-ups laid on it: each in place of the same photo placed where it was guessed to stand. One
+ * that sized the house itself (two corners or more on it) stays where the measure put it, if it is there already.
+ */
+function withCloseUps(photos: SidePhoto[], here: LaidCloseUp[], sized: Set<string>): SidePhoto[] {
+  const add = here.filter((c) => !(sized.has(c.photo) && photos.some((p) => p.claimPhotoId === c.photo)));
+  if (add.length === 0) return photos;
+  return [...photos.filter((p) => !add.some((c) => c.photo === p.claimPhotoId)), ...add.map((c) => c.sp)];
 }
 
 /** One line for the screen: "Measured from 12 of 18 photos and 4 tapes; the house is 70'3" by 51'2"." */

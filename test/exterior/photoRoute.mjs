@@ -32,7 +32,7 @@ const FIXTURE = join(here, "fixtures", "photo-route", "owner-1016.json");
 async function load() {
   const outDir = mkdtempSync(join(tmpdir(), "photo-route-"));
   const entry = join(outDir, "entry.ts");
-  writeFileSync(entry, ["photoRoute.ts", "photoRouteLens.ts", "photoRouteLines.ts", "photoRouteEdges.ts", "photoRouteSolve.ts", "photoRouteData.ts", "photoRouteExterior.ts", "exteriorPhoto.ts", "exterior.ts", "exteriorTrace.ts", "exteriorReport.ts", "exteriorCheck.ts", "photoRouteCoverage.ts", "photoRouteSanity.ts", "photoRouteMatch.ts"].map((f) => `export * from "${lib(f)}";`).join("\n"));
+  writeFileSync(entry, ["photoRoute.ts", "photoRouteLens.ts", "photoRouteLines.ts", "photoRouteEdges.ts", "photoRouteSolve.ts", "photoRouteData.ts", "photoRouteExterior.ts", "exteriorPhoto.ts", "exterior.ts", "exteriorTrace.ts", "exteriorReport.ts", "exteriorCheck.ts", "photoRouteCoverage.ts", "photoRouteSanity.ts", "photoRouteMatch.ts", "photoRouteCloseUps.ts"].map((f) => `export * from "${lib(f)}";`).join("\n"));
   await build({ entryPoints: [entry], bundle: true, format: "esm", platform: "node", outfile: join(outDir, "entry.mjs"), alias: { "@": root }, logLevel: "silent" });
   const mod = await import(pathToFileURL(join(outDir, "entry.mjs")).href);
   rmSync(outDir, { recursive: true, force: true });
@@ -626,6 +626,29 @@ console.log("\n  Close-ups laid on their wall's full photo:");
   const G = prepared.data.find((q) => q.id === "p15");
   const wrong = x.matchDetail({ gray: D.gray, camera: D.camera }, { gray: G.gray, camera: G.camera });
   check("laid on a photo of another wall (the garage front), it finds no place", wrong.match === null, wrong.words);
+  // Through the app's path (2026-10-23): kept on the measure, the close-up is one more photo of the wall its points are on -
+  // found among all of them, no walk to say - and its window corners land on that wall where #9's own photo puts them.
+  if (real.match) {
+    const withMatch = { ...measuredRec, matches: [x.routeMatch({ photo: "p10", full: "p9" }, real.match, real.words, measuredRec.k)] };
+    const laid = x.closeUpsOnSides(state, withMatch).laid[0];
+    const again = ext ? x.exteriorFromRoute(ext, ext.photoRoute, withMatch) : null;
+    const side = laid && again ? again.sides.find((sd) => sd.id === again.photoRoute.measured.sideIds[laid.side]) : null;
+    const rc9 = measuredRec.cameras.find((c) => c.photo === "p9");
+    const view9 = laid && rc9 ? x.sideView(measuredRec, rc9, laid.side, 909) : null;
+    const apart = laid && view9
+      ? HAND.map(({ d, f }) => {
+          const a = x.onWall(laid.sp, d[0], d[1]);
+          const q = x.onWall(view9.sp, f[0], f[1]);
+          return a && q ? (Math.hypot(a[0] - q[0], a[1] - q[1]) / 0.3048) * 12 : Infinity;
+        })
+      : [];
+    console.log(`    #10 laid on side ${laid ? laid.side + 1 : "-"} (${laid ? README[laid.side][0] : "not laid"}); its window corners on the wall ${apart.map((v) => v.toFixed(1)).join(", ")}" from #9's`);
+    check(
+      "laid through the measure, his close-up is one more photo of the rear bump-out, and its window corners are within 2\" of #9's on that wall",
+      laid?.side === 4 && !!side?.photos?.some((p) => p.claimPhotoId === "p10") && apart.length === HAND.length && Math.max(...apart) < 2,
+      laid ? `side ${laid.side + 1}, ${side?.photos?.map((p) => p.claimPhotoId).join(", ")}` : JSON.stringify(x.closeUpsOnSides(state, withMatch).not),
+    );
+  }
   console.log(`    (${((Date.now() - tMatch) / 1000).toFixed(1)} s)`);
 }
 

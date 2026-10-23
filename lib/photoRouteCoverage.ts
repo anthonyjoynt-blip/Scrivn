@@ -290,7 +290,7 @@ function shotCorners(shot: RouteShot, n: number): number[] {
 }
 
 /** The walls a shot looks at straight on: a wall's own; each of a run's; an inside corner's wall before or after it. */
-function shotWalls(shot: RouteShot, n: number): number[] {
+export function shotWalls(shot: RouteShot, n: number): number[] {
   if (shot.kind === "corner") return [];
   if (shot.kind === "wall") return [shot.index];
   if (shot.kind === "inside") return [shot.wall === "before" ? (shot.index - 1 + n) % n : shot.index];
