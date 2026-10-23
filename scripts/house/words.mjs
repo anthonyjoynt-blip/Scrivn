@@ -53,7 +53,7 @@ export function tapeKind(words) {
 function howMany(words) {
   const w = words.toLowerCase();
   // A number counts what was taped when the openings follow it ("two garage doors", "3 windows"), or "both": "side 2" is a
-  // label, "two-pane" says what the one is like, "the two metal vents" what is near it (owner-1022's windows, 10-23).
+  // label, "two-pane" says what the one is like, "the two metal vents" what is near it (a test house's windows, 10-23).
   const n = /\b(two|2|three|3)\s+(?:[a-z-]+\s+){0,2}(doors|windows|openings)\b/.exec(w);
   if (n) return /^(two|2)$/.test(n[1] ?? "") ? 2 : 3;
   if (/\bboth\b/.test(w)) return 2;
@@ -73,7 +73,7 @@ function plusMinusIn(line) {
  * tapes.txt: one tape a line. Blank lines and lines starting # are skipped. A line with no length is said back.
  * Each tape: its words, its feet (the first length on the line; a second is kept as `alsoFeet`, e.g. 9' x 7'), what it
  * is and how the route takes it, and how many alike it covers.
- * A line that says its size roughly ("the bump-out sticks out about 6' (±20%)") is an estimate made on site by eye,
+ * A line that says its size roughly ("the sunroom sticks out about 12' (±20%)") is an estimate made on site by eye,
  * never a tape: a side's length held loosely (lib/photoRoute.ts RouteEstimate), its ± 20% unless said.
  */
 export function parseTapes(text) {
@@ -106,7 +106,7 @@ const COMPASS = { n: 0, north: 0, ne: 45, northeast: 45, "north-east": 45, e: 90
 
 /**
  * house.txt: what the owner knows of the home, a line each, in words: "semi-detached", "end townhouse", "front faces
- * north" / "front faces 16" / "front faces unknown", "name: 52 Elm St", and any notes (kept, said on the results).
+ * north" / "front faces 340" / "front faces unknown", "name: 52 Elm St", and any notes (kept, said on the results).
  */
 export function parseHouse(text) {
   const out = { homeType: null, frontFacesDeg: null, name: null, notes: [] };

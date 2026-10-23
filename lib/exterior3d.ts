@@ -25,7 +25,7 @@
  * the eave of the roof it meets - typed on the roof check, else as the walls measure it where they meet,
  * else an assumed 1'6" (lib/roofCheck.ts `wingDrops`) - not at the middle of its own walls' readings. Each
  * wall's heights are from its own ground, and on a lot that falls to the back the house's rear walls read
- * 15'11" against the garage's 9'6": the owner's garage was drawn 6'5" under his house ("It is reading the
+ * feet taller than the garage's: the owner's garage was drawn far under his house ("It is reading the
  * garage too low, the gap between the roofs is too great"). The garage's walls then stand their readings
  * under that eave, which is where the ground in front of them is.
  *
@@ -274,7 +274,7 @@ function stretchesOf(input: RoofInput | null, plan: RoofPlan | null, a: Pt, b: P
 /**
  * How far a wall's top at one end stands over the eave line its readings are taken against (its layer's eave, less a
  * dropped wing's drop): the roof's rise there, and the stretch's own eave over the layer's - a rake over a section at
- * another pitch stands a little higher or lower (10-22: the claim saved on 10-16, 0.44' on its left wall).
+ * another pitch stands a little higher or lower (10-22: a saved claim, inches on one wall).
  */
 function topOverEave(st: Stretch, rise: number, plan: RoofPlan | null, overhang: number): number {
   const own = plan && st.eave !== null && st.layer !== FLOOR_LINE ? st.eave + (st.drop ?? 0) - eaveAboveDrip(plan, st.layer, overhang) : 0;
@@ -289,9 +289,9 @@ function eaveReadings(side: ExteriorSide, sameRoof: boolean, rise: [number, numb
   if (side.eaveLeftFeet == null) return null;
   const l = side.eaveLeftFeet;
   const r = side.eaveRightFeet ?? l;
-  // A corner under a rake that runs on past it (a gable carried over a covered deck or a porch, 2026-10-22, house G's AC
-  // side) can read the wall's top there, the roof's rise above its eave included: taken off, it is the eave's height over
-  // the ground as at any other corner. Without it that wall stood 4' under its neighbours. Only when the readings show it -
+  // A corner under a rake that runs on past it (a gable carried over a covered deck or a porch, 2026-10-22, a test house)
+  // can read the wall's top there, the roof's rise above its eave included: taken off, it is the eave's height over
+  // the ground as at any other corner. Without it that wall stood feet under its neighbours. Only when the readings show it -
   // the two corners apart by nearer the rise's difference than by nothing: a side read at its eave line at both corners
   // (most are) keeps its readings, whatever roof the model puts over it.
   const apart = rise[0] - rise[1];
@@ -664,7 +664,7 @@ export function exteriorModel(exterior: Exterior): ExteriorModelResult {
       ];
       ceilings.push(...at3(c[0] as Pt, h), ...at3(c[2] as Pt, h), ...at3(c[1] as Pt, h), ...at3(c[0] as Pt, h), ...at3(c[3] as Pt, h), ...at3(c[2] as Pt, h));
       // Over each open side, the wall carried on from the ceiling up to the roof: the strip of siding
-      // over a deck under a gable (the owner's, in the photos of 10-12).
+      // over a deck under a gable.
       for (let i = 0; i < 4; i++) {
         const p = c[i] as Pt;
         const q = c[(i + 1) % 4] as Pt;
@@ -825,14 +825,14 @@ function trimOf3d(side: ExteriorSide, lift: (poly: Pt[]) => Pt[], colours: House
  * from; tapped on the phone, the bottom of the parging where the parging was tapped down to it. A side
  * tapped with no parging stands its cladding on the ground: the phone's one level for it is a bottom
  * corner of the cladding ("corners") or its ground estimate, so where the cladding's bottom climbs
- * along the wall - 0.8 m over the 21 m of the owner's right side - it is the ground climbing, and
+ * along the wall - most of a metre along a long side, on a test house - it is the ground climbing, and
  * drawn flat at the level the side would show a wedge of bare wall the house doesn't have.
  */
 function groundUnder(side: ExteriorSide, grade: Pt[]): Pt[] {
   const shapes = (side.shapes ?? []).filter((s) => s.closed && s.polygon.length >= 3);
   if (shapes.length === 0 || shapes.some((s) => s.kind === "parging")) return grade;
   // Each corner's own x (one per micro-foot): rounded, a corner a hair off it found no edge of its own shape and its ground was
-  // lost (10-22, house G: the right garage bay's left end at x 0.00022, the wall drawn cut off on the left).
+  // lost (10-22, a test house: a garage bay's left end a hair off its corner, the wall drawn cut off on the left).
   const byKey = new Map<number, number>();
   for (const s of shapes) for (const p of s.polygon) if (!byKey.has(Math.round(p.x * 1e6))) byKey.set(Math.round(p.x * 1e6), p.x);
   const xs = [...byKey.values()].sort((a, b) => a - b);

@@ -114,7 +114,7 @@ export interface ExteriorOpening {
    */
   from?: "photo" | "said";
   /**
-   * Counted and placed off a photo that sees its wall edge-on, or as near (2026-10-22, house G's walkway side): its size and
+   * Counted and placed off a photo that sees its wall edge-on, or as near (2026-10-22, a side yard seen only along it): its size and
    * place are not measured, only that it is there - said why ("seen edge-on only (photos 2, 3)"). Drawn faint and dashed,
    * as one said on site is, and named on the report's "To check" until a photo of the wall straight on measures it.
    */
@@ -1029,7 +1029,7 @@ export const DEFAULT_EAVE_FEET = 10;
  * The pitch a roof is drawn at before one is typed or a gable is measured (2026-10-13): the owner
  * could not find the roof while it waited for a pitch. Always said to be assumed, on the plan, the
  * scope and the documents, and asked for until it is answered. 4/12 since 2026-10-14, the owner's
- * call: closer to the houses he works on (his own reads 4-5/12) than the 6/12 it started at.
+ * call: closer to the houses he works on than the 6/12 it started at.
  */
 export const ASSUMED_PITCH = 4;
 export const DEFAULT_PARGING_FEET = 8 / 12;
@@ -1320,7 +1320,7 @@ function gradeFromParging(shapes: ExteriorShape[]): Pt[] | null {
 
 /**
  * A length worked out from the photos further out than this, ± percent, is marked to check (2026-10-16:
- * on the owner's photos-only house the three sides to tape were ±6, ±11 and ±12%; the rest ±2 to ±5%).
+ * on a test house from photos only, the few sides that wanted a tape stood well past it, the rest within it).
  */
 export const LENGTH_CHECK_PCT = 5;
 
@@ -2064,8 +2064,8 @@ function crossesItself(points: Pt[]): boolean {
  * Walks the sides round with square corners: each outside corner a left turn, each inside one a
  * right turn (walking with the house on your left, as you do going to the right along the faces).
  *
- * Lengths taped round a real house never close exactly - the owner's first side read 34'3" on the
- * phone and 33'6" on his tape. Whatever the walk misses by is shared out over the sides running
+ * Lengths taped round a real house never close exactly - the owner's first side read most of a foot
+ * longer on the phone than on his tape. Whatever the walk misses by is shared out over the sides running
  * that way, each in proportion to its length, so opposite sides of a rectangle end up equal (at a
  * length between the two typed) and every corner stays square. The miss is reported, so a typo
  * shows rather than being quietly absorbed.
@@ -2300,7 +2300,7 @@ export function resolvedEnds(exterior: Exterior): Record<string, RoofEndKind> {
 /**
  * The sides whose photo shows a level wall top with the roof sloping up from it, none typed (2026-10-16):
  * an end of the roof over most of one is a hip (lib/roof.ts `eaveSides`). Until then any end over such a
- * side was - and the owner's 70' east wall, eaves over his garage and bump-out, hipped his house's gable.
+ * side was - and a test house's long side wall, eaves over its garage and bump-out, hipped its gable.
  */
 export function eaveSidesFromPhotos(exterior: Exterior): string[] {
   return photoReads(exterior)
@@ -2366,7 +2366,7 @@ export function ridgeFromPhotos(exterior: Exterior): RidgeFromPhotos | null {
       A read of an eave agrees unless an end stands over most of its side: a long side can be eaves along
       most of it and a gable end over a stretch (2026-10-16). And a ridge that makes more of the roof sit
       lower because it has to than the outline's own does is no roof anyone frames, however many reads it
-      bears out - the owner's house came out as a 13' strip from the garage's bay to the bump-out.
+      bears out - a test house came out as a narrow strip from the garage's bay to the bump-out.
     */
     const bearsOut = (ridgeAlong: string | null) => {
       const plan = buildRoof(roofInputBase(exterior, footprint, ASSUMED_PITCH, ridgeAlong));
@@ -3454,7 +3454,7 @@ export interface PhotoRoofCheck {
   totals: Record<RoofTotalKey, number> | null;
   /** Nothing typed stands over the photos: the drawing is the photos' roof, and one check covers both. */
   sameAsDrawing: boolean;
-  /** "5/12 (West), eave overhang 1'11", rake overhang 2'2"": what the photos read, for the panel. */
+  /** "6/12 (North), eave overhang 1'4", rake overhang 1'0"": what the photos read, for the panel. */
   words: string;
 }
 

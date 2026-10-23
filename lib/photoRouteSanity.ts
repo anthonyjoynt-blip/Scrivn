@@ -1,6 +1,6 @@
 /**
- * Sanity checks on a house measured from photos (2026-10-20): what to look at, never a block. Two blind runs of the
- * owner's house came out with the depth 22% short and two photos solved to places nobody stood; the things that gave
+ * Sanity checks on a house measured from photos (2026-10-20): what to look at, never a block. Two blind runs of a
+ * test house came out with the depth well off and two photos solved to places nobody stood; the things that gave
  * them away are checked here, each naming the corner or the photo to look at:
  *
  *   * the eaves either side of an outside corner disagreeing by more than a foot (one wall's photo placed wrong, or
@@ -8,8 +8,8 @@
  *   * a door, garage door or window far from the usual size (a front door reading 5'0");
  *   * a camera solved where nobody could have stood: inside the house, under the ground or high in the air, in the
  *     neighbour's home, or seeing a corner through a wall;
- *   * a camera turned well off its own level lines to fit its corners (2026-10-21, house G: photo 6 turned 5 degrees, and
- *     the walkway side swung from 61'6" to 48'6", when one more corner was tapped on it): a corner on it is on the wrong
+ *   * a camera turned well off its own level lines to fit its corners (2026-10-21, a blind run: a photo turned degrees, and
+ *     a long side swung by feet when one more corner was tapped on it): a corner on it is on the wrong
  *     edge - a post, a pilaster or a downspout beside the corner - or is hidden;
  *   * an outline that won't close square: a side solved to nothing, or the wrong way round from the shape drawn;
  *   * the depth only as drawn: no tape and too few photos tying the back of the house to its front;

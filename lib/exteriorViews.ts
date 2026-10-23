@@ -18,9 +18,9 @@ import type { Pt } from "./roof";
  * the house - from in front of it, from its right, from behind it and from its left, as you face its front from
  * outside - and are named by the compass only when the exterior says which way its front faces
  * (`Exterior.frontFacesDeg`). Then each is named by the way its wall faces, to the nearest of north, east, south
- * and west: his front faces 16 degrees east of north, so its view is the North elevation and his long side-yard
- * wall, on the right, the West. Without it they are the Front, Right side, Back and Left side elevations: before
- * 2026-10-20 the front was taken to be south, which named his house's every view wrong.
+ * and west: a front facing 20 degrees west of north has the North elevation for its view, and the wall on its
+ * right, as you face it, the West. Without it they are the Front, Right side, Back and Left side elevations: before
+ * 2026-10-20 the front was taken to be south, which named a north-facing house's every view wrong.
  *
  * Feet. In a view, x runs left to right as the viewer sees it, y is up as the model has it.
  */

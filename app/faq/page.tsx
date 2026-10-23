@@ -83,7 +83,7 @@ const SCAN: FaqEntry[] = [
     a: "No, just the phone's camera. The outside is measured in Scrivn, which runs in the browser on any phone, iPhone included. Scan is for the rooms inside.",
   },
   {
-    // lib/photoRoute.ts: each side's ± (lengthPlusMinusPct), and tapeAdvice for any side over 5%. The 2-4% is the owner's house, 10-16.
+    // lib/photoRoute.ts: each side's ± (lengthPlusMinusPct), and tapeAdvice for any side over 5%. The 2-4% is from a test house, 10-16.
     q: "How accurate is the outside?",
     a: "About ±2–4% on walls the photos see well. Scrivn shows each wall's ± and flags the rest for a tape: one tape along that wall fixes it. One tape front to back, along the long side wall, keeps the depth true.",
   },

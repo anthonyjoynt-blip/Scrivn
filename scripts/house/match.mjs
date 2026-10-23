@@ -91,9 +91,9 @@ function sideOfPoints(x, m, ext, rc, pn, points) {
 }
 
 /**
- * On its side's face, at least this share of the points that agree: else it was laid on something else. On the owner's
- * house (10-23) close-ups laid right had 41-56% on the face as the stricter first test counted them (gables over the
- * eave read, rails past a corner), the one laid on a deck's glass rail 16%.
+ * On its side's face, at least this share of the points that agree: else it was laid on something else. On a test
+ * house (10-23) close-ups laid right had about half on the face as the stricter first test counted them (gables over the
+ * eave read, rails past a corner), the one laid on a deck's glass rail far fewer.
  */
 const ON_FACE_SHARE = 0.3;
 

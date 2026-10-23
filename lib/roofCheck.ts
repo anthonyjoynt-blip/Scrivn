@@ -2,9 +2,9 @@
  * The roof check (2026-10-16): the roof's parts as the outline and the photos propose them, and the
  * few taps that settle what they can't.
  *
- * The owner's house came in off photos alone with its footprint right and its roof "very wrong": one
- * 72' ridge down the east strip, no lower garage, a hip over the French-door wall. lib/roof.ts could
- * always build his roof - the 10-13 test claim did, by hand - but from a footprint it can't tell a
+ * A test house came in off photos alone with its footprint right and its roof "very wrong": one long
+ * ridge down a strip of it, the garage's roof and an end wrong. lib/roof.ts could always build that
+ * roof - a test claim did, by hand - but from a footprint it can't tell a
  * covered deck from a corner of the yard, nor a garage that ties in lower from one that runs into the
  * house's roof. His word: "id be fine having some user input if necessary for accuracy and efficiency
  * of the build". So the roof is PROPOSED from what is known, drawn, and the estimator taps only what
@@ -16,12 +16,12 @@
  *     an open corner there - and covering it doesn't. Only a deck's or porch's depth, 4' to 12'.
  *   * a GARAGE that sits LOWER and stops at the wall: a part with a garage door whose eave, where one
  *     of its walls meets one of the house's at a corner, reads a foot or more under the house's - both
- *     above the same ground there. Standing on the house's slope it is under a GABLE of it - the
- *     owner's garage, siding between: a roof a garage wide can't sit under an eave.
- *     Only a corner they share: each side's height is above its own ground, and on the owner's lot,
- *     falling 6'5" to the back, the house's rear walls read 15'11" against the garage's 9'6" - the
- *     check said the garage was 5'4" lower, and the drawings put it there (the owner, 10-16: "It is
- *     reading the garage too low, the gap between the roofs is too great"). His garage is 1'6"-2' lower.
+ *     above the same ground there. Standing on the house's slope it is under a GABLE of it, siding
+ *     between: a roof a garage wide can't sit under an eave.
+ *     Only a corner they share: each side's height is above its own ground, and on a lot falling feet
+ *     to the back, a house's rear walls read far taller than its garage's - the check put the garage
+ *     far too low, and the drawings put it there (the owner, 10-16: "It is reading the garage too low,
+ *     the gap between the roofs is too great").
  *     Only a garage: on a sloping lot one wall read off a photo can put a bump-out "lower" than a
  *     house it really ties into (session A's route, 10-16).
  *
@@ -47,8 +47,8 @@ import { formatFeetInches } from "./sketch";
 export const MIN_COVERED_NOTCH_FEET = 4;
 /**
  * Deeper than this both ways, a notch is a corner of the yard, not a deck under the roof, and is never
- * proposed covered: the owner's front corner, 22' x 25' between the house and the garage, would have
- * been with his deck said to be open.
+ * proposed covered: a front corner deep both ways between a house and its garage would have been,
+ * once the deck was said to be open.
  */
 export const MAX_COVERED_NOTCH_DEPTH_FEET = 12;
 /** A garage whose eave reads this much under the house's, where their walls meet, is proposed lower. */

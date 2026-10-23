@@ -291,7 +291,7 @@ function sillOf(side: ExteriorSide, o: ExteriorOpening): number {
   return Math.max(0, aboveGround(side, o.sillFeet, o.fromLeftFeet + o.widthFeet / 2));
 }
 
-/** How the ground goes along a side tapped as shapes, when it isn't level: "the ground falls 6'5" from left to right, in steps". */
+/** How the ground goes along a side tapped as shapes, when it isn't level: "the ground falls 2'3" from left to right, in steps". */
 function groundWords(side: ExteriorSide): string | null {
   if (!steps(side)) return null;
   const grade = elevationFaces(side).grade;
@@ -328,7 +328,7 @@ export function surroundWords(t: OpeningTrim): string {
   return `surround ${parts.join(", ")} (${trimLabel(t.material, t.label).toLowerCase()} trim)`;
 }
 
-/** A column or pilaster in words: "Pilaster 1: 9" × 9", 9'6" high, base and cap, standing out 4", 0'0" from the left end (stucco) · 59 SF wrap". */
+/** A column or pilaster in words: "Pilaster 1: 9" × 9", 8'0" high, base and cap, standing out 4", 0'0" from the left end (stucco) · 50 SF wrap". */
 function columnLine(c: SideColumn, name: string, q: ColumnQuantity | undefined): string {
   const blocks = [c.base && c.base.heightFeet > 0 ? "base" : "", c.cap && c.cap.heightFeet > 0 ? "cap" : ""].filter(Boolean);
   const stands = c.kind === "column" ? `standing ${ft(c.outFeet)} off the wall` : `standing out ${ft(c.outFeet)}`;
@@ -382,7 +382,7 @@ export function exteriorReport(exterior: Exterior, meta: ReportMeta): ExteriorRe
 
   // Its decks (2026-10-20): what each covers of the roof is the roof's own, counted there.
   const deckQs = decksQuantities(exterior, plan);
-  /** A side's line for each deck against it: "The Rear deck stands against it: 15'3" of ledger." */
+  /** A side's line for each deck against it: "The Rear deck stands against it: 12'0" of ledger." */
   const deckAgainst = (sideId: string): string[] =>
     deckQs.flatMap((dq) => {
       const feet = (dq.geometry?.edges ?? []).reduce((s, e) => s + e.against.filter((g) => g.sideId === sideId).reduce((t, g) => t + (g.toFeet - g.fromFeet), 0), 0);

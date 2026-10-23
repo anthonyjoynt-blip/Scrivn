@@ -270,7 +270,7 @@ export interface WallToName {
   /** The way out from the house, a unit vector. */
   out: Pt;
   name: string;
-  /** Its length as written: "70'7"", "≈ 12'", "70'7" ±6%". */
+  /** Its length as written: "42'7"", "≈ 12'", "42'7" ±6%". */
   length: string;
   /** How far out from the wall the plan's own drawing reaches over it: the roof's edge, on a roof plan. */
   clear: number;

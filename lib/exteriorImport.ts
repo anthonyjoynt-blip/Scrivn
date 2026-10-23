@@ -39,7 +39,7 @@ import { sizesLine, withScaleFrom } from "./exteriorScale";
 export const EXTERIOR_FORMAT = "arcapture-exterior/1";
 /**
  * /2 (2026-10-12): each material tapped round as a shape, and the roof's edge as a roofline - the
- * owner's field test on his own gable end, where the stucco runs on over a covered deck.
+ * owner's field test on a gable end, where the stucco runs on past the wall under it.
  */
 export const EXTERIOR_FORMAT_2 = "arcapture-exterior/2";
 const EXTERIOR_FORMATS: unknown[] = [EXTERIOR_FORMAT, EXTERIOR_FORMAT_2];

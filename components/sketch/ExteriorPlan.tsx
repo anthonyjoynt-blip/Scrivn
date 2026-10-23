@@ -628,7 +628,7 @@ function SidesList({ exterior, q, readOnly, showTurns, onOpenSide, onChange }: {
 /**
  * Which way the front faces (2026-10-20, the owner: "fix the front label to north"): one tap, never asked and never in
  * the way. Set, the report names its four views north, south, east and west and the plans get a north arrow; not set,
- * the views are the front, back and sides. A bearing between the eight (his house's 16 degrees) shows on its nearest.
+ * the views are the front, back and sides. A bearing between the eight (20 degrees, say) shows on its nearest.
  */
 function FrontFaces({ exterior, readOnly, onChange }: { exterior: Exterior; readOnly: boolean; onChange: Change }) {
   const deg = frontFacesOf(exterior);
