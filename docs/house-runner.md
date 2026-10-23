@@ -165,16 +165,18 @@ Which close-up goes with which wall: a pulled request's walk says it (each "more
 
 ```json
 "details": [
-  {"photo": 22, "full": 33},
-  {"photo": 17, "full": [31, 30]},
-  {"photo": 2, "full": 35, "tapes": [{"tape": "t5", "a": [915.8, 1050], "b": [1082.3, 1050]}]},
-  {"photo": 8, "full": 36, "side": "C8-C9", "taps": [[1218, 288, 560, 591], [1410, 330, 655, 596], [1418, 560, 653, 698], [1497, 185, 735, 638]]}
+  {"photo": 22, "full": 33, "side": "C2-C3"},
+  {"photo": 8, "full": [36, 30], "side": "C8-C9"},
+  {"photo": 2, "full": 35, "side": "C7-C8", "tapes": [{"tape": "t5", "a": [915.8, 1050], "b": [1082.3, 1050]}]},
+  {"photo": 23, "full": 33, "side": "C2-C3", "taps": [[x, y, x, y], [x, y, x, y], [x, y, x, y], [x, y, x, y]]}
 ]
 ```
 
-`full` may be a list (each tried, the best kept); `side` is found from where the matched points are, seen from the full photo, unless given; `tapes` are a tape's ends read off the close-up, to check (its length from `tapes`); `taps` are `[x, y]` on the close-up then `[x, y]` on the full photo, for each of 4 or more points **on the wall's face** (not a post or a rail in front of it) - when code finds no place, which match says, with why.
+`full` may be a list (each tried, the best kept); `side` is the wall it was taken for - **give it** (a pulled request's walk does): left out, it is the side whose face holds most of the matched points seen from the full photo, which goes wrong where the measure has a corner loose (house-1022: the porch close-up went on the AC side). `tapes` are a tape's ends read off the close-up, to check (its length from `tapes`); `taps` are `[x, y]` on the close-up then `[x, y]` on the full photo, for each of 4 or more points **on the wall's face** (not a post or a rail in front of it) - when code finds no place, which match says, with why.
 
-What code finds and what it doesn't (house-1022-corners, 10-23): close-ups of a wall with its own lines on it (windows, trim) and a full photo of the same face - laid in code, 0.4-0.7 px off, including one taken on another day; tape close-ups (a hand-span of wall), walls behind a porch's columns and rail, photos into the sun - not, and say so: tap 4 points. In 8 tries against a photo of another wall none was laid.
+A match is refused, and says why, when fewer than 8 points agree, they agree to worse than 2 px of the full photo, the two photos' edges are unalike, or squared they differ by more than a scale. **A close-up laid on a plane in front of the wall** (a deck's glass rail) passes all of that: match then checks that at least 30% of the points lie on its side's face as measured, and says "laid on something else" when not. Look at the picture either way.
+
+What code finds and what it doesn't (house-1022-corners, 10-23, 29 close-ups against the far photos): laid in code 5 - the bump-out back (#22, #21), the AC side (#2, taken on another day), the patio-door wall (#25) and the porch window behind its columns (#8) - each 0.4-0.9 px; #24 matched the deck's glass rail and was refused. Not found, and said so: tape close-ups (a hand-span of wall), walls under the deck behind glass, the front into the sun, the walkway side (no full photo of it), close-ups with few lines (#6: 6 points). No close-up laid on a photo of another wall was kept (8 tries). With each tape held out, the windows read off the close-ups: back slider +1.6%, porch window +6.2% (its own placement had said -80%), AC slider -11.6% (the far photo alone -16%: the rest is the AC wall's scale in the measure, which a close-up can't fix).
 
 ### 7. Read the walls: `read`, then `reads.json`
 

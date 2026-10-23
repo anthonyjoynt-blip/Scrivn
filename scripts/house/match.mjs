@@ -57,21 +57,45 @@ function cameraOf(x, m, p, lines) {
   return level.cameras[0] ?? null;
 }
 
-/** Which side the matched points are on, seen from the full photo's camera: each point's ray cast on the plan, the side most hit first. */
-function sideOfPoints(x, m, rc, points) {
-  const lens = m.lenses[rc.photo];
-  if (!lens) return null;
-  const yaw = (rc.yawTweakDeg * Math.PI) / 180;
-  const votes = new Map();
+/**
+ * How many of the matched points (the full photo's pixels) lie on side [i]'s face as measured, seen from the full photo:
+ * along it to within 3' past its ends, from 2' under its ground up, on a stretch the photo sees. A close-up laid on another wall has its points off the face; so, often, has one laid on a deck's rail in front of
+ * the wall (its points cast on past the rail onto the wall behind it, which may be another side).
+ */
+function onFace(x, m, ext, rc, i, pn, points) {
+  const on = photoOnSide(x, m, rc, i, pn);
+  if (!on) return 0;
+  const L = on.lengthFeet;
+  let count = 0;
   for (const [px, py] of points) {
-    const [u] = x.toLevel(lens, px, py);
-    const dir = x.planDirection(x.columnBearing(lens, u), rc.quadrant, yaw);
-    const hit = x.castRayToSides({ x: rc.at[0], y: rc.at[1] }, dir, m.corners);
-    if (hit) votes.set(hit.side, (votes.get(hit.side) ?? 0) + 1);
+    const w = x.onWall(on.sp, px, py);
+    if (!w) continue;
+    const a = w[0] / FOOT_M;
+    const u = w[1] / FOOT_M;
+    const k = Math.max(0, Math.min(on.vis.length - 1, Math.round((a / L) * (on.vis.length - 1))));
+    // Loosely: the measured ends and heights are rough (a gable's peak is often not read yet), a trim or a rail's end
+    // past a corner is fine; points cast on past a deck's rail onto the wall behind it land far along.
+    if (a >= -3 && a <= L + 3 && u >= -2 && u <= 40 && on.vis[k]) count++;
   }
-  const best = [...votes].sort((a, b) => b[1] - a[1])[0];
-  return best ? best[0] : null;
+  return count;
 }
+
+/** Which side the matched points are on: the side whose face holds the most of them, seen from the full photo. */
+function sideOfPoints(x, m, ext, rc, pn, points) {
+  let best = null;
+  for (let i = 0; i < m.corners.length; i++) {
+    const c = onFace(x, m, ext, rc, i, pn, points);
+    if (c > 0 && (!best || c > best.count)) best = { i, count: c };
+  }
+  return best ? best.i : null;
+}
+
+/**
+ * On its side's face, at least this share of the points that agree: else it was laid on something else. On the owner's
+ * house (10-23) close-ups laid right had 41-56% on the face as the stricter first test counted them (gables over the
+ * eave read, rails past a corner), the one laid on a deck's glass rail 16%.
+ */
+const ON_FACE_SHARE = 0.3;
 
 /** The close-up as a photo of side [i] of measure [m], through full photo [full] and the match: null when the full photo is not placed or does not see the side. */
 export function detailOnSide(x, m, h, detail, full, matchH, i) {
@@ -214,14 +238,19 @@ export async function match(h) {
       continue;
     }
     const rc = m.cameras.find((c) => c.photo === best.full.id);
-    const side = d.side ? sideIndex(d.side, n) : rc ? sideOfPoints(x, m, rc, best.match.pairs.map((p) => p.f)) : null;
+    const fPoints = best.match.pairs.map((p) => p.f);
+    const side = d.side ? sideIndex(d.side, n) : rc ? sideOfPoints(x, m, ext, rc, best.full.n, fPoints) : null;
     const pic = `${String(d.photo.n).padStart(2, "0")} on ${String(best.full.n).padStart(2, "0")}.jpg`;
     await sharp(await matchPicture(x, pxOf(best.full), pxOf(d.photo), best.camF, camD, best.match)).toFile(join(dir, pic));
-    const on = side !== null ? detailOnSide(x, m, h, d.photo, best.full, best.match.h, side) : null;
+    // Its points on that side's face, or it was laid on something else: another wall, a deck's rail in front of this one.
+    const share = side !== null && rc ? onFace(x, m, ext, rc, side, best.full.n, fPoints) / Math.max(1, fPoints.length) : 0;
+    const offFace = side !== null && rc && share < ON_FACE_SHARE;
+    const on = side !== null && !offFace ? detailOnSide(x, m, h, d.photo, best.full, best.match.h, side) : null;
     const row = {
       photo: d.photo.n,
       file: d.photo.file,
-      laid: true,
+      laid: !offFace,
+      ...(offFace ? { offFace: `${Math.round(share * 100)}% of its points on ${sideName(side, n)}'s face` } : {}),
       full: best.full.n,
       fullFile: best.full.file,
       side: side !== null ? sideName(side, n) : null,
@@ -237,7 +266,11 @@ export async function match(h) {
       words: best.words,
       checks: [],
     };
-    out.push(`  ${head} on #${best.full.n} ${best.full.file}${row.side ? ` (${row.side} ${row.sideName})` : rc ? " (no side: its points are on none)" : " (the full photo is not placed: no wall to read it on)"}: ${best.words}`);
+    out.push(
+      offFace
+        ? `  ${head}: matched to #${best.full.n} ${best.full.file}, but only ${Math.round(share * 100)}% of its points are on ${row.side} ${row.sideName}'s face - laid on something else (a deck's rail, a post, another wall): not used. Look at ${row.picture}.`
+        : `  ${head} on #${best.full.n} ${best.full.file}${row.side ? ` (${row.side} ${row.sideName})` : rc ? " (no side: its points are on none)" : " (the full photo is not placed: no wall to read it on)"}: ${best.words}`,
+    );
     if (on) {
       for (const t of tapesOn(h, inputs, d)) {
         const l = x.wallLine(on.sp, t.a, t.b);

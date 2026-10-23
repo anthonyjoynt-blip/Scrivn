@@ -21,10 +21,12 @@
  *      patches of it with edges both ways (a window's corner, the end of a sill, a keystone) found again in the full
  *      photo a few pixels round; the homography that best takes the one to the other (RANSAC, then least squares on the
  *      points that agree), at two finer scales. The levelling's last degree goes in this step.
- *   4. Kept only when enough patches agree, closely, the two photos' edges are alike laid one on the other, and the two
- *      squared photos are still nearly the same shape: a false place - on a repeating wall, or on a porch rail in front
- *      of it - has few points that agree, edges unalike or a wrong shape. On the owner's house (10-23) no close-up laid
- *      on a photo of another wall was kept.
+ *   4. Kept only when enough patches agree, to 2 px of the full photo, the two photos' edges are alike laid one on the
+ *      other, and the two squared photos are still nearly the same shape: a false place - on a repeating
+ *      wall, or on a porch rail in front of it - has few points that agree, edges unalike or a wrong shape. On the
+ *      owner's house (10-23) no close-up laid on a photo of another wall was kept. A plane parallel to the wall in front
+ *      of it (a deck's rail) passes all of these: whether the points are on the wall's face is the caller's to check,
+ *      with the wall as measured (scripts/house/match.mjs).
  *
  * Or from taps: 4 or more points the reviewer put on both photos (a window's corners, a trim corner), `matchFromTaps`.
  *
@@ -868,6 +870,8 @@ interface Refined {
   points: { d: [number, number]; f: [number, number] }[];
   /** The edges of the two squared alike over where both are: their normalised correlation at the finest step. */
   ncc: number;
+  /** The step it was made exact at (REFINE_STEPS), the last when every step held. */
+  step: number;
 }
 
 function refinePlace(detail: Source, hd: Mat3, boxD: Box, full: Source, hf: Mat3, boxF: Box, place: Place, coarsePpu: number): Refined | null {
@@ -875,7 +879,7 @@ function refinePlace(detail: Source, hd: Mat3, boxD: Box, full: Source, hf: Mat3
   let last: Refined | null = null;
   const fullPpu = full.cam.f;
   let ppuWas = coarsePpu;
-  for (const step of REFINE_STEPS) {
+  for (const [stepAt, step] of REFINE_STEPS.entries()) {
     // The close-up's outline on the full photo's frame, as placed now; cut to the full photo's.
     const pts: [number, number][] = [];
     for (const [s, t] of [
@@ -926,7 +930,7 @@ function refinePlace(detail: Source, hd: Mat3, boxD: Box, full: Source, hf: Mat3
       const w = toFrame(p.w);
       return { d: mapH(inv, w[0], w[1]) as [number, number], f: toFrame(p.f) };
     });
-    last = { hrr, pairs: pairs.length, inliers: fit.inliers.length, rms: fit.rms * (fullPpu / ppu), points, ncc };
+    last = { hrr, pairs: pairs.length, inliers: fit.inliers.length, rms: fit.rms * (fullPpu / ppu), points, ncc, step: stepAt };
   }
   return last;
 }
@@ -964,6 +968,8 @@ function nccOver(a: Float32Array, am: Uint8Array, b: Float32Array, bm: Uint8Arra
 export const MATCH_MIN_POINTS = 8;
 export const MATCH_MIN_SHARE = 0.4;
 export const MATCH_MIN_NCC = 0.15;
+/** And they agree to within this, in the full photo's pixels: a place only the coarse steps hold is not exact. */
+export const MATCH_MAX_RMS_PX = 2;
 /** Squared both, the two differ only by a scale and a shift: what's left of the levelling, at most - stretched one way more than the other, or turned. */
 const MATCH_MAX_STRETCH = 1.12;
 const MATCH_MAX_TURN_DEG = 4;
@@ -1082,7 +1088,9 @@ export function matchDetail(detail: MatchPhoto, full: MatchPhoto, opts: { log?: 
     const shape = shapeAt(r.hrr, 0, 0);
     const share = r.inliers / Math.max(1, r.pairs);
     const why =
-      r.inliers < MATCH_MIN_POINTS
+      r.rms > MATCH_MAX_RMS_PX
+        ? `its points agree only to ${r.rms.toFixed(1)} px of the full photo`
+        : r.inliers < MATCH_MIN_POINTS
         ? `${r.inliers} points agree (${MATCH_MIN_POINTS} wanted)`
         : share < MATCH_MIN_SHARE
           ? `${Math.round(share * 100)}% of the points agree`
