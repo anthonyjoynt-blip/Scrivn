@@ -7366,7 +7366,11 @@ test("a map outline holds the depth the photos can't: the box from the front onl
   const sol = x.solveRoute(withMap(input, { corners: onMap(BOX, -163, [512, -340]), source: "a test map" }), "main", data);
   near(sol.sides[1].lengthFeet, 30, "the right side, held by the map", 0.1);
   near(sol.sides[3].lengthFeet, 30, "the left side", 0.1);
-  assert(!sol.sides[1].notMeasured && sol.sides[1].fromMap && sol.sides[1].plusMinusPct <= 10, JSON.stringify(sol.sides[1]));
+  // The roof's overhang not known, the map's line is a roof's edge give or take 9" a wall: 30' held to ±12%, still not measured.
+  assert(sol.sides[1].fromMap && sol.sides[1].plusMinusPct === 12 && sol.sides[1].notMeasured, JSON.stringify(sol.sides[1]));
+  // A roof with no overhang (or a surveyed outline): ±9%, measured.
+  const tight = x.solveRoute({ ...input, buildings: [{ ...input.buildings[0], map: { corners: onMap(BOX, -163, [512, -340]) }, roofOver: { eaveFeet: 0, rakeFeet: 0 } }] }, "main", data);
+  assert(!tight.sides[1].notMeasured && tight.sides[1].fromMap && tight.sides[1].plusMinusPct <= 10, JSON.stringify(tight.sides[1]));
   near(sol.sides[0].lengthFeet, 40, "the taped front, as taped", 0.01);
   assert(!sol.sides[0].fromMap, "a taped side is the tape's, not the map's");
   near(sol.map.frontFacesDeg, 163, "the front's bearing, from the map's turn", 0.5);
@@ -7458,6 +7462,44 @@ test("where the map and the photos disagree it is said: a map 44' wide against a
   assert(words.some((w) => /^The map and the photos disagree: .* is 44' on the map, 40'/.test(w)), words.join(" | "));
 });
 
+// The owner's house with its roof (10-23, house-1022-gis): the porch under the main roof's slope, its roof's edge 5'6" out
+// past the porch wall (C8-C9), and the deck notch covered. The map runs along the roof's edges: its porch line there.
+const roofedMap = () => {
+  const T = OWNER_TRUE;
+  const porchY = T[7].y - 5.5;
+  return [T[0], { x: T[0].x, y: T[3].y }, { x: T[7].x, y: T[3].y }, { x: T[7].x, y: porchY }, { x: T[8].x, y: porchY }, { x: T[8].x, y: T[0].y }];
+};
+const ownerRoof = { eaveFeet: 1.5, rakeFeet: 1, gableSides: [11, 6, 1], coveredNotches: [4], porches: [{ side: 7, depthFeet: 5.5 }] };
+
+test("a map traces the roof's edges: the porch wall held its depth in from the porch roof's line, and the house comes out as taped", () => {
+  const { input, data } = ownerLoose();
+  const withRoof = (over) => ({ ...input, buildings: [{ ...input.buildings[0], map: { corners: onMap(roofedMap(), 17) }, ...(over ? { roofOver: over } : {}) }] });
+  // Not told of the porch: the porch wall is held on the porch roof's line, 5'6" too far out - the depth it took goes into
+  // the walls behind it (the AC side 3'6" long here; house-1022-gis's deck side came out 15'3" for 9'0").
+  const blind = x.solveRoute(withRoof(null), "main", data);
+  const told = x.solveRoute(withRoof(ownerRoof), "main", data);
+  const off = (sol, i, truth) => Math.abs(sol.sides[i].lengthFeet - truth);
+  assert(off(blind, 6, 29.17) > 2.5, `not told: the AC side ${blind.sides[6].lengthFeet.toFixed(2)} (29.17)`);
+  assert(off(told, 8, 24.83) < 1.2 && off(told, 6, 29.17) < 1.5 && off(told, 4, 9.08) < 1.5 && off(told, 0, 70.58) < 1.5, `told: ${told.sides.map((q) => q.lengthFeet.toFixed(2)).join(" ")}`);
+  const porchSide = told.map.sides.find((q) => q.traces === 7);
+  assert(porchSide && porchSide.inside.feet === 5.5, JSON.stringify(porchSide));
+  // The depth is held from the back's long side straight to the garage front, never through the porch roof's line.
+  assert(told.map.holds.some((h) => h.axis === "N" && [h.a, h.b].includes(11) && [h.a, h.b].includes(3)), JSON.stringify(told.map.holds.map((h) => [h.a, h.b, h.axis])));
+  const words = x.mapWords(told.map, told.sides.map((q) => q.lengthFeet));
+  assert(words.some((w) => /runs along a porch roof's edge: the wall from corner 8 to corner 9 held 5'6" in from it/.test(w)), words.join(" | "));
+  // A porch of no known depth: its wall is not held at all.
+  const unknown = x.solveRoute(withRoof({ ...ownerRoof, porches: [{ side: 7 }] }), "main", data);
+  assert(!unknown.map.holds.some((h) => h.a === 7 || h.b === 7), JSON.stringify(unknown.map.holds.map((h) => [h.a, h.b])));
+});
+
+test("a covered notch: its walls are never held, and the length they run counts for the wall at its mouth - no close call left", () => {
+  const { input, data } = ownerLoose();
+  const sol = x.solveRoute({ ...input, buildings: [{ ...input.buildings[0], map: { corners: onMap(roofedMap(), 17) }, roofOver: ownerRoof }] }, "main", data);
+  const back = sol.map.sides.find((q) => q.traces === 3);
+  // The back's line: on the rear wall C4-C5, the deck notch's back (C6-C7) counted with it; the bump-out's back no rival now.
+  assert(back && !back.close && !sol.map.sides.some((q) => q.traces === 4 || q.traces === 5), JSON.stringify(sol.map.sides.map((q) => [q.index, q.traces, q.close ?? null])));
+});
+
 test("the shape as drawn never outweighs the map: a 9' notch drawn as a 2' step still gives the map's depth", () => {
   const { input, data } = ownerLoose();
   // The covered deck's 9'1" side drawn 2': the drawing says a step; the map says how deep the house is to its back.
@@ -7507,7 +7549,7 @@ test("a side not measured because the tapes disagree says the tape to check; one
 
 test("with a map that holds the depth, nothing is asked of it; Finish and Use it never wait on an ask", () => {
   const { input, data } = boxFront();
-  const sol = x.solveRoute(withMap(input, { corners: onMap(BOX, 40) }), "main", data);
+  const sol = x.solveRoute({ ...input, buildings: [{ ...input.buildings[0], map: { corners: onMap(BOX, 40) }, roofOver: { eaveFeet: 0, rakeFeet: 0 } }] }, "main", data);
   assert(sol.sides.every((q) => !q.notMeasured), JSON.stringify(sol.sides.map((q) => q.notMeasured ?? null)));
   assert(x.notMeasuredAsks(landOf(input, data, sol).ext).length === 0, "nothing to ask");
 });

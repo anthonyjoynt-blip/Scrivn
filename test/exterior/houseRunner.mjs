@@ -127,6 +127,10 @@ console.log("\n  tapes.txt and house.txt");
     const withMap = routeInput({ photos: [], mapText: said }, box, {}, xw);
     const without = routeInput({ photos: [], mapText: said }, { ...box, map: false }, {}, xw);
     const typed = routeInput({ photos: [] }, { ...box, map: { corners: [[0, 0], [40, 0], [40, 30], [0, 30]], source: "typed" } }, {}, xw);
+    // The roof answers (scrivn/roof.json) go with the map: a map's line runs along the roof's edge (10-23).
+    const roofText = JSON.stringify({ overhangs: { eave: 1.5, rake: 1 }, ends: { "C1-C2": "gable", "C2-C3": "hip" }, notches: { "C2-C3": "covered" }, additions: [{ kind: "porch", side: "C3-C4", depthFeet: 7 }, { kind: "porch", side: "C4-C1" }] });
+    const roofed = routeInput({ photos: [], mapText: said, roofText }, box, {}, xw).input.buildings[0].roofOver;
+    check("roof.json goes on with a map: overhangs, gable ends, covered notches, porches with their depth (one with none said)", JSON.stringify(roofed) === JSON.stringify({ eaveFeet: 1.5, rakeFeet: 1, gableSides: [0], coveredNotches: [1], porches: [{ side: 2, depthFeet: 7 }, { side: 3 }] }) && !routeInput({ photos: [], roofText }, box, {}, xw).input.buildings[0].roofOver, JSON.stringify(roofed));
     check("the map goes on the building from map.txt, or typed in inputs.json; \"map\": false measures from the photos alone", withMap.input.buildings[0].map?.corners.length === 6 && !without.input.buildings[0].map && typed.input.buildings[0].map?.corners[2].y === 30 && typed.input.buildings[0].map.source === "typed", JSON.stringify(typed.input.buildings[0].map));
     const drawnWrong = routeInput({ photos: [] }, { shape: { from: "session", outline: [[0, 0], [40, 0], [40, 30], [0, 30]] }, walk: { turns: "O O O I O O" }, tapes: [] }, {}, xw);
     check("a shape drawn with other corners than the walk's is said, and stops the measure", drawnWrong.problems.some((p) => /^walk\.turns don't fit the shape drawn/.test(p)), drawnWrong.problems.join(" | "));
