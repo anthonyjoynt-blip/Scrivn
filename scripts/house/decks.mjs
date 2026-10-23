@@ -61,6 +61,39 @@ export function edgeWords(outline) {
  * The decks of inputs.json put on the measured exterior: each placed off its taps (or its sizes), its parts on its edges.
  * Returns the exterior with them, and per deck what was done and what wasn't, in words.
  */
+/**
+ * A length along a wall or an edge as inputs.json gives it: feet, or "start" (0) / "end" (its whole length, [length]).
+ * Undefined stays undefined; anything else is said in [why] and is null.
+ */
+export function feetAlong(v, length, what, why) {
+  if (v === undefined || v === null) return undefined;
+  if (v === "start") return 0;
+  if (v === "end") {
+    if (Number.isFinite(length)) return length;
+    why.push(`${what}: "end", but the length it runs to isn't known`);
+    return null;
+  }
+  const f = Number(v);
+  if (Number.isFinite(f)) return f;
+  why.push(`${what}: "${v}" is no length (feet, or "start" / "end")`);
+  return null;
+}
+
+/** A railing's or a screen's from/to along its edge, "start"/"end" read; null (said in [why]) when either is no length. */
+function partSpan(part, length, what, why) {
+  const fromFeet = feetAlong(part.fromFeet, length, `${what} fromFeet`, why);
+  const toFeet = feetAlong(part.toFeet, length, `${what} toFeet`, why);
+  if (fromFeet === null || toFeet === null) return null;
+  return { ...(fromFeet !== undefined ? { fromFeet } : {}), ...(toFeet !== undefined ? { toFeet } : {}) };
+}
+
+/** Edge k of a deck's outline, feet. */
+function edgeLength(outline, k) {
+  const a = outline[k];
+  const b = outline[(k + 1) % outline.length];
+  return a && b ? Math.hypot(b.x - a.x, b.y - a.y) : null;
+}
+
 export function placeDecks(x, h, inputs, ext, n) {
   const placed = [];
   let out = ext;
@@ -78,13 +111,23 @@ export function placeDecks(x, h, inputs, ext, n) {
       const p = photoOf(h, t.photo);
       return p ? [{ photo: p.id, point: t.point, x: Number(t.x), y: Number(t.y) }] : [];
     });
-    const bySize = Number.isFinite(d.fromFeet) && Number.isFinite(d.toFeet) && Number.isFinite(d.depthFeet);
+    const why = [];
+    // Along the wall by size: feet from its left end, or "start" / "end" (2026-10-22: a blind run's "toFeet": "end" went in
+    // as no number and the report's PDF came out NaN). The wall's length is the measured side's.
+    const wallFeet = out.sides.find((q) => q.id === sideId)?.lengthFeet ?? null;
+    const alongWall = feetAlong(d.fromFeet, wallFeet, `${name}: fromFeet`, why);
+    const toWall = feetAlong(d.toFeet, wallFeet, `${name}: toFeet`, why);
+    const sized = d.fromFeet !== undefined || d.toFeet !== undefined;
+    if (sized && (alongWall === null || toWall === null)) {
+      placed.push({ name, deck: null, why });
+      continue;
+    }
+    const bySize = Number.isFinite(alongWall) && Number.isFinite(toWall) && Number.isFinite(Number(d.depthFeet));
     let deck = null;
     let placing = null;
-    const why = [];
     if (bySize) {
       const ring = x.ringInSideFrame(out, sideId);
-      const outline = ring ? x.outlineToWalls(ring, d.fromFeet, d.toFeet, d.depthFeet) : [];
+      const outline = ring ? x.outlineToWalls(ring, alongWall, toWall, Number(d.depthFeet)) : [];
       if (outline.length >= 3) deck = { id, name, sideId, outline, heightFeet: 0, decking: "composite", railings: [], stairs: [], posts: null, screens: [], from: "hand" };
       else why.push("its sizes don't make an outline against that wall");
     } else {
@@ -110,7 +153,8 @@ export function placeDecks(x, h, inputs, ext, n) {
       decking: d.decking ?? deck.decking ?? "composite",
       railings: (d.railings ?? []).flatMap((r, i) => {
         const e = edge(r.edge, `railing ${i + 1}`);
-        return e === null ? [] : [{ id: `${id}-rail-${i + 1}`, ...r, edge: e, kind: r.kind ?? "aluminum", heightFeet: r.heightFeet ?? 3.5, from: "photo" }];
+        const span = e === null ? null : partSpan(r, edgeLength(deck.outline, e), `railing ${i + 1}`, why);
+        return e === null || !span ? [] : [{ id: `${id}-rail-${i + 1}`, ...r, ...span, edge: e, kind: r.kind ?? "aluminum", heightFeet: r.heightFeet ?? 3.5, from: "photo" }];
       }),
       stairs: (d.stairs ?? []).flatMap((s, i) => {
         const e = edge(s.edge, `stair ${i + 1}`);
@@ -119,9 +163,16 @@ export function placeDecks(x, h, inputs, ext, n) {
       posts: d.posts ? { ...d.posts, from: "photo" } : deck.posts ?? null,
       screens: (d.screens ?? []).flatMap((s, i) => {
         const e = edge(s.edge, `screen ${i + 1}`);
-        return e === null ? [] : [{ id: `${id}-screen-${i + 1}`, ...s, edge: e, material: s.material ?? "wood", from: "photo" }];
+        const span = e === null ? null : partSpan(s, edgeLength(deck.outline, e), `screen ${i + 1}`, why);
+        return e === null || !span ? [] : [{ id: `${id}-screen-${i + 1}`, ...s, ...span, edge: e, material: s.material ?? "wood", from: "photo" }];
       }),
     };
+    // Nothing that isn't a number goes on the exterior: a NaN there reached the report's PDF (2026-10-22).
+    const bad = [deck.heightFeet, deck.heightOutFeet, deck.topOnWallFeet, ...deck.outline.flatMap((q) => [q.x, q.y]), ...deck.railings.flatMap((r) => [r.fromFeet, r.toFeet, r.heightFeet]), ...deck.screens.flatMap((q) => [q.fromFeet, q.toFeet, q.heightFeet]), ...deck.stairs.flatMap((q) => [q.atFeet, q.widthFeet])].some((v) => v !== undefined && v !== null && !Number.isFinite(Number(v)));
+    if (bad) {
+      placed.push({ name, deck: null, why: [...why, "a size on it is no number: left out"] });
+      continue;
+    }
     out = x.withDeckAdded(out, deck);
     if (!bySize && Number.isFinite(d.depthFeet)) out = x.withDeckDepth(out, id, d.depthFeet);
     const now = x.decksOf(out).find((q) => q.id === id);

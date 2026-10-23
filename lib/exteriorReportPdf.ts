@@ -184,7 +184,11 @@ function fitFootprint(input: ReportPdfInput, part: Part, w: number, h: number): 
   const { report } = part;
   const fp = report.q.footprint;
   const nameOf = (id: string) => allSides(report.exterior).find((s) => s.id === id)?.name.trim() || "Side";
-  const approx = (id: string) => report.exterior.sides.find((s) => s.id === id)?.lengthFrom === "drawn";
+  // About that long: drawn, or not measured (2026-10-22).
+  const approx = (id: string) => {
+    const s = report.exterior.sides.find((q) => q.id === id);
+    return s?.lengthFrom === "drawn" || !!s?.lengthNotMeasured;
+  };
   const upper = report.q.upperFootprint?.closes ? report.q.upperFootprint.corners : null;
   const plusMinus = plusMinusOf(report.exterior);
   // Each scale tried with the lettering it gives, so the names that widen the frame are in what is measured.
@@ -316,7 +320,10 @@ function roofPage(doc: jsPDF, input: ReportPdfInput, part: Part): void {
     slopes: R.slopes ?? null,
     edges: R.edges ?? null,
     ridgeVents: R.ridgeVents ?? [],
-    approx: (id: string) => report.exterior.sides.find((s) => s.id === id)?.lengthFrom === "drawn",
+    approx: (id: string) => {
+      const s = report.exterior.sides.find((q) => q.id === id);
+      return s?.lengthFrom === "drawn" || !!s?.lengthNotMeasured;
+    },
     plusMinus: plusMinusOf(report.exterior),
     shared: sharedOf(report.exterior),
     frontFacesDeg: frontFacesOf(report.exterior),

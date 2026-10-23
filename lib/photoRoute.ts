@@ -29,7 +29,7 @@ import { snapToEdge, type UprightEdge } from "./photoRouteEdges";
 import { formatFeetInches } from "./sketch";
 import { isWalkShape, type RouteWalk, type WalkTag } from "./photoRouteWalk";
 import type { Gray } from "./photoRouteLines";
-import { planDirection, resect, type SolveBearing, type SolveCamera, type SolveDistance, type SolvePoint, type SolveWall, solvePlan, type Solution } from "./photoRouteSolve";
+import { planDirection, resect, type SolveBearing, type SolveCamera, type SolveDistance, type SolveInput, type SolvePoint, type SolveWall, solvePlan, type Solution } from "./photoRouteSolve";
 
 export const PHOTO_ROUTE_FORMAT = "scrivn-photo-route/1";
 
@@ -269,6 +269,12 @@ export interface RouteSide {
    * is wrong and a tape on the side settles which. The length and ± are the measure's, unmoved.
    */
   estimateCheck?: EstimateCheck;
+  /**
+   * Not measured (2026-10-22, honest sizes): a long wall the photos hold no better than ±10%, or every untaped side when the
+   * tapes disagree by more than 5% held out. Why, and the one photo or measurement that would measure it. The length is
+   * still the solve's, to draw with, but it is said as not measured - never printed as a size.
+   */
+  notMeasured?: { why: string; fix: string };
 }
 
 /** A side's measure against a size estimated on site (`RouteSide.estimateCheck`). */
@@ -1043,7 +1049,7 @@ export function solveRoute(input: PhotoRouteInput, buildingId: string, data: Rou
   const hold = opts.holdPct ?? (isWalkShape(b) ? WALK_HOLD : 0.35);
   const extentX = Math.max(...b.outline.map((p) => p.x)) - Math.min(...b.outline.map((p) => p.x));
   const extentY = Math.max(...b.outline.map((p) => p.y)) - Math.min(...b.outline.map((p) => p.y));
-  const scaleHold = (inp: ReturnType<typeof build>): ReturnType<typeof build>["input"] => {
+  const scaleHold = (inp: ReturnType<typeof build>): SolveInput => {
     const drawn: SolveDistance[] = [];
     for (let i = 0; i < n; i++) {
       if (estimates.has(i)) continue;
@@ -1053,7 +1059,8 @@ export function solveRoute(input: PhotoRouteInput, buildingId: string, data: Rou
       const extent = prev.axis === "E" ? extentX : extentY;
       drawn.push({ id: `drawn:${i}`, a: `wall:${prev.id}`, b: `wall:${next.id}`, axis: prev.axis, feet, sdFeet: Math.max(1, feet * hold, extent * (tune.holdFloor ?? 0)) });
     }
-    return { ...inp.input, distances: [...inp.input.distances, ...drawn] };
+    // The shape as drawn holds the solve, but it is no measurement: the ± leaves it out (`sigmaInformed`).
+    return { ...inp.input, distances: [...inp.input.distances, ...drawn], uninformed: ["drawn:"] };
   };
   void roughPerimeter;
 
@@ -1240,7 +1247,10 @@ export function solveRoute(input: PhotoRouteInput, buildingId: string, data: Rou
     const next = walls[(i + 1) % n] as SolveWall;
     const len = (x: Float64Array) => Math.abs(sol.wall(next.id, x) - sol.wall(prev.id, x));
     const L = len(sol.x);
-    const sd = sol.sigma(len);
+    // The ± from what was measured: the photos and the tapes, not the shape as drawn (2026-10-22: on a test house a depth
+    // the photos left loose followed whatever the reviewer drew, at the same fit, and was said to be good to ±10%). The old
+    // way, or with no tape (the drawing is then the only size, and said so), as it was.
+    const sd = legacy || !scaled ? sol.sigma(len) : sol.sigmaInformed(len);
     const taped = tapedSides.has(i);
     // The proof's ± ran about twice the formal sd (its variants' spread); never under 2%.
     const pct = taped ? null : Math.max(2, Math.round(((2 * sd) / Math.max(L, 0.1)) * 100));
@@ -1281,7 +1291,7 @@ export function solveRoute(input: PhotoRouteInput, buildingId: string, data: Rou
     rms: sol.rms,
     unscaled: !scaled,
     tapesOnDetail,
-    advice: tapeAdvice(sides, ring, cameras, taps, edgePoints, new Set(b.shared ?? [])),
+    advice: tapeAdvice(markLongWalls(sides, ring, cameras.filter((c) => c.role !== "detail"), taps, edgePoints, legacy || !scaled), ring, cameras, taps, edgePoints, new Set(b.shared ?? [])),
     edgePoints: edgePoints.map((q) => ({ id: q.id, side: q.side, along: sol.input.points.some((x) => x.id === q.id) ? alongOf(sol, q.id, ring, q.side) : q.along, photos: q.obs.map((o) => o.photo), zLow: medianOf(q.obs.map((o) => o.zLow)), zHigh: medianOf(q.obs.map((o) => o.zHigh)), polarity: (q.obs[0] as EdgeObs).polarity })),
     solution: sol,
   };
@@ -2055,6 +2065,74 @@ export const placeSteps = { placeByEdges, tiedPoints };
  * Which sides want a tape, and why, in plain words: any whose ± is over 5%, and any whose measure disagrees with what
  * was estimated on site. Advice only: nothing waits on it.
  */
+/** A wall this long or longer is a long wall: its ± over `NOT_MEASURED_PCT` makes it not measured (a short step or jog stays "to check"). */
+export const LONG_WALL_FEET = 15;
+/** A long wall the photos hold no better than this, ± percent, is not measured. */
+export const NOT_MEASURED_PCT = 10;
+
+/** How the placed measure photos saw side i: the squarest any faced it (degrees), which of its corners were tapped, its tied edges. */
+function sideSeen(i: number, ring: Pt[], cameras: RouteCamera[], taps: SnappedTap[], points: { side: number }[]): { squarest: number; ends: number[]; edges: number } {
+  const n = ring.length;
+  const A = ring[i] as Pt;
+  const B = ring[(i + 1) % n] as Pt;
+  const nrm = outward(A, B);
+  const mid = { x: (A.x + B.x) / 2, y: (A.y + B.y) / 2 };
+  let squarest = 0;
+  for (const c of cameras) {
+    const v = { x: mid.x - c.at[0], y: mid.y - c.at[1] };
+    const L = Math.hypot(v.x, v.y) || 1;
+    const facing = -(v.x * nrm.x + v.y * nrm.y) / L;
+    if (facing > 0) squarest = Math.max(squarest, (Math.asin(Math.min(1, facing)) * 180) / Math.PI);
+  }
+  const placed = new Set(cameras.map((c) => c.photo));
+  return { squarest, ends: [i, (i + 1) % n].filter((k) => taps.some((t) => t.corner === k && placed.has(t.photo))), edges: points.filter((p) => p.side === i).length };
+}
+
+/**
+ * Each long wall the photos hold no better than ±10% marked not measured (2026-10-22), with why and the one thing that would
+ * measure it: a far-back photo at 45° to a corner of it no measure photo shows; a tape along it when it was only seen from
+ * along it (a side yard) or the photos round it just don't hold it. [off]: not marked (the old way, or no tape at all).
+ */
+function markLongWalls(sides: RouteSide[], ring: Pt[], cameras: RouteCamera[], taps: SnappedTap[], points: { side: number }[], off: boolean): RouteSide[] {
+  if (off) return sides;
+  const n = ring.length;
+  for (const s of sides) {
+    if (s.taped || s.plusMinusPct === null || s.plusMinusPct <= NOT_MEASURED_PCT || s.lengthFeet < LONG_WALL_FEET) continue;
+    const i = s.from;
+    const seen = sideSeen(i, ring, cameras, taps, points);
+    const missing = [i, (i + 1) % n].find((k) => !seen.ends.includes(k));
+    const name = `corner ${i + 1} to corner ${((i + 1) % n) + 1}`;
+    if (missing !== undefined && seen.squarest >= 25) {
+      s.notMeasured = { why: `±${s.plusMinusPct}%: corner ${missing + 1} is on no photo that sizes the house`, fix: `A photo from far back at 45° to corner ${missing + 1}, both its walls in, measures it - or a tape along it, ${name}.` };
+    } else if (seen.squarest < 25) {
+      s.notMeasured = { why: `±${s.plusMinusPct}%: it was only seen from along it (a side yard, a narrow gap), never faced`, fix: `A tape along it, ${name}, measures it.` };
+    } else {
+      s.notMeasured = { why: `±${s.plusMinusPct}%: the photos round it don't hold it`, fix: `A tape along it, ${name}, measures it.` };
+    }
+  }
+  return sides;
+}
+
+/**
+ * Every untaped side marked not measured when the tapes that size the house disagree by more than 5% held out (2026-10-22,
+ * lib/photoRouteCheck.ts): the scale is no better than that anywhere. The fix named is the tape most off - [tape] in words,
+ * and how far the others put it off.
+ */
+export function tapesDisagree(sides: RouteSide[], worstPct: number, tape: string, offPct: number): RouteSide[] {
+  return sides.map((s) =>
+    s.taped
+      ? s
+      : {
+          ...s,
+          notMeasured: {
+            why: `the tapes disagree by up to ${worstPct.toFixed(1)}%, held out in turn${s.notMeasured ? `; and ${s.notMeasured.why}` : ""}`,
+            // One fix each: a side loose by itself keeps its own (checking the tape would not measure it); the rest, the tape.
+            fix: s.notMeasured ? s.notMeasured.fix : `Check ${tape} again: the others put it ${offPct >= 0 ? "+" : ""}${offPct.toFixed(1)}% off - what was taped, and its ends.`,
+          },
+        },
+  );
+}
+
 function tapeAdvice(sides: RouteSide[], ring: Pt[], cameras: RouteCamera[], taps: SnappedTap[], points: { side: number; obs: EdgeObs[] }[], shared: Set<number> = new Set()): { from: number; why: string }[] {
   const n = ring.length;
   const out: { from: number; why: string }[] = [];

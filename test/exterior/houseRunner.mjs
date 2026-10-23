@@ -28,6 +28,8 @@ import { scrivn } from "../../scripts/house/code.mjs";
 import { parseFixes } from "../../scripts/house/review.mjs";
 import { planSvg } from "../../scripts/house/sheets.mjs";
 import { makeRequestFolder } from "./houseRequestFolder.mjs";
+import { placeDecks } from "../../scripts/house/decks.mjs";
+import { openHouse } from "../../scripts/house/folder.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const FX = (f) => join(here, "fixtures", f);
@@ -212,6 +214,24 @@ if (!existsSync(PHOTOS)) {
     rearDeck && porch ? `rear ${span(rearDeck).toFixed(2)} ft along, porch ${span(porch).toFixed(2)} ft` : "not placed",
   );
   check("all three run across the house: results say nothing checks its depth", /none runs front to back/.test(res.depthNote ?? ""));
+  // A deck by size said "start" / "end" along its wall and a railing to its edge's "end" (10-22: a blind run's "toFeet": "end"
+  // went in as no number and the PDF came out NaN): read as the wall's and the edge's ends; a word that is no length refused.
+  {
+    const xd = await scrivn();
+    const hd = await openHouse(dir);
+    const measured = json(join(dir, "scrivn", "measured.json"));
+    const nd = measured.photoRoute.measured.sideIds.length;
+    const ends = placeDecks(xd, hd, { decks: [{ name: "Side deck", side: "C7-C8", fromFeet: "start", toFeet: "end", depthFeet: 6, railings: [{ edge: "outer", kind: "wood", fromFeet: 0, toFeet: "end" }] }] }, measured, nd);
+    const wrong = placeDecks(xd, hd, { decks: [{ name: "Odd deck", side: "C7-C8", fromFeet: 0, toFeet: "middle", depthFeet: 6 }] }, measured, nd);
+    const sd = ends.placed[0]?.deck;
+    const wallFeet = measured.sides.find((q) => q.id === measured.photoRoute.measured.sideIds[6])?.lengthFeet;
+    const allNumbers = (v) => (Array.isArray(v) ? v.every(allNumbers) : v && typeof v === "object" ? Object.values(v).every(allNumbers) : typeof v !== "number" || Number.isFinite(v));
+    check(
+      "a deck by size along \"start\" to \"end\" of its wall, a railing to its edge's \"end\": numbers, the whole wall; \"middle\" is said and the deck left out",
+      sd && Math.abs(span(sd) - wallFeet) < 0.05 && sd.railings[0].toFeet > 0 && Number.isFinite(sd.railings[0].toFeet) && allNumbers(sd) && wrong.placed[0].deck === null && wrong.placed[0].why.some((w) => /"middle" is no length/.test(w)),
+      `${sd ? `${span(sd).toFixed(2)} along of ${wallFeet?.toFixed(2)}, railing to ${sd.railings[0]?.toFeet}` : "not placed"}; ${wrong.placed[0]?.why.join("; ")}`,
+    );
+  }
   // The sizes estimated on site, checked: listed in results.md, the disagreeing one worth a look with a tape asked, scaling nothing.
   const resMd = readFileSync(join(dir, "scrivn", "results.md"), "utf8");
   const [bumpCheck, keyCheck] = ["C6-C7", "C12-C1"].map((sd) => res.estimateChecks.find((c) => c.side === sd));

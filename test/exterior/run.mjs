@@ -78,7 +78,7 @@ async function load() {
       `export * from "${lib("roofCheck.ts")}";`,
       `export * from "${lib("exteriorCheck.ts")}";`,
       `export { cornerPlace, routeCoverage, viewsFromMeasure } from "${lib("photoRouteCoverage.ts")}";`,
-      `export { checkEstimate, columnBearing, defaultShared, facingOf, numberCorners, partyCorners, routeSteps, shotNumbers, solveRoute, WALK_HOLD } from "${lib("photoRoute.ts")}";`,
+      `export { checkEstimate, columnBearing, defaultShared, facingOf, numberCorners, partyCorners, routeSteps, shotNumbers, solveRoute, tapesDisagree, WALK_HOLD } from "${lib("photoRoute.ts")}";`,
       `export { alignLap, facingWords, isWalkShape, lapCloses, walkPhotoWords, lapOutline, lapProblem, lapTurns, newWalk, ringTurns, measureWords, ringItems, walkAddCorner, walkInsertCorner, walkRemoveCorner, walkSetTurn, walkAddPhoto, walkFinish, walkMissing, walkRemoveLastCorner, walkRemovePhoto, walkReopen, withRingStart, walkAddMeasure, walkBack, walkClose, walkHasMeasure, walkHomeType, walkMeasured, walkMeasures, walkPhotos, walkRemoveMeasure, walkShot, walkSkip, walkStep, walkSummary, walkTake, walkTurn, walkUnplaced, withoutPhotos, withWalk, walkFromTurns, parseTurns, roleShot } from "${lib("photoRouteWalk.ts")}";`,
       `export { cornerEdges } from "${lib("photoRouteFind.ts")}";`,
       `export { holdOutTapes, lineFeet, selfCheck, worstPct } from "${lib("photoRouteCheck.ts")}";`,
@@ -7291,6 +7291,46 @@ test("a line on a placed photo measured on the solved house (lineFeet): a tape's
   const sol = x.solveRoute(r.input, "main", r.data);
   const m = x.lineFeet(sol, r.data, "front", [a.x, a.y], [b.x, b.y]);
   near(m?.feet ?? 0, 8, "8' along the front, read back", 0.15);
+});
+
+
+test("honest sizes: a long wall whose far corner no photo shows is NOT measured, with the photo that would measure it; never printed as a size", () => {
+  // The box from the front only: its back corners on no photo, the front taped. The drawing holds the depth; it is no measurement.
+  const front = [
+    ["front", [20, -50], { x: 20, y: 15 }, [{ c: 0 }, { c: 1 }]],
+    ["front-right", [62, -22], { x: 40, y: 0 }, [{ c: 0 }, { c: 1 }]],
+    ["front-left", [-22, -22], { x: 0, y: 0 }, [{ c: 0 }, { c: 1 }]],
+  ];
+  const { input, data } = synRoute(BOX, BOX_DRAWN, "detached", front, [{ id: "front", kind: "side", from: 0, feet: 40 }]);
+  const sol = x.solveRoute(input, "main", data);
+  const right = sol.sides[1];
+  assert(right.notMeasured && right.plusMinusPct > 10 && /corner 3 is on no photo that sizes the house/.test(right.notMeasured.why) && /far back at 45° to corner 3/.test(right.notMeasured.fix), JSON.stringify(right));
+  assert(!sol.sides[0].notMeasured, "the taped front is measured");
+  // The old way said the drawing's depth as if measured.
+  const old = x.solveRoute(input, "main", data, { sizePhotos: "all" });
+  assert(!old.sides[1].notMeasured && old.sides[1].plusMinusPct < right.plusMinusPct, `old ±${old.sides[1].plusMinusPct}% against ±${right.plusMinusPct}%`);
+  // Landed and reported: said NOT measured, about that long, with what would measure it - the side's heading too.
+  const { ext } = landOf(input, data, sol);
+  const s = ext.sides.find((q) => q.lengthNotMeasured);
+  assert(s && /corner 3/.test(s.lengthNotMeasured), JSON.stringify(ext.sides.map((q) => [q.name, q.lengthNotMeasured])));
+  const rep = x.exteriorReport(ext, { title: "Box", date: "2026-10-22", madeWith: "Scrivn" });
+  const sec = rep.sides.find((q) => q.side.id === s.id);
+  assert(/about .*NOT measured/.test(sec.heading) && /^NOT measured: about /.test(sec.dims[0]), `${sec.heading} | ${sec.dims[0]}`);
+  assert(rep.notes.some((nn) => /^NOT measured: /.test(nn)) && rep.notes.some((nn) => /A photo from far back at 45° to corner 3/.test(nn)), rep.notes.join(" | "));
+});
+
+test("honest sizes: tapes that disagree make every untaped side not measured, one fix each - the tape most off, or a loose side's own; taped sides stand", () => {
+  const { input, data } = synRoute(BOX, BOX_DRAWN, "detached", boxShots, [{ id: "front", kind: "side", from: 0, feet: 40 }]);
+  const sol = x.solveRoute(input, "main", data);
+  const marked = x.tapesDisagree(sol.sides, 8.4, "tape t1 (garage doors)", -8.4);
+  // One fix each: a side loose by itself (the corners alone hold this box's depth only so well) keeps its own; the rest name the tape.
+  assert(
+    !marked[0].notMeasured &&
+      marked.slice(1).every((q) => q.notMeasured && /disagree by up to 8.4%/.test(q.notMeasured.why)) &&
+      marked.some((q) => /^Check tape t1 \(garage doors\) again: the others put it -8.4% off/.test(q.notMeasured?.fix ?? "")) &&
+      marked.every((q, i) => !sol.sides[i].notMeasured || q.notMeasured.fix === sol.sides[i].notMeasured.fix),
+    JSON.stringify(marked.map((q) => q.notMeasured ?? null)),
+  );
 });
 
 console.log(`\n${passed.length} passed, ${failures.length} failed`);

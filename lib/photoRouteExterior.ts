@@ -182,10 +182,11 @@ export function exteriorFromRoute(prev: Exterior | undefined, state: PhotoRouteS
     const old = before.get(id);
     // A side measured again keeps what was put on it, stretched with its new length.
     const base: ExteriorSide = old ? stretched(old, s.lengthFeet) : { ...s, id };
-    const { lengthFrom: _drawn, lengthPlusMinusPct: _pm, lengthEstimatedFeet: _est, ...rest } = base;
+    const { lengthFrom: _drawn, lengthPlusMinusPct: _pm, lengthEstimatedFeet: _est, lengthNotMeasured: _nm, ...rest } = base;
     const side: ExteriorSide = { ...rest, id, name: old?.name ?? s.name, lengthFeet: s.lengthFeet, turn: s.turn, heightsFrom: "level" };
     if (measured && measured.plusMinusPct !== null) side.lengthPlusMinusPct = measured.plusMinusPct;
     if (measured?.estimated && !measured.taped) side.lengthEstimatedFeet = measured.estimated.feet;
+    if (measured?.notMeasured && !measured.taped) side.lengthNotMeasured = `${measured.notMeasured.why}. ${measured.notMeasured.fix}`;
     // A party wall (2026-10-17): shared with the neighbour, so nothing on it counts, and no photo of it.
     // Said on the route it is the route's; a route from before says nothing, and the side keeps its own.
     const isShared = shared ? shared.has(i) : side.shared === true;
@@ -204,6 +205,7 @@ export function exteriorFromRoute(prev: Exterior | undefined, state: PhotoRouteS
   const notes = [
     `Measured from ${placed} of ${state.photos.length} photo${state.photos.length === 1 ? "" : "s"} and ${tapes.length} tape${tapes.length === 1 ? "" : "s"}${estimated ? `, with ${estimated} side${estimated === 1 ? "" : "s"} estimated on site by eye (not taped)` : ""}.`,
     ...(detail ? [`${detail} more photo${detail === 1 ? " was" : "s were"} placed on it only to read the walls; they sized nothing.`] : []),
+    ...(m.sides.some((s) => s.notMeasured && !s.taped) ? [`Not measured: ${m.sides.filter((s) => s.notMeasured && !s.taped).length} of its sides - the photos and tapes don't hold them; each says what would measure it.`] : []),
     ...(tapes.length === 0 ? [estimated ? "No tape: the sizes follow the sides estimated on site and the shape as drawn, and are not to scale." : "No tape: the sizes follow the shape as drawn, and are not to scale."] : []),
   ];
   const { homeType: _was, ...prevRest } = prev ?? ({} as Partial<Exterior>);
