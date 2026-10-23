@@ -8,6 +8,7 @@ node scripts/house/run.mjs <folder> check          # ~15 s: writes review.png, w
 node scripts/house/run.mjs <folder> fix            # scrivn/fixes.txt into inputs.json, then check again
 node scripts/house/run.mjs <folder> measure        # ~25-35 s, hold-outs included: review.png again
 node scripts/house/run.mjs <folder> fix --measure  # the measure's fixes, then measure again
+node scripts/house/run.mjs <folder> match          # ~5-15 s a close-up: each laid on its wall's full photo, tapes on them checked
 node scripts/house/run.mjs <folder> read           # ~15 s: every side from every photo, read.txt; reading.json's answers in
 node scripts/house/run.mjs <folder> report         # ~4 s
 node scripts/house/run.mjs <folder> zoom 7 1290,1260 1400,1150 --half 100     # close looks, any time
@@ -151,6 +152,29 @@ It runs the route's measure (lines, lens, levelling, the plan bundle solve with 
 - **The tapes' directions**: when every tape runs the same way (across the front, say), nothing checks the other way, and results.md says so. A tape on a side running the other way checks it.
 - **Not measured** (2026-10-22, honest sizes). A long wall (15' or more) the photos hold no better than ±10%, or every untaped side when the tapes that size the house disagree by more than 5% held out (after the self-check), is **NOT measured**: results.md lists each under **Not measured** with the one photo or tape that would measure it (a far-back photo at 45° to the corner no measure photo shows; a tape along a side only ever seen from along it; the tape the others put furthest off, to check), and the report says "NOT measured: about ..." - its length is drawn with, never printed as a size. Each says plainly what settles it, the one wall named (2026-10-23): "A tape or laser along it, C9-C10 Garage left side, settles it", or, where one wall's tape settles several (a box's depth: both side walls), that wall for each and "One tape or laser along C2-C3 ... settles 2 of the 3 not measured" at the top; the app's measure and the Scrivn team's Use-it step say the same in words, and nothing waits on it. The ± leave out the shape as drawn: it holds the solve where the photos say nothing, but it is no measurement, so a side only it holds reads with a wide ±.
 - **The ± are the solve's own**, about twice its sd. With two or three corners a photo, a box's depth rests on each photo's turn, which its vanishing points give to about a degree; a side whose inside corner shows in no photo reads ±30% or more. **A side with ± over 5% wants a tape: the advice names it.**
+
+### 6b. Close-ups on their wall: `match`
+
+The owner's capture (10-23) is each wall's full photo, straight on and from far back, then a few close-ups of it ("Take more of this wall"). A close-up sizes nothing; `run.mjs <folder> match` lays each one **exactly** on its wall's full photo (lib/photoRouteMatch.ts): a wall is flat, so one homography takes every pixel of the close-up that is on the wall to the full photo's pixel of the same point. Found in code - both photos squared up to the wall from their own levelling, the scale and shift between them searched, then made exact on small patches that agree (a window's corner, a sill's end), a homography fitted to them - or from 4 or more points you tap on both. Then:
+
+- `scrivn/match/NN on MM.jpg`: the two photos in a checkerboard round where the close-up lies, the points that agree in yellow. **Look at each**: where they agree, the wall's lines (window frames, trim, the parging line) run straight through the squares; anything in front of the wall (a railing, a post, a deck) won't, and needn't.
+- `read` adds each close-up to its side's sheet in `read/`, squared at the wall's scale and at the close-up's own resolution: read openings, trim, keystones and parging off it as off any view (the grid is the side's feet).
+- A tape whose ends are on a close-up is checked: how long the wall the measure scaled makes it, and again **with that tape held out** (the house measured again without it) - the honest number. match.json keeps both.
+
+Which close-up goes with which wall: a pulled request's walk says it (each "more of this wall" photo with the wall's first photo). For a folder of photos, `inputs.json` `details`:
+
+```json
+"details": [
+  {"photo": 22, "full": 33},
+  {"photo": 17, "full": [31, 30]},
+  {"photo": 2, "full": 35, "tapes": [{"tape": "t5", "a": [915.8, 1050], "b": [1082.3, 1050]}]},
+  {"photo": 8, "full": 36, "side": "C8-C9", "taps": [[1218, 288, 560, 591], [1410, 330, 655, 596], [1418, 560, 653, 698], [1497, 185, 735, 638]]}
+]
+```
+
+`full` may be a list (each tried, the best kept); `side` is found from where the matched points are, seen from the full photo, unless given; `tapes` are a tape's ends read off the close-up, to check (its length from `tapes`); `taps` are `[x, y]` on the close-up then `[x, y]` on the full photo, for each of 4 or more points **on the wall's face** (not a post or a rail in front of it) - when code finds no place, which match says, with why.
+
+What code finds and what it doesn't (house-1022-corners, 10-23): close-ups of a wall with its own lines on it (windows, trim) and a full photo of the same face - laid in code, 0.4-0.7 px off, including one taken on another day; tape close-ups (a hand-span of wall), walls behind a porch's columns and rail, photos into the sun - not, and say so: tap 4 points. In 8 tries against a photo of another wall none was laid.
 
 ### 7. Read the walls: `read`, then `reads.json`
 

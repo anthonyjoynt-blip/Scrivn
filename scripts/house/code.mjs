@@ -22,9 +22,9 @@ export async function scrivn() {
   writeFileSync(
     join(outDir, "entry.ts"),
     [
-      ...["photoRoute.ts", "photoRouteData.ts", "photoRouteExterior.ts", "photoRouteLens.ts", "photoRouteEdges.ts", "photoRouteCoverage.ts", "photoRouteFind.ts", "exteriorPhoto.ts", "exteriorCheck.ts", "roofCheck.ts"].map((f) => `export * from "${lib(f)}";`),
+      ...["photoRoute.ts", "photoRouteData.ts", "photoRouteExterior.ts", "photoRouteLens.ts", "photoRouteEdges.ts", "photoRouteCoverage.ts", "photoRouteFind.ts", "photoRouteMatch.ts", "exteriorPhoto.ts", "exteriorCheck.ts", "roofCheck.ts"].map((f) => `export * from "${lib(f)}";`),
       `export { exifFocal35, focalOverWidth } from "${lib("photoRouteExif.ts")}";`,
-      `export { walkFromTurns, parseTurns, roleShot, lapOutline, alignLap, lapTurns, ringTurns } from "${lib("photoRouteWalk.ts")}";`,
+      `export { walkFromTurns, parseTurns, roleShot, lapOutline, alignLap, lapTurns, ringTurns, wallCloseUps } from "${lib("photoRouteWalk.ts")}";`,
       `export { routeSanity } from "${lib("photoRouteSanity.ts")}";`,
       `export { holdOutTapes, lineFeet, selfCheck, worstPct, TAPES_AGREE_PCT } from "${lib("photoRouteCheck.ts")}";`,
       `export { planDirection, resect } from "${lib("photoRouteSolve.ts")}";`,

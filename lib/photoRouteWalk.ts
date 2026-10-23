@@ -821,6 +821,14 @@ export function walkPhotos(walk: RouteWalk): { photo: string; tag: WalkTag; stop
 }
 
 /**
+ * Each "more of this wall" photo with its wall's first, the full one (2026-10-23): the close-ups to lay exactly on it
+ * (lib/photoRouteMatch.ts), the front's and each side's. A close-up laid so is read at the wall's scale; it sizes nothing.
+ */
+export function wallCloseUps(walk: RouteWalk): { photo: string; full: string; stop: number }[] {
+  return walk.stops.flatMap((s, i) => ((s.kind === "side" || s.kind === "front") && s.photos.length > 1 ? s.photos.slice(1).map((photo) => ({ photo, full: s.photos[0] as string, stop: i })) : []));
+}
+
+/**
  * What a photo of the walk names on the outline (`RoutePhoto.shot`), the walk's corner k at outline corner (k - 1 + shift)
  * mod m: a corner's 45 that corner; a side straight on its wall; the front the run of walls from where the walk first came
  * back to facing the street round to the front's right-hand corner - the whole front, with any steps in it; an inside
