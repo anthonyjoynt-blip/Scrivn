@@ -29,7 +29,7 @@ import { snapToEdge, type UprightEdge } from "./photoRouteEdges";
 import { formatFeetInches } from "./sketch";
 import { isWalkShape, type RouteWalk, type WalkTag } from "./photoRouteWalk";
 import type { Gray } from "./photoRouteLines";
-import { fitMapOutline, mapCheck, type MapFit, type MapHold, type MapOutline, type RouteMapCheck, sameHolds } from "./photoRouteMap";
+import { fitMapOutline, mapCheck, type MapFit, type MapHold, type MapOutline, type MapRoofOver, type RouteMapCheck, sameHolds } from "./photoRouteMap";
 import { planDirection, resect, type SolveBearing, type SolveCamera, type SolveDistance, type SolveInput, type SolvePoint, type SolveWall, solvePlan, type Solution } from "./photoRouteSolve";
 
 export const PHOTO_ROUTE_FORMAT = "scrivn-photo-route/1";
@@ -204,6 +204,12 @@ export interface RouteBuilding {
    * the photos can't fix - and where the two disagree it is said.
    */
   map?: MapOutline;
+  /**
+   * What the roof covers past the walls (2026-10-23, `MapRoofOver`): its overhangs, gable ends, covered notches and the
+   * porches under it - a map traced from above runs along the roof's edge, so with a map each wall is held as far in from
+   * its line as the roof stands out. Absent: up to an eave's overhang, nothing covered.
+   */
+  roofOver?: MapRoofOver;
 }
 
 export interface PhotoRouteInput {
@@ -923,7 +929,7 @@ export interface SolveRouteOptions {
 export function solveRoute(input: PhotoRouteInput, buildingId: string, data: RoutePhotoData[], opts: SolveRouteOptions = {}): RouteSolution {
   const b = input.buildings.find((x) => x.id === buildingId);
   if (!b) throw new Error(`No building ${buildingId}`);
-  if (b.map && opts.map !== false && !opts.mapHolds) return solveWithMap(input, buildingId, data, opts, b.map);
+  if (b.map && opts.map !== false && !opts.mapHolds) return solveWithMap(input, buildingId, data, opts, b.map, b.roofOver);
   const n = b.outline.length;
   const byId = new Map(data.map((d) => [d.id, d]));
   const tapes = b.tapes.filter((t) => !(opts.withoutTapes ?? []).includes(t.id));
@@ -1369,15 +1375,24 @@ function stretchedToMap(outline: Pt[], holds: MapHold[]): Pt[] {
       const c = outline[(i + 1) % n] as Pt;
       return axis === "E" ? (a.x + c.x) / 2 : (a.y + c.y) / 2;
     };
-    // The held walls in the map's order, each where the map puts it from the first.
-    const knots: [number, number][] = [];
-    for (const h of holds.filter((q) => q.axis === axis)) {
-      if (!knots.length) knots.push([at(h.a), at(h.a)]);
-      // Each held from one already put (they run in a chain); one that doesn't leaves this way as drawn.
-      const base = knots.find((k) => k[0] === at(h.a));
-      if (!base) return (v) => v;
-      knots.push([at(h.b), base[1] + h.feet]);
+    // Each wall put at the map's distance from one already put (wall b past wall a by `feet`), from the first held.
+    const mine = holds.filter((q) => q.axis === axis);
+    const put = new Map<number, number>();
+    if (mine[0]) put.set(mine[0].a, at(mine[0].a));
+    for (let moved = true; moved; ) {
+      moved = false;
+      for (const h of mine) {
+        const pa = put.get(h.a);
+        const pb = put.get(h.b);
+        if (pa !== undefined && pb === undefined) put.set(h.b, pa + h.feet);
+        else if (pb !== undefined && pa === undefined) put.set(h.a, pb - h.feet);
+        else continue;
+        moved = true;
+      }
     }
+    // One not reached from the first (holds in two sets): this way left as drawn.
+    if (mine.some((h) => !put.has(h.a) || !put.has(h.b))) return (v) => v;
+    const knots: [number, number][] = [...put].map(([side, m]) => [at(side), m]);
     knots.sort((p, q) => p[0] - q[0]);
     for (let k = 1; k < knots.length; k++) if (!((knots[k] as [number, number])[0] > (knots[k - 1] as [number, number])[0] + 1e-6) || !((knots[k] as [number, number])[1] > (knots[k - 1] as [number, number])[1])) return (v) => v;
     if (knots.length < 2) return (v) => v;
@@ -1403,7 +1418,7 @@ function stretchedToMap(outline: Pt[], holds: MapHold[]): Pt[] {
  * Laid once more on the house as measured: walls traced differently there are held instead, and measured again. Each side
  * the map held is `fromMap`; how it was laid, what it held and where it and the photos disagree are `map`.
  */
-function solveWithMap(input: PhotoRouteInput, buildingId: string, data: RoutePhotoData[], opts: SolveRouteOptions, map: MapOutline): RouteSolution {
+function solveWithMap(input: PhotoRouteInput, buildingId: string, data: RoutePhotoData[], opts: SolveRouteOptions, map: MapOutline, over: MapRoofOver = {}): RouteSolution {
   const photos = solveRoute(input, buildingId, data, { ...opts, map: false, guesses: false });
   // The photos' own sd on the distance between two walls: what they hold, not the shape as drawn.
   const sdBetween = (a: number, c: number): number | null => {
@@ -1416,17 +1431,17 @@ function solveWithMap(input: PhotoRouteInput, buildingId: string, data: RoutePho
   const area = (r: Pt[]) => Math.abs(r.reduce((s, p, i) => s + p.x * (r[(i + 1) % r.length] as Pt).y - (r[(i + 1) % r.length] as Pt).x * p.y, 0) / 2);
   const k = photos.unscaled ? Math.sqrt(area(map.corners) / Math.max(1e-6, area(photos.corners))) : 1;
   const ringToFit = photos.corners.map((p) => ({ x: p.x * k, y: p.y * k }));
-  const fit = fitMapOutline(map, ringToFit, { sdBetween: photos.unscaled ? undefined : sdBetween, frontFacesDeg: opts.frontFacesDeg });
+  const fit = fitMapOutline(map, ringToFit, { sdBetween: photos.unscaled ? undefined : sdBetween, frontFacesDeg: opts.frontFacesDeg, over });
   const photosOnly = photos.sides.map((s) => ({ from: s.from, lengthFeet: s.lengthFeet, plusMinusPct: s.plusMinusPct, notMeasured: !!s.notMeasured }));
   if (!fit || fit.holds.length === 0) {
     const sol = opts.guesses === false ? photos : solveRoute(input, buildingId, data, { ...opts, map: false });
-    return { ...sol, ...(fit ? { map: mapCheck(map, fit, sol.corners, photos.corners, sdBetween, photosOnly) } : {}) };
+    return { ...sol, ...(fit ? { map: mapCheck(map, fit, sol.corners, photos.corners, sdBetween, photosOnly, over) } : {}) };
   }
   // Laid again on the house the map made: the photos' own house can be too far out to trace on (a depth 14' short puts the
   // map's side walls over the wrong walls); walls traced differently there are held instead, and measured again.
   let laid: MapFit = fit;
   let sol = solveRoute(input, buildingId, data, { ...opts, mapHolds: laid.holds });
-  const again = fitMapOutline(map, sol.corners, { turnDeg: fit.turnDeg });
+  const again = fitMapOutline(map, sol.corners, { turnDeg: fit.turnDeg, over });
   if (again && again.holds.length && !sameHolds(again.holds, laid.holds)) {
     laid = again;
     sol = solveRoute(input, buildingId, data, { ...opts, mapHolds: laid.holds });
@@ -1437,7 +1452,7 @@ function solveWithMap(input: PhotoRouteInput, buildingId: string, data: RoutePho
     const held = !s.taped && ((before.notMeasured && !s.notMeasured) || s.sdFeet < 0.5 * before.sdFeet);
     return held ? { ...s, fromMap: true as const } : s;
   });
-  return { ...sol, sides, map: mapCheck(map, laid, sol.corners, photos.corners, sdBetween, photosOnly) };
+  return { ...sol, sides, map: mapCheck(map, laid, sol.corners, photos.corners, sdBetween, photosOnly, over) };
 }
 
 function medianOf(v: number[]): number {
