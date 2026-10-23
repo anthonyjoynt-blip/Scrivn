@@ -43,6 +43,7 @@ export async function openHouse(dirArg) {
   const read = (f) => (existsSync(join(dir, f)) ? readFileSync(join(dir, f), "utf8") : existsSync(join(state, f)) ? readFileSync(join(state, f), "utf8") : null);
   let request = null;
   let photos;
+  let photoDir = dir;
   if (existsSync(join(dir, "request.json"))) {
     request = JSON.parse(readFileSync(join(dir, "request.json"), "utf8"));
     const routePhotos = new Map((request.route?.photos ?? []).map((p) => [p.id, p]));
@@ -50,20 +51,45 @@ export async function openHouse(dirArg) {
       .filter((p) => existsSync(join(dir, p.file)))
       .map((p, i) => ({ n: i + 1, file: p.file, id: p.id, takenAt: routePhotos.get(p.id)?.takenAt ?? (p.takenAt ? Date.parse(p.takenAt) : null), focalPrior: routePhotos.get(p.id)?.focalPrior ?? null }));
   } else {
-    const files = readdirSync(dir).filter((f) => PHOTO.test(f) && statSync(join(dir, f)).isFile());
-    const timed = await Promise.all(files.map(async (f) => ({ file: f, takenAt: await takenAtOf(join(dir, f)) })));
+    // The photos beside the words, or in a photos/ folder of their own (2026-10-23: the test-house repo's layout, houses/<house>/photos/).
+    const photosIn = (d) => readdirSync(d).filter((f) => PHOTO.test(f) && statSync(join(d, f)).isFile());
+    const sub = join(dir, "photos");
+    if (photosIn(dir).length === 0 && existsSync(sub) && statSync(sub).isDirectory()) photoDir = sub;
+    const files = photosIn(photoDir);
+    const timed = await Promise.all(files.map(async (f) => ({ file: f, takenAt: await takenAtOf(join(photoDir, f)) })));
     timed.sort((a, b) => a.takenAt - b.takenAt || a.file.localeCompare(b.file));
-    photos = timed.map((p, i) => ({ n: i + 1, file: p.file, id: `p${i + 1}`, takenAt: p.takenAt, focalPrior: null }));
+    // Once numbered (scrivn/photos.json), each photo keeps its number and its time: a photo with no date in its name or EXIF
+    // takes the file's time, which a fresh clone or copy changes - and inputs.json names photos by number, and the measure
+    // orders the walk by time (10-23: a copy of a blind run's folder measured differently until it kept them). New photos go after.
+    const before = new Map((readJsonQuiet(join(state, "photos.json"))?.photos ?? []).filter((p) => p?.file && Number.isInteger(p.n)).map((p) => [p.file, p]));
+    const kept = timed.filter((p) => before.has(p.file)).sort((a, b) => before.get(a.file).n - before.get(b.file).n);
+    let next = Math.max(0, ...kept.map((p) => before.get(p.file).n));
+    const was = (p) => ({ ...p, n: before.get(p.file).n, takenAt: Number.isFinite(before.get(p.file).takenAt) ? before.get(p.file).takenAt : p.takenAt });
+    photos = [...kept.map(was), ...timed.filter((p) => !before.has(p.file)).map((p) => ({ ...p, n: ++next }))].map((p) => ({ n: p.n, file: p.file, id: `p${p.n}`, takenAt: p.takenAt, focalPrior: null }));
   }
-  if (photos.length === 0) throw new Error(`No photos in ${dir} (jpg, png, webp or tiff).`);
+  if (photos.length === 0) throw new Error(`No photos in ${dir}${photoDir === dir ? " or its photos/ folder" : ""} (jpg, png, webp or tiff).`);
   const tapesText = read("tapes.txt");
   const houseText = read("house.txt");
   const walkText = read("walk.txt");
+  // The walk's corners in order, "corner 4 inside" a line (2026-10-23: the test-house repo keeps them apart from walk.txt).
+  const cornersText = read("corners.txt");
   // The building's outline off a map, when one is beside the photos (2026-10-23): it holds the long walls it traces.
   const mapText = read("map.txt");
   // The roof answers (scrivn/roof.json): what the roof covers past the walls, which a map's outline runs along (2026-10-23).
   const roofText = read("roof.json");
-  return { dir, state, kind: request ? "request" : "folder", request, photos, tapesText, houseText, walkText, mapText, roofText, house: parseHouse(houseText ?? "") };
+  return { dir, state, photoDir, kind: request ? "request" : "folder", request, photos, tapesText, houseText, walkText, cornersText, mapText, roofText, house: parseHouse(houseText ?? "") };
+}
+
+/** A photo's file on disk: beside the words, or in the folder's photos/. */
+export const photoPath = (h, p) => join(h.photoDir ?? h.dir, p.file);
+
+/** A JSON file's contents, or null when it is missing or not JSON. */
+function readJsonQuiet(path) {
+  try {
+    return existsSync(path) ? JSON.parse(readFileSync(path, "utf8").replace(/^﻿/, "")) : null;
+  } catch {
+    return null;
+  }
 }
 
 export const statePath = (h, ...parts) => join(h.state, ...parts);
@@ -96,7 +122,7 @@ export function readJson(path, fallback = undefined) {
 export async function loadPixels(h, x) {
   const out = [];
   for (const p of h.photos) {
-    const path = join(h.dir, p.file);
+    const path = photoPath(h, p);
     const { data, info } = await sharp(path).rotate().resize({ width: STORED_PX, height: STORED_PX, fit: "inside", withoutEnlargement: true }).raw().toBuffer({ resolveWithObject: true });
     p.width = info.width;
     p.height = info.height;
@@ -194,24 +220,43 @@ export function draftInputs(h) {
   };
 }
 
-/**
- * The walk round the house in words, when walk.txt says it (2026-10-22): its corners in order ("corner 1 outside", "corner 4
- * inside", ...) as `walk.turns`, and each photo's role from its name where the name says one ("02 corner 1", "07 side 2",
- * "01 front", "far 4 back"). The shape is then the walk's, nobody's guess; each role names the photo's corners.
- */
-function walkDraft(h) {
+/** The corners said in order in [text] ("corner 1 outside", "corner 4 inside" a line) as turns O / I / J; null with fewer than four, or one missing. */
+function turnsIn(text) {
   const turns = [];
-  for (const line of (h.walkText ?? "").split(/\r?\n/)) {
+  for (const line of (text ?? "").split(/\r?\n/)) {
     const m = /^\s*corner\s+(\d+)\s+(outside|inside|joins|joined)\b/i.exec(line);
     if (m) turns[Number(m[1]) - 1] = m[2].toLowerCase().startsWith("o") ? "O" : m[2].toLowerCase().startsWith("i") ? "I" : "J";
   }
-  if (turns.length < 4 || turns.some((t) => !t)) return {};
+  return turns.length < 4 || turns.some((t) => !t) ? null : turns;
+}
+
+/**
+ * The walk's corners in words and where they were said: corners.txt beside the photos (2026-10-23, the test-house repo's
+ * layout: the walk's corners kept apart from what each photo is), else walk.txt's corner lines (2026-10-22). Null: neither says them.
+ */
+export function walkTurnsOf(h) {
+  const fromCorners = turnsIn(h.cornersText);
+  if (fromCorners) return { turns: fromCorners, from: "corners.txt" };
+  const fromWalk = turnsIn(h.walkText);
+  return fromWalk ? { turns: fromWalk, from: "walk.txt" } : null;
+}
+
+/**
+ * The walk round the house in words (`walkTurnsOf`): its corners in order as `walk.turns`, and each photo's role from its name
+ * where the name says one ("02 corner 1", "07 side 2", "01 front", "far 4 back"). The shape is then the walk's, nobody's
+ * guess; each role names the photo's corners. With corners.txt the photos' names are the tester's own labels, not its
+ * numbering (owner-1022's "10 corner 3" was the house's back-left, C7, and its "side 3" the AC side, C7-C8): only a front or
+ * a back, which no numbering changes, is taken from a name there.
+ */
+function walkDraft(h) {
+  const said = walkTurnsOf(h);
+  if (!said) return {};
   const photos = {};
   for (const p of h.photos) {
     const role = roleFromName(p.file);
-    if (role) photos[p.n] = role;
+    if (role && (said.from !== "corners.txt" || /^(far )?(front|back)$/.test(role))) photos[p.n] = role;
   }
-  return { walk: { turns: turns.join(" "), photos } };
+  return { walk: { turns: said.turns.join(" "), photos } };
 }
 
 /** A photo's role from its file name, when it plainly says one: "far 4 back" -> "far back", "13 corner 4" -> "corner 4". */

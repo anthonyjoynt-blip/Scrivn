@@ -52,8 +52,11 @@ export function tapeKind(words) {
 /** "garage doors" (more than one alike) or "both doors": the same tape across each. */
 function howMany(words) {
   const w = words.toLowerCase();
-  const said = /\b(two|both|2)\b/.test(w) ? 2 : /\b(three|3)\b/.test(w) ? 3 : null;
-  if (said) return said;
+  // A number counts what was taped when the openings follow it ("two garage doors", "3 windows"), or "both": "side 2" is a
+  // label, "two-pane" says what the one is like, "the two metal vents" what is near it (owner-1022's windows, 10-23).
+  const n = /\b(two|2|three|3)\s+(?:[a-z-]+\s+){0,2}(doors|windows|openings)\b/.exec(w);
+  if (n) return /^(two|2)$/.test(n[1] ?? "") ? 2 : 3;
+  if (/\bboth\b/.test(w)) return 2;
   return /\b(doors|windows)\b/.test(w) ? 2 : 1;
 }
 

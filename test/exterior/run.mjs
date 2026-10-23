@@ -78,10 +78,10 @@ async function load() {
       `export * from "${lib("roofCheck.ts")}";`,
       `export * from "${lib("exteriorCheck.ts")}";`,
       `export { cornerPlace, routeCoverage, viewsFromMeasure } from "${lib("photoRouteCoverage.ts")}";`,
-      `export { checkEstimate, columnBearing, defaultShared, facingOf, numberCorners, partyCorners, routeSteps, settleWords, shotNumbers, solveRoute, tapesDisagree, WALK_HOLD } from "${lib("photoRoute.ts")}";`,
+      `export { checkEstimate, columnBearing, defaultShared, facingOf, numberCorners, partyCorners, routeSteps, settleWords, shotNumbers, solveRoute, tapesOffSides, WALK_HOLD } from "${lib("photoRoute.ts")}";`,
       `export { alignLap, facingWords, isWalkShape, lapCloses, walkPhotoWords, lapOutline, lapProblem, lapTurns, newWalk, ringTurns, measureWords, ringItems, walkAddCorner, walkInsertCorner, walkRemoveCorner, walkSetTurn, walkAddPhoto, walkFinish, walkMissing, walkRemoveLastCorner, walkRemovePhoto, walkReopen, withRingStart, walkAddMeasure, walkBack, walkClose, walkHasMeasure, walkHomeType, walkMeasured, walkMeasures, walkPhotos, walkRemoveMeasure, walkShot, walkSkip, walkStep, walkSummary, walkTake, walkTurn, walkUnplaced, withoutPhotos, withWalk, walkFromTurns, parseTurns, roleShot } from "${lib("photoRouteWalk.ts")}";`,
       `export { cornerEdges } from "${lib("photoRouteFind.ts")}";`,
-      `export { holdOutTapes, lineFeet, selfCheck, worstPct } from "${lib("photoRouteCheck.ts")}";`,
+      `export { holdOutTapes, lineFeet, selfCheck, tapesOffWalls, tapeWalls, wallsBetween, worstPct } from "${lib("photoRouteCheck.ts")}";`,
       `export { fitMapOutline, frontBearing, mapWords, offRing } from "${lib("photoRouteMap.ts")}";`,
       `export { toLevel } from "${lib("photoRouteLens.ts")}";`,
       `export { closeUpsOnSides, exteriorFromRoute, measuredFrom, notMeasuredAsks, ON_FACE_SHARE, sideView } from "${lib("photoRouteExterior.ts")}";`,
@@ -7321,18 +7321,76 @@ test("honest sizes: a long wall whose far corner no photo shows is NOT measured,
   assert(rep.notes.some((nn) => /^NOT measured: /.test(nn)) && rep.notes.some((nn) => /A photo from far back at 45° to corner 3/.test(nn)), rep.notes.join(" | "));
 });
 
-test("honest sizes: tapes that disagree make every untaped side not measured, one fix each - the tape most off, or a loose side's own; taped sides stand", () => {
-  const { input, data } = synRoute(BOX, BOX_DRAWN, "detached", boxShots, [{ id: "front", kind: "side", from: 0, feet: 40 }]);
+test("per wall (10-23): a tape the others put off marks only the walls it is on or tied to; how well the tapes agree is a note, not a blanket", () => {
+  // A window 3' wide on the right side, on the back-right photo (corners 2, 3 and 4 on it: it sizes the right side and the back).
+  const det = synPhoto("back-right", [62, 52], { x: 40, y: 30 });
+  const [a, b] = [det.tap({ x: 40, y: 20 }), det.tap({ x: 40, y: 23 })];
+  const line = { id: "w", kind: "line", photo: "back-right", a: [a.x, a.y], b: [b.x, b.y], feet: 3, what: "window", exact: true };
+  const { input, data } = synRoute(BOX, BOX_DRAWN, "detached", boxShots, [{ id: "front", kind: "side", from: 0, feet: 40 }, { id: "left", kind: "side", from: 3, feet: 30 }, line]);
   const sol = x.solveRoute(input, "main", data);
-  const marked = x.tapesDisagree(sol.sides, 8.4, "tape t1 (garage doors)", -8.4);
-  // One fix each: a side loose by itself (the corners alone hold this box's depth only so well) keeps its own; the rest name the tape.
-  assert(
-    !marked[0].notMeasured &&
-      marked.slice(1).every((q) => q.notMeasured && /disagree by up to 8.4%/.test(q.notMeasured.why)) &&
-      marked.some((q) => /^Check tape t1 \(garage doors\) again: the others put it -8.4% off/.test(q.notMeasured?.fix ?? "")) &&
-      marked.every((q, i) => !sol.sides[i].notMeasured || q.notMeasured.fix === sol.sides[i].notMeasured.fix),
-    JSON.stringify(marked.map((q) => q.notMeasured ?? null)),
-  );
+  const tapes = input.buildings[0].tapes;
+  assert(sol.sides.every((q) => !q.notMeasured) && JSON.stringify(sol.cameras.find((c) => c.photo === "back-right")?.corners) === "[1,2,3]", `${JSON.stringify(sol.cameras.map((c) => [c.photo, c.corners]))} ${JSON.stringify(sol.sides.map((q) => [q.lengthFeet.toFixed(2), q.plusMinusPct, q.notMeasured?.why ?? null]))}`);
+  const w = x.tapeWalls(sol, data, line);
+  assert(JSON.stringify(w) === JSON.stringify({ on: [1], tied: [2] }), `the window is on the right side, tied to the back: ${JSON.stringify(w)}`);
+  // A wall's own tape is on it; the walls the photos that size it also size are tied to it.
+  assert(JSON.stringify(x.tapeWalls(sol, data, tapes[0])) === JSON.stringify({ on: [0], tied: [1, 3] }), JSON.stringify(x.tapeWalls(sol, data, tapes[0])));
+  const rows = [
+    { id: "front", taped: 40, predicted: 40.4, errorPct: 1.0, each: [{ part: "front", feet: 40.4, side: 0 }], sizes: true, from: ["w"] },
+    { id: "w", taped: 3, predicted: 3.24, errorPct: 8.0, each: [{ part: "w", feet: 3.24, photo: "back-right" }], sizes: true, from: ["front"] },
+  ];
+  const checked = x.tapesOffWalls(sol, data, tapes, rows, (r) => `tape ${r.id} (window)`, (p) => `photo ${p}`);
+  const [front, right, back, left] = checked.sides;
+  assert(!front.notMeasured && right.notMeasured && back.notMeasured && !left.notMeasured, JSON.stringify(checked.sides.map((q) => q.notMeasured ?? null)));
+  assert(/^tape w \(window\), on it, is \+8\.0% off what the other tapes say, held out$/.test(right.notMeasured.why) && /^tape w \(window\), on photo photo back-right, which sizes it, is \+8\.0% off/.test(back.notMeasured.why), `${right.notMeasured.why} | ${back.notMeasured.why}`);
+  // Each names its own wall to tape, and the tape to check after it.
+  assert(right.notMeasured.settle === 1 && /^A tape or laser along it, the wall from corner 2 to corner 3, settles it\. Check tape w \(window\) again: the others put it \+8\.0% off - what was taped, and its ends\.$/.test(right.notMeasured.fix), right.notMeasured.fix);
+  assert(checked.tapeSpread?.worstPct === 8 && checked.tapeSpread.tape === "w" && /^The tapes agree within 8\.0%/.test(checked.tapeSpread.words) && /NOT measured for it \(2 of 4\)/.test(checked.tapeSpread.words), checked.tapeSpread?.words);
+  // Within 5%: nothing marked, how well they agree still said. Fewer than two tapes predicted: nothing at all.
+  const fine = x.tapesOffWalls(sol, data, tapes, rows.map((r) => ({ ...r, errorPct: r.id === "w" ? -3 : 1 })));
+  assert(fine.sides.every((q) => !q.notMeasured) && /^The tapes agree within 3\.0%, each held out in turn/.test(fine.tapeSpread.words), fine.tapeSpread?.words);
+  assert(x.tapesOffWalls(sol, data, tapes, rows.slice(1)) === sol, "one tape: as it is");
+  // A wall's own tape off: it stands, taped; the untaped walls the same photos size are marked.
+  const own = x.tapesOffWalls(sol, data, tapes, rows.map((r) => ({ ...r, errorPct: r.id === "front" ? -7 : 1 })));
+  assert(JSON.stringify(own.sides.map((q) => !!q.notMeasured)) === "[false,true,false,false]" && /along a wall the same photos size/.test(own.sides[1].notMeasured.why), JSON.stringify(own.sides.map((q) => q.notMeasured?.why ?? null)));
+  // Landed: each marked side said not measured with its fix; the exterior's notes and the report's sources say how well the tapes agree.
+  const { ext } = landOf(input, data, checked);
+  const rep = x.exteriorReport(ext, { title: "Box", date: "2026-10-23", madeWith: "Scrivn" });
+  assert(ext.sides.filter((q) => q.lengthNotMeasured).length === 2 && ext.source.notes.some((nn) => /^The tapes agree within 8\.0%/.test(nn)) && rep.sources.some((nn) => /^The tapes agree within 8\.0%/.test(nn)), `${ext.source.notes.join(" | ")} || ${rep.sources.join(" | ")}`);
+});
+
+test("the walls between a photo's corners: the shortest run round the house that takes them all in", () => {
+  const cases = [
+    [[6, 7, 9], 12, [6, 7, 8]],
+    [[1, 2, 4], 12, [1, 2, 3]],
+    [[9, 0], 12, [9, 10, 11]],
+    [[2, 6], 12, [2, 3, 4, 5]],
+    [[0, 2], 4, [0, 1, 2, 3]],
+    [[3], 12, []],
+  ];
+  for (const [ks, n, want] of cases) assert(JSON.stringify(x.wallsBetween(ks, n)) === JSON.stringify(want), `${JSON.stringify(ks)} of ${n}: ${JSON.stringify(x.wallsBetween(ks, n))}`);
+});
+
+test("a shorter wall is not measured once its ± is past 1'6\" too: the front split by a step no photo shows", () => {
+  // A 28' front in two 14' walls with a 1'6" step between, the step's corners on no photo: the split is the drawing's.
+  const truth = [{ x: 0, y: 0 }, { x: 14, y: 0 }, { x: 14, y: -1.5 }, { x: 28, y: -1.5 }, { x: 28, y: 30 }, { x: 0, y: 30 }];
+  const drawn = [{ x: 0, y: 0 }, { x: 11, y: 0 }, { x: 11, y: -1.5 }, { x: 29, y: -1.5 }, { x: 29, y: 28 }, { x: 0, y: 28 }];
+  const shots = [
+    ["front-left", [-22, -24], { x: 0, y: 0 }, [{ c: 5 }, { c: 0 }, { c: 3 }]],
+    ["front-right", [50, -24], { x: 28, y: -1.5 }, [{ c: 0 }, { c: 3 }, { c: 4 }]],
+    ["back-right", [50, 52], { x: 28, y: 30 }, [{ c: 3 }, { c: 4 }, { c: 5 }]],
+    ["back-left", [-22, 52], { x: 0, y: 30 }, [{ c: 4 }, { c: 5 }, { c: 0 }]],
+  ];
+  const { input, data } = synRoute(truth, drawn, "detached", shots, [{ id: "back", kind: "side", from: 4, feet: 28 }]);
+  const sol = x.solveRoute(input, "main", data);
+  const [left, , right] = sol.sides;
+  const pmFeet = (q) => (q.plusMinusPct / 100) * q.lengthFeet;
+  const said = JSON.stringify(sol.sides.map((q) => [q.lengthFeet.toFixed(2), q.plusMinusPct, q.notMeasured?.why ?? null]));
+  // The left front wall under 15' (the old rule passed it by), its ± in feet far past 1'6": not measured.
+  assert(left.lengthFeet < 15 && pmFeet(left) > 1.5 && left.notMeasured && right.notMeasured, said);
+  // The rule, wall by wall: over ±10% and (15' or more, or more than 1'6"), and nothing else.
+  assert(sol.sides.every((q) => q.taped || !!q.notMeasured === (q.plusMinusPct > 10 && (q.lengthFeet >= 15 || pmFeet(q) > 1.5))), said);
+  // Each names the wall whose tape or laser settles it.
+  assert(left.notMeasured.settle !== undefined && /^A tape or laser along /.test(left.notMeasured.fix), JSON.stringify(left.notMeasured));
 });
 
 console.log("\nthe map outline: the long dimension the photos can't fix (10-23)");
@@ -7538,13 +7596,17 @@ test("the box's depth not measured: one tape or laser along one wall settles bot
   assert(after.sides.every((q) => !q.notMeasured) && x.notMeasuredAsks(landOf(taped.input, taped.data, after).ext).length === 0, JSON.stringify(after.sides.map((q) => q.notMeasured ?? null)));
 });
 
-test("a side not measured because the tapes disagree says the tape to check; one loose by itself keeps its own wall", () => {
+test("a side a tape off marks keeps the wall that settles it when it was loose by itself, and says the tape to check after it", () => {
   const { input, data } = boxFront();
   const sol = x.solveRoute(input, "main", data);
-  const marked = x.tapesDisagree(sol.sides, 8.4, "tape t1 (garage doors)", -8.4);
-  assert(marked[1].notMeasured.settle === 1 && /^A tape or laser along it/.test(marked[1].notMeasured.fix) && marked[2].notMeasured.settle === undefined && /^Check tape t1/.test(marked[2].notMeasured.fix), JSON.stringify(marked.map((q) => q.notMeasured ?? null)));
+  const check = "Check tape t1 (garage doors) again: the others put it -8.4% off - what was taped, and its ends.";
+  const marked = x.tapesOffSides(sol.sides, [1, 2].map((side) => ({ side, why: "tape t1 (garage doors), on photo #3, which sizes it, is -8.4% off what the other tapes say, held out", check })));
+  const [, right, back, left] = marked;
+  assert(right.notMeasured.settle === 1 && right.notMeasured.photoAt !== undefined && /^±\d+%: .*; and tape t1/.test(right.notMeasured.why) && right.notMeasured.fix.endsWith(check) && /far back at 45°/.test(right.notMeasured.fix), JSON.stringify(right.notMeasured));
+  assert(back.notMeasured.settle === 2 && back.notMeasured.fix === `A tape or laser along it, the wall from corner 3 to corner 4, settles it. ${check}`, back.notMeasured.fix);
+  assert(left.notMeasured === sol.sides[3].notMeasured && !marked[0].notMeasured, "untouched: the left keeps its own, the taped front stands");
   const name = (i) => ["the Front", "the Right side", "the Back", "the Left side"][i];
-  assert(x.settleWords(marked[3], name) === "A tape or laser along the Right side settles it - the one measurement that settles the most here." && /^Check tape t1/.test(x.settleWords(marked[2], name)), x.settleWords(marked[3], name));
+  assert(x.settleWords(left, name) === "A tape or laser along the Right side settles it - the one measurement that settles the most here." && x.settleWords(back, name) === `A tape or laser along it, the Back, settles it. ${check}`, x.settleWords(back, name));
 });
 
 test("with a map that holds the depth, nothing is asked of it; Finish and Use it never wait on an ask", () => {

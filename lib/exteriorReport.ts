@@ -453,6 +453,9 @@ export function exteriorReport(exterior: Exterior, meta: ReportMeta): ExteriorRe
   // Not scaled to anything (2026-10-15, the owner: "Should be scaled off of something"): said plainly.
   const routeSizes = photoRouteSizes(exterior);
   sources.push(routeSizes ? routeSizes.line : scanned && scaleOf(exterior)?.from === "phone" ? NOT_SCALED : `Sizes: ${from ? `from ${from}` : scanned ? "from the phone" : "as drawn and typed in Scrivn"}.`);
+  // How well the tapes agree with each other, held out in turn (2026-10-23): a confidence note on the house as a whole.
+  const spread = routeSizes ? exterior.photoRoute?.measured?.tapeSpread : undefined;
+  if (spread) sources.push(spread.words);
   sources.push(
     photosOnly
       ? "Walls, heights, materials and openings: read off the photos, side by side round the house; nothing was tapped on the walls."

@@ -10,7 +10,7 @@ import { writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { scrivn } from "./code.mjs";
-import { openHouse, readJson, statePath } from "./folder.mjs";
+import { openHouse, photoPath, readJson, statePath } from "./folder.mjs";
 
 /** The side photos a report wants, as the PDF takes them: each building's from its own folder, keyed by the report's photo numbers. */
 async function photosFor(x, h, made) {
@@ -18,7 +18,7 @@ async function photosFor(x, h, made) {
   for (const ph of made.photos) {
     const p = h.photos[ph.photo.n - 900];
     if (!p) continue;
-    const jpeg = await sharp(join(h.dir, p.file)).rotate().resize({ width: 2000, height: 2000, fit: "inside", withoutEnlargement: true }).jpeg({ quality: 85 }).toBuffer();
+    const jpeg = await sharp(photoPath(h, p)).rotate().resize({ width: 2000, height: 2000, fit: "inside", withoutEnlargement: true }).jpeg({ quality: 85 }).toBuffer();
     const b64 = jpeg.toString("base64");
     const size = x.jpegSize(b64);
     if (size) out[ph.photo.n] = { dataUrl: `data:image/jpeg;base64,${b64}`, width: size.width, height: size.height };
