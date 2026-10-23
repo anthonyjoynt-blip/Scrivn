@@ -105,6 +105,12 @@ export interface SolveInput {
    * as not measured rather than as sure as the drawing was taken to be.
    */
   uninformed?: string[];
+  /**
+   * Walls kept in order (2026-10-23): wall b at least `minFeet` past wall a along the axis - a side keeps the way the walk
+   * turned it. Nothing until it would flip; then a steep cost. A distance is a length either way round, so a bump-out held
+   * by its length alone could fold back through the wall behind it when a map outline pulled that wall out.
+   */
+  apart?: { a: string; b: string; axis: WallAxis; minFeet: number; sdFeet: number }[];
 }
 
 export interface Solution {
@@ -127,6 +133,11 @@ export interface Solution {
    * unbounded here.
    */
   sigmaInformed: (f: (x: Float64Array) => number) => number;
+  /**
+   * As `sigmaInformed`, with one more measurement of g (one sd [sd]) taken as well (2026-10-23): what a tape not yet taken
+   * would do to f - which one wall's tape settles most of what is not measured.
+   */
+  sigmaInformedWith: (f: (x: Float64Array) => number, g: (x: Float64Array) => number, sd: number) => number;
   cost: number;
 }
 
@@ -211,7 +222,8 @@ export function solvePlan(input: SolveInput, opts: { maxIterations?: number } = 
     void 0;
     const hs = input.heights ?? [];
     const priors = input.cameras.filter((c) => c.prior);
-    const out = new Float64Array(bearings.length + input.cameras.length + input.distances.length + (input.lens ? 1 : 0) + hs.length + 2 * priors.length);
+    const apart = input.apart ?? [];
+    const out = new Float64Array(bearings.length + input.cameras.length + input.distances.length + (input.lens ? 1 : 0) + hs.length + 2 * priors.length + apart.length);
     let i = 0;
     for (const b of bearings) {
       const cam = camById.get(b.camera) as SolveCamera;
@@ -242,6 +254,7 @@ export function solvePlan(input: SolveInput, opts: { maxIterations?: number } = 
       out[pAt++] = (at[0] - pr.at[0]) / pr.sdFeet;
       out[pAt++] = (at[1] - pr.at[1]) / pr.sdFeet;
     }
+    for (const ap of apart) out[pAt++] = Math.max(0, ap.minFeet - (wall(ap.b.slice(5), x) - wall(ap.a.slice(5), x))) / ap.sdFeet;
     for (const dd of input.distances) out[i++] = distanceResidual(dd, x);
     return out;
   };
@@ -315,6 +328,39 @@ export function solvePlan(input: SolveInput, opts: { maxIterations?: number } = 
     covariance: cov,
     sigma: (f) => sigmaOf(f, xs, cov),
     sigmaInformed: (f) => sigmaOf(f, xs, informedCov()),
+    sigmaInformedWith: (f, g, sd) => {
+      // One more scalar measurement of g: var f' = fCf - (fCg)^2 / (sd^2 + gCg).
+      const C = informedCov();
+      const grad = (h: (x: Float64Array) => number) => {
+        const out = new Float64Array(n);
+        const xx = Float64Array.from(xs);
+        const h0 = h(xx);
+        for (let j = 0; j < n; j++) {
+          const keep = xx[j] as number;
+          xx[j] = keep + 1e-5;
+          out[j] = (h(xx) - h0) / 1e-5;
+          xx[j] = keep;
+        }
+        return out;
+      };
+      const gf = grad(f);
+      const gg = grad(g);
+      let fCf = 0;
+      let fCg = 0;
+      let gCg = 0;
+      for (let a = 0; a < n; a++) {
+        const fa = gf[a] as number;
+        const ga = gg[a] as number;
+        if (fa === 0 && ga === 0) continue;
+        for (let b2 = 0; b2 < n; b2++) {
+          const c = C[a * n + b2] as number;
+          fCf += fa * c * (gf[b2] as number);
+          fCg += fa * c * (gg[b2] as number);
+          gCg += ga * c * (gg[b2] as number);
+        }
+      }
+      return Math.sqrt(Math.max(0, fCf - (fCg * fCg) / (sd * sd + gCg)));
+    },
     cost: r.cost,
   };
 }

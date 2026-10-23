@@ -78,12 +78,13 @@ async function load() {
       `export * from "${lib("roofCheck.ts")}";`,
       `export * from "${lib("exteriorCheck.ts")}";`,
       `export { cornerPlace, routeCoverage, viewsFromMeasure } from "${lib("photoRouteCoverage.ts")}";`,
-      `export { checkEstimate, columnBearing, defaultShared, facingOf, numberCorners, partyCorners, routeSteps, shotNumbers, solveRoute, tapesDisagree, WALK_HOLD } from "${lib("photoRoute.ts")}";`,
+      `export { checkEstimate, columnBearing, defaultShared, facingOf, numberCorners, partyCorners, routeSteps, settleWords, shotNumbers, solveRoute, tapesDisagree, WALK_HOLD } from "${lib("photoRoute.ts")}";`,
       `export { alignLap, facingWords, isWalkShape, lapCloses, walkPhotoWords, lapOutline, lapProblem, lapTurns, newWalk, ringTurns, measureWords, ringItems, walkAddCorner, walkInsertCorner, walkRemoveCorner, walkSetTurn, walkAddPhoto, walkFinish, walkMissing, walkRemoveLastCorner, walkRemovePhoto, walkReopen, withRingStart, walkAddMeasure, walkBack, walkClose, walkHasMeasure, walkHomeType, walkMeasured, walkMeasures, walkPhotos, walkRemoveMeasure, walkShot, walkSkip, walkStep, walkSummary, walkTake, walkTurn, walkUnplaced, withoutPhotos, withWalk, walkFromTurns, parseTurns, roleShot } from "${lib("photoRouteWalk.ts")}";`,
       `export { cornerEdges } from "${lib("photoRouteFind.ts")}";`,
       `export { holdOutTapes, lineFeet, selfCheck, worstPct } from "${lib("photoRouteCheck.ts")}";`,
+      `export { fitMapOutline, frontBearing, mapWords, offRing } from "${lib("photoRouteMap.ts")}";`,
       `export { toLevel } from "${lib("photoRouteLens.ts")}";`,
-      `export { exteriorFromRoute, measuredFrom } from "${lib("photoRouteExterior.ts")}";`,
+      `export { exteriorFromRoute, measuredFrom, notMeasuredAsks } from "${lib("photoRouteExterior.ts")}";`,
       `export { routeSanity } from "${lib("photoRouteSanity.ts")}";`,
       `export { focalOverWidth } from "${lib("photoRouteExif.ts")}";`,
       `export { longSide } from "${lib("photoRouteLens.ts")}";`,
@@ -7331,6 +7332,183 @@ test("honest sizes: tapes that disagree make every untaped side not measured, on
       marked.every((q, i) => !sol.sides[i].notMeasured || q.notMeasured.fix === sol.sides[i].notMeasured.fix),
     JSON.stringify(marked.map((q) => q.notMeasured ?? null)),
   );
+});
+
+console.log("\nthe map outline: the long dimension the photos can't fix (10-23)");
+
+/** The map turned [deg] (counter-clockwise) and moved: how a footprint off a map comes, north up, nowhere near the plan. */
+const onMap = (ring, deg, shift = [0, 0]) =>
+  ring.map((p) => {
+    const t = (deg * Math.PI) / 180;
+    return { x: p.x * Math.cos(t) - p.y * Math.sin(t) + shift[0], y: p.x * Math.sin(t) + p.y * Math.cos(t) + shift[1] };
+  });
+const withMap = (input, map) => ({ ...input, buildings: [{ ...input.buildings[0], map }] });
+// The box from the front only, its front taped: its back corners on no photo, so nothing measures its depth.
+const boxFront = () =>
+  synRoute(
+    BOX,
+    [{ x: 0, y: 0 }, { x: 44, y: 0 }, { x: 44, y: 24 }, { x: 0, y: 24 }],
+    "detached",
+    [
+      ["front", [20, -50], { x: 20, y: 15 }, [{ c: 0 }, { c: 1 }]],
+      ["front-right", [62, -22], { x: 40, y: 0 }, [{ c: 0 }, { c: 1 }]],
+      ["front-left", [-22, -22], { x: 0, y: 0 }, [{ c: 0 }, { c: 1 }]],
+    ],
+    [{ id: "front", kind: "side", from: 0, feet: 40 }],
+  );
+
+test("a map outline holds the depth the photos can't: the box from the front only, 24' drawn and NOT measured, 30' with its map", () => {
+  const { input, data } = boxFront();
+  const photos = x.solveRoute(input, "main", data);
+  assert(photos.sides[1].notMeasured && Math.abs(photos.sides[1].lengthFeet - 24) < 0.5 && !photos.map, `photos alone: ${photos.sides[1].lengthFeet}`);
+  // Off the map north up, the house's front facing 163° (south-south-east), a long way from the plan's origin.
+  const sol = x.solveRoute(withMap(input, { corners: onMap(BOX, -163, [512, -340]), source: "a test map" }), "main", data);
+  near(sol.sides[1].lengthFeet, 30, "the right side, held by the map", 0.1);
+  near(sol.sides[3].lengthFeet, 30, "the left side", 0.1);
+  assert(!sol.sides[1].notMeasured && sol.sides[1].fromMap && sol.sides[1].plusMinusPct <= 10, JSON.stringify(sol.sides[1]));
+  near(sol.sides[0].lengthFeet, 40, "the taped front, as taped", 0.01);
+  assert(!sol.sides[0].fromMap, "a taped side is the tape's, not the map's");
+  near(sol.map.frontFacesDeg, 163, "the front's bearing, from the map's turn", 0.5);
+  assert(sol.map.holds.length === 2 && sol.map.overlap > 0.97 && sol.map.cornersOffFeet < 0.5, JSON.stringify(sol.map.holds));
+  // The photos alone, kept to compare; the map's distance against them: they don't hold the depth, so no disagreement.
+  near(sol.map.photosOnly[1].lengthFeet, photos.sides[1].lengthFeet, "the photos alone, kept", 1e-6);
+  assert(sol.map.holds.every((h) => !h.disagrees), "nothing the photos hold is against the map");
+  // Measured from the photos alone when asked: as before.
+  const off = x.solveRoute(withMap(input, { corners: onMap(BOX, -163) }), "main", data, { map: false });
+  assert(lengths(off) === lengths(photos) && !off.map, "map: false is the photos alone");
+});
+
+// The owner's house as taped (OWNER_TRUE: C1 the garage's right front corner, C1-C2 the 70'7" walkway side), seen from
+// the front and from the back with nothing tying the two - the depth loose, as his photos left it - and drawn 14' short.
+// Its map as Microsoft's footprint has it: the bump-out at the walkway side's back missed (the map's back on the rear wall,
+// C4-C5), the covered deck in the back-left notch taken in, the garage front one line on the right bay's.
+const ownerMap = () => {
+  const T = OWNER_TRUE;
+  return [T[0], { x: T[0].x, y: T[3].y }, { x: T[7].x, y: T[3].y }, T[7], T[8], { x: T[8].x, y: T[0].y }];
+};
+const ownerLoose = () => {
+  const T = OWNER_TRUE;
+  return synRoute(
+    T,
+    T.map((p) => ({ x: p.x, y: p.y < 30 ? p.y : p.y - 14 })),
+    "detached",
+    [
+      ["front", [5, -60], { x: 5, y: 10 }, [9, 10, 11, 0].map((c) => ({ c }))],
+      ["front-right", [50, -25], T[0], [11, 0].map((c) => ({ c }))],
+      ["front-left", [-45, -10], T[8], [7, 8, 9].map((c) => ({ c }))],
+      ["back", [0, 120], { x: 0, y: 60 }, [1, 2, 3, 4].map((c) => ({ c }))],
+      ["back-left", [-50, 100], T[6], [4, 5, 6].map((c) => ({ c }))],
+    ],
+    [
+      { id: "bay", kind: "side", from: 11, feet: 13.5 },
+      { id: "bump", kind: "side", from: 1, feet: 22.17 },
+    ],
+  );
+};
+
+test("the map misses the bump-out and takes in the covered deck: its back traces the rear wall, so the walkway side is the map's and the bump-out's", () => {
+  const { input, data } = ownerLoose();
+  const photos = x.solveRoute(input, "main", data);
+  assert(photos.sides[0].notMeasured && photos.sides[0].lengthFeet < 60, `photos alone: the walkway side ${photos.sides[0].lengthFeet.toFixed(1)}`);
+  // Laid at any turn: the same walls traced, the same house.
+  const runs = [0, 17, -163, 107].map((deg) => x.solveRoute(withMap(input, { corners: onMap(ownerMap(), deg, [-30, 55]) }), "main", data));
+  const sol = runs[1];
+  const traced = sol.map.sides.map((s) => s.traces);
+  // Map sides from C1 round: the walkway C1-C2, the back on the rear wall C4-C5 (not the bump-out C2-C3 nor the deck's
+  // back C6-C7), the AC side C7-C8, the porch C8-C9, the garage's left side C9-C10, the garage front on the right bay C12-C1.
+  assert(JSON.stringify(traced) === JSON.stringify([0, 3, 6, 7, 8, 11]), `traced ${JSON.stringify(traced)}`);
+  for (const r of runs) assert(lengths(r) === lengths(sol), `at another turn: ${lengths(r)}`);
+  // The walkway: the map's 65'1" side and the bump-out's 5'6" past it - 70'7" taped, not the map's side alone.
+  const walkway = sol.sides[0].lengthFeet;
+  assert(Math.abs(walkway - 70.58) < 1.2 && sol.sides[0].fromMap, `the walkway side ${walkway.toFixed(2)} (taped 70.58)`);
+  near(sol.sides[8].lengthFeet, 24.83, "the garage's left side: the map from the right bay's front, which it traces", 0.6);
+  near(sol.sides[7].lengthFeet, 22, "the porch wall", 0.6);
+  // Said: the map's walkway side isn't the whole wall; the bump-out's corners stand outside it, the deck's inside corner in.
+  const words = x.mapWords(sol.map, sol.sides.map((s) => s.lengthFeet));
+  assert(words.some((w) => /^The map's side along the wall from corner 1 to corner 2 is 65'1"/.test(w) && /past corner 2 and 3/.test(w) && /not the whole wall/.test(w)), words.join(" | "));
+  const off = new Map(sol.map.offMap.map((c) => [c.corner, c.feet]));
+  assert(off.get(1) > 4 && off.get(2) > 4 && off.get(5) < -8, `off the map: ${JSON.stringify(sol.map.offMap)}`);
+  assert(words.some((w) => /^Corner 6 stands .* inside the map's outline/.test(w)), words.join(" | "));
+});
+
+test("a quarter-turn the photos' sizes are against is not the map's; the compass, when known, picks it outright", () => {
+  // A box 40 x 30 whose photos hold its width (taped) and its depth only loosely: the map turned a quarter would put its 30'
+  // across a 40' tape.
+  const { input, data } = boxFront();
+  const map = { corners: onMap(BOX, 0) };
+  const sol = x.solveRoute(withMap(input, map), "main", data);
+  assert(Math.abs(sol.map.frontFacesDeg - 180) < 0.5 || Math.abs(sol.map.frontFacesDeg - 0) < 0.5, `front ${sol.map.frontFacesDeg}`);
+  near(sol.sides[0].lengthFeet, 40, "the front", 0.05);
+  near(sol.sides[1].lengthFeet, 30, "the depth", 0.15);
+  // Said to face north: the map is laid with its front north (a box's front and back are alike to a map).
+  const north = x.solveRoute(withMap(input, map), "main", data, { frontFacesDeg: 0 });
+  assert(Math.abs(north.map.frontFacesDeg) < 0.5 || Math.abs(north.map.frontFacesDeg - 360) < 0.5, `front ${north.map.frontFacesDeg}`);
+  near(north.sides[1].lengthFeet, 30, "the depth, facing north", 0.15);
+});
+
+test("where the map and the photos disagree it is said: a map 44' wide against a 40' tape, the tape standing", () => {
+  const { input, data } = boxFront();
+  const wide = [{ x: 0, y: 0 }, { x: 44, y: 0 }, { x: 44, y: 30 }, { x: 0, y: 30 }];
+  const sol = x.solveRoute(withMap(input, { corners: onMap(wide, 33) }), "main", data);
+  const across = sol.map.holds.find((h) => h.axis === "E");
+  assert(across && across.disagrees && Math.abs(across.feet - 44) < 0.01 && Math.abs(across.photosFeet - 40) < 0.1, JSON.stringify(sol.map.holds));
+  near(sol.sides[0].lengthFeet, 40, "the taped front stands", 0.05);
+  const words = x.mapWords(sol.map, sol.sides.map((s) => s.lengthFeet));
+  assert(words.some((w) => /^The map and the photos disagree: .* is 44' on the map, 40'/.test(w)), words.join(" | "));
+});
+
+test("the shape as drawn never outweighs the map: a 9' notch drawn as a 2' step still gives the map's depth", () => {
+  const { input, data } = ownerLoose();
+  // The covered deck's 9'1" side drawn 2': the drawing says a step; the map says how deep the house is to its back.
+  const drawn = input.buildings[0].outline.map((p, i) => (i === 5 || i === 6 ? { x: p.x, y: p.y + 7.08 } : p));
+  const sol = x.solveRoute(withMap({ ...input, buildings: [{ ...input.buildings[0], outline: drawn }] }, { corners: onMap(ownerMap(), 17) }), "main", data);
+  const toBack = sol.map.holds.find((h) => h.a === 7 && h.b === 3);
+  assert(toBack && Math.abs(toBack.nowFeet - toBack.feet) < 1, JSON.stringify(sol.map.holds));
+  assert(Math.abs(sol.sides[0].lengthFeet - 70.58) < 1.5, `the walkway side ${sol.sides[0].lengthFeet.toFixed(2)}`);
+});
+
+console.log("\nnot measured, asked plainly: the one wall that settles it (10-23)");
+
+test("the box's depth not measured: one tape or laser along one wall settles both its sides, and each says so, that wall named", () => {
+  const { input, data } = boxFront();
+  const sol = x.solveRoute(input, "main", data);
+  const [right, left] = [sol.sides[1], sol.sides[3]];
+  assert(right.notMeasured && left.notMeasured && right.notMeasured.settle === 1 && left.notMeasured.settle === 1, JSON.stringify([right.notMeasured, left.notMeasured]));
+  assert(/^A tape or laser along it, the wall from corner 2 to corner 3, settles it\. A photo from far back at 45° to corner 3/.test(right.notMeasured.fix), right.notMeasured.fix);
+  assert(/^A tape or laser along the wall from corner 2 to corner 3 settles it - the one measurement that settles the most here\.$/.test(left.notMeasured.fix), left.notMeasured.fix);
+  // Landed, each side names the wall by its name, and the Use-it step says it once for both. Nothing about a map yet.
+  const { ext } = landOf(input, data, sol);
+  const [r, l] = [ext.sides.find((q) => q.name === "Right"), ext.sides.find((q) => q.name === "Left")];
+  assert(r.lengthSettleSideId === r.id && l.lengthSettleSideId === r.id && /A tape or laser along it, the right side, settles it/.test(r.lengthNotMeasured) && /A tape or laser along the right side settles it/.test(l.lengthNotMeasured), `${r.lengthNotMeasured} | ${l.lengthNotMeasured}`);
+  const asks = x.notMeasuredAsks(ext);
+  assert(asks.length === 1 && asks[0] === "Not measured: the right side and the left side. A tape or laser along the right side settles both.", JSON.stringify(asks));
+  // Named by the person at the house, the wall is said by its name.
+  const named = { ...ext, sides: ext.sides.map((q) => (q.id === r.id ? { ...q, name: "Walkway side" } : q)) };
+  assert(x.notMeasuredAsks(named)[0] === "Not measured: the Walkway side and the left side. A tape or laser along the Walkway side settles both.", x.notMeasuredAsks(named)[0]);
+  // Taped there, it is measured: nothing asked.
+  const taped = synRoute(BOX, [{ x: 0, y: 0 }, { x: 44, y: 0 }, { x: 44, y: 24 }, { x: 0, y: 24 }], "detached", [
+    ["front", [20, -50], { x: 20, y: 15 }, [{ c: 0 }, { c: 1 }]],
+    ["front-right", [62, -22], { x: 40, y: 0 }, [{ c: 0 }, { c: 1 }]],
+    ["front-left", [-22, -22], { x: 0, y: 0 }, [{ c: 0 }, { c: 1 }]],
+  ], [{ id: "front", kind: "side", from: 0, feet: 40 }, { id: "right", kind: "side", from: 1, feet: 30 }]);
+  const after = x.solveRoute(taped.input, "main", taped.data);
+  assert(after.sides.every((q) => !q.notMeasured) && x.notMeasuredAsks(landOf(taped.input, taped.data, after).ext).length === 0, JSON.stringify(after.sides.map((q) => q.notMeasured ?? null)));
+});
+
+test("a side not measured because the tapes disagree says the tape to check; one loose by itself keeps its own wall", () => {
+  const { input, data } = boxFront();
+  const sol = x.solveRoute(input, "main", data);
+  const marked = x.tapesDisagree(sol.sides, 8.4, "tape t1 (garage doors)", -8.4);
+  assert(marked[1].notMeasured.settle === 1 && /^A tape or laser along it/.test(marked[1].notMeasured.fix) && marked[2].notMeasured.settle === undefined && /^Check tape t1/.test(marked[2].notMeasured.fix), JSON.stringify(marked.map((q) => q.notMeasured ?? null)));
+  const name = (i) => ["the Front", "the Right side", "the Back", "the Left side"][i];
+  assert(x.settleWords(marked[3], name) === "A tape or laser along the Right side settles it - the one measurement that settles the most here." && /^Check tape t1/.test(x.settleWords(marked[2], name)), x.settleWords(marked[3], name));
+});
+
+test("with a map that holds the depth, nothing is asked of it; Finish and Use it never wait on an ask", () => {
+  const { input, data } = boxFront();
+  const sol = x.solveRoute(withMap(input, { corners: onMap(BOX, 40) }), "main", data);
+  assert(sol.sides.every((q) => !q.notMeasured), JSON.stringify(sol.sides.map((q) => q.notMeasured ?? null)));
+  assert(x.notMeasuredAsks(landOf(input, data, sol).ext).length === 0, "nothing to ask");
 });
 
 console.log(`\n${passed.length} passed, ${failures.length} failed`);

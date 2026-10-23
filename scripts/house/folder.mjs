@@ -12,7 +12,7 @@
 import sharp from "sharp";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { cornerIndex, cornerName, parseHouse, parseTapes, sideIndex, sideName } from "./words.mjs";
+import { cornerIndex, cornerName, parseHouse, parseMap, parseTapes, sideIndex, sideName } from "./words.mjs";
 
 export const INPUTS_FORMAT = "scrivn-house-runner/1";
 const PHOTO = /\.(jpe?g|png|webp|tiff?)$/i;
@@ -59,7 +59,9 @@ export async function openHouse(dirArg) {
   const tapesText = read("tapes.txt");
   const houseText = read("house.txt");
   const walkText = read("walk.txt");
-  return { dir, state, kind: request ? "request" : "folder", request, photos, tapesText, houseText, walkText, house: parseHouse(houseText ?? "") };
+  // The building's outline off a map, when one is beside the photos (2026-10-23): it holds the long walls it traces.
+  const mapText = read("map.txt");
+  return { dir, state, kind: request ? "request" : "folder", request, photos, tapesText, houseText, walkText, mapText, house: parseHouse(houseText ?? "") };
 }
 
 export const statePath = (h, ...parts) => join(h.state, ...parts);
@@ -347,11 +349,31 @@ export function routeInput(h, inputs, candidates = {}, x = null) {
   }
   const shared = (inputs.house?.shared ?? []).map((s) => sideIndex(s, n)).filter((i) => i !== null);
   const homeType = inputs.house?.homeType && inputs.house.homeType !== "detached" ? inputs.house.homeType : undefined;
+  const map = mapOf(h, inputs, problems);
   const input = {
     photos: h.photos.map((p) => ({ id: p.id, width: p.width, height: p.height, focalPrior: p.focalPrior ?? null, takenAt: p.takenAt ?? null, ...(standAt[p.id] ? { standAt: standAt[p.id] } : {}), ...(facing[p.id] ? { facing: facing[p.id] } : {}), ...(walk?.roles[p.n] ?? {}) })),
-    buildings: [{ id: "main", ...(inputs.house?.name ? { name: inputs.house.name } : {}), ...(homeType ? { homeType } : {}), ...(shared.length ? { shared } : {}), outline, corners, tapes, ...(estimates.length ? { estimates } : {}), ...(walk?.lap ? { outlineFrom: "walk" } : {}) }],
+    buildings: [{ id: "main", ...(inputs.house?.name ? { name: inputs.house.name } : {}), ...(homeType ? { homeType } : {}), ...(shared.length ? { shared } : {}), outline, corners, tapes, ...(estimates.length ? { estimates } : {}), ...(walk?.lap ? { outlineFrom: "walk" } : {}), ...(map ? { map } : {}) }],
   };
   return { input, problems, tapeParts, n };
+}
+
+/**
+ * The map outline the measure lays on the house (lib/photoRouteMap.ts): inputs.json "map" as {"corners": [[x, y], ...]}
+ * (feet, x east, y north), else map.txt beside the photos; "map": false measures from the photos alone.
+ */
+function mapOf(h, inputs, problems) {
+  if (inputs.map === false) return null;
+  if (inputs.map && typeof inputs.map === "object") {
+    const corners = (inputs.map.corners ?? []).map((p) => (Array.isArray(p) ? { x: Number(p[0]), y: Number(p[1]) } : { x: Number(p.x), y: Number(p.y) }));
+    if (corners.length < 3 || corners.some((p) => !Number.isFinite(p.x) || !Number.isFinite(p.y))) {
+      problems.push(`map.corners: the outline's corners in order round it, [x, y] each in feet (x east, y north), three at least - or "map": false.`);
+      return null;
+    }
+    return { corners, source: inputs.map.source ?? "a map outline", ...(Number(inputs.map.sdFeet) > 0 ? { sdFeet: Number(inputs.map.sdFeet) } : {}) };
+  }
+  const { map, problem } = parseMap(h.mapText ?? "");
+  if (problem) problems.push(problem);
+  return map;
 }
 
 /**

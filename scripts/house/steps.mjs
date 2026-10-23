@@ -33,7 +33,11 @@ const EDGE_TOLERANCE_PX = 15;
  * The route's solve options inputs.json asks for: "sizePhotos": "all" measures the old way (10-20 to 10-22: a photo placed
  * where you stood sizes the house with the rest), to compare; absent, only photos with two corners or more size it.
  */
-export const solveOptsOf = (inputs) => (inputs.sizePhotos === "all" ? { sizePhotos: "all" } : {});
+export const solveOptsOf = (inputs) => ({
+  ...(inputs.sizePhotos === "all" ? { sizePhotos: "all" } : {}),
+  // The compass, when known: a map outline is laid only with its front that way.
+  ...(Number.isFinite(inputs.house?.frontFacesDeg) ? { frontFacesDeg: inputs.house.frontFacesDeg } : {}),
+});
 
 const secs = (t0) => `${((Date.now() - t0) / 1000).toFixed(1)} s`;
 const pct = (v) => `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`;
@@ -430,7 +434,7 @@ function roleWords(sol, solveOpts, fileOf) {
 /** A side's ± in results.md: taped, or the measure's ±, and "estimated on site" when someone at the house judged it by eye. */
 function plusMinusWords(s) {
   if (s.taped) return "taped";
-  if (s.notMeasured) return `**NOT measured** (${s.notMeasured.why}): ${s.notMeasured.fix}`;
+  if (s.notMeasured) return `**NOT measured** (${s.notMeasured.why}): ${s.settleWords ?? s.notMeasured.fix}`;
   if (s.estimated) return `${s.plusMinusPct}%, estimated on site (about ${ftin(s.estimated.feet)} ±${s.estimated.plusMinusPct}%)`;
   if (s.estimateCheck) return `${s.plusMinusPct}%; estimated on site about ${ftin(s.estimateCheck.feet)}: ${s.estimateCheck.disagrees ? "**disagrees, tape it**" : "agrees"}`;
   return `${s.plusMinusPct}%`;
@@ -441,6 +445,63 @@ const useWords = (e) => (e.use === "hold" ? "held loosely" : "checked against th
 
 /** A side's measure against the size estimated on site, in a line: "about 7' ±20%: +71%, disagrees - tape it". */
 const estimateCheckWords = (c) => `about ${ftin(c.feet)} ±${c.plusMinusPct}%: ${pct(c.offPct)}, ${c.disagrees ? "disagrees - tape it" : "agrees"}`;
+
+/**
+ * One wall's tape that settles several sizes not measured, in a line: "One tape or laser along C1-C2 Walkway side settles 3
+ * of the 4 not measured: C1-C2, C7-C8, C9-C10." Empty when each is its own.
+ */
+function settleSummary(loose, n, nameOf) {
+  const by = new Map();
+  for (const s of loose) {
+    const k = s.notMeasured.settle;
+    if (k === undefined) continue;
+    by.set(k, [...(by.get(k) ?? []), s]);
+  }
+  return [...by].filter(([, ss]) => ss.length > 1).map(([k, ss]) => `One tape or laser along ${sideName(k, n)} ${nameOf(k)} settles ${ss.length} of the ${loose.length} not measured: ${ss.map((s) => sideName(s.from, n)).join(", ")}.`);
+}
+
+/** Across and deep of a ring of corners, feet. */
+const extentOf = (ring) => [Math.max(...ring.map((p) => p.x)) - Math.min(...ring.map((p) => p.x)), Math.max(...ring.map((p) => p.y)) - Math.min(...ring.map((p) => p.y))];
+
+/**
+ * The map outline against the measure (lib/photoRouteMap.ts, 2026-10-23), for results.md, results.json and the console:
+ * how it was laid, what it held against the photos alone, each side with and without it, where they disagree.
+ */
+function mapSection(x, sol, n, nameOf) {
+  const m = sol.map;
+  const name = (i) => `${sideName(i, n)} ${nameOf(i)}`;
+  const words = x.mapWords(m, sol.sides.map((s) => s.lengthFeet), name);
+  const [across, deep] = extentOf(sol.corners);
+  const [across0, deep0] = extentOf(m.photosCorners);
+  const md = ["## The map outline", "", `${m.source}, laid on the house as the photos measure it - turned and moved, never stretched. It holds the long walls it traces to its distances; every other size is still the photos' and the tapes'.`, ""];
+  for (const w of words) md.push(`- ${w}`);
+  md.push("", "Each map side, and the wall it traces:", "", "| Map side | Length | Traces | Others under it |", "|---|---|---|---|");
+  for (const s of m.sides) md.push(`| ${s.index + 1} | ${ftin(s.lengthFeet)} | ${s.traces !== null ? name(s.traces) : `- (${s.why})`} | ${s.others.map((o) => `${sideName(o.side, n)} ${o.offFeet >= 0 ? `${ftin(o.offFeet)} out` : `${ftin(-o.offFeet)} in`}`).join(", ") || "-"} |`);
+  md.push("", "What it held:", "", "| From | To | The map | The photos alone | Measured with it | |", "|---|---|---|---|---|---|");
+  for (const hh of m.holds) md.push(`| ${name(hh.a)} | ${name(hh.b)} | ${ftin(hh.feet)} ±${ftin(2 * hh.sdFeet)} | ${ftin(hh.photosFeet)}${hh.photosSdFeet !== null ? ` ±${ftin(2 * hh.photosSdFeet)}` : ""} | ${ftin(hh.nowFeet)} | ${hh.disagrees ? "**disagree**" : ""} |`);
+  md.push("", "Each side with and without it:", "", "| Side | Name | Photos alone | With the map |", "|---|---|---|---|");
+  for (const s of sol.sides) {
+    const p = m.photosOnly[s.from];
+    md.push(`| ${sideName(s.from, n)} | ${nameOf(s.from)} | ${ftin(p.lengthFeet)} ${s.taped ? "taped" : `±${p.plusMinusPct}%${p.notMeasured ? ", NOT measured" : ""}`} | ${ftin(s.lengthFeet)} ${s.taped ? "taped" : `±${s.plusMinusPct}%${s.notMeasured ? ", NOT measured" : ""}`}${s.fromMap ? " (map)" : ""} |`);
+  }
+  md.push("", `Photos alone: across ${ftin(across0)}, deep ${ftin(deep0)}. With the map: across ${ftin(across)}, deep ${ftin(deep)}.`);
+  const out = [`Map outline (${m.source}): front faces ${Math.round(m.frontFacesDeg)}°, ${Math.round(m.overlap * 100)}% shared, ${m.holds.length} distances held. Deep ${ftin(deep0)} from the photos alone, ${ftin(deep)} with the map; across ${ftin(across0)} / ${ftin(across)}.`, ...words.slice(1).map((w) => `  map: ${w}`)];
+  const json = {
+    source: m.source,
+    frontFacesDeg: m.frontFacesDeg,
+    turnDeg: m.turnDeg,
+    overlap: m.overlap,
+    cornersOffFeet: m.cornersOffFeet,
+    offMap: m.offMap.map((c) => ({ corner: cornerName(c.corner), feet: c.feet })),
+    sides: m.sides.map((s) => ({ index: s.index + 1, lengthFeet: s.lengthFeet, traces: s.traces !== null ? sideName(s.traces, n) : null, why: s.why ?? null, others: s.others.map((o) => ({ side: sideName(o.side, n), offFeet: o.offFeet })) })),
+    holds: m.holds.map((hh) => ({ from: sideName(hh.a, n), to: sideName(hh.b, n), feet: hh.feet, sdFeet: hh.sdFeet, photosFeet: hh.photosFeet, photosSdFeet: hh.photosSdFeet, nowFeet: hh.nowFeet, disagrees: hh.disagrees })),
+    photosOnly: m.photosOnly.map((p) => ({ side: sideName(p.from, n), lengthFeet: p.lengthFeet, plusMinusPct: p.plusMinusPct, notMeasured: p.notMeasured })),
+    deep: { photosOnly: deep0, withMap: deep },
+    across: { photosOnly: across0, withMap: across },
+    words,
+  };
+  return { md, out, json };
+}
 
 export async function measure(h) {
   const t0 = Date.now();
@@ -495,6 +556,9 @@ export async function measure(h) {
   if (solveOpts.sizePhotos !== "all" && worstHeld !== null && worstHeld > x.TAPES_AGREE_PCT && mostOff) {
     sol.sides = x.tapesDisagree(sol.sides, worstHeld, `tape ${mostOff.id} (${mostOff.said.split(/[(,;]/)[0].trim()}, taped ${ftin(mostOff.taped)})`, mostOff.errorPct);
   }
+  // What settles each size not measured, its one wall by name (2026-10-23): "A tape or laser along C1-C2 Walkway side settles it".
+  const nameOfSide = (i) => `${sideName(i, n)} ${(inputs.shape?.names ?? {})[sideName(i, n)] ?? ""}`.trim();
+  for (const s of sol.sides) if (s.notMeasured) s.settleWords = x.settleWords(s, nameOfSide);
   const now = new Date().toISOString();
   const rec = x.measuredFrom(sol, prepared.data, now);
   const state = { format: x.PHOTO_ROUTE_FORMAT, photos: input.photos, buildings: [{ ...input.buildings[0], corners }], measured: null };
@@ -562,7 +626,7 @@ export async function measure(h) {
     const cam = prepared.data.find((d) => d.id === rc.photo)?.camera;
     return cam ? [{ ...cameraOnPlan(x, rc, cam, false), label: `#${fileOf(rc.photo).n}` }] : [];
   });
-  writeFileSync(statePath(h, "plan.png"), await measuredPlanPng(sol.corners, sol.sides, camsOnPlan, advice, `${inputs.house?.name ?? basename(h.dir)} - measured from ${sol.cameras.length} of ${h.photos.length} photos and ${input.buildings[0].tapes.length} tapes`, shared));
+  writeFileSync(statePath(h, "plan.png"), await measuredPlanPng(sol.corners, sol.sides, camsOnPlan, advice, `${inputs.house?.name ?? basename(h.dir)} - measured from ${sol.cameras.length} of ${h.photos.length} photos and ${input.buildings[0].tapes.length} tapes${sol.map ? ` and ${sol.map.source} (red, dashed)` : ""}`, shared, sol.map?.onPlan ?? null));
   const inputsShown = { ...inputs, corners: (inputs.corners ?? []).concat(keptMarks.map((q) => ({ photo: fileOf(q.photo).n, x: q.x, y: q.y, corner: cornerName(q.corner), kept: true }))) };
   // The corners Scrivn marks and nobody has kept, each close up: the checkpoint before keeping any.
   const open = proposals.filter((q) => !keptMarks.some((k) => k.photo === q.photo && k.corner === q.corner));
@@ -628,14 +692,17 @@ export async function measure(h) {
   if (estimates.length > held.length) md.push(`- Estimated on site to check the measure (by eye, never a tape; the measure is not moved): ${saidOf(estimates.filter((e) => e.use !== "hold"))}.`);
   if (sol.unscaled) md.push(`- **No tape: the sizes follow the shape as drawn${held.length ? " and the sizes estimated on site" : ""} and are not to scale.**`);
   md.push("", "## The outline", "", "| Side | Name | Length | ± | Photos along it |", "|---|---|---|---|---|");
-  for (const s of sol.sides) md.push(`| ${sideName(s.from, n)} | ${nameOf(s.from)} | ${ftin(s.lengthFeet)} | ${plusMinusWords(s)} | ${s.photos} |`);
+  for (const s of sol.sides) md.push(`| ${sideName(s.from, n)} | ${nameOf(s.from)} | ${ftin(s.lengthFeet)} | ${plusMinusWords(s)}${s.fromMap ? " (held by the map outline)" : ""} | ${s.photos} |`);
   const xs = sol.corners.map((p) => p.x);
   const ys = sol.corners.map((p) => p.y);
   md.push("", `Across ${ftin(Math.max(...xs) - Math.min(...xs))}, deep ${ftin(Math.max(...ys) - Math.min(...ys))}.`);
+  const mapRows = sol.map ? mapSection(x, sol, n, nameOf) : null;
+  if (mapRows) md.push("", ...mapRows.md);
   const notMeasured = sol.sides.filter((s) => s.notMeasured);
   if (notMeasured.length) {
-    md.push("", "## Not measured", "", "Sizes the photos and tapes don't hold: drawn from the photos to lay the house out, said as NOT measured in the report, never as a size. The one thing that would measure each:", "");
-    for (const s of notMeasured) md.push(`- ${sideName(s.from, n)} ${nameOf(s.from)}: about ${ftin(s.lengthFeet)}, ${s.notMeasured.why}. ${s.notMeasured.fix}`);
+    md.push("", "## Not measured", "", "Sizes the photos and tapes don't hold: drawn from the photos to lay the house out, said as NOT measured in the report, never as a size. Nothing waits on them. What settles each:", "");
+    for (const line of settleSummary(notMeasured, n, nameOf)) md.push(`**${line}**`, "");
+    for (const s of notMeasured) md.push(`- ${sideName(s.from, n)} ${nameOf(s.from)}: about ${ftin(s.lengthFeet)}, ${s.notMeasured.why}. ${s.settleWords}`);
   }
   if (checked.length) {
     const off = checked.filter((s) => s.estimateCheck.disagrees);
@@ -697,16 +764,18 @@ export async function measure(h) {
   md.push("", "## Files", "", "- plan.png: the measured plan, every placed photo; measured/NN.png: each photo with its corners and where it stood.", `- sides/: ${Object.keys(frames).length} sides squared up for reading (and a grid copy each); frames.json.`, "- measured.json: the exterior as measured (no walls read yet).");
   md.push("", `Machine time: measure ${timesNow.measure.toFixed(1)} s, hold-outs ${timesNow.holdOuts.toFixed(1)} s.`);
   writeFileSync(statePath(h, "results.md"), `${md.join("\n")}\n`);
-  writeJson(statePath(h, "results.json"), { at: now, sides: sol.sides.map((s) => ({ side: sideName(s.from, n), name: nameOf(s.from), lengthFeet: s.lengthFeet, plusMinusPct: s.plusMinusPct, taped: s.taped, ...(s.notMeasured ? { notMeasured: s.notMeasured } : {}), ...(s.estimated ? { estimated: s.estimated } : {}), ...(s.estimateCheck ? { estimateCheck: s.estimateCheck } : {}) })), estimateChecks: checked.map((s) => ({ side: sideName(s.from, n), name: nameOf(s.from), lengthFeet: s.lengthFeet, ...s.estimateCheck })), ...(without ? { withoutEstimates: without.sides.map((s) => ({ side: sideName(s.from, n), lengthFeet: s.lengthFeet, plusMinusPct: s.plusMinusPct })) } : {}), holdOuts: hold.rows, holdNote: hold.note, depthNote, selfCheck: self ? { words: self.words, dropped: self.dropped ? { photo: photoOf(h, self.dropped.photo)?.n, worstPct: self.dropped.worstPct, tapes: self.dropped.tapes } : null, before: x.worstPct(self.before), tried: self.tried.map((q) => ({ photo: photoOf(h, q.photo)?.n, worstPct: q.worstPct })) } : null, checks, advice: sol.advice, unplaced: sol.unplaced, doubtful, sanity: sanity.map((f) => ({ kind: f.kind, words: f.words })), stood: sol.cameras.filter((c) => c.placedBy === "stood").length, sizePhotos: solveOpts.sizePhotos ?? "measure", sized: sol.cameras.filter((c) => c.role !== "detail").length, detail: sol.cameras.filter((c) => c.role === "detail").length, tapesOnDetail: sol.tapesOnDetail ?? [], proposals: proposals.map((q) => ({ photo: fileOf(q.photo).n, corner: cornerName(q.corner), x: q.x, y: q.y })), kept: keptMarks.length, lens: { focalOverWidth: rec.focalOverWidth, k: rec.k }, rms: sol.rms, cameras: sol.cameras.length });
+  writeJson(statePath(h, "results.json"), { at: now, ...(mapRows ? { map: mapRows.json } : {}), sides: sol.sides.map((s) => ({ side: sideName(s.from, n), name: nameOf(s.from), lengthFeet: s.lengthFeet, plusMinusPct: s.plusMinusPct, taped: s.taped, ...(s.fromMap ? { fromMap: true } : {}), ...(s.notMeasured ? { notMeasured: { ...s.notMeasured, ...(s.notMeasured.settle !== undefined ? { settle: sideName(s.notMeasured.settle, n) } : {}), ...(s.settleWords ? { fix: s.settleWords } : {}) } } : {}), ...(s.estimated ? { estimated: s.estimated } : {}), ...(s.estimateCheck ? { estimateCheck: s.estimateCheck } : {}) })), estimateChecks: checked.map((s) => ({ side: sideName(s.from, n), name: nameOf(s.from), lengthFeet: s.lengthFeet, ...s.estimateCheck })), ...(without ? { withoutEstimates: without.sides.map((s) => ({ side: sideName(s.from, n), lengthFeet: s.lengthFeet, plusMinusPct: s.plusMinusPct })) } : {}), holdOuts: hold.rows, holdNote: hold.note, depthNote, selfCheck: self ? { words: self.words, dropped: self.dropped ? { photo: photoOf(h, self.dropped.photo)?.n, worstPct: self.dropped.worstPct, tapes: self.dropped.tapes } : null, before: x.worstPct(self.before), tried: self.tried.map((q) => ({ photo: photoOf(h, q.photo)?.n, worstPct: q.worstPct })) } : null, checks, advice: sol.advice, unplaced: sol.unplaced, doubtful, sanity: sanity.map((f) => ({ kind: f.kind, words: f.words })), stood: sol.cameras.filter((c) => c.placedBy === "stood").length, sizePhotos: solveOpts.sizePhotos ?? "measure", sized: sol.cameras.filter((c) => c.role !== "detail").length, detail: sol.cameras.filter((c) => c.role === "detail").length, tapesOnDetail: sol.tapesOnDetail ?? [], proposals: proposals.map((q) => ({ photo: fileOf(q.photo).n, corner: cornerName(q.corner), x: q.x, y: q.y })), kept: keptMarks.length, lens: { focalOverWidth: rec.focalOverWidth, k: rec.k }, rms: sol.rms, cameras: sol.cameras.length });
 
   const out = [`Measured from ${sol.cameras.length} of ${h.photos.length} photos and ${tapes.length} tape${tapes.length === 1 ? "" : "s"}; rms ${sol.rms.toFixed(2)}; lens f/W ${rec.focalOverWidth.toFixed(3)}.`, `  ${roleWords(sol, solveOpts, fileOf).replace(/^- /, "")}`];
-  for (const s of sol.sides) out.push(`  ${sideName(s.from, n).padEnd(8)} ${nameOf(s.from).slice(0, 28).padEnd(28)} ${ftin(s.lengthFeet).padStart(8)}  ${s.taped ? "taped" : `±${s.plusMinusPct}%`}${s.notMeasured ? "  NOT measured" : ""}${s.estimated ? `  (estimated on site: about ${ftin(s.estimated.feet)}${without ? `; without the estimates ${ftin(without.sides[s.from].lengthFeet)}` : ""})` : ""}${s.estimateCheck ? `  (estimated on site ${estimateCheckWords(s.estimateCheck)})` : ""}`);
+  for (const s of sol.sides) out.push(`  ${sideName(s.from, n).padEnd(8)} ${nameOf(s.from).slice(0, 28).padEnd(28)} ${ftin(s.lengthFeet).padStart(8)}  ${s.taped ? "taped" : `±${s.plusMinusPct}%`}${s.notMeasured ? "  NOT measured" : ""}${s.fromMap ? "  (map)" : ""}${s.estimated ? `  (estimated on site: about ${ftin(s.estimated.feet)}${without ? `; without the estimates ${ftin(without.sides[s.from].lengthFeet)}` : ""})` : ""}${s.estimateCheck ? `  (estimated on site ${estimateCheckWords(s.estimateCheck)})` : ""}`);
+  if (mapRows) out.push(...mapRows.out);
   out.push("Each tape held out in turn:");
   if (hold.note) out.push(`  ${hold.note}`);
   for (const r of hold.rows) out.push(`  ${r.id.padEnd(4)} ${r.said.slice(0, 34).padEnd(34)} taped ${ftin(r.taped).padStart(7)}  predicted ${r.predicted !== null ? ftin(r.predicted).padStart(7) : "      -"}  ${r.errorPct !== null ? pct(r.errorPct) : ""}${r.sizes === false ? "  (detail photo: sizes nothing)" : ""}`);
   if (depthNote) out.push(`  ${depthNote}`);
   if (self) out.push(`  Self-check (${checkSeconds.toFixed(0)} s): ${self.words}`);
-  for (const s of sol.sides.filter((q) => q.notMeasured)) out.push(`  NOT measured: ${sideName(s.from, n)} ${nameOf(s.from)} (about ${ftin(s.lengthFeet)}): ${s.notMeasured.why}. ${s.notMeasured.fix}`);
+  for (const line of settleSummary(sol.sides.filter((q) => q.notMeasured), n, nameOf)) out.push(`  ${line}`);
+  for (const s of sol.sides.filter((q) => q.notMeasured)) out.push(`  NOT measured: ${sideName(s.from, n)} ${nameOf(s.from)} (about ${ftin(s.lengthFeet)}): ${s.notMeasured.why}. ${s.settleWords}`);
   for (const k of checks) out.push(`  check: ${k.what} on #${k.photo}: ${k.got !== null ? ftin(k.got) : "not placed"}${k.expect ? ` (expected ${ftin(k.expect)}${k.got !== null ? `, ${pct((k.got / k.expect - 1) * 100)}` : ""})` : ""}`);
   for (const a of sol.advice) out.push(`  a tape would help: ${sideName(a.from, n)} ${nameOf(a.from)}: ${a.why}`);
   for (const p of (inputs.leaveOut ?? []).map((ref) => photoOf(h, ref)).filter(Boolean)) out.push(`  not used: #${p.n}: left out (leaveOut).`);

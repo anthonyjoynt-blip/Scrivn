@@ -243,6 +243,11 @@ export interface ExteriorSide {
    */
   lengthNotMeasured?: string;
   /**
+   * With `lengthNotMeasured` (2026-10-23): the side whose tape or laser settles it - its own, or the one wall whose tape
+   * settles it and others with it (the house's depth: one tape along the long side). Asked, never required.
+   */
+  lengthSettleSideId?: string;
+  /**
    * Estimated on site (2026-10-21, lib/photoRoute.ts `RouteEstimate`): someone at the house judged it about this long, by
    * eye, and the photos' measure held it there loosely. Never a tape: the report says so beside its length.
    */

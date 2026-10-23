@@ -135,6 +135,20 @@ export function parseHouse(text) {
   return out;
 }
 
+/**
+ * map.txt (2026-10-23): the building's outline off a map, its corners in order round it as "(x, y)" in feet, x east and y
+ * north - "(-34.5, -25.6)  (12.6, -40.1) ..." on one line or many. Everything else is words (where it came from, notes),
+ * kept. Fewer than three corners: no outline, said back.
+ */
+export function parseMap(text) {
+  const body = String(text ?? "").replace(/^﻿/, "");
+  const corners = [...body.matchAll(/\(\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*\)/g)].map((m) => ({ x: Number(m[1]), y: Number(m[2]) }));
+  if (corners.length < 3) return { map: null, problem: body.trim() ? `map.txt: ${corners.length} corner${corners.length === 1 ? "" : "s"} read as (x, y) - an outline needs three at least.` : null };
+  const source = /microsoft/i.test(body) ? "Microsoft's building footprints" : /open\s*street\s*map|osm\b/i.test(body) ? "OpenStreetMap" : "a map outline";
+  const sd = /\bsd\s*[:=]?\s*(\d+(?:\.\d+)?)\s*(?:ft|feet|')/i.exec(body);
+  return { map: { corners, source, ...(sd ? { sdFeet: Number(sd[1]) } : {}) }, problem: null };
+}
+
 /** 31.3333 -> 31'4"; 7.9167 -> 7'11". */
 export function ftin(feet) {
   if (!Number.isFinite(feet)) return "?";

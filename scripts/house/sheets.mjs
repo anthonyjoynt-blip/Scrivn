@@ -125,10 +125,10 @@ function marksSvg(m, s, W, H, from = [0, 0]) {
  * The shape as a small plan, [w] x [h]: corners numbered, the front (street) at the bottom, the corners [seen] on this
  * photo filled, and where it was taken from when it is known ([camera]: at, and its view as two plan directions).
  */
-export function planSvg(outline, w, h, { seen = [], cameras = [], sides = null, advice = [], title = "", shared = [], big = false } = {}) {
+export function planSvg(outline, w, h, { seen = [], cameras = [], sides = null, advice = [], title = "", shared = [], big = false, map = null } = {}) {
   const n = outline.length;
   if (n < 3) return `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"><rect width="100%" height="100%" fill="#1b1f24"/></svg>`;
-  const pts = [...outline, ...cameras.map((c) => ({ x: c.at[0], y: c.at[1] }))];
+  const pts = [...outline, ...cameras.map((c) => ({ x: c.at[0], y: c.at[1] })), ...(map ?? [])];
   const xs = pts.map((p) => p.x);
   const ys = pts.map((p) => p.y);
   const pad = big ? 70 : 34;
@@ -143,6 +143,8 @@ export function planSvg(outline, w, h, { seen = [], cameras = [], sides = null, 
   const out = [`<rect width="100%" height="100%" fill="#1b1f24"/>`];
   if (title) out.push(`<text x="10" y="21" font-family="${FONT}" font-size="${big ? 18 : 14}" font-weight="600" fill="#e8e8e8">${esc(title)}</text>`);
   out.push(`<polygon points="${outline.map((p) => `${X(p.x).toFixed(1)},${Y(p.y).toFixed(1)}`).join(" ")}" fill="rgba(120,160,200,0.18)" stroke="#9fb7cc" stroke-width="2"/>`);
+  // The map outline as laid on the house (lib/photoRouteMap.ts): red, dashed.
+  if (map?.length >= 3) out.push(`<polygon points="${map.map((p) => `${X(p.x).toFixed(1)},${Y(p.y).toFixed(1)}`).join(" ")}" fill="none" stroke="#ff5a4a" stroke-width="2.5" stroke-dasharray="10 6"/>`);
   for (let i = 0; i < n; i++) {
     const a = outline[i];
     const b = outline[(i + 1) % n];
@@ -376,8 +378,8 @@ export async function reviewPages(items, pixelsOf, marksOf, title) {
 }
 
 /** The measured plan, big: each side with its length and ±, taped sides yellow, sides wanting a tape orange, every placed photo. */
-export function measuredPlanPng(ring, sides, cameras, advice, title, shared = []) {
-  const svg = planSvg(ring, 1400, 1000, { sides, cameras, advice, title, shared, big: true });
+export function measuredPlanPng(ring, sides, cameras, advice, title, shared = [], map = null) {
+  const svg = planSvg(ring, 1400, 1000, { sides, cameras, advice, title, shared, big: true, map });
   return sharp(Buffer.from(svg)).png().toBuffer();
 }
 

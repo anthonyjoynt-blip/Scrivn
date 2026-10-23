@@ -17,7 +17,8 @@
 
 import { defaultRoof, type Exterior, type ExteriorSide, type SidePhoto } from "./exterior";
 import { exteriorFromOutline, orthogonalRing } from "./exteriorPlan";
-import type { PhotoRouteState, RouteCamera, RouteMeasured, RoutePhotoData, RouteSolution } from "./photoRoute";
+import { type PhotoRouteState, type RouteCamera, type RouteMeasured, type RoutePhotoData, type RouteSolution, settleWords } from "./photoRoute";
+import { MAP_LOOKUP_READY } from "./photoRouteMap";
 import type { Pt } from "./roof";
 import { formatFeetInches } from "./sketch";
 
@@ -182,7 +183,7 @@ export function exteriorFromRoute(prev: Exterior | undefined, state: PhotoRouteS
     const old = before.get(id);
     // A side measured again keeps what was put on it, stretched with its new length.
     const base: ExteriorSide = old ? stretched(old, s.lengthFeet) : { ...s, id };
-    const { lengthFrom: _drawn, lengthPlusMinusPct: _pm, lengthEstimatedFeet: _est, lengthNotMeasured: _nm, ...rest } = base;
+    const { lengthFrom: _drawn, lengthPlusMinusPct: _pm, lengthEstimatedFeet: _est, lengthNotMeasured: _nm, lengthSettleSideId: _settle, ...rest } = base;
     const side: ExteriorSide = { ...rest, id, name: old?.name ?? s.name, lengthFeet: s.lengthFeet, turn: s.turn, heightsFrom: "level" };
     if (measured && measured.plusMinusPct !== null) side.lengthPlusMinusPct = measured.plusMinusPct;
     if (measured?.estimated && !measured.taped) side.lengthEstimatedFeet = measured.estimated.feet;
@@ -197,6 +198,17 @@ export function exteriorFromRoute(prev: Exterior | undefined, state: PhotoRouteS
     else delete side.photos;
     return side;
   });
+  // Each side not measured says what settles it with its one wall by name (2026-10-23): "A tape or laser along the Walkway
+  // side settles it". Asked, never required.
+  const nameAt = (i: number) => wallWords(sides.find((q) => q.id === sideIds[i])?.name ?? "");
+  for (const side of sides) {
+    const i = sideIds.indexOf(side.id);
+    const measured = m.sides[i];
+    const nm = measured?.notMeasured;
+    if (!nm || measured.taped) continue;
+    side.lengthNotMeasured = `${nm.why}. ${settleWords(measured, nameAt, MAP_LOOKUP_READY && !building?.map)}`;
+    if (nm.settle !== undefined && sideIds[nm.settle]) side.lengthSettleSideId = sideIds[nm.settle];
+  }
   // Only the photos that sized it count as measured from (2026-10-22): a detail photo was placed afterwards, to be read.
   const placed = m.cameras.filter((c) => c.role !== "detail").length;
   const detail = m.cameras.length - placed;
@@ -221,6 +233,59 @@ export function exteriorFromRoute(prev: Exterior | undefined, state: PhotoRouteS
     // "by photos": measured off ordinary photos and a few tapes, nothing tapped on the walls - the report words it so.
     source: { kind: "photos", by: "photos", captureId: null, scanId: null, receivedAt: m.at, notes, walkClosed: true },
   };
+}
+
+/**
+ * What settles the sizes not measured, a sentence each, for the Use-it step and the measure's results (2026-10-23): the
+ * sides one tape or laser settles together under it, that wall named - "Not measured: the Walkway side and the Left side.
+ * A tape or laser along the Walkway side settles both." - and any other as its own says. Asked, never required: nothing
+ * waits on it. Empty when everything is measured.
+ */
+export function notMeasuredAsks(exterior: Pick<Exterior, "sides" | "upper" | "photoRoute">): string[] {
+  const all = [...exterior.sides, ...(exterior.upper?.sides ?? [])];
+  const loose = all.filter((s) => s.lengthNotMeasured);
+  if (!loose.length) return [];
+  const the = (s: ExteriorSide) => wallWords(s.name);
+  const list = (ss: ExteriorSide[]) => (ss.length === 1 ? the(ss[0] as ExteriorSide) : `${ss.slice(0, -1).map(the).join(", ")} and ${the(ss[ss.length - 1] as ExteriorSide)}`);
+  const map = MAP_LOOKUP_READY && !(exterior.photoRoute?.buildings ?? []).some((b) => b.map) ? " Or tap your house on the map." : "";
+  const groups = new Map<string, ExteriorSide[]>();
+  const own: ExteriorSide[] = [];
+  for (const s of loose) {
+    const by = s.lengthSettleSideId && all.some((q) => q.id === s.lengthSettleSideId) ? s.lengthSettleSideId : null;
+    if (by) groups.set(by, [...(groups.get(by) ?? []), s]);
+    else own.push(s);
+  }
+  const out: string[] = [];
+  for (const [by, ss] of groups) {
+    const wall = all.find((q) => q.id === by) as ExteriorSide;
+    const count = ss.length === 1 ? "it" : ss.length === 2 ? "both" : `all ${COUNT_WORDS[ss.length] ?? ss.length}`;
+    out.push(
+      ss.length === 1 && (ss[0] as ExteriorSide).id === by
+        ? `${cap(the(wall))} isn't measured: a tape or laser along it settles it.${map}`
+        : `Not measured: ${list(ss)}. A tape or laser along ${the(wall)} settles ${count}.${map}`,
+    );
+  }
+  // Not a wall's tape (the tapes disagree): what it says, the tape to check.
+  for (const s of own) {
+    const said = s.lengthNotMeasured as string;
+    const fix = said.split(". ").slice(1).join(". ") || said;
+    out.push(`${cap(the(s))} isn't measured: ${fix.charAt(0).toLowerCase()}${fix.slice(1)}`);
+  }
+  return out;
+}
+
+const cap = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
+const COUNT_WORDS: Record<number, string> = { 3: "three", 4: "four", 5: "five", 6: "six", 7: "seven", 8: "eight", 9: "nine", 10: "ten" };
+
+const FACING_WORDS: Record<string, string> = { Front: "the front", Rear: "the back", Right: "the right side", Left: "the left side" };
+
+/** A side's name as a wall in a sentence: "the Walkway side"; a plain facing as said - "the right side", "the back (2)". */
+export function wallWords(name: string): string {
+  const n = name.trim();
+  const facing = /^(Front|Rear|Right|Left)(?: (\d+))?$/.exec(n);
+  if (facing) return `${FACING_WORDS[facing[1] as string]}${facing[2] ? ` (${facing[2]})` : ""}`;
+  if (!n) return "that side";
+  return /^the /i.test(n) ? n : `the ${n}`;
 }
 
 /** A side's length changed: its openings, faces and gable slide with it, in proportion. */

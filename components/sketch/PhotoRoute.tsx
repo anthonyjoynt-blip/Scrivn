@@ -26,6 +26,7 @@ import { claimPhotoUrl, useExteriorPhotos } from "./exteriorPhotoAccess";
 import { useExteriorSubject } from "./exteriorSubject";
 import styles from "./PhotoRoute.module.css";
 import { squaredWallPhoto } from "./SidePhotos";
+import { NotMeasuredAsk } from "./NotMeasuredAsk";
 import { SendToTeam } from "./TeamMeasure";
 import { PhotoTaps, TapeForm, WallTapeForm, WHAT_HINT, WHAT_LABEL } from "./photoRouteParts";
 import { PhotoWalk } from "./PhotoWalk";
@@ -908,11 +909,13 @@ function Results({ exterior, route }: { exterior: Exterior; route: PhotoRouteSta
                 {name(s.from)} <span className="field-note">(corners {s.from + 1}–{((s.from + 1) % n) + 1})</span>
               </th>
               <td>{formatFeetInches(s.lengthFeet)}</td>
-              <td className={(s.plusMinusPct ?? 0) > 5 ? styles.weak : undefined}>{s.taped ? "taped" : `${s.plusMinusPct}%`}</td>
+              <td className={(s.plusMinusPct ?? 0) > 5 || s.notMeasured ? styles.weak : undefined}>{s.taped ? "taped" : s.notMeasured ? "not measured" : `${s.plusMinusPct}%`}</td>
             </tr>
           ))}
         </tbody>
       </table>
+      {/* A size not measured: what settles it, the one wall named (2026-10-23). Nothing waits on it. */}
+      <NotMeasuredAsk exterior={exterior} className={styles.ask} after="Nothing waits on it: put the measurement in whenever you have it, and measure again." />
       {m.advice.length > 0 && (
         <>
           <h4 className="exterior-subhead">A tape would help</h4>
