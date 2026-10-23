@@ -298,7 +298,9 @@ export async function match(h) {
       for (const c of r.checks) {
         if (!c.tape || !tapeParts[c.tape]?.length) continue;
         if (!heldBy.has(c.tape)) {
-          const sol = x.solveRoute(withCorners, "main", mm.prepared.data, { ...solveOpts, withoutTapes: tapeParts[c.tape], guesses: false });
+          // The measure's choice under a map side (a bump-out's face or the wall behind it) kept, as the hold-outs keep it.
+          const choice = mm.solution.map ? x.choiceOf(mm.solution.map) : undefined;
+          const sol = x.solveRoute(withCorners, "main", mm.prepared.data, { ...solveOpts, ...(choice ? { mapChoice: choice } : {}), withoutTapes: tapeParts[c.tape], guesses: false });
           heldBy.set(c.tape, x.measuredFrom(sol, mm.prepared.data, new Date().toISOString()));
         }
         const held = heldBy.get(c.tape);

@@ -519,7 +519,15 @@ function mapSection(x, sol, n, nameOf) {
     overlap: m.overlap,
     cornersOffFeet: m.cornersOffFeet,
     offMap: m.offMap.map((c) => ({ corner: cornerName(c.corner), feet: c.feet })),
-    sides: m.sides.map((s) => ({ index: s.index + 1, lengthFeet: s.lengthFeet, traces: s.traces !== null ? sideName(s.traces, n) : null, why: s.why ?? null, others: s.others.map((o) => ({ side: sideName(o.side, n), offFeet: o.offFeet })) })),
+    sides: m.sides.map((s) => ({
+      index: s.index + 1,
+      lengthFeet: s.lengthFeet,
+      traces: s.traces !== null ? sideName(s.traces, n) : null,
+      why: s.why ?? null,
+      others: s.others.map((o) => ({ side: sideName(o.side, n), offFeet: o.offFeet })),
+      // Over a bump-out's face and the wall behind it: which the photos alone chose, or that they didn't decide.
+      ...(s.pair ? { pair: { face: sideName(s.pair.face, n), behind: sideName(s.pair.behind, n), apartFeet: s.pair.apartFeet, traced: sideName(s.pair.traced, n), held: sideName(s.pair.held, n), decided: s.pair.decided, ways: s.pair.ways.map((w) => ({ side: sideName(w.side, n), chi2: w.chi2, against: w.against.map((a) => ({ to: sideName(a.to, n), mapFeet: a.mapFeet, photosFeet: a.photosFeet, photosSdFeet: a.photosSdFeet, offSd: a.offSd })) })) } } : {}),
+    })),
     holds: m.holds.map((hh) => ({ from: sideName(hh.a, n), to: sideName(hh.b, n), feet: hh.feet, sdFeet: hh.sdFeet, photosFeet: hh.photosFeet, photosSdFeet: hh.photosSdFeet, nowFeet: hh.nowFeet, disagrees: hh.disagrees })),
     photosOnly: m.photosOnly.map((p) => ({ side: sideName(p.from, n), lengthFeet: p.lengthFeet, plusMinusPct: p.plusMinusPct, notMeasured: p.notMeasured })),
     deep: { photosOnly: deep0, withMap: deep },
@@ -555,12 +563,18 @@ export async function measure(h) {
   /** The session's own corners of a measure: a kept mark was made with every tape in, and would carry a held-out tape back in. */
   const ownOf = (mm) => mm.corners.filter((c) => !keptMarks.some((k) => k.photo === c.photo && Math.abs(k.x - c.x) < 1e-6 && Math.abs(k.y - c.y) < 1e-6));
   let m = runMeasure();
+  // The measure's choice between a bump-out's face and the wall behind it under a map side (lib/photoRouteMap.ts
+  // MapChoice): kept by the self-check and the hold-outs, which solve on the photos as levelled after the map moved them.
+  const keptChoice = (mm) => {
+    const c = mm.solution.map ? x.choiceOf(mm.solution.map) : undefined;
+    return c ? { ...solveOpts, mapChoice: c } : solveOpts;
+  };
   // The self-check (lib/photoRouteCheck.ts, 2026-10-22): the tapes disagreeing by more than 5% held out, the one measure photo
   // whose leaving brings them back within 5% is left out of the size. Not the old way (sizePhotos "all"), unless asked.
   const tapeGroups = (inputs.tapes ?? []).filter((t) => tapeParts[t.id]?.length).map((t) => ({ id: t.id, parts: tapeParts[t.id] }));
   const doCheck = inputs.selfCheck === true || (inputs.selfCheck !== false && solveOpts.sizePhotos !== "all");
   const tCheck = Date.now();
-  const self = doCheck ? x.selfCheck({ ...input, buildings: [{ ...input.buildings[0], corners: ownOf(m) }] }, "main", m.prepared.data, tapeGroups, solveOpts, (id) => `#${photoOf(h, id)?.n}`) : null;
+  const self = doCheck ? x.selfCheck({ ...input, buildings: [{ ...input.buildings[0], corners: ownOf(m) }] }, "main", m.prepared.data, tapeGroups, keptChoice(m), (id) => `#${photoOf(h, id)?.n}`) : null;
   const checkSeconds = (Date.now() - tCheck) / 1000;
   if (self?.dropped) {
     solveOpts = { ...solveOpts, outOfSize: [self.dropped.photo] };
@@ -574,7 +588,7 @@ export async function measure(h) {
   // carry the tape held out into the solve meant to predict it.
   const own = corners.filter((c) => !keptMarks.some((k) => k.photo === c.photo && Math.abs(k.x - c.x) < 1e-6 && Math.abs(k.y - c.y) < 1e-6));
   // Hold-outs the self-check made on these same corners are kept; after a photo is left out they are made again.
-  const hold = holdOuts(x, h, inputs, input, own, prepared.data, tapeParts, n, solveOpts, self && !self.dropped ? self.before : null);
+  const hold = holdOuts(x, h, inputs, input, own, prepared.data, tapeParts, n, keptChoice(m), self && !self.dropped ? self.before : null);
   // Honest sizes, per wall (2026-10-23; the blanket of 10-22 marked every side): a tape more than 5% off the others held out
   // marks the walls it is on or tied to not measured, with the tape to check; every other wall stands on its own ±. How well
   // the tapes agree as a whole is a note (sol.tapeSpread). (Not the old way.)
@@ -680,7 +694,7 @@ export async function measure(h) {
   const estimates = input.buildings[0].estimates ?? [];
   const held = estimates.filter((e) => e.use === "hold");
   const checked = sol.sides.filter((s) => s.estimateCheck);
-  const without = held.length ? x.solveRoute({ ...input, buildings: [{ ...input.buildings[0], corners }] }, "main", prepared.data, { ...solveOpts, withoutEstimates: true }) : null;
+  const without = held.length ? x.solveRoute({ ...input, buildings: [{ ...input.buildings[0], corners }] }, "main", prepared.data, { ...keptChoice(m), withoutEstimates: true }) : null;
   const tHold = Date.now();
   // Which way each tape runs: across the house (along its front) or front to back. The hold-outs check only the ways taped.
   const across = (i) => Math.abs(sol.corners[(i + 1) % n].x - sol.corners[i].x) >= Math.abs(sol.corners[(i + 1) % n].y - sol.corners[i].y);

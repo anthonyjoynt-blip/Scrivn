@@ -12,6 +12,7 @@
 import { DEFAULT_RADIAL_K, levelPhotos, type LevelResult, type PhotoCamera, type PhotoLines } from "./photoRouteLens";
 import { grayFrom, lineSegments, type Gray, type Segment } from "./photoRouteLines";
 import { uprightEdges } from "./photoRouteEdges";
+import { choiceOf } from "./photoRouteMap";
 import { type CornerTap, numberCorners, type PhotoRouteInput, proposeCorners, type RoutePhotoData, type RouteSolution, solveRoute, type SolveRouteOptions } from "./photoRoute";
 
 export interface PhotoPixelsIn {
@@ -106,7 +107,10 @@ export function measureRoute(
   const k = rough.solution.k;
   const prepared = Math.abs(k - first.level.k) < 0.003 ? first : preparePhotos(once, pixels, lines, { k });
   const corners = numberCorners(once, buildingId, prepared.data, rough.corners);
-  const solution = solveRoute(withCorners(corners), buildingId, prepared.data, opts.solve);
+  // A map side over a bump-out's face and the wall behind it is weighed here, on the photos alone as first levelled, and
+  // kept: the term above is fitted with the map's holds in, and levelled with it the photos say what the map made them.
+  const choice = rough.map && !opts.solve?.mapChoice ? choiceOf(rough.map) : undefined;
+  const solution = solveRoute(withCorners(corners), buildingId, prepared.data, choice ? { ...opts.solve, mapChoice: choice } : opts.solve);
   // The corners the measure expects on each placed photo and nobody tapped, for the user to keep (2026-10-17).
   const proposals = proposeCorners(withCorners(corners), buildingId, prepared.data, solution);
   return { prepared, solution, firstK: first.level.k, corners, proposals };

@@ -61,16 +61,7 @@ The owner chose "option 1": the walk is two bottom-corner taps per side and the 
 
 ### Read against tapped, on the 14:53 walk
 
-The four photographed sides cut back to their two bottom corners, read off the photos (the recorded answers of 10-14, no paid call), against the same sides as tapped:
-
-| Side | Eaves, tapped / read | Peak, tapped / read | Net SF, tapped / read | Openings |
-|---|---|---|---|---|
-| Left | 2'8" & 7'8" / 9'1" & 9'1" (+77", +18") | none | 176 / 202 (+26) | 1 window, read 4'1"×4'5" for a tapped 2'0"×2'3" |
-| Front 3 | 8'10" & 9'4" / 12'10" & 12'6" (+47", +38") | 12'3" / 15'2" (+35") | 60 / 86 (+26) | the garage door, 9'8"×8'7" read for 8'10"×7'8" |
-| Rear | 13'5" & 14'6" / 15'6" & 15'5" (+25", +11") | 18'4" / 20'4" (+24") | 295 / 303 (+8) | 3 windows, read at their outer trim |
-| Left 5 | 11'6" & 12'0" / 17'8" & 15'0" (+75", +36") | 18'10" / 21'11" (+37") | 351 / 458 (+107) | 2 windows |
-
-House: 2,075 SF net tapped, 2,241 SF with the four read. Every side and every opening is there, one for one. The heights are the photos', which match the owner's hand marks of 10-12 on the same photos to 2" (Left 5's corners and peak, `test:exterior:engine`). So the differences are where the phone's height taps landed (low, on these sides) and the photos' scale (taken from the 14:53 walk's length; the garage side reads about 7% long). Openings read at their outer trim, not the glass.
+The owner's walk with its four photographed sides cut back to their two bottom corners, read off the photos (recorded answers, no paid call), against the same sides as tapped: every side and every opening is there, one for one, and the heights match the owner's hand marks on the same photos to 2" (`test:exterior:engine`). The numbers are kept outside this repository: blind reviewers measure that house from these docs.
 
 Precedence is Scrivn's, unchanged (docs/roof-from-photos.md). A part's pitch comes, in order, from:
 1. typed;
@@ -79,7 +70,7 @@ Precedence is Scrivn's, unchanged (docs/roof-from-photos.md). A part's pitch com
 4. a gable the phone measured;
 5. the assumed 4/12.
 
-On the owner's 14:53 walk, the main roof stands over Right, whose gable has no photo, so it takes Scan's measured 5.3/12. The wings out to Left 5 and Rear take their photos' 5/12.
+On the owner's 14:53 walk, the main roof stands over Right, whose gable has no photo, so it takes Scan's measured pitch. The wings out to Left 5 and Rear take their photos'.
 
 ## The report
 
@@ -121,9 +112,9 @@ US Letter. Each drawing is at the largest standard architectural scale that fits
   - with a pitch typed and an end switched;
   - with the photos' reads in.
 - **The reads, against the roof-from-photos session's own snapped reads of 10-15:**
-  - Left 5 and Rear: 5/12, with rakes 25.6" and 27.1" and an eave of 22.9", each within 1.5".
+  - Left 5 and Rear: the pitch, both rakes and the eave, each within 1.5".
   - The garage's doubtful 4.6 is set aside.
 - **The walls off the photos.** The walk with its four photographed sides cut back to their corners: with no signal they are not counted and the phone says so; read, they are whole, every part marked from photo, and the phone's sides are Scrivn's import's. The differences against the taps are printed. Left 5's heights match the 10-12 hand marks to 2". Set aside, a side is its corners again. On the walk as tapped, nothing of the photos' walls goes on.
 - **The report.** Its numbers are the quantities', and what is assumed says so. The corners-and-photos walk's report says "photo" in its tables. The PDF from the phone's engine and Scrivn's own PDF of the claim are byte for byte the same, apart from jsPDF's timestamp.
 - **Outputs:** `SCRIVN_REPORT_OUT=<file.pdf>` keeps the owner's walk's report, `SCRIVN_WALLS_REPORT_OUT=<file.pdf>` the corners-and-photos walk's. `SCRIVN_SUMMARY_OUT` writes the summary Scan's `ExteriorFinishTest` reads.
-- **Checked by hand on 2026-10-15:** the same script in Chromium, with a real canvas doing the squaring and drawing, gave the same reads to a hundredth of an inch, the same 34.14 SQ, and the roof plan picture Review shows.
+- **Checked by hand on 2026-10-15:** the same script in Chromium, with a real canvas doing the squaring and drawing, gave the same reads to a hundredth of an inch, the same squares, and the roof plan picture Review shows.

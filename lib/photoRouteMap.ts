@@ -12,7 +12,8 @@
  *      most and puts the fewest of the sizes the photos do hold against it;
  *   2. moved to overlap the outline most;
  *   3. each long side of it (15' or more) traces one wall: of the outline's walls facing the same way under it, the one at
- *      the middle of their spread, by length (a close call with a bump-out's face: the wall behind it). A bump-out it missed stands out past it, a notch or a covered deck it took in
+ *      the middle of their spread, by length (a close call with a bump-out's face: the wall behind it; over a bump-out's
+ *      face and the wall behind it, the one the photos alone agree with - `MapPair`). A bump-out it missed stands out past it, a notch or a covered deck it took in
  *      stands in from it, and neither is the wall it traces. That is read off the outline's own shape across the map's
  *      side - which walls, how long, in what order - so a depth the photos got wrong never chooses it.
  * Each two walls traced the same way are then held to the map's distance between them in the solve (`MapHold`,
@@ -61,6 +62,12 @@ const CLUSTER_FEET = 2.5;
 const TRACE_SHARE = 0.25;
 /** A part standing out this little or less from the wall beside it is a bump-out: the kind of part a footprint off aerial photos misses. */
 const BUMP_FEET = 10;
+/**
+ * A bump-out's face or the wall behind it: one way is clearly the photos' when its distances are this much nearer theirs,
+ * in sum of squares of sd off (two sd on one distance), and none of its own more than two sd off.
+ */
+const PAIR_CLEAR_CHI2 = 4;
+const PAIR_OFF_SD = 2;
 
 type Axis = "E" | "N";
 
@@ -90,6 +97,47 @@ export interface MapSide {
    * near enough equal by how far the walls under the map's side stand off each (within 15%). Held as traced, and said.
    */
   close?: { side: number; offFeet: number };
+  /** A bump-out's face and the wall behind it both under it: which one it is on, as the photos alone say (`MapPair`). */
+  pair?: MapPair;
+}
+
+/**
+ * A map side over a bump-out's face and the wall behind it (2026-10-23, blind runs C and D of the owner's house): a map can
+ * miss the bump-out (its line on the wall behind) or take in what stands beside it - a deck, a covered notch - (its line on
+ * the face), and the shape under the line can't say which. On a test house two blind runs' fits held one each - the rear
+ * wall, then the bump-out's face, short and sure of itself, though that run's photos alone had put the depth right.
+ * So each way is fitted, and its distances to the map's other lines in the open held against the photos alone, each off by
+ * its sd; the way they agree with is held when it clearly does. When it doesn't (photos that barely tie the front to the back),
+ * the one the shape under the line traces is held as before - the map's depth is still the best there is - but the walls
+ * whose lengths hang on which it is are not measured, the walkway's tape named: said either way.
+ */
+export interface MapPair {
+  face: number;
+  behind: number;
+  /** How far the face stands out past the wall behind, feet, on the plan the fit was made on. */
+  apartFeet: number;
+  /** The one the shape under the line traces by itself (`traceSides`). */
+  traced: number;
+  /** Each way, the map's line on that wall: its distances against the photos alone, and their sum of squares off. */
+  ways: { side: number; against: { to: number; mapFeet: number; photosFeet: number; photosSdFeet: number; offSd: number }[]; chi2: number }[];
+  /** The wall held: the one the photos chose, or (they didn't) the one traced. */
+  held: number;
+  /**
+   * The photos alone chose it, clearly. Not: held as traced, and the walls either side of the face and of the wall behind it -
+   * whose lengths hang on which it is - are not measured (lib/photoRoute.ts `solveWithMap`).
+   */
+  decided: boolean;
+}
+
+/**
+ * The ways a measure chose for its map sides over a bump-out's face and the wall behind it, at the turn it laid the map
+ * (2026-10-23): made once, on the photos alone before the map moved anything, and kept for every solve after. The map's
+ * holds move the lens's radial term the measure levels the photos with again (lib/photoRouteData.ts `measureRoute`), and on
+ * two blind runs that alone moved the "photos alone" depth by several feet: weighed after it, the photos say what the map made them.
+ */
+export interface MapChoice {
+  turnDeg: number;
+  pairs: { mapSide: number; pair: MapPair }[];
 }
 
 /**
@@ -125,6 +173,8 @@ export interface MapHold {
   sdFeet: number;
   /** The map sides that trace them. */
   mapSides: [number, number];
+  /** Walls level with either (within 2'6": a garage door's step), on the same map line: the map holds where they stand too. */
+  level?: number[];
 }
 
 export interface MapFit {
@@ -371,16 +421,93 @@ function traceSides(onPlan: Pt[], ring: Pt[], over: MapRoofOver = {}): MapSide[]
     // near enough, is a close call (house G's back: the rear wall 120 against the bump-out's back 130 sq ft).
     const offAt = (v: Line) => seen.reduce((s, w) => s + (share.get(w.index) as number) * Math.abs(w.at - v.at), 0);
     const rival = seen.filter((w) => Math.abs(w.at - traced.at) > CLUSTER_FEET).map((w) => ({ w, off: offAt(w) })).sort((p, q) => p.off - q.off)[0];
-    if (!rival || rival.off > 1.15 * offAt(traced)) return { ...base, others, traces: traced.index, inside: allowed(traced.index) };
-    // A close call between a bump-out's face and the wall it stands out from: the map missed the bump-out (what such maps
-    // miss), so it traces the wall behind. Otherwise the middle stands.
-    const outer = rival.w.outward * rival.w.at > traced.outward * traced.at ? rival.w : traced;
-    const inner = outer === traced ? rival.w : traced;
-    const held = bumpFace(outer.index) && !bumpFace(inner.index) ? inner : traced;
-    const other = held === traced ? rival.w : traced;
-    const close = { side: other.index, offFeet: m.outward * (other.at - held.at) };
-    return { ...base, others: seen.filter((w) => w !== held).map((w) => ({ side: w.index, offFeet: m.outward * (w.at - held.at) })), traces: held.index, close, inside: allowed(held.index) };
+    let held = traced;
+    let close: MapSide["close"];
+    if (rival && rival.off <= 1.15 * offAt(traced)) {
+      // A close call between a bump-out's face and the wall it stands out from: the map missed the bump-out (what such maps
+      // miss), so it traces the wall behind. Otherwise the middle stands.
+      const outer = rival.w.outward * rival.w.at > traced.outward * traced.at ? rival.w : traced;
+      const inner = outer === traced ? rival.w : traced;
+      held = bumpFace(outer.index) && !bumpFace(inner.index) ? inner : traced;
+      const other = held === traced ? rival.w : traced;
+      close = { side: other.index, offFeet: m.outward * (other.at - held.at) };
+    }
+    // Traced on a bump-out's face or the wall behind it, both under the line: which, the photos say (`resolvePairs`).
+    const pair = pairUnder(m, held);
+    return { ...base, others: seen.filter((w) => w !== held).map((w) => ({ side: w.index, offFeet: m.outward * (w.at - held.at) })), traces: held.index, inside: allowed(held.index), ...(pair ? { pair } : close ? { close } : {}) };
   });
+
+  /** A bump-out's face under map side [m] and the wall behind it, under it too, one of them (or level with it) [held]. */
+  function pairUnder(m: Line, held: Line): MapPair | undefined {
+    const under = (w: Line) => w.axis === m.axis && w.outward === m.outward && Math.min(w.hi, m.hi) - Math.max(w.lo, m.lo) > 0.5;
+    for (let i = 0; i < n; i++) {
+      const face = walls[i] as Line;
+      if (!bumpFace(i) || !under(face)) continue;
+      // The wall behind: past the short side back to the inside corner, parallel to the face.
+      const after = (i + 1) % n;
+      const before = (i - 1 + n) % n;
+      const j = (walls[after] as Line).lengthFeet <= BUMP_FEET && !outside[(i + 2) % n] ? (i + 2) % n : (i - 2 + n) % n;
+      if (j === (i - 2 + n) % n && !((walls[before] as Line).lengthFeet <= BUMP_FEET && !outside[before])) continue;
+      const behind = walls[j] as Line;
+      const apart = face.outward * (face.at - behind.at);
+      if (!under(behind) || apart <= CLUSTER_FEET || apart > BUMP_FEET + CLUSTER_FEET) continue;
+      if (Math.abs(held.at - face.at) > CLUSTER_FEET && Math.abs(held.at - behind.at) > CLUSTER_FEET) continue;
+      return { face: i, behind: j, apartFeet: apart, traced: held.index, ways: [], held: held.index, decided: false };
+    }
+    return undefined;
+  }
+}
+
+/**
+ * Each map side over a bump-out's face and the wall behind it (`MapPair`), fitted both ways: its line on each wall, the
+ * distances that puts to the map's other lines in the open held against the photos alone ([ring], their house; [sdBetween],
+ * their sd on the distance between two walls), each off by its sd (the photos' and the map's). A porch's line is never one
+ * of them: it stands off its wall by a depth guessed or typed, not measured. The way nearer the photos by `PAIR_CLEAR_CHI2`,
+ * none of its own over `PAIR_OFF_SD`, is held, decided; else the one traced, not decided. No sd from the photos (no tape:
+ * they have no size of their own) decides nothing. [assign]: the ways chosen before (`MapChoice`), by map side, kept.
+ */
+function resolvePairs(sides: MapSide[], ring: Pt[], sd: number, over: MapRoofOver, sdBetween?: (a: number, b: number) => number | null, assign?: Map<number, MapPair>): MapSide[] {
+  const walls = linesOf(ring);
+  // Side [s] traced on wall [w]: the others under it measured from it again.
+  const on = (s: MapSide, w: number, pair: MapPair): MapSide => {
+    const { close: _close, why: _why, ...rest } = s;
+    void _close;
+    void _why;
+    if (w === s.traces) return { ...rest, pair };
+    const was = s.traces === null ? null : (walls[s.traces] as Line);
+    const at = (walls[w] as Line).at;
+    const others = [...s.others.filter((o) => o.side !== w), ...(was ? [{ side: was.index, offFeet: 0 }] : [])].map((o) => ({ side: o.side, offFeet: s.outward * ((walls[o.side] as Line).at - at) }));
+    return { ...rest, traces: w, inside: insideOf(w, over), others, pair };
+  };
+  let out = sides;
+  for (const s of sides) {
+    const given = assign?.get(s.index);
+    if (given) {
+      out = out.map((q) => (q.index === s.index ? on(q, given.held, given) : q));
+      continue;
+    }
+    if (!s.pair) continue;
+    const pair = s.pair;
+    const ways = [pair.behind, pair.face].map((w) => {
+      const tried = out.map((q) => (q.index === s.index ? on(q, w, pair) : q));
+      const byIndex = new Map(tried.map((q) => [q.index, q]));
+      const mine = holdsOf(tried, ring, sd).filter((h) => h.mapSides.includes(s.index));
+      const open = mine.filter((h) => h.mapSides.every((k) => (byIndex.get(k)?.inside?.feet ?? 0) === 0));
+      const against: MapPair["ways"][number]["against"] = [];
+      for (const h of open.length ? open : mine) {
+        const photosSdFeet = sdBetween?.(h.a, h.b);
+        if (photosSdFeet === null || photosSdFeet === undefined || !Number.isFinite(photosSdFeet)) continue;
+        const photosFeet = Math.abs((walls[h.b] as Line).at - (walls[h.a] as Line).at);
+        against.push({ to: h.a === w ? h.b : h.a, mapFeet: h.feet, photosFeet, photosSdFeet, offSd: (photosFeet - h.feet) / Math.hypot(photosSdFeet, h.sdFeet) });
+      }
+      return { side: w, against, chi2: against.reduce((t, a) => t + a.offSd ** 2, 0) };
+    });
+    const [p, q] = [...ways].sort((u, v) => u.chi2 - v.chi2) as [MapPair["ways"][number], MapPair["ways"][number]];
+    const clear = p.against.length > 0 && q.against.length > 0 && q.chi2 - p.chi2 >= PAIR_CLEAR_CHI2 && p.against.every((a) => Math.abs(a.offSd) <= PAIR_OFF_SD);
+    const decided: MapPair = { ...pair, ways, held: clear ? p.side : pair.traced, decided: clear };
+    out = out.map((r) => (r.index === s.index ? on(r, decided.held, decided) : r));
+  }
+  return out;
 }
 
 /**
@@ -428,7 +555,8 @@ function holdsOf(sides: MapSide[], ring: Pt[], sd: number): MapHold[] {
       // A wall u in from its line stands at its line less outward x u.
       const up = (p.inside as { feet: number }).feet;
       const uq = (q.inside as { feet: number }).feet;
-      out.push({ id: `map:${p.index}-${q.index}`, a: p.traces as number, b: q.traces as number, axis, feet: q.at - p.at - q.outward * uq + p.outward * up, sdFeet: Math.hypot(sdOf(p), sdOf(q)), mapSides: [p.index, q.index] });
+      const level = [...p.others, ...q.others].filter((o) => Math.abs(o.offFeet) <= CLUSTER_FEET).map((o) => o.side);
+      out.push({ id: `map:${p.index}-${q.index}`, a: p.traces as number, b: q.traces as number, axis, feet: q.at - p.at - q.outward * uq + p.outward * up, sdFeet: Math.hypot(sdOf(p), sdOf(q)), mapSides: [p.index, q.index], ...(level.length ? { level } : {}) });
     }
   }
   return out;
@@ -446,12 +574,13 @@ const placed = (corners: Pt[], turnDeg: number, shift: [number, number]) => corn
  * on the distance between two of the outline's walls (by side index), or null - a quarter-turn that puts the map's
  * distances against sizes the photos hold well is not the one. [frontFacesDeg], when known (the compass): only the
  * quarter-turn with the front that way. [turnDeg]: laid at that turn again (a fit already made, on the outline now).
- * Null when the map has fewer than three corners.
+ * [choice]: the ways chosen before for a bump-out's face or the wall behind it (`choiceOf`), kept at that turn. Null when
+ * the map has fewer than three corners.
  */
 export function fitMapOutline(
   map: MapOutline,
   ring: Pt[],
-  opts: { sdBetween?: (a: number, b: number) => number | null; frontFacesDeg?: number | null; turnDeg?: number; over?: MapRoofOver } = {},
+  opts: { sdBetween?: (a: number, b: number) => number | null; frontFacesDeg?: number | null; turnDeg?: number; over?: MapRoofOver; choice?: MapChoice } = {},
 ): MapFit | null {
   if (map.corners.length < 3 || ring.length < 3) return null;
   const corners = ccw(map.corners.map((p) => ({ x: Number(p.x), y: Number(p.y) })));
@@ -467,7 +596,8 @@ export function fitMapOutline(
     const turned = corners.map((p) => rot(p, turnDeg));
     const { shift, overlap } = bestShift(ring, turned, Math.max(10, 0.35 * extent));
     const onPlan = placed(corners, turnDeg, shift);
-    const sides = traceSides(onPlan, ring, opts.over);
+    const given = opts.choice && Math.abs(((turnDeg - opts.choice.turnDeg + 540) % 360) - 180) < 1 ? new Map(opts.choice.pairs.map((q) => [q.mapSide, q.pair])) : undefined;
+    const sides = resolvePairs(traceSides(onPlan, ring, opts.over), ring, sd, opts.over ?? {}, opts.sdBetween, given);
     const holds = holdsOf(sides, ring, sd);
     // The sizes the photos hold, against the map's: each off by its sd, counted at most 3 sd (a size the photos got wrong
     // counts no more than one that is missing).
@@ -483,6 +613,23 @@ export function fitMapOutline(
   const most = Math.max(...tries.map((t) => t.holds.length));
   const best = tries.reduce((p, q) => (q.cost + 3 * (most - q.holds.length) < p.cost + 3 * (most - p.holds.length) ? q : p));
   return { turnDeg: best.turnDeg, shift: best.shift, frontFacesDeg: frontBearing(best.turnDeg), overlap: best.overlap, onPlan: best.onPlan, sides: best.sides, holds: best.holds };
+}
+
+/**
+ * The walls whose lengths hang on which of a bump-out's face and the wall behind it a map side is on: those either side of
+ * each (not shared), and of them the longest - the house's depth along the bump-out, the one tape that settles which.
+ */
+export function pairHangs(pair: MapPair, lengths: number[], shared: Set<number> = new Set()): { walls: number[]; settle: number } {
+  const n = lengths.length;
+  const walls = [...new Set([pair.face, pair.behind].flatMap((k) => [(k - 1 + n) % n, (k + 1) % n]))].filter((k) => k !== pair.face && k !== pair.behind && !shared.has(k)).sort((a, b) => a - b);
+  const settle = walls.reduce((a, k) => ((lengths[k] ?? 0) > (lengths[a] ?? 0) ? k : a), walls[0] ?? pair.face);
+  return { walls, settle };
+}
+
+/** The ways a fit (or a measure's map check) chose for its map sides over a bump-out's face and the wall behind it; none weighed: undefined. */
+export function choiceOf(fit: { turnDeg: number; sides: MapSide[] }): MapChoice | undefined {
+  const pairs = fit.sides.filter((s) => s.pair && s.pair.ways.length).map((s) => ({ mapSide: s.index, pair: s.pair as MapPair }));
+  return pairs.length ? { turnDeg: fit.turnDeg, pairs } : undefined;
 }
 
 /** The same walls held, both ways round: a fit made again on the outline as measured and holding what it held before. */
@@ -557,9 +704,10 @@ export function mapCheck(
   const offMap = ring.map((p, corner) => ({ corner, feet: offRing(p, onPlan) })).filter((c) => Math.abs(c.feet) > ON_MAP_FEET);
   // The sides as traced and held; on the outline as measured, a side that would trace another wall now is said.
   const nowTraced = traceSides(onPlan, ring, over);
+  // A side over a bump-out's face and the wall behind it is on the one the photos chose (or neither): never "would sit on".
   const sides = fit.sides.map((s) => {
     const now = nowTraced[s.index];
-    return now && s.traces !== null && now.traces !== null && now.traces !== s.traces ? { ...s, nowTraces: now.traces } : s;
+    return !s.pair && now && s.traces !== null && now.traces !== null && now.traces !== s.traces ? { ...s, nowTraces: now.traces } : s;
   });
   const holds = fit.holds.map((h) => {
     const photosFeet = Math.abs((before[h.b] as Line).at - (before[h.a] as Line).at);
@@ -626,6 +774,22 @@ export function mapWords(check: RouteMapCheck, ringLengths: number[], nameOf: (s
   for (const s of traced) {
     if (s.close) out.push(`A close call: the map's ${ft(s.lengthFeet)} side is held on ${nameOf(s.traces as number)}, but it could as well be on ${nameOf(s.close.side)} (${ft(Math.abs(s.close.offFeet))} ${s.close.offFeet > 0 ? "out" : "in"} from it). ${depthWords(s, check, nameOf)}`);
     else if (s.nowTraces !== undefined) out.push(`On the house as measured, the map's ${ft(s.lengthFeet)} side held on ${nameOf(s.traces as number)} would sit on ${nameOf(s.nowTraces)} instead. ${depthWords(s, check, nameOf)}`);
+  }
+  // Over a bump-out's face and the wall behind it: which the photos chose, and on what - or that they didn't decide, and what
+  // that leaves not measured.
+  for (const s of check.sides) {
+    const p = s.pair;
+    if (!p || !p.ways.length) continue;
+    const said = p.ways.flatMap((w) => w.against.map((a) => `${nameOf(a.to)} to ${nameOf(w.side)} ${ft(a.photosFeet)} ±${ft(2 * a.photosSdFeet)}, the map ${ft(a.mapFeet)}`)).join("; ");
+    const lead = `The map's ${ft(s.lengthFeet)} side runs over a bump-out's face, ${nameOf(p.face)}, and the wall behind it, ${nameOf(p.behind)}, ${ft(p.apartFeet)} apart: a map can miss a bump-out or take in what stands beside one, so which it is on is the photos' to say.`;
+    if (p.decided) {
+      out.push(`${lead} The photos alone, before the map moved anything, put it on ${nameOf(p.held)} (${said}): held there.`);
+      continue;
+    }
+    const hang = pairHangs(p, ringLengths);
+    const walls = hang.walls.map(nameOf);
+    const list = walls.length > 1 ? `${walls.slice(0, -1).join(", ")} and ${walls[walls.length - 1]} are` : `${walls[0]} is`;
+    out.push(`${lead} The photos alone didn't decide between them (${said || "they hold nothing between it and the map's other lines"}): it is held on ${nameOf(p.held)}, as the shape under it has it, and ${list} NOT measured. A tape or laser along ${nameOf(hang.settle)}, ${s.axis === "N" ? "front corner to back corner" : "corner to corner"}, settles which.`);
   }
   for (const c of check.offMap) out.push(`Corner ${c.corner + 1} stands ${ft(Math.abs(c.feet))} ${c.feet > 0 ? "outside the map's outline: a part the map misses" : "inside the map's outline: a notch, or a covered deck or porch the map takes in"}.`);
   return out;

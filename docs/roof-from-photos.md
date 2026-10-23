@@ -25,7 +25,7 @@ Scrivn works out four reads:
 - The wall top goes onto the step from wall to soffit.
 - The fascia goes onto the first strong step above the soffit, parallel to the wall top.
 
-On the owner's west gable this put both lines within 1 px of the 10-12 hand marks.
+On a gable of the owner's this put both lines within 1 px of the hand marks.
 
 **Ticking.** Each read has its own tick on the face-on side, and each is kept on the side, ticked or set aside (`roofRead`). Once on the side, the line under the photo says what was read, with **Set the roof read aside**.
 
@@ -77,92 +77,12 @@ Scan's own cards say this: the first Photo card, and a card after the first phot
 
 **What to keep for each photo:** the trace's checks and notes, whether it was snapped, and how far the phone stood off the peak.
 
-## First results: the owner's house (10-12 photos, read 10-15)
+## First results
 
-The photos are the owner's own from 10-12, squared by the photo test (session 0834e882). The phone positions come from that test's geometry. These are not Scan photos, but the maths is the same.
-
-The scales come from Scan's walks:
-- the west wall is 7.417 m by the 13:25 walk and 8.146 m by the 14:53 walk;
-- the garage is scaled from the owner's 9' door tape.
-
-The only hand figure so far is the owner's pitch: **5/12**.
-
-### Pitch
-
-| Gable | Photo | Claude's lines | Set on the photo's edges | 10-12 hand marks | Owner |
-|---|---|---|---|---|---|
-| West, main roof | 5.4 m out, 2.5 m right of the peak | 5.07 / 4.92: **5/12** | 4.97 / 5.06: **5/12** | 5.0 / 5.1 | **5/12** |
-| Rear bump-out | 8.9 m out, 4 m right of the peak | 4.94 / 4.96: **5/12** | 5.08 / 5.08: **5/12** | (Scan: 5.0) | – |
-| Garage gable | 7.1 m out; its left soffit is seen edge-on | 4.38 / 4.84: 4.6, **flagged** | no clear edge: left as traced | 5.1 / 4.7 | – |
-
-- Every clean gable reads 5/12.
-- The one doubtful read is flagged rather than used.
-- The 10-12 test's photo taken 53° off square read 5.3 / 6.0, which is also flagged.
-
-### Rake overhang (out to the fascia's face)
-
-| Gable | Claude's lines | Set on edges: fascia taken level | Set on edges: both slopes |
-|---|---|---|---|
-| West | 24" / 28", flagged | 22.7" / 22.0" | **23.3"**, fascia hangs 0.7" |
-| Rear bump-out | 27" / 28" | 24.8" / 21.8" | **27.1"**, fascia hangs 1.8" |
-
-- The 10-12 hand marks on the west gable, with the fascia taken level, gave 22.1" / 22.8", which is what the snapped lines give.
-- The west gable is on the 13:25 scale. On the 14:53 scale it is 25.6" (×1.098).
-- The garage gable was not snapped. As traced it reads 24.6" / 24.7".
-- No tape yet.
-
-### Eave overhang
-
-| Where | Read |
-|---|---|
-| Rear bump-out, both rake feet | **23.3" / 23.3"**; read again: 22.7" / 23.0" |
-| Garage, left foot | 35.4", **not a plain end** |
-| West gable | **not read**, rightly: the roof runs on over the porch and the deck at both ends |
-
-- The rear bump-out's right foot was near the phone, so it hardly depends on the rake read.
-- The garage's left foot sits over a soffit box on the column, not a plain eave end. Taken alone this read misleads. The roof plan flags photo reads that disagree.
-- No tape yet.
-
-### Heights (west gable, snapped, against the 10-12 hand marks on the same scale)
-
-| | Snapped | Hand |
-|---|---|---|
-| Back corner to soffit | 13'10.6" | 13'10" |
-| Front corner | 11'5.2" | 11'5" |
-| Peak | 17'9.1" | 17'9" |
-
-### Gable or hip
-
-Four of four right:
-- the west gable, the rear bump-out and the garage gable read as gables;
-- the garage wing's west side reads as an eave.
-
-### Squares and lines
-
-The test claim's roof ("Exterior test – roof from photos") was rebuilt from Scan's 14:53 file, three ways:
-- **Scan's tapped gables only:** 5.06/12, with the default 16" / 12" overhangs.
-- **As typed 10-13:** 5/12, eave 24", rake 22".
-- **From photos:** the reads ticked on the west gable and the rear bump-out, nothing typed, so they fill the roof as Scrivn now does:
-  - 5/12;
-  - eave 22.9";
-  - rake 26.4", the mean of 25.6" (the west gable on this walk's scale) and 27.1".
-
-| Roof | Squares | Ridge | Hip | Valley | Eave | Rake |
-|---|---|---|---|---|---|---|
-| Scan's tapped gables only, default overhangs | 31.70 | 113'1" | 33'3" | 111'9" | 121'2" | 171'9" |
-| As typed 10-13 | 33.71 | 117'1" | 34'2" | 117'0" | 123'10" | 178'3" |
-| From photos | 34.05 (+1.0%) | 118'6" | 34'0" | 116'10" | 126'6" | 177'9" |
-
-- The default overhangs undercount this roof by 2 squares (6%). Reading the overhangs matters more than the last tenth of the pitch.
-- The owner's Xactimate sketch is still to compare against.
+The first results on the owner's house - pitch, overhangs, heights, gable or hip, squares and how they repeat, against his own figures, the 10-12 hand marks and Scan's walks - are kept outside this repository: blind reviewers measure that house from these docs. In short: every clean gable read the right pitch, the doubtful ones were flagged rather than used, heights came within an inch of the hand marks, and gable or hip was four of four.
 
 ### Repeatability
 
-- **Rear bump-out**, read twice in independent calls (the second after the foot wording in the prompt changed):
-  - pitch 5.08 / 5.08 and 5.08 / 5.09;
-  - rake 27.1" and 27.1", hang 1.8" both times;
-  - eave 23.3" and 22.9".
-  - Snapping makes the lines the photo's, so they repeat.
 - **Painted test wall** (`test:exterior:trace`), three runs:
   - pitch exact;
   - rake +0.0" each time, hang 1.0" (truth 1.0").
@@ -176,7 +96,7 @@ The test claim's roof ("Exterior test – roof from photos") was rebuilt from Sc
 - **Heights: yes**, to within an inch of the hand marks, as good as the side's scale. The scale is Scan's walk until one length is taped.
 - **Overhangs: not yet.**
   - The method reads the same as careful hand marks.
-  - But the gables read 23-27" between them, and depend on the scale and on the fascia's hang.
+  - But two gables of one house read 4" apart, and they depend on the scale and on the fascia's hang.
   - With no tape to check against, treat them as a better start than the 16"/12" defaults, for the estimator to confirm.
 - **Squares: the photo reads are not the weak link.** They move squares under 1%. The footprint's scale is the bigger error: Scan's walks differ 5-10% until taped.
 
@@ -253,6 +173,6 @@ So a side stays at about $0.05-0.09. The difference between runs is the thinking
   - west gable, rear bump-out, porch front: no pieces, no upper floor;
   - the rear bump-out's basement window and raised main floor did not read as two storeys;
   - the porch front's roof vents and flue were rightly not taken for dormers ("Only roof vents and a flue stand on the roof; none of these are dormers");
-  - pitch 5/12 on both gables, as before.
+  - the pitch on both gables as before.
 - **The owner's 14:53 walk**: its gables (the west gable, the rear bump-out) already fit the roof worked out from the outline, so the ridge stays and the squares are unchanged.
 - **Not yet tried on a real dormer, turret or two-storey house.** The painted ones are the evidence so far: a real one is the next test.
