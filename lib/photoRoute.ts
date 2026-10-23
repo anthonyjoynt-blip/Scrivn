@@ -72,7 +72,42 @@ export interface RoutePhoto {
    * Absent: from `shot` on the building's shape, or not known.
    */
   facing?: [number, number];
+  /**
+   * A close-up laid on its wall's full photo by hand (2026-10-23, lib/photoRouteMatch.ts `matchFromTaps`): 4 or more points
+   * tapped on both, where code found no place for it. Each [close-up x, y, full x, y], in the stored photos' pixels.
+   */
+  taps?: { full: string; points: [number, number, number, number][] };
 }
+
+/**
+ * A close-up ("Take more of this wall") laid on its wall's full photo after a measure (2026-10-23, lib/photoRouteMatch.ts):
+ * read at the wall's scale, it sizes nothing. `h` null: no place for it held in code - 4 points tapped on both lay it.
+ */
+export interface RouteMatch {
+  /** The form it was found in: a match of another form is found again. */
+  v: typeof ROUTE_MATCH_V;
+  /** The close-up, and the full photo of its wall it was laid on (or tried on). */
+  photo: string;
+  full: string;
+  /** The close-up's pixel to the full photo's, the lens's radial term taken out of both; null when not laid. */
+  h: number[] | null;
+  by: "code" | "taps";
+  /** Points tried and points that agree (taps: the taps). */
+  points: number;
+  inliers: number;
+  /** How far the agreeing points are off the homography, the full photo's pixels. */
+  rmsPx: number;
+  /** How much nearer the close-up was taken. */
+  zoom: number;
+  /** The points that agree, on the full photo (its pixels as taken): which wall they are on. */
+  onFull: [number, number][];
+  /** How it went, or why not, in words. */
+  words: string;
+  /** The lens's radial term both photos were taken at: a measure that moves it lays the close-up again. */
+  k: number;
+}
+
+export const ROUTE_MATCH_V = 1;
 
 /**
  * What a photo was taken for, from the checklist: a corner (outline index) at 45 degrees, or a wall (outline side index)
@@ -247,6 +282,8 @@ export interface RouteMeasured {
   lenses: Record<string, { f: number; k: number; R: number[]; width: number; height: number }>;
   /** The exterior side made of each outline side, by the outline's side index: measured again, a side keeps its id. */
   sideIds?: string[];
+  /** The walk's close-ups laid on their walls' full photos, or tried (2026-10-23): absent on a measure from before. */
+  matches?: RouteMatch[];
 }
 
 export function emptyPhotoRoute(): PhotoRouteState {

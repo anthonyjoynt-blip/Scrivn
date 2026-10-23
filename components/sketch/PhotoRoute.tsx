@@ -9,12 +9,15 @@ import { onDeviceChange } from "@/lib/deviceClaims";
 import { keepPhotoFile, sendWaitingPhotos } from "@/lib/devicePhotos";
 import { preparePhoto } from "@/lib/photoImage";
 import { addPhoto, type ClaimPhoto, EXTERIOR_ROOM } from "@/lib/photos";
-import { type CornerTap, defaultShared, emptyPhotoRoute, type PhotoRouteState, planMapping, type RoutePhoto, type RouteShot, type RouteTape, shotNumbers } from "@/lib/photoRoute";
+import { type CornerTap, defaultShared, emptyPhotoRoute, type PhotoRouteState, planMapping, type RouteMeasured, type RoutePhoto, type RouteShot, type RouteTape, shotNumbers } from "@/lib/photoRoute";
 import { routeSanity } from "@/lib/photoRouteSanity";
 import { routeCoverage, viewsFromMeasure } from "@/lib/photoRouteCoverage";
 import { measureRoute, type PhotoPixelsIn, photoLines } from "@/lib/photoRouteData";
 import { exifFocal35, focalOverWidth } from "@/lib/photoRouteExif";
-import { exteriorFromRoute, measuredFrom } from "@/lib/photoRouteExterior";
+import { closeUpsOnSides, exteriorFromRoute, measuredFrom } from "@/lib/photoRouteExterior";
+import { cameraFrom, type CloseUpPair, closeUpPairs, closeUpsToLay, type MatchJobPhoto, matchesForMeasure, withCloseUpTaps, withRouteMatch } from "@/lib/photoRouteCloseUps";
+import { startCloseUpMatching } from "./closeUpWorker";
+import { CloseUpTaps } from "./CloseUpTaps";
 import { measureWords, newWalk, walkActive, walkMeasures, walkPhotos, walkPhotoWords, walkTapWords, walkUnplaced, withWalk } from "@/lib/photoRouteWalk";
 import type { Pt } from "@/lib/roof";
 import { formatFeetInches, newSketchId } from "@/lib/sketch";
@@ -152,6 +155,13 @@ export function PhotoRoutePane({ exterior, readOnly, onChange }: { exterior: Ext
   /** Where "Measure it here" at the walk's end goes: the corners on the photos, or the shape when the walk didn't close. */
   const tapsRef = useRef<HTMLElement | null>(null);
   const shapeRef = useRef<HTMLElement | null>(null);
+  /**
+   * The walk's close-ups being laid on their walls off the page's thread (2026-10-23): for the measure at [at], the one at it
+   * now, those still to do, how many done of how many. Null when none is.
+   */
+  const [laying, setLaying] = useState<{ at: string; now: string | null; left: string[]; done: number; of: number } | null>(null);
+  const stopLaying = useRef<(() => void) | null>(null);
+  useEffect(() => () => stopLaying.current?.(), []);
 
   // Each photo's picture: this phone's copy or Scrivn's link; asked again when the phone's store changes (a photo uploaded).
   const [storeTick, setStoreTick] = useState(0);
@@ -287,9 +297,62 @@ export function PhotoRoutePane({ exterior, readOnly, onChange }: { exterior: Ext
     change((r) => withMain(r, (b) => ({ ...b, tapes: [...b.tapes, t] })));
   }
 
+  /**
+   * The close-ups [todo] laid on their walls in a web worker, for measure [m]: each match put on the exterior as it is found,
+   * so each close-up is read on its side's photos as soon as it is laid. [photos]' buffers are handed over, not copied.
+   */
+  function layCloseUps(m: RouteMeasured, todo: CloseUpPair[], photos: Record<string, MatchJobPhoto>, transfer: Transferable[]) {
+    stopLaying.current?.();
+    if (todo.length === 0) return;
+    const at = m.at;
+    setLaying({ at, now: null, left: todo.map((p) => p.photo), done: 0, of: todo.length });
+    stopLaying.current = startCloseUpMatching({ photos, pairs: todo, k: m.k }, transfer, (msg) => {
+      if (msg.kind === "start") setLaying((l) => (l && l.at === at ? { ...l, now: msg.photo } : l));
+      else if (msg.kind === "result") {
+        onChange((e) => withRouteMatch(e, at, msg.match));
+        setLaying((l) => (l && l.at === at ? { ...l, now: null, left: l.left.filter((id) => id !== msg.match.photo), done: l.done + 1 } : l));
+      } else {
+        stopLaying.current = null;
+        setLaying(null);
+        if (msg.kind === "error") setError(msg.words);
+        access?.onCheckpoint?.();
+      }
+    });
+  }
+
+  /** "Lay them on their walls": the close-ups this measure hasn't laid or tried yet (left mid-way, or a measure from the team). */
+  async function layNow() {
+    const m = route.measured;
+    if (!m) return;
+    const todo = closeUpsToLay(route, m).filter((p) => urls.has(p.photo) && urls.has(p.full));
+    if (todo.length === 0) return;
+    setError(null);
+    try {
+      const photos: Record<string, MatchJobPhoto> = {};
+      const transfer: Transferable[] = [];
+      const ids = [...new Set(todo.flatMap((p) => [p.photo, p.full]))];
+      for (const [i, id] of ids.entries()) {
+        setBusy(`Reading photo ${i + 1} of ${ids.length}…`);
+        await tick();
+        const px = await pixelsOf(id, urls.get(id) as string);
+        const lens = m.lenses[id];
+        photos[id] = { rgba: px, camera: lens ? cameraFrom(lens, m.k) : null, level: { focalOverWidth: m.focalOverWidth, k: m.k }, focalPrior: route.photos.find((p) => p.id === id)?.focalPrior ?? null };
+        transfer.push(px.data.buffer as ArrayBuffer);
+      }
+      layCloseUps(m, todo, photos, transfer);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "The close-ups could not be read.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function measure(keepMarks = false) {
     if (!access) return;
     setError(null);
+    stopLaying.current?.();
+    stopLaying.current = null;
+    setLaying(null);
     // "Looks right": every mark Scrivn put down kept, then measured with them.
     const buildings = keepMarks ? route.buildings.map((b) => (b.id === "main" ? { ...b, corners: b.corners.map((c) => (c.proposed ? { ...kept(c), by: "app" as const } : c)) } : b)) : route.buildings;
     try {
@@ -310,7 +373,11 @@ export function PhotoRoutePane({ exterior, readOnly, onChange }: { exterior: Ext
       await tick();
       const input = { photos: have.map((p) => ({ ...p, width: pixels.find((q) => q.id === p.id)?.width ?? p.width, height: pixels.find((q) => q.id === p.id)?.height ?? p.height })), buildings };
       const { prepared, solution, corners, proposals } = measureRoute(input, "main", pixels, { lines });
-      const m = measuredFrom(solution, prepared.data, new Date().toISOString());
+      const measuredNow = measuredFrom(solution, prepared.data, new Date().toISOString());
+      // The walk's close-ups (2026-10-23): laid by hand, or in code by an earlier measure at this lens, at once; the rest
+      // laid in a worker below, each as it is found. They size nothing: this measure is the same with them or without.
+      const { matches, todo } = matchesForMeasure(route, route.measured?.matches, measuredNow);
+      const m: RouteMeasured = matches.length ? { ...measuredNow, matches } : measuredNow;
       // The marks of the last measure give way to this one's.
       const state = withMain({ ...route, buildings, photos: route.photos }, (b) => ({ ...b, corners: [...corners.filter((c) => !c.proposed), ...proposals] }));
       let failed = false;
@@ -324,6 +391,19 @@ export function PhotoRoutePane({ exterior, readOnly, onChange }: { exterior: Ext
       });
       if (failed) setError("The corners as numbered do not make the shape drawn: check the numbers on each photo.");
       access.onCheckpoint?.();
+      // Each close-up and its wall's photo as the measure had them: the grey and the lens; their buffers handed to the worker.
+      const data = new Map(prepared.data.map((d) => [d.id, d]));
+      const jobs = todo.filter((p) => data.has(p.photo) && data.has(p.full));
+      const photos: Record<string, MatchJobPhoto> = {};
+      const transfer: Transferable[] = [];
+      for (const id of new Set(jobs.flatMap((p) => [p.photo, p.full]))) {
+        const d = data.get(id);
+        if (!d) continue;
+        const lens = m.lenses[id];
+        photos[id] = { gray: d.gray, camera: lens ? cameraFrom(lens, m.k) : d.camera ? { ...d.camera, k: m.k } : null, level: { focalOverWidth: m.focalOverWidth, k: m.k } };
+        transfer.push(d.gray.data.buffer as ArrayBuffer);
+      }
+      layCloseUps(m, jobs, photos, transfer);
     } catch (e) {
       setError(e instanceof Error ? e.message : "The photos could not be measured.");
     } finally {
@@ -333,6 +413,15 @@ export function PhotoRoutePane({ exterior, readOnly, onChange }: { exterior: Ext
 
   const measured = route.measured ?? null;
   const placed = new Set((measured?.cameras ?? []).map((c) => c.photo));
+  // A close-up of the walk, on the photo shown (2026-10-23): whether it is laid on its wall, in a line.
+  const closeUpNote = (id: string): string | null => {
+    const pair = closeUpPairs(route).find((p) => p.photo === id);
+    if (!pair) return null;
+    const of = `A close-up of photo ${route.photos.findIndex((p) => p.id === pair.full) + 1}'s wall`;
+    if (!measured) return `${of}: once measured, it is laid on that photo, to read at the wall's scale. It sizes nothing.`;
+    const laidOn = closeUpsOnSides(route, measured).laid.some((l) => l.photo === id);
+    return laidOn ? `${of}: laid on the wall, read at the wall's scale. It sizes nothing.` : `${of}: not laid on the wall yet - see Close-ups, under 4.`;
+  };
   const marks = main.corners.filter((c) => c.proposed);
   const pickedMark = picking !== null && main.corners[picking]?.proposed;
   const ready = main.outline.length >= 4 && new Set(main.corners.filter((c) => !c.proposed && (c.corner >= 0 || main.corners.filter((d) => d.photo === c.photo && !d.proposed).length >= 2)).map((c) => c.photo)).size >= 2;
@@ -676,6 +765,7 @@ export function PhotoRoutePane({ exterior, readOnly, onChange }: { exterior: Ext
             }}
             rings={unplaced.flatMap(({ m }) => (m.photo === photo.id && m.near ? [{ x: m.near[0], y: m.near[1] }] : []))}
           />
+          {closeUpNote(photo.id) && <p className="field-note">{closeUpNote(photo.id)}</p>}
           {placed.size > 0 && !placed.has(photo.id) && measured && (
             <p className={styles.weak}>{measured.unplaced.find((u) => u.photo === photo.id)?.why ?? "Not used in the last measure."}</p>
           )}
@@ -736,6 +826,21 @@ export function PhotoRoutePane({ exterior, readOnly, onChange }: { exterior: Ext
         {error && <p className="sketch-length-error">{error}</p>}
         {measured && <Results exterior={exterior} route={route} />}
         {measured && <WorthALook exterior={exterior} />}
+        {measured && (
+          <CloseUps
+            exterior={exterior}
+            route={route}
+            urls={urls}
+            laying={laying}
+            readOnly={readOnly}
+            busy={busy !== null}
+            onLay={() => void layNow()}
+            onTaps={(pair, points) => {
+              onChange((e) => withCloseUpTaps(e, pair, points));
+              access.onCheckpoint?.();
+            }}
+          />
+        )}
         {measured && marks.length > 0 && (
           <div className={styles.card}>
             <p>
@@ -1155,6 +1260,125 @@ function StandPicker({ drawn, measured, photo, onPick }: { drawn: Pt[]; measured
       <div className={styles.askPlan}>
         <ShapePlan outline={drawn} pick={null} highlight={null} taped={new Set()} around={0.75} spot={{ marks, pick: (p) => onPick([p.x, p.y]) }} />
       </div>
+    </div>
+  );
+}
+
+/**
+ * The walk's close-ups (2026-10-23, "Take more of this wall"): each laid exactly on its wall's photo after Measure, in a
+ * worker, so it is read at the wall's scale - "Laid on the wall"; or, where Scrivn found no place for it, 4 points tapped on
+ * both photos lay it (CloseUpTaps.tsx). Nothing here sizes anything, and nothing waits on it.
+ */
+function CloseUps({
+  exterior,
+  route,
+  urls,
+  laying,
+  readOnly,
+  busy,
+  onLay,
+  onTaps,
+}: {
+  exterior: Exterior;
+  route: PhotoRouteState;
+  urls: Map<string, string>;
+  laying: { at: string; now: string | null; left: string[]; done: number; of: number } | null;
+  readOnly: boolean;
+  busy: boolean;
+  onLay: () => void;
+  onTaps: (pair: CloseUpPair, points: [number, number, number, number][] | null) => void;
+}) {
+  const [tapping, setTapping] = useState<string | null>(null);
+  const m = route.measured;
+  const pairs = closeUpPairs(route);
+  if (!m || pairs.length === 0) return null;
+  const { laid, not } = closeUpsOnSides(route, m);
+  const toLay = closeUpsToLay(route, m).filter((p) => !laying?.left.includes(p.photo));
+  const no = (id: string) => route.photos.findIndex((p) => p.id === id) + 1;
+  const wallName = (i: number) => exterior.sides.find((s) => s.id === m.sideIds?.[i])?.name ?? `the wall from corner ${i + 1}`;
+  const photoInfo = (id: string, label: string) => {
+    const p = route.photos.find((q) => q.id === id);
+    return { url: urls.get(id) ?? null, width: p?.width ?? 4, height: p?.height ?? 3, label };
+  };
+  const laidCount = pairs.filter((p) => laid.some((l) => l.photo === p.photo)).length;
+  return (
+    <div>
+      <h4 className="exterior-subhead">Close-ups</h4>
+      <p className="field-note">
+        Each &ldquo;more of this wall&rdquo; photo is laid exactly on its wall&rsquo;s photo, so it&rsquo;s read at the wall&rsquo;s scale. They size nothing. {laidCount} of {pairs.length} laid.
+      </p>
+      <ul className={styles.closeUps}>
+        {pairs.map((pair) => {
+          const l = laid.find((x) => x.photo === pair.photo);
+          const off = not.find((x) => x.photo === pair.photo);
+          const now = laying?.now === pair.photo;
+          const waiting = !now && !!laying?.left.includes(pair.photo);
+          const taps = route.photos.find((p) => p.id === pair.photo)?.taps;
+          // Taps lay it where code couldn't, or it matched something in front of the wall; not when its wall's photo isn't placed.
+          const canTap = !readOnly && !now && !waiting && (off ? off.kind !== "unplaced" : l?.by === "taps") && urls.has(pair.photo) && urls.has(pair.full);
+          return (
+            <li key={pair.photo}>
+              <div className={styles.closeUp}>
+                {urls.get(pair.photo) ? <img src={urls.get(pair.photo)} alt={`Photo ${no(pair.photo)}`} /> : <span className="field-note">waiting</span>}
+                <span className={styles.closeUpWords}>
+                  <span>
+                    Photo {no(pair.photo)}, more of photo {no(pair.full)}&rsquo;s wall
+                  </span>
+                  {l ? (
+                    <span className={styles.laid}>
+                      Laid on the wall{l.by === "taps" ? " from your points" : ""} · {wallName(l.side)}
+                    </span>
+                  ) : now ? (
+                    <span className="field-note">Laying it on the wall…</span>
+                  ) : waiting ? (
+                    <span className="field-note">Waiting to be laid…</span>
+                  ) : off ? (
+                    <span className={styles.weak} title={off.why}>
+                      {off.kind === "unfound" && !taps ? `Scrivn couldn't find it on photo ${no(pair.full)}: tap 4 points on both photos.` : off.why}
+                    </span>
+                  ) : (
+                    <span className="field-note">Not laid yet.</span>
+                  )}
+                  {canTap && tapping !== pair.photo && (
+                    <span className={styles.row}>
+                      <button type="button" className="btn-secondary" onClick={() => setTapping(pair.photo)}>
+                        {l ? "Tap the points again" : "Tap 4 points on both photos"}
+                      </button>
+                      {taps && (
+                        <button type="button" className="link-button" onClick={() => onTaps(pair, null)}>
+                          Take the points away
+                        </button>
+                      )}
+                    </span>
+                  )}
+                </span>
+              </div>
+              {tapping === pair.photo && (
+                <CloseUpTaps
+                  detail={photoInfo(pair.photo, `the close-up (photo ${no(pair.photo)})`)}
+                  full={photoInfo(pair.full, `its wall's photo (photo ${no(pair.full)})`)}
+                  initial={taps && taps.full === pair.full ? taps.points : null}
+                  onCancel={() => setTapping(null)}
+                  onDone={(points) => {
+                    setTapping(null);
+                    onTaps(pair, points);
+                  }}
+                />
+              )}
+            </li>
+          );
+        })}
+      </ul>
+      {laying && (
+        <p className="field-note">
+          Laying the close-ups on their walls: {laying.done} of {laying.of} done. Carry on meanwhile; each shows on its wall as it&rsquo;s laid.
+        </p>
+      )}
+      {!laying && !readOnly && toLay.length > 0 && (
+        <button type="button" className="btn-secondary" disabled={busy} onClick={onLay}>
+          Lay {toLay.length === 1 ? "the close-up on its wall" : `the ${toLay.length} close-ups on their walls`}
+        </button>
+      )}
     </div>
   );
 }
