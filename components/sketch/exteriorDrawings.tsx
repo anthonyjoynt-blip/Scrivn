@@ -610,7 +610,8 @@ export function ElevationDrawing({
   const earth = [...ground, ...[...ground].reverse().map((p) => ({ x: p.x, y: p.y - fs * 0.55 }))];
   const parging = !fromShapes && side.base === "parging" ? [shape.grade[0], shape.grade[1], shape.bottom[1], shape.bottom[0]] : null;
   // A length worked out from the photos, not taped: to check, on the drawing as in the report.
-  const pm = plusMinusWords(lengthToCheck(side));
+  // Not measured (2026-10-22): about that long, said so, never as a size.
+  const pm = side.lengthNotMeasured ? "not measured" : plusMinusWords(lengthToCheck(side));
   const dimInk = pm ? CHECK_INK : "#374151";
   // The trim (2026-10-17): against the wall, then a column standing clear in front of all; each opening's size over its own surround.
   const trim = trimShapes(side);
@@ -751,7 +752,7 @@ export function ElevationDrawing({
       <line x1={0} x2={0} y1={Y(ext.lowZ - fs * 0.9)} y2={Y(ext.lowZ - fs * 1.9)} stroke={dimInk} strokeWidth={1} {...stroke} />
       <line x1={L} x2={L} y1={Y(ext.lowZ - fs * 0.9)} y2={Y(ext.lowZ - fs * 1.9)} stroke={dimInk} strokeWidth={1} {...stroke} />
       <text x={L / 2} y={Y(ext.lowZ - fs * 2.7)} fontSize={fs} textAnchor="middle" fill={pm ? CHECK_INK : INK} fontFamily={FONT} fontWeight={pm ? 600 : undefined}>
-        {side.lengthFrom === "drawn" ? "≈ " : ""}
+        {side.lengthFrom === "drawn" || side.lengthNotMeasured ? "≈ " : ""}
         {formatFeetInches(shape.lengthFeet)}
         {pm ? ` ${pm}` : ""}
       </text>

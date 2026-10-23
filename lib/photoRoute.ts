@@ -29,7 +29,7 @@ import { snapToEdge, type UprightEdge } from "./photoRouteEdges";
 import { formatFeetInches } from "./sketch";
 import { isWalkShape, type RouteWalk, type WalkTag } from "./photoRouteWalk";
 import type { Gray } from "./photoRouteLines";
-import { planDirection, resect, type SolveBearing, type SolveCamera, type SolveDistance, type SolvePoint, type SolveWall, solvePlan, type Solution } from "./photoRouteSolve";
+import { planDirection, resect, type SolveBearing, type SolveCamera, type SolveDistance, type SolveInput, type SolvePoint, type SolveWall, solvePlan, type Solution } from "./photoRouteSolve";
 
 export const PHOTO_ROUTE_FORMAT = "scrivn-photo-route/1";
 
@@ -80,9 +80,16 @@ export interface RoutePhoto {
  * walk's inside corner `index`.
  */
 export type RouteShot =
-  | { kind: "corner"; index: number }
+  /**
+   * A corner at 45 degrees. `far` (2026-10-22, cleaner input): taken from far back, the whole of both walls in - corner
+   * `index` is in it, but not always in the middle (a far-back photo at the front's right corner framed the whole front),
+   * and the corners either side of it are whichever the photo shows: named by fitting, the run of corners that holds
+   * `index` and looks the way the photo was taken.
+   */
+  | { kind: "corner"; index: number; far?: true }
   | { kind: "wall"; index: number }
-  | { kind: "run"; index: number; to: number }
+  /** `far` (2026-10-22): from far back - its corners are among the run's, not necessarily its two ends. */
+  | { kind: "run"; index: number; to: number; far?: true }
   /** The walk's inside corner (2026-10-21): a wall either side of it straight on, the inside corner tapped first, then the wall's other end. */
   | { kind: "inside"; index: number; wall: "before" | "after" };
 
@@ -262,6 +269,12 @@ export interface RouteSide {
    * is wrong and a tape on the side settles which. The length and ± are the measure's, unmoved.
    */
   estimateCheck?: EstimateCheck;
+  /**
+   * Not measured (2026-10-22, honest sizes): a long wall the photos hold no better than ±10%, or every untaped side when the
+   * tapes disagree by more than 5% held out. Why, and the one photo or measurement that would measure it. The length is
+   * still the solve's, to draw with, but it is said as not measured - never printed as a size.
+   */
+  notMeasured?: { why: string; fix: string };
 }
 
 /** A side's measure against a size estimated on site (`RouteSide.estimateCheck`). */
@@ -284,6 +297,11 @@ export interface RouteCamera {
   heightFeet: number | null;
   /** How it was placed: from two or more corners, or from one corner and the wall edges it shares with the others. */
   placedBy: "corners" | "one-corner" | "edges" | "stood";
+  /**
+   * "detail" (2026-10-22): placed only to be read - a detail photo where the user stood for it, or a photo the self-check
+   * left out of the size - on the house as the measure photos made it. It sized nothing. Absent: it is in the size solve.
+   */
+  role?: "detail";
 }
 
 export interface RouteSolution {
@@ -302,6 +320,8 @@ export interface RouteSolution {
   rms: number;
   /** True when no tape gave it a size: lengths then follow the outline as drawn. */
   unscaled: boolean;
+  /** Line tapes on photos that didn't size the house (2026-10-22: a detail photo, or one left out by the self-check): they placed that photo, nothing more. */
+  tapesOnDetail?: string[];
   /** Which sides want a tape and why: advice, never a block. */
   advice: { from: number; why: string }[];
   /** The wall edges tied across photos: which side, how far along it, and the photos that saw it. */
@@ -464,7 +484,11 @@ export function numberCorners(input: PhotoRouteInput, buildingId: string, data: 
     // the lap - fits no placement; the app numbers only the taps they leave (2026-10-21: fitted freely on the lap's shape,
     // 31 of 83 taps on a walk of the owner's house came out wrong).
     const walked = !!shot && walkedPhotos.has(job.id);
-    const fromShot = user.some((c) => c >= 0) || !shot ? null : shotNames(shot, job.snapped, cameraWidth(byId.get(job.id)), n, job.idx, walked);
+    // A far-back photo names no tap by its place in the picture (2026-10-22): a corner's says only that the corner is
+    // among them, and it looked in across that corner; a run's (the front, the back) that its corners are the run's.
+    const farCorner = shot?.kind === "corner" && shot.far ? ((shot.index % n) + n) % n : -1;
+    const farRun = shot?.kind === "run" && shot.far ? runCorners(shot.index, shot.to, n) : null;
+    const fromShot = user.some((c) => c >= 0) || !shot || farCorner >= 0 || farRun ? null : shotNames(shot, job.snapped, cameraWidth(byId.get(job.id)), n, job.idx, walked);
     if (m < 2) {
       const only = job.idx[0] as number;
       if ((user[0] as number) >= 0) continue;
@@ -500,11 +524,13 @@ export function numberCorners(input: PhotoRouteInput, buildingId: string, data: 
         const labels = [s0];
         for (const step of g) labels.push(((labels[labels.length - 1] as number) + step) % n);
         if (labels.some((l, k) => (userSet[k] as number) >= 0 && userSet[k] !== l)) continue;
+        if (farCorner >= 0 && !user.some((c) => c >= 0) && !labels.includes(farCorner)) continue;
+        if (farRun && !labels.every((l) => farRun.has(l))) continue;
         // Where this home ends is a corner of a shared wall.
         if (labels.some((l, k) => (out[job.idx[k] as number] as CornerTap).party && !party.has(l))) continue;
         const taps = job.snapped.map((t, k) => ({ ...t, corner: labels[k] as number }));
         const cam = (byId.get(job.id) as RoutePhotoData).camera as PhotoCamera;
-        for (const p of placementsFromCorners(taps, ring, shared, cam, facing)) {
+        for (const p of placementsFromCorners(taps, ring, shared, cam, facing, farCorner >= 0 ? FAR_FACING_TOLERANCE_DEG : FACING_TOLERANCE_DEG)) {
           const skipped = g.reduce((s, v) => s + v - 1, 0);
           const walk = near.length ? Math.min(...near.map((x) => Math.hypot(x.at[0] - p.at[0], x.at[1] - p.at[1]))) / 30 : 0;
           // Corners this camera would see plainly - in the picture, ahead, nothing of the house in the way - that were not tapped.
@@ -578,6 +604,18 @@ export function facingOf(photo: Pick<RoutePhoto, "facing" | "shot"> | undefined,
 
 /** A placement may face this far from the way the photo was said to look, degrees: a 45 taken a little round the corner, a wall a little to one side. */
 const FACING_TOLERANCE_DEG = 60;
+/** A far-back photo of a corner looks in across it, both walls in: closer to the corner's diagonal than a photo of a wall's part. */
+const FAR_FACING_TOLERANCE_DEG = 35;
+
+/** The outline's corners from `from` round to `to`, both in. */
+function runCorners(from: number, to: number, n: number): Set<number> {
+  const out = new Set<number>();
+  for (let i = ((from % n) + n) % n, k = 0; k <= n; i = (i + 1) % n, k++) {
+    out.add(i);
+    if (i === ((to % n) + n) % n) break;
+  }
+  return out;
+}
 
 /**
  * The corners a photo from the checklist names, left to right as its taps run (-1 for a tap it does not name):
@@ -836,6 +874,18 @@ export interface SolveRouteOptions {
   guesses?: boolean;
   /** How loosely each side is held to the shape drawn, one sd as a fraction of its drawn length: 0.35, or `WALK_HOLD` for the walk's shape. */
   holdPct?: number;
+  /**
+   * Which photos size the house (2026-10-22, cleaner input). "measure" (the default): only MEASURE photos - those with two
+   * corners of the house or more tapped on them - and the tapes on them or on a side. A DETAIL photo (one corner or none)
+   * is placed afterwards on the house as measured, where the user stood for it, only to be read (openings, trim, parging,
+   * the deck and the porch): its guessed place never moves a size, and a tape on it places it and sizes nothing. "all"
+   * (10-20 to 10-22, kept to compare): a photo placed where the user stood is in the size solve with the rest.
+   */
+  sizePhotos?: "measure" | "all";
+  /** Photos left out of the size solve (the self-check's, lib/photoRouteCheck.ts): placed afterwards to be read, as a detail photo is. */
+  outOfSize?: string[];
+  /** For experiments on saved houses (the runner's comparisons): the solve's weights changed. Absent: as they are. */
+  tune?: { holdFloor?: number; handFeet?: number; handSdFeet?: number; lensKSd?: number; yawSdDeg?: number; cornerSdPx?: number; edgeSdPx?: number };
 }
 
 /**
@@ -876,6 +926,13 @@ export function solveRoute(input: PhotoRouteInput, buildingId: string, data: Rou
     taps.push({ photo: t.photo, corner: t.corner, ...s, bearing: columnBearing(d.camera, s.u), aboveGround: t.aboveGround ?? 0 });
   }
 
+  // Which photos size the house: measure photos (two corners or more), or (the old way) every photo that can be placed.
+  const legacy = opts.sizePhotos === "all";
+  const outOfSize = new Set(opts.outOfSize ?? []);
+  // The taps of photos that don't size the house wait for the detail placement, after the size is solved.
+  const detailTaps = taps.filter((t) => outOfSize.has(t.photo));
+  if (detailTaps.length) taps.splice(0, taps.length, ...taps.filter((t) => !outOfSize.has(t.photo)));
+
   // 2. The walls from the shape drawn, and each camera placed from its corners on it.
   const { walls, corners } = outlineWalls(b.outline);
   const roughPerimeter = b.outline.reduce((s, p, i) => s + segLen(p, b.outline[(i + 1) % n] as Pt), 0);
@@ -903,7 +960,8 @@ export function solveRoute(input: PhotoRouteInput, buildingId: string, data: Rou
 
   // The lens's radial term, as the vanishing points gave it, fitted again in the plan solve.
   const k0 = data.find((d) => d.camera)?.camera?.k ?? 0;
-  const lensPrior = { k0, sd: LENS_K_SD };
+  const tune = opts.tune ?? {};
+  const lensPrior = { k0, sd: tune.lensKSd ?? LENS_K_SD };
   const sideTapes = tapes.filter((t): t is Extract<RouteTape, { kind: "side" }> => t.kind === "side");
   const lineTapes = tapes.filter((t): t is Extract<RouteTape, { kind: "line" }> => t.kind === "line");
 
@@ -919,8 +977,8 @@ export function solveRoute(input: PhotoRouteInput, buildingId: string, data: Rou
     for (const [id, c] of placedCams) {
       const d = byId.get(id) as RoutePhotoData;
       const stood = standPrior.get(id);
-      cameras.push({ id, quadrant: c.quadrant, guess: c.at, yawSdDeg: YAW_SD_DEG, ...(stood ? { prior: { at: stood, sdFeet: STOOD_SD_FEET } } : {}) });
-      for (const t of taps.filter((x) => x.photo === id)) bearings.push({ camera: id, point: `c${t.corner}`, bearing: t.bearing, sd: CORNER_SD / (d.camera as PhotoCamera).f, bearingAt: atK(d.camera as PhotoCamera, t.px) });
+      cameras.push({ id, quadrant: c.quadrant, guess: c.at, yawSdDeg: tune.yawSdDeg ?? YAW_SD_DEG, ...(stood ? { prior: { at: stood, sdFeet: STOOD_SD_FEET } } : {}) });
+      for (const t of taps.filter((x) => x.photo === id)) bearings.push({ camera: id, point: `c${t.corner}`, bearing: t.bearing, sd: (tune.cornerSdPx ?? CORNER_SD) / (d.camera as PhotoCamera).f, bearingAt: atK(d.camera as PhotoCamera, t.px) });
     }
     for (const p of edgePoints) {
       const wall = walls[p.side] as SolveWall;
@@ -932,7 +990,7 @@ export function solveRoute(input: PhotoRouteInput, buildingId: string, data: Rou
       for (const o of p.obs) {
         if (!placedCams.has(o.photo)) continue;
         const oc = (byId.get(o.photo) as RoutePhotoData).camera as PhotoCamera;
-        bearings.push({ camera: o.photo, point: p.id, bearing: o.bearing, sd: PX_SD / oc.f, bearingAt: atK(oc, o.px) });
+        bearings.push({ camera: o.photo, point: p.id, bearing: o.bearing, sd: (tune.edgeSdPx ?? PX_SD) / oc.f, bearingAt: atK(oc, o.px) });
       }
     }
     const distances: SolveDistance[] = [];
@@ -974,7 +1032,7 @@ export function solveRoute(input: PhotoRouteInput, buildingId: string, data: Rou
       const t = mine[mine.length - 1];
       if (!t) continue;
       const { zl } = levelAxes(cam);
-      heights.push({ camera: id, point: `c${t.corner}`, drop: (t.v - cam.height / 2) / cam.f, forward: Math.atan2(zl[0], zl[2]), feet: HAND_FEET - (t.aboveGround ?? 0), sdFeet: HAND_SD_FEET });
+      heights.push({ camera: id, point: `c${t.corner}`, drop: (t.v - cam.height / 2) / cam.f, forward: Math.atan2(zl[0], zl[2]), feet: (tune.handFeet ?? HAND_FEET) - (t.aboveGround ?? 0), sdFeet: tune.handSdFeet ?? HAND_SD_FEET });
     }
     // A camera nothing ties yet (a photo placed by its edges, before they are tied in the next round) waits out this solve.
     const seen = new Set(bearings.map((x) => x.camera));
@@ -989,16 +1047,20 @@ export function solveRoute(input: PhotoRouteInput, buildingId: string, data: Rou
    * on site is held to that instead: said at the house, it knows better than a shape drawn on a phone.
    */
   const hold = opts.holdPct ?? (isWalkShape(b) ? WALK_HOLD : 0.35);
-  const scaleHold = (inp: ReturnType<typeof build>): ReturnType<typeof build>["input"] => {
+  const extentX = Math.max(...b.outline.map((p) => p.x)) - Math.min(...b.outline.map((p) => p.x));
+  const extentY = Math.max(...b.outline.map((p) => p.y)) - Math.min(...b.outline.map((p) => p.y));
+  const scaleHold = (inp: ReturnType<typeof build>): SolveInput => {
     const drawn: SolveDistance[] = [];
     for (let i = 0; i < n; i++) {
       if (estimates.has(i)) continue;
       const prev = walls[(i - 1 + n) % n] as SolveWall;
       const next = walls[(i + 1) % n] as SolveWall;
       const feet = segLen(b.outline[i] as Pt, b.outline[(i + 1) % n] as Pt);
-      drawn.push({ id: `drawn:${i}`, a: `wall:${prev.id}`, b: `wall:${next.id}`, axis: prev.axis, feet, sdFeet: Math.max(1, feet * hold) });
+      const extent = prev.axis === "E" ? extentX : extentY;
+      drawn.push({ id: `drawn:${i}`, a: `wall:${prev.id}`, b: `wall:${next.id}`, axis: prev.axis, feet, sdFeet: Math.max(1, feet * hold, extent * (tune.holdFloor ?? 0)) });
     }
-    return { ...inp.input, distances: [...inp.input.distances, ...drawn] };
+    // The shape as drawn holds the solve, but it is no measurement: the ± leaves it out (`sigmaInformed`).
+    return { ...inp.input, distances: [...inp.input.distances, ...drawn], uninformed: ["drawn:"] };
   };
   void roughPerimeter;
 
@@ -1066,7 +1128,7 @@ export function solveRoute(input: PhotoRouteInput, buildingId: string, data: Rou
     }
     for (const p of input.photos) {
       const id = p.id;
-      if (cams.has(id) || misfit.has(id) || opts.wallEdges === false || round === 0) continue;
+      if (cams.has(id) || misfit.has(id) || opts.wallEdges === false || round === 0 || !legacy || outOfSize.has(id)) continue;
       const d = byId.get(id);
       const mine = taps.filter((t) => t.photo === id);
       if (!d?.camera || mine.length > 1) continue;
@@ -1141,8 +1203,23 @@ export function solveRoute(input: PhotoRouteInput, buildingId: string, data: Rou
       if (guess && guess.spots.length) doubt.set(p.id, guess.spots);
     }
   }
+  // 5. The detail photos (2026-10-22): placed on the house as measured, to be read, never sizing it.
+  const detail = legacy && outOfSize.size === 0 ? new Map<string, DetailCamera>() : placeDetailPhotos({
+    input,
+    b,
+    byId,
+    ring,
+    sol,
+    walls,
+    taps: [...taps, ...detailTaps],
+    edgePoints,
+    tapes: lineTapes,
+    sized: new Set(sol.input.cameras.map((c) => c.id)),
+    outOfSize,
+    legacy,
+  });
   for (const id of new Set(b.corners.filter((c) => !c.proposed).map((c) => c.photo))) {
-    if (!cams.has(id) && !unplaced.some((u) => u.photo === id)) {
+    if (!cams.has(id) && !detail.has(id) && !unplaced.some((u) => u.photo === id)) {
       const k = taps.filter((t) => t.photo === id).length;
       unplaced.push({
         photo: id,
@@ -1157,8 +1234,10 @@ export function solveRoute(input: PhotoRouteInput, buildingId: string, data: Rou
     }
   }
 
-  // 5. The sides, their ± and who saw them.
-  const scaled = tapes.length > 0;
+  // 5. The sides, their ± and who saw them. A tape on a photo that doesn't size the house (a detail photo) scales nothing.
+  const sizedBy = new Set(sol.input.cameras.map((c) => c.id));
+  const tapesOnDetail = lineTapes.filter((t) => !sizedBy.has(t.photo)).map((t) => t.id);
+  const scaled = legacy ? tapes.length > 0 : sideTapes.length > 0 || lineTapes.some((t) => sizedBy.has(t.photo));
   const tapedSides = new Set(sideTapes.map((t) => t.from));
   const sideObs = new Map<number, Set<string>>();
   for (const p of edgePoints) for (const o of p.obs) (sideObs.get(p.side) ?? sideObs.set(p.side, new Set()).get(p.side))?.add(o.photo);
@@ -1168,7 +1247,10 @@ export function solveRoute(input: PhotoRouteInput, buildingId: string, data: Rou
     const next = walls[(i + 1) % n] as SolveWall;
     const len = (x: Float64Array) => Math.abs(sol.wall(next.id, x) - sol.wall(prev.id, x));
     const L = len(sol.x);
-    const sd = sol.sigma(len);
+    // The ± from what was measured: the photos and the tapes, not the shape as drawn (2026-10-22: on a test house a depth
+    // the photos left loose followed whatever the reviewer drew, at the same fit, and was said to be good to ±10%). The old
+    // way, or with no tape (the drawing is then the only size, and said so), as it was.
+    const sd = legacy || !scaled ? sol.sigma(len) : sol.sigmaInformed(len);
     const taped = tapedSides.has(i);
     // The proof's ± ran about twice the formal sd (its variants' spread); never under 2%.
     const pct = taped ? null : Math.max(2, Math.round(((2 * sd) / Math.max(L, 0.1)) * 100));
@@ -1193,6 +1275,9 @@ export function solveRoute(input: PhotoRouteInput, buildingId: string, data: Rou
     heightFeet: camHeight(id),
     placedBy: c.placedBy,
   }));
+  for (const [id, c] of detail) {
+    cameras.push({ photo: id, at: c.at, quadrant: c.quadrant, yawTweakDeg: (c.yaw * 180) / Math.PI, heightFeet: c.heightFeet, placedBy: c.placedBy, role: "detail" });
+  }
   const cornerBearings = sol.input.bearings.filter((x) => /^c\d+$/.test(x.point)).length;
   const edgeBearings = sol.input.bearings.filter((x) => x.point.startsWith("e")).length;
   return {
@@ -1201,11 +1286,12 @@ export function solveRoute(input: PhotoRouteInput, buildingId: string, data: Rou
     sides,
     cameras,
     unplaced,
-    doubtful: [...doubt].filter(([id]) => !cams.has(id)).map(([photo, spots]) => ({ photo, spots })),
+    doubtful: [...doubt].filter(([id]) => !cams.has(id) && !detail.has(id)).map(([photo, spots]) => ({ photo, spots })),
     counts: { cornerBearings, edgeBearings, edgePoints: edgePoints.length, tapes: tapes.length },
     rms: sol.rms,
     unscaled: !scaled,
-    advice: tapeAdvice(sides, ring, cameras, taps, edgePoints, new Set(b.shared ?? [])),
+    tapesOnDetail,
+    advice: tapeAdvice(markLongWalls(sides, ring, cameras.filter((c) => c.role !== "detail"), taps, edgePoints, legacy || !scaled), ring, cameras, taps, edgePoints, new Set(b.shared ?? [])),
     edgePoints: edgePoints.map((q) => ({ id: q.id, side: q.side, along: sol.input.points.some((x) => x.id === q.id) ? alongOf(sol, q.id, ring, q.side) : q.along, photos: q.obs.map((o) => o.photo), zLow: medianOf(q.obs.map((o) => o.zLow)), zHigh: medianOf(q.obs.map((o) => o.zHigh)), polarity: (q.obs[0] as EdgeObs).polarity })),
     solution: sol,
   };
@@ -1255,7 +1341,7 @@ interface Placement {
  * [cam], a placement putting the camera at a height no photo is taken from (`PLACED_HEIGHT_FEET`, off any corner tapped
  * below the horizon) is dropped, as long as another is not.
  */
-function placementsFromCorners(mine: SnappedTap[], outline: Pt[], shared: Set<number> = new Set(), cam?: PhotoCamera, facing?: [number, number] | null): Placement[] {
+function placementsFromCorners(mine: SnappedTap[], outline: Pt[], shared: Set<number> = new Set(), cam?: PhotoCamera, facing?: [number, number] | null, toleranceDeg = FACING_TOLERANCE_DEG): Placement[] {
   const out: Placement[] = [];
   const n = outline.length;
   for (let q = 0; q < 4; q++) {
@@ -1313,7 +1399,7 @@ function placementsFromCorners(mine: SnappedTap[], outline: Pt[], shared: Set<nu
   if (facing && cam) {
     const { zl } = levelAxes(cam);
     const b0 = Math.atan2(zl[0], zl[2]);
-    const cos = Math.cos((FACING_TOLERANCE_DEG * Math.PI) / 180);
+    const cos = Math.cos((toleranceDeg * Math.PI) / 180);
     const faces = (p: Placement) => {
       const F = planDirection(b0, p.quadrant, 0);
       return F[0] * facing[0] + F[1] * facing[1] >= cos;
@@ -1798,6 +1884,177 @@ function nearestOnRay(tap: SnappedTap, ring: Pt[], spot: [number, number], share
   return best ? { quadrant: best.quadrant, at: best.at, score: 0, confident: true, spots: [] } : null;
 }
 
+/** A detail photo as placed on the house as measured (2026-10-22): read from, never sizing it. */
+interface DetailCamera {
+  quadrant: number;
+  at: [number, number];
+  /** Its turn on top of its vanishing points, radians. */
+  yaw: number;
+  heightFeet: number | null;
+  placedBy: RouteCamera["placedBy"];
+}
+
+/** How far a detail photo's wall edge may be from a tied one to be taken as it, feet, round by round as the photo settles. */
+const DETAIL_TIE_FEET = [0.6, 0.3, 0.2];
+
+/**
+ * The photos that don't size the house, placed on it as measured, only to be read (2026-10-22, cleaner input): a detail
+ * photo (one corner or none) where the user stood for it, and a photo the self-check left out of the size, by its corners.
+ * Everything the size solve found is held where it put it - every wall, every window and door edge two measure photos
+ * tied - and only the photo's own place and turn are solved: from its corner, its upright edges on the tied ones near
+ * them, a tape on it (which places it and sizes nothing), the stand spot loosely and the hand height. So a guessed stand
+ * spot can put the photo a little wrong for reading, and nothing else.
+ */
+function placeDetailPhotos(ctx: {
+  input: PhotoRouteInput;
+  b: RouteBuilding;
+  byId: Map<string, RoutePhotoData>;
+  ring: Pt[];
+  sol: Solution;
+  walls: SolveWall[];
+  taps: SnappedTap[];
+  edgePoints: { id: string; side: number; obs: EdgeObs[]; along: number }[];
+  tapes: Extract<RouteTape, { kind: "line" }>[];
+  sized: Set<string>;
+  outOfSize: Set<string>;
+  legacy: boolean;
+}): Map<string, DetailCamera> {
+  const { input, b, byId, ring, sol, walls, taps, edgePoints, tapes, sized, outOfSize, legacy } = ctx;
+  const out = new Map<string, DetailCamera>();
+  const n = ring.length;
+  const shared = new Set(b.shared ?? []);
+  const toSolved = sketchToSolved(b.outline, ring);
+  const fixedWalls: SolveWall[] = walls.map((w) => ({ ...w, fixed: true, guess: sol.wall(w.id) }));
+  const { corners } = outlineWalls(b.outline);
+  // The tied wall edges where the size solve put them.
+  const tied = edgePoints.map((q) => {
+    const A = ring[q.side] as Pt;
+    const B = ring[(q.side + 1) % n] as Pt;
+    const L = segLen(A, B) || 1;
+    const along = sol.input.points.some((x) => x.id === q.id) ? alongOf(sol, q.id, ring, q.side) : q.along;
+    return { id: q.id, side: q.side, along, at: { x: A.x + ((B.x - A.x) / L) * along, y: A.y + ((B.y - A.y) / L) * along }, zLow: medianOf(q.obs.map((o) => o.zLow)), zHigh: medianOf(q.obs.map((o) => o.zHigh)), polarity: (q.obs[0] as EdgeObs).polarity };
+  });
+  const tiedForPlacing: TiedPoint[] = tied.map((t) => ({ side: t.side, at: t.at, zLow: t.zLow, zHigh: t.zHigh, polarity: t.polarity }));
+  for (const p of input.photos) {
+    const d = byId.get(p.id);
+    if (sized.has(p.id) || !d?.camera) continue;
+    const cam = d.camera;
+    const mine = taps.filter((t) => t.photo === p.id);
+    let start: { quadrant: number; at: [number, number]; placedBy: RouteCamera["placedBy"]; spot: [number, number] | null } | null = null;
+    if (mine.length >= 2) {
+      // Left out of the size by the self-check: placed by its corners on the house as measured.
+      if (!outOfSize.has(p.id)) continue;
+      const list = placementsFromCorners(mine, ring, shared, cam, facingOf(p, ring));
+      const best = [...list].sort((x, y) => 200 * x.err + x.slant - (200 * y.err + y.slant))[0];
+      if (best) start = { quadrant: best.quadrant, at: best.at, placedBy: "corners", spot: null };
+    } else if (p.standAt && !legacy) {
+      const spot = toSolved(p.standAt);
+      const placed = mine[0] ? nearestOnRay(mine[0], ring, spot, shared) : placeByEdges(null, d, ring, tiedForPlacing, shared, undefined, { at: { x: spot[0], y: spot[1] }, radius: STOOD_SEARCH_FEET });
+      if (placed) start = { quadrant: placed.quadrant, at: placed.at, placedBy: "stood", spot };
+    }
+    if (!start) continue;
+    let at = start.at;
+    let yaw = 0;
+    let fit = Number.POSITIVE_INFINITY;
+    let bearingsUsed = 0;
+    for (const tol of DETAIL_TIE_FEET) {
+      const fake = { input: { cameras: [{ id: p.id }] }, camera: () => ({ at, yaw }) } as unknown as Solution;
+      const here = new Map([[p.id, { quadrant: start.quadrant, at }]]);
+      const h = heightAt(cam, mine, ring, start.quadrant, at, yaw);
+      const obs = wallObservations(here, byId, ring, fake, () => h).filter((o) => !shared.has(o.side));
+      // Each of its edges on the tied edge nearest it on the same wall, light on the same side, heights overlapping; one each.
+      const pairs: { o: EdgeObs; t: (typeof tied)[number]; e: number }[] = [];
+      for (const o of obs) {
+        for (const t of tied) {
+          if (t.side !== o.side || t.polarity !== o.polarity) continue;
+          const e = Math.abs(t.along - o.along);
+          const slack = Math.min(4, Math.max(1, 0.5 / o.graze));
+          const lo = Math.max(o.zLow, t.zLow);
+          const hi = Math.min(o.zHigh, t.zHigh);
+          if (e <= tol * slack && hi - lo >= 0.3 * Math.min(o.zHigh - o.zLow, t.zHigh - t.zLow)) pairs.push({ o, t, e });
+        }
+      }
+      pairs.sort((x, y) => x.e - y.e);
+      const usedO = new Set<EdgeObs>();
+      const usedT = new Set<string>();
+      const matched = pairs.filter((q) => {
+        if (usedO.has(q.o) || usedT.has(q.t.id)) return false;
+        usedO.add(q.o);
+        usedT.add(q.t.id);
+        return true;
+      });
+      const points: SolvePoint[] = corners.map((c) => ({ ...c }));
+      const extraWalls: SolveWall[] = [];
+      const bearings: SolveBearing[] = [];
+      const pin = (id: string, side: number, P: Pt) => {
+        const w = fixedWalls[side] as SolveWall;
+        const free: SolveWall = { id: `fix:${id}`, axis: w.axis === "E" ? "N" : "E", guess: w.axis === "E" ? P.y : P.x, fixed: true };
+        extraWalls.push(free);
+        points.push({ id, e: w.axis === "E" ? w.id : free.id, n: w.axis === "N" ? w.id : free.id, guess: [P.x, P.y] });
+      };
+      for (const t of mine) bearings.push({ camera: p.id, point: `c${t.corner}`, bearing: t.bearing, sd: CORNER_SD / cam.f });
+      for (const q of matched) {
+        pin(q.t.id, q.t.side, q.t.at);
+        bearings.push({ camera: p.id, point: q.t.id, bearing: q.o.bearing, sd: PX_SD / cam.f });
+      }
+      // A tape on it: its ends on the wall each meets, as far apart as taped - what says how far off it stood.
+      const distances: SolveDistance[] = [];
+      for (const tp of tapes.filter((x) => x.photo === p.id)) {
+        const ends: string[] = [];
+        for (const [k, end] of [["a", tp.a], ["b", tp.b]] as const) {
+          const s = tp.exact ? { u: toLevel(cam, end[0], end[1])[0] } : snapToEdge(d.gray, cam, end[0], end[1], { above: 60, below: 60 });
+          const bearing = columnBearing(cam, s.u);
+          const dir = planDirection(bearing, start.quadrant, yaw);
+          const hit = castRay({ x: at[0], y: at[1] }, dir, ring);
+          if (!hit) continue;
+          const w = fixedWalls[hit.side] as SolveWall;
+          const id = `tape:${tp.id}:${k}`;
+          points.push({ id, e: w.axis === "E" ? w.id : null, n: w.axis === "N" ? w.id : null, guess: [at[0] + dir[0] * hit.t, at[1] + dir[1] * hit.t] });
+          bearings.push({ camera: p.id, point: id, bearing, sd: PX_SD / cam.f });
+          ends.push(id);
+        }
+        if (ends.length === 2) distances.push({ id: tp.id, a: ends[0] as string, b: ends[1] as string, axis: "any", feet: tp.feet, sdFeet: TAPE_SD_FEET });
+      }
+      const low = mine.filter((t) => t.v > cam.height / 2 + 0.02 * cam.f).sort((x, y) => x.v - y.v).pop();
+      const { zl } = levelAxes(cam);
+      const heights = low ? [{ camera: p.id, point: `c${low.corner}`, drop: (low.v - cam.height / 2) / cam.f, forward: Math.atan2(zl[0], zl[2]), feet: HAND_FEET - (low.aboveGround ?? 0), sdFeet: HAND_SD_FEET }] : [];
+      const s = solvePlan({
+        walls: [...fixedWalls, ...extraWalls],
+        points,
+        cameras: [{ id: p.id, quadrant: start.quadrant, guess: at, yawSdDeg: YAW_SD_DEG, ...(start.spot ? { prior: { at: start.spot, sdFeet: STOOD_SD_FEET } } : {}) }],
+        bearings,
+        distances,
+        heights,
+      });
+      const C = s.camera(p.id);
+      if (!Number.isFinite(C.at[0]) || !Number.isFinite(C.at[1]) || insideRing({ x: C.at[0], y: C.at[1] }, ring)) break;
+      at = C.at;
+      yaw = C.yaw;
+      fit = s.rms;
+      bearingsUsed = bearings.length;
+    }
+    // Its own bearings fitting badly where it was put: not where it was taken (as a photo placed by its edges, `PLACED_FIT_SD`).
+    if (bearingsUsed >= 3 && fit > PLACED_FIT_SD) continue;
+    out.set(p.id, { quadrant: start.quadrant, at, yaw, heightFeet: heightAt(cam, mine, ring, start.quadrant, at, yaw), placedBy: start.placedBy });
+  }
+  return out;
+}
+
+/** A camera's height over the ground at the corners tapped in it (the median), placed at [at] on quadrant [q] turned [yaw]; null with none ahead. */
+function heightAt(cam: PhotoCamera, mine: SnappedTap[], ring: Pt[], q: number, at: [number, number], yaw: number): number | null {
+  const { zl } = levelAxes(cam);
+  const zg = planDirection(Math.atan2(zl[0], zl[2]), q, yaw);
+  const hs: number[] = [];
+  for (const t of mine) {
+    const P = ring[t.corner] as Pt;
+    const depth = (P.x - at[0]) * zg[0] + (P.y - at[1]) * zg[1];
+    if (depth > 1) hs.push(((t.v - cam.height / 2) / cam.f) * depth + (t.aboveGround ?? 0));
+  }
+  if (hs.length === 0) return null;
+  hs.sort((x, y) => x - y);
+  return hs[Math.floor(hs.length / 2)] as number;
+}
+
 /** A point on one shape on another of the same corners, axis by axis: the drawn shape to the solved and back (the pane's stand spots). */
 export const planMapping = sketchToSolved;
 
@@ -1808,6 +2065,74 @@ export const placeSteps = { placeByEdges, tiedPoints };
  * Which sides want a tape, and why, in plain words: any whose ± is over 5%, and any whose measure disagrees with what
  * was estimated on site. Advice only: nothing waits on it.
  */
+/** A wall this long or longer is a long wall: its ± over `NOT_MEASURED_PCT` makes it not measured (a short step or jog stays "to check"). */
+export const LONG_WALL_FEET = 15;
+/** A long wall the photos hold no better than this, ± percent, is not measured. */
+export const NOT_MEASURED_PCT = 10;
+
+/** How the placed measure photos saw side i: the squarest any faced it (degrees), which of its corners were tapped, its tied edges. */
+function sideSeen(i: number, ring: Pt[], cameras: RouteCamera[], taps: SnappedTap[], points: { side: number }[]): { squarest: number; ends: number[]; edges: number } {
+  const n = ring.length;
+  const A = ring[i] as Pt;
+  const B = ring[(i + 1) % n] as Pt;
+  const nrm = outward(A, B);
+  const mid = { x: (A.x + B.x) / 2, y: (A.y + B.y) / 2 };
+  let squarest = 0;
+  for (const c of cameras) {
+    const v = { x: mid.x - c.at[0], y: mid.y - c.at[1] };
+    const L = Math.hypot(v.x, v.y) || 1;
+    const facing = -(v.x * nrm.x + v.y * nrm.y) / L;
+    if (facing > 0) squarest = Math.max(squarest, (Math.asin(Math.min(1, facing)) * 180) / Math.PI);
+  }
+  const placed = new Set(cameras.map((c) => c.photo));
+  return { squarest, ends: [i, (i + 1) % n].filter((k) => taps.some((t) => t.corner === k && placed.has(t.photo))), edges: points.filter((p) => p.side === i).length };
+}
+
+/**
+ * Each long wall the photos hold no better than ±10% marked not measured (2026-10-22), with why and the one thing that would
+ * measure it: a far-back photo at 45° to a corner of it no measure photo shows; a tape along it when it was only seen from
+ * along it (a side yard) or the photos round it just don't hold it. [off]: not marked (the old way, or no tape at all).
+ */
+function markLongWalls(sides: RouteSide[], ring: Pt[], cameras: RouteCamera[], taps: SnappedTap[], points: { side: number }[], off: boolean): RouteSide[] {
+  if (off) return sides;
+  const n = ring.length;
+  for (const s of sides) {
+    if (s.taped || s.plusMinusPct === null || s.plusMinusPct <= NOT_MEASURED_PCT || s.lengthFeet < LONG_WALL_FEET) continue;
+    const i = s.from;
+    const seen = sideSeen(i, ring, cameras, taps, points);
+    const missing = [i, (i + 1) % n].find((k) => !seen.ends.includes(k));
+    const name = `corner ${i + 1} to corner ${((i + 1) % n) + 1}`;
+    if (missing !== undefined && seen.squarest >= 25) {
+      s.notMeasured = { why: `±${s.plusMinusPct}%: corner ${missing + 1} is on no photo that sizes the house`, fix: `A photo from far back at 45° to corner ${missing + 1}, both its walls in, measures it - or a tape along it, ${name}.` };
+    } else if (seen.squarest < 25) {
+      s.notMeasured = { why: `±${s.plusMinusPct}%: it was only seen from along it (a side yard, a narrow gap), never faced`, fix: `A tape along it, ${name}, measures it.` };
+    } else {
+      s.notMeasured = { why: `±${s.plusMinusPct}%: the photos round it don't hold it`, fix: `A tape along it, ${name}, measures it.` };
+    }
+  }
+  return sides;
+}
+
+/**
+ * Every untaped side marked not measured when the tapes that size the house disagree by more than 5% held out (2026-10-22,
+ * lib/photoRouteCheck.ts): the scale is no better than that anywhere. The fix named is the tape most off - [tape] in words,
+ * and how far the others put it off.
+ */
+export function tapesDisagree(sides: RouteSide[], worstPct: number, tape: string, offPct: number): RouteSide[] {
+  return sides.map((s) =>
+    s.taped
+      ? s
+      : {
+          ...s,
+          notMeasured: {
+            why: `the tapes disagree by up to ${worstPct.toFixed(1)}%, held out in turn${s.notMeasured ? `; and ${s.notMeasured.why}` : ""}`,
+            // One fix each: a side loose by itself keeps its own (checking the tape would not measure it); the rest, the tape.
+            fix: s.notMeasured ? s.notMeasured.fix : `Check ${tape} again: the others put it ${offPct >= 0 ? "+" : ""}${offPct.toFixed(1)}% off - what was taped, and its ends.`,
+          },
+        },
+  );
+}
+
 function tapeAdvice(sides: RouteSide[], ring: Pt[], cameras: RouteCamera[], taps: SnappedTap[], points: { side: number; obs: EdgeObs[] }[], shared: Set<number> = new Set()): { from: number; why: string }[] {
   const n = ring.length;
   const out: { from: number; why: string }[] = [];
@@ -1884,7 +2209,8 @@ export function proposeCorners(input: PhotoRouteInput, buildingId: string, data:
   for (const c of sol.cameras) {
     const d = data.find((q) => q.id === c.photo);
     const cam = d?.camera;
-    if (!d || !cam) continue;
+    // A detail photo is placed only roughly, to be read: its marks would be no better than its stand spot.
+    if (!d || !cam || c.role === "detail") continue;
     const tapped = new Set(b.corners.filter((t) => t.photo === c.photo && !t.proposed && t.corner >= 0).map((t) => t.corner));
     const yaw = (c.yawTweakDeg * Math.PI) / 180;
     const { zl } = levelAxes(cam);

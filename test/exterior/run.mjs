@@ -78,9 +78,10 @@ async function load() {
       `export * from "${lib("roofCheck.ts")}";`,
       `export * from "${lib("exteriorCheck.ts")}";`,
       `export { cornerPlace, routeCoverage, viewsFromMeasure } from "${lib("photoRouteCoverage.ts")}";`,
-      `export { checkEstimate, columnBearing, defaultShared, facingOf, numberCorners, partyCorners, routeSteps, shotNumbers, solveRoute, WALK_HOLD } from "${lib("photoRoute.ts")}";`,
-      `export { alignLap, facingWords, isWalkShape, lapCloses, walkPhotoWords, lapOutline, lapProblem, lapTurns, newWalk, ringTurns, measureWords, ringItems, walkAddCorner, walkInsertCorner, walkRemoveCorner, walkSetTurn, walkAddPhoto, walkFinish, walkMissing, walkRemoveLastCorner, walkRemovePhoto, walkReopen, withRingStart, walkAddMeasure, walkBack, walkClose, walkHasMeasure, walkHomeType, walkMeasured, walkMeasures, walkPhotos, walkRemoveMeasure, walkShot, walkSkip, walkStep, walkSummary, walkTake, walkTurn, walkUnplaced, withoutPhotos, withWalk } from "${lib("photoRouteWalk.ts")}";`,
+      `export { checkEstimate, columnBearing, defaultShared, facingOf, numberCorners, partyCorners, routeSteps, shotNumbers, solveRoute, tapesDisagree, WALK_HOLD } from "${lib("photoRoute.ts")}";`,
+      `export { alignLap, facingWords, isWalkShape, lapCloses, walkPhotoWords, lapOutline, lapProblem, lapTurns, newWalk, ringTurns, measureWords, ringItems, walkAddCorner, walkInsertCorner, walkRemoveCorner, walkSetTurn, walkAddPhoto, walkFinish, walkMissing, walkRemoveLastCorner, walkRemovePhoto, walkReopen, withRingStart, walkAddMeasure, walkBack, walkClose, walkHasMeasure, walkHomeType, walkMeasured, walkMeasures, walkPhotos, walkRemoveMeasure, walkShot, walkSkip, walkStep, walkSummary, walkTake, walkTurn, walkUnplaced, withoutPhotos, withWalk, walkFromTurns, parseTurns, roleShot } from "${lib("photoRouteWalk.ts")}";`,
       `export { cornerEdges } from "${lib("photoRouteFind.ts")}";`,
+      `export { holdOutTapes, lineFeet, selfCheck, worstPct } from "${lib("photoRouteCheck.ts")}";`,
       `export { toLevel } from "${lib("photoRouteLens.ts")}";`,
       `export { exteriorFromRoute, measuredFrom } from "${lib("photoRouteExterior.ts")}";`,
       `export { routeSanity } from "${lib("photoRouteSanity.ts")}";`,
@@ -7166,6 +7167,170 @@ test("any number of corners (10-22): the owner's twelve said round, every wall n
   assert(joined.stops.length === four.stops.length + 2 && joined.stops[2].shared && joined.stops[3].auto, JSON.stringify(joined.stops.map((s) => s.kind)));
   assert(x.walkSetTurn(joined, 3, "outside").walk.stops.length === four.stops.length, "the far corner's owner said outside");
   assert(x.walkRemoveCorner(joined, 3).walk.stops.length === four.stops.length - 2, "removing the far corner removes the joined one");
+});
+
+
+console.log("\ncleaner input: measure photos size the house, detail photos are read (10-22)");
+
+// A plain 40' x 30' box drawn 44' x 27', far-back photos at each corner and the front, the front taped; and a close photo of
+// one corner from the right side, said to be taken from somewhere it wasn't (12 ft off).
+const BOX = [{ x: 0, y: 0 }, { x: 40, y: 0 }, { x: 40, y: 30 }, { x: 0, y: 30 }];
+const BOX_DRAWN = [{ x: 0, y: 0 }, { x: 44, y: 0 }, { x: 44, y: 27 }, { x: 0, y: 27 }];
+const boxShots = [
+  ["front", [20, -50], { x: 20, y: 15 }, [{ c: 0 }, { c: 1 }]],
+  ["front-right", [62, -22], { x: 40, y: 0 }, [{ c: 0 }, { c: 1 }, { c: 2 }]],
+  ["back-right", [62, 52], { x: 40, y: 30 }, [{ c: 1 }, { c: 2 }, { c: 3 }]],
+  ["back-left", [-22, 52], { x: 0, y: 30 }, [{ c: 2 }, { c: 3 }, { c: 0 }]],
+  ["front-left", [-22, -22], { x: 0, y: 0 }, [{ c: 3 }, { c: 0 }, { c: 1 }]],
+];
+const withDetail = (standAt) => {
+  const r = synRoute(BOX, BOX_DRAWN, "detached", [...boxShots, ["detail", [60, 8], { x: 40, y: 4 }, [{ c: 1 }]]], [{ id: "front", kind: "side", from: 0, feet: 40 }]);
+  r.input.photos = r.input.photos.map((p) => (p.id === "detail" ? { ...p, standAt } : p));
+  return r;
+};
+const lengths = (sol) => sol.sides.map((s) => s.lengthFeet.toFixed(6)).join(" ");
+
+test("a photo with one corner never sizes the house: placed where you stood, afterwards, to be read; the old way kept to compare", () => {
+  const base = synRoute(BOX, BOX_DRAWN, "detached", boxShots, [{ id: "front", kind: "side", from: 0, feet: 40 }]);
+  const without = x.solveRoute(base.input, "main", base.data);
+  for (const spot of [[66, 8], [72, -2], [56, 18]]) {
+    const { input, data } = withDetail(spot);
+    const sol = x.solveRoute(input, "main", data);
+    assert(lengths(sol) === lengths(without), `stood at ${spot}: ${lengths(sol)} against ${lengths(without)}`);
+    const cam = sol.cameras.find((c) => c.photo === "detail");
+    assert(cam && cam.role === "detail" && cam.placedBy === "stood", JSON.stringify(cam));
+    assert(sol.cameras.filter((c) => c.role !== "detail").length === 5 && !sol.unplaced.some((u) => u.photo === "detail"), JSON.stringify(sol.unplaced));
+  }
+  // The old way: it is in the size solve with the rest.
+  const { input, data } = withDetail([72, -2]);
+  const old = x.solveRoute(input, "main", data, { sizePhotos: "all" });
+  const oc = old.cameras.find((c) => c.photo === "detail");
+  assert(oc && oc.placedBy === "stood" && !oc.role && old.solution.input.cameras.some((c) => c.id === "detail"), JSON.stringify(oc));
+});
+
+test("a photo left out of the size (the self-check's) is still placed by its corners, to be read", () => {
+  const { input, data } = synRoute(BOX, BOX_DRAWN, "detached", boxShots, [{ id: "front", kind: "side", from: 0, feet: 40 }]);
+  const all = x.solveRoute(input, "main", data);
+  const out = x.solveRoute(input, "main", data, { outOfSize: ["back-right"] });
+  const cam = out.cameras.find((c) => c.photo === "back-right");
+  assert(cam && cam.role === "detail" && cam.placedBy === "corners" && !out.solution.input.cameras.some((c) => c.id === "back-right"), JSON.stringify(cam));
+  const truth = all.cameras.find((c) => c.photo === "back-right");
+  assert(Math.hypot(cam.at[0] - truth.at[0], cam.at[1] - truth.at[1]) < 2, `${cam.at} against ${truth.at}`);
+  // Its corners are out of the size: the bearings there are the four other photos'.
+  assert(out.counts.cornerBearings === all.counts.cornerBearings - 3, `${out.counts.cornerBearings} / ${all.counts.cornerBearings}`);
+});
+
+test("a tape on a detail photo sizes nothing: said, and with no other tape the house is unscaled", () => {
+  const { input, data } = withDetail([66, 8]);
+  const det = synPhoto("detail", [60, 8], { x: 40, y: 4 });
+  const a = det.tap({ x: 40, y: 4 });
+  const b = det.tap({ x: 40, y: 10 });
+  input.buildings[0].tapes = [{ id: "window", kind: "line", photo: "detail", a: [a.x, 300], b: [b.x, 300], feet: 6, what: "window", exact: true }];
+  const sol = x.solveRoute(input, "main", data);
+  assert(sol.unscaled && JSON.stringify(sol.tapesOnDetail) === '["window"]', `${sol.unscaled} ${JSON.stringify(sol.tapesOnDetail)}`);
+  const old = x.solveRoute(input, "main", data, { sizePhotos: "all" });
+  assert(!old.unscaled, "the old way, it scaled the house");
+});
+
+test("the walk in words: turns make the walk and its shape; a role names the corner in a photo, far ones by fitting", () => {
+  const turns = x.parseTurns("O O O I O I O O I O I O");
+  assert(turns && turns.length === 12 && turns[3] === "inside", JSON.stringify(turns));
+  assert(JSON.stringify(x.parseTurns("OOIO")) === '["outside","outside","inside","outside"]' && x.parseTurns("O X O O") === null, "letters run together; a word it can't read");
+  const walk = x.walkFromTurns(turns);
+  assert(x.lapCloses(walk) && x.lapTurns(walk).length === 12 && x.lapOutline(x.lapTurns(walk))?.length === 12, "closes, twelve corners, a shape");
+  const c1 = x.roleShot("corner 1", walk);
+  assert(c1.shot.kind === "corner" && c1.shot.index === 0 && !c1.shot.far && c1.tag?.role === "corner" && c1.tag.k === 1, JSON.stringify(c1));
+  const far1 = x.roleShot("far corner 1", walk);
+  assert(far1.shot.kind === "corner" && far1.shot.index === 0 && far1.shot.far && far1.tag === null, JSON.stringify(far1));
+  const s2 = x.roleShot("side 2", walk);
+  assert(s2.shot.kind === "wall" && s2.shot.index === 1 && s2.tag?.role === "side", JSON.stringify(s2));
+  const back = x.roleShot("far back", walk);
+  // The owner's house: the back runs from corner 2 (the bump-out's back right) round to corner 7 (the back left).
+  assert(back.shot.kind === "run" && back.shot.index === 1 && back.shot.to === 6 && back.shot.far, JSON.stringify(back));
+  assert(x.roleShot("front", walk).shot.kind === "run" && x.roleShot("corner 13", walk) === null && x.roleShot("garage", walk) === null, "front; no corner 13; no such role");
+  const every = x.roleShot("corner 1", walk, 0, { farAlways: true });
+  assert(every.shot.far && every.tag === null, "taken as far");
+});
+
+test("a far-back photo of a corner: that corner among its taps, named by fitting, none given", () => {
+  const shots = [["fr", [62, -22], { x: 40, y: 0 }, [{ c: 0 }, { c: 1 }, { c: 2 }]], ["bl", [-22, 52], { x: 0, y: 30 }, [{ c: 2 }, { c: 3 }, { c: 0 }]]];
+  const { input, data } = synRoute(BOX, BOX_DRAWN, "detached", shots, []);
+  const truth = input.buildings[0].corners.map((c) => c.corner);
+  input.buildings[0].corners = input.buildings[0].corners.map((c) => ({ ...c, corner: -1, by: undefined }));
+  input.photos = input.photos.map((p) => ({ ...p, shot: { kind: "corner", index: p.id === "fr" ? 1 : 3, far: true } }));
+  const named = x.numberCorners(input, "main", data);
+  assert(named.every((c, i) => c.corner === truth[i]), named.map((c, i) => `${c.photo}:${c.corner}/${truth[i]}`).join(" "));
+});
+
+
+test("the self-check: a photo whose corners are tapped wrong makes the tapes disagree; left out, they agree, and it is said", () => {
+  // A wider box's every corner photographed far back, three tapes; then the back-right photo's middle corner tapped on the
+  // wrong edge (40 px off), as a reviewer does on a pilaster or a post.
+  const tapes = [{ id: "front", kind: "side", from: 0, feet: 40 }, { id: "right", kind: "side", from: 1, feet: 30 }, { id: "back", kind: "side", from: 2, feet: 40 }];
+  const groups = tapes.map((t) => ({ id: t.id, parts: [t.id] }));
+  const good = synRoute(BOX, BOX_DRAWN, "detached", boxShots, tapes);
+  const fine = x.selfCheck(good.input, "main", good.data, groups);
+  assert(fine.dropped === null && x.worstPct(fine.before) <= 5 && /agree/.test(fine.words), fine.words);
+  const bad = synRoute(BOX, BOX_DRAWN, "detached", boxShots, tapes);
+  bad.input.buildings[0].corners = bad.input.buildings[0].corners.map((c) => (c.photo === "back-right" && c.corner === 2 ? { ...c, x: c.x + 40 } : c));
+  const before = x.holdOutTapes(bad.input, "main", bad.data, groups);
+  const sc = x.selfCheck(bad.input, "main", bad.data, groups, {}, (p) => `photo ${p}`);
+  assert(x.worstPct(before) > 5, `the wrong tap makes them disagree: ${before.map((r) => `${r.id} ${r.errorPct?.toFixed(1)}%`).join(", ")}`);
+  assert(sc.dropped?.photo === "back-right" && sc.dropped.worstPct <= 5, `${sc.words} | ${sc.tried.map((q) => `${q.photo} ${q.worstPct?.toFixed(1)}`).join(", ")}`);
+  assert(/Without photo back-right they agree within/.test(sc.words) && /left out of the size/.test(sc.words), sc.words);
+  // Left out, it is still placed by its corners, to be read.
+  const sol = x.solveRoute(bad.input, "main", bad.data, { outOfSize: [sc.dropped.photo] });
+  assert(sol.cameras.find((c) => c.photo === "back-right")?.role === "detail", JSON.stringify(sol.cameras.map((c) => [c.photo, c.role])));
+});
+
+test("a line on a placed photo measured on the solved house (lineFeet): a tape's own length back", () => {
+  const det = synPhoto("front", [20, -50], { x: 20, y: 15 });
+  const a = det.tap({ x: 10, y: 0 });
+  const b = det.tap({ x: 18, y: 0 });
+  const r = synRoute(BOX, BOX_DRAWN, "detached", boxShots, [{ id: "front", kind: "side", from: 0, feet: 40 }]);
+  const sol = x.solveRoute(r.input, "main", r.data);
+  const m = x.lineFeet(sol, r.data, "front", [a.x, a.y], [b.x, b.y]);
+  near(m?.feet ?? 0, 8, "8' along the front, read back", 0.15);
+});
+
+
+test("honest sizes: a long wall whose far corner no photo shows is NOT measured, with the photo that would measure it; never printed as a size", () => {
+  // The box from the front only: its back corners on no photo, the front taped. The drawing holds the depth; it is no measurement.
+  const front = [
+    ["front", [20, -50], { x: 20, y: 15 }, [{ c: 0 }, { c: 1 }]],
+    ["front-right", [62, -22], { x: 40, y: 0 }, [{ c: 0 }, { c: 1 }]],
+    ["front-left", [-22, -22], { x: 0, y: 0 }, [{ c: 0 }, { c: 1 }]],
+  ];
+  const { input, data } = synRoute(BOX, BOX_DRAWN, "detached", front, [{ id: "front", kind: "side", from: 0, feet: 40 }]);
+  const sol = x.solveRoute(input, "main", data);
+  const right = sol.sides[1];
+  assert(right.notMeasured && right.plusMinusPct > 10 && /corner 3 is on no photo that sizes the house/.test(right.notMeasured.why) && /far back at 45° to corner 3/.test(right.notMeasured.fix), JSON.stringify(right));
+  assert(!sol.sides[0].notMeasured, "the taped front is measured");
+  // The old way said the drawing's depth as if measured.
+  const old = x.solveRoute(input, "main", data, { sizePhotos: "all" });
+  assert(!old.sides[1].notMeasured && old.sides[1].plusMinusPct < right.plusMinusPct, `old ±${old.sides[1].plusMinusPct}% against ±${right.plusMinusPct}%`);
+  // Landed and reported: said NOT measured, about that long, with what would measure it - the side's heading too.
+  const { ext } = landOf(input, data, sol);
+  const s = ext.sides.find((q) => q.lengthNotMeasured);
+  assert(s && /corner 3/.test(s.lengthNotMeasured), JSON.stringify(ext.sides.map((q) => [q.name, q.lengthNotMeasured])));
+  const rep = x.exteriorReport(ext, { title: "Box", date: "2026-10-22", madeWith: "Scrivn" });
+  const sec = rep.sides.find((q) => q.side.id === s.id);
+  assert(/about .*NOT measured/.test(sec.heading) && /^NOT measured: about /.test(sec.dims[0]), `${sec.heading} | ${sec.dims[0]}`);
+  assert(rep.notes.some((nn) => /^NOT measured: /.test(nn)) && rep.notes.some((nn) => /A photo from far back at 45° to corner 3/.test(nn)), rep.notes.join(" | "));
+});
+
+test("honest sizes: tapes that disagree make every untaped side not measured, one fix each - the tape most off, or a loose side's own; taped sides stand", () => {
+  const { input, data } = synRoute(BOX, BOX_DRAWN, "detached", boxShots, [{ id: "front", kind: "side", from: 0, feet: 40 }]);
+  const sol = x.solveRoute(input, "main", data);
+  const marked = x.tapesDisagree(sol.sides, 8.4, "tape t1 (garage doors)", -8.4);
+  // One fix each: a side loose by itself (the corners alone hold this box's depth only so well) keeps its own; the rest name the tape.
+  assert(
+    !marked[0].notMeasured &&
+      marked.slice(1).every((q) => q.notMeasured && /disagree by up to 8.4%/.test(q.notMeasured.why)) &&
+      marked.some((q) => /^Check tape t1 \(garage doors\) again: the others put it -8.4% off/.test(q.notMeasured?.fix ?? "")) &&
+      marked.every((q, i) => !sol.sides[i].notMeasured || q.notMeasured.fix === sol.sides[i].notMeasured.fix),
+    JSON.stringify(marked.map((q) => q.notMeasured ?? null)),
+  );
 });
 
 console.log(`\n${passed.length} passed, ${failures.length} failed`);

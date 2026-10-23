@@ -411,7 +411,7 @@ export function exteriorReport(exterior: Exterior, meta: ReportMeta): ExteriorRe
     const colNames = columnNames(side);
     const colQ = new Map((sq.trim?.columns ?? []).map((c) => [c.id, c]));
     const dims = [
-      `${side.lengthFrom === "drawn" ? "About " : ""}${ft(sq.lengthFeet)} long${side.lengthFrom === "drawn" ? " (drawn, not measured)" : ""}${pm ? ` ${pm} (worked out from the photos${est ? ` and ${est}` : ""}: to check)` : est ? ` (${est}, not taped)` : ""}${heights.length > 0 ? ` · ${heights.join(", ")}${side.wallTopFrom === "photo" ? " (from photo)" : side.wallTopFrom === "neighbours" ? ` (from the sides beside it: ${(side.photos ?? []).length === 0 ? "not seen in a photo" : "its photo didn't show the top"})` : ""}` : ""}${side.base === "parging" ? ` · parging ${ft(side.baseLeftFeet)} / ${ft(side.baseRightFeet)}` : ""}`,
+      `${side.lengthNotMeasured ? `NOT measured: about ${ft(sq.lengthFeet)} from the photos${pm ? ` ${pm}` : ""}, to draw with, not a size` : `${side.lengthFrom === "drawn" ? "About " : ""}${ft(sq.lengthFeet)} long${side.lengthFrom === "drawn" ? " (drawn, not measured)" : ""}${pm ? ` ${pm} (worked out from the photos${est ? ` and ${est}` : ""}: to check)` : est ? ` (${est}, not taped)` : ""}`}${heights.length > 0 ? ` · ${heights.join(", ")}${side.wallTopFrom === "photo" ? " (from photo)" : side.wallTopFrom === "neighbours" ? ` (from the sides beside it: ${(side.photos ?? []).length === 0 ? "not seen in a photo" : "its photo didn't show the top"})` : ""}` : ""}${side.base === "parging" ? ` · parging ${ft(side.baseLeftFeet)} / ${ft(side.baseRightFeet)}` : ""}`,
       ...sq.bands.map((b) => `${b.label}: ${sf(b.grossSquareFeet)} gross, ${sf(b.openingSquareFeet)} of openings, ${b.trimSquareFeet ? `${sf(b.trimSquareFeet)} of trim, ` : ""}${sf(b.netSquareFeet)} net${shapeFrom.has(b.bandId) ? " (from photo)" : ""}`),
       ...[...side.openings].sort((a, b) => a.fromLeftFeet - b.fromLeftFeet).map((o) => openingLine(side, o, names.get(o.id) ?? OPENING_LABEL[o.kind])),
       ...[...(side.columns ?? [])].sort((a, b) => a.fromLeftFeet - b.fromLeftFeet).map((c) => columnLine(c, colNames.get(c.id) ?? COLUMN_LABEL[c.kind], colQ.get(c.id))),
@@ -427,7 +427,7 @@ export function exteriorReport(exterior: Exterior, meta: ReportMeta): ExteriorRe
       q: sq,
       rise: q.rises[side.id] ?? null,
       base: q.bases[side.id] ?? null,
-      heading: `${side.name.trim() || "Side"} · ${ft(sq.lengthFeet)}${pm ? ` ${pm}` : ""} · ${sf(sq.netSquareFeet)} net${unseenWords(exterior, side) ? " · not photographed" : ""}`,
+      heading: `${side.name.trim() || "Side"} · ${side.lengthNotMeasured ? `about ${ft(sq.lengthFeet)}, NOT measured` : `${ft(sq.lengthFeet)}${pm ? ` ${pm}` : ""}`} · ${sf(sq.netSquareFeet)} net${unseenWords(exterior, side) ? " · not photographed" : ""}`,
       dims,
     };
   });
@@ -844,7 +844,16 @@ export function exteriorReport(exterior: Exterior, meta: ReportMeta): ExteriorRe
   }
 
   // A length worked out from the photos and further out than it should be: named to tape (2026-10-16).
-  const toTape = every.filter((s) => lengthToCheck(s) !== undefined).map((s) => `${s.name.trim() || "Side"}: ${ft(s.lengthFeet)} ${plusMinus(s)}, worked out from the photos${s.lengthEstimatedFeet ? ` and ${estimatedWords(s)}` : ""}, not taped. Tape it to be sure.`);
+  const toTape = every.filter((s) => lengthToCheck(s) !== undefined && !s.lengthNotMeasured).map((s) => `${s.name.trim() || "Side"}: ${ft(s.lengthFeet)} ${plusMinus(s)}, worked out from the photos${s.lengthEstimatedFeet ? ` and ${estimatedWords(s)}` : ""}, not taped. Tape it to be sure.`);
+  // A size the photos and tapes don't hold (2026-10-22): said not measured, why, and the one photo or tape that measures it -
+  // first, with what rests on it: never a confident number.
+  const notMeasuredSides = every.filter((s) => s.lengthNotMeasured);
+  const notMeasuredLengths = notMeasuredSides.length
+    ? [
+        `NOT measured: ${notMeasuredSides.map((s) => s.name.trim() || "Side").join(", ")}. Their lengths are drawn from the photos to lay the house out, not sizes; the wall and roof areas that rest on them are rough until they are measured.`,
+        ...notMeasuredSides.map((s) => `${s.name.trim() || "Side"}: NOT measured (about ${ft(s.lengthFeet)}): ${s.lengthNotMeasured}`),
+      ]
+    : [];
   // What a photo couldn't settle and nobody answered on "Check these" (2026-10-16, lib/exteriorCheck.ts): a part-hidden opening, an assumed drop.
   // A wall no photo faces (2026-10-21): what is on it isn't known, or was only said - a photo of it straight on settles it.
   const unseen = every.flatMap((s) => {
@@ -857,7 +866,7 @@ export function exteriorReport(exterior: Exterior, meta: ReportMeta): ExteriorRe
     if (list.length === 0) return [];
     return [`${s.name.trim() || "Side"}: ${list.length} ${list.length === 1 ? "opening" : "openings"} not measured (${list[0]?.notMeasured}): sizes and places to check. A photo of it straight on measures them.`];
   });
-  const notes = [...toTape, ...unseen, ...notMeasuredNotes, ...checkNotes(exterior, q), ...(roof?.notes ?? [])];
+  const notes = [...notMeasuredLengths, ...toTape, ...unseen, ...notMeasuredNotes, ...checkNotes(exterior, q), ...(roof?.notes ?? [])];
 
   // ---- The house from each side: the 3D model, square-on, named by the compass when the front's bearing is known ----
   const model = exteriorModel(exterior);

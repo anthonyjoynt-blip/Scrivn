@@ -20,7 +20,7 @@
  * clockwise from that (lib/photoRouteLens.ts: X = Z x Y, to the right).
  */
 
-import { leastSquares, sigmaOf, symPinv } from "./photoRouteMath";
+import { leastSquares, sigmaOf, symEigen, symPinv } from "./photoRouteMath";
 
 export type WallAxis = "E" | "N";
 
@@ -99,6 +99,12 @@ export interface SolveInput {
    * says roughly how far off each camera stood, which the bearings alone never say.
    */
   heights?: { camera: string; point: string; drop: number; forward: number; feet: number; sdFeet: number }[];
+  /**
+   * Distances (by id prefix, "drawn:") that hold the solve where nothing else says anything - the shape as drawn - but are
+   * not information about the house (2026-10-22): `Solution.sigmaInformed` leaves them out, so a size only they held reads
+   * as not measured rather than as sure as the drawing was taken to be.
+   */
+  uninformed?: string[];
 }
 
 export interface Solution {
@@ -115,6 +121,12 @@ export interface Solution {
   /** The covariance of the unknowns (n x n, row-major). */
   covariance: Float64Array;
   sigma: (f: (x: Float64Array) => number) => number;
+  /**
+   * One sd of f from what was measured alone (2026-10-22): the photos, the tapes, the estimates, the priors - not the
+   * `uninformed` distances (the shape as drawn). As `sigma` when there are none. A direction only those held is as good as
+   * unbounded here.
+   */
+  sigmaInformed: (f: (x: Float64Array) => number) => number;
   cost: number;
 }
 
@@ -184,6 +196,17 @@ export function solvePlan(input: SolveInput, opts: { maxIterations?: number } = 
   if (input.lens) x0[index.get("lens:k") as number] = input.lens.k0;
   const lensK = (x: Float64Array) => (input.lens ? (x[index.get("lens:k") as number] as number) : 0);
   const bearings = input.bearings.filter((b) => camById.has(b.camera) && pointById.has(b.point));
+  const end = (id: string, axis: WallAxis | "any", x: Float64Array): [number, number] => {
+    if (!id.startsWith("wall:")) return point(id, x);
+    const v = wall(id.slice(5), x);
+    return axis === "N" ? [0, v] : [v, 0];
+  };
+  const distanceResidual = (dd: SolveDistance, x: Float64Array): number => {
+    const A = end(dd.a, dd.axis, x);
+    const B = end(dd.b, dd.axis, x);
+    const got = dd.axis === "E" ? Math.abs(B[0] - A[0]) : dd.axis === "N" ? Math.abs(B[1] - A[1]) : Math.hypot(B[0] - A[0], B[1] - A[1]);
+    return (got - dd.feet) / dd.sdFeet;
+  };
   const residual = (x: Float64Array): Float64Array => {
     void 0;
     const hs = input.heights ?? [];
@@ -200,11 +223,6 @@ export function solvePlan(input: SolveInput, opts: { maxIterations?: number } = 
       out[i++] = Math.atan2(d[0] * v1 - d[1] * v0, d[0] * v0 + d[1] * v1) / b.sd;
     }
     for (const c of input.cameras) out[i++] = camera(c.id, x).yaw / ((c.yawSdDeg * Math.PI) / 180);
-    const end = (id: string, axis: WallAxis | "any", x: Float64Array): [number, number] => {
-      if (!id.startsWith("wall:")) return point(id, x);
-      const v = wall(id.slice(5), x);
-      return axis === "N" ? [0, v] : [v, 0];
-    };
     if (input.lens) out[bearings.length + input.cameras.length + input.distances.length] = (lensK(x) - input.lens.k0) / input.lens.sd;
     const hAt = bearings.length + input.cameras.length + input.distances.length + (input.lens ? 1 : 0);
     hs.forEach((hh, j) => {
@@ -224,12 +242,7 @@ export function solvePlan(input: SolveInput, opts: { maxIterations?: number } = 
       out[pAt++] = (at[0] - pr.at[0]) / pr.sdFeet;
       out[pAt++] = (at[1] - pr.at[1]) / pr.sdFeet;
     }
-    for (const dd of input.distances) {
-      const A = end(dd.a, dd.axis, x);
-      const B = end(dd.b, dd.axis, x);
-      const got = dd.axis === "E" ? Math.abs(B[0] - A[0]) : dd.axis === "N" ? Math.abs(B[1] - A[1]) : Math.hypot(B[0] - A[0], B[1] - A[1]);
-      out[i++] = (got - dd.feet) / dd.sdFeet;
-    }
+    for (const dd of input.distances) out[i++] = distanceResidual(dd, x);
     return out;
   };
   const r = leastSquares(residual, x0, { fScale: input.robustSd ?? 3, maxIterations: opts.maxIterations ?? 200, step: (v) => 1e-6 * Math.max(1, Math.abs(v)) });
@@ -237,6 +250,59 @@ export function solvePlan(input: SolveInput, opts: { maxIterations?: number } = 
   const res = Array.from(r.residuals.slice(0, bearings.length));
   const rms = Math.sqrt(res.reduce((s, v) => s + v * v, 0) / Math.max(1, res.length));
   const xs = r.x;
+  // The covariance without the uninformed distances: their part of JᵀWJ taken off the Hessian (each a scalar residual, its
+  // gradient by differences, weighted as the solve weighed it).
+  let informed: Float64Array | null = null;
+  const informedCov = (): Float64Array => {
+    if (informed) return informed;
+    const prefixes = input.uninformed ?? [];
+    const out = prefixes.length ? Float64Array.from(r.hessian) : cov;
+    if (prefixes.length) {
+      const c = input.robustSd ?? 3;
+      const xx = Float64Array.from(xs);
+      for (const dd of input.distances) {
+        if (!prefixes.some((p) => dd.id.startsWith(p))) continue;
+        const r0 = distanceResidual(dd, xs);
+        const g = new Float64Array(n);
+        for (let j = 0; j < n; j++) {
+          const keep = xx[j] as number;
+          const h = 1e-6 * Math.max(1, Math.abs(keep));
+          xx[j] = keep + h;
+          g[j] = (distanceResidual(dd, xx) - r0) / h;
+          xx[j] = keep;
+        }
+        const w = 1 / Math.sqrt(1 + (r0 / c) ** 2);
+        for (let a = 0; a < n; a++) {
+          const ga = g[a] as number;
+          if (ga === 0) continue;
+          for (let b2 = 0; b2 < n; b2++) out[a * n + b2] = (out[a * n + b2] as number) - w * ga * (g[b2] as number);
+        }
+      }
+    }
+    if (!prefixes.length) {
+      informed = cov;
+      return informed;
+    }
+    // Inverted eigenvalue by eigenvalue, each held at least at the pseudo-inverse's own cut (1e-12 of the largest): a
+    // direction the taken-off part alone held - or that came out a hair negative taking it off - is then as good as
+    // unbounded, and every other is as the full solve has it or wider, never narrower.
+    const { values, vectors } = symEigen(out, n);
+    let mx = 0;
+    for (const v of values) mx = Math.max(mx, Math.abs(v));
+    const floor = 1e-12 * mx;
+    const inv = new Float64Array(n * n);
+    for (let k = 0; k < n; k++) {
+      const l = Math.max(values[k] as number, floor);
+      if (!(l > 0)) continue;
+      for (let a = 0; a < n; a++) {
+        const va = (vectors[a * n + k] as number) / l;
+        if (va === 0) continue;
+        for (let b2 = 0; b2 < n; b2++) inv[a * n + b2] = (inv[a * n + b2] as number) + va * (vectors[b2 * n + k] as number);
+      }
+    }
+    informed = inv;
+    return informed;
+  };
   return {
     input,
     x: xs,
@@ -248,6 +314,7 @@ export function solvePlan(input: SolveInput, opts: { maxIterations?: number } = 
     rms,
     covariance: cov,
     sigma: (f) => sigmaOf(f, xs, cov),
+    sigmaInformed: (f) => sigmaOf(f, xs, informedCov()),
     cost: r.cost,
   };
 }

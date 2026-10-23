@@ -58,7 +58,8 @@ export async function openHouse(dirArg) {
   if (photos.length === 0) throw new Error(`No photos in ${dir} (jpg, png, webp or tiff).`);
   const tapesText = read("tapes.txt");
   const houseText = read("house.txt");
-  return { dir, state, kind: request ? "request" : "folder", request, photos, tapesText, houseText, house: parseHouse(houseText ?? "") };
+  const walkText = read("walk.txt");
+  return { dir, state, kind: request ? "request" : "folder", request, photos, tapesText, houseText, walkText, house: parseHouse(houseText ?? "") };
 }
 
 export const statePath = (h, ...parts) => join(h.state, ...parts);
@@ -181,11 +182,42 @@ export function draftInputs(h) {
     tapes,
     ...(estimates.length ? { estimates } : {}),
     ...(tapesRead.unread.length ? { unread: tapesRead.unread } : {}),
+    ...walkDraft(h),
     checks: [],
     leaveOut: [...tapeShots].sort((a, b) => a - b),
     keepProposed: false,
     dropProposed: [],
   };
+}
+
+/**
+ * The walk round the house in words, when walk.txt says it (2026-10-22): its corners in order ("corner 1 outside", "corner 4
+ * inside", ...) as `walk.turns`, and each photo's role from its name where the name says one ("02 corner 1", "07 side 2",
+ * "01 front", "far 4 back"). The shape is then the walk's, nobody's guess; each role names the photo's corners.
+ */
+function walkDraft(h) {
+  const turns = [];
+  for (const line of (h.walkText ?? "").split(/\r?\n/)) {
+    const m = /^\s*corner\s+(\d+)\s+(outside|inside|joins|joined)\b/i.exec(line);
+    if (m) turns[Number(m[1]) - 1] = m[2].toLowerCase().startsWith("o") ? "O" : m[2].toLowerCase().startsWith("i") ? "I" : "J";
+  }
+  if (turns.length < 4 || turns.some((t) => !t)) return {};
+  const photos = {};
+  for (const p of h.photos) {
+    const role = roleFromName(p.file);
+    if (role) photos[p.n] = role;
+  }
+  return { walk: { turns: turns.join(" "), photos } };
+}
+
+/** A photo's role from its file name, when it plainly says one: "far 4 back" -> "far back", "13 corner 4" -> "corner 4". */
+export function roleFromName(file) {
+  const name = file.replace(/\.[a-z]+$/i, "").toLowerCase();
+  const far = /^far\b/.test(name) ? "far " : "";
+  const m = /(?:^|\s)(corner|side)\s+(\d+)(?=$|[\s-])/.exec(name);
+  if (m) return `${far}${m[1]} ${Number(m[2])}`;
+  const w = /(?:^|\s)(front|back)(?=$|\s)/.exec(name);
+  return w ? `${far}${w[1]}` : null;
 }
 
 const round1 = (v) => Math.round(v * 10) / 10;
@@ -195,9 +227,12 @@ const round4 = (v) => Math.round(v * 10000) / 10000;
  * inputs.json as the photo route's input, and what is wrong or missing with it, in plain words. [candidates]: each
  * photo's lettered upright edges from prepare (a corner may be given as one of them).
  */
-export function routeInput(h, inputs, candidates = {}) {
+export function routeInput(h, inputs, candidates = {}, x = null) {
   const problems = [];
-  const outline = (inputs.shape?.outline ?? []).map((p) => (Array.isArray(p) ? { x: Number(p[0]), y: Number(p[1]) } : { x: Number(p.x), y: Number(p.y) }));
+  let outline = (inputs.shape?.outline ?? []).map((p) => (Array.isArray(p) ? { x: Number(p[0]), y: Number(p[1]) } : { x: Number(p.x), y: Number(p.y) }));
+  // The walk round the house in words (inputs.walk, 2026-10-22): with no shape drawn its corners make it; drawn, they must fit it.
+  const walk = walkOf(x, inputs, outline, problems);
+  if (walk?.lap) outline = walk.lap;
   const n = outline.length;
   if (n < 4) problems.push("shape.outline needs the house's corners in order round it (4 at least).");
   if (outline.some((p) => !Number.isFinite(p.x) || !Number.isFinite(p.y))) problems.push("shape.outline has a corner that is not two numbers [x, y].");
@@ -313,10 +348,50 @@ export function routeInput(h, inputs, candidates = {}) {
   const shared = (inputs.house?.shared ?? []).map((s) => sideIndex(s, n)).filter((i) => i !== null);
   const homeType = inputs.house?.homeType && inputs.house.homeType !== "detached" ? inputs.house.homeType : undefined;
   const input = {
-    photos: h.photos.map((p) => ({ id: p.id, width: p.width, height: p.height, focalPrior: p.focalPrior ?? null, takenAt: p.takenAt ?? null, ...(standAt[p.id] ? { standAt: standAt[p.id] } : {}), ...(facing[p.id] ? { facing: facing[p.id] } : {}) })),
-    buildings: [{ id: "main", ...(inputs.house?.name ? { name: inputs.house.name } : {}), ...(homeType ? { homeType } : {}), ...(shared.length ? { shared } : {}), outline, corners, tapes, ...(estimates.length ? { estimates } : {}) }],
+    photos: h.photos.map((p) => ({ id: p.id, width: p.width, height: p.height, focalPrior: p.focalPrior ?? null, takenAt: p.takenAt ?? null, ...(standAt[p.id] ? { standAt: standAt[p.id] } : {}), ...(facing[p.id] ? { facing: facing[p.id] } : {}), ...(walk?.roles[p.n] ?? {}) })),
+    buildings: [{ id: "main", ...(inputs.house?.name ? { name: inputs.house.name } : {}), ...(homeType ? { homeType } : {}), ...(shared.length ? { shared } : {}), outline, corners, tapes, ...(estimates.length ? { estimates } : {}), ...(walk?.lap ? { outlineFrom: "walk" } : {}) }],
   };
   return { input, problems, tapeParts, n };
+}
+
+/**
+ * inputs.walk read with Scrivn's walk code ([x], the runner's bundle): the turns as a walk, the lap's shape when no shape is
+ * drawn (shape.from "placeholder" or "walk"), the shift putting the walk's corner k at the drawn shape's corner, and each
+ * photo's role as its shot and walk tag (lib/photoRouteWalk.ts roleShot). Problems are said into [problems].
+ */
+function walkOf(x, inputs, outline, problems) {
+  if (!x || !inputs.walk?.turns) return null;
+  const turns = x.parseTurns(inputs.walk.turns);
+  if (!turns) {
+    problems.push(`walk.turns: each corner O (outside), I (inside) or J (joins the neighbour), in order from corner 1 - not "${inputs.walk.turns}".`);
+    return null;
+  }
+  const walk = x.walkFromTurns(turns);
+  const t = x.lapTurns(walk);
+  const drawn = outline.length >= 4 && !["placeholder", "walk"].includes(inputs.shape?.from);
+  let lap = null;
+  let shift = 0;
+  if (!drawn) {
+    lap = x.lapOutline(t);
+    if (!lap) {
+      problems.push(`walk.turns: ${turns.length} corners that don't close a lap round a house (four more outside than inside).`);
+      return null;
+    }
+  } else {
+    shift = x.alignLap(t, outline);
+    if (shift === null) {
+      problems.push("walk.turns don't fit the shape drawn: its corners, outside and inside, in order from the front's right-hand one, should be the walk's. Fix one, or set shape.from to \"walk\" to take the walk's.");
+      return null;
+    }
+  }
+  const roles = {};
+  for (const [ref, said] of Object.entries(inputs.walk.photos ?? {})) {
+    // Every role as a far one: it says which corner is in the photo, and its taps are named by fitting, for the review to confirm.
+    const r = x.roleShot(String(said), walk, shift, { farAlways: true });
+    if (!r) problems.push(`walk.photos ${ref}: "${said}" is no role on this walk ("corner 3", "side 2", "front", "back", "far corner 1").`);
+    else roles[Number(ref)] = { shot: r.shot, ...(r.tag ? { walk: r.tag } : {}) };
+  }
+  return { lap, shift, roles };
 }
 
 const COMPASS = { N: [0, 1], NE: [1, 1], E: [1, 0], SE: [1, -1], S: [0, -1], SW: [-1, -1], W: [-1, 0], NW: [-1, 1] };

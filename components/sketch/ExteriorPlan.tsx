@@ -1159,7 +1159,10 @@ export function PlanPane({
           }
           placing={placing !== null}
           shared={sharedOf(exterior)}
-          approx={(id) => exterior.sides.find((s) => s.id === id)?.lengthFrom === "drawn"}
+          approx={(id) => {
+            const s = exterior.sides.find((q) => q.id === id);
+            return s?.lengthFrom === "drawn" || !!s?.lengthNotMeasured;
+          }}
           fontScale={narrow ? 1.45 : 1}
           section={mode === "pitch" ? sectionKey : null}
           upper={q.upperFootprint?.closes ? q.upperFootprint.corners : null}

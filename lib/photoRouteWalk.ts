@@ -1033,3 +1033,106 @@ export function walkTapWords(tag: WalkTag, attached: boolean): string {
   if (tag.corner === "joined") return "Tap each end of the wall where it meets the ground: where this home ends, and its corner.";
   return `Tap corner ${tag.k} where it meets the ground, then the far end of each of its two walls if you can see it.`;
 }
+
+// ── A walk said in words (2026-10-22, cleaner input) ────────────────────────────────────────────────
+
+/**
+ * A walk said afterwards in words - the house runner's `walk` in inputs.json, from the tester's walk.txt - as the walk
+ * itself would hold it: the front, then each corner as turned (corner 1 the front's right-hand end) and the wall after it,
+ * back to the front. Its corners are the house's outline (`lapOutline`), so nobody guesses the shape from the photos.
+ */
+export function walkFromTurns(turns: WalkTurn[]): RouteWalk {
+  const stops: WalkStop[] = [{ kind: "front", photos: [] }];
+  turns.forEach((turn, i) => {
+    stops.push({ kind: "corner", turn, photos: [] });
+    if (i < turns.length - 1) stops.push({ kind: "side", photos: [] });
+  });
+  return { stops, closed: true };
+}
+
+/** "O O I O" / "outside, inside" / "OOIO": each corner's turn, in order; J (or "joins") meets the neighbour's. Null when a word isn't one. */
+export function parseTurns(said: string | string[]): WalkTurn[] | null {
+  const words = Array.isArray(said) ? said : /[\s,;]/.test(said.trim()) ? said.trim().split(/[\s,;]+/) : said.trim().split("");
+  const out: WalkTurn[] = [];
+  for (const w of words.filter(Boolean)) {
+    const t = w.toLowerCase();
+    if (t === "o" || t === "out" || t === "outside") out.push("outside");
+    else if (t === "i" || t === "in" || t === "inside") out.push("inside");
+    else if (t === "j" || t === "joins" || t === "joined") out.push("joined");
+    else return null;
+  }
+  return out;
+}
+
+/**
+ * What a photo was taken for, said in words - "corner 3", "side 2", "the front", "far corner 1", "far back" - as its shot on
+ * the outline (the walk's corner k at outline corner k - 1 + shift) and its walk tag. A photo of the walk itself ("corner
+ * 3": taken there, close, the corner in the middle) is tagged, and its corners named as the walk names them. One taken
+ * "far" back is not: it shows whichever corners it shows, round the one it was taken for (`RouteShot.far`), and they are
+ * named by fitting it on the shape, the corner it was for among them. "back" is the run of walls facing away from the
+ * street. Null for words it can't read, or a corner or side the walk hasn't. `farAlways` takes every role so (the house
+ * runner, 2026-10-22): on the owner's own walk photos the corner a photo was taken for was the middle tap on none of them
+ * ("02 corner 1" framed the whole garage front), so a role says which corner is in a photo, not which tap it is.
+ */
+export function roleShot(role: string, walk: RouteWalk, shift = 0, opts: { farAlways?: boolean } = {}): { shot: RouteShot; tag: WalkTag | null } | null {
+  const m = /^\s*(far(?:\s+back)?\s+)?(?:the\s+)?(front|back|corner\s+(\d+)|side\s+(\d+))\s*$/i.exec(role);
+  if (!m) return null;
+  const far = !!m[1] || !!opts.farAlways;
+  const turns = lapTurns(walk);
+  const n = turns.length;
+  if (n < 4) return null;
+  const at = (k: number) => (((k - 1 + shift) % n) + n) % n;
+  const what = (m[2] as string).toLowerCase();
+  if (what === "back") {
+    const ring = lapOutline(turns);
+    if (!ring) return null;
+    const run = facingRun(ring, shift, 2);
+    return run ? { shot: { kind: "run", index: run[0], to: run[1], far: true }, tag: null } : null;
+  }
+  if (what === "front") {
+    const tag: WalkTag = { role: "front", k: 0 };
+    const shot = walkShot(tag, walk, shift);
+    if (!shot) return null;
+    return far ? { shot: shot.kind === "run" ? { ...shot, far: true } : shot, tag: null } : { shot, tag };
+  }
+  const k = Number(m[3] ?? m[4]);
+  if (!(k >= 1 && k <= n)) return null;
+  if (m[3] !== undefined) {
+    const turn: WalkTurn = (turns[k - 1] as number) < 0 ? "inside" : "outside";
+    if (far) return { shot: { kind: "corner", index: at(k), far: true }, tag: null };
+    const tag: WalkTag = { role: "corner", k, corner: turn, ...(turn === "inside" ? { wall: "before" as const } : {}) };
+    const shot = walkShot(tag, walk, shift);
+    return shot ? { shot, tag } : null;
+  }
+  const tag: WalkTag = { role: "side", k };
+  const shot = walkShot(tag, walk, shift);
+  return shot ? { shot, tag: far ? null : tag } : null;
+}
+
+/**
+ * The run of walls of a lap-made [ring] facing one way - 2 the back (y grows), 0 the front - from its first such wall's start
+ * to its last's end, round the ring the way it runs, through no wall facing the other way; outline corners (shifted).
+ */
+function facingRun(ring: Pt[], shift: number, way: 0 | 2): [number, number] | null {
+  const n = ring.length;
+  const faces = ring.map((a, i) => {
+    const b = ring[(i + 1) % n] as Pt;
+    // Counter-clockwise: a wall running west faces north (the back), one running east faces south (the front).
+    return b.x < a.x - 1e-6 ? 2 : b.x > a.x + 1e-6 ? 0 : -1;
+  });
+  let best: [number, number] | null = null;
+  for (let s = 0; s < n; s++) {
+    if (faces[s] !== way || faces[(s - 1 + n) % n] === way) continue;
+    let e = s;
+    for (let j = 1; j < n; j++) {
+      const i = (s + j) % n;
+      if (faces[i] === (way === 2 ? 0 : 2)) break;
+      if (faces[i] === way) e = i;
+    }
+    const len = (e - s + n) % n;
+    if (!best || len > (best[1] - best[0] + n) % n) best = [s, e];
+  }
+  if (!best) return null;
+  // The lap's ring has the walk's corner k at index k - 1; with the shift, at k - 1 + shift.
+  return [(((best[0] + shift) % n) + n) % n, (((best[1] + 1 + shift) % n) + n) % n];
+}

@@ -237,6 +237,12 @@ export interface ExteriorSide {
    */
   lengthPlusMinusPct?: number;
   /**
+   * Not measured (2026-10-22, the photo route's honest sizes, lib/photoRoute.ts `RouteSide.notMeasured`): why, and the one
+   * photo or tape that would measure it. Its length is still drawn with, but the report says it is not measured and never
+   * prints it as a size. Absent: measured (taped, or held by the photos to its ±).
+   */
+  lengthNotMeasured?: string;
+  /**
    * Estimated on site (2026-10-21, lib/photoRoute.ts `RouteEstimate`): someone at the house judged it about this long, by
    * eye, and the photos' measure held it there loosely. Never a tape: the report says so beside its length.
    */

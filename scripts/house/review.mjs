@@ -147,7 +147,8 @@ export function measureDoubts(x, h, inputs, { sol, corners, proposals, hold, dec
     const t = (inputs.tapes ?? []).find((q) => q.id === r.id);
     const o = t?.on?.[0];
     const p = o ? photoOf(h, o.photo) : null;
-    if (p && o.a) items.push({ photo: p.n, x: o.a[0], y: o.a[1], title: `tape ${r.id}`, why: `the other tapes put it ${r.errorPct >= 0 ? "+" : ""}${r.errorPct.toFixed(1)}% off: its ends, or what was taped?`, tape: [o.a, o.b], kind: "tape" });
+    const off = `${r.errorPct >= 0 ? "+" : ""}${r.errorPct.toFixed(1)}%`;
+    if (p && o.a) items.push({ photo: p.n, x: o.a[0], y: o.a[1], title: `tape ${r.id}`, why: r.sizes === false ? `on a detail photo, placed where you stood: the house as measured puts it ${off} off - that photo's place (it sizes nothing)` : `the other tapes put it ${off} off: its ends, or what was taped?`, tape: [o.a, o.b], kind: "tape" });
   }
   for (const d of decks) {
     for (const c of d.placing?.corners ?? []) {
