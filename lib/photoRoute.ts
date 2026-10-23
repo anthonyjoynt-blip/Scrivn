@@ -29,7 +29,7 @@ import { snapToEdge, type UprightEdge } from "./photoRouteEdges";
 import { formatFeetInches } from "./sketch";
 import { isWalkShape, type RouteWalk, type WalkTag } from "./photoRouteWalk";
 import type { Gray } from "./photoRouteLines";
-import { fitMapOutline, mapCheck, type MapFit, type MapHold, type MapOutline, type MapRoofOver, type RouteMapCheck, sameHolds } from "./photoRouteMap";
+import { choiceOf, fitMapOutline, type MapChoice, mapCheck, type MapFit, type MapHold, type MapOutline, type MapRoofOver, pairHangs, type RouteMapCheck, sameHolds } from "./photoRouteMap";
 import { planDirection, resect, type SolveBearing, type SolveCamera, type SolveDistance, type SolveInput, type SolvePoint, type SolveWall, solvePlan, type Solution } from "./photoRouteSolve";
 
 export const PHOTO_ROUTE_FORMAT = "scrivn-photo-route/1";
@@ -168,6 +168,13 @@ export interface CornerTap {
    * tap plus this. Absent: tapped where the corner meets the ground.
    */
   aboveGround?: number;
+  /**
+   * Seen only through or behind something in front of the wall (2026-10-23), in words: "deck rail", "privacy screen", "post".
+   * Still in the solve, but no sighting that checks where its walls stand: a wall needs its ends on two measure photos
+   * seen clear, or it is not measured (`markLongWalls`; a blind run's deck walls, tapped behind a rail and a screen, came
+   * out sure and a fifth off or more).
+   */
+  behind?: string;
 }
 
 export type TapeWhat = "garage" | "door" | "window" | "wall" | "other";
@@ -339,6 +346,8 @@ export interface RouteSide {
     photoAt?: number;
     /** A tape on it or tied to it that the others put more than 5% off (2026-10-23): checking it, said after the wall's tape. */
     check?: string;
+    /** How the tape along [settle] runs, in words, when it matters: "front corner to back corner" (the house's depth). */
+    along?: string;
   };
   /** Held by the map outline (2026-10-23, `RouteBuilding.map`): its length is the map's and the photos', not the photos' alone. */
   fromMap?: true;
@@ -922,6 +931,8 @@ interface SnappedTap {
   onEdge: boolean;
   /** How far over the ground it was tapped, feet (`CornerTap.aboveGround`): 0 at the ground. */
   aboveGround?: number;
+  /** Seen only through or behind something in front of the wall (`CornerTap.behind`). */
+  behind?: string;
   /** The snapped point in the photo, for the bearing at another k. */
   px: [number, number];
 }
@@ -975,6 +986,11 @@ export interface SolveRouteOptions {
   frontFacesDeg?: number | null;
   /** The map's distances, already laid (`solveWithMap`): held as they are, the map not laid again. */
   mapHolds?: MapHold[];
+  /**
+   * Which of a bump-out's face and the wall behind it each map side is on, chosen before (lib/photoRouteMap.ts `MapChoice`:
+   * measureRoute's first solve, on the photos alone before the map moved the lens): kept, not weighed again.
+   */
+  mapChoice?: MapChoice;
   /** For experiments on saved houses (the runner's comparisons): the solve's weights changed. Absent: as they are. */
   tune?: { holdFloor?: number; handFeet?: number; handSdFeet?: number; lensKSd?: number; yawSdDeg?: number; cornerSdPx?: number; edgeSdPx?: number };
 }
@@ -1015,7 +1031,7 @@ export function solveRoute(input: PhotoRouteInput, buildingId: string, data: Rou
     const d = byId.get(t.photo);
     if (!d?.camera) continue;
     const s = tapOnEdge(d.gray, d.camera, t);
-    taps.push({ photo: t.photo, corner: t.corner, ...s, bearing: columnBearing(d.camera, s.u), aboveGround: t.aboveGround ?? 0 });
+    taps.push({ photo: t.photo, corner: t.corner, ...s, bearing: columnBearing(d.camera, s.u), aboveGround: t.aboveGround ?? 0, ...(t.behind ? { behind: t.behind } : {}) });
   }
 
   // Which photos size the house: measure photos (two corners or more), or (the old way) every photo that can be placed.
@@ -1420,7 +1436,7 @@ export function solveRoute(input: PhotoRouteInput, buildingId: string, data: Rou
     rms: sol.rms,
     unscaled: !scaled,
     tapesOnDetail,
-    advice: tapeAdvice(settleOneWall(markLongWalls(sides, ring, cameras.filter((c) => c.role !== "detail"), taps, edgePoints, legacy || !scaled), sol, walls, new Set(b.shared ?? []), n), ring, cameras, taps, edgePoints, new Set(b.shared ?? [])),
+    advice: tapeAdvice(settleOneWall(markLongWalls(sides, ring, cameras.filter((c) => c.role !== "detail"), taps, edgePoints, legacy || !scaled, mapLines(opts.mapHolds), sideTapes.map((t) => t.from)), sol, walls, new Set(b.shared ?? []), n), ring, cameras, taps, edgePoints, new Set(b.shared ?? [])),
     edgePoints: edgePoints.map((q) => ({ id: q.id, side: q.side, along: sol.input.points.some((x) => x.id === q.id) ? alongOf(sol, q.id, ring, q.side) : q.along, photos: q.obs.map((o) => o.photo), zLow: medianOf(q.obs.map((o) => o.zLow)), zHigh: medianOf(q.obs.map((o) => o.zHigh)), polarity: (q.obs[0] as EdgeObs).polarity })),
     solution: sol,
   };
@@ -1495,7 +1511,7 @@ function solveWithMap(input: PhotoRouteInput, buildingId: string, data: RoutePho
   const area = (r: Pt[]) => Math.abs(r.reduce((s, p, i) => s + p.x * (r[(i + 1) % r.length] as Pt).y - (r[(i + 1) % r.length] as Pt).x * p.y, 0) / 2);
   const k = photos.unscaled ? Math.sqrt(area(map.corners) / Math.max(1e-6, area(photos.corners))) : 1;
   const ringToFit = photos.corners.map((p) => ({ x: p.x * k, y: p.y * k }));
-  const fit = fitMapOutline(map, ringToFit, { sdBetween: photos.unscaled ? undefined : sdBetween, frontFacesDeg: opts.frontFacesDeg, over });
+  const fit = fitMapOutline(map, ringToFit, { sdBetween: photos.unscaled ? undefined : sdBetween, frontFacesDeg: opts.frontFacesDeg, over, ...(opts.mapChoice ? { choice: opts.mapChoice } : {}) });
   const photosOnly = photos.sides.map((s) => ({ from: s.from, lengthFeet: s.lengthFeet, plusMinusPct: s.plusMinusPct, notMeasured: !!s.notMeasured }));
   if (!fit || fit.holds.length === 0) {
     const sol = opts.guesses === false ? photos : solveRoute(input, buildingId, data, { ...opts, map: false });
@@ -1505,16 +1521,37 @@ function solveWithMap(input: PhotoRouteInput, buildingId: string, data: RoutePho
   // map's side walls over the wrong walls); walls traced differently there are held instead, and measured again.
   let laid: MapFit = fit;
   let sol = solveRoute(input, buildingId, data, { ...opts, mapHolds: laid.holds });
-  const again = fitMapOutline(map, sol.corners, { turnDeg: fit.turnDeg, over });
+  const chosen = choiceOf(fit);
+  const again = fitMapOutline(map, sol.corners, { turnDeg: fit.turnDeg, over, ...(chosen ? { choice: chosen } : {}) });
   if (again && again.holds.length && !sameHolds(again.holds, laid.holds)) {
     laid = again;
     sol = solveRoute(input, buildingId, data, { ...opts, mapHolds: laid.holds });
   } else if (again && again.holds.length) laid = { ...again, holds: laid.holds };
+  // A map side over a bump-out's face and the wall behind it that the photos didn't decide (lib/photoRouteMap.ts `MapPair`):
+  // held as traced, and the walls whose lengths hang on which it is are not measured, the depth's one tape named.
+  const n = sol.sides.length;
+  const shared = new Set(input.buildings.find((q) => q.id === buildingId)?.shared ?? []);
+  const hanging = new Map<number, { why: string; settle: number; along: string }>();
+  for (const m of laid.sides) {
+    const p = m.pair;
+    if (!p || p.decided || !p.ways.length) continue;
+    const hang = pairHangs(p, sol.sides.map((s) => s.lengthFeet), shared);
+    const ends = (i: number) => `corner ${i + 1} to ${((i + 1) % n) + 1}`;
+    const why = `the map's ${formatFeetInches(m.lengthFeet)} line could be on the bump-out's face (${ends(p.face)}) or on the wall behind it (${ends(p.behind)}), ${formatFeetInches(p.apartFeet)} apart, and the photos alone didn't decide which`;
+    for (const w of hang.walls) hanging.set(w, { why, settle: hang.settle, along: m.axis === "N" ? "front corner to back corner" : "corner to corner" });
+  }
   // Held by the map: a side the photos left not measured that is measured now, or whose sd the map took down by half.
   const sides = sol.sides.map((s, i) => {
     const before = photos.sides[i] as RouteSide;
     const held = !s.taped && ((before.notMeasured && !s.notMeasured) || s.sdFeet < 0.5 * before.sdFeet);
-    return held ? { ...s, fromMap: true as const } : s;
+    const out = held ? { ...s, fromMap: true as const } : s;
+    const hang = hanging.get(i);
+    if (!hang || out.taped) return out;
+    const was = out.notMeasured;
+    const nm: NonNullable<RouteSide["notMeasured"]> = { ...(was ?? {}), why: was ? `${was.why}; and ${hang.why}` : hang.why, fix: "", settle: hang.settle, along: hang.along };
+    const marked = { ...out, notMeasured: nm };
+    nm.fix = settleWords(marked, cornersWords(n));
+    return marked;
   });
   return { ...sol, sides, map: mapCheck(map, laid, sol.corners, photos.corners, sdBetween, photosOnly, over) };
 }
@@ -2319,9 +2356,16 @@ function sideSeen(i: number, ring: Pt[], cameras: RouteCamera[], taps: SnappedTa
  * Each wall the photos hold no better than ±10% marked not measured (2026-10-22; walls under 15' since 10-23, once that ± is
  * more than 1'6" too), with why and the one thing that would measure it: a far-back photo at 45° to a corner of it no measure
  * photo shows; a tape along it when it was only seen from along it (a side yard) or the photos round it just don't hold it.
- * [off]: not marked (the old way, or no tape at all).
+ *
+ * And each wall whose end walls are not each seen clear on two measure photos or more (2026-10-23, blind run C): a wall's
+ * length is how far apart the walls at its two ends stand, and where a wall stands is checked only by its corners seen from
+ * two places. Seen on one photo, or only through or behind something in front of it (`CornerTap.behind`: a deck rail, a
+ * privacy screen), nothing checks the tap - a door or a window edge taken for the corner - and the solve's ± can't know it:
+ * a blind run's deck walls, their corners on one photo each behind a rail and a screen, came out sure and a fifth off or more. A
+ * wall's tape ([taped], by side) carries it across: one end wall seen, the tape puts the other. Not a wall whose two end
+ * walls the map outline holds ([mapLines]): the map measures it, line to line. [off]: not marked (the old way, or no tape).
  */
-function markLongWalls(sides: RouteSide[], ring: Pt[], cameras: RouteCamera[], taps: SnappedTap[], points: { side: number }[], off: boolean): RouteSide[] {
+function markLongWalls(sides: RouteSide[], ring: Pt[], cameras: RouteCamera[], taps: SnappedTap[], points: { side: number }[], off: boolean, mapLines: Set<number> = new Set(), taped: number[] = []): RouteSide[] {
   if (off) return sides;
   const n = ring.length;
   for (const s of sides) {
@@ -2340,7 +2384,49 @@ function markLongWalls(sides: RouteSide[], ring: Pt[], cameras: RouteCamera[], t
     }
     s.notMeasured.fix = settleWords(s, cornersWords(n));
   }
+  const placed = new Set(cameras.map((c) => c.photo));
+  const sizing = taps.filter((t) => placed.has(t.photo));
+  /** The measure photos a corner is seen clear on. */
+  const clearOn = (c: number) => new Set(sizing.filter((t) => t.corner === c && !t.behind).map((t) => t.photo));
+  /** The measure photos wall k (corners k and k+1) is seen clear on, by either corner. */
+  const wallOn = (k: number) => new Set([...clearOn(k), ...clearOn((k + 1) % n)]);
+  // Where each wall stands, checked: seen clear on two measure photos, or a wall's tape away from one that is.
+  const put = new Set(ring.map((_, k) => k).filter((k) => wallOn(k).size >= 2));
+  for (let grew = true; grew; ) {
+    grew = false;
+    for (const t of taped) {
+      const [a, b] = [(t - 1 + n) % n, (t + 1) % n];
+      if (put.has(a) === put.has(b)) continue;
+      put.add(a);
+      put.add(b);
+      grew = true;
+    }
+  }
+  for (const s of sides) {
+    if (s.taped || s.notMeasured) continue;
+    const i = s.from;
+    const ends = [(i - 1 + n) % n, (i + 1) % n];
+    if (ends.every((k) => mapLines.has(k))) continue;
+    const weak = ends.filter((k) => !put.has(k)).map((k) => ({ k, on: wallOn(k).size })).sort((p, q) => p.on - q.on)[0];
+    if (!weak) continue;
+    const [c1, c2] = [weak.k, (weak.k + 1) % n];
+    const corner = clearOn(c1).size <= clearOn(c2).size ? c1 : c2;
+    const behind = [...new Set(sizing.filter((t) => (t.corner === c1 || t.corner === c2) && t.behind).map((t) => t.behind as string))];
+    const seen = weak.on === 0 ? "on no photo that sizes the house" : "on only one photo that sizes the house";
+    s.notMeasured = {
+      why: `the wall at its end, corner ${c1 + 1} to ${c2 + 1}, is seen clear ${seen}${behind.length ? ` (otherwise only behind ${behind.join(", ")})` : ""}: nothing checks where it stands`,
+      fix: "",
+      settle: i,
+      photoAt: corner,
+    };
+    s.notMeasured.fix = settleWords(s, cornersWords(n));
+  }
   return sides;
+}
+
+/** The walls the map outline holds where they stand (`MapHold`): each held, and any level with one (a garage door's step). */
+function mapLines(holds: MapHold[] | undefined): Set<number> {
+  return new Set((holds ?? []).flatMap((h) => [h.a, h.b, ...(h.level ?? [])]));
 }
 
 /** "the wall from corner 1 to corner 2": a side by its corners, where nothing has named it. */
@@ -2358,7 +2444,8 @@ export function settleWords(s: Pick<RouteSide, "from" | "notMeasured">, nameOf: 
   if (!nm) return "";
   if (nm.settle === undefined) return nm.fix;
   const own = nm.settle === s.from;
-  const tape = `A tape or laser along ${own ? "it, " : ""}${nameOf(nm.settle)}${own ? "," : ""} settles it${own ? "" : " - the one measurement that settles the most here"}${map ? ", or tap your house on the map" : ""}.`;
+  const along = nm.along ? `, ${nm.along}` : "";
+  const tape = `A tape or laser along ${own ? "it, " : ""}${nameOf(nm.settle)}${along}${own || along ? "," : ""} settles it${own ? "" : " - the one measurement that settles the most here"}${map ? ", or tap your house on the map" : ""}.`;
   const photo = nm.photoAt !== undefined && own ? ` A photo from far back at 45° to corner ${nm.photoAt + 1}, both its walls in, measures it too.` : "";
   return `${tape}${photo}${nm.check ? ` ${nm.check}` : ""}`;
 }
@@ -2370,7 +2457,9 @@ export function settleWords(s: Pick<RouteSide, "from" | "notMeasured">, nameOf: 
  * rest name their own. Shared walls are never asked (nobody can tape along a neighbour's house).
  */
 function settleOneWall(sides: RouteSide[], sol: Solution, walls: SolveWall[], shared: Set<number>, n: number): RouteSide[] {
-  const loose = sides.filter((s) => s.notMeasured?.settle !== undefined);
+  // Loose by its own ±: a wall not measured because an end wall's corners go unchecked (`markLongWalls`) may be within ±10%
+  // already, and a tape that only takes the ± down doesn't check them: it keeps its own tape, or the photo at 45°.
+  const loose = sides.filter((s) => s.notMeasured?.settle !== undefined && (s.plusMinusPct ?? Infinity) > NOT_MEASURED_PCT);
   if (loose.length < 2) return sides;
   const len = (i: number) => (x: Float64Array) => Math.abs(sol.wall((walls[(i + 1) % n] as SolveWall).id, x) - sol.wall((walls[(i - 1 + n) % n] as SolveWall).id, x));
   let best: { side: number; settles: RouteSide[] } | null = null;

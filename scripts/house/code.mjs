@@ -28,7 +28,7 @@ export async function scrivn() {
       `export { routeSanity } from "${lib("photoRouteSanity.ts")}";`,
       `export { holdOutTapes, lineFeet, selfCheck, tapesOffWalls, tapeWalls, wallsBetween, worstPct, TAPES_AGREE_PCT } from "${lib("photoRouteCheck.ts")}";`,
       `export { planDirection, resect } from "${lib("photoRouteSolve.ts")}";`,
-      `export { fitMapOutline, mapWords, MAP_SD_FEET } from "${lib("photoRouteMap.ts")}";`,
+      `export { choiceOf, fitMapOutline, mapWords, MAP_SD_FEET } from "${lib("photoRouteMap.ts")}";`,
       `export { orthogonalRing, withAddition, withRoofEnd, withOneSlope } from "${lib("exteriorPlan.ts")}";`,
       `export { allSides, exteriorQuantities, exteriorFootprint, endsFromPhotos, roofProposal, defaultRoof, formatPitch, exteriorScopeLines, houseColours, HOME_TYPE_LABEL } from "${lib("exterior.ts")}";`,
       `export { traceProposals, snapTrace, withSwatches, applyTrace, roofPicksAtFirst, shapePicksAtFirst, trimPicksAtFirst } from "${lib("exteriorTrace.ts")}";`,
