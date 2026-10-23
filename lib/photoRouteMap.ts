@@ -35,6 +35,12 @@ export interface MapOutline {
   sdFeet?: number;
 }
 
+/**
+ * The app's own map lookup (for launch, 2026-10-23: the house's outline off a public map, tapped on): not there yet. When it
+ * is, a size not measured says "or tap your house on the map" beside its tape (lib/photoRoute.ts `settleWords`).
+ */
+export const MAP_LOOKUP_READY = false;
+
 /** A long side of a building footprint off aerial photos is good to about a foot (one sd): "usually within 1-2 ft". */
 export const MAP_SD_FEET = 1;
 /** Only the map's long sides hold anything: a short one is where it is least sure, and most often a part it simplified. */
@@ -504,6 +510,15 @@ export function mapCheck(
 }
 
 /**
+ * Which tape settles a close call, in words: one along the wall the map's side's two ends run across (the side square to
+ * it, from the map side that traces the wall it meets), else along the house's depth.
+ */
+function depthWords(s: MapSide, check: RouteMapCheck, nameOf: (side: number) => string): string {
+  const across = check.sides.filter((q) => q.traces !== null && q.axis !== null && q.axis !== s.axis).sort((p, q) => q.lengthFeet - p.lengthFeet)[0];
+  return across ? `A tape or laser along ${nameOf(across.traces as number)} settles which.` : "A tape or laser along the house's depth settles which.";
+}
+
+/**
  * The map's check in plain words, sides named by [nameOf] (side index -> "C1-C2 Walkway side"): how it was laid, where
  * it and the photos disagree, the map's sides that are not the whole wall under them, and the parts it leaves out or takes in.
  */
@@ -528,8 +543,8 @@ export function mapWords(check: RouteMapCheck, ringLengths: number[], nameOf: (s
     out.push(`The map's side along ${nameOf(i)} is ${ft(s.lengthFeet)}; the wall is ${ft(wall)}${past.length ? `: the map leaves out what stands past corner ${past.map((c) => c.corner + 1).join(" and ")}` : ""}. Its side is not the whole wall.`);
   }
   for (const s of traced) {
-    if (s.close) out.push(`A close call: the map's ${ft(s.lengthFeet)} side is held on ${nameOf(s.traces as number)}, but it could as well be on ${nameOf(s.close.side)} (${ft(Math.abs(s.close.offFeet))} ${s.close.offFeet > 0 ? "out" : "in"} from it). A tape or laser along the house's depth settles which.`);
-    else if (s.nowTraces !== undefined) out.push(`On the house as measured, the map's ${ft(s.lengthFeet)} side held on ${nameOf(s.traces as number)} would sit on ${nameOf(s.nowTraces)} instead. A tape or laser along the house's depth settles which.`);
+    if (s.close) out.push(`A close call: the map's ${ft(s.lengthFeet)} side is held on ${nameOf(s.traces as number)}, but it could as well be on ${nameOf(s.close.side)} (${ft(Math.abs(s.close.offFeet))} ${s.close.offFeet > 0 ? "out" : "in"} from it). ${depthWords(s, check, nameOf)}`);
+    else if (s.nowTraces !== undefined) out.push(`On the house as measured, the map's ${ft(s.lengthFeet)} side held on ${nameOf(s.traces as number)} would sit on ${nameOf(s.nowTraces)} instead. ${depthWords(s, check, nameOf)}`);
   }
   for (const c of check.offMap) out.push(`Corner ${c.corner + 1} stands ${ft(Math.abs(c.feet))} ${c.feet > 0 ? "outside the map's outline: a part the map misses" : "inside the map's outline: a notch, or a covered deck or porch the map takes in"}.`);
   return out;

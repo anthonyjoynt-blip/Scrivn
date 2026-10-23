@@ -22,6 +22,7 @@ import { useExteriorSubject } from "./exteriorSubject";
 import { newWalk, walkMeasures } from "@/lib/photoRouteWalk";
 import styles from "./TeamMeasure.module.css";
 import { type UnseenSaid, UnseenWallAsk } from "./UnseenWalls";
+import { NotMeasuredAsk } from "./NotMeasuredAsk";
 
 /**
  * Send to Scrivn team (2026-10-17, lib/exteriorRequests.ts), on the Exterior: the button beside Measure on the
@@ -192,6 +193,8 @@ export function TeamMeasureStatus({ exterior, building, readOnly, apply, onUsed 
           ))}
         </div>
       )}
+      {/* A size the team's measure doesn't hold: what settles it, the one wall named (2026-10-23). Use it works all the same. */}
+      <NotMeasuredAsk exterior={result} className={styles.unseen} after="Nothing waits on it: Use it now, and put the measurement in whenever you have it." />
       {readOnly ? (
         <p>tap &ldquo;View only&rdquo; at the top to unlock, then Use it.</p>
       ) : (

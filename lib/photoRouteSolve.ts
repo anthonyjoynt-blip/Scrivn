@@ -133,6 +133,11 @@ export interface Solution {
    * unbounded here.
    */
   sigmaInformed: (f: (x: Float64Array) => number) => number;
+  /**
+   * As `sigmaInformed`, with one more measurement of g (one sd [sd]) taken as well (2026-10-23): what a tape not yet taken
+   * would do to f - which one wall's tape settles most of what is not measured.
+   */
+  sigmaInformedWith: (f: (x: Float64Array) => number, g: (x: Float64Array) => number, sd: number) => number;
   cost: number;
 }
 
@@ -323,6 +328,39 @@ export function solvePlan(input: SolveInput, opts: { maxIterations?: number } = 
     covariance: cov,
     sigma: (f) => sigmaOf(f, xs, cov),
     sigmaInformed: (f) => sigmaOf(f, xs, informedCov()),
+    sigmaInformedWith: (f, g, sd) => {
+      // One more scalar measurement of g: var f' = fCf - (fCg)^2 / (sd^2 + gCg).
+      const C = informedCov();
+      const grad = (h: (x: Float64Array) => number) => {
+        const out = new Float64Array(n);
+        const xx = Float64Array.from(xs);
+        const h0 = h(xx);
+        for (let j = 0; j < n; j++) {
+          const keep = xx[j] as number;
+          xx[j] = keep + 1e-5;
+          out[j] = (h(xx) - h0) / 1e-5;
+          xx[j] = keep;
+        }
+        return out;
+      };
+      const gf = grad(f);
+      const gg = grad(g);
+      let fCf = 0;
+      let fCg = 0;
+      let gCg = 0;
+      for (let a = 0; a < n; a++) {
+        const fa = gf[a] as number;
+        const ga = gg[a] as number;
+        if (fa === 0 && ga === 0) continue;
+        for (let b2 = 0; b2 < n; b2++) {
+          const c = C[a * n + b2] as number;
+          fCf += fa * c * (gf[b2] as number);
+          fCg += fa * c * (gg[b2] as number);
+          gCg += ga * c * (gg[b2] as number);
+        }
+      }
+      return Math.sqrt(Math.max(0, fCf - (fCg * fCg) / (sd * sd + gCg)));
+    },
     cost: r.cost,
   };
 }

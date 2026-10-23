@@ -434,7 +434,7 @@ function roleWords(sol, solveOpts, fileOf) {
 /** A side's ± in results.md: taped, or the measure's ±, and "estimated on site" when someone at the house judged it by eye. */
 function plusMinusWords(s) {
   if (s.taped) return "taped";
-  if (s.notMeasured) return `**NOT measured** (${s.notMeasured.why}): ${s.notMeasured.fix}`;
+  if (s.notMeasured) return `**NOT measured** (${s.notMeasured.why}): ${s.settleWords ?? s.notMeasured.fix}`;
   if (s.estimated) return `${s.plusMinusPct}%, estimated on site (about ${ftin(s.estimated.feet)} ±${s.estimated.plusMinusPct}%)`;
   if (s.estimateCheck) return `${s.plusMinusPct}%; estimated on site about ${ftin(s.estimateCheck.feet)}: ${s.estimateCheck.disagrees ? "**disagrees, tape it**" : "agrees"}`;
   return `${s.plusMinusPct}%`;
@@ -445,6 +445,20 @@ const useWords = (e) => (e.use === "hold" ? "held loosely" : "checked against th
 
 /** A side's measure against the size estimated on site, in a line: "about 7' ±20%: +71%, disagrees - tape it". */
 const estimateCheckWords = (c) => `about ${ftin(c.feet)} ±${c.plusMinusPct}%: ${pct(c.offPct)}, ${c.disagrees ? "disagrees - tape it" : "agrees"}`;
+
+/**
+ * One wall's tape that settles several sizes not measured, in a line: "One tape or laser along C1-C2 Walkway side settles 3
+ * of the 4 not measured: C1-C2, C7-C8, C9-C10." Empty when each is its own.
+ */
+function settleSummary(loose, n, nameOf) {
+  const by = new Map();
+  for (const s of loose) {
+    const k = s.notMeasured.settle;
+    if (k === undefined) continue;
+    by.set(k, [...(by.get(k) ?? []), s]);
+  }
+  return [...by].filter(([, ss]) => ss.length > 1).map(([k, ss]) => `One tape or laser along ${sideName(k, n)} ${nameOf(k)} settles ${ss.length} of the ${loose.length} not measured: ${ss.map((s) => sideName(s.from, n)).join(", ")}.`);
+}
 
 /** Across and deep of a ring of corners, feet. */
 const extentOf = (ring) => [Math.max(...ring.map((p) => p.x)) - Math.min(...ring.map((p) => p.x)), Math.max(...ring.map((p) => p.y)) - Math.min(...ring.map((p) => p.y))];
@@ -542,6 +556,9 @@ export async function measure(h) {
   if (solveOpts.sizePhotos !== "all" && worstHeld !== null && worstHeld > x.TAPES_AGREE_PCT && mostOff) {
     sol.sides = x.tapesDisagree(sol.sides, worstHeld, `tape ${mostOff.id} (${mostOff.said.split(/[(,;]/)[0].trim()}, taped ${ftin(mostOff.taped)})`, mostOff.errorPct);
   }
+  // What settles each size not measured, its one wall by name (2026-10-23): "A tape or laser along C1-C2 Walkway side settles it".
+  const nameOfSide = (i) => `${sideName(i, n)} ${(inputs.shape?.names ?? {})[sideName(i, n)] ?? ""}`.trim();
+  for (const s of sol.sides) if (s.notMeasured) s.settleWords = x.settleWords(s, nameOfSide);
   const now = new Date().toISOString();
   const rec = x.measuredFrom(sol, prepared.data, now);
   const state = { format: x.PHOTO_ROUTE_FORMAT, photos: input.photos, buildings: [{ ...input.buildings[0], corners }], measured: null };
@@ -683,8 +700,9 @@ export async function measure(h) {
   if (mapRows) md.push("", ...mapRows.md);
   const notMeasured = sol.sides.filter((s) => s.notMeasured);
   if (notMeasured.length) {
-    md.push("", "## Not measured", "", "Sizes the photos and tapes don't hold: drawn from the photos to lay the house out, said as NOT measured in the report, never as a size. The one thing that would measure each:", "");
-    for (const s of notMeasured) md.push(`- ${sideName(s.from, n)} ${nameOf(s.from)}: about ${ftin(s.lengthFeet)}, ${s.notMeasured.why}. ${s.notMeasured.fix}`);
+    md.push("", "## Not measured", "", "Sizes the photos and tapes don't hold: drawn from the photos to lay the house out, said as NOT measured in the report, never as a size. Nothing waits on them. What settles each:", "");
+    for (const line of settleSummary(notMeasured, n, nameOf)) md.push(`**${line}**`, "");
+    for (const s of notMeasured) md.push(`- ${sideName(s.from, n)} ${nameOf(s.from)}: about ${ftin(s.lengthFeet)}, ${s.notMeasured.why}. ${s.settleWords}`);
   }
   if (checked.length) {
     const off = checked.filter((s) => s.estimateCheck.disagrees);
@@ -746,7 +764,7 @@ export async function measure(h) {
   md.push("", "## Files", "", "- plan.png: the measured plan, every placed photo; measured/NN.png: each photo with its corners and where it stood.", `- sides/: ${Object.keys(frames).length} sides squared up for reading (and a grid copy each); frames.json.`, "- measured.json: the exterior as measured (no walls read yet).");
   md.push("", `Machine time: measure ${timesNow.measure.toFixed(1)} s, hold-outs ${timesNow.holdOuts.toFixed(1)} s.`);
   writeFileSync(statePath(h, "results.md"), `${md.join("\n")}\n`);
-  writeJson(statePath(h, "results.json"), { at: now, ...(mapRows ? { map: mapRows.json } : {}), sides: sol.sides.map((s) => ({ side: sideName(s.from, n), name: nameOf(s.from), lengthFeet: s.lengthFeet, plusMinusPct: s.plusMinusPct, taped: s.taped, ...(s.fromMap ? { fromMap: true } : {}), ...(s.notMeasured ? { notMeasured: s.notMeasured } : {}), ...(s.estimated ? { estimated: s.estimated } : {}), ...(s.estimateCheck ? { estimateCheck: s.estimateCheck } : {}) })), estimateChecks: checked.map((s) => ({ side: sideName(s.from, n), name: nameOf(s.from), lengthFeet: s.lengthFeet, ...s.estimateCheck })), ...(without ? { withoutEstimates: without.sides.map((s) => ({ side: sideName(s.from, n), lengthFeet: s.lengthFeet, plusMinusPct: s.plusMinusPct })) } : {}), holdOuts: hold.rows, holdNote: hold.note, depthNote, selfCheck: self ? { words: self.words, dropped: self.dropped ? { photo: photoOf(h, self.dropped.photo)?.n, worstPct: self.dropped.worstPct, tapes: self.dropped.tapes } : null, before: x.worstPct(self.before), tried: self.tried.map((q) => ({ photo: photoOf(h, q.photo)?.n, worstPct: q.worstPct })) } : null, checks, advice: sol.advice, unplaced: sol.unplaced, doubtful, sanity: sanity.map((f) => ({ kind: f.kind, words: f.words })), stood: sol.cameras.filter((c) => c.placedBy === "stood").length, sizePhotos: solveOpts.sizePhotos ?? "measure", sized: sol.cameras.filter((c) => c.role !== "detail").length, detail: sol.cameras.filter((c) => c.role === "detail").length, tapesOnDetail: sol.tapesOnDetail ?? [], proposals: proposals.map((q) => ({ photo: fileOf(q.photo).n, corner: cornerName(q.corner), x: q.x, y: q.y })), kept: keptMarks.length, lens: { focalOverWidth: rec.focalOverWidth, k: rec.k }, rms: sol.rms, cameras: sol.cameras.length });
+  writeJson(statePath(h, "results.json"), { at: now, ...(mapRows ? { map: mapRows.json } : {}), sides: sol.sides.map((s) => ({ side: sideName(s.from, n), name: nameOf(s.from), lengthFeet: s.lengthFeet, plusMinusPct: s.plusMinusPct, taped: s.taped, ...(s.fromMap ? { fromMap: true } : {}), ...(s.notMeasured ? { notMeasured: { ...s.notMeasured, ...(s.notMeasured.settle !== undefined ? { settle: sideName(s.notMeasured.settle, n) } : {}), ...(s.settleWords ? { fix: s.settleWords } : {}) } } : {}), ...(s.estimated ? { estimated: s.estimated } : {}), ...(s.estimateCheck ? { estimateCheck: s.estimateCheck } : {}) })), estimateChecks: checked.map((s) => ({ side: sideName(s.from, n), name: nameOf(s.from), lengthFeet: s.lengthFeet, ...s.estimateCheck })), ...(without ? { withoutEstimates: without.sides.map((s) => ({ side: sideName(s.from, n), lengthFeet: s.lengthFeet, plusMinusPct: s.plusMinusPct })) } : {}), holdOuts: hold.rows, holdNote: hold.note, depthNote, selfCheck: self ? { words: self.words, dropped: self.dropped ? { photo: photoOf(h, self.dropped.photo)?.n, worstPct: self.dropped.worstPct, tapes: self.dropped.tapes } : null, before: x.worstPct(self.before), tried: self.tried.map((q) => ({ photo: photoOf(h, q.photo)?.n, worstPct: q.worstPct })) } : null, checks, advice: sol.advice, unplaced: sol.unplaced, doubtful, sanity: sanity.map((f) => ({ kind: f.kind, words: f.words })), stood: sol.cameras.filter((c) => c.placedBy === "stood").length, sizePhotos: solveOpts.sizePhotos ?? "measure", sized: sol.cameras.filter((c) => c.role !== "detail").length, detail: sol.cameras.filter((c) => c.role === "detail").length, tapesOnDetail: sol.tapesOnDetail ?? [], proposals: proposals.map((q) => ({ photo: fileOf(q.photo).n, corner: cornerName(q.corner), x: q.x, y: q.y })), kept: keptMarks.length, lens: { focalOverWidth: rec.focalOverWidth, k: rec.k }, rms: sol.rms, cameras: sol.cameras.length });
 
   const out = [`Measured from ${sol.cameras.length} of ${h.photos.length} photos and ${tapes.length} tape${tapes.length === 1 ? "" : "s"}; rms ${sol.rms.toFixed(2)}; lens f/W ${rec.focalOverWidth.toFixed(3)}.`, `  ${roleWords(sol, solveOpts, fileOf).replace(/^- /, "")}`];
   for (const s of sol.sides) out.push(`  ${sideName(s.from, n).padEnd(8)} ${nameOf(s.from).slice(0, 28).padEnd(28)} ${ftin(s.lengthFeet).padStart(8)}  ${s.taped ? "taped" : `±${s.plusMinusPct}%`}${s.notMeasured ? "  NOT measured" : ""}${s.fromMap ? "  (map)" : ""}${s.estimated ? `  (estimated on site: about ${ftin(s.estimated.feet)}${without ? `; without the estimates ${ftin(without.sides[s.from].lengthFeet)}` : ""})` : ""}${s.estimateCheck ? `  (estimated on site ${estimateCheckWords(s.estimateCheck)})` : ""}`);
@@ -756,7 +774,8 @@ export async function measure(h) {
   for (const r of hold.rows) out.push(`  ${r.id.padEnd(4)} ${r.said.slice(0, 34).padEnd(34)} taped ${ftin(r.taped).padStart(7)}  predicted ${r.predicted !== null ? ftin(r.predicted).padStart(7) : "      -"}  ${r.errorPct !== null ? pct(r.errorPct) : ""}${r.sizes === false ? "  (detail photo: sizes nothing)" : ""}`);
   if (depthNote) out.push(`  ${depthNote}`);
   if (self) out.push(`  Self-check (${checkSeconds.toFixed(0)} s): ${self.words}`);
-  for (const s of sol.sides.filter((q) => q.notMeasured)) out.push(`  NOT measured: ${sideName(s.from, n)} ${nameOf(s.from)} (about ${ftin(s.lengthFeet)}): ${s.notMeasured.why}. ${s.notMeasured.fix}`);
+  for (const line of settleSummary(sol.sides.filter((q) => q.notMeasured), n, nameOf)) out.push(`  ${line}`);
+  for (const s of sol.sides.filter((q) => q.notMeasured)) out.push(`  NOT measured: ${sideName(s.from, n)} ${nameOf(s.from)} (about ${ftin(s.lengthFeet)}): ${s.notMeasured.why}. ${s.settleWords}`);
   for (const k of checks) out.push(`  check: ${k.what} on #${k.photo}: ${k.got !== null ? ftin(k.got) : "not placed"}${k.expect ? ` (expected ${ftin(k.expect)}${k.got !== null ? `, ${pct((k.got / k.expect - 1) * 100)}` : ""})` : ""}`);
   for (const a of sol.advice) out.push(`  a tape would help: ${sideName(a.from, n)} ${nameOf(a.from)}: ${a.why}`);
   for (const p of (inputs.leaveOut ?? []).map((ref) => photoOf(h, ref)).filter(Boolean)) out.push(`  not used: #${p.n}: left out (leaveOut).`);

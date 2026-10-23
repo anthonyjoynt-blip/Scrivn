@@ -78,13 +78,13 @@ async function load() {
       `export * from "${lib("roofCheck.ts")}";`,
       `export * from "${lib("exteriorCheck.ts")}";`,
       `export { cornerPlace, routeCoverage, viewsFromMeasure } from "${lib("photoRouteCoverage.ts")}";`,
-      `export { checkEstimate, columnBearing, defaultShared, facingOf, numberCorners, partyCorners, routeSteps, shotNumbers, solveRoute, tapesDisagree, WALK_HOLD } from "${lib("photoRoute.ts")}";`,
+      `export { checkEstimate, columnBearing, defaultShared, facingOf, numberCorners, partyCorners, routeSteps, settleWords, shotNumbers, solveRoute, tapesDisagree, WALK_HOLD } from "${lib("photoRoute.ts")}";`,
       `export { alignLap, facingWords, isWalkShape, lapCloses, walkPhotoWords, lapOutline, lapProblem, lapTurns, newWalk, ringTurns, measureWords, ringItems, walkAddCorner, walkInsertCorner, walkRemoveCorner, walkSetTurn, walkAddPhoto, walkFinish, walkMissing, walkRemoveLastCorner, walkRemovePhoto, walkReopen, withRingStart, walkAddMeasure, walkBack, walkClose, walkHasMeasure, walkHomeType, walkMeasured, walkMeasures, walkPhotos, walkRemoveMeasure, walkShot, walkSkip, walkStep, walkSummary, walkTake, walkTurn, walkUnplaced, withoutPhotos, withWalk, walkFromTurns, parseTurns, roleShot } from "${lib("photoRouteWalk.ts")}";`,
       `export { cornerEdges } from "${lib("photoRouteFind.ts")}";`,
       `export { holdOutTapes, lineFeet, selfCheck, worstPct } from "${lib("photoRouteCheck.ts")}";`,
       `export { fitMapOutline, frontBearing, mapWords, offRing } from "${lib("photoRouteMap.ts")}";`,
       `export { toLevel } from "${lib("photoRouteLens.ts")}";`,
-      `export { exteriorFromRoute, measuredFrom } from "${lib("photoRouteExterior.ts")}";`,
+      `export { exteriorFromRoute, measuredFrom, notMeasuredAsks } from "${lib("photoRouteExterior.ts")}";`,
       `export { routeSanity } from "${lib("photoRouteSanity.ts")}";`,
       `export { focalOverWidth } from "${lib("photoRouteExif.ts")}";`,
       `export { longSide } from "${lib("photoRouteLens.ts")}";`,
@@ -7465,6 +7465,50 @@ test("the shape as drawn never outweighs the map: a 9' notch drawn as a 2' step 
   const toBack = sol.map.holds.find((h) => h.a === 7 && h.b === 3);
   assert(toBack && Math.abs(toBack.nowFeet - toBack.feet) < 1, JSON.stringify(sol.map.holds));
   assert(Math.abs(sol.sides[0].lengthFeet - 70.58) < 1.5, `the walkway side ${sol.sides[0].lengthFeet.toFixed(2)}`);
+});
+
+console.log("\nnot measured, asked plainly: the one wall that settles it (10-23)");
+
+test("the box's depth not measured: one tape or laser along one wall settles both its sides, and each says so, that wall named", () => {
+  const { input, data } = boxFront();
+  const sol = x.solveRoute(input, "main", data);
+  const [right, left] = [sol.sides[1], sol.sides[3]];
+  assert(right.notMeasured && left.notMeasured && right.notMeasured.settle === 1 && left.notMeasured.settle === 1, JSON.stringify([right.notMeasured, left.notMeasured]));
+  assert(/^A tape or laser along it, the wall from corner 2 to corner 3, settles it\. A photo from far back at 45° to corner 3/.test(right.notMeasured.fix), right.notMeasured.fix);
+  assert(/^A tape or laser along the wall from corner 2 to corner 3 settles it - the one measurement that settles the most here\.$/.test(left.notMeasured.fix), left.notMeasured.fix);
+  // Landed, each side names the wall by its name, and the Use-it step says it once for both. Nothing about a map yet.
+  const { ext } = landOf(input, data, sol);
+  const [r, l] = [ext.sides.find((q) => q.name === "Right"), ext.sides.find((q) => q.name === "Left")];
+  assert(r.lengthSettleSideId === r.id && l.lengthSettleSideId === r.id && /A tape or laser along it, the right side, settles it/.test(r.lengthNotMeasured) && /A tape or laser along the right side settles it/.test(l.lengthNotMeasured), `${r.lengthNotMeasured} | ${l.lengthNotMeasured}`);
+  const asks = x.notMeasuredAsks(ext);
+  assert(asks.length === 1 && asks[0] === "Not measured: the right side and the left side. A tape or laser along the right side settles both.", JSON.stringify(asks));
+  // Named by the person at the house, the wall is said by its name.
+  const named = { ...ext, sides: ext.sides.map((q) => (q.id === r.id ? { ...q, name: "Walkway side" } : q)) };
+  assert(x.notMeasuredAsks(named)[0] === "Not measured: the Walkway side and the left side. A tape or laser along the Walkway side settles both.", x.notMeasuredAsks(named)[0]);
+  // Taped there, it is measured: nothing asked.
+  const taped = synRoute(BOX, [{ x: 0, y: 0 }, { x: 44, y: 0 }, { x: 44, y: 24 }, { x: 0, y: 24 }], "detached", [
+    ["front", [20, -50], { x: 20, y: 15 }, [{ c: 0 }, { c: 1 }]],
+    ["front-right", [62, -22], { x: 40, y: 0 }, [{ c: 0 }, { c: 1 }]],
+    ["front-left", [-22, -22], { x: 0, y: 0 }, [{ c: 0 }, { c: 1 }]],
+  ], [{ id: "front", kind: "side", from: 0, feet: 40 }, { id: "right", kind: "side", from: 1, feet: 30 }]);
+  const after = x.solveRoute(taped.input, "main", taped.data);
+  assert(after.sides.every((q) => !q.notMeasured) && x.notMeasuredAsks(landOf(taped.input, taped.data, after).ext).length === 0, JSON.stringify(after.sides.map((q) => q.notMeasured ?? null)));
+});
+
+test("a side not measured because the tapes disagree says the tape to check; one loose by itself keeps its own wall", () => {
+  const { input, data } = boxFront();
+  const sol = x.solveRoute(input, "main", data);
+  const marked = x.tapesDisagree(sol.sides, 8.4, "tape t1 (garage doors)", -8.4);
+  assert(marked[1].notMeasured.settle === 1 && /^A tape or laser along it/.test(marked[1].notMeasured.fix) && marked[2].notMeasured.settle === undefined && /^Check tape t1/.test(marked[2].notMeasured.fix), JSON.stringify(marked.map((q) => q.notMeasured ?? null)));
+  const name = (i) => ["the Front", "the Right side", "the Back", "the Left side"][i];
+  assert(x.settleWords(marked[3], name) === "A tape or laser along the Right side settles it - the one measurement that settles the most here." && /^Check tape t1/.test(x.settleWords(marked[2], name)), x.settleWords(marked[3], name));
+});
+
+test("with a map that holds the depth, nothing is asked of it; Finish and Use it never wait on an ask", () => {
+  const { input, data } = boxFront();
+  const sol = x.solveRoute(withMap(input, { corners: onMap(BOX, 40) }), "main", data);
+  assert(sol.sides.every((q) => !q.notMeasured), JSON.stringify(sol.sides.map((q) => q.notMeasured ?? null)));
+  assert(x.notMeasuredAsks(landOf(input, data, sol).ext).length === 0, "nothing to ask");
 });
 
 console.log(`\n${passed.length} passed, ${failures.length} failed`);
