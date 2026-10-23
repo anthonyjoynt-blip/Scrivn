@@ -81,6 +81,7 @@ async function load() {
       `export { checkEstimate, columnBearing, defaultShared, facingOf, numberCorners, partyCorners, routeSteps, shotNumbers, solveRoute, WALK_HOLD } from "${lib("photoRoute.ts")}";`,
       `export { alignLap, facingWords, isWalkShape, lapCloses, walkPhotoWords, lapOutline, lapProblem, lapTurns, newWalk, ringTurns, measureWords, ringItems, walkAddCorner, walkInsertCorner, walkRemoveCorner, walkSetTurn, walkAddPhoto, walkFinish, walkMissing, walkRemoveLastCorner, walkRemovePhoto, walkReopen, withRingStart, walkAddMeasure, walkBack, walkClose, walkHasMeasure, walkHomeType, walkMeasured, walkMeasures, walkPhotos, walkRemoveMeasure, walkShot, walkSkip, walkStep, walkSummary, walkTake, walkTurn, walkUnplaced, withoutPhotos, withWalk, walkFromTurns, parseTurns, roleShot } from "${lib("photoRouteWalk.ts")}";`,
       `export { cornerEdges } from "${lib("photoRouteFind.ts")}";`,
+      `export { holdOutTapes, lineFeet, selfCheck, worstPct } from "${lib("photoRouteCheck.ts")}";`,
       `export { toLevel } from "${lib("photoRouteLens.ts")}";`,
       `export { exteriorFromRoute, measuredFrom } from "${lib("photoRouteExterior.ts")}";`,
       `export { routeSanity } from "${lib("photoRouteSanity.ts")}";`,
@@ -7259,6 +7260,37 @@ test("a far-back photo of a corner: that corner among its taps, named by fitting
   input.photos = input.photos.map((p) => ({ ...p, shot: { kind: "corner", index: p.id === "fr" ? 1 : 3, far: true } }));
   const named = x.numberCorners(input, "main", data);
   assert(named.every((c, i) => c.corner === truth[i]), named.map((c, i) => `${c.photo}:${c.corner}/${truth[i]}`).join(" "));
+});
+
+
+test("the self-check: a photo whose corners are tapped wrong makes the tapes disagree; left out, they agree, and it is said", () => {
+  // A wider box's every corner photographed far back, three tapes; then the back-right photo's middle corner tapped on the
+  // wrong edge (40 px off), as a reviewer does on a pilaster or a post.
+  const tapes = [{ id: "front", kind: "side", from: 0, feet: 40 }, { id: "right", kind: "side", from: 1, feet: 30 }, { id: "back", kind: "side", from: 2, feet: 40 }];
+  const groups = tapes.map((t) => ({ id: t.id, parts: [t.id] }));
+  const good = synRoute(BOX, BOX_DRAWN, "detached", boxShots, tapes);
+  const fine = x.selfCheck(good.input, "main", good.data, groups);
+  assert(fine.dropped === null && x.worstPct(fine.before) <= 5 && /agree/.test(fine.words), fine.words);
+  const bad = synRoute(BOX, BOX_DRAWN, "detached", boxShots, tapes);
+  bad.input.buildings[0].corners = bad.input.buildings[0].corners.map((c) => (c.photo === "back-right" && c.corner === 2 ? { ...c, x: c.x + 40 } : c));
+  const before = x.holdOutTapes(bad.input, "main", bad.data, groups);
+  const sc = x.selfCheck(bad.input, "main", bad.data, groups, {}, (p) => `photo ${p}`);
+  assert(x.worstPct(before) > 5, `the wrong tap makes them disagree: ${before.map((r) => `${r.id} ${r.errorPct?.toFixed(1)}%`).join(", ")}`);
+  assert(sc.dropped?.photo === "back-right" && sc.dropped.worstPct <= 5, `${sc.words} | ${sc.tried.map((q) => `${q.photo} ${q.worstPct?.toFixed(1)}`).join(", ")}`);
+  assert(/Without photo back-right they agree within/.test(sc.words) && /left out of the size/.test(sc.words), sc.words);
+  // Left out, it is still placed by its corners, to be read.
+  const sol = x.solveRoute(bad.input, "main", bad.data, { outOfSize: [sc.dropped.photo] });
+  assert(sol.cameras.find((c) => c.photo === "back-right")?.role === "detail", JSON.stringify(sol.cameras.map((c) => [c.photo, c.role])));
+});
+
+test("a line on a placed photo measured on the solved house (lineFeet): a tape's own length back", () => {
+  const det = synPhoto("front", [20, -50], { x: 20, y: 15 });
+  const a = det.tap({ x: 10, y: 0 });
+  const b = det.tap({ x: 18, y: 0 });
+  const r = synRoute(BOX, BOX_DRAWN, "detached", boxShots, [{ id: "front", kind: "side", from: 0, feet: 40 }]);
+  const sol = x.solveRoute(r.input, "main", r.data);
+  const m = x.lineFeet(sol, r.data, "front", [a.x, a.y], [b.x, b.y]);
+  near(m?.feet ?? 0, 8, "8' along the front, read back", 0.15);
 });
 
 console.log(`\n${passed.length} passed, ${failures.length} failed`);

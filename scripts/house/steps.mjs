@@ -376,26 +376,7 @@ export async function check(h) {
  * was not placed, or an end's ray meets no wall.
  */
 export function lineOnPhoto(x, sol, data, photoId, a, b, { snap = false } = {}) {
-  const d = data.find((q) => q.id === photoId);
-  const rc = sol.cameras.find((c) => c.photo === photoId);
-  const cam = d?.camera;
-  if (!rc || !cam) return null;
-  const yaw = (rc.yawTweakDeg * Math.PI) / 180;
-  const { zl } = x.levelAxes(cam);
-  const zg = x.planDirection(Math.atan2(zl[0], zl[2]), rc.quadrant, yaw);
-  const ends = [a, b].map(([px, py]) => {
-    const [u0, v] = x.toLevel(cam, px, py);
-    const u = snap ? x.snapToEdge(d.gray, cam, px, py, { above: 60, below: 60 }).u : u0;
-    const dir = x.planDirection(x.columnBearing(cam, u), rc.quadrant, yaw);
-    const hit = x.routeSteps.castRay({ x: rc.at[0], y: rc.at[1] }, dir, sol.corners);
-    if (!hit) return null;
-    const P = [rc.at[0] + dir[0] * hit.t, rc.at[1] + dir[1] * hit.t];
-    const depth = (P[0] - rc.at[0]) * zg[0] + (P[1] - rc.at[1]) * zg[1];
-    return { P, z: -((v - cam.height / 2) / cam.f) * depth, side: hit.side };
-  });
-  if (!ends[0] || !ends[1]) return null;
-  const [e, f] = ends;
-  return { feet: Math.hypot(f.P[0] - e.P[0], f.P[1] - e.P[1], f.z - e.z), across: Math.hypot(f.P[0] - e.P[0], f.P[1] - e.P[1]), up: Math.abs(f.z - e.z), sides: [e.side, f.side] };
+  return x.lineFeet(sol, data, photoId, a, b, snap);
 }
 
 // ── measure ──────────────────────────────────────────────────────────────────────────────────────
@@ -419,39 +400,21 @@ function kept(h, inputs, q) {
  * Each tape held out in turn: the house solved from the others, and the tape's length predicted from that solve - a
  * wall's from its side, a line's from its own photo's view (lineOnPhoto) - against the tape.
  */
-function holdOuts(x, h, inputs, routeIn, corners, data, tapeParts, n, sizedPhotos = null) {
+function holdOuts(x, h, inputs, routeIn, corners, data, tapeParts, n, solveOpts = {}, rowsIn = null) {
   const withCorners = { ...routeIn, buildings: [{ ...routeIn.buildings[0], corners }] };
-  const rows = [];
   const live = (inputs.tapes ?? []).filter((t) => tapeParts[t.id]?.length);
   // Sizes estimated on site and held stay in every hold-out: one tape can be held out against them alone. (Checked ones scale nothing.)
   const est = (routeIn.buildings[0].estimates ?? []).filter((e) => e.use === "hold").map((e) => e.id);
-  if (live.length < 2 && !(live.length === 1 && est.length)) return { rows, note: live.length === 1 ? "One tape: it is the only scale, so there is nothing to hold it out against. The checks below (door heights, if given) are a sanity check only." : "No tape: the sizes are the shape's as drawn, not to scale." };
-  for (const t of live) {
-    const parts = tapeParts[t.id];
-    const t0 = Date.now();
-    // (No best guesses for the photos waiting for where you stood: nothing here reads them, and they take the time.)
-    const sol = x.solveRoute(withCorners, "main", data, { ...solveOptsOf(inputs), withoutTapes: parts, guesses: false });
-    const feet = Number(t.feet);
-    let predicted = [];
-    if (t.kind === "side") {
-      const i = sideIndex(t.side, n);
-      const s = sol.sides[i];
-      predicted = [{ feet: s.lengthFeet, where: `${sideName(i, n)}, ±${s.plusMinusPct}%` }];
-    } else {
-      for (const id of parts) {
-        const rt = routeIn.buildings[0].tapes.find((q) => q.id === id);
-        const m = lineOnPhoto(x, sol, data, rt.photo, rt.a, rt.b, { snap: true });
-        const p = h.photos.find((ph) => ph.id === rt.photo);
-        predicted.push(m ? { feet: m.feet, where: `photo #${p.n}` } : { feet: null, where: `photo #${p.n} not placed without it` });
-      }
-    }
-    const got = predicted.filter((q) => q.feet !== null);
-    const mean = got.length ? got.reduce((s, q) => s + q.feet, 0) / got.length : null;
-    // Whether it sizes the house: a wall's length, or a line on photos that do (a measure photo). One on a detail photo only
-    // placed that photo: held out, what it checks is that photo's place, not the size.
-    const sizes = t.kind === "side" || !sizedPhotos || parts.every((id) => sizedPhotos.has(routeIn.buildings[0].tapes.find((q) => q.id === id)?.photo));
-    rows.push({ id: t.id, said: t.said, taped: feet, predicted: mean, errorPct: mean !== null ? (mean / feet - 1) * 100 : null, each: predicted, from: [...live.filter((q) => q !== t).map((q) => q.id), ...(est.length ? [`the estimates (${est.join(", ")})`] : [])], seconds: (Date.now() - t0) / 1000, sizes });
-  }
+  if (live.length < 2 && !(live.length === 1 && est.length)) return { rows: [], note: live.length === 1 ? "One tape: it is the only scale, so there is nothing to hold it out against. The checks below (door heights, if given) are a sanity check only." : "No tape: the sizes are the shape's as drawn, not to scale." };
+  const t0 = Date.now();
+  // lib/photoRouteCheck.ts: each held out, predicted from the rest - a wall's from its side, a line's from its own photo's view.
+  const got = rowsIn ?? x.holdOutTapes(withCorners, "main", data, live.map((t) => ({ id: t.id, parts: tapeParts[t.id] })), solveOpts);
+  const seconds = (Date.now() - t0) / 1000 / Math.max(1, got.length);
+  const rows = got.map((r) => {
+    const t = live.find((q) => q.id === r.id);
+    const each = r.each.map((e) => (e.side !== undefined ? { feet: e.feet, where: `${sideName(e.side, n)}, ±${e.plusMinusPct}%` } : { feet: e.feet, where: e.feet !== null ? `photo #${photoOf(h, e.photo)?.n}` : `photo #${photoOf(h, e.photo)?.n} not placed without it` }));
+    return { id: r.id, said: t?.said ?? "", taped: Number(t?.feet ?? r.taped), predicted: r.predicted, errorPct: r.errorPct, each, from: [...r.from, ...(est.length ? [`the estimates (${est.join(", ")})`] : [])], seconds, sizes: r.sizes };
+  });
   return { rows, note: null };
 }
 
@@ -488,14 +451,32 @@ export async function measure(h) {
   if (blocking.length) throw new Error(`inputs.json is not ready:\n${blocking.join("\n")}\nRun check.`);
   const pixels = await loadPixels(h, x);
   const lines = pixels.map(x.photoLines);
-  const solveOpts = solveOptsOf(inputs);
-  let m = x.measureRoute(input, "main", pixels, { lines, solve: solveOpts });
+  let solveOpts = solveOptsOf(inputs);
   let keptMarks = [];
-  // "Looks right": the corners Scrivn marked on the placed photos kept (less those set aside), and measured again.
-  if (inputs.keepProposed === true || (Array.isArray(inputs.keepProposed) && inputs.keepProposed.length)) {
-    keptMarks = m.proposals.filter((q) => kept(h, inputs, q));
-    const again = { ...input, buildings: [{ ...input.buildings[0], corners: [...m.corners.filter((c) => !c.proposed), ...keptMarks.map((q) => ({ photo: q.photo, x: q.x, y: q.y, corner: q.corner, by: "app" }))] }] };
-    m = x.measureRoute(again, "main", pixels, { lines, solve: solveOpts });
+  const runMeasure = () => {
+    let mm = x.measureRoute(input, "main", pixels, { lines, solve: solveOpts });
+    keptMarks = [];
+    // "Looks right": the corners Scrivn marked on the placed photos kept (less those set aside), and measured again.
+    if (inputs.keepProposed === true || (Array.isArray(inputs.keepProposed) && inputs.keepProposed.length)) {
+      keptMarks = mm.proposals.filter((q) => kept(h, inputs, q));
+      const again = { ...input, buildings: [{ ...input.buildings[0], corners: [...mm.corners.filter((c) => !c.proposed), ...keptMarks.map((q) => ({ photo: q.photo, x: q.x, y: q.y, corner: q.corner, by: "app" }))] }] };
+      mm = x.measureRoute(again, "main", pixels, { lines, solve: solveOpts });
+    }
+    return mm;
+  };
+  /** The session's own corners of a measure: a kept mark was made with every tape in, and would carry a held-out tape back in. */
+  const ownOf = (mm) => mm.corners.filter((c) => !keptMarks.some((k) => k.photo === c.photo && Math.abs(k.x - c.x) < 1e-6 && Math.abs(k.y - c.y) < 1e-6));
+  let m = runMeasure();
+  // The self-check (lib/photoRouteCheck.ts, 2026-10-22): the tapes disagreeing by more than 5% held out, the one measure photo
+  // whose leaving brings them back within 5% is left out of the size. Not the old way (sizePhotos "all"), unless asked.
+  const tapeGroups = (inputs.tapes ?? []).filter((t) => tapeParts[t.id]?.length).map((t) => ({ id: t.id, parts: tapeParts[t.id] }));
+  const doCheck = inputs.selfCheck === true || (inputs.selfCheck !== false && solveOpts.sizePhotos !== "all");
+  const tCheck = Date.now();
+  const self = doCheck ? x.selfCheck({ ...input, buildings: [{ ...input.buildings[0], corners: ownOf(m) }] }, "main", m.prepared.data, tapeGroups, solveOpts, (id) => `#${photoOf(h, id)?.n}`) : null;
+  const checkSeconds = (Date.now() - tCheck) / 1000;
+  if (self?.dropped) {
+    solveOpts = { ...solveOpts, outOfSize: [self.dropped.photo] };
+    m = runMeasure();
   }
   const tMeasure = Date.now();
   const { prepared, solution: sol, corners, proposals } = m;
@@ -586,8 +567,8 @@ export async function measure(h) {
   // On the session's own corners only: a kept mark is where the measure with every tape put that corner, so it would
   // carry the tape held out into the solve meant to predict it.
   const own = corners.filter((c) => !keptMarks.some((k) => k.photo === c.photo && Math.abs(k.x - c.x) < 1e-6 && Math.abs(k.y - c.y) < 1e-6));
-  const sizedPhotos = new Set(sol.cameras.filter((c) => c.role !== "detail").map((c) => c.photo));
-  const hold = holdOuts(x, h, inputs, input, own, prepared.data, tapeParts, n, sizedPhotos);
+  // Hold-outs the self-check made on these same corners are kept; after a photo is left out they are made again.
+  const hold = holdOuts(x, h, inputs, input, own, prepared.data, tapeParts, n, solveOpts, self && !self.dropped ? self.before : null);
   const checks = (inputs.checks ?? []).flatMap((k) => {
     const p = photoOf(h, k.photo);
     if (!p || !k.a || !k.b) return [];
@@ -668,6 +649,10 @@ export async function measure(h) {
     if (errs.length) md.push("", `Mean |error| ${(errs.reduce((s, v) => s + v, 0) / errs.length).toFixed(1)}%, worst ${Math.max(...errs).toFixed(1)}%${hold.rows.some((r) => r.sizes === false) ? " (the tapes that size the house)" : ""}.`);
   }
   if (depthNote) md.push("", `**${depthNote}**`);
+  if (self) {
+    md.push("", "## Self-check: a photo the tapes disagree with", "", self.words);
+    if (self.tried.length) md.push("", `Each measure photo left out in turn, the worst disagreement left: ${self.tried.map((q) => `${`#${photoOf(h, q.photo)?.n}`} ${q.worstPct === null ? "too few tapes left" : `${q.worstPct.toFixed(1)}%`}`).join(", ")}.`);
+  }
   if (checks.length) {
     md.push("", "## Checks (a sanity check, not a tape: doors and windows vary)", "", "| Check | Photo | Expected | Measured | Off |", "|---|---|---|---|---|");
     for (const k of checks) md.push(`| ${k.what} | #${k.photo} | ${k.expect ? ftin(k.expect) : "-"} | ${k.got !== null ? ftin(k.got) : "not placed"} | ${k.expect && k.got !== null ? pct((k.got / k.expect - 1) * 100) : "-"} |`);
@@ -699,7 +684,7 @@ export async function measure(h) {
   md.push("", "## Files", "", "- plan.png: the measured plan, every placed photo; measured/NN.png: each photo with its corners and where it stood.", `- sides/: ${Object.keys(frames).length} sides squared up for reading (and a grid copy each); frames.json.`, "- measured.json: the exterior as measured (no walls read yet).");
   md.push("", `Machine time: measure ${timesNow.measure.toFixed(1)} s, hold-outs ${timesNow.holdOuts.toFixed(1)} s.`);
   writeFileSync(statePath(h, "results.md"), `${md.join("\n")}\n`);
-  writeJson(statePath(h, "results.json"), { at: now, sides: sol.sides.map((s) => ({ side: sideName(s.from, n), name: nameOf(s.from), lengthFeet: s.lengthFeet, plusMinusPct: s.plusMinusPct, taped: s.taped, ...(s.estimated ? { estimated: s.estimated } : {}), ...(s.estimateCheck ? { estimateCheck: s.estimateCheck } : {}) })), estimateChecks: checked.map((s) => ({ side: sideName(s.from, n), name: nameOf(s.from), lengthFeet: s.lengthFeet, ...s.estimateCheck })), ...(without ? { withoutEstimates: without.sides.map((s) => ({ side: sideName(s.from, n), lengthFeet: s.lengthFeet, plusMinusPct: s.plusMinusPct })) } : {}), holdOuts: hold.rows, holdNote: hold.note, depthNote, checks, advice: sol.advice, unplaced: sol.unplaced, doubtful, sanity: sanity.map((f) => ({ kind: f.kind, words: f.words })), stood: sol.cameras.filter((c) => c.placedBy === "stood").length, sizePhotos: solveOpts.sizePhotos ?? "measure", sized: sol.cameras.filter((c) => c.role !== "detail").length, detail: sol.cameras.filter((c) => c.role === "detail").length, tapesOnDetail: sol.tapesOnDetail ?? [], proposals: proposals.map((q) => ({ photo: fileOf(q.photo).n, corner: cornerName(q.corner), x: q.x, y: q.y })), kept: keptMarks.length, lens: { focalOverWidth: rec.focalOverWidth, k: rec.k }, rms: sol.rms, cameras: sol.cameras.length });
+  writeJson(statePath(h, "results.json"), { at: now, sides: sol.sides.map((s) => ({ side: sideName(s.from, n), name: nameOf(s.from), lengthFeet: s.lengthFeet, plusMinusPct: s.plusMinusPct, taped: s.taped, ...(s.estimated ? { estimated: s.estimated } : {}), ...(s.estimateCheck ? { estimateCheck: s.estimateCheck } : {}) })), estimateChecks: checked.map((s) => ({ side: sideName(s.from, n), name: nameOf(s.from), lengthFeet: s.lengthFeet, ...s.estimateCheck })), ...(without ? { withoutEstimates: without.sides.map((s) => ({ side: sideName(s.from, n), lengthFeet: s.lengthFeet, plusMinusPct: s.plusMinusPct })) } : {}), holdOuts: hold.rows, holdNote: hold.note, depthNote, selfCheck: self ? { words: self.words, dropped: self.dropped ? { photo: photoOf(h, self.dropped.photo)?.n, worstPct: self.dropped.worstPct, tapes: self.dropped.tapes } : null, before: x.worstPct(self.before), tried: self.tried.map((q) => ({ photo: photoOf(h, q.photo)?.n, worstPct: q.worstPct })) } : null, checks, advice: sol.advice, unplaced: sol.unplaced, doubtful, sanity: sanity.map((f) => ({ kind: f.kind, words: f.words })), stood: sol.cameras.filter((c) => c.placedBy === "stood").length, sizePhotos: solveOpts.sizePhotos ?? "measure", sized: sol.cameras.filter((c) => c.role !== "detail").length, detail: sol.cameras.filter((c) => c.role === "detail").length, tapesOnDetail: sol.tapesOnDetail ?? [], proposals: proposals.map((q) => ({ photo: fileOf(q.photo).n, corner: cornerName(q.corner), x: q.x, y: q.y })), kept: keptMarks.length, lens: { focalOverWidth: rec.focalOverWidth, k: rec.k }, rms: sol.rms, cameras: sol.cameras.length });
 
   const out = [`Measured from ${sol.cameras.length} of ${h.photos.length} photos and ${tapes.length} tape${tapes.length === 1 ? "" : "s"}; rms ${sol.rms.toFixed(2)}; lens f/W ${rec.focalOverWidth.toFixed(3)}.`, `  ${roleWords(sol, solveOpts, fileOf).replace(/^- /, "")}`];
   for (const s of sol.sides) out.push(`  ${sideName(s.from, n).padEnd(8)} ${nameOf(s.from).slice(0, 28).padEnd(28)} ${ftin(s.lengthFeet).padStart(8)}  ${s.taped ? "taped" : `±${s.plusMinusPct}%`}${s.estimated ? `  (estimated on site: about ${ftin(s.estimated.feet)}${without ? `; without the estimates ${ftin(without.sides[s.from].lengthFeet)}` : ""})` : ""}${s.estimateCheck ? `  (estimated on site ${estimateCheckWords(s.estimateCheck)})` : ""}`);
@@ -707,6 +692,7 @@ export async function measure(h) {
   if (hold.note) out.push(`  ${hold.note}`);
   for (const r of hold.rows) out.push(`  ${r.id.padEnd(4)} ${r.said.slice(0, 34).padEnd(34)} taped ${ftin(r.taped).padStart(7)}  predicted ${r.predicted !== null ? ftin(r.predicted).padStart(7) : "      -"}  ${r.errorPct !== null ? pct(r.errorPct) : ""}${r.sizes === false ? "  (detail photo: sizes nothing)" : ""}`);
   if (depthNote) out.push(`  ${depthNote}`);
+  if (self) out.push(`  Self-check (${checkSeconds.toFixed(0)} s): ${self.words}`);
   for (const k of checks) out.push(`  check: ${k.what} on #${k.photo}: ${k.got !== null ? ftin(k.got) : "not placed"}${k.expect ? ` (expected ${ftin(k.expect)}${k.got !== null ? `, ${pct((k.got / k.expect - 1) * 100)}` : ""})` : ""}`);
   for (const a of sol.advice) out.push(`  a tape would help: ${sideName(a.from, n)} ${nameOf(a.from)}: ${a.why}`);
   for (const p of (inputs.leaveOut ?? []).map((ref) => photoOf(h, ref)).filter(Boolean)) out.push(`  not used: #${p.n}: left out (leaveOut).`);
