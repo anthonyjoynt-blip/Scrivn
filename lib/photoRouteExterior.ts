@@ -458,8 +458,8 @@ export interface CloseUpNotLaid {
 
 /**
  * The walk's close-ups on their sides, from the matches the measure keeps (`RouteMeasured.matches`, 2026-10-23): each laid on
- * the wall its matched points are on - the wall its full photo was taken of, when the walk says (`RoutePhoto.shot`) and they
- * are on it, else whichever holds the most - and kept only with ON_FACE_SHARE of them on that wall's face as measured. Laid, it is a photo of that side
+ * the wall its matched points are on - of the walls its full photo was taken of, when the walk says (`RoutePhoto.shot`),
+ * else any - and kept only with ON_FACE_SHARE of them on that wall's face as measured. Laid, it is a photo of that side
  * through the full photo's own `to_photo` (`detailSidePhoto`), so whatever it shows is at the wall's scale. It never sizes
  * anything. The rest, each with why not, in words.
  */
@@ -486,25 +486,21 @@ export function closeUpsOnSides(state: PhotoRouteInput, m: RouteMeasured): { lai
       not.push({ photo: x.photo, full: x.full, kind: "unplaced", why: `Its wall's photo (${nameOf(x.full)}) wasn't placed by the measure, so there is no wall to lay it on yet.` });
       continue;
     }
-    // The wall the walk says its full photo was taken of, when its points are on it; else whichever wall holds most of them
-    // (a straight-on photo from far back shows the walls stepped back beside it too).
+    // Of the walls the walk says its full photo was taken of (a "more of this wall" photo is of that wall): never another
+    // the points seem to be on - a corner the measure has loose put the porch's close-up on the AC side (house runner,
+    // 10-23). With nothing said, whichever holds the most of them.
     const shot = state.photos[fullAt]?.shot;
-    const walls = new Set(shot ? shotWalls(shot, n).filter((i) => i >= 0 && i < n) : []);
-    const bestOf = (which: (i: number) => boolean) => {
-      let b: { i: number; count: number; view: NonNullable<ReturnType<typeof sideView>> } | null = null;
-      for (let i = 0; i < n; i++) {
-        if (shared.has(i) || !which(i)) continue;
-        const view = sideView(m, rc, i, 900 + fullAt);
-        if (!view) continue;
-        const count = onFaceCount(view, x.onFull);
-        if (count > 0 && (!b || count > b.count)) b = { i, count, view };
-      }
-      return b;
-    };
-    const said = walls.size ? bestOf((i) => walls.has(i)) : null;
-    const best = said && said.count / Math.max(1, x.onFull.length) >= ON_FACE_SHARE ? said : bestOf(() => true);
+    const said = new Set(shot ? shotWalls(shot, n).filter((i) => i >= 0 && i < n) : []);
+    let best: { i: number; count: number; view: NonNullable<ReturnType<typeof sideView>> } | null = null;
+    for (let i = 0; i < n; i++) {
+      if (shared.has(i) || (said.size && !said.has(i))) continue;
+      const view = sideView(m, rc, i, 900 + fullAt);
+      if (!view) continue;
+      const count = onFaceCount(view, x.onFull);
+      if (count > 0 && (!best || count > best.count)) best = { i, count, view };
+    }
     if (!best) {
-      not.push({ photo: x.photo, full: x.full, kind: "offFace", why: "Its points are on no wall the measure has: tap 4 points on both, on the wall's face." });
+      not.push({ photo: x.photo, full: x.full, kind: "offFace", why: `Its points aren't on ${said.size === 1 ? "the wall it was taken for" : "a wall the measure has"}: tap 4 points on both, on the wall's face.` });
       continue;
     }
     const share = best.count / Math.max(1, x.onFull.length);

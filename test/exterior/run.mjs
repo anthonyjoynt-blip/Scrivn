@@ -7578,10 +7578,11 @@ test("a close-up not laid says why: not found, its wall's photo not placed, or m
   // Most of them off the face (a deck's rail in front of it, its points cast onto the yard): under ON_FACE_SHARE on it.
   const mostlyOff = why(b.match({ onFull: [...sky, ...sky, ...b.grid.slice(0, 2)] }));
   assert(x.ON_FACE_SHARE === 0.3 && mostlyOff.laid.length === 0 && /in front of the wall/.test(mostlyOff.not[0]?.why ?? ""), JSON.stringify(mostlyOff.not));
-  // Laid on the wall the walk says its full photo was taken of, its points on it; said wrong, where its points are.
+  // Laid on the wall the walk says its full photo was taken of; never on another its points seem to be on.
   const shot = (index) => ({ ...b.state, photos: b.state.photos.map((p) => (p.id === "front" ? { ...p, shot: { kind: "wall", index } } : p)) });
   assert(x.closeUpsOnSides(shot(0), { ...b.m, matches: [b.match()] }).laid[0]?.side === 0, "the front, as the walk says");
-  assert(x.closeUpsOnSides(shot(2), { ...b.m, matches: [b.match()] }).laid[0]?.side === 0, "the back said, which the front's photo doesn't see: on the front, where its points are");
+  const elsewhere = x.closeUpsOnSides(shot(2), { ...b.m, matches: [b.match()] });
+  assert(elsewhere.laid.length === 0 && /the wall it was taken for/.test(elsewhere.not[0]?.why ?? ""), "the back said, its points on the front: not laid");
 });
 
 test("a measurement on a laid close-up more than 5% off what the wall makes it is worth a look; within 5% it isn't", () => {
