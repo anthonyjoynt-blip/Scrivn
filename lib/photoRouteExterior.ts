@@ -58,6 +58,7 @@ export function measuredFrom(sol: RouteSolution, data: RoutePhotoData[], at: str
     advice: sol.advice,
     counts: sol.counts,
     lenses,
+    ...(sol.tapeSpread ? { tapeSpread: sol.tapeSpread } : {}),
   };
 }
 
@@ -229,6 +230,8 @@ export function exteriorFromRoute(prev: Exterior | undefined, state: PhotoRouteS
       ? [`${closeUps.laid.length} close-up${closeUps.laid.length === 1 ? " was" : "s were"} laid exactly on ${closeUps.laid.length === 1 ? "its" : "their"} wall's photo, to read at the wall's scale; ${closeUps.laid.length === 1 ? "it" : "they"} sized nothing.`]
       : []),
     ...(m.sides.some((s) => s.notMeasured && !s.taped) ? [`Not measured: ${m.sides.filter((s) => s.notMeasured && !s.taped).length} of its sides - the photos and tapes don't hold them; each says what would measure it.`] : []),
+    // How well the tapes agree, held out in turn (2026-10-23): a note on the house as a whole, never a blanket over its sides.
+    ...(m.tapeSpread ? [m.tapeSpread.words] : []),
     ...(tapes.length === 0 ? [estimated ? "No tape: the sizes follow the sides estimated on site and the shape as drawn, and are not to scale." : "No tape: the sizes follow the shape as drawn, and are not to scale."] : []),
   ];
   const { homeType: _was, ...prevRest } = prev ?? ({} as Partial<Exterior>);

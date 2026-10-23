@@ -16,11 +16,11 @@ import sharp from "sharp";
 import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { basename, join, relative } from "node:path";
 import { scrivn } from "./code.mjs";
-import { cornerAt, draftInputs, ensureDir, loadPixels, nn, photoOf, readJson, routeInput, statePath, writeJson } from "./folder.mjs";
+import { cornerAt, draftInputs, ensureDir, loadPixels, nn, photoOf, photoPath, readJson, routeInput, statePath, walkTurnsOf, writeJson } from "./folder.mjs";
 import { contactSheet, griddedSide, measuredPlanPng, photoSheet, reviewPages, tapStrip, zoomPng } from "./sheets.mjs";
 import { applyFixes, checkDoubts, measureDoubts, parseFixes, reviewLines } from "./review.mjs";
 import { placeDecks } from "./decks.mjs";
-import { cornerIndex, cornerName, ftin, sideIndex, sideName } from "./words.mjs";
+import { cornerIndex, cornerName, ftin, parseMap, sideIndex, sideName } from "./words.mjs";
 
 /**
  * A corner's edge marked at its top and its foot: within this of one column of the levelled photo, or it is likely not one
@@ -183,6 +183,31 @@ async function writeReview(h, items, pixelsAll, marksOf, title) {
 
 // ── prepare ──────────────────────────────────────────────────────────────────────────────────────
 
+/**
+ * What prepare read of the folder beside the photos (2026-10-23): where the photos are, the walk's corners and where they
+ * were said, which photo roles came from names, and the map. Nothing in the folder is written; all of it goes in scrivn/.
+ */
+function walkLines(h, inputs, kept) {
+  const out = [];
+  if (h.photoDir && h.photoDir !== h.dir) out.push(`Photos: ${relative(h.dir, h.photoDir)}/ (${h.photos.length}).`);
+  const said = walkTurnsOf(h);
+  if (said) {
+    const c = (k) => said.turns.filter((t) => t === k).length;
+    const roles = Object.keys(inputs.walk?.photos ?? {}).length;
+    out.push(
+      `Walk: ${said.turns.length} corners from ${said.from} (${c("O")} outside, ${c("I")} inside${c("J") ? `, ${c("J")} joining the neighbour` : ""})${kept ? "" : " as walk.turns: the shape is the walk's until one is drawn"}.`,
+      said.from === "corners.txt"
+        ? `  Photo roles from names: ${roles}, a front or a back only - the photos' names are the tester's own (walk.txt), not corners.txt's numbering. Name a corner on each photo yourself.`
+        : `  Photo roles from names: ${roles}.`,
+    );
+  }
+  if (h.mapText) {
+    const { map, problem } = parseMap(h.mapText);
+    out.push(map ? `Map: map.txt, ${map.corners.length} corners: measure lays it on the house and holds the long walls it traces.` : `Map: ${problem ?? "map.txt has no corners read as (x, y)."}`);
+  }
+  return out;
+}
+
 export async function prepare(h, { fresh = false } = {}) {
   const t0 = Date.now();
   ensureDir(h.state);
@@ -214,7 +239,8 @@ export async function prepare(h, { fresh = false } = {}) {
     `Lens: f/W ${level.focalOverWidth.toFixed(4)} (an S25 Ultra's 1x is 0.664), k ${level.k.toFixed(3)}; ${levelled} of ${h.photos.length} photos levelled.`,
     ...h.photos.flatMap((p, i) => (level.notes[i] ? [`  #${p.n} ${p.file}: ${level.notes[i]}`] : [])),
     `Corner candidates: ${Object.values(candidates).reduce((s, c) => s + c.length, 0)} on ${Object.values(candidates).filter((c) => c.length).length} photos (orange, lettered: each an exact edge, top to foot).`,
-    kept ? `Kept inputs.json as it is (prepare --fresh starts it again).` : `Draft inputs.json: shape ${inputs.shape.from === "tester" ? "the tester's" : "a placeholder 40' x 30' rectangle - draw the real one"}; ${inputs.corners.length} corners${inputs.corners.length ? " (the tester's)" : ""}; ${inputs.tapes.length} tapes.`,
+    kept ? `Kept inputs.json as it is (prepare --fresh starts it again).` : `Draft inputs.json: shape ${inputs.shape.from === "tester" ? "the tester's" : inputs.walk?.turns ? "the walk's corners, its sizes rough (or draw it: same corners, same order)" : "a placeholder 40' x 30' rectangle - draw the real one"}; ${inputs.corners.length} corners${inputs.corners.length ? " (the tester's)" : ""}; ${inputs.tapes.length} tapes.`,
+    ...walkLines(h, inputs, kept),
     ...inputs.tapes.map((t) => `  ${t.id}: "${t.said}" -> ${ftin(Number(t.feet))}, ${t.kind === "side" ? `a wall's length (${t.side ? `on ${t.side}` : "set its side"})` : `a line on a photo across ${t.count > 1 ? `each of ${t.count}` : "it"} (${t.on?.length ? `on ${t.on.map((o) => `#${o.photo}`).join(", ")}` : "place its ends"})`}`),
     ...(inputs.estimates ?? []).map((e) => `  ${e.id}: "${e.said}" -> about ${ftin(Number(e.feet))} ±${e.plusMinusPct}%, estimated on site by eye: never a tape, ${useWords(e)} (${e.side ? `on ${e.side}` : "set its side"})`),
     ...(inputs.unread ?? []).map((u) => `  not read as a tape (no length in it): "${u}"`),
@@ -419,7 +445,7 @@ function holdOuts(x, h, inputs, routeIn, corners, data, tapeParts, n, solveOpts 
     const each = r.each.map((e) => (e.side !== undefined ? { feet: e.feet, where: `${sideName(e.side, n)}, ±${e.plusMinusPct}%` } : { feet: e.feet, where: e.feet !== null ? `photo #${photoOf(h, e.photo)?.n}` : `photo #${photoOf(h, e.photo)?.n} not placed without it` }));
     return { id: r.id, said: t?.said ?? "", taped: Number(t?.feet ?? r.taped), predicted: r.predicted, errorPct: r.errorPct, each, from: [...r.from, ...(est.length ? [`the estimates (${est.join(", ")})`] : [])], seconds, sizes: r.sizes };
   });
-  return { rows, note: null };
+  return { rows, raw: got, note: null };
 }
 
 /** Which photos sized the house and which were only placed to be read, in a line for results.md. */
@@ -549,12 +575,15 @@ export async function measure(h) {
   const own = corners.filter((c) => !keptMarks.some((k) => k.photo === c.photo && Math.abs(k.x - c.x) < 1e-6 && Math.abs(k.y - c.y) < 1e-6));
   // Hold-outs the self-check made on these same corners are kept; after a photo is left out they are made again.
   const hold = holdOuts(x, h, inputs, input, own, prepared.data, tapeParts, n, solveOpts, self && !self.dropped ? self.before : null);
-  // Honest sizes (2026-10-22): the tapes that size the house disagreeing by more than 5% held out, no untaped side is
-  // measured to better than that - each is said not measured, with the tape most off named to check. (Not the old way.)
-  const worstHeld = x.worstPct(hold.rows);
-  const mostOff = hold.rows.filter((r) => r.sizes !== false && r.errorPct !== null).sort((a, b) => Math.abs(b.errorPct) - Math.abs(a.errorPct))[0];
-  if (solveOpts.sizePhotos !== "all" && worstHeld !== null && worstHeld > x.TAPES_AGREE_PCT && mostOff) {
-    sol.sides = x.tapesDisagree(sol.sides, worstHeld, `tape ${mostOff.id} (${mostOff.said.split(/[(,;]/)[0].trim()}, taped ${ftin(mostOff.taped)})`, mostOff.errorPct);
+  // Honest sizes, per wall (2026-10-23; the blanket of 10-22 marked every side): a tape more than 5% off the others held out
+  // marks the walls it is on or tied to not measured, with the tape to check; every other wall stands on its own ±. How well
+  // the tapes agree as a whole is a note (sol.tapeSpread). (Not the old way.)
+  if (solveOpts.sizePhotos !== "all" && hold.raw?.length) {
+    const said = (r) => hold.rows.find((q) => q.id === r.id)?.said ?? "";
+    const tapeWords = (r) => `tape ${r.id} (${said(r).split(/[(,;]/)[0].trim()}, taped ${ftin(r.taped)})`;
+    const checked = x.tapesOffWalls(sol, prepared.data, input.buildings[0].tapes, hold.raw, tapeWords, (id) => `#${photoOf(h, id)?.n}`);
+    sol.sides = checked.sides;
+    if (checked.tapeSpread) sol.tapeSpread = checked.tapeSpread;
   }
   // What settles each size not measured, its one wall by name (2026-10-23): "A tape or laser along C1-C2 Walkway side settles it".
   const nameOfSide = (i) => `${sideName(i, n)} ${(inputs.shape?.names ?? {})[sideName(i, n)] ?? ""}`.trim();
@@ -727,6 +756,8 @@ export async function measure(h) {
     for (const r of hold.rows) md.push(`| ${r.id} ${r.said}${r.sizes === false ? " (on a detail photo: checks where that photo was put, sizes nothing)" : ""} | ${ftin(r.taped)} | ${r.predicted !== null ? ftin(r.predicted) : "-"} | ${r.errorPct !== null ? pct(r.errorPct) : "-"} | ${r.each.map((e) => `${e.feet !== null ? ftin(e.feet) : "-"} (${e.where})`).join("; ")}; scaled by ${r.from.join(", ")} |`);
     const errs = hold.rows.filter((r) => r.errorPct !== null && r.sizes !== false).map((r) => Math.abs(r.errorPct));
     if (errs.length) md.push("", `Mean |error| ${(errs.reduce((s, v) => s + v, 0) / errs.length).toFixed(1)}%, worst ${Math.max(...errs).toFixed(1)}%${hold.rows.some((r) => r.sizes === false) ? " (the tapes that size the house)" : ""}.`);
+    // A confidence note on the house as a whole (2026-10-23), never a blanket: only walls a tape off is on or tied to are not measured.
+    if (sol.tapeSpread) md.push("", `**Confidence:** ${sol.tapeSpread.words}`);
   }
   if (depthNote) md.push("", `**${depthNote}**`);
   if (self) {
@@ -764,7 +795,7 @@ export async function measure(h) {
   md.push("", "## Files", "", "- plan.png: the measured plan, every placed photo; measured/NN.png: each photo with its corners and where it stood.", `- sides/: ${Object.keys(frames).length} sides squared up for reading (and a grid copy each); frames.json.`, "- measured.json: the exterior as measured (no walls read yet).");
   md.push("", `Machine time: measure ${timesNow.measure.toFixed(1)} s, hold-outs ${timesNow.holdOuts.toFixed(1)} s.`);
   writeFileSync(statePath(h, "results.md"), `${md.join("\n")}\n`);
-  writeJson(statePath(h, "results.json"), { at: now, ...(mapRows ? { map: mapRows.json } : {}), sides: sol.sides.map((s) => ({ side: sideName(s.from, n), name: nameOf(s.from), lengthFeet: s.lengthFeet, plusMinusPct: s.plusMinusPct, taped: s.taped, ...(s.fromMap ? { fromMap: true } : {}), ...(s.notMeasured ? { notMeasured: { ...s.notMeasured, ...(s.notMeasured.settle !== undefined ? { settle: sideName(s.notMeasured.settle, n) } : {}), ...(s.settleWords ? { fix: s.settleWords } : {}) } } : {}), ...(s.estimated ? { estimated: s.estimated } : {}), ...(s.estimateCheck ? { estimateCheck: s.estimateCheck } : {}) })), estimateChecks: checked.map((s) => ({ side: sideName(s.from, n), name: nameOf(s.from), lengthFeet: s.lengthFeet, ...s.estimateCheck })), ...(without ? { withoutEstimates: without.sides.map((s) => ({ side: sideName(s.from, n), lengthFeet: s.lengthFeet, plusMinusPct: s.plusMinusPct })) } : {}), holdOuts: hold.rows, holdNote: hold.note, depthNote, selfCheck: self ? { words: self.words, dropped: self.dropped ? { photo: photoOf(h, self.dropped.photo)?.n, worstPct: self.dropped.worstPct, tapes: self.dropped.tapes } : null, before: x.worstPct(self.before), tried: self.tried.map((q) => ({ photo: photoOf(h, q.photo)?.n, worstPct: q.worstPct })) } : null, checks, advice: sol.advice, unplaced: sol.unplaced, doubtful, sanity: sanity.map((f) => ({ kind: f.kind, words: f.words })), stood: sol.cameras.filter((c) => c.placedBy === "stood").length, sizePhotos: solveOpts.sizePhotos ?? "measure", sized: sol.cameras.filter((c) => c.role !== "detail").length, detail: sol.cameras.filter((c) => c.role === "detail").length, tapesOnDetail: sol.tapesOnDetail ?? [], proposals: proposals.map((q) => ({ photo: fileOf(q.photo).n, corner: cornerName(q.corner), x: q.x, y: q.y })), kept: keptMarks.length, lens: { focalOverWidth: rec.focalOverWidth, k: rec.k }, rms: sol.rms, cameras: sol.cameras.length });
+  writeJson(statePath(h, "results.json"), { at: now, ...(mapRows ? { map: mapRows.json } : {}), sides: sol.sides.map((s) => ({ side: sideName(s.from, n), name: nameOf(s.from), lengthFeet: s.lengthFeet, plusMinusPct: s.plusMinusPct, taped: s.taped, ...(s.fromMap ? { fromMap: true } : {}), ...(s.notMeasured ? { notMeasured: { ...s.notMeasured, ...(s.notMeasured.settle !== undefined ? { settle: sideName(s.notMeasured.settle, n) } : {}), ...(s.settleWords ? { fix: s.settleWords } : {}) } } : {}), ...(s.estimated ? { estimated: s.estimated } : {}), ...(s.estimateCheck ? { estimateCheck: s.estimateCheck } : {}) })), estimateChecks: checked.map((s) => ({ side: sideName(s.from, n), name: nameOf(s.from), lengthFeet: s.lengthFeet, ...s.estimateCheck })), ...(without ? { withoutEstimates: without.sides.map((s) => ({ side: sideName(s.from, n), lengthFeet: s.lengthFeet, plusMinusPct: s.plusMinusPct })) } : {}), holdOuts: hold.rows, holdNote: hold.note, ...(sol.tapeSpread ? { tapeSpread: sol.tapeSpread } : {}), depthNote, selfCheck: self ? { words: self.words, dropped: self.dropped ? { photo: photoOf(h, self.dropped.photo)?.n, worstPct: self.dropped.worstPct, tapes: self.dropped.tapes } : null, before: x.worstPct(self.before), tried: self.tried.map((q) => ({ photo: photoOf(h, q.photo)?.n, worstPct: q.worstPct })) } : null, checks, advice: sol.advice, unplaced: sol.unplaced, doubtful, sanity: sanity.map((f) => ({ kind: f.kind, words: f.words })), stood: sol.cameras.filter((c) => c.placedBy === "stood").length, sizePhotos: solveOpts.sizePhotos ?? "measure", sized: sol.cameras.filter((c) => c.role !== "detail").length, detail: sol.cameras.filter((c) => c.role === "detail").length, tapesOnDetail: sol.tapesOnDetail ?? [], proposals: proposals.map((q) => ({ photo: fileOf(q.photo).n, corner: cornerName(q.corner), x: q.x, y: q.y })), kept: keptMarks.length, lens: { focalOverWidth: rec.focalOverWidth, k: rec.k }, rms: sol.rms, cameras: sol.cameras.length });
 
   const out = [`Measured from ${sol.cameras.length} of ${h.photos.length} photos and ${tapes.length} tape${tapes.length === 1 ? "" : "s"}; rms ${sol.rms.toFixed(2)}; lens f/W ${rec.focalOverWidth.toFixed(3)}.`, `  ${roleWords(sol, solveOpts, fileOf).replace(/^- /, "")}`];
   for (const s of sol.sides) out.push(`  ${sideName(s.from, n).padEnd(8)} ${nameOf(s.from).slice(0, 28).padEnd(28)} ${ftin(s.lengthFeet).padStart(8)}  ${s.taped ? "taped" : `±${s.plusMinusPct}%`}${s.notMeasured ? "  NOT measured" : ""}${s.fromMap ? "  (map)" : ""}${s.estimated ? `  (estimated on site: about ${ftin(s.estimated.feet)}${without ? `; without the estimates ${ftin(without.sides[s.from].lengthFeet)}` : ""})` : ""}${s.estimateCheck ? `  (estimated on site ${estimateCheckWords(s.estimateCheck)})` : ""}`);
@@ -772,6 +803,7 @@ export async function measure(h) {
   out.push("Each tape held out in turn:");
   if (hold.note) out.push(`  ${hold.note}`);
   for (const r of hold.rows) out.push(`  ${r.id.padEnd(4)} ${r.said.slice(0, 34).padEnd(34)} taped ${ftin(r.taped).padStart(7)}  predicted ${r.predicted !== null ? ftin(r.predicted).padStart(7) : "      -"}  ${r.errorPct !== null ? pct(r.errorPct) : ""}${r.sizes === false ? "  (detail photo: sizes nothing)" : ""}`);
+  if (sol.tapeSpread) out.push(`  ${sol.tapeSpread.words}`);
   if (depthNote) out.push(`  ${depthNote}`);
   if (self) out.push(`  Self-check (${checkSeconds.toFixed(0)} s): ${self.words}`);
   for (const line of settleSummary(sol.sides.filter((q) => q.notMeasured), n, nameOf)) out.push(`  ${line}`);
@@ -973,7 +1005,7 @@ export async function report(h) {
     if (cache.has(id)) return cache.get(id);
     const p = h.photos.find((q) => q.id === id);
     if (!p) return null;
-    const { data, info } = await sharp(join(h.dir, p.file)).rotate().resize({ width: 2000, height: 2000, fit: "inside", withoutEnlargement: true }).raw().toBuffer({ resolveWithObject: true });
+    const { data, info } = await sharp(photoPath(h, p)).rotate().resize({ width: 2000, height: 2000, fit: "inside", withoutEnlargement: true }).raw().toBuffer({ resolveWithObject: true });
     const px = { data, width: info.width, height: info.height, channels: info.channels };
     cache.set(id, px);
     return px;
@@ -1057,7 +1089,7 @@ export async function report(h) {
   for (const ph of made.photos) {
     const p = h.photos[ph.photo.n - 900];
     if (!p) continue;
-    const jpeg = await sharp(join(h.dir, p.file)).rotate().resize({ width: 2000, height: 2000, fit: "inside", withoutEnlargement: true }).jpeg({ quality: 85 }).toBuffer();
+    const jpeg = await sharp(photoPath(h, p)).rotate().resize({ width: 2000, height: 2000, fit: "inside", withoutEnlargement: true }).jpeg({ quality: 85 }).toBuffer();
     const b64 = jpeg.toString("base64");
     const size = x.jpegSize(b64);
     if (size) photos[ph.photo.n] = { dataUrl: `data:image/jpeg;base64,${b64}`, width: size.width, height: size.height };
@@ -1076,6 +1108,8 @@ export async function report(h) {
     `# ${meta.title}: exterior`,
     "",
     `Walls ${q.totals.grossSquareFeet.toFixed(1)} SF gross, ${q.totals.netSquareFeet.toFixed(1)} SF net${q.totals.trimSquareFeet ? `, ${q.totals.trimSquareFeet.toFixed(1)} SF of trim` : ""}; roof ${r ? `${r.squares.toFixed(2)} SQ at ${x.formatPitch(q.pitch.value)} (${q.pitch.source})` : "none"}.`,
+    // How well the tapes agree, held out in turn: the PDF says it under where the numbers come from (2026-10-23).
+    ...(ext.photoRoute?.measured?.tapeSpread ? ["", ext.photoRoute.measured.tapeSpread.words] : []),
     "",
     // Each side's length as the PDF says it: taped, worked out from the photos (±), or estimated on site.
     "## Sides",

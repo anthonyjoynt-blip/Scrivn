@@ -13,8 +13,9 @@
  * phone does not yet (a measure there would take the hold-outs' time again, once per tape).
  */
 
-import { castRayToSides, columnBearing, type PhotoRouteInput, type RoutePhotoData, type RouteSolution, solveRoute, type SolveRouteOptions } from "./photoRoute";
+import { castRayToSides, columnBearing, type PhotoRouteInput, type RoutePhotoData, type RouteSolution, type RouteTape, solveRoute, type SolveRouteOptions, type TapeSpread, tapesOffSides } from "./photoRoute";
 import { snapToEdge } from "./photoRouteEdges";
+import { formatFeetInches } from "./sketch";
 import { levelAxes, toLevel } from "./photoRouteLens";
 import { planDirection } from "./photoRouteSolve";
 
@@ -159,3 +160,99 @@ export function selfCheck(input: PhotoRouteInput, buildingId: string, data: Rout
   };
 }
 
+
+// ── Per wall: a tape that disagrees marks only the walls it is on or tied to (2026-10-23) ─────────────
+
+/**
+ * The walls between the corners tapped on one photo (2026-10-23): the shortest run round the outline that takes them all
+ * in - what that photo sizes. Fewer than two corners: none. Two runs as short (corners straight across): both.
+ */
+export function wallsBetween(corners: number[], n: number): number[] {
+  const ks = [...new Set(corners)].filter((k) => k >= 0 && k < n).sort((a, b) => a - b);
+  if (ks.length < 2) return [];
+  // The widest gap round the ring between two tapped corners is the part of the house the photo doesn't span.
+  const gaps = ks.map((k, i) => ({ after: k, at: i, len: ((ks[(i + 1) % ks.length] as number) - k + n) % n }));
+  const widest = Math.max(...gaps.map((g) => g.len));
+  const out = new Set<number>();
+  for (const g of gaps.filter((q) => q.len === widest)) {
+    for (let k = ks[(g.at + 1) % ks.length] as number; k !== g.after; k = (k + 1) % n) out.add(k);
+  }
+  return [...out].sort((a, b) => a - b);
+}
+
+/**
+ * The walls a tape is on and tied to, on the measure [sol]: a wall's tape is on its wall, and tied to every wall a photo that
+ * sizes it also sizes; a line on a photo is on the walls its ends land on, and tied to the walls between that photo's tapped
+ * corners (`wallsBetween`) - held out and off, it says that photo's scale is off, and those are the sizes it gives.
+ */
+export function tapeWalls(sol: RouteSolution, data: RoutePhotoData[], t: RouteTape): { on: number[]; tied: number[] } {
+  const n = sol.corners.length;
+  const sizing = sol.cameras.filter((c) => c.role !== "detail");
+  if (t.kind === "side") {
+    const tied = new Set<number>();
+    for (const c of sizing) {
+      const run = wallsBetween(c.corners ?? [], n);
+      if (run.includes(t.from)) for (const k of run) if (k !== t.from) tied.add(k);
+    }
+    return { on: [t.from], tied: [...tied].sort((a, b) => a - b) };
+  }
+  const cam = sizing.find((c) => c.photo === t.photo);
+  const m = lineFeet(sol, data, t.photo, t.a, t.b, !t.exact);
+  const on = m ? [...new Set(m.sides)].sort((a, b) => a - b) : [];
+  return { on, tied: cam ? wallsBetween(cam.corners ?? [], n).filter((k) => !on.includes(k)) : [] };
+}
+
+const signed = (v: number) => `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`;
+
+/**
+ * Not measured per wall, not all or nothing (2026-10-23; before, every untaped side once any tape was more than 5% off). Each
+ * tape held out more than 5% off what the others predict marks the walls it is on or tied to (`tapeWalls`) not measured -
+ * why, the wall whose tape or laser settles it, and the tape to check. Every other wall stands on its own ± (a wall over ±10%
+ * is not measured by itself). How well the tapes agree as a whole is a note (`RouteSolution.tapeSpread`), not a blanket:
+ * blind runs of the owner's house had hold-outs of -2.8/+6.2/+7.1/-3.1% and the walkway side within 2.4%, the roof within 2%.
+ * [words] says a tape ("tape t3 (porch window, taped 3'3")"), [label] a photo ("#36"). Fewer than two tapes that size the
+ * house predicted: [sol] as it is.
+ */
+export function tapesOffWalls(
+  sol: RouteSolution,
+  data: RoutePhotoData[],
+  tapes: RouteTape[],
+  rows: HoldOut[],
+  words: (row: HoldOut) => string = (r) => `tape ${r.id} (taped ${formatFeetInches(r.taped)})`,
+  label: (photo: string) => string = (p) => p,
+): RouteSolution {
+  const worst = worstPct(rows);
+  if (worst === null) return sol;
+  const sized = rows.filter((r) => r.sizes && r.errorPct !== null);
+  const most = sized.reduce((a, r) => (Math.abs(r.errorPct as number) > Math.abs(a.errorPct as number) ? r : a));
+  const offs: { side: number; tape: string; on: boolean; why: string; check: string }[] = [];
+  for (const r of sized.filter((q) => Math.abs(q.errorPct as number) > TAPES_AGREE_PCT)) {
+    const off = signed(r.errorPct as number);
+    const check = `Check ${words(r)} again: the others put it ${off} off - what was taped, and its ends.`;
+    for (const part of r.each) {
+      const t = tapes.find((q) => q.id === part.part);
+      if (!t) continue;
+      const { on, tied } = tapeWalls(sol, data, t);
+      const how = t.kind === "side" ? "along a wall the same photos size" : `on photo ${label(t.photo)}, which sizes it`;
+      for (const k of on) offs.push({ side: k, tape: r.id, on: true, why: `${words(r)}, on it, is ${off} off what the other tapes say, held out`, check });
+      for (const k of tied) offs.push({ side: k, tape: r.id, on: false, why: `${words(r)}, ${how}, is ${off} off what the other tapes say, held out`, check });
+    }
+  }
+  // One reason a tape a wall: on it before tied to it (a tape across both garage doors is on two photos).
+  const kept = offs.filter((o) => {
+    const same = offs.filter((p) => p.side === o.side && p.tape === o.tape);
+    return (same.find((p) => p.on) ?? same[0]) === o;
+  });
+  const marked = kept.length ? tapesOffSides(sol.sides, kept) : sol.sides;
+  const nOff = new Set(kept.filter((o) => !sol.sides[o.side]?.taped).map((o) => o.side)).size;
+  const spread: TapeSpread = {
+    worstPct: worst,
+    tape: most.id,
+    offPct: most.errorPct as number,
+    words:
+      worst <= TAPES_AGREE_PCT
+        ? `The tapes agree within ${worst.toFixed(1)}%, each held out in turn and predicted from the others: the house is scaled to about that.`
+        : `The tapes agree within ${worst.toFixed(1)}%, each held out in turn and predicted from the others (tape ${most.id} the most off, ${signed(most.errorPct as number)}): the house as a whole is scaled to about that. Only the walls a tape more than ${TAPES_AGREE_PCT}% off is on or tied to are NOT measured for it (${nOff} of ${sol.sides.length}); every other wall stands on its own ±.`,
+  };
+  return { ...sol, sides: marked, tapeSpread: spread };
+}

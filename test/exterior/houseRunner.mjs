@@ -15,6 +15,7 @@
  *
  * Each runs in a copy of the photos in a temp folder, so the owner's folders are not written.
  */
+import sharp from "sharp";
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -134,6 +135,47 @@ console.log("\n  tapes.txt and house.txt");
     check("the map goes on the building from map.txt, or typed in inputs.json; \"map\": false measures from the photos alone", withMap.input.buildings[0].map?.corners.length === 6 && !without.input.buildings[0].map && typed.input.buildings[0].map?.corners[2].y === 30 && typed.input.buildings[0].map.source === "typed", JSON.stringify(typed.input.buildings[0].map));
     const drawnWrong = routeInput({ photos: [] }, { shape: { from: "session", outline: [[0, 0], [40, 0], [40, 30], [0, 30]] }, walk: { turns: "O O O I O O" }, tapes: [] }, {}, xw);
     check("a shape drawn with other corners than the walk's is said, and stops the measure", drawnWrong.problems.some((p) => /^walk\.turns don't fit the shape drawn/.test(p)), drawnWrong.problems.join(" | "));
+  }
+  // The test-house repo's layout (10-23): houses/<house>/ with photos/, tapes.txt, walk.txt (what each photo is), corners.txt
+  // (the walk's corners) and map.txt. Read as it is - nothing beside the photos written, the photos never moved.
+  {
+    const dir = join(work, "repo-layout");
+    mkdirSync(join(dir, "photos"), { recursive: true });
+    const names = ["far 1 front.jpg", "10 corner 3.jpg", "11 side 3.jpg", "far 4 back.jpg"];
+    for (const [i, f] of names.entries()) {
+      const px = Buffer.alloc(400 * 300 * 3, 0);
+      for (let k = 0; k < px.length; k += 3) px[k] = px[k + 1] = px[k + 2] = (k / 3) % 400 < 200 + i * 20 ? 70 : 190;
+      await sharp(px, { raw: { width: 400, height: 300, channels: 3 } }).jpeg().toFile(join(dir, "photos", f));
+    }
+    const words = {
+      "tapes.txt": `garage doors 9' wide (each of the two front garage doors)\nback window 70 3/4" wide (side 2, the back: the two-pane basement slider)\n`,
+      "walk.txt": "01 front; 10 corner 3; 11-12 side 3 (the AC side). corner 3 here is the tester's own, not the walk's.\n",
+      "corners.txt": "THE CORNERS, in order:\ncorner 1 outside\ncorner 2 outside\ncorner 3 outside\ncorner 4 inside\ncorner 5 outside\ncorner 6 outside   (back to the front)\n",
+      "map.txt": "MAP OUTLINE, north +y, feet:\n(0, 0)  (40, 0)  (40, 30)  (0, 30)\n",
+    };
+    for (const [f, text] of Object.entries(words)) writeFileSync(join(dir, f), text);
+    const before = Object.fromEntries([...Object.keys(words), ...names.map((f) => `photos/${f}`)].map((f) => [f, readFileSync(join(dir, f)).toString("base64")]));
+    const h = await openHouse(dir);
+    const draft = draftInputs(h);
+    check(
+      "photos in a photos/ folder are the folder's photos; corners.txt drafts the walk's turns; only a front or back role from a name",
+      h.photos.length === 4 && h.photoDir === join(dir, "photos") && draft.walk?.turns === "O O O I O O" && Object.values(draft.walk.photos).sort().join(",") === "far back,far front",
+      `${h.photos.map((p) => p.file).join(", ")} | ${JSON.stringify(draft.walk)}`,
+    );
+    check("\"two-pane\" and \"side 2\" are one window; \"each of the two front garage doors\" two", draft.tapes[0].count === 2 && draft.tapes[1].count === 1, draft.tapes.map((t) => t.count).join(","));
+    const prep = await timed(dir, "prepare");
+    const text = prep.lines.join("\n");
+    check(
+      "prepare says what it read: the photos/ folder, 6 corners from corners.txt, the map; and writes only scrivn/",
+      /Photos: photos\/ \(4\)/.test(text) && /Walk: 6 corners from corners\.txt \(5 outside, 1 inside\)/.test(text) && /Map: map\.txt, 4 corners/.test(text) && readdirSync(dir).sort().join(",") === "corners.txt,map.txt,photos,scrivn,tapes.txt,walk.txt" && readdirSync(join(dir, "photos")).length === 4 && Object.entries(before).every(([f, b]) => readFileSync(join(dir, f)).toString("base64") === b),
+      text,
+    );
+    // A fresh clone gives every file a new time: once numbered, the photos keep their numbers (inputs.json names them so).
+    const numbered = h.photos.map((p) => `${p.n}:${p.file}`).join(" ");
+    const { utimesSync } = await import("node:fs");
+    names.forEach((f, i) => utimesSync(join(dir, "photos", f), new Date(Date.now() - i * 60000), new Date(Date.now() - i * 60000)));
+    const again = await openHouse(dir);
+    check("re-timed files keep the numbers and times prepare gave them (scrivn/photos.json)", again.photos.map((p) => `${p.n}:${p.file}`).join(" ") === numbered && again.photos.every((p) => p.takenAt === h.photos.find((q) => q.file === p.file)?.takenAt), `${numbered} | ${again.photos.map((p) => `${p.n}:${p.file}`).join(" ")}`);
   }
   // plan.png: a side whose measure disagrees with what was said is dashed magenta, "TAPE IT" under its length; one that agrees says so.
   const planOf = planSvg([{ x: 0, y: 0 }, { x: 40, y: 0 }, { x: 40, y: 30 }, { x: 0, y: 30 }], 1400, 1000, {
