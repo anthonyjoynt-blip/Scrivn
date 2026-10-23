@@ -22,7 +22,7 @@ import { fileURLToPath } from "node:url";
 import { runStep } from "../../scripts/house/run.mjs";
 import { readsFromFinish } from "../../scripts/house/finishReads.mjs";
 import { siteReportPdf } from "../../scripts/house/site.mjs";
-import { lengthsIn, parseHouse, parseTapes } from "../../scripts/house/words.mjs";
+import { lengthsIn, parseHouse, parseMap, parseTapes } from "../../scripts/house/words.mjs";
 import { draftInputs, roleFromName, routeInput } from "../../scripts/house/folder.mjs";
 import { scrivn } from "../../scripts/house/code.mjs";
 import { parseFixes } from "../../scripts/house/review.mjs";
@@ -118,6 +118,16 @@ console.log("\n  tapes.txt and house.txt");
       b.outline.length === 6 && b.outlineFrom === "walk" && viaWalk.problems.length === 0 && shots[0]?.kind === "corner" && shots[0].index === 0 && shots[0].far && shots[1]?.kind === "run" && shots[1].far && shots[4]?.index === 0 && !viaWalk.input.photos[0].walk,
       `${JSON.stringify(b.outline)} ${JSON.stringify(shots)} ${viaWalk.problems.join(" | ")}`,
     );
+    // map.txt (10-23): the outline off a map, its corners as (x, y) in feet, carried onto the building; "map": false leaves it off.
+    const said = ["MAP OUTLINE - Microsoft's open building footprints, north +y, feet.", "(-34.5, -25.6)  (12.6, -40.1)  (24.9, -0.6)", "(3.3, 6.1)  (9.6, 26.2)  (-16.0, 34.1)", "Side lengths 49.3, 41.4, 22.6, 21.0, 26.7, 62.4 ft (6 sides)."].join("\n");
+    const read = parseMap(said);
+    check("map.txt: its corners read as (x, y) in order, where it came from named, nothing else taken for a corner", read.map?.corners.length === 6 && read.map.corners[0].x === -34.5 && read.map.corners[5].y === 34.1 && /Microsoft/.test(read.map.source) && !read.problem, JSON.stringify(read));
+    check("map.txt with fewer than three corners is said back, not guessed", parseMap("(1, 2) and (3, 4)").map === null && /2 corners/.test(parseMap("(1, 2) and (3, 4)").problem ?? ""));
+    const box = { shape: { from: "session", outline: [[0, 0], [40, 0], [40, 30], [0, 30]] }, tapes: [] };
+    const withMap = routeInput({ photos: [], mapText: said }, box, {}, xw);
+    const without = routeInput({ photos: [], mapText: said }, { ...box, map: false }, {}, xw);
+    const typed = routeInput({ photos: [] }, { ...box, map: { corners: [[0, 0], [40, 0], [40, 30], [0, 30]], source: "typed" } }, {}, xw);
+    check("the map goes on the building from map.txt, or typed in inputs.json; \"map\": false measures from the photos alone", withMap.input.buildings[0].map?.corners.length === 6 && !without.input.buildings[0].map && typed.input.buildings[0].map?.corners[2].y === 30 && typed.input.buildings[0].map.source === "typed", JSON.stringify(typed.input.buildings[0].map));
     const drawnWrong = routeInput({ photos: [] }, { shape: { from: "session", outline: [[0, 0], [40, 0], [40, 30], [0, 30]] }, walk: { turns: "O O O I O O" }, tapes: [] }, {}, xw);
     check("a shape drawn with other corners than the walk's is said, and stops the measure", drawnWrong.problems.some((p) => /^walk\.turns don't fit the shape drawn/.test(p)), drawnWrong.problems.join(" | "));
   }

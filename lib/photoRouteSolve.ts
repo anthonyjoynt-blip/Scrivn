@@ -105,6 +105,12 @@ export interface SolveInput {
    * as not measured rather than as sure as the drawing was taken to be.
    */
   uninformed?: string[];
+  /**
+   * Walls kept in order (2026-10-23): wall b at least `minFeet` past wall a along the axis - a side keeps the way the walk
+   * turned it. Nothing until it would flip; then a steep cost. A distance is a length either way round, so a bump-out held
+   * by its length alone could fold back through the wall behind it when a map outline pulled that wall out.
+   */
+  apart?: { a: string; b: string; axis: WallAxis; minFeet: number; sdFeet: number }[];
 }
 
 export interface Solution {
@@ -211,7 +217,8 @@ export function solvePlan(input: SolveInput, opts: { maxIterations?: number } = 
     void 0;
     const hs = input.heights ?? [];
     const priors = input.cameras.filter((c) => c.prior);
-    const out = new Float64Array(bearings.length + input.cameras.length + input.distances.length + (input.lens ? 1 : 0) + hs.length + 2 * priors.length);
+    const apart = input.apart ?? [];
+    const out = new Float64Array(bearings.length + input.cameras.length + input.distances.length + (input.lens ? 1 : 0) + hs.length + 2 * priors.length + apart.length);
     let i = 0;
     for (const b of bearings) {
       const cam = camById.get(b.camera) as SolveCamera;
@@ -242,6 +249,7 @@ export function solvePlan(input: SolveInput, opts: { maxIterations?: number } = 
       out[pAt++] = (at[0] - pr.at[0]) / pr.sdFeet;
       out[pAt++] = (at[1] - pr.at[1]) / pr.sdFeet;
     }
+    for (const ap of apart) out[pAt++] = Math.max(0, ap.minFeet - (wall(ap.b.slice(5), x) - wall(ap.a.slice(5), x))) / ap.sdFeet;
     for (const dd of input.distances) out[i++] = distanceResidual(dd, x);
     return out;
   };
