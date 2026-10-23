@@ -7168,5 +7168,68 @@ test("any number of corners (10-22): the owner's twelve said round, every wall n
   assert(x.walkRemoveCorner(joined, 3).walk.stops.length === four.stops.length - 2, "removing the far corner removes the joined one");
 });
 
+
+console.log("\ncleaner input: measure photos size the house, detail photos are read (10-22)");
+
+// A plain 40' x 30' box drawn 44' x 27', far-back photos at each corner and the front, the front taped; and a close photo of
+// one corner from the right side, said to be taken from somewhere it wasn't (12 ft off).
+const BOX = [{ x: 0, y: 0 }, { x: 40, y: 0 }, { x: 40, y: 30 }, { x: 0, y: 30 }];
+const BOX_DRAWN = [{ x: 0, y: 0 }, { x: 44, y: 0 }, { x: 44, y: 27 }, { x: 0, y: 27 }];
+const boxShots = [
+  ["front", [20, -50], { x: 20, y: 15 }, [{ c: 0 }, { c: 1 }]],
+  ["front-right", [62, -22], { x: 40, y: 0 }, [{ c: 0 }, { c: 1 }, { c: 2 }]],
+  ["back-right", [62, 52], { x: 40, y: 30 }, [{ c: 1 }, { c: 2 }, { c: 3 }]],
+  ["back-left", [-22, 52], { x: 0, y: 30 }, [{ c: 2 }, { c: 3 }, { c: 0 }]],
+  ["front-left", [-22, -22], { x: 0, y: 0 }, [{ c: 3 }, { c: 0 }, { c: 1 }]],
+];
+const withDetail = (standAt) => {
+  const r = synRoute(BOX, BOX_DRAWN, "detached", [...boxShots, ["detail", [60, 8], { x: 40, y: 4 }, [{ c: 1 }]]], [{ id: "front", kind: "side", from: 0, feet: 40 }]);
+  r.input.photos = r.input.photos.map((p) => (p.id === "detail" ? { ...p, standAt } : p));
+  return r;
+};
+const lengths = (sol) => sol.sides.map((s) => s.lengthFeet.toFixed(6)).join(" ");
+
+test("a photo with one corner never sizes the house: placed where you stood, afterwards, to be read; the old way kept to compare", () => {
+  const base = synRoute(BOX, BOX_DRAWN, "detached", boxShots, [{ id: "front", kind: "side", from: 0, feet: 40 }]);
+  const without = x.solveRoute(base.input, "main", base.data);
+  for (const spot of [[66, 8], [72, -2], [56, 18]]) {
+    const { input, data } = withDetail(spot);
+    const sol = x.solveRoute(input, "main", data);
+    assert(lengths(sol) === lengths(without), `stood at ${spot}: ${lengths(sol)} against ${lengths(without)}`);
+    const cam = sol.cameras.find((c) => c.photo === "detail");
+    assert(cam && cam.role === "detail" && cam.placedBy === "stood", JSON.stringify(cam));
+    assert(sol.cameras.filter((c) => c.role !== "detail").length === 5 && !sol.unplaced.some((u) => u.photo === "detail"), JSON.stringify(sol.unplaced));
+  }
+  // The old way: it is in the size solve with the rest.
+  const { input, data } = withDetail([72, -2]);
+  const old = x.solveRoute(input, "main", data, { sizePhotos: "all" });
+  const oc = old.cameras.find((c) => c.photo === "detail");
+  assert(oc && oc.placedBy === "stood" && !oc.role && old.solution.input.cameras.some((c) => c.id === "detail"), JSON.stringify(oc));
+});
+
+test("a photo left out of the size (the self-check's) is still placed by its corners, to be read", () => {
+  const { input, data } = synRoute(BOX, BOX_DRAWN, "detached", boxShots, [{ id: "front", kind: "side", from: 0, feet: 40 }]);
+  const all = x.solveRoute(input, "main", data);
+  const out = x.solveRoute(input, "main", data, { outOfSize: ["back-right"] });
+  const cam = out.cameras.find((c) => c.photo === "back-right");
+  assert(cam && cam.role === "detail" && cam.placedBy === "corners" && !out.solution.input.cameras.some((c) => c.id === "back-right"), JSON.stringify(cam));
+  const truth = all.cameras.find((c) => c.photo === "back-right");
+  assert(Math.hypot(cam.at[0] - truth.at[0], cam.at[1] - truth.at[1]) < 2, `${cam.at} against ${truth.at}`);
+  // Its corners are out of the size: the bearings there are the four other photos'.
+  assert(out.counts.cornerBearings === all.counts.cornerBearings - 3, `${out.counts.cornerBearings} / ${all.counts.cornerBearings}`);
+});
+
+test("a tape on a detail photo sizes nothing: said, and with no other tape the house is unscaled", () => {
+  const { input, data } = withDetail([66, 8]);
+  const det = synPhoto("detail", [60, 8], { x: 40, y: 4 });
+  const a = det.tap({ x: 40, y: 4 });
+  const b = det.tap({ x: 40, y: 10 });
+  input.buildings[0].tapes = [{ id: "window", kind: "line", photo: "detail", a: [a.x, 300], b: [b.x, 300], feet: 6, what: "window", exact: true }];
+  const sol = x.solveRoute(input, "main", data);
+  assert(sol.unscaled && JSON.stringify(sol.tapesOnDetail) === '["window"]', `${sol.unscaled} ${JSON.stringify(sol.tapesOnDetail)}`);
+  const old = x.solveRoute(input, "main", data, { sizePhotos: "all" });
+  assert(!old.unscaled, "the old way, it scaled the house");
+});
+
 console.log(`\n${passed.length} passed, ${failures.length} failed`);
 if (failures.length > 0) process.exit(1);

@@ -196,11 +196,14 @@ export function exteriorFromRoute(prev: Exterior | undefined, state: PhotoRouteS
     else delete side.photos;
     return side;
   });
-  const placed = m.cameras.length;
+  // Only the photos that sized it count as measured from (2026-10-22): a detail photo was placed afterwards, to be read.
+  const placed = m.cameras.filter((c) => c.role !== "detail").length;
+  const detail = m.cameras.length - placed;
   const tapes = state.buildings.find((b) => b.id === m.building)?.tapes ?? [];
   const estimated = m.sides.filter((s) => s.estimated && !s.taped).length;
   const notes = [
     `Measured from ${placed} of ${state.photos.length} photo${state.photos.length === 1 ? "" : "s"} and ${tapes.length} tape${tapes.length === 1 ? "" : "s"}${estimated ? `, with ${estimated} side${estimated === 1 ? "" : "s"} estimated on site by eye (not taped)` : ""}.`,
+    ...(detail ? [`${detail} more photo${detail === 1 ? " was" : "s were"} placed on it only to read the walls; they sized nothing.`] : []),
     ...(tapes.length === 0 ? [estimated ? "No tape: the sizes follow the sides estimated on site and the shape as drawn, and are not to scale." : "No tape: the sizes follow the shape as drawn, and are not to scale."] : []),
   ];
   const { homeType: _was, ...prevRest } = prev ?? ({} as Partial<Exterior>);
