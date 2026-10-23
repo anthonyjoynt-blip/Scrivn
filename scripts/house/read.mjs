@@ -45,7 +45,8 @@ import sharp from "sharp";
 import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { scrivn } from "./code.mjs";
-import { loadPixels, readJson, statePath, writeJson } from "./folder.mjs";
+import { loadPixels, photoOf, readJson, statePath, writeJson } from "./folder.mjs";
+import { detailOnSide } from "./match.mjs";
 import { griddedSide } from "./sheets.mjs";
 import { wireOf } from "./finishReads.mjs";
 import { ftin, sideName } from "./words.mjs";
@@ -74,8 +75,12 @@ function crosses(ring, C, P, side) {
   return false;
 }
 
-/** Side [i] squared from each placed photo that sees any of it: the views, best face-on first. */
-async function sideViews(x, m, pixelsOf, nOf, i) {
+/**
+ * A placed photo [rc] laid on side [i]: what of the side it sees (in front of it, nothing of the house in the way), and
+ * Scrivn's own sidePhotoFor - or, with the side's middle out of the picture, laid on the part it sees and shifted back to
+ * the side's own frame. Null when it sees none of the side.
+ */
+export function photoOnSide(x, m, rc, i, pn) {
   const ring = m.corners;
   const n = ring.length;
   const A = ring[i];
@@ -83,61 +88,90 @@ async function sideViews(x, m, pixelsOf, nOf, i) {
   const L = Math.hypot(B.x - A.x, B.y - A.y);
   const nrm = { x: (B.y - A.y) / L, y: -(B.x - A.x) / L };
   const mid = { x: (A.x + B.x) / 2, y: (A.y + B.y) / 2 };
-  const views = [];
-  for (const rc of m.cameras) {
-    const lens = m.lenses[rc.photo];
-    const pn = nOf(rc.photo);
-    const v = { x: rc.at[0] - mid.x, y: rc.at[1] - mid.y };
-    const facing = (v.x * nrm.x + v.y * nrm.y) / (Math.hypot(v.x, v.y) || 1);
-    if (!lens || facing <= 0.02) continue;
-    // Which stretches of the side it sees: in front of it there, nothing of the house in the way.
-    const C = { x: rc.at[0], y: rc.at[1] };
-    const vis = [];
-    for (let k = 0; k <= STEPS; k++) {
-      const t = k / STEPS;
-      const P = { x: A.x + (B.x - A.x) * t, y: A.y + (B.y - A.y) * t };
-      vis.push((C.x - P.x) * nrm.x + (C.y - P.y) * nrm.y > 0 && !crosses(ring, C, P, i));
-    }
-    const seen = vis.filter(Boolean).length / vis.length;
-    if (seen === 0) continue;
-    let sp = x.sidePhotoFor(lens, rc, A, B, 900 + pn - 1, rc.photo);
-    if (!sp) {
-      // Its middle out of the picture: laid on the part it sees, then shifted back to the side's own frame.
-      const ks = vis.map((b, k) => (b ? k : -1)).filter((k) => k >= 0);
-      const t0 = ks[0] / STEPS;
-      const t1 = ks[ks.length - 1] / STEPS;
-      const A2 = { x: A.x + (B.x - A.x) * t0, y: A.y + (B.y - A.y) * t0 };
-      const B2 = { x: A.x + (B.x - A.x) * t1, y: A.y + (B.y - A.y) * t1 };
-      const sp2 = t1 > t0 ? x.sidePhotoFor(lens, rc, A2, B2, 900 + pn - 1, rc.photo) : null;
-      if (sp2) sp = x.photoOnPart(sp2, -t0 * L, 0, L, (t1 - t0) * L);
-    }
-    if (!sp) continue;
-    const cov = x.photoCoverageM(sp);
-    if (!cov) continue;
-    const Lm = L * FOOT_M;
-    const alongMin = Math.max(cov.alongMin, -0.6);
-    const alongMax = Math.min(cov.alongMax, Lm + 0.6);
-    const upMin = Math.max(cov.upMin, -1);
-    const upMax = Math.min(cov.upMax, 7.5);
-    if (!(alongMax - alongMin > 0.3 && upMax - upMin > 0.3)) continue;
-    const ppm = 1400 / Math.max(alongMax - alongMin, upMax - upMin);
-    const frame = { alongMinM: alongMin, alongMaxM: alongMax, upMinM: upMin, upMaxM: upMax, ppm, width: Math.round((alongMax - alongMin) * ppm), height: Math.round((upMax - upMin) * ppm) };
-    const rgba = x.squareUp([{ photo: sp, pixels: await pixelsOf(rc.photo) }], frame);
-    const png = await sharp(Buffer.from(rgba.buffer, rgba.byteOffset, rgba.byteLength), { raw: { width: frame.width, height: frame.height, channels: 4 } }).png().toBuffer();
-    let grid = await griddedSide(png, frame, L, x);
-    let hatch = "";
-    for (let k = 0; k < STEPS; k++) {
-      if (vis[k] && vis[k + 1]) continue;
-      const x0 = x.frameX(frame, (k / STEPS) * Lm);
-      const x1 = x.frameX(frame, ((k + 1) / STEPS) * Lm);
-      hatch += `<rect x="${x0.toFixed(1)}" y="0" width="${(x1 - x0).toFixed(1)}" height="${frame.height}" fill="rgba(255,0,0,0.2)"/>`;
-    }
-    if (hatch) grid = await sharp(grid).composite([{ input: Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${frame.width}" height="${frame.height}">${hatch}</svg>`), left: 0, top: 0 }]).png().toBuffer();
-    const p0 = x.projectToPhoto(sp, Lm / 2, 0.5);
-    const p1 = x.projectToPhoto(sp, Lm / 2 + FOOT_M, 0.5);
-    views.push({ sidePhoto: sp, photo: pn, angleDeg: Math.round((Math.acos(Math.min(1, facing)) * 180) / Math.PI), seen, pxPerFt: p0 && p1 ? Math.hypot(p1.x - p0.x, p1.y - p0.y) : null, frame, grid });
+  const lens = m.lenses[rc.photo];
+  const v = { x: rc.at[0] - mid.x, y: rc.at[1] - mid.y };
+  const facing = (v.x * nrm.x + v.y * nrm.y) / (Math.hypot(v.x, v.y) || 1);
+  if (!lens || facing <= 0.02) return null;
+  // Which stretches of the side it sees: in front of it there, nothing of the house in the way.
+  const C = { x: rc.at[0], y: rc.at[1] };
+  const vis = [];
+  for (let k = 0; k <= STEPS; k++) {
+    const t = k / STEPS;
+    const P = { x: A.x + (B.x - A.x) * t, y: A.y + (B.y - A.y) * t };
+    vis.push((C.x - P.x) * nrm.x + (C.y - P.y) * nrm.y > 0 && !crosses(ring, C, P, i));
   }
-  return { lengthFeet: L, views: views.sort((a, b) => a.angleDeg - b.angleDeg) };
+  const seen = vis.filter(Boolean).length / vis.length;
+  if (seen === 0) return null;
+  let sp = x.sidePhotoFor(lens, rc, A, B, 900 + pn - 1, rc.photo);
+  if (!sp) {
+    // Its middle out of the picture: laid on the part it sees, then shifted back to the side's own frame.
+    const ks = vis.map((b, k) => (b ? k : -1)).filter((k) => k >= 0);
+    const t0 = ks[0] / STEPS;
+    const t1 = ks[ks.length - 1] / STEPS;
+    const A2 = { x: A.x + (B.x - A.x) * t0, y: A.y + (B.y - A.y) * t0 };
+    const B2 = { x: A.x + (B.x - A.x) * t1, y: A.y + (B.y - A.y) * t1 };
+    const sp2 = t1 > t0 ? x.sidePhotoFor(lens, rc, A2, B2, 900 + pn - 1, rc.photo) : null;
+    if (sp2) sp = x.photoOnPart(sp2, -t0 * L, 0, L, (t1 - t0) * L);
+  }
+  return sp ? { sp, vis, seen, facing, lengthFeet: L } : null;
+}
+
+/** One view of a side: [sp] squared over what of the side it covers, gridded, the stretches [vis] says are hidden hatched. */
+async function viewOf(x, sp, pixels, L, vis) {
+  const cov = x.photoCoverageM(sp);
+  if (!cov) return null;
+  const Lm = L * FOOT_M;
+  const alongMin = Math.max(cov.alongMin, -0.6);
+  const alongMax = Math.min(cov.alongMax, Lm + 0.6);
+  const upMin = Math.max(cov.upMin, -1);
+  const upMax = Math.min(cov.upMax, 7.5);
+  if (!(alongMax - alongMin > 0.3 && upMax - upMin > 0.3)) return null;
+  const ppm = 1400 / Math.max(alongMax - alongMin, upMax - upMin);
+  const frame = { alongMinM: alongMin, alongMaxM: alongMax, upMinM: upMin, upMaxM: upMax, ppm, width: Math.round((alongMax - alongMin) * ppm), height: Math.round((upMax - upMin) * ppm) };
+  const rgba = x.squareUp([{ photo: sp, pixels }], frame);
+  const png = await sharp(Buffer.from(rgba.buffer, rgba.byteOffset, rgba.byteLength), { raw: { width: frame.width, height: frame.height, channels: 4 } }).png().toBuffer();
+  let grid = await griddedSide(png, frame, L, x);
+  let hatch = "";
+  for (let k = 0; vis && k < STEPS; k++) {
+    if (vis[k] && vis[k + 1]) continue;
+    const x0 = x.frameX(frame, (k / STEPS) * Lm);
+    const x1 = x.frameX(frame, ((k + 1) / STEPS) * Lm);
+    hatch += `<rect x="${x0.toFixed(1)}" y="0" width="${(x1 - x0).toFixed(1)}" height="${frame.height}" fill="rgba(255,0,0,0.2)"/>`;
+  }
+  if (hatch) grid = await sharp(grid).composite([{ input: Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${frame.width}" height="${frame.height}">${hatch}</svg>`), left: 0, top: 0 }]).png().toBuffer();
+  const p0 = x.projectToPhoto(sp, Lm / 2, 0.5);
+  const p1 = x.projectToPhoto(sp, Lm / 2 + FOOT_M, 0.5);
+  return { frame, grid, pxPerFt: p0 && p1 ? Math.hypot(p1.x - p0.x, p1.y - p0.y) : null };
+}
+
+/**
+ * Side [i] squared from each placed photo that sees any of it, best face-on first; then each close-up laid on it
+ * (scrivn/match.json, run.mjs match): read at the close-up's own resolution, at the wall's scale.
+ */
+async function sideViews(x, m, pixelsOf, nOf, i, h = null, matches = []) {
+  const views = [];
+  let lengthFeet = null;
+  for (const rc of m.cameras) {
+    const pn = nOf(rc.photo);
+    const on = photoOnSide(x, m, rc, i, pn);
+    if (!on) continue;
+    lengthFeet = on.lengthFeet;
+    const v = await viewOf(x, on.sp, await pixelsOf(rc.photo), on.lengthFeet, on.vis);
+    if (!v) continue;
+    views.push({ sidePhoto: on.sp, photo: pn, angleDeg: Math.round((Math.acos(Math.min(1, on.facing)) * 180) / Math.PI), seen: on.seen, ...v });
+  }
+  views.sort((a, b) => a.angleDeg - b.angleDeg);
+  const ring = m.corners;
+  const L = lengthFeet ?? Math.hypot(ring[(i + 1) % ring.length].x - ring[i].x, ring[(i + 1) % ring.length].y - ring[i].y);
+  for (const r of matches) {
+    const detail = photoOf(h, r.photo);
+    const full = photoOf(h, r.full);
+    const on = detail && full ? detailOnSide(x, m, h, detail, full, r.h, i) : null;
+    if (!on) continue;
+    const v = await viewOf(x, on.sp, await pixelsOf(detail.id), on.lengthFeet, null);
+    if (v) views.push({ sidePhoto: on.sp, photo: r.photo, laidOn: r.full, by: r.by, inliers: r.inliers, zoom: r.zoom, seen: null, angleDeg: null, ...v });
+  }
+  return { lengthFeet: L, views };
 }
 
 /** A side's views stacked into one sheet, each under its own line of words. */
@@ -150,7 +184,10 @@ async function sideSheet(title, views) {
   parts.push({ input: head(title), left: 0, top });
   top += HEAD;
   for (const v of views) {
-    parts.push({ input: head(`photo ${v.photo}: ${v.angleDeg}° off face-on, ${Math.round(v.seen * 100)}% of the side in view${v.pxPerFt ? `, ${v.pxPerFt.toFixed(0)} px a foot in the photo` : ""}`), left: 0, top });
+    const words = v.laidOn
+      ? `photo ${v.photo}, a close-up laid on photo ${v.laidOn} (${v.by === "taps" ? "from taps" : `${v.inliers} points agree`}, ${v.zoom}x nearer)${v.pxPerFt ? `, ${v.pxPerFt.toFixed(0)} px a foot in the photo` : ""}`
+      : `photo ${v.photo}: ${v.angleDeg}° off face-on, ${Math.round(v.seen * 100)}% of the side in view${v.pxPerFt ? `, ${v.pxPerFt.toFixed(0)} px a foot in the photo` : ""}`;
+    parts.push({ input: head(words), left: 0, top });
     top += HEAD;
     parts.push({ input: v.grid, left: 0, top });
     top += v.frame.height + 8;
@@ -304,7 +341,7 @@ function checklist(ext, sheets, h) {
   const q = [];
   q.push("Reading checklist (run.mjs read). Look at each sheet in scrivn/read/ and answer in scrivn/reading.json (its form is at the top of scripts/house/read.mjs); then run read again and report.");
   q.push("");
-  for (const s of sheets) q.push(`${s.key} ${s.name}, ${ftin(s.lengthFeet)}: ${s.views.length ? `photos ${s.views.map((v) => `${v.photo} (${v.angleDeg}°)`).join(", ")}` : "NO PHOTO SEES IT"} - read/${s.file}`);
+  for (const s of sheets) q.push(`${s.key} ${s.name}, ${ftin(s.lengthFeet)}: ${s.views.length ? `photos ${s.views.map((v) => (v.laidOn ? `${v.photo} (a close-up on ${v.laidOn})` : `${v.photo} (${v.angleDeg}°)`)).join(", ")}` : "NO PHOTO SEES IT"} - read/${s.file}`);
   q.push("");
   q.push("Each side:");
   q.push("  [ ] every window, door, patio door and garage door: kind, offset from its left end, width, height, sill (over the floor or the slab, and say which), the photos it is on, what hides part of it");
@@ -341,6 +378,8 @@ export async function read(h) {
   const pixels = await loadPixels(h, x);
   const pixelsOf = async (id) => pixels[h.photos.findIndex((p) => p.id === id)];
   const nOf = (id) => h.photos.find((p) => p.id === id)?.n;
+  // The close-ups laid on their walls (run.mjs match), each on its side's sheet.
+  const laid = (readJson(statePath(h, "match.json"), { details: [] }).details ?? []).filter((r) => r.laid && r.side);
   const dir = statePath(h, "read");
   mkdirSync(dir, { recursive: true });
   for (const f of readdirSync(dir)) if (f.endsWith(".png")) rmSync(join(dir, f));
@@ -349,17 +388,17 @@ export async function read(h) {
   for (let i = 0; i < n; i++) {
     const key = sideName(i, n);
     const side = ext.sides.find((s) => s.id === m.sideIds[i]);
-    const { lengthFeet, views } = await sideViews(x, m, pixelsOf, nOf, i);
+    const { lengthFeet, views } = await sideViews(x, m, pixelsOf, nOf, i, h, laid.filter((r) => r.side === key));
     const file = `${key} ${(side?.name ?? "").replace(/[^\w ()-]+/g, "")}.png`.replace(/ +\.png$/, ".png");
     if (views.length) writeFileSync(join(dir, file), await sideSheet(`${key} ${side?.name ?? ""} - ${ftin(lengthFeet)}, from every photo that shows it`, views));
     sheets.push({ key, name: side?.name ?? "", lengthFeet, views, file });
-    index[key] = { name: side?.name ?? "", lengthFeet, views: views.map((v) => ({ photo: v.photo, angleDeg: v.angleDeg, seen: Math.round(v.seen * 100) / 100, pxPerFt: v.pxPerFt && Math.round(v.pxPerFt * 10) / 10, frame: v.frame })) };
+    index[key] = { name: side?.name ?? "", lengthFeet, views: views.map((v) => ({ photo: v.photo, ...(v.laidOn ? { laidOn: v.laidOn } : { angleDeg: v.angleDeg, seen: Math.round(v.seen * 100) / 100 }), pxPerFt: v.pxPerFt && Math.round(v.pxPerFt * 10) / 10, frame: v.frame })) };
   }
   writeJson(join(dir, "views.json"), { about: "Each side squared from every placed photo that sees it (run.mjs read): its frame per photo, best face-on first.", sides: index });
   writeFileSync(statePath(h, "read.txt"), `${checklist(ext, sheets, h)}\n`);
   const out = [
     `Read sheets: ${sheets.filter((s) => s.views.length).length} sides in ${relative(h.dir, dir)}/, ${sheets.reduce((s2, s) => s2 + s.views.length, 0)} views from ${new Set(sheets.flatMap((s) => s.views.map((v) => v.photo))).size} photos.`,
-    ...sheets.map((s) => `  ${s.key} ${s.name}: ${s.views.length ? s.views.map((v) => `#${v.photo} ${v.angleDeg}°`).join(", ") : "no photo sees it"}`),
+    ...sheets.map((s) => `  ${s.key} ${s.name}: ${s.views.length ? s.views.map((v) => (v.laidOn ? `#${v.photo} on #${v.laidOn}` : `#${v.photo} ${v.angleDeg}°`)).join(", ") : "no photo sees it"}`),
     `Checklist: ${relative(h.dir, statePath(h, "read.txt"))}.`,
   ];
   const readingFile = statePath(h, "reading.json");

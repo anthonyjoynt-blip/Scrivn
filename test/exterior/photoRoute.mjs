@@ -32,7 +32,7 @@ const FIXTURE = join(here, "fixtures", "photo-route", "owner-1016.json");
 async function load() {
   const outDir = mkdtempSync(join(tmpdir(), "photo-route-"));
   const entry = join(outDir, "entry.ts");
-  writeFileSync(entry, ["photoRoute.ts", "photoRouteLens.ts", "photoRouteLines.ts", "photoRouteEdges.ts", "photoRouteSolve.ts", "photoRouteData.ts", "photoRouteExterior.ts", "exteriorPhoto.ts", "exterior.ts", "exteriorTrace.ts", "exteriorReport.ts", "exteriorCheck.ts", "photoRouteCoverage.ts", "photoRouteSanity.ts"].map((f) => `export * from "${lib(f)}";`).join("\n"));
+  writeFileSync(entry, ["photoRoute.ts", "photoRouteLens.ts", "photoRouteLines.ts", "photoRouteEdges.ts", "photoRouteSolve.ts", "photoRouteData.ts", "photoRouteExterior.ts", "exteriorPhoto.ts", "exterior.ts", "exteriorTrace.ts", "exteriorReport.ts", "exteriorCheck.ts", "photoRouteCoverage.ts", "photoRouteSanity.ts", "photoRouteMatch.ts"].map((f) => `export * from "${lib(f)}";`).join("\n"));
   await build({ entryPoints: [entry], bundle: true, format: "esm", platform: "node", outfile: join(outDir, "entry.mjs"), alias: { "@": root }, logLevel: "silent" });
   const mod = await import(pathToFileURL(join(outDir, "entry.mjs")).href);
   rmSync(outDir, { recursive: true, force: true });
@@ -518,6 +518,116 @@ check(
   checkExt && checkExt.sides.every((s) => s.lengthEstimatedFeet === undefined) && !/estimated on site/.test(checkReport) && !/estimated on site/.test(checkExt.source.notes.join(" ")) && checkExt.photoRoute.measured.sides[3].estimateCheck?.disagrees === true,
   checkExt ? `${checkExt.sides.filter((s) => s.lengthEstimatedFeet !== undefined).length} sides estimated; report: ${checkReport.match(/.{80}estimated on site.{80}/g)?.join(" | ") ?? "-"}; notes: ${checkExt.source.notes.join(" ")}; kept: ${JSON.stringify(checkExt.photoRoute.measured.sides[3].estimateCheck)}` : "no exterior",
 );
+
+
+// ── 10-23: a close-up laid exactly on its wall's full photo (lib/photoRouteMatch.ts) ───────────────────────────────────
+// A wall is flat: one homography takes the close-up's pixels to the full photo's, found in code (each squared from its
+// levelling, the scale and shift searched, made exact on patches that agree) or from 4 taps. Laid so, what the close-up
+// shows is read at the wall's scale; it sizes nothing.
+console.log("\n  Close-ups laid on their wall's full photo:");
+{
+  const tMatch = Date.now();
+  const H0 = [1.3, 0.05, 40, -0.02, 1.25, -15, 0.0001, -0.00005, 1];
+  const through = (h, [px, py]) => {
+    const w = h[6] * px + h[7] * py + h[8];
+    return [(h[0] * px + h[1] * py + h[2]) / w, (h[3] * px + h[4] * py + h[5]) / w];
+  };
+  const src = [
+    [100, 120],
+    [900, 80],
+    [880, 700],
+    [140, 760],
+  ];
+  const four = x.homographyFrom(
+    src,
+    src.map((q) => through(H0, q)),
+  );
+  check("the homography from 4 points is the one they came from", four && four.every((v, i) => Math.abs(v - H0[i]) < 1e-6 * Math.max(1, Math.abs(H0[i]))), JSON.stringify(four?.map((v) => +v.toPrecision(6))));
+  let seed = 7;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647 - 0.5) * 0.6;
+  const many = Array.from({ length: 30 }, (_, i) => [60 + ((i * 397) % 900), 50 + ((i * 211) % 700)]);
+  const fitted = x.homographyFrom(
+    many,
+    many.map((q) => through(H0, q).map((v) => v + rnd())),
+  );
+  const rms = Math.sqrt(many.reduce((a, q) => a + Math.hypot(...through(fitted, q).map((v, k) => v - through(H0, q)[k])) ** 2, 0) / many.length);
+  check("from 30 points off by up to 0.3 px, least squares lands within half a pixel", rms < 0.5, `${rms.toFixed(3)} px rms`);
+  check(
+    "four points in a line fix none",
+    x.homographyFrom(
+      [
+        [0, 0],
+        [1, 1],
+        [2, 2],
+        [3, 3],
+      ],
+      [
+        [0, 0],
+        [1, 1],
+        [2, 2],
+        [3, 3],
+      ],
+    ) === null,
+  );
+  // The taps: as taken, the lens's radial term on both; the match is between straight-camera pixels.
+  const camA = { width: 1600, height: 1200, k: -0.02 };
+  const camB = { width: 2000, height: 1500, k: -0.02 };
+  const tapsAB = src.concat([[500, 500]]).map((q) => {
+    const d = x.distort(camA, q[0], q[1]);
+    const f = x.distort(camB, ...through(H0, q));
+    return [d[0], d[1], f[0], f[1]];
+  });
+  const byTaps = x.matchFromTaps(tapsAB, camA, camB);
+  check("4 or more points tapped on both photos, the lens taken off each, give the plane between them", byTaps && byTaps.by === "taps" && byTaps.rmsPx < 1e-6 && byTaps.h.every((v, i) => Math.abs(v - H0[i]) < 1e-6 * Math.max(1, Math.abs(H0[i]))), byTaps ? `${byTaps.rmsPx.toExponential(1)} px` : "none");
+  check("fewer than 4 taps: no match", x.matchFromTaps(tapsAB.slice(0, 3), camA, camB) === null);
+  // Laid on a side: through the full photo's own to_photo, a line drawn on the close-up is on the wall as long as the same
+  // line drawn on the full photo. A close-up 2.5x nearer, straight on, of the middle of the side's first photo.
+  const sideWith = ext?.sides.find((sd) => sd.photos?.length);
+  const fullSp = sideWith?.photos[0];
+  const camF = fullSp ? { width: fullSp.camera.width, height: fullSp.camera.height, k: fullSp.camera.k ?? 0 } : null;
+  const zoomIn = fullSp ? [0.4, 0, fullSp.camera.width * 0.3, 0, 0.4, fullSp.camera.height * 0.3, 0, 0, 1] : null;
+  const closeSp = fullSp ? x.detailSidePhoto(fullSp, { h: zoomIn }, { width: 2000, height: 1500, k: 0 }, 950, "close", sideWith.lengthFeet * 0.3048) : null;
+  const onFull = (q) => x.distort(camF, ...through(zoomIn, q));
+  const lineClose = closeSp ? x.wallLine(closeSp, [400, 900], [1700, 880]) : null;
+  const lineFull = fullSp ? x.wallLine(fullSp, onFull([400, 900]), onFull([1700, 880])) : null;
+  check(
+    "a line on a close-up laid on a side is as long on the wall as the same line on the side's full photo",
+    lineClose && lineFull && Math.abs(lineClose.feet - lineFull.feet) < 1e-6 && Math.abs(lineClose.from[0] - lineFull.from[0]) < 1e-6,
+    lineClose && lineFull ? `${lineClose.feet.toFixed(4)}' and ${lineFull.feet.toFixed(4)}'` : "none",
+  );
+  const chk = closeSp && lineFull ? x.checkOnWall(closeSp, [400, 900], [1700, 880], lineFull.feet * 1.08) : null;
+  check(
+    "a tape 8% off what the wall makes it is worth a look (over 5%); one 2% off agrees",
+    chk && !chk.agrees && Math.abs(chk.offPct + 7.41) < 0.05 && x.checkOnWall(closeSp, [400, 900], [1700, 880], lineFull.feet * 1.02)?.agrees === true,
+    chk ? `${chk.offPct.toFixed(2)}%` : "none",
+  );
+  // His photos: #10, the rear bump-out from close and to its left, on #9, the same wall from further back and to its right.
+  // Hand-read corners of its two windows' white surrounds on both, at 10x (the upper window's top two and bottom right;
+  // the basement slider's top two - its bottom ones are behind stones and a shrub).
+  const D = prepared.data.find((q) => q.id === "p10");
+  const F = prepared.data.find((q) => q.id === "p9");
+  const real = x.matchDetail({ gray: D.gray, camera: D.camera }, { gray: F.gray, camera: F.camera });
+  const HAND = [
+    { d: [565.8, 493.3], f: [633.0, 487.8] },
+    { d: [834.8, 505.2], f: [829.5, 444.5] },
+    { d: [846.5, 664.8], f: [832.2, 620.8] },
+    { d: [256.3, 940.8], f: [487.5, 842.0] },
+    { d: [604.8, 909.8], f: [651.5, 847.0] },
+  ];
+  const off = real.match
+    ? HAND.map(({ d, f }) => {
+        const u = x.undistort(D.camera, d[0], d[1]);
+        const q = x.distort(F.camera, ...through(real.match.h, u));
+        return Math.hypot(q[0] - f[0], q[1] - f[1]);
+      })
+    : [];
+  console.log(`    #10 on #9: ${real.words} Hand-read corners off by ${off.map((v) => v.toFixed(1)).join(", ")} px.`);
+  check("his close-up of the bump-out is laid on his other photo of it in code: 8 points or more agree, and its window corners land within 5 px of where they are", !!real.match && real.match.inliers >= 8 && off.length === HAND.length && Math.max(...off) < 5, real.words);
+  const G = prepared.data.find((q) => q.id === "p15");
+  const wrong = x.matchDetail({ gray: D.gray, camera: D.camera }, { gray: G.gray, camera: G.camera });
+  check("laid on a photo of another wall (the garage front), it finds no place", wrong.match === null, wrong.words);
+  console.log(`    (${((Date.now() - tMatch) / 1000).toFixed(1)} s)`);
+}
 
 console.log(`\n${passed.length} passed, ${failures.length} failed (${((Date.now() - t0) / 1000).toFixed(0)} s)`);
 process.exit(failures.length ? 1 : 0);
