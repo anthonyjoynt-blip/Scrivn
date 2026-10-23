@@ -1,8 +1,8 @@
 /**
- * The house runner's reading pass (2026-10-22): `run.mjs <folder> read`, after measure. A blind test on the owner's 7-photo
- * house (house G) read every side off EVERY photo that shows it, not the one squared photo `measure` makes, and found what
- * the first pass missed: the openings on a side seen edge-on, the AC side's basement window, the deck's door and slider, the
- * garage roof lower with its own gable, the bump-out's eave level with the main one, the deck filling the corner.
+ * The house runner's reading pass (2026-10-22): `run.mjs <folder> read`, after measure. A blind test on a test house's
+ * far-back photos read every side off EVERY photo that shows it, not the one squared photo `measure` makes, and found what
+ * the first pass missed: openings on a side seen edge-on or partly hidden, low windows, doors behind a deck, and parts of
+ * the roof and the decks the one squared photo couldn't show.
  *
  *   read      each side squared from every placed photo that sees it (Scrivn's own sidePhotoFor + squareUp), one sheet a
  *             side in scrivn/read/ with a grid, the side's ends and ground and a foot ruler, the stretches the house hides
@@ -38,8 +38,8 @@
  *                    its wall's line) and "outTo": "C2-C3" (out flush with that wall's face) or "depthFeet"; its taps then
  *                    go, and "toFeet": "end" on a railing or a screen runs it to the end of its edge
  *
- * The reader's own file from house G (blind-runs/house-g-reading/reading.json) is this form, with groundBySide, wallTopFt and
- * roofAnswers added by the session. Nothing here calls an API.
+ * A blind run's own reading file was this form, with groundBySide, wallTopFt and roofAnswers added by the session.
+ * Nothing here calls an API.
  */
 import sharp from "sharp";
 import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";

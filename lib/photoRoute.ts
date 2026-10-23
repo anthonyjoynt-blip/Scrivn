@@ -3,8 +3,8 @@
  * a few tapes become its outline, every wall's length with its ± and where each photo was taken.
  * No AR, no Scan, no server: it all runs in the browser (the PWA), on any phone.
  *
- * The owner's proof of 10-16 (photo-route-proof/README.md) did this by hand with OpenCV: 18 photos and
- * 3 tapes, 129 bearings picked by eye, outline within 2-4% on 8 of 12 sides. Here the app does what
+ * A proof of 10-16 (photo-route-proof/README.md) did this by hand with OpenCV: a test house's photos,
+ * a few tapes and bearings picked by eye, most of its outline within a few percent. Here the app does what
  * it can on its own and asks the user only for what it cannot:
  *
  *   THE USER  draws the house's shape rough (the plan's outline tool), taps each corner of the house
@@ -171,8 +171,8 @@ export interface CornerTap {
   /**
    * Seen only through or behind something in front of the wall (2026-10-23), in words: "deck rail", "privacy screen", "post".
    * Still in the solve, but no sighting that checks where its walls stand: a wall needs its ends on two measure photos
-   * seen clear, or it is not measured (`markLongWalls`; a blind run's deck walls, tapped behind a rail and a screen, came
-   * out sure and a fifth off or more).
+   * seen clear, or it is not measured (`markLongWalls`; a blind run's walls tapped behind a rail and a screen came
+   * out sure and well off).
    */
   behind?: string;
 }
@@ -189,12 +189,12 @@ export type RouteTape =
   | { id: string; kind: "side"; /** The side from outline corner `from` to the next. */ from: number; feet: number };
 
 /**
- * A side's length as someone at the house judged it by eye (2026-10-21): "the bump-out sticks out about 6'", "the back
- * wall is about 15'". Never a tape. By default it only checks the measure (`use` "check"): the solve is left as the
+ * A side's length as someone at the house judged it by eye (2026-10-21): "the sunroom sticks out about 12'", "the back
+ * wall is about 32'". Never a tape. By default it only checks the measure (`use` "check"): the solve is left as the
  * photos and tapes make it, and a side the measure puts further from what was said than its ± is said to disagree, with
  * a tape asked for. Held ("hold"), the side is held to it loosely instead, its ± read as the route reads its own (about
- * two sd), and still worked out from the photos and marked to check. Blind run E and the owner's own house (10-21) showed
- * why "check" is the default: held, a guess fixed a side the photos had 100% out, but dragged one they had right 15%.
+ * two sd), and still worked out from the photos and marked to check. Blind runs of two test houses (10-21) showed
+ * why "check" is the default: held, a guess fixed a side the photos had far out, but dragged one they had right well off.
  */
 export interface RouteEstimate {
   id: string;
@@ -218,8 +218,8 @@ export function checkEstimate(lengthFeet: number, e: Pick<RouteEstimate, "feet" 
 }
 
 /**
- * A measure and a size estimated on site that disagree, in words, from "estimated": "estimated on site at about 7', but
- * the photos make it 12'0": 71% longer, more than the estimate's ±20%. Tape it to see which is right."
+ * A measure and a size estimated on site that disagree, in words, from "estimated": "estimated on site at about 10', but
+ * the photos make it 14'0": 40% longer, more than the estimate's ±20%. Tape it to see which is right."
  */
 export function estimateDisagreement(lengthFeet: number, c: EstimateCheck): string {
   return `estimated on site at about ${formatFeetInches(c.feet)}, but the photos make it ${formatFeetInches(lengthFeet)}: ${Math.round(Math.abs(c.offPct))}% ${c.offPct > 0 ? "longer" : "shorter"}, more than the estimate's ±${c.plusMinusPct}%. Tape it to see which is right.`;
@@ -576,7 +576,7 @@ export function numberCorners(input: PhotoRouteInput, buildingId: string, data: 
     const shot = shotOf.get(job.id);
     // A photo of the walk round the house is what the walk says it is: its names stand even where the shape - rough, from
     // the lap - fits no placement; the app numbers only the taps they leave (2026-10-21: fitted freely on the lap's shape,
-    // 31 of 83 taps on a walk of the owner's house came out wrong).
+    // about a third of the taps on a test walk came out wrong).
     const walked = !!shot && walkedPhotos.has(job.id);
     // A far-back photo names no tap by its place in the picture (2026-10-22): a corner's says only that the corner is
     // among them, and it looked in across that corner; a run's (the front, the back) that its corners are the run's.
@@ -717,7 +717,7 @@ function runCorners(from: number, to: number, n: number): Set<number> {
  *   a corner at 45 degrees: the tap nearest its middle that corner; and on a photo of the walk round the house (`walked`),
  *     the taps beside it either way the far ends of its two walls (2026-10-21: the walk asks for just those - a 45 shows the
  *     wall walked to the corner on its left, the one on from it on its right. The checklist asks for every corner in sight,
- *     and on the owner's 10-16 photos the ones beside it were the far ends 18 times in 24);
+ *     and on a test house's photos the ones beside it were most often the far ends);
  *   a wall straight on: its leftmost and rightmost taps, the wall's two corners as seen from outside;
  *   a run (the walk's front): its leftmost and rightmost taps, the run's two ends - and every tap in order when there are
  *     as many as the run has corners;
@@ -879,7 +879,7 @@ export function neighbourBlocks(C: Pt, P: Pt, ring: Pt[], shared: Set<number> | 
 const HAND_HEIGHT_FEET: [number, number] = [3, 7.5];
 /**
  * The same, for placing a photo by its edges: wider, as a corner tapped where it shows - on a porch deck, at the top of
- * a step - reads the camera lower than it was over the ground (the owner's #1: tapped on the porch, 2'6" up).
+ * a step - reads the camera lower than it was over the ground (a corner tapped up on a porch deck).
  */
 const PLACE_HAND_FEET: [number, number] = [1.5, 8.5];
 /** A photo placed by its edges whose own bearings then fit worse than this (rms, in sd) was put in the wrong place. */
@@ -899,7 +899,7 @@ const PX_SD = 2;
 /**
  * A corner tap's: 6 px. A tap marks the corner's visible edge, and on a real house that is often a
  * pilaster, a corner board or a porch post standing a few inches proud of the walls: weighed as a
- * wall edge, the owner's corners pulled his porch 8% short (2026-10-16); at 6 px they place the
+ * wall edge, a test house's corners pulled its porch short (2026-10-16); at 6 px they place the
  * cameras and the wall edges measure.
  */
 const CORNER_SD = 6;
@@ -912,10 +912,10 @@ const TAPE_SD_FEET = 0.02;
 /**
  * How loosely a side is held to the shape the walk round the house made (2026-10-21, `RouteBuilding.outlineFrom`), one sd
  * as a fraction of its length there: the lap knows the turns, not the sizes - a step to a notch is taken 8' whether it is
- * 2' or 25'. Held at the drawn shape's 35%, a walk of the owner's house (made up from its true shape, every photo the
- * walk asks for, the corners tapped as it asks; test:exterior) came out 15-16% off on average; at 2x, 1.6% (1.9% with the
- * taps 1.5 px off). His own 10-16 photos with the lap's shape in place of the one he drew - not taken as a walk, six of
- * them showing one corner - still need the drawn shape: the porch and bump-out came within 2-5%, the depth 15-20% short.
+ * 2' or 25'. Held at the drawn shape's 35%, a made-up walk of a test house (from its true shape, every photo the
+ * walk asks for, the corners tapped as it asks; test:exterior) came out far off on average; at 2x, within a couple of
+ * percent, the taps a pixel or two off or not. Real photos with the lap's shape in place of the one drawn - not taken as
+ * a walk, several showing one corner - still need the drawn shape: the small parts came close, the depth well off.
  */
 export const WALK_HOLD = 2;
 
@@ -1162,8 +1162,8 @@ export function solveRoute(input: PhotoRouteInput, buildingId: string, data: Rou
    */
   const hold = opts.holdPct ?? (isWalkShape(b) ? WALK_HOLD : 0.35);
   // With a map outline (2026-10-23) the shape as drawn is stretched to the map's distances first, and held no tighter than
-  // three times the map's sd the ways the map holds: it is no measurement, and must never outweigh one. (House G's reviewer
-  // drew the covered deck's 9' side as a 2' step; held at its 1' floor it kept the map's porch-to-back 12' short.)
+  // three times the map's sd the ways the map holds: it is no measurement, and must never outweigh one. (A reviewer drew
+  // a covered notch's side as a much shorter step; held at its 1' floor it kept the map's depth feet short.)
   const drawnShape = opts.mapHolds?.length ? stretchedToMap(b.outline, opts.mapHolds) : b.outline;
   const mapFloor = new Map<string, number>();
   for (const axis of ["E", "N"]) {
@@ -1183,7 +1183,7 @@ export function solveRoute(input: PhotoRouteInput, buildingId: string, data: Rou
       drawn.push({ id: `drawn:${i}`, a: `wall:${prev.id}`, b: `wall:${next.id}`, axis: prev.axis, feet, sdFeet: Math.max(1, feet * hold, extent * (tune.holdFloor ?? 0), mapFloor.get(prev.axis) ?? 0) });
     }
     // With a map, each side kept the way the walk turned it: its length alone would let a bump-out fold back through the
-    // wall behind it (house G: the map pulled the rear wall out past the bump-out's back, the bump-out's side 4'2" either way).
+    // wall behind it (a test house: the map pulled the rear wall out past the bump-out's back, the bump-out's side as long either way).
     const apart: NonNullable<SolveInput["apart"]> = [];
     if (opts.mapHolds?.length) {
       for (let i = 0; i < n; i++) {
@@ -1239,7 +1239,7 @@ export function solveRoute(input: PhotoRouteInput, buildingId: string, data: Rou
   const TOL = [0.15, 0.12, 0.1, 0.08, 0.08];
   let rounds = opts.wallEdges === false ? 1 : SEARCH.length;
   // Photos placed where the user stood this round: their edges tied in the next. (Not searched any wider than the
-  // round's: on the owner's house a wider search for them tied posts and railings as jambs, and the depth came out 7% short.)
+  // round's: on a test house a wider search for them tied posts and railings as jambs, and the depth came out wrong.)
   let fresh = new Set<string>();
   // Photos put back out after their bearings didn't fit: not tried again.
   const misfit = new Set<string>();
@@ -1251,9 +1251,9 @@ export function solveRoute(input: PhotoRouteInput, buildingId: string, data: Rou
     edgePoints = opts.wallEdges === false ? [] : tieEdges(obs, SEARCH[at] as number, TOL[at] as number).filter((q) => !(opts.skipSides ?? []).includes(q.side));
     fresh = new Set();
     // Photos with one corner, or none (2026-10-20, every photo counts): where their upright edges repeat the edges the
-    // placed photos tied, each at its own height, is worked out - but not taken on its own. On the owner's house the
-    // edges of #1 pointed, surely and self-consistently, to a place twice as far out as it was taken from (the porch's
-    // posts and railings, seen from out front as the front photos saw them), and it shortened the house 8%; #2's, as
+    // placed photos tied, each at its own height, is worked out - but not taken on its own. On a test house one photo's
+    // edges pointed, surely and self-consistently, to a place twice as far out as it was taken from (a porch's posts and
+    // railings, seen from out front as the front photos saw them), and it shortened the house; another's, as
     // surely, to its true place. Nothing in the edges told the two apart. So a photo is placed once the user says where
     // they stood (one tap on the plan, Scrivn's best places shown); until then its best places are listed (`doubtful`).
     const tied = opts.wallEdges === false || round === 0 ? [] : tiedPoints([...edgePoints].sort((p, q) => q.obs.length - p.obs.length), ring);
@@ -1517,7 +1517,7 @@ function solveWithMap(input: PhotoRouteInput, buildingId: string, data: RoutePho
     const sol = opts.guesses === false ? photos : solveRoute(input, buildingId, data, { ...opts, map: false });
     return { ...sol, ...(fit ? { map: mapCheck(map, fit, sol.corners, photos.corners, sdBetween, photosOnly, over) } : {}) };
   }
-  // Laid again on the house the map made: the photos' own house can be too far out to trace on (a depth 14' short puts the
+  // Laid again on the house the map made: the photos' own house can be too far out to trace on (a depth well short puts the
   // map's side walls over the wrong walls); walls traced differently there are held instead, and measured again.
   let laid: MapFit = fit;
   let sol = solveRoute(input, buildingId, data, { ...opts, mapHolds: laid.holds });
@@ -1653,8 +1653,8 @@ function placementsFromCorners(mine: SnappedTap[], outline: Pt[], shared: Set<nu
   }
   const plausible = (p: Placement) => p.heights === null || (p.heights[0] >= PLACED_HEIGHT_FEET[0] && p.heights[1] <= PLACED_HEIGHT_FEET[1]);
   let list = out.some(plausible) ? out.filter(plausible) : out;
-  // Taken from a step of the walk, it looked about that way (2026-10-21, house G: with one of its three corners left out,
-  // photos fitted two corners on another quarter-turn and Scrivn's marks for the third landed 200-600 px off).
+  // Taken from a step of the walk, it looked about that way (2026-10-21, a blind run: with one of its three corners left
+  // out, photos fitted two corners on another quarter-turn and Scrivn's marks for the third landed far off).
   if (facing && cam) {
     const { zl } = levelAxes(cam);
     const b0 = Math.atan2(zl[0], zl[2]);
@@ -2329,8 +2329,8 @@ export const LONG_WALL_FEET = 15;
 /** A long wall the photos hold no better than this, ± percent, is not measured. */
 export const NOT_MEASURED_PCT = 10;
 /**
- * A shorter wall is not measured once its ± is more than this too, feet (2026-10-23): 10% of a long wall. A 1'9" step at
- * ±19% (4") stays to check; a 14' garage wall at ±4000%, its split with the next wall held by nothing, is not measured.
+ * A shorter wall is not measured once its ± is more than this too, feet (2026-10-23): 10% of a long wall. A 2' step at
+ * ±20% (5") stays to check; a garage wall at thousands of percent, its split with the next wall held by nothing, is not measured.
  */
 export const NOT_MEASURED_FEET = (NOT_MEASURED_PCT / 100) * LONG_WALL_FEET;
 
@@ -2361,7 +2361,7 @@ function sideSeen(i: number, ring: Pt[], cameras: RouteCamera[], taps: SnappedTa
  * length is how far apart the walls at its two ends stand, and where a wall stands is checked only by its corners seen from
  * two places. Seen on one photo, or only through or behind something in front of it (`CornerTap.behind`: a deck rail, a
  * privacy screen), nothing checks the tap - a door or a window edge taken for the corner - and the solve's ± can't know it:
- * a blind run's deck walls, their corners on one photo each behind a rail and a screen, came out sure and a fifth off or more. A
+ * a blind run's walls, their corners on one photo each behind a rail and a screen, came out sure and well off. A
  * wall's tape ([taped], by side) carries it across: one end wall seen, the tape puts the other. Not a wall whose two end
  * walls the map outline holds ([mapLines]): the map measures it, line to line. [off]: not marked (the old way, or no tape).
  */
@@ -2433,7 +2433,7 @@ function mapLines(holds: MapHold[] | undefined): Set<number> {
 const cornersWords = (n: number) => (i: number) => `the wall from corner ${i + 1} to corner ${((i + 1) % n) + 1}`;
 
 /**
- * What settles a side not measured, in a sentence, its one wall named by [nameOf] (side index -> "the Walkway side"): a tape
+ * What settles a side not measured, in a sentence, its one wall named by [nameOf] (side index -> "the Fence side"): a tape
  * or laser along that wall - its own, or the one along the house that settles it and others - and, said with it, a far-back
  * photo at the corner no measure photo shows. [map] (once the app's map lookup is there, `MAP_LOOKUP_READY`, and the house
  * has no map outline yet): or tap your house on the map. Then a tape on it or tied to it to check, when one is off. A side
@@ -2502,7 +2502,7 @@ export function tapesOffSides(sides: RouteSide[], offs: { side: number; why: str
 function tapeAdvice(sides: RouteSide[], ring: Pt[], cameras: RouteCamera[], taps: SnappedTap[], points: { side: number; obs: EdgeObs[] }[], shared: Set<number> = new Set()): { from: number; why: string }[] {
   const n = ring.length;
   const out: { from: number; why: string }[] = [];
-  // No tape front to back, and the depth loose: that tape first (2026-10-20: both blind runs of the owner's house picked it).
+  // No tape front to back, and the depth loose: that tape first (2026-10-20: both blind runs of a test house picked it).
   const runsBack = (i: number) => {
     const A = ring[i] as Pt;
     const B = ring[(i + 1) % n] as Pt;

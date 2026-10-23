@@ -3,9 +3,9 @@
  * the wall, and whether the roof over the side is a gable, a hip or an eave - proposals the
  * estimator ticks, as every other part of the AI trace is (lib/exteriorTrace.ts).
  *
- * The owner's test of 10-12 (photo-elevation-test.md, section 4) read his roof at 4.9-5.1 on 12 on
- * both slopes of three square-on gables - he has since measured it at 5/12 - and its rake overhang
- * at 22" from how much bigger the fascia shows than the wall under it. This does the same from every
+ * The owner's test of 10-12 (photo-elevation-test.md, section 4) read a roof's pitch to a tenth on
+ * both slopes of three square-on gables - the pitch he then measured - and its rake overhang
+ * from how much bigger the fascia shows than the wall under it. This does the same from every
  * side's photo, and reads the eave overhang where the roof edge ends at a plain corner.
  *
  * ── The wall is to scale; the roof edge is not ────────────────────────────────────────────────

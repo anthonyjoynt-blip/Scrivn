@@ -207,7 +207,7 @@ export function exteriorFromRoute(prev: Exterior | undefined, state: PhotoRouteS
     else delete side.photos;
     return side;
   });
-  // Each side not measured says what settles it with its one wall by name (2026-10-23): "A tape or laser along the Walkway
+  // Each side not measured says what settles it with its one wall by name (2026-10-23): "A tape or laser along the Fence
   // side settles it". Asked, never required.
   const nameAt = (i: number) => wallWords(sides.find((q) => q.id === sideIds[i])?.name ?? "");
   for (const side of sides) {
@@ -251,8 +251,8 @@ export function exteriorFromRoute(prev: Exterior | undefined, state: PhotoRouteS
 
 /**
  * What settles the sizes not measured, a sentence each, for the Use-it step and the measure's results (2026-10-23): the
- * sides one tape or laser settles together under it, that wall named - "Not measured: the Walkway side and the Left side.
- * A tape or laser along the Walkway side settles both." - and any other as its own says. Asked, never required: nothing
+ * sides one tape or laser settles together under it, that wall named - "Not measured: the Fence side and the Left side.
+ * A tape or laser along the Fence side settles both." - and any other as its own says. Asked, never required: nothing
  * waits on it. Empty when everything is measured.
  */
 export function notMeasuredAsks(exterior: Pick<Exterior, "sides" | "upper" | "photoRoute">): string[] {
@@ -293,7 +293,7 @@ const COUNT_WORDS: Record<number, string> = { 3: "three", 4: "four", 5: "five", 
 
 const FACING_WORDS: Record<string, string> = { Front: "the front", Rear: "the back", Right: "the right side", Left: "the left side" };
 
-/** A side's name as a wall in a sentence: "the Walkway side"; a plain facing as said - "the right side", "the back (2)". */
+/** A side's name as a wall in a sentence: "the Fence side"; a plain facing as said - "the right side", "the back (2)". */
 export function wallWords(name: string): string {
   const n = name.trim();
   const facing = /^(Front|Rear|Right|Left)(?: (\d+))?$/.exec(n);
@@ -434,8 +434,8 @@ function onFaceCount(view: { sp: SidePhoto; vis: boolean[]; lengthFeet: number }
 
 /**
  * On its side's face, at least this share of a close-up's points that agree: else it was laid on something in front of the
- * wall or another wall. On the owner's house (10-23) close-ups laid right had 41-56% on the face, the one laid on a deck's
- * glass rail 16% (scripts/house/match.mjs ON_FACE_SHARE).
+ * wall or another wall. On a test house (10-23) close-ups laid right had about half their points on the face, the one laid
+ * on a deck's glass rail far fewer (scripts/house/match.mjs ON_FACE_SHARE).
  */
 export const ON_FACE_SHARE = 0.3;
 
@@ -490,7 +490,7 @@ export function closeUpsOnSides(state: PhotoRouteInput, m: RouteMeasured): { lai
       continue;
     }
     // Of the walls the walk says its full photo was taken of (a "more of this wall" photo is of that wall): never another
-    // the points seem to be on - a corner the measure has loose put the porch's close-up on the AC side (house runner,
+    // the points seem to be on - a corner the measure has loose put a porch's close-up on another wall (house runner,
     // 10-23). With nothing said, whichever holds the most of them.
     const shot = state.photos[fullAt]?.shot;
     const said = new Set(shot ? shotWalls(shot, n).filter((i) => i >= 0 && i < n) : []);

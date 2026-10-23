@@ -1,7 +1,7 @@
 /**
- * The walk round the house (2026-10-21): the photo route's way in, one prompted step at a time. Blind tests on the owner's
+ * The walk round the house (2026-10-21): the photo route's way in, one prompted step at a time. Blind tests on a test
  * house that week showed the front reliable, the photos showing ONE corner of the house impossible to place (the back and
- * sides drifting 10-35%), and a photo at 45 degrees to every outside corner with a measurement on each side as the
+ * sides drifting far), and a photo at 45 degrees to every outside corner with a measurement on each side as the
  * capture that holds. So the walk asks for exactly that, in order:
  *
  *   the front, straight on, and anything on it measured, typed (a garage door; a window or a door across its frame);
@@ -974,7 +974,7 @@ export function walkUnplaced(route: PhotoRouteState): { m: WalkMeasure; stop: nu
   return walkMeasures(route.walk ?? newWalk()).filter(({ m }) => !tapes.has(m.id));
 }
 
-/** A measurement in words, to the eighth it was typed to: "Garage door 16'", "Wall 68'6"", "Window 5'11¾"". */
+/** A measurement in words, to the eighth it was typed to: "Garage door 16'", "Wall 42'6"", "Window 5'11¾"". */
 export function measureWords(m: Pick<WalkMeasure, "what" | "feet">): string {
   return `${MEASURE_LABEL[m.what]} ${feetInchesEighths(m.feet)}`;
 }
@@ -1079,8 +1079,8 @@ export function parseTurns(said: string | string[]): WalkTurn[] | null {
  * "far" back is not: it shows whichever corners it shows, round the one it was taken for (`RouteShot.far`), and they are
  * named by fitting it on the shape, the corner it was for among them. "back" is the run of walls facing away from the
  * street. Null for words it can't read, or a corner or side the walk hasn't. `farAlways` takes every role so (the house
- * runner, 2026-10-22): on the owner's own walk photos the corner a photo was taken for was the middle tap on none of them
- * ("02 corner 1" framed the whole garage front), so a role says which corner is in a photo, not which tap it is.
+ * runner, 2026-10-22): on a test house's walk photos the corner a photo was taken for was the middle tap on none of them
+ * (a "corner 1" framed the whole garage front), so a role says which corner is in a photo, not which tap it is.
  */
 export function roleShot(role: string, walk: RouteWalk, shift = 0, opts: { farAlways?: boolean } = {}): { shot: RouteShot; tag: WalkTag | null } | null {
   const m = /^\s*(far(?:\s+back)?\s+)?(?:the\s+)?(front|back|corner\s+(\d+)|side\s+(\d+))\s*$/i.exec(role);

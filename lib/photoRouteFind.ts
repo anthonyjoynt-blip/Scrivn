@@ -9,16 +9,16 @@
  * each then moved onto the sharpest edge of the photo itself within 14 px (the smoothing moves a corner beside a downspout
  * by up to the downspout's width).
  *
- * On the owner's far-back photos (house G, 7 photos) they hold 17 of the 20 corners a reviewer placed by hand within 10 px,
- * and 41 of 48 on his close-ups of 10-16 (house E and F) - the long-edge letters the house runner offered before held 12,
- * and 24. But they hold everything else that runs eave to ground too, about 36 a photo: porch and deck posts, garage door
+ * On a test house's far-back photos they hold most of the corners a reviewer placed by hand within 10 px, and most on
+ * close-ups of two others - well more than the long-edge letters the house runner offered before. But they hold
+ * everything else that runs eave to ground too, dozens a photo: porch and deck posts, garage door
  * trim, pilasters, a neighbour's house. Which of them are corners, and which corner each is, this does not say, and the
  * tries on 10-21 show it can't be said from the photos alone (the hand-over note says more):
  *
  *   * by look: a logistic fit of 20 features of the edge (length, step, what is above it, posts either side, the walls'
- *     directions either side...) trained on the 10-16 photos finds 3 to 5 of house G's 20 in each photo's best 3 or 4;
- *   * by the shape: each photo placed where the drawn shape's corners land on edges finds 1 of 20, and 2 of 20 on the shape
- *     as measured from the hand corners - with 36 edges a photo, any place lands most corners on some edge.
+ *     directions either side...) trained on one house's photos finds only a few of another's corners in each photo's best few;
+ *   * by the shape: each photo placed where the drawn shape's corners land on edges finds one or two in twenty, on the shape
+ *     as drawn or as measured from the hand corners - with dozens of edges a photo, any place lands most corners on some edge.
  *
  * So the edges are offered to whoever names the corners (the house runner's lettered candidates), never taken as corners.
  */

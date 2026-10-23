@@ -1,7 +1,7 @@
 /**
  * "Check these" (2026-10-16): after Measure on the photo route, only what a photo couldn't settle, one
- * tap each. On the owner's house the trace read the tall glass unit on the back wall, its foot hidden
- * by the deck railing, as French doors ("Its a window not a door"); and nothing measured how much lower
+ * tap each. On a test house the trace read a tall glass unit, its foot hidden by a deck railing, as
+ * French doors (the owner: "Its a window not a door"); and nothing measured how much lower
  * the garage's eave is than the house's, so it is drawn at an assumed 1'6".
  *
  *   * an opening whose photo hid part of it (`ExteriorOpening.hiddenBy`), or a door read off a photo up

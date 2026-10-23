@@ -1,14 +1,14 @@
 /**
- * What the photos cover, and what to take next (2026-10-17): the photo route's live checklist. On the
- * owner's house the photos taken at 45 degrees to a corner (#6, #7, #14) held the outline together, and
+ * What the photos cover, and what to take next (2026-10-17): the photo route's live checklist. On a
+ * test house the photos taken at 45 degrees to a corner held the outline together, and
  * the sides that came out weak were the ones seen only in photos showing a single corner. So, from the
  * shape and the photos so far:
  *
  *   * each corner should be in two photos at least;
  *   * each wall should have one photo with both its corners in (what measures it);
  *   * each outside corner should have a photo at 45 degrees to it, both walls in - the back ones and any behind a porch too;
- *   * one tape front to back (2026-10-20): the long side wall, front corner to back corner. Both blind runs of the
- *     owner's house picked it as the single most useful tape - their depths came out 22% short without it;
+ *   * one tape front to back (2026-10-20): the long side wall, front corner to back corner. Both blind runs of a
+ *     test house picked it as the single most useful tape - their depths came out well off without it;
  *   * each wall a few feet long or more should have one photo straight on, both corners in;
  *   * a gable wall should have one square on, its peak in.
  *

@@ -24,7 +24,7 @@
  *   4. Kept only when enough patches agree, to 2 px of the full photo, the two photos' edges are alike laid one on the
  *      other, and the two squared photos are still nearly the same shape: a false place - on a repeating
  *      wall, or on a porch rail in front of it - has few points that agree, edges unalike or a wrong shape. On the
- *      owner's house (10-23) no close-up laid on a photo of another wall was kept. A plane parallel to the wall in front
+ *      test house (10-23) no close-up laid on a photo of another wall was kept. A plane parallel to the wall in front
  *      of it (a deck's rail) passes all of these: whether the points are on the wall's face is the caller's to check,
  *      with the wall as measured (scripts/house/match.mjs).
  *

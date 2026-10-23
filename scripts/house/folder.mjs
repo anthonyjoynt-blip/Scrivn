@@ -245,7 +245,7 @@ export function walkTurnsOf(h) {
  * The walk round the house in words (`walkTurnsOf`): its corners in order as `walk.turns`, and each photo's role from its name
  * where the name says one ("02 corner 1", "07 side 2", "01 front", "far 4 back"). The shape is then the walk's, nobody's
  * guess; each role names the photo's corners. With corners.txt the photos' names are the tester's own labels, not its
- * numbering (owner-1022's "10 corner 3" was the house's back-left, C7, and its "side 3" the AC side, C7-C8): only a front or
+ * numbering (a tester's "corner 3" can be the outline's seventh corner, and "side 3" the wall on from it): only a front or
  * a back, which no numbering changes, is taken from a name there.
  */
 function walkDraft(h) {

@@ -2,7 +2,7 @@
  * The photo route checking itself (2026-10-22, cleaner input): each tape held out in turn and predicted from the rest, and
  * the self-check - a photo whose place makes the tapes disagree is left out of the size, and said so.
  *
- * Blind runs of the owner's house gave its long wall anywhere from 31' to 61'6" (true 68'6"), and the worst of them were
+ * Blind runs of a test house gave its long wall anywhere over a wide range, and the worst of them were
  * the ones with the most photos placed: one photo put a little wrong pulls the whole solve, and nothing in the solve itself
  * says which. The tapes do. Each tape held out in turn is predicted from the others - a wall's length from its side, a line
  * on a photo from where that photo was placed - and when they disagree by more than 5% the house is not measured to 5%.
@@ -209,8 +209,8 @@ const signed = (v: number) => `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`;
  * tape held out more than 5% off what the others predict marks the walls it is on or tied to (`tapeWalls`) not measured -
  * why, the wall whose tape or laser settles it, and the tape to check. Every other wall stands on its own ± (a wall over ±10%
  * is not measured by itself). How well the tapes agree as a whole is a note (`RouteSolution.tapeSpread`), not a blanket:
- * blind runs of the owner's house had hold-outs of -2.8/+6.2/+7.1/-3.1% and the walkway side within 2.4%, the roof within 2%.
- * [words] says a tape ("tape t3 (porch window, taped 3'3")"), [label] a photo ("#36"). Fewer than two tapes that size the
+ * on blind runs of a test house some hold-outs were past 5% while the walls away from those tapes were measured well.
+ * [words] says a tape ("tape t3 (kitchen window, taped 4'0")"), [label] a photo ("#36"). Fewer than two tapes that size the
  * house predicted: [sol] as it is.
  */
 export function tapesOffWalls(

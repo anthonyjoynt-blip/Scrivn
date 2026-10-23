@@ -61,8 +61,8 @@ const LETTERS = "abcdefghijklmnopqrstuvwxyz";
  * A photo's corner candidates: its corner edges (lib/photoRouteFind.ts cornerEdges: upright edges that run long between two
  * broad surfaces, a downspout or a thin trim smoothed away first, each put on the photo's own sharp edge), the strongest 26,
  * lettered left to right. Each is the edge's top and foot, exact: a corner picked from them is put on that edge to the
- * pixel, with no close-up needed. A guess list for the session, never taken as a corner by itself (2026-10-21: on the far-back
- * house G they hold 17 of the 20 hand corners within 10 px, the old long-edge letters 12; which edge is a corner, and which
+ * pixel, with no close-up needed. A guess list for the session, never taken as a corner by itself (2026-10-21: on a test
+ * house's far-back photos they hold most of the hand corners within 10 px, more than the old long-edge letters; which edge is a corner, and which
  * corner, Scrivn can't tell by itself - porch posts, garage trim and pilasters look the same).
  */
 function candidatesOf(x, cam, gray) {
@@ -473,8 +473,8 @@ const useWords = (e) => (e.use === "hold" ? "held loosely" : "checked against th
 const estimateCheckWords = (c) => `about ${ftin(c.feet)} ±${c.plusMinusPct}%: ${pct(c.offPct)}, ${c.disagrees ? "disagrees - tape it" : "agrees"}`;
 
 /**
- * One wall's tape that settles several sizes not measured, in a line: "One tape or laser along C1-C2 Walkway side settles 3
- * of the 4 not measured: C1-C2, C7-C8, C9-C10." Empty when each is its own.
+ * One wall's tape that settles several sizes not measured, in a line: "One tape or laser along C3-C4 Fence side settles 2
+ * of the 3 not measured: C3-C4, C5-C6." Empty when each is its own.
  */
 function settleSummary(loose, n, nameOf) {
   const by = new Map();
@@ -599,7 +599,7 @@ export async function measure(h) {
     sol.sides = checked.sides;
     if (checked.tapeSpread) sol.tapeSpread = checked.tapeSpread;
   }
-  // What settles each size not measured, its one wall by name (2026-10-23): "A tape or laser along C1-C2 Walkway side settles it".
+  // What settles each size not measured, its one wall by name (2026-10-23): "A tape or laser along C3-C4 Fence side settles it".
   const nameOfSide = (i) => `${sideName(i, n)} ${(inputs.shape?.names ?? {})[sideName(i, n)] ?? ""}`.trim();
   for (const s of sol.sides) if (s.notMeasured) s.settleWords = x.settleWords(s, nameOfSide);
   const now = new Date().toISOString();

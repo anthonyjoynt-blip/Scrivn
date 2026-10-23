@@ -888,7 +888,7 @@ function makeSection(
 /**
  * A photo showing a level wall top along a side (`RoofInput.eaveSides`) makes an end over it a hip only
  * where the end stands over this much of the side (2026-10-16): a long side that is eaves along most
- * of it and a gable end over a stretch of it - the owner's 70' east wall, garage and bump-out eaves
+ * of it and a gable end over a stretch of it - a test house's long side wall, garage and bump-out eaves
  * either side of the house's gable - says nothing of that end.
  */
 export const EAVE_END_SHARE = 0.75;

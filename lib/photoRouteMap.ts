@@ -1,11 +1,11 @@
 /**
  * A map outline on the photo route's plan (2026-10-23): a building's footprint off a public map - Microsoft's open
  * building footprints, traced by computer from aerial photos - laid on the house as the walk and the photos measured it,
- * for the long dimension the photos can't give. Blind runs of the owner's house (10-22) fitted his true shape (66'8"
- * deep) and a short one (55'3") equally well: nothing in those photos ties the front to the back. A map outline does, to
- * a foot or two on its long walls. But it misses small parts (his 6' bump-out, a step) and may take in a deck or a covered
- * area, so it is never the answer for those - and its long side is not always the whole wall: a reviewer laying his map on
- * by eye took its 62'5" side for the whole walkway wall, which runs on 6' past it along the bump-out.
+ * for the long dimension the photos can't give. Blind runs of a test house (10-22) fitted its true shape and one several
+ * feet shorter equally well: nothing in those photos ties the front to the back. A map outline does, to a foot or two on
+ * its long walls. But it misses small parts (a bump-out a few feet deep, a step) and may take in a deck or a covered
+ * area, so it is never the answer for those - and its long side is not always the whole wall: a reviewer laying a map on
+ * by eye took its long side for a whole side wall that runs on past it along a bump-out.
  *
  * Laid rigidly - turned and moved, never stretched (`fitMapOutline`):
  *   1. turned square to the plan, by the map's own sides; of the four quarter-turns, the one that overlaps the outline
@@ -20,12 +20,12 @@
  * lib/photoRoute.ts): the depth from the map, and every other size still from the photos and the tapes. Where the map and
  * the photos disagree it is said (`mapCheck`), and what the map leaves out.
  *
- * A map traced from above runs along the ROOF's edge (2026-10-23, house-1022-gis): its porch line ran along the porch
- * roof, about 7' out from the porch wall, and its back line across the covered deck notch's mouth. So a porch's wall is
+ * A map traced from above runs along the ROOF's edge (2026-10-23, a test house's map): a porch line runs along the porch
+ * roof, feet out from the porch wall, and a back line across a covered notch's mouth. So a porch's wall is
  * held its depth in from the map's line, a covered notch's walls never (its mouth counts as the wall it meets), and every
  * hold is looser by the roof's overhang (`MapRoofOver`: the eave, or the rake on a gable end) - centred on the line, not
- * free anywhere inside it: on house-1022-gis Microsoft's lines sat within 4" of the walls (its 49'3" back against 48'10"
- * of walls), and a hold free over the 1'6" eave let the depth slide to its short edge (walkway 63'0", taped 68'6"). The
+ * free anywhere inside it: on the test house Microsoft's lines sat within inches of the walls, and a hold free over the
+ * eave let the depth slide to its short edge, feet short of the tape. The
  * depth is held from the longest open wall straight to each other one, never chained through a porch's line.
  *
  * Nothing here looks anything up: the outline comes in as its corners, feet, x east and y north. The app's map lookup is
@@ -56,7 +56,7 @@ export const MAP_SD_FEET = 1;
 export const MAP_LONG_FEET = 15;
 /** A map side within this of square to the plan is one of its walls' lines; one further off is at an angle and holds nothing. */
 const SQUARE_DEG = 15;
-/** Walls under one map side within this of the one it traces are the same line to the map (a garage door's 1'9" or 2' step). */
+/** Walls under one map side within this of the one it traces are the same line to the map (a garage door's step of a foot or two). */
 const CLUSTER_FEET = 2.5;
 /** Of a map side's length, the share the wall it traces (with those level with it) must run under it. */
 const TRACE_SHARE = 0.25;
@@ -102,14 +102,14 @@ export interface MapSide {
 }
 
 /**
- * A map side over a bump-out's face and the wall behind it (2026-10-23, blind runs C and D of the owner's house): a map can
+ * A map side over a bump-out's face and the wall behind it (2026-10-23, two blind runs of a test house): a map can
  * miss the bump-out (its line on the wall behind) or take in what stands beside it - a deck, a covered notch - (its line on
- * the face), and the shape under the line can't say which. On a test house two blind runs' fits held one each - the rear
- * wall, then the bump-out's face, short and sure of itself, though that run's photos alone had put the depth right.
+ * the face), and the shape under the line can't say which. On a test house two blind runs' fits held one each - one of
+ * them the wrong one and sure of itself, though that run's photos alone had put the depth right.
  * So each way is fitted, and its distances to the map's other lines in the open held against the photos alone, each off by
  * its sd; the way they agree with is held when it clearly does. When it doesn't (photos that barely tie the front to the back),
  * the one the shape under the line traces is held as before - the map's depth is still the best there is - but the walls
- * whose lengths hang on which it is are not measured, the walkway's tape named: said either way.
+ * whose lengths hang on which it is are not measured, the tape that settles it named: said either way.
  */
 export interface MapPair {
   face: number;
@@ -133,7 +133,7 @@ export interface MapPair {
  * The ways a measure chose for its map sides over a bump-out's face and the wall behind it, at the turn it laid the map
  * (2026-10-23): made once, on the photos alone before the map moved anything, and kept for every solve after. The map's
  * holds move the lens's radial term the measure levels the photos with again (lib/photoRouteData.ts `measureRoute`), and on
- * two blind runs that alone moved the "photos alone" depth by several feet: weighed after it, the photos say what the map made them.
+ * two blind runs that alone moved the "photos alone" depth by feet: weighed after it, the photos say what the map made them.
  */
 export interface MapChoice {
   turnDeg: number;
@@ -418,7 +418,7 @@ function traceSides(onPlan: Pt[], ring: Pt[], over: MapRoofOver = {}): MapSide[]
     if (m.lengthFeet < MAP_LONG_FEET) return { ...base, others, traces: null, why: `short (${formatFeetInches(m.lengthFeet)}): the map holds only its long sides` };
     if (levelShare < Math.max(6, TRACE_SHARE * m.lengthFeet)) return { ...base, others, traces: null, why: "the walls under it step in and out: none runs along enough of it" };
     // How far the walls under it stand off a line on each, length by length: the middle is the least; another as little,
-    // near enough, is a close call (house G's back: the rear wall 120 against the bump-out's back 130 sq ft).
+    // near enough, is a close call (a rear wall and a bump-out's back under one line, their scores within a tenth).
     const offAt = (v: Line) => seen.reduce((s, w) => s + (share.get(w.index) as number) * Math.abs(w.at - v.at), 0);
     const rival = seen.filter((w) => Math.abs(w.at - traced.at) > CLUSTER_FEET).map((w) => ({ w, off: offAt(w) })).sort((p, q) => p.off - q.off)[0];
     let held = traced;
@@ -742,7 +742,7 @@ function depthWords(s: MapSide, check: RouteMapCheck, nameOf: (side: number) => 
 }
 
 /**
- * The map's check in plain words, sides named by [nameOf] (side index -> "C1-C2 Walkway side"): how it was laid, where
+ * The map's check in plain words, sides named by [nameOf] (side index -> "C3-C4 Fence side"): how it was laid, where
  * it and the photos disagree, the map's sides that are not the whole wall under them, and the parts it leaves out or takes in.
  */
 export function mapWords(check: RouteMapCheck, ringLengths: number[], nameOf: (side: number) => string = (i) => `the wall from corner ${i + 1} to corner ${((i + 1) % ringLengths.length) + 1}`): string[] {
