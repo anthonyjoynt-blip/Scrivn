@@ -80,9 +80,16 @@ export interface RoutePhoto {
  * walk's inside corner `index`.
  */
 export type RouteShot =
-  | { kind: "corner"; index: number }
+  /**
+   * A corner at 45 degrees. `far` (2026-10-22, cleaner input): taken from far back, the whole of both walls in - corner
+   * `index` is in it, but not always in the middle (a far-back photo at the front's right corner framed the whole front),
+   * and the corners either side of it are whichever the photo shows: named by fitting, the run of corners that holds
+   * `index` and looks the way the photo was taken.
+   */
+  | { kind: "corner"; index: number; far?: true }
   | { kind: "wall"; index: number }
-  | { kind: "run"; index: number; to: number }
+  /** `far` (2026-10-22): from far back - its corners are among the run's, not necessarily its two ends. */
+  | { kind: "run"; index: number; to: number; far?: true }
   /** The walk's inside corner (2026-10-21): a wall either side of it straight on, the inside corner tapped first, then the wall's other end. */
   | { kind: "inside"; index: number; wall: "before" | "after" };
 
@@ -471,7 +478,11 @@ export function numberCorners(input: PhotoRouteInput, buildingId: string, data: 
     // the lap - fits no placement; the app numbers only the taps they leave (2026-10-21: fitted freely on the lap's shape,
     // 31 of 83 taps on a walk of the owner's house came out wrong).
     const walked = !!shot && walkedPhotos.has(job.id);
-    const fromShot = user.some((c) => c >= 0) || !shot ? null : shotNames(shot, job.snapped, cameraWidth(byId.get(job.id)), n, job.idx, walked);
+    // A far-back photo names no tap by its place in the picture (2026-10-22): a corner's says only that the corner is
+    // among them, and it looked in across that corner; a run's (the front, the back) that its corners are the run's.
+    const farCorner = shot?.kind === "corner" && shot.far ? ((shot.index % n) + n) % n : -1;
+    const farRun = shot?.kind === "run" && shot.far ? runCorners(shot.index, shot.to, n) : null;
+    const fromShot = user.some((c) => c >= 0) || !shot || farCorner >= 0 || farRun ? null : shotNames(shot, job.snapped, cameraWidth(byId.get(job.id)), n, job.idx, walked);
     if (m < 2) {
       const only = job.idx[0] as number;
       if ((user[0] as number) >= 0) continue;
@@ -507,11 +518,13 @@ export function numberCorners(input: PhotoRouteInput, buildingId: string, data: 
         const labels = [s0];
         for (const step of g) labels.push(((labels[labels.length - 1] as number) + step) % n);
         if (labels.some((l, k) => (userSet[k] as number) >= 0 && userSet[k] !== l)) continue;
+        if (farCorner >= 0 && !user.some((c) => c >= 0) && !labels.includes(farCorner)) continue;
+        if (farRun && !labels.every((l) => farRun.has(l))) continue;
         // Where this home ends is a corner of a shared wall.
         if (labels.some((l, k) => (out[job.idx[k] as number] as CornerTap).party && !party.has(l))) continue;
         const taps = job.snapped.map((t, k) => ({ ...t, corner: labels[k] as number }));
         const cam = (byId.get(job.id) as RoutePhotoData).camera as PhotoCamera;
-        for (const p of placementsFromCorners(taps, ring, shared, cam, facing)) {
+        for (const p of placementsFromCorners(taps, ring, shared, cam, facing, farCorner >= 0 ? FAR_FACING_TOLERANCE_DEG : FACING_TOLERANCE_DEG)) {
           const skipped = g.reduce((s, v) => s + v - 1, 0);
           const walk = near.length ? Math.min(...near.map((x) => Math.hypot(x.at[0] - p.at[0], x.at[1] - p.at[1]))) / 30 : 0;
           // Corners this camera would see plainly - in the picture, ahead, nothing of the house in the way - that were not tapped.
@@ -585,6 +598,18 @@ export function facingOf(photo: Pick<RoutePhoto, "facing" | "shot"> | undefined,
 
 /** A placement may face this far from the way the photo was said to look, degrees: a 45 taken a little round the corner, a wall a little to one side. */
 const FACING_TOLERANCE_DEG = 60;
+/** A far-back photo of a corner looks in across it, both walls in: closer to the corner's diagonal than a photo of a wall's part. */
+const FAR_FACING_TOLERANCE_DEG = 35;
+
+/** The outline's corners from `from` round to `to`, both in. */
+function runCorners(from: number, to: number, n: number): Set<number> {
+  const out = new Set<number>();
+  for (let i = ((from % n) + n) % n, k = 0; k <= n; i = (i + 1) % n, k++) {
+    out.add(i);
+    if (i === ((to % n) + n) % n) break;
+  }
+  return out;
+}
 
 /**
  * The corners a photo from the checklist names, left to right as its taps run (-1 for a tap it does not name):
@@ -1306,7 +1331,7 @@ interface Placement {
  * [cam], a placement putting the camera at a height no photo is taken from (`PLACED_HEIGHT_FEET`, off any corner tapped
  * below the horizon) is dropped, as long as another is not.
  */
-function placementsFromCorners(mine: SnappedTap[], outline: Pt[], shared: Set<number> = new Set(), cam?: PhotoCamera, facing?: [number, number] | null): Placement[] {
+function placementsFromCorners(mine: SnappedTap[], outline: Pt[], shared: Set<number> = new Set(), cam?: PhotoCamera, facing?: [number, number] | null, toleranceDeg = FACING_TOLERANCE_DEG): Placement[] {
   const out: Placement[] = [];
   const n = outline.length;
   for (let q = 0; q < 4; q++) {
@@ -1364,7 +1389,7 @@ function placementsFromCorners(mine: SnappedTap[], outline: Pt[], shared: Set<nu
   if (facing && cam) {
     const { zl } = levelAxes(cam);
     const b0 = Math.atan2(zl[0], zl[2]);
-    const cos = Math.cos((FACING_TOLERANCE_DEG * Math.PI) / 180);
+    const cos = Math.cos((toleranceDeg * Math.PI) / 180);
     const faces = (p: Placement) => {
       const F = planDirection(b0, p.quadrant, 0);
       return F[0] * facing[0] + F[1] * facing[1] >= cos;

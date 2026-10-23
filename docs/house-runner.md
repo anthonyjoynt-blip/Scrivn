@@ -45,6 +45,14 @@ It levels every photo and estimates the lens, finds each photo's **corner candid
 
 ### 3. Fill in `inputs.json`
 
+**The walk** (`walk`, 2026-10-22), when the tester said the corners going round (the walk in Scrivn, or a `walk.txt` beside the photos with lines `corner 1 outside`, `corner 4 inside` ...; prepare drafts it from that, and each photo's role from its name - `02 corner 1`, `07 side 2`, `01 front`, `far 4 back`):
+
+```json
+"walk": {"turns": "O O O I O I O O I O I O", "photos": {"31": "far corner 1", "30": "far front", "33": "far back", "35": "side 7"}}
+```
+
+`turns` are the corners in order from corner 1 (the front's right-hand end) going round with the house on your left: `O` outside, `I` inside, `J` where the home joins the neighbour's. **They are the shape's corners**: with no shape drawn (`shape.from` "placeholder" or "walk") the shape is the walk's, its sizes rough and held loosely; a shape drawn must have the same corners in the same order, or check says so (✗) - the corners are the tester's, never a reviewer's guess. Walk corner k is `Ck`. A photo's role (`corner 3`, `side 2`, `front`, `back`, `far corner 1`) says which corner or wall it was taken for: its corners you name nothing on are named by fitting the photo on the shape with that corner among them, and the review asks you to confirm them. A role says which corner is IN a photo, not which tap it is: on the owner's own walk photos the corner a photo was taken for was not the middle tap (a far-back photo at a corner frames the whole wall either side), so fitting names about four in ten right with nothing else to go on - name one corner on each photo yourself and Scrivn numbers the rest far better.
+
 **The shape** (`shape.outline`): the house's corners as plan feet `[x, y]`, **counter-clockwise seen from above, the street at the bottom** (y grows away from the street). Rough is right: draw it on a 1 ft grid as the owner would sketch it, every wall square to the plan. The measure fits the lengths; the shape only says which corner is which. Corner k is `C(k+1)` on every sheet; the side from C5 to C6 is `C5-C6`. Set `shape.from` to `"session"`. Name the sides if you like (`shape.names: {"C1-C2": "Garage front"}`): the report uses them.
 
 **The home** (`house`): `name`, `homeType` (detached, semi, town_end, town_middle, split, duplex_updown), `shared` (party walls, e.g. `["C3-C4"]`), `frontFacesDeg` (or null).

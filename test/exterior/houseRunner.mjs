@@ -23,7 +23,8 @@ import { runStep } from "../../scripts/house/run.mjs";
 import { readsFromFinish } from "../../scripts/house/finishReads.mjs";
 import { siteReportPdf } from "../../scripts/house/site.mjs";
 import { lengthsIn, parseHouse, parseTapes } from "../../scripts/house/words.mjs";
-import { routeInput } from "../../scripts/house/folder.mjs";
+import { draftInputs, roleFromName, routeInput } from "../../scripts/house/folder.mjs";
+import { scrivn } from "../../scripts/house/code.mjs";
 import { parseFixes } from "../../scripts/house/review.mjs";
 import { planSvg } from "../../scripts/house/sheets.mjs";
 import { makeRequestFolder } from "./houseRequestFolder.mjs";
@@ -96,6 +97,28 @@ console.log("\n  tapes.txt and house.txt");
     `${usesOut.map((e) => `${e.id} ${e.use}`).join(", ")}; ${uses.problems.join(" | ")}`,
   );
   check("prepare drafts a size estimated on site from tapes.txt as a check", parseTapes("garage door 9'\nbump-out about 6'").estimates.length === 1);
+  // The walk in words (10-22, cleaner input): walk.txt's corners are the shape's, each photo's role from its name.
+  {
+    const xw = await scrivn();
+    const photos = ["02 corner 1.jpg", "far 4 back.jpg", "20261012_141023.jpg", "07 side 2.jpg", "far 2 corner front-right.jpg"].map((file, i) => ({ n: i + 1, file, id: `p${i + 1}` }));
+    const h = { photos, walkText: "THE CORNERS:\ncorner 1 outside\ncorner 2 outside\ncorner 3 outside\ncorner 4 inside\ncorner 5 outside\ncorner 6 outside\n", tapesText: "", house: parseHouse(""), request: null };
+    const draft = draftInputs(h);
+    check(
+      "walk.txt drafts the walk: its corners in order as turns, and each photo's role where its name says one",
+      draft.walk?.turns === "O O O I O O" && JSON.stringify(draft.walk.photos) === '{"1":"corner 1","2":"far back","4":"side 2"}' && roleFromName("corner 5-2.jpg") === "corner 5" && roleFromName("inside corner.jpg") === null,
+      JSON.stringify(draft.walk),
+    );
+    const viaWalk = routeInput({ photos: photos.map((p) => ({ ...p, width: 2000, height: 1500 })) }, { ...draft, walk: { ...draft.walk, photos: { 1: "corner 1", 2: "far back", 5: "far corner 1" } } }, {}, xw);
+    const b = viaWalk.input.buildings[0];
+    const shots = viaWalk.input.photos.map((p) => p.shot ?? null);
+    check(
+      "with no shape drawn the shape is the walk's (six corners, held loosely); each role a shot, taken as far: its corner among the taps, not forced",
+      b.outline.length === 6 && b.outlineFrom === "walk" && viaWalk.problems.length === 0 && shots[0]?.kind === "corner" && shots[0].index === 0 && shots[0].far && shots[1]?.kind === "run" && shots[1].far && shots[4]?.index === 0 && !viaWalk.input.photos[0].walk,
+      `${JSON.stringify(b.outline)} ${JSON.stringify(shots)} ${viaWalk.problems.join(" | ")}`,
+    );
+    const drawnWrong = routeInput({ photos: [] }, { shape: { from: "session", outline: [[0, 0], [40, 0], [40, 30], [0, 30]] }, walk: { turns: "O O O I O O" }, tapes: [] }, {}, xw);
+    check("a shape drawn with other corners than the walk's is said, and stops the measure", drawnWrong.problems.some((p) => /^walk\.turns don't fit the shape drawn/.test(p)), drawnWrong.problems.join(" | "));
+  }
   // plan.png: a side whose measure disagrees with what was said is dashed magenta, "TAPE IT" under its length; one that agrees says so.
   const planOf = planSvg([{ x: 0, y: 0 }, { x: 40, y: 0 }, { x: 40, y: 30 }, { x: 0, y: 30 }], 1400, 1000, {
     big: true,

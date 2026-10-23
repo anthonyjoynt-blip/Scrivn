@@ -79,7 +79,7 @@ async function load() {
       `export * from "${lib("exteriorCheck.ts")}";`,
       `export { cornerPlace, routeCoverage, viewsFromMeasure } from "${lib("photoRouteCoverage.ts")}";`,
       `export { checkEstimate, columnBearing, defaultShared, facingOf, numberCorners, partyCorners, routeSteps, shotNumbers, solveRoute, WALK_HOLD } from "${lib("photoRoute.ts")}";`,
-      `export { alignLap, facingWords, isWalkShape, lapCloses, walkPhotoWords, lapOutline, lapProblem, lapTurns, newWalk, ringTurns, measureWords, ringItems, walkAddCorner, walkInsertCorner, walkRemoveCorner, walkSetTurn, walkAddPhoto, walkFinish, walkMissing, walkRemoveLastCorner, walkRemovePhoto, walkReopen, withRingStart, walkAddMeasure, walkBack, walkClose, walkHasMeasure, walkHomeType, walkMeasured, walkMeasures, walkPhotos, walkRemoveMeasure, walkShot, walkSkip, walkStep, walkSummary, walkTake, walkTurn, walkUnplaced, withoutPhotos, withWalk } from "${lib("photoRouteWalk.ts")}";`,
+      `export { alignLap, facingWords, isWalkShape, lapCloses, walkPhotoWords, lapOutline, lapProblem, lapTurns, newWalk, ringTurns, measureWords, ringItems, walkAddCorner, walkInsertCorner, walkRemoveCorner, walkSetTurn, walkAddPhoto, walkFinish, walkMissing, walkRemoveLastCorner, walkRemovePhoto, walkReopen, withRingStart, walkAddMeasure, walkBack, walkClose, walkHasMeasure, walkHomeType, walkMeasured, walkMeasures, walkPhotos, walkRemoveMeasure, walkShot, walkSkip, walkStep, walkSummary, walkTake, walkTurn, walkUnplaced, withoutPhotos, withWalk, walkFromTurns, parseTurns, roleShot } from "${lib("photoRouteWalk.ts")}";`,
       `export { cornerEdges } from "${lib("photoRouteFind.ts")}";`,
       `export { toLevel } from "${lib("photoRouteLens.ts")}";`,
       `export { exteriorFromRoute, measuredFrom } from "${lib("photoRouteExterior.ts")}";`,
@@ -7229,6 +7229,36 @@ test("a tape on a detail photo sizes nothing: said, and with no other tape the h
   assert(sol.unscaled && JSON.stringify(sol.tapesOnDetail) === '["window"]', `${sol.unscaled} ${JSON.stringify(sol.tapesOnDetail)}`);
   const old = x.solveRoute(input, "main", data, { sizePhotos: "all" });
   assert(!old.unscaled, "the old way, it scaled the house");
+});
+
+test("the walk in words: turns make the walk and its shape; a role names the corner in a photo, far ones by fitting", () => {
+  const turns = x.parseTurns("O O O I O I O O I O I O");
+  assert(turns && turns.length === 12 && turns[3] === "inside", JSON.stringify(turns));
+  assert(JSON.stringify(x.parseTurns("OOIO")) === '["outside","outside","inside","outside"]' && x.parseTurns("O X O O") === null, "letters run together; a word it can't read");
+  const walk = x.walkFromTurns(turns);
+  assert(x.lapCloses(walk) && x.lapTurns(walk).length === 12 && x.lapOutline(x.lapTurns(walk))?.length === 12, "closes, twelve corners, a shape");
+  const c1 = x.roleShot("corner 1", walk);
+  assert(c1.shot.kind === "corner" && c1.shot.index === 0 && !c1.shot.far && c1.tag?.role === "corner" && c1.tag.k === 1, JSON.stringify(c1));
+  const far1 = x.roleShot("far corner 1", walk);
+  assert(far1.shot.kind === "corner" && far1.shot.index === 0 && far1.shot.far && far1.tag === null, JSON.stringify(far1));
+  const s2 = x.roleShot("side 2", walk);
+  assert(s2.shot.kind === "wall" && s2.shot.index === 1 && s2.tag?.role === "side", JSON.stringify(s2));
+  const back = x.roleShot("far back", walk);
+  // The owner's house: the back runs from corner 2 (the bump-out's back right) round to corner 7 (the back left).
+  assert(back.shot.kind === "run" && back.shot.index === 1 && back.shot.to === 6 && back.shot.far, JSON.stringify(back));
+  assert(x.roleShot("front", walk).shot.kind === "run" && x.roleShot("corner 13", walk) === null && x.roleShot("garage", walk) === null, "front; no corner 13; no such role");
+  const every = x.roleShot("corner 1", walk, 0, { farAlways: true });
+  assert(every.shot.far && every.tag === null, "taken as far");
+});
+
+test("a far-back photo of a corner: that corner among its taps, named by fitting, none given", () => {
+  const shots = [["fr", [62, -22], { x: 40, y: 0 }, [{ c: 0 }, { c: 1 }, { c: 2 }]], ["bl", [-22, 52], { x: 0, y: 30 }, [{ c: 2 }, { c: 3 }, { c: 0 }]]];
+  const { input, data } = synRoute(BOX, BOX_DRAWN, "detached", shots, []);
+  const truth = input.buildings[0].corners.map((c) => c.corner);
+  input.buildings[0].corners = input.buildings[0].corners.map((c) => ({ ...c, corner: -1, by: undefined }));
+  input.photos = input.photos.map((p) => ({ ...p, shot: { kind: "corner", index: p.id === "fr" ? 1 : 3, far: true } }));
+  const named = x.numberCorners(input, "main", data);
+  assert(named.every((c, i) => c.corner === truth[i]), named.map((c, i) => `${c.photo}:${c.corner}/${truth[i]}`).join(" "));
 });
 
 console.log(`\n${passed.length} passed, ${failures.length} failed`);

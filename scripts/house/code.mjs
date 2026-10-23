@@ -24,6 +24,7 @@ export async function scrivn() {
     [
       ...["photoRoute.ts", "photoRouteData.ts", "photoRouteExterior.ts", "photoRouteLens.ts", "photoRouteEdges.ts", "photoRouteCoverage.ts", "photoRouteFind.ts", "exteriorPhoto.ts", "exteriorCheck.ts", "roofCheck.ts"].map((f) => `export * from "${lib(f)}";`),
       `export { exifFocal35, focalOverWidth } from "${lib("photoRouteExif.ts")}";`,
+      `export { walkFromTurns, parseTurns, roleShot, lapOutline, alignLap, lapTurns, ringTurns } from "${lib("photoRouteWalk.ts")}";`,
       `export { routeSanity } from "${lib("photoRouteSanity.ts")}";`,
       `export { planDirection, resect } from "${lib("photoRouteSolve.ts")}";`,
       `export { orthogonalRing, withAddition, withRoofEnd, withOneSlope } from "${lib("exteriorPlan.ts")}";`,

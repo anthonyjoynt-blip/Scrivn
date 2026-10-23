@@ -190,7 +190,7 @@ export async function prepare(h, { fresh = false } = {}) {
   const inputs = kept ? readJson(inputsFile) : draftInputs(h);
   if (!kept) writeJson(inputsFile, inputs);
   const lines = pixels.map(x.photoLines);
-  const { input } = routeInput(h, inputs);
+  const { input } = routeInput(h, inputs, {}, x);
   const { data, level } = levelFor(x, input, pixels, lines);
   const candFile = statePath(h, "candidates.json");
   let candidates = !fresh && existsSync(candFile) ? readJson(candFile).photos : null;
@@ -246,11 +246,16 @@ export async function check(h) {
   const x = await scrivn();
   const inputs = readJson(statePath(h, "inputs.json"));
   const candidates = readJson(statePath(h, "candidates.json"), { photos: {} }).photos;
-  const { input, problems, n } = routeInput(h, inputs, candidates);
+  const { input, problems, n } = routeInput(h, inputs, candidates, x);
   const out = [];
   const shapeBad = problems.filter((p) => p.startsWith("shape") || / is not square /.test(p));
   if (shapeBad.length) return [...shapeBad.map((p) => `✗ ${p}`), "Fix the shape first; nothing else can be checked on it."];
-  if (inputs.shape?.from === "placeholder") out.push("✗ The shape is still the placeholder rectangle: draw the house's own (shape.outline), then set shape.from to \"session\".");
+  const walkShape = !!inputs.walk?.turns && (inputs.shape?.from === "placeholder" || inputs.shape?.from === "walk") && !problems.some((p) => p.startsWith("walk"));
+  if (walkShape) out.push(`Shape: the walk's ${n} corners as turned (walk.turns), its sizes rough and held loosely. Drawn to rough scale (shape.outline, the same corners in order, shape.from "session") it holds the measure better; the walk then checks it.`);
+  else if (inputs.shape?.from === "placeholder") out.push("✗ The shape is still the placeholder rectangle: draw the house's own (shape.outline), then set shape.from to \"session\" - or give the walk's corners (walk.turns) and it is the walk's.");
+  // The photos the walk says what they were taken for: their corners named by fitting, the corner it was for among them.
+  const roles = Object.entries(inputs.walk?.photos ?? {});
+  if (roles.length) out.push(`Roles from the walk: ${roles.map(([k, v]) => `#${k} ${v}`).join(", ")}. A photo's corners you name nothing on are named by fitting it on the shape, the corner it was for among them: confirm each on the review.`);
   const pixels = await loadPixels(h, x);
   const lines = pixels.map(x.photoLines);
   const prepared = x.preparePhotos(input, pixels, lines);
@@ -478,8 +483,8 @@ export async function measure(h) {
   const x = await scrivn();
   const inputs = readJson(statePath(h, "inputs.json"));
   const candidates = readJson(statePath(h, "candidates.json"), { photos: {} }).photos;
-  const { input, problems, tapeParts, n } = routeInput(h, inputs, candidates);
-  const blocking = problems.filter((p) => p.startsWith("shape") || / is not square /.test(p) || p.startsWith("corners"));
+  const { input, problems, tapeParts, n } = routeInput(h, inputs, candidates, x);
+  const blocking = problems.filter((p) => p.startsWith("shape") || / is not square /.test(p) || p.startsWith("corners") || p.startsWith("walk.turns"));
   if (blocking.length) throw new Error(`inputs.json is not ready:\n${blocking.join("\n")}\nRun check.`);
   const pixels = await loadPixels(h, x);
   const lines = pixels.map(x.photoLines);
