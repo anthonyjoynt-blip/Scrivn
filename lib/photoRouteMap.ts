@@ -19,6 +19,14 @@
  * lib/photoRoute.ts): the depth from the map, and every other size still from the photos and the tapes. Where the map and
  * the photos disagree it is said (`mapCheck`), and what the map leaves out.
  *
+ * A map traced from above runs along the ROOF's edge (2026-10-23, house-1022-gis): its porch line ran along the porch
+ * roof, about 7' out from the porch wall, and its back line across the covered deck notch's mouth. So a porch's wall is
+ * held its depth in from the map's line, a covered notch's walls never (its mouth counts as the wall it meets), and every
+ * hold is looser by the roof's overhang (`MapRoofOver`: the eave, or the rake on a gable end) - centred on the line, not
+ * free anywhere inside it: on house-1022-gis Microsoft's lines sat within 4" of the walls (its 49'3" back against 48'10"
+ * of walls), and a hold free over the 1'6" eave let the depth slide to its short edge (walkway 63'0", taped 68'6"). The
+ * depth is held from the longest open wall straight to each other one, never chained through a porch's line.
+ *
  * Nothing here looks anything up: the outline comes in as its corners, feet, x east and y north. The app's map lookup is
  * for launch.
  */
@@ -72,6 +80,8 @@ export interface MapSide {
   traces: number | null;
   /** On the outline as measured with the map, it would trace this other side (`mapCheck`): said, not held. */
   nowTraces?: number;
+  /** How far inside its line the wall it traces stands (a porch's depth; 0 in the open), and one sd more for the roof (half its overhang; a porch's depth); null: not held (a porch of no known depth). */
+  inside?: { feet: number; sdFeet: number } | null;
   why?: string;
   /** The outline's other sides under it facing the same way, and how far each stands out past the one it traces (+) or in from it (-), feet. */
   others: { side: number; offFeet: number }[];
@@ -82,13 +92,36 @@ export interface MapSide {
   close?: { side: number; offFeet: number };
 }
 
+/**
+ * What the roof covers past the walls, as a map traced from above sees it (2026-10-23): the roof's overhangs (typed or
+ * read), its gable ends, the notches it carries over (a covered deck) and the porches under it. Side indices are the
+ * outline's. Absent: walls up to `MAP_OVERHANG_FEET` inside the map's line, nothing covered.
+ */
+export interface MapRoofOver {
+  eaveFeet?: number;
+  rakeFeet?: number;
+  /** Sides that are gable ends: a rake over them, not an eave. */
+  gableSides?: number[];
+  /** Each notch the roof carries over, by any one of its inner walls. */
+  coveredNotches?: number[];
+  /** Porches under the roof, by the wall they stand along: the roof's edge is their depth (when known) and the overhang out. */
+  porches?: { side: number; depthFeet?: number }[];
+}
+
+/** How far inside a map's line a wall may stand where the roof's overhang isn't known: an eave's, about. */
+export const MAP_OVERHANG_FEET = 1.5;
+/** A porch's depth, one sd, feet: where its roof's edge stands past its posts is not said. */
+const PORCH_SD_FEET = 1;
+
 /** Two of the outline's walls held to the map's distance between them: sides [a] and [b], each the wall its map side traces. */
 export interface MapHold {
   id: string;
   a: number;
   b: number;
   axis: Axis;
+  /** The distance with each wall on its map line, or a porch's depth in from it. */
   feet: number;
+  /** One sd: each line's (the map's, half a step level with it, half the roof's overhang, a porch's depth). */
   sdFeet: number;
   /** The map sides that trace them. */
   mapSides: [number, number];
@@ -264,7 +297,7 @@ function bestShift(ring: Pt[], poly: Pt[], search: number): { shift: [number, nu
  * from it (a notch or a covered area the map took in). A close call between a bump-out's face and the wall behind it goes
  * to the wall behind: a bump-out is what such maps miss.
  */
-function traceSides(onPlan: Pt[], ring: Pt[]): MapSide[] {
+function traceSides(onPlan: Pt[], ring: Pt[], over: MapRoofOver = {}): MapSide[] {
   const walls = linesOf(ring);
   const n = ring.length;
   // Corner k (where side k-1 meets side k) turns left round a counter-clockwise ring: an outside corner.
@@ -273,6 +306,18 @@ function traceSides(onPlan: Pt[], ring: Pt[]): MapSide[] {
     const b = ring[(k + 1) % n] as Pt;
     return (p.x - a.x) * (b.y - p.y) - (p.y - a.y) * (b.x - p.x) > 0;
   });
+  // A notch the roof carries over: its inner walls (the two at its inside corner) are under the roof, the map's line runs
+  // across its mouth. Each is never traced; the length it runs counts for the wall its mouth is on - the one beyond the
+  // notch's other wall, parallel to it (the covered deck's back counts for the rear wall the deck's open side meets).
+  const mouth = new Map<number, number>();
+  for (const k of over.coveredNotches ?? []) {
+    if (!(k >= 0 && k < n)) continue;
+    const at = !outside[k] ? k : !outside[(k + 1) % n] ? (k + 1) % n : null;
+    if (at === null) continue;
+    mouth.set((at - 1 + n) % n, (at + 1) % n);
+    mouth.set(at, (at - 2 + n) % n);
+  }
+  const allowed = (i: number) => insideOf(i, over);
   // The face of a bump-out: both its corners outside, and a side beside it short and back to an inside corner.
   const bumpFace = (i: number) => {
     const before = (i - 1 + n) % n;
@@ -283,7 +328,13 @@ function traceSides(onPlan: Pt[], ring: Pt[]): MapSide[] {
   return linesOf(onPlan, SQUARE_DEG).map((m): MapSide => {
     const base = { index: m.index, lengthFeet: m.lengthFeet, axis: m.axis, at: m.at, lo: m.lo, hi: m.hi, outward: m.outward, others: [] as MapSide["others"] };
     if (!m.axis) return { ...base, traces: null, why: "it runs at an angle to the house" };
-    const under = walls.filter((w) => w.axis === m.axis && w.outward === m.outward && Math.min(w.hi, m.hi) - Math.max(w.lo, m.lo) > 0.5);
+    // A covered notch's wall stands in for its mouth's: where it runs, at that wall's line.
+    const as = (w: Line): Line => {
+      const to = mouth.get(w.index);
+      const wall = to === undefined ? undefined : walls[to];
+      return wall && wall.axis === w.axis && wall.outward === w.outward ? { ...w, index: wall.index, at: wall.at } : w;
+    };
+    const under = walls.map(as).filter((w) => w.axis === m.axis && w.outward === m.outward && Math.min(w.hi, m.hi) - Math.max(w.lo, m.lo) > 0.5);
     if (!under.length) return { ...base, traces: null, why: "no wall of the house faces that way under it" };
     // Along the map side, the outermost wall at each place: how much of the side each takes.
     const cuts = [...new Set([m.lo, m.hi, ...under.flatMap((w) => [w.lo, w.hi]).filter((v) => v > m.lo && v < m.hi)])].sort((p, q) => p - q);
@@ -297,7 +348,7 @@ function traceSides(onPlan: Pt[], ring: Pt[]): MapSide[] {
       const outer = over.reduce((p, q) => (q.outward * q.at > p.outward * p.at ? q : p));
       share.set(outer.index, (share.get(outer.index) ?? 0) + (v - u));
     }
-    const seen = under.filter((w) => (share.get(w.index) ?? 0) > 0.5).sort((p, q) => p.outward * p.at - q.outward * q.at);
+    const seen = [...new Map(under.filter((w) => (share.get(w.index) ?? 0) > 0.5).map((w) => [w.index, walls[w.index] as Line])).values()].sort((p, q) => p.outward * p.at - q.outward * q.at);
     if (!seen.length) return { ...base, traces: null, why: "no wall of the house faces that way under it" };
     const total = seen.reduce((s, w) => s + (share.get(w.index) as number), 0);
     let run = 0;
@@ -320,7 +371,7 @@ function traceSides(onPlan: Pt[], ring: Pt[]): MapSide[] {
     // near enough, is a close call (house G's back: the rear wall 120 against the bump-out's back 130 sq ft).
     const offAt = (v: Line) => seen.reduce((s, w) => s + (share.get(w.index) as number) * Math.abs(w.at - v.at), 0);
     const rival = seen.filter((w) => Math.abs(w.at - traced.at) > CLUSTER_FEET).map((w) => ({ w, off: offAt(w) })).sort((p, q) => p.off - q.off)[0];
-    if (!rival || rival.off > 1.15 * offAt(traced)) return { ...base, others, traces: traced.index };
+    if (!rival || rival.off > 1.15 * offAt(traced)) return { ...base, others, traces: traced.index, inside: allowed(traced.index) };
     // A close call between a bump-out's face and the wall it stands out from: the map missed the bump-out (what such maps
     // miss), so it traces the wall behind. Otherwise the middle stands.
     const outer = rival.w.outward * rival.w.at > traced.outward * traced.at ? rival.w : traced;
@@ -328,15 +379,30 @@ function traceSides(onPlan: Pt[], ring: Pt[]): MapSide[] {
     const held = bumpFace(outer.index) && !bumpFace(inner.index) ? inner : traced;
     const other = held === traced ? rival.w : traced;
     const close = { side: other.index, offFeet: m.outward * (other.at - held.at) };
-    return { ...base, others: seen.filter((w) => w !== held).map((w) => ({ side: w.index, offFeet: m.outward * (w.at - held.at) })), traces: held.index, close };
+    return { ...base, others: seen.filter((w) => w !== held).map((w) => ({ side: w.index, offFeet: m.outward * (w.at - held.at) })), traces: held.index, close, inside: allowed(held.index) };
   });
 }
 
 /**
- * The walls the map traces, held two by two to its distances: each way across the plan, from one traced wall to the next
- * in turn. One sd: the two sides' lines, each the map's sd and half the step of any wall level with it (a garage door's
- * step: which of the two the map's line is on, it can't say). Two map sides tracing one wall: the longer. A pair the
- * outline puts the other way round is left out.
+ * How far inside its map line a wall stands: on it in the open, a porch's wall its depth in; and how loosely, one sd: half
+ * the roof's overhang (the rake on a gable end, else the eave; `MAP_OVERHANG_FEET` not known), and a porch's depth. A
+ * porch of no known depth: null, not held - where its roof's edge is, nothing says.
+ */
+function insideOf(side: number, over: MapRoofOver): { feet: number; sdFeet: number } | null {
+  const gable = (over.gableSides ?? []).includes(side);
+  const oh = Math.max(0, (gable ? over.rakeFeet : over.eaveFeet) ?? over.eaveFeet ?? MAP_OVERHANG_FEET);
+  const porch = (over.porches ?? []).find((p) => p.side === side);
+  if (porch) return Number.isFinite(porch.depthFeet) && (porch.depthFeet as number) > 0 ? { feet: porch.depthFeet as number, sdFeet: Math.hypot(oh / 2, PORCH_SD_FEET) } : null;
+  return { feet: 0, sdFeet: oh / 2 };
+}
+
+/**
+ * The walls the map traces, held to its distances: each way across the plan, from the longest map side tracing a wall in
+ * the open (no porch under its line) straight to every other - the house's depth from the map's own long side, never
+ * through a porch roof's line. Each wall at its line less what stands in front of it (`insideOf`). One sd: the two sides'
+ * lines, each the map's sd, half the step of any wall level with it (a garage door's step: which of the two the map's line
+ * is on, it can't say) and the roof's (`insideOf`). Two map sides tracing one wall: the longer. A pair the outline puts
+ * the other way round is left out.
  */
 function holdsOf(sides: MapSide[], ring: Pt[], sd: number): MapHold[] {
   const walls = linesOf(ring);
@@ -344,19 +410,25 @@ function holdsOf(sides: MapSide[], ring: Pt[], sd: number): MapHold[] {
   for (const axis of ["E", "N"] as Axis[]) {
     const traced = new Map<number, MapSide>();
     for (const s of sides) {
-      if (s.axis !== axis || s.traces === null) continue;
+      if (s.axis !== axis || s.traces === null || !s.inside) continue;
       const had = traced.get(s.traces);
       if (!had || s.lengthFeet > had.lengthFeet) traced.set(s.traces, s);
     }
-    const list = [...traced.values()].sort((p, q) => p.at - q.at);
-    const sdOf = (s: MapSide) => Math.hypot(sd, Math.max(0, ...s.others.filter((o) => Math.abs(o.offFeet) <= CLUSTER_FEET).map((o) => Math.abs(o.offFeet))) / 2);
-    for (let k = 0; k + 1 < list.length; k++) {
-      const p = list[k] as MapSide;
-      const q = list[k + 1] as MapSide;
+    const list = [...traced.values()];
+    if (list.length < 2) continue;
+    const open = list.filter((s) => (s.inside as { feet: number }).feet === 0);
+    const anchor = (open.length ? open : list).reduce((p, q) => (q.lengthFeet > p.lengthFeet ? q : p));
+    const sdOf = (s: MapSide) => Math.hypot(sd, Math.max(0, ...s.others.filter((o) => Math.abs(o.offFeet) <= CLUSTER_FEET).map((o) => Math.abs(o.offFeet))) / 2, (s.inside as { sdFeet: number }).sdFeet);
+    for (const other of list) {
+      if (other === anchor) continue;
+      const [p, q] = other.at < anchor.at ? [other, anchor] : [anchor, other];
       const wp = walls[p.traces as number] as Line;
       const wq = walls[q.traces as number] as Line;
       if (wq.at - wp.at < -CLUSTER_FEET) continue;
-      out.push({ id: `map:${p.index}-${q.index}`, a: p.traces as number, b: q.traces as number, axis, feet: q.at - p.at, sdFeet: Math.hypot(sdOf(p), sdOf(q)), mapSides: [p.index, q.index] });
+      // A wall u in from its line stands at its line less outward x u.
+      const up = (p.inside as { feet: number }).feet;
+      const uq = (q.inside as { feet: number }).feet;
+      out.push({ id: `map:${p.index}-${q.index}`, a: p.traces as number, b: q.traces as number, axis, feet: q.at - p.at - q.outward * uq + p.outward * up, sdFeet: Math.hypot(sdOf(p), sdOf(q)), mapSides: [p.index, q.index] });
     }
   }
   return out;
@@ -379,7 +451,7 @@ const placed = (corners: Pt[], turnDeg: number, shift: [number, number]) => corn
 export function fitMapOutline(
   map: MapOutline,
   ring: Pt[],
-  opts: { sdBetween?: (a: number, b: number) => number | null; frontFacesDeg?: number | null; turnDeg?: number } = {},
+  opts: { sdBetween?: (a: number, b: number) => number | null; frontFacesDeg?: number | null; turnDeg?: number; over?: MapRoofOver } = {},
 ): MapFit | null {
   if (map.corners.length < 3 || ring.length < 3) return null;
   const corners = ccw(map.corners.map((p) => ({ x: Number(p.x), y: Number(p.y) })));
@@ -395,7 +467,7 @@ export function fitMapOutline(
     const turned = corners.map((p) => rot(p, turnDeg));
     const { shift, overlap } = bestShift(ring, turned, Math.max(10, 0.35 * extent));
     const onPlan = placed(corners, turnDeg, shift);
-    const sides = traceSides(onPlan, ring);
+    const sides = traceSides(onPlan, ring, opts.over);
     const holds = holdsOf(sides, ring, sd);
     // The sizes the photos hold, against the map's: each off by its sd, counted at most 3 sd (a size the photos got wrong
     // counts no more than one that is missing).
@@ -458,6 +530,7 @@ export function mapCheck(
   photosRing: Pt[],
   photosSd: (a: number, b: number) => number | null,
   photosOnly: RouteMapCheck["photosOnly"],
+  over: MapRoofOver = {},
 ): RouteMapCheck {
   const corners = ccw(map.corners);
   const now = linesOf(ring);
@@ -471,8 +544,10 @@ export function mapCheck(
     for (const m of fit.sides) {
       if (m.axis !== axis || m.traces === null) continue;
       const t = turned[m.index] as Line;
+      // The wall stands in from the line by what is in front of it (a porch's depth): the line is out past it by that.
+      const lo = m.inside ? m.inside.feet : 0;
       w += m.lengthFeet;
-      s += m.lengthFeet * ((now[m.traces] as Line).at - t.at);
+      s += m.lengthFeet * ((now[m.traces] as Line).at + m.outward * lo - t.at);
     }
     if (w > 0) shift[k] = s / w;
   }
@@ -481,7 +556,7 @@ export function mapCheck(
   const on = mapOff.filter((d) => d <= ON_MAP_FEET);
   const offMap = ring.map((p, corner) => ({ corner, feet: offRing(p, onPlan) })).filter((c) => Math.abs(c.feet) > ON_MAP_FEET);
   // The sides as traced and held; on the outline as measured, a side that would trace another wall now is said.
-  const nowTraced = traceSides(onPlan, ring);
+  const nowTraced = traceSides(onPlan, ring, over);
   const sides = fit.sides.map((s) => {
     const now = nowTraced[s.index];
     return now && s.traces !== null && now.traces !== null && now.traces !== s.traces ? { ...s, nowTraces: now.traces } : s;
@@ -530,6 +605,9 @@ export function mapWords(check: RouteMapCheck, ringLengths: number[], nameOf: (s
   out.push(
     `Laid on the plan from ${check.source}, turned and moved, never stretched: the front faces ${Math.round(check.frontFacesDeg)}°, ${Math.round(check.overlap * 100)}% of the two shapes shared${Number.isFinite(check.cornersOffFeet) ? `, the map's corners within ${ft(check.cornersOffFeet)} of the outline on average` : ""}. ${traced.length} of its ${check.sides.length} sides trace a wall; it holds ${check.holds.length} distance${check.holds.length === 1 ? "" : "s"} between them.`,
   );
+  const porch = traced.filter((s) => s.inside && s.inside.feet > 0);
+  for (const s of porch) out.push(`The map's ${ft(s.lengthFeet)} side runs along a porch roof's edge: ${nameOf(s.traces as number)} held ${ft((s.inside as { feet: number }).feet)} in from it, the porch's depth.`);
+  for (const s of check.sides) if (s.axis && s.inside === null && s.traces !== null) out.push(`The map's ${ft(s.lengthFeet)} side runs along a porch roof of no known depth over ${nameOf(s.traces)}: not held.`);
   for (const h of check.holds) {
     if (!h.disagrees) continue;
     out.push(`The map and the photos disagree: ${nameOf(h.a)} to ${nameOf(h.b)} is ${ft(h.feet)} on the map, ${ft(h.photosFeet)} ±${ft(2 * (h.photosSdFeet ?? 0))} from the photos (${ft(Math.abs(h.feet - h.photosFeet))} apart). The map is held; a tape or laser along a wall between them settles which is right.`);
@@ -540,7 +618,10 @@ export function mapWords(check: RouteMapCheck, ringLengths: number[], nameOf: (s
     const wall = ringLengths[i] as number;
     if (wall - s.lengthFeet <= 2) continue;
     const past = check.offMap.filter((c) => c.corner === i || c.corner === (i + 1) % n || c.corner === (i + 2) % n || c.corner === (i - 1 + n) % n);
-    out.push(`The map's side along ${nameOf(i)} is ${ft(s.lengthFeet)}; the wall is ${ft(wall)}${past.length ? `: the map leaves out what stands past corner ${past.map((c) => c.corner + 1).join(" and ")}` : ""}. Its side is not the whole wall.`);
+    const out_ = past.filter((c) => c.feet > 0);
+    const under = past.filter((c) => c.feet < 0);
+    const why = out_.length ? `: the map leaves out what stands past corner ${out_.map((c) => c.corner + 1).join(" and ")}` : under.length ? `: corner ${under.map((c) => c.corner + 1).join(" and ")} is under a roof the map takes in (a porch, a covered deck)` : "";
+    out.push(`The map's side along ${nameOf(i)} is ${ft(s.lengthFeet)}; the wall is ${ft(wall)}${why}. Its side is not the whole wall.`);
   }
   for (const s of traced) {
     if (s.close) out.push(`A close call: the map's ${ft(s.lengthFeet)} side is held on ${nameOf(s.traces as number)}, but it could as well be on ${nameOf(s.close.side)} (${ft(Math.abs(s.close.offFeet))} ${s.close.offFeet > 0 ? "out" : "in"} from it). ${depthWords(s, check, nameOf)}`);

@@ -61,7 +61,9 @@ export async function openHouse(dirArg) {
   const walkText = read("walk.txt");
   // The building's outline off a map, when one is beside the photos (2026-10-23): it holds the long walls it traces.
   const mapText = read("map.txt");
-  return { dir, state, kind: request ? "request" : "folder", request, photos, tapesText, houseText, walkText, mapText, house: parseHouse(houseText ?? "") };
+  // The roof answers (scrivn/roof.json): what the roof covers past the walls, which a map's outline runs along (2026-10-23).
+  const roofText = read("roof.json");
+  return { dir, state, kind: request ? "request" : "folder", request, photos, tapesText, houseText, walkText, mapText, roofText, house: parseHouse(houseText ?? "") };
 }
 
 export const statePath = (h, ...parts) => join(h.state, ...parts);
@@ -350,11 +352,38 @@ export function routeInput(h, inputs, candidates = {}, x = null) {
   const shared = (inputs.house?.shared ?? []).map((s) => sideIndex(s, n)).filter((i) => i !== null);
   const homeType = inputs.house?.homeType && inputs.house.homeType !== "detached" ? inputs.house.homeType : undefined;
   const map = mapOf(h, inputs, problems);
+  const roofOver = map ? roofOverOf(h, n) : null;
   const input = {
     photos: h.photos.map((p) => ({ id: p.id, width: p.width, height: p.height, focalPrior: p.focalPrior ?? null, takenAt: p.takenAt ?? null, ...(standAt[p.id] ? { standAt: standAt[p.id] } : {}), ...(facing[p.id] ? { facing: facing[p.id] } : {}), ...(walk?.roles[p.n] ?? {}) })),
-    buildings: [{ id: "main", ...(inputs.house?.name ? { name: inputs.house.name } : {}), ...(homeType ? { homeType } : {}), ...(shared.length ? { shared } : {}), outline, corners, tapes, ...(estimates.length ? { estimates } : {}), ...(walk?.lap ? { outlineFrom: "walk" } : {}), ...(map ? { map } : {}) }],
+    buildings: [{ id: "main", ...(inputs.house?.name ? { name: inputs.house.name } : {}), ...(homeType ? { homeType } : {}), ...(shared.length ? { shared } : {}), outline, corners, tapes, ...(estimates.length ? { estimates } : {}), ...(walk?.lap ? { outlineFrom: "walk" } : {}), ...(map ? { map } : {}), ...(roofOver ? { roofOver } : {}) }],
   };
   return { input, problems, tapeParts, n };
+}
+
+/**
+ * What the roof covers past the walls, from the roof answers (scrivn/roof.json, as `report` takes them), for a map outline
+ * (lib/photoRouteMap.ts MapRoofOver): the overhangs, the gable ends ("ends"), the notches said "covered" and the porches
+ * ("additions" of kind "porch", with their depth). Null with no roof answers.
+ */
+function roofOverOf(h, n) {
+  if (!h.roofText) return null;
+  let r;
+  try {
+    r = JSON.parse(String(h.roofText).replace(/^﻿/, ""));
+  } catch {
+    return null;
+  }
+  const sides = (keys) => keys.map((k) => sideIndex(k, n)).filter((i) => i !== null);
+  const over = {};
+  if (Number.isFinite(r.overhangs?.eave)) over.eaveFeet = r.overhangs.eave;
+  if (Number.isFinite(r.overhangs?.rake)) over.rakeFeet = r.overhangs.rake;
+  const gables = sides(Object.entries(r.ends ?? {}).filter(([, v]) => v === "gable").map(([k]) => k));
+  if (gables.length) over.gableSides = gables;
+  const notches = sides(Object.entries(r.notches ?? {}).filter(([, v]) => v === "covered").map(([k]) => k));
+  if (notches.length) over.coveredNotches = notches;
+  const porches = (r.additions ?? []).filter((a) => a?.kind === "porch").map((a) => ({ side: sideIndex(a.side, n), ...(Number(a.depthFeet) > 0 ? { depthFeet: Number(a.depthFeet) } : {}) })).filter((p) => p.side !== null);
+  if (porches.length) over.porches = porches;
+  return over;
 }
 
 /**
