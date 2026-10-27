@@ -135,14 +135,14 @@ export default function SignUpPage() {
     return (
       <main className="login-main">
         <div className="card login-card">
-          <h1>Scrivn is invite-only right now</h1>
+          <h1>Scrivn is opening soon</h1>
           <p className="subtitle">
-            We&rsquo;re not opening accounts to everyone yet. If you&rsquo;ve been given an account, sign in below — otherwise get in touch and
-            we&rsquo;ll let you know when it opens up.
+            Accounts aren&rsquo;t open to everyone yet. If you&rsquo;ve been given one, sign in below — otherwise ask for early access and we&rsquo;ll
+            let you know the day it opens.
           </p>
           <div className="auth-links">
             <Link href="/login">Sign in</Link>
-            <Link href="/contact">Get in touch</Link>
+            <Link href="/contact?reason=early-access">Get early access</Link>
           </div>
         </div>
       </main>

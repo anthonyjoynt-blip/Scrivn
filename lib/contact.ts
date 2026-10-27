@@ -19,6 +19,8 @@ export const CONTACT_REASONS = [
   { value: "sales", label: "Sales & pricing" },
   { value: "enterprise", label: "Multi-office / enterprise quote" },
   { value: "support", label: "Support" },
+  // The home page's "Get early access" while sign-up is shut (2026-10-27).
+  { value: "early-access", label: "Early access" },
 ] as const satisfies readonly ContactReason[];
 
 export const DEFAULT_CONTACT_REASON = CONTACT_REASONS[0].value;
