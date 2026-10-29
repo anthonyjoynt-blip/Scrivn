@@ -316,13 +316,21 @@ export function SketchEditor({
   startMode?: "sketch" | "moisture" | "exterior";
   /**
    * Scrivn Scan's own editor (2026-10-28): this component bundled into the phone app, offline, on a sketch saved on the
-   * phone (lib/scanEditorWebView.tsx). The plan only - no Moisture or Exterior mode, no 3D, no Import scan, no Full screen
+   * phone (lib/scanEditorWebView.tsx). The plan only - no Moisture or Exterior mode, no Import scan, no Full screen
    * (it is the whole screen) - with [title] in place of "Sketch" and [actions] (the app's Share and menu) before Done.
    * Absent on scrivn.ca, where nothing changes.
+   *
+   * The 3D view (2026-10-29): in More, and for a scan walked with photos, a Walk-through button in the header. Its
+   * [photos] are the walk's photos on the phone, by number (lib/scanEditor.ts phonePhotoLinks); without any, the walk is
+   * left out and the view is the model alone.
    */
-  standalone?: { title?: string; actions?: ReactNode };
+  standalone?: { title?: string; actions?: ReactNode; photos?: Record<number, string> };
 }) {
   const lone = standalone !== undefined;
+  const lonePhotos = standalone?.photos;
+  // Scrivn Scan: the photos come from the phone, and a walk with none of them there is not shown (it would be blank).
+  const lonePhotoLinks = useMemo(() => (lonePhotos ? async () => lonePhotos : undefined), [lonePhotos]);
+  const sketch3d = useMemo(() => (lone && !lonePhotos && sketch.walks ? { ...sketch, walks: undefined } : sketch), [lone, lonePhotos, sketch]);
   const [tool, setTool] = useState<ToolMode>("select");
   /*
     Read-only is enforced by blocking pointer events on the CANVAS, not by disabling each tool.
@@ -1020,6 +1028,8 @@ export function SketchEditor({
     function onKeyDown(event: KeyboardEvent) {
       const target = event.target as HTMLElement | null;
       if (target && (target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName))) return;
+      // The phone app's 3D view has the keys while it is open: its Back (an Escape) steps out of the view, never past it.
+      if (lone && show3d) return;
 
       // A run of walls in the making: Escape drops it, Enter keeps it as drawn.
       if (tool === "wall" && wallDraft.length > 0) {
@@ -2385,7 +2395,7 @@ export function SketchEditor({
         )}
         {/* On a phone the 3D view is in More - in Exterior, which has no More, beside the sides - and the header has no
             room for it. In Exterior mode it is the outside of the house. */}
-        {!phone && !lone && (
+        {!phone && (
         <button
           type="button"
           className="option-btn"
@@ -2393,8 +2403,14 @@ export function SketchEditor({
           onClick={() => setShow3d(true)}
           title={mode === "exterior" ? "See the outside of the house in 3D" : "See the house in 3D"}
         >
-          3D view
+          {lone && lonePhotos ? "Walk-through" : "3D view"}
         </button>
+        )}
+        {/* Scrivn Scan on a phone (2026-10-29): a scan walked with photos says so where it is seen. */}
+        {phone && lone && lonePhotos && (
+          <button type="button" className="option-btn scan-editor-walk" disabled={sketch.rooms.length === 0} onClick={() => setShow3d(true)} title="The walk-through: the 360s and the photos, in 3D">
+            Walk-through
+          </button>
         )}
         {/*
           Viewing or editing, stated rather than implied. The label says what is happening NOW, and
@@ -3547,11 +3563,18 @@ export function SketchEditor({
               <button type="button" className="btn-secondary" onClick={() => setSheet("details")}>
                 Quantities & data
               </button>
-              {!lone && (
-                <button type="button" className="btn-secondary" disabled={sketch.rooms.length === 0} onClick={() => setShow3d(true)}>
-                  3D view
-                </button>
-              )}
+              <button
+                type="button"
+                className="btn-secondary"
+                disabled={sketch.rooms.length === 0}
+                onClick={() => {
+                  // Scrivn Scan: put away, so the view's Back is not also the sheet's.
+                  if (lone) closeSheet();
+                  setShow3d(true);
+                }}
+              >
+                3D view
+              </button>
             </div>
           </div>
         </>
@@ -3560,7 +3583,7 @@ export function SketchEditor({
         (mode === "exterior" ? (
           shownExterior && <Exterior3D key={shownBuilding?.id ?? "house"} exterior={shownExterior} name={shownBuilding ? buildingName(shownBuilding) : undefined} onClose={() => setShow3d(false)} />
         ) : (
-          <Sketch3D sketch={sketch} moisture={moisture} onClose={() => setShow3d(false)} />
+          <Sketch3D sketch={sketch3d} moisture={moisture} onClose={() => setShow3d(false)} photoLinks={lonePhotoLinks} />
         ))}
     </div>
   );

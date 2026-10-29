@@ -5,7 +5,7 @@ import { SketchEditor } from "@/components/sketch/SketchEditor";
 import { mountPlan } from "@/components/sketch/planStage";
 import { PIXELS_PER_FOOT, type Sketch, emptySketch, freeWallsOnLevel, roomBounds, roomsOnLevel } from "./sketch";
 import { type MoistureMap, emptyMoistureMap } from "./moisture";
-import { EDITOR_VERSION, importCapture, readSketch, sketchSummary } from "./scanEditor";
+import { EDITOR_VERSION, importCapture, phonePhotoLinks, readSketch, sketchSummary } from "./scanEditor";
 import { JPEG_FOOT, JPEG_HEAD, JPEG_PAD } from "./scanEditor";
 import { type PlanHost, type PlanPicture, buildPlanFiles, storeyExtentFt } from "./scanEditorPdf";
 
@@ -20,7 +20,8 @@ import { type PlanHost, type PlanPicture, buildPlanFiles, storeyExtentFt } from 
  *                                       put(id, piece), finished(id, error), log(line)
  *
  * The sketch is the phone's: saved on the phone, never sent anywhere from here. The page has no network (its CSP says
- * connect-src 'none', and the phone answers anything but its three files with a 403).
+ * connect-src 'none', and the phone answers anything but its three files and the project's walk photos,
+ * photos/<n>.jpg, with a 403).
  */
 
 interface PhoneBridge {
@@ -45,6 +46,8 @@ interface EditorInput {
   knownRoomNames: string[];
   app: { versionName: string; versionCode: number };
   notice: string | null;
+  /** The walk's photos kept on the phone, by number (2026-10-29), each at photos/<n>.jpg. Absent from an older app. */
+  photos?: number[];
 }
 
 /** The page's pieces across the bridge (ExteriorEngine's PIECE): no single call should carry megabytes. */
@@ -197,6 +200,8 @@ function Host({ input }: { input: EditorInput }) {
   const [sketch, setSketch] = useState<Sketch>(first.sketch);
   const [moisture, setMoisture] = useState<MoistureMap>(first.moisture);
   const [title, setTitle] = useState(input.project.name);
+  // The walk-through's photos, on the phone: the 3D view's, read once (a walk is the scan's, and no edit changes it).
+  const [photos] = useState(() => phonePhotoLinks(input.photos, first.sketch));
   const [notice, setNotice] = useState<string | null>(first.notice);
   const seq = useRef(0);
   const timer = useRef<number | null>(null);
@@ -316,7 +321,7 @@ function Host({ input }: { input: EditorInput }) {
         </button>
       </div>
     ) : undefined,
-    standalone: { title, actions },
+    standalone: { title, actions, photos },
   });
 }
 

@@ -6,19 +6,24 @@
  *   node scripts/build-scan-editor.mjs --out DIR    writes DIR/{index.html, editor.js, editor.css}
  *   node scripts/build-scan-editor.mjs --check      builds it in memory and says whether Scan's copy (or --out's) is this build
  *   node scripts/build-scan-editor.mjs --serve      serves it on :4623 with a pretend phone (?fixture=empty|target|basement)
+ *   ... --serve --walk DIR                          and ?fixture=walk: DIR/taps.json with its photos DIR/photos/<n>.jpg
  *
  * Build it again, and rebuild Scan, whenever the sketch editor changes here: the phone runs the copy it was built with. The
  * script names the Scrivn commit it was made from, and the phone records it with every sketch it saves.
  *
- * What it leaves out, and refuses to build with: the outside of the house (ExteriorEditor and everything behind it), the 3D
- * views (three.js), anything that talks to scrivn.ca ("/api/"), workers and CSS modules. They are replaced by stand-ins
- * that draw nothing ([STANDINS]); a stand-in no longer needed, a package not on [ALLOWED], or a file on [REFUSED] fails the
- * build, so a change in the editor that would pull one in is found here, not on the phone.
+ * What it leaves out, and refuses to build with: the outside of the house (ExteriorEditor, Exterior3D and everything behind
+ * them), anything that talks to scrivn.ca ("/api/"), workers and CSS modules. They are replaced by stand-ins that draw
+ * nothing ([STANDINS]); a stand-in no longer needed, a package not on [ALLOWED], or a file on [REFUSED] fails the build, so
+ * a change in the editor that would pull one in is found here, not on the phone.
+ *
+ * The house in 3D and its walk-through (Sketch3D, three.js) are in it since 2026-10-29: the phone keeps a walk's photos
+ * with the sketch and answers photos/<n>.jpg itself, so the view's links to them come from the page (lib/scanEditor.ts
+ * phonePhotoLinks), and scanPhotoLinks, which asks scrivn.ca, is stood in for.
  */
 
 import { build } from "esbuild";
 import { execSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -28,6 +33,9 @@ const args = process.argv.slice(2);
 const outArg = args.indexOf("--out");
 const check = args.includes("--check");
 const serve = args.includes("--serve");
+const walkArg = args.indexOf("--walk");
+/** --serve's walk-through: a folder of taps.json and photos/<n>.jpg, as the phone keeps a project's (BRIDGE.md). */
+const walkDir = walkArg >= 0 ? resolve(args[walkArg + 1]) : null;
 const scanAssets = resolve(root, "..", "ARCapturePrototype", "android", "app", "src", "main", "assets", "scrivn-editor");
 const outDir = outArg >= 0 ? resolve(args[outArg + 1]) : scanAssets;
 
@@ -37,14 +45,14 @@ const SOURCES = "lib components/sketch app/globals.css package-lock.json";
 /** The page's own Content-Security-Policy (BRIDGE.md): nothing but its own two files, and no network at all. */
 export const CSP = "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'none'; worker-src 'none'; base-uri 'none'; form-action 'none'";
 
-/** Biggest editor.js allowed (measured ~1.3 MB on 2026-10-28). */
-export const MAX_JS_BYTES = 1.6 * 1024 * 1024;
+/** Biggest editor.js allowed: measured ~1.3 MB on 2026-10-28, 2.04 MB (2,093 KB) with the 3D view and three.js on 2026-10-29. */
+export const MAX_JS_BYTES = 2.4 * 1024 * 1024;
 
 /** Packages the editor may bundle. Anything else is new, and asked about before it goes on a phone. */
-export const ALLOWED = ["react", "react-dom", "scheduler", "react-reconciler", "its-fine", "konva", "react-konva", "jspdf", "pako", "fflate", "fast-png", "iobuffer", "@babel/runtime", "use-sync-external-store"];
+export const ALLOWED = ["react", "react-dom", "scheduler", "react-reconciler", "its-fine", "konva", "react-konva", "jspdf", "pako", "fflate", "fast-png", "iobuffer", "@babel/runtime", "use-sync-external-store", "three"];
 
 /** Our own files that must never be in it. */
-export const REFUSED = [/PhotoRoute/, /components[\\/]sketch[\\/]ExteriorEditor\.tsx$/, /Sketch3D\.tsx$/, /Exterior3D\.tsx$/, /closeUpWorker/, /\.module\.css$/, /exteriorImages/, /exteriorDrawings/];
+export const REFUSED = [/PhotoRoute/, /components[\\/]sketch[\\/]ExteriorEditor\.tsx$/, /Exterior3D\.tsx$/, /scanPhotoLinks\.ts$/, /closeUpWorker/, /\.module\.css$/, /exteriorImages/, /exteriorDrawings/];
 
 /** The editor's imports that are replaced, and what by. */
 const STANDINS = {
@@ -56,8 +64,9 @@ export default function dynamic(load, opts) {
 }`,
   "./ExteriorEditor": `export function ExteriorSite() { return null; }`,
   "./exteriorPhotoAccess": `import { createContext } from "react"; export const ExteriorPhotoContext = createContext(null);`,
-  "./Sketch3D": `export default function Sketch3D() { return null; }`,
   "./Exterior3D": `export default function Exterior3D() { return null; }`,
+  // The 3D view's photos are on the phone, given by the page; this one would ask scrivn.ca.
+  "./scanPhotoLinks": `export async function scanPhotoLinks() { return {}; }`,
 };
 
 /**
@@ -172,15 +181,26 @@ const FIXTURES = {
   empty: null,
   target: resolve(root, "..", "Medicine Hat basement - target layout.json"),
   basement: resolve(root, "..", "ARCapturePrototype", "captures", "basement-1026", "room_20261026_061738_taps.json"),
+  walk: walkDir ? join(walkDir, "taps.json") : null,
 };
+
+/** A walk photo's address on the phone's page, and nothing else: photos/<n>.jpg, n a plain number. */
+export const PHOTO_PATH = /^\/photos\/(0|[1-9][0-9]{0,5})\.jpg$/;
+
+/** The photo numbers in --walk's folder, as the phone lists a project's (EditorInput.photos). */
+function walkPhotos() {
+  if (!walkDir || !existsSync(join(walkDir, "photos"))) return [];
+  return readdirSync(join(walkDir, "photos")).map((f) => f.match(/^(0|[1-9][0-9]{0,5})\.jpg$/)?.[1]).filter(Boolean).map(Number).sort((a, b) => a - b);
+}
 
 /** A pretend phone for --serve: the bridge's page side talking to the console, the saves kept on window.__saves. */
 function devBridge(fixture) {
   const file = FIXTURES[fixture] ?? null;
+  const photos = fixture === "walk" ? walkPhotos() : [];
   const capture = file && existsSync(file) ? readFileSync(file, "utf8") : null;
   const input = {
     format: "scan-editor-input/1",
-    project: { id: `dev_${fixture}`, name: fixture === "empty" ? "Sketch by hand" : fixture === "target" ? "Medicine Hat basement" : "Basement 10-26", origin: capture ? "scan" : "hand" },
+    project: { id: `dev_${fixture}`, name: fixture === "empty" ? "Sketch by hand" : fixture === "target" ? "Medicine Hat basement" : fixture === "walk" ? "Walk-through" : "Basement 10-26", origin: capture ? "scan" : "hand" },
     sketch: null,
     capture,
     captureId: capture ? `dev-${fixture}` : null,
@@ -189,6 +209,7 @@ function devBridge(fixture) {
     knownRoomNames: [],
     app: { versionName: "dev", versionCode: 0 },
     notice: null,
+    photos,
   };
   return `window.__saves = []; window.__actions = []; window.__renders = {}; window.__ready = null;
 window.ScanEditor = {
@@ -238,9 +259,15 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
       if (url.pathname === "/dev-bridge.js") return send("text/javascript", devBridge(url.searchParams.get("fixture") ?? "empty"));
       if (url.pathname === "/editor.js") return send("text/javascript", current.js);
       if (url.pathname === "/editor.css") return send("text/css", current.css);
+      // The phone's answer for a walk photo: exactly photos/<n>.jpg, from the walk's folder (EditorAssets.photo in Scan).
+      const photo = url.pathname.match(PHOTO_PATH);
+      if (photo && url.search === "" && walkDir && existsSync(join(walkDir, "photos", `${photo[1]}.jpg`))) {
+        res.writeHead(200, { "content-type": "image/jpeg", "cache-control": "no-store", "content-security-policy": CSP });
+        return res.end(readFileSync(join(walkDir, "photos", `${photo[1]}.jpg`)));
+      }
       res.writeHead(403, { "content-type": "text/plain" });
       res.end("");
-    }).listen(port, () => console.log(`Scan's editor, served with a pretend phone: http://localhost:${port}/?fixture=empty|target|basement (${built.version}, ${(built.js.length / 1024).toFixed(0)} KB)`));
+    }).listen(port, () => console.log(`Scan's editor, served with a pretend phone: http://localhost:${port}/?fixture=empty|target|basement${walkDir ? "|walk" : ""} (${built.version}, ${(built.js.length / 1024).toFixed(0)} KB)`));
   } else {
     mkdirSync(outDir, { recursive: true });
     for (const [name, text] of Object.entries(files)) writeFileSync(join(outDir, name), text);

@@ -14,6 +14,7 @@ import { DEFAULT_QUANTITY_OPTIONS, type QuantityOptions, formatQuantity, roomDet
  *   - [importCapture]: a scan made into a sketch exactly as a Send of it would land in a new claim (lib/scanInbox.ts
  *     adoptScan), each of its levels on its own storey.
  *   - [sketchSummary]: what the phone's list of saved sketches shows, and whether it has been edited.
+ *   - [phonePhotoLinks]: the walk's photos and 360 stills kept on the phone, for the 3D view and its walk-through.
  *   - [quantityRows]: the plan PDF's room table, the Quantities panel's numbers.
  *   - [architecturalScale] / [jpegPxPerFt]: the scales Scan's own PlanPdf.kt picks, so a plan underlaid in Xactimate is
  *     to the same scale whichever app made it.
@@ -121,6 +122,25 @@ function withoutExterior(body: unknown): unknown {
   const copy = { ...(body as Record<string, unknown>) };
   delete copy.exterior;
   return copy;
+}
+
+/** The highest photo number a capture uses (Scan's Spots.LAST_N is below it; Scrivn's MAX_SCAN_PHOTOS is 1000). */
+const MAX_PHOTO_N = 999_999;
+
+/**
+ * The walk's photos the phone keeps with the sketch (2026-10-29, `EditorInput.photos`, BRIDGE.md), each at its address on
+ * the phone's page: `photos/<n>.jpg`, beside index.html, which the phone answers from the project's own folder. Only the
+ * numbers the sketch's walks use; undefined when none of them is on the phone (a sketch by hand, a scan with no walk, or
+ * one saved before the photos were kept), and the 3D view then leaves the walk out.
+ */
+export function phonePhotoLinks(photos: unknown, sketch: Sketch): Record<number, string> | undefined {
+  if (!Array.isArray(photos)) return undefined;
+  const held = new Set(photos.filter((n): n is number => Number.isInteger(n) && n >= 0 && n <= MAX_PHOTO_N));
+  const links: Record<number, string> = {};
+  for (const walk of sketch.walks ?? []) {
+    for (const p of [...walk.photos, ...(walk.spots ?? []).flatMap((s) => s.frames)]) if (held.has(p.n)) links[p.n] = `photos/${p.n}.jpg`;
+  }
+  return Object.keys(links).length > 0 ? links : undefined;
 }
 
 export interface SketchSummary {

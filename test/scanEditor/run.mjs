@@ -71,9 +71,39 @@ const target = readFileSync(join(root, "..", "Medicine Hat basement - target lay
   ok(built.html.includes(CSP) && CSP.includes("connect-src 'none'"), "the page's CSP allows no network");
   ok(built.html.includes('<script src="editor.js"></script>') && !built.html.includes("dev-bridge"), "the page loads editor.js and no pretend phone");
   ok(!built.js.includes("/api/"), "nothing in the bundle talks to scrivn.ca");
-  ok(!built.ours.some((f) => /ExteriorEditor\.tsx|Sketch3D|PhotoRoute|exteriorDrawings/.test(f)), "no exterior or 3D code in it");
-  ok(built.packages.every((p) => !/^three/.test(p)), "no three.js");
+  ok(!built.ours.some((f) => /ExteriorEditor\.tsx|Exterior3D|PhotoRoute|exteriorDrawings/.test(f)), "no exterior code in it, its 3D view included");
+  // The walk-through (2026-10-29): the house in 3D, with its photos from the phone and never from scrivn.ca.
+  ok(built.ours.some((f) => /Sketch3D\.tsx$/.test(f)) && built.ours.some((f) => /SpotStills\.tsx$/.test(f)), "the 3D view and its 360 stills are in it");
+  ok(built.packages.includes("three"), "three.js is in it, for the 3D view");
+  ok(!built.ours.some((f) => /scanPhotoLinks/.test(f)), "the photos are never asked of scrivn.ca (scanPhotoLinks stood in for)");
   ok(built.css.includes(".sketch-card") && built.css.includes("overscroll-behavior: none"), "editor.css is globals.css and the app's own rules");
+}
+
+// ---- The walk's photos on the phone (2026-10-29) ---------------------------------------------------------------------
+{
+  const { PHOTO_PATH } = await import(pathToFileURL(join(root, "scripts", "build-scan-editor.mjs")).href);
+  for (const good of ["/photos/0.jpg", "/photos/7.jpg", "/photos/500.jpg", "/photos/999999.jpg"]) ok(PHOTO_PATH.test(good), `the page may ask for ${good}`);
+  for (const bad of ["/photos/007.jpg", "/photos/1.jpeg", "/photos/a.jpg", "/photos/../capture.json", "/photos/1.jpg/x", "/photos/", "/photos/1000000.jpg", "/x/photos/1.jpg"]) {
+    ok(!PHOTO_PATH.test(bad), `never ${bad}`);
+  }
+  const walk = (n) => ({ n, tS: 0, u: 0, v: 0, heightM: 1.4, headingDeg: 0, pitchDeg: 0 });
+  const sk = { ...S.emptySketch(), walks: [{ scanId: "c-L0", level: 0, photos: [walk(0), walk(1), walk(2)], spots: [{ spot: 1, frames: [walk(500), walk(501)] }] }] };
+  const links = editor.phonePhotoLinks([0, 2, 500, 501, 900, -1, 1.5, "3"], sk);
+  ok(JSON.stringify(links) === JSON.stringify({ 0: "photos/0.jpg", 2: "photos/2.jpg", 500: "photos/500.jpg", 501: "photos/501.jpg" }), `the walk's photos on the phone, at photos/<n>.jpg: ${JSON.stringify(links)}`);
+  ok(editor.phonePhotoLinks([], sk) === undefined, "none on the phone (saved before the photos were kept): no walk-through");
+  ok(editor.phonePhotoLinks(undefined, sk) === undefined, "an older app's input, with no photos: no walk-through");
+  ok(editor.phonePhotoLinks([0, 1], S.emptySketch()) === undefined, "a sketch with no walk: no walk-through, whatever the phone has");
+  const owner = JSON.parse(readFileSync(join(root, "test", "scanEditor", "walk-1029-taps.json"), "utf8"));
+  const made = editor.importCapture(JSON.stringify(owner), { captureId: "walk-1029", capturedAt: null, now: "2026-10-29T12:00:00Z" });
+  ok(made.ok, "a walk-through scan imports");
+  if (made.ok) {
+    const w = made.imported.sketch.walks ?? [];
+    const all = [...owner.walk.photos.map((p) => p.n), ...owner.walk.spots.flatMap((s) => s.frames.map((f) => f.n))];
+    const got = editor.phonePhotoLinks(all, made.imported.sketch);
+    ok(w.length === 1 && w[0].photos.length === owner.walk.photos.length && (w[0].spots ?? [])[0]?.frames.length === owner.walk.spots[0].frames.length,
+      `its walk comes in: ${w[0]?.photos.length} photos, a 360 of ${(w[0]?.spots ?? [])[0]?.frames.length} stills`);
+    ok(got && Object.keys(got).length === all.length && got[500] === "photos/500.jpg", "every photo and 360 still the phone keeps is linked by its number");
+  }
 }
 
 // ---- A scan made into a sketch, to the inch ----------------------------------------------------------------------
