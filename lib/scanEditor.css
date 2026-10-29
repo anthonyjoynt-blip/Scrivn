@@ -1,0 +1,33 @@
+/*
+  Scrivn Scan's own editor (2026-10-28, lib/scanEditorWebView.tsx): app/globals.css, then these. The page is the whole of the
+  app's WebView, so the editor's card is the whole page, nothing scrolls behind it, and a tap shows no grey flash.
+*/
+html,
+body {
+  height: 100%;
+  margin: 0;
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
+  background: #ffffff;
+}
+
+#app {
+  height: 100%;
+}
+
+/* 100dvh needs Chrome 108; an older WebView still fills the screen. */
+#app > .sketch-card-expanded {
+  height: 100%;
+}
+
+/* The app's Share and ⋯ sit with Done in the header's one row. */
+.scan-editor-share,
+.scan-editor-menu {
+  white-space: nowrap;
+}
+
+.scan-editor-menu {
+  min-width: 44px;
+  font-size: 20px;
+  line-height: 1;
+}

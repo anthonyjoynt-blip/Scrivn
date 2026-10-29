@@ -265,6 +265,7 @@ export function SketchEditor({
   notice,
   photoAccess,
   startMode,
+  standalone,
 }: {
   sketch: Sketch;
   /** Room names already used elsewhere in this claim — offered as autocomplete so a sketch room can be matched back to the scope later. */
@@ -313,7 +314,15 @@ export function SketchEditor({
    * rooms, or the outside for a claim with nothing else drawn.
    */
   startMode?: "sketch" | "moisture" | "exterior";
+  /**
+   * Scrivn Scan's own editor (2026-10-28): this component bundled into the phone app, offline, on a sketch saved on the
+   * phone (lib/scanEditorWebView.tsx). The plan only - no Moisture or Exterior mode, no 3D, no Import scan, no Full screen
+   * (it is the whole screen) - with [title] in place of "Sketch" and [actions] (the app's Share and menu) before Done.
+   * Absent on scrivn.ca, where nothing changes.
+   */
+  standalone?: { title?: string; actions?: ReactNode };
 }) {
+  const lone = standalone !== undefined;
   const [tool, setTool] = useState<ToolMode>("select");
   /*
     Read-only is enforced by blocking pointer events on the CANVAS, not by disabling each tool.
@@ -338,7 +347,7 @@ export function SketchEditor({
     landed on the empty rooms view and took the sketches for gone.
   */
   const [mode, setMode] = useState<"sketch" | "moisture" | "exterior">(() =>
-    startMode ?? (hasAnyExterior(sketch) && sketch.rooms.length === 0 ? "exterior" : "sketch"),
+    lone ? "sketch" : startMode ?? (hasAnyExterior(sketch) && sketch.rooms.length === 0 ? "exterior" : "sketch"),
   );
   /*
     Which building the exterior is on (2026-10-16, lib/buildings.ts): null for the house, else one of the claim's
@@ -433,7 +442,8 @@ export function SketchEditor({
    * viewport puts the canvas and the controls in view at once, which is also the only arrangement in
    * which a change and its result are visible in the same glance.
    */
-  const [expandedByUser, setExpanded] = useState(false);
+  // The phone app's editor is the whole screen from the start, on a tablet too.
+  const [expandedByUser, setExpanded] = useState(lone);
   /**
    * A phone is full screen from the moment the sketch opens.
    *
@@ -1034,7 +1044,8 @@ export function SketchEditor({
 
       // Not on a phone: there full screen is the layout rather than a mode, and Escape would be
       // leaving for a page that has nothing to show.
-      if (event.key === "Escape" && expanded && !phone) {
+      // Nor in the phone app's editor (`standalone`), which is the whole screen whatever its width.
+      if (event.key === "Escape" && expanded && !phone && !lone) {
         setExpanded(false);
         event.preventDefault();
         return;
@@ -2330,11 +2341,11 @@ export function SketchEditor({
     <div className={`card sketch-card${expanded ? " sketch-card-expanded" : ""}${phone ? " sketch-card-phone" : ""}`}>
       <div className="sketch-header">
         <div>
-          <h2>Sketch</h2>
+          <h2>{standalone?.title ?? "Sketch"}</h2>
           {/* The blurb is the first thing to go when the sketch takes the screen — at that point the
               PM is drawing, not being introduced to the feature, and the room for the canvas is
               worth more than the sentence. */}
-          {!expanded && (
+          {!expanded && !lone && (
             <p className="subtitle" style={{ margin: 0 }}>
               {mode === "sketch"
                 ? "Optional. Draw each affected room, tap a wall to enter its real length, and place doors, windows and cabinets."
@@ -2348,7 +2359,7 @@ export function SketchEditor({
           Three modes do not fit a phone's header beside the lock and Done as pills - Done, the only
           way out there, went off the edge - so a phone picks the mode from a list.
         */}
-        {phone ? (
+        {lone ? null : phone ? (
           <select className="sketch-mode-select" aria-label="Mode" value={mode} onChange={(e) => switchMode(e.target.value as typeof mode)}>
             {MODES.map((option) => (
               <option key={option.value} value={option.value} disabled={option.value === "moisture" && sketch.rooms.length === 0}>
@@ -2374,7 +2385,7 @@ export function SketchEditor({
         )}
         {/* On a phone the 3D view is in More - in Exterior, which has no More, beside the sides - and the header has no
             room for it. In Exterior mode it is the outside of the house. */}
-        {!phone && (
+        {!phone && !lone && (
         <button
           type="button"
           className="option-btn"
@@ -2401,7 +2412,7 @@ export function SketchEditor({
         </button>
         {/* A phone is already full screen and has no page to go back to, so the control that
             would only ever say "Exit" is not shown there. */}
-        {!phone && (
+        {!phone && !lone && (
           <button
             type="button"
             className="btn-secondary"
@@ -2422,11 +2433,12 @@ export function SketchEditor({
           beside this.
         */}
         {/* Always there on a phone: it is the only way back, since full screen is not a mode. */}
-        {(!expanded || phone) && (
+        {standalone?.actions}
+        {(!expanded || phone || lone) && (
           <button className="btn-primary sketch-done" onClick={onClose}>
             {/* The phone says it in one word: the header is a single row there and the sentence
-                would take half of it. */}
-            {phone ? "Done" : "Done — back to claim"}
+                would take half of it. The phone app's editor has no claim to go back to. */}
+            {phone || lone ? "Done" : "Done — back to claim"}
           </button>
         )}
       </div>
@@ -2473,7 +2485,7 @@ export function SketchEditor({
         </div>
       ) : (
         <div className="sketch-toolbar" role="toolbar" aria-label="Sketch tools">
-          {SKETCH_DESKTOP_LEADING.map((key) => toolNodes[key])}
+          {SKETCH_DESKTOP_LEADING.filter((key) => !(lone && key === "scan")).map((key) => toolNodes[key])}
           <div className="option-group" role="group" aria-label="Placement tool">
             {SKETCH_PLACEMENT_KEYS.map((key) => toolNodes[key])}
           </div>
@@ -2484,19 +2496,21 @@ export function SketchEditor({
 
       {/* Mounted outside the toolbars: Import scan lives on the bar on a phone and in the desktop
           row otherwise, and the input it opens must exist wherever the button is. */}
-      <input
-        ref={scanFileRef}
-        type="file"
-        accept=".json,application/json"
-        hidden
-        aria-label="Room scan file"
-        onChange={(e) => {
-          const file = e.target.files?.[0];
-          // Reset so choosing the same file again still fires a change.
-          e.target.value = "";
-          if (file) void handleImportScan(file);
-        }}
-      />
+      {!lone && (
+        <input
+          ref={scanFileRef}
+          type="file"
+          accept=".json,application/json"
+          hidden
+          aria-label="Room scan file"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            // Reset so choosing the same file again still fires a change.
+            e.target.value = "";
+            if (file) void handleImportScan(file);
+          }}
+        />
+      )}
 
       {/*
         Two columns when expanded, one stacked flow when not — see `.sketch-body` in globals.css.
@@ -3518,7 +3532,7 @@ export function SketchEditor({
               >
                 {mode === "moisture"
                   ? moistureKeys(moistureTool).more.map((key) => moistureNodes[key])
-                  : sketchMoreKeys().map((key) => toolNodes[key])}
+                  : sketchMoreKeys(lone).map((key) => toolNodes[key])}
               </div>
             )}
             {/* Read-only has no tools to list, so Sizes is offered on its own: a locked plan is
@@ -3533,9 +3547,11 @@ export function SketchEditor({
               <button type="button" className="btn-secondary" onClick={() => setSheet("details")}>
                 Quantities & data
               </button>
-              <button type="button" className="btn-secondary" disabled={sketch.rooms.length === 0} onClick={() => setShow3d(true)}>
-                3D view
-              </button>
+              {!lone && (
+                <button type="button" className="btn-secondary" disabled={sketch.rooms.length === 0} onClick={() => setShow3d(true)}>
+                  3D view
+                </button>
+              )}
             </div>
           </div>
         </>
