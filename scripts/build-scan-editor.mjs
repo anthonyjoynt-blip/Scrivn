@@ -152,6 +152,7 @@ function indexHtml(devBridge) {
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
 <meta http-equiv="Content-Security-Policy" content="${CSP}">
 <title>Sketch</title>
+<link rel="icon" href="data:,">
 <link rel="stylesheet" href="editor.css">
 </head>
 <body>
