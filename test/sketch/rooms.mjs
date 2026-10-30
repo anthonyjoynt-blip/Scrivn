@@ -23,7 +23,7 @@ async function load() {
   const lib = (name) => join(root, "lib", name).replace(/\\/g, "/");
   writeFileSync(
     entry,
-    `export * from "${lib("sketch.ts")}";\nexport * from "${lib("roomPlacement.ts")}";\nexport * from "${lib("sketchQuantities.ts")}";\nexport * from "${lib("scopeMarks.ts")}";\nexport { findDerived } from "${lib("gapCheck.ts")}";\n`,
+    `export * from "${lib("sketch.ts")}";\nexport * from "${lib("roomPlacement.ts")}";\nexport * from "${lib("sketchQuantities.ts")}";\nexport * from "${lib("scopeMarks.ts")}";\nexport { findDerived, matchRoomName } from "${lib("gapCheck.ts")}";\n`,
   );
   const outfile = join(outDir, "sketch.mjs");
   await build({ entryPoints: [entry], bundle: true, format: "esm", platform: "neutral", outfile, logLevel: "silent" });
@@ -744,6 +744,18 @@ export async function runRoomChecks() {
     assert(s.findDerived(suggestions, "Living Room 1") === undefined, "a room nobody has named is not the living room");
     assert(s.findDerived(suggestions, "Room 1")?.floorSquareFeet === 1, "but it is Room 1 when the extraction says Room 1");
     assert(s.findDerived(suggestions, "Bedroom")?.floorSquareFeet === 2, "a typed name still matches by containment");
+  });
+
+  test("a question finds its sketch room the way it finds its moisture map", () => {
+    const basement = ["Rec Room", "Mechanical Room", "Bathroom"];
+    assert(s.matchRoomName(basement, "Mechanical Room") === 1, "the room of that name, not the first one drawn");
+    assert(s.matchRoomName(basement, " mechanical  room ") === 1, "case and spacing do not matter");
+    assert(s.matchRoomName(["Rec Room", "Mechanical", "Bathroom"], "Mechanical Room") === 1, "the sketch's shorter name, by containment");
+    assert(s.matchRoomName(["Bedroom", "Bedroom Closet"], "Bedroom") === 0, "an exact name beats a containment");
+    assert(s.matchRoomName(["Main Bedroom", "Bedroom Closet"], "Bedroom") === undefined, "two containments are nobody's");
+    assert(s.matchRoomName(["Bathroom", "Bathroom"], "Bathroom") === undefined, "nor are two rooms of the one name");
+    assert(s.matchRoomName(["Rec Room", "Room 1"], "Laundry Room 1") === undefined, "a room nobody has named is not the laundry");
+    assert(s.matchRoomName(basement, "Garage") === undefined && s.matchRoomName(basement, null) === undefined, "no match, no room");
   });
 
   test("a sketch saved with a copy of the door in the pulled room still has one hole there, not two", () => {

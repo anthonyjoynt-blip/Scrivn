@@ -2048,6 +2048,7 @@ export default function Home() {
           sketch={sketch}
           measure={markingQuestion.measure}
           title={markingQuestion.question.prompt}
+          roomName={markingQuestion.question.roomName}
           initial={scopeMarkFor(scopeMarks, markingQuestion.question.id)}
           onCancel={() => setMarkingQuestion(null)}
           onUse={(mark: ScopeMark, value: string) => {

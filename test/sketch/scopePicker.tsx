@@ -68,15 +68,55 @@ const closetInRoom = (): SketchRoom => ({
   ],
 });
 
+/** A plain rectangular room, its top-left corner at (x, y) in world pixels. */
+const rectRoom = (id: string, name: string, x: number, y: number, widthFeet: number, depthFeet: number): SketchRoom => ({
+  ...testRoom(),
+  id,
+  name,
+  vertices: [
+    { id: `${id}a`, x, y },
+    { id: `${id}b`, x: x + widthFeet * PIXELS_PER_FOOT, y },
+    { id: `${id}c`, x: x + widthFeet * PIXELS_PER_FOOT, y: y + depthFeet * PIXELS_PER_FOOT },
+    { id: `${id}d`, x, y: y + depthFeet * PIXELS_PER_FOOT },
+  ],
+});
+
+/**
+ * A basement drawn Rec Room first, so a picker that opens on the first room opens on the wrong one
+ * for anything asked about the Mechanical Room beside it.
+ */
+const REC = { x: 40, y: 40, w: 20, d: 15 };
+const MECH = { x: 40 + 20 * PIXELS_PER_FOOT, y: 40, w: 10, d: 8 };
+const basement = (): Sketch => ({
+  rooms: [
+    rectRoom("rec", "Rec Room", REC.x, REC.y, REC.w, REC.d),
+    rectRoom("mech", "Mechanical Room", MECH.x, MECH.y, MECH.w, MECH.d),
+  ],
+});
+
+/** A point well inside a room, clear of its walls' tap strips and of its name's tap target. */
+const insideOf = (r: { x: number; y: number; w: number; d: number }) => ({
+  x: r.x + r.w * PIXELS_PER_FOOT * 0.25,
+  y: r.y + r.d * PIXELS_PER_FOOT * 0.75,
+});
+
+/** Whether a room is the selected one: its floor is outlined in the selection amber (`COLORS.selected`). */
+function isSelectedAt(stage: Konva.Stage, world: { x: number; y: number }): boolean {
+  stage.getLayers().forEach((layer) => layer.drawHit());
+  const hit = stage.getIntersection(stage.getAbsoluteTransform().copy().point(world));
+  return hit?.stroke() === "#c97a0e";
+}
+
 let used: { mark: ScopeMark; value: string } | null = null;
 let cancelled = false;
 
-function Host({ sketch, measure }: { sketch: Sketch; measure: "wallRun" | "floorArea" }) {
+function Host({ sketch, measure, roomName = null }: { sketch: Sketch; measure: "wallRun" | "floorArea"; roomName?: string | null }) {
   const [initial] = useState<ScopeMark>(emptyScopeMark);
   return createElement(ScopeMarkPicker, {
     sketch,
     measure,
     title: "How much of the wall run is being cut?",
+    roomName,
     initial,
     onCancel: () => {
       cancelled = true;
@@ -185,6 +225,65 @@ export async function run(): Promise<{ passed: number; failed: number; results: 
         root2.unmount();
         host2.remove();
       }, 0);
+    }
+
+    /*
+      The picker opens on the room the question is about.
+
+      It used to open on the sketch's first room whatever was asked: from a demo run on a basement,
+      "Add from sketch" on a Mechanical Room extraction question came up with the Rec Room tinted.
+      The question's room is found the way its moisture map is (`matchRoomName`) and framed; a name
+      the sketch does not have opens on the first room and the whole plan, as before.
+    */
+    await new Promise((r) => setTimeout(r, 50));
+    const openOn = async (roomName: string) => {
+      const el = document.createElement("div");
+      document.body.appendChild(el);
+      const r = createRoot(el);
+      r.render(createElement(Host, { sketch: basement(), measure: "wallRun", roomName }));
+      await new Promise((done) => setTimeout(done, 700));
+      const s = Konva.stages[Konva.stages.length - 1];
+      if (!s) throw new Error(`no stage for "${roomName}"`);
+      return {
+        stage: s,
+        close: () => {
+          r.unmount();
+          el.remove();
+        },
+      };
+    };
+
+    const mech = await openOn("Mechanical Room");
+    try {
+      check(isSelectedAt(mech.stage, insideOf(MECH)), "a Mechanical Room question opens with the Mechanical Room selected");
+      check(!isSelectedAt(mech.stage, insideOf(REC)), "and not the Rec Room drawn before it");
+
+      const centre = mech.stage.getAbsoluteTransform().copy().point({
+        x: MECH.x + (MECH.w * PIXELS_PER_FOOT) / 2,
+        y: MECH.y + (MECH.d * PIXELS_PER_FOOT) / 2,
+      });
+      check(
+        Math.abs(centre.x - mech.stage.width() / 2) < 1 && Math.abs(centre.y - mech.stage.height() / 2) < 1,
+        `and framed on it: its centre at the canvas's (${Math.round(centre.x)}, ${Math.round(centre.y)} of ${mech.stage.width()} x ${mech.stage.height()})`,
+      );
+
+      // Zoomed in on, it still measures: its 10' top wall.
+      used = null;
+      gesturesFor(mech.stage).tap({ x: MECH.x + (MECH.w * PIXELS_PER_FOOT) / 2, y: MECH.y });
+      await new Promise((r) => setTimeout(r, 200));
+      check(findButton((t) => t === "Use 10 LF") !== null, `tapping its 10' wall totals 10 LF (saw "${findButton((t) => /^Use /.test(t))?.textContent?.trim()}")`);
+    } finally {
+      mech.close();
+    }
+
+    const garage = await openOn("Garage");
+    try {
+      check(isSelectedAt(garage.stage, insideOf(REC)), "a room the sketch does not have opens on the first room, as before");
+      check(!isSelectedAt(garage.stage, insideOf(MECH)), "with nothing else selected");
+      const corner = garage.stage.getAbsoluteTransform().copy().point({ x: REC.x, y: REC.y });
+      check(Math.abs(corner.x - 30) < 1 && Math.abs(corner.y - 30) < 1, `and the whole plan framed from its top-left corner, as before (at ${Math.round(corner.x)}, ${Math.round(corner.y)})`);
+    } finally {
+      garage.close();
     }
   } finally {
     setTimeout(() => {
