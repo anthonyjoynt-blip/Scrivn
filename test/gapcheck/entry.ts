@@ -40,5 +40,9 @@ export { equipmentSuggestionsFor } from "@/lib/claimGeneration";
 export { equipmentSuggestionKey } from "@/lib/gapCheck";
 export { claimEquipment, DEFAULT_EQUIPMENT_SETTINGS } from "@/lib/equipment";
 export { sketchDryingPlan } from "@/lib/dryingPlanSketch";
+// The round live and after a reload — see test/gapcheck/sameRound.mjs.
+export { claimRound } from "@/lib/claimGeneration";
+export { parseSavedClaimState } from "@/lib/claimState";
+export { blankRoom } from "@/lib/extractionWire";
 export { emptyMoistureMap, emptyRoomMoisture } from "@/lib/moisture";
 export { PIXELS_PER_FOOT } from "@/lib/sketch";

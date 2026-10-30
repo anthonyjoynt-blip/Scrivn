@@ -6,7 +6,7 @@ import { type AskedQuestion, formatQuestionLog, hasQuestionLog, recordRound } fr
 import { type SavedClaimState, parseSavedClaimState, resumeStep } from "@/lib/claimState";
 import { useClaimPersistence } from "@/lib/useClaimPersistence";
 import { type ClaimStep, claimOnScreen, newJobId, setAside, tryAgain, useClaimSteps, waitForSignal } from "@/lib/aiJobs";
-import { buildAsbestosSection, buildContentsSection, equipmentSuggestionsFor, extractionRequest, generationRequest, withExtraction, withGeneratedDocuments } from "@/lib/claimGeneration";
+import { buildAsbestosSection, buildContentsSection, claimRound, equipmentSuggestionsFor, extractionRequest, generationRequest, withExtraction, withGeneratedDocuments } from "@/lib/claimGeneration";
 import { connection, isNetworkFailure, netFetch } from "@/lib/connectivity";
 import { ClashBanner } from "@/components/ClashBanner";
 import { useLetterhead } from "@/lib/useLetterhead";
@@ -15,7 +15,6 @@ import { roomAreasForEstimate } from "@/lib/sketchQuantities";
 import { hasAnyExterior, siteScopeLines } from "@/lib/buildings";
 import { useProfile } from "@/lib/useProfile";
 import { claimsCanSave, isSupabaseConfigured } from "@/lib/supabase/env";
-import { resolveRound } from "@/lib/questionRound";
 import type { GeneratedDocuments, WaterLossExtraction } from "@/lib/types";
 import { evaluate, applyAnswer, isContentsSizeQuestion, isEmergencyOnlyQuestion, isEquipmentPresenceQuestion, isRepairOnlyQuestion, isWaterExtractionQuestion } from "@/lib/gapCheck";
 import { emptyLoss, withDerivedFields } from "@/lib/types";
@@ -80,7 +79,7 @@ import { type Trade, type WorkOrder, availableTrades, buildWorkOrders, unavailab
 import { WorkOrderSelector } from "@/components/WorkOrderSelector";
 import { SketchEditor } from "@/components/sketch/SketchEditor";
 import { type Sketch, emptySketch, hasSketchContent, knownRoomNames, levelsOf } from "@/lib/sketch";
-import { type MoistureMap, emptyMoistureMap, hasMoistureContent, pruneMoisture, roomMoistureSummary, withScanMoisture } from "@/lib/moisture";
+import { type MoistureMap, emptyMoistureMap, hasMoistureContent, pruneMoisture, withScanMoisture } from "@/lib/moisture";
 import { DryingLogSection } from "@/components/drying/DryingLogSection";
 import { PhotosSection, type PhotosView } from "@/components/photos/PhotosSection";
 import { type ClaimPhotos, emptyClaimPhotos, notesSinceScope, notesSinceScopeLine } from "@/lib/photos";
@@ -626,10 +625,13 @@ export default function Home() {
 
     Every question here is still a question the engine generated from real state; nothing is shown
     speculatively and nothing applicable is hidden. That invariant is what `isComplete` rests on.
+
+    Built from saved state only, through `claimRound`, so a reload asks exactly what was on screen —
+    see there for the effect that once made the two differ.
   */
   const round = useMemo(
-    () => (extraction ? resolveRound(claim, extraction, answers, equipmentSuggestions) : null),
-    [claim, extraction, answers, equipmentSuggestions],
+    () => claimRound({ claim, extraction, answers, sketch, moisture, resolvedSuggestions }, equipmentSuggestions),
+    [claim, extraction, answers, sketch, moisture, resolvedSuggestions, equipmentSuggestions],
   );
   /*
     Rendered: everything asked while resolving, answered or not — see `ResolvedRound.display`.
@@ -745,47 +747,6 @@ export default function Home() {
     }
     return out;
   }, [extraction, scopeMarks, sketch]);
-
-  /**
-   * Painted floor area per room, keyed the way gap-check matches room names.
-   *
-   * The moisture map and the water-extraction question ask for the same real-world fact — how much
-   * floor the water reached — so once it has been marked out it is not asked for again.
-   */
-  const paintedFloorByRoom = useMemo(() => {
-    const out: Record<string, number> = {};
-    for (const room of sketch.rooms) {
-      const summary = roomMoistureSummary(room, moisture);
-      if (summary.affectedFloorSquareFeet > 0) {
-        out[normaliseRoomName(room.name)] = Math.round(summary.affectedFloorSquareFeet * 10) / 10;
-      }
-    }
-    return out;
-  }, [sketch, moisture]);
-
-  /*
-    Fill the water-extraction amount in from the map, rather than asking for it a second time.
-
-    Only the AMOUNT. Whether extraction was required at all stays the PM's call — a wet floor does
-    not always need extracting — so that question still fires; this just means answering it yes does
-    not then lead to marking out an area that has already been marked out.
-  */
-  useEffect(() => {
-    if (Object.keys(paintedFloorByRoom).length === 0) return;
-    setExtraction((prev) => {
-      if (!prev) return prev;
-      let changed = false;
-      const rooms = prev.rooms.map((room) => {
-        if (room.waterExtractionRequired !== true) return room;
-        if (room.waterExtractionSF !== null || room.waterExtractionFraction !== null) return room;
-        const sf = paintedFloorByRoom[normaliseRoomName(room.roomName ?? "")];
-        if (sf === undefined) return room;
-        changed = true;
-        return { ...room, waterExtractionSF: sf };
-      });
-      return changed ? { ...prev, rooms } : prev;
-    });
-  }, [paintedFloorByRoom]);
 
   /** What the claim already states is being placed, for the on-the-spot check in the sketch. */
   const statedEquipment = useMemo(() => {

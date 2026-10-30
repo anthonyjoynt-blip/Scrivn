@@ -23,6 +23,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { EXTRACTABLE, DELIBERATELY_ASKED, fieldKeyFor } from "./extractable.mjs";
 import { checkResetClearsEveryState } from "./resetRule.mjs";
 import { checkCarryOver } from "./carryOver.mjs";
+import { checkSameRound, checkNoEffectRewritesRound } from "./sameRound.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..", "..");
@@ -3052,6 +3053,19 @@ check(contradictions.length === 0, `no field is listed as both extractable and d
 /* ── Answers survive a second read of the walkthrough ──────────────────────────────────────────── */
 
 checkCarryOver({ mod, check, claim, room, extractionWith, runToCompletion });
+
+/* ── The same claim asks the same questions, live or reloaded ─────────────────────────────────── */
+
+checkSameRound({ mod, check, claim });
+const roundRewrites = checkNoEffectRewritesRound(join(root, "app", "(app)", "claim", "page.tsx"));
+check(
+  roundRewrites.length === 0,
+  [
+    "no effect on the claim page writes what the follow-up round is built from.",
+    "         Opening a claim would run it and a claim being worked on would not, so a reload asks different questions:",
+    ...roundRewrites.map((r) => `           ${r}`),
+  ].join("\n"),
+);
 
 /* ── Starting a new claim leaves nothing of the old one ────────────────────────────────────────── */
 

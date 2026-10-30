@@ -11,7 +11,7 @@ import { siteScopeLines } from "./buildings";
 import { type EquipmentSuggestions, normaliseRoomName, withoutResolvedSuggestions } from "./gapCheck";
 import { isDGIG } from "./insurers";
 import { roomMoistureSummary, type MoistureMap } from "./moisture";
-import { nextQuestions, resolveRound } from "./questionRound";
+import { nextQuestions, resolveRound, type ResolvedRound } from "./questionRound";
 import { notePrints, noteTime, photoNotes, photoNotesText } from "./photos";
 import type { Sketch } from "./sketch";
 import { roomAreasForEstimate } from "./sketchQuantities";
@@ -106,6 +106,25 @@ export function equipmentSuggestionsFor(sketch: Sketch, moisture: MoistureMap, r
     };
   }
   return withoutResolvedSuggestions(byRoom, resolvedSuggestions);
+}
+
+/**
+ * The follow-up round the claim page shows, from the saved claim alone (2026-10-30).
+ *
+ * Nothing else may feed it. The page once had an effect that wrote the moisture map's floor area into
+ * the extraction tree whenever the map changed — which it does when a claim is opened, but not when a
+ * transcript is read with the map already drawn. So the same claim asked "How much water extraction
+ * was required?" live and dropped it, answer and all, after a reload. The map's area already arrives
+ * as that question's pre-fill (`findDerived`), so a round built from these six pieces is the whole
+ * round, live or reloaded. test/gapcheck/sameRound.mjs builds it both ways.
+ *
+ * `suggestions` is only there so the page can pass the copy it keeps memoised; it is the same thing.
+ */
+export function claimRound(
+  state: Pick<SavedClaimState, "claim" | "extraction" | "answers" | "sketch" | "moisture" | "resolvedSuggestions">,
+  suggestions = equipmentSuggestionsFor(state.sketch, state.moisture, state.resolvedSuggestions),
+): ResolvedRound | null {
+  return state.extraction ? resolveRound(state.claim, state.extraction, state.answers, suggestions) : null;
 }
 
 /**
