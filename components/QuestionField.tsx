@@ -116,14 +116,17 @@ export function QuestionField({
       {kind.type === "equipmentPlan" && (
         <div className="equipment-plan">
           <div className="option-group" role="group" aria-label={question.prompt}>
-            <button
-              type="button"
-              className={`option-btn${value === String(kind.suggested) ? " selected" : ""}`}
-              aria-pressed={value === String(kind.suggested)}
-              onClick={() => onChange(question.id, String(kind.suggested))}
-            >
-              Use {kind.suggested} {kind.unit}
-            </button>
+            {/* A suggestion of none is the button beside it. */}
+            {kind.suggested > 0 && (
+              <button
+                type="button"
+                className={`option-btn${value === String(kind.suggested) ? " selected" : ""}`}
+                aria-pressed={value === String(kind.suggested)}
+                onClick={() => onChange(question.id, String(kind.suggested))}
+              >
+                Use {kind.suggested} {kind.unit}
+              </button>
+            )}
             <button
               type="button"
               className={`option-btn${value === "none" ? " selected" : ""}`}
@@ -141,7 +144,7 @@ export function QuestionField({
               min={0}
               step={1}
               inputMode="numeric"
-              value={value === "none" || value === String(kind.suggested) ? "" : value}
+              value={value === "none" || (kind.suggested > 0 && value === String(kind.suggested)) ? "" : (value ?? "")}
               onChange={(e) => onChange(question.id, e.target.value)}
             />
           </label>

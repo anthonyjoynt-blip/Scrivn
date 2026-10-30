@@ -3,7 +3,7 @@ import { wallsOf } from "./sketch";
 import { type MoistureMap, hasRoomMoisture, roomMoisture, roomMoistureSummary } from "./moisture";
 import { grossFloorArea } from "./sketchQuantities";
 import type { AreaFraction } from "./types";
-import { airChangeCfm, capacityFromFactor, unitsForCapacity } from "./equipmentSizing";
+import { airChangeCfm, capacityFromFactor, shareByVolume, unitsForCapacity } from "./equipmentSizing";
 
 /**
  * IICRC-based equipment sizing, from the moisture map.
@@ -228,7 +228,18 @@ export interface RoomEquipment {
   roomId: string;
   roomName: string;
   airMovers: AirMoverResult;
+  /** This room sized on its own: its volume and working. NOT what to suggest for it — see `dehumidifierShare`. */
   dehumidifiers: DehumidifierResult;
+  /**
+   * The dehumidifiers to suggest for this room: its share of the job's total, which is sized once
+   * over every affected room (`claimEquipment`) and dealt out by volume (`shareByVolume`). The same
+   * split the sketch's drying plan draws, so the questions, the panel and the plan agree.
+   *
+   * `dehumidifiers.units` rounds up per room, and summed it asks for more than the job: two small
+   * rooms each needing a sixth of a machine got a whole one each. A room sized alone by
+   * `roomEquipment` is its own whole job, so there the two are equal.
+   */
+  dehumidifierShare: number;
 }
 
 export interface EquipmentSettings {
@@ -250,6 +261,7 @@ export function roomEquipment(
   fraction: AreaFraction | null = null,
 ): RoomEquipment {
   const data = roomMoisture(map, room.id);
+  const own = dehumidifiers(roomCubicFeet(room), settings.waterClass, settings.dehumidifierType, settings.dehumidifierSize);
   return {
     roomId: room.id,
     roomName: room.name.trim() || "Unnamed room",
@@ -258,7 +270,8 @@ export function roomEquipment(
       affectedUpperSquareFeet: affectedUpperSquareFeet(room, map),
       insetsAndOffsetsOver18Inches: data.insetsOver18Inches,
     }),
-    dehumidifiers: dehumidifiers(roomCubicFeet(room), settings.waterClass, settings.dehumidifierType, settings.dehumidifierSize),
+    dehumidifiers: own,
+    dehumidifierShare: own.units,
   };
 }
 
@@ -284,14 +297,20 @@ export interface ClaimEquipment {
  */
 export function claimEquipment(sketch: Sketch, map: MoistureMap, settings: EquipmentSettings): ClaimEquipment {
   const affected = sketch.rooms.filter((room) => hasRoomMoisture(map, room.id));
-  const rooms = affected.map((room) => roomEquipment(room, map, settings));
-
-  const cubicFeet = affected.reduce((sum, room) => sum + roomCubicFeet(room), 0);
+  const volumes = affected.map(roomCubicFeet);
+  const total = dehumidifiers(
+    volumes.reduce((sum, v) => sum + v, 0),
+    settings.waterClass,
+    settings.dehumidifierType,
+    settings.dehumidifierSize,
+  );
+  const shares = shareByVolume(volumes, total.units);
+  const rooms = affected.map((room, i) => ({ ...roomEquipment(room, map, settings), dehumidifierShare: shares[i] ?? 0 }));
 
   return {
     rooms,
     totalAirMovers: rooms.reduce((sum, r) => sum + r.airMovers.units, 0),
-    totalDehumidifiers: dehumidifiers(cubicFeet, settings.waterClass, settings.dehumidifierType, settings.dehumidifierSize),
+    totalDehumidifiers: total,
   };
 }
 
@@ -318,7 +337,7 @@ export function equipmentSuggestion(
   stated: number | null,
 ): EquipmentSuggestion | null {
   if (stated == null) return null;
-  const suggested = equipmentType === "air movers" ? room.airMovers.units : room.dehumidifiers.units;
+  const suggested = equipmentType === "air movers" ? room.airMovers.units : room.dehumidifierShare;
   if (suggested <= stated) return null;
   return { roomId: room.roomId, roomName: room.roomName, equipmentType, stated, suggested };
 }

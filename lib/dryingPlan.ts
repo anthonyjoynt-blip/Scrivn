@@ -7,6 +7,7 @@ import {
   airMovers,
   dehumidifiers,
 } from "./equipment";
+import { shareByVolume } from "./equipmentSizing";
 
 /**
  * A drying plan: how many air movers and dehumidifiers a set of wet rooms needs, and where they go.
@@ -259,30 +260,8 @@ export function dryingPlan(rooms: DryingRoom[], settings: EquipmentSettings): Dr
   };
 }
 
-/**
- * The job's dehumidifiers dealt out to its rooms by volume, largest remainder first.
- *
- * The total is sized once over the whole volume and must stay that total: giving each room its own
- * rounded-up count would buy a machine for every doorway, which is the mistake `claimEquipment`
- * exists to avoid. So the biggest rooms get them, and a small room beside a big one may get none —
- * its air is dried through the doorway. Ties go to the bigger room, then the earlier one.
- */
-export function shareByVolume(volumes: number[], total: number): number[] {
-  const sum = volumes.reduce((s, v) => s + Math.max(0, v), 0);
-  if (sum <= 0 || total <= 0) return volumes.map(() => 0);
-  const exact = volumes.map((v) => (Math.max(0, v) / sum) * total);
-  const out = exact.map((e) => Math.floor(e));
-  let left = total - out.reduce((s, n) => s + n, 0);
-  const order = exact
-    .map((e, i) => ({ i, rest: e - Math.floor(e), volume: volumes[i] ?? 0 }))
-    .sort((a, b) => b.rest - a.rest || b.volume - a.volume || a.i - b.i);
-  for (const { i } of order) {
-    if (left <= 0) break;
-    out[i] = (out[i] ?? 0) + 1;
-    left -= 1;
-  }
-  return out;
-}
+/** The job's dehumidifiers dealt out to its rooms by volume — in lib/equipmentSizing.ts, which `claimEquipment` shares. */
+export { shareByVolume };
 
 /* ── Geometry ──────────────────────────────────────────────────────────────────────────────────── */
 

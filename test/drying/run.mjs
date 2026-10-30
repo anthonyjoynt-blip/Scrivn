@@ -249,6 +249,9 @@ test("the sketch plan matches claimEquipment room for room, and in total", () =>
     );
     equal(plan.totalAirMovers, panel.totalAirMovers, "total air movers");
     equal(plan.dehumidifiers, panel.totalDehumidifiers, `dehumidifiers (${settings.dehumidifierType})`);
+    // Each room's suggested dehumidifiers are its share of that total, as the plan deals it out.
+    equal(panel.rooms.reduce((s, r) => s + r.dehumidifierShare, 0), panel.totalDehumidifiers.units, `shares hold the total (${settings.dehumidifierType})`);
+    if (plan.dehumidifiersPlaced) equal(panel.rooms.map((r) => r.dehumidifierShare), plan.rooms.map((r) => r.dehumidifierUnits), "shares are the units drawn");
   }
 });
 

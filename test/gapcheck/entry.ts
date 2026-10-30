@@ -35,3 +35,10 @@ export { sketchMeasureFor } from "@/lib/gapCheck";
 // Answers kept across a second read of the walkthrough — see test/gapcheck/carryOver.mjs.
 export { carryAnswers, carriedSuggestions } from "@/lib/answerCarryOver";
 export { withExtraction } from "@/lib/claimGeneration";
+// The moisture map's suggestions, built the way the claim page builds them, against the sketch's own plan.
+export { equipmentSuggestionsFor } from "@/lib/claimGeneration";
+export { equipmentSuggestionKey } from "@/lib/gapCheck";
+export { claimEquipment, DEFAULT_EQUIPMENT_SETTINGS } from "@/lib/equipment";
+export { sketchDryingPlan } from "@/lib/dryingPlanSketch";
+export { emptyMoistureMap, emptyRoomMoisture } from "@/lib/moisture";
+export { PIXELS_PER_FOOT } from "@/lib/sketch";

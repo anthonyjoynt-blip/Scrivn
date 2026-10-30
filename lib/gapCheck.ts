@@ -466,7 +466,15 @@ export function evaluate(raw: WaterLossExtraction, suggestions?: EquipmentSugges
           questions.push({
             id: `room:${roomIndex}:equipment:${i}:plan:${suggested}`,
             roomName: room.roomName,
-            prompt: `How many ${e.type} for this room? The moisture map suggests ${suggested}.`,
+            /*
+              Zero is a small room's share of the job's dehumidifiers — sized once over every wet room
+              and dealt to the biggest (see `RoomEquipment.dehumidifierShare`). "Suggests 0" for a wet
+              room reads as a mistake, so it says where they went instead.
+            */
+            prompt:
+              suggested > 0
+                ? `How many ${e.type} for this room? The moisture map suggests ${suggested}.`
+                : `How many ${e.type} for this room? The moisture map sizes them for the whole job and puts none in this room.`,
             kind: { type: "equipmentPlan", suggested, unit: e.type },
           });
           return;

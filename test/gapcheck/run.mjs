@@ -950,6 +950,122 @@ check(
   `an ambiguous name gets no default rather than the wrong one (got ${ambiguousDefault?.defaultValue ?? "none"})`,
 );
 
+/* ── The rooms' dehumidifiers add up to the job's ──────────────────────────────────────────────── */
+
+/*
+  Seen on a basement claim: the questions screen suggested 2 + 1 + 1 = 4 dehumidifiers across three
+  wet rooms, while the sketch's moisture panel sized the same map at 2 for the whole job. Each room was
+  sized on its own volume and rounded up, so two small rooms needing a sixth of a machine each got a
+  whole one. Dehumidifiers are sized once over the drying chamber (`claimEquipment`), so the rooms'
+  suggestions are that total dealt out — the same split the sketch draws. Air movers are per room and
+  already agreed.
+
+  A big rec room and two small rooms off it, 8 ft ceilings, Class 2, medium LGR (70 PPD a unit):
+  4,032 + 576 + 640 = 5,248 cu ft, 105 PPD, 2 units. Alone: 81 PPD = 2, 11.5 = 1, 12.8 = 1.
+*/
+{
+  const PX = mod.PIXELS_PER_FOOT;
+  const box = (id, name, x, y, wFeet, hFeet) => ({
+    id,
+    name,
+    vertices: [[x, y], [x + wFeet * PX, y], [x + wFeet * PX, y + hFeet * PX], [x, y + hFeet * PX]].map(([vx, vy], i) => ({ id: `${id}-v${i}`, x: vx, y: vy })),
+    ceilingHeightFeet: 8, ceilingType: "flat", ceilingPeakFeet: null, stairs: null, parentRoomId: null, nestingOptOut: false, symbols: [], freeCabinets: [],
+  });
+  // Every cell of a w x h ft floor, or the first `rows` rows of it (cells are a quarter foot).
+  const paint = (wFeet, hFeet, rows = hFeet * 4) => {
+    const cells = [];
+    for (let col = 0; col < wFeet * 4; col++) for (let row = 0; row < rows; row++) cells.push(`${col},${row}`);
+    return cells;
+  };
+  // Wet to 2 ft: a wet wall that adds no area above the base, so each room's movers are base + floor.
+  const wetWall = (room) => ({ id: `${room.id}-r`, wallId: room.vertices[0].id, startT: 0, endT: 1, affectedHeightFeet: 2, material: "drywall", reading: 4, dryStandard: 0.75 });
+
+  const rec = box("rec", "Rec Room", 0, 0, 24, 21);
+  const hall = box("hall", "Hallway", 24 * PX, 0, 4, 18);
+  const mech = box("mech", "Mechanical Room", 28 * PX, 0, 8, 10);
+  const sketch = { rooms: [rec, hall, mech] };
+  const map = mod.emptyMoistureMap();
+  map.rooms.rec = { ...mod.emptyRoomMoisture(), wallReadings: [wetWall(rec)], floorCells: paint(6, 8) };
+  map.rooms.hall = { ...mod.emptyRoomMoisture(), wallReadings: [wetWall(hall)], floorCells: paint(4, 18) };
+  map.rooms.mech = { ...mod.emptyRoomMoisture(), wallReadings: [wetWall(mech)], floorCells: paint(8, 10) };
+
+  // The case itself: the job is 2, and the rooms sized one by one come to 4.
+  const job = mod.claimEquipment(sketch, map, mod.DEFAULT_EQUIPMENT_SETTINGS);
+  const alone = job.rooms.map((r) => r.dehumidifiers.units);
+  check(job.totalDehumidifiers.units === 2, `the panel sizes the job at 2 dehumidifiers (got ${job.totalDehumidifiers.units})`);
+  check(alone.join("+") === "2+1+1", `and each room sized alone would come to 2+1+1 = 4 (got ${alone.join("+")})`);
+
+  const equipmentRecords = [
+    { type: "air movers", quantity: null, holeCount: null },
+    { type: "dehumidifiers", quantity: null, holeCount: null },
+  ];
+  const basement = extractionWith(["Mechanical Room", "Hallway", "Rec Room"].map((name) => room(name, { equipment: equipmentRecords })));
+  const suggestions = mod.equipmentSuggestionsFor(sketch, map, []);
+  const planQuestions = (s, extraction = basement) =>
+    nextQuestions(claim, withDerivedFields(extraction), s).filter((q) => q.kind.type === "equipmentPlan");
+  const suggestedFor = (questions, unit) => Object.fromEntries(questions.filter((q) => q.kind.unit === unit).map((q) => [q.roomName, q.kind.suggested]));
+
+  const asked = planQuestions(suggestions);
+  const dehus = suggestedFor(asked, "dehumidifiers");
+  const dehuTotal = Object.values(dehus).reduce((s, n) => s + n, 0);
+  check(
+    dehuTotal === job.totalDehumidifiers.units,
+    `the questions' dehumidifier suggestions add up to the panel's job total of ${job.totalDehumidifiers.units} (got ${JSON.stringify(dehus)})`,
+  );
+
+  // Dealt out the way the sketch draws them, room for room.
+  const drawn = Object.fromEntries(mod.sketchDryingPlan(sketch, map, mod.DEFAULT_EQUIPMENT_SETTINGS).rooms.map((r) => [r.roomName, r.dehumidifierUnits]));
+  check(
+    ["Rec Room", "Hallway", "Mechanical Room"].every((name) => dehus[name] === drawn[name]),
+    `each room is suggested what the sketch's plan puts in it (asked ${JSON.stringify(dehus)}, drawn ${JSON.stringify(drawn)})`,
+  );
+
+  // Air movers stay per room, and still add up: 2 + 3 + 3 = 8.
+  const movers = suggestedFor(asked, "air movers");
+  check(
+    JSON.stringify(movers) === JSON.stringify({ "Mechanical Room": 3, Hallway: 3, "Rec Room": 2 }) && job.totalAirMovers === 8,
+    `air movers are unchanged, 3 + 3 + 2 = 8 (got ${JSON.stringify(movers)}, panel ${job.totalAirMovers})`,
+  );
+
+  // A room whose share is none is told why, rather than "the moisture map suggests 0".
+  const hallDehu = asked.find((q) => q.roomName === "Hallway" && q.kind.unit === "dehumidifiers");
+  check(
+    hallDehu !== undefined && !/suggests 0\b/.test(hallDehu.prompt) && /whole job/.test(hallDehu.prompt),
+    `a room with no share says the job's units are placed elsewhere (got "${hallDehu?.prompt ?? "no question"}")`,
+  );
+
+  /*
+    Answered stays answered. The page retires each answered suggestion by room and type
+    (`equipmentSuggestionKey`), with no number in the key — so a claim answered before the shares
+    changed, here the PM's own 1 + 1 + none, gets nothing back, plan or confirm-or-suggest.
+  */
+  const answers = Object.fromEntries(
+    asked.filter((q) => q.kind.unit === "dehumidifiers").map((q) => [q.id, { "Mechanical Room": "1", Hallway: "1", "Rec Room": "none" }[q.roomName]]),
+  );
+  const round = resolveRound(claim, basement, answers, suggestions);
+  const retired = round.applied.map(mod.equipmentSuggestionKey).filter((key) => key !== null);
+  check(retired.length === 3, `each answered dehumidifier question retires its suggestion (got ${retired.join(", ")})`);
+  const after = nextQuestions(claim, withDerivedFields(round.extraction), mod.equipmentSuggestionsFor(sketch, map, retired));
+  const dehuAgain = after.filter((q) => q.id.includes(":equipment:") && q.kind.unit === "dehumidifiers");
+  check(dehuAgain.length === 0, `no dehumidifier question comes back once answered (got ${dehuAgain.map((q) => q.id).join(", ")})`);
+
+  // A stated count under a room's share is still checked once, and only once.
+  const underShare = extractionWith([
+    room("Rec Room", { equipment: [{ type: "dehumidifiers", quantity: 1, holeCount: null }] }),
+    room("Hallway", { equipment: [{ type: "dehumidifiers", quantity: 1, holeCount: null }] }),
+  ]);
+  const checks = nextQuestions(claim, withDerivedFields(underShare), suggestions).filter((q) => q.kind.type === "confirmOrSuggest");
+  check(
+    checks.length === 1 && checks[0].roomName === "Rec Room" && checks[0].kind.suggested === 2,
+    `1 stated against a share of 2 is checked; 1 against a share of none is not (got ${checks.map((q) => `${q.roomName}:${q.kind.suggested}`).join(", ")})`,
+  );
+  const keptRetired = checks.map(mod.equipmentSuggestionKey);
+  const recheck = nextQuestions(claim, withDerivedFields(underShare), mod.equipmentSuggestionsFor(sketch, map, keptRetired)).filter(
+    (q) => q.kind.type === "confirmOrSuggest",
+  );
+  check(recheck.length === 0, `and kept, it is not asked again (got ${recheck.map((q) => q.id).join(", ")})`);
+}
+
 /* ── Insulation type, and the R-value that depends on it ───────────────────────────────────────── */
 
 /*
