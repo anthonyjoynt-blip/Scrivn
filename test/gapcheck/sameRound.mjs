@@ -109,11 +109,12 @@ export function basementLoss(mod, baseClaim) {
 */
 export function basementAnswer(q) {
   if (q.id === "room:0:waterExtraction:sf") return "72 SF";
-  if (q.id.endsWith(":insulationAffected")) return q.id.startsWith("room:0:") ? "Yes" : "No";
+  // Lower case, as the page writes a yes/no answer.
+  if (q.id.endsWith(":insulationAffected")) return q.id.startsWith("room:0:") ? "yes" : "no";
   if (q.defaultValue !== undefined) return undefined;
   switch (q.kind.type) {
     case "yesNo":
-      return /water extraction/i.test(q.prompt) ? "Yes" : "No";
+      return /water extraction/i.test(q.prompt) ? "yes" : "no";
     case "choice":
       return q.kind.options.find((o) => o === "Removed and replaced" || o === "Fiberglass batt") ?? q.kind.options[0];
     case "equipmentPlan":
