@@ -85,7 +85,8 @@ export function equipmentSuggestionsFor(sketch: Sketch, moisture: MoistureMap, r
     const measured = sketchRoom ? roomMoistureSummary(sketchRoom, moisture) : null;
     byRoom[normaliseRoomName(room.roomName)] = {
       // Keyed by the same free-text type strings extraction uses — see `EquipmentRecord.type`.
-      equipment: { "air movers": room.airMovers.units, dehumidifiers: room.dehumidifiers.units },
+      // Dehumidifiers are the room's share of the job's total, so the rooms add up to the panel's.
+      equipment: { "air movers": room.airMovers.units, dehumidifiers: room.dehumidifierShare },
       floorSquareFeet: measured && measured.affectedFloorSquareFeet > 0 ? measured.affectedFloorSquareFeet : null,
       // The affected wall RUN, which is what a cut length is measured in — not the area.
       wallRunFeet: measured ? measured.readings.reduce((sum, r) => sum + (r.affectedLengthFeet ?? 0), 0) || null : null,

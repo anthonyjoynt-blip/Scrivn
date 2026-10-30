@@ -176,7 +176,7 @@ export function EquipmentPanel({
           return (
             [
               ["air movers", room.airMovers.units] as const,
-              ["dehumidifiers", room.dehumidifiers.units] as const,
+              ["dehumidifiers", room.dehumidifierShare] as const,
             ]
               .map(([type, suggested]) => {
                 const have = stated[type];
