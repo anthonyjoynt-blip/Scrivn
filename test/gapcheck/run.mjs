@@ -2915,9 +2915,24 @@ check(applyAnswer(openShoring, shoringId, "Yes").rooms[0].cabinetry[0].shoringRe
 check(applyAnswer(openShoring, shoringId, "No").rooms[0].cabinetry[0].shoringRequired === false, "and no records the no, rather than leaving it open");
 
 /*
-  Held back while the vanity option is still on the table, on the same terms as the grade: answering
-  "it's a vanity" moves the record out of cabinetry altogether, so anything asked alongside is a
-  question about a record that may be about to stop existing.
+  No grade question (2026-10-30, the owner: an estimator doesn't pick it on site). A cabinet coming
+  out and going back with no grade said is asked its extent and shoring, never a grade — and a grade
+  answered on a claim saved before this still lands.
+*/
+const noGrade = cabQs(everyRecordRoomWith({ cabinetry: [cabinet({ extent: null, grade: null })] }));
+check(
+  noGrade.length > 0 && !noGrade.some((q) => q.id.endsWith(":grade") || /grade/i.test(q.prompt)),
+  `a replaced cabinet with no grade is not asked one (got ${noGrade.map((q) => q.id).join(", ") || "nothing"})`,
+);
+check(
+  applyAnswer(extractionWith([everyRecordRoomWith({ cabinetry: [cabinet({ grade: null })] })]), "room:0:cabinetry:0:grade", "Premium").rooms[0].cabinetry[0].grade === "PREMIUM",
+  "a grade answered before the question was dropped still applies",
+);
+
+/*
+  Held back while the vanity option is still on the table: answering "it's a vanity" moves the
+  record out of cabinetry altogether, so anything asked alongside is a question about a record that
+  may be about to stop existing.
 */
 const vanityRoom = { ...everyRecordRoom("Bathroom"), cabinetry: [cabinet({ extent: null, grade: null })] };
 check(

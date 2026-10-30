@@ -96,7 +96,6 @@ export const DELIBERATELY_ASKED = new Map([
   ["ceiling:aboveInsulationRValue", "read off the batt label or a depth gauge, not dictated"],
 
   // Decisions the PM makes later, not observations they make on site.
-  ["cabinetry:grade", "a replacement-spec decision made when pricing, not observed on site"],
   ["ceilingFixtures:inRemovalArea", "a judgement about the removal boundary, not stated"],
   ["room:otherCeilingFixtures", "free text, deliberately open-ended"],
   ["plumbing:sinkAlsoNeeded", "a rebuild decision"],

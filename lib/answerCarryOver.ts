@@ -153,6 +153,7 @@ const KINDS: Record<string, RecordKind> = {
   }),
   cabinetry: recordKind("cabinetry", (r) => textKey(r.location), {
     extent: { copy: ["extent"] },
+    // No longer asked (2026-10-30); kept so a grade answered before then survives a second read.
     grade: { copy: ["grade"], same: ["action"] },
     shoringRequired: { copy: ["shoringRequired"] },
   }),

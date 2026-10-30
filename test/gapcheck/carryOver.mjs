@@ -160,7 +160,8 @@ export function checkCarryOver({ mod, check, claim, room, extractionWith, runToC
     ...["action", "shoeMold", "material", "heightIn"].map((f) => `room:N:baseboard:N:${f}`),
     ...["insulationAffected", "insulationType", "insulationRValue", "cutHeight", "cutRunFt"].map((f) => `room:N:wall:N:${f}`),
     ...["slabOnly", "doorType", "doorStyle", "unitType", "saveHardware"].map((f) => `room:N:door:N:${f}`),
-    ...["extent", "grade", "shoringRequired"].map((f) => `room:N:cabinetry:N:${f}`),
+    // Not "grade": no longer asked (2026-10-30). Its rule stays, for a grade answered before then.
+    ...["extent", "shoringRequired"].map((f) => `room:N:cabinetry:N:${f}`),
     "room:N:countertop:N:material",
     ...["finish", "textureStyle", "aboveInsulationAffected", "aboveInsulationType", "aboveInsulationRValue", "replaceSF", "detachScope", "tileSize", "mountMethod"]
       .map((f) => `room:N:ceiling:N:${f}`),

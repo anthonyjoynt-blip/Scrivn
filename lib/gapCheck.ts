@@ -1532,23 +1532,16 @@ function cabinetryQuestions(roomIndex: number, roomName: string, i: number, c: C
     });
   }
   /*
-    Held back while the vanity option is still on the table.
-
-    Answering "It's a vanity" moves the record out of cabinetry altogether, and a vanity's grade is a
-    plumbing-fixture question with its own prompt — so a grade queued in the same round is a question
-    about a record that may be about to stop existing. Once extent is set this is an ordinary
-    unconditional question, which is what the round after the answer sees.
+    No grade question (2026-10-30, the owner). An estimator does not pick the grade of replacement
+    cabinets on site; it is matched to what was there when the estimate is priced. A grade said in
+    the notes still reaches the scope, and an answer saved before this still applies.
   */
-  if (c.action === "REMOVE_AND_REPLACE" && c.grade === null && !offeringVanity)
-    q.push({
-      id: `${base}:grade`, roomName, prompt: "What grade of replacement cabinetry?",
-      kind: { type: "choice", options: ["Standard", "High", "Premium", "Deluxe"] },
-    });
   /*
     Whether anything above it needs holding up while it is out.
 
-    Held back on the same terms as the grade: a vanity answer moves this record elsewhere, and a
-    question about a record that may stop existing is one the PM answers for nothing.
+    Held back while the vanity option is still on the table: answering "It's a vanity" moves this
+    record out of cabinetry altogether, and a question about a record that may stop existing is one
+    the PM answers for nothing. Once extent is set, the round after the answer asks it.
   */
   if (c.shoringRequired === null && !offeringVanity)
     q.push({
@@ -1980,8 +1973,6 @@ export function isContentsSizeQuestion(questionId: string): boolean {
  *   during Repair — Emergency's "Remove baseboard" bullet has no height in its own wording.
  * - Wall cutRunFt: feeds the Repair-side drywall-replacement quantity and priming-SF math
  *   specifically — Emergency's wall bullet is driven by cutHeight alone, never the linear footage.
- * - Cabinetry grade: describes the REPLACEMENT cabinetry going in during Repair — the old cabinetry
- *   being removed during Emergency has no "grade" of the new one to speak of.
  * - Toe kick method (reskin vs. prefinished replacement): itself describes a Repair-phase action.
  * - Ceiling finish/textureStyle/replaceSF/aboveInsulationAffected: explicitly Repair-only already,
  *   per the ceiling-drywall trade sequence in documentGenerationPrompt.ts ("Emergency for this
@@ -1991,7 +1982,6 @@ export function isRepairOnlyQuestion(questionId: string): boolean {
   return (
     /:baseboard:\d+:heightIn$/.test(questionId) ||
     /:wall:\d+:cutRunFt$/.test(questionId) ||
-    /:cabinetry:\d+:grade$/.test(questionId) ||
     /:toeKick:\d+:method$/.test(questionId) ||
     /:ceiling:\d+:(finish|textureStyle|replaceSF|aboveInsulationAffected)$/.test(questionId)
   );
