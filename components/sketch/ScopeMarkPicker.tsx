@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import { type Sketch, type SketchView, clampZoom, defaultView, exposedRunAt, freeWallsOf, roomBounds } from "@/lib/sketch";
+import { type Sketch, type SketchView, clampZoom, defaultView, exposedRunAt, fitView, freeWallsOf, roomBounds } from "@/lib/sketch";
+import { matchRoomName } from "@/lib/gapCheck";
 import { type MoistureMap, roomMoisture, setRoomMoisture } from "@/lib/moisture";
 import {
   type ScopeMark,
@@ -44,6 +45,7 @@ export function ScopeMarkPicker({
   sketch,
   measure,
   title,
+  roomName,
   initial,
   onCancel,
   onUse,
@@ -52,6 +54,8 @@ export function ScopeMarkPicker({
   measure: ScopeMeasure;
   /** The question being answered, shown so it is clear what is being marked. */
   title: string;
+  /** The room the question is about, by the extraction's name for it; null for a claim-wide question. */
+  roomName: string | null;
   initial: ScopeMark;
   onCancel: () => void;
   /** The marking and the value it measures, formatted in the unit the question wants. */
@@ -59,7 +63,16 @@ export function ScopeMarkPicker({
 }) {
   const [layer, setLayer] = useState<MoistureMap>(() => toCanvasLayer(initial));
   const [tool, setTool] = useState<MoistureTool>(measure === "wallRun" ? "read" : "paint");
-  const [selectedRoomId, setSelectedRoomId] = useState<string | null>(sketch.rooms[0]?.id ?? null);
+  /*
+    The sketch room the question is about, found the way its moisture map is (`matchRoomName`). The
+    picker used to open on the sketch's first room whatever was asked, so a Mechanical Room question
+    came up with the Rec Room tinted. No match — or two — still opens on the first room.
+  */
+  const questionRoom = useMemo(() => {
+    const at = matchRoomName(sketch.rooms.map((r) => r.name), roomName);
+    return at === undefined ? null : sketch.rooms[at]!;
+  }, [sketch.rooms, roomName]);
+  const [selectedRoomId, setSelectedRoomId] = useState<string | null>(questionRoom?.id ?? sketch.rooms[0]?.id ?? null);
   const [selectedReadingId, setSelectedReadingId] = useState<string | null>(null);
   const [view, setView] = useState<SketchView>(defaultView);
   const [width, setWidth] = useState(600);
@@ -74,9 +87,17 @@ export function ScopeMarkPicker({
     return () => observer.disconnect();
   }, []);
 
-  /* Frame the whole sketch on open — the picker has no history for the PM to have panned. */
+  /*
+    Frame the question's room on open, or the whole sketch when the question names none of its rooms
+    — the picker has no history for the PM to have panned. The room is what the question is about,
+    and on a phone the whole plan draws its walls small; the rest is one press of − away.
+  */
   useEffect(() => {
     if (sketch.rooms.length === 0 || width <= 0) return;
+    if (questionRoom) {
+      setView(fitView(roomBounds(questionRoom), width, CANVAS_HEIGHT, 30));
+      return;
+    }
     let minX = Infinity;
     let minY = Infinity;
     let maxX = -Infinity;
@@ -91,7 +112,7 @@ export function ScopeMarkPicker({
     const pad = 30;
     const scale = clampZoom(Math.min((width - pad * 2) / (maxX - minX || 1), (CANVAS_HEIGHT - pad * 2) / (maxY - minY || 1)));
     setView({ scale, x: pad - minX * scale, y: pad - minY * scale });
-  }, [sketch, width]);
+  }, [sketch, width, questionRoom]);
 
   const mark = useMemo(() => fromCanvasLayer(layer), [layer]);
   const runFeet = scopeWallRunFeet(mark, sketch);

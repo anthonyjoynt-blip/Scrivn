@@ -221,18 +221,38 @@ export function findDerived(
   suggestions: EquipmentSuggestions | undefined,
   roomName: string | null,
 ): MoistureDerived | undefined {
-  if (!suggestions || !roomName) return undefined;
+  if (!suggestions) return undefined;
+  const keys = Object.keys(suggestions);
+  const at = matchRoomName(keys, roomName);
+  return at === undefined ? undefined : suggestions[keys[at]!];
+}
+
+/**
+ * Which of `names` a question's room name means, by the rule `findDerived` describes: the one name
+ * equal to it once normalised, else the one name that contains it or is contained in it as a
+ * whole-word run. The index into `names`, or undefined when none qualifies — or more than one does.
+ *
+ * Shared so a sketch room is found for a question the same way its moisture map is. The add-from-
+ * sketch picker opened on the sketch's first room whatever the question was about, so a Mechanical
+ * Room question came up with the Rec Room tinted.
+ *
+ * Two rooms of the same name (one per storey, say) are as ambiguous as two containments, so neither
+ * is taken; moisture-map keys are unique, so `findDerived` never meets that case.
+ */
+export function matchRoomName(names: readonly string[], roomName: string | null): number | undefined {
+  if (!roomName) return undefined;
   const key = normaliseRoomName(roomName);
-  const exact = suggestions[key];
-  if (exact) return exact;
+  const keys = names.map(normaliseRoomName);
+  const only = (indices: number[]) => (indices.length === 1 ? indices[0] : undefined);
+
+  const exact = keys.flatMap((k, i) => (k === key ? [i] : []));
+  if (exact.length > 0) return only(exact);
 
   const contains = (haystack: string, needle: string) =>
     new RegExp(`(^| )${needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}( |$)`).test(haystack);
 
   // A sketch room still called "Room 2" is nobody's yet — see `isPlaceholderRoomName`.
-  const candidates = Object.keys(suggestions).filter((k) => !isPlaceholderRoomName(k) && (contains(k, key) || contains(key, k)));
-  const only = candidates.length === 1 ? candidates[0] : undefined;
-  return only === undefined ? undefined : suggestions[only];
+  return only(keys.flatMap((k, i) => (!isPlaceholderRoomName(k) && (contains(k, key) || contains(key, k)) ? [i] : [])));
 }
 
 export function evaluate(raw: WaterLossExtraction, suggestions?: EquipmentSuggestions): GapCheckResult {
