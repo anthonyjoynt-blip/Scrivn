@@ -35,3 +35,9 @@ export { sketchMeasureFor } from "@/lib/gapCheck";
 // Answers kept across a second read of the walkthrough — see test/gapcheck/carryOver.mjs.
 export { carryAnswers, carriedSuggestions } from "@/lib/answerCarryOver";
 export { withExtraction } from "@/lib/claimGeneration";
+// The round live and after a reload — see test/gapcheck/sameRound.mjs.
+export { claimRound } from "@/lib/claimGeneration";
+export { parseSavedClaimState } from "@/lib/claimState";
+export { blankRoom } from "@/lib/extractionWire";
+export { emptyMoistureMap, emptyRoomMoisture } from "@/lib/moisture";
+export { PIXELS_PER_FOOT } from "@/lib/sketch";
