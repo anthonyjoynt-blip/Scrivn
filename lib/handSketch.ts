@@ -83,7 +83,7 @@ export interface DrawnRoom {
   name: string | null;
   /** What the drawing suggests it is, for asking its name. */
   guess: DrawnRoomGuess | null;
-  /** The outline as drawn, corner by corner round the room, in the upright photo's pixels. */
+  /** The outline as drawn, corner by corner round the room, in the photo's own pixels, as it was taken. */
   corners: DrawnPoint[];
   /** walls[i] runs from corners[i] to corners[i + 1]: the number written against it, as written, or null. */
   walls: { length: string | null }[];
@@ -96,7 +96,7 @@ export interface DrawnRoom {
 export interface HandSketchRead {
   version: 1;
   kind: "hand" | "blueprint";
-  /** Quarter turns clockwise that make the writing upright; the corners are in that upright frame. */
+  /** Quarter turns clockwise that make the writing upright. The corners stay in the photo as taken; the build turns the rooms. */
   rotate: 0 | 90 | 180 | 270;
   rooms: DrawnRoom[];
   /** Writing read but not used: crossed out, unreadable, or not about the rooms. */
@@ -447,7 +447,8 @@ const TUB_DEPTHS = [30, 32, 36];
 /** A door standing at a corner stands this far off it: the casing's return. */
 const DOOR_OFF_CORNER = 4;
 
-const NAMES: Record<DrawnRoomGuess, string> = {
+/** A room's name from what the drawing suggests it is: offered when no name is written. */
+export const NAMES: Record<DrawnRoomGuess, string> = {
   bedroom: "Bedroom",
   bathroom: "Bathroom",
   closet: "Closet",
