@@ -11,7 +11,7 @@ const nextConfig = {
    * DEV ONLY. This has no effect on a production build, and deliberately covers private RFC1918
    * ranges rather than the whole internet.
    */
-  allowedDevOrigins: ["192.168.1.*", "10.*", "172.16.*", "*.local"],
+  allowedDevOrigins: ["192.168.*.*", "10.*.*.*", "172.16.*.*", "*.local"],
 };
 
 export default nextConfig;
