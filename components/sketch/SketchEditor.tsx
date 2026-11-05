@@ -263,6 +263,7 @@ export function SketchEditor({
   onClose,
   startReadOnly = false,
   notice,
+  alert,
   photoAccess,
   startMode,
   standalone,
@@ -307,6 +308,12 @@ export function SketchEditor({
    * drawing has to be where the drawing is.
    */
   notice?: ReactNode;
+  /**
+   * Something about the whole claim that must be answered before the PM carries on - today the save
+   * clash (components/ClashBanner.tsx). Shown at the top of the card in every view, the outside of
+   * the house included, because in full screen the card covers the page where it would otherwise be.
+   */
+  alert?: ReactNode;
   /** The claim's site photos, for measuring the outside of the house from photos (2026-10-16, ExteriorEditor.tsx). */
   photoAccess?: ExteriorPhotoAccess;
   /**
@@ -2527,6 +2534,8 @@ export function SketchEditor({
           }}
         />
       )}
+
+      {alert && <div className="sketch-alert">{alert}</div>}
 
       {/*
         Two columns when expanded, one stacked flow when not — see `.sketch-body` in globals.css.

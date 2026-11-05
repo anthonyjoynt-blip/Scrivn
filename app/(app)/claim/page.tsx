@@ -639,6 +639,13 @@ export default function Home() {
   const handSketchAsksFloor = handSketchFloors.length > 1 && roomsOnLevel(sketch, handSketchFirstFloor).length > 0;
 
   /*
+    The save clash, asked about in one of two places: above the sketch buttons, or at the top of the
+    sketch editor while it is open - full screen, the editor covers everything else on the page, and
+    a clash raised then (a sketch change saved over the office's) went unseen until Done.
+  */
+  const clashBanner = persistence.clash ? <ClashBanner clash={persistence.clash} onKeep={(keep) => void persistence.resolveClash(keep)} /> : null;
+
+  /*
     The scan strip, built once so the two places it can show agree — see where it is rendered. The
     hand sketch's offer goes in it too.
   */
@@ -1702,9 +1709,8 @@ export default function Home() {
           No signal — opened from this phone&rsquo;s copy, last changed {new Date(persistence.openedFromDevice).toLocaleString()}.
         </p>
       )}
-      {persistence.clash && (
-        <ClashBanner clash={persistence.clash} onKeep={(keep) => void persistence.resolveClash(keep)} />
-      )}
+      {/* With the sketch open it goes to the editor instead (`alert`): in full screen the editor covers this spot. */}
+      {!showSketch && clashBanner}
       {/*
         A Claude step written down to run when the signal is back — said once, here, whichever step
         the claim is on, so it is never mistaken for a step that has failed or is still spinning.
@@ -1811,6 +1817,7 @@ export default function Home() {
         <SketchEditor
           sketch={sketch}
           notice={scanNotice}
+          alert={clashBanner}
           knownRoomNames={sketchRoomNames}
           moisture={moisture}
           statedEquipment={statedEquipment}

@@ -2999,6 +2999,20 @@ button:disabled {
   margin: 10px 0;
 }
 
+/* The clash inside the sketch editor (SketchEditor's `alert`): its natural height in the full-screen
+   column, never more than part of the screen, so the drawing is still there under it. */
+.sketch-alert {
+  flex: none;
+}
+.sketch-card-expanded .sketch-alert {
+  max-height: 45dvh;
+  overflow-y: auto;
+  margin-bottom: 10px;
+}
+.sketch-alert .clash-banner {
+  margin-bottom: 0;
+}
+
 /* The signed-in footer — see app/(app)/layout.tsx for why the product side carries this at all. */
 .app-footer {
   max-width: var(--max-width);
