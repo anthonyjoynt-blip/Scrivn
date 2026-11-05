@@ -1,0 +1,276 @@
+{
+ "model": "claude-opus-5-5",
+ "at": "2026-11-05T14:23:26.345Z",
+ "image": {
+  "width": 1050,
+  "height": 1400
+ },
+ "usage": {
+  "inputTokens": 1935,
+  "outputTokens": 2206,
+  "cacheCreationTokens": 2566,
+  "cacheReadTokens": 0
+ },
+ "usd": 0.06469,
+ "wire": {
+  "kind": "hand",
+  "rotate": 270,
+  "rooms": [
+   {
+    "name": "",
+    "guess": "bedroom",
+    "corners": [
+     {
+      "x": 170,
+      "y": 220
+     },
+     {
+      "x": 350,
+      "y": 215
+     },
+     {
+      "x": 545,
+      "y": 440
+     },
+     {
+      "x": 705,
+      "y": 440
+     },
+     {
+      "x": 705,
+      "y": 1140
+     },
+     {
+      "x": 210,
+      "y": 1148
+     }
+    ],
+    "walls": [
+     {
+      "length": "4'11"
+     },
+     {
+      "length": "3'4"
+     },
+     {
+      "length": "4'4"
+     },
+     {
+      "length": "14'3"
+     },
+     {
+      "length": "11'9"
+     },
+     {
+      "length": "16'7"
+     }
+    ],
+    "ceiling": "8'5",
+    "openings": [
+     {
+      "kind": "door",
+      "wall": 5,
+      "at": 0.95,
+      "size": "",
+      "orWall": -1,
+      "sure": true,
+      "note": "diagonal door line from left wall near top-left corner"
+     },
+     {
+      "kind": "window",
+      "wall": 3,
+      "at": 0.42,
+      "size": "5'9 x 2'9",
+      "orWall": -1,
+      "sure": true,
+      "note": "ticks on wall with '5'9w x 2'9 window' written outside"
+     },
+     {
+      "kind": "opening",
+      "wall": 1,
+      "at": 0.5,
+      "size": "",
+      "orWall": -1,
+      "sure": false,
+      "note": "angled wall drawn over heavily; may be a closet door"
+     }
+    ],
+    "items": []
+   },
+   {
+    "name": "",
+    "guess": "closet",
+    "corners": [
+     {
+      "x": 350,
+      "y": 215
+     },
+     {
+      "x": 705,
+      "y": 212
+     },
+     {
+      "x": 705,
+      "y": 440
+     },
+     {
+      "x": 545,
+      "y": 440
+     }
+    ],
+    "walls": [
+     {
+      "length": ""
+     },
+     {
+      "length": ""
+     },
+     {
+      "length": ""
+     },
+     {
+      "length": ""
+     }
+    ],
+    "ceiling": "",
+    "openings": [],
+    "items": []
+   }
+  ],
+  "ignored": [
+   "scribbled-over number above 8'5 C",
+   "5'9w x 2'9 window used as window size"
+  ]
+ },
+ "read": {
+  "version": 1,
+  "kind": "hand",
+  "rotate": 270,
+  "ignored": [
+   "scribbled-over number above 8'5 C",
+   "5'9w x 2'9 window used as window size"
+  ],
+  "rooms": [
+   {
+    "name": null,
+    "guess": "bedroom",
+    "corners": [
+     {
+      "x": 170,
+      "y": 220
+     },
+     {
+      "x": 350,
+      "y": 215
+     },
+     {
+      "x": 545,
+      "y": 440
+     },
+     {
+      "x": 705,
+      "y": 440
+     },
+     {
+      "x": 705,
+      "y": 1140
+     },
+     {
+      "x": 210,
+      "y": 1148
+     }
+    ],
+    "walls": [
+     {
+      "length": "4'11"
+     },
+     {
+      "length": "3'4"
+     },
+     {
+      "length": "4'4"
+     },
+     {
+      "length": "14'3"
+     },
+     {
+      "length": "11'9"
+     },
+     {
+      "length": "16'7"
+     }
+    ],
+    "ceiling": "8'5",
+    "openings": [
+     {
+      "kind": "door",
+      "wall": 5,
+      "at": 0.95,
+      "size": null,
+      "orWall": null,
+      "sure": true,
+      "note": "diagonal door line from left wall near top-left corner"
+     },
+     {
+      "kind": "window",
+      "wall": 3,
+      "at": 0.42,
+      "size": "5'9 x 2'9",
+      "orWall": null,
+      "sure": true,
+      "note": "ticks on wall with '5'9w x 2'9 window' written outside"
+     },
+     {
+      "kind": "opening",
+      "wall": 1,
+      "at": 0.5,
+      "size": null,
+      "orWall": null,
+      "sure": false,
+      "note": "angled wall drawn over heavily; may be a closet door"
+     }
+    ],
+    "items": []
+   },
+   {
+    "name": null,
+    "guess": "closet",
+    "corners": [
+     {
+      "x": 350,
+      "y": 215
+     },
+     {
+      "x": 705,
+      "y": 212
+     },
+     {
+      "x": 705,
+      "y": 440
+     },
+     {
+      "x": 545,
+      "y": 440
+     }
+    ],
+    "walls": [
+     {
+      "length": null
+     },
+     {
+      "length": null
+     },
+     {
+      "length": null
+     },
+     {
+      "length": null
+     }
+    ],
+    "ceiling": null,
+    "openings": [],
+    "items": []
+   }
+  ]
+ }
+}

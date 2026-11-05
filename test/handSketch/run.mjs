@@ -14,6 +14,7 @@ import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { score } from "./score.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..", "..");
@@ -87,68 +88,11 @@ check(bath.placed.some((p) => p.what === "Vanity" && p.source === "drawing"), "t
 /* ── Against the tape ───────────────────────────────────────────────────────────────────────── */
 
 const tape = fixture("tape.json");
-const lengths = (room) => room.vertices.map((v, i) => {
-  const w = room.vertices[(i + 1) % room.vertices.length];
-  return Math.hypot(w.x - v.x, w.y - v.y);
-});
-/** Room [a]'s wall i is [b]'s wall map[i]: the cyclic pairing, either way round, closest in length. */
-function pairWalls(a, b) {
-  const la = lengths(a);
-  const lb = lengths(b);
-  const n = la.length;
-  if (lb.length !== n) return null;
-  let best = null;
-  for (const dir of [1, -1]) for (let shift = 0; shift < n; shift++) {
-    const map = la.map((_, i) => (dir === 1 ? (i + shift) % n : (shift - i - 1 + 2 * n) % n));
-    const cost = la.reduce((s, L, i) => s + Math.abs(L - lb[map[i]]), 0);
-    if (!best || cost < best.cost) best = { map, dir, cost };
-  }
-  return best;
-}
-const inch = (v) => `${v >= 0 ? "+" : ""}${v.toFixed(1)}"`;
-
-function score(label, built, truth) {
-  const pair = pairWalls(built, truth);
-  console.log(`\n  ${label}: ${built.name}, ${built.vertices.length} walls, ceiling ${feetInches(built.ceilingHeightFeet * 12)}`);
-  if (!pair) {
-    console.log("    walls: a different number of walls from the tape");
-    return;
-  }
-  const lb = lengths(built);
-  const lt = lengths(truth);
-  let worst = 0;
-  lb.forEach((L, i) => {
-    const T = lt[pair.map[i]];
-    worst = Math.max(worst, Math.abs(L - T));
-    console.log(`    wall ${i}: ${feetInches(L).padEnd(7)} tape ${feetInches(T).padEnd(7)} ${inch(L - T)}`);
-  });
-  console.log(`    worst wall ${inch(worst)}`);
-  // Each placed thing against the tape's of the same kind, on the paired wall: size, and where its
-  // centre is along that wall measured from the same corner.
-  const ids = built.vertices.map((v) => v.id);
-  const tids = truth.vertices.map((v) => v.id);
-  const kindOf = (s) => (s.type === "fixture" ? s.fixtureType : s.type === "cabinet" ? "vanity" : s.type);
-  for (const s of built.symbols) {
-    const i = ids.indexOf(s.wallId);
-    const mates = truth.symbols.filter((t) => kindOf(t) === kindOf(s));
-    const L = lb[i];
-    const fromStart = (pair.dir === 1 ? s.t : 1 - s.t) * L;
-    let line = `    ${kindOf(s).padEnd(7)} ${feetInches(s.widthFeet * 12).padEnd(6)}${s.depthFeet ? ` x ${feetInches(s.depthFeet * 12)}` : ""} on wall ${i}`;
-    if (!mates.length) line += "   (none in the tape)";
-    else {
-      const m = mates.map((t) => ({ t, j: tids.indexOf(t.wallId) })).sort((p, q) => (p.j === pair.map[i] ? 0 : 1) - (q.j === pair.map[i] ? 0 : 1))[0];
-      const sameWall = m.j === pair.map[i];
-      const along = sameWall ? ` centre ${inch(fromStart - m.t.t * lt[m.j])} along` : ` tape has it on another wall`;
-      line += `   tape ${feetInches(m.t.widthFeet * 12)}${m.t.depthFeet ? ` x ${feetInches(m.t.depthFeet * 12)}` : ""}:${along}, width ${inch((s.widthFeet - m.t.widthFeet) * 12)}`;
-    }
-    console.log(line);
-  }
-}
 
 console.log(`\n${passed} passed, ${failed} failed`);
 console.log("\nAgainst the owner's tape (the build from a correct read):");
-score("Spare room", spare.rooms[0], tape.spare);
-score("Bathroom", bath.rooms[0], tape.bathroom);
+score("Spare room", spare.rooms[0], tape.spare, feetInches);
+score("Bathroom", bath.rooms[0], tape.bathroom, feetInches);
 for (const [label, b] of [["Spare room", spare], ["Bathroom", bath]]) {
   console.log(`\n  ${label}: ${b.questions.length} questions: ${b.questions.map((q) => q.kind).join(", ")}`);
   console.log(`  placed: ${b.placed.map((p) => `${p.what} ${p.size} (${p.source})`).join("; ")}`);

@@ -183,13 +183,24 @@ interface CornerGraph {
   roomCorner: number[][];
 }
 
+/** A point turned [quarters] quarter turns clockwise, in a frame with y down. */
+function turned(p: DrawnPoint, quarters: number): DrawnPoint {
+  let q = p;
+  for (let k = 0; k < ((quarters % 4) + 4) % 4; k++) q = { x: -q.y, y: q.x };
+  return q;
+}
+
 function rotateAll(read: HandSketchRead): DrawnPoint[][] {
-  // The drawing as a whole may sit at a slant on the photo: the median slant of the walls that are
-  // nearly square, weighted by how long they are drawn, is taken out first.
+  // First the quarter turns that make the writing upright, so the rooms come out the way the
+  // drawing reads rather than the way the phone was held.
+  const quarters = Math.round((read.rotate ?? 0) / 90);
+  const upright = read.rooms.map((room) => room.corners.map((p) => turned(p, quarters)));
+  // The drawing as a whole may still sit at a slant on the photo: the median slant of the walls
+  // that are nearly square, weighted by how long they are drawn, is taken out too.
   const offsets: { off: number; w: number }[] = [];
-  for (const room of read.rooms) {
-    room.corners.forEach((a, i) => {
-      const b = room.corners[(i + 1) % room.corners.length] as DrawnPoint;
+  for (const corners of upright) {
+    corners.forEach((a, i) => {
+      const b = corners[(i + 1) % corners.length] as DrawnPoint;
       const ang = Math.atan2(b.y - a.y, b.x - a.x);
       const quarter = Math.PI / 2;
       let off = ang - Math.round(ang / quarter) * quarter;
@@ -209,7 +220,7 @@ function rotateAll(read: HandSketchRead): DrawnPoint[][] {
   }
   const c = Math.cos(-tilt);
   const s = Math.sin(-tilt);
-  return read.rooms.map((room) => room.corners.map((p) => ({ x: p.x * c - p.y * s, y: p.x * s + p.y * c })));
+  return upright.map((corners) => corners.map((p) => ({ x: p.x * c - p.y * s, y: p.x * s + p.y * c })));
 }
 
 function cornerGraph(rooms: DrawnPoint[][]): CornerGraph {

@@ -1,7 +1,7 @@
 {
   "version": 1,
   "kind": "hand",
-  "rotate": 270,
+  "rotate": 0,
   "rooms": [
     {
       "name": null,
