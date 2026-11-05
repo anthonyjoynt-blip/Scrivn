@@ -1,0 +1,49 @@
+{
+  "version": 1,
+  "kind": "hand",
+  "rotate": 270,
+  "rooms": [
+    {
+      "name": null,
+      "guess": "bedroom",
+      "corners": [
+        { "x": 1145, "y": 345 },
+        { "x": 440, "y": 343 },
+        { "x": 440, "y": 505 },
+        { "x": 215, "y": 700 },
+        { "x": 220, "y": 880 },
+        { "x": 1150, "y": 840 }
+      ],
+      "walls": [
+        { "length": "14'3" },
+        { "length": "4'4" },
+        { "length": "3'4" },
+        { "length": "4'11" },
+        { "length": "16'7" },
+        { "length": "11'9" }
+      ],
+      "ceiling": "8'5",
+      "openings": [
+        { "kind": "window", "wall": 0, "at": 0.593, "size": "5'9 x 2'9", "sure": true },
+        { "kind": "door", "wall": 4, "at": 0.07, "size": null, "sure": true, "note": "door mark at the corner with the 4'11 wall" },
+        { "kind": "door", "wall": 2, "at": 0.5, "size": null, "sure": false, "note": "the angled wall is drawn over heavily: a closet door?" }
+      ],
+      "items": []
+    },
+    {
+      "name": null,
+      "guess": "closet",
+      "corners": [
+        { "x": 215, "y": 345 },
+        { "x": 440, "y": 343 },
+        { "x": 440, "y": 505 },
+        { "x": 215, "y": 700 }
+      ],
+      "walls": [{ "length": null }, { "length": null }, { "length": null }, { "length": null }],
+      "ceiling": "8'5",
+      "openings": [],
+      "items": []
+    }
+  ],
+  "ignored": ["a crossed-out note above 8'5", "a short line inside the closet (a shelf?)"]
+}

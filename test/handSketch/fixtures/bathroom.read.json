@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "kind": "hand",
+  "rotate": 270,
+  "rooms": [
+    {
+      "name": null,
+      "guess": "bathroom",
+      "corners": [
+        { "x": 372, "y": 295 },
+        { "x": 1025, "y": 285 },
+        { "x": 1032, "y": 660 },
+        { "x": 382, "y": 655 }
+      ],
+      "walls": [{ "length": null }, { "length": "4'11" }, { "length": "8'3" }, { "length": null }],
+      "ceiling": null,
+      "openings": [
+        { "kind": "door", "wall": 3, "at": 0.1, "size": null, "orWall": 2, "sure": true, "note": "door mark at the bottom-left corner: on either wall" }
+      ],
+      "items": [
+        { "kind": "vanity", "label": "Vanity", "wall": 0, "from": 0, "to": 0.426, "depth": 145, "size": null },
+        { "kind": "toilet", "label": null, "wall": 0, "from": 0.51, "to": 0.655, "depth": 150, "size": null },
+        { "kind": "tub", "label": "Tub", "wall": 1, "from": 0, "to": 1, "depth": 175, "size": null }
+      ]
+    }
+  ],
+  "ignored": []
+}
