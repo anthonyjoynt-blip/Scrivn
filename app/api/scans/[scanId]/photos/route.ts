@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { scanPhotoUrls } from "@/lib/scanPhotos";
-import { errorResponse } from "../../../claims/route";
+import { errorResponse } from "../../../claims/errorResponse";
 
 /**
  * The photos of a scan's walk, for the 3D view: `GET /api/scans/<scan id>/photos` returns

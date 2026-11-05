@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { pendingScans } from "@/lib/deviceRepo";
-import { errorResponse } from "../../route";
+import { errorResponse } from "../../errorResponse";
 
 /**
  * The scans waiting on a claim — what the editor polls to find out a phone has sent something.

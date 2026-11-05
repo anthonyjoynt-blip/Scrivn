@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { deleteClaim, loadClaim, saveClaim } from "@/lib/claimsRepo";
 import { parseSavedClaimState } from "@/lib/claimState";
 import { claimFolders, removeClaimFolders } from "@/lib/claimPhotos";
-import { errorResponse } from "../route";
+import { errorResponse } from "../errorResponse";
 
 /**
  * One claim: load it, overwrite it, or delete it.

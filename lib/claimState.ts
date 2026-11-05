@@ -124,6 +124,9 @@ export const NOT_PERSISTED: Record<string, string> = {
   scanMessage: "the receipt for a scan just applied from the phone; the scan itself is in the sketch",
   scanIssue: "a scan from the phone that would not draw, awaiting Discard on this screen; the row lives on the server",
   scanBusy: "whether an answer about a scan is on its way to the server right now",
+  handSketch: "rooms from a hand-drawn sketch offered on this screen; once added they are in the sketch, and the offer lives in this browser (lib/handSketchClaim.ts)",
+  handSketchDismissed: "Not now tapped on the hand sketch's offer, on this screen",
+  handSketchFloor: "the floor picked in the hand sketch's offer, on this screen",
 };
 
 /**

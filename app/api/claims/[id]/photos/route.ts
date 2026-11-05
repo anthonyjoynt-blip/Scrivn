@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { claimPhotoLinks } from "@/lib/claimPhotos";
-import { errorResponse } from "../../route";
+import { errorResponse } from "../../errorResponse";
 
 /**
  * The pictures Scrivn holds for a claim's site photos: `GET /api/claims/<id>/photos` returns
