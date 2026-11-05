@@ -55,6 +55,8 @@ export interface PlanMeta {
   subtitle: string;
   /** Write a JPG per storey too. */
   jpg: boolean;
+  /** What the footer says made it; the editor's version when absent (Scan's own page). */
+  madeBy?: string;
 }
 
 export interface PlanFiles {
@@ -99,7 +101,8 @@ export async function buildPlanFiles(sketch: Sketch, meta: PlanMeta, host: PlanH
     doc.setFont("helvetica", "normal");
     doc.setFontSize(7.5);
     doc.setTextColor(91, 100, 114);
-    doc.text(`Inside wall-to-wall, in feet and inches. ${meta.subtitle} · editor ${EDITOR_VERSION.replace(/^scrivn /, "")}`, MARGIN, PAGE_H - MARGIN + 14);
+    const madeBy = meta.madeBy ?? `editor ${EDITOR_VERSION.replace(/^scrivn /, "")}`;
+    doc.text(`Inside wall-to-wall, in feet and inches. ${meta.subtitle} · ${madeBy}`, MARGIN, PAGE_H - MARGIN + 14);
     doc.text(`Page ${page}`, PAGE_W - MARGIN, PAGE_H - MARGIN + 14, { align: "right" });
   };
 
