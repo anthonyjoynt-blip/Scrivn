@@ -65,9 +65,14 @@ export const SKETCH_PLACEMENT_KEYS: SketchToolKey[] = [
  */
 export const SKETCH_BAR_KEYS: SketchToolKey[] = ["select", "wall", "door"];
 
-/** The rest, in More. The complement of the bar, so nothing can be dropped by editing one list. */
-export function sketchMoreKeys(): SketchToolKey[] {
-  return SKETCH_TOOL_KEYS.filter((key) => !SKETCH_BAR_KEYS.includes(key));
+/**
+ * The rest, in More. The complement of the bar, so nothing can be dropped by editing one list.
+ *
+ * [standalone]: Scrivn Scan's own editor (2026-10-28, lib/scanEditorWebView.tsx), where the sketch IS the scan, so Import scan
+ * has nothing to import from.
+ */
+export function sketchMoreKeys(standalone = false): SketchToolKey[] {
+  return SKETCH_TOOL_KEYS.filter((key) => !SKETCH_BAR_KEYS.includes(key) && !(standalone && key === "scan"));
 }
 
 /**

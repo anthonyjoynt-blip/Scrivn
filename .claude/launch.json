@@ -6,6 +6,12 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],
       "port": 3000
+    },
+    {
+      "name": "scan-editor",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["scripts/build-scan-editor.mjs", "--serve", "4623"],
+      "port": 4623
     }
   ]
 }

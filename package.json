@@ -58,6 +58,7 @@
     "test:photos:routes": "node test/photos/routes.mjs",
     "test:photos:live": "node test/photos/notesLive.mjs",
     "test:exterior:engine": "node test/exterior/engine.mjs",
+    "test:scan-editor": "node test/scanEditor/run.mjs",
     "test:exterior:house": "node test/exterior/houseRunner.mjs"
   },
   "dependencies": {
