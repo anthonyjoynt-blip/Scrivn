@@ -158,8 +158,9 @@ export function Tracer({ photo, trace, onChange, onBack, onDone }: { photo: Trac
             {r.closed
               ? pts.map((a, i) => {
                   const b = pts[(i + 1) % n] as DrawnPoint;
-                  const shared = sharedWith(trace, ri, i);
-                  const text = r.lengths[i] ?? (shared ? "↔" : "—");
+                  // A wall shared with an earlier room shows that room's number; its own would sit on top of it.
+                  if (!r.lengths[i] && sharedWith(trace, ri, i)) return null;
+                  const text = r.lengths[i] ?? "—";
                   const w = (text.length * 8 + 12) * u;
                   const h = 22 * u;
                   const cx = (a.x + b.x) / 2;
