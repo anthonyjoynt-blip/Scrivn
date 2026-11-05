@@ -1778,6 +1778,28 @@ button:disabled {
 .scan-inbox-notice > span {
   flex: 1 1 240px;
 }
+/* Rooms from a hand sketch (components/sketch/HandSketchNotice.tsx): "Add to" and its floor read as one control. */
+.scan-inbox-notice > .hand-sketch-add {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: stretch;
+}
+.hand-sketch-add > button {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.hand-sketch-add > select {
+  min-height: 36px;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-left: none;
+  border-radius: 0 6px 6px 0;
+  background: #fff;
+  font-size: 0.85rem;
+}
+.hand-sketch-notice button {
+  min-height: 36px;
+}
 
 /* `position: relative` is load-bearing: the length popup is positioned against the viewport but
    this is also the element whose bounds the canvas is measured from. */
