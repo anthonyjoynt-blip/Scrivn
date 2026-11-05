@@ -43,7 +43,12 @@ const AUTH_PAGES = new Set(["/login", "/signup", "/forgot-password"]);
  * NEXT_PUBLIC_SHOW_MARKETING_NAV hides the links to these pages; it deliberately has no effect
  * here. The pages stay directly reachable by URL whether or not the site advertises them.
  */
-const PUBLIC_PAGES = new Set(["/", "/how-it-works", "/scan", "/drying-calculator", "/pricing", "/faq", "/contact", "/auth/auth-code-error", "/pair", "/scan-guide", "/account/delete", "/scan/ready"]);
+const PUBLIC_PAGES = new Set(["/", "/how-it-works", "/scan", "/drying-calculator", "/drop-a-sketch", "/pricing", "/faq", "/contact", "/auth/auth-code-error", "/pair", "/scan-guide", "/account/delete", "/scan/ready"]);
+/*
+  `/drop-a-sketch` turns a photo of a hand-drawn sketch into a scaled plan (app/drop-a-sketch/page.tsx). Tracing it
+  is free and stays in the browser; the paid read is its own route, /api/hand-sketch/read, which stays signed-in
+  only like every /api route not listed in PUBLIC_ROUTES.
+*/
 /*
   `/account/delete` is how to delete an account (app/(app)/account/delete): Google Play requires a web page
   that explains it to someone who is NOT signed in, as well as the button in the app. Signed out it says

@@ -20,7 +20,7 @@ import { PRIVACY_POLICY_URL, TERMS_URL } from "@/lib/legal";
  * variable would be read at build time anyway. Nothing here is a security control — the flag hides
  * links, it does not restrict access, and the pages are public by design either way.
  */
-export type MarketingPage = "home" | "how-it-works" | "scan" | "drying-calculator" | "pricing" | "faq" | "contact" | "scan-guide";
+export type MarketingPage = "home" | "how-it-works" | "scan" | "drying-calculator" | "drop-a-sketch" | "pricing" | "faq" | "contact" | "scan-guide";
 
 export function marketingNavVisible(): boolean {
   return process.env.NEXT_PUBLIC_SHOW_MARKETING_NAV === "true";
