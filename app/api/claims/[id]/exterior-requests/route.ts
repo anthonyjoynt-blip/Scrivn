@@ -8,7 +8,7 @@ import {
   RequestPhotosNotInClaimError,
   RequestsUnavailableError,
 } from "@/lib/exteriorRequestsRepo";
-import { errorResponse } from "../../route";
+import { errorResponse } from "../../errorResponse";
 
 /**
  * Send to Scrivn team (0016): a claim's exterior sent for us to measure from its photos and tapes.

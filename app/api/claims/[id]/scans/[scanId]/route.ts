@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { resolveScan } from "@/lib/deviceRepo";
-import { errorResponse } from "../../../route";
+import { errorResponse } from "../../../errorResponse";
 
 /**
  * One pending scan: the editor says what became of it.
