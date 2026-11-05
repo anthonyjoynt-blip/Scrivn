@@ -23,7 +23,8 @@ added 2026-10-17 (paste the new section, Sending an exterior to the Scrivn team,
 location; and paste Working without a connection again). Finish exterior taken out of AI processing
 2026-10-19, when Scan's AR exterior was hidden (paste AI processing again; if AR_EXTERIOR is ever turned
 back on in Scan, put it back). Accounts we set up for testers added 2026-10-20 (paste the new section,
-Accounts we set up for you, before Deleting your account).
+Accounts we set up for you, before Deleting your account). The drop-a-sketch page added 2026-11-05
+(paste AI processing, and Working without a connection, again).
 
 ## Generator answers (Canada, October 2026)
 
@@ -55,7 +56,7 @@ Scrivn is used by restoration companies to document property-damage claims. When
 
 **AI processing**
 
-To turn a walkthrough into a scope document and inspection report, Scrivn sends the claim's text (the dictation, the captions of its site photos with each photo's room and time, claim details and answers to follow-up questions) to Anthropic, PBC, which provides the Claude AI model. The site photos themselves are not sent. When a user chooses AI trace on a side of the house in the exterior sketch, Scrivn also sends Anthropic that side's photo, squared up to the wall (one of the claim's site photos, or a photo from Scrivn Scan), so that Claude can trace the wall's cladding, windows and doors and read its roof (pitch, overhangs, gable or hip) for the user to confirm; Scrivn does not store the squared photo. When a user chooses Photo beside a reading in the drying log, Scrivn sends Anthropic that photo of the meter's screen, reduced in size, so that Claude can read the number for the user to check; Scrivn does not store that photo. When a user uploads a roof measurement report (a PDF, which may include the property's address and aerial images of it) on the exterior sketch, Scrivn sends Anthropic that PDF so that Claude can read the roof's measurements for the user to check and accept; Scrivn keeps the numbers read, with the report's maker, date, address and file name, but does not store the PDF. Anthropic processes this information only to return the result and, under its commercial terms, does not use it to train its models. No other photos or files are sent for AI processing.
+To turn a walkthrough into a scope document and inspection report, Scrivn sends the claim's text (the dictation, the captions of its site photos with each photo's room and time, claim details and answers to follow-up questions) to Anthropic, PBC, which provides the Claude AI model. The site photos themselves are not sent. When a user chooses AI trace on a side of the house in the exterior sketch, Scrivn also sends Anthropic that side's photo, squared up to the wall (one of the claim's site photos, or a photo from Scrivn Scan), so that Claude can trace the wall's cladding, windows and doors and read its roof (pitch, overhangs, gable or hip) for the user to confirm; Scrivn does not store the squared photo. When a user chooses Photo beside a reading in the drying log, Scrivn sends Anthropic that photo of the meter's screen, reduced in size, so that Claude can read the number for the user to check; Scrivn does not store that photo. When a user uploads a roof measurement report (a PDF, which may include the property's address and aerial images of it) on the exterior sketch, Scrivn sends Anthropic that PDF so that Claude can read the roof's measurements for the user to check and accept; Scrivn keeps the numbers read, with the report's maker, date, address and file name, but does not store the PDF. When a signed-in user chooses Read it for me on the drop-a-sketch page (scrivn.ca/drop-a-sketch), Scrivn sends Anthropic that photo of a hand-drawn floor sketch, reduced in size, so that Claude can read its corners, the numbers written on it and its door and window marks for the user to check; Scrivn does not store that photo. A sketch traced by hand on that page is not sent to Anthropic, and nothing from the page reaches Scrivn unless the user adds the sketch to a claim. Anthropic processes this information only to return the result and, under its commercial terms, does not use it to train its models. No other photos or files are sent for AI processing.
 
 **Dictation**
 
@@ -81,7 +82,7 @@ Scrivn Scan runs on Google Play Services for AR (ARCore), which is provided by G
 
 **Working without a connection**
 
-So that Scrivn works with no signal, it keeps a copy of the claims you have opened recently, and of the latest ones on your claims list, in your browser's storage on your device, along with changes that have not reached our servers yet, photos that have not uploaded yet, AI steps waiting to run, and exteriors waiting to be sent to the Scrivn team. Signing out removes those copies; changes and photos that have not reached Scrivn yet stay on the device, out of sight of anyone else who signs in there, until you sign in again, so that they are not lost. Scrivn Scan likewise keeps a scan it could not send, with its photos, on the phone until it has been sent or you delete it.
+So that Scrivn works with no signal, it keeps a copy of the claims you have opened recently, and of the latest ones on your claims list, in your browser's storage on your device, along with changes that have not reached our servers yet, photos that have not uploaded yet, AI steps waiting to run, and exteriors waiting to be sent to the Scrivn team. Signing out removes those copies; changes and photos that have not reached Scrivn yet stay on the device, out of sight of anyone else who signs in there, until you sign in again, so that they are not lost. Scrivn Scan likewise keeps a scan it could not send, with its photos, on the phone until it has been sent or you delete it. The drop-a-sketch page keeps the sketch you are working on, with its photo, in your browser's storage, so that a reload or signing in loses nothing, until you start a new one.
 
 **Service providers**
 
@@ -128,7 +129,11 @@ To protect accounts and limit abuse, Scrivn counts attempts to create an account
   `/api/generate` beside the transcript, `lib/photoNotesPrompt.ts` — never the pictures; since 2026-10-15
   a roof report's PDF, as uploaded and up to 4.4 MB, goes to `/api/exterior/roof-report` when the user
   presses Read a roof report on the exterior's plan, `lib/roofReport.ts`, and is kept nowhere; what was
-  read rides in the claim as `ExteriorRoof.report`). Resend: `lib/email/send.ts`, used by sign-in
+  read rides in the claim as `ExteriorRoof.report`; since 2026-11-05 a hand-drawn sketch's photo, shrunk to
+  1400 px in the browser, goes to `/api/hand-sketch/read` when a signed-in user presses Read it for me on
+  `/drop-a-sketch` (off unless `SCRIVN_HAND_SKETCH_READS=on`), `lib/handSketchRead.ts`, and is kept nowhere;
+  a sketch traced by hand never leaves the browser, whose draft, photo included, is localStorage
+  `scrivn.dropASketch.draft.v1`, until it is added to a claim, `lib/handSketchClaim.ts`). Resend: `lib/email/send.ts`, used by sign-in
   confirmation, the contact form and Send documents. Dictation: `components/DictateButton.tsx` (browser
   speech recognition, no audio leaves the device to Scrivn). Scan permissions: the
   ARCapturePrototype manifest (CAMERA and INTERNET only). Phone revoke: `components/PairedPhones.tsx`.
