@@ -158,6 +158,14 @@ check(m.scopeReadUserMessage("pdf", 1, 1).includes("PDF"), "a PDF is called one"
     /PF the floor's perimeter/.test(m.SCOPE_READ_SYSTEM) && /"Bed 2" is "Bedroom 2"/.test(m.SCOPE_READ_SYSTEM) && /F, the whole floor/.test(m.UPLOADED_SCOPE_RULE),
     "the reader knows Xactimate's room measurements and a room's number; extraction is told the work covers all of it",
   );
+  // The live read of the same page (live.mjs, saved): the same room, the same lines, F and PF as quantities.
+  const live = JSON.parse(readFileSync(join(here, "fixtures", "spare-sketch.model.json"), "utf8")).read;
+  const written = (r) => r.rooms.flatMap((room) => room.items.map((i) => i.written)).join("|");
+  check(
+    live.rooms.length === 1 && live.rooms[0].name.toLowerCase() === "spare bedroom 2" && written(live) === written(spare.read) && live.general.length === 0 && live.unreadable.length === 0,
+    "the saved live read has the room and the five lines the hand reading has, nothing filed as the whole job's",
+  );
+  check(live.rooms[0].items[0].quantity === "F, the whole floor" && live.rooms[0].items[1].quantity === "PF, the whole perimeter of the floor", "the live read gives F and PF as quantities");
   check(lines.includes("- From the sketch: 8'C, an 8 ft ceiling"), "the ceiling height from the sketch is kept as a note");
   check(/beside or inside a room on the sketch belong to that room/.test(m.SCOPE_READ_SYSTEM) && /not work: wall lengths/.test(m.SCOPE_READ_SYSTEM), "the reader is told lines beside a sketch are that room's, and the sketch's numbers are not work");
 }
