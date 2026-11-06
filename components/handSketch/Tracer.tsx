@@ -13,7 +13,7 @@ import { type ReactNode, useState } from "react";
 import { TapPhoto, ZOOMS, type TapZoom } from "@/components/sketch/TapPhoto";
 import { FeetInchesInput } from "@/components/sketch/FeetInchesInput";
 import { NAMES, parseLength, type DrawnPoint } from "@/lib/handSketch";
-import { joinRoom, lengthText, moveCorner, openRoom, setCeiling, setLength, setName, sharedWith, tapCorner, traceProblem, undoTap, type TraceState } from "@/lib/handSketchTrace";
+import { joinRoom, type JoinedAs, lengthText, moveCorner, openRoom, setCeiling, setLength, setName, sharedWith, tapCorner, traceProblem, undoTap, type TraceState } from "@/lib/handSketchTrace";
 import styles from "./handSketch.module.css";
 
 type Phase =
@@ -28,6 +28,15 @@ const NEAR_CSS = 22;
 const BADGE_CSS = 34;
 
 const ROOM_NAMES = [...new Set(Object.values(NAMES))];
+
+/** What a shape found against a room’s walls may be instead of a room: it joins the room as that fixture. */
+const FIXTURES: [JoinedAs, string][] = [
+  ["tub", "Tub"],
+  ["shower", "Shower"],
+  ["vanity", "Vanity"],
+  ["toilet", "Toilet"],
+];
+const FIXTURE_NAMES: Record<string, string> = { tub: "Tub", shower: "Shower", vanity: "Vanity", toilet: "Toilet", sink: "Sink", cabinet: "Cabinet" };
 
 export interface TracePhoto {
   url: string;
@@ -54,6 +63,8 @@ export function Tracer({
   const [phase, setPhase] = useState<Phase>(startRoom !== undefined && trace.rooms[startRoom]?.closed ? { kind: "room", room: startRoom } : { kind: "corners" });
   const [zoom, setZoom] = useState<TapZoom>(photo.width > photo.height ? 2 : 1);
   const [toast, setToast] = useState<string | null>(null);
+  // What a tap just did, when it is not plain on the photo (a shape joined into a room): shown until the next tap.
+  const [note, setNote] = useState<string | null>(null);
   // What is in the wall's box, in feet: undefined until it is touched, so moving on keeps what was there.
   const [typed, setTyped] = useState<number | null | undefined>(undefined);
   const [otherName, setOtherName] = useState("");
@@ -95,6 +106,7 @@ export function Tracer({
 
   const tap = (x: number, y: number, { pxPerCss }: { pxPerCss: number }) => {
     setToast(null);
+    setNote(null);
     const within = NEAR_CSS * pxPerCss;
     if (phase.kind === "room") return;
     if (phase.kind === "move") {
@@ -216,6 +228,45 @@ export function Tracer({
           </g>
         );
       })}
+      {trace.rooms.map((r, ri) => {
+        if (!r.closed) return null;
+        const n = r.corners.length;
+        const at = (wall: number, t: number) => {
+          const a = r.corners[wall] as DrawnPoint;
+          const b = r.corners[(wall + 1) % n] as DrawnPoint;
+          return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+        };
+        const cx = r.corners.reduce((s, p) => s + p.x, 0) / n;
+        const cy = r.corners.reduce((s, p) => s + p.y, 0) / n;
+        // Doors and fixtures Scrivn saw, marked where they will go: a door on its wall, a fixture just inside its wall.
+        return (
+          <g key={`marks${ri}`}>
+            {(r.openings ?? []).map((o, oi) => {
+              if (o.wall >= n) return null;
+              const p = at(o.wall, o.at);
+              return (
+                <g key={`o${oi}`}>
+                  <circle cx={p.x} cy={p.y} r={9 * u} fill="#15803d" stroke="#ffffff" strokeWidth={2 * u} />
+                  <text x={p.x} y={p.y - 13 * u} fontSize={13 * u} textAnchor="middle" fill="#14532d" fontWeight={700} stroke="#ffffff" strokeWidth={3 * u} paintOrder="stroke">
+                    {o.sure ? "Door" : "Door?"}
+                  </text>
+                </g>
+              );
+            })}
+            {(r.items ?? []).map((it, ii) => {
+              if (it.wall >= n) return null;
+              const p = at(it.wall, (it.from + it.to) / 2);
+              const d = Math.hypot(cx - p.x, cy - p.y) || 1;
+              const q = { x: p.x + ((cx - p.x) / d) * Math.min(it.depth / 2, d / 2), y: p.y + ((cy - p.y) / d) * Math.min(it.depth / 2, d / 2) };
+              return (
+                <text key={`i${ii}`} x={q.x} y={q.y} fontSize={15 * u} textAnchor="middle" fill="#14532d" fontWeight={700} stroke="#ffffff" strokeWidth={3 * u} paintOrder="stroke">
+                  {FIXTURE_NAMES[it.kind] ?? it.kind}
+                </text>
+              );
+            })}
+          </g>
+        );
+      })}
       {phase.kind === "move" && phase.from ? <circle cx={phase.from.x} cy={phase.from.y} r={14 * u} fill="none" stroke="#ea580c" strokeWidth={3.5 * u} /> : null}
     </>
   );
@@ -223,10 +274,12 @@ export function Tracer({
   let strip: ReactNode;
   if (phase.kind === "room") {
     const r = trace.rooms[phase.room];
-    const notARoom = () => {
-      const joined = joinRoom(trace, phase.room);
-      if (!joined) return setToast("That shape shares no wall with a room, so it cannot be joined into one.");
+    const notARoom = (as: JoinedAs | null) => {
+      const joined = joinRoom(trace, phase.room, as);
+      if (!joined) return setToast("That shape shares no wall with a room, so it cannot be joined into one. Tap Next to keep it as a room.");
       onChange(joined.state);
+      const what = as ? FIXTURE_NAMES[as] : "It";
+      setNote(`${what} joined into the room beside it${as ? " as a fixture" : ""}.`);
       setOtherName("");
       // The rooms after it have moved up one: the next to name is at the same place (the room it joined, too, when
       // that is still to come), if any is left there.
@@ -239,12 +292,20 @@ export function Tracer({
         <p className={styles.say}>
           <strong>{trace.found ? `Room ${phase.room + 1} of ${closedRooms}, in orange: what is it?` : "What is this room?"}</strong>
         </p>
-        <div key={`names${phase.room}`} className={`${styles.chips} ${styles.chipsScroll}`}>
-          {trace.found && closedRooms > 1 ? (
-            <button type="button" className="option-btn" onClick={notARoom}>
-              Not a room (tub, vanity…)
+        {trace.found && closedRooms > 1 ? (
+          <div key={`fixtures${phase.room}`} className={`${styles.chips} ${styles.chipsScroll}`}>
+            <span className={styles.chipLabel}>Not a room:</span>
+            {FIXTURES.map(([kind, label]) => (
+              <button key={kind} type="button" className="option-btn" onClick={() => notARoom(kind)}>
+                {label}
+              </button>
+            ))}
+            <button type="button" className="option-btn" onClick={() => notARoom(null)}>
+              Something else
             </button>
-          ) : null}
+          </div>
+        ) : null}
+        <div key={`names${phase.room}`} className={`${styles.chips} ${styles.chipsScroll}`}>
           {ROOM_NAMES.map((name) => (
             <button key={name} type="button" className={`option-btn${r?.name === name ? " selected" : ""}`} aria-pressed={r?.name === name} onClick={() => onChange(setName(trace, phase.room, name))}>
               {name}
@@ -405,6 +466,10 @@ export function Tracer({
         {toast ? (
           <p className={styles.toast} role="status">
             {toast}
+          </p>
+        ) : note ? (
+          <p className={`${styles.toast} ${styles.toastOk}`} role="status">
+            {note}
           </p>
         ) : null}
         <div className={styles.zooms} role="group" aria-label="Show the photo larger">

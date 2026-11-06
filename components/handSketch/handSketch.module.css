@@ -175,6 +175,20 @@
   white-space: nowrap;
 }
 
+.chipLabel {
+  flex: 0 0 auto;
+  align-self: center;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #4f5f70;
+}
+
+.toastOk {
+  color: #14532d;
+  background: #ecfdf3;
+  border-color: #a7e3bf;
+}
+
 .wallEntry {
   display: flex;
   flex-wrap: wrap;

@@ -159,12 +159,14 @@ export function DropASketch({ signedIn, canRead, dev }: { signedIn: boolean; can
       const found = findBoxes({ width: canvas.width, height: canvas.height, data: ctx.getImageData(0, 0, canvas.width, canvas.height).data });
       // Back into the kept photo's pixels, which everything else is in.
       const k = p.width / canvas.width;
-      const rooms = found.rooms.map((r) => ({ corners: r.corners.map((c) => ({ x: Math.round(c.x * k), y: Math.round(c.y * k) })) }));
+      const at = (c: { x: number; y: number }) => ({ x: Math.round(c.x * k), y: Math.round(c.y * k) });
+      const rooms = found.rooms.map((r) => ({ corners: r.corners.map(at) }));
+      const swings = found.swings.map((s) => ({ hinge: at(s.hinge), tip: at(s.tip) }));
       if (rooms.length === 0) {
         setError("Scrivn could not find the rooms in this photo. Trace them yourself: tap each room's corners in order.");
         return;
       }
-      setTrace(foundToTrace(rooms, { width: p.width, height: p.height }));
+      setTrace(foundToTrace(rooms, { width: p.width, height: p.height }, swings));
       setStage("trace");
     } catch {
       setError("Scrivn could not look through this photo. Trace the rooms yourself: tap each room's corners in order.");

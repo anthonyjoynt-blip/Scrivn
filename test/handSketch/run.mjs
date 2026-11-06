@@ -231,6 +231,7 @@ check(openQuestions(buildFromRead(rough).questions, roughDismissed).filter((q) =
   pen({ x: 560, y: 106 }, { x: 562, y: 300 }); // the closet's side
   pen({ x: 562, y: 300 }, { x: 783, y: 298 }); // the closet's front
   pen({ x: 124, y: 480 }, { x: 785, y: 476 }); // a tub's edge, wall to wall
+  pen({ x: 124, y: 200 }, { x: 190, y: 266 }); // a door drawn open off the left wall
   const found = findBoxes({ width: W, height: H, data });
   check(found.rooms.length === 3, `a drawing of a room, a closet and a tub's edge gives three shapes (got ${found.rooms.length})`);
   const near = (p, q, d) => Math.hypot(p.x - q.x, p.y - q.y) <= d;
@@ -239,19 +240,28 @@ check(openQuestions(buildFromRead(rough).questions, roughDismissed).filter((q) =
   const counts = found.rooms.map((r) => r.corners.length).sort().join(",");
   check(counts === "4,4,6", `the closet and the tub four corners each, the room round them six (got ${counts})`);
 
-  let ft = foundToTrace(found.rooms, { width: W, height: H });
+  check(found.swings.length === 1 && near(found.swings[0].hinge, { x: 124, y: 200 }, 14), `the door drawn open is found, hinged on the wall (got ${JSON.stringify(found.swings)})`);
+  let ft = foundToTrace(found.rooms, { width: W, height: H }, found.swings);
+  const doors = ft.rooms.flatMap((r) => r.openings ?? []);
+  check(doors.length === 1 && doors[0].kind === "door" && doors[0].sure === false, "it goes on its room as a door to be confirmed");
   check(ft.found && !ft.locked && ft.rooms.every((r) => r.closed && r.lengths.every((l) => l === null)), "found rooms come in closed, with no numbers yet");
   // The tub's shape is the one along the bottom; joined, the room below the closet is one outline again.
   const tub = ft.rooms.findIndex((r) => r.corners.every((c) => c.y > 440));
   check(tub >= 0, "the tub's edge made a shape of its own");
   const below = ft.rooms.findIndex((r, i) => i !== tub && r.corners.some((c) => c.y > 440));
   ft = setLength(ft, below, 0, "9'");
-  const joined = joinRoom(ft, tub);
+  const joined = joinRoom(ft, tub, "tub");
   check(!!joined && joined.state.rooms.length === 2, "joining the tub's shape leaves two rooms");
   const into = joined.state.rooms[joined.into];
   check(into.corners.some((c) => near(c, D, 12)) && into.corners.some((c) => near(c, C, 12)), "the joined room runs down to the room's bottom corners");
   check(!into.corners.some((c) => c.y > 440 && c.y < 520), "the tub's edge leaves no corners on the walls");
   check(into.lengths.filter((l) => l !== null).length <= 1, "only walls that are still the same keep their numbers");
+  const tubItem = (into.items ?? []).find((it) => it.kind === "tub");
+  const tubWall = tubItem ? [into.corners[tubItem.wall], into.corners[(tubItem.wall + 1) % into.corners.length]] : [];
+  check(!!tubItem && tubWall.every((c) => c.y > 560) && tubItem.to - tubItem.from > 0.9 && Math.abs(tubItem.depth - 125) < 20, `joined as a tub, it is a tub along the bottom wall, wall to wall, as deep as drawn (got ${JSON.stringify(tubItem)})`);
+  check((ft.rooms[below].openings ?? []).length === 1 && (into.openings ?? []).length === 1, "the door on the room the tub joins stays on it");
+  const built = buildFromRead(traceToRead(setLength(joined.state, joined.into, 0, "12'")));
+  check(built.rooms.some((r) => r.symbols?.some((s) => s.type === "fixture" && s.fixtureType === "tub")), "and the build places a tub");
   check(joinRoom(foundToTrace([{ corners: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }] }], { width: 20, height: 20 }), 0) === null, "a shape with no room beside it is not joined");
 }
 

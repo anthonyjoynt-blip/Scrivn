@@ -104,6 +104,7 @@ for (const name of ["spare", "bathroom"]) {
   const span = Math.max(info.width, info.height);
   console.log(`\n${name}: ${info.width}x${info.height}, ${ms} ms, ${found.strokes.length} strokes, ${found.rooms.length} shapes found`);
   found.rooms.forEach((r, i) => console.log(`  found ${i}: ${r.corners.length} corners ${JSON.stringify(r.corners.map((c) => [c.x, c.y]))}`));
+  found.swings.forEach((s) => console.log(`  door swing: hinge ${s.hinge.x},${s.hinge.y} tip ${s.tip.x},${s.tip.y}`));
   for (const w of want) {
     // The shapes that are this room once the person has joined the parts that are not rooms (a tub, a vanity) back in:
     // those mostly inside it.

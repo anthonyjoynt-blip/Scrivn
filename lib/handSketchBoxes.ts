@@ -33,6 +33,11 @@ export interface FoundBoxes {
   strokes: { a: { x: number; y: number }; b: { x: number; y: number } }[];
   /** The corners and walls between them, before the closed shapes are taken: for checking what was joined. */
   graph: { nodes: { x: number; y: number }[]; edges: [number, number][] };
+  /**
+   * Door swings: a short line drawn from a wall out into a room at a slant, its far end clear of every wall (a door
+   * drawn open). The hinge is where it meets the wall. Only a likely door: the person is asked.
+   */
+  swings: { hinge: { x: number; y: number }; tip: { x: number; y: number } }[];
 }
 
 /** The long side the photo is worked at: enough for a pen line to be two or three pixels wide. */
@@ -691,7 +696,54 @@ export function findBoxes(px: Pixels): FoundBoxes {
     .map((loop) => loop.map((i) => at[i]!))
     .filter((p) => p.length >= 3 && area(p) > minArea); // the outside comes round the other way, so its area is negative
   const scale = (p: { x: number; y: number }) => ({ x: Math.round(p.x * k), y: Math.round(p.y * k) });
+  const wallLines = walls.map((wl) => [at[wl.a]!, at[wl.b]!] as const);
+  const toWall = (p: { x: number; y: number }, A: { x: number; y: number }, B: { x: number; y: number }) => {
+    const l2 = (B.x - A.x) ** 2 + (B.y - A.y) ** 2 || 1;
+    const t = Math.max(0, Math.min(1, ((p.x - A.x) * (B.x - A.x) + (p.y - A.y) * (B.y - A.y)) / l2));
+    const q = { x: A.x + (B.x - A.x) * t, y: A.y + (B.y - A.y) * t };
+    return { d: Math.hypot(p.x - q.x, p.y - q.y), q };
+  };
+  const reach = short * 0.05;
+  const swings: FoundBoxes["swings"] = [];
+  for (const sg of segs) {
+    const len = sg.t1 - sg.t0;
+    if (len < short * 0.05 || len > short * 0.35) continue;
+    const ends = [segEnd(sg, sg.t0), segEnd(sg, sg.t1)];
+    for (const [hinge, tip] of [
+      [ends[0]!, ends[1]!],
+      [ends[1]!, ends[0]!],
+    ] as const) {
+      let best: { d: number; q: { x: number; y: number }; A: { x: number; y: number }; B: { x: number; y: number } } | null = null;
+      for (const [A, B] of wallLines) {
+        const m = toWall(hinge, A, B);
+        if (m.d <= reach && (!best || m.d < best.d)) best = { ...m, A, B };
+      }
+      if (!best) continue;
+      // A wall stroke, or a line from wall to wall (a tub's edge), ends on a wall at both ends.
+      if (wallLines.some(([A, B]) => toWall(tip, A, B).d < len * 0.35)) continue;
+      const lx = tip.x - hinge.x;
+      const ly = tip.y - hinge.y;
+      const wx = best.B.x - best.A.x;
+      const wy = best.B.y - best.A.y;
+      const ang = (Math.acos(Math.min(1, Math.abs(lx * wx + ly * wy) / (Math.hypot(lx, ly) * Math.hypot(wx, wy) || 1))) * 180) / Math.PI;
+      // Drawn open at about 45 degrees; a line square to the wall is a fixture's side, one along it a wall.
+      if (ang < 25 || ang > 65) continue;
+      // A door leaf's free end stands alone; a stroke of handwriting has the other letters beside it.
+      const R = Math.max(8, Math.round(short * 0.03));
+      let crowd = 0;
+      for (let y = Math.max(0, Math.round(tip.y) - R); y <= Math.min(h - 1, Math.round(tip.y) + R); y++)
+        for (let x = Math.max(0, Math.round(tip.x) - R); x <= Math.min(w - 1, Math.round(tip.x) + R); x++) {
+          if (!ink[y * w + x] || Math.hypot(x - tip.x, y - tip.y) > R) continue;
+          if (Math.abs((x - sg.cx) * -sg.dy + (y - sg.cy) * sg.dx) <= 3) continue; // its own line
+          crowd++;
+        }
+      if (crowd > R) continue;
+      swings.push({ hinge: scale(best.q), tip: scale(tip) });
+      break;
+    }
+  }
   return {
+    swings,
     rooms: shapes.map((p) => ({ corners: p.map(scale) })),
     strokes: segs.map((s) => ({ a: scale(segEnd(s, s.t0)), b: scale(segEnd(s, s.t1)) })),
     graph: { nodes: at.map(scale), edges: walls.map((wl) => [wl.a, wl.b] as [number, number]) },
