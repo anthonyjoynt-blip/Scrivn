@@ -145,10 +145,19 @@ check(m.scopeReadUserMessage("pdf", 1, 1).includes("PDF"), "a PDF is called one"
   check(JSON.stringify(m.scopeReadFromWire(spare.wire)) === JSON.stringify(spare.read), "the hand reading is its answer read again");
   const block = m.scopeToNotes(m.mergePages([{ read: spare.read, file: "spare.jpg" }]));
   const lines = block.split("\n");
-  const at = lines.indexOf("Spare bedroom:");
-  check(at === 1 && lines.slice(2, 7).every((l) => l.startsWith("- ")), "the five lines beside the sketch are the room's, under its name");
+  const at = lines.indexOf("Spare bedroom 2:");
+  check(at === 1 && lines.slice(2, 7).every((l) => l.startsWith("- ")), "the five lines beside the sketch are the room's, under its name with its number");
   check(!lines.includes("Whole job:"), "none of them is filed as the whole job's");
-  check(!/10'4"?\)|13'9|14'10|4'11"?\)/.test(lines.slice(2, 7).join("\n")), "no wall length from the sketch is taken for a line's quantity");
+  check(!/10'4"?\)|13'9|19'11|4'11"?\)/.test(lines.slice(2, 7).join("\n")), "no wall length from the sketch is taken for a line's quantity");
+  check(
+    lines[2] === "- Tear out carpet and pad [written: Tear out carpet & pad - F] (F, the whole floor)" &&
+      lines[3] === "- Detach the wood baseboard [written: detach base, wood - PF] (PF, the whole perimeter of the floor)",
+    "F and PF reach the notes as the line's quantity, with what they mean",
+  );
+  check(
+    /PF the floor's perimeter/.test(m.SCOPE_READ_SYSTEM) && /"Bed 2" is "Bedroom 2"/.test(m.SCOPE_READ_SYSTEM) && /F, the whole floor/.test(m.UPLOADED_SCOPE_RULE),
+    "the reader knows Xactimate's room measurements and a room's number; extraction is told the work covers all of it",
+  );
   check(lines.includes("- From the sketch: 8'C, an 8 ft ceiling"), "the ceiling height from the sketch is kept as a note");
   check(/beside or inside a room on the sketch belong to that room/.test(m.SCOPE_READ_SYSTEM) && /not work: wall lengths/.test(m.SCOPE_READ_SYSTEM), "the reader is told lines beside a sketch are that room's, and the sketch's numbers are not work");
 }

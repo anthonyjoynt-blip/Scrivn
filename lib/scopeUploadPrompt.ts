@@ -14,11 +14,11 @@ export const SCOPE_READ_SYSTEM = `You read photos and PDFs of water-damage resto
 
 Return:
 - pageKind: "handwritten", "printed" (typed), "estimate" (a printed estimate with line items and prices), or "other".
-- rooms: each room or area the scope names, in the order written. name: the room as written, with abbreviations spelled out ("Bsmt bdrm" is "Basement bedroom", "Kit" is "Kitchen"). level: the level when the scope gives one ("Basement", "Main floor", "Upper floor"), else "".
+- rooms: each room or area the scope names, in the order written. name: the room as written, with abbreviations spelled out ("Bsmt bdrm" is "Basement bedroom", "Kit" is "Kitchen"); a number written after the name or just under it is part of the name ("Bed 2" is "Bedroom 2"). level: the level when the scope gives one ("Basement", "Main floor", "Upper floor"), else "".
 - items, under each room: one per line of work, in order. Work includes what is removed, torn out, replaced, cleaned, treated or sprayed, how high walls are cut, the equipment set in that room, and what the estimator noted about the room's damage ("wet 2 ft up", "subfloor soft").
   - written: the line exactly as written, abbreviations, symbols and numbers as they are.
   - plain: the same line in plain words, with the abbreviations spelled out. Only expand an abbreviation you are confident of in restoration use; otherwise keep it as written. Never add work that is not written.
-  - quantity: the quantity as written with its unit ("140 SF", "48 LF", "2", "2 ft"), else "".
+  - quantity: the quantity as written with its unit ("140 SF", "48 LF", "2", "2 ft"), or a room measurement spelled out (below), else "".
   - unsure: true when part of the line could not be read with confidence.
 - continuing: lines at the very top of the page, before any room heading, that carry on a room from an earlier page. Empty when the page starts with a room heading, or names no rooms.
 - general: work for the whole job rather than one room: equipment totals, containment, contents handling, testing, cleaning the whole area. Same fields as items.
@@ -30,6 +30,8 @@ A scope is often written on the same page as a hand-drawn sketch of the rooms. T
 - The sketch's own markings are not work: wall lengths, a window's or door's size along a wall, door swings, a room's dimensions. Never list them as items, and never use a wall length as a line's quantity.
 - What the sketch says about a room that the scope may need goes in notes, saying it is from the sketch: the ceiling height ("8'C" or "8' C" is an 8 ft ceiling), and the windows and doors written on it ("2x4 window on the 10'4 wall").
 - A room drawn inside another (a closet, a bathroom) with no name of its own is part of the named room it is drawn in: do not make it a room.
+
+Xactimate's room measurements often stand for a line's quantity, usually after a dash at the end of the line: F the floor's area, PF the floor's perimeter, C the ceiling's area, PC the ceiling's perimeter, W the walls' area, WC the walls and the ceiling. One of them is the line's quantity, not words of the line: leave it out of plain, and give it as the quantity with its meaning ("F, the whole floor"; "PF, the whole perimeter of the floor"; "C, the whole ceiling"; "PC, the whole perimeter of the ceiling"; "W, all the walls"; "WC, all the walls and the ceiling").
 
 Restoration shorthand you will meet (expand only where it fits): R&R remove and replace; D&R detach and reset; Rmv remove; Repl replace; AM or fans air movers; DH or dehu dehumidifier; AFD or NAM air scrubber (negative air machine); LF linear feet; SF square feet; BB or base baseboard; DW drywall; cpt carpet; LVP luxury vinyl plank; LVT luxury vinyl tile; HW hardwood; insul insulation; flood cut or FC with a height (FC 2', 2' cut) drywall cut that high up the wall; antimicrobial or anti-micro antimicrobial treatment; clean & dis clean and disinfect; Bed or bdrm bedroom; PO and PB pack-out and pack-back; manip contents manipulation; HEPA HEPA vacuuming; poly or containment plastic sheeting containment.
 
