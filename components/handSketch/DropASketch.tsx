@@ -125,6 +125,8 @@ export function DropASketch({ signedIn, canRead, dev }: { signedIn: boolean; can
     setDismissed([]);
     setEdited(null);
     setError(null);
+    // Where Scrivn can read it, it does so straight away: the person checks a finished plan rather than tracing one.
+    if (canRead) void readIt(p);
   };
 
   const takeFile = async (file: File | undefined) => {
@@ -141,23 +143,27 @@ export function DropASketch({ signedIn, canRead, dev }: { signedIn: boolean; can
     }
   };
 
-  const readIt = async () => {
-    if (!photo) return;
+  const readIt = async (p: TracePhoto | null = photo) => {
+    if (!p) return;
     setError(null);
     setBusy("Scrivn is reading your sketch…");
     try {
       const res = await fetch("/api/hand-sketch/read", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ image: photo.url.split(",")[1] ?? "", width: photo.width, height: photo.height }),
+        body: JSON.stringify({ image: p.url.split(",")[1] ?? "", width: p.width, height: p.height }),
       });
       const body = (await res.json().catch(() => ({}))) as { read?: HandSketchRead; error?: string };
       if (!res.ok || !body.read) {
         setError(res.status === 401 ? "Sign in to have Scrivn read it, or trace it yourself." : (body.error ?? "Scrivn could not read the sketch. You can trace it yourself."));
         return;
       }
-      setTrace(readToTrace(body.read, { width: photo.width, height: photo.height }));
-      setStage("trace");
+      // Straight to the plan it makes: what is wrong is fixed from there (a question, the photo, or the editor).
+      const t = readToTrace(body.read, { width: p.width, height: p.height });
+      setTrace(t);
+      setRead(traceToRead(t));
+      setEdited(null);
+      setStage("review");
     } catch {
       setError("Scrivn could not be reached. You can trace the sketch yourself.");
     } finally {
@@ -366,15 +372,22 @@ export function DropASketch({ signedIn, canRead, dev }: { signedIn: boolean; can
           {/* eslint-disable-next-line @next/next/no-img-element -- a photo held in the page */}
           <img src={photo.url} alt="Your sketch" className={styles.preview} />
           <div className={styles.buttons}>
-            <button type="button" className="btn-primary" onClick={() => setStage(read ? "review" : "trace")}>
-              {read ? "Back to your sketch" : "Trace it"}
-            </button>
+            {read ? (
+              <button type="button" className="btn-primary" onClick={() => setStage("review")}>
+                Back to your sketch
+              </button>
+            ) : canRead ? (
+              <button type="button" className="btn-primary" disabled={!!busy} onClick={() => void readIt()}>
+                {busy ? "Reading…" : "Read it again"}
+              </button>
+            ) : null}
             {!read ? (
-              canRead ? (
-                <button type="button" className="btn-secondary" disabled={!!busy} onClick={readIt}>
-                  Read it for me
-                </button>
-              ) : signedIn ? null : (
+              <button type="button" className={canRead ? "btn-secondary" : "btn-primary"} disabled={!!busy} onClick={() => setStage("trace")}>
+                Trace it yourself
+              </button>
+            ) : null}
+            {!read ? (
+              canRead ? null : signedIn ? null : (
                 <a className="btn-secondary" href="/login?next=/drop-a-sketch">
                   Sign in to have Scrivn read it
                 </a>
@@ -385,8 +398,9 @@ export function DropASketch({ signedIn, canRead, dev }: { signedIn: boolean; can
             </button>
           </div>
           <p className={styles.note}>
-            Trace it: tap each room&apos;s corners and type the numbers, free and nothing sent anywhere.
-            {canRead ? " Read it for me: Scrivn reads the corners and numbers for you to check." : ""}
+            {canRead
+              ? "Scrivn reads the rooms, the numbers you wrote and the doors and windows, then shows you the plan to check. Tracing it yourself is there if the reading goes wrong."
+              : "Trace it: tap each room’s corners and type the numbers, free and nothing sent anywhere."}
           </p>
         </div>
       )}

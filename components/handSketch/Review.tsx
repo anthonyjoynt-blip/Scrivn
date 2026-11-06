@@ -141,7 +141,7 @@ export function Review({
     <div className={styles.layer} role="dialog" aria-label="Your sketch">
       <div className={styles.bar}>
         <button type="button" className="btn-secondary" onClick={onBack}>
-          Photo
+          Fix on photo
         </button>
         <p className={styles.barTitle}>Your sketch</p>
         <button type="button" className="btn-primary" onClick={onEdit}>
