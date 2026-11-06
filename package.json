@@ -11,6 +11,7 @@
     "test:sketch": "node test/sketch/run.mjs",
     "test:asbestos": "node test/asbestos/run.mjs",
     "test:gapcheck": "node test/gapcheck/run.mjs",
+    "test:hand-sketch": "node test/handSketch/run.mjs",
     "test:extraction": "node test/extraction/run.mjs",
     "test:scope": "node test/scope/run.mjs",
     "test:pipeline": "node test/pipeline/run.mjs",
@@ -57,6 +58,7 @@
     "test:photos:routes": "node test/photos/routes.mjs",
     "test:photos:live": "node test/photos/notesLive.mjs",
     "test:exterior:engine": "node test/exterior/engine.mjs",
+    "test:scan-editor": "node test/scanEditor/run.mjs",
     "test:exterior:house": "node test/exterior/houseRunner.mjs"
   },
   "dependencies": {

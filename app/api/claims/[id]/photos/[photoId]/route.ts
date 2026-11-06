@@ -11,7 +11,7 @@ import {
 import { devClaimsMode } from "@/lib/devClaimsStore";
 import { devPhotos } from "@/lib/devPhotoStore";
 import { isPhotoId } from "@/lib/photos";
-import { errorResponse } from "../../../route";
+import { errorResponse } from "../../../errorResponse";
 
 /**
  * One site photo's picture (2026-10-14).

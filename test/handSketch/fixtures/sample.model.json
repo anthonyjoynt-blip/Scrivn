@@ -1,0 +1,125 @@
+{
+ "note": "The development sample (lib/handSketchSample.ts) read by hand: what a model should return for it. No call was made.",
+ "model": "hand-written",
+ "image": {
+  "width": 1050,
+  "height": 1400
+ },
+ "read": {
+  "version": 1,
+  "kind": "hand",
+  "rotate": 0,
+  "ignored": [],
+  "rooms": [
+   {
+    "name": null,
+    "guess": "bedroom",
+    "corners": [
+     {
+      "x": 860,
+      "y": 330
+     },
+     {
+      "x": 420,
+      "y": 330
+     },
+     {
+      "x": 420,
+      "y": 560
+     },
+     {
+      "x": 190,
+      "y": 560
+     },
+     {
+      "x": 190,
+      "y": 1060
+     },
+     {
+      "x": 860,
+      "y": 1060
+     }
+    ],
+    "walls": [
+     {
+      "length": "9'3"
+     },
+     {
+      "length": "3'"
+     },
+     {
+      "length": "2'9"
+     },
+     {
+      "length": "8'2"
+     },
+     {
+      "length": "12'"
+     },
+     {
+      "length": "11'2"
+     }
+    ],
+    "ceiling": "8'",
+    "openings": [
+     {
+      "kind": "window",
+      "wall": 0,
+      "at": 0.4545,
+      "size": "4' x 3'",
+      "orWall": null,
+      "sure": true
+     },
+     {
+      "kind": "door",
+      "wall": 4,
+      "at": 0.12,
+      "size": null,
+      "orWall": null,
+      "sure": true
+     }
+    ],
+    "items": []
+   },
+   {
+    "name": null,
+    "guess": "closet",
+    "corners": [
+     {
+      "x": 190,
+      "y": 330
+     },
+     {
+      "x": 420,
+      "y": 330
+     },
+     {
+      "x": 420,
+      "y": 560
+     },
+     {
+      "x": 190,
+      "y": 560
+     }
+    ],
+    "walls": [
+     {
+      "length": null
+     },
+     {
+      "length": null
+     },
+     {
+      "length": null
+     },
+     {
+      "length": null
+     }
+    ],
+    "ceiling": null,
+    "openings": [],
+    "items": []
+   }
+  ]
+ }
+}

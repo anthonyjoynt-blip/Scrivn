@@ -65,6 +65,13 @@ test("the bar and the sheet cover every sketch tool exactly once", () => {
   sameSet(both, t.SKETCH_TOOL_KEYS, "a sketch tool is unreachable on a phone");
 });
 
+test("Scrivn Scan's own editor has no Import scan, and nothing else is lost", () => {
+  // 2026-10-28, lib/scanEditorWebView.tsx: the sketch there IS the scan, so there is nothing to import from.
+  const lone = t.sketchMoreKeys(true);
+  assert(!lone.includes("scan"), "Import scan is in the phone app's More");
+  sameSet([...lone, "scan"], t.sketchMoreKeys(), "the phone app's More lost a tool besides Import scan");
+});
+
 test("the desktop row still holds every tool but Select", () => {
   const desktop = [...t.SKETCH_DESKTOP_LEADING, ...t.SKETCH_PLACEMENT_KEYS, ...t.SKETCH_DESKTOP_TRAILING];
   assert(new Set(desktop).size === desktop.length, "a tool is drawn twice on the desktop row");

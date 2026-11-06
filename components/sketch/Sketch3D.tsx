@@ -47,8 +47,9 @@
  * wherever it is in view and no wall stands in front of it. "Wet areas" in the bar hides them.
  *
  * three.js is loaded only when the view opens (dynamic imports), so the claim page never carries it.
- * The photos are fetched by scan (`/api/scans/<id>/photos`, signed links) and drawn as textures; one
- * the browser will not draw is shown as a plain picture instead.
+ * The photos are fetched by scan (`/api/scans/<id>/photos`, signed links, ./scanPhotoLinks) and drawn
+ * as textures; one the browser will not draw is shown as a plain picture instead. Scrivn Scan's own
+ * editor (2026-10-29) gives its own [Props.photoLinks]: the photos kept on the phone with the sketch.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -75,12 +76,18 @@ import { grayOf, PanoBaker, panoMaterial, type DistanceMap } from "./panoBake";
 import SpotStills, { stillWords, type SpotStillsApi, type StillShown } from "./SpotStills";
 import { WetDrop, wetTagElement } from "./WetTag";
 import { applyFraming, createStage, framingOf, loadThree, STAGE_BACKGROUND_CSS } from "./stage3d";
+import { scanPhotoLinks } from "./scanPhotoLinks";
 
 interface Props {
   sketch: Sketch;
   /** The claim's moisture map: its wet areas are tagged. Absent or empty, nothing is. */
   moisture?: MoistureMap | null;
   onClose: () => void;
+  /**
+   * Where a scan's photos are, by photo number. Absent, Scrivn is asked ([scanPhotoLinks]); Scrivn Scan's
+   * editor gives the ones on the phone. Keep it the same function from one render to the next.
+   */
+  photoLinks?: (scanId: string) => Promise<Record<number, string>>;
 }
 
 const COLORS = {
@@ -289,7 +296,7 @@ interface Pose {
   fov: number;
 }
 
-export default function Sketch3D({ sketch, moisture, onClose }: Props) {
+export default function Sketch3D({ sketch, moisture, onClose, photoLinks = scanPhotoLinks }: Props) {
   const model = useMemo(() => houseModel(sketch), [sketch]);
   // The wet areas' tags, and whether they are shown (2026-10-12).
   const tags = useMemo(() => (moisture ? moistureTags(sketch, moisture) : []), [sketch, moisture]);
@@ -1237,20 +1244,16 @@ export default function Sketch3D({ sketch, moisture, onClose }: Props) {
   useEffect(() => {
     let cancelled = false;
     for (const scanId of new Set(walks.map((w) => w.scanId))) {
-      fetch(`/api/scans/${scanId}/photos`)
-        .then((r) => (r.ok ? r.json() : { photos: [] }))
-        .then((body: { photos?: { n: number; url: string }[] }) => {
-          if (cancelled) return;
-          const byN: Record<number, string> = {};
-          for (const p of body.photos ?? []) byN[p.n] = p.url;
-          setUrls((prev) => ({ ...prev, [scanId]: byN }));
+      photoLinks(scanId)
+        .then((byN) => {
+          if (!cancelled) setUrls((prev) => ({ ...prev, [scanId]: byN }));
         })
         .catch(() => undefined);
     }
     return () => {
       cancelled = true;
     };
-  }, [walks]);
+  }, [walks, photoLinks]);
 
   useEffect(() => {
     sceneApi.current?.refreshPhotos();
@@ -1327,7 +1330,9 @@ export default function Sketch3D({ sketch, moisture, onClose }: Props) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        if (modeRef.current === "walk" && points.length > 0) sceneApi.current?.dollhouse();
+        // Taken, so the phone app's Back (an Escape, lib/scanEditorWebView.tsx) steps out of the view and not the editor.
+        e.preventDefault();
+        if (modeRef.current === "walk" && points.length > 0 && sceneApi.current) sceneApi.current.dollhouse();
         else onClose();
         return;
       }

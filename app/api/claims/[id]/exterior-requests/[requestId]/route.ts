@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { actOnExteriorRequest, RequestMissingError, RequestStateError } from "@/lib/exteriorRequestsRepo";
-import { errorResponse } from "../../../route";
+import { errorResponse } from "../../../errorResponse";
 
 /**
  * One exterior request (0016): PATCH { action: "withdraw" | "applied" } -> { request }.

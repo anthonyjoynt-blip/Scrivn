@@ -1,0 +1,171 @@
+{
+ "note": "The owner's taped spare room and bathroom, from claims 045b943c and 3b40759e (12 px = 1 ft, so vertex units are inches).",
+ "spare": {
+  "id": "room-mu75ysz8-1",
+  "name": "Spare room (tape)",
+  "level": 0,
+  "stairs": null,
+  "symbols": [
+   {
+    "t": 0.4623237598001594,
+    "id": "door-mu7611dy-8",
+    "type": "door",
+    "flipX": false,
+    "flipY": false,
+    "leaves": "single",
+    "wallId": "v-mu75zqr7-7",
+    "doorType": "swing",
+    "widthFeet": 2.5,
+    "heightFeet": 6.666666666666667,
+    "widthFraction": 0.2
+   },
+   {
+    "t": 0.8909394039083288,
+    "id": "door-mu76139t-9",
+    "type": "door",
+    "flipX": false,
+    "flipY": true,
+    "leaves": "single",
+    "wallId": "v-mu75ysz8-3",
+    "doorType": "swing",
+    "widthFeet": 2.702818128959317,
+    "heightFeet": 6.666666666666667,
+    "widthFraction": 0.2
+   },
+   {
+    "t": 0.5220107358259627,
+    "id": "window-mu761v3k-10",
+    "type": "window",
+    "wallId": "v-mu75ysz8-5",
+    "sillFeet": 3.5833333333333335,
+    "widthFeet": 5.724066830444613,
+    "heightFeet": 2.75,
+    "widthFraction": 0.24
+   }
+  ],
+  "vertices": [
+   {
+    "x": 101.78284697886156,
+    "y": 102.52774467983187,
+    "id": "v-mu75ysz8-2"
+   },
+   {
+    "x": 242.78284697886158,
+    "y": 102.52774467983187,
+    "id": "v-mu75ysz8-3"
+   },
+   {
+    "x": 242.78284697886158,
+    "y": 301.8043084691607,
+    "id": "v-mu75ysz8-4"
+   },
+   {
+    "x": 184.03138184179818,
+    "y": 301.8043084691607,
+    "id": "v-mu75zqr7-7"
+   },
+   {
+    "x": 153.33933945957193,
+    "y": 273.5277446798319,
+    "id": "v-mu75zqab-6"
+   },
+   {
+    "x": 101.78284697886156,
+    "y": 273.5277446798319,
+    "id": "v-mu75ysz8-5"
+   }
+  ],
+  "ceilingType": "flat",
+  "freeCabinets": [],
+  "parentRoomId": null,
+  "nestingOptOut": false,
+  "ceilingPeakFeet": null,
+  "ceilingHeightFeet": 8
+ },
+ "bathroom": {
+  "id": "room-mu9vta1s-16",
+  "name": "Bathroom",
+  "stairs": null,
+  "symbols": [
+   {
+    "t": 0.3244152752505268,
+    "id": "door-mu9vus4m-17",
+    "type": "door",
+    "flipX": false,
+    "flipY": false,
+    "leaves": "single",
+    "wallId": "v-mu9vta1s-15",
+    "doorType": "swing",
+    "widthFeet": 2.5,
+    "heightFeet": 6.666666666666667,
+    "widthFraction": 0.2
+   },
+   {
+    "t": 0.17297979797979798,
+    "id": "cabinet-mu9vuvgu-18",
+    "tier": "base",
+    "type": "cabinet",
+    "label": "Cabinet",
+    "wallId": "v-mu9vta1s-12",
+    "depthFeet": 2,
+    "widthFeet": 2.8541666666666665,
+    "heightFeet": 3,
+    "widthFraction": 0.3
+   },
+   {
+    "t": 0.5017038226452218,
+    "id": "fixture-mu9vvqlc-19",
+    "type": "fixture",
+    "label": "",
+    "wallId": "v-mu9vta1s-12",
+    "depthFeet": 2.5,
+    "widthFeet": 1.67,
+    "heightFeet": 2.5,
+    "fixtureType": "toilet",
+    "showerShape": "rectangular",
+    "widthFraction": 0.25
+   },
+   {
+    "t": 0.49878980148086005,
+    "id": "fixture-mu9vvum5-20",
+    "type": "fixture",
+    "label": "",
+    "wallId": "v-mu9vta1s-13",
+    "depthFeet": 2.5,
+    "widthFeet": 5,
+    "heightFeet": 1.5,
+    "fixtureType": "tub",
+    "showerShape": "rectangular",
+    "widthFraction": 0.25
+   }
+  ],
+  "vertices": [
+   {
+    "x": 919.8687166743675,
+    "y": 608.8860510097782,
+    "id": "v-mu9vta1s-12"
+   },
+   {
+    "x": 919.8687166743675,
+    "y": 707.8860510097782,
+    "id": "v-mu9vta1s-13"
+   },
+   {
+    "x": 859.7231404999293,
+    "y": 707.8860510097782,
+    "id": "v-mu9vta1s-14"
+   },
+   {
+    "x": 859.7231404999293,
+    "y": 608.8860510097782,
+    "id": "v-mu9vta1s-15"
+   }
+  ],
+  "ceilingType": "flat",
+  "freeCabinets": [],
+  "parentRoomId": null,
+  "nestingOptOut": false,
+  "ceilingPeakFeet": null,
+  "ceilingHeightFeet": 8
+ }
+}

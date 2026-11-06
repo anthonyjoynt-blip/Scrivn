@@ -78,7 +78,10 @@ import {
 import { type Trade, type WorkOrder, availableTrades, buildWorkOrders, unavailableTradeNote } from "@/lib/workOrders";
 import { WorkOrderSelector } from "@/components/WorkOrderSelector";
 import { SketchEditor } from "@/components/sketch/SketchEditor";
-import { type Sketch, emptySketch, hasSketchContent, knownRoomNames, levelsOf } from "@/lib/sketch";
+import { type Sketch, emptySketch, hasSketchContent, knownRoomNames, levelName, levelsOf, roomsOnLevel } from "@/lib/sketch";
+import { type HandSketchHandoff, deleteHandoff, handSketchDefaultFloor, handSketchRoomsToAdd, mergeHandSketch, pruneHandoffs, readHandoff } from "@/lib/handSketchClaim";
+import { readDeviceClaim } from "@/lib/deviceClaims";
+import { HandSketchNotice } from "@/components/sketch/HandSketchNotice";
 import { type MoistureMap, emptyMoistureMap, hasMoistureContent, pruneMoisture, withScanMoisture } from "@/lib/moisture";
 import { DryingLogSection } from "@/components/drying/DryingLogSection";
 import { PhotosSection, type PhotosView } from "@/components/photos/PhotosSection";
@@ -554,11 +557,115 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingScan, pendingScanDecision]);
 
+  /* ── Rooms from a hand-drawn sketch ─────────────────────────────────────────────────────────────
+     The drop-a-sketch page builds rooms from a photo of a drawing and hands them over in this browser
+     (lib/handSketchClaim.ts), then comes here with `?handSketch=<token>`. The rooms are added by this
+     page, through its own save, because the server never writes into a claim a browser may have open.
+     Only once the load has SETTLED - the server's copy can still replace the device's after `loading`
+     goes false, and rooms added before then would go with it - and never over a clash: the PM settles
+     that first, and if the server's copy wins, the rooms are offered again. */
+  const [handSketch, setHandSketch] = useState<HandSketchHandoff | null>(null);
+  const [handSketchDismissed, setHandSketchDismissed] = useState(false);
+  const [handSketchFloor, setHandSketchFloor] = useState<number | null>(null);
+  /** A new claim (`/claim?handSketch=<token>`, no id) takes the rooms without asking - there is nothing else on it. */
+  const handSketchAutoAdd = useRef(false);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    pruneHandoffs();
+    const params = new URL(window.location.href).searchParams;
+    const token = params.get("handSketch");
+    if (!token) return;
+    const handoff = readHandoff(token);
+    if (!handoff) {
+      stripHandSketchParam();
+      return;
+    }
+    handSketchAutoAdd.current = params.get("id") === null && handoff.claimId === null;
+    setHandSketch(handoff);
+  }, []);
+  const handSketchLeft = useMemo(() => (handSketch ? handSketchRoomsToAdd(sketch, handSketch.sketch) : []), [handSketch, sketch]);
+  /** Some of its rooms are on the claim: added (a second add would add nothing - see `mergeHandSketch`). */
+  const handSketchIn = handSketch !== null && handSketchLeft.length < handSketch.sketch.rooms.length;
+
+  function addHandSketch(level: number) {
+    if (!handSketch) return;
+    const incoming = handSketch.sketch;
+    setSketch((prev) => mergeHandSketch(prev, incoming, level));
+    // A drawing that has just changed under the PM should not be waiting on a timer (as `adoptPendingScan`).
+    checkpoint();
+    openSketch(true);
+  }
+
+  useEffect(() => {
+    if (!handSketch || !handSketchAutoAdd.current || !persistence.settled) return;
+    handSketchAutoAdd.current = false;
+    addHandSketch(handSketchDefaultFloor(sketch, handSketch.sketch));
+    // Once, when the new claim's page has settled; `addHandSketch` is a plain function of this component.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [handSketch, persistence.settled]);
+
   /*
-    The scan strip, built once so the two places it can show agree — see where it is rendered.
+    The handoff is let go only once a save WITH the rooms in it is safe: the server has it, or this
+    device does while there is no signal. The status alone could be the one from before the add, so the
+    device's own copy is read to see the rooms are in it and that it is not waiting on the server.
+  */
+  useEffect(() => {
+    if (!handSketch || !handSketchIn || persistence.clash) return;
+    const status = persistence.status;
+    const id = persistence.claimId;
+    if ((status !== "saved" && status !== "pending") || !id) return;
+    const token = handSketch.token;
+    const ids = handSketch.sketch.rooms.map((r) => r.id);
+    let gone = false;
+    void readDeviceClaim(id).then((record) => {
+      if (gone || !record || record.clash) return;
+      if (status === "saved" && record.dirty) return;
+      const onDevice = new Set(record.state.sketch.rooms.map((r) => r.id));
+      if (!ids.some((roomId) => onDevice.has(roomId))) return;
+      deleteHandoff(token);
+      setHandSketch(null);
+      stripHandSketchParam();
+    });
+    return () => {
+      gone = true;
+    };
+  }, [handSketch, handSketchIn, persistence.status, persistence.claimId, persistence.clash]);
+
+  const handSketchOffered =
+    handSketch !== null && !handSketchIn && !handSketchDismissed && !handSketchAutoAdd.current && persistence.settled && !persistence.clash && !persistence.loadError;
+  const handSketchFloors = levelsOf(sketch);
+  const handSketchFirstFloor = handSketch ? handSketchDefaultFloor(sketch, handSketch.sketch) : 0;
+  const handSketchTarget = handSketchFloor !== null && handSketchFloors.includes(handSketchFloor) ? handSketchFloor : handSketchFirstFloor;
+  const handSketchAsksFloor = handSketchFloors.length > 1 && roomsOnLevel(sketch, handSketchFirstFloor).length > 0;
+
+  /*
+    The save clash, asked about in one of two places: above the sketch buttons, or at the top of the
+    sketch editor while it is open - full screen, the editor covers everything else on the page, and
+    a clash raised then (a sketch change saved over the office's) went unseen until Done.
+  */
+  const clashBanner = persistence.clash ? <ClashBanner clash={persistence.clash} onKeep={(keep) => void persistence.resolveClash(keep)} /> : null;
+
+  /*
+    The scan strip, built once so the two places it can show agree — see where it is rendered. The
+    hand sketch's offer goes in it too.
   */
   const scanNotice = (
     <>
+      {handSketchOffered && (
+        <HandSketchNotice
+          roomCount={handSketchLeft.length}
+          floors={handSketchAsksFloor ? handSketchFloors.map((level) => ({ level, name: levelName(sketch, level) })) : null}
+          floor={handSketchTarget}
+          floorName={handSketchFloors.length > 1 ? levelName(sketch, handSketchTarget) : null}
+          onFloor={setHandSketchFloor}
+          onAdd={() => addHandSketch(handSketchTarget)}
+          onNotNow={() => {
+            // Kept, in case the PM comes back for it from the drop page; pruned in a week otherwise.
+            setHandSketchDismissed(true);
+            stripHandSketchParam();
+          }}
+        />
+      )}
       {pendingScan && pendingScanDecision === "ask" && !scanOutcomes.current.has(pendingScan.id) && (
         <ScanInboxNotice
           scan={pendingScan}
@@ -950,6 +1057,11 @@ export default function Home() {
     setQuestionLog([]);
     // A scan's receipt, or the scan that would not draw, belongs to the claim it was sent to.
     setScanMessage(null);
+    // A hand sketch on its way in was for the claim being left; the next one starts without the offer.
+    setHandSketch(null);
+    setHandSketchDismissed(false);
+    setHandSketchFloor(null);
+    handSketchAutoAdd.current = false;
     setScanIssue(null);
     setScanBusy(false);
     scanOutcomes.current = new Map();
@@ -977,6 +1089,15 @@ export default function Home() {
     lock state after mounting — the PM can unlock and carry on without coming back out here, which is
     the point of the lock being a toggle rather than a mode.
   */
+  /** The hand sketch's token off the address, so a reload or a pasted link opens the claim, not the offer. */
+  function stripHandSketchParam() {
+    if (typeof window === "undefined") return;
+    const url = new URL(window.location.href);
+    if (!url.searchParams.has("handSketch")) return;
+    url.searchParams.delete("handSketch");
+    window.history.replaceState(null, "", url.toString());
+  }
+
   function openSketch(readOnly: boolean, startMode?: "exterior") {
     setSketchOpensReadOnly(readOnly);
     setSketchStartMode(startMode);
@@ -1588,9 +1709,8 @@ export default function Home() {
           No signal — opened from this phone&rsquo;s copy, last changed {new Date(persistence.openedFromDevice).toLocaleString()}.
         </p>
       )}
-      {persistence.clash && (
-        <ClashBanner clash={persistence.clash} onKeep={(keep) => void persistence.resolveClash(keep)} />
-      )}
+      {/* With the sketch open it goes to the editor instead (`alert`): in full screen the editor covers this spot. */}
+      {!showSketch && clashBanner}
       {/*
         A Claude step written down to run when the signal is back — said once, here, whichever step
         the claim is on, so it is never mistaken for a step that has failed or is still spinning.
@@ -1697,6 +1817,7 @@ export default function Home() {
         <SketchEditor
           sketch={sketch}
           notice={scanNotice}
+          alert={clashBanner}
           knownRoomNames={sketchRoomNames}
           moisture={moisture}
           statedEquipment={statedEquipment}

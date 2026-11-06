@@ -22,10 +22,20 @@ const EIGHTHS: { label: string; eighths: number }[] = [
   { label: "⅞", eighths: 7 },
 ];
 
-export function FeetInchesInput({ label, autoFocus, onChange }: { label: string; autoFocus?: boolean; onChange: (feet: number | null) => void }) {
-  const [feet, setFeet] = useState("");
-  const [inches, setInches] = useState("");
-  const [eighths, setEighths] = useState(0);
+/** A length in feet as the boxes show it: whole feet, inches, eighths. */
+function parts(feet: number | null | undefined): { f: string; i: string; e: number } {
+  if (feet === null || feet === undefined || !Number.isFinite(feet) || feet <= 0) return { f: "", i: "", e: 0 };
+  const total = Math.round(feet * 96);
+  const f = Math.floor(total / 96);
+  const i = Math.floor((total - f * 96) / 8);
+  return { f: String(f), i: String(i), e: total - f * 96 - i * 8 };
+}
+
+export function FeetInchesInput({ label, autoFocus, initial, onChange }: { label: string; autoFocus?: boolean; initial?: number | null; onChange: (feet: number | null) => void }) {
+  const [start] = useState(() => parts(initial));
+  const [feet, setFeet] = useState(start.f);
+  const [inches, setInches] = useState(start.i);
+  const [eighths, setEighths] = useState(start.e);
   const update = (f: string, i: string, e: number) => {
     setFeet(f);
     setInches(i);

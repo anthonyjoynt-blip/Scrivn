@@ -95,6 +95,13 @@ export interface ClaimPersistence {
   refusedReason: string | null;
   /** Set while a claim named in the URL is being opened, so the page can hold off rendering it. */
   loading: boolean;
+  /**
+   * True once the claim on screen is the one that stays: the server check after a load has finished
+   * (`loading` goes false earlier, when the device's copy is shown, and the server's copy can still
+   * replace it or raise a clash), or at once when the URL names no claim. Something added to the
+   * claim before this would be lost under the server's copy.
+   */
+  settled: boolean;
   /** Non-null when a load failed — a claim that is gone, one belonging to somebody else, or none here offline. */
   loadError: string | null;
   /** When the claim was opened from this device's copy because the server could not be reached: that copy's last change. */
@@ -182,6 +189,7 @@ export function useClaimPersistence({
   const [status, setStatus] = useState<SaveStatus>("idle");
   const [refusedReason, setRefusedReason] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [settled, setSettled] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [openedFromDevice, setOpenedFromDevice] = useState<number | null>(null);
   const [clash, setClash] = useState<Clash | null>(null);
@@ -316,10 +324,14 @@ export function useClaimPersistence({
 
   // Load, when the URL names a claim.
   useEffect(() => {
-    if (!enabled || typeof window === "undefined") return;
+    if (!enabled || typeof window === "undefined") {
+      setSettled(true);
+      return;
+    }
     const id = new URL(window.location.href).searchParams.get("id");
     let cancelled = false;
     if (!id) {
+      setSettled(true);
       // Nothing to open, but the device may be holding other claims that are owed to the server.
       void syncAll();
       void pruneDeviceClaims();
@@ -421,7 +433,10 @@ export function useClaimPersistence({
       } catch (err) {
         if (!cancelled) setLoadError(err instanceof Error ? err.message : "Could not open that claim.");
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+          setSettled(true);
+        }
         void pruneDeviceClaims();
       }
     })();
@@ -598,7 +613,7 @@ export function useClaimPersistence({
     [putOnScreen, settle],
   );
 
-  return { claimId, onServer, status, refusedReason, loading, loadError, openedFromDevice, clash, resolveClash, claimIdNow, forget, saveNow: write };
+  return { claimId, onServer, status, refusedReason, loading, settled, loadError, openedFromDevice, clash, resolveClash, claimIdNow, forget, saveNow: write };
 }
 
 async function describe(res: Response): Promise<string> {

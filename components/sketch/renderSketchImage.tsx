@@ -1,11 +1,9 @@
 "use client";
 
-import { createElement } from "react";
-import { createRoot } from "react-dom/client";
-import Konva from "konva";
-import SketchCanvas from "./SketchCanvas";
+import type Konva from "konva";
 import { PIXELS_PER_FOOT, type Sketch, freeWallsOf, freeWallsOnLevel, roomBounds, roomsOnLevel } from "@/lib/sketch";
-import { type MoistureMap, emptyMoistureMap } from "@/lib/moisture";
+import type { MoistureMap } from "@/lib/moisture";
+import { mountPlan } from "./planStage";
 import { type SketchRender, parseBuildingRender, parseRender } from "@/lib/sketchAttachments";
 import { type SurfaceThumbnail, thumbnailFor } from "@/lib/surfaceThumbnails";
 import { type ExteriorRender, renderExteriorImage } from "./exteriorImages";
@@ -79,8 +77,6 @@ function framing(sketch: Sketch): { width: number; height: number; view: { x: nu
   };
 }
 
-const noop = () => {};
-
 /**
  * Mounts the real canvas off screen, hands the painted stage to `use`, and cleans up after it.
  *
@@ -105,80 +101,8 @@ async function withStage<T>(
   const scoped: Sketch = level === null ? sketch : { ...sketch, rooms: roomsOnLevel(sketch, level), freeWalls: freeWallsOnLevel(sketch, level) };
   const frame = framing(scoped);
   if (!frame) return null;
-
-  // Off screen rather than hidden: `display: none` gives a canvas no size to draw into, and
-  // `visibility: hidden` still reserves layout. Positioning it far off the page does neither.
-  const host = document.createElement("div");
-  host.style.cssText = "position:fixed;left:-10000px;top:0;pointer-events:none;";
-  document.body.appendChild(host);
-  const root = createRoot(host);
-
-  try {
-    root.render(
-      createElement(SketchCanvas, {
-        rooms: scoped.rooms,
-        freeWalls: freeWallsOf(scoped),
-        width: frame.width,
-        height: frame.height,
-        view: frame.view,
-        tool: "select" as const,
-        showSizes: true,
-        // A picture, not an editor — see `showGrid`.
-        showGrid: false,
-        moisture: base === "moisture" ? moisture : emptyMoistureMap(),
-        showMoisture: base === "moisture",
-        /*
-          A surface thumbnail is the same plan with one surface picked out — see
-          `lib/surfaceThumbnails.ts`. Null for the two whole-plan renders, which is every render
-          that existed before thumbnails.
-        */
-        highlight: thumbnailFor(thumbnails, render) ?? null,
-        moistureTool: null,
-        paintSurface: "floor" as const,
-        selectedReadingId: null,
-        // Nothing is selected in an export: handles are for editing, and this is a picture.
-        selectedRoomId: null,
-        selectedSymbolId: null,
-        onViewChange: noop,
-        onSelectRoom: noop,
-        onSelectSymbol: noop,
-        onMoveRoom: noop,
-        onTapWall: noop,
-        onTapWallForReading: noop,
-        onSelectReading: noop,
-        onResizeReading: noop,
-        onPaintFloor: noop,
-        onPlaceSymbol: noop,
-        onSplitWall: noop,
-        onDragWall: noop,
-        onDragWallEnd: noop,
-        onRenameRoom: noop,
-        onMoveVertex: noop,
-        onRemoveVertex: noop,
-        onMoveSymbol: noop,
-        onResizeSymbol: noop,
-        onPlaceIsland: noop,
-        onMoveIsland: noop,
-        onResizeIsland: noop,
-      }),
-    );
-
-    // React renders asynchronously and Konva paints on a frame after that.
-    await new Promise((resolve) => setTimeout(resolve, 120));
-    const stage = Konva.stages.find((s) => host.contains(s.container()));
-    if (!stage) return null;
-
-    // Draw synchronously before reading the pixels: batchDraw waits for a frame, and a frame never
-    // comes in a background tab.
-    stage.draw();
-    return use(stage, frame);
-  } finally {
-    // Unmount on a later tick — React refuses to unmount a root while it is still rendering.
-    setTimeout(() => {
-      root.unmount();
-      host.remove();
-    }, 0);
-  }
+  // The mount itself is planStage.tsx's (2026-10-28), shared with Scrivn Scan's plan PDF.
+  return mountPlan(scoped, frame, { moisture, showMoisture: base === "moisture", highlight: thumbnailFor(thumbnails, render) ?? null }, use);
 }
 
 /** Another building's picture (2026-10-19), by its `buildingRender` id; null for any other render, or a building gone. */
