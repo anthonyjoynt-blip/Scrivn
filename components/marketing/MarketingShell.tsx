@@ -1,6 +1,7 @@
 import Link from "next/link";
 import "@/app/marketing.css";
 import { PRIVACY_POLICY_URL, TERMS_URL } from "@/lib/legal";
+import { FREE_TOOLS } from "./FreeTools";
 
 /**
  * Nav, footer and page scope for the public marketing site.
@@ -30,6 +31,7 @@ const NAV_LINKS: { page: MarketingPage; href: string; label: string }[] = [
   { page: "how-it-works", href: "/how-it-works", label: "How It Works" },
   { page: "scan", href: "/scan", label: "Scan" },
   { page: "drying-calculator", href: "/drying-calculator", label: "Drying Calculator" },
+  { page: "drop-a-sketch", href: "/drop-a-sketch", label: "Drop a Sketch" },
   { page: "pricing", href: "/pricing", label: "Pricing" },
   { page: "faq", href: "/faq", label: "FAQ" },
   { page: "contact", href: "/contact", label: "Contact" },
@@ -69,6 +71,12 @@ export function MarketingShell({ page, children }: { page: MarketingPage; childr
         <div className="mk-footer-inner">
           <div>© {new Date().getFullYear()} Scrivn</div>
           <div className="mk-footer-links">
+            {/* The free tools, on every page whether or not the nav is on: the parts of the site anyone can use now. */}
+            {FREE_TOOLS.map((t) => (
+              <Link key={t.href} href={t.href}>
+                {t.label}
+              </Link>
+            ))}
             {/*
               Privacy is hosted by TermsFeed rather than served from here, so it is an ordinary
               external anchor rather than a Link. Terms is still absent and still unlinked, for the

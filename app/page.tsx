@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { PLANS } from "@/lib/plans";
+import { FreeTools } from "@/components/marketing/FreeTools";
 import { MarketingShell, marketingNavVisible } from "@/components/marketing/MarketingShell";
 
 /**
@@ -114,6 +115,8 @@ export default function HomePage() {
           </div>
         </div>
       </div>
+
+      <FreeTools />
 
       <div className="mk-benefits wrap">
         <h2>Built around what actually slows a claim down</h2>
@@ -245,6 +248,8 @@ function ComingSoon() {
           </div>
         </div>
       </div>
+
+      <FreeTools />
 
       <div className="mk-benefits wrap">
         <h2>Everything the file needs, from one site visit</h2>

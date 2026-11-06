@@ -1,6 +1,6 @@
 import { MarketingShell } from "@/components/marketing/MarketingShell";
 import { DropASketch } from "@/components/handSketch/DropASketch";
-import { handSketchReadAvailable } from "@/lib/handSketchRead";
+import { handSketchReadAvailable, handSketchReadsOn } from "@/lib/handSketchRead";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
 import { createClient } from "@/lib/supabase/server";
 
@@ -33,7 +33,7 @@ export default async function DropASketchPage() {
         <p>A photo of your hand-drawn sketch, made into a floor plan at its real size: the numbers you wrote set the sizes.</p>
       </div>
       <div className="wrap-narrow">
-        <DropASketch signedIn={signedIn} canRead={canRead} dev={dev} />
+        <DropASketch signedIn={signedIn} canRead={canRead} readsOn={handSketchReadsOn()} dev={dev} />
       </div>
     </MarketingShell>
   );

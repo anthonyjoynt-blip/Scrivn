@@ -81,7 +81,7 @@ function traceWithRead(trace: TraceState, read: HandSketchRead): TraceState {
   };
 }
 
-export function DropASketch({ signedIn, canRead, dev }: { signedIn: boolean; canRead: boolean; dev: boolean }) {
+export function DropASketch({ signedIn, canRead, readsOn, dev }: { signedIn: boolean; canRead: boolean; readsOn: boolean; dev: boolean }) {
   const [stage, setStage] = useState<Stage>("start");
   const [photo, setPhoto] = useState<TracePhoto | null>(null);
   const [trace, setTrace] = useState<TraceState | null>(null);
@@ -451,7 +451,8 @@ export function DropASketch({ signedIn, canRead, dev }: { signedIn: boolean; can
               </button>
             ) : null}
             {!read ? (
-              canRead ? null : signedIn ? null : (
+              // Signing in is offered for the read only when reads are on: otherwise a signed-in user would get no read either.
+              canRead || signedIn || !readsOn ? null : (
                 <a className="btn-secondary" href="/login?next=/drop-a-sketch">
                   Sign in to have Scrivn read it
                 </a>

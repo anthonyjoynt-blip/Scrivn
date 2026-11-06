@@ -909,7 +909,53 @@
 }
 .mk-footer-links {
   display: flex;
-  gap: 22px;
+  flex-wrap: wrap;
+  gap: 8px 22px;
+}
+
+/* ---- free tools (home) ---- */
+
+.mk-tools {
+  padding-top: 56px;
+}
+.mk-tools h2 {
+  text-align: center;
+  font-size: 26px;
+  color: var(--navy);
+  margin: 0 0 28px;
+}
+.mk-tools-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  max-width: 900px;
+  margin: 0 auto;
+}
+@media (max-width: 720px) {
+  .mk-tools-grid {
+    grid-template-columns: 1fr;
+  }
+}
+.mk-tool-card {
+  border: 1.5px solid var(--border);
+  border-radius: 10px;
+  padding: 24px;
+  background: var(--white);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+.mk-tool-card h3 {
+  font-size: 17px;
+  color: var(--navy);
+  margin: 0 0 8px;
+}
+.mk-tool-card p {
+  font-size: 14px;
+  color: var(--muted);
+  line-height: 1.5;
+  margin: 0 0 18px;
+  flex: 1;
 }
 
 @media (max-width: 640px) {
