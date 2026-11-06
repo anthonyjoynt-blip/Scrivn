@@ -2,10 +2,12 @@ import "server-only";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { cleanEnv } from "./env";
-import type { ScopePageRead } from "./scopeUpload";
+import { SCOPE_UPLOAD_MAX_BYTES, type ScopePageRead } from "./scopeUpload";
 import { isSupabaseConfigured } from "./supabase/env";
 import { createClient } from "./supabase/server";
 import { getUsageState } from "./usage";
+
+export { SCOPE_UPLOAD_MAX_BYTES };
 
 /**
  * The server half of uploading a scope (2026-11-06): the switch, what a request may carry, and the recorded answer
@@ -14,12 +16,6 @@ import { getUsageState } from "./usage";
  * The page or PDF is not kept: it is in the request and the call, and nowhere after. What is kept is the text read,
  * in the claim's notes, where the estimator checks it.
  */
-
-/**
- * Vercel refuses a request body over 4.5 MB, so a page goes up as the file itself (multipart, no base64), and a PDF
- * no bigger than a roof report may be (lib/roofReport.ts).
- */
-export const SCOPE_UPLOAD_MAX_BYTES = 4_400_000;
 
 /**
  * Reads are OFF until the owner turns them on with SCRIVN_SCOPE_READS=on, as the hand-sketch and exterior reads are:

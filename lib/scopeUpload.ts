@@ -65,6 +65,13 @@ export interface UploadedScope {
   pages: number;
 }
 
+/**
+ * The biggest file one read takes. Vercel refuses a request body over 4.5 MB, so a page goes up as the file itself
+ * (multipart, no base64), and a PDF no bigger than a roof report may be (lib/roofReport.ts). Here, not in the server
+ * module, so the notes step can check a file before sending it.
+ */
+export const SCOPE_UPLOAD_MAX_BYTES = 4_400_000;
+
 /** The opening of the block in the notes. What the extraction calls look for. */
 export const UPLOADED_SCOPE_START = "=== FROM AN UPLOADED SCOPE";
 export const UPLOADED_SCOPE_END = "=== END OF UPLOADED SCOPE ===";
