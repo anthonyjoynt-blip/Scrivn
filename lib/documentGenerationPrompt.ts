@@ -1,5 +1,6 @@
 import type { WaterLossExtraction } from "./types";
 import { photoNotesSection } from "./photoNotesPrompt";
+import { uploadedScopeSection } from "./scopeUpload";
 import { disposalLines, type DisposalLines } from "./debris";
 import type { ClaimInfo, ScopePhase } from "./claimInfo";
 import { lossTypeLabel } from "./claimInfo";
@@ -1030,7 +1031,7 @@ ${JSON.stringify(completedExtraction)}
 
 ORIGINAL TRANSCRIPT (supplementary detail — specifics the PM stated that the structured data above
 has no dedicated field for, e.g. a disposal container type or size):
-${transcript}${photoNotesSection(photoNotes)}`;
+${transcript}${uploadedScopeSection(transcript)}${photoNotesSection(photoNotes)}`;
   }
 
   return `Generate both documents from this data.
@@ -1056,5 +1057,5 @@ ${JSON.stringify(completedExtraction)}
 ORIGINAL TRANSCRIPT (supplementary detail for CAUSE OF LOSS, plus the only source for CONTENTS'
 prose — that's the one section left with no dedicated field in the structured data above, aside
 from also drawing on rooms[].contents where present):
-${transcript}${photoNotesSection(photoNotes)}`;
+${transcript}${uploadedScopeSection(transcript)}${photoNotesSection(photoNotes)}`;
 }

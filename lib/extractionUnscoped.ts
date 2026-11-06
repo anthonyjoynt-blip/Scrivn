@@ -1,5 +1,6 @@
 import type { Room, UnscopedDisposition, UnscopedItem, WaterLossExtraction } from "./types";
 import { photoNotesSection } from "./photoNotesPrompt";
+import { uploadedScopeSection } from "./scopeUpload";
 import { APPLIANCE_LABEL, DOOR_STYLE_LABEL, SUBFLOOR_LABEL, TRIM_KIND_LABEL, WINDOW_COVERING_LABEL, isInjectionEquipment } from "./types";
 
 /**
@@ -120,7 +121,7 @@ ${rooms}
 
 Transcript:
 
-${transcript}${photoNotesSection(photoNotes)}`;
+${transcript}${uploadedScopeSection(transcript)}${photoNotesSection(photoNotes)}`;
 }
 
 export interface ExtractionUnscopedWire {

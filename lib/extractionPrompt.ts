@@ -1,4 +1,5 @@
 import { photoNotesSection } from "./photoNotesPrompt";
+import { uploadedScopeSection } from "./scopeUpload";
 
 /**
  * Plain text, sent fresh with every extraction call — not a trained or fine-tuned anything. Step
@@ -164,5 +165,5 @@ export function extractionUserMessage(transcript: string, photoNotes?: string): 
   return `Extract the structured water-loss data from this transcript${photoNotes?.trim() ? " and the photo notes after it" : ""}.
 
 TRANSCRIPT:
-${transcript}${photoNotesSection(photoNotes)}`;
+${transcript}${uploadedScopeSection(transcript)}${photoNotesSection(photoNotes)}`;
 }
