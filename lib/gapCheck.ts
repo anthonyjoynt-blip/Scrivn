@@ -1296,13 +1296,18 @@ function wallQuestions(roomIndex: number, roomName: string, i: number, w: WallRe
     Priming is unchanged and still height-dependent — base height gets none, since the baseboard
     covers the seam — see documentGenerationPrompt.ts. This is about the drywall line itself.
   */
-  if (w.cutRunFt === null && w.cutRunFraction === null) {
+  /*
+    "Exterior walls" answers it too (the owner, 2026-11-06): a written scope often says the cut is on the exterior
+    walls and nobody measured them. The PM measures them on the sketch, or says so, and the scope names the walls.
+  */
+  if (w.cutRunFt === null && w.cutRunFraction === null && !w.cutRunWalls) {
     return [
       {
         id: `${base}:cutRunFt`,
         roomName,
         prompt:
           AREA_QUANTITY_PROMPT("How much of the wall run is being cut?", "room's wall run", "linear feet") +
+          ` Or say "exterior walls".` +
           derivedNote(derived?.wallRunFeet, "LF"),
         kind: { type: "text" },
         ...defaultFrom(derived?.wallRunFeet, "LF"),
@@ -2591,6 +2596,11 @@ function parseDimensions(answer: string): number | null {
   return Math.round(a * b * 100) / 100;
 }
 
+/** "exterior walls", "the exterior wall", "exterior", "outside walls": a cut's run named by its walls. */
+export function isExteriorWallsAnswer(answer: string): boolean {
+  return /^(the |all )?(exterior|outside|outer)( walls?)?\.?$/i.test(answer.trim());
+}
+
 function parseAreaQuantity(answer: string, unit: "SF" | "linear feet" = "SF"): { sf: number | null; fraction: AreaFraction | null } {
   const t = answer.trim().toLowerCase();
   if (t === "quarter" || t === "a quarter" || t === "1/4" || t === "25%") return { sf: null, fraction: "QUARTER" };
@@ -2800,9 +2810,10 @@ function applyWallAnswer(w: WallRecord, field: string, answer: string): WallReco
       return { ...w, cutHeight };
     }
     case "cutRunFt": {
+      if (isExteriorWallsAnswer(answer)) return { ...w, cutRunFt: null, cutRunFraction: null, cutRunWalls: "EXTERIOR" };
       // Linear, not an area — see `parseAreaQuantity` on why "6 x 8" is refused here.
       const { sf, fraction } = parseAreaQuantity(answer, "linear feet");
-      return sf === null && fraction === null ? w : { ...w, cutRunFt: sf, cutRunFraction: fraction };
+      return sf === null && fraction === null ? w : { ...w, cutRunFt: sf, cutRunFraction: fraction, cutRunWalls: null };
     }
     default:
       return w;

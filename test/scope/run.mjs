@@ -315,6 +315,55 @@ check(
   "and a room that never mentioned it gets no line, category 3 or not",
 );
 
+/*
+  The owner, 2026-11-06, of a scope reading "clean & dis, concrete" that came out as both "Clean & treat concrete
+  floor" and "Antimicrobial application": the antimicrobial is part of cleaning and treating, so one line, not two.
+*/
+const treatedAndAnti = emergencyFor(cat3, [room("Spare Bedroom", { antimicrobialApplied: true, flooring: [flooring({ cleaningRequired: true })] })]);
+check(
+  /Clean & treat concrete floor/.test(treatedAndAnti) && !/Antimicrobial/.test(treatedAndAnti),
+  `a floor cleaned and treated carries the antimicrobial, with no second line (got:
+${treatedAndAnti})`,
+);
+const cleanedOnlyAnti = emergencyFor(cat1, [room("Spare Bedroom", { antimicrobialApplied: true, flooring: [flooring({ cleaningRequired: true })] })]);
+check(
+  /Clean concrete floor/.test(cleanedOnlyAnti) && /Antimicrobial application/.test(cleanedOnlyAnti),
+  `a floor only cleaned (category 1) still gets its antimicrobial line (got:
+${cleanedOnlyAnti})`,
+);
+const repairPhaseClean = emergencyFor(cat3, [room("Spare Bedroom", { antimicrobialApplied: true, flooring: [flooring({ cleaningRequired: true, phase: "REPAIR" })] })]);
+check(/Antimicrobial application/.test(repairPhaseClean), "and a floor cleaned only at repair does not stand in for the emergency antimicrobial");
+
+/*
+  A cut whose run is named rather than measured: "exterior walls" (the owner, 2026-11-06). Every line that carries
+  the run says so, where it said "perimeter" before; a measured run still wins.
+*/
+const sheetsFor = (rooms) => {
+  const built = buildWorkOrders({
+    trades: ["MITIGATION_DEMO", "DRYWALL", "PAINTING"],
+    claim: cat3,
+    extraction: withDerivedFields({
+      loss: { category: 3, lossClass: 2, source: null, dateOfLoss: null, yearOfBuilding: 2000, asbestosTestingRequired: false, asbestosSamplesTaken: null, asbestosSampleCount: null, isBasementLoss: true, hvacInspectionRequired: null },
+      rooms,
+    }),
+    contentsApproach: "TM",
+    contentsTM: { entries: [] },
+    bricABrac: { rooms: [] },
+    dgigData: null,
+  });
+  return built.map((o) => o.text).join("\n");
+};
+const exteriorText = sheetsFor([room("Spare Bedroom", { walls: [wall({ cutRunFt: null, cutRunWalls: "EXTERIOR", insulationAffected: true, insulationType: "FIBERGLASS_BATT" })] })]);
+for (const line of ["Remove drywall – cut at 2' – exterior walls", "Install new insulation", "Replace drywall – at 2' – exterior walls", "Prime & paint – exterior walls"]) {
+  check(exteriorText.includes(line), `"exterior walls" reaches "${line}" (got:
+${exteriorText})`);
+}
+check(!/perimeter/.test(exteriorText.split("\n").filter((l) => /drywall|insulation|Prime/.test(l)).join("\n")), "and no drywall, insulation or priming line falls back to perimeter");
+const measuredText = sheetsFor([room("Spare Bedroom", { walls: [wall({ cutRunFt: 12, cutRunWalls: null })] })]);
+check(/Remove drywall – cut at 2' – 12 LF/.test(measuredText) && !/exterior/.test(measuredText), "a measured run is still written as its length");
+const oldRecordText = sheetsFor([room("Spare Bedroom", { walls: [wall({ cutRunFt: null })] })]);
+check(/Remove drywall – cut at 2' – perimeter/.test(oldRecordText), "a record saved before the field existed still falls back to perimeter");
+
 
 /* ── Containment, HEPA, appliances ─────────────────────────────────────────────────────────────── */
 

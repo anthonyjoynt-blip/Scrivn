@@ -10,7 +10,7 @@ import { DRYING_CLASS_OPTIONS } from "./dgig";
 import { isDGIG } from "./insurers";
 import { lossTypeLabel } from "./claimInfo";
 import { baseboardFinishLine, ceilingPaintLine, ceilingQuantity, fractionLabel, primingLine } from "./paintDerivation";
-import type { ApplianceType, CeilingRecord, DoorRecord, FlooringRecord, Room, WaterLossExtraction, UnscopedItem } from "./types";
+import type { ApplianceType, CeilingRecord, DoorRecord, FlooringRecord, Room, WallRecord, WaterLossExtraction, UnscopedItem } from "./types";
 import { disposalLine, recommendDisposal, type RoomAreasByName } from "./debris";
 import type { ExteriorScopeLines } from "./exterior";
 import { APPLIANCE_LABEL, DOOR_STYLE_LABEL, isInjectionEquipment, SUBFLOOR_LABEL, TRIM_KIND_LABEL, WINDOW_COVERING_LABEL, WINDOW_CLEANING_SIZE_LABEL, WINDOW_CLEANING_SIZES } from "./types";
@@ -146,6 +146,12 @@ function flooringExtent(f: FlooringRecord): string | null {
   its surface is the one an estimator has to come back and ask about, and the fraction branch had
   always said "of the ceiling" while the measured branch did not.
 */
+/** How far a wall's drywall cut runs: the length, else the share, else the walls named, else "perimeter". */
+function cutRunExtent(w: WallRecord): string {
+  if (w.cutRunFt !== null) return `${w.cutRunFt} LF`;
+  return fractionLabel(w.cutRunFraction) ?? (w.cutRunWalls === "EXTERIOR" ? "exterior walls" : "perimeter");
+}
+
 function ceilingExtent(c: CeilingRecord): string | null {
   if (c.replaceSF === null && c.replaceFraction === null) return null;
   return ceilingQuantity(c);
@@ -383,7 +389,15 @@ function buildMitigationDemo(claim: ClaimInfo, extraction: WaterLossExtraction, 
       Antimicrobial, per room. Same shape as equipment: a room-level fact with no action or phase
       field, so nothing derives it and it has to be rendered explicitly or it is simply lost.
     */
-    if (room.antimicrobialApplied) items.push(bullet("Antimicrobial application", null, null));
+    /*
+      Except where the room's floor is already cleaned AND treated: the treating is the antimicrobial (the owner,
+      2026-11-06, of "clean & dis, concrete" scoping both lines), so a second line bills it twice. A category 1
+      floor is only cleaned, so there the antimicrobial still gets its own line.
+    */
+    const floorTreated =
+      (claim.waterCategory === null || isWaterNotApplicable(claim.waterCategory) || claim.waterCategory > 1) &&
+      room.flooring.some((f) => f.phase !== "REPAIR" && f.cleaningRequired);
+    if (room.antimicrobialApplied && !floorTreated) items.push(bullet("Antimicrobial application", null, null));
     /*
       Per SF of BARRIER, never the room's floor area — a barrier hangs across an opening, and its
       size has nothing to do with how big the room is. So a missing figure stays missing here.
@@ -434,7 +448,7 @@ function buildMitigationDemo(claim: ClaimInfo, extraction: WaterLossExtraction, 
     for (const w of room.walls) {
       if (!w.drywallBeingRemoved) continue;
       const height = w.cutHeight ? `cut at ${w.cutHeight === "FULL_WALL" ? "full wall" : w.cutHeight === "BASE" ? 'base height (up to 4")' : w.cutHeight === "TWO_FOOT" ? "2'" : "4'"}` : "flood cut";
-      items.push(bullet("Remove drywall", height, w.cutRunFt !== null ? `${w.cutRunFt} LF` : fractionLabel(w.cutRunFraction) ?? "perimeter"));
+      items.push(bullet("Remove drywall", height, cutRunExtent(w)));
       if (w.insulationAffected) items.push(bullet("Remove affected insulation", w.insulationType ? titleCase(w.insulationType) : null, null));
     }
 
@@ -544,7 +558,7 @@ function buildDrywall(claim: ClaimInfo, extraction: WaterLossExtraction): string
     */
     for (const w of room.walls) {
       if (!w.drywallBeingRemoved || w.insulationAffected !== true) continue;
-      items.push(bullet("Install new insulation", insulationSpec(w.insulationType, w.insulationRValue), w.cutRunFt !== null ? `${w.cutRunFt} LF` : fractionLabel(w.cutRunFraction) ?? "perimeter"));
+      items.push(bullet("Install new insulation", insulationSpec(w.insulationType, w.insulationRValue), cutRunExtent(w)));
     }
     // Fires once per distinct cut height in a room — matching the scope document, which explicitly
     // avoids repeating the line per wall record when several share a height.
@@ -555,7 +569,7 @@ function buildDrywall(claim: ClaimInfo, extraction: WaterLossExtraction): string
       if (seen.has(key)) continue;
       seen.add(key);
       const label = w.cutHeight === "FULL_WALL" ? "full wall" : w.cutHeight === "TWO_FOOT" ? "at 2'" : w.cutHeight === "FOUR_FOOT" ? "at 4'" : 'at base height (up to 4")';
-      items.push(bullet("Replace drywall", label, w.cutRunFt !== null ? `${w.cutRunFt} LF` : fractionLabel(w.cutRunFraction) ?? "perimeter"));
+      items.push(bullet("Replace drywall", label, cutRunExtent(w)));
     }
     /*
       The other half of the injection pair. On the drywall order rather than with the equipment,

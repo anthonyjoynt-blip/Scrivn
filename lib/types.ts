@@ -596,7 +596,16 @@ export interface WallRecord {
   cutRunFt: number | null;
   /** Qualitative alternative to cutRunFt — see {@link AreaFraction}. */
   cutRunFraction: AreaFraction | null;
+  /**
+   * The run given as walls rather than a length — "exterior walls" (2026-11-06): what a PM says when the scope names
+   * the walls and nobody has measured them. The documents then name the walls instead of a length or "perimeter".
+   * Records saved before it existed have no such field, so read it as missing, never with `=== null`.
+   */
+  cutRunWalls: CutRunWalls | null;
 }
+
+/** Walls a drywall cut runs along, named rather than measured. */
+export type CutRunWalls = "EXTERIOR";
 
 /** Shared by every record type below whose only two possible actions are "detach & reset" vs. "remove & replace". */
 export type DetachOrReplaceAction = "DETACH_AND_RESET" | "REMOVE_AND_REPLACE";
