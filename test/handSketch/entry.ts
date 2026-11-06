@@ -14,4 +14,7 @@ export {
   answerQuestion,
   openQuestions,
   questionKey,
+  foundToTrace,
+  joinRoom,
 } from "@/lib/handSketchTrace";
+export { findBoxes } from "@/lib/handSketchBoxes";

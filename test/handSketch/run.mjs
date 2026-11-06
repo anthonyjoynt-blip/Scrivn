@@ -177,6 +177,84 @@ check(openQuestions(buildFromRead(rough).questions, roughDismissed).filter((q) =
 ({ read: rough, dismissed: roughDismissed } = answerQuestion(rough, tape1[1], { kind: "tapeWall", length: "4'11" }, roughDismissed));
 check(openQuestions(buildFromRead(rough).questions, roughDismissed).filter((q) => q.kind === "tapeWall").length === 0, "and typing the other settles both");
 
+/* ── Rooms found in a photo without AI (lib/handSketchBoxes.ts), and joining what is not a room ─ */
+
+{
+  const { findBoxes, foundToTrace, joinRoom } = mod;
+  // A drawing on graph paper: blue grid every 40 px, a hand's shadow over the left third, a big room with a closet in
+  // its top right corner, and a tub's edge drawn across the bottom of the closet-less side. Pen lines 3 px, slightly
+  // off square, one wall bowed.
+  const W = 900;
+  const H = 700;
+  const data = new Uint8Array(W * H * 4);
+  for (let y = 0; y < H; y++)
+    for (let x = 0; x < W; x++) {
+      const i = (y * W + x) * 4;
+      const shade = x < 300 ? 0.62 : 1;
+      let [R, G, B] = [235 * shade, 228 * shade, 215 * shade];
+      if (x % 40 === 0 || y % 40 === 0) [R, G, B] = [R * 0.55, G * 0.62, B * 0.8];
+      data[i] = R;
+      data[i + 1] = G;
+      data[i + 2] = B;
+      data[i + 3] = 255;
+    }
+  const pen = (a, b, bow = 0) => {
+    const len = Math.hypot(b.x - a.x, b.y - a.y);
+    const nx = -(b.y - a.y) / len;
+    const ny = (b.x - a.x) / len;
+    for (let s = 0; s <= len; s += 0.5) {
+      const t = s / len;
+      const off = bow * Math.sin(Math.PI * t);
+      const cx = a.x + (b.x - a.x) * t + nx * off;
+      const cy = a.y + (b.y - a.y) * t + ny * off;
+      for (let oy = -1.5; oy <= 1.5; oy += 0.5)
+        for (let ox = -1.5; ox <= 1.5; ox += 0.5) {
+          const x = Math.round(cx + ox);
+          const y = Math.round(cy + oy);
+          if (x < 0 || y < 0 || x >= W || y >= H) continue;
+          const i = (y * W + x) * 4;
+          const k = x < 300 ? 0.62 : 1;
+          data[i] = 25 * k;
+          data[i + 1] = 22 * k;
+          data[i + 2] = 20 * k;
+        }
+    }
+  };
+  const A = { x: 120, y: 110 }; // big room, top left
+  const B = { x: 780, y: 104 };
+  const C = { x: 786, y: 600 };
+  const D = { x: 126, y: 606 };
+  pen(A, B);
+  pen(B, C);
+  pen(C, D);
+  pen(D, A, 9); // the bowed wall
+  pen({ x: 560, y: 106 }, { x: 562, y: 300 }); // the closet's side
+  pen({ x: 562, y: 300 }, { x: 783, y: 298 }); // the closet's front
+  pen({ x: 124, y: 480 }, { x: 785, y: 476 }); // a tub's edge, wall to wall
+  const found = findBoxes({ width: W, height: H, data });
+  check(found.rooms.length === 3, `a drawing of a room, a closet and a tub's edge gives three shapes (got ${found.rooms.length})`);
+  const near = (p, q, d) => Math.hypot(p.x - q.x, p.y - q.y) <= d;
+  const hasCorner = (pt) => found.rooms.some((r) => r.corners.some((c) => near(c, pt, 12)));
+  check([A, B, C, D].every(hasCorner), "the room's four corners are found within 12 px, the bowed wall taken straight");
+  const counts = found.rooms.map((r) => r.corners.length).sort().join(",");
+  check(counts === "4,4,6", `the closet and the tub four corners each, the room round them six (got ${counts})`);
+
+  let ft = foundToTrace(found.rooms, { width: W, height: H });
+  check(ft.found && !ft.locked && ft.rooms.every((r) => r.closed && r.lengths.every((l) => l === null)), "found rooms come in closed, with no numbers yet");
+  // The tub's shape is the one along the bottom; joined, the room below the closet is one outline again.
+  const tub = ft.rooms.findIndex((r) => r.corners.every((c) => c.y > 440));
+  check(tub >= 0, "the tub's edge made a shape of its own");
+  const below = ft.rooms.findIndex((r, i) => i !== tub && r.corners.some((c) => c.y > 440));
+  ft = setLength(ft, below, 0, "9'");
+  const joined = joinRoom(ft, tub);
+  check(!!joined && joined.state.rooms.length === 2, "joining the tub's shape leaves two rooms");
+  const into = joined.state.rooms[joined.into];
+  check(into.corners.some((c) => near(c, D, 12)) && into.corners.some((c) => near(c, C, 12)), "the joined room runs down to the room's bottom corners");
+  check(!into.corners.some((c) => c.y > 440 && c.y < 520), "the tub's edge leaves no corners on the walls");
+  check(into.lengths.filter((l) => l !== null).length <= 1, "only walls that are still the same keep their numbers");
+  check(joinRoom(foundToTrace([{ corners: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }] }], { width: 20, height: 20 }), 0) === null, "a shape with no room beside it is not joined");
+}
+
 /* ── Against the tape ───────────────────────────────────────────────────────────────────────── */
 
 const tape = fixture("tape.json");

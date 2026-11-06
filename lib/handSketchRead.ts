@@ -92,14 +92,15 @@ export async function handSketchReader(): Promise<string | null> {
 }
 
 /**
- * Whether the page shows "Read it for me": a dev fixture is set, or development has no Supabase
- * (the route then answers with the fixture or the reads-off sentence, never a call it should not
- * make), or someone is signed in, their plan or trial allows it, and reads are on. The day's limits
+ * Whether the page reads the photo: a dev fixture is set, or development has no Supabase and reads are on
+ * (the route then answers with the fixture or makes the call: the paid-call guard still applies), or someone
+ * is signed in, their plan or trial allows it, and reads are on. The day's limits
  * are not checked here, since checking one counts it: past them, the button answers with a 429.
  */
 export async function handSketchReadAvailable(): Promise<boolean> {
   if (devFixtureName()) return true;
-  if (handSketchDevWithoutAuth()) return true;
+  // Development with nobody to sign in: offered when reads are on (the free path, finding the rooms, otherwise).
+  if (handSketchDevWithoutAuth()) return handSketchReadsOn();
   if (!handSketchReadsOn()) return false;
   try {
     return (await checkUsageAllowed()) === null;

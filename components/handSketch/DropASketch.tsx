@@ -2,7 +2,8 @@
 
 /**
  * Drop a sketch (2026-11-05): a photo of a hand-drawn floor sketch made into a Scrivn sketch at its real size. Anyone can
- * trace one (tap the corners, type the numbers; no AI, nothing spent). A signed-in user can have Scrivn read it instead
+ * trace one: Scrivn finds the rooms in the photo itself (lib/handSketchBoxes.ts, in the browser: no AI, nothing spent,
+ * the photo sent nowhere), and the person names them and types the numbers. A signed-in user can have Scrivn read it instead
  * (/api/hand-sketch/read), and check that reading in the same tracer. Either way the build is lib/handSketch.ts, the
  * questions it asks are answered in the review, and the result can be fixed in Scrivn's sketch editor, made into a
  * to-scale PDF and JPG, or added to a claim (lib/handSketchClaim.ts; the claim page adds the rooms itself).
@@ -16,7 +17,7 @@ import { createPortal } from "react-dom";
 import { buildFromRead, type HandSketchQuestion, type HandSketchRead } from "@/lib/handSketch";
 import { newHandoffToken, writeHandoff } from "@/lib/handSketchClaim";
 import { drawSample } from "@/lib/handSketchSample";
-import { answerQuestion, emptyTrace, openQuestions, readToTrace, traceToRead, type HandSketchAnswer, type TraceState } from "@/lib/handSketchTrace";
+import { answerQuestion, emptyTrace, foundToTrace, openQuestions, readToTrace, traceToRead, type HandSketchAnswer, type TraceState } from "@/lib/handSketchTrace";
 import { decodeImage, drawScaled } from "@/lib/photoImage";
 import { type MoistureMap, emptyMoistureMap } from "@/lib/moisture";
 import { type Sketch, emptySketch } from "@/lib/sketch";
@@ -28,6 +29,10 @@ const SketchEditor = dynamic(() => import("@/components/sketch/SketchEditor").th
 
 /** The long side a photo is kept and read at: the model's own working size, and what its corners are measured in. */
 const PHOTO_EDGE = 1400;
+/** The long side the rooms are looked for at, from the photo as taken: thin pen lines stay dark enough to find. */
+const FIND_EDGE = 2000;
+
+type Picture = Awaited<ReturnType<typeof decodeImage>>;
 const DRAFT_KEY = "scrivn.dropASketch.draft.v1";
 
 type Stage = "start" | "trace" | "review" | "edit";
@@ -118,7 +123,7 @@ export function DropASketch({ signedIn, canRead, dev }: { signedIn: boolean; can
   const sketch: Sketch = useMemo(() => edited ?? { ...emptySketch(), rooms: build?.rooms ?? [] }, [edited, build]);
   const questions: HandSketchQuestion[] = useMemo(() => (build && !edited ? openQuestions(build.questions, dismissed) : []), [build, edited, dismissed]);
 
-  const begin = (p: TracePhoto) => {
+  const begin = (p: TracePhoto, original?: Picture) => {
     setPhoto(p);
     setTrace(emptyTrace(p.width, p.height));
     setRead(null);
@@ -126,7 +131,46 @@ export function DropASketch({ signedIn, canRead, dev }: { signedIn: boolean; can
     setEdited(null);
     setError(null);
     // Where Scrivn can read it, it does so straight away: the person checks a finished plan rather than tracing one.
+    // Otherwise it finds the rooms, and the person types the numbers.
     if (canRead) void readIt(p);
+    else void findIt(p, original);
+  };
+
+  /**
+   * The rooms found in the photo without AI, in this browser; the tracer then opens on the first of them. Looked for in
+   * the photo as taken when there is it (drawn up to FIND_EDGE): a thin pen line can fade out of the smaller copy kept.
+   */
+  const findIt = async (p: TracePhoto, original?: Picture) => {
+    setError(null);
+    setBusy("Finding the rooms in your sketch…");
+    try {
+      await new Promise((r) => setTimeout(r, 30)); // let the line above show before the work holds the page
+      const { findBoxes } = await import("@/lib/handSketchBoxes");
+      let source: Picture | HTMLImageElement | undefined = original;
+      if (!source) {
+        const img = new Image();
+        img.src = p.url;
+        await img.decode();
+        source = img;
+      }
+      const canvas = drawScaled(source, FIND_EDGE);
+      const ctx = canvas.getContext("2d", { willReadFrequently: true });
+      if (!ctx) throw new Error("no canvas");
+      const found = findBoxes({ width: canvas.width, height: canvas.height, data: ctx.getImageData(0, 0, canvas.width, canvas.height).data });
+      // Back into the kept photo's pixels, which everything else is in.
+      const k = p.width / canvas.width;
+      const rooms = found.rooms.map((r) => ({ corners: r.corners.map((c) => ({ x: Math.round(c.x * k), y: Math.round(c.y * k) })) }));
+      if (rooms.length === 0) {
+        setError("Scrivn could not find the rooms in this photo. Trace them yourself: tap each room's corners in order.");
+        return;
+      }
+      setTrace(foundToTrace(rooms, { width: p.width, height: p.height }));
+      setStage("trace");
+    } catch {
+      setError("Scrivn could not look through this photo. Trace the rooms yourself: tap each room's corners in order.");
+    } finally {
+      setBusy(null);
+    }
   };
 
   const takeFile = async (file: File | undefined) => {
@@ -134,8 +178,9 @@ export function DropASketch({ signedIn, canRead, dev }: { signedIn: boolean; can
     setError(null);
     setBusy("Getting the photo ready…");
     try {
-      const canvas = drawScaled(await decodeImage(file), PHOTO_EDGE);
-      begin({ url: canvas.toDataURL("image/jpeg", 0.85), width: canvas.width, height: canvas.height });
+      const original = await decodeImage(file);
+      const canvas = drawScaled(original, PHOTO_EDGE);
+      begin({ url: canvas.toDataURL("image/jpeg", 0.85), width: canvas.width, height: canvas.height }, original);
     } catch {
       setError("That photo could not be opened. Try another, or take one.");
     } finally {
@@ -247,7 +292,17 @@ export function DropASketch({ signedIn, canRead, dev }: { signedIn: boolean; can
 
   const layer = (() => {
     if (!mounted || !photo || !trace) return null;
-    if (stage === "trace") return <Tracer photo={photo} trace={trace} onChange={setTrace} onBack={() => setStage(read ? "review" : "start")} onDone={toReview} />;
+    if (stage === "trace")
+      return (
+        <Tracer
+          photo={photo}
+          trace={trace}
+          onChange={setTrace}
+          onBack={() => setStage(read ? "review" : "start")}
+          onDone={toReview}
+          startRoom={trace.found && trace.rooms.every((r) => !r.name && r.lengths.every((l) => !l)) ? 0 : undefined}
+        />
+      );
     if (stage === "review" && read && build)
       return (
         <>
@@ -382,7 +437,13 @@ export function DropASketch({ signedIn, canRead, dev }: { signedIn: boolean; can
               </button>
             ) : null}
             {!read ? (
-              <button type="button" className={canRead ? "btn-secondary" : "btn-primary"} disabled={!!busy} onClick={() => setStage("trace")}>
+              <button
+                type="button"
+                className={canRead ? "btn-secondary" : "btn-primary"}
+                disabled={!!busy}
+                // Scrivn finds the rooms first, unless they are found already or the person has started tapping.
+                onClick={() => (!trace || trace.rooms.length === 0 ? void findIt(photo) : setStage("trace"))}
+              >
                 Trace it yourself
               </button>
             ) : null}
@@ -400,7 +461,7 @@ export function DropASketch({ signedIn, canRead, dev }: { signedIn: boolean; can
           <p className={styles.note}>
             {canRead
               ? "Scrivn reads the rooms, the numbers you wrote and the doors and windows, then shows you the plan to check. Tracing it yourself is there if the reading goes wrong."
-              : "Trace it: tap each room’s corners and type the numbers, free and nothing sent anywhere."}
+              : "Scrivn finds the rooms in your drawing; you name them and type the numbers written on the walls. Free, and the photo stays on this device."}
           </p>
         </div>
       )}

@@ -5,13 +5,15 @@
  * number written on each wall. A full-screen layer, phone first: the instructions and the box being
  * typed in sit at the top, so the keyboard never covers them, and the photo fills the rest, zoomed
  * 1x to 4x for a finger. A model's reading lands here too, to be checked: its corners can be moved
- * and its numbers and names changed, but none added or taken away.
+ * and its numbers and names changed, but none added or taken away. And so do the rooms Scrivn found in the photo
+ * without AI (lib/handSketchBoxes.ts): taken one at a time, named (or joined into the room beside them when they are a
+ * tub or a vanity, not a room), and their numbers typed.
  */
 import { type ReactNode, useState } from "react";
 import { TapPhoto, ZOOMS, type TapZoom } from "@/components/sketch/TapPhoto";
 import { FeetInchesInput } from "@/components/sketch/FeetInchesInput";
 import { NAMES, parseLength, type DrawnPoint } from "@/lib/handSketch";
-import { lengthText, moveCorner, openRoom, setCeiling, setLength, setName, sharedWith, tapCorner, traceProblem, undoTap, type TraceState } from "@/lib/handSketchTrace";
+import { joinRoom, lengthText, moveCorner, openRoom, setCeiling, setLength, setName, sharedWith, tapCorner, traceProblem, undoTap, type TraceState } from "@/lib/handSketchTrace";
 import styles from "./handSketch.module.css";
 
 type Phase =
@@ -33,8 +35,23 @@ export interface TracePhoto {
   height: number;
 }
 
-export function Tracer({ photo, trace, onChange, onBack, onDone }: { photo: TracePhoto; trace: TraceState; onChange: (t: TraceState) => void; onBack: () => void; onDone: () => void }) {
-  const [phase, setPhase] = useState<Phase>({ kind: "corners" });
+export function Tracer({
+  photo,
+  trace,
+  onChange,
+  onBack,
+  onDone,
+  startRoom,
+}: {
+  photo: TracePhoto;
+  trace: TraceState;
+  onChange: (t: TraceState) => void;
+  onBack: () => void;
+  onDone: () => void;
+  /** Open on this room's name (the first of the rooms Scrivn found). */
+  startRoom?: number;
+}) {
+  const [phase, setPhase] = useState<Phase>(startRoom !== undefined && trace.rooms[startRoom]?.closed ? { kind: "room", room: startRoom } : { kind: "corners" });
   const [zoom, setZoom] = useState<TapZoom>(photo.width > photo.height ? 2 : 1);
   const [toast, setToast] = useState<string | null>(null);
   // What is in the wall's box, in feet: undefined until it is touched, so moving on keeps what was there.
@@ -60,7 +77,14 @@ export function Tracer({ photo, trace, onChange, onBack, onDone }: { photo: Trac
   const goWall = (t: TraceState, room: number, wall: number | null) => {
     setTyped(undefined);
     if (wall === null) {
-      // This room's numbers are done: a model's next room, or back to tapping the next room's corners.
+      // This room's numbers are done: the next room found in the photo, to name; a model's next room; or back to
+      // tapping the next room's corners.
+      const nextFound = t.found ? t.rooms.findIndex((r, i) => i > room && r.closed) : -1;
+      if (nextFound >= 0) {
+        setOtherName("");
+        setPhase({ kind: "room", room: nextFound });
+        return;
+      }
       const nextRoom = trace.locked ? t.rooms.findIndex((r, i) => i > room && r.closed) : -1;
       const first = nextRoom >= 0 ? nextWall(t, nextRoom, 0) : null;
       setPhase(nextRoom >= 0 && first !== null ? { kind: "walls", room: nextRoom, wall: first } : { kind: "corners" });
@@ -143,7 +167,14 @@ export function Tracer({ photo, trace, onChange, onBack, onDone }: { photo: Trac
         const segs = r.closed ? n : n - 1;
         return (
           <g key={ri}>
-            {r.closed ? <polygon points={pts.map((p) => `${p.x},${p.y}`).join(" ")} fill="rgba(37,99,235,0.10)" /> : null}
+            {r.closed ? (
+              <polygon
+                points={pts.map((p) => `${p.x},${p.y}`).join(" ")}
+                fill={phase.kind === "room" && phase.room === ri ? "rgba(234,88,12,0.22)" : "rgba(37,99,235,0.10)"}
+                stroke={phase.kind === "room" && phase.room === ri ? "#ea580c" : "none"}
+                strokeWidth={6 * u}
+              />
+            ) : null}
             {Array.from({ length: Math.max(0, segs) }, (_, i) => {
               const a = pts[i] as DrawnPoint;
               const b = pts[(i + 1) % n] as DrawnPoint;
@@ -160,6 +191,8 @@ export function Tracer({ photo, trace, onChange, onBack, onDone }: { photo: Trac
                   const b = pts[(i + 1) % n] as DrawnPoint;
                   // A wall shared with an earlier room shows that room's number; its own would sit on top of it.
                   if (!r.lengths[i] && sharedWith(trace, ri, i)) return null;
+                  // Rooms Scrivn found have no numbers yet: an empty one shows only on the room being typed.
+                  if (!r.lengths[i] && trace.found && !(phase.kind === "walls" && phase.room === ri)) return null;
                   const text = r.lengths[i] ?? "—";
                   const w = (text.length * 8 + 12) * u;
                   const h = 22 * u;
@@ -190,12 +223,28 @@ export function Tracer({ photo, trace, onChange, onBack, onDone }: { photo: Trac
   let strip: ReactNode;
   if (phase.kind === "room") {
     const r = trace.rooms[phase.room];
+    const notARoom = () => {
+      const joined = joinRoom(trace, phase.room);
+      if (!joined) return setToast("That shape shares no wall with a room, so it cannot be joined into one.");
+      onChange(joined.state);
+      setOtherName("");
+      // The rooms after it have moved up one: the next to name is at the same place (the room it joined, too, when
+      // that is still to come), if any is left there.
+      const next = joined.state.rooms.findIndex((o, i) => i >= phase.room && o.closed);
+      setPhase(next >= 0 ? { kind: "room", room: next } : { kind: "corners" });
+    };
+    // Kept short, so the room lit up on the photo below stays in sight on a phone: the names in one row to swipe.
     strip = (
       <>
         <p className={styles.say}>
-          <strong>What is this room?</strong>
+          <strong>{trace.found ? `Room ${phase.room + 1} of ${closedRooms}, in orange: what is it?` : "What is this room?"}</strong>
         </p>
-        <div className={styles.chips}>
+        <div key={`names${phase.room}`} className={`${styles.chips} ${styles.chipsScroll}`}>
+          {trace.found && closedRooms > 1 ? (
+            <button type="button" className="option-btn" onClick={notARoom}>
+              Not a room (tub, vanity…)
+            </button>
+          ) : null}
           {ROOM_NAMES.map((name) => (
             <button key={name} type="button" className={`option-btn${r?.name === name ? " selected" : ""}`} aria-pressed={r?.name === name} onClick={() => onChange(setName(trace, phase.room, name))}>
               {name}
@@ -203,16 +252,14 @@ export function Tracer({ photo, trace, onChange, onBack, onDone }: { photo: Trac
           ))}
         </div>
         <div className={styles.row}>
-          <input type="text" aria-label="Another name" placeholder="Another name" value={otherName} onChange={(e) => setOtherName(e.target.value)} style={{ fontSize: 16, minHeight: 40, flex: "1 1 10rem" }} />
+          <input type="text" aria-label="Another name" placeholder="Another name" value={otherName} onChange={(e) => setOtherName(e.target.value)} style={{ fontSize: 16, minHeight: 40, flex: "1 1 8rem" }} />
           <button type="button" className="btn-secondary" disabled={!otherName.trim()} onClick={() => onChange(setName(trace, phase.room, otherName))}>
             Use name
           </button>
         </div>
         <div className={styles.wallEntry}>
-          <span>Ceiling height, if written:</span>
+          <span>Ceiling, if written:</span>
           <FeetInchesInput key={`ceil${phase.room}`} label="Ceiling height" initial={r?.ceiling ? (parseLength(r.ceiling) ?? 0) / 12 : null} onChange={(feet) => onChange(setCeiling(trace, phase.room, feet === null ? null : lengthText(feet * 12)))} />
-        </div>
-        <div className={styles.row}>
           <button type="button" className="btn-primary" onClick={() => goWall(trace, phase.room, nextWall(trace, phase.room, 0))}>
             Next: the walls
           </button>
@@ -296,6 +343,13 @@ export function Tracer({ photo, trace, onChange, onBack, onDone }: { photo: Trac
               </strong>{" "}
               Check the corners and numbers against your drawing, then Done.
             </>
+          ) : trace.found && !open ? (
+            <>
+              <strong>
+                Scrivn found {closedRooms} room{closedRooms === 1 ? "" : "s"}.
+              </strong>{" "}
+              Done when the numbers are in. A room it missed: tap its corners. A corner in the wrong place: Move a corner.
+            </>
           ) : open ? (
             <>
               <strong>Room {trace.rooms.length}: tap its corners in order.</strong> Tap the first corner again to close it.
@@ -311,7 +365,7 @@ export function Tracer({ photo, trace, onChange, onBack, onDone }: { photo: Trac
           )}
         </p>
         <div className={styles.row}>
-          {!trace.locked ? (
+          {!trace.locked && (!trace.found || open) ? (
             <button type="button" className="btn-secondary" disabled={corners === 0} onClick={() => onChange(undoTap(trace))}>
               Undo
             </button>

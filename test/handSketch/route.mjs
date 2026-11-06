@@ -233,11 +233,13 @@ await test("502: an answer that is not rooms, a ScopingApiError, anything else",
   equal(await answer(good), [502, { error: "Reading the sketch failed unexpectedly." }], "a plain sentence");
 });
 
-await test("handSketchReadAvailable: a fixture; dev without Supabase; signed in, allowed and on", async () => {
+await test("handSketchReadAvailable: a fixture; dev without Supabase with reads on; signed in, allowed and on", async () => {
   world({ env: { HAND_SKETCH_READ_FIXTURE: "spare" }, blocked: { error: "x", status: 401 } });
   equal(await m.handSketchReadAvailable(), true, "a fixture");
+  world({ env: { NEXT_PUBLIC_SUPABASE_URL: undefined, SCRIVN_HAND_SKETCH_READS: "on" } });
+  equal(await m.handSketchReadAvailable(), true, "dev without Supabase, reads on");
   world({ env: { NEXT_PUBLIC_SUPABASE_URL: undefined } });
-  equal(await m.handSketchReadAvailable(), true, "dev without Supabase");
+  equal(await m.handSketchReadAvailable(), false, "dev without Supabase, reads off: the free path instead");
   world({ env: { NEXT_PUBLIC_SUPABASE_URL: undefined, NODE_ENV: "production" }, blocked: { error: "x", status: 401 } });
   equal(await m.handSketchReadAvailable(), false, "never so in production");
   world({});

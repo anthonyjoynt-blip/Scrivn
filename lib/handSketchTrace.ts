@@ -34,6 +34,11 @@ export interface TraceState {
    * or taken away, since its doors and fixtures are tied to the walls by number.
    */
   locked: boolean;
+  /**
+   * The rooms were found in the photo by Scrivn (lib/handSketchBoxes.ts), not tapped: the person goes through them one
+   * at a time, naming each (or joining a shape that is not a room into the one beside it) and typing its numbers.
+   */
+  found?: boolean;
 }
 
 export type TraceProblem = "crosses" | "tooFew" | null;
@@ -225,6 +230,110 @@ export function readToTrace(read: HandSketchRead, photo: { width: number; height
       items: r.items,
     })),
   };
+}
+
+const signedArea = (p: DrawnPoint[]) => p.reduce((s, a, i) => s + a.x * (p[(i + 1) % p.length] as DrawnPoint).y - (p[(i + 1) % p.length] as DrawnPoint).x * a.y, 0) / 2;
+
+/**
+ * The rooms Scrivn found in a photo as a trace: each closed, no numbers or names yet. Corners stay where found. The
+ * smallest come first: a tub or a vanity is joined into its room before that room's walls are typed, since joining
+ * changes them.
+ */
+export function foundToTrace(rooms: { corners: DrawnPoint[] }[], photo: { width: number; height: number }): TraceState {
+  return {
+    photo,
+    rotate: 0,
+    locked: false,
+    found: true,
+    rooms: rooms
+      .filter((r) => r.corners.length >= 3)
+      .sort((p, q) => Math.abs(signedArea(p.corners)) - Math.abs(signedArea(q.corners)))
+      .map((r) => ({ corners: r.corners.map((c) => ({ x: c.x, y: c.y })), closed: true, lengths: r.corners.map(() => null), name: null, ceiling: null })),
+  };
+}
+
+/** How much wall [a] and [b] share: the length of the walls both have, corner for corner. */
+function sharedLength(a: DrawnPoint[], b: DrawnPoint[]): number {
+  let s = 0;
+  for (let i = 0; i < a.length; i++) {
+    const p = a[i] as DrawnPoint;
+    const q = a[(i + 1) % a.length] as DrawnPoint;
+    for (let j = 0; j < b.length; j++) {
+      const r = b[j] as DrawnPoint;
+      const t = b[(j + 1) % b.length] as DrawnPoint;
+      if ((same(p, r) && same(q, t)) || (same(p, t) && same(q, r))) s += Math.hypot(q.x - p.x, q.y - p.y);
+    }
+  }
+  return s;
+}
+
+/**
+ * One outline round two that share walls: the walls they share taken out, the rest followed round. Null when that does
+ * not make one outline (one inside the other, or touching at a corner only).
+ */
+function joinOutlines(a: DrawnPoint[], b: DrawnPoint[]): DrawnPoint[] | null {
+  const ccw = (p: DrawnPoint[]) => (signedArea(p) < 0 ? p.slice().reverse() : p);
+  const edges: [DrawnPoint, DrawnPoint][] = [];
+  for (const poly of [ccw(a), ccw(b)]) for (let i = 0; i < poly.length; i++) edges.push([poly[i] as DrawnPoint, poly[(i + 1) % poly.length] as DrawnPoint]);
+  // Shared walls run opposite ways round the two outlines.
+  const kept = edges.filter(([p, q]) => !edges.some(([r, t]) => same(p, t) && same(q, r)));
+  if (kept.length < 3 || kept.length === edges.length) return null;
+  const out: DrawnPoint[] = [];
+  const used = new Set<number>();
+  let at = 0;
+  for (let guard = 0; guard < kept.length; guard++) {
+    used.add(at);
+    const [p, q] = kept[at] as [DrawnPoint, DrawnPoint];
+    out.push(p);
+    const next = kept.findIndex(([r], i) => !used.has(i) && same(r, q));
+    if (next < 0) break;
+    at = next;
+  }
+  if (used.size !== kept.length) return null;
+  // Corners left in a straight run where the two met are not corners: each side was drawn (and found) on its own, so
+  // they meet a few degrees off straight; a corner turns much further.
+  return out.filter((p, i) => {
+    const o = out[(i - 1 + out.length) % out.length] as DrawnPoint;
+    const n = out[(i + 1) % out.length] as DrawnPoint;
+    const cross = (p.x - o.x) * (n.y - p.y) - (p.y - o.y) * (n.x - p.x);
+    const dot = (p.x - o.x) * (n.x - p.x) + (p.y - o.y) * (n.y - p.y);
+    return Math.abs(Math.atan2(cross, dot)) > (12 * Math.PI) / 180;
+  });
+}
+
+/**
+ * A shape that is not a room (a tub, a vanity, drawn touching the walls) joined into the room it shares the most wall
+ * with. That room keeps its name and the numbers on the walls it still has. Null when it shares no wall with a room,
+ * or the two do not make one outline.
+ */
+export function joinRoom(state: TraceState, room: number): { state: TraceState; into: number } | null {
+  const r = state.rooms[room];
+  if (!r?.closed) return null;
+  let best = -1;
+  let most = 0;
+  state.rooms.forEach((o, i) => {
+    if (i === room || !o.closed) return;
+    const s = sharedLength(r.corners, o.corners);
+    if (s > most) [best, most] = [i, s];
+  });
+  const into = state.rooms[best];
+  if (!into) return null;
+  const corners = joinOutlines(into.corners, r.corners);
+  if (!corners) return null;
+  // A wall that is the same two corners as one before keeps its number.
+  const lengthOf = (p: DrawnPoint, q: DrawnPoint): string | null => {
+    for (const o of [into, r]) {
+      for (let i = 0; i < o.corners.length; i++) {
+        const a = o.corners[i] as DrawnPoint;
+        const b = o.corners[(i + 1) % o.corners.length] as DrawnPoint;
+        if ((same(a, p) && same(b, q)) || (same(a, q) && same(b, p))) return o.lengths[i] ?? null;
+      }
+    }
+    return null;
+  };
+  const joined: TraceRoom = { ...into, corners, lengths: corners.map((p, i) => lengthOf(p, corners[(i + 1) % corners.length] as DrawnPoint)) };
+  const rooms = state.rooms.map((o, i) => (i === best ? joined : o)).filter((_, i) => i !== room);
+  return { state: { ...state, rooms }, into: best > room ? best - 1 : best };
 }
 
 /* ── The build's questions, answered ───────────────────────────────────────────────────────── */
