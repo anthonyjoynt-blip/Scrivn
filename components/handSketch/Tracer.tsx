@@ -51,16 +51,32 @@ export function Tracer({
   onBack,
   onDone,
   startRoom,
+  confirm,
 }: {
   photo: TracePhoto;
   trace: TraceState;
   onChange: (t: TraceState) => void;
   onBack: () => void;
-  onDone: () => void;
+  /** Done, with the trace as it stands (what is in the box kept): the review builds from this. */
+  onDone: (t: TraceState) => void;
   /** Open on this room's name (the first of the rooms Scrivn found). */
   startRoom?: number;
+  /**
+   * Scrivn has just read the sketch: go through its numbers one wall at a time, each filled in as read and lit on the
+   * photo, for the person to say Right or fix, then on to the plan.
+   */
+  confirm?: boolean;
 }) {
-  const [phase, setPhase] = useState<Phase>(startRoom !== undefined && trace.rooms[startRoom]?.closed ? { kind: "room", room: startRoom } : { kind: "corners" });
+  // The first number Scrivn read, to start checking from.
+  const firstRead = trace.rooms.findIndex((r) => r.closed && r.lengths.some((l) => !!l));
+  const firstWall = firstRead >= 0 ? (trace.rooms[firstRead]?.lengths.findIndex((l) => !!l) ?? -1) : -1;
+  const [phase, setPhase] = useState<Phase>(
+    confirm && firstWall >= 0
+      ? { kind: "walls", room: firstRead, wall: firstWall }
+      : startRoom !== undefined && trace.rooms[startRoom]?.closed
+        ? { kind: "room", room: startRoom }
+        : { kind: "corners" },
+  );
   const [zoom, setZoom] = useState<TapZoom>(photo.width > photo.height ? 2 : 1);
   const [toast, setToast] = useState<string | null>(null);
   // What a tap just did, when it is not plain on the photo (a shape joined into a room): shown until the next tap.
@@ -75,7 +91,8 @@ export function Tracer({
   /** The next wall from [from] in [room] (stepping [dir]) not already typed in an earlier room; null past the end. */
   const nextWall = (t: TraceState, room: number, from: number, dir = 1): number | null => {
     const n = t.rooms[room]?.corners.length ?? 0;
-    for (let w = from; w >= 0 && w < n; w += dir) if (!sharedWith(t, room, w)) return w;
+    // Checking a reading, only the walls it read a number on: one it missed can be tapped on the photo.
+    for (let w = from; w >= 0 && w < n; w += dir) if (!sharedWith(t, room, w) && (!t.locked || t.rooms[room]?.lengths[w])) return w;
     return null;
   };
 
@@ -96,8 +113,13 @@ export function Tracer({
         setPhase({ kind: "room", room: nextFound });
         return;
       }
-      const nextRoom = trace.locked ? t.rooms.findIndex((r, i) => i > room && r.closed) : -1;
+      const nextRoom = trace.locked ? t.rooms.findIndex((r, i) => i > room && r.closed && nextWall(t, i, 0) !== null) : -1;
       const first = nextRoom >= 0 ? nextWall(t, nextRoom, 0) : null;
+      if (trace.locked && (nextRoom < 0 || first === null)) {
+        // The last of a reading's numbers checked: on to the plan.
+        onDone(t);
+        return;
+      }
       setPhase(nextRoom >= 0 && first !== null ? { kind: "walls", room: nextRoom, wall: first } : { kind: "corners" });
       return;
     }
@@ -166,10 +188,13 @@ export function Tracer({
     const problem = traceProblem(t);
     if (problem === "noRoom") return setToast("Tap the corners of a room first.");
     if (problem === "noLength") return setToast("Type at least one wall's number, so the sketch has a size.");
-    onDone();
+    onDone(t);
   };
 
-  const roomName = (i: number) => trace.rooms[i]?.name ?? `Room ${i + 1}`;
+  const roomName = (i: number) => {
+    const r = trace.rooms[i];
+    return r?.name ?? (r?.guess ? NAMES[r.guess] : null) ?? `Room ${i + 1}`;
+  };
 
   const overlay = (u: number) => (
     <>
@@ -337,10 +362,21 @@ export function Tracer({
           <strong>
             {roomName(phase.room)}: wall {phase.wall + 1} of {n}.
           </strong>{" "}
-          Type the number written on it (the orange one), or Skip if there is none.
+          {trace.locked ? (
+            current ? (
+              <>
+                Scrivn read <strong>{current}</strong> on the orange wall. Right? If not, fix it.
+              </>
+            ) : (
+              "Scrivn read no number on the orange wall. Type it if one is written, or Skip."
+            )
+          ) : (
+            "Type the number written on it (the orange one), or Skip if there is none."
+          )}
         </p>
         <div className={styles.wallEntry}>
-          <FeetInchesInput key={`${phase.room}:${phase.wall}`} label={`Wall ${phase.wall + 1}`} autoFocus initial={current ? (parseLength(current) ?? 0) / 12 : null} onChange={(feet) => setTyped(feet)} />
+          {/* A number read to confirm opens no keyboard: Right is one tap. */}
+          <FeetInchesInput key={`${phase.room}:${phase.wall}`} label={`Wall ${phase.wall + 1}`} autoFocus={!(trace.locked && current)} initial={current ? (parseLength(current) ?? 0) / 12 : null} onChange={(feet) => setTyped(feet)} />
         </div>
         <div className={styles.row}>
           <button
@@ -352,7 +388,7 @@ export function Tracer({
               goWall(kept, phase.room, nextWall(kept, phase.room, phase.wall + 1));
             }}
           >
-            Next
+            {trace.locked && current && typed === undefined ? "Right" : "Next"}
           </button>
           <button
             type="button"
@@ -363,7 +399,7 @@ export function Tracer({
               goWall(kept, phase.room, nextWall(kept, phase.room, phase.wall + 1));
             }}
           >
-            Skip
+            {trace.locked && current ? "No number here" : "Skip"}
           </button>
           <button
             type="button"

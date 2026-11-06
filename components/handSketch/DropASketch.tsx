@@ -205,12 +205,12 @@ export function DropASketch({ signedIn, canRead, dev }: { signedIn: boolean; can
         setError(res.status === 401 ? "Sign in to have Scrivn read it, or trace it yourself." : (body.error ?? "Scrivn could not read the sketch. You can trace it yourself."));
         return;
       }
-      // Straight to the plan it makes: what is wrong is fixed from there (a question, the photo, or the editor).
+      // Its numbers checked first, one wall at a time on the photo (Right, or fix it); then the plan they make.
       const t = readToTrace(body.read, { width: p.width, height: p.height });
       setTrace(t);
-      setRead(traceToRead(t));
+      setRead(null);
       setEdited(null);
-      setStage("review");
+      setStage("trace");
     } catch {
       setError("Scrivn could not be reached. You can trace the sketch yourself.");
     } finally {
@@ -218,12 +218,12 @@ export function DropASketch({ signedIn, canRead, dev }: { signedIn: boolean; can
     }
   };
 
-  const toReview = useCallback(() => {
-    if (!trace) return;
-    setRead(traceToRead(trace));
+  const toReview = useCallback((t: TraceState) => {
+    setTrace(t);
+    setRead(traceToRead(t));
     setEdited(null);
     setStage("review");
-  }, [trace]);
+  }, []);
 
   const answer = (q: HandSketchQuestion, a: HandSketchAnswer) => {
     if (!read || !trace) return;
@@ -303,6 +303,7 @@ export function DropASketch({ signedIn, canRead, dev }: { signedIn: boolean; can
           onBack={() => setStage(read ? "review" : "start")}
           onDone={toReview}
           startRoom={trace.found && trace.rooms.every((r) => !r.name && r.lengths.every((l) => !l)) ? 0 : undefined}
+          confirm={trace.locked && !read}
         />
       );
     if (stage === "review" && read && build)
