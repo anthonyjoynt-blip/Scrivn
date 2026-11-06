@@ -139,6 +139,20 @@ check(m.scopeReadUserMessage("pdf", 1, 1).includes("PDF"), "a PDF is called one"
   check(m.scopeToNotes(m.mergePages([{ read: sample.read, file: "a.jpg" }, { read: sample.read, file: "b.jpg" }])).startsWith(`${m.UPLOADED_SCOPE_START} (2 pages: a.jpg, b.jpg) ===`), "several pages are counted in the heading");
 }
 
+/* ── The owner's scope written beside a one-room sketch (read by hand) ───────────────────────── */
+{
+  const spare = JSON.parse(readFileSync(join(here, "fixtures", "spare-sketch.read.json"), "utf8"));
+  check(JSON.stringify(m.scopeReadFromWire(spare.wire)) === JSON.stringify(spare.read), "the hand reading is its answer read again");
+  const block = m.scopeToNotes(m.mergePages([{ read: spare.read, file: "spare.jpg" }]));
+  const lines = block.split("\n");
+  const at = lines.indexOf("Spare bedroom:");
+  check(at === 1 && lines.slice(2, 7).every((l) => l.startsWith("- ")), "the five lines beside the sketch are the room's, under its name");
+  check(!lines.includes("Whole job:"), "none of them is filed as the whole job's");
+  check(!/10'4"?\)|13'9|14'10|4'11"?\)/.test(lines.slice(2, 7).join("\n")), "no wall length from the sketch is taken for a line's quantity");
+  check(lines.includes("- From the sketch: 8'C, an 8 ft ceiling"), "the ceiling height from the sketch is kept as a note");
+  check(/beside or inside a room on the sketch belong to that room/.test(m.SCOPE_READ_SYSTEM) && /not work: wall lengths/.test(m.SCOPE_READ_SYSTEM), "the reader is told lines beside a sketch are that room's, and the sketch's numbers are not work");
+}
+
 /* ── The rule, only when the notes hold an uploaded scope ────────────────────────────────────── */
 {
   const plain = "Basement bedroom, carpet and pad wet, cut 2 ft.";

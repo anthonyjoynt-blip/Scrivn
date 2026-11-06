@@ -1,0 +1,104 @@
+{
+ "note": "The owner's handwritten scope beside a sketch of one room (11-06), read by hand from the photo, no model call: what a reading should return.",
+ "wire": {
+  "pageKind": "handwritten",
+  "continuing": [],
+  "rooms": [
+   {
+    "name": "Spare bedroom",
+    "level": "",
+    "items": [
+     {
+      "written": "Tear out carpet & pad - F",
+      "plain": "Tear out carpet and pad, F",
+      "quantity": "",
+      "unsure": false
+     },
+     {
+      "written": "detach base, wood - PF",
+      "plain": "Detach the wood baseboard, PF",
+      "quantity": "",
+      "unsure": false
+     },
+     {
+      "written": "Tear out drywall - 2', exterior wall",
+      "plain": "Tear out drywall 2 ft up the exterior wall",
+      "quantity": "2 ft",
+      "unsure": false
+     },
+     {
+      "written": "clean & dis, concrete",
+      "plain": "Clean and disinfect the concrete",
+      "quantity": "",
+      "unsure": false
+     },
+     {
+      "written": "3 fans & 1 DH",
+      "plain": "3 air movers and 1 dehumidifier",
+      "quantity": "",
+      "unsure": false
+     }
+    ]
+   }
+  ],
+  "general": [],
+  "notes": [
+   "From the sketch: 8'C, an 8 ft ceiling",
+   "From the sketch: 2x4 window on the 10'4 wall"
+  ],
+  "unreadable": [
+   "a mark under \"Spare Bed\" on the sketch, a 7 or a 2"
+  ]
+ },
+ "read": {
+  "version": 1,
+  "pageKind": "handwritten",
+  "continuing": [],
+  "rooms": [
+   {
+    "name": "Spare bedroom",
+    "level": null,
+    "items": [
+     {
+      "written": "Tear out carpet & pad - F",
+      "plain": "Tear out carpet and pad, F",
+      "quantity": null,
+      "unsure": false
+     },
+     {
+      "written": "detach base, wood - PF",
+      "plain": "Detach the wood baseboard, PF",
+      "quantity": null,
+      "unsure": false
+     },
+     {
+      "written": "Tear out drywall - 2', exterior wall",
+      "plain": "Tear out drywall 2 ft up the exterior wall",
+      "quantity": "2 ft",
+      "unsure": false
+     },
+     {
+      "written": "clean & dis, concrete",
+      "plain": "Clean and disinfect the concrete",
+      "quantity": null,
+      "unsure": false
+     },
+     {
+      "written": "3 fans & 1 DH",
+      "plain": "3 air movers and 1 dehumidifier",
+      "quantity": null,
+      "unsure": false
+     }
+    ]
+   }
+  ],
+  "general": [],
+  "notes": [
+   "From the sketch: 8'C, an 8 ft ceiling",
+   "From the sketch: 2x4 window on the 10'4 wall"
+  ],
+  "unreadable": [
+   "a mark under \"Spare Bed\" on the sketch, a 7 or a 2"
+  ]
+ }
+}

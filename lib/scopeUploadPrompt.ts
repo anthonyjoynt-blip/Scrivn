@@ -25,7 +25,13 @@ Return:
 - notes: lines that are not work, copied as written: the cause of loss, dates, names, claim or job numbers, the address, the insurer. On a printed estimate, leave out prices, totals, tax and page furniture.
 - unreadable: anything you could not read at all, saying where it is ("the second line under Kitchen, after R&R").
 
-Restoration shorthand you will meet (expand only where it fits): R&R remove and replace; D&R detach and reset; Rmv remove; Repl replace; AM air mover; DH or dehu dehumidifier; AFD or NAM air scrubber (negative air machine); LF linear feet; SF square feet; BB or base baseboard; DW drywall; cpt carpet; LVP luxury vinyl plank; LVT luxury vinyl tile; HW hardwood; insul insulation; flood cut or FC with a height (FC 2', 2' cut) drywall cut that high up the wall; antimicrobial or anti-micro antimicrobial treatment; PO and PB pack-out and pack-back; manip contents manipulation; HEPA HEPA vacuuming; poly or containment plastic sheeting containment.
+A scope is often written on the same page as a hand-drawn sketch of the rooms. Then:
+- Lines of work written beside or inside a room on the sketch belong to that room, with or without a heading. When the page names only one room, every line of work on it is that room's: put them under the room, never in general.
+- The sketch's own markings are not work: wall lengths, a window's or door's size along a wall, door swings, a room's dimensions. Never list them as items, and never use a wall length as a line's quantity.
+- What the sketch says about a room that the scope may need goes in notes, saying it is from the sketch: the ceiling height ("8'C" or "8' C" is an 8 ft ceiling), and the windows and doors written on it ("2x4 window on the 10'4 wall").
+- A room drawn inside another (a closet, a bathroom) with no name of its own is part of the named room it is drawn in: do not make it a room.
+
+Restoration shorthand you will meet (expand only where it fits): R&R remove and replace; D&R detach and reset; Rmv remove; Repl replace; AM or fans air movers; DH or dehu dehumidifier; AFD or NAM air scrubber (negative air machine); LF linear feet; SF square feet; BB or base baseboard; DW drywall; cpt carpet; LVP luxury vinyl plank; LVT luxury vinyl tile; HW hardwood; insul insulation; flood cut or FC with a height (FC 2', 2' cut) drywall cut that high up the wall; antimicrobial or anti-micro antimicrobial treatment; clean & dis clean and disinfect; Bed or bdrm bedroom; PO and PB pack-out and pack-back; manip contents manipulation; HEPA HEPA vacuuming; poly or containment plastic sheeting containment.
 
 Numbers matter most. If a digit is unclear, write what you see and mark the line unsure; never guess a number.`;
 
