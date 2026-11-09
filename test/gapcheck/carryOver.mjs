@@ -125,7 +125,8 @@ export function checkCarryOver({ mod, check, claim, room, extractionWith, runToC
     ["job-wide equipment, first answers", walkthrough(), () => undefined, claim],
     ["job-wide equipment, last answers and every no", walkthrough(), LAST, claim],
     // Baseboard replaced rather than reset, so its height is asked — the first option never gets there.
-    ["room-by-room equipment, baseboard replaced", walkthrough({ statedAirMovers: 2 }), (q) => (/:baseboard(:\d+)?:action$/.test(q.id) ? "Removed and replaced, with the shoe mold" : undefined), claim],
+    // The unscoped item goes in both phases here, so its Repair wording is asked too.
+    ["room-by-room equipment, baseboard replaced", walkthrough({ statedAirMovers: 2 }), (q) => (/:baseboard(:\d+)?:action$/.test(q.id) ? "Removed and replaced, with the shoe mold" : /:unscoped:\d+:disposition$/.test(q.id) ? "Both phases" : /:unscoped:\d+:repairDescription$/.test(q.id) ? "Install two new outlets on the wet wall" : undefined), claim],
     ["room-by-room equipment, last answers and every yes", walkthrough({ statedAirMovers: 2 }), LAST_BUT_YES, claim],
     ["a repair-only visit, last answers", walkthrough({ statedAirMovers: 2 }), LAST, repairVisit],
   ]) {
@@ -168,7 +169,7 @@ export function checkCarryOver({ mod, check, claim, room, extractionWith, runToC
     ...["topDetached", "topKept", "topMaterial"].map((f) => `room:N:plumbing:N:${f}`),
     "room:N:trim:N:action", "room:N:windowCovering:N:action", "room:N:cabinetHardware:N:action", "room:N:appliance:N:action",
     ...["type", "disposition", "removalSF"].map((f) => `room:N:subfloor:N:${f}`),
-    "room:N:unscoped:N:disposition",
+    "room:N:unscoped:N:disposition", "room:N:unscoped:N:repairDescription",
     "room:N:equipment:N:quantity", "room:N:equipment:N:holeCount", "room:N:equipment:used", "equipment:allRooms:air movers",
     "room:N:baseboard:action", "room:N:waterExtraction:required", "room:N:waterExtraction:sf", "room:N:containment:sf", "room:N:floorRegistersDetached",
     "room:N:ceilingLightFixtures:present", "room:N:ceilingLightFixtures:type", "room:N:ceilingLightFixtures:count", "room:N:otherCeilingFixtures",

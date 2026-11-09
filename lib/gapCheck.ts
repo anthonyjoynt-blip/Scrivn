@@ -396,6 +396,21 @@ export function evaluate(raw: WaterLossExtraction, suggestions?: EquipmentSugges
       });
     });
     /*
+      Placed in both phases, an item needs words for each. What extraction heard is one piece of work,
+      nearly always the removal, and printed under Repair too it says the same thing comes out twice
+      (owner, 2026-11-09: "Remove swollen toe kicks…" in both). A blank box, not a suggestion: the
+      Repair line is the PM's, like every other word of the item.
+    */
+    room.unscoped.forEach((u, i) => {
+      if (u.disposition !== "BOTH" || (u.repairDescription ?? "").trim() !== "") return;
+      questions.push({
+        id: `room:${roomIndex}:unscoped:${i}:repairDescription`,
+        roomName: room.roomName,
+        prompt: `Both phases — "${u.description}". On the Repair side, what is the work?`,
+        kind: { type: "text" },
+      });
+    });
+    /*
       Window coverings and cabinet hardware, on the same terms as trim: the record exists because the
       PM mentioned it, so the only thing open is which way it goes. No standing "are there blinds?" —
       most windows have something on them and almost none of it is in scope.
@@ -1977,12 +1992,14 @@ export function isContentsSizeQuestion(questionId: string): boolean {
  * - Ceiling finish/textureStyle/replaceSF/aboveInsulationAffected: explicitly Repair-only already,
  *   per the ceiling-drywall trade sequence in documentGenerationPrompt.ts ("Emergency for this
  *   record is unaffected by any of this... this whole sequence is Repair-only").
+ * - An unscoped item's repairDescription: the words of its Repair bullet and nothing else.
  */
 export function isRepairOnlyQuestion(questionId: string): boolean {
   return (
     /:baseboard:\d+:heightIn$/.test(questionId) ||
     /:wall:\d+:cutRunFt$/.test(questionId) ||
     /:toeKick:\d+:method$/.test(questionId) ||
+    /:unscoped:\d+:repairDescription$/.test(questionId) ||
     /:ceiling:\d+:(finish|textureStyle|replaceSF|aboveInsulationAffected)$/.test(questionId)
   );
 }
@@ -2389,6 +2406,10 @@ export function applyAnswer(extraction: WaterLossExtraction, questionId: string,
   }
   if (parts.length >= 5 && parts[0] === "room" && parts[2] === "unscoped" && parts[4] === "disposition") {
     return updateList(extraction, roomIndex(parts), Number(parts[3]), (r) => r.unscoped, (r, l) => ({ ...r, unscoped: l }), (u) => ({ ...u, disposition: unscopedDispositionAnswer(answer) }));
+  }
+  // The PM's words as typed; only the ends trimmed. Blank leaves it open, so it is asked again.
+  if (parts.length >= 5 && parts[0] === "room" && parts[2] === "unscoped" && parts[4] === "repairDescription") {
+    return updateList(extraction, roomIndex(parts), Number(parts[3]), (r) => r.unscoped, (r, l) => ({ ...r, unscoped: l }), (u) => ({ ...u, repairDescription: answer.trim() === "" ? null : answer.trim() }));
   }
   if (parts.length >= 5 && parts[0] === "room" && parts[2] === "subfloor") {
     return updateList(extraction, roomIndex(parts), Number(parts[3]), (r) => r.subfloor, (r, l) => ({ ...r, subfloor: l }), (f) => {

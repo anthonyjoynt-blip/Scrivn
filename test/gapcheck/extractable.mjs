@@ -83,6 +83,8 @@ export const DELIBERATELY_ASKED = new Map([
   // phase from the words, but an item it had no field for is exactly the item a person must see
   // before it reaches a document. The answer is the confirmation. See UnscopedItem.
   ["unscoped:disposition", "always asked — the PM places or drops work extraction had no field for"],
+  // Asked of a both-phases item: the words of its Repair line, which are the PM's to give, not a model's.
+  ["unscoped:repairDescription", "typed by the PM when an item goes in both phases — what goes back in"],
   ["wall:cutRunFt", "a measured quantity, pre-filled from the moisture map where one exists"],
   ["wall:cutRunFraction", "the qualitative half of cutRunFt"],
   ["flooring:carpetLiftSF", "a measured quantity, pre-filled from the moisture map"],

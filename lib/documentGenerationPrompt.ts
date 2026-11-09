@@ -50,7 +50,7 @@ MATERIALS DAMAGE:
   ... (one short bullet per damaged material/item per room, see notes below)
 
 DRYING STRATEGY/APPROACH:
-{flood cut heights, antimicrobial, equipment as stated}
+{flood cut heights, antimicrobial, equipment — only what was stated, see the notes below}
 
 CONTENTS:
 {as captured, or "To be confirmed with PM" if not mentioned}
@@ -105,10 +105,25 @@ Notes on the inspection report:
   counts (that's equipment/operational detail, not a damaged material), no installation method. A
   reader should be able to scan this in a few seconds, not read a paragraph.
 - DRYING STRATEGY/APPROACH normally draws "flood cut heights, antimicrobial, equipment as stated"
-  from the transcript and the completed water loss data's wall cutHeight fields. For a claim with
-  CLAIM CONTEXT's dgigData present (see DGIG_SCOPE_RULES), antimicrobial and drying-equipment
-  intensity are NOT going to be described in the transcript the way they would be for any other
-  claim — pull them from dgigData instead: state which room(s) had antimicrobial applied
+  from the transcript and the completed water loss data's wall cutHeight fields. "As stated" is the
+  rule for each of the three separately: write about one only when the walkthrough (or an answer in
+  the completed data) actually says something about it, and say nothing at all about one it is
+  silent on.
+    - Flood cuts: only when a wall's drywall is coming out (its cutHeight) or the PM talked about
+      cutting or not cutting. Walls whose drywall simply stays, with nothing said about cuts, get no
+      sentence — not "No flood cuts required", not "as no wall drywall is being removed".
+    - Antimicrobial: only when a room's antimicrobialApplied is true (applied) or false (the PM said
+      it is not being used). Null means nobody raised it: write nothing — not "Antimicrobial
+      application was not stated", not "not required", nothing that explains its absence.
+    - Equipment: as placed in the completed data and the transcript.
+  Every sentence in this section reads as a decision the PM made, so a sentence about something
+  nobody mentioned reads as either an invented decision or an omission somebody has to chase. This
+  has gone wrong: a clean-water kitchen job that mentioned neither read "No flood cuts required, as
+  no wall drywall is being removed. Antimicrobial application was not stated." Only if NONE of the
+  three was stated anywhere, write the one line "To be confirmed with PM", as CONTENTS does.
+  For a claim with CLAIM CONTEXT's dgigData present (see DGIG_SCOPE_RULES), antimicrobial and
+  drying-equipment intensity are NOT going to be described in the transcript the way they would be
+  for any other claim — pull them from dgigData instead (the form's answers count as stated): state which room(s) had antimicrobial applied
   (dgigData.rooms[].antimicrobial) and each room's drying class
   (dgigData.rooms[].dryingClass, "1"–"4"), in plain language rather than quoting the raw field name.
   Flood cut heights still come from the completed water loss data's wall cutHeight fields exactly as
@@ -573,9 +588,17 @@ Auto-included items — apply these yourself, they are never spelled out per-ite
     Never write one half of the pair without the other, exactly as with baseboard and appliances.
 19. Other work, per room — for every entry in that room's "unscoped" array whose disposition is
     EMERGENCY, REPAIR or BOTH, one bullet in that phase (one in EACH phase for BOTH), reading
-    exactly "{description}" with the first letter capitalised and NOTHING else changed: no
+    exactly the entry's words with the first letter capitalised and NOTHING else changed: no
     rewording, no quantity or extent invented, no material detail appended, no splitting into a
-    pair. These are things the PM said that no field could hold; the words are the PM's and stay
+    pair. The words are "{description}" — except the Repair bullet of a BOTH entry, which reads
+    "{repairDescription}": what the PM typed for the Repair side when they placed it in both
+    phases. The description is nearly always the removal, so printing it under Repair as well says
+    the same thing comes out twice — "Remove swollen toe kicks at the sink base and the dishwasher"
+    was written in both phases this way. Only when repairDescription is missing or empty does the
+    Repair bullet read "{description}" too. On a document with Repair and no Emergency, a BOTH entry
+    writes both its bullets under Repair, the description first, each exactly as above — never the
+    combined "Remove & replace" line the paired categories get, because combining them would reword
+    the PM. These are things the PM said that no field could hold; the words are the PM's and stay
     the PM's, because rewording them is how "tile and backer board" becomes a line that prices as
     something else. Nothing at all for DROPPED (the PM took it out of the job) or null (not yet
     decided). Never derive one of these from the transcript yourself — only from the array.`;

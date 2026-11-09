@@ -13,7 +13,7 @@ import { baseboardFinishLine, ceilingPaintLine, ceilingQuantity, fractionLabel, 
 import type { ApplianceType, CeilingRecord, DoorRecord, FlooringRecord, Room, WaterLossExtraction, UnscopedItem } from "./types";
 import { disposalLine, recommendDisposal, type RoomAreasByName } from "./debris";
 import type { ExteriorScopeLines } from "./exterior";
-import { APPLIANCE_LABEL, DOOR_STYLE_LABEL, isInjectionEquipment, SUBFLOOR_LABEL, TRIM_KIND_LABEL, WINDOW_COVERING_LABEL, WINDOW_CLEANING_SIZE_LABEL, WINDOW_CLEANING_SIZES } from "./types";
+import { APPLIANCE_LABEL, DOOR_STYLE_LABEL, isInjectionEquipment, SUBFLOOR_LABEL, TRIM_KIND_LABEL, unscopedWording, WINDOW_COVERING_LABEL, WINDOW_CLEANING_SIZE_LABEL, WINDOW_CLEANING_SIZES } from "./types";
 
 /**
  * Trade work orders — the crew-facing counterpart to the estimator-facing scope document.
@@ -237,7 +237,7 @@ function tradeNotes(trade: Trade, rooms: Room[]): string[] {
     as room lines; Repair has three sheets, so the list rides on each of them as a note, where the
     PM sees it whichever sheet they hand out, until it is assigned.
   */
-  const unassigned = rooms.flatMap((room) => unscopedFor(room, "REPAIR").map((u) => `Also on this claim, trade not yet assigned: ${sentenceCase(u.description)} (${room.roomName}).`));
+  const unassigned = rooms.flatMap((room) => unscopedFor(room, "REPAIR").map((u) => `Also on this claim, trade not yet assigned: ${sentenceCase(unscopedWording(u, "REPAIR"))} (${room.roomName}).`));
 
   switch (trade) {
     case "DRYWALL":
@@ -512,7 +512,7 @@ function buildMitigationDemo(claim: ClaimInfo, extraction: WaterLossExtraction, 
     }
 
     // Work no field could hold, placed in Emergency by the PM. Their words, verbatim — see UnscopedItem.
-    for (const u of unscopedFor(room, "EMERGENCY")) items.push(bullet(sentenceCase(u.description), null, null));
+    for (const u of unscopedFor(room, "EMERGENCY")) items.push(bullet(sentenceCase(unscopedWording(u, "EMERGENCY")), null, null));
 
     return items;
   });
