@@ -1167,12 +1167,20 @@ check(poundsOf([room("Hall", { walls: [wall({ cutHeight: "TWO_FOOT", cutRunFt: 3
 const unscopedRoom = room("Bath", { unscoped: [{ description: "remove tub-surround tile", disposition: "EMERGENCY" }, { description: "replace two outlets", disposition: "REPAIR" }, { description: "dropped thing", disposition: "DROPPED" }, { description: "undecided thing", disposition: null }] });
 check(same(debris([unscopedRoom]).unweighed, [{ item: "remove tub-surround tile", room: "Bath" }]), `emergency unscoped work is listed as unweighed on the emergency side (got ${JSON.stringify(debris([unscopedRoom]).unweighed)})`);
 check(same(debris([unscopedRoom], {}, "REPAIR").unweighed, [{ item: "replace two outlets", room: "Bath" }]), "and repair work on the repair side — dropped and undecided items on neither");
+/*
+  A both-phases item comes out in Emergency and goes back in Repair, so it is debris once. The paid
+  check on 2026-11-09 printed the Repair disposal line as "not weighed: Install new toe kicks…" — an
+  install named as debris — and before the Repair wording existed the same line named the removal a
+  second time.
+*/
 {
   const bothRoom = room("Kitchen", { unscoped: [{ description: "remove swollen toe kicks", disposition: "BOTH", repairDescription: "install new toe kicks" }] });
-  check(
-    same(debris([bothRoom]).unweighed, [{ item: "remove swollen toe kicks", room: "Kitchen" }]) && same(debris([bothRoom], {}, "REPAIR").unweighed, [{ item: "install new toe kicks", room: "Kitchen" }]),
-    `a both-phases item is named on each side in that side's words (got ${JSON.stringify(debris([bothRoom]).unweighed)} / ${JSON.stringify(debris([bothRoom], {}, "REPAIR").unweighed)})`,
-  );
+  check(same(debris([bothRoom]).unweighed, [{ item: "remove swollen toe kicks", room: "Kitchen" }]), `a both-phases item is named on the emergency side, in its own words (got ${JSON.stringify(debris([bothRoom]).unweighed)})`);
+  check(same(debris([bothRoom], {}, "REPAIR").unweighed, []), `and not on the repair side, with or without Repair wording (got ${JSON.stringify(debris([bothRoom], {}, "REPAIR").unweighed)})`);
+  const repairLine = disposalLine(recommendDisposal(bbExtraction([bothRoom]), {}, "REPAIR"));
+  check(repairLine === "Disposal – pickup", `so the repair disposal line names nothing it would haul twice (got "${repairLine}")`);
+  const combined = recommendDisposal(bbExtraction([bothRoom]), {}, "COMBINED").unweighed;
+  check(same(combined, [{ item: "remove swollen toe kicks", room: "Kitchen" }]), `and a Repair-only document's combined line names it once (got ${JSON.stringify(combined)})`);
 }
 
 // The recommendation and the line.

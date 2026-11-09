@@ -1,5 +1,4 @@
 import type { AreaFraction, Room, WaterLossExtraction, WallDrywallCutHeight } from "./types";
-import { unscopedWording } from "./types";
 import { normaliseRoomName } from "./gapCheck";
 
 /**
@@ -198,9 +197,11 @@ export function estimateDebris(extraction: WaterLossExtraction, areas: RoomAreas
   for (const room of extraction.rooms) {
     roomDebris(room, areas[normaliseRoomName(room.roomName)], phase, estimate);
     // Work with no field has words but no quantity. It is real debris — a tub surround is heavy —
-    // so it is named on the line as unweighed rather than left out of the picture.
+    // so it is named on the line as unweighed rather than left out of the picture. A both-phases
+    // item comes out in its Emergency half, so it is named there once: its Repair half is what goes
+    // back in, and naming it on the repair line too read as the same toe kicks hauled away twice.
     for (const u of room.unscoped) {
-      if (u.disposition === "BOTH" || u.disposition === phase) estimate.unweighed.push({ item: unscopedWording(u, phase), room: room.roomName || "Room" });
+      if (u.disposition === phase || (u.disposition === "BOTH" && phase === "EMERGENCY")) estimate.unweighed.push({ item: u.description, room: room.roomName || "Room" });
     }
   }
   return estimate;
