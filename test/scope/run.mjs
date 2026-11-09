@@ -1027,8 +1027,24 @@ check(
   `but rides on every repair sheet as a note naming the room, until somebody assigns it (got:\n${repairItem.repair[0]})`,
 );
 
-const bothItem = unscopedSheets([tile("BOTH")]);
-check(bothItem.emergency.includes("Remove tub-surround tile") && bothItem.repair.every((t) => t.includes("trade not yet assigned: Remove tub-surround tile")), "both phases is both places");
+/*
+  Both phases is both places, each in its own words. What extraction heard is the removal; the PM
+  types what goes back in when they place it in both, and the Repair side carries that — printing the
+  removal twice said the same toe kicks come out twice and nothing goes back (owner, 2026-11-09).
+*/
+const bothItem = unscopedSheets([{ ...tile("BOTH"), repairDescription: "install new tub-surround tile on new backer board" }]);
+check(bothItem.emergency.includes("    - Remove tub-surround tile and the soaked backer board"), `both phases: the removal is the Emergency line (got:\n${bothItem.emergency})`);
+check(!bothItem.emergency.includes("new backer board"), "and the Repair wording is not on the emergency sheet");
+check(
+  bothItem.repair.every((t) => t.includes("Also on this claim, trade not yet assigned: Install new tub-surround tile on new backer board (Basement bathroom).") && !t.includes("Remove tub-surround")),
+  `the Repair notes carry the PM's Repair words, capitalised and otherwise untouched, and never the removal (got:\n${bothItem.repair[0]})`,
+);
+// An item placed before the question existed has one set of words, and keeps them in both phases as it always did.
+const bothUnworded = unscopedSheets([tile("BOTH")]);
+check(bothUnworded.emergency.includes("Remove tub-surround tile") && bothUnworded.repair.every((t) => t.includes("trade not yet assigned: Remove tub-surround tile")), "a both-phases item with no Repair wording yet is still both places, never dropped");
+// The Repair wording belongs to a both-phases item; on a Repair-only item it is not read.
+const repairWithStray = unscopedSheets([{ ...tile("REPAIR"), repairDescription: "something else" }]);
+check(repairWithStray.repair.every((t) => t.includes("trade not yet assigned: Remove tub-surround tile") && !t.includes("Something else")), "a Repair item reads its description, whatever else it carries");
 
 for (const [label, disposition] of [["dropped", "DROPPED"], ["undecided", null]]) {
   const none = unscopedSheets([tile(disposition)]);
@@ -1151,6 +1167,13 @@ check(poundsOf([room("Hall", { walls: [wall({ cutHeight: "TWO_FOOT", cutRunFt: 3
 const unscopedRoom = room("Bath", { unscoped: [{ description: "remove tub-surround tile", disposition: "EMERGENCY" }, { description: "replace two outlets", disposition: "REPAIR" }, { description: "dropped thing", disposition: "DROPPED" }, { description: "undecided thing", disposition: null }] });
 check(same(debris([unscopedRoom]).unweighed, [{ item: "remove tub-surround tile", room: "Bath" }]), `emergency unscoped work is listed as unweighed on the emergency side (got ${JSON.stringify(debris([unscopedRoom]).unweighed)})`);
 check(same(debris([unscopedRoom], {}, "REPAIR").unweighed, [{ item: "replace two outlets", room: "Bath" }]), "and repair work on the repair side — dropped and undecided items on neither");
+{
+  const bothRoom = room("Kitchen", { unscoped: [{ description: "remove swollen toe kicks", disposition: "BOTH", repairDescription: "install new toe kicks" }] });
+  check(
+    same(debris([bothRoom]).unweighed, [{ item: "remove swollen toe kicks", room: "Kitchen" }]) && same(debris([bothRoom], {}, "REPAIR").unweighed, [{ item: "install new toe kicks", room: "Kitchen" }]),
+    `a both-phases item is named on each side in that side's words (got ${JSON.stringify(debris([bothRoom]).unweighed)} / ${JSON.stringify(debris([bothRoom], {}, "REPAIR").unweighed)})`,
+  );
+}
 
 // The recommendation and the line.
 const bigJob = [room("Basement", { walls: [wall({ cutHeight: "FOUR_FOOT", cutRunFt: 120 })], flooring: [flooring({ type: "CARPET", disposition: "REMOVE_AND_DISPOSE", removalSF: 600, padRemoved: true, padRemovedSF: 600 })] })];

@@ -2960,7 +2960,10 @@ check(askedUnscoped.length === 1 && askedUnscoped[0].id === "room:0:unscoped:0:d
 check(askedUnscoped[0]?.prompt.includes("replace two outlets on the wet wall"), `and the prompt quotes the PM's words, since they are all the PM has to go on (got "${askedUnscoped[0]?.prompt}")`);
 check(same(askedUnscoped[0]?.kind.options, ["Emergency", "Repair", "Both phases", "Not part of this job"]), `four ways to place it, the last being a decision to leave it out (got ${JSON.stringify(askedUnscoped[0]?.kind.options)})`);
 for (const disposition of ["EMERGENCY", "REPAIR", "BOTH", "DROPPED"]) {
-  check(unscopedQs([{ ...outlets, disposition }]).length === 0, `once placed as ${disposition} it is not asked again — a dropped item included`);
+  check(unscopedQs([{ ...outlets, disposition }]).every((q) => !q.id.endsWith(":disposition")), `once placed as ${disposition} it is not asked again — a dropped item included`);
+}
+for (const disposition of ["EMERGENCY", "REPAIR", "DROPPED"]) {
+  check(unscopedQs([{ ...outlets, disposition }]).length === 0, `placed as ${disposition}, nothing more is asked — its one set of words is enough`);
 }
 check(unscopedQs([outlets, { description: "sand the stair treads", disposition: null }]).length === 2, "each item gets its own question");
 check(unscopedQs([]).length === 0, "and a room where everything had a field is asked nothing");
@@ -2973,6 +2976,43 @@ check(placed("Both phases")?.disposition === "BOTH", "both phases is its own val
 check(placed("Not part of this job")?.disposition === "DROPPED", "and leaving it out records DROPPED rather than deleting the item");
 check(placed("Not part of this job")?.description === outlets.description, "with the words still there to be read later");
 check(placed("somewhere else")?.disposition === null, "an unrecognised answer leaves it open, so it is asked again rather than landing in a phase nobody chose");
+
+/*
+  Both phases needs words for each. Extraction hears one piece of work, nearly always the removal —
+  "Remove swollen toe kicks at the sink base and the dishwasher" was printed under Repair too, the
+  same toe kicks coming out twice and nothing going back (owner, 2026-11-09). The PM types the Repair
+  side into a blank box; nothing suggests it, so the line is theirs.
+*/
+{
+  const toeKicks = { description: "remove swollen toe kicks at the sink base and the dishwasher", disposition: "BOTH" };
+  const asked = unscopedQs([toeKicks]);
+  check(
+    asked.length === 1 && asked[0].id === "room:0:unscoped:0:repairDescription",
+    `placed in both phases, the Repair wording is asked, once (got ${asked.map((q) => q.id).join(", ") || "nothing"})`,
+  );
+  check(asked[0]?.kind.type === "text" && asked[0]?.defaultValue === undefined, `as a blank text box with nothing pre-filled (got ${JSON.stringify(asked[0]?.kind)}, default ${JSON.stringify(asked[0]?.defaultValue)})`);
+  check(
+    asked[0]?.prompt.includes(toeKicks.description) && asked[0]?.prompt.includes("On the Repair side, what is the work?"),
+    `quoting the item so the PM knows which one (got "${asked[0]?.prompt}")`,
+  );
+  check(isRepairOnlyQuestion("room:0:unscoped:0:repairDescription"), "a Repair-only question, so an Emergency-only visit is not asked it");
+  check(!canApplyToAllRooms("room:0:unscoped:0:repairDescription"), "and never offered for every room — it is one item's words");
+
+  // Straight from "Both phases" to the wording, the way the PM meets it.
+  const fromChoice = nextQuestions(claim, withDerivedFields(applyAnswer(unscopedTree, "room:0:unscoped:0:disposition", "Both phases"))).filter((q) => q.id.includes(":unscoped:"));
+  check(same(fromChoice.map((q) => q.id), ["room:0:unscoped:0:repairDescription"]), `answering "Both phases" brings the wording question next (got ${fromChoice.map((q) => q.id).join(", ") || "nothing"})`);
+
+  const bothTree = extractionWith([everyRecordRoomWith({ unscoped: [toeKicks] })]);
+  const worded = (answer) => applyAnswer(bothTree, "room:0:unscoped:0:repairDescription", answer).rooms[0]?.unscoped[0];
+  const typed = "Install new prefinished toe kicks at the sink base and dishwasher";
+  check(worded(`  ${typed} `)?.repairDescription === typed, `the answer is kept as typed, only its ends trimmed (got ${JSON.stringify(worded(`  ${typed} `)?.repairDescription)})`);
+  check(worded(typed)?.description === toeKicks.description && worded(typed)?.disposition === "BOTH", "and the item's own words and phase are untouched");
+  check(worded("   ")?.repairDescription === null, "a blank answer leaves it open");
+  check(
+    unscopedQs([{ ...toeKicks, repairDescription: null }]).length === 1 && unscopedQs([{ ...toeKicks, repairDescription: typed }]).length === 0,
+    "so it is asked until there are words, and not again after",
+  );
+}
 
 /* ── Nothing is asked that extraction could already know ───────────────────────────────────────── */
 

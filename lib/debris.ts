@@ -1,4 +1,5 @@
 import type { AreaFraction, Room, WaterLossExtraction, WallDrywallCutHeight } from "./types";
+import { unscopedWording } from "./types";
 import { normaliseRoomName } from "./gapCheck";
 
 /**
@@ -199,7 +200,7 @@ export function estimateDebris(extraction: WaterLossExtraction, areas: RoomAreas
     // Work with no field has words but no quantity. It is real debris — a tub surround is heavy —
     // so it is named on the line as unweighed rather than left out of the picture.
     for (const u of room.unscoped) {
-      if (u.disposition === "BOTH" || u.disposition === phase) estimate.unweighed.push({ item: u.description, room: room.roomName || "Room" });
+      if (u.disposition === "BOTH" || u.disposition === phase) estimate.unweighed.push({ item: unscopedWording(u, phase), room: room.roomName || "Room" });
     }
   }
   return estimate;

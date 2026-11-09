@@ -734,6 +734,27 @@ export interface UnscopedItem {
   description: string;
   /** Null until the PM has placed it. Always asked — the point of the item is that a person sees it. */
   disposition: UnscopedDisposition | null;
+  /**
+   * The Repair half of an item placed in BOTH phases, typed by the PM when they place it. Never
+   * written by the app or a model.
+   *
+   * An item is heard as one piece of work, and that is nearly always the removal: "Remove swollen
+   * toe kicks at the sink base and the dishwasher" printed under Repair as well said the same toe
+   * kicks come out twice and nothing goes back (owner, 2026-11-09). Rewording it here would put
+   * words in the PM's mouth, so the PM is asked for this half instead — see the repairDescription
+   * question in gapCheck.ts. Absent on items saved before the question existed.
+   */
+  repairDescription?: string | null;
+}
+
+/**
+ * An item's words in one phase: the description, except on the Repair side of a both-phases item,
+ * where it is the PM's Repair wording. An item placed before that was asked has only the one set of
+ * words and keeps them in both phases, as it always did.
+ */
+export function unscopedWording(item: UnscopedItem, phase: "EMERGENCY" | "REPAIR"): string {
+  const repair = item.repairDescription?.trim();
+  return phase === "REPAIR" && item.disposition === "BOTH" && repair ? repair : item.description;
 }
 
 export type SubfloorType = "SLEEPER_SYSTEM" | "PLYWOOD_OSB" | "CONCRETE_SLAB" | "OTHER";

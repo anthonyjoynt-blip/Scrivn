@@ -190,7 +190,11 @@ const KINDS: Record<string, RecordKind> = {
     removalSF: { copy: ["removalSF"], same: ["type", "disposition"] },
   }),
   // The estimator's words as extraction heard them; a re-read that words it differently is a new item.
-  unscoped: recordKind("unscoped", (r) => textKey(r.description), { disposition: { copy: ["disposition"] } }),
+  unscoped: recordKind("unscoped", (r) => textKey(r.description), {
+    disposition: { copy: ["disposition"] },
+    // Asked only of a both-phases item, so carried only onto one.
+    repairDescription: { copy: ["repairDescription"], same: ["disposition"] },
+  }),
   /*
     The plan question asks for the same count as the bare one, offered against the moisture map's
     suggestion. "Suggest" is NOT here: it is asked of a count already stated, and whether it was
