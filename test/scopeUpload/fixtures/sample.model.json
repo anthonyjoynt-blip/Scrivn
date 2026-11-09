@@ -1,0 +1,202 @@
+{
+ "note": "A made-up handwritten basement scope, written by hand (no model call), as a dev fixture and the route test answer.",
+ "wire": {
+  "pageKind": "handwritten",
+  "continuing": [],
+  "rooms": [
+   {
+    "name": "Basement bedroom",
+    "level": "Basement",
+    "items": [
+     {
+      "written": "R&R cpt & pad",
+      "plain": "Remove and replace carpet and pad",
+      "quantity": "142 SF",
+      "unsure": false
+     },
+     {
+      "written": "Rmv BB MDF 3 1/4\"",
+      "plain": "Remove baseboard, MDF 3 1/4 inch",
+      "quantity": "48 LF",
+      "unsure": false
+     },
+     {
+      "written": "FC 2' all walls",
+      "plain": "Flood cut drywall 2 ft up all walls",
+      "quantity": "",
+      "unsure": false
+     },
+     {
+      "written": "Rmv insul behind cut",
+      "plain": "Remove insulation behind the cut",
+      "quantity": "",
+      "unsure": false
+     },
+     {
+      "written": "Anti-micro",
+      "plain": "Antimicrobial treatment",
+      "quantity": "",
+      "unsure": false
+     },
+     {
+      "written": "2 AM 1 DH",
+      "plain": "2 air movers, 1 dehumidifier",
+      "quantity": "",
+      "unsure": false
+     }
+    ]
+   },
+   {
+    "name": "Basement bathroom",
+    "level": "Basement",
+    "items": [
+     {
+      "written": "D&R toilet",
+      "plain": "Detach and reset toilet",
+      "quantity": "",
+      "unsure": false
+     },
+     {
+      "written": "Rmv vanity + top - save",
+      "plain": "Remove vanity and top, save for reset",
+      "quantity": "",
+      "unsure": false
+     },
+     {
+      "written": "Lino R&R",
+      "plain": "Remove and replace sheet vinyl flooring",
+      "quantity": "40 SF",
+      "unsure": false
+     },
+     {
+      "written": "Base R&R 1? LF",
+      "plain": "Remove and replace baseboard",
+      "quantity": "1? LF",
+      "unsure": true
+     }
+    ]
+   }
+  ],
+  "general": [
+   {
+    "written": "Contents manip bsmt",
+    "plain": "Contents manipulation in the basement",
+    "quantity": "",
+    "unsure": false
+   },
+   {
+    "written": "Containment @ stairs",
+    "plain": "Plastic sheeting containment at the stairs",
+    "quantity": "",
+    "unsure": false
+   }
+  ],
+  "notes": [
+   "Washer supply line burst",
+   "Cat 2"
+  ],
+  "unreadable": [
+   "the number before LF on the last line under Basement bathroom"
+  ]
+ },
+ "read": {
+  "version": 1,
+  "pageKind": "handwritten",
+  "continuing": [],
+  "rooms": [
+   {
+    "name": "Basement bedroom",
+    "level": "Basement",
+    "items": [
+     {
+      "written": "R&R cpt & pad",
+      "plain": "Remove and replace carpet and pad",
+      "quantity": "142 SF",
+      "unsure": false
+     },
+     {
+      "written": "Rmv BB MDF 3 1/4\"",
+      "plain": "Remove baseboard, MDF 3 1/4 inch",
+      "quantity": "48 LF",
+      "unsure": false
+     },
+     {
+      "written": "FC 2' all walls",
+      "plain": "Flood cut drywall 2 ft up all walls",
+      "quantity": null,
+      "unsure": false
+     },
+     {
+      "written": "Rmv insul behind cut",
+      "plain": "Remove insulation behind the cut",
+      "quantity": null,
+      "unsure": false
+     },
+     {
+      "written": "Anti-micro",
+      "plain": "Antimicrobial treatment",
+      "quantity": null,
+      "unsure": false
+     },
+     {
+      "written": "2 AM 1 DH",
+      "plain": "2 air movers, 1 dehumidifier",
+      "quantity": null,
+      "unsure": false
+     }
+    ]
+   },
+   {
+    "name": "Basement bathroom",
+    "level": "Basement",
+    "items": [
+     {
+      "written": "D&R toilet",
+      "plain": "Detach and reset toilet",
+      "quantity": null,
+      "unsure": false
+     },
+     {
+      "written": "Rmv vanity + top - save",
+      "plain": "Remove vanity and top, save for reset",
+      "quantity": null,
+      "unsure": false
+     },
+     {
+      "written": "Lino R&R",
+      "plain": "Remove and replace sheet vinyl flooring",
+      "quantity": "40 SF",
+      "unsure": false
+     },
+     {
+      "written": "Base R&R 1? LF",
+      "plain": "Remove and replace baseboard",
+      "quantity": "1? LF",
+      "unsure": true
+     }
+    ]
+   }
+  ],
+  "general": [
+   {
+    "written": "Contents manip bsmt",
+    "plain": "Contents manipulation in the basement",
+    "quantity": null,
+    "unsure": false
+   },
+   {
+    "written": "Containment @ stairs",
+    "plain": "Plastic sheeting containment at the stairs",
+    "quantity": null,
+    "unsure": false
+   }
+  ],
+  "notes": [
+   "Washer supply line burst",
+   "Cat 2"
+  ],
+  "unreadable": [
+   "the number before LF on the last line under Basement bathroom"
+  ]
+ }
+}

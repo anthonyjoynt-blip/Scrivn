@@ -1,5 +1,6 @@
 import type { WaterLossExtraction } from "./types";
 import { photoNotesSection } from "./photoNotesPrompt";
+import { uploadedScopeSection } from "./scopeUpload";
 import { disposalLines, type DisposalLines } from "./debris";
 import type { ClaimInfo, ScopePhase } from "./claimInfo";
 import { lossTypeLabel } from "./claimInfo";
@@ -420,20 +421,22 @@ Auto-included items — apply these yourself, they are never spelled out per-ite
    per room; don't repeat per wall record if more than one shares the same cutHeight in that room):
      - cutHeight BASE: exactly one bullet, "Replace drywall at base height (up to 4")", WITH the same
        quantity every other height carries — cutRunFt ("– {cutRunFt} LF") if present, else
-       cutRunFraction ("– {fraction} of the wall run"), else "– perimeter" as the last resort. A
+       cutRunFraction ("– {fraction} of the wall run"), else "– exterior walls" when cutRunWalls is
+       EXTERIOR, else "– perimeter" as the last resort. A
        base-height cut still removes and replaces a real length of drywall and is still billed by the
        foot; it is only the PRIMING that differs. Do NOT add a priming/painting bullet for this case
        at all — standard practice is to replace and let the baseboard cover the seam, left unfinished.
      - cutHeight TWO_FOOT or FOUR_FOOT: two bullets. First, "Replace drywall at 2'" or "Replace
        drywall at 4'" (match the actual height) with a quantity — cutRunFt (a real linear-feet
        number) if present ("– {cutRunFt} LF"), else cutRunFraction if present ("– {fraction} of the
-       wall run"), else "– perimeter" as the last-resort default. Second, a priming bullet: if
+       wall run"), else "– exterior walls" when cutRunWalls is EXTERIOR, else "– perimeter" as the
+       last-resort default. Second, a priming bullet: if
        cutRunFt (the real number) is present, compute priming SF yourself — cutRunFt × ${PRIMING_SF_PER_LF.TWO_FOOT} for 2',
        cutRunFt × ${PRIMING_SF_PER_LF.FOUR_FOOT} for 4' — and state the computed number ("Prime & paint walls – {computed} SF" — name the surface, so the
        line cannot be read as a ceiling's); if
        only cutRunFraction is present, skip the multiplier math and state priming qualitatively
        instead ("Prime & paint – {fraction} of the wall run") — never invent a number from a
-       fraction.
+       fraction. When neither is present and cutRunWalls is EXTERIOR, "Prime & paint – exterior walls".
      - cutHeight FULL_WALL: two bullets, "Replace drywall – full wall" and "Prime & paint – full
        wall" (same extent for both, no multiplier — priming covers exactly what the drywall bullet
        covers). State cutRunFt alongside where it is present — "Replace drywall – full wall – 31 LF"
@@ -446,7 +449,7 @@ Auto-included items — apply these yourself, they are never spelled out per-ite
    "Foam") followed by insulationRValue when it is set — "Fiberglass batt R20", "Blown in R30";
    "Cellulose" alone when the R-value is null; plain "Install new insulation" when the type is null
    too. {run} is the same quantity the drywall bullet carries (cutRunFt in LF, else the fraction,
-   else "perimeter"). One bullet per wall record with insulationAffected, pairing with its Emergency
+   else "exterior walls" when cutRunWalls is EXTERIOR, else "perimeter"). One bullet per wall record with insulationAffected, pairing with its Emergency
    "Remove wet insulation" line. This was the missing half of that pair: the Emergency side took the
    wet insulation out and the Repair side closed the wall over an empty cavity. Never write the
    Emergency half without it. The R-value belongs here and only here — the removal has no use for
@@ -553,7 +556,9 @@ Auto-included items — apply these yourself, they are never spelled out per-ite
     scope with no antimicrobial line in either room, because the report is written with the
     transcript in hand and these bullets are built only from the data above. Write nothing when
     antimicrobialApplied is false or null — do NOT add the line because the loss is a category 3 and
-    it seems likely. (A DGIG claim renders antimicrobial from dgigData instead, with its own quantity
+    it seems likely. Write nothing either in a room that already has a "Clean & treat … floor" line
+    (item 1c): treating the floor IS the antimicrobial, so a second line bills it twice. A room
+    whose floor is only cleaned ("Clean", category 1) still gets its "Antimicrobial application". (A DGIG claim renders antimicrobial from dgigData instead, with its own quantity
     — see DGIG_SCOPE_RULES. Never write both.)
 15. Containment, per room, Emergency — for every room whose containmentRequired is true, one bullet:
     "Containment – poly barrier – {containmentSF} SF" when containmentSF is a real number, or just
@@ -1053,7 +1058,7 @@ ${JSON.stringify(completedExtraction)}
 
 ORIGINAL TRANSCRIPT (supplementary detail — specifics the PM stated that the structured data above
 has no dedicated field for, e.g. a disposal container type or size):
-${transcript}${photoNotesSection(photoNotes)}`;
+${transcript}${uploadedScopeSection(transcript)}${photoNotesSection(photoNotes)}`;
   }
 
   return `Generate both documents from this data.
@@ -1079,5 +1084,5 @@ ${JSON.stringify(completedExtraction)}
 ORIGINAL TRANSCRIPT (supplementary detail for CAUSE OF LOSS, plus the only source for CONTENTS'
 prose — that's the one section left with no dedicated field in the structured data above, aside
 from also drawing on rooms[].contents where present):
-${transcript}${photoNotesSection(photoNotes)}`;
+${transcript}${uploadedScopeSection(transcript)}${photoNotesSection(photoNotes)}`;
 }

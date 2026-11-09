@@ -1,5 +1,6 @@
 import type { WaterLossExtraction } from "./types";
 import { photoNotesSection } from "./photoNotesPrompt";
+import { uploadedScopeSection } from "./scopeUpload";
 
 /**
  * Step 1b: the detail pass.
@@ -261,5 +262,5 @@ ${rooms}
 
 Transcript:
 
-${transcript}${photoNotesSection(photoNotes)}`;
+${transcript}${uploadedScopeSection(transcript)}${photoNotesSection(photoNotes)}`;
 }

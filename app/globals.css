@@ -307,6 +307,24 @@ button:disabled {
   margin-bottom: 12px;
 }
 
+/* Upload a scope, under Dictate on the notes step (components/ScopeUploadButton.tsx). */
+.scope-upload {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-bottom: 12px;
+}
+/* Its notes run the full width under the button, without the indent .field-note has for notes under a checkbox. */
+.scope-upload .field-note {
+  flex-basis: 100%;
+  margin: 0;
+}
+.scope-upload .scope-upload-problems {
+  padding-left: 1.2em;
+  color: var(--danger-text);
+}
+
 .dictate-button {
   display: inline-flex;
   align-items: center;

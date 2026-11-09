@@ -42,6 +42,8 @@ import { type AntimicrobialExtent, type DGIGData, type DryingClass, buildDGIGSyn
 import { ClaimIntakeForm } from "@/components/ClaimIntakeForm";
 import { QuestionGroup } from "@/components/QuestionGroup";
 import { DictateButton, appendDictation } from "@/components/DictateButton";
+import { ScopeUploadButton } from "@/components/ScopeUploadButton";
+import { appendToNotes } from "@/lib/scopeUpload";
 import { isQuestionAnswered } from "@/components/QuestionField";
 import { JobInformationSection } from "@/components/JobInformationSection";
 import { LetterheadBanner } from "@/components/LetterheadBanner";
@@ -2004,8 +2006,10 @@ export default function Home() {
             </p>
           )}
           <DictateButton onText={(spoken) => setTranscript((t) => appendDictation(t, spoken))} disabled={step === "extracting"} />
+          {/* A written scope, photographed or as a PDF, read into the notes as a labelled block (lib/scopeUpload.ts). */}
+          <ScopeUploadButton onRead={(block) => setTranscript((t) => appendToNotes(t, block))} disabled={step === "extracting"} />
           <textarea
-            placeholder="Dictate or paste the walkthrough transcript here…"
+            placeholder="Dictate or paste the walkthrough transcript here, or upload a written scope…"
             value={transcript}
             onChange={(e) => setTranscript(e.target.value)}
             disabled={step === "extracting"}

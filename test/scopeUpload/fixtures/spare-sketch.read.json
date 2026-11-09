@@ -1,0 +1,106 @@
+{
+ "note": "The owner's handwritten scope beside a sketch of one room (11-06), read by hand from the photo, no model call: what a reading should return. The owner's answers: F is floor, PF is perimeter floor, the 2 under \"Spare Bed\" is part of its name, the written-over left wall is 19'11.",
+ "sketch": {
+  "room": "Spare bedroom 2",
+  "ceiling": "8'",
+  "walls": ["top 10'4, with a 2x4 window", "right 13'9", "left 19'11 (written over)", "bottom left 4'11, door at its corner"],
+  "closet": ["2'10", "3'7 angled", "3'7"]
+ },
+ "wire": {
+  "pageKind": "handwritten",
+  "continuing": [],
+  "rooms": [
+   {
+    "name": "Spare bedroom 2",
+    "level": "",
+    "items": [
+     {
+      "written": "Tear out carpet & pad - F",
+      "plain": "Tear out carpet and pad",
+      "quantity": "F, the whole floor",
+      "unsure": false
+     },
+     {
+      "written": "detach base, wood - PF",
+      "plain": "Detach the wood baseboard",
+      "quantity": "PF, the whole perimeter of the floor",
+      "unsure": false
+     },
+     {
+      "written": "Tear out drywall - 2', exterior wall",
+      "plain": "Tear out drywall 2 ft up the exterior wall",
+      "quantity": "2 ft",
+      "unsure": false
+     },
+     {
+      "written": "clean & dis, concrete",
+      "plain": "Clean and disinfect the concrete",
+      "quantity": "",
+      "unsure": false
+     },
+     {
+      "written": "3 fans & 1 DH",
+      "plain": "3 air movers and 1 dehumidifier",
+      "quantity": "",
+      "unsure": false
+     }
+    ]
+   }
+  ],
+  "general": [],
+  "notes": [
+   "From the sketch: 8'C, an 8 ft ceiling",
+   "From the sketch: 2x4 window on the 10'4 wall"
+  ],
+  "unreadable": []
+ },
+ "read": {
+  "version": 1,
+  "pageKind": "handwritten",
+  "continuing": [],
+  "rooms": [
+   {
+    "name": "Spare bedroom 2",
+    "level": null,
+    "items": [
+     {
+      "written": "Tear out carpet & pad - F",
+      "plain": "Tear out carpet and pad",
+      "quantity": "F, the whole floor",
+      "unsure": false
+     },
+     {
+      "written": "detach base, wood - PF",
+      "plain": "Detach the wood baseboard",
+      "quantity": "PF, the whole perimeter of the floor",
+      "unsure": false
+     },
+     {
+      "written": "Tear out drywall - 2', exterior wall",
+      "plain": "Tear out drywall 2 ft up the exterior wall",
+      "quantity": "2 ft",
+      "unsure": false
+     },
+     {
+      "written": "clean & dis, concrete",
+      "plain": "Clean and disinfect the concrete",
+      "quantity": null,
+      "unsure": false
+     },
+     {
+      "written": "3 fans & 1 DH",
+      "plain": "3 air movers and 1 dehumidifier",
+      "quantity": null,
+      "unsure": false
+     }
+    ]
+   }
+  ],
+  "general": [],
+  "notes": [
+   "From the sketch: 8'C, an 8 ft ceiling",
+   "From the sketch: 2x4 window on the 10'4 wall"
+  ],
+  "unreadable": []
+ }
+}

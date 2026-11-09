@@ -1861,6 +1861,35 @@ check(
   "while a plain linear number still lands",
 );
 
+/*
+  "Exterior walls" answers the run too (the owner, 2026-11-06): a written scope names the walls, and the PM either
+  measures them on the sketch or says so. The question says it can be said, and saying it closes the question.
+*/
+{
+  const cutWall = {
+    wallMaterial: "DRYWALL", drywallBeingRemoved: true, insulationAffected: false, insulationType: null,
+    insulationRValue: null, floodCutHeightIn: null, cutHeight: "TWO_FOOT", cutRunFt: null, cutRunFraction: null, cutRunWalls: null,
+  };
+  const runAsked = (tree) => nextQuestions(cutRunClaim, tree, cutRunMap).find((q) => q.id === "room:0:wall:0:cutRunFt");
+  const cutRoom = withDerivedFields(extractionWith([room("Spare Bedroom", { walls: [cutWall] })]));
+  const asked = runAsked(cutRoom);
+  check(asked !== undefined && /Or say "exterior walls"\./.test(asked.prompt), `the run question says "exterior walls" will do (got: ${asked?.prompt})`);
+  for (const said of ["exterior walls", "Exterior wall", "the exterior walls", "exterior", "outside walls"]) {
+    const w = applyAnswer(cutRoom, "room:0:wall:0:cutRunFt", said).rooms[0].walls[0];
+    check(w.cutRunWalls === "EXTERIOR" && w.cutRunFt === null && w.cutRunFraction === null, `"${said}" is the exterior walls (got ${JSON.stringify([w.cutRunWalls, w.cutRunFt])})`);
+  }
+  const named = applyAnswer(cutRoom, "room:0:wall:0:cutRunFt", "exterior walls");
+  check(runAsked(named) === undefined, "and once said, the run is not asked again");
+  const measured = applyAnswer(named, "room:0:wall:0:cutRunFt", "24").rooms[0].walls[0];
+  check(measured.cutRunFt === 24 && measured.cutRunWalls === null, "a length given after replaces the walls named");
+  const interior = applyAnswer(cutRoom, "room:0:wall:0:cutRunFt", "interior walls").rooms[0].walls[0];
+  check(!interior.cutRunWalls && interior.cutRunFt === null, "an answer that is neither a length nor the exterior walls leaves the question open");
+  // A record saved before the field existed has none at all, and is still asked.
+  const { cutRunWalls: _gone, ...oldWall } = cutWall;
+  const old = withDerivedFields(extractionWith([room("Spare Bedroom", { walls: [oldWall] })]));
+  check(runAsked(old) !== undefined, "a wall record with no cutRunWalls field is still asked its run");
+}
+
 /* ── Contents described, but Contents was not one of the phases scoped ────────────────────────── */
 
 /*

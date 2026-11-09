@@ -226,6 +226,7 @@ function wallToDomain(w: WallRecordWire): WallRecord {
     cutHeight: null,
     cutRunFt: null,
     cutRunFraction: null,
+    cutRunWalls: null,
   };
 }
 

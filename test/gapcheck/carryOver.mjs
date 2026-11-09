@@ -469,4 +469,17 @@ export function checkCarryOver({ mod, check, claim, room, extractionWith, runToC
     check(next.extraction.rooms[0].walls[0].insulationAffected === false, "carry-over: an answer typed on screen but not continued is kept through Update scope");
     check(Object.keys(next.answers).length === 0, "carry-over: and the answers map starts empty, as its ids belonged to the old tree");
   }
+
+  /* ── A cut's run named as the exterior walls ───────────────────────────────────────────────── */
+
+  {
+    const cutRoom = () => extractionWith([room("Spare Bedroom", { walls: [wall({ insulationAffected: false, cutHeight: "TWO_FOOT", cutRunWalls: null })] })]);
+    const answered = runToCompletion(claim, cutRoom(), (q) => (q.id.endsWith(":cutRunFt") ? "exterior walls" : undefined));
+    check(answered.extraction.rooms[0].walls[0].cutRunWalls === "EXTERIOR", "carry-over: the run was answered as the exterior walls");
+    const again = carry(answered.claim, answered.extraction, cutRoom()).extraction;
+    check(
+      again.rooms[0].walls[0].cutRunWalls === "EXTERIOR" && !ids(answered.claim, again).includes("room:0:wall:0:cutRunFt"),
+      "carry-over: a re-read keeps \"exterior walls\" and does not ask the run again",
+    );
+  }
 }

@@ -1,5 +1,6 @@
 import type { AreaFraction, FlooringRecord, Room, WaterLossExtraction } from "./types";
 import { photoNotesSection } from "./photoNotesPrompt";
+import { uploadedScopeSection } from "./scopeUpload";
 
 /**
  * The fourth extraction call: spec fields the detail pass has no room for.
@@ -64,7 +65,7 @@ ${rooms}
 
 Transcript:
 
-${transcript}${photoNotesSection(photoNotes)}`;
+${transcript}${uploadedScopeSection(transcript)}${photoNotesSection(photoNotes)}`;
 }
 
 export interface FlooringSupplementWire {

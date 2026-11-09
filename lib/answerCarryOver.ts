@@ -141,7 +141,7 @@ const KINDS: Record<string, RecordKind> = {
     insulationType: { copy: ["insulationType"], same: ["insulationAffected"] },
     insulationRValue: { copy: ["insulationRValue"], same: ["insulationAffected", "insulationType"] },
     cutHeight: { copy: ["cutHeight"] },
-    cutRunFt: { copy: ["cutRunFt", "cutRunFraction"], either: true, same: ["cutHeight"] },
+    cutRunFt: { copy: ["cutRunFt", "cutRunFraction", "cutRunWalls"], either: true, same: ["cutHeight"] },
   }),
   door: recordKind("doors", (r) => textKey(r.location), {
     slabOnly: { copy: ["slabOnly"], same: ["action"] },

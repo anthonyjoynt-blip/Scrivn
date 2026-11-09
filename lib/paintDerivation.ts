@@ -102,7 +102,8 @@ export function primingLine(wall: WallRecord, markedWallSquareFeet?: number | nu
   }
   const fraction = fractionLabel(wall.cutRunFraction);
   // Never invent a number from a fraction — state it qualitatively instead.
-  return fraction ? `Prime & paint – ${fraction} of the wall run` : "Prime & paint – wall run";
+  if (fraction) return `Prime & paint – ${fraction} of the wall run`;
+  return wall.cutRunWalls === "EXTERIOR" ? "Prime & paint – exterior walls" : "Prime & paint – wall run";
 }
 
 /**
