@@ -2565,13 +2565,17 @@ function isEffectivelyNone(value: string): boolean {
 function equalsIgnoreCase(a: string, b: string): boolean {
   return a.toLowerCase() === b.toLowerCase();
 }
+/*
+  Every number the engine asks for is a count or a size, so a negative is not an answer: it reads as
+  null and the question stays open (owner, 2026-11-10: the floor-register arrows went below zero).
+*/
 function toIntOrNull(s: string): number | null {
   const n = Number.parseInt(s, 10);
-  return Number.isNaN(n) ? null : n;
+  return Number.isNaN(n) || n < 0 ? null : n;
 }
 function toDoubleOrNull(s: string): number | null {
   const n = Number.parseFloat(s);
-  return Number.isNaN(n) ? null : n;
+  return Number.isNaN(n) || n < 0 ? null : n;
 }
 
 /**

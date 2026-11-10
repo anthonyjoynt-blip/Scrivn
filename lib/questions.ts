@@ -90,6 +90,32 @@ export function formatBucketCounts(counts: Record<string, number>): string {
 }
 
 /**
+ * Whether `value` is an acceptable answer for `question` — what gates the "Continue" button.
+ *
+ * Every number the engine asks for is a count or a size, so none can be below zero (owner,
+ * 2026-11-10: the floor-register arrows went negative). A negative is not an answer, so the question
+ * stays open rather than recording one — and `applyAnswer` refuses one too, for any path that skips
+ * this check.
+ */
+export function isQuestionAnswered(question: GapCheckQuestion, rawValue: string | undefined): boolean {
+  // An untouched pre-filled question is answered: confirming a derived value is doing nothing.
+  const value = rawValue ?? question.defaultValue;
+  /*
+    A tally answered entirely in zeroes is a real answer — "none of any size" — and its formatted
+    form is the empty string, which the blank check above would otherwise reject for ever. The
+    presence of the key in the answers map is what separates "typed all zeroes" from "not touched".
+  */
+  if (question.kind.type === "bucketCounts") return rawValue !== undefined;
+  if (value === undefined || value.trim() === "") return false;
+  const n = Number(value);
+  if (question.kind.type === "wholeNumber") return Number.isInteger(n) && n >= 0;
+  if (question.kind.type === "decimal") return Number.isFinite(n) && n >= 0;
+  // A plan is the literal "none" or a count.
+  if (question.kind.type === "equipmentPlan") return value === "none" || (Number.isInteger(n) && n >= 0);
+  return true;
+}
+
+/**
  * Everything the gap-check engine can compute in one pass over the current tree.
  *
  * `questions` is the pending list, and it is authoritative: every question on it applies, right now,

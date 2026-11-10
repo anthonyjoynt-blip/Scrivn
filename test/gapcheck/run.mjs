@@ -58,6 +58,7 @@ const {
   totalWindowsToClean,
   canApplyToAllRooms,
   siblingQuestionIds,
+  isQuestionAnswered,
   equipmentNeedsConsolidating,
   consolidatedEquipmentId,
   recordRound,
@@ -3167,6 +3168,38 @@ check(
     ...missedByReset.map((m) => `           ${m}`),
   ].join("\n"),
 );
+
+/* ── No number answer goes below zero ──────────────────────────────────────────────────────────── */
+
+/*
+  Owner, 2026-11-10: the arrows on the floor-register count went negative. Every number the engine
+  asks for is a count or a size, so a negative is not an answer: the box stops at zero, Continue
+  treats one as unanswered, and applyAnswer refuses one so it never reaches the tree.
+*/
+{
+  const q = (type, extra = {}) => ({ id: "room:0:x", roomName: "Kitchen", prompt: "?", kind: { type, ...extra } });
+  const whole = q("wholeNumber");
+  check(!isQuestionAnswered(whole, "-1"), "a negative whole number is not an answer");
+  check(isQuestionAnswered(whole, "0") && isQuestionAnswered(whole, "3"), "zero and up are");
+  check(!isQuestionAnswered(whole, "2.5"), "and a fraction still is not a whole number");
+  const dec = q("decimal");
+  check(!isQuestionAnswered(dec, "-0.5") && isQuestionAnswered(dec, "0") && isQuestionAnswered(dec, "12.5"), "a negative decimal is not an answer; zero and up are");
+  const plan = q("equipmentPlan", { suggested: 2, unit: "air movers" });
+  check(!isQuestionAnswered(plan, "-2") && isQuestionAnswered(plan, "none") && isQuestionAnswered(plan, "3"), "an equipment plan is \"none\" or a count, never a negative one");
+
+  const field = readFileSync(join(root, "components", "QuestionField.tsx"), "utf8");
+  const box = (kind) => field.slice(field.indexOf(`kind.type === "${kind}" && (`), field.indexOf("/>", field.indexOf(`kind.type === "${kind}" && (`)));
+  check(box("wholeNumber").includes("min={0}") && box("decimal").includes("min={0}"), "and the whole-number and decimal boxes stop at zero");
+
+  const tree = withDerivedFields(extractionWith([room("Kitchen", { flooring: [{ ...canonicalRecordShapes().flooring, type: "LAMINATE", disposition: "REMOVE_AND_DISPOSE", phase: "BOTH", phaseUncertain: false }] })]));
+  const registers = (answer) => withDerivedFields(applyAnswer(tree, "room:0:floorRegistersDetached", answer)).rooms[0].floorRegistersDetached;
+  check(registers("-1") === null, `a negative register count is refused, so the question stays open (got ${registers("-1")})`);
+  check(registers("0") === 0 && registers("2") === 2, "zero and up are recorded");
+  check(nextQuestions(claim, withDerivedFields(applyAnswer(tree, "room:0:floorRegistersDetached", "-1"))).some((x) => x.id === "room:0:floorRegistersDetached"), "and it is asked again");
+  const removal = (answer) => withDerivedFields(applyAnswer(tree, "room:0:flooring:0:removalSF", answer)).rooms[0].flooring[0];
+  check(removal("-50").removalSF === null && removal("-50").removalFraction === null, `a negative area is refused too (got ${JSON.stringify([removal("-50").removalSF, removal("-50").removalFraction])})`);
+  check(removal("50").removalSF === 50, "while a real one is kept");
+}
 
 rmSync(outDir, { recursive: true, force: true });
 

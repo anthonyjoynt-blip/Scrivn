@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { type GapCheckQuestion, formatBucketCounts, parseBucketCounts } from "@/lib/questions";
+import { type GapCheckQuestion, formatBucketCounts, isQuestionAnswered, parseBucketCounts } from "@/lib/questions";
 
 /**
  * Renders one follow-up question's input, keyed off `question.kind` — the component never needs
@@ -165,6 +165,7 @@ export function QuestionField({
           id={question.id}
           type="number"
           inputMode="numeric"
+          min={0}
           step={1}
           value={value ?? ""}
           onChange={(e) => onChange(question.id, e.target.value)}
@@ -176,6 +177,7 @@ export function QuestionField({
           id={question.id}
           type="number"
           inputMode="decimal"
+          min={0}
           step="any"
           value={value ?? ""}
           onChange={(e) => onChange(question.id, e.target.value)}
@@ -273,18 +275,5 @@ function BucketCountsField({
   );
 }
 
-/** Whether `value` is an acceptable answer for `question` — used to gate the "Continue" button. */
-export function isQuestionAnswered(question: GapCheckQuestion, rawValue: string | undefined): boolean {
-  // An untouched pre-filled question is answered: confirming a derived value is doing nothing.
-  const value = rawValue ?? question.defaultValue;
-  /*
-    A tally answered entirely in zeroes is a real answer — "none of any size" — and its formatted
-    form is the empty string, which the blank check above would otherwise reject for ever. The
-    presence of the key in the answers map is what separates "typed all zeroes" from "not touched".
-  */
-  if (question.kind.type === "bucketCounts") return rawValue !== undefined;
-  if (value === undefined || value.trim() === "") return false;
-  if (question.kind.type === "wholeNumber") return Number.isInteger(Number(value));
-  if (question.kind.type === "decimal") return Number.isFinite(Number(value));
-  return true;
-}
+/** Re-exported from lib/questions.ts, where it lives so the gap-check tests can reach it. */
+export { isQuestionAnswered };
