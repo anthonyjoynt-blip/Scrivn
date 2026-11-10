@@ -54,12 +54,16 @@ export type ContentsApproach = "TM" | "BRIC_A_BRAC";
  * explicit `packBackHours` field, so a pack-back order has real content. The bric-a-brac model has
  * no equivalent — it counts boxes and rooms, with nothing describing the return trip. Offering it
  * there would mean inventing hours, so it isn't offered.
+ *
+ * The in-house Repair crews are offered only when their sheet has a line on it, given `sheets` (the
+ * claim page always passes it). A laminate-and-cabinets kitchen offered a Drywall order with nothing
+ * to do on it (owner, 2026-11-10).
  */
-export function availableTrades(claim: ClaimInfo, contentsApproach: ContentsApproach, exterior: ExteriorScopeLines | null = null): Trade[] {
+export function availableTrades(claim: ClaimInfo, contentsApproach: ContentsApproach, exterior: ExteriorScopeLines | null = null, sheets?: RepairSheetInputs): Trade[] {
   const phases = claim.scopePhases;
   const trades: Trade[] = [];
   if (phases.includes("EMERGENCY")) trades.push("MITIGATION_DEMO");
-  if (phases.includes("REPAIR")) trades.push("DRYWALL", "PAINTING", "FINISH_CARPENTRY");
+  if (phases.includes("REPAIR")) trades.push(...IN_HOUSE_REPAIR.filter((trade) => !sheets || repairSheetBody(trade, sheets).length > 0));
   /*
     The exterior's two crews (2026-10-12), offered only when the sketch's exterior has something in
     scope for them - the lines are the whole order, so with none there is nothing to hand a crew.
@@ -76,11 +80,39 @@ export function availableTrades(claim: ClaimInfo, contentsApproach: ContentsAppr
 }
 
 /** Why a trade the PM might expect isn't listed — shown under the selector rather than leaving a silent gap. */
-export function unavailableTradeNote(claim: ClaimInfo, contentsApproach: ContentsApproach): string | null {
+export function unavailableTradeNote(claim: ClaimInfo, contentsApproach: ContentsApproach, sheets?: RepairSheetInputs): string | null {
+  const notes: string[] = [];
   if (claim.scopePhases.includes("CONTENTS") && contentsApproach === "BRIC_A_BRAC") {
-    return "Contents Pack Back isn’t offered for a bric-a-brac contents scope — that model records boxes and room sizes, with no pack-back hours to build an order from. Use the Time & Material contents approach if you need one.";
+    notes.push("Contents Pack Back isn’t offered for a bric-a-brac contents scope — that model records boxes and room sizes, with no pack-back hours to build an order from. Use the Time & Material contents approach if you need one.");
   }
-  return null;
+  if (sheets && claim.scopePhases.includes("REPAIR")) {
+    const idle = IN_HOUSE_REPAIR.filter((trade) => repairSheetBody(trade, sheets).length === 0).map((trade) => TRADE_LABEL[trade]);
+    if (idle.length > 0) {
+      const names = idle.length === 1 ? idle[0] : `${idle.slice(0, -1).join(", ")} and ${idle[idle.length - 1]}`;
+      notes.push(`${names} ${idle.length === 1 ? "isn’t" : "aren’t"} offered — there is nothing on this claim for ${idle.length === 1 ? "that crew" : "those crews"}.`);
+    }
+  }
+  return notes.length > 0 ? notes.join(" ") : null;
+}
+
+/** The parts of a claim the in-house Repair sheets are built from. */
+export interface RepairSheetInputs {
+  extraction: WaterLossExtraction | null;
+  /** Wall areas marked out on the sketch — see `PaintableWallAreas`. */
+  paintableWallSF?: PaintableWallAreas;
+}
+
+/** Drywall, Painting and Finish Carpentry: the crews whose sheets are built room by room from the tree. */
+const IN_HOUSE_REPAIR: Trade[] = ["DRYWALL", "PAINTING", "FINISH_CARPENTRY"];
+
+/** One in-house Repair crew's room lines — the same lines its sheet is built from, so the two cannot disagree. */
+function repairSheetBody(trade: Trade, sheets: RepairSheetInputs): string[] {
+  const extraction = sheets.extraction;
+  if (!extraction) return [];
+  if (trade === "DRYWALL") return drywallBody(extraction);
+  if (trade === "PAINTING") return paintingBody(extraction, sheets.paintableWallSF);
+  if (trade === "FINISH_CARPENTRY") return finishCarpentryBody(extraction);
+  return [];
 }
 
 // ---- shared rendering helpers ----------------------------------------------------------------
@@ -545,8 +577,8 @@ function buildMitigationDemo(claim: ClaimInfo, extraction: WaterLossExtraction, 
 
 // ---- Drywall ----------------------------------------------------------------------------------
 
-function buildDrywall(claim: ClaimInfo, extraction: WaterLossExtraction): string {
-  const body = roomSections(extraction, (room) => {
+function drywallBody(extraction: WaterLossExtraction): string[] {
+  return roomSections(extraction, (room) => {
     const items: string[] = [];
     /*
       The other half of "Remove affected insulation", and the half that was missing.
@@ -607,15 +639,17 @@ function buildDrywall(claim: ClaimInfo, extraction: WaterLossExtraction): string
     }
     return items;
   });
+}
 
-  return assemble(claim, "DRYWALL", body, extraction.rooms);
+function buildDrywall(claim: ClaimInfo, extraction: WaterLossExtraction): string {
+  return assemble(claim, "DRYWALL", drywallBody(extraction), extraction.rooms);
 }
 
 // ---- Painting ---------------------------------------------------------------------------------
 
 /** Every line here comes from lib/paintDerivation.ts — the same module the scope-document prompt draws its numbers and wording from. */
-function buildPainting(claim: ClaimInfo, extraction: WaterLossExtraction, paintableWallSF?: PaintableWallAreas): string {
-  const body = roomSections(extraction, (room) => {
+function paintingBody(extraction: WaterLossExtraction, paintableWallSF?: PaintableWallAreas): string[] {
+  return roomSections(extraction, (room) => {
     const items: string[] = [];
     const seen = new Set<string>();
     room.walls.forEach((w, wallIndex) => {
@@ -667,14 +701,16 @@ function buildPainting(claim: ClaimInfo, extraction: WaterLossExtraction, painta
     }
     return items;
   });
+}
 
-  return assemble(claim, "PAINTING", body, extraction.rooms);
+function buildPainting(claim: ClaimInfo, extraction: WaterLossExtraction, paintableWallSF?: PaintableWallAreas): string {
+  return assemble(claim, "PAINTING", paintingBody(extraction, paintableWallSF), extraction.rooms);
 }
 
 // ---- Finish Carpentry -------------------------------------------------------------------------
 
-function buildFinishCarpentry(claim: ClaimInfo, extraction: WaterLossExtraction): string {
-  const body = roomSections(extraction, (room) => {
+function finishCarpentryBody(extraction: WaterLossExtraction): string[] {
+  return roomSections(extraction, (room) => {
     const items: string[] = [];
     for (const b of room.baseboard) {
       if (b.action === "SHOE_MOLD_ONLY") {
@@ -725,8 +761,10 @@ function buildFinishCarpentry(claim: ClaimInfo, extraction: WaterLossExtraction)
     for (const a of room.appliances) items.push(bullet(`Reset ${APPLIANCE_LABEL[a.type]}`, null, null));
     return items;
   });
+}
 
-  return assemble(claim, "FINISH_CARPENTRY", body, extraction.rooms);
+function buildFinishCarpentry(claim: ClaimInfo, extraction: WaterLossExtraction): string {
+  return assemble(claim, "FINISH_CARPENTRY", finishCarpentryBody(extraction), extraction.rooms);
 }
 
 // ---- Contents ---------------------------------------------------------------------------------

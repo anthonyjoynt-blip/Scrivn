@@ -857,6 +857,12 @@ export default function Home() {
     return out;
   }, [extraction, scopeMarks, sketch]);
 
+  // The work orders worth offering: a crew whose sheet would be empty is not one of them.
+  const offeredTrades = useMemo(
+    () => availableTrades(claim, contentsApproach, exteriorLines, { extraction, paintableWallSF }),
+    [claim, contentsApproach, exteriorLines, extraction, paintableWallSF],
+  );
+
   /** What the claim already states is being placed, for the on-the-spot check in the sketch. */
   const statedEquipment = useMemo(() => {
     const out: Record<string, Partial<Record<string, number>>> = {};
@@ -1117,7 +1123,8 @@ export default function Home() {
   function handleGenerateWorkOrders() {
     setWorkOrders(
       buildWorkOrders({
-        trades: selectedTrades,
+        // Only trades still offered: one ticked before its sheet emptied would otherwise come back blank.
+        trades: selectedTrades.filter((trade) => offeredTrades.includes(trade)),
         claim,
         extraction,
         contentsApproach,
@@ -2456,9 +2463,9 @@ export default function Home() {
       {step === "results" && documents && (
         <>
           <WorkOrderSelector
-            available={availableTrades(claim, contentsApproach, exteriorLines)}
-            selected={selectedTrades}
-            unavailableNote={unavailableTradeNote(claim, contentsApproach)}
+            available={offeredTrades}
+            selected={selectedTrades.filter((trade) => offeredTrades.includes(trade))}
+            unavailableNote={unavailableTradeNote(claim, contentsApproach, { extraction, paintableWallSF })}
             onToggle={handleToggleTrade}
             onGenerate={handleGenerateWorkOrders}
           />

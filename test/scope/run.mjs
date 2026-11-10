@@ -42,7 +42,7 @@ const {
   pruneScopeMarks, scopeWallRunFeet,
   emptyMoistureMap, setRoomMoisture, resolveRound, pruneMoisture, paintedFloorSquareFeet,
   disposalForTons, estimateDebris, recommendDisposal, disposalLine, disposalLines, unweighedNote, DEBRIS_WEIGHTS,
-  emptyContentsTM, emptyBricABracData,
+  emptyContentsTM, emptyBricABracData, availableTrades, unavailableTradeNote,
 } = await import(pathToFileURL(bundlePath).href);
 
 let passed = 0;
@@ -1122,6 +1122,35 @@ check(!unscopedSheets([]).repair[0].includes("trade not yet assigned"), "and a c
   const cleanUp = "    - Clean up thoroughly at the end of each day.";
   const counts = everyTrade.map((o) => `${o.trade}: ${o.text.split(cleanUp).length - 1}`);
   check(everyTrade.length === 8 && everyTrade.every((o) => o.text.split(cleanUp).length - 1 === 1), `every work order says to clean up at the end of each day, once (got ${counts.join(", ")})`);
+}
+
+/* ── A crew is offered a sheet only when there is something on it ──────────────────────────────── */
+
+/*
+  Owner, 2026-11-10: a laminate, quarter-round and lower-cabinets kitchen offered a Drywall work order
+  with nothing to do on it. The in-house Repair crews are offered from the same room lines their
+  sheets are built from, and the note under the picker says which were left out and why.
+*/
+{
+  const repairClaim = { ...claim, scopePhases: ["EMERGENCY", "REPAIR"] };
+  const kitchen = room("Kitchen", {
+    flooring: [flooring({ type: "LAMINATE", disposition: "REMOVE_AND_DISPOSE", phase: "BOTH" })],
+    baseboard: [bbRecord({ action: "SHOE_MOLD_ONLY", material: null, mdfProfile: null, heightIn: null, shoeMold: true })],
+    cabinetry: [{ location: "lower cabinets", action: "DETACH_AND_RESET", extent: null, grade: null, shoringRequired: false }],
+  });
+  const sheets = { extraction: bbExtraction([kitchen]) };
+  const offered = availableTrades(repairClaim, "TM", null, sheets);
+  check(!offered.includes("DRYWALL"), `no wall or ceiling work, so no Drywall order (offered: ${offered.join(", ")})`);
+  check(offered.includes("MITIGATION_DEMO") && offered.includes("FINISH_CARPENTRY"), `the crews with work are still offered (offered: ${offered.join(", ")})`);
+  const note = unavailableTradeNote(repairClaim, "TM", sheets) ?? "";
+  check(/Drywall/.test(note) && /nothing on this claim/.test(note), `and the picker says why Drywall is missing (got "${note}")`);
+  const label = { DRYWALL: "Drywall", PAINTING: "Painting", FINISH_CARPENTRY: "Finish Carpentry" };
+  check(offered.filter((trade) => label[trade]).every((trade) => !note.includes(label[trade])), `without naming a crew that is offered (got "${note}")`);
+
+  const withCut = availableTrades(repairClaim, "TM", null, { extraction: bbExtraction([room("Kitchen", { ...kitchen, walls: [wall()] })]) });
+  check(withCut.includes("DRYWALL"), `a flood cut puts Drywall back (offered: ${withCut.join(", ")})`);
+  check(availableTrades(repairClaim, "TM", null, { extraction: null }).every((trade) => !["DRYWALL", "PAINTING", "FINISH_CARPENTRY"].includes(trade)), "with no tree there is nothing for the in-house Repair crews");
+  check(["DRYWALL", "PAINTING", "FINISH_CARPENTRY"].every((trade) => availableTrades(repairClaim, "TM").includes(trade)), "and a caller that passes no sheets is offered them as before");
 }
 
 /* ── Floor registers are a pair, and the PM phone is on the sheet ───────────────────────────────── */
