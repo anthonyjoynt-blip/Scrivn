@@ -25,7 +25,8 @@ import { uploadedScopeSection } from "./scopeUpload";
  * A number goes in the SF field, words go in the fraction, never both — exactly one of the pair is
  * ever set, which is what AreaFraction has always meant.
  *
- * And since 2026-11-10, a kitchen sink coming out — see `withKitchenSink`.
+ * And since 2026-11-10, a kitchen sink coming out — see `withKitchenSink` — and appliances spoken of
+ * without naming which, which the gap-check then asks for as a pick list.
  */
 
 export const EXTRACTION_SUPPLEMENT_SYSTEM_PROMPT = `You are completing a further pass over a restoration project manager's dictated walkthrough of a
@@ -61,7 +62,11 @@ WHAT EACH FIELD MEANS:
   DETACH_AND_RESET when it comes out and goes back ("detach and reset the sink", "pull the sink",
   "disconnect the plumbing" in a kitchen — the plumbing in a kitchen is the sink); REMOVE_AND_REPLACE
   when a new sink goes in ("replace the sink", "new sink"). UNKNOWN when no sink or plumbing work is
-  said for this room, and for any room that is not a kitchen (a bathroom sink is part of its vanity).`;
+  said for this room, and for any room that is not a kitchen (a bathroom sink is part of its vanity).
+- appliancesUnnamed — room-level. YES when the PM says appliances in this room are being pulled,
+  moved, detached or reset WITHOUT naming which: "all appliances", "the appliances", "pull the
+  appliances out". The PM will be asked which. UNKNOWN otherwise — including when every appliance
+  was named ("pull the fridge and the range"), and when appliances never come up.`;
 
 /** The per-room counts written out, so the model has an explicit target rather than a second reading of the transcript. */
 export function extractionSupplementUserMessage(transcript: string, extraction: WaterLossExtraction, photoNotes?: string): string {
@@ -85,6 +90,8 @@ export interface RoomSupplementWire {
   waterExtractionFraction: string;
   /** Absent on a reply from before the field existed. */
   kitchenSink?: string;
+  /** Absent on a reply from before the field existed. */
+  appliancesUnnamed?: string;
 }
 export interface ExtractionSupplementWire {
   rooms: RoomSupplementWire[];
@@ -167,6 +174,8 @@ export function mergeSupplement(extraction: WaterLossExtraction, wire: Extractio
         flooring: room.flooring.map((f, j) => ({ ...f, removalFraction: removalFractionFor(f, flooring[j]) })),
         ...waterExtractionFor(room, d),
         plumbingFixtures: withKitchenSink(room.plumbingFixtures, d.kitchenSink),
+        // Only ever true from here: false means the PM has answered which, and only the question sets that.
+        appliancesUnnamed: room.appliancesUnnamed ?? (d.appliancesUnnamed === "YES" ? true : null),
       };
     }),
   };

@@ -91,6 +91,8 @@ export function capturedSummary(room: Room): string[] {
   if (room.stairs) push("stairs");
   for (const w of room.windowCoverings) push("window covering", WINDOW_COVERING_LABEL[w.type], w.location, nat(w.action));
   for (const a of room.appliances) push("appliance", APPLIANCE_LABEL[a.type], nat(a.action));
+  // "All appliances": not named yet, but captured — the PM is asked which, so it is not missing work.
+  if (room.appliancesUnnamed === true) push("appliances", "detached and reset — which ones is asked separately");
   for (const e of room.equipment) push("equipment", e.type, e.quantity !== null ? `× ${e.quantity}` : null, e.holeCount !== null ? `${e.holeCount} injection holes drilled and filled` : isInjectionEquipment(e.type) ? "injection holes drilled and filled" : null);
   if (room.floorRegistersDetached) push("floor registers", `× ${room.floorRegistersDetached}`);
   if (room.windowCleaningCounts) push("windows cleaned after drywall work");

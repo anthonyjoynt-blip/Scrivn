@@ -564,6 +564,14 @@ check(needsSupplementPass(tree([room("Anything")])) === true && needsSupplementP
   check(mergeSupplement(tree([vanityToo]), supp([roomSupp({ kitchenSink: "DETACH_AND_RESET" })])).rooms[0].plumbingFixtures.length === 2, "and sits beside any other fixture the room has");
   const miscounted = mergeSupplement(tree([KITCHEN]), supp([roomSupp({ flooring: [], kitchenSink: "DETACH_AND_RESET" })])).rooms[0];
   check(sinkOf(miscounted).length === 0, "a room whose flooring count came back wrong takes no sink either");
+
+  // "All appliances" with none named: flagged, so the gap-check asks which (owner, 2026-11-10).
+  const unnamed = (said, over = {}) => mergeSupplement(tree([room("Kitchen", { ...KITCHEN, ...over })]), supp([roomSupp({ appliancesUnnamed: said })])).rooms[0].appliancesUnnamed;
+  check(unnamed("YES") === true, "appliances spoken of without names are flagged");
+  check(unnamed("NO") === null && unnamed("UNKNOWN") === null && unnamed(undefined) === null, "and nothing else sets the flag: false means the PM has answered which, and only the question says that");
+  check(unnamed("YES", { appliancesUnnamed: false }) === false, "an answered pick list is never reopened by a re-read");
+  const captured = capturedSummary(room("Kitchen", { appliancesUnnamed: true }));
+  check(captured.some((line) => /^appliances — /.test(line)), `the missed-work pass is told they are captured, so "all appliances" is not listed as missing (got ${JSON.stringify(captured)})`);
 }
 
 const suppMessage = extractionSupplementUserMessage("the transcript", tree([room("Kitchen", { flooring: [flooring("VINYL"), flooring("CARPET")] }), room("Hall")]));

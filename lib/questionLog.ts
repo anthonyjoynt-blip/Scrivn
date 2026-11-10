@@ -1,5 +1,5 @@
 import type { ClaimInfo } from "./claimInfo";
-import { parseBucketCounts, type GapCheckQuestion } from "./questions";
+import { parseBucketCounts, parseMultiChoice, type GapCheckQuestion } from "./questions";
 
 /**
  * What was asked, in the order it was asked, and what came back.
@@ -70,6 +70,8 @@ function describeAnswer(question: GapCheckQuestion, answer: string): string {
       return answer === "none" ? `No ${kind.unit} required` : `${answer} ${kind.unit}`;
     case "confirmOrSuggest":
       return `${answer} ${kind.unit}`;
+    case "multiChoice":
+      return parseMultiChoice(answer).join(", ");
     default:
       return answer;
   }

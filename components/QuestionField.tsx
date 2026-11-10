@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { type GapCheckQuestion, formatBucketCounts, isQuestionAnswered, parseBucketCounts } from "@/lib/questions";
+import { type GapCheckQuestion, formatBucketCounts, formatMultiChoice, isQuestionAnswered, parseBucketCounts, parseMultiChoice } from "@/lib/questions";
 
 /**
  * Renders one follow-up question's input, keyed off `question.kind` — the component never needs
@@ -89,6 +89,10 @@ export function QuestionField({
             </button>
           ))}
         </div>
+      )}
+
+      {kind.type === "multiChoice" && (
+        <MultiChoiceField question={question} options={kind.options} none={kind.none} value={value} onChange={onChange} />
       )}
 
       {kind.type === "confirmOrSuggest" && (
@@ -215,6 +219,46 @@ export function QuestionField({
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * Any number of options, each tapped on and off; the none button clears the rest, and tapping any
+ * option clears it. Answered once something is chosen — see `isQuestionAnswered`.
+ */
+function MultiChoiceField({
+  question,
+  options,
+  none,
+  value,
+  onChange,
+}: {
+  question: GapCheckQuestion;
+  options: string[];
+  none: string;
+  value: string | undefined;
+  onChange: (id: string, value: string) => void;
+}) {
+  const chosen = parseMultiChoice(value ?? "");
+  const toggle = (option: string) => {
+    if (option === none) return onChange(question.id, chosen.includes(none) ? "" : none);
+    const rest = chosen.filter((c) => c !== none);
+    onChange(question.id, formatMultiChoice(rest.includes(option) ? rest.filter((c) => c !== option) : [...rest, option]));
+  };
+  return (
+    <div className="option-group" role="group" aria-label={question.prompt}>
+      {[...options, none].map((option) => (
+        <button
+          key={option}
+          type="button"
+          className={`option-btn${chosen.includes(option) ? " selected" : ""}`}
+          aria-pressed={chosen.includes(option)}
+          onClick={() => toggle(option)}
+        >
+          {option}
+        </button>
+      ))}
     </div>
   );
 }

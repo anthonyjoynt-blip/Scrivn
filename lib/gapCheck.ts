@@ -1,5 +1,7 @@
 import type {
   ApplianceFuel,
+  ApplianceRecord,
+  ApplianceType,
   AreaFraction,
   BaseboardAction,
   BaseboardDisposition,
@@ -75,7 +77,7 @@ import {
   totalWindowsToClean,
   withDerivedFields,
 } from "./types";
-import { type GapCheckQuestion, type GapCheckQuestionKind, type GapCheckResult, parseBucketCounts } from "./questions";
+import { type GapCheckQuestion, type GapCheckQuestionKind, type GapCheckResult, parseBucketCounts, parseMultiChoice } from "./questions";
 import { isPlaceholderRoomName } from "./sketch";
 
 /**
@@ -451,6 +453,21 @@ export function evaluate(raw: WaterLossExtraction, suggestions?: EquipmentSugges
         kind: { type: "choice", options: ["Still in place — detach and reset", "Already out — reset only"] },
       });
     });
+    /*
+      "All appliances", none named (owner, 2026-11-10: "should be able to select fridge, range -
+      electric or gas, dishwasher"). Each pick becomes an appliance record, so it is a detach/reset
+      pair everywhere appliances already are. Types the room already has are left off the list.
+    */
+    if (room.appliancesUnnamed === true) {
+      const have = new Set(room.appliances.map((a) => a.type));
+      const options = APPLIANCE_PICKS.filter((p) => !have.has(p.type)).map((p) => p.label);
+      questions.push({
+        id: `room:${roomIndex}:appliances:which`,
+        roomName: room.roomName,
+        prompt: "Which appliances are being detached and reset? Tap each one.",
+        kind: { type: "multiChoice", options, none: NO_APPLIANCES },
+      });
+    }
     // A range's fuel, every time: a gas range has a line to disconnect and is priced apart (owner, 2026-11-10).
     room.appliances.forEach((a, i) => {
       if (a.type !== "RANGE" || (a.fuel ?? null) !== null) return;
@@ -1452,6 +1469,37 @@ const UNSCOPED_OPTIONS = ["Emergency", "Repair", "Both phases", "Not part of thi
 
 /** A range's fuel. */
 const RANGE_FUEL_OPTIONS = ["Electric", "Gas"];
+
+/** The appliance pick list: each label and what it records. A range comes as electric or gas, since the two are priced apart. */
+const APPLIANCE_PICKS: { label: string; type: ApplianceType; fuel?: ApplianceFuel }[] = [
+  { label: "Fridge", type: "FRIDGE" },
+  { label: "Range – electric", type: "RANGE", fuel: "ELECTRIC" },
+  { label: "Range – gas", type: "RANGE", fuel: "GAS" },
+  { label: "Dishwasher", type: "DISHWASHER" },
+  { label: "Built-in microwave", type: "BUILT_IN_MICROWAVE" },
+  { label: "Range hood", type: "RANGE_HOOD" },
+  { label: "Built-in oven", type: "BUILT_IN_OVEN" },
+  { label: "Cooktop", type: "COOKTOP" },
+  { label: "Washer", type: "WASHER" },
+  { label: "Dryer", type: "DRYER" },
+];
+const NO_APPLIANCES = "None of these";
+
+/** The picks as records, one per type, beside what the room already has; settles the question. Nothing usable changes nothing, so it is asked again. */
+function applyAppliancePicks(room: Room, answer: string): Room {
+  if (room.appliancesUnnamed !== true) return room;
+  const chosen = parseMultiChoice(answer);
+  const picks = APPLIANCE_PICKS.filter((p) => chosen.includes(p.label));
+  if (picks.length === 0 && !chosen.includes(NO_APPLIANCES)) return room;
+  const have = new Set(room.appliances.map((a) => a.type));
+  const added: ApplianceRecord[] = [];
+  for (const p of picks) {
+    if (have.has(p.type)) continue;
+    have.add(p.type);
+    added.push(p.fuel ? { type: p.type, action: null, fuel: p.fuel } : { type: p.type, action: null });
+  }
+  return { ...room, appliances: [...room.appliances, ...added], appliancesUnnamed: false };
+}
 
 /** Unrecognised leaves it open, so the item is asked again rather than landing in a phase nobody chose. */
 function unscopedDispositionAnswer(answer: string): UnscopedDisposition | null {
@@ -2468,6 +2516,9 @@ export function applyAnswer(extraction: WaterLossExtraction, questionId: string,
   }
   if (parts.length >= 5 && parts[0] === "room" && parts[2] === "door") {
     return updateList(extraction, roomIndex(parts), Number(parts[3]), (r) => r.doors, (r, l) => ({ ...r, doors: l }), (d) => applyDoorAnswer(d, parts[4]!, answer));
+  }
+  if (parts.length === 4 && parts[0] === "room" && parts[2] === "appliances" && parts[3] === "which") {
+    return updateRoom(extraction, roomIndex(parts), (room) => applyAppliancePicks(room, answer));
   }
   if (parts.length >= 5 && parts[0] === "room" && parts[2] === "appliance" && parts[4] === "fuel") {
     // Unrecognised leaves it open, so it is asked again.

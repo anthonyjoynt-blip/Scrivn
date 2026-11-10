@@ -111,6 +111,9 @@ function answerFor(q, choose) {
       return "2";
     case "decimal":
       return "2.5";
+    case "multiChoice":
+      // The first real option: a pick, so the records it makes are exercised too.
+      return q.kind.options[0] ?? q.kind.none;
     case "bucketCounts":
       // One of each bucket — exercises the multi-band path rather than collapsing to a single value.
       return q.kind.buckets.map((b) => `${b.key}:1`).join(",");
@@ -3278,6 +3281,47 @@ check(
   check(fuel("propane?") === null && fuelQs(withDerivedFields(applyAnswer(tree, "room:0:appliance:0:fuel", "propane?"))).length === 1, "an unrecognised answer leaves it open, so it is asked again");
   check(fuelQs(kitchen([{ type: "RANGE", action: null, fuel: "GAS" }])).length === 0, "and a range whose fuel is known is not asked");
   check(!isRepairOnlyQuestion("room:0:appliance:0:fuel") && !isEmergencyOnlyQuestion("room:0:appliance:0:fuel"), "it names both halves, so it is asked whatever the phases");
+}
+
+/* ── "All appliances" asks which, as a pick list ──────────────────────────────────────────────── */
+
+/*
+  Owner, 2026-11-10: "I say all appliances but not whats there, should be able to select fridge,
+  range - electric or gas, dishwasher". Extraction flags appliances spoken of without names; the
+  room asks once which, any number of them, and each pick becomes an appliance record.
+*/
+{
+  const kitchen = (o = {}) => withDerivedFields(extractionWith([room("Kitchen", { appliancesUnnamed: true, ...o })]));
+  const which = (tree) => nextQuestions(claim, tree).filter((q) => q.id.endsWith(":appliances:which"));
+  const asked = which(kitchen());
+  check(asked.length === 1 && asked[0].id === "room:0:appliances:which" && asked[0].kind.type === "multiChoice", `one pick-list question for the room (got ${asked.map((q) => `${q.id} ${q.kind.type}`).join(", ")})`);
+  check(
+    same(asked[0]?.kind.options, ["Fridge", "Range – electric", "Range – gas", "Dishwasher", "Built-in microwave", "Range hood", "Built-in oven", "Cooktop", "Washer", "Dryer"]) && asked[0]?.kind.none === "None of these",
+    `the appliances, a range as electric or gas, and a way to say none (got ${JSON.stringify(asked[0]?.kind)})`,
+  );
+  const named = which(kitchen({ appliances: [{ type: "FRIDGE", action: null }, { type: "RANGE", action: null }] }))[0]?.kind.options ?? [];
+  check(!named.includes("Fridge") && !named.some((o) => o.startsWith("Range –")) && named.includes("Dishwasher"), `what the room already has is left off (got ${JSON.stringify(named)})`);
+
+  const answered = (answer, o) => withDerivedFields(applyAnswer(kitchen(o), "room:0:appliances:which", answer));
+  const picked = answered("Fridge|Range – gas|Dishwasher");
+  check(
+    same(picked.rooms[0].appliances, [{ type: "FRIDGE", action: null }, { type: "RANGE", action: null, fuel: "GAS" }, { type: "DISHWASHER", action: null }]) && picked.rooms[0].appliancesUnnamed === false,
+    `each pick becomes an appliance, the range with its fuel, and the question is settled (got ${JSON.stringify(picked.rooms[0].appliances)} / ${picked.rooms[0].appliancesUnnamed})`,
+  );
+  check(nextQuestions(claim, picked).filter((q) => /:appliances?:/.test(q.id)).length === 0, "so nothing more is asked — not even the range's fuel, which the pick gave");
+  const none = answered("None of these");
+  check(none.rooms[0].appliances.length === 0 && none.rooms[0].appliancesUnnamed === false && which(none).length === 0, "\"None of these\" settles it with nothing added");
+  for (const junk of ["", "Toaster"]) {
+    check(answered(junk).rooms[0].appliancesUnnamed === true && which(answered(junk)).length === 1, `an answer with no real pick (${JSON.stringify(junk)}) changes nothing, so it is asked again`);
+  }
+  check(answered("Dishwasher", { appliances: [{ type: "DISHWASHER", action: "RESET_ONLY" }] }).rooms[0].appliances.length === 1, "a pick the room already has is not doubled");
+  check(which(kitchen({ appliancesUnnamed: false })).length === 0 && which(kitchen({ appliancesUnnamed: null })).length === 0, "and a room with nothing unnamed is not asked");
+
+  const q = asked[0];
+  check(!isQuestionAnswered(q, undefined) && !isQuestionAnswered(q, ""), "nothing tapped is not an answer");
+  check(isQuestionAnswered(q, "Fridge|Dishwasher") && isQuestionAnswered(q, "None of these"), "one or more picks is, and so is none");
+  check(!isQuestionAnswered(q, "Toaster"), "and a label that is not on the list is not");
+  check(runToCompletion(claim, kitchen()).ok, "and a kitchen of unnamed appliances finishes");
 }
 
 rmSync(outDir, { recursive: true, force: true });

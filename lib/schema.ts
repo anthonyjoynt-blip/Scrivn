@@ -453,6 +453,8 @@ export const extractionSupplementSchema: JsonSchema = obj({
     waterExtractionFraction: nullableEnumOf("QUARTER", "HALF", "THREE_QUARTERS", "FULL"),
     // A kitchen sink coming out, and how. Call 1's plumbing enum is vanity and toilet only (it is full).
     kitchenSink: nullableEnumOf("DETACH_AND_RESET", "REMOVE_AND_REPLACE"),
+    // Appliances spoken of without naming which — "all appliances". The gap-check asks which.
+    appliancesUnnamed: nullableBool(),
   })),
 });
 

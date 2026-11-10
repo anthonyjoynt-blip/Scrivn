@@ -97,6 +97,12 @@ export interface Room {
    */
   appliances: ApplianceRecord[];
   /**
+   * The PM spoke of appliances without naming which ("detach and reset all appliances"). True asks
+   * the room's pick-list question; answering it adds the records and sets this false. Set by extraction
+   * call 4 (only ever true or left null there), absent on rooms saved before it existed (2026-11-10).
+   */
+  appliancesUnnamed?: boolean | null;
+  /**
    * Casings, jambs, sills and returns — the trim AROUND an opening, as opposed to the door or
    * window itself. See {@link TrimRecord}.
    *

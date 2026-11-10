@@ -78,6 +78,10 @@ export function answerFor(question, claimName) {
       return pick(seed, kind.options);
     }
 
+    case "multiChoice":
+      // One real pick, the way a PM taps the appliance that is there.
+      return pick(seed, kind.options.length > 0 ? kind.options : [kind.none]);
+
     case "wholeNumber":
       return pick(seed, SMALL_COUNTS);
 

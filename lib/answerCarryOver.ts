@@ -504,6 +504,17 @@ function carryRoomAnswer(now: Room, old: Room, field: string): Room | null {
       };
     }
 
+    /*
+      "Which appliances are being detached and reset?" — asked when the new read heard appliances
+      but no names. The old room's answer is the appliances it added and the flag it settled; those
+      the new read already has are not doubled.
+    */
+    case "appliances:which": {
+      if (now.appliancesUnnamed !== true || old.appliancesUnnamed !== false) return null;
+      const have = new Set(now.appliances.map((a) => a.type));
+      return { ...now, appliances: [...now.appliances, ...old.appliances.filter((a) => !have.has(a.type)).map((a) => ({ ...a }))], appliancesUnnamed: false };
+    }
+
     // "None — nothing to move" is recorded as manipulation declined, any other answer as a size.
     case "contents:size": {
       const was = old.contents;

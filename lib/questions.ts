@@ -63,7 +63,17 @@ export type GapCheckQuestionKind =
    * The answer is `key:count` pairs joined by commas, e.g. `SF_3_9:1,SF_21_40:2`. Omitted buckets
    * are zero. `parseBucketCounts` is the only thing that should read it.
    */
-  | { type: "bucketCounts"; buckets: { key: string; label: string }[]; unit: string };
+  | { type: "bucketCounts"; buckets: { key: string; label: string }[]; unit: string }
+  /**
+   * Any number of the options, tapped on and off; or `none`, which clears the rest.
+   *
+   * For a list the PM picks from rather than one answer (owner, 2026-11-10: "I say all appliances
+   * but not whats there, should be able to select fridge, range - electric or gas, dishwasher").
+   * `none` is its own button so "nothing here" is a decision rather than a blank, which is
+   * unanswered. The answer is the chosen labels joined by `|` — `parseMultiChoice` and
+   * `formatMultiChoice` are the only things that should read or write it.
+   */
+  | { type: "multiChoice"; options: string[]; none: string };
 
 /**
  * Reads a `bucketCounts` answer. Unknown keys and unparseable counts are dropped rather than
@@ -89,6 +99,16 @@ export function formatBucketCounts(counts: Record<string, number>): string {
     .join(",");
 }
 
+/** The labels a `multiChoice` answer chose, in the order given, blanks and repeats gone. */
+export function parseMultiChoice(answer: string): string[] {
+  return Array.from(new Set(answer.split("|").map((part) => part.trim()).filter((part) => part !== "")));
+}
+
+/** The inverse, so the UI and the tests write the format in exactly one place. */
+export function formatMultiChoice(chosen: string[]): string {
+  return chosen.join("|");
+}
+
 /**
  * Whether `value` is an acceptable answer for `question` — what gates the "Continue" button.
  *
@@ -112,6 +132,12 @@ export function isQuestionAnswered(question: GapCheckQuestion, rawValue: string 
   if (question.kind.type === "decimal") return Number.isFinite(n) && n >= 0;
   // A plan is the literal "none" or a count.
   if (question.kind.type === "equipmentPlan") return value === "none" || (Number.isInteger(n) && n >= 0);
+  // At least one real option, or the none button.
+  if (question.kind.type === "multiChoice") {
+    const allowed = new Set([...question.kind.options, question.kind.none]);
+    const chosen = parseMultiChoice(value);
+    return chosen.length > 0 && chosen.every((c) => allowed.has(c));
+  }
   return true;
 }
 
