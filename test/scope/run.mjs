@@ -1264,10 +1264,16 @@ const repairFloor = fl({ type: "VINYL", vinylSubtype: "PLANK", removalSF: 100, p
 check(poundsOf([repairFloor], {}, "EMERGENCY") === 0 && near(poundsOf([repairFloor], {}, "REPAIR"), 180), "a floor coming out on the repair visit weighs on the repair side only");
 check(poundsOf([room("Hall", { walls: [wall({ cutHeight: "TWO_FOOT", cutRunFt: 30 })] })], {}, "REPAIR") === 0, "drywall is always emergency debris");
 
-// Unscoped work has words but no weight; it is named where it was placed.
+// Unscoped work has words but no weight; it is named on the Emergency line, where things come out.
 const unscopedRoom = room("Bath", { unscoped: [{ description: "remove tub-surround tile", disposition: "EMERGENCY" }, { description: "replace two outlets", disposition: "REPAIR" }, { description: "dropped thing", disposition: "DROPPED" }, { description: "undecided thing", disposition: null }] });
 check(same(debris([unscopedRoom]).unweighed, [{ item: "remove tub-surround tile", room: "Bath" }]), `emergency unscoped work is listed as unweighed on the emergency side (got ${JSON.stringify(debris([unscopedRoom]).unweighed)})`);
-check(same(debris([unscopedRoom], {}, "REPAIR").unweighed, [{ item: "replace two outlets", room: "Bath" }]), "and repair work on the repair side — dropped and undecided items on neither");
+check(same(debris([unscopedRoom], {}, "REPAIR").unweighed, []), `and nothing on the repair side: what is placed there goes back in (got ${JSON.stringify(debris([unscopedRoom], {}, "REPAIR").unweighed)})`);
+{
+  // The owner's 2026-11-10 kitchen: its repair disposal line listed resets and a clean as debris.
+  const kitchen = room("Kitchen", { unscoped: [{ description: "Detach and reset all appliances", disposition: "REPAIR" }, { description: "Detach and reset plumbing", disposition: "REPAIR" }, { description: "Final clean", disposition: "REPAIR" }] });
+  const line = disposalLine(recommendDisposal(bbExtraction([kitchen]), {}, "REPAIR"));
+  check(line === "Disposal – pickup", `so a repair disposal line names no resets or cleaning as debris (got "${line}")`);
+}
 /*
   A both-phases item comes out in Emergency and goes back in Repair, so it is debris once. The paid
   check on 2026-11-09 printed the Repair disposal line as "not weighed: Install new toe kicks…" — an

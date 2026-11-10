@@ -197,11 +197,12 @@ export function estimateDebris(extraction: WaterLossExtraction, areas: RoomAreas
   for (const room of extraction.rooms) {
     roomDebris(room, areas[normaliseRoomName(room.roomName)], phase, estimate);
     // Work with no field has words but no quantity. It is real debris — a tub surround is heavy —
-    // so it is named on the line as unweighed rather than left out of the picture. A both-phases
-    // item comes out in its Emergency half, so it is named there once: its Repair half is what goes
-    // back in, and naming it on the repair line too read as the same toe kicks hauled away twice.
+    // so it is named on the line as unweighed rather than left out of the picture. Only on the
+    // Emergency line, where things come out: an item placed in Repair, or the Repair half of a
+    // both-phases one, is what goes back in. Named on the repair line, "Detach and reset all
+    // appliances" and "Final clean" read as debris to haul away (owner, 2026-11-10).
     for (const u of room.unscoped) {
-      if (u.disposition === phase || (u.disposition === "BOTH" && phase === "EMERGENCY")) estimate.unweighed.push({ item: u.description, room: room.roomName || "Room" });
+      if (phase === "EMERGENCY" && (u.disposition === "EMERGENCY" || u.disposition === "BOTH")) estimate.unweighed.push({ item: u.description, room: room.roomName || "Room" });
     }
   }
   return estimate;
