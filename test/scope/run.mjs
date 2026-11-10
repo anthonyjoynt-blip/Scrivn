@@ -42,6 +42,7 @@ const {
   pruneScopeMarks, scopeWallRunFeet,
   emptyMoistureMap, setRoomMoisture, resolveRound, pruneMoisture, paintedFloorSquareFeet,
   disposalForTons, estimateDebris, recommendDisposal, disposalLine, disposalLines, unweighedNote, DEBRIS_WEIGHTS,
+  emptyContentsTM, emptyBricABracData,
 } = await import(pathToFileURL(bundlePath).href);
 
 let passed = 0;
@@ -302,7 +303,8 @@ ${cat1Text})`);
 
 // Not stated is not "no" — but it is not a line either.
 const unstated = emergencyFor(cat3, [room("Storage Area", { flooring: [flooring()] })]);
-check(!/Clean/.test(unstated), "a floor nobody said to clean gets no cleaning line");
+// The sheet's items only: every sheet's standing notes say to clean up at the end of each day.
+check(!/Clean/.test(unstated.split("\nNotes")[0]), "a floor nobody said to clean gets no cleaning line");
 
 const anti = emergencyFor(cat3, [room("Rec Room", { antimicrobialApplied: true }), room("Storage Area", { antimicrobialApplied: true })]);
 check(
@@ -1100,6 +1102,27 @@ for (const [label, disposition] of [["dropped", "DROPPED"], ["undecided", null]]
   check(!none.emergency.includes("tub-surround") && none.repair.every((t) => !t.includes("tub-surround")), `a ${label} item reaches no sheet at all`);
 }
 check(!unscopedSheets([]).repair[0].includes("trade not yet assigned"), "and a claim with nothing unscoped carries no note about it");
+
+/* ── Every crew is told to clean up ───────────────────────────────────────────────────────────── */
+
+/*
+  Owner, 2026-11-10: the work orders should say by default to clean up when the day's work is done.
+  It was on three sheets; now it is a standing note, so every sheet carries it exactly once.
+*/
+{
+  const everyTrade = buildWorkOrders({
+    trades: ["MITIGATION_DEMO", "DRYWALL", "PAINTING", "FINISH_CARPENTRY", "ROOFING", "SIDING", "CONTENTS_PACK_OUT", "CONTENTS_PACK_BACK"],
+    claim: { ...claim, scopePhases: ["EMERGENCY", "REPAIR", "CONTENTS"] },
+    extraction: bbExtraction([room("Kitchen", { baseboard: [bbRecord()] })]),
+    contentsApproach: "TM",
+    contentsTM: emptyContentsTM(),
+    bricABrac: emptyBricABracData(),
+    dgigData: null,
+  });
+  const cleanUp = "    - Clean up thoroughly at the end of each day.";
+  const counts = everyTrade.map((o) => `${o.trade}: ${o.text.split(cleanUp).length - 1}`);
+  check(everyTrade.length === 8 && everyTrade.every((o) => o.text.split(cleanUp).length - 1 === 1), `every work order says to clean up at the end of each day, once (got ${counts.join(", ")})`);
+}
 
 /* ── Floor registers are a pair, and the PM phone is on the sheet ───────────────────────────────── */
 

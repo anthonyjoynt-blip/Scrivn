@@ -208,6 +208,9 @@ const STANDING_NOTES = [
   "Wear appropriate PPE at all times.",
   "Take photos before and after work.",
   "Complete all required paperwork.",
+  // Every crew, not three of them (owner, 2026-11-10). It was on Drywall, Painting and Finish
+  // Carpentry only, so the Mitigation & Demo and contents sheets said nothing about leaving the site clean.
+  "Clean up thoroughly at the end of each day.",
 ];
 
 /**
@@ -249,7 +252,6 @@ function tradeNotes(trade: Trade, rooms: Room[]): string[] {
     case "DRYWALL":
       return [
         "Mask and protect flooring, contents and adjacent finishes from drywall dust before starting.",
-        "Clean up thoroughly at the end of each day.",
         ...unassigned,
       ];
 
@@ -257,7 +259,6 @@ function tradeNotes(trade: Trade, rooms: Room[]): string[] {
       return [
         "Mask and protect flooring, contents and adjacent finishes before starting.",
         "Confirm colours with the PM before starting, and check whether samples are needed. Pick up materials if required.",
-        "Clean up thoroughly at the end of each day.",
         ...unassigned,
       ];
 
@@ -271,7 +272,7 @@ function tradeNotes(trade: Trade, rooms: Room[]): string[] {
     case "SIDING":
       return [
         "Confirm the profile and colour with the PM before ordering.",
-        "Protect landscaping and windows; clean up thoroughly at the end of each day.",
+        "Protect landscaping and windows.",
         "Report any damaged sheathing or wet framing to the PM before covering it.",
       ];
 
@@ -283,7 +284,6 @@ function tradeNotes(trade: Trade, rooms: Room[]): string[] {
               "Fill nail holes.",
             ]
           : []),
-        "Clean up thoroughly at the end of each day.",
         ...unassigned,
       ];
 
