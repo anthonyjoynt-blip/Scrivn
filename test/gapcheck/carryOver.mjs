@@ -103,6 +103,8 @@ export function checkCarryOver({ mod, check, claim, room, extractionWith, runToC
           ceilings: [ceiling({ type: "SUSPENDED_TILE" }), ceiling({ type: "SUSPENDED_TILE", action: "DETACH_AND_RESET" })],
           containmentRequired: true,
         }),
+        // Lower cabinets with no countertop said, so the room's countertop question is asked.
+        room("Wet Bar", { cabinetry: [cabinet({ location: "bar sink base", action: "DETACH_AND_RESET", extent: "LOWERS" })] }),
       ],
       { yearOfBuilding: 1975, isBasementLoss: true, hvacInspectionRequired: null },
     );
@@ -163,7 +165,7 @@ export function checkCarryOver({ mod, check, claim, room, extractionWith, runToC
     ...["slabOnly", "doorType", "doorStyle", "unitType", "saveHardware"].map((f) => `room:N:door:N:${f}`),
     // Not "grade": no longer asked (2026-10-30). Its rule stays, for a grade answered before then.
     ...["extent", "shoringRequired"].map((f) => `room:N:cabinetry:N:${f}`),
-    "room:N:countertop:N:material",
+    "room:N:countertop:N:material", "room:N:countertop:withCabinets",
     ...["finish", "textureStyle", "aboveInsulationAffected", "aboveInsulationType", "aboveInsulationRValue", "replaceSF", "detachScope", "tileSize", "mountMethod"]
       .map((f) => `room:N:ceiling:N:${f}`),
     ...["topDetached", "topKept", "topMaterial"].map((f) => `room:N:plumbing:N:${f}`),

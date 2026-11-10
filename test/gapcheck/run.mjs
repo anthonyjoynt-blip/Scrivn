@@ -3201,6 +3201,51 @@ check(
   check(removal("50").removalSF === 50, "while a real one is kept");
 }
 
+/* ── Cabinets coming out ask what happens to the countertop ───────────────────────────────────── */
+
+/*
+  Owner, 2026-11-10: "detach and reset the lower cabinets", no countertop mentioned. The shoring
+  question was answered No — so the top came off with them — and nothing followed: no countertop in
+  the scope, no material asked. Now a room with cabinets under a top and no countertop recorded asks
+  once what happens to it, and "comes off" (detach & reset or remove & replace, asked every time)
+  creates the countertop record, whose material question follows like any other countertop's.
+*/
+{
+  const cab = (o = {}) => ({ location: "lower cabinets", action: "DETACH_AND_RESET", extent: "LOWERS", grade: null, shoringRequired: null, ...o });
+  const kitchenWith = (o) => withDerivedFields(extractionWith([room("Kitchen", o)]));
+  const qs = (tree) => nextQuestions(claim, tree).filter((q) => /:(cabinetry|countertop)[:]/.test(q.id));
+  const ids = (tree) => qs(tree).map((q) => q.id).join(", ");
+
+  const lowers = kitchenWith({ cabinetry: [cab()] });
+  const asked = qs(lowers);
+  check(asked.length === 1 && asked[0].id === "room:0:countertop:withCabinets", `lower cabinets with no countertop said ask about the top, instead of the shoring yes/no (got ${ids(lowers)})`);
+  check(same(asked[0]?.kind.options, ["Comes off — detach & reset", "Comes off — remove & replace", "Stays up — shore it", "No countertop"]), `detach & reset or remove & replace, every time, or held up, or none (got ${JSON.stringify(asked[0]?.kind.options)})`);
+  check(asked[0]?.prompt.includes("lower cabinets"), `naming the cabinets (got "${asked[0]?.prompt}")`);
+
+  const answered = (answer) => withDerivedFields(applyAnswer(lowers, "room:0:countertop:withCabinets", answer)).rooms[0];
+  const dr = answered("Comes off — detach & reset");
+  check(same(dr.countertops, [{ action: "DETACH_AND_RESET", material: null }]) && dr.cabinetry[0].shoringRequired === false, `"comes off — detach & reset" creates the countertop and settles the shoring (got ${JSON.stringify([dr.countertops, dr.cabinetry[0].shoringRequired])})`);
+  const afterDr = withDerivedFields(applyAnswer(lowers, "room:0:countertop:withCabinets", "Comes off — detach & reset"));
+  check(ids(afterDr) === "room:0:countertop:0:material", `and its material is asked next (got ${ids(afterDr)})`);
+  check(answered("Comes off — remove & replace").countertops[0]?.action === "REMOVE_AND_REPLACE", "\"comes off — remove & replace\" creates one to be replaced");
+  const shored = answered("Stays up — shore it");
+  check(shored.countertops.length === 0 && shored.cabinetry[0].shoringRequired === true, "\"stays up\" is shoring, with no countertop line");
+  const none = answered("No countertop");
+  check(none.countertops.length === 0 && none.cabinetry[0].shoringRequired === false, "\"no countertop\" is neither");
+  for (const answer of ["Stays up — shore it", "No countertop"]) {
+    check(qs(withDerivedFields(applyAnswer(lowers, "room:0:countertop:withCabinets", answer))).length === 0, `and once answered "${answer}" nothing more is asked`);
+  }
+  check(same(answered("maybe"), lowers.rooms[0]), "an unrecognised answer changes nothing, so it is asked again");
+
+  check(ids(kitchenWith({ cabinetry: [cab({ extent: "UPPERS" })] })) === "room:0:cabinetry:0:shoringRequired", `upper cabinets have no countertop: they keep the shoring question (got ${ids(kitchenWith({ cabinetry: [cab({ extent: "UPPERS" })] }))})`);
+  const toldTop = kitchenWith({ cabinetry: [cab()], countertops: [{ action: "REMOVE_AND_REPLACE", material: "LAMINATE" }] });
+  check(ids(toldTop) === "room:0:cabinetry:0:shoringRequired", `a room whose countertop was said keeps the shoring question and is not asked about the top (got ${ids(toldTop)})`);
+  const unknownExtent = kitchenWith({ cabinetry: [cab({ extent: null })] });
+  check(ids(unknownExtent) === "room:0:cabinetry:0:extent", `with the extent unknown, only the extent is asked — it decides which question follows (got ${ids(unknownExtent)})`);
+  check(qs(kitchenWith({ cabinetry: [cab({ shoringRequired: true })] })).length === 0, "a cabinet the PM said to shore is asked nothing");
+  check(runToCompletion(claim, lowers).ok, "and a kitchen answered with first choices finishes");
+}
+
 rmSync(outDir, { recursive: true, force: true });
 
 for (const f of failures) console.error("  FAIL " + f);

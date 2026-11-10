@@ -460,8 +460,13 @@ export function evaluate(raw: WaterLossExtraction, suggestions?: EquipmentSugges
     }
 
     // ---- Fixtures and joinery ----
-    room.cabinetry.forEach((c, i) => questions.push(...cabinetryQuestions(roomIndex, room.roomName, i, c, room.cabinetry.length === 1)));
+    room.cabinetry.forEach((c, i) => questions.push(...cabinetryQuestions(roomIndex, room.roomName, i, c, room.cabinetry.length === 1, room.countertops.length > 0)));
     room.toeKicks.forEach((t, i) => questions.push(...toeKickQuestions(roomIndex, room.roomName, i, t)));
+    /*
+      Lower cabinets coming out with no countertop mentioned left the top out of the scope altogether:
+      "no shoring" meant it came off with them, and nothing followed (owner, 2026-11-10).
+    */
+    questions.push(...countertopWithCabinetsQuestion(roomIndex, room));
     room.countertops.forEach((c, i) => questions.push(...countertopQuestions(roomIndex, room.roomName, i, c)));
     room.plumbingFixtures.forEach((p, i) => questions.push(...plumbingQuestions(roomIndex, room.roomName, i, p)));
     if (room.electricalPanel) questions.push(...panelQuestions(roomIndex, room.roomName, room.electricalPanel));
@@ -1512,7 +1517,7 @@ function looksLikeBathroom(roomName: string): boolean {
   return /\b(bath|bathroom|ensuite|en[- ]?suite|powder|washroom|wc)\b/i.test(roomName);
 }
 
-function cabinetryQuestions(roomIndex: number, roomName: string, i: number, c: CabinetryRecord, onlyRecord: boolean): GapCheckQuestion[] {
+function cabinetryQuestions(roomIndex: number, roomName: string, i: number, c: CabinetryRecord, onlyRecord: boolean, roomHasCountertop: boolean): GapCheckQuestion[] {
   const q: GapCheckQuestion[] = [];
   const base = `room:${roomIndex}:cabinetry:${i}`;
 
@@ -1563,13 +1568,69 @@ function cabinetryQuestions(roomIndex: number, roomName: string, i: number, c: C
     record out of cabinetry altogether, and a question about a record that may stop existing is one
     the PM answers for nothing. Once extent is set, the round after the answer asks it.
   */
-  if (c.shoringRequired === null && !offeringVanity)
+  /*
+    In a room where nothing said there was a countertop, a cabinet under one is settled by the room's
+    countertop question instead, which asks what happens to the top as well as whether it is held up.
+    One whose extent is not known yet waits for it: the extent decides which of the two it gets.
+  */
+  const settledByTopQuestion = !roomHasCountertop && (c.extent === null || underCountertop(c));
+  if (c.shoringRequired === null && !offeringVanity && !settledByTopQuestion)
     q.push({
       id: `${base}:shoringRequired`, roomName,
       prompt: "Is anything staying in place above this cabinet that needs shoring while it is out?",
       kind: { type: "yesNo" },
     });
   return q;
+}
+
+/** Lowers and full height sit under a countertop; uppers do not. */
+function underCountertop(c: CabinetryRecord): boolean {
+  return c.extent === "LOWERS" || c.extent === "FULL_HEIGHT";
+}
+
+/**
+ * The cabinets a room's countertop question settles: under a countertop, shoring not yet known, in a
+ * room where nothing said there was a countertop at all. Shared with the carry-over, so the two agree
+ * on what the question covers.
+ */
+export function cabinetsAwaitingCountertop(room: Room): CabinetryRecord[] {
+  if (room.countertops.length > 0) return [];
+  return room.cabinetry.filter((c) => underCountertop(c) && c.shoringRequired === null);
+}
+
+/**
+ * What happens to the top when the cabinets under it come out. The first two create the countertop
+ * record — asked as detach & reset or remove & replace every time (owner, 2026-11-10) — and the
+ * material question follows for it like any other countertop.
+ */
+const COUNTERTOP_WITH_CABINETS = ["Comes off — detach & reset", "Comes off — remove & replace", "Stays up — shore it", "No countertop"];
+
+/** The question itself, or nothing when no cabinet in the room is waiting on it. */
+function countertopWithCabinetsQuestion(roomIndex: number, room: Room): GapCheckQuestion[] {
+  const waiting = cabinetsAwaitingCountertop(room);
+  if (waiting.length === 0) return [];
+  const where = [...new Set(waiting.map((c) => c.location.trim()).filter((l) => l !== ""))];
+  return [{
+    id: `room:${roomIndex}:countertop:withCabinets`,
+    roomName: room.roomName,
+    prompt: `What happens to the countertop while the cabinets are out${where.length > 0 ? ` (${where.join(", ")})` : ""}?`,
+    kind: { type: "choice", options: COUNTERTOP_WITH_CABINETS },
+  }];
+}
+
+/** Settles every waiting cabinet's shoring, and creates the countertop when it comes off. Unrecognised changes nothing, so it is asked again. */
+function applyCountertopWithCabinets(room: Room, answer: string): Room {
+  const [detach, replace, shore, none] = COUNTERTOP_WITH_CABINETS;
+  const action: DetachOrReplaceAction | null = equalsIgnoreCase(answer, detach!) ? "DETACH_AND_RESET" : equalsIgnoreCase(answer, replace!) ? "REMOVE_AND_REPLACE" : null;
+  const shored = equalsIgnoreCase(answer, shore!);
+  if (action === null && !shored && !equalsIgnoreCase(answer, none!)) return room;
+  const waiting = new Set(cabinetsAwaitingCountertop(room));
+  if (waiting.size === 0) return room;
+  return {
+    ...room,
+    cabinetry: room.cabinetry.map((c) => (waiting.has(c) ? { ...c, shoringRequired: shored } : c)),
+    countertops: action === null ? room.countertops : [{ action, material: null }],
+  };
 }
 
 // ---- Toe kicks ----------------------------------------------------------------------------------
@@ -2482,6 +2543,9 @@ export function applyAnswer(extraction: WaterLossExtraction, questionId: string,
   }
   if (parts.length >= 5 && parts[0] === "room" && parts[2] === "toeKick") {
     return updateList(extraction, roomIndex(parts), Number(parts[3]), (r) => r.toeKicks, (r, l) => ({ ...r, toeKicks: l }), (t) => applyToeKickAnswer(t, parts[4]!, answer));
+  }
+  if (parts.length === 4 && parts[0] === "room" && parts[2] === "countertop" && parts[3] === "withCabinets") {
+    return updateRoom(extraction, roomIndex(parts), (room) => applyCountertopWithCabinets(room, answer));
   }
   if (parts.length >= 5 && parts[0] === "room" && parts[2] === "countertop") {
     return updateList(extraction, roomIndex(parts), Number(parts[3]), (r) => r.countertops, (r, l) => ({ ...r, countertops: l }), (c) => applyCountertopAnswer(c, parts[4]!, answer));

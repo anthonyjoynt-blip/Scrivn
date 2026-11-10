@@ -4,6 +4,7 @@ import {
   type SharedBaseboardField,
   baseboardFieldSense,
   baseboardQuestionRecords,
+  cabinetsAwaitingCountertop,
   isConsolidatedEquipmentQuestion,
   isSharedBaseboardField,
   normaliseRoomName,
@@ -484,6 +485,24 @@ function carryRoomAnswer(now: Room, old: Room, field: string): Room | null {
     case "windowCleaning:present":
       if (now.windowCleaningAsked || !old.windowCleaningAsked) return null;
       return { ...now, windowCleaningAsked: true, windowCleaningCounts: now.windowCleaningCounts ?? old.windowCleaningCounts };
+
+    /*
+      "What happens to the countertop while the cabinets are out?" — asked of a room with no countertop
+      recorded. The old room's answer is the shoring it set on the cabinets under a top and the
+      countertop it created, if any; carried only when it settled every such cabinet the same way.
+    */
+    case "countertop:withCabinets": {
+      const waiting = new Set(cabinetsAwaitingCountertop(now));
+      if (waiting.size === 0) return null;
+      const settled = old.cabinetry.filter((c) => c.extent === "LOWERS" || c.extent === "FULL_HEIGHT").map((c) => c.shoringRequired);
+      if (settled.length === 0 || settled.some((s) => s === null) || new Set(settled).size !== 1) return null;
+      const shored = settled[0] === true;
+      return {
+        ...now,
+        cabinetry: now.cabinetry.map((c) => (waiting.has(c) ? { ...c, shoringRequired: shored } : c)),
+        countertops: shored ? now.countertops : old.countertops.map((t) => ({ ...t })),
+      };
+    }
 
     // "None — nothing to move" is recorded as manipulation declined, any other answer as a size.
     case "contents:size": {

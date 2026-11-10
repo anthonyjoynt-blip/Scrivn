@@ -1153,6 +1153,20 @@ check(!unscopedSheets([]).repair[0].includes("trade not yet assigned"), "and a c
   check(["DRYWALL", "PAINTING", "FINISH_CARPENTRY"].every((trade) => availableTrades(repairClaim, "TM").includes(trade)), "and a caller that passes no sheets is offered them as before");
 }
 
+/* ── A countertop the cabinets question created is on both sheets ───────────────────────────────── */
+
+// Answered "Comes off — detach & reset", then Laminate: an ordinary countertop record, so the sheets carry it like any other.
+{
+  const built = bbOrders(bbExtraction([room("Kitchen", {
+    cabinetry: [{ location: "lower cabinets", action: "DETACH_AND_RESET", extent: "LOWERS", grade: null, shoringRequired: false }],
+    countertops: [{ action: "DETACH_AND_RESET", material: "LAMINATE" }],
+  })]));
+  const emergency = bbText(built, "MITIGATION_DEMO");
+  const repair = bbText(built, "FINISH_CARPENTRY");
+  check(emergency.includes("    - Detach countertop") && !emergency.includes("Shore countertop"), `the top comes off on the Mitigation & Demo sheet, unshored (got:\n${emergency})`);
+  check(repair.includes("    - Reset countertop – Laminate"), `and goes back on the Finish Carpentry sheet, with its material (got:\n${repair})`);
+}
+
 /* ── Floor registers are a pair, and the PM phone is on the sheet ───────────────────────────────── */
 
 /*
