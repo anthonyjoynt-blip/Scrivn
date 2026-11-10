@@ -1179,6 +1179,40 @@ check(!unscopedSheets([]).repair[0].includes("trade not yet assigned"), "and a c
   check(/- Detach range$/m.test(unknown), `a range whose fuel nobody gave is plain "range" (got:\n${unknown})`);
 }
 
+/* ── Work the PM put on the repair comes off on the repair sheet ─────────────────────────────────── */
+
+/*
+  Owner, 2026-11-10: "detach and reset the lower cabinets on the repair phase and all appliances and
+  plumbing" was split across both phases. A room's repairOnly kinds come off on the repair sheet,
+  ahead of their resets, and not on Mitigation & Demo; everything else keeps the ordinary split.
+*/
+{
+  const eqJ = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+  const kitchen = (repairOnly) => room("Kitchen", {
+    repairOnly,
+    flooring: [flooring({ type: "LAMINATE", disposition: "REMOVE_AND_DISPOSE", phase: "BOTH" })],
+    cabinetry: [{ location: "lower cabinets", action: "DETACH_AND_RESET", extent: "LOWERS", grade: null, shoringRequired: false }],
+    countertops: [{ action: "DETACH_AND_RESET", material: "LAMINATE" }],
+    appliances: [{ type: "FRIDGE", action: null }, { type: "RANGE", action: null, fuel: "GAS" }],
+  });
+  const built = bbOrders(bbExtraction([kitchen(["CABINETRY", "APPLIANCES", "PLUMBING_FIXTURES"])]));
+  const emergency = bbText(built, "MITIGATION_DEMO");
+  const repair = bbText(built, "FINISH_CARPENTRY");
+  check(!/Detach (cabinetry|countertop|fridge|range)/.test(emergency), `nothing put on the repair comes off on the emergency sheet (got:\n${emergency})`);
+  check(/- Remove flooring/.test(emergency) || /laminate/i.test(emergency), `while the floor still comes out there (got:\n${emergency})`);
+  const order = ["Detach cabinetry – lower cabinets", "Detach countertop", "Detach fridge", "Detach range – gas", "Reset cabinetry – lower cabinets", "Reset countertop – Laminate", "Reset fridge", "Reset range – gas"].map((line) => repair.indexOf(`    - ${line}`));
+  check(order.every((i) => i >= 0) && order.slice(0, 4).every((i) => i < order[4]), `the repair sheet takes it off, ahead of putting it back (got:\n${repair})`);
+  const ordinary = bbOrders(bbExtraction([kitchen(undefined)]));
+  check(/Detach cabinetry/.test(bbText(ordinary, "MITIGATION_DEMO")) && !/Detach cabinetry/.test(bbText(ordinary, "FINISH_CARPENTRY")), "and with nothing put on the repair, the ordinary split stands");
+  const onlyAppliances = bbOrders(bbExtraction([kitchen(["APPLIANCES"])]));
+  check(/Detach cabinetry/.test(bbText(onlyAppliances, "MITIGATION_DEMO")) && !/Detach fridge/.test(bbText(onlyAppliances, "MITIGATION_DEMO")), "each kind moves on its own");
+
+  // A removal put on the repair is repair debris.
+  const replaced = room("Kitchen", { repairOnly: ["CABINETRY", "PLUMBING_FIXTURES"], cabinetry: [{ location: "lowers", action: "REMOVE_AND_REPLACE", extent: "LOWERS", grade: null, shoringRequired: false }], plumbingFixtures: [{ fixtureType: "KITCHEN_SINK", action: "REMOVE_AND_REPLACE", basinCount: null, mount: null, sinkAlsoNeeded: null, topDetached: null, topKept: null, topMaterial: null, sinkFaucetSaved: null, grade: null, includesSurround: null, surroundMaterial: null }] });
+  const items = (phase) => estimateDebris(bbExtraction([replaced]), {}, phase).lines.map((l) => l.item);
+  check(eqJ(items("EMERGENCY"), []) && items("REPAIR").includes("cabinetry removal") && items("REPAIR").includes("kitchen sink removal"), `cabinets and a sink replaced on the repair weigh on the repair side (got E ${JSON.stringify(items("EMERGENCY"))} / R ${JSON.stringify(items("REPAIR"))})`);
+}
+
 /* ── Floor registers are a pair, and the PM phone is on the sheet ───────────────────────────────── */
 
 /*

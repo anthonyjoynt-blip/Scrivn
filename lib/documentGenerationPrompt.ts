@@ -211,6 +211,20 @@ this room appear in the document at all":
   material, so never leave it implied by the cabinet line: a sink run where the counter and sink stay
   put has to be held up, and a cabinet removal on its own does not say that.
   Only when the field is true. Most cabinet removals take the countertop with them.
+- REPAIR-ONLY WORK, per room — a room's repairOnly list names kinds of work the PM put wholly in the
+  Repair phase ("detach and reset the lower cabinets on the repair phase"). For every record of a
+  listed kind in that room, BOTH halves of its pair go in that room's Repair list, the detach (or
+  remove) line first and the reset (or replace) line straight after, and NOTHING for it in
+  Emergency:
+    · CABINETRY — the room's cabinetry lines, and with them its countertop lines, cabinet hardware
+      lines and any shoring line, since those come off with the cabinets.
+    · APPLIANCES — every appliance pair.
+    · PLUMBING_FIXTURES — every plumbing fixture's lines, a sink's faucet and a vanity's sink and
+      countertop lines included.
+  Everything else in the room keeps the ordinary Emergency/Repair split. On a document with Repair
+  and no Emergency each pair combines into one "Detach & reset …" / "Remove & replace …" line as
+  usual. A missing or empty repairOnly changes nothing. This has gone wrong: "detach and reset the
+  lower cabinets on the repair phase and all appliances and plumbing" was split across both phases.
 - WINDOW COVERINGS and CABINET HARDWARE, per room — for every entry in that room's
   "windowCoverings" and "cabinetHardware" arrays, a PAIR of bullets, on the same terms as trim:
     · DETACH_AND_RESET — Emergency "Detach {thing}", Repair "Reset {thing}".

@@ -455,6 +455,8 @@ export const extractionSupplementSchema: JsonSchema = obj({
     kitchenSink: nullableEnumOf("DETACH_AND_RESET", "REMOVE_AND_REPLACE"),
     // Appliances spoken of without naming which — "all appliances". The gap-check asks which.
     appliancesUnnamed: nullableBool(),
+    // Work the PM put wholly in the repair phase — "detach and reset the cabinets on the repair".
+    repairOnly: arr(enumOf("CABINETRY", "APPLIANCES", "PLUMBING_FIXTURES")),
   })),
 });
 

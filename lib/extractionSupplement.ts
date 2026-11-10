@@ -1,4 +1,5 @@
-import type { AreaFraction, FlooringRecord, PlumbingFixtureRecord, Room, WaterLossExtraction } from "./types";
+import type { AreaFraction, FlooringRecord, PlumbingFixtureRecord, RepairOnlyKind, Room, WaterLossExtraction } from "./types";
+import { REPAIR_ONLY_KINDS } from "./types";
 import { photoNotesSection } from "./photoNotesPrompt";
 import { uploadedScopeSection } from "./scopeUpload";
 
@@ -26,7 +27,8 @@ import { uploadedScopeSection } from "./scopeUpload";
  * ever set, which is what AreaFraction has always meant.
  *
  * And since 2026-11-10, a kitchen sink coming out — see `withKitchenSink` — and appliances spoken of
- * without naming which, which the gap-check then asks for as a pick list.
+ * without naming which, which the gap-check then asks for as a pick list; and the kinds of work the
+ * PM put wholly on the repair (`repairOnly`).
  */
 
 export const EXTRACTION_SUPPLEMENT_SYSTEM_PROMPT = `You are completing a further pass over a restoration project manager's dictated walkthrough of a
@@ -66,7 +68,15 @@ WHAT EACH FIELD MEANS:
 - appliancesUnnamed — room-level. YES when the PM says appliances in this room are being pulled,
   moved, detached or reset WITHOUT naming which: "all appliances", "the appliances", "pull the
   appliances out". The PM will be asked which. UNKNOWN otherwise — including when every appliance
-  was named ("pull the fridge and the range"), and when appliances never come up.`;
+  was named ("pull the fridge and the range"), and when appliances never come up.
+- repairOnly — room-level, a list. The kinds of work in this room the PM places WHOLLY in the
+  repair phase — taken out and put back during the repair, not taken out now: "detach and reset
+  the lower cabinets on the repair", "the appliances get pulled during the rebuild", "do the
+  plumbing on the repair side". CABINETRY for cabinets (their countertop and hardware go with
+  them); APPLIANCES for appliances; PLUMBING_FIXTURES for a sink, vanity, toilet or other plumbing.
+  When one phrase places several kinds ("the cabinets, appliances and plumbing on the repair"),
+  list each. Empty when the PM names no phase for them — which is most rooms. Never list a kind
+  only because its reset happens on the repair; that is true of every detach and reset.`;
 
 /** The per-room counts written out, so the model has an explicit target rather than a second reading of the transcript. */
 export function extractionSupplementUserMessage(transcript: string, extraction: WaterLossExtraction, photoNotes?: string): string {
@@ -92,6 +102,8 @@ export interface RoomSupplementWire {
   kitchenSink?: string;
   /** Absent on a reply from before the field existed. */
   appliancesUnnamed?: string;
+  /** Absent on a reply from before the field existed. */
+  repairOnly?: string[];
 }
 export interface ExtractionSupplementWire {
   rooms: RoomSupplementWire[];
@@ -156,6 +168,12 @@ function withKitchenSink(fixtures: PlumbingFixtureRecord[], said: string | undef
   ];
 }
 
+/** What the room already says, plus the known kinds the reply names — never a value outside the list, never a repeat. */
+function repairOnlyFor(room: Room, said: string[] | undefined): RepairOnlyKind[] {
+  const named = (Array.isArray(said) ? said : []).filter((k): k is RepairOnlyKind => (REPAIR_ONLY_KINDS as string[]).includes(k));
+  return REPAIR_ONLY_KINDS.filter((k) => (room.repairOnly ?? []).includes(k) || named.includes(k));
+}
+
 /**
  * Attaches the reply, positionally. `existing ?? fromSupplement` throughout — nothing here ever
  * overwrites a value call 1, call 2 or the PM has already set — and a room whose flooring count
@@ -176,6 +194,7 @@ export function mergeSupplement(extraction: WaterLossExtraction, wire: Extractio
         plumbingFixtures: withKitchenSink(room.plumbingFixtures, d.kitchenSink),
         // Only ever true from here: false means the PM has answered which, and only the question sets that.
         appliancesUnnamed: room.appliancesUnnamed ?? (d.appliancesUnnamed === "YES" ? true : null),
+        repairOnly: repairOnlyFor(room, d.repairOnly),
       };
     }),
   };

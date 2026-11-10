@@ -570,6 +570,15 @@ check(needsSupplementPass(tree([room("Anything")])) === true && needsSupplementP
   check(unnamed("YES") === true, "appliances spoken of without names are flagged");
   check(unnamed("NO") === null && unnamed("UNKNOWN") === null && unnamed(undefined) === null, "and nothing else sets the flag: false means the PM has answered which, and only the question says that");
   check(unnamed("YES", { appliancesUnnamed: false }) === false, "an answered pick list is never reopened by a re-read");
+  const eqJ = (x, y) => JSON.stringify(x) === JSON.stringify(y);
+  // Work put wholly on the repair: the kinds named, nothing outside the list, nothing doubled, nothing lost.
+  const repairOnly = (said, over = {}) => mergeSupplement(tree([room("Kitchen", { ...KITCHEN, ...over })]), supp([roomSupp({ repairOnly: said })])).rooms[0].repairOnly;
+  check(eqJ(repairOnly(["CABINETRY", "APPLIANCES", "PLUMBING_FIXTURES"]), ["CABINETRY", "APPLIANCES", "PLUMBING_FIXTURES"]), "\"the cabinets, appliances and plumbing on the repair\" names all three");
+  check(eqJ(repairOnly(["APPLIANCES", "COUNTERTOPS", "APPLIANCES"]), ["APPLIANCES"]), "a kind outside the list is dropped and a repeat kept once");
+  check(eqJ(repairOnly(undefined), []) && eqJ(repairOnly([]), []), "nothing said is nothing on the repair");
+  check(eqJ(repairOnly(["APPLIANCES"], { repairOnly: ["CABINETRY"] }), ["CABINETRY", "APPLIANCES"]), "and what the room already said is kept");
+  check(mergeSupplement(tree([KITCHEN]), supp([roomSupp({ flooring: [], repairOnly: ["CABINETRY"] })])).rooms[0].repairOnly === undefined, "a room whose flooring count came back wrong takes none of it");
+
   const captured = capturedSummary(room("Kitchen", { appliancesUnnamed: true }));
   check(captured.some((line) => /^appliances — /.test(line)), `the missed-work pass is told they are captured, so "all appliances" is not listed as missing (got ${JSON.stringify(captured)})`);
 }

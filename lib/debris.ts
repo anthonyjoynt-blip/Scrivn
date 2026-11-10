@@ -1,4 +1,5 @@
-import type { AreaFraction, Room, WaterLossExtraction, WallDrywallCutHeight } from "./types";
+import type { AreaFraction, RepairOnlyKind, Room, WaterLossExtraction, WallDrywallCutHeight } from "./types";
+import { isRepairOnly } from "./types";
 import { normaliseRoomName } from "./gapCheck";
 
 /**
@@ -147,6 +148,22 @@ function roomDebris(room: Room, areas: RoomAreas | undefined, phase: DisposalPha
     else add("baseboard removal", lf * factor(DEBRIS_WEIGHTS.baseboardPerLF, b.material));
   }
 
+  /*
+    Cabinets (with their countertops) and plumbing come out on the emergency visit — unless the PM put
+    that kind of work wholly on the repair, when what comes out is repair debris (owner, 2026-11-10).
+  */
+  const kindPhase = (kind: RepairOnlyKind): DisposalPhase => (isRepairOnly(room, kind) ? "REPAIR" : "EMERGENCY");
+  if (kindPhase("CABINETRY") === phase) {
+    for (const c of room.cabinetry) {
+      if (c.action !== "REMOVE_AND_REPLACE") continue;
+      add("cabinetry removal", factor(DEBRIS_WEIGHTS.cabinetryPerRun, c.extent));
+    }
+    for (const c of room.countertops) if (c.action === "REMOVE_AND_REPLACE") add("countertop removal", DEBRIS_WEIGHTS.countertopEach);
+  }
+  if (kindPhase("PLUMBING_FIXTURES") === phase) {
+    for (const p of room.plumbingFixtures) if (p.action === "REMOVE_AND_REPLACE") add(`${p.fixtureType.toLowerCase().replace(/_/g, " ")} removal`, DEBRIS_WEIGHTS.plumbingFixtureEach);
+  }
+
   if (phase !== "EMERGENCY") return;
 
   for (const w of room.walls) {
@@ -182,12 +199,6 @@ function roomDebris(room: Room, areas: RoomAreas | undefined, phase: DisposalPha
     else add("subfloor removal", sf * perSF);
   }
 
-  for (const c of room.cabinetry) {
-    if (c.action !== "REMOVE_AND_REPLACE") continue;
-    add("cabinetry removal", factor(DEBRIS_WEIGHTS.cabinetryPerRun, c.extent));
-  }
-  for (const c of room.countertops) if (c.action === "REMOVE_AND_REPLACE") add("countertop removal", DEBRIS_WEIGHTS.countertopEach);
-  for (const p of room.plumbingFixtures) if (p.action === "REMOVE_AND_REPLACE") add(`${p.fixtureType.toLowerCase().replace(/_/g, " ")} removal`, DEBRIS_WEIGHTS.plumbingFixtureEach);
   for (const d of room.doors) if (d.action === "REMOVE_AND_REPLACE") add("door removal", factor(DEBRIS_WEIGHTS.doorEach, d.doorType));
 }
 

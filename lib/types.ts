@@ -103,6 +103,13 @@ export interface Room {
    */
   appliancesUnnamed?: boolean | null;
   /**
+   * Kinds of work the PM put wholly in the Repair phase: both halves of each pair there, nothing in
+   * Emergency (owner, 2026-11-10: "detach and reset the lower cabinets on the repair phase and all
+   * appliances and plumbing" was split across both). Set by extraction call 4; absent or empty means
+   * the ordinary split. See `isRepairOnly`.
+   */
+  repairOnly?: RepairOnlyKind[];
+  /**
    * Casings, jambs, sills and returns — the trim AROUND an opening, as opposed to the door or
    * window itself. See {@link TrimRecord}.
    *
@@ -342,6 +349,19 @@ export interface ApplianceRecord {
 }
 
 export type ApplianceFuel = "GAS" | "ELECTRIC";
+
+/**
+ * What `Room.repairOnly` can name. CABINETRY carries the room's countertops, cabinet hardware and
+ * shoring with it — they come off with the cabinets — and PLUMBING_FIXTURES covers every fixture's
+ * lines, a sink's faucet included.
+ */
+export type RepairOnlyKind = "CABINETRY" | "APPLIANCES" | "PLUMBING_FIXTURES";
+export const REPAIR_ONLY_KINDS: RepairOnlyKind[] = ["CABINETRY", "APPLIANCES", "PLUMBING_FIXTURES"];
+
+/** Whether the PM put this kind of work in the room wholly in the Repair phase. */
+export function isRepairOnly(room: Room, kind: RepairOnlyKind): boolean {
+  return (room.repairOnly ?? []).includes(kind);
+}
 
 /** What follows an appliance's name on a line: a range's fuel, when known. "Detach range – gas". */
 export function applianceDetail(a: ApplianceRecord): string | null {

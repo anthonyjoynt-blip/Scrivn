@@ -13,7 +13,7 @@ import { baseboardFinishLine, ceilingPaintLine, ceilingQuantity, fractionLabel, 
 import type { ApplianceType, CeilingRecord, DoorRecord, FlooringRecord, Room, WallRecord, WaterLossExtraction, UnscopedItem } from "./types";
 import { disposalLine, recommendDisposal, type RoomAreasByName } from "./debris";
 import type { ExteriorScopeLines } from "./exterior";
-import { APPLIANCE_LABEL, applianceDetail, DOOR_STYLE_LABEL, isInjectionEquipment, SUBFLOOR_LABEL, TRIM_KIND_LABEL, unscopedWording, WINDOW_COVERING_LABEL, WINDOW_CLEANING_SIZE_LABEL, WINDOW_CLEANING_SIZES } from "./types";
+import { APPLIANCE_LABEL, applianceDetail, DOOR_STYLE_LABEL, isRepairOnly, isInjectionEquipment, SUBFLOOR_LABEL, TRIM_KIND_LABEL, unscopedWording, WINDOW_COVERING_LABEL, WINDOW_CLEANING_SIZE_LABEL, WINDOW_CLEANING_SIZES } from "./types";
 
 /**
  * Trade work orders — the crew-facing counterpart to the estimator-facing scope document.
@@ -198,6 +198,33 @@ function sentenceCase(text: string): string {
 /** Unscoped items placed in a phase — DROPPED and undecided ones reach no sheet. */
 function unscopedFor(room: Room, phase: "EMERGENCY" | "REPAIR"): UnscopedItem[] {
   return room.unscoped.filter((u) => u.disposition === "BOTH" || u.disposition === phase);
+}
+
+/**
+ * Appliances coming out. One already sitting in the hall is not detached again; `action` null reads
+ * as DETACH_AND_RESET, the ordinary job. No remove-and-replace form: that is not restoration's work.
+ */
+function applianceOffLines(room: Room): string[] {
+  return room.appliances.filter((a) => a.action !== "RESET_ONLY").map((a) => bullet(`Detach ${APPLIANCE_LABEL[a.type]}`, applianceDetail(a), null));
+}
+
+/** Cabinet hardware, the cabinets with any shoring, and the countertop, coming off. */
+function cabinetryOffLines(room: Room): string[] {
+  const items: string[] = [];
+  for (const h of room.cabinetHardware) {
+    if (h.action === "RESET_ONLY") continue;
+    items.push(bullet(h.action === "REMOVE_AND_REPLACE" ? "Remove cabinet hardware" : "Detach cabinet hardware", h.location || null, null));
+  }
+  for (const c of room.cabinetry) {
+    items.push(bullet(c.action === "DETACH_AND_RESET" ? "Detach cabinetry" : "Remove cabinetry", c.location, null));
+    /*
+      Its own line, and its own labour: a sink run where the counter and sink stay put has to be
+      held up while the base is out. One line covering install and strike, which is how it prices.
+    */
+    if (c.shoringRequired === true) items.push(bullet("Shore countertop while cabinetry is out", c.location, null));
+  }
+  for (const c of room.countertops) items.push(bullet(c.action === "DETACH_AND_RESET" ? "Detach countertop" : "Remove countertop", null, null));
+  return items;
 }
 
 /** "Action – detail – extent", skipping whichever parts are unknown. */
@@ -439,15 +466,8 @@ function buildMitigationDemo(claim: ClaimInfo, extraction: WaterLossExtraction, 
     }
     // Priced per SF of floor, which the room already has — hence no quantity of its own to carry.
     if (room.hepaVacuumingRequired) items.push(bullet("HEPA vacuuming", null, "floor area"));
-    // Detach now, reset on repairs. No remove-and-replace form: that is not restoration's work.
-    /*
-      An appliance already sitting in the hall is not detached again. `action` null reads as
-      DETACH_AND_RESET, which is the ordinary mitigation job and what every existing claim means.
-    */
-    for (const a of room.appliances) {
-      if (a.action === "RESET_ONLY") continue;
-      items.push(bullet(`Detach ${APPLIANCE_LABEL[a.type]}`, applianceDetail(a), null));
-    }
+    // Detach now, reset on repairs — unless the PM put the appliances on the repair, when both are there.
+    if (!isRepairOnly(room, "APPLIANCES")) items.push(...applianceOffLines(room));
 
     /*
       The subfloor comes out before the baseboard discussion, because it is under everything.
@@ -516,19 +536,8 @@ function buildMitigationDemo(claim: ClaimInfo, extraction: WaterLossExtraction, 
       if (w.action === "RESET_ONLY") continue;
       items.push(bullet(w.action === "REMOVE_AND_REPLACE" ? `Remove ${WINDOW_COVERING_LABEL[w.type]}` : `Detach ${WINDOW_COVERING_LABEL[w.type]}`, w.location || null, null));
     }
-    for (const h of room.cabinetHardware) {
-      if (h.action === "RESET_ONLY") continue;
-      items.push(bullet(h.action === "REMOVE_AND_REPLACE" ? "Remove cabinet hardware" : "Detach cabinet hardware", h.location || null, null));
-    }
-    for (const c of room.cabinetry) {
-      items.push(bullet(c.action === "DETACH_AND_RESET" ? "Detach cabinetry" : "Remove cabinetry", c.location, null));
-      /*
-        Its own line, and its own labour: a sink run where the counter and sink stay put has to be
-        held up while the base is out. One line covering install and strike, which is how it prices.
-      */
-      if (c.shoringRequired === true) items.push(bullet("Shore countertop while cabinetry is out", c.location, null));
-    }
-    for (const c of room.countertops) items.push(bullet(c.action === "DETACH_AND_RESET" ? "Detach countertop" : "Remove countertop", null, null));
+    // The cabinets, their hardware, any shoring and the countertop — on the repair sheet instead when the PM put the cabinets on the repair.
+    if (!isRepairOnly(room, "CABINETRY")) items.push(...cabinetryOffLines(room));
 
     if (room.floorRegistersDetached && room.floorRegistersDetached > 0) items.push(bullet("Detach floor registers", `${room.floorRegistersDetached}`, null));
     if (room.contents && !room.contents.manipulationDeclined) items.push(bullet("Manipulate contents", null, null));
@@ -712,6 +721,12 @@ function buildPainting(claim: ClaimInfo, extraction: WaterLossExtraction, painta
 function finishCarpentryBody(extraction: WaterLossExtraction): string[] {
   return roomSections(extraction, (room) => {
     const items: string[] = [];
+    /*
+      Work the PM put wholly on the repair: it comes off on this visit, ahead of everything that goes
+      back, rather than on the Mitigation & Demo sheet (owner, 2026-11-10).
+    */
+    if (isRepairOnly(room, "CABINETRY")) items.push(...cabinetryOffLines(room));
+    if (isRepairOnly(room, "APPLIANCES")) items.push(...applianceOffLines(room));
     for (const b of room.baseboard) {
       if (b.action === "SHOE_MOLD_ONLY") {
         items.push(bullet("Install shoe mold / quarter round", null, "perimeter"));
