@@ -3,6 +3,7 @@ import { UserMenu } from "@/components/UserMenu";
 import { SyncStatus } from "@/components/SyncStatus";
 import { UsageBanner } from "@/components/UsageBanner";
 import { PRIVACY_POLICY_URL, TERMS_URL } from "@/lib/legal";
+import { FREE_TOOLS } from "@/components/marketing/FreeTools";
 
 /**
  * Chrome for the signed-in application: the wordmark header and the usage banner.
@@ -57,6 +58,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         )}
         <Link href="/help">Help</Link>
         <Link href="/contact">Contact</Link>
+        {/* The free tools, as on the marketing footer: also under Tools in the header when signed in. */}
+        {FREE_TOOLS.map((t) => (
+          <Link key={t.href} href={t.href}>
+            {t.label}
+          </Link>
+        ))}
       </footer>
     </>
   );

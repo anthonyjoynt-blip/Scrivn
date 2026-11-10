@@ -2,6 +2,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
 import { SignOutButton } from "./SignOutButton";
+import { ToolsMenu } from "./ToolsMenu";
 
 /**
  * The signed-in identity strip in the site header: who you are, and a way out.
@@ -44,6 +45,8 @@ export async function UserMenu() {
       <Link href="/claims" className="user-menu-link">
         Claims
       </Link>
+      {/* Drop a sketch and the drying calculator, which otherwise only the home page links to. */}
+      <ToolsMenu />
       <Link href="/account" className="user-menu-link">
         Account
       </Link>
