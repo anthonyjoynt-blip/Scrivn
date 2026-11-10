@@ -42,6 +42,7 @@ const {
   pruneScopeMarks, scopeWallRunFeet,
   emptyMoistureMap, setRoomMoisture, resolveRound, pruneMoisture, paintedFloorSquareFeet,
   disposalForTons, estimateDebris, recommendDisposal, disposalLine, disposalLines, unweighedNote, DEBRIS_WEIGHTS,
+  emptyContentsTM, emptyBricABracData, availableTrades, unavailableTradeNote, equipmentPlaced, documentGenerationUserMessage,
 } = await import(pathToFileURL(bundlePath).href);
 
 let passed = 0;
@@ -302,7 +303,8 @@ ${cat1Text})`);
 
 // Not stated is not "no" — but it is not a line either.
 const unstated = emergencyFor(cat3, [room("Storage Area", { flooring: [flooring()] })]);
-check(!/Clean/.test(unstated), "a floor nobody said to clean gets no cleaning line");
+// The sheet's items only: every sheet's standing notes say to clean up at the end of each day.
+check(!/Clean/.test(unstated.split("\nNotes")[0]), "a floor nobody said to clean gets no cleaning line");
 
 const anti = emergencyFor(cat3, [room("Rec Room", { antimicrobialApplied: true }), room("Storage Area", { antimicrobialApplied: true })]);
 check(
@@ -1101,6 +1103,139 @@ for (const [label, disposition] of [["dropped", "DROPPED"], ["undecided", null]]
 }
 check(!unscopedSheets([]).repair[0].includes("trade not yet assigned"), "and a claim with nothing unscoped carries no note about it");
 
+/* ── Every crew is told to clean up ───────────────────────────────────────────────────────────── */
+
+/*
+  Owner, 2026-11-10: the work orders should say by default to clean up when the day's work is done.
+  It was on three sheets; now it is a standing note, so every sheet carries it exactly once.
+*/
+{
+  const everyTrade = buildWorkOrders({
+    trades: ["MITIGATION_DEMO", "DRYWALL", "PAINTING", "FINISH_CARPENTRY", "ROOFING", "SIDING", "CONTENTS_PACK_OUT", "CONTENTS_PACK_BACK"],
+    claim: { ...claim, scopePhases: ["EMERGENCY", "REPAIR", "CONTENTS"] },
+    extraction: bbExtraction([room("Kitchen", { baseboard: [bbRecord()] })]),
+    contentsApproach: "TM",
+    contentsTM: emptyContentsTM(),
+    bricABrac: emptyBricABracData(),
+    dgigData: null,
+  });
+  const cleanUp = "    - Clean up thoroughly at the end of each day.";
+  const counts = everyTrade.map((o) => `${o.trade}: ${o.text.split(cleanUp).length - 1}`);
+  check(everyTrade.length === 8 && everyTrade.every((o) => o.text.split(cleanUp).length - 1 === 1), `every work order says to clean up at the end of each day, once (got ${counts.join(", ")})`);
+}
+
+/* ── A crew is offered a sheet only when there is something on it ──────────────────────────────── */
+
+/*
+  Owner, 2026-11-10: a laminate, quarter-round and lower-cabinets kitchen offered a Drywall work order
+  with nothing to do on it. The in-house Repair crews are offered from the same room lines their
+  sheets are built from, and the note under the picker says which were left out and why.
+*/
+{
+  const repairClaim = { ...claim, scopePhases: ["EMERGENCY", "REPAIR"] };
+  const kitchen = room("Kitchen", {
+    flooring: [flooring({ type: "LAMINATE", disposition: "REMOVE_AND_DISPOSE", phase: "BOTH" })],
+    baseboard: [bbRecord({ action: "SHOE_MOLD_ONLY", material: null, mdfProfile: null, heightIn: null, shoeMold: true })],
+    cabinetry: [{ location: "lower cabinets", action: "DETACH_AND_RESET", extent: null, grade: null, shoringRequired: false }],
+  });
+  const sheets = { extraction: bbExtraction([kitchen]) };
+  const offered = availableTrades(repairClaim, "TM", null, sheets);
+  check(!offered.includes("DRYWALL"), `no wall or ceiling work, so no Drywall order (offered: ${offered.join(", ")})`);
+  check(offered.includes("MITIGATION_DEMO") && offered.includes("FINISH_CARPENTRY"), `the crews with work are still offered (offered: ${offered.join(", ")})`);
+  const note = unavailableTradeNote(repairClaim, "TM", sheets) ?? "";
+  check(/Drywall/.test(note) && /nothing on this claim/.test(note), `and the picker says why Drywall is missing (got "${note}")`);
+  const label = { DRYWALL: "Drywall", PAINTING: "Painting", FINISH_CARPENTRY: "Finish Carpentry" };
+  check(offered.filter((trade) => label[trade]).every((trade) => !note.includes(label[trade])), `without naming a crew that is offered (got "${note}")`);
+
+  const withCut = availableTrades(repairClaim, "TM", null, { extraction: bbExtraction([room("Kitchen", { ...kitchen, walls: [wall()] })]) });
+  check(withCut.includes("DRYWALL"), `a flood cut puts Drywall back (offered: ${withCut.join(", ")})`);
+  check(availableTrades(repairClaim, "TM", null, { extraction: null }).every((trade) => !["DRYWALL", "PAINTING", "FINISH_CARPENTRY"].includes(trade)), "with no tree there is nothing for the in-house Repair crews");
+  check(["DRYWALL", "PAINTING", "FINISH_CARPENTRY"].every((trade) => availableTrades(repairClaim, "TM").includes(trade)), "and a caller that passes no sheets is offered them as before");
+}
+
+/* ── A countertop the cabinets question created is on both sheets ───────────────────────────────── */
+
+// Answered "Comes off — detach & reset", then Laminate: an ordinary countertop record, so the sheets carry it like any other.
+{
+  const built = bbOrders(bbExtraction([room("Kitchen", {
+    cabinetry: [{ location: "lower cabinets", action: "DETACH_AND_RESET", extent: "LOWERS", grade: null, shoringRequired: false }],
+    countertops: [{ action: "DETACH_AND_RESET", material: "LAMINATE" }],
+  })]));
+  const emergency = bbText(built, "MITIGATION_DEMO");
+  const repair = bbText(built, "FINISH_CARPENTRY");
+  check(emergency.includes("    - Detach countertop") && !emergency.includes("Shore countertop"), `the top comes off on the Mitigation & Demo sheet, unshored (got:\n${emergency})`);
+  check(repair.includes("    - Reset countertop – Laminate"), `and goes back on the Finish Carpentry sheet, with its material (got:\n${repair})`);
+}
+
+/* ── A range carries its fuel on both sheets ──────────────────────────────────────────────────── */
+
+{
+  const built = bbOrders(bbExtraction([room("Kitchen", { appliances: [{ type: "RANGE", action: null, fuel: "GAS" }, { type: "FRIDGE", action: null }] })]));
+  const emergency = bbText(built, "MITIGATION_DEMO");
+  const repair = bbText(built, "FINISH_CARPENTRY");
+  check(emergency.includes("    - Detach range – gas") && repair.includes("    - Reset range – gas"), `a gas range is detached and reset as gas (got:\n${emergency}\n${repair})`);
+  check(/- Detach fridge$/m.test(emergency), "and a fridge has no fuel to carry");
+  const unknown = bbText(bbOrders(bbExtraction([room("Kitchen", { appliances: [{ type: "RANGE", action: null }] })])), "MITIGATION_DEMO");
+  check(/- Detach range$/m.test(unknown), `a range whose fuel nobody gave is plain "range" (got:\n${unknown})`);
+}
+
+/* ── Work the PM put on the repair comes off on the repair sheet ─────────────────────────────────── */
+
+/*
+  Owner, 2026-11-10: "detach and reset the lower cabinets on the repair phase and all appliances and
+  plumbing" was split across both phases. A room's repairOnly kinds come off on the repair sheet,
+  ahead of their resets, and not on Mitigation & Demo; everything else keeps the ordinary split.
+*/
+{
+  const eqJ = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+  const kitchen = (repairOnly) => room("Kitchen", {
+    repairOnly,
+    flooring: [flooring({ type: "LAMINATE", disposition: "REMOVE_AND_DISPOSE", phase: "BOTH" })],
+    cabinetry: [{ location: "lower cabinets", action: "DETACH_AND_RESET", extent: "LOWERS", grade: null, shoringRequired: false }],
+    countertops: [{ action: "DETACH_AND_RESET", material: "LAMINATE" }],
+    appliances: [{ type: "FRIDGE", action: null }, { type: "RANGE", action: null, fuel: "GAS" }],
+  });
+  const built = bbOrders(bbExtraction([kitchen(["CABINETRY", "APPLIANCES", "PLUMBING_FIXTURES"])]));
+  const emergency = bbText(built, "MITIGATION_DEMO");
+  const repair = bbText(built, "FINISH_CARPENTRY");
+  check(!/Detach (cabinetry|countertop|fridge|range)/.test(emergency), `nothing put on the repair comes off on the emergency sheet (got:\n${emergency})`);
+  check(/- Remove flooring/.test(emergency) || /laminate/i.test(emergency), `while the floor still comes out there (got:\n${emergency})`);
+  const order = ["Detach cabinetry – lower cabinets", "Detach countertop", "Detach fridge", "Detach range – gas", "Reset cabinetry – lower cabinets", "Reset countertop – Laminate", "Reset fridge", "Reset range – gas"].map((line) => repair.indexOf(`    - ${line}`));
+  check(order.every((i) => i >= 0) && order.slice(0, 4).every((i) => i < order[4]), `the repair sheet takes it off, ahead of putting it back (got:\n${repair})`);
+  const ordinary = bbOrders(bbExtraction([kitchen(undefined)]));
+  check(/Detach cabinetry/.test(bbText(ordinary, "MITIGATION_DEMO")) && !/Detach cabinetry/.test(bbText(ordinary, "FINISH_CARPENTRY")), "and with nothing put on the repair, the ordinary split stands");
+  const onlyAppliances = bbOrders(bbExtraction([kitchen(["APPLIANCES"])]));
+  check(/Detach cabinetry/.test(bbText(onlyAppliances, "MITIGATION_DEMO")) && !/Detach fridge/.test(bbText(onlyAppliances, "MITIGATION_DEMO")), "each kind moves on its own");
+
+  // A removal put on the repair is repair debris.
+  const replaced = room("Kitchen", { repairOnly: ["CABINETRY", "PLUMBING_FIXTURES"], cabinetry: [{ location: "lowers", action: "REMOVE_AND_REPLACE", extent: "LOWERS", grade: null, shoringRequired: false }], plumbingFixtures: [{ fixtureType: "KITCHEN_SINK", action: "REMOVE_AND_REPLACE", basinCount: null, mount: null, sinkAlsoNeeded: null, topDetached: null, topKept: null, topMaterial: null, sinkFaucetSaved: null, grade: null, includesSurround: null, surroundMaterial: null }] });
+  const items = (phase) => estimateDebris(bbExtraction([replaced]), {}, phase).lines.map((l) => l.item);
+  check(eqJ(items("EMERGENCY"), []) && items("REPAIR").includes("cabinetry removal") && items("REPAIR").includes("kitchen sink removal"), `cabinets and a sink replaced on the repair weigh on the repair side (got E ${JSON.stringify(items("EMERGENCY"))} / R ${JSON.stringify(items("REPAIR"))})`);
+}
+
+/* ── Equipment pickup only when equipment was placed ───────────────────────────────────────────── */
+
+/*
+  Owner, 2026-11-10: a kitchen where both rooms answered no drying equipment still got "Equipment
+  pickup and monitoring" — the General template listed it unconditionally. Whether any was placed is
+  worked out here and handed to the model as CLAIM CONTEXT's equipmentPlaced.
+*/
+{
+  const withEquipment = (equipment) => bbExtraction([room("Kitchen", { equipment, equipmentAsked: true }), room("Living Room", { equipmentAsked: true })]);
+  check(equipmentPlaced(withEquipment([])) === false, "no equipment anywhere is none placed");
+  check(equipmentPlaced(withEquipment([{ type: "air movers", quantity: 0, holeCount: null }])) === false, "an answered zero is none placed");
+  check(equipmentPlaced(withEquipment([{ type: "air movers", quantity: 3, holeCount: null }])) === true, "three air movers in one room is placed");
+  const contextOf = (extraction, scopeOnly = false) => {
+    const message = documentGenerationUserMessage({ ...claim, scopeOnly }, extraction, "transcript");
+    const line = message.split("\n").find((l) => l.startsWith("{") && l.includes("\"scopePhases\""));
+    return JSON.parse(line);
+  };
+  check(contextOf(withEquipment([])).equipmentPlaced === false && contextOf(withEquipment([{ type: "dehumidifiers", quantity: 1, holeCount: null }])).equipmentPlaced === true, "and the claim context the model reads says so");
+  check(contextOf(withEquipment([]), true).equipmentPlaced === false, "in the scope-only mode too");
+  const prompt = readFileSync(join(root, "lib", "documentGenerationPrompt.ts"), "utf8");
+  check(/- Equipment pickup and monitoring\s+\(only when CLAIM CONTEXT's equipmentPlaced is true/.test(prompt), "and the General line is written only when it is true");
+}
+
 /* ── Floor registers are a pair, and the PM phone is on the sheet ───────────────────────────────── */
 
 /*
@@ -1212,10 +1347,16 @@ const repairFloor = fl({ type: "VINYL", vinylSubtype: "PLANK", removalSF: 100, p
 check(poundsOf([repairFloor], {}, "EMERGENCY") === 0 && near(poundsOf([repairFloor], {}, "REPAIR"), 180), "a floor coming out on the repair visit weighs on the repair side only");
 check(poundsOf([room("Hall", { walls: [wall({ cutHeight: "TWO_FOOT", cutRunFt: 30 })] })], {}, "REPAIR") === 0, "drywall is always emergency debris");
 
-// Unscoped work has words but no weight; it is named where it was placed.
+// Unscoped work has words but no weight; it is named on the Emergency line, where things come out.
 const unscopedRoom = room("Bath", { unscoped: [{ description: "remove tub-surround tile", disposition: "EMERGENCY" }, { description: "replace two outlets", disposition: "REPAIR" }, { description: "dropped thing", disposition: "DROPPED" }, { description: "undecided thing", disposition: null }] });
 check(same(debris([unscopedRoom]).unweighed, [{ item: "remove tub-surround tile", room: "Bath" }]), `emergency unscoped work is listed as unweighed on the emergency side (got ${JSON.stringify(debris([unscopedRoom]).unweighed)})`);
-check(same(debris([unscopedRoom], {}, "REPAIR").unweighed, [{ item: "replace two outlets", room: "Bath" }]), "and repair work on the repair side — dropped and undecided items on neither");
+check(same(debris([unscopedRoom], {}, "REPAIR").unweighed, []), `and nothing on the repair side: what is placed there goes back in (got ${JSON.stringify(debris([unscopedRoom], {}, "REPAIR").unweighed)})`);
+{
+  // The owner's 2026-11-10 kitchen: its repair disposal line listed resets and a clean as debris.
+  const kitchen = room("Kitchen", { unscoped: [{ description: "Detach and reset all appliances", disposition: "REPAIR" }, { description: "Detach and reset plumbing", disposition: "REPAIR" }, { description: "Final clean", disposition: "REPAIR" }] });
+  const line = disposalLine(recommendDisposal(bbExtraction([kitchen]), {}, "REPAIR"));
+  check(line === "Disposal – pickup", `so a repair disposal line names no resets or cleaning as debris (got "${line}")`);
+}
 /*
   A both-phases item comes out in Emergency and goes back in Repair, so it is debris once. The paid
   check on 2026-11-09 printed the Repair disposal line as "not weighed: Install new toe kicks…" — an

@@ -1,4 +1,7 @@
 import type {
+  ApplianceFuel,
+  ApplianceRecord,
+  ApplianceType,
   AreaFraction,
   BaseboardAction,
   BaseboardDisposition,
@@ -74,7 +77,7 @@ import {
   totalWindowsToClean,
   withDerivedFields,
 } from "./types";
-import { type GapCheckQuestion, type GapCheckQuestionKind, type GapCheckResult, parseBucketCounts } from "./questions";
+import { type GapCheckQuestion, type GapCheckQuestionKind, type GapCheckResult, parseBucketCounts, parseMultiChoice } from "./questions";
 import { isPlaceholderRoomName } from "./sketch";
 
 /**
@@ -450,6 +453,31 @@ export function evaluate(raw: WaterLossExtraction, suggestions?: EquipmentSugges
         kind: { type: "choice", options: ["Still in place — detach and reset", "Already out — reset only"] },
       });
     });
+    /*
+      "All appliances", none named (owner, 2026-11-10: "should be able to select fridge, range -
+      electric or gas, dishwasher"). Each pick becomes an appliance record, so it is a detach/reset
+      pair everywhere appliances already are. Types the room already has are left off the list.
+    */
+    if (room.appliancesUnnamed === true) {
+      const have = new Set(room.appliances.map((a) => a.type));
+      const options = APPLIANCE_PICKS.filter((p) => !have.has(p.type)).map((p) => p.label);
+      questions.push({
+        id: `room:${roomIndex}:appliances:which`,
+        roomName: room.roomName,
+        prompt: "Which appliances are being detached and reset? Tap each one.",
+        kind: { type: "multiChoice", options, none: NO_APPLIANCES },
+      });
+    }
+    // A range's fuel, every time: a gas range has a line to disconnect and is priced apart (owner, 2026-11-10).
+    room.appliances.forEach((a, i) => {
+      if (a.type !== "RANGE" || (a.fuel ?? null) !== null) return;
+      questions.push({
+        id: `room:${roomIndex}:appliance:${i}:fuel`,
+        roomName: room.roomName,
+        prompt: "Is the range gas or electric?",
+        kind: { type: "choice", options: RANGE_FUEL_OPTIONS },
+      });
+    });
     room.outlets.forEach((o, i) => questions.push(...outletQuestions(roomIndex, room.roomName, i, o)));
 
     // ---- Ceiling, all of it together. A sub-room is under its parent's ceiling. ----
@@ -460,8 +488,13 @@ export function evaluate(raw: WaterLossExtraction, suggestions?: EquipmentSugges
     }
 
     // ---- Fixtures and joinery ----
-    room.cabinetry.forEach((c, i) => questions.push(...cabinetryQuestions(roomIndex, room.roomName, i, c, room.cabinetry.length === 1)));
+    room.cabinetry.forEach((c, i) => questions.push(...cabinetryQuestions(roomIndex, room.roomName, i, c, room.cabinetry.length === 1, room.countertops.length > 0)));
     room.toeKicks.forEach((t, i) => questions.push(...toeKickQuestions(roomIndex, room.roomName, i, t)));
+    /*
+      Lower cabinets coming out with no countertop mentioned left the top out of the scope altogether:
+      "no shoring" meant it came off with them, and nothing followed (owner, 2026-11-10).
+    */
+    questions.push(...countertopWithCabinetsQuestion(roomIndex, room));
     room.countertops.forEach((c, i) => questions.push(...countertopQuestions(roomIndex, room.roomName, i, c)));
     room.plumbingFixtures.forEach((p, i) => questions.push(...plumbingQuestions(roomIndex, room.roomName, i, p)));
     if (room.electricalPanel) questions.push(...panelQuestions(roomIndex, room.roomName, room.electricalPanel));
@@ -1434,6 +1467,40 @@ function subfloorTypeAnswer(answer: string): SubfloorType | null {
 /** Where an unscoped item goes. The last option is a decision, not a deletion — see UnscopedItem. */
 const UNSCOPED_OPTIONS = ["Emergency", "Repair", "Both phases", "Not part of this job"];
 
+/** A range's fuel. */
+const RANGE_FUEL_OPTIONS = ["Electric", "Gas"];
+
+/** The appliance pick list: each label and what it records. A range comes as electric or gas, since the two are priced apart. */
+const APPLIANCE_PICKS: { label: string; type: ApplianceType; fuel?: ApplianceFuel }[] = [
+  { label: "Fridge", type: "FRIDGE" },
+  { label: "Range – electric", type: "RANGE", fuel: "ELECTRIC" },
+  { label: "Range – gas", type: "RANGE", fuel: "GAS" },
+  { label: "Dishwasher", type: "DISHWASHER" },
+  { label: "Built-in microwave", type: "BUILT_IN_MICROWAVE" },
+  { label: "Range hood", type: "RANGE_HOOD" },
+  { label: "Built-in oven", type: "BUILT_IN_OVEN" },
+  { label: "Cooktop", type: "COOKTOP" },
+  { label: "Washer", type: "WASHER" },
+  { label: "Dryer", type: "DRYER" },
+];
+const NO_APPLIANCES = "None of these";
+
+/** The picks as records, one per type, beside what the room already has; settles the question. Nothing usable changes nothing, so it is asked again. */
+function applyAppliancePicks(room: Room, answer: string): Room {
+  if (room.appliancesUnnamed !== true) return room;
+  const chosen = parseMultiChoice(answer);
+  const picks = APPLIANCE_PICKS.filter((p) => chosen.includes(p.label));
+  if (picks.length === 0 && !chosen.includes(NO_APPLIANCES)) return room;
+  const have = new Set(room.appliances.map((a) => a.type));
+  const added: ApplianceRecord[] = [];
+  for (const p of picks) {
+    if (have.has(p.type)) continue;
+    have.add(p.type);
+    added.push(p.fuel ? { type: p.type, action: null, fuel: p.fuel } : { type: p.type, action: null });
+  }
+  return { ...room, appliances: [...room.appliances, ...added], appliancesUnnamed: false };
+}
+
 /** Unrecognised leaves it open, so the item is asked again rather than landing in a phase nobody chose. */
 function unscopedDispositionAnswer(answer: string): UnscopedDisposition | null {
   if (equalsIgnoreCase(answer, "Emergency")) return "EMERGENCY";
@@ -1512,7 +1579,7 @@ function looksLikeBathroom(roomName: string): boolean {
   return /\b(bath|bathroom|ensuite|en[- ]?suite|powder|washroom|wc)\b/i.test(roomName);
 }
 
-function cabinetryQuestions(roomIndex: number, roomName: string, i: number, c: CabinetryRecord, onlyRecord: boolean): GapCheckQuestion[] {
+function cabinetryQuestions(roomIndex: number, roomName: string, i: number, c: CabinetryRecord, onlyRecord: boolean, roomHasCountertop: boolean): GapCheckQuestion[] {
   const q: GapCheckQuestion[] = [];
   const base = `room:${roomIndex}:cabinetry:${i}`;
 
@@ -1563,13 +1630,69 @@ function cabinetryQuestions(roomIndex: number, roomName: string, i: number, c: C
     record out of cabinetry altogether, and a question about a record that may stop existing is one
     the PM answers for nothing. Once extent is set, the round after the answer asks it.
   */
-  if (c.shoringRequired === null && !offeringVanity)
+  /*
+    In a room where nothing said there was a countertop, a cabinet under one is settled by the room's
+    countertop question instead, which asks what happens to the top as well as whether it is held up.
+    One whose extent is not known yet waits for it: the extent decides which of the two it gets.
+  */
+  const settledByTopQuestion = !roomHasCountertop && (c.extent === null || underCountertop(c));
+  if (c.shoringRequired === null && !offeringVanity && !settledByTopQuestion)
     q.push({
       id: `${base}:shoringRequired`, roomName,
       prompt: "Is anything staying in place above this cabinet that needs shoring while it is out?",
       kind: { type: "yesNo" },
     });
   return q;
+}
+
+/** Lowers and full height sit under a countertop; uppers do not. */
+function underCountertop(c: CabinetryRecord): boolean {
+  return c.extent === "LOWERS" || c.extent === "FULL_HEIGHT";
+}
+
+/**
+ * The cabinets a room's countertop question settles: under a countertop, shoring not yet known, in a
+ * room where nothing said there was a countertop at all. Shared with the carry-over, so the two agree
+ * on what the question covers.
+ */
+export function cabinetsAwaitingCountertop(room: Room): CabinetryRecord[] {
+  if (room.countertops.length > 0) return [];
+  return room.cabinetry.filter((c) => underCountertop(c) && c.shoringRequired === null);
+}
+
+/**
+ * What happens to the top when the cabinets under it come out. The first two create the countertop
+ * record — asked as detach & reset or remove & replace every time (owner, 2026-11-10) — and the
+ * material question follows for it like any other countertop.
+ */
+const COUNTERTOP_WITH_CABINETS = ["Comes off — detach & reset", "Comes off — remove & replace", "Stays up — shore it", "No countertop"];
+
+/** The question itself, or nothing when no cabinet in the room is waiting on it. */
+function countertopWithCabinetsQuestion(roomIndex: number, room: Room): GapCheckQuestion[] {
+  const waiting = cabinetsAwaitingCountertop(room);
+  if (waiting.length === 0) return [];
+  const where = [...new Set(waiting.map((c) => c.location.trim()).filter((l) => l !== ""))];
+  return [{
+    id: `room:${roomIndex}:countertop:withCabinets`,
+    roomName: room.roomName,
+    prompt: `What happens to the countertop while the cabinets are out${where.length > 0 ? ` (${where.join(", ")})` : ""}?`,
+    kind: { type: "choice", options: COUNTERTOP_WITH_CABINETS },
+  }];
+}
+
+/** Settles every waiting cabinet's shoring, and creates the countertop when it comes off. Unrecognised changes nothing, so it is asked again. */
+function applyCountertopWithCabinets(room: Room, answer: string): Room {
+  const [detach, replace, shore, none] = COUNTERTOP_WITH_CABINETS;
+  const action: DetachOrReplaceAction | null = equalsIgnoreCase(answer, detach!) ? "DETACH_AND_RESET" : equalsIgnoreCase(answer, replace!) ? "REMOVE_AND_REPLACE" : null;
+  const shored = equalsIgnoreCase(answer, shore!);
+  if (action === null && !shored && !equalsIgnoreCase(answer, none!)) return room;
+  const waiting = new Set(cabinetsAwaitingCountertop(room));
+  if (waiting.size === 0) return room;
+  return {
+    ...room,
+    cabinetry: room.cabinetry.map((c) => (waiting.has(c) ? { ...c, shoringRequired: shored } : c)),
+    countertops: action === null ? room.countertops : [{ action, material: null }],
+  };
 }
 
 // ---- Toe kicks ----------------------------------------------------------------------------------
@@ -1715,9 +1838,10 @@ function plumbingQuestions(roomIndex: number, roomName: string, i: number, p: Pl
     case "KITCHEN_SINK":
     case "BATHROOM_SINK":
       if (p.fixtureType === "KITCHEN_SINK" && p.basinCount === null)
-        q.push({ id: `${base}:basinCount`, roomName, prompt: "Single or double basin?", kind: { type: "choice", options: ["Single", "Double"] } });
+        q.push({ id: `${base}:basinCount`, roomName, prompt: "Is the kitchen sink single or double basin?", kind: { type: "choice", options: ["Single", "Double"] } });
+      // Undermount puts the faucet in the countertop, so it comes off separately — see the kitchen sink rule in documentGenerationPrompt.ts.
       if (p.mount === null)
-        q.push({ id: `${base}:mount`, roomName, prompt: "How is the sink mounted — undermount, drop-in, or other?", kind: { type: "choice", options: ["Undermount", "Drop-in", "Other"] } });
+        q.push({ id: `${base}:mount`, roomName, prompt: `How is the ${p.fixtureType === "KITCHEN_SINK" ? "kitchen " : ""}sink mounted — undermount, drop-in, or other?`, kind: { type: "choice", options: ["Undermount", "Drop-in", "Other"] } });
       break;
     case "BATHROOM_VANITY":
       // Sink handling is not a question at all — whenever a vanity is in scope, detaching (and
@@ -2393,6 +2517,14 @@ export function applyAnswer(extraction: WaterLossExtraction, questionId: string,
   if (parts.length >= 5 && parts[0] === "room" && parts[2] === "door") {
     return updateList(extraction, roomIndex(parts), Number(parts[3]), (r) => r.doors, (r, l) => ({ ...r, doors: l }), (d) => applyDoorAnswer(d, parts[4]!, answer));
   }
+  if (parts.length === 4 && parts[0] === "room" && parts[2] === "appliances" && parts[3] === "which") {
+    return updateRoom(extraction, roomIndex(parts), (room) => applyAppliancePicks(room, answer));
+  }
+  if (parts.length >= 5 && parts[0] === "room" && parts[2] === "appliance" && parts[4] === "fuel") {
+    // Unrecognised leaves it open, so it is asked again.
+    const fuel: ApplianceFuel | null = equalsIgnoreCase(answer, "Gas") ? "GAS" : equalsIgnoreCase(answer, "Electric") ? "ELECTRIC" : null;
+    return updateList(extraction, roomIndex(parts), Number(parts[3]), (r) => r.appliances, (r, l) => ({ ...r, appliances: l }), (a) => ({ ...a, fuel }));
+  }
   if (parts.length >= 5 && parts[0] === "room" && parts[2] === "appliance" && parts[4] === "action") {
     return updateList(
       extraction,
@@ -2483,6 +2615,9 @@ export function applyAnswer(extraction: WaterLossExtraction, questionId: string,
   if (parts.length >= 5 && parts[0] === "room" && parts[2] === "toeKick") {
     return updateList(extraction, roomIndex(parts), Number(parts[3]), (r) => r.toeKicks, (r, l) => ({ ...r, toeKicks: l }), (t) => applyToeKickAnswer(t, parts[4]!, answer));
   }
+  if (parts.length === 4 && parts[0] === "room" && parts[2] === "countertop" && parts[3] === "withCabinets") {
+    return updateRoom(extraction, roomIndex(parts), (room) => applyCountertopWithCabinets(room, answer));
+  }
   if (parts.length >= 5 && parts[0] === "room" && parts[2] === "countertop") {
     return updateList(extraction, roomIndex(parts), Number(parts[3]), (r) => r.countertops, (r, l) => ({ ...r, countertops: l }), (c) => applyCountertopAnswer(c, parts[4]!, answer));
   }
@@ -2565,13 +2700,17 @@ function isEffectivelyNone(value: string): boolean {
 function equalsIgnoreCase(a: string, b: string): boolean {
   return a.toLowerCase() === b.toLowerCase();
 }
+/*
+  Every number the engine asks for is a count or a size, so a negative is not an answer: it reads as
+  null and the question stays open (owner, 2026-11-10: the floor-register arrows went below zero).
+*/
 function toIntOrNull(s: string): number | null {
   const n = Number.parseInt(s, 10);
-  return Number.isNaN(n) ? null : n;
+  return Number.isNaN(n) || n < 0 ? null : n;
 }
 function toDoubleOrNull(s: string): number | null {
   const n = Number.parseFloat(s);
-  return Number.isNaN(n) ? null : n;
+  return Number.isNaN(n) || n < 0 ? null : n;
 }
 
 /**

@@ -211,6 +211,20 @@ this room appear in the document at all":
   material, so never leave it implied by the cabinet line: a sink run where the counter and sink stay
   put has to be held up, and a cabinet removal on its own does not say that.
   Only when the field is true. Most cabinet removals take the countertop with them.
+- REPAIR-ONLY WORK, per room — a room's repairOnly list names kinds of work the PM put wholly in the
+  Repair phase ("detach and reset the lower cabinets on the repair phase"). For every record of a
+  listed kind in that room, BOTH halves of its pair go in that room's Repair list, the detach (or
+  remove) line first and the reset (or replace) line straight after, and NOTHING for it in
+  Emergency:
+    · CABINETRY — the room's cabinetry lines, and with them its countertop lines, cabinet hardware
+      lines and any shoring line, since those come off with the cabinets.
+    · APPLIANCES — every appliance pair.
+    · PLUMBING_FIXTURES — every plumbing fixture's lines, a sink's faucet and a vanity's sink and
+      countertop lines included.
+  Everything else in the room keeps the ordinary Emergency/Repair split. On a document with Repair
+  and no Emergency each pair combines into one "Detach & reset …" / "Remove & replace …" line as
+  usual. A missing or empty repairOnly changes nothing. This has gone wrong: "detach and reset the
+  lower cabinets on the repair phase and all appliances and plumbing" was split across both phases.
 - WINDOW COVERINGS and CABINET HARDWARE, per room — for every entry in that room's
   "windowCoverings" and "cabinetHardware" arrays, a PAIR of bullets, on the same terms as trim:
     · DETACH_AND_RESET — Emergency "Detach {thing}", Repair "Reset {thing}".
@@ -409,6 +423,18 @@ Auto-included items — apply these yourself, they are never spelled out per-ite
        DETACH_AND_RESET this means the countertop stays in place untouched; for REMOVE_AND_REPLACE
        it means the countertop is being replaced as part of the new vanity unit, already covered by
        the vanity's own remove/replace item.
+7b. Kitchen sink, per room: a plumbing fixture of type KITCHEN_SINK is a pair like any other
+   plumbing fixture — Emergency "Detach kitchen sink" and Repair "Reset kitchen sink" for
+   DETACH_AND_RESET, Emergency "Remove kitchen sink" and Repair "Replace kitchen sink" for
+   REMOVE_AND_REPLACE — with its detail after a dash: "single basin" or "double basin" from
+   basinCount, then "undermount" or "drop-in" from mount, each left out when null and mount OTHER
+   left out too. For example: "Detach kitchen sink – double basin, undermount".
+   Faucet: when mount is UNDERMOUNT, ALSO a pair — Emergency "Detach faucet – kitchen sink" and
+   Repair "Reset faucet – kitchen sink" — whatever the sink's own action. An undermount sink hangs
+   under the countertop and its faucet is mounted through the countertop, so the faucet comes off on
+   its own. A drop-in sink carries its faucet on its own deck and it comes out with the sink: no
+   faucet line. Mount OTHER or null: no faucet line. Never write one half of a pair without the
+   other. On a document with Repair and no Emergency, each pair combines as the paired categories do.
 8. Electrical panel, Emergency: only ever produced when electricalPanel is present and
    requiresInspection == true.
      - includedInScope == false → no room-level item. Instead, a General (non-room) note:
@@ -576,8 +602,11 @@ Auto-included items — apply these yourself, they are never spelled out per-ite
     Emergency "Detach {appliance}" and Repair "Reset {appliance}", where {appliance} is the type in
     ordinary words — WASHER "washer", DRYER "dryer", FRIDGE "fridge", RANGE "range", DISHWASHER
     "dishwasher", BUILT_IN_OVEN "built-in oven", COOKTOP "cooktop", RANGE_HOOD "range hood",
-    BUILT_IN_MICROWAVE "built-in microwave". Never write one half without the other, exactly as with
-    baseboard's detach/reset pair. There is no action field and no remove-and-replace form: a
+    BUILT_IN_MICROWAVE "built-in microwave". A RANGE whose fuel is GAS or ELECTRIC carries it as the
+    line's detail, in both halves: "Detach range – gas" / "Reset range – gas" (or "– electric") —
+    a gas range has a gas line to disconnect and is priced apart from an electric one. Fuel null:
+    plain "range". Never write one half without the other, exactly as with baseboard's detach/reset
+    pair. There is no action field and no remove-and-replace form: a
     restoration contractor detaches and resets appliances and does not replace them, so never write
     "Remove" or "Replace" for one.
 18. Trim, per room — for every entry in that room's "trim" array, a PAIR of bullets, phrased from
@@ -781,7 +810,9 @@ Emergency
     ... (one bullet per record with an Emergency portion, per EMERGENCY_DERIVATION_RULES below)
   General
     - {disposal.emergency — the computed disposal line, written exactly as given}
-    - Equipment pickup and monitoring
+    - Equipment pickup and monitoring   (only when CLAIM CONTEXT's equipmentPlaced is true — drying
+      equipment was placed in at least one room. With none placed there is nothing to pick up or
+      monitor, so leave the line out.)
     - Asbestos sample collection – {N} samples   (only when loss.asbestosSamplesTaken is true; {N} is
       loss.asbestosSampleCount, omitted along with the word "samples" when that count is null)
     - Temporary power distribution   (only when ANY room's temporaryPowerRequired is true — see the
@@ -974,6 +1005,15 @@ ${SCOPE_DOCUMENT_SECTION}`;
  * pure CONTENTS selection never reaches this function at all (no inspection report), and the
  * remaining combinations have no separate contents assignment to note in the first place.
  */
+/**
+ * Whether any room had drying equipment placed — a count above zero, the same test the "Place …"
+ * lines use. Decides the General "Equipment pickup and monitoring" line: a kitchen with no equipment
+ * placed was given one anyway (owner, 2026-11-10), because the template listed it unconditionally.
+ */
+export function equipmentPlaced(extraction: WaterLossExtraction): boolean {
+  return extraction.rooms.some((room) => room.equipment.some((e) => e.quantity !== null && e.quantity > 0));
+}
+
 export function documentGenerationUserMessage(
   claim: ClaimInfo,
   completedExtraction: WaterLossExtraction,
@@ -1010,6 +1050,8 @@ export function documentGenerationUserMessage(
         dgigData,
         // Computed from the tree and the sketch — see lib/debris.ts and the disposal note above.
         disposal,
+        // Whether the General equipment pickup line is written at all — see `equipmentPlaced`.
+        equipmentPlaced: equipmentPlaced(completedExtraction),
         // Ready-made, copied exactly — see lib/exterior.ts and the exterior note above.
         exterior,
       }
@@ -1036,6 +1078,8 @@ export function documentGenerationUserMessage(
         dgigData,
         // Computed from the tree and the sketch — see lib/debris.ts and the disposal note above.
         disposal,
+        // Whether the General equipment pickup line is written at all — see `equipmentPlaced`.
+        equipmentPlaced: equipmentPlaced(completedExtraction),
         // Ready-made, copied exactly — see lib/exterior.ts and the exterior note above.
         exterior,
       };
@@ -1048,8 +1092,9 @@ field, never inferred or overridden from the transcript or the completed data: w
 waterCategory for "Category of loss"/"Class of loss" (not the completed data's
 loss.category/loss.class; null for a non-WATER lossType — see the header notes), lossType for
 whether this is a water claim at all, scopePhases for which phase(s) to render (see
-SCOPE_PHASE_RULES), and dgigData (when present) for overriding the Emergency section (see
-DGIG_SCOPE_RULES):
+SCOPE_PHASE_RULES), dgigData (when present) for overriding the Emergency section (see
+DGIG_SCOPE_RULES), and equipmentPlaced for whether the General "Equipment pickup and monitoring"
+line is written:
 ${JSON.stringify(claimContext)}
 
 COMPLETED WATER LOSS DATA (the scope's structured data — flooring/baseboard/wall/equipment per
@@ -1069,7 +1114,8 @@ for the scope document's "Category of loss"/"Class of loss" (not the completed d
 loss.category/loss.class; null for a non-WATER lossType — see the header notes), lossType for
 whether this is a water claim at all, scopePhases for which phase(s) the scope document renders
 (see SCOPE_PHASE_RULES), dgigData (when present) for overriding the Emergency section (see
-DGIG_SCOPE_RULES), causeOfLoss for CAUSE OF LOSS, preExistingConditions for
+DGIG_SCOPE_RULES), equipmentPlaced for whether the General "Equipment pickup and monitoring" line
+is written, causeOfLoss for CAUSE OF LOSS, preExistingConditions for
 PRE-EXISTING CONDITIONS, and contentsAssignmentNote (when present) for the inspection report's
 CONTENTS line — see the note on that field in INSPECTION_REPORT_SECTION above. (Job Information —
 insured, address, claim number, PM, year of building, date of loss, date/time inspected — is

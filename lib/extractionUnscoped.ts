@@ -46,6 +46,8 @@ WHAT DOES NOT COUNT:
 - Observations, readings and history: how wet something is, where the water came from, what the
   PM saw, the category and class, what happened last week.
 - Equipment, contents and drying — those have fields and are on the list when present.
+- A final clean. The scope adds one to every room with repair work on its own, so a "final clean"
+  the PM mentions is never missing.
 - Anything the PM did not say. Never infer work from damage; the PM decides what is done.
 
 HOW TO WRITE EACH ITEM: one short line per piece of work, in the PM's terms, with the location if
@@ -89,6 +91,8 @@ export function capturedSummary(room: Room): string[] {
   if (room.stairs) push("stairs");
   for (const w of room.windowCoverings) push("window covering", WINDOW_COVERING_LABEL[w.type], w.location, nat(w.action));
   for (const a of room.appliances) push("appliance", APPLIANCE_LABEL[a.type], nat(a.action));
+  // "All appliances": not named yet, but captured — the PM is asked which, so it is not missing work.
+  if (room.appliancesUnnamed === true) push("appliances", "detached and reset — which ones is asked separately");
   for (const e of room.equipment) push("equipment", e.type, e.quantity !== null ? `× ${e.quantity}` : null, e.holeCount !== null ? `${e.holeCount} injection holes drilled and filled` : isInjectionEquipment(e.type) ? "injection holes drilled and filled" : null);
   if (room.floorRegistersDetached) push("floor registers", `× ${room.floorRegistersDetached}`);
   if (room.windowCleaningCounts) push("windows cleaned after drywall work");

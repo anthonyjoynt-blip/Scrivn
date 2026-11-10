@@ -81,10 +81,14 @@ export function checkCarryOver({ mod, check, claim, room, extractionWith, runToC
           cabinetHardware: [{ location: "sink base", action: null }],
           countertops: [countertop()],
           windowCoverings: [{ type: "BLIND", location: "over the sink", action: null }],
-          appliances: [{ type: "DISHWASHER", action: null }],
+          appliances: [{ type: "DISHWASHER", action: null }, { type: "RANGE", action: null }],
+          // "All appliances" as well, so the pick list is asked and carried.
+          appliancesUnnamed: true,
           trim: [{ kind: "DOOR_CASING", location: "pantry door", action: null }],
           subfloor: [{ type: null, disposition: null, removalSF: null }],
           unscoped: [{ description: "replace two outlets on the wet wall", disposition: null }],
+          // Recorded since 2026-11-10 (extraction call 4), so its basin and mount questions are carried too.
+          plumbingFixtures: [vanity({ fixtureType: "KITCHEN_SINK" })],
         }),
         room("Main Bathroom", {
           flooring: [floor({ type: null })],
@@ -103,6 +107,8 @@ export function checkCarryOver({ mod, check, claim, room, extractionWith, runToC
           ceilings: [ceiling({ type: "SUSPENDED_TILE" }), ceiling({ type: "SUSPENDED_TILE", action: "DETACH_AND_RESET" })],
           containmentRequired: true,
         }),
+        // Lower cabinets with no countertop said, so the room's countertop question is asked.
+        room("Wet Bar", { cabinetry: [cabinet({ location: "bar sink base", action: "DETACH_AND_RESET", extent: "LOWERS" })] }),
       ],
       { yearOfBuilding: 1975, isBasementLoss: true, hvacInspectionRequired: null },
     );
@@ -153,7 +159,7 @@ export function checkCarryOver({ mod, check, claim, room, extractionWith, runToC
     "Asks nothing" proves only as much as was asked to begin with. Every question the carry-over has a
     rule for must have come up in the runs above, or a rule could be wrong with nothing to show it.
     The ones it has no rule for, and so asks again, are listed in lib/answerCarryOver.ts's header;
-    kitchen sinks and tub surrounds are left out because extraction records neither.
+    tub surrounds are left out because extraction does not record them.
   */
   const RULES = [
     ...["type", "disposition", "hardwoodConstruction", "hardwoodConstructionOther", "hardwoodInstallation", "vinylSubtype", "vinylInstallation",
@@ -163,11 +169,11 @@ export function checkCarryOver({ mod, check, claim, room, extractionWith, runToC
     ...["slabOnly", "doorType", "doorStyle", "unitType", "saveHardware"].map((f) => `room:N:door:N:${f}`),
     // Not "grade": no longer asked (2026-10-30). Its rule stays, for a grade answered before then.
     ...["extent", "shoringRequired"].map((f) => `room:N:cabinetry:N:${f}`),
-    "room:N:countertop:N:material",
+    "room:N:countertop:N:material", "room:N:countertop:withCabinets",
     ...["finish", "textureStyle", "aboveInsulationAffected", "aboveInsulationType", "aboveInsulationRValue", "replaceSF", "detachScope", "tileSize", "mountMethod"]
       .map((f) => `room:N:ceiling:N:${f}`),
-    ...["topDetached", "topKept", "topMaterial"].map((f) => `room:N:plumbing:N:${f}`),
-    "room:N:trim:N:action", "room:N:windowCovering:N:action", "room:N:cabinetHardware:N:action", "room:N:appliance:N:action",
+    ...["topDetached", "topKept", "topMaterial", "basinCount", "mount"].map((f) => `room:N:plumbing:N:${f}`),
+    "room:N:trim:N:action", "room:N:windowCovering:N:action", "room:N:cabinetHardware:N:action", "room:N:appliance:N:action", "room:N:appliance:N:fuel", "room:N:appliances:which",
     ...["type", "disposition", "removalSF"].map((f) => `room:N:subfloor:N:${f}`),
     "room:N:unscoped:N:disposition", "room:N:unscoped:N:repairDescription",
     "room:N:equipment:N:quantity", "room:N:equipment:N:holeCount", "room:N:equipment:used", "equipment:allRooms:air movers",

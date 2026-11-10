@@ -58,6 +58,7 @@ const {
   totalWindowsToClean,
   canApplyToAllRooms,
   siblingQuestionIds,
+  isQuestionAnswered,
   equipmentNeedsConsolidating,
   consolidatedEquipmentId,
   recordRound,
@@ -110,6 +111,9 @@ function answerFor(q, choose) {
       return "2";
     case "decimal":
       return "2.5";
+    case "multiChoice":
+      // The first real option: a pick, so the records it makes are exercised too.
+      return q.kind.options[0] ?? q.kind.none;
     case "bucketCounts":
       // One of each bucket — exercises the multi-band path rather than collapsing to a single value.
       return q.kind.buckets.map((b) => `${b.key}:1`).join(",");
@@ -3167,6 +3171,158 @@ check(
     ...missedByReset.map((m) => `           ${m}`),
   ].join("\n"),
 );
+
+/* ── No number answer goes below zero ──────────────────────────────────────────────────────────── */
+
+/*
+  Owner, 2026-11-10: the arrows on the floor-register count went negative. Every number the engine
+  asks for is a count or a size, so a negative is not an answer: the box stops at zero, Continue
+  treats one as unanswered, and applyAnswer refuses one so it never reaches the tree.
+*/
+{
+  const q = (type, extra = {}) => ({ id: "room:0:x", roomName: "Kitchen", prompt: "?", kind: { type, ...extra } });
+  const whole = q("wholeNumber");
+  check(!isQuestionAnswered(whole, "-1"), "a negative whole number is not an answer");
+  check(isQuestionAnswered(whole, "0") && isQuestionAnswered(whole, "3"), "zero and up are");
+  check(!isQuestionAnswered(whole, "2.5"), "and a fraction still is not a whole number");
+  const dec = q("decimal");
+  check(!isQuestionAnswered(dec, "-0.5") && isQuestionAnswered(dec, "0") && isQuestionAnswered(dec, "12.5"), "a negative decimal is not an answer; zero and up are");
+  const plan = q("equipmentPlan", { suggested: 2, unit: "air movers" });
+  check(!isQuestionAnswered(plan, "-2") && isQuestionAnswered(plan, "none") && isQuestionAnswered(plan, "3"), "an equipment plan is \"none\" or a count, never a negative one");
+
+  const field = readFileSync(join(root, "components", "QuestionField.tsx"), "utf8");
+  const box = (kind) => field.slice(field.indexOf(`kind.type === "${kind}" && (`), field.indexOf("/>", field.indexOf(`kind.type === "${kind}" && (`)));
+  check(box("wholeNumber").includes("min={0}") && box("decimal").includes("min={0}"), "and the whole-number and decimal boxes stop at zero");
+
+  const tree = withDerivedFields(extractionWith([room("Kitchen", { flooring: [{ ...canonicalRecordShapes().flooring, type: "LAMINATE", disposition: "REMOVE_AND_DISPOSE", phase: "BOTH", phaseUncertain: false }] })]));
+  const registers = (answer) => withDerivedFields(applyAnswer(tree, "room:0:floorRegistersDetached", answer)).rooms[0].floorRegistersDetached;
+  check(registers("-1") === null, `a negative register count is refused, so the question stays open (got ${registers("-1")})`);
+  check(registers("0") === 0 && registers("2") === 2, "zero and up are recorded");
+  check(nextQuestions(claim, withDerivedFields(applyAnswer(tree, "room:0:floorRegistersDetached", "-1"))).some((x) => x.id === "room:0:floorRegistersDetached"), "and it is asked again");
+  const removal = (answer) => withDerivedFields(applyAnswer(tree, "room:0:flooring:0:removalSF", answer)).rooms[0].flooring[0];
+  check(removal("-50").removalSF === null && removal("-50").removalFraction === null, `a negative area is refused too (got ${JSON.stringify([removal("-50").removalSF, removal("-50").removalFraction])})`);
+  check(removal("50").removalSF === 50, "while a real one is kept");
+}
+
+/* ── Cabinets coming out ask what happens to the countertop ───────────────────────────────────── */
+
+/*
+  Owner, 2026-11-10: "detach and reset the lower cabinets", no countertop mentioned. The shoring
+  question was answered No — so the top came off with them — and nothing followed: no countertop in
+  the scope, no material asked. Now a room with cabinets under a top and no countertop recorded asks
+  once what happens to it, and "comes off" (detach & reset or remove & replace, asked every time)
+  creates the countertop record, whose material question follows like any other countertop's.
+*/
+{
+  const cab = (o = {}) => ({ location: "lower cabinets", action: "DETACH_AND_RESET", extent: "LOWERS", grade: null, shoringRequired: null, ...o });
+  const kitchenWith = (o) => withDerivedFields(extractionWith([room("Kitchen", o)]));
+  const qs = (tree) => nextQuestions(claim, tree).filter((q) => /:(cabinetry|countertop)[:]/.test(q.id));
+  const ids = (tree) => qs(tree).map((q) => q.id).join(", ");
+
+  const lowers = kitchenWith({ cabinetry: [cab()] });
+  const asked = qs(lowers);
+  check(asked.length === 1 && asked[0].id === "room:0:countertop:withCabinets", `lower cabinets with no countertop said ask about the top, instead of the shoring yes/no (got ${ids(lowers)})`);
+  check(same(asked[0]?.kind.options, ["Comes off — detach & reset", "Comes off — remove & replace", "Stays up — shore it", "No countertop"]), `detach & reset or remove & replace, every time, or held up, or none (got ${JSON.stringify(asked[0]?.kind.options)})`);
+  check(asked[0]?.prompt.includes("lower cabinets"), `naming the cabinets (got "${asked[0]?.prompt}")`);
+
+  const answered = (answer) => withDerivedFields(applyAnswer(lowers, "room:0:countertop:withCabinets", answer)).rooms[0];
+  const dr = answered("Comes off — detach & reset");
+  check(same(dr.countertops, [{ action: "DETACH_AND_RESET", material: null }]) && dr.cabinetry[0].shoringRequired === false, `"comes off — detach & reset" creates the countertop and settles the shoring (got ${JSON.stringify([dr.countertops, dr.cabinetry[0].shoringRequired])})`);
+  const afterDr = withDerivedFields(applyAnswer(lowers, "room:0:countertop:withCabinets", "Comes off — detach & reset"));
+  check(ids(afterDr) === "room:0:countertop:0:material", `and its material is asked next (got ${ids(afterDr)})`);
+  check(answered("Comes off — remove & replace").countertops[0]?.action === "REMOVE_AND_REPLACE", "\"comes off — remove & replace\" creates one to be replaced");
+  const shored = answered("Stays up — shore it");
+  check(shored.countertops.length === 0 && shored.cabinetry[0].shoringRequired === true, "\"stays up\" is shoring, with no countertop line");
+  const none = answered("No countertop");
+  check(none.countertops.length === 0 && none.cabinetry[0].shoringRequired === false, "\"no countertop\" is neither");
+  for (const answer of ["Stays up — shore it", "No countertop"]) {
+    check(qs(withDerivedFields(applyAnswer(lowers, "room:0:countertop:withCabinets", answer))).length === 0, `and once answered "${answer}" nothing more is asked`);
+  }
+  check(same(answered("maybe"), lowers.rooms[0]), "an unrecognised answer changes nothing, so it is asked again");
+
+  check(ids(kitchenWith({ cabinetry: [cab({ extent: "UPPERS" })] })) === "room:0:cabinetry:0:shoringRequired", `upper cabinets have no countertop: they keep the shoring question (got ${ids(kitchenWith({ cabinetry: [cab({ extent: "UPPERS" })] }))})`);
+  const toldTop = kitchenWith({ cabinetry: [cab()], countertops: [{ action: "REMOVE_AND_REPLACE", material: "LAMINATE" }] });
+  check(ids(toldTop) === "room:0:cabinetry:0:shoringRequired", `a room whose countertop was said keeps the shoring question and is not asked about the top (got ${ids(toldTop)})`);
+  const unknownExtent = kitchenWith({ cabinetry: [cab({ extent: null })] });
+  check(ids(unknownExtent) === "room:0:cabinetry:0:extent", `with the extent unknown, only the extent is asked — it decides which question follows (got ${ids(unknownExtent)})`);
+  check(qs(kitchenWith({ cabinetry: [cab({ shoringRequired: true })] })).length === 0, "a cabinet the PM said to shore is asked nothing");
+  check(runToCompletion(claim, lowers).ok, "and a kitchen answered with first choices finishes");
+}
+
+/* ── A kitchen sink asks single or double, and how it is mounted ──────────────────────────────── */
+
+/*
+  Owner, 2026-11-10: "plumbing would be assumed a sink, should ask undermount or drop in". Extraction
+  call 4 now records a kitchen sink; these questions were written for one long ago and never fired.
+*/
+{
+  const sink = { fixtureType: "KITCHEN_SINK", action: "DETACH_AND_RESET", basinCount: null, mount: null, sinkAlsoNeeded: null, topDetached: null, topKept: null, topMaterial: null, sinkFaucetSaved: null, grade: null, includesSurround: null, surroundMaterial: null };
+  const kitchen = withDerivedFields(extractionWith([room("Kitchen", { plumbingFixtures: [sink] })]));
+  const asked = nextQuestions(claim, kitchen).filter((q) => q.id.includes(":plumbing:"));
+  check(same(asked.map((q) => q.id), ["room:0:plumbing:0:basinCount", "room:0:plumbing:0:mount"]), `a kitchen sink asks its basins and its mount, nothing else (got ${asked.map((q) => q.id).join(", ")})`);
+  check(asked[1]?.prompt === "How is the kitchen sink mounted — undermount, drop-in, or other?" && same(asked[1]?.kind.options, ["Undermount", "Drop-in", "Other"]), `naming the kitchen sink (got "${asked[1]?.prompt}")`);
+  const mounted = (answer) => applyAnswer(kitchen, "room:0:plumbing:0:mount", answer).rooms[0].plumbingFixtures[0].mount;
+  check(mounted("Undermount") === "UNDERMOUNT" && mounted("Drop-in") === "DROP_IN", "and records the mount the scope's faucet line turns on");
+  check(runToCompletion(claim, kitchen).ok, "and a kitchen with a sink finishes");
+}
+
+/* ── Every range is asked gas or electric ─────────────────────────────────────────────────────── */
+
+// Owner, 2026-11-10: "range - electric or gas". A gas range has a line to disconnect and is priced apart.
+{
+  const kitchen = (appliances) => withDerivedFields(extractionWith([room("Kitchen", { appliances })]));
+  const fuelQs = (tree) => nextQuestions(claim, tree).filter((q) => q.id.endsWith(":fuel"));
+  const asked = fuelQs(kitchen([{ type: "FRIDGE", action: null }, { type: "RANGE", action: null }]));
+  check(same(asked.map((q) => q.id), ["room:0:appliance:1:fuel"]), `a range is asked its fuel, nothing else is (got ${asked.map((q) => q.id).join(", ")})`);
+  check(asked[0]?.prompt === "Is the range gas or electric?" && same(asked[0]?.kind.options, ["Electric", "Gas"]), `as gas or electric (got "${asked[0]?.prompt}" ${JSON.stringify(asked[0]?.kind.options)})`);
+  const tree = kitchen([{ type: "RANGE", action: null }]);
+  const fuel = (answer) => applyAnswer(tree, "room:0:appliance:0:fuel", answer).rooms[0].appliances[0].fuel;
+  check(fuel("Gas") === "GAS" && fuel("Electric") === "ELECTRIC", "and records it");
+  check(fuel("propane?") === null && fuelQs(withDerivedFields(applyAnswer(tree, "room:0:appliance:0:fuel", "propane?"))).length === 1, "an unrecognised answer leaves it open, so it is asked again");
+  check(fuelQs(kitchen([{ type: "RANGE", action: null, fuel: "GAS" }])).length === 0, "and a range whose fuel is known is not asked");
+  check(!isRepairOnlyQuestion("room:0:appliance:0:fuel") && !isEmergencyOnlyQuestion("room:0:appliance:0:fuel"), "it names both halves, so it is asked whatever the phases");
+}
+
+/* ── "All appliances" asks which, as a pick list ──────────────────────────────────────────────── */
+
+/*
+  Owner, 2026-11-10: "I say all appliances but not whats there, should be able to select fridge,
+  range - electric or gas, dishwasher". Extraction flags appliances spoken of without names; the
+  room asks once which, any number of them, and each pick becomes an appliance record.
+*/
+{
+  const kitchen = (o = {}) => withDerivedFields(extractionWith([room("Kitchen", { appliancesUnnamed: true, ...o })]));
+  const which = (tree) => nextQuestions(claim, tree).filter((q) => q.id.endsWith(":appliances:which"));
+  const asked = which(kitchen());
+  check(asked.length === 1 && asked[0].id === "room:0:appliances:which" && asked[0].kind.type === "multiChoice", `one pick-list question for the room (got ${asked.map((q) => `${q.id} ${q.kind.type}`).join(", ")})`);
+  check(
+    same(asked[0]?.kind.options, ["Fridge", "Range – electric", "Range – gas", "Dishwasher", "Built-in microwave", "Range hood", "Built-in oven", "Cooktop", "Washer", "Dryer"]) && asked[0]?.kind.none === "None of these",
+    `the appliances, a range as electric or gas, and a way to say none (got ${JSON.stringify(asked[0]?.kind)})`,
+  );
+  const named = which(kitchen({ appliances: [{ type: "FRIDGE", action: null }, { type: "RANGE", action: null }] }))[0]?.kind.options ?? [];
+  check(!named.includes("Fridge") && !named.some((o) => o.startsWith("Range –")) && named.includes("Dishwasher"), `what the room already has is left off (got ${JSON.stringify(named)})`);
+
+  const answered = (answer, o) => withDerivedFields(applyAnswer(kitchen(o), "room:0:appliances:which", answer));
+  const picked = answered("Fridge|Range – gas|Dishwasher");
+  check(
+    same(picked.rooms[0].appliances, [{ type: "FRIDGE", action: null }, { type: "RANGE", action: null, fuel: "GAS" }, { type: "DISHWASHER", action: null }]) && picked.rooms[0].appliancesUnnamed === false,
+    `each pick becomes an appliance, the range with its fuel, and the question is settled (got ${JSON.stringify(picked.rooms[0].appliances)} / ${picked.rooms[0].appliancesUnnamed})`,
+  );
+  check(nextQuestions(claim, picked).filter((q) => /:appliances?:/.test(q.id)).length === 0, "so nothing more is asked — not even the range's fuel, which the pick gave");
+  const none = answered("None of these");
+  check(none.rooms[0].appliances.length === 0 && none.rooms[0].appliancesUnnamed === false && which(none).length === 0, "\"None of these\" settles it with nothing added");
+  for (const junk of ["", "Toaster"]) {
+    check(answered(junk).rooms[0].appliancesUnnamed === true && which(answered(junk)).length === 1, `an answer with no real pick (${JSON.stringify(junk)}) changes nothing, so it is asked again`);
+  }
+  check(answered("Dishwasher", { appliances: [{ type: "DISHWASHER", action: "RESET_ONLY" }] }).rooms[0].appliances.length === 1, "a pick the room already has is not doubled");
+  check(which(kitchen({ appliancesUnnamed: false })).length === 0 && which(kitchen({ appliancesUnnamed: null })).length === 0, "and a room with nothing unnamed is not asked");
+
+  const q = asked[0];
+  check(!isQuestionAnswered(q, undefined) && !isQuestionAnswered(q, ""), "nothing tapped is not an answer");
+  check(isQuestionAnswered(q, "Fridge|Dishwasher") && isQuestionAnswered(q, "None of these"), "one or more picks is, and so is none");
+  check(!isQuestionAnswered(q, "Toaster"), "and a label that is not on the list is not");
+  check(runToCompletion(claim, kitchen()).ok, "and a kitchen of unnamed appliances finishes");
+}
 
 rmSync(outDir, { recursive: true, force: true });
 

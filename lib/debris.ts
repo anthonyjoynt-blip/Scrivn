@@ -1,4 +1,5 @@
-import type { AreaFraction, Room, WaterLossExtraction, WallDrywallCutHeight } from "./types";
+import type { AreaFraction, RepairOnlyKind, Room, WaterLossExtraction, WallDrywallCutHeight } from "./types";
+import { isRepairOnly } from "./types";
 import { normaliseRoomName } from "./gapCheck";
 
 /**
@@ -147,6 +148,22 @@ function roomDebris(room: Room, areas: RoomAreas | undefined, phase: DisposalPha
     else add("baseboard removal", lf * factor(DEBRIS_WEIGHTS.baseboardPerLF, b.material));
   }
 
+  /*
+    Cabinets (with their countertops) and plumbing come out on the emergency visit — unless the PM put
+    that kind of work wholly on the repair, when what comes out is repair debris (owner, 2026-11-10).
+  */
+  const kindPhase = (kind: RepairOnlyKind): DisposalPhase => (isRepairOnly(room, kind) ? "REPAIR" : "EMERGENCY");
+  if (kindPhase("CABINETRY") === phase) {
+    for (const c of room.cabinetry) {
+      if (c.action !== "REMOVE_AND_REPLACE") continue;
+      add("cabinetry removal", factor(DEBRIS_WEIGHTS.cabinetryPerRun, c.extent));
+    }
+    for (const c of room.countertops) if (c.action === "REMOVE_AND_REPLACE") add("countertop removal", DEBRIS_WEIGHTS.countertopEach);
+  }
+  if (kindPhase("PLUMBING_FIXTURES") === phase) {
+    for (const p of room.plumbingFixtures) if (p.action === "REMOVE_AND_REPLACE") add(`${p.fixtureType.toLowerCase().replace(/_/g, " ")} removal`, DEBRIS_WEIGHTS.plumbingFixtureEach);
+  }
+
   if (phase !== "EMERGENCY") return;
 
   for (const w of room.walls) {
@@ -182,12 +199,6 @@ function roomDebris(room: Room, areas: RoomAreas | undefined, phase: DisposalPha
     else add("subfloor removal", sf * perSF);
   }
 
-  for (const c of room.cabinetry) {
-    if (c.action !== "REMOVE_AND_REPLACE") continue;
-    add("cabinetry removal", factor(DEBRIS_WEIGHTS.cabinetryPerRun, c.extent));
-  }
-  for (const c of room.countertops) if (c.action === "REMOVE_AND_REPLACE") add("countertop removal", DEBRIS_WEIGHTS.countertopEach);
-  for (const p of room.plumbingFixtures) if (p.action === "REMOVE_AND_REPLACE") add(`${p.fixtureType.toLowerCase().replace(/_/g, " ")} removal`, DEBRIS_WEIGHTS.plumbingFixtureEach);
   for (const d of room.doors) if (d.action === "REMOVE_AND_REPLACE") add("door removal", factor(DEBRIS_WEIGHTS.doorEach, d.doorType));
 }
 
@@ -197,11 +208,12 @@ export function estimateDebris(extraction: WaterLossExtraction, areas: RoomAreas
   for (const room of extraction.rooms) {
     roomDebris(room, areas[normaliseRoomName(room.roomName)], phase, estimate);
     // Work with no field has words but no quantity. It is real debris — a tub surround is heavy —
-    // so it is named on the line as unweighed rather than left out of the picture. A both-phases
-    // item comes out in its Emergency half, so it is named there once: its Repair half is what goes
-    // back in, and naming it on the repair line too read as the same toe kicks hauled away twice.
+    // so it is named on the line as unweighed rather than left out of the picture. Only on the
+    // Emergency line, where things come out: an item placed in Repair, or the Repair half of a
+    // both-phases one, is what goes back in. Named on the repair line, "Detach and reset all
+    // appliances" and "Final clean" read as debris to haul away (owner, 2026-11-10).
     for (const u of room.unscoped) {
-      if (u.disposition === phase || (u.disposition === "BOTH" && phase === "EMERGENCY")) estimate.unweighed.push({ item: u.description, room: room.roomName || "Room" });
+      if (phase === "EMERGENCY" && (u.disposition === "EMERGENCY" || u.disposition === "BOTH")) estimate.unweighed.push({ item: u.description, room: room.roomName || "Room" });
     }
   }
   return estimate;

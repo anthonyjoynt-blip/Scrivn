@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { type GapCheckQuestion, formatBucketCounts, parseBucketCounts } from "@/lib/questions";
+import { type GapCheckQuestion, formatBucketCounts, formatMultiChoice, isQuestionAnswered, parseBucketCounts, parseMultiChoice } from "@/lib/questions";
 
 /**
  * Renders one follow-up question's input, keyed off `question.kind` — the component never needs
@@ -91,6 +91,10 @@ export function QuestionField({
         </div>
       )}
 
+      {kind.type === "multiChoice" && (
+        <MultiChoiceField question={question} options={kind.options} none={kind.none} value={value} onChange={onChange} />
+      )}
+
       {kind.type === "confirmOrSuggest" && (
         <div className="option-group" role="radiogroup" aria-label={question.prompt}>
           {/* The PM's own number first: keeping it is the default reading, not the fallback. */}
@@ -165,6 +169,7 @@ export function QuestionField({
           id={question.id}
           type="number"
           inputMode="numeric"
+          min={0}
           step={1}
           value={value ?? ""}
           onChange={(e) => onChange(question.id, e.target.value)}
@@ -176,6 +181,7 @@ export function QuestionField({
           id={question.id}
           type="number"
           inputMode="decimal"
+          min={0}
           step="any"
           value={value ?? ""}
           onChange={(e) => onChange(question.id, e.target.value)}
@@ -213,6 +219,46 @@ export function QuestionField({
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * Any number of options, each tapped on and off; the none button clears the rest, and tapping any
+ * option clears it. Answered once something is chosen — see `isQuestionAnswered`.
+ */
+function MultiChoiceField({
+  question,
+  options,
+  none,
+  value,
+  onChange,
+}: {
+  question: GapCheckQuestion;
+  options: string[];
+  none: string;
+  value: string | undefined;
+  onChange: (id: string, value: string) => void;
+}) {
+  const chosen = parseMultiChoice(value ?? "");
+  const toggle = (option: string) => {
+    if (option === none) return onChange(question.id, chosen.includes(none) ? "" : none);
+    const rest = chosen.filter((c) => c !== none);
+    onChange(question.id, formatMultiChoice(rest.includes(option) ? rest.filter((c) => c !== option) : [...rest, option]));
+  };
+  return (
+    <div className="option-group" role="group" aria-label={question.prompt}>
+      {[...options, none].map((option) => (
+        <button
+          key={option}
+          type="button"
+          className={`option-btn${chosen.includes(option) ? " selected" : ""}`}
+          aria-pressed={chosen.includes(option)}
+          onClick={() => toggle(option)}
+        >
+          {option}
+        </button>
+      ))}
     </div>
   );
 }
@@ -273,18 +319,5 @@ function BucketCountsField({
   );
 }
 
-/** Whether `value` is an acceptable answer for `question` — used to gate the "Continue" button. */
-export function isQuestionAnswered(question: GapCheckQuestion, rawValue: string | undefined): boolean {
-  // An untouched pre-filled question is answered: confirming a derived value is doing nothing.
-  const value = rawValue ?? question.defaultValue;
-  /*
-    A tally answered entirely in zeroes is a real answer — "none of any size" — and its formatted
-    form is the empty string, which the blank check above would otherwise reject for ever. The
-    presence of the key in the answers map is what separates "typed all zeroes" from "not touched".
-  */
-  if (question.kind.type === "bucketCounts") return rawValue !== undefined;
-  if (value === undefined || value.trim() === "") return false;
-  if (question.kind.type === "wholeNumber") return Number.isInteger(Number(value));
-  if (question.kind.type === "decimal") return Number.isFinite(Number(value));
-  return true;
-}
+/** Re-exported from lib/questions.ts, where it lives so the gap-check tests can reach it. */
+export { isQuestionAnswered };

@@ -36,7 +36,7 @@ await build({
   logLevel: "error",
 });
 
-const { mergeDetail, needsDetailPass, extractionDetailUserMessage, normalizeStoredExtraction, mergeUnscoped, needsUnscopedPass, capturedSummary, extractionUnscopedUserMessage, mergeSupplement, needsSupplementPass, extractionSupplementUserMessage, parseSavedClaimState, buildJobInformationGroups, doorToDomain, phaseNamedIn } = await import(pathToFileURL(bundlePath).href);
+const { mergeDetail, needsDetailPass, extractionDetailUserMessage, normalizeStoredExtraction, mergeUnscoped, needsUnscopedPass, capturedSummary, extractionUnscopedUserMessage, mergeSupplement, needsSupplementPass, extractionSupplementUserMessage, parseSavedClaimState, buildJobInformationGroups, doorToDomain, phaseNamedIn, EXTRACTION_UNSCOPED_SYSTEM_PROMPT } = await import(pathToFileURL(bundlePath).href);
 
 let passed = 0;
 const failures = [];
@@ -542,6 +542,47 @@ check(mergeSupplement(tree([VINYL_OUT]), null).rooms[0].flooring[0]?.removalFrac
 
 check(needsSupplementPass(tree([room("Anything")])) === true && needsSupplementPass(tree([])) === false, "the pass runs for any claim with rooms and not for one without");
 
+/*
+  A kitchen sink (owner, 2026-11-10: "detach and reset ... plumbing" reached the scope as a loose line
+  with nothing asked; "plumbing would be assumed a sink"). Call 1's plumbing enum is vanity and toilet
+  only, so the sink comes from here, as a plumbing fixture the existing kitchen-sink questions ask about.
+*/
+{
+  const KITCHEN = room("Kitchen", { flooring: [flooring("LAMINATE", { disposition: "REMOVE_AND_DISPOSE" })] });
+  const sinkOf = (r) => r.plumbingFixtures.filter((p) => p.fixtureType === "KITCHEN_SINK");
+  const dr = sinkOf(mergeSupplement(tree([KITCHEN]), supp([roomSupp({ kitchenSink: "DETACH_AND_RESET" })])).rooms[0]);
+  check(dr.length === 1 && dr[0].action === "DETACH_AND_RESET" && dr[0].mount === null && dr[0].basinCount === null, `"detach and reset the plumbing" in a kitchen becomes a kitchen sink to detach and reset, its mount and basins still to ask (got ${JSON.stringify(dr)})`);
+  const rr = sinkOf(mergeSupplement(tree([KITCHEN]), supp([roomSupp({ kitchenSink: "REMOVE_AND_REPLACE" })])).rooms[0]);
+  check(rr.length === 1 && rr[0].action === "REMOVE_AND_REPLACE", "\"new sink\" becomes one to remove and replace");
+  for (const said of ["UNKNOWN", undefined, "MAYBE"]) {
+    check(sinkOf(mergeSupplement(tree([KITCHEN]), supp([roomSupp({ kitchenSink: said })])).rooms[0]).length === 0, `nothing said (${said}) is no sink`);
+  }
+  const already = room("Kitchen", { flooring: KITCHEN.flooring, plumbingFixtures: [{ fixtureType: "KITCHEN_SINK", action: "REMOVE_AND_REPLACE", basinCount: "DOUBLE", mount: "UNDERMOUNT", sinkAlsoNeeded: null, topDetached: null, topKept: null, topMaterial: null, sinkFaucetSaved: null, grade: null, includesSurround: null, surroundMaterial: null }] });
+  const kept = sinkOf(mergeSupplement(tree([already]), supp([roomSupp({ kitchenSink: "DETACH_AND_RESET" })])).rooms[0]);
+  check(kept.length === 1 && kept[0].action === "REMOVE_AND_REPLACE" && kept[0].mount === "UNDERMOUNT", "a sink already there is never doubled or overwritten");
+  const vanityToo = room("Kitchen", { flooring: KITCHEN.flooring, plumbingFixtures: [{ ...already.plumbingFixtures[0], fixtureType: "TOILET", action: "DETACH_AND_RESET" }] });
+  check(mergeSupplement(tree([vanityToo]), supp([roomSupp({ kitchenSink: "DETACH_AND_RESET" })])).rooms[0].plumbingFixtures.length === 2, "and sits beside any other fixture the room has");
+  const miscounted = mergeSupplement(tree([KITCHEN]), supp([roomSupp({ flooring: [], kitchenSink: "DETACH_AND_RESET" })])).rooms[0];
+  check(sinkOf(miscounted).length === 0, "a room whose flooring count came back wrong takes no sink either");
+
+  // "All appliances" with none named: flagged, so the gap-check asks which (owner, 2026-11-10).
+  const unnamed = (said, over = {}) => mergeSupplement(tree([room("Kitchen", { ...KITCHEN, ...over })]), supp([roomSupp({ appliancesUnnamed: said })])).rooms[0].appliancesUnnamed;
+  check(unnamed("YES") === true, "appliances spoken of without names are flagged");
+  check(unnamed("NO") === null && unnamed("UNKNOWN") === null && unnamed(undefined) === null, "and nothing else sets the flag: false means the PM has answered which, and only the question says that");
+  check(unnamed("YES", { appliancesUnnamed: false }) === false, "an answered pick list is never reopened by a re-read");
+  const eqJ = (x, y) => JSON.stringify(x) === JSON.stringify(y);
+  // Work put wholly on the repair: the kinds named, nothing outside the list, nothing doubled, nothing lost.
+  const repairOnly = (said, over = {}) => mergeSupplement(tree([room("Kitchen", { ...KITCHEN, ...over })]), supp([roomSupp({ repairOnly: said })])).rooms[0].repairOnly;
+  check(eqJ(repairOnly(["CABINETRY", "APPLIANCES", "PLUMBING_FIXTURES"]), ["CABINETRY", "APPLIANCES", "PLUMBING_FIXTURES"]), "\"the cabinets, appliances and plumbing on the repair\" names all three");
+  check(eqJ(repairOnly(["APPLIANCES", "COUNTERTOPS", "APPLIANCES"]), ["APPLIANCES"]), "a kind outside the list is dropped and a repeat kept once");
+  check(eqJ(repairOnly(undefined), []) && eqJ(repairOnly([]), []), "nothing said is nothing on the repair");
+  check(eqJ(repairOnly(["APPLIANCES"], { repairOnly: ["CABINETRY"] }), ["CABINETRY", "APPLIANCES"]), "and what the room already said is kept");
+  check(mergeSupplement(tree([KITCHEN]), supp([roomSupp({ flooring: [], repairOnly: ["CABINETRY"] })])).rooms[0].repairOnly === undefined, "a room whose flooring count came back wrong takes none of it");
+
+  const captured = capturedSummary(room("Kitchen", { appliancesUnnamed: true }));
+  check(captured.some((line) => /^appliances — /.test(line)), `the missed-work pass is told they are captured, so "all appliances" is not listed as missing (got ${JSON.stringify(captured)})`);
+}
+
 const suppMessage = extractionSupplementUserMessage("the transcript", tree([room("Kitchen", { flooring: [flooring("VINYL"), flooring("CARPET")] }), room("Hall")]));
 check(suppMessage.includes("1. Kitchen — 2 flooring") && suppMessage.includes("2. Hall — 0 flooring"), `the message states each room's flooring count, since the reply is positional at two levels (got:\n${suppMessage.split("Transcript:")[0]})`);
 check(suppMessage.trim().endsWith("the transcript"), "with the transcript last");
@@ -583,6 +624,16 @@ const brought = normalizeStoredExtraction(stored);
 check(Array.isArray(brought.rooms[0]?.trim), "a room saved before trim existed comes back with it");
 check(Array.isArray(brought.rooms[0]?.appliances), "and with every other list the older version had no concept of");
 check(brought.rooms[0]?.roomName === "Old", "while keeping what was actually saved");
+
+/*
+  A final clean is never missing work: the scope adds one to every room with repair work. The owner's
+  2026-11-10 kitchen said "final clean" and was asked which phase it belonged in, once per room.
+  Model-read, so this only holds the instruction in place; whether the pass obeys it is a paid check.
+*/
+{
+  const notCounted = EXTRACTION_UNSCOPED_SYSTEM_PROMPT.slice(EXTRACTION_UNSCOPED_SYSTEM_PROMPT.indexOf("WHAT DOES NOT COUNT"), EXTRACTION_UNSCOPED_SYSTEM_PROMPT.indexOf("HOW TO WRITE EACH ITEM"));
+  check(/final clean/i.test(notCounted), "the missed-work pass is told a final clean is never missing");
+}
 
 rmSync(outDir, { recursive: true, force: true });
 

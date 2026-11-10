@@ -13,7 +13,7 @@ import { baseboardFinishLine, ceilingPaintLine, ceilingQuantity, fractionLabel, 
 import type { ApplianceType, CeilingRecord, DoorRecord, FlooringRecord, Room, WallRecord, WaterLossExtraction, UnscopedItem } from "./types";
 import { disposalLine, recommendDisposal, type RoomAreasByName } from "./debris";
 import type { ExteriorScopeLines } from "./exterior";
-import { APPLIANCE_LABEL, DOOR_STYLE_LABEL, isInjectionEquipment, SUBFLOOR_LABEL, TRIM_KIND_LABEL, unscopedWording, WINDOW_COVERING_LABEL, WINDOW_CLEANING_SIZE_LABEL, WINDOW_CLEANING_SIZES } from "./types";
+import { APPLIANCE_LABEL, applianceDetail, DOOR_STYLE_LABEL, isRepairOnly, isInjectionEquipment, SUBFLOOR_LABEL, TRIM_KIND_LABEL, unscopedWording, WINDOW_COVERING_LABEL, WINDOW_CLEANING_SIZE_LABEL, WINDOW_CLEANING_SIZES } from "./types";
 
 /**
  * Trade work orders — the crew-facing counterpart to the estimator-facing scope document.
@@ -54,12 +54,16 @@ export type ContentsApproach = "TM" | "BRIC_A_BRAC";
  * explicit `packBackHours` field, so a pack-back order has real content. The bric-a-brac model has
  * no equivalent — it counts boxes and rooms, with nothing describing the return trip. Offering it
  * there would mean inventing hours, so it isn't offered.
+ *
+ * The in-house Repair crews are offered only when their sheet has a line on it, given `sheets` (the
+ * claim page always passes it). A laminate-and-cabinets kitchen offered a Drywall order with nothing
+ * to do on it (owner, 2026-11-10).
  */
-export function availableTrades(claim: ClaimInfo, contentsApproach: ContentsApproach, exterior: ExteriorScopeLines | null = null): Trade[] {
+export function availableTrades(claim: ClaimInfo, contentsApproach: ContentsApproach, exterior: ExteriorScopeLines | null = null, sheets?: RepairSheetInputs): Trade[] {
   const phases = claim.scopePhases;
   const trades: Trade[] = [];
   if (phases.includes("EMERGENCY")) trades.push("MITIGATION_DEMO");
-  if (phases.includes("REPAIR")) trades.push("DRYWALL", "PAINTING", "FINISH_CARPENTRY");
+  if (phases.includes("REPAIR")) trades.push(...IN_HOUSE_REPAIR.filter((trade) => !sheets || repairSheetBody(trade, sheets).length > 0));
   /*
     The exterior's two crews (2026-10-12), offered only when the sketch's exterior has something in
     scope for them - the lines are the whole order, so with none there is nothing to hand a crew.
@@ -76,11 +80,39 @@ export function availableTrades(claim: ClaimInfo, contentsApproach: ContentsAppr
 }
 
 /** Why a trade the PM might expect isn't listed — shown under the selector rather than leaving a silent gap. */
-export function unavailableTradeNote(claim: ClaimInfo, contentsApproach: ContentsApproach): string | null {
+export function unavailableTradeNote(claim: ClaimInfo, contentsApproach: ContentsApproach, sheets?: RepairSheetInputs): string | null {
+  const notes: string[] = [];
   if (claim.scopePhases.includes("CONTENTS") && contentsApproach === "BRIC_A_BRAC") {
-    return "Contents Pack Back isn’t offered for a bric-a-brac contents scope — that model records boxes and room sizes, with no pack-back hours to build an order from. Use the Time & Material contents approach if you need one.";
+    notes.push("Contents Pack Back isn’t offered for a bric-a-brac contents scope — that model records boxes and room sizes, with no pack-back hours to build an order from. Use the Time & Material contents approach if you need one.");
   }
-  return null;
+  if (sheets && claim.scopePhases.includes("REPAIR")) {
+    const idle = IN_HOUSE_REPAIR.filter((trade) => repairSheetBody(trade, sheets).length === 0).map((trade) => TRADE_LABEL[trade]);
+    if (idle.length > 0) {
+      const names = idle.length === 1 ? idle[0] : `${idle.slice(0, -1).join(", ")} and ${idle[idle.length - 1]}`;
+      notes.push(`${names} ${idle.length === 1 ? "isn’t" : "aren’t"} offered — there is nothing on this claim for ${idle.length === 1 ? "that crew" : "those crews"}.`);
+    }
+  }
+  return notes.length > 0 ? notes.join(" ") : null;
+}
+
+/** The parts of a claim the in-house Repair sheets are built from. */
+export interface RepairSheetInputs {
+  extraction: WaterLossExtraction | null;
+  /** Wall areas marked out on the sketch — see `PaintableWallAreas`. */
+  paintableWallSF?: PaintableWallAreas;
+}
+
+/** Drywall, Painting and Finish Carpentry: the crews whose sheets are built room by room from the tree. */
+const IN_HOUSE_REPAIR: Trade[] = ["DRYWALL", "PAINTING", "FINISH_CARPENTRY"];
+
+/** One in-house Repair crew's room lines — the same lines its sheet is built from, so the two cannot disagree. */
+function repairSheetBody(trade: Trade, sheets: RepairSheetInputs): string[] {
+  const extraction = sheets.extraction;
+  if (!extraction) return [];
+  if (trade === "DRYWALL") return drywallBody(extraction);
+  if (trade === "PAINTING") return paintingBody(extraction, sheets.paintableWallSF);
+  if (trade === "FINISH_CARPENTRY") return finishCarpentryBody(extraction);
+  return [];
 }
 
 // ---- shared rendering helpers ----------------------------------------------------------------
@@ -168,6 +200,33 @@ function unscopedFor(room: Room, phase: "EMERGENCY" | "REPAIR"): UnscopedItem[] 
   return room.unscoped.filter((u) => u.disposition === "BOTH" || u.disposition === phase);
 }
 
+/**
+ * Appliances coming out. One already sitting in the hall is not detached again; `action` null reads
+ * as DETACH_AND_RESET, the ordinary job. No remove-and-replace form: that is not restoration's work.
+ */
+function applianceOffLines(room: Room): string[] {
+  return room.appliances.filter((a) => a.action !== "RESET_ONLY").map((a) => bullet(`Detach ${APPLIANCE_LABEL[a.type]}`, applianceDetail(a), null));
+}
+
+/** Cabinet hardware, the cabinets with any shoring, and the countertop, coming off. */
+function cabinetryOffLines(room: Room): string[] {
+  const items: string[] = [];
+  for (const h of room.cabinetHardware) {
+    if (h.action === "RESET_ONLY") continue;
+    items.push(bullet(h.action === "REMOVE_AND_REPLACE" ? "Remove cabinet hardware" : "Detach cabinet hardware", h.location || null, null));
+  }
+  for (const c of room.cabinetry) {
+    items.push(bullet(c.action === "DETACH_AND_RESET" ? "Detach cabinetry" : "Remove cabinetry", c.location, null));
+    /*
+      Its own line, and its own labour: a sink run where the counter and sink stay put has to be
+      held up while the base is out. One line covering install and strike, which is how it prices.
+    */
+    if (c.shoringRequired === true) items.push(bullet("Shore countertop while cabinetry is out", c.location, null));
+  }
+  for (const c of room.countertops) items.push(bullet(c.action === "DETACH_AND_RESET" ? "Detach countertop" : "Remove countertop", null, null));
+  return items;
+}
+
 /** "Action – detail – extent", skipping whichever parts are unknown. */
 function bullet(...parts: (string | null | undefined)[]): string {
   return `    - ${parts.filter((p) => p && p !== "").join(" – ")}`;
@@ -208,6 +267,9 @@ const STANDING_NOTES = [
   "Wear appropriate PPE at all times.",
   "Take photos before and after work.",
   "Complete all required paperwork.",
+  // Every crew, not three of them (owner, 2026-11-10). It was on Drywall, Painting and Finish
+  // Carpentry only, so the Mitigation & Demo and contents sheets said nothing about leaving the site clean.
+  "Clean up thoroughly at the end of each day.",
 ];
 
 /**
@@ -249,7 +311,6 @@ function tradeNotes(trade: Trade, rooms: Room[]): string[] {
     case "DRYWALL":
       return [
         "Mask and protect flooring, contents and adjacent finishes from drywall dust before starting.",
-        "Clean up thoroughly at the end of each day.",
         ...unassigned,
       ];
 
@@ -257,7 +318,6 @@ function tradeNotes(trade: Trade, rooms: Room[]): string[] {
       return [
         "Mask and protect flooring, contents and adjacent finishes before starting.",
         "Confirm colours with the PM before starting, and check whether samples are needed. Pick up materials if required.",
-        "Clean up thoroughly at the end of each day.",
         ...unassigned,
       ];
 
@@ -271,7 +331,7 @@ function tradeNotes(trade: Trade, rooms: Room[]): string[] {
     case "SIDING":
       return [
         "Confirm the profile and colour with the PM before ordering.",
-        "Protect landscaping and windows; clean up thoroughly at the end of each day.",
+        "Protect landscaping and windows.",
         "Report any damaged sheathing or wet framing to the PM before covering it.",
       ];
 
@@ -283,7 +343,6 @@ function tradeNotes(trade: Trade, rooms: Room[]): string[] {
               "Fill nail holes.",
             ]
           : []),
-        "Clean up thoroughly at the end of each day.",
         ...unassigned,
       ];
 
@@ -407,15 +466,8 @@ function buildMitigationDemo(claim: ClaimInfo, extraction: WaterLossExtraction, 
     }
     // Priced per SF of floor, which the room already has — hence no quantity of its own to carry.
     if (room.hepaVacuumingRequired) items.push(bullet("HEPA vacuuming", null, "floor area"));
-    // Detach now, reset on repairs. No remove-and-replace form: that is not restoration's work.
-    /*
-      An appliance already sitting in the hall is not detached again. `action` null reads as
-      DETACH_AND_RESET, which is the ordinary mitigation job and what every existing claim means.
-    */
-    for (const a of room.appliances) {
-      if (a.action === "RESET_ONLY") continue;
-      items.push(bullet(`Detach ${APPLIANCE_LABEL[a.type]}`, null, null));
-    }
+    // Detach now, reset on repairs — unless the PM put the appliances on the repair, when both are there.
+    if (!isRepairOnly(room, "APPLIANCES")) items.push(...applianceOffLines(room));
 
     /*
       The subfloor comes out before the baseboard discussion, because it is under everything.
@@ -484,19 +536,8 @@ function buildMitigationDemo(claim: ClaimInfo, extraction: WaterLossExtraction, 
       if (w.action === "RESET_ONLY") continue;
       items.push(bullet(w.action === "REMOVE_AND_REPLACE" ? `Remove ${WINDOW_COVERING_LABEL[w.type]}` : `Detach ${WINDOW_COVERING_LABEL[w.type]}`, w.location || null, null));
     }
-    for (const h of room.cabinetHardware) {
-      if (h.action === "RESET_ONLY") continue;
-      items.push(bullet(h.action === "REMOVE_AND_REPLACE" ? "Remove cabinet hardware" : "Detach cabinet hardware", h.location || null, null));
-    }
-    for (const c of room.cabinetry) {
-      items.push(bullet(c.action === "DETACH_AND_RESET" ? "Detach cabinetry" : "Remove cabinetry", c.location, null));
-      /*
-        Its own line, and its own labour: a sink run where the counter and sink stay put has to be
-        held up while the base is out. One line covering install and strike, which is how it prices.
-      */
-      if (c.shoringRequired === true) items.push(bullet("Shore countertop while cabinetry is out", c.location, null));
-    }
-    for (const c of room.countertops) items.push(bullet(c.action === "DETACH_AND_RESET" ? "Detach countertop" : "Remove countertop", null, null));
+    // The cabinets, their hardware, any shoring and the countertop — on the repair sheet instead when the PM put the cabinets on the repair.
+    if (!isRepairOnly(room, "CABINETRY")) items.push(...cabinetryOffLines(room));
 
     if (room.floorRegistersDetached && room.floorRegistersDetached > 0) items.push(bullet("Detach floor registers", `${room.floorRegistersDetached}`, null));
     if (room.contents && !room.contents.manipulationDeclined) items.push(bullet("Manipulate contents", null, null));
@@ -545,8 +586,8 @@ function buildMitigationDemo(claim: ClaimInfo, extraction: WaterLossExtraction, 
 
 // ---- Drywall ----------------------------------------------------------------------------------
 
-function buildDrywall(claim: ClaimInfo, extraction: WaterLossExtraction): string {
-  const body = roomSections(extraction, (room) => {
+function drywallBody(extraction: WaterLossExtraction): string[] {
+  return roomSections(extraction, (room) => {
     const items: string[] = [];
     /*
       The other half of "Remove affected insulation", and the half that was missing.
@@ -607,15 +648,17 @@ function buildDrywall(claim: ClaimInfo, extraction: WaterLossExtraction): string
     }
     return items;
   });
+}
 
-  return assemble(claim, "DRYWALL", body, extraction.rooms);
+function buildDrywall(claim: ClaimInfo, extraction: WaterLossExtraction): string {
+  return assemble(claim, "DRYWALL", drywallBody(extraction), extraction.rooms);
 }
 
 // ---- Painting ---------------------------------------------------------------------------------
 
 /** Every line here comes from lib/paintDerivation.ts — the same module the scope-document prompt draws its numbers and wording from. */
-function buildPainting(claim: ClaimInfo, extraction: WaterLossExtraction, paintableWallSF?: PaintableWallAreas): string {
-  const body = roomSections(extraction, (room) => {
+function paintingBody(extraction: WaterLossExtraction, paintableWallSF?: PaintableWallAreas): string[] {
+  return roomSections(extraction, (room) => {
     const items: string[] = [];
     const seen = new Set<string>();
     room.walls.forEach((w, wallIndex) => {
@@ -667,15 +710,23 @@ function buildPainting(claim: ClaimInfo, extraction: WaterLossExtraction, painta
     }
     return items;
   });
+}
 
-  return assemble(claim, "PAINTING", body, extraction.rooms);
+function buildPainting(claim: ClaimInfo, extraction: WaterLossExtraction, paintableWallSF?: PaintableWallAreas): string {
+  return assemble(claim, "PAINTING", paintingBody(extraction, paintableWallSF), extraction.rooms);
 }
 
 // ---- Finish Carpentry -------------------------------------------------------------------------
 
-function buildFinishCarpentry(claim: ClaimInfo, extraction: WaterLossExtraction): string {
-  const body = roomSections(extraction, (room) => {
+function finishCarpentryBody(extraction: WaterLossExtraction): string[] {
+  return roomSections(extraction, (room) => {
     const items: string[] = [];
+    /*
+      Work the PM put wholly on the repair: it comes off on this visit, ahead of everything that goes
+      back, rather than on the Mitigation & Demo sheet (owner, 2026-11-10).
+    */
+    if (isRepairOnly(room, "CABINETRY")) items.push(...cabinetryOffLines(room));
+    if (isRepairOnly(room, "APPLIANCES")) items.push(...applianceOffLines(room));
     for (const b of room.baseboard) {
       if (b.action === "SHOE_MOLD_ONLY") {
         items.push(bullet("Install shoe mold / quarter round", null, "perimeter"));
@@ -722,11 +773,13 @@ function buildFinishCarpentry(claim: ClaimInfo, extraction: WaterLossExtraction)
       back — the same failure the baseboard pair exists to prevent, and the reason both halves are
       written from one list rather than two.
     */
-    for (const a of room.appliances) items.push(bullet(`Reset ${APPLIANCE_LABEL[a.type]}`, null, null));
+    for (const a of room.appliances) items.push(bullet(`Reset ${APPLIANCE_LABEL[a.type]}`, applianceDetail(a), null));
     return items;
   });
+}
 
-  return assemble(claim, "FINISH_CARPENTRY", body, extraction.rooms);
+function buildFinishCarpentry(claim: ClaimInfo, extraction: WaterLossExtraction): string {
+  return assemble(claim, "FINISH_CARPENTRY", finishCarpentryBody(extraction), extraction.rooms);
 }
 
 // ---- Contents ---------------------------------------------------------------------------------

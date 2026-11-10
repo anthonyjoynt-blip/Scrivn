@@ -4,6 +4,7 @@ import {
   type SharedBaseboardField,
   baseboardFieldSense,
   baseboardQuestionRecords,
+  cabinetsAwaitingCountertop,
   isConsolidatedEquipmentQuestion,
   isSharedBaseboardField,
   normaliseRoomName,
@@ -183,7 +184,7 @@ const KINDS: Record<string, RecordKind> = {
   trim: recordKind("trim", (r) => `${r.kind}|${textKey(r.location)}`, { action: { copy: ["action"] } }),
   windowCovering: recordKind("windowCoverings", (r) => `${r.type}|${textKey(r.location)}`, { action: { copy: ["action"] } }),
   cabinetHardware: recordKind("cabinetHardware", (r) => textKey(r.location), { action: { copy: ["action"] } }),
-  appliance: recordKind("appliances", (r) => enumKey(r.type), { action: { copy: ["action"] } }),
+  appliance: recordKind("appliances", (r) => enumKey(r.type), { action: { copy: ["action"] }, fuel: { copy: ["fuel"] } }),
   subfloor: recordKind("subfloor", (r) => enumKey(r.type), {
     type: { copy: ["type"] },
     disposition: { copy: ["disposition"], same: ["type"] },
@@ -484,6 +485,35 @@ function carryRoomAnswer(now: Room, old: Room, field: string): Room | null {
     case "windowCleaning:present":
       if (now.windowCleaningAsked || !old.windowCleaningAsked) return null;
       return { ...now, windowCleaningAsked: true, windowCleaningCounts: now.windowCleaningCounts ?? old.windowCleaningCounts };
+
+    /*
+      "What happens to the countertop while the cabinets are out?" — asked of a room with no countertop
+      recorded. The old room's answer is the shoring it set on the cabinets under a top and the
+      countertop it created, if any; carried only when it settled every such cabinet the same way.
+    */
+    case "countertop:withCabinets": {
+      const waiting = new Set(cabinetsAwaitingCountertop(now));
+      if (waiting.size === 0) return null;
+      const settled = old.cabinetry.filter((c) => c.extent === "LOWERS" || c.extent === "FULL_HEIGHT").map((c) => c.shoringRequired);
+      if (settled.length === 0 || settled.some((s) => s === null) || new Set(settled).size !== 1) return null;
+      const shored = settled[0] === true;
+      return {
+        ...now,
+        cabinetry: now.cabinetry.map((c) => (waiting.has(c) ? { ...c, shoringRequired: shored } : c)),
+        countertops: shored ? now.countertops : old.countertops.map((t) => ({ ...t })),
+      };
+    }
+
+    /*
+      "Which appliances are being detached and reset?" — asked when the new read heard appliances
+      but no names. The old room's answer is the appliances it added and the flag it settled; those
+      the new read already has are not doubled.
+    */
+    case "appliances:which": {
+      if (now.appliancesUnnamed !== true || old.appliancesUnnamed !== false) return null;
+      const have = new Set(now.appliances.map((a) => a.type));
+      return { ...now, appliances: [...now.appliances, ...old.appliances.filter((a) => !have.has(a.type)).map((a) => ({ ...a }))], appliancesUnnamed: false };
+    }
 
     // "None — nothing to move" is recorded as manipulation declined, any other answer as a size.
     case "contents:size": {
