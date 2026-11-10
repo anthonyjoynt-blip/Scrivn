@@ -36,7 +36,7 @@ await build({
   logLevel: "error",
 });
 
-const { mergeDetail, needsDetailPass, extractionDetailUserMessage, normalizeStoredExtraction, mergeUnscoped, needsUnscopedPass, capturedSummary, extractionUnscopedUserMessage, mergeSupplement, needsSupplementPass, extractionSupplementUserMessage, parseSavedClaimState, buildJobInformationGroups, doorToDomain, phaseNamedIn } = await import(pathToFileURL(bundlePath).href);
+const { mergeDetail, needsDetailPass, extractionDetailUserMessage, normalizeStoredExtraction, mergeUnscoped, needsUnscopedPass, capturedSummary, extractionUnscopedUserMessage, mergeSupplement, needsSupplementPass, extractionSupplementUserMessage, parseSavedClaimState, buildJobInformationGroups, doorToDomain, phaseNamedIn, EXTRACTION_UNSCOPED_SYSTEM_PROMPT } = await import(pathToFileURL(bundlePath).href);
 
 let passed = 0;
 const failures = [];
@@ -583,6 +583,16 @@ const brought = normalizeStoredExtraction(stored);
 check(Array.isArray(brought.rooms[0]?.trim), "a room saved before trim existed comes back with it");
 check(Array.isArray(brought.rooms[0]?.appliances), "and with every other list the older version had no concept of");
 check(brought.rooms[0]?.roomName === "Old", "while keeping what was actually saved");
+
+/*
+  A final clean is never missing work: the scope adds one to every room with repair work. The owner's
+  2026-11-10 kitchen said "final clean" and was asked which phase it belonged in, once per room.
+  Model-read, so this only holds the instruction in place; whether the pass obeys it is a paid check.
+*/
+{
+  const notCounted = EXTRACTION_UNSCOPED_SYSTEM_PROMPT.slice(EXTRACTION_UNSCOPED_SYSTEM_PROMPT.indexOf("WHAT DOES NOT COUNT"), EXTRACTION_UNSCOPED_SYSTEM_PROMPT.indexOf("HOW TO WRITE EACH ITEM"));
+  check(/final clean/i.test(notCounted), "the missed-work pass is told a final clean is never missing");
+}
 
 rmSync(outDir, { recursive: true, force: true });
 

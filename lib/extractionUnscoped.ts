@@ -46,6 +46,8 @@ WHAT DOES NOT COUNT:
 - Observations, readings and history: how wet something is, where the water came from, what the
   PM saw, the category and class, what happened last week.
 - Equipment, contents and drying — those have fields and are on the list when present.
+- A final clean. The scope adds one to every room with repair work on its own, so a "final clean"
+  the PM mentions is never missing.
 - Anything the PM did not say. Never infer work from damage; the PM decides what is done.
 
 HOW TO WRITE EACH ITEM: one short line per piece of work, in the PM's terms, with the location if
