@@ -42,7 +42,7 @@ const {
   pruneScopeMarks, scopeWallRunFeet,
   emptyMoistureMap, setRoomMoisture, resolveRound, pruneMoisture, paintedFloorSquareFeet,
   disposalForTons, estimateDebris, recommendDisposal, disposalLine, disposalLines, unweighedNote, DEBRIS_WEIGHTS,
-  emptyContentsTM, emptyBricABracData, availableTrades, unavailableTradeNote,
+  emptyContentsTM, emptyBricABracData, availableTrades, unavailableTradeNote, equipmentPlaced, documentGenerationUserMessage,
 } = await import(pathToFileURL(bundlePath).href);
 
 let passed = 0;
@@ -1211,6 +1211,29 @@ check(!unscopedSheets([]).repair[0].includes("trade not yet assigned"), "and a c
   const replaced = room("Kitchen", { repairOnly: ["CABINETRY", "PLUMBING_FIXTURES"], cabinetry: [{ location: "lowers", action: "REMOVE_AND_REPLACE", extent: "LOWERS", grade: null, shoringRequired: false }], plumbingFixtures: [{ fixtureType: "KITCHEN_SINK", action: "REMOVE_AND_REPLACE", basinCount: null, mount: null, sinkAlsoNeeded: null, topDetached: null, topKept: null, topMaterial: null, sinkFaucetSaved: null, grade: null, includesSurround: null, surroundMaterial: null }] });
   const items = (phase) => estimateDebris(bbExtraction([replaced]), {}, phase).lines.map((l) => l.item);
   check(eqJ(items("EMERGENCY"), []) && items("REPAIR").includes("cabinetry removal") && items("REPAIR").includes("kitchen sink removal"), `cabinets and a sink replaced on the repair weigh on the repair side (got E ${JSON.stringify(items("EMERGENCY"))} / R ${JSON.stringify(items("REPAIR"))})`);
+}
+
+/* ── Equipment pickup only when equipment was placed ───────────────────────────────────────────── */
+
+/*
+  Owner, 2026-11-10: a kitchen where both rooms answered no drying equipment still got "Equipment
+  pickup and monitoring" — the General template listed it unconditionally. Whether any was placed is
+  worked out here and handed to the model as CLAIM CONTEXT's equipmentPlaced.
+*/
+{
+  const withEquipment = (equipment) => bbExtraction([room("Kitchen", { equipment, equipmentAsked: true }), room("Living Room", { equipmentAsked: true })]);
+  check(equipmentPlaced(withEquipment([])) === false, "no equipment anywhere is none placed");
+  check(equipmentPlaced(withEquipment([{ type: "air movers", quantity: 0, holeCount: null }])) === false, "an answered zero is none placed");
+  check(equipmentPlaced(withEquipment([{ type: "air movers", quantity: 3, holeCount: null }])) === true, "three air movers in one room is placed");
+  const contextOf = (extraction, scopeOnly = false) => {
+    const message = documentGenerationUserMessage({ ...claim, scopeOnly }, extraction, "transcript");
+    const line = message.split("\n").find((l) => l.startsWith("{") && l.includes("\"scopePhases\""));
+    return JSON.parse(line);
+  };
+  check(contextOf(withEquipment([])).equipmentPlaced === false && contextOf(withEquipment([{ type: "dehumidifiers", quantity: 1, holeCount: null }])).equipmentPlaced === true, "and the claim context the model reads says so");
+  check(contextOf(withEquipment([]), true).equipmentPlaced === false, "in the scope-only mode too");
+  const prompt = readFileSync(join(root, "lib", "documentGenerationPrompt.ts"), "utf8");
+  check(/- Equipment pickup and monitoring\s+\(only when CLAIM CONTEXT's equipmentPlaced is true/.test(prompt), "and the General line is written only when it is true");
 }
 
 /* ── Floor registers are a pair, and the PM phone is on the sheet ───────────────────────────────── */

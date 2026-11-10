@@ -810,7 +810,9 @@ Emergency
     ... (one bullet per record with an Emergency portion, per EMERGENCY_DERIVATION_RULES below)
   General
     - {disposal.emergency — the computed disposal line, written exactly as given}
-    - Equipment pickup and monitoring
+    - Equipment pickup and monitoring   (only when CLAIM CONTEXT's equipmentPlaced is true — drying
+      equipment was placed in at least one room. With none placed there is nothing to pick up or
+      monitor, so leave the line out.)
     - Asbestos sample collection – {N} samples   (only when loss.asbestosSamplesTaken is true; {N} is
       loss.asbestosSampleCount, omitted along with the word "samples" when that count is null)
     - Temporary power distribution   (only when ANY room's temporaryPowerRequired is true — see the
@@ -1003,6 +1005,15 @@ ${SCOPE_DOCUMENT_SECTION}`;
  * pure CONTENTS selection never reaches this function at all (no inspection report), and the
  * remaining combinations have no separate contents assignment to note in the first place.
  */
+/**
+ * Whether any room had drying equipment placed — a count above zero, the same test the "Place …"
+ * lines use. Decides the General "Equipment pickup and monitoring" line: a kitchen with no equipment
+ * placed was given one anyway (owner, 2026-11-10), because the template listed it unconditionally.
+ */
+export function equipmentPlaced(extraction: WaterLossExtraction): boolean {
+  return extraction.rooms.some((room) => room.equipment.some((e) => e.quantity !== null && e.quantity > 0));
+}
+
 export function documentGenerationUserMessage(
   claim: ClaimInfo,
   completedExtraction: WaterLossExtraction,
@@ -1039,6 +1050,8 @@ export function documentGenerationUserMessage(
         dgigData,
         // Computed from the tree and the sketch — see lib/debris.ts and the disposal note above.
         disposal,
+        // Whether the General equipment pickup line is written at all — see `equipmentPlaced`.
+        equipmentPlaced: equipmentPlaced(completedExtraction),
         // Ready-made, copied exactly — see lib/exterior.ts and the exterior note above.
         exterior,
       }
@@ -1065,6 +1078,8 @@ export function documentGenerationUserMessage(
         dgigData,
         // Computed from the tree and the sketch — see lib/debris.ts and the disposal note above.
         disposal,
+        // Whether the General equipment pickup line is written at all — see `equipmentPlaced`.
+        equipmentPlaced: equipmentPlaced(completedExtraction),
         // Ready-made, copied exactly — see lib/exterior.ts and the exterior note above.
         exterior,
       };
@@ -1077,8 +1092,9 @@ field, never inferred or overridden from the transcript or the completed data: w
 waterCategory for "Category of loss"/"Class of loss" (not the completed data's
 loss.category/loss.class; null for a non-WATER lossType — see the header notes), lossType for
 whether this is a water claim at all, scopePhases for which phase(s) to render (see
-SCOPE_PHASE_RULES), and dgigData (when present) for overriding the Emergency section (see
-DGIG_SCOPE_RULES):
+SCOPE_PHASE_RULES), dgigData (when present) for overriding the Emergency section (see
+DGIG_SCOPE_RULES), and equipmentPlaced for whether the General "Equipment pickup and monitoring"
+line is written:
 ${JSON.stringify(claimContext)}
 
 COMPLETED WATER LOSS DATA (the scope's structured data — flooring/baseboard/wall/equipment per
@@ -1098,7 +1114,8 @@ for the scope document's "Category of loss"/"Class of loss" (not the completed d
 loss.category/loss.class; null for a non-WATER lossType — see the header notes), lossType for
 whether this is a water claim at all, scopePhases for which phase(s) the scope document renders
 (see SCOPE_PHASE_RULES), dgigData (when present) for overriding the Emergency section (see
-DGIG_SCOPE_RULES), causeOfLoss for CAUSE OF LOSS, preExistingConditions for
+DGIG_SCOPE_RULES), equipmentPlaced for whether the General "Equipment pickup and monitoring" line
+is written, causeOfLoss for CAUSE OF LOSS, preExistingConditions for
 PRE-EXISTING CONDITIONS, and contentsAssignmentNote (when present) for the inspection report's
 CONTENTS line — see the note on that field in INSPECTION_REPORT_SECTION above. (Job Information —
 insured, address, claim number, PM, year of building, date of loss, date/time inspected — is

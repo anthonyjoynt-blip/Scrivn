@@ -13,3 +13,4 @@ export { disposalForTons, estimateDebris, recommendDisposal, disposalLine, dispo
 export { emptyContentsTM } from "@/lib/contentsTM";
 export { emptyBricABracData } from "@/lib/bricABrac";
 export { availableTrades, unavailableTradeNote } from "@/lib/workOrders";
+export { equipmentPlaced, documentGenerationUserMessage } from "@/lib/documentGenerationPrompt";
