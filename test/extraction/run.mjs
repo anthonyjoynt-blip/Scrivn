@@ -542,6 +542,30 @@ check(mergeSupplement(tree([VINYL_OUT]), null).rooms[0].flooring[0]?.removalFrac
 
 check(needsSupplementPass(tree([room("Anything")])) === true && needsSupplementPass(tree([])) === false, "the pass runs for any claim with rooms and not for one without");
 
+/*
+  A kitchen sink (owner, 2026-11-10: "detach and reset ... plumbing" reached the scope as a loose line
+  with nothing asked; "plumbing would be assumed a sink"). Call 1's plumbing enum is vanity and toilet
+  only, so the sink comes from here, as a plumbing fixture the existing kitchen-sink questions ask about.
+*/
+{
+  const KITCHEN = room("Kitchen", { flooring: [flooring("LAMINATE", { disposition: "REMOVE_AND_DISPOSE" })] });
+  const sinkOf = (r) => r.plumbingFixtures.filter((p) => p.fixtureType === "KITCHEN_SINK");
+  const dr = sinkOf(mergeSupplement(tree([KITCHEN]), supp([roomSupp({ kitchenSink: "DETACH_AND_RESET" })])).rooms[0]);
+  check(dr.length === 1 && dr[0].action === "DETACH_AND_RESET" && dr[0].mount === null && dr[0].basinCount === null, `"detach and reset the plumbing" in a kitchen becomes a kitchen sink to detach and reset, its mount and basins still to ask (got ${JSON.stringify(dr)})`);
+  const rr = sinkOf(mergeSupplement(tree([KITCHEN]), supp([roomSupp({ kitchenSink: "REMOVE_AND_REPLACE" })])).rooms[0]);
+  check(rr.length === 1 && rr[0].action === "REMOVE_AND_REPLACE", "\"new sink\" becomes one to remove and replace");
+  for (const said of ["UNKNOWN", undefined, "MAYBE"]) {
+    check(sinkOf(mergeSupplement(tree([KITCHEN]), supp([roomSupp({ kitchenSink: said })])).rooms[0]).length === 0, `nothing said (${said}) is no sink`);
+  }
+  const already = room("Kitchen", { flooring: KITCHEN.flooring, plumbingFixtures: [{ fixtureType: "KITCHEN_SINK", action: "REMOVE_AND_REPLACE", basinCount: "DOUBLE", mount: "UNDERMOUNT", sinkAlsoNeeded: null, topDetached: null, topKept: null, topMaterial: null, sinkFaucetSaved: null, grade: null, includesSurround: null, surroundMaterial: null }] });
+  const kept = sinkOf(mergeSupplement(tree([already]), supp([roomSupp({ kitchenSink: "DETACH_AND_RESET" })])).rooms[0]);
+  check(kept.length === 1 && kept[0].action === "REMOVE_AND_REPLACE" && kept[0].mount === "UNDERMOUNT", "a sink already there is never doubled or overwritten");
+  const vanityToo = room("Kitchen", { flooring: KITCHEN.flooring, plumbingFixtures: [{ ...already.plumbingFixtures[0], fixtureType: "TOILET", action: "DETACH_AND_RESET" }] });
+  check(mergeSupplement(tree([vanityToo]), supp([roomSupp({ kitchenSink: "DETACH_AND_RESET" })])).rooms[0].plumbingFixtures.length === 2, "and sits beside any other fixture the room has");
+  const miscounted = mergeSupplement(tree([KITCHEN]), supp([roomSupp({ flooring: [], kitchenSink: "DETACH_AND_RESET" })])).rooms[0];
+  check(sinkOf(miscounted).length === 0, "a room whose flooring count came back wrong takes no sink either");
+}
+
 const suppMessage = extractionSupplementUserMessage("the transcript", tree([room("Kitchen", { flooring: [flooring("VINYL"), flooring("CARPET")] }), room("Hall")]));
 check(suppMessage.includes("1. Kitchen — 2 flooring") && suppMessage.includes("2. Hall — 0 flooring"), `the message states each room's flooring count, since the reply is positional at two levels (got:\n${suppMessage.split("Transcript:")[0]})`);
 check(suppMessage.trim().endsWith("the transcript"), "with the transcript last");

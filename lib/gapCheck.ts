@@ -1776,9 +1776,10 @@ function plumbingQuestions(roomIndex: number, roomName: string, i: number, p: Pl
     case "KITCHEN_SINK":
     case "BATHROOM_SINK":
       if (p.fixtureType === "KITCHEN_SINK" && p.basinCount === null)
-        q.push({ id: `${base}:basinCount`, roomName, prompt: "Single or double basin?", kind: { type: "choice", options: ["Single", "Double"] } });
+        q.push({ id: `${base}:basinCount`, roomName, prompt: "Is the kitchen sink single or double basin?", kind: { type: "choice", options: ["Single", "Double"] } });
+      // Undermount puts the faucet in the countertop, so it comes off separately — see the kitchen sink rule in documentGenerationPrompt.ts.
       if (p.mount === null)
-        q.push({ id: `${base}:mount`, roomName, prompt: "How is the sink mounted — undermount, drop-in, or other?", kind: { type: "choice", options: ["Undermount", "Drop-in", "Other"] } });
+        q.push({ id: `${base}:mount`, roomName, prompt: `How is the ${p.fixtureType === "KITCHEN_SINK" ? "kitchen " : ""}sink mounted — undermount, drop-in, or other?`, kind: { type: "choice", options: ["Undermount", "Drop-in", "Other"] } });
       break;
     case "BATHROOM_VANITY":
       // Sink handling is not a question at all — whenever a vanity is in scope, detaching (and

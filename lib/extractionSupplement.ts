@@ -1,4 +1,4 @@
-import type { AreaFraction, FlooringRecord, Room, WaterLossExtraction } from "./types";
+import type { AreaFraction, FlooringRecord, PlumbingFixtureRecord, Room, WaterLossExtraction } from "./types";
 import { photoNotesSection } from "./photoNotesPrompt";
 import { uploadedScopeSection } from "./scopeUpload";
 
@@ -24,6 +24,8 @@ import { uploadedScopeSection } from "./scopeUpload";
  * required?" and "how much?" after the PM said "we extracted standing water off the whole floor".
  * A number goes in the SF field, words go in the fraction, never both — exactly one of the pair is
  * ever set, which is what AreaFraction has always meant.
+ *
+ * And since 2026-11-10, a kitchen sink coming out — see `withKitchenSink`.
  */
 
 export const EXTRACTION_SUPPLEMENT_SYSTEM_PROMPT = `You are completing a further pass over a restoration project manager's dictated walkthrough of a
@@ -54,7 +56,12 @@ WHAT EACH FIELD MEANS:
 - waterExtractionSF and waterExtractionFraction — the extent of that extraction, on the same terms:
   a number or dimensions → SF (multiplied out); words → fraction ("the whole floor", "the entire
   room" → FULL, and so on); the sentinel (-1) and UNKNOWN when only "extracted" was said with no
-  extent. Only meaningful with waterExtractionRequired YES.`;
+  extent. Only meaningful with waterExtractionRequired YES.
+- kitchenSink — room-level. The kitchen sink being disconnected and coming out of this room:
+  DETACH_AND_RESET when it comes out and goes back ("detach and reset the sink", "pull the sink",
+  "disconnect the plumbing" in a kitchen — the plumbing in a kitchen is the sink); REMOVE_AND_REPLACE
+  when a new sink goes in ("replace the sink", "new sink"). UNKNOWN when no sink or plumbing work is
+  said for this room, and for any room that is not a kitchen (a bathroom sink is part of its vanity).`;
 
 /** The per-room counts written out, so the model has an explicit target rather than a second reading of the transcript. */
 export function extractionSupplementUserMessage(transcript: string, extraction: WaterLossExtraction, photoNotes?: string): string {
@@ -76,6 +83,8 @@ export interface RoomSupplementWire {
   waterExtractionRequired: string;
   waterExtractionSF: number;
   waterExtractionFraction: string;
+  /** Absent on a reply from before the field existed. */
+  kitchenSink?: string;
 }
 export interface ExtractionSupplementWire {
   rooms: RoomSupplementWire[];
@@ -122,6 +131,25 @@ function waterExtractionFor(room: Room, d: RoomSupplementWire | undefined): Pick
 }
 
 /**
+ * A kitchen sink said to be coming out, as a plumbing fixture of its own (owner, 2026-11-10: "plumbing
+ * would be assumed a sink"). Call 1's plumbing enum carries vanities and toilets only — it was cut to
+ * fit — so "detach and reset the plumbing" in a kitchen reached the scope as a loose line with nothing
+ * asked about it. Once it is a record, the questions that were already written for kitchen sinks ask
+ * single or double and how it is mounted. Never a second one, and never over a sink already there.
+ */
+function withKitchenSink(fixtures: PlumbingFixtureRecord[], said: string | undefined): PlumbingFixtureRecord[] {
+  const action = said === "DETACH_AND_RESET" || said === "REMOVE_AND_REPLACE" ? said : null;
+  if (action === null || fixtures.some((p) => p.fixtureType === "KITCHEN_SINK")) return fixtures;
+  return [
+    ...fixtures,
+    {
+      fixtureType: "KITCHEN_SINK", action, basinCount: null, mount: null, sinkAlsoNeeded: null, topDetached: null, topKept: null,
+      topMaterial: null, sinkFaucetSaved: null, grade: null, includesSurround: null, surroundMaterial: null,
+    },
+  ];
+}
+
+/**
  * Attaches the reply, positionally. `existing ?? fromSupplement` throughout — nothing here ever
  * overwrites a value call 1, call 2 or the PM has already set — and a room whose flooring count
  * came back wrong is left exactly as it was.
@@ -138,6 +166,7 @@ export function mergeSupplement(extraction: WaterLossExtraction, wire: Extractio
         ...room,
         flooring: room.flooring.map((f, j) => ({ ...f, removalFraction: removalFractionFor(f, flooring[j]) })),
         ...waterExtractionFor(room, d),
+        plumbingFixtures: withKitchenSink(room.plumbingFixtures, d.kitchenSink),
       };
     }),
   };

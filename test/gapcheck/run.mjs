@@ -3246,6 +3246,23 @@ check(
   check(runToCompletion(claim, lowers).ok, "and a kitchen answered with first choices finishes");
 }
 
+/* ── A kitchen sink asks single or double, and how it is mounted ──────────────────────────────── */
+
+/*
+  Owner, 2026-11-10: "plumbing would be assumed a sink, should ask undermount or drop in". Extraction
+  call 4 now records a kitchen sink; these questions were written for one long ago and never fired.
+*/
+{
+  const sink = { fixtureType: "KITCHEN_SINK", action: "DETACH_AND_RESET", basinCount: null, mount: null, sinkAlsoNeeded: null, topDetached: null, topKept: null, topMaterial: null, sinkFaucetSaved: null, grade: null, includesSurround: null, surroundMaterial: null };
+  const kitchen = withDerivedFields(extractionWith([room("Kitchen", { plumbingFixtures: [sink] })]));
+  const asked = nextQuestions(claim, kitchen).filter((q) => q.id.includes(":plumbing:"));
+  check(same(asked.map((q) => q.id), ["room:0:plumbing:0:basinCount", "room:0:plumbing:0:mount"]), `a kitchen sink asks its basins and its mount, nothing else (got ${asked.map((q) => q.id).join(", ")})`);
+  check(asked[1]?.prompt === "How is the kitchen sink mounted — undermount, drop-in, or other?" && same(asked[1]?.kind.options, ["Undermount", "Drop-in", "Other"]), `naming the kitchen sink (got "${asked[1]?.prompt}")`);
+  const mounted = (answer) => applyAnswer(kitchen, "room:0:plumbing:0:mount", answer).rooms[0].plumbingFixtures[0].mount;
+  check(mounted("Undermount") === "UNDERMOUNT" && mounted("Drop-in") === "DROP_IN", "and records the mount the scope's faucet line turns on");
+  check(runToCompletion(claim, kitchen).ok, "and a kitchen with a sink finishes");
+}
+
 rmSync(outDir, { recursive: true, force: true });
 
 for (const f of failures) console.error("  FAIL " + f);

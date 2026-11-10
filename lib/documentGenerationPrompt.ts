@@ -409,6 +409,18 @@ Auto-included items — apply these yourself, they are never spelled out per-ite
        DETACH_AND_RESET this means the countertop stays in place untouched; for REMOVE_AND_REPLACE
        it means the countertop is being replaced as part of the new vanity unit, already covered by
        the vanity's own remove/replace item.
+7b. Kitchen sink, per room: a plumbing fixture of type KITCHEN_SINK is a pair like any other
+   plumbing fixture — Emergency "Detach kitchen sink" and Repair "Reset kitchen sink" for
+   DETACH_AND_RESET, Emergency "Remove kitchen sink" and Repair "Replace kitchen sink" for
+   REMOVE_AND_REPLACE — with its detail after a dash: "single basin" or "double basin" from
+   basinCount, then "undermount" or "drop-in" from mount, each left out when null and mount OTHER
+   left out too. For example: "Detach kitchen sink – double basin, undermount".
+   Faucet: when mount is UNDERMOUNT, ALSO a pair — Emergency "Detach faucet – kitchen sink" and
+   Repair "Reset faucet – kitchen sink" — whatever the sink's own action. An undermount sink hangs
+   under the countertop and its faucet is mounted through the countertop, so the faucet comes off on
+   its own. A drop-in sink carries its faucet on its own deck and it comes out with the sink: no
+   faucet line. Mount OTHER or null: no faucet line. Never write one half of a pair without the
+   other. On a document with Repair and no Emergency, each pair combines as the paired categories do.
 8. Electrical panel, Emergency: only ever produced when electricalPanel is present and
    requiresInspection == true.
      - includedInScope == false → no room-level item. Instead, a General (non-room) note:

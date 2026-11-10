@@ -85,6 +85,8 @@ export function checkCarryOver({ mod, check, claim, room, extractionWith, runToC
           trim: [{ kind: "DOOR_CASING", location: "pantry door", action: null }],
           subfloor: [{ type: null, disposition: null, removalSF: null }],
           unscoped: [{ description: "replace two outlets on the wet wall", disposition: null }],
+          // Recorded since 2026-11-10 (extraction call 4), so its basin and mount questions are carried too.
+          plumbingFixtures: [vanity({ fixtureType: "KITCHEN_SINK" })],
         }),
         room("Main Bathroom", {
           flooring: [floor({ type: null })],
@@ -155,7 +157,7 @@ export function checkCarryOver({ mod, check, claim, room, extractionWith, runToC
     "Asks nothing" proves only as much as was asked to begin with. Every question the carry-over has a
     rule for must have come up in the runs above, or a rule could be wrong with nothing to show it.
     The ones it has no rule for, and so asks again, are listed in lib/answerCarryOver.ts's header;
-    kitchen sinks and tub surrounds are left out because extraction records neither.
+    tub surrounds are left out because extraction does not record them.
   */
   const RULES = [
     ...["type", "disposition", "hardwoodConstruction", "hardwoodConstructionOther", "hardwoodInstallation", "vinylSubtype", "vinylInstallation",
@@ -168,7 +170,7 @@ export function checkCarryOver({ mod, check, claim, room, extractionWith, runToC
     "room:N:countertop:N:material", "room:N:countertop:withCabinets",
     ...["finish", "textureStyle", "aboveInsulationAffected", "aboveInsulationType", "aboveInsulationRValue", "replaceSF", "detachScope", "tileSize", "mountMethod"]
       .map((f) => `room:N:ceiling:N:${f}`),
-    ...["topDetached", "topKept", "topMaterial"].map((f) => `room:N:plumbing:N:${f}`),
+    ...["topDetached", "topKept", "topMaterial", "basinCount", "mount"].map((f) => `room:N:plumbing:N:${f}`),
     "room:N:trim:N:action", "room:N:windowCovering:N:action", "room:N:cabinetHardware:N:action", "room:N:appliance:N:action",
     ...["type", "disposition", "removalSF"].map((f) => `room:N:subfloor:N:${f}`),
     "room:N:unscoped:N:disposition", "room:N:unscoped:N:repairDescription",

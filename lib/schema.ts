@@ -451,6 +451,8 @@ export const extractionSupplementSchema: JsonSchema = obj({
     waterExtractionRequired: nullableBool(),
     waterExtractionSF: nullableNumber(),
     waterExtractionFraction: nullableEnumOf("QUARTER", "HALF", "THREE_QUARTERS", "FULL"),
+    // A kitchen sink coming out, and how. Call 1's plumbing enum is vanity and toilet only (it is full).
+    kitchenSink: nullableEnumOf("DETACH_AND_RESET", "REMOVE_AND_REPLACE"),
   })),
 });
 
