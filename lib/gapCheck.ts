@@ -1,4 +1,5 @@
 import type {
+  ApplianceFuel,
   AreaFraction,
   BaseboardAction,
   BaseboardDisposition,
@@ -448,6 +449,16 @@ export function evaluate(raw: WaterLossExtraction, suggestions?: EquipmentSugges
         roomName: room.roomName,
         prompt: `Is the ${APPLIANCE_LABEL[a.type]} still in place, or already out?`,
         kind: { type: "choice", options: ["Still in place — detach and reset", "Already out — reset only"] },
+      });
+    });
+    // A range's fuel, every time: a gas range has a line to disconnect and is priced apart (owner, 2026-11-10).
+    room.appliances.forEach((a, i) => {
+      if (a.type !== "RANGE" || (a.fuel ?? null) !== null) return;
+      questions.push({
+        id: `room:${roomIndex}:appliance:${i}:fuel`,
+        roomName: room.roomName,
+        prompt: "Is the range gas or electric?",
+        kind: { type: "choice", options: RANGE_FUEL_OPTIONS },
       });
     });
     room.outlets.forEach((o, i) => questions.push(...outletQuestions(roomIndex, room.roomName, i, o)));
@@ -1438,6 +1449,9 @@ function subfloorTypeAnswer(answer: string): SubfloorType | null {
 
 /** Where an unscoped item goes. The last option is a decision, not a deletion — see UnscopedItem. */
 const UNSCOPED_OPTIONS = ["Emergency", "Repair", "Both phases", "Not part of this job"];
+
+/** A range's fuel. */
+const RANGE_FUEL_OPTIONS = ["Electric", "Gas"];
 
 /** Unrecognised leaves it open, so the item is asked again rather than landing in a phase nobody chose. */
 function unscopedDispositionAnswer(answer: string): UnscopedDisposition | null {
@@ -2454,6 +2468,11 @@ export function applyAnswer(extraction: WaterLossExtraction, questionId: string,
   }
   if (parts.length >= 5 && parts[0] === "room" && parts[2] === "door") {
     return updateList(extraction, roomIndex(parts), Number(parts[3]), (r) => r.doors, (r, l) => ({ ...r, doors: l }), (d) => applyDoorAnswer(d, parts[4]!, answer));
+  }
+  if (parts.length >= 5 && parts[0] === "room" && parts[2] === "appliance" && parts[4] === "fuel") {
+    // Unrecognised leaves it open, so it is asked again.
+    const fuel: ApplianceFuel | null = equalsIgnoreCase(answer, "Gas") ? "GAS" : equalsIgnoreCase(answer, "Electric") ? "ELECTRIC" : null;
+    return updateList(extraction, roomIndex(parts), Number(parts[3]), (r) => r.appliances, (r, l) => ({ ...r, appliances: l }), (a) => ({ ...a, fuel }));
   }
   if (parts.length >= 5 && parts[0] === "room" && parts[2] === "appliance" && parts[4] === "action") {
     return updateList(

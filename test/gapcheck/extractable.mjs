@@ -85,6 +85,8 @@ export const DELIBERATELY_ASKED = new Map([
   ["unscoped:disposition", "always asked — the PM places or drops work extraction had no field for"],
   // A PM says the cabinets are coming out, rarely what happens to the top on them.
   ["countertop:withCabinets", "asked when cabinets under a top come out and no countertop was said"],
+  // A PM says "the stove", rarely what it burns.
+  ["appliance:fuel", "asked of every range — gas or electric is priced apart"],
   // Asked of a both-phases item: the words of its Repair line, which are the PM's to give, not a model's.
   ["unscoped:repairDescription", "typed by the PM when an item goes in both phases — what goes back in"],
   ["wall:cutRunFt", "a measured quantity, pre-filled from the moisture map where one exists"],

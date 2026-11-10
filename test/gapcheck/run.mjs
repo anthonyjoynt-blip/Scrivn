@@ -3263,6 +3263,23 @@ check(
   check(runToCompletion(claim, kitchen).ok, "and a kitchen with a sink finishes");
 }
 
+/* ── Every range is asked gas or electric ─────────────────────────────────────────────────────── */
+
+// Owner, 2026-11-10: "range - electric or gas". A gas range has a line to disconnect and is priced apart.
+{
+  const kitchen = (appliances) => withDerivedFields(extractionWith([room("Kitchen", { appliances })]));
+  const fuelQs = (tree) => nextQuestions(claim, tree).filter((q) => q.id.endsWith(":fuel"));
+  const asked = fuelQs(kitchen([{ type: "FRIDGE", action: null }, { type: "RANGE", action: null }]));
+  check(same(asked.map((q) => q.id), ["room:0:appliance:1:fuel"]), `a range is asked its fuel, nothing else is (got ${asked.map((q) => q.id).join(", ")})`);
+  check(asked[0]?.prompt === "Is the range gas or electric?" && same(asked[0]?.kind.options, ["Electric", "Gas"]), `as gas or electric (got "${asked[0]?.prompt}" ${JSON.stringify(asked[0]?.kind.options)})`);
+  const tree = kitchen([{ type: "RANGE", action: null }]);
+  const fuel = (answer) => applyAnswer(tree, "room:0:appliance:0:fuel", answer).rooms[0].appliances[0].fuel;
+  check(fuel("Gas") === "GAS" && fuel("Electric") === "ELECTRIC", "and records it");
+  check(fuel("propane?") === null && fuelQs(withDerivedFields(applyAnswer(tree, "room:0:appliance:0:fuel", "propane?"))).length === 1, "an unrecognised answer leaves it open, so it is asked again");
+  check(fuelQs(kitchen([{ type: "RANGE", action: null, fuel: "GAS" }])).length === 0, "and a range whose fuel is known is not asked");
+  check(!isRepairOnlyQuestion("room:0:appliance:0:fuel") && !isEmergencyOnlyQuestion("room:0:appliance:0:fuel"), "it names both halves, so it is asked whatever the phases");
+}
+
 rmSync(outDir, { recursive: true, force: true });
 
 for (const f of failures) console.error("  FAIL " + f);

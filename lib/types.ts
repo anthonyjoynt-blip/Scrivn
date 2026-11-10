@@ -327,6 +327,20 @@ export interface ApplianceRecord {
   type: ApplianceType;
   /** Null means nobody has said, and reads as DETACH_AND_RESET — the ordinary case. */
   action: ApplianceAction | null;
+  /**
+   * A range's fuel, asked of every range (owner, 2026-11-10: "range - electric or gas"). A gas range
+   * has a gas line to disconnect and is priced apart from an electric one. Range only; absent on a
+   * record saved before it was asked.
+   */
+  fuel?: ApplianceFuel | null;
+}
+
+export type ApplianceFuel = "GAS" | "ELECTRIC";
+
+/** What follows an appliance's name on a line: a range's fuel, when known. "Detach range – gas". */
+export function applianceDetail(a: ApplianceRecord): string | null {
+  if (a.type !== "RANGE" || !a.fuel) return null;
+  return a.fuel === "GAS" ? "gas" : "electric";
 }
 
 export type FlooringType = "CARPET" | "VINYL" | "HARDWOOD" | "LAMINATE" | "TILE" | "CONCRETE";

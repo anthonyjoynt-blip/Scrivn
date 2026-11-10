@@ -588,8 +588,11 @@ Auto-included items — apply these yourself, they are never spelled out per-ite
     Emergency "Detach {appliance}" and Repair "Reset {appliance}", where {appliance} is the type in
     ordinary words — WASHER "washer", DRYER "dryer", FRIDGE "fridge", RANGE "range", DISHWASHER
     "dishwasher", BUILT_IN_OVEN "built-in oven", COOKTOP "cooktop", RANGE_HOOD "range hood",
-    BUILT_IN_MICROWAVE "built-in microwave". Never write one half without the other, exactly as with
-    baseboard's detach/reset pair. There is no action field and no remove-and-replace form: a
+    BUILT_IN_MICROWAVE "built-in microwave". A RANGE whose fuel is GAS or ELECTRIC carries it as the
+    line's detail, in both halves: "Detach range – gas" / "Reset range – gas" (or "– electric") —
+    a gas range has a gas line to disconnect and is priced apart from an electric one. Fuel null:
+    plain "range". Never write one half without the other, exactly as with baseboard's detach/reset
+    pair. There is no action field and no remove-and-replace form: a
     restoration contractor detaches and resets appliances and does not replace them, so never write
     "Remove" or "Replace" for one.
 18. Trim, per room — for every entry in that room's "trim" array, a PAIR of bullets, phrased from

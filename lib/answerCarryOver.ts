@@ -184,7 +184,7 @@ const KINDS: Record<string, RecordKind> = {
   trim: recordKind("trim", (r) => `${r.kind}|${textKey(r.location)}`, { action: { copy: ["action"] } }),
   windowCovering: recordKind("windowCoverings", (r) => `${r.type}|${textKey(r.location)}`, { action: { copy: ["action"] } }),
   cabinetHardware: recordKind("cabinetHardware", (r) => textKey(r.location), { action: { copy: ["action"] } }),
-  appliance: recordKind("appliances", (r) => enumKey(r.type), { action: { copy: ["action"] } }),
+  appliance: recordKind("appliances", (r) => enumKey(r.type), { action: { copy: ["action"] }, fuel: { copy: ["fuel"] } }),
   subfloor: recordKind("subfloor", (r) => enumKey(r.type), {
     type: { copy: ["type"] },
     disposition: { copy: ["disposition"], same: ["type"] },

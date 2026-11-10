@@ -81,7 +81,7 @@ export function checkCarryOver({ mod, check, claim, room, extractionWith, runToC
           cabinetHardware: [{ location: "sink base", action: null }],
           countertops: [countertop()],
           windowCoverings: [{ type: "BLIND", location: "over the sink", action: null }],
-          appliances: [{ type: "DISHWASHER", action: null }],
+          appliances: [{ type: "DISHWASHER", action: null }, { type: "RANGE", action: null }],
           trim: [{ kind: "DOOR_CASING", location: "pantry door", action: null }],
           subfloor: [{ type: null, disposition: null, removalSF: null }],
           unscoped: [{ description: "replace two outlets on the wet wall", disposition: null }],
@@ -171,7 +171,7 @@ export function checkCarryOver({ mod, check, claim, room, extractionWith, runToC
     ...["finish", "textureStyle", "aboveInsulationAffected", "aboveInsulationType", "aboveInsulationRValue", "replaceSF", "detachScope", "tileSize", "mountMethod"]
       .map((f) => `room:N:ceiling:N:${f}`),
     ...["topDetached", "topKept", "topMaterial", "basinCount", "mount"].map((f) => `room:N:plumbing:N:${f}`),
-    "room:N:trim:N:action", "room:N:windowCovering:N:action", "room:N:cabinetHardware:N:action", "room:N:appliance:N:action",
+    "room:N:trim:N:action", "room:N:windowCovering:N:action", "room:N:cabinetHardware:N:action", "room:N:appliance:N:action", "room:N:appliance:N:fuel",
     ...["type", "disposition", "removalSF"].map((f) => `room:N:subfloor:N:${f}`),
     "room:N:unscoped:N:disposition", "room:N:unscoped:N:repairDescription",
     "room:N:equipment:N:quantity", "room:N:equipment:N:holeCount", "room:N:equipment:used", "equipment:allRooms:air movers",

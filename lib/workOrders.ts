@@ -13,7 +13,7 @@ import { baseboardFinishLine, ceilingPaintLine, ceilingQuantity, fractionLabel, 
 import type { ApplianceType, CeilingRecord, DoorRecord, FlooringRecord, Room, WallRecord, WaterLossExtraction, UnscopedItem } from "./types";
 import { disposalLine, recommendDisposal, type RoomAreasByName } from "./debris";
 import type { ExteriorScopeLines } from "./exterior";
-import { APPLIANCE_LABEL, DOOR_STYLE_LABEL, isInjectionEquipment, SUBFLOOR_LABEL, TRIM_KIND_LABEL, unscopedWording, WINDOW_COVERING_LABEL, WINDOW_CLEANING_SIZE_LABEL, WINDOW_CLEANING_SIZES } from "./types";
+import { APPLIANCE_LABEL, applianceDetail, DOOR_STYLE_LABEL, isInjectionEquipment, SUBFLOOR_LABEL, TRIM_KIND_LABEL, unscopedWording, WINDOW_COVERING_LABEL, WINDOW_CLEANING_SIZE_LABEL, WINDOW_CLEANING_SIZES } from "./types";
 
 /**
  * Trade work orders — the crew-facing counterpart to the estimator-facing scope document.
@@ -446,7 +446,7 @@ function buildMitigationDemo(claim: ClaimInfo, extraction: WaterLossExtraction, 
     */
     for (const a of room.appliances) {
       if (a.action === "RESET_ONLY") continue;
-      items.push(bullet(`Detach ${APPLIANCE_LABEL[a.type]}`, null, null));
+      items.push(bullet(`Detach ${APPLIANCE_LABEL[a.type]}`, applianceDetail(a), null));
     }
 
     /*
@@ -758,7 +758,7 @@ function finishCarpentryBody(extraction: WaterLossExtraction): string[] {
       back — the same failure the baseboard pair exists to prevent, and the reason both halves are
       written from one list rather than two.
     */
-    for (const a of room.appliances) items.push(bullet(`Reset ${APPLIANCE_LABEL[a.type]}`, null, null));
+    for (const a of room.appliances) items.push(bullet(`Reset ${APPLIANCE_LABEL[a.type]}`, applianceDetail(a), null));
     return items;
   });
 }

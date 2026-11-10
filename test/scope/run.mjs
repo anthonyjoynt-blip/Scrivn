@@ -1167,6 +1167,18 @@ check(!unscopedSheets([]).repair[0].includes("trade not yet assigned"), "and a c
   check(repair.includes("    - Reset countertop – Laminate"), `and goes back on the Finish Carpentry sheet, with its material (got:\n${repair})`);
 }
 
+/* ── A range carries its fuel on both sheets ──────────────────────────────────────────────────── */
+
+{
+  const built = bbOrders(bbExtraction([room("Kitchen", { appliances: [{ type: "RANGE", action: null, fuel: "GAS" }, { type: "FRIDGE", action: null }] })]));
+  const emergency = bbText(built, "MITIGATION_DEMO");
+  const repair = bbText(built, "FINISH_CARPENTRY");
+  check(emergency.includes("    - Detach range – gas") && repair.includes("    - Reset range – gas"), `a gas range is detached and reset as gas (got:\n${emergency}\n${repair})`);
+  check(/- Detach fridge$/m.test(emergency), "and a fridge has no fuel to carry");
+  const unknown = bbText(bbOrders(bbExtraction([room("Kitchen", { appliances: [{ type: "RANGE", action: null }] })])), "MITIGATION_DEMO");
+  check(/- Detach range$/m.test(unknown), `a range whose fuel nobody gave is plain "range" (got:\n${unknown})`);
+}
+
 /* ── Floor registers are a pair, and the PM phone is on the sheet ───────────────────────────────── */
 
 /*
