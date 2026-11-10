@@ -120,6 +120,16 @@
   font-size: 14px;
 }
 
+/* Signed in only (components/marketing/BackToClaims.tsx): the way back to the app from a free tool. */
+.mk .mk-back-to-claims {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--navy);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  white-space: nowrap;
+}
+
 /* ---- shared buttons ---- */
 
 .mk-btn-primary {

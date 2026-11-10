@@ -115,6 +115,39 @@ body {
   color: var(--color-navy-dark);
 }
 
+/* "Tools" in the signed-in header (components/ToolsMenu.tsx): the free tools, in a list under the word. */
+.tools-menu {
+  position: relative;
+}
+
+.tools-menu-list {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  z-index: 50;
+  margin: 0;
+  padding: 6px 0;
+  list-style: none;
+  min-width: 190px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgba(18, 40, 65, 0.14);
+}
+
+.tools-menu-list a {
+  display: block;
+  padding: 10px 14px;
+  font-size: 0.86rem;
+  font-weight: 600;
+  color: var(--color-navy);
+  white-space: nowrap;
+}
+
+.tools-menu-list a:hover {
+  background: var(--color-navy-tint);
+}
+
 @media (max-width: 480px) {
   /* The address is the first thing worth dropping on a narrow screen — signing out still works. */
   .user-menu-email {
