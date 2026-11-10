@@ -2,6 +2,7 @@ import Link from "next/link";
 import "@/app/marketing.css";
 import { PRIVACY_POLICY_URL, TERMS_URL } from "@/lib/legal";
 import { FREE_TOOLS } from "./FreeTools";
+import { BackToClaims } from "./BackToClaims";
 
 /**
  * Nav, footer and page scope for the public marketing site.
@@ -62,6 +63,8 @@ export function MarketingShell({ page, children }: { page: MarketingPage; childr
               Get Started
             </Link>
           )}
+          {/* Only when signed in: the way back from Drop a sketch or the calculator to the app. */}
+          <BackToClaims />
         </div>
       </nav>
 
