@@ -1,0 +1,227 @@
+{
+ "model": "claude-opus-5-5",
+ "at": "2026-11-12T13:36:58.152Z",
+ "bytes": 153968,
+ "usage": {
+  "inputTokens": 3906,
+  "outputTokens": 1394,
+  "cacheCreationTokens": 2988,
+  "cacheReadTokens": 0
+ },
+ "usd": 0.058444,
+ "wire": {
+  "pageKind": "handwritten",
+  "continuing": [],
+  "rooms": [
+   {
+    "name": "Basement Recreation Room",
+    "level": "Basement",
+    "items": [
+     {
+      "written": "extract cpt",
+      "plain": "Extract carpet",
+      "quantity": "",
+      "unsure": false,
+      "phase": "emergency"
+     },
+     {
+      "written": "R&R cpt & pad - F",
+      "plain": "Remove and replace carpet and pad",
+      "quantity": "F, the whole floor",
+      "unsure": false,
+      "phase": "emergency"
+     },
+     {
+      "written": "flood cut 2' ext walls",
+      "plain": "Flood cut drywall 2 ft up the exterior walls",
+      "quantity": "2 ft",
+      "unsure": false,
+      "phase": "emergency"
+     },
+     {
+      "written": "remove insul",
+      "plain": "Remove insulation",
+      "quantity": "",
+      "unsure": false,
+      "phase": "emergency"
+     },
+     {
+      "written": "4 AM, 1 DH",
+      "plain": "4 air movers, 1 dehumidifier",
+      "quantity": "4 AM, 1 DH",
+      "unsure": false,
+      "phase": "emergency"
+     },
+     {
+      "written": "insul R12 + drywall 2'",
+      "plain": "Insulation R12 plus drywall 2 ft",
+      "quantity": "2 ft",
+      "unsure": false,
+      "phase": "repair"
+     },
+     {
+      "written": "tape, prime, paint",
+      "plain": "Tape, prime, paint",
+      "quantity": "",
+      "unsure": false,
+      "phase": "repair"
+     },
+     {
+      "written": "install cpt & pad - F",
+      "plain": "Install carpet and pad",
+      "quantity": "F, the whole floor",
+      "unsure": false,
+      "phase": "repair"
+     },
+     {
+      "written": "base MDF 3 1/4 - PF",
+      "plain": "Baseboard MDF 3 1/4",
+      "quantity": "PF, the whole perimeter of the floor",
+      "unsure": false,
+      "phase": "repair"
+     }
+    ]
+   },
+   {
+    "name": "Laundry",
+    "level": "",
+    "items": [
+     {
+      "written": "tear out vinyl - F",
+      "plain": "Tear out vinyl",
+      "quantity": "F, the whole floor",
+      "unsure": false,
+      "phase": "emergency"
+     },
+     {
+      "written": "clean & treat",
+      "plain": "Clean and treat",
+      "quantity": "",
+      "unsure": false,
+      "phase": "emergency"
+     },
+     {
+      "written": "install vinyl - F",
+      "plain": "Install vinyl",
+      "quantity": "F, the whole floor",
+      "unsure": false,
+      "phase": "repair"
+     }
+    ]
+   }
+  ],
+  "general": [],
+  "notes": [
+   "Harlow - bsmt, sump failure"
+  ],
+  "unreadable": []
+ },
+ "read": {
+  "version": 1,
+  "pageKind": "handwritten",
+  "continuing": [],
+  "rooms": [
+   {
+    "name": "Basement Recreation Room",
+    "level": "Basement",
+    "items": [
+     {
+      "written": "extract cpt",
+      "plain": "Extract carpet",
+      "quantity": null,
+      "unsure": false,
+      "phase": "EMERGENCY"
+     },
+     {
+      "written": "R&R cpt & pad - F",
+      "plain": "Remove and replace carpet and pad",
+      "quantity": "F, the whole floor",
+      "unsure": false,
+      "phase": "EMERGENCY"
+     },
+     {
+      "written": "flood cut 2' ext walls",
+      "plain": "Flood cut drywall 2 ft up the exterior walls",
+      "quantity": "2 ft",
+      "unsure": false,
+      "phase": "EMERGENCY"
+     },
+     {
+      "written": "remove insul",
+      "plain": "Remove insulation",
+      "quantity": null,
+      "unsure": false,
+      "phase": "EMERGENCY"
+     },
+     {
+      "written": "4 AM, 1 DH",
+      "plain": "4 air movers, 1 dehumidifier",
+      "quantity": "4 AM, 1 DH",
+      "unsure": false,
+      "phase": "EMERGENCY"
+     },
+     {
+      "written": "insul R12 + drywall 2'",
+      "plain": "Insulation R12 plus drywall 2 ft",
+      "quantity": "2 ft",
+      "unsure": false,
+      "phase": "REPAIR"
+     },
+     {
+      "written": "tape, prime, paint",
+      "plain": "Tape, prime, paint",
+      "quantity": null,
+      "unsure": false,
+      "phase": "REPAIR"
+     },
+     {
+      "written": "install cpt & pad - F",
+      "plain": "Install carpet and pad",
+      "quantity": "F, the whole floor",
+      "unsure": false,
+      "phase": "REPAIR"
+     },
+     {
+      "written": "base MDF 3 1/4 - PF",
+      "plain": "Baseboard MDF 3 1/4",
+      "quantity": "PF, the whole perimeter of the floor",
+      "unsure": false,
+      "phase": "REPAIR"
+     }
+    ]
+   },
+   {
+    "name": "Laundry",
+    "level": null,
+    "items": [
+     {
+      "written": "tear out vinyl - F",
+      "plain": "Tear out vinyl",
+      "quantity": "F, the whole floor",
+      "unsure": false,
+      "phase": "EMERGENCY"
+     },
+     {
+      "written": "clean & treat",
+      "plain": "Clean and treat",
+      "quantity": null,
+      "unsure": false,
+      "phase": "EMERGENCY"
+     },
+     {
+      "written": "install vinyl - F",
+      "plain": "Install vinyl",
+      "quantity": "F, the whole floor",
+      "unsure": false,
+      "phase": "REPAIR"
+     }
+    ]
+   }
+  ],
+  "general": [],
+  "notes": [
+   "Harlow - bsmt, sump failure"
+  ],
+  "unreadable": []
+ }
+}
