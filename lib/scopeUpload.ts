@@ -16,6 +16,9 @@
  * exactly what it sent before.
  */
 
+/** A heading on the scope that says which part of the job its lines are: only ever what the page itself says. */
+export type ScopeLinePhase = "EMERGENCY" | "REPAIR";
+
 /** One line of work on a scope. */
 export interface ScopeItem {
   /** The line exactly as written: abbreviations, numbers and all. */
@@ -26,6 +29,11 @@ export interface ScopeItem {
   quantity: string | null;
   /** Part of the line could not be read with confidence. */
   unsure: boolean;
+  /**
+   * The page puts the line under an Emergency or a Repair heading (2026-11-12). Left out when it does not: the part of
+   * the job a line belongs to is never decided from the kind of work.
+   */
+  phase?: ScopeLinePhase;
 }
 
 export interface ScopeRoom {
@@ -121,13 +129,19 @@ export function mergePages(pages: { read: ScopePageRead; file: string }[]): Uplo
 
 const squash = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "");
 
-/** One item as a line of notes: the plain words, the writing when it says something else, the quantity, a doubt. */
+const PHASE_WORDS: Record<ScopeLinePhase, string> = { EMERGENCY: "Emergency", REPAIR: "Repair" };
+
+/**
+ * One item as a line of notes: the plain words, the writing when it says something else, the quantity, the heading it
+ * is written under, a doubt.
+ */
 export function itemLine(item: ScopeItem): string {
   const plain = item.plain.trim() || item.written.trim();
   const written = item.written.trim();
   let line = `- ${plain}`;
   if (written && squash(written) !== squash(plain)) line += ` [written: ${written}]`;
   if (item.quantity) line += ` (${item.quantity})`;
+  if (item.phase) line += ` [under: ${PHASE_WORDS[item.phase]}]`;
   if (item.unsure) line += " (not sure this was read right)";
   return line;
 }
@@ -170,7 +184,18 @@ export function scopeLineCount(scope: UploadedScope): number {
 
 export const UPLOADED_SCOPE_RULE = `UPLOADED SCOPE. Part of the transcript, between the lines "${UPLOADED_SCOPE_START} …" and "${UPLOADED_SCOPE_END}", was read by Scrivn from a scope the estimator wrote or printed for this loss. Read it as the estimator's own decisions about the work: each line under a room heading is work for that room (what is torn out, removed, replaced, cleaned or treated, how high a wall is cut, the equipment set there), exactly as if it had been said in the walkthrough. Abbreviations have been spelled out; "[written: …]" after a line is how it was actually written, and where the spelled-out words do not fit the writing, go by the writing. A quantity in brackets is as written (LF, SF, each), or one of Xactimate's room measurements with its meaning ("F, the whole floor"; "PF, the whole perimeter of the floor"), and then the work covers all of it. Lines under "Whole job" are for the job as a whole, not one room. A line marked as not sure may have been misread: use it only where it fits the rest. Anything said elsewhere in the transcript about the same item is the same item, never a second one.`;
 
+/**
+ * Said only when a line carries one of the headings, so a scope with none sends exactly the rule it sent before
+ * (2026-11-12).
+ */
+export const UPLOADED_SCOPE_PHASE_RULE = `A line ending "[under: Emergency]" or "[under: Repair]" is written on the scope under that heading: it is that part of the work, as the estimator split it.`;
+
+const PHASE_MARKS = Object.values(PHASE_WORDS).map((w) => `[under: ${w}]`);
+
 /** The rule, to add after the transcript in a user message, when the transcript holds an uploaded scope; else nothing. */
 export function uploadedScopeSection(transcript: string | null | undefined): string {
-  return (transcript ?? "").includes(UPLOADED_SCOPE_START) ? `\n\n${UPLOADED_SCOPE_RULE}` : "";
+  const text = transcript ?? "";
+  if (!text.includes(UPLOADED_SCOPE_START)) return "";
+  const phased = PHASE_MARKS.some((m) => text.includes(m));
+  return `\n\n${UPLOADED_SCOPE_RULE}${phased ? ` ${UPLOADED_SCOPE_PHASE_RULE}` : ""}`;
 }

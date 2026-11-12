@@ -204,6 +204,8 @@ export interface SketchPage {
   width: number;
   height: number;
   caption: string;
+  /** How `dataUrl` is encoded: PNG unless said (2026-11-12: a JPEG plan keeps a small document small). */
+  format?: "PNG" | "JPEG";
 }
 
 /**
@@ -230,7 +232,7 @@ function drawSketchPages(doc: jsPDF, images: SketchPage[]) {
     const width = image.width * scale;
     const height = image.height * scale;
 
-    doc.addImage(image.dataUrl, "PNG", PAGE_MARGIN + (maxWidth - width) / 2, top, width, height);
+    doc.addImage(image.dataUrl, image.format ?? "PNG", PAGE_MARGIN + (maxWidth - width) / 2, top, width, height);
   }
 }
 

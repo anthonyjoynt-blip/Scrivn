@@ -110,3 +110,49 @@ function line(ctx: CanvasRenderingContext2D, ax: number, ay: number, bx: number,
   ctx.lineTo(bx, by);
   ctx.stroke();
 }
+
+/**
+ * A scope page to try the Drop a sketch or scope page with in development (2026-11-12): handwriting on ruled paper, no
+ * drawing, as test/scopeUpload/fixtures/sample.model.json reads it. The rules are blue, which the room finder leaves
+ * alone (lib/handSketchBoxes.ts), so the page is found to hold no sketch.
+ */
+export function drawSampleScope(): { dataUrl: string; width: number; height: number } {
+  const width = 1050;
+  const height = 1400;
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("No canvas to draw the sample on.");
+  ctx.fillStyle = "#fbfbf7";
+  ctx.fillRect(0, 0, width, height);
+  ctx.strokeStyle = "#a9c4e6";
+  ctx.lineWidth = 2;
+  for (let y = 120; y < height; y += 62) line(ctx, 0, y, width, y);
+  ctx.strokeStyle = "#e8a0a0";
+  line(ctx, 110, 0, 110, height);
+
+  ctx.fillStyle = "#1f2a44";
+  const lines: [string, number][] = [
+    ["Washer supply line burst - Cat 2", 0],
+    ["Bsmt Bdrm", 0],
+    ["R&R cpt & pad  142 SF", 1],
+    ["Rmv BB MDF 3 1/4\"  48 LF", 1],
+    ["FC 2' all walls", 1],
+    ["Rmv insul behind cut", 1],
+    ["Anti-micro", 1],
+    ["2 AM 1 DH", 1],
+    ["Bsmt Bath", 0],
+    ["D&R toilet", 1],
+    ["Rmv vanity + top - save", 1],
+    ["Lino R&R  40 SF", 1],
+    ["Base R&R 1? LF", 1],
+    ["Contents manip bsmt", 0],
+    ["Containment @ stairs", 0],
+  ];
+  lines.forEach(([text, indent], i) => {
+    ctx.font = `${indent ? "" : "bold "}italic 40px 'Segoe Print', 'Comic Sans MS', cursive`;
+    ctx.fillText(text, 130 + indent * 50, 110 + 62 * (i + 1) - 14);
+  });
+  return { dataUrl: canvas.toDataURL("image/jpeg", 0.88), width, height };
+}

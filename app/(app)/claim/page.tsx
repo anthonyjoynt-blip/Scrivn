@@ -81,7 +81,7 @@ import { type Trade, type WorkOrder, availableTrades, buildWorkOrders, unavailab
 import { WorkOrderSelector } from "@/components/WorkOrderSelector";
 import { SketchEditor } from "@/components/sketch/SketchEditor";
 import { type Sketch, emptySketch, hasSketchContent, knownRoomNames, levelName, levelsOf, roomsOnLevel } from "@/lib/sketch";
-import { type HandSketchHandoff, deleteHandoff, handSketchDefaultFloor, handSketchRoomsToAdd, mergeHandSketch, pruneHandoffs, readHandoff } from "@/lib/handSketchClaim";
+import { type HandSketchHandoff, deleteHandoff, handSketchDefaultFloor, handSketchRoomsToAdd, handoffLanded, handoffNotesToAdd, mergeHandSketch, pruneHandoffs, readHandoff } from "@/lib/handSketchClaim";
 import { readDeviceClaim } from "@/lib/deviceClaims";
 import { HandSketchNotice } from "@/components/sketch/HandSketchNotice";
 import { type MoistureMap, emptyMoistureMap, hasMoistureContent, pruneMoisture, withScanMoisture } from "@/lib/moisture";
@@ -571,6 +571,11 @@ export default function Home() {
   const [handSketchFloor, setHandSketchFloor] = useState<number | null>(null);
   /** A new claim (`/claim?handSketch=<token>`, no id) takes the rooms without asking - there is nothing else on it. */
   const handSketchAutoAdd = useRef(false);
+  /**
+    A gap check from the Drop a sketch or scope page (2026-11-12) landed here: a new claim with its rooms and the
+    tidied scope in the notes, said so on the claim's first steps. Not kept: a reload has nothing new to say.
+  */
+  const [fromDropPage, setFromDropPage] = useState<{ rooms: number } | null>(null);
   useEffect(() => {
     if (typeof window === "undefined") return;
     pruneHandoffs();
@@ -586,8 +591,11 @@ export default function Home() {
     setHandSketch(handoff);
   }, []);
   const handSketchLeft = useMemo(() => (handSketch ? handSketchRoomsToAdd(sketch, handSketch.sketch) : []), [handSketch, sketch]);
-  /** Some of its rooms are on the claim: added (a second add would add nothing - see `mergeHandSketch`). */
-  const handSketchIn = handSketch !== null && handSketchLeft.length < handSketch.sketch.rooms.length;
+  /**
+    All it brings is on the claim: some of its rooms (a second add would add nothing - see `mergeHandSketch`), and a gap
+    check's scope in the notes.
+  */
+  const handSketchIn = handSketch !== null && handoffLanded(sketch, transcript, handSketch);
 
   function addHandSketch(level: number) {
     if (!handSketch) return;
@@ -598,9 +606,28 @@ export default function Home() {
     openSketch(true);
   }
 
+  /*
+    A gap check from Drop a sketch or scope: the scope goes into the notes as an uploaded scope's block, and the rooms
+    beside it, with the claim left on its first step - its details are what the questions turn on (loss type, category,
+    phases) - rather than the sketch opened over it. Continue then lands on the notes, ready to Generate. What arrived,
+    once, as `addHandSketch` is: the handoff is let go once it has landed (below).
+  */
+  function takeGapCheck(handoff: HandSketchHandoff) {
+    const incoming = handoff.sketch;
+    const notes = handoffNotesToAdd(transcript, handoff);
+    if (notes !== null) setTranscript(notes);
+    if (incoming.rooms.length > 0) setSketch((prev) => mergeHandSketch(prev, incoming, handSketchDefaultFloor(prev, incoming)));
+    setFromDropPage({ rooms: incoming.rooms.length });
+    checkpoint();
+  }
+
   useEffect(() => {
     if (!handSketch || !handSketchAutoAdd.current || !persistence.settled) return;
     handSketchAutoAdd.current = false;
+    if (handSketch.notes) {
+      takeGapCheck(handSketch);
+      return;
+    }
     addHandSketch(handSketchDefaultFloor(sketch, handSketch.sketch));
     // Once, when the new claim's page has settled; `addHandSketch` is a plain function of this component.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -618,12 +645,14 @@ export default function Home() {
     if ((status !== "saved" && status !== "pending") || !id) return;
     const token = handSketch.token;
     const ids = handSketch.sketch.rooms.map((r) => r.id);
+    const notes = handSketch.notes?.trim();
     let gone = false;
     void readDeviceClaim(id).then((record) => {
       if (gone || !record || record.clash) return;
       if (status === "saved" && record.dirty) return;
       const onDevice = new Set(record.state.sketch.rooms.map((r) => r.id));
-      if (!ids.some((roomId) => onDevice.has(roomId))) return;
+      if (ids.length > 0 && !ids.some((roomId) => onDevice.has(roomId))) return;
+      if (notes && !record.state.transcript.includes(notes)) return;
       deleteHandoff(token);
       setHandSketch(null);
       stripHandSketchParam();
@@ -634,7 +663,14 @@ export default function Home() {
   }, [handSketch, handSketchIn, persistence.status, persistence.claimId, persistence.clash]);
 
   const handSketchOffered =
-    handSketch !== null && !handSketchIn && !handSketchDismissed && !handSketchAutoAdd.current && persistence.settled && !persistence.clash && !persistence.loadError;
+    handSketch !== null &&
+    !handSketchIn &&
+    handSketchLeft.length > 0 &&
+    !handSketchDismissed &&
+    !handSketchAutoAdd.current &&
+    persistence.settled &&
+    !persistence.clash &&
+    !persistence.loadError;
   const handSketchFloors = levelsOf(sketch);
   const handSketchFirstFloor = handSketch ? handSketchDefaultFloor(sketch, handSketch.sketch) : 0;
   const handSketchTarget = handSketchFloor !== null && handSketchFloors.includes(handSketchFloor) ? handSketchFloor : handSketchFirstFloor;
@@ -1070,6 +1106,7 @@ export default function Home() {
     setHandSketchDismissed(false);
     setHandSketchFloor(null);
     handSketchAutoAdd.current = false;
+    setFromDropPage(null);
     setScanIssue(null);
     setScanBusy(false);
     scanOutcomes.current = new Map();
@@ -1935,6 +1972,14 @@ export default function Home() {
         <div className="card">
           <StepHeader step={step} label="Claim Info" />
           <h2>Claim details</h2>
+          {fromDropPage && (
+            <p className="field-note drop-page-note" role="status">
+              {fromDropPage.rooms > 0
+                ? `The ${fromDropPage.rooms} room${fromDropPage.rooms === 1 ? "" : "s"} from your sketch and your tidied scope are in this claim.`
+                : "Your tidied scope is in this claim."}{" "}
+              Fill in its details and Continue: the scope is in the notes, ready to Generate, which asks what it is missing.
+            </p>
+          )}
           <ClaimIntakeForm
             claim={claim}
             onTextChange={handleClaimTextChange}
@@ -2010,6 +2055,11 @@ export default function Home() {
           {hasSeparateContents(claim) && (
             <p className="field-note" style={{ marginBottom: 12 }}>
               This covers the emergency and repair scope only — no need to mention pack-out, pack-back, or other contents handling here. You’ll be asked about the contents assignment separately, right after this.
+            </p>
+          )}
+          {fromDropPage && step === "transcript" && (
+            <p className="field-note drop-page-note" role="status">
+              Your tidied scope is in the notes below. Check it, add anything it is missing, then Generate.
             </p>
           )}
           <DictateButton onText={(spoken) => setTranscript((t) => appendDictation(t, spoken))} disabled={step === "extracting"} />

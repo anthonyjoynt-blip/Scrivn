@@ -32,7 +32,7 @@ const NAV_LINKS: { page: MarketingPage; href: string; label: string }[] = [
   { page: "how-it-works", href: "/how-it-works", label: "How It Works" },
   { page: "scan", href: "/scan", label: "Scan" },
   { page: "drying-calculator", href: "/drying-calculator", label: "Drying Calculator" },
-  { page: "drop-a-sketch", href: "/drop-a-sketch", label: "Drop a Sketch" },
+  { page: "drop-a-sketch", href: "/drop-a-sketch", label: "Drop a Sketch or Scope" },
   { page: "pricing", href: "/pricing", label: "Pricing" },
   { page: "faq", href: "/faq", label: "FAQ" },
   { page: "contact", href: "/contact", label: "Contact" },
@@ -63,7 +63,7 @@ export function MarketingShell({ page, children }: { page: MarketingPage; childr
               Get Started
             </Link>
           )}
-          {/* Only when signed in: the way back from Drop a sketch or the calculator to the app. */}
+          {/* Only when signed in: the way back from Drop a sketch or scope, or the calculator, to the app. */}
           <BackToClaims />
         </div>
       </nav>

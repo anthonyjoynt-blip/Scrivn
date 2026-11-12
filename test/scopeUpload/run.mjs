@@ -195,5 +195,40 @@ check(m.scopeReadUserMessage("pdf", 1, 1).includes("PDF"), "a PDF is called one"
   check(m.UPLOADED_SCOPE_RULE.includes(m.UPLOADED_SCOPE_START) && m.UPLOADED_SCOPE_RULE.includes(m.UPLOADED_SCOPE_END), "the rule names the markers it is about");
 }
 
+/* ── A line's heading, only where the page says so (2026-11-12) ──────────────────────────────── */
+{
+  const read = m.scopeReadFromWire(
+    wire({
+      rooms: [
+        {
+          name: "Kitchen",
+          level: "",
+          items: [
+            { ...item("Rmv cpt - F", "Remove carpet", "F, the whole floor"), phase: "emergency" },
+            { ...item("Inst cpt - F", "Install carpet", "F, the whole floor"), phase: "REPAIR" },
+            { ...item("Paint walls"), phase: "" },
+            item("Clean"),
+          ],
+        },
+      ],
+    }),
+  );
+  const [a, b, c, d] = read.rooms[0].items;
+  check(a.phase === "EMERGENCY" && b.phase === "REPAIR", "emergency and repair are read off the answer");
+  check(!("phase" in c) && !("phase" in d), "a line under no heading has no phase at all, as a line read before headings were asked for");
+  check(JSON.stringify(m.scopeReadFromWire(sample.wire)) === JSON.stringify(sample.read), "an answer recorded before headings were asked for reads as it did");
+  check(m.itemLine(a) === "- Remove carpet [written: Rmv cpt - F] (F, the whole floor) [under: Emergency]", "a line's heading is said after its quantity");
+  check(m.itemLine({ ...a, phase: undefined }) === "- Remove carpet [written: Rmv cpt - F] (F, the whole floor)", "and only when it has one");
+  const phased = m.scopeToNotes(m.mergePages([{ read, file: "k.jpg" }]));
+  const unphased = m.scopeToNotes(m.mergePages([{ read: sample.read, file: "scope.jpg" }]));
+  check(m.uploadedScopeSection(phased) === `\n\n${m.UPLOADED_SCOPE_RULE} ${m.UPLOADED_SCOPE_PHASE_RULE}`, "notes with a heading on a line bring the heading rule after the scope rule");
+  check(m.uploadedScopeSection(unphased) === `\n\n${m.UPLOADED_SCOPE_RULE}`, "notes with no heading on any line send exactly the rule they did");
+  check(m.uploadedScopeSection("[under: Emergency] said aloud") === "", "the heading rule never comes without an uploaded scope");
+  const schemaItem = m.SCOPE_READ_SCHEMA.properties.rooms.items.properties.items.items;
+  check(schemaItem.required.includes("phase") && JSON.stringify(schemaItem.properties.phase.enum) === JSON.stringify(["", "emergency", "repair"]), "the schema asks every line for its heading, empty when none");
+  check(/only when the page itself puts the line under an Emergency or a Repair heading/.test(m.SCOPE_READ_SYSTEM) && /Never decide it from the kind of work/.test(m.SCOPE_READ_SYSTEM), "the reader is told the heading is the page's, never guessed from the work");
+  check(/An Emergency or a Repair heading is not a room/.test(m.SCOPE_READ_SYSTEM), "the reader is told a heading is not a room");
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);

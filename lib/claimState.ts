@@ -127,6 +127,7 @@ export const NOT_PERSISTED: Record<string, string> = {
   handSketch: "rooms from a hand-drawn sketch offered on this screen; once added they are in the sketch, and the offer lives in this browser (lib/handSketchClaim.ts)",
   handSketchDismissed: "Not now tapped on the hand sketch's offer, on this screen",
   handSketchFloor: "the floor picked in the hand sketch's offer, on this screen",
+  fromDropPage: "that a gap check from Drop a sketch or scope just landed, said once on this screen; its rooms and notes are saved",
 };
 
 /**

@@ -55,6 +55,12 @@ export interface HandSketchHandoff {
   claimId: string | null;
   /** The rooms as built from the drawing (lib/handSketch.ts `buildFromRead`), with anything else drawn beside them. */
   sketch: HandSketchRooms;
+  /**
+   * A gap check from the Drop a sketch or scope page (2026-11-12): the tidied scope as the block of notes it becomes
+   * (lib/scopeUpload.ts `scopeToNotes`), for a NEW claim's notes, where Generate reads it as any uploaded scope. The
+   * rooms may be none, when the pages held only a scope.
+   */
+  notes?: string;
 }
 
 export type HandSketchRooms = Pick<Sketch, "rooms" | "freeWalls" | "levels" | "levelNames">;
@@ -301,7 +307,32 @@ export function parseHandoff(value: unknown, token?: string): HandSketchHandoff 
   if (Array.isArray(sketch.freeWalls)) out.sketch.freeWalls = sketch.freeWalls as FreeWall[];
   if (Array.isArray(sketch.levels)) out.sketch.levels = (sketch.levels as unknown[]).filter((l): l is number => typeof l === "number" && Number.isInteger(l));
   if (sketch.levelNames && typeof sketch.levelNames === "object") out.sketch.levelNames = sketch.levelNames as Record<string, string>;
+  if (typeof v.notes === "string" && v.notes.trim() !== "") out.notes = v.notes;
   return out;
+}
+
+/* ── A gap check's scope in the notes ───────────────────────────────────────────────────────────── */
+
+/**
+ * The notes with the handoff's scope added at the end, or null when there is nothing to add: it brings none, or the
+ * notes hold it already (a reload before the handoff was let go). Twice is once, as for the rooms.
+ */
+export function handoffNotesToAdd(transcript: string, handoff: HandSketchHandoff): string | null {
+  const block = handoff.notes?.trim();
+  if (!block || transcript.includes(block)) return null;
+  const before = transcript.trimEnd();
+  return before ? `${before}\n\n${block}` : block;
+}
+
+/**
+ * Everything the handoff brings is on the claim: its rooms (some of them, as `mergeHandSketch` adds them all at once;
+ * or it brings none) and its scope in the notes. Until then it is kept, and an add can be tried again.
+ */
+export function handoffLanded(claimSketch: Sketch, transcript: string, handoff: HandSketchHandoff): boolean {
+  const rooms = handoff.sketch.rooms;
+  const roomsIn = rooms.length === 0 || handSketchRoomsToAdd(claimSketch, handoff.sketch).length < rooms.length;
+  const notesIn = !handoff.notes?.trim() || transcript.includes(handoff.notes.trim());
+  return roomsIn && notesIn;
 }
 
 /** The handoff under `token`, or null when there is none, it is not one, or storage cannot be read. */
