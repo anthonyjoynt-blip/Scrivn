@@ -8,11 +8,11 @@ import Link from "next/link";
 export const FREE_TOOLS: { href: string; label: string; icon: string; title: string; text: string; cta: string }[] = [
   {
     href: "/drop-a-sketch",
-    label: "Drop a sketch",
+    label: "Drop a sketch or scope",
     icon: "✏️",
-    title: "Your hand sketch, to scale",
-    text: "Photograph a floor sketch you drew on site. Scrivn finds the rooms and doors, you add the sizes you wrote, and it draws the plan to scale, ready as a PDF or a picture.",
-    cta: "Drop in a sketch",
+    title: "Your hand sketch and scope, tidied",
+    text: "Photograph the sketch or the scope you wrote on site, or one page with both. Scrivn draws the plan to scale and tidies the scope room by room, ready as PDFs, with a gap check after if you want one.",
+    cta: "Drop in a sketch or scope",
   },
   {
     href: "/drying-calculator",

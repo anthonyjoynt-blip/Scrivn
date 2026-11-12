@@ -9,17 +9,20 @@ import type { ScopeItem, ScopePageKind, ScopePageRead } from "./scopeUpload";
  */
 
 const PAGE_KINDS: ScopePageKind[] = ["handwritten", "printed", "estimate", "other"];
+/** A line's heading, as answered: "" when the page puts it under none (2026-11-12). */
+const PHASES = ["", "emergency", "repair"];
 
 export const SCOPE_READ_SYSTEM = `You read photos and PDFs of water-damage restoration scopes for Scrivn, an app that builds scope documents and inspection reports for restoration companies. A scope here is the estimator's own list of the work for a loss: usually handwritten on site, sometimes typed, sometimes a printed estimate (Xactimate or similar). Your reading goes into the claim's notes, where the estimator checks it before Scrivn uses it. So read exactly what is there, add nothing, and say plainly where you are not sure. The page may be photographed at an angle or sideways; read it the right way up.
 
 Return:
 - pageKind: "handwritten", "printed" (typed), "estimate" (a printed estimate with line items and prices), or "other".
-- rooms: each room or area the scope names, in the order written. name: the room as written, with abbreviations spelled out ("Bsmt bdrm" is "Basement bedroom", "Kit" is "Kitchen"); a number written after the name or just under it is part of the name ("Bed 2" is "Bedroom 2"). level: the level when the scope gives one ("Basement", "Main floor", "Upper floor"), else "".
+- rooms: each room or area the scope names, in the order written. name: the room as written, with abbreviations spelled out ("Bsmt bdrm" is "Basement bedroom", "Kit" is "Kitchen"); a number written after the name or just under it is part of the name ("Bed 2" is "Bedroom 2"). level: the level when the scope gives one ("Basement", "Main floor", "Upper floor"), else "". An Emergency or a Repair heading is not a room: it says which part of the job the lines under it are (their phase, below), in whichever room they are written.
 - items, under each room: one per line of work, in order. Work includes what is removed, torn out, replaced, cleaned, treated or sprayed, how high walls are cut, the equipment set in that room, and what the estimator noted about the room's damage ("wet 2 ft up", "subfloor soft").
   - written: the line exactly as written, abbreviations, symbols and numbers as they are.
   - plain: the same line in plain words, with the abbreviations spelled out. Only expand an abbreviation you are confident of in restoration use; otherwise keep it as written. Never add work that is not written.
   - quantity: the quantity as written with its unit ("140 SF", "48 LF", "2", "2 ft"), or a room measurement spelled out (below), else "".
   - unsure: true when part of the line could not be read with confidence.
+  - phase: "emergency" or "repair" only when the page itself puts the line under an Emergency or a Repair heading, or marks it so on the line; else "". Emergency headings include EMS, Emerg, Mitigation and Mit; Repair headings include Rebuild, Recon and Reconstruction. Never decide it from the kind of work.
 - continuing: lines at the very top of the page, before any room heading, that carry on a room from an earlier page. Empty when the page starts with a room heading, or names no rooms.
 - general: work for the whole job rather than one room: equipment totals, containment, contents handling, testing, cleaning the whole area. Same fields as items.
 - notes: lines that are not work, copied as written: the cause of loss, dates, names, claim or job numbers, the address, the insurer. On a printed estimate, leave out prices, totals, tax and page furniture.
@@ -40,12 +43,13 @@ Numbers matter most. If a digit is unclear, write what you see and mark the line
 const item = {
   type: "object",
   additionalProperties: false,
-  required: ["written", "plain", "quantity", "unsure"],
+  required: ["written", "plain", "quantity", "unsure", "phase"],
   properties: {
     written: { type: "string" },
     plain: { type: "string" },
     quantity: { type: "string" },
     unsure: { type: "boolean" },
+    phase: { type: "string", enum: PHASES },
   },
 };
 
@@ -80,6 +84,8 @@ interface ItemWire {
   plain: string;
   quantity: string;
   unsure: boolean;
+  /** Missing from answers recorded before 2026-11-12. */
+  phase?: string;
 }
 
 export interface ScopeReadWire {
@@ -103,7 +109,12 @@ function itemFromWire(w: ItemWire): ScopeItem | null {
   const written = text(w.written);
   const plain = text(w.plain);
   if (!written && !plain) return null;
-  return { written: written || plain, plain: plain || written, quantity: text(w.quantity) || null, unsure: !!w.unsure };
+  const out: ScopeItem = { written: written || plain, plain: plain || written, quantity: text(w.quantity) || null, unsure: !!w.unsure };
+  // Only where the page said so; otherwise left out, so a line with no heading reads as it always has.
+  const phase = text(w.phase).toLowerCase();
+  if (phase === "emergency") out.phase = "EMERGENCY";
+  else if (phase === "repair") out.phase = "REPAIR";
+  return out;
 }
 
 const items = (list: ItemWire[] | null | undefined) => (list ?? []).map(itemFromWire).filter((i): i is ScopeItem => i !== null);

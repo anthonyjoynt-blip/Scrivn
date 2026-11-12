@@ -1,0 +1,25 @@
+{
+ "note": "Written by hand (2026-11-12), not a model's answer: a scope written beside the sample sketch (lib/handSketchSample.ts), under Emergency and Repair headings, one line unsure. For trying the Drop a sketch or scope page in development (SCOPE_UPLOAD_READ_FIXTURE=sample-sketch).",
+ "read": {
+  "version": 1,
+  "pageKind": "handwritten",
+  "continuing": [],
+  "rooms": [
+   {
+    "name": "Spare bedroom",
+    "level": null,
+    "items": [
+     { "written": "Tear out cpt & pad - F", "plain": "Tear out carpet and pad", "quantity": "F, the whole floor", "unsure": false, "phase": "EMERGENCY" },
+     { "written": "Rmv base - PF", "plain": "Remove baseboard", "quantity": "PF, the whole perimeter of the floor", "unsure": false, "phase": "EMERGENCY" },
+     { "written": "FC 2'", "plain": "Flood cut drywall 2 ft up", "quantity": "2 ft", "unsure": false, "phase": "EMERGENCY" },
+     { "written": "3 AM 1 DH", "plain": "3 air movers, 1 dehumidifier", "quantity": "3 AM, 1 DH", "unsure": false, "phase": "EMERGENCY" },
+     { "written": "Inst cpt & pad - F", "plain": "Install carpet and pad", "quantity": "F, the whole floor", "unsure": false, "phase": "REPAIR" },
+     { "written": "Inst base MDF 3?", "plain": "Install baseboard, MDF 3 inch", "quantity": "PF, the whole perimeter of the floor", "unsure": true, "phase": "REPAIR" }
+    ]
+   }
+  ],
+  "general": [],
+  "notes": ["From the sketch: an 8 ft ceiling (8' C)"],
+  "unreadable": []
+ }
+}

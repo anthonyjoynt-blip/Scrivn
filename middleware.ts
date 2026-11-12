@@ -45,9 +45,10 @@ const AUTH_PAGES = new Set(["/login", "/signup", "/forgot-password"]);
  */
 const PUBLIC_PAGES = new Set(["/", "/how-it-works", "/scan", "/drying-calculator", "/drop-a-sketch", "/pricing", "/faq", "/contact", "/auth/auth-code-error", "/pair", "/scan-guide", "/account/delete", "/scan/ready"]);
 /*
-  `/drop-a-sketch` turns a photo of a hand-drawn sketch into a scaled plan (app/drop-a-sketch/page.tsx). Tracing it
-  is free and stays in the browser; the paid read is its own route, /api/hand-sketch/read, which stays signed-in
-  only like every /api route not listed in PUBLIC_ROUTES.
+  `/drop-a-sketch` (Drop a sketch or scope, app/drop-a-sketch/page.tsx) turns photos of a hand-drawn sketch into a
+  scaled plan, and a written scope into a tidied one. Tracing a sketch is free and stays in the browser; the paid
+  reads are their own routes, /api/hand-sketch/read and /api/scope-upload/read, which stay signed-in only like every
+  /api route not listed in PUBLIC_ROUTES.
 */
 /*
   `/account/delete` is how to delete an account (app/(app)/account/delete): Google Play requires a web page

@@ -5,7 +5,7 @@ import { cleanEnv } from "./env";
 import { SCOPE_UPLOAD_MAX_BYTES, type ScopePageRead } from "./scopeUpload";
 import { isSupabaseConfigured } from "./supabase/env";
 import { createClient } from "./supabase/server";
-import { getUsageState } from "./usage";
+import { checkUsageAllowed, getUsageState } from "./usage";
 
 export { SCOPE_UPLOAD_MAX_BYTES };
 
@@ -68,4 +68,22 @@ export async function scopeReader(): Promise<string | null> {
   const { data } = await (await createClient()).auth.getClaims();
   const sub = data?.claims?.sub;
   return typeof sub === "string" ? sub : null;
+}
+
+/**
+ * Whether the Drop a sketch or scope page reads a scope page (2026-11-12), as `handSketchReadAvailable` decides for a
+ * sketch: a dev fixture is set; or development has no Supabase and reads are on; or someone is signed in, their plan or
+ * trial allows it, and reads are on. The day's limits are not checked here, since checking one counts it: past them,
+ * the read answers with a 429.
+ */
+export async function scopeReadAvailable(): Promise<boolean> {
+  if (scopeDevFixtureName()) return true;
+  if (scopeDevWithoutAuth()) return scopeReadsOn();
+  if (!scopeReadsOn()) return false;
+  try {
+    return (await checkUsageAllowed()) === null;
+  } catch (err) {
+    console.error("[scopeReadAvailable]", err);
+    return false;
+  }
 }

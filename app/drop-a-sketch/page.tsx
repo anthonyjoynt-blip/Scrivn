@@ -1,17 +1,19 @@
 import { MarketingShell } from "@/components/marketing/MarketingShell";
 import { DropASketch } from "@/components/handSketch/DropASketch";
 import { handSketchReadAvailable, handSketchReadsOn } from "@/lib/handSketchRead";
+import { scopeReadAvailable, scopeReadsOn } from "@/lib/scopeUploadRead";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
 import { createClient } from "@/lib/supabase/server";
 
 /**
- * Drop a sketch (2026-11-05): a photo of a hand-drawn floor sketch made into a Scrivn sketch at its real size. Public:
- * anyone can trace one for free. "Read it for me" (a paid read) is for signed-in users only, and only when
- * SCRIVN_HAND_SKETCH_READS is on — lib/handSketchRead.ts decides, and the route checks again.
+ * Drop a sketch or scope (2026-11-12; Drop a sketch since 2026-11-05): photos or a PDF of a hand-drawn sketch, a
+ * handwritten scope, or one page with both, back as a scaled plan and a tidied scope. Public: anyone can trace a sketch
+ * for free. Reading a page (a sketch or a scope: paid reads) is for signed-in users only, and only while each read's
+ * switch is on: lib/handSketchRead.ts and lib/scopeUploadRead.ts decide, and the routes check again.
  */
 export const metadata = {
-  title: "Drop a Sketch — Scrivn",
-  description: "A photo of your hand-drawn floor sketch, made into a scaled floor plan: to-scale PDF and JPG, every room's size.",
+  title: "Drop a Sketch or Scope — Scrivn",
+  description: "Photos of your hand-drawn floor sketch or handwritten scope, made into a floor plan to scale and a tidy scope, room by room: PDFs of both.",
 };
 
 export default async function DropASketchPage() {
@@ -25,15 +27,15 @@ export default async function DropASketchPage() {
     // Local, with no Supabase: the dev claims store stands in for an account (lib/devClaimsStore.ts).
     signedIn = true;
   }
-  const canRead = await handSketchReadAvailable();
+  const [canReadSketch, canReadScope] = await Promise.all([handSketchReadAvailable(), scopeReadAvailable()]);
   return (
     <MarketingShell page="drop-a-sketch">
       <div className="mk-pagehead wrap">
-        <h1>Drop a sketch</h1>
-        <p>A photo of your hand-drawn sketch, made into a floor plan at its real size: the numbers you wrote set the sizes.</p>
+        <h1>Drop a sketch or scope</h1>
+        <p>Your hand-drawn sketch made into a floor plan at its real size, and your handwritten scope tidied room by room. A gap check is there after, when you want one.</p>
       </div>
       <div className="wrap-narrow">
-        <DropASketch signedIn={signedIn} canRead={canRead} readsOn={handSketchReadsOn()} dev={dev} />
+        <DropASketch signedIn={signedIn} canReadSketch={canReadSketch} canReadScope={canReadScope} sketchReadsOn={handSketchReadsOn()} scopeReadsOn={scopeReadsOn()} dev={dev} />
       </div>
     </MarketingShell>
   );

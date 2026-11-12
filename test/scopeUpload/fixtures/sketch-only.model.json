@@ -1,0 +1,12 @@
+{
+ "note": "Written by hand (2026-11-12), not a model's answer: what reading a page with only a sketch on it gives. No line of work, only what the sketch says. For trying the Drop a sketch or scope page in development (SCOPE_UPLOAD_READ_FIXTURE=sketch-only).",
+ "read": {
+  "version": 1,
+  "pageKind": "handwritten",
+  "continuing": [],
+  "rooms": [],
+  "general": [],
+  "notes": ["From the sketch: an 8 ft ceiling (8' C)", "From the sketch: a 4' x 3' window on the 9'3 wall"],
+  "unreadable": []
+ }
+}

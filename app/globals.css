@@ -1851,6 +1851,15 @@ button:disabled {
 .hand-sketch-notice button {
   min-height: 36px;
 }
+/* A gap check from Drop a sketch or scope (2026-11-12), said on the new claim's first steps. */
+.field-note.drop-page-note {
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border: 1px solid #b9cde4;
+  border-radius: 8px;
+  background: #eef4fb;
+  color: var(--text);
+}
 
 /* `position: relative` is load-bearing: the length popup is positioned against the viewport but
    this is also the element whose bounds the canvas is measured from. */

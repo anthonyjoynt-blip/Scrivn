@@ -12,6 +12,7 @@
     "test:asbestos": "node test/asbestos/run.mjs",
     "test:gapcheck": "node test/gapcheck/run.mjs",
     "test:hand-sketch": "node test/handSketch/run.mjs",
+    "test:drop-pages": "node test/dropPages/run.mjs",
     "test:extraction": "node test/extraction/run.mjs",
     "test:scope": "node test/scope/run.mjs",
     "test:pipeline": "node test/pipeline/run.mjs",

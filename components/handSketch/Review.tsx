@@ -11,16 +11,11 @@ import { NAMES, feetInches, type DrawnPoint, type HandSketchBuild, type HandSket
 import { lengthText, type HandSketchAnswer } from "@/lib/handSketchTrace";
 import { quantityRows } from "@/lib/scanEditor";
 import type { Sketch } from "@/lib/sketch";
+import { canShareFiles, drawPlanPicture, makePlanFiles, type MadeFile, saveFile, shareFiles } from "./planFiles";
 import type { TracePhoto } from "./Tracer";
 import styles from "./handSketch.module.css";
 
 const ROOM_NAMES = [...new Set(Object.values(NAMES))];
-
-interface MadeFile {
-  name: string;
-  mime: string;
-  blob: Blob;
-}
 
 export function Review({
   photo,
@@ -35,6 +30,7 @@ export function Review({
   onEdit,
   onBack,
   onAddToClaim,
+  onDone,
 }: {
   photo: TracePhoto;
   read: HandSketchRead;
@@ -48,6 +44,8 @@ export function Review({
   onEdit: () => void;
   onBack: () => void;
   onAddToClaim: () => void;
+  /** Back to the page, where this page's rooms join the plan beside the scope (2026-11-12). */
+  onDone?: () => void;
 }) {
   const [show, setShow] = useState<"photo" | "plan">("plan");
   const [planUrl, setPlanUrl] = useState<string | null>(null);
@@ -62,13 +60,8 @@ export function Review({
     setFiles(null);
     (async () => {
       try {
-        const [{ planHost }, { storeyExtentFt }] = await Promise.all([import("@/components/sketch/planHost"), import("@/lib/scanEditorPdf")]);
-        const extent = storeyExtentFt(sketch, 0);
-        if (!extent) return setPlanUrl(null);
-        const width = Math.max(260, (box.current?.clientWidth ?? 340) - 24);
-        const upf = Math.max(10, Math.min(60, (width - 48) / Math.max(extent.widthFt, 1), 560 / Math.max(extent.heightFt, 1)));
-        const pic = await planHost(sketch).plan(0, upf, 24, 2);
-        if (live) setPlanUrl(pic?.dataUrl ?? null);
+        const url = await drawPlanPicture(sketch, Math.max(260, (box.current?.clientWidth ?? 340) - 24));
+        if (live) setPlanUrl(url);
       } catch (err) {
         if (live) setError(`The plan could not be drawn: ${err instanceof Error ? err.message : String(err)}`);
       }
@@ -85,15 +78,7 @@ export function Review({
     setMaking(true);
     setError(null);
     try {
-      const [{ planHost }, { buildPlanFiles }] = await Promise.all([import("@/components/sketch/planHost"), import("@/lib/scanEditorPdf")]);
-      const title = sketch.rooms.length === 1 ? (sketch.rooms[0]?.name ?? "Floor plan") : "Floor plan";
-      const made = await buildPlanFiles(sketch, { title, subtitle: new Date().toLocaleDateString(), jpg: true, madeBy: "drawn from a sketch at scrivn.ca" }, planHost(sketch));
-      setFiles(
-        made.files.map((f) => {
-          const bytes = Uint8Array.from(atob(f.base64), (c) => c.charCodeAt(0));
-          return { name: f.name === "plan.pdf" ? `${title}.pdf` : f.name.replace(/^level/, title.replace(/\s+/g, "-")), mime: f.mime, blob: new Blob([bytes], { type: f.mime }) };
-        }),
-      );
+      setFiles(await makePlanFiles(sketch));
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -101,26 +86,9 @@ export function Review({
     }
   };
 
-  const save = (f: MadeFile) => {
-    const url = URL.createObjectURL(f.blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = f.name;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 10_000);
-  };
-  const shareAll = async () => {
-    if (!files) return;
-    const asFiles = files.map((f) => new File([f.blob], f.name, { type: f.mime }));
-    try {
-      await navigator.share({ files: asFiles, title: "Floor plan" });
-    } catch {
-      // Cancelled, or the share sheet refused: the Download buttons are still there.
-    }
-  };
-  const canShare = typeof navigator !== "undefined" && !!files && typeof navigator.canShare === "function" && navigator.canShare({ files: files.map((f) => new File([f.blob], f.name, { type: f.mime })) });
+  const save = saveFile;
+  const shareAll = () => (files ? shareFiles(files, "Floor plan") : undefined);
+  const canShare = canShareFiles(files);
 
   // The wall a question is about, lit on the photo; a door's two walls numbered.
   const lit: { a: DrawnPoint; b: DrawnPoint; label?: string }[] = [];
@@ -144,9 +112,15 @@ export function Review({
           Fix on photo
         </button>
         <p className={styles.barTitle}>Your sketch</p>
-        <button type="button" className="btn-primary" onClick={onEdit}>
-          Edit
-        </button>
+        {onDone ? (
+          <button type="button" className="btn-primary" onClick={onDone}>
+            Done
+          </button>
+        ) : (
+          <button type="button" className="btn-primary" onClick={onEdit}>
+            Edit
+          </button>
+        )}
       </div>
       <div className={styles.review} ref={box}>
         <div className={`${styles.row} ${styles.viewToggle}`} role="group" aria-label="Show">

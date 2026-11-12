@@ -6,6 +6,7 @@ export {
   scopeToNotes,
   uploadedScopeSection,
   UPLOADED_SCOPE_END,
+  UPLOADED_SCOPE_PHASE_RULE,
   UPLOADED_SCOPE_RULE,
   UPLOADED_SCOPE_START,
 } from "@/lib/scopeUpload";
