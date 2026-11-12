@@ -130,6 +130,11 @@ export function DropASketch({
   const [dragOver, setDragOver] = useState(false);
   const [claims, setClaims] = useState<{ id: string; label: string }[] | null>(null);
   const [mounted, setMounted] = useState(false);
+  /**
+   * Pages to set going once they are on the page: just dropped (read, or opened to trace), or brought back signed in
+   * (their scopes read). Started from an effect, so the reads find the pages they are about.
+   */
+  const [toWork, setToWork] = useState<{ ids: string[]; resumed: boolean } | null>(null);
 
   const pagesRef = useRef(pages);
   pagesRef.current = pages;
@@ -321,8 +326,9 @@ export function DropASketch({
 
   /** What happens to new pages: their scopes read where Scrivn can, their sketches read or opened to trace. */
   const work = useCallback(
-    (made: DropPage[]) => {
-      if (canReadScope) queueScope(made.filter((p) => p.scope === "unread").map((p) => p.id));
+    (made: DropPage[], resumed: boolean) => {
+      if (canReadScope) queueScope(made.filter((p) => p.scope === "unread" && (resumed ? !!blobsRef.current[p.id] : true)).map((p) => p.id));
+      if (resumed) return;
       const sketches = made.filter((p) => p.sketch === "check" && p.photo);
       autoOpen.current = sketches.length > 0;
       if (canReadSketch) {
@@ -334,6 +340,15 @@ export function DropASketch({
     },
     [canReadScope, canReadSketch, queueScope, readSketch],
   );
+
+  useEffect(() => {
+    if (!toWork) return;
+    setToWork(null);
+    work(
+      pagesRef.current.filter((p) => toWork.ids.includes(p.id)),
+      toWork.resumed,
+    );
+  }, [toWork, work]);
 
   const addFiles = async (files: File[]) => {
     if (files.length === 0) return;
@@ -384,8 +399,7 @@ export function DropASketch({
     setBlobs((b) => ({ ...b, ...madeBlobs }));
     setBusy(null);
     if (problems.length) setError(problems.join(" "));
-    // Once the pages are in the list, so a read's answer has a page to land on.
-    setTimeout(() => work(made), 0);
+    setToWork({ ids: made.map((p) => p.id), resumed: false });
   };
 
   const addSample = async (kind: "sketch" | "scope") => {
@@ -465,10 +479,7 @@ export function DropASketch({
     setDoc(d.doc);
     setSaved(null);
     // Pages dropped while signed out (or while reads were off) are read now that they can be: what signing in was for.
-    if (canReadScope) {
-      const waiting = d.pages.filter((p) => p.scope === "unread" && d.blobs[p.id]).map((p) => p.id);
-      if (waiting.length) setTimeout(() => queueScope(waiting), 0);
-    }
+    setToWork({ ids: d.pages.map((p) => p.id), resumed: true });
   };
 
   /* ── Out of the page: a claim ─────────────────────────────────────────────────────────────────── */

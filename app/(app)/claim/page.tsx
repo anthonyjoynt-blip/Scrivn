@@ -1974,7 +1974,10 @@ export default function Home() {
           <h2>Claim details</h2>
           {fromDropPage && (
             <p className="field-note drop-page-note" role="status">
-              {fromDropPage.rooms > 0 ? `The ${fromDropPage.rooms} room${fromDropPage.rooms === 1 ? "" : "s"} from your sketch and your` : "Your"} tidied scope are in this claim. Fill in its details and Continue: the scope is in the notes, ready to Generate, which asks what it is missing.
+              {fromDropPage.rooms > 0
+                ? `The ${fromDropPage.rooms} room${fromDropPage.rooms === 1 ? "" : "s"} from your sketch and your tidied scope are in this claim.`
+                : "Your tidied scope is in this claim."}{" "}
+              Fill in its details and Continue: the scope is in the notes, ready to Generate, which asks what it is missing.
             </p>
           )}
           <ClaimIntakeForm

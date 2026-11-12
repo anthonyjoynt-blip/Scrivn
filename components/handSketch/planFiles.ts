@@ -20,13 +20,29 @@ export async function drawPlanPicture(sketch: Sketch, width: number): Promise<st
   return pic?.dataUrl ?? null;
 }
 
-/** The plan as a PNG at a size for a page of a document, or null. */
-export async function planPage(sketch: Sketch): Promise<{ dataUrl: string; width: number; height: number } | null> {
+/**
+ * The plan as a JPEG on white, at a size for a page of a document, or null. A JPEG: jsPDF keeps a PNG's pixels
+ * uncompressed, and a plan page alone came to nearly 5 MB.
+ */
+export async function planPage(sketch: Sketch): Promise<{ dataUrl: string; width: number; height: number; format: "JPEG" } | null> {
   const [{ planHost }, { storeyExtentFt }] = await Promise.all([import("@/components/sketch/planHost"), import("@/lib/scanEditorPdf")]);
   const extent = storeyExtentFt(sketch, 0);
   if (!extent) return null;
   const upf = Math.max(8, Math.min(48, 520 / Math.max(extent.widthFt, 1), 640 / Math.max(extent.heightFt, 1)));
-  return planHost(sketch).plan(0, upf, 24, 2);
+  const png = await planHost(sketch).plan(0, upf, 24, 2);
+  if (!png) return null;
+  const img = new Image();
+  img.src = png.dataUrl;
+  await img.decode();
+  const canvas = document.createElement("canvas");
+  canvas.width = png.width;
+  canvas.height = png.height;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(img, 0, 0);
+  return { dataUrl: canvas.toDataURL("image/jpeg", 0.85), width: canvas.width, height: canvas.height, format: "JPEG" };
 }
 
 export function planTitle(sketch: Sketch): string {

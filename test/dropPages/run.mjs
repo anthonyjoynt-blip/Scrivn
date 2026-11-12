@@ -210,6 +210,8 @@ const planNames = combined.sketch.rooms.map((r) => r.name);
   check(bedTables.length === 2 && bedTables[0].caption.includes("- Emergency") && bedTables[1].caption.includes("- Repair") && bedTables[0].caption.includes("SF floor") && bedTables[0].caption.includes("on the scope: Spare bedroom"), "the PDF has a table per room and heading, with the room's size and the scope's name");
   check(bedTables[1].rows.some((r) => r[0].endsWith("(check: may be misread)")), "a flagged line is marked in the PDF");
   check(tables.at(-1).caption === "Whole job" && tables.every((t) => t.rows.every((r) => r.length === 3)), "the whole job's work last, three columns to every row");
+  const fixed = m.setLine(doc, bedroom.lines[5].id, { plain: "Install baseboard, MDF 3 1/4 inch" });
+  check(m.tidyPdfTables(fixed, rows).some((t) => t.rows.some((r) => r[0] === "Install baseboard, MDF 3 1/4 inch" && r[2] === "Inst base MDF 3?")), "a changed line keeps what was written beside it in the PDF, as on the screen");
 
   /* Kept and read back */
   check(JSON.stringify(m.parseTidyScope(JSON.parse(JSON.stringify(filled)))) === JSON.stringify(filled), "a changed document survives being kept");

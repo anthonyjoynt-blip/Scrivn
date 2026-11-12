@@ -317,7 +317,8 @@ export interface TidyPdfTable {
 export function tidyPdfTables(doc: TidyScope, plan: readonly PlanRoomSize[]): TidyPdfTable[] {
   const row = (l: TidyLine) => {
     const flag = l.unsure ? " (check: may be misread)" : "";
-    const written = l.changed || !l.written.trim() || l.written.trim() === l.plain.trim() ? "" : l.written.trim();
+    // What was written stays beside a line the person changed, as on the screen: only the claim's notes leave it out.
+    const written = !l.written.trim() || l.written.trim() === l.plain.trim() ? "" : l.written.trim();
     return [`${l.plain.trim()}${flag}`, l.quantity.trim(), written];
   };
   const tables: TidyPdfTable[] = [];

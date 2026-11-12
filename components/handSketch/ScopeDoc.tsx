@@ -40,14 +40,15 @@ function Line({ line, onChange }: { line: TidyLine; onChange: (fn: (doc: TidySco
   return (
     <div className={`${styles.docLine} ${line.unsure ? styles.docLineFlag : ""}`}>
       <div className={styles.docLineTop}>
-        <input
-          type="text"
+        {/* Wraps, so a long line reads whole on a phone; a line break typed is a space. */}
+        <textarea
           className={styles.docWork}
           aria-label="Work"
           placeholder="The work"
+          rows={Math.min(4, Math.max(1, Math.ceil(line.plain.length / 26)))}
           value={line.plain}
           onChange={(e) => {
-            const plain = e.target.value;
+            const plain = e.target.value.replace(/\s*\n\s*/g, " ");
             onChange((d) => setLine(d, line.id, { plain }));
           }}
         />
